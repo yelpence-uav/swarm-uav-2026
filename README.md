@@ -4,42 +4,37 @@ Bu depo, Yelpençe takımının TEKNOFEST 2026 Sürü İHA Yarışması için ge
 
 ---
 
-# Organizasyon ve Takım Yapısı
-
-Proje, GitHub üzerinde fonksiyonel sorumluluklara bölünmüş 4 ana takım tarafından yürütülmektedir:
-
-- **manager:** Proje yönetimi, raporlama ve sistem mimarisi.
-- **gcs-developer:** Yer Kontrol İstasyonu (GCS) ve kullanıcı arayüzü geliştirme.
-- **network-developer:** V2V/V2G haberleşme protokolleri ve ağ güvenliği.
-- **swarm-developer:** Sürü algoritmaları, otonom karar mekanizmaları ve bilgisayar görü.
-
----
-
-# Yazilim Ekibi Görev Dagilimi
+# Takım Yapısı ve Görev Dagilimi
 
 Yelpence ekibinin yazilim gelistirme süreçleri, asagidaki uzmanlik alanlarina göre dagitilmistir:
 
-## manager
-**Osman (Kaptan ve Sistem Mimari)**
-* Projenin genel yazilim mimarisinin tasarlanmasi ve ROS2 tabanli SITL (Software-in-the-Loop) simülasyon ortamlarinin kurgulanmasi.
-* GitHub organizasyon yönetimi, kod standartlarinin belirlenmesi ve Pull Request (PR) süreçlerinin denetlenmesi.
-* Docker konteynerizasyon stratejilerinin olusturulmasi ve CI/CD süreçlerinin takibi.
-* Görev Durum Makinesi (Mission State Machine) yapisinin üst seviye kontrolü.
+## **Osman Çevik (manager)**
+Osman, projenin yazılım mimarisini uçtan uca tasarlayan ve sürünün dijital ikizini (simülasyon) yöneten stratejik liderdir. Fiziksel donanım montajından ziyade, sistemin "nasıl çalışması gerektiğine" dair kuralları koyan ve bu kuralların koda dökülmesini sağlayan yönetici rolündedir.
 
-## gcs-developer
-**Muhammed (YKİ Geliştiricisi)**
+1. **SITL ve Simülasyon Yönetimi**
+* **Dijital İkiz Kurulumu:** Yarışma şartnamesindeki görevlerin tamamının test edilebileceği ROS tabanlı bir simülasyon ortamı inşa etmek.
+* **Algoritma Doğrulama:** Emirhan ve Berk’in yazdığı kodları gerçek İHA’lara yüklemeden önce simülasyonda stres testine sokmak ve hata paylarını raporlamak.
+* **Senaryo Testleri:** Yarışma sahasındaki olası aksilikleri (bir İHA'nın düşmesi, sinyal kesilmesi vb.) simüle ederek "Fail-Safe" algoritmalarını denetlemek.
+
+2. **DevOps ve Yazılım Standartları**
+* **Konteynerizasyon:** Tüm geliştirme ortamını Docker imajları haline getirerek; Berk, Emirhan ve Muhammed’in aynı kütüphane versiyonlarıyla çalışmasını sağlamak. Sahadaki RPi'lara tek komutla hatasız kurulum yapılmasını garanti etmek.
+* **Versiyon Kontrol Yönetimi:** Takımın ana kod deposunu yönetmek. Kod incelemeleri yaparak standart dışı veya hatalı kodun ana sisteme dahil edilmesini engellemek.
+* **CI/CD Süreçleri:** Kod GitHub'a yüklendiğinde otomatik testlerin çalışmasını sağlayacak bir yapı kurgulamak.
+
+
+
+
+**Muhammed (gcs-developer)**
 * Python ve Qt kütüphaneleri kullanilarak özgün Yer Kontrol Istasyonu (YKI) arayüzünün gelistirilmesi.
 * Telemetri verilerinin gerçek zamanli olarak görsellestirilmesi ve veri kaydi mekanizmalarinin kurulmasi.
 * Sürünün tek bir merkezden (joystick veya arayüz üzerinden) yönlendirilmesini saglayan HMI (Human-Machine Interface) biriminin kodlanmasi.
 
-## network-developer
-**Eyüp (Haberleşme Sorumlusu)**
+**Eyüp (network-developer)**
 * İHA'lar arasi (V2V) ve İHA-Yer Istasyonu arasi (V2G) haberlesme protokollerinin (MAVLink, ROS2 DDS) optimizasyonu.
 * Ag topolojisinin yönetimi, paket kayiplarinin minimize edilmesi ve haberlesme güvenliginin saglanmasi.
 * Telemetri modülleri ve Companion Computer arasindaki veri akisinin yazilimsal denetimi.
 
-## swarm-developer
-**Berk ve Emirhan (Sürü Algoritmaları Geliştiricisi)**
+**Berk ve Emirhan (swarm-developer)**
 * **Sürü Algoritmalari:** Dinamik formasyon kontrolü (V, Okbasi, Çizgi), çarpisma önleme sistemleri ve sürüye otonom birey ekleme/çıkarma mantiginin gelistirilmesi.
 * **Bilgisayar Görü:** OpenCV ve derin ögrenme tabanli QR kod tespiti, hedef takibi ve renkli alan tanima algoritmalarinin kodlanmasi.
 * **Otonom Görev Yönetimi:** Hassas inis sistemleri ve görüntü isleme hattindan (pipeline) gelen verilerin sürünün karar mekanizmasina entegre edilmesi.
@@ -84,4 +79,3 @@ git lfs install
 ```bash
 git clone https://github.com/yelpence-uav/yelpence-2026-swarm.git
 ```
-
