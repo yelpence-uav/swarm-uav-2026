@@ -8,9 +8,8 @@ Bu depo, Yelpençe takımının TEKNOFEST 2026 Sürü İHA Yarışması için ge
 
 Yelpençe ekibinin yazılım geliştirme süreçleri, aşağıdaki uzmanlık alanlarına göre dağıtılmıştır:
 
-## **Osman Çevik** <small>manager</small>
+## **Osman Çevik**
 Osman, projenin yazılım mimarisini uçtan uca tasarlayan ve sürünün dijital ikizini yöneten stratejik liderdir. Fiziksel donanım montajından ziyade, sistemin "nasıl çalışması gerektiğine" dair kuralları koyan ve bu kuralların koda dökülmesini sağlayan yönetici rolündedir.
-
 
 - **Dijital İkiz Kurulumu:** Yarışma şartnamesindeki görevlerin tamamının test edilebileceği ROS tabanlı bir simülasyon ortamı inşa etmek.
 - **Algoritma Doğrulama:** Emirhan ve Berk’in yazdığı kodları gerçek İHA’lara yüklemeden önce simülasyonda stres testine sokmak ve hata paylarını raporlamak.
@@ -26,7 +25,7 @@ Osman, projenin yazılım mimarisini uçtan uca tasarlayan ve sürünün dijital
 - **Sistem Sağlığı Takibi:** Uçuş sırasında işlemci yükü, bellek kullanımı ve sıcaklık gibi kritik metrikleri izleyen izleme (monitoring) araçlarını sisteme dahil etmek.
 - **Rapor Liderliği:** Ön Tasarım Raporu (ÖTR) ve Kritik Tasarım Raporu (KTR) süreçlerinde teknik mimariyi dokümante etmek ve raporun bilimsel/teknik dilini denetlemek.
 
-## **Eyüp Gök** network-developer
+## **Eyüp Gök**
 Eyüp, sürünün kolektif hareket edebilmesi için gereken kesintisiz veri akışını sağlayan ağ mimarisinin kurucusudur. Araçtan Araca (V2V) ve Araçtan Yer Kontrol İstasyonu’na (V2G) olan tüm dijital köprülerin kurulması, güvenliği ve optimizasyonu onun sorumluluğundadır.
 
 - **Ağ Mimarisi ve Topoloji Yönetimi:** Yarışma sahasında sürünün kullanacağı yerel ağın (Wi-Fi, Telemetri veya RF) kurulumunu yapmak. IP adresleme, port yapılandırması ve veri çakışmalarını önleyen bir ağ hiyerarşisi oluşturmak.
@@ -36,7 +35,7 @@ Eyüp, sürünün kolektif hareket edebilmesi için gereken kesintisiz veri akı
 - **Veri Güvenliği ve Paket Optimizasyonu:** Şartnamede yer alan otonom görevler sırasında ağ trafiğinin şişmesini önlemek amacıyla, gönderilen veri paketlerini optimize etmek ve sistemin dış müdahalelere karşı güvenliğini sağlamak.
 - **Donanımsal Anten ve Modül Entegrasyonu:** Melih ile koordineli çalışarak; telemetri modülleri, Wi-Fi antenleri ve diğer haberleşme birimlerinin en yüksek verimle çalışacağı fiziksel konumlandırmayı ve bağlantıları kontrol etmek.
 
-## **Muhammed Emir Seçer** gcs-developer 
+## **Muhammed Emir Seçer** 
 Muhammed, sürü operasyonunun tek bir merkezden izlenmesini, yönetilmesini ve şartnamede belirtilen "Yarı Otonom Kontrol" görevlerinin icra edilmesini sağlayan yazılım platformunun mimarıdır. Python ve Qt (PyQt/PySide) kütüphanelerini kullanarak takımın özgün Yer Kontrol İstasyonu (YKİ) yazılımını geliştirmekle yükümlüdür.
 
 - **Özgün GUI Tasarımı ve Geliştirme:** Yarışma sahasında operatörün (Kaptan) ve hakemlerin sürünün durumunu anlık olarak izleyebileceği, kullanıcı dostu ve performans odaklı bir grafik arayüz (GUI) tasarlamak.
@@ -46,7 +45,7 @@ Muhammed, sürü operasyonunun tek bir merkezden izlenmesini, yönetilmesini ve 
 - **Hata Yönetimi ve Operatör Uyarıları:** Kritik eşiklerin (düşük batarya, sinyal kaybı, otonom rotadan sapma) aşılması durumunda operatörü görsel ve sesli olarak uyaran "Dashboard" sistemini hayata geçirmek.
 - **Veri Loglama ve Analiz:** Test uçuşları ve yarışma anındaki tüm telemetri verilerini, daha sonra Osman (Kaptan) tarafından simülasyon doğrulaması ve raporlama için kullanılabilecek standart formatlarda (CSV, JSON veya SQLite) kayıt altına almak.
 
-## **Ahmet Berk Yıldız ve Emirhan Yentur** swarm-developer
+## **Ahmet Berk Yıldız ve Emirhan Yentur**
 İHA’ların çevresel farkındalığından ve şartnamede belirtilen görsel verilerin dijital talimatlara dönüştürülmesinden sorumludur. Sistemin "Gören Gözü" olarak, karmaşık görüntü işleme süreçlerini sürü navigasyonuna girdi sağlayacak şekilde kurgular. Sürünün kolektif hareket stratejilerini belirleyen ve verileri fiziksel uçuş hareketine dönüştüren "Merkezi Akıl" katmanından sorumludur. Dağıtık sürü mimarisinin kararlılığı onun yönetimindedir.
 
 - **QR Kod Tanımlama ve Dekodlama:** Yarışma sahasındaki QR kodların farklı irtifa ve açılardan otonom olarak tespit edilmesi, okunması ve içindeki görev talimatlarının (formasyon değişikliği, manevra vb.) ayıklanması.
