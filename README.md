@@ -6,7 +6,7 @@ Bu depo, Yelpençe takımının TEKNOFEST 2026 Sürü İHA Yarışması için ge
 
 # Takım Yapısı ve Görev Dagilimi
 
-Yelpence ekibinin yazilim gelistirme süreçleri, asagidaki uzmanlik alanlarina göre dagitilmistir:
+Yelpençe ekibinin yazılım geliştirme süreçleri, aşağıdaki uzmanlık alanlarına göre dağıtılmıştır:
 
 ## **Osman Çevik (manager)**
 Osman, projenin yazılım mimarisini uçtan uca tasarlayan ve sürünün dijital ikizini (simülasyon) yöneten stratejik liderdir. Fiziksel donanım montajından ziyade, sistemin "nasıl çalışması gerektiğine" dair kuralları koyan ve bu kuralların koda dökülmesini sağlayan yönetici rolündedir.
