@@ -104,7 +104,7 @@ git clone https://github.com/yelpence-uav/yelpence-2026-swarm.git
 ## 3. Geliştirme Ortamı Kurulumu
 Projemiz, "Bende çalışıyor sende çalışmıyor" sorununu önlemek için Docker konteynerleri üzerinde çalışmaktadır. Aşağıdaki adımları sırasıyla uygulayarak kurulumu tamamlayınız.
 
-> Not: Bu komutlar Ubuntu 22.04 ve 24.04 (Noble) ile uyumludur.
+> Not: Bu komutlar Ubuntu 22.04 ve 24.04 ile uyumludur.
 
 ### 3.1. Docker Engine Kurulumu
 Docker'ı kurmak ve sudo kullanmadan çalıştırabilmek için:
@@ -129,7 +129,7 @@ echo \
 sudo apt-get update
 sudo apt-get install docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
 
-# 5. Kullanıcınızı 'docker' grubuna ekleyin (Kritik Adım!)
+# 5. Kullanıcınızı 'docker' grubuna ekleyin
 # Bu işlem sayesinde her seferinde 'sudo' yazmak zorunda kalmazsınız.
 sudo usermod -aG docker $USER
 
@@ -137,8 +137,8 @@ sudo usermod -aG docker $USER
 newgrp docker
 ```
 
-### 3.2. NVIDIA Container Toolkit Kurulumu
-Simülasyonun (Gazebo) ekran kartını kullanabilmesi ve "Siyah Ekran" hatası vermemesi için bu adım zorunludur.
+### 3.2. NVIDIA Container Toolkit Kurulumu (Sadece Nvidia İçin)
+Simülasyonun ekran kartını kullanabilmesi ve "Siyah Ekran" hatası vermemesi için bu adım zorunludur. AMD kullanıcıları **3.3. Dosya İzinleri**  bölümüne geçebilir.
 
 ```bash
 # 1. Nvidia deposunu ekleyin
@@ -157,11 +157,6 @@ sudo nvidia-ctk runtime configure --runtime=docker
 # 4. Docker servisini yeniden başlatın
 sudo systemctl restart docker
 
-
-3.2. Dosya İzinlerinin Ayarlanması
-Scriptlerin çalıştırılabilir olması için proje ana dizininde şu komutu uygulayın:
-``` 
-
 ### 3.3. Dosya İzinlerinin Ayarlanması
 Proje içindeki yardımcı scriptlerin çalışabilmesi için izinleri verin:
 
@@ -170,7 +165,7 @@ cd docker
 chmod +x build.bash entrypoint.sh ../scripts/sim_start.sh
 ```
 
-### 3.4. Docker İmajının İnşası (Build)
+### 3.4. Docker İmajının İnşası
 Takım üyelerinin farklı kullanıcı ID'leri (UID) sebebiyle dosya izin hatası yaşamaması için özel inşa scriptini çalıştırın. Bu script, imajı size özel paketler.
 
 ```bash
@@ -179,29 +174,32 @@ Takım üyelerinin farklı kullanıcı ID'leri (UID) sebebiyle dosya izin hatas�
 ```
 > Not: İnternet hızınıza bağlı olarak ilk kurulum 5-10 dakika sürebilir.
 
-### 3.5. Sanal Ortamı Başlatma (Run)
+### 3.5. Sanal Ortamı Başlatma
 Kurulum bittikten sonra sistemi ayağa kaldırın:
 ```Bash
-# 1. Grafik arayüz (GUI) izinlerini tazeleyin (Siyah ekranı önler)
+# 1. GUI izinlerini tazeleyin
 xhost +local:root
 
 # 2. Konteyneri başlatın
+# Nvidia Kullanıcıları: 
 docker compose up -d
-```
 
+# AMD Kullanıcıları:
+docker compose -f docker-compose-amd.yml up -d
+```
 ## 4. Kullanım ve Simülasyon
 ### 4.1. Geliştirme Ortamına Giriş
-Sanal bilgisayarın (Docker Container) içine girmek için:
+Sanal bilgisayarın içine girmek için:
 
 ```bash
 docker exec -it yelpence_swarm_container bash
 ```
 > Artık içeridesiniz! ros2 topic list gibi komutlar çalışacaktır.
 
-### 4.2. Simülasyonu Başlatma (Gazebo Harmonic)
+### 4.2. Simülasyonu Başlatma
 Gazebo'yu doğru grafik ayarlarıyla başlatmak için hazırladığımız otomatik başlatıcıyı kullanın.
 
-Konteynerin içindeyken (4.1 adımını yaptıktan sonra):
+Konteynerin içindeyken:
 
 ```bash
 ./scripts/sim_start.sh  
@@ -219,7 +217,11 @@ Bu komut:
 
 ```bash
 # Host terminalinde (docker klasöründe):
+# Nvidia Kullanıcıları:
 docker compose down
+
+# AMD Kullanıcıları:
+docker compose -f docker-compose-amd.yml down
 ```
 
 ## 5. Sorun Giderme
