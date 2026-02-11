@@ -226,7 +226,7 @@ docker compose down
 
 | Sorun | Çözüm |
 | :--- | :--- |
-| **`permission denied` hatası** | `chmod +x` komutunu (Bölüm 3.3) tekrar uygulayın. |
-| **Gazebo Siyah Ekran** | Host makinede `xhost +local:root` komutunu çalıştırın. |
-| **"Docker command not found"** | `newgrp docker` komutunu çalıştırın veya bilgisayarı yeniden başlatın. |
-| **GPU Görünmüyor** | `nvidia-smi` komutunu host makinede deneyin, Bölüm 3.2'yi tekrarlayın. |
+| `permission denied` hatası | `chmod +x` komutunu (Bölüm 3.3) tekrar uygulayın. |
+| Gazebo Siyah Ekran | Host makinede `xhost +local:root` komutunu çalıştırın. |
+| "Docker command not found" | `newgrp docker` komutunu çalıştırın veya bilgisayarı yeniden başlatın. |
+| GPU Görünmüyor | `nvidia-smi` komutunu host makinede deneyin, Bölüm 3.2'yi tekrarlayın. |
