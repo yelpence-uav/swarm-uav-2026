@@ -100,3 +100,133 @@ git lfs install
 ```bash
 git clone https://github.com/yelpence-uav/yelpence-2026-swarm.git
 ```
+
+## 3. Geliştirme Ortamı Kurulumu
+Projemiz, "Bende çalışıyor sende çalışmıyor" sorununu önlemek için Docker konteynerleri üzerinde çalışmaktadır. Aşağıdaki adımları sırasıyla uygulayarak kurulumu tamamlayınız.
+
+> Not: Bu komutlar Ubuntu 22.04 ve 24.04 (Noble) ile uyumludur.
+
+### 3.1. Docker Engine Kurulumu
+Docker'ı kurmak ve sudo kullanmadan çalıştırabilmek için:
+
+```bash
+# 1. Gerekli başlangıç paketlerini kurun
+sudo apt-get update
+sudo apt-get install ca-certificates curl
+
+# 2. Docker'ın resmi GPG anahtarını ekleyin
+sudo install -m 0755 -d /etc/apt/keyrings
+sudo curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+sudo chmod a+r /etc/apt/keyrings/docker.asc
+
+# 3. Docker deposunu kaynaklara ekleyin
+echo \
+  "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu \
+  $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | \
+  sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+
+# 4. Docker'ı yükleyin
+sudo apt-get update
+sudo apt-get install docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+
+# 5. Kullanıcınızı 'docker' grubuna ekleyin (Kritik Adım!)
+# Bu işlem sayesinde her seferinde 'sudo' yazmak zorunda kalmazsınız.
+sudo usermod -aG docker $USER
+
+# 6. Grup değişikliğini aktif edin
+newgrp docker
+```
+
+### 3.2. NVIDIA Container Toolkit Kurulumu
+Simülasyonun (Gazebo) ekran kartını kullanabilmesi ve "Siyah Ekran" hatası vermemesi için bu adım zorunludur.
+
+```bash
+# 1. Nvidia deposunu ekleyin
+curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey | sudo gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg \
+  && curl -s -L https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list | \
+  sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' | \
+  sudo tee /etc/apt/sources.list.d/nvidia-container-toolkit.list
+
+# 2. Toolkit'i yükleyin
+sudo apt-get update
+sudo apt-get install -y nvidia-container-toolkit
+
+# 3. Docker'ı Nvidia sürücüsüyle yapılandırın
+sudo nvidia-ctk runtime configure --runtime=docker
+
+# 4. Docker servisini yeniden başlatın
+sudo systemctl restart docker
+
+
+3.2. Dosya İzinlerinin Ayarlanması
+Scriptlerin çalıştırılabilir olması için proje ana dizininde şu komutu uygulayın:
+``` 
+
+### 3.3. Dosya İzinlerinin Ayarlanması
+Proje içindeki yardımcı scriptlerin çalışabilmesi için izinleri verin:
+
+```bash
+cd docker
+chmod +x build.bash entrypoint.sh ../scripts/sim_start.sh
+```
+
+### 3.4. Docker İmajının İnşası (Build)
+Takım üyelerinin farklı kullanıcı ID'leri (UID) sebebiyle dosya izin hatası yaşamaması için özel inşa scriptini çalıştırın. Bu script, imajı size özel paketler.
+
+```bash
+# docker klasörü içerisindeyken:
+./build.bash
+```
+> Not: İnternet hızınıza bağlı olarak ilk kurulum 5-10 dakika sürebilir.
+
+### 3.5. Sanal Ortamı Başlatma (Run)
+Kurulum bittikten sonra sistemi ayağa kaldırın:
+```Bash
+# 1. Grafik arayüz (GUI) izinlerini tazeleyin (Siyah ekranı önler)
+xhost +local:root
+
+# 2. Konteyneri başlatın
+docker compose up -d
+```
+
+## 4. Kullanım ve Simülasyon
+### 4.1. Geliştirme Ortamına Giriş
+Sanal bilgisayarın (Docker Container) içine girmek için:
+
+```bash
+docker exec -it yelpence_swarm_container bash
+```
+> Artık içeridesiniz! ros2 topic list gibi komutlar çalışacaktır.
+
+### 4.2. Simülasyonu Başlatma (Gazebo Harmonic)
+Gazebo'yu doğru grafik ayarlarıyla başlatmak için hazırladığımız otomatik başlatıcıyı kullanın.
+
+Konteynerin içindeyken (4.1 adımını yaptıktan sonra):
+
+```bash
+./scripts/sim_start.sh  
+```
+
+Bu komut:
+
+- Fizik motorunu (Server) başlatır.
+- ROS 2 köprülerini kurar.
+- 3D Grafik Arayüzü (GUI) açar.
+- Kapatıldığında tüm süreçleri temizler.
+
+### 4.3. Çalışmayı Durdurma
+İşiniz bittiğinde bilgisayarınızı yormaması için sistemi kapatın:
+
+```bash
+# Host terminalinde (docker klasöründe):
+docker compose down
+```
+
+## 5. Sorun Giderme
+
+| Sorun | Çözüm |
+| :--- | :--- |
+| **`permission denied` hatası** | `chmod +x` komutunu (Bölüm 3.3) tekrar uygulayın. |
+| **Gazebo Siyah Ekran** | Host makinede `xhost +local:root` komutunu çalıştırın. |
+| **"Docker command not found"** | `newgrp docker` komutunu çalıştırın veya bilgisayarı yeniden başlatın. |
+| **GPU Görünmüyor** | `nvidia-smi` komutunu host makinede deneyin, Bölüm 3.2'yi tekrarlayın. |
