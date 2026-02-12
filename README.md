@@ -156,6 +156,7 @@ sudo nvidia-ctk runtime configure --runtime=docker
 
 # 4. Docker servisini yeniden başlatın
 sudo systemctl restart docker
+```
 
 ### 3.3. Dosya İzinlerinin Ayarlanması
 Proje içindeki yardımcı scriptlerin çalışabilmesi için izinleri verin:
