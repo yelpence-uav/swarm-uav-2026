@@ -16,6 +16,7 @@ RUN apt-get update && apt-get install -y \
     ros-jazzy-ros2-controllers \
     ros-jazzy-xacro \
     ros-jazzy-rqt* \
+    ros-jazzy-rmw-cyclonedds-cpp \
     python3-pip \
     python3-rosdep \
     iputils-ping \
