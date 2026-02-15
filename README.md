@@ -33,7 +33,8 @@ Eyüp, sürünün kolektif hareket edebilmesi için gereken kesintisiz veri akı
 - **Veri Güvenliği ve Paket Optimizasyonu:** Şartnamede yer alan otonom görevler sırasında ağ trafiğinin şişmesini önlemek amacıyla, gönderilen veri paketlerini optimize etmek ve sistemin dış müdahalelere karşı güvenliğini sağlamak.
 - **Donanımsal Anten ve Modül Entegrasyonu:** Melih ile koordineli çalışarak; telemetri modülleri, Wi-Fi antenleri ve diğer haberleşme birimlerinin en yüksek verimle çalışacağı fiziksel konumlandırmayı ve bağlantıları kontrol etmek.
 
-## **Muhammed Emir Seçer** Muhammed, sürü operasyonunun tek bir merkezden izlenmesini, yönetilmesini ve şartnamede belirtilen "Yarı Otonom Kontrol" görevlerinin icra edilmesini sağlayan yazılım platformunun mimarıdır. Python ve Qt (PyQt/PySide) kütüphanelerini kullanarak takımın özgün Yer Kontrol İstasyonu (YKİ) yazılımını geliştirmekle yükümlüdür.
+## **Muhammed Emir Seçer** 
+Muhammed, sürü operasyonunun tek bir merkezden izlenmesini, yönetilmesini ve şartnamede belirtilen "Yarı Otonom Kontrol" görevlerinin icra edilmesini sağlayan yazılım platformunun mimarıdır. Python ve Qt (PyQt/PySide) kütüphanelerini kullanarak takımın özgün Yer Kontrol İstasyonu (YKİ) yazılımını geliştirmekle yükümlüdür.
 
 - **Özgün GUI Tasarımı ve Geliştirme:** Yarışma sahasında operatörün (Kaptan) ve hakemlerin sürünün durumunu anlık olarak izleyebileceği, kullanıcı dostu ve performans odaklı bir grafik arayüz (GUI) tasarlamak.
 - **Telemetri Görselleştirme:** Eyüp’ün kurduğu haberleşme altyapısından gelen ham verileri (irtifa, hız, batarya seviyesi, GPS koordinatları, bağlantı kalitesi vb.) her bir İHA özelinde ve sürü genelinde anlamlı grafiklere/göstergelere dönüştürmek.
@@ -258,7 +259,7 @@ Bu komut:
 - 3D Grafik Arayüzü açar.
 - Kapatıldığında tüm süreçleri temizler.
 
-### 5.1. Çalışmayı Durdurma
+### 6.1. Çalışmayı Durdurma
 İşiniz bittiğinde bilgisayarınızı yormaması için sistemi kapatın:
 
 ```bash
@@ -270,7 +271,7 @@ docker compose down
 docker compose -f docker-compose-amd.yml down
 ```
 
-## 6. Sorun Giderme
+## 7. Sorun Giderme
 
 | Sorun | Çözüm |
 | :--- | :--- |
