@@ -100,3 +100,174 @@ git lfs install
 ```bash
 git clone https://github.com/yelpence-uav/yelpence-2026-swarm.git
 ```
+
+## 3. Geliştirme Ortamı Kurulumu
+Projemiz, "Bende çalışıyor sende çalışmıyor" sorununu önlemek için Docker konteynerleri üzerinde çalışmaktadır. Aşağıdaki adımları sırasıyla uygulayarak kurulumu tamamlayınız.
+
+> Not: Bu komutlar Ubuntu 22.04 ve 24.04 ile uyumludur.
+
+### 3.1. Docker Engine Kurulumu
+Docker'ı kurmak ve sudo kullanmadan çalıştırabilmek için:
+
+```bash
+# 1. Gerekli başlangıç paketlerini kurun
+sudo apt-get update
+sudo apt-get install ca-certificates curl
+
+# 2. Docker'ın resmi GPG anahtarını ekleyin
+sudo install -m 0755 -d /etc/apt/keyrings
+sudo curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+sudo chmod a+r /etc/apt/keyrings/docker.asc
+
+# 3. Docker deposunu kaynaklara ekleyin
+echo \
+  "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu \
+  $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | \
+  sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+
+# 4. Docker'ı yükleyin
+sudo apt-get update
+sudo apt-get install docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+
+# 5. Kullanıcınızı 'docker' grubuna ekleyin
+# Bu işlem sayesinde her seferinde 'sudo' yazmak zorunda kalmazsınız.
+sudo usermod -aG docker $USER
+
+# 6. Grup değişikliğini aktif edin
+newgrp docker
+```
+
+### 3.2. NVIDIA Container Toolkit Kurulumu (Sadece Nvidia İçin)
+Simülasyonun ekran kartını kullanabilmesi ve "Siyah Ekran" hatası vermemesi için bu adım zorunludur. AMD kullanıcıları **3.3. Dosya İzinleri**  bölümüne geçebilir.
+
+```bash
+# 1. Nvidia deposunu ekleyin
+curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey | sudo gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg \
+  && curl -s -L https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list | \
+  sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' | \
+  sudo tee /etc/apt/sources.list.d/nvidia-container-toolkit.list
+
+# 2. Toolkit'i yükleyin
+sudo apt-get update
+sudo apt-get install -y nvidia-container-toolkit
+
+# 3. Docker'ı Nvidia sürücüsüyle yapılandırın
+sudo nvidia-ctk runtime configure --runtime=docker
+
+# 4. Docker servisini yeniden başlatın
+sudo systemctl restart docker
+```
+
+### 3.3. Dosya İzinlerinin Ayarlanması
+Proje içindeki yardımcı scriptlerin çalışabilmesi için izinleri verin:
+
+```bash
+cd docker
+chmod +x build.bash entrypoint.sh ../scripts/sim_start.sh
+```
+
+### 3.4. Docker İmajının İnşası
+Takım üyelerinin farklı kullanıcı ID'leri (UID) sebebiyle dosya izin hatası yaşamaması için özel inşa scriptini çalıştırın. Bu script, imajı size özel paketler.
+
+```bash
+# docker klasörü içerisindeyken:
+./build.bash
+```
+> Not: İnternet hızınıza bağlı olarak ilk kurulum 5-10 dakika sürebilir.
+
+### 3.5. Sanal Ortamı Başlatma
+Kurulum bittikten sonra sistemi ayağa kaldırın:
+```Bash
+# 1. GUI izinlerini tazeleyin
+xhost +local:root
+
+# 2. Konteyneri başlatın
+# Nvidia Kullanıcıları: 
+docker compose up -d
+
+# AMD Kullanıcıları:
+docker compose -f docker-compose-amd.yml up -d
+```
+### 3.1. Geliştirme Ortamına Giriş
+Sanal bilgisayarın içine girmek için:
+
+```bash
+docker exec -it yelpence_swarm_container bash
+```
+> Artık içeridesiniz! ros2 topic list gibi komutlar çalışacaktır.
+
+## 4. Yazılım Mimarisi ve ROS 2 Altyapısı
+
+### 4.1. Amaç ve Mantık
+ROS 2 projelerinde kodların derlenebilmesi ve sistem tarafından tanınabilmesi için belirli bir "paket" (package) yapısına sahip olması gerekir. Projemizin başlangıç aşamasında oluşturulan hiyerarşik klasörler, içlerine `package.xml` (bağımlılık ve kimlik kartı) ve `setup.py` / `CMakeLists.txt` (derleme talimatları) dosyaları eklenerek resmi birer ROS 2 yazılım modülüne dönüştürülmüştür. 
+
+Bu sayede modüler, görev dağılımına uygun ve birindeki hata diğerinin çalışmasını engellemeyen bir çalışma alanı (workspace) altyapısı kurulmuştur.
+
+Ayrıca, sürü İHA'lar arasındaki (V2V) yüksek frekanslı haberleşme trafiğini en düşük gecikmeyle ve en stabil şekilde yönetebilmek adına, ROS 2'nin varsayılan haberleşme protokolü yerine çoklu otonom sistemler için endüstri standardı olan **CycloneDDS** (Data Distribution Service) altyapısı sisteme entegre edilmiş ve Docker ortamımıza kalıcı olarak dahil edilmiştir.
+
+### 4.2. Paket Mimarisi ve Görev Dağılımı
+Projemizin `src` dizini altındaki yazılım modülleri ve görev tanımları şu şekildedir:
+
+* **`swarm` (Python):** Sürü İHA formasyon kontrolü, otonom karar alma mekanizmaları ve dinamik görev paylaşımı algoritmalarını barındırır.
+* **`vision` (Python):** Kamera verilerinin işlenmesi, sahada yer alan QR kodların okunup çözümlenmesi ve hedef alanlara (kırmızı/mavi) hassas iniş görevlerini yönetir.
+* **`network` (Python):** İHA'ların kendi aralarındaki (V2V) ve Yer İstasyonu ile olan (V2G) ağ haberleşmesinin mantıksal döngülerini kontrol eder.
+* **`gcs` (Python):** Yer Kontrol İstasyonu (GCS) kullanıcı arayüzünü, telemetri takibini ve yarışmadaki "Yarı Otonom Sürü Kontrolü" görevi için joystick/kumanda entegrasyonunu içerir.
+* **`msgs` (CMake/C++):** ROS 2 standart mesaj tiplerinin yetersiz kaldığı durumlarda, Yelpençe takımına özel veri yapılarını (örneğin özel sürü formasyon durum paketleri) tanımladığımız kütüphanedir.
+
+### 4.3. Geliştirme Ortamını Hazırlama
+Repoyu bilgisayarınıza klonladıktan sonra projeyi geliştirmeye başlamak için aşağıdaki standart adımları izlemeniz yeterlidir:
+
+**1. Docker Ortamını Başlatma:**
+Projeyi VS Code üzerinden açın ve sol alt köşedeki yeşil butona tıklayarak (veya komut paletini kullanarak) "Reopen in Container" seçeneğini seçin. Bu işlem, Ubuntu 24.04, ROS 2 Jazzy, Gazebo ve CycloneDDS barındıran geliştirme ortamımızı otomatik olarak ayağa kaldıracaktır.
+
+**2. Çalışma Alanını (Workspace) Derleme:**
+Docker içindeki terminalde çalışma alanının kök dizinine giderek tüm paketleri derleyin:
+```bash
+cd ~/ros2_ws
+colcon build
+```
+
+### 4.4. Ortamı Aktif Etme:
+Derleme işlemi başarıyla tamamlandıktan sonra, ROS 2'nin paketlerimizi sistemde çalıştırılabilir olarak görmesi için ortamı güncelleyin:
+
+```Bash
+source install/setup.bash
+```
+> source komutunu terminali her yeniden açtığınızda çalıştırmalısınız.
+
+## 5. Simülasyonu Başlatma
+Gazebo'yu doğru grafik ayarlarıyla başlatmak için hazırladığımız otomatik başlatıcıyı kullanın.
+
+Konteynerin içindeyken:
+
+```bash
+./scripts/sim_start.sh  
+```
+
+Bu komut:
+
+- Fizik motorunu (Server) başlatır.
+- ROS 2 köprülerini kurar.
+- 3D Grafik Arayüzü (GUI) açar.
+- Kapatıldığında tüm süreçleri temizler.
+
+### 5.1. Çalışmayı Durdurma
+İşiniz bittiğinde bilgisayarınızı yormaması için sistemi kapatın:
+
+```bash
+# Host terminalinde (docker klasöründe):
+# Nvidia Kullanıcıları:
+docker compose down
+
+# AMD Kullanıcıları:
+docker compose -f docker-compose-amd.yml down
+```
+
+## 6. Sorun Giderme
+
+| Sorun | Çözüm |
+| :--- | :--- |
+| `permission denied` hatası | `chmod +x` komutunu (Bölüm 3.3) tekrar uygulayın. |
+| Gazebo Siyah Ekran | Host makinede `xhost +local:root` komutunu çalıştırın. |
+| "Docker command not found" | `newgrp docker` komutunu çalıştırın veya bilgisayarı yeniden başlatın. |
+| GPU Görünmüyor | `nvidia-smi` komutunu host makinede deneyin, Bölüm 3.2'yi tekrarlayın. |

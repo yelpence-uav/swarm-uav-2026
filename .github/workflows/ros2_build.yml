@@ -7,8 +7,9 @@ on:
     branches: [ main ]
 
 jobs:
-  ros_build:
-    runs-on: ubuntu-22.04
+  ros_build_and_test:
+    name: ROS 2 Build and Test
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
@@ -16,15 +17,36 @@ jobs:
       - name: Setup ROS 2
         uses: ros-tooling/setup-ros@v0.7
         with:
-          required-ros-distributions: humble
+          required-ros-distributions: jazzy
 
       - name: Install Dependencies
         run: |
           sudo apt-get update
           rosdep update
-          rosdep install --from-paths src --ignore-src -y --rosdistro humble
+          rosdep install --from-paths src --ignore-src -y --rosdistro jazzy
 
       - name: Build Workspace
         run: |
-          source /opt/ros/humble/setup.bash
+          source /opt/ros/jazzy/setup.bash
           colcon build --event-handlers console_direct+
+
+      - name: Run Linters and Unit Tests
+        run: |
+          source /opt/ros/jazzy/setup.bash
+          source install/setup.bash
+          colcon test --event-handlers console_direct+
+
+      - name: Check Test Results
+        run: |
+          colcon test-result --all
+
+  docker_build_test:
+    name: Docker Image Build Test
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Build Docker Image
+        run: |
+          docker build -t yelpence-swarm-ci-test -f docker/Dockerfile .
