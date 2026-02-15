@@ -58,7 +58,7 @@ ENV NVIDIA_VISIBLE_DEVICES=all
 ENV NVIDIA_DRIVER_CAPABILITIES=all
 
 # Entrypoint Scriptini Kopyala
-COPY --chown=$USERNAME:$USERNAME entrypoint.sh /entrypoint.sh
+COPY --chown=$USERNAME:$USERNAME docker/entrypoint.sh /entrypoint.sh
 RUN sudo chmod +x /entrypoint.sh
 
 # Başlangıç Noktası
