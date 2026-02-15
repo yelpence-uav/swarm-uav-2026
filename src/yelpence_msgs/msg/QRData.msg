@@ -1,0 +1,3 @@
+string qr_content
+string target_formation
+float32 target_altitude

@@ -10,12 +10,12 @@ Yelpençe ekibinin yazılım geliştirme süreçleri, aşağıdaki uzmanlık ala
 Osman, projenin yazılım mimarisini uçtan uca tasarlayan ve sürünün dijital ikizini yöneten stratejik liderdir. Fiziksel donanım montajından ziyade, sistemin "nasıl çalışması gerektiğine" dair kuralları koyan ve bu kuralların koda dökülmesini sağlayan yönetici rolündedir.
 
 - **Dijital İkiz Kurulumu:** Yarışma şartnamesindeki görevlerin tamamının test edilebileceği ROS tabanlı bir simülasyon ortamı inşa etmek.
-- **Algoritma Doğrulama:** Emirhan ve Berk’in yazdığı kodları gerçek İHA’lara yüklemeden önce simülasyonda stres testine sokmak ve hata paylarını raporlamak.
+- **Algoritma Doğrulama:** Emirhan ve Berk’in yazdığı kodları gerçek İHA’lara yüklemeden önce simülasyon üzerinde stres testine sokmak ve hata paylarını raporlamak.
 - **Senaryo Testleri:** Yarışma sahasındaki olası aksilikleri (bir İHA'nın düşmesi, sinyal kesilmesi vb.) simüle ederek "Fail-Safe" algoritmalarını denetlemek.
 - **Konteynerizasyon:** Tüm geliştirme ortamını Docker imajları haline getirerek; Berk, Emirhan ve Muhammed’in aynı kütüphane versiyonlarıyla çalışmasını sağlamak. Sahadaki RPi'lara tek komutla hatasız kurulum yapılmasını garanti etmek.
 - **Versiyon Kontrol Yönetimi:** Takımın ana kod deposunu yönetmek. Kod incelemeleri yaparak standart dışı veya hatalı kodun ana sisteme dahil edilmesini engellemek.
 - **CI/CD Süreçleri:** Kod GitHub'a yüklendiğinde otomatik testlerin çalışmasını sağlayacak bir yapı kurgulamak.
-- **Düğüm  Tasarımı:** Sistemdeki tüm yazılım bileşenlerinin (görüntü işleme, sürü mantığı, YKİ haberleşmesi) ROS düğümleri arasındaki veri akışını (Topics, Services, Actions) kurgulamak.
+- **Düğüm Tasarımı:** Sistemdeki tüm yazılım bileşenlerinin (görüntü işleme, sürü mantığı, YKİ haberleşmesi) ROS düğümleri arasındaki veri akışını (Topics, Services, Actions) kurgulamak.
 - **Veri Standardizasyonu:** İHA’lar arası ve İHA-YKİ arası mesajlaşma formatlarını (.msg, .srv) belirlemek.
 - **Namespace ve Hiyerarşi:** Çoklu İHA operasyonunda veri çakışmasını önlemek için sistem hiyerarşisini (örn: /uav1/.., /uav2/..) yapılandırmak.
 - **Companion Computer (RPi) Konfigürasyonu:** RPi üzerinde çalışacak Linux dağıtımının (Ubuntu Server vb.) kernel optimizasyonunu, gereksiz servislerin kapatılmasını ve otopilot ile haberleşme köprülerinin (MAVROS/DDS) kurulumunu yönetmek.
@@ -33,8 +33,7 @@ Eyüp, sürünün kolektif hareket edebilmesi için gereken kesintisiz veri akı
 - **Veri Güvenliği ve Paket Optimizasyonu:** Şartnamede yer alan otonom görevler sırasında ağ trafiğinin şişmesini önlemek amacıyla, gönderilen veri paketlerini optimize etmek ve sistemin dış müdahalelere karşı güvenliğini sağlamak.
 - **Donanımsal Anten ve Modül Entegrasyonu:** Melih ile koordineli çalışarak; telemetri modülleri, Wi-Fi antenleri ve diğer haberleşme birimlerinin en yüksek verimle çalışacağı fiziksel konumlandırmayı ve bağlantıları kontrol etmek.
 
-## **Muhammed Emir Seçer** 
-Muhammed, sürü operasyonunun tek bir merkezden izlenmesini, yönetilmesini ve şartnamede belirtilen "Yarı Otonom Kontrol" görevlerinin icra edilmesini sağlayan yazılım platformunun mimarıdır. Python ve Qt (PyQt/PySide) kütüphanelerini kullanarak takımın özgün Yer Kontrol İstasyonu (YKİ) yazılımını geliştirmekle yükümlüdür.
+## **Muhammed Emir Seçer** Muhammed, sürü operasyonunun tek bir merkezden izlenmesini, yönetilmesini ve şartnamede belirtilen "Yarı Otonom Kontrol" görevlerinin icra edilmesini sağlayan yazılım platformunun mimarıdır. Python ve Qt (PyQt/PySide) kütüphanelerini kullanarak takımın özgün Yer Kontrol İstasyonu (YKİ) yazılımını geliştirmekle yükümlüdür.
 
 - **Özgün GUI Tasarımı ve Geliştirme:** Yarışma sahasında operatörün (Kaptan) ve hakemlerin sürünün durumunu anlık olarak izleyebileceği, kullanıcı dostu ve performans odaklı bir grafik arayüz (GUI) tasarlamak.
 - **Telemetri Görselleştirme:** Eyüp’ün kurduğu haberleşme altyapısından gelen ham verileri (irtifa, hız, batarya seviyesi, GPS koordinatları, bağlantı kalitesi vb.) her bir İHA özelinde ve sürü genelinde anlamlı grafiklere/göstergelere dönüştürmek.
@@ -58,24 +57,26 @@ Muhammed, sürü operasyonunun tek bir merkezden izlenmesini, yönetilmesini ve 
 - **ROS Mesaj Yapılandırması:** Görüntü işleme düğümü (node) ile sürü kontrol düğümü arasındaki haberleşme protokollerini Osman'ın (Kaptan) belirlediği mimari çerçevesinde ortaklaşa optimize ederler.
 - **Hata Yönetimi (Fail-Safe):** Görsel temasın kaybolması veya sürü bütünlüğünün bozulması durumunda devreye girecek olan "Yazılımsal Acil Durum" senaryolarını birlikte test ederler.
 
-# Dizin Yapisi
+---
+
+# Dizin Yapısı
 
 ```text
 yelpence-2026-swarm/
+├── .github/                # CI/CD otomatik test ve kalite kontrol süreçleri (Actions)
 ├── docs/                   # Şartname, raporlar ve teknik dokümantasyon
 ├── src/                    # Kaynak kodların ana dizini
 │   ├── gcs/                # Yer Kontrol istasyonu modülleri
 │   ├── swarm/              # Sürü yönetim ve formasyon mantığı
-│   ├── vision/             # QR kod ve görüntü işleme algoritmalari
+│   ├── vision/             # QR kod ve görüntü işleme algoritmaları
 │   ├── network/            # MAVLink ve haberleşme köprüleri
-│   └── msgs/               # Özel ROS2 mesaj tanımları
-├── sim/                    # Gazebo dünyaları ve IHA modelleri
+│   └── yelpence_msgs/      # Özel ROS 2 sürü haberleşme mesaj tanımları
+├── sim/                    # Gazebo dünyaları ve İHA modelleri
 ├── config/                 # Parametre ve uçuş konfigürasyonları
-├── docker/                 # Geliştirme ortamı
-├── scripts/                # Kurulum ve çarlıştırma yardımcı betikleri
+├── docker/                 # Geliştirme ortamı yapılandırması
+├── scripts/                # Kurulum ve çalıştırma yardımcı betikleri
 └── tests/                  # Birim ve entegrasyon testleri
 ```
----
 
 # Kurulum ve Başlangıç
 
@@ -208,7 +209,7 @@ Projemizin `src` dizini altındaki yazılım modülleri ve görev tanımları ş
 * **`vision`:** Kamera verilerinin işlenmesi, sahada yer alan QR kodların okunup çözümlenmesi ve hedef alanlara hassas iniş görevlerini yönetir.
 * **`network`:** İHA'ların kendi aralarındaki ve Yer İstasyonu ile olan ağ haberleşmesinin mantıksal döngülerini kontrol eder.
 * **`gcs`:** Yer Kontrol İstasyonu kullanıcı arayüzünü, telemetri takibini ve yarışmadaki "Yarı Otonom Sürü Kontrolü" görevi için joystick/kumanda entegrasyonunu içerir.
-* **`msgs`:** ROS 2 standart mesaj tiplerinin yetersiz kaldığı durumlarda, Yelpençe takımına özel veri yapılarını tanımladığımız kütüphanedir.
+* **`yelpence_msgs`**: Sürü algoritmalarının ihtiyaç duyduğu özel ROS 2 mesaj tiplerini barındırır. Şartnamede geçen görevlerin icrası için İHA'ların kimlik ve konumlarını bildiren SwarmState, okunan şifreleri ileten QRData ve sürüye yeni dizilim komutları veren FormationCommand mesajlarını içerir.
 
 ### 4.3. Geliştirme Ortamını Hazırlama
 Repoyu bilgisayarınıza klonladıktan sonra projeyi geliştirmeye başlamak için aşağıdaki standart adımları izlemeniz yeterlidir:
@@ -231,7 +232,17 @@ source install/setup.bash
 ```
 > source komutunu terminali her yeniden açtığınızda çalıştırmalısınız.
 
-## 5. Simülasyonu Başlatma
+# 5. CI/CD ve Otomatik Test Süreçleri
+Yelpençe takımı, kod kalitesini standartlaştırmak ve sisteme hatalı modüllerin dahil edilmesini önlemek amacıyla GitHub Actions destekli Sürekli Entegrasyon (CI) mimarisi kullanmaktadır.
+
+Projeye gönderilen her yeni kod (push veya pull_request işlemi) otomatik olarak aşağıdaki denetimlerden geçer:
+
+- Docker Image Build Test: Eklenen yeni bir kodun veya kütüphanenin, takımın ortak Docker imajının derlenmesini bozup bozmadığı test edilir.
+- ROS 2 Build Test: Tüm çalışma alanı (colcon build) Ubuntu 24.04 ve ROS 2 Jazzy standartlarında sıfırdan derlenerek paket çakışmaları denetlenir.
+- Birim Testler (Unit Tests): colcon test komutu çalıştırılarak önceden yazılmış özel senaryo testlerinin başarı durumu kontrol edilir.
+- Linter ve Stil Denetimleri: Ekip içi tutarlılık için PEP 8 standartları (ament_flake8) ve yorum satırı / dokümantasyon kuralları (ament_pep257) analiz edilir. Kurallara uymayan kodların ana yapıya (main) birleşmesi engellenir.
+
+## 6. Simülasyonu Başlatma
 Gazebo'yu doğru grafik ayarlarıyla başlatmak için hazırladığımız otomatik başlatıcıyı kullanın.
 
 Konteynerin içindeyken:
