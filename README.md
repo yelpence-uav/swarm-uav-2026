@@ -2,8 +2,6 @@
 
 > Bu depo, Yelpençe takımının TEKNOFEST 2026 Sürü İHA Yarışması için geliştirdiği tüm yazılım mimarisini, algoritma setlerini ve dokümantasyon süreçlerini barındıran ana merkezdir. Proje; dinamik sürü formasyonları, otonom görev icrası ve gelişmiş yer kontrol istasyonu entegrasyonuna odaklanmaktadır.
 
----
-
 # Takım Yapısı ve Görev Dağılımı
 
 Yelpençe ekibinin yazılım geliştirme süreçleri, aşağıdaki uzmanlık alanlarına göre dağıtılmıştır:
@@ -60,8 +58,6 @@ Muhammed, sürü operasyonunun tek bir merkezden izlenmesini, yönetilmesini ve 
 - **ROS Mesaj Yapılandırması:** Görüntü işleme düğümü (node) ile sürü kontrol düğümü arasındaki haberleşme protokollerini Osman'ın (Kaptan) belirlediği mimari çerçevesinde ortaklaşa optimize ederler.
 - **Hata Yönetimi (Fail-Safe):** Görsel temasın kaybolması veya sürü bütünlüğünün bozulması durumunda devreye girecek olan "Yazılımsal Acil Durum" senaryolarını birlikte test ederler.
 
----
-
 # Dizin Yapisi
 
 ```text
@@ -110,51 +106,51 @@ Projemiz, "Bende çalışıyor sende çalışmıyor" sorununu önlemek için Doc
 Docker'ı kurmak ve sudo kullanmadan çalıştırabilmek için:
 
 ```bash
-# 1. Gerekli başlangıç paketlerini kurun
+# Gerekli başlangıç paketlerini kurun
 sudo apt-get update
 sudo apt-get install ca-certificates curl
 
-# 2. Docker'ın resmi GPG anahtarını ekleyin
+# Docker'ın resmi GPG anahtarını ekleyin
 sudo install -m 0755 -d /etc/apt/keyrings
 sudo curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
 sudo chmod a+r /etc/apt/keyrings/docker.asc
 
-# 3. Docker deposunu kaynaklara ekleyin
+# Docker deposunu kaynaklara ekleyin
 echo \
   "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu \
   $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | \
   sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
 
-# 4. Docker'ı yükleyin
+# Docker'ı yükleyin
 sudo apt-get update
 sudo apt-get install docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
 
-# 5. Kullanıcınızı 'docker' grubuna ekleyin
+# Kullanıcınızı 'docker' grubuna ekleyin
 # Bu işlem sayesinde her seferinde 'sudo' yazmak zorunda kalmazsınız.
 sudo usermod -aG docker $USER
 
-# 6. Grup değişikliğini aktif edin
+# Grup değişikliğini aktif edin
 newgrp docker
 ```
 
 ### 3.2. NVIDIA Container Toolkit Kurulumu (Sadece Nvidia İçin)
-Simülasyonun ekran kartını kullanabilmesi ve "Siyah Ekran" hatası vermemesi için bu adım zorunludur. AMD kullanıcıları **3.3. Dosya İzinleri**  bölümüne geçebilir.
+Simülasyonun ekran kartını kullanabilmesi ve siyah ekran hatası vermemesi için bu adım zorunludur. AMD kullanıcıları **3.3. Dosya İzinleri**  bölümüne geçebilir.
 
 ```bash
-# 1. Nvidia deposunu ekleyin
+# Nvidia deposunu ekleyin
 curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey | sudo gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg \
   && curl -s -L https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list | \
   sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' | \
   sudo tee /etc/apt/sources.list.d/nvidia-container-toolkit.list
 
-# 2. Toolkit'i yükleyin
+# Toolkit'i yükleyin
 sudo apt-get update
 sudo apt-get install -y nvidia-container-toolkit
 
-# 3. Docker'ı Nvidia sürücüsüyle yapılandırın
+# Docker'ı Nvidia sürücüsüyle yapılandırın
 sudo nvidia-ctk runtime configure --runtime=docker
 
-# 4. Docker servisini yeniden başlatın
+# Docker servisini yeniden başlatın
 sudo systemctl restart docker
 ```
 
@@ -178,10 +174,10 @@ Takım üyelerinin farklı kullanıcı ID'leri (UID) sebebiyle dosya izin hatas�
 ### 3.5. Sanal Ortamı Başlatma
 Kurulum bittikten sonra sistemi ayağa kaldırın:
 ```Bash
-# 1. GUI izinlerini tazeleyin
+# GUI izinlerini tazeleyin
 xhost +local:root
 
-# 2. Konteyneri başlatın
+# Konteyneri başlatın
 # Nvidia Kullanıcıları: 
 docker compose up -d
 
@@ -199,20 +195,20 @@ docker exec -it yelpence_swarm_container bash
 ## 4. Yazılım Mimarisi ve ROS 2 Altyapısı
 
 ### 4.1. Amaç ve Mantık
-ROS 2 projelerinde kodların derlenebilmesi ve sistem tarafından tanınabilmesi için belirli bir "paket" (package) yapısına sahip olması gerekir. Projemizin başlangıç aşamasında oluşturulan hiyerarşik klasörler, içlerine `package.xml` (bağımlılık ve kimlik kartı) ve `setup.py` / `CMakeLists.txt` (derleme talimatları) dosyaları eklenerek resmi birer ROS 2 yazılım modülüne dönüştürülmüştür. 
+ROS 2 projelerinde kodların derlenebilmesi ve sistem tarafından tanınabilmesi için belirli bir paket yapısına sahip olması gerekir. Projemizin başlangıç aşamasında oluşturulan hiyerarşik klasörler, içlerine `package.xml` ve `setup.py` / `CMakeLists.txt` dosyaları eklenerek resmi birer ROS 2 yazılım modülüne dönüştürülmüştür. 
 
-Bu sayede modüler, görev dağılımına uygun ve birindeki hata diğerinin çalışmasını engellemeyen bir çalışma alanı (workspace) altyapısı kurulmuştur.
+Bu sayede modüler, görev dağılımına uygun ve birindeki hata diğerinin çalışmasını engellemeyen bir çalışma alanı altyapısı kurulmuştur.
 
-Ayrıca, sürü İHA'lar arasındaki (V2V) yüksek frekanslı haberleşme trafiğini en düşük gecikmeyle ve en stabil şekilde yönetebilmek adına, ROS 2'nin varsayılan haberleşme protokolü yerine çoklu otonom sistemler için endüstri standardı olan **CycloneDDS** (Data Distribution Service) altyapısı sisteme entegre edilmiş ve Docker ortamımıza kalıcı olarak dahil edilmiştir.
+Ayrıca, sürü İHA'lar arasındaki yüksek frekanslı haberleşme trafiğini en düşük gecikmeyle ve en stabil şekilde yönetebilmek adına, ROS 2'nin varsayılan haberleşme protokolü yerine çoklu otonom sistemler için endüstri standardı olan **CycloneDDS** altyapısı sisteme entegre edilmiş ve Docker ortamımıza kalıcı olarak dahil edilmiştir.
 
 ### 4.2. Paket Mimarisi ve Görev Dağılımı
 Projemizin `src` dizini altındaki yazılım modülleri ve görev tanımları şu şekildedir:
 
-* **`swarm` (Python):** Sürü İHA formasyon kontrolü, otonom karar alma mekanizmaları ve dinamik görev paylaşımı algoritmalarını barındırır.
-* **`vision` (Python):** Kamera verilerinin işlenmesi, sahada yer alan QR kodların okunup çözümlenmesi ve hedef alanlara (kırmızı/mavi) hassas iniş görevlerini yönetir.
-* **`network` (Python):** İHA'ların kendi aralarındaki (V2V) ve Yer İstasyonu ile olan (V2G) ağ haberleşmesinin mantıksal döngülerini kontrol eder.
-* **`gcs` (Python):** Yer Kontrol İstasyonu (GCS) kullanıcı arayüzünü, telemetri takibini ve yarışmadaki "Yarı Otonom Sürü Kontrolü" görevi için joystick/kumanda entegrasyonunu içerir.
-* **`msgs` (CMake/C++):** ROS 2 standart mesaj tiplerinin yetersiz kaldığı durumlarda, Yelpençe takımına özel veri yapılarını (örneğin özel sürü formasyon durum paketleri) tanımladığımız kütüphanedir.
+* **`swarm`:** Sürü İHA formasyon kontrolü, otonom karar alma mekanizmaları ve dinamik görev paylaşımı algoritmalarını barındırır.
+* **`vision`:** Kamera verilerinin işlenmesi, sahada yer alan QR kodların okunup çözümlenmesi ve hedef alanlara hassas iniş görevlerini yönetir.
+* **`network`:** İHA'ların kendi aralarındaki ve Yer İstasyonu ile olan ağ haberleşmesinin mantıksal döngülerini kontrol eder.
+* **`gcs`:** Yer Kontrol İstasyonu kullanıcı arayüzünü, telemetri takibini ve yarışmadaki "Yarı Otonom Sürü Kontrolü" görevi için joystick/kumanda entegrasyonunu içerir.
+* **`msgs`:** ROS 2 standart mesaj tiplerinin yetersiz kaldığı durumlarda, Yelpençe takımına özel veri yapılarını tanımladığımız kütüphanedir.
 
 ### 4.3. Geliştirme Ortamını Hazırlama
 Repoyu bilgisayarınıza klonladıktan sonra projeyi geliştirmeye başlamak için aşağıdaki standart adımları izlemeniz yeterlidir:
@@ -220,7 +216,7 @@ Repoyu bilgisayarınıza klonladıktan sonra projeyi geliştirmeye başlamak iç
 **1. Docker Ortamını Başlatma:**
 Projeyi VS Code üzerinden açın ve sol alt köşedeki yeşil butona tıklayarak (veya komut paletini kullanarak) "Reopen in Container" seçeneğini seçin. Bu işlem, Ubuntu 24.04, ROS 2 Jazzy, Gazebo ve CycloneDDS barındıran geliştirme ortamımızı otomatik olarak ayağa kaldıracaktır.
 
-**2. Çalışma Alanını (Workspace) Derleme:**
+**2. Çalışma Alanını Derleme:**
 Docker içindeki terminalde çalışma alanının kök dizinine giderek tüm paketleri derleyin:
 ```bash
 cd ~/ros2_ws
@@ -246,9 +242,9 @@ Konteynerin içindeyken:
 
 Bu komut:
 
-- Fizik motorunu (Server) başlatır.
+- Fizik motorunu başlatır.
 - ROS 2 köprülerini kurar.
-- 3D Grafik Arayüzü (GUI) açar.
+- 3D Grafik Arayüzü açar.
 - Kapatıldığında tüm süreçleri temizler.
 
 ### 5.1. Çalışmayı Durdurma
@@ -269,5 +265,5 @@ docker compose -f docker-compose-amd.yml down
 | :--- | :--- |
 | `permission denied` hatası | `chmod +x` komutunu (Bölüm 3.3) tekrar uygulayın. |
 | Gazebo Siyah Ekran | Host makinede `xhost +local:root` komutunu çalıştırın. |
-| "Docker command not found" | `newgrp docker` komutunu çalıştırın veya bilgisayarı yeniden başlatın. |
+| `Docker command not found` | `newgrp docker` komutunu çalıştırın veya bilgisayarı yeniden başlatın. |
 | GPU Görünmüyor | `nvidia-smi` komutunu host makinede deneyin, Bölüm 3.2'yi tekrarlayın. |

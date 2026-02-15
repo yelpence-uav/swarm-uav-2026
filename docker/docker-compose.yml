@@ -2,8 +2,8 @@ services:
   swarm_dev:
     # İmajın nasıl oluşturulacağını tarif eder
     build:
-      context: .
-      dockerfile: Dockerfile
+      context: ..
+      dockerfile: docker/Dockerfile
       args:
         # Bu değişkenler build.bash tarafından doldurulacak
         USERNAME: yelpence
