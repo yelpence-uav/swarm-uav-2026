@@ -20,8 +20,8 @@ setup(
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
-            # İleride sürü kontrol düğümlerimizi buraya ekleyeceğiz. Örnek:
-            # 'formation_controller = swarm.formation_controller:main',
+            # Yeni eklenen çalıştırılabilir komut:
+            'swarm_controller = swarm.swarm_controller:main',
         ],
     },
 )
