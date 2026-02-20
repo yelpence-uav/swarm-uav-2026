@@ -1,0 +1,160 @@
+<?xml version="1.0" ?>
+<sdf version="1.9">
+  <world name="task2_formation">
+    
+    <plugin filename="gz-sim-physics-system" name="gz::sim::systems::Physics"></plugin>
+    <plugin filename="gz-sim-scene-broadcaster-system" name="gz::sim::systems::SceneBroadcaster"></plugin>
+    <plugin filename="gz-sim-user-commands-system" name="gz::sim::systems::UserCommands"></plugin>
+    <plugin filename="gz-sim-sensors-system" name="gz::sim::systems::Sensors">
+      <render_engine>ogre2</render_engine>
+    </plugin>
+
+    <physics type="ode">
+      <max_step_size>0.004</max_step_size>
+      <real_time_factor>1.0</real_time_factor>
+    </physics>
+
+    <scene>
+      <ambient>1.0 1.0 1.0 1.0</ambient>
+      <background>0.5 0.8 0.95 1</background> <shadows>false</shadows> </scene>
+
+    <light type="directional" name="sun">
+      <cast_shadows>false</cast_shadows>
+      <pose>0 0 20 0 0 0</pose>
+      <diffuse>1.0 1.0 1.0 1</diffuse>
+      <specular>0.5 0.5 0.5 1</specular>
+      <direction>0 0 -1</direction>
+    </light>
+
+    <model name="football_field">
+      <static>true</static>
+      <link name="link">
+        
+        <collision name="collision">
+          <geometry><plane><normal>0 0 1</normal><size>50 30</size></plane></geometry>
+        </collision>
+        <visual name="field_visual">
+          <geometry><plane><normal>0 0 1</normal><size>50 30</size></plane></geometry>
+          <material>
+            <ambient>0.15 0.5 0.15 1</ambient>
+            <diffuse>0.15 0.5 0.15 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+
+        <visual name="line_center">
+          <pose>0 0 0.01 0 0 0</pose>
+          <geometry><box><size>0.15 30 0.01</size></box></geometry>
+          <material><ambient>1 1 1 1</ambient><diffuse>1 1 1 1</diffuse></material>
+        </visual>
+
+        <visual name="line_top">
+          <pose>0 14.925 0.01 0 0 0</pose>
+          <geometry><box><size>50 0.15 0.01</size></box></geometry>
+          <material><ambient>1 1 1 1</ambient><diffuse>1 1 1 1</diffuse></material>
+        </visual>
+        <visual name="line_bottom">
+          <pose>0 -14.925 0.01 0 0 0</pose>
+          <geometry><box><size>50 0.15 0.01</size></box></geometry>
+          <material><ambient>1 1 1 1</ambient><diffuse>1 1 1 1</diffuse></material>
+        </visual>
+        <visual name="line_left">
+          <pose>-24.925 0 0.01 0 0 0</pose>
+          <geometry><box><size>0.15 30 0.01</size></box></geometry>
+          <material><ambient>1 1 1 1</ambient><diffuse>1 1 1 1</diffuse></material>
+        </visual>
+        <visual name="line_right">
+          <pose>24.925 0 0.01 0 0 0</pose>
+          <geometry><box><size>0.15 30 0.01</size></box></geometry>
+          <material><ambient>1 1 1 1</ambient><diffuse>1 1 1 1</diffuse></material>
+        </visual>
+
+        <visual name="pen_left_front">
+          <pose>-19 0 0.01 0 0 0</pose>
+          <geometry><box><size>0.15 12 0.01</size></box></geometry>
+          <material><ambient>1 1 1 1</ambient><diffuse>1 1 1 1</diffuse></material>
+        </visual>
+        <visual name="pen_left_top">
+          <pose>-22 6 0.01 0 0 0</pose>
+          <geometry><box><size>6 0.15 0.01</size></box></geometry>
+          <material><ambient>1 1 1 1</ambient><diffuse>1 1 1 1</diffuse></material>
+        </visual>
+        <visual name="pen_left_bottom">
+          <pose>-22 -6 0.01 0 0 0</pose>
+          <geometry><box><size>6 0.15 0.01</size></box></geometry>
+          <material><ambient>1 1 1 1</ambient><diffuse>1 1 1 1</diffuse></material>
+        </visual>
+
+        <visual name="pen_right_front">
+          <pose>19 0 0.01 0 0 0</pose>
+          <geometry><box><size>0.15 12 0.01</size></box></geometry>
+          <material><ambient>1 1 1 1</ambient><diffuse>1 1 1 1</diffuse></material>
+        </visual>
+        <visual name="pen_right_top">
+          <pose>22 6 0.01 0 0 0</pose>
+          <geometry><box><size>6 0.15 0.01</size></box></geometry>
+          <material><ambient>1 1 1 1</ambient><diffuse>1 1 1 1</diffuse></material>
+        </visual>
+        <visual name="pen_right_bottom">
+          <pose>22 -6 0.01 0 0 0</pose>
+          <geometry><box><size>6 0.15 0.01</size></box></geometry>
+          <material><ambient>1 1 1 1</ambient><diffuse>1 1 1 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+
+    <model name="wall_left">
+      <static>true</static>
+      <pose>0 15 5 0 0 0</pose>
+      <link name="link">
+        <collision name="collision"><geometry><box><size>50 0.1 10</size></box></geometry></collision>
+        <visual name="visual">
+          <geometry><box><size>50 0.1 10</size></box></geometry>
+          <material><ambient>1 1 1 0.1</ambient><diffuse>1 1 1 0.1</diffuse></material>
+          <transparency>0.8</transparency>
+        </visual>
+      </link>
+    </model>
+
+    <model name="wall_right">
+      <static>true</static>
+      <pose>0 -15 5 0 0 0</pose>
+      <link name="link">
+        <collision name="collision"><geometry><box><size>50 0.1 10</size></box></geometry></collision>
+        <visual name="visual">
+          <geometry><box><size>50 0.1 10</size></box></geometry>
+          <material><ambient>1 1 1 0.1</ambient><diffuse>1 1 1 0.1</diffuse></material>
+          <transparency>0.8</transparency>
+        </visual>
+      </link>
+    </model>
+
+    <model name="wall_front">
+      <static>true</static>
+      <pose>25 0 5 0 0 0</pose>
+      <link name="link">
+        <collision name="collision"><geometry><box><size>0.1 30 10</size></box></geometry></collision>
+        <visual name="visual">
+          <geometry><box><size>0.1 30 10</size></box></geometry>
+          <material><ambient>1 1 1 0.1</ambient><diffuse>1 1 1 0.1</diffuse></material>
+          <transparency>0.8</transparency>
+        </visual>
+      </link>
+    </model>
+
+    <model name="wall_back">
+      <static>true</static>
+      <pose>-25 0 5 0 0 0</pose>
+      <link name="link">
+        <collision name="collision"><geometry><box><size>0.1 30 10</size></box></geometry></collision>
+        <visual name="visual">
+          <geometry><box><size>0.1 30 10</size></box></geometry>
+          <material><ambient>1 1 1 0.1</ambient><diffuse>1 1 1 0.1</diffuse></material>
+          <transparency>0.8</transparency>
+        </visual>
+      </link>
+    </model>
+
+  </world>
+</sdf>
+

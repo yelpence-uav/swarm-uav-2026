@@ -1,8 +1,8 @@
 services:
   swarm_dev:
     build:
-      context: .
-      dockerfile: Dockerfile
+      context: ..
+      dockerfile: docker/Dockerfile
       args:
         USERNAME: yelpence
         USER_UID: ${USER_UID:-1000}

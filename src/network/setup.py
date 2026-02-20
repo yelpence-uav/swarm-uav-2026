@@ -13,17 +13,15 @@ setup(
     ],
     install_requires=['setuptools'],
     zip_safe=True,
-    maintainer='yelpence',
-    maintainer_email='yelpence@todo.todo',
-    description='TODO: Package description',
-    license='TODO: License declaration',
-    extras_require={
-        'test': [
-            'pytest',
-        ],
-    },
+    maintainer='Yelpence',
+    maintainer_email='iletisim@yelpence.com',
+    description='Yelpence Takimi Haberlesme ve Ag Paketi',
+    license='Apache-2.0',
+    tests_require=['pytest'],
     entry_points={
         'console_scripts': [
+            # Yeni eklenen calistirilabilir komut:
+            'network_manager = network.network_manager:main',
         ],
     },
 )

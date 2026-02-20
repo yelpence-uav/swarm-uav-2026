@@ -2,86 +2,79 @@
 
 > Bu depo, Yelpençe takımının TEKNOFEST 2026 Sürü İHA Yarışması için geliştirdiği tüm yazılım mimarisini, algoritma setlerini ve dokümantasyon süreçlerini barındıran ana merkezdir. Proje; dinamik sürü formasyonları, otonom görev icrası ve gelişmiş yer kontrol istasyonu entegrasyonuna odaklanmaktadır.
 
-# Takım Yapısı ve Görev Dağılımı
+# Proje Dizin Yapısı ve Dosya Açıklamaları
 
-Yelpençe ekibinin yazılım geliştirme süreçleri, aşağıdaki uzmanlık alanlarına göre dağıtılmıştır:
-
-## **Osman Çevik**
-Osman, projenin yazılım mimarisini uçtan uca tasarlayan ve sürünün dijital ikizini yöneten stratejik liderdir. Fiziksel donanım montajından ziyade, sistemin "nasıl çalışması gerektiğine" dair kuralları koyan ve bu kuralların koda dökülmesini sağlayan yönetici rolündedir.
-
-- **Dijital İkiz Kurulumu:** Yarışma şartnamesindeki görevlerin tamamının test edilebileceği ROS tabanlı bir simülasyon ortamı inşa etmek.
-- **Algoritma Doğrulama:** Emirhan ve Berk’in yazdığı kodları gerçek İHA’lara yüklemeden önce simülasyonda stres testine sokmak ve hata paylarını raporlamak.
-- **Senaryo Testleri:** Yarışma sahasındaki olası aksilikleri (bir İHA'nın düşmesi, sinyal kesilmesi vb.) simüle ederek "Fail-Safe" algoritmalarını denetlemek.
-- **Konteynerizasyon:** Tüm geliştirme ortamını Docker imajları haline getirerek; Berk, Emirhan ve Muhammed’in aynı kütüphane versiyonlarıyla çalışmasını sağlamak. Sahadaki RPi'lara tek komutla hatasız kurulum yapılmasını garanti etmek.
-- **Versiyon Kontrol Yönetimi:** Takımın ana kod deposunu yönetmek. Kod incelemeleri yaparak standart dışı veya hatalı kodun ana sisteme dahil edilmesini engellemek.
-- **CI/CD Süreçleri:** Kod GitHub'a yüklendiğinde otomatik testlerin çalışmasını sağlayacak bir yapı kurgulamak.
-- **Düğüm  Tasarımı:** Sistemdeki tüm yazılım bileşenlerinin (görüntü işleme, sürü mantığı, YKİ haberleşmesi) ROS düğümleri arasındaki veri akışını (Topics, Services, Actions) kurgulamak.
-- **Veri Standardizasyonu:** İHA’lar arası ve İHA-YKİ arası mesajlaşma formatlarını (.msg, .srv) belirlemek.
-- **Namespace ve Hiyerarşi:** Çoklu İHA operasyonunda veri çakışmasını önlemek için sistem hiyerarşisini (örn: /uav1/.., /uav2/..) yapılandırmak.
-- **Companion Computer (RPi) Konfigürasyonu:** RPi üzerinde çalışacak Linux dağıtımının (Ubuntu Server vb.) kernel optimizasyonunu, gereksiz servislerin kapatılmasını ve otopilot ile haberleşme köprülerinin (MAVROS/DDS) kurulumunu yönetmek.
-- **SD Kart İmaj Yönetimi:** Tüm yazılım katmanlarının kurulu ve konfigüre edilmiş olduğu bir "Master Image" hazırlayarak takıma iletmek.
-- **Sistem Sağlığı Takibi:** Uçuş sırasında işlemci yükü, bellek kullanımı ve sıcaklık gibi kritik metrikleri izleyen izleme (monitoring) araçlarını sisteme dahil etmek.
-- **Rapor Liderliği:** Ön Tasarım Raporu (ÖTR) ve Kritik Tasarım Raporu (KTR) süreçlerinde teknik mimariyi dokümante etmek ve raporun bilimsel/teknik dilini denetlemek.
-
-## **Eyüp Gök**
-Eyüp, sürünün kolektif hareket edebilmesi için gereken kesintisiz veri akışını sağlayan ağ mimarisinin kurucusudur. Araçtan Araca (V2V) ve Araçtan Yer Kontrol İstasyonu’na (V2G) olan tüm dijital köprülerin kurulması, güvenliği ve optimizasyonu onun sorumluluğundadır.
-
-- **Ağ Mimarisi ve Topoloji Yönetimi:** Yarışma sahasında sürünün kullanacağı yerel ağın (Wi-Fi, Telemetri veya RF) kurulumunu yapmak. IP adresleme, port yapılandırması ve veri çakışmalarını önleyen bir ağ hiyerarşisi oluşturmak.
-- **İHA-YKİ Haberleşme Protokolü:** Yer Kontrol İstasyonu ile sürü arasındaki veri trafiğini yönetmek. MAVLink paketlerinin veya ROS2 (DDS) mesajlarının kayıpsız bir şekilde Muhammed’in geliştirdiği arayüze ulaşmasını ve arayüzden gelen komutların doğru İHA’lara yönlendirilmesini sağlamak.
-- **V2V (Vehicle-to-Vehicle) Haberleşme:** Sürü algoritmalarının çalışabilmesi için İHA’ların birbirlerinin konum ve durum bilgilerini anlık olarak paylaşabileceği düşük gecikmeli (low-latency) haberleşme kanalını stabilize etmek.
-- **Sinyal Kalitesi ve RF Yönetimi:** Yarışma alanındaki frekans kirliliğini takip ederek sinyal kopmalarını önlemek. RSSI (Sinyal Gücü) değerlerini izlemek ve sinyal kaybı durumunda devreye girecek haberleşme tabanlı acil durum protokollerini tanımlamak.
-- **Veri Güvenliği ve Paket Optimizasyonu:** Şartnamede yer alan otonom görevler sırasında ağ trafiğinin şişmesini önlemek amacıyla, gönderilen veri paketlerini optimize etmek ve sistemin dış müdahalelere karşı güvenliğini sağlamak.
-- **Donanımsal Anten ve Modül Entegrasyonu:** Melih ile koordineli çalışarak; telemetri modülleri, Wi-Fi antenleri ve diğer haberleşme birimlerinin en yüksek verimle çalışacağı fiziksel konumlandırmayı ve bağlantıları kontrol etmek.
-
-## **Muhammed Emir Seçer** 
-Muhammed, sürü operasyonunun tek bir merkezden izlenmesini, yönetilmesini ve şartnamede belirtilen "Yarı Otonom Kontrol" görevlerinin icra edilmesini sağlayan yazılım platformunun mimarıdır. Python ve Qt (PyQt/PySide) kütüphanelerini kullanarak takımın özgün Yer Kontrol İstasyonu (YKİ) yazılımını geliştirmekle yükümlüdür.
-
-- **Özgün GUI Tasarımı ve Geliştirme:** Yarışma sahasında operatörün (Kaptan) ve hakemlerin sürünün durumunu anlık olarak izleyebileceği, kullanıcı dostu ve performans odaklı bir grafik arayüz (GUI) tasarlamak.
-- **Telemetri Görselleştirme:** Eyüp’ün kurduğu haberleşme altyapısından gelen ham verileri (irtifa, hız, batarya seviyesi, GPS koordinatları, bağlantı kalitesi vb.) her bir İHA özelinde ve sürü genelinde anlamlı grafiklere/göstergelere dönüştürmek.
-- **Görev 2: Yarı Otonom Sürü Kontrol Modülü:** Şartnamede yer alan "tek bir kontrol birimi üzerinden tüm sürünün yönetilmesi" kuralı gereği, YKİ'ye bağlı joystick veya klavye girdilerini alarak bu komutları sürüdeki tüm araçlara eş zamanlı olarak dağıtacak yazılım mantığını kurmak.
-- **Durum Takibi (State Machine) Ekranı:** Sürünün o an hangi aşamada olduğunu (Kalkış yapıldı, QR aranıyor, Formasyon 1 uygulandı, İniş bölgesine yönelindi vb.) görselleştiren bir akış diyagramı/panel hazırlamak.
-- **Hata Yönetimi ve Operatör Uyarıları:** Kritik eşiklerin (düşük batarya, sinyal kaybı, otonom rotadan sapma) aşılması durumunda operatörü görsel ve sesli olarak uyaran "Dashboard" sistemini hayata geçirmek.
-- **Veri Loglama ve Analiz:** Test uçuşları ve yarışma anındaki tüm telemetri verilerini, daha sonra Osman (Kaptan) tarafından simülasyon doğrulaması ve raporlama için kullanılabilecek standart formatlarda (CSV, JSON veya SQLite) kayıt altına almak.
-
-## **Ahmet Berk Yıldız ve Emirhan Yentur**
-İHA’ların çevresel farkındalığından ve şartnamede belirtilen görsel verilerin dijital talimatlara dönüştürülmesinden sorumludur. Sistemin "Gören Gözü" olarak, karmaşık görüntü işleme süreçlerini sürü navigasyonuna girdi sağlayacak şekilde kurgular. Sürünün kolektif hareket stratejilerini belirleyen ve verileri fiziksel uçuş hareketine dönüştüren "Merkezi Akıl" katmanından sorumludur. Dağıtık sürü mimarisinin kararlılığı onun yönetimindedir.
-
-- **QR Kod Tanımlama ve Dekodlama:** Yarışma sahasındaki QR kodların farklı irtifa ve açılardan otonom olarak tespit edilmesi, okunması ve içindeki görev talimatlarının (formasyon değişikliği, manevra vb.) ayıklanması.
-- **Hassas İniş (Precision Landing) Algoritmaları:** İHA’ların belirlenen renkli (mavi, kırmızı, sarı) iniş alanlarını yüksek doğrulukla tespit etmesi ve iniş sırasında merkeze olan sapma miktarını (pixel-to-meter) hesaplayarak sisteme iletmesi.
-- **Görüntü Ön İşleme ve Optimizasyon:** Sahadaki ışık değişimleri, sarsıntı veya bulanıklık gibi olumsuz etkileri minimize edecek filtreleme tekniklerini (OpenCV/Cuda vb.) uygulamak.
-- **Kamera ve Sensör Kalibrasyonu:** Kamera FOV değerlerini şartnameye uygun tutmak ve lens bozulmalarını (distortion) yazılımsal olarak gidermek.
-- **Dağıtık Sürü ve Formasyon Kontrolü:** İHA’ların birbirlerine göre konumlanarak istenilen geometrik şekilleri (V, Çizgi, Daire vb.) otonom olarak almasını ve korumasını sağlayan algoritmaları geliştirmek.
-- **Dinamik Rota Planlama:** Berk tarafından iletilen görev talimatlarına göre sürünün yeni rotasını anlık olarak hesaplamak ve tüm birimlere paylaştırmak.
-- **Çarpışma Önleme ve Güvenlik Zarfları:** Sürü üyelerinin birbirleriyle veya engellerle temasını önleyen matematiksel modelleri (Sanal Potansiyel Alanlar vb.) sisteme entegre etmek.
-- **Sürü Üyesi Yönetimi:** Şartnamede istenen "sürüye yeni birey ekleme/çıkarma" senaryolarında, sürünün kararlılığını bozmadan otonom yeniden yapılandırmayı (reconfiguration) sağlamak.
-- **Görev Durum Makinesi (Mission State Machine):** İHA'nın "Kalkış -> QR Arama -> Görev İcrası -> İniş" döngüsündeki tüm geçiş mantığını beraber kurgularlar.
-- **ROS Mesaj Yapılandırması:** Görüntü işleme düğümü (node) ile sürü kontrol düğümü arasındaki haberleşme protokollerini Osman'ın (Kaptan) belirlediği mimari çerçevesinde ortaklaşa optimize ederler.
-- **Hata Yönetimi (Fail-Safe):** Görsel temasın kaybolması veya sürü bütünlüğünün bozulması durumunda devreye girecek olan "Yazılımsal Acil Durum" senaryolarını birlikte test ederler.
-
-# Dizin Yapisi
+Yelpençe 2026 Sürü İHA projesi, modüler bir ROS 2 altyapısı ve simülasyon ortamı kullanmaktadır. Projemizin ana dizin ve dosya yapısı aşağıdaki gibidir:
 
 ```text
 yelpence-2026-swarm/
-├── docs/                   # Şartname, raporlar ve teknik dokümantasyon
-├── src/                    # Kaynak kodların ana dizini
-│   ├── gcs/                # Yer Kontrol istasyonu modülleri
-│   ├── swarm/              # Sürü yönetim ve formasyon mantığı
-│   ├── vision/             # QR kod ve görüntü işleme algoritmalari
-│   ├── network/            # MAVLink ve haberleşme köprüleri
-│   └── msgs/               # Özel ROS2 mesaj tanımları
-├── sim/                    # Gazebo dünyaları ve IHA modelleri
-├── config/                 # Parametre ve uçuş konfigürasyonları
-├── docker/                 # Geliştirme ortamı
-├── scripts/                # Kurulum ve çarlıştırma yardımcı betikleri
-└── tests/                  # Birim ve entegrasyon testleri
+├── .github/
+│   └── workflows/
+│       └── ros2_build.yml           # GitHub Actions için ROS 2 otomatik test ve CI/CD yapılandırması
+│-------------------------------------------------------------------------------------------------------------------------------------
+├── config/                          # İHA uçuş parametreleri ve sistem konfigürasyonları için ayrılmış dizin
+│-------------------------------------------------------------------------------------------------------------------------------------
+├── docker/                          # Geliştirme ve Gazebo simülasyon ortamı için Docker dosyaları
+│   ├── Dockerfile                   # ROS 2 Jazzy, Gazebo Harmonic ve sistem bağımlılıklarını içeren imaj tanımı
+│   ├── build.bash                   # Kullanıcı izinlerini (UID/GID) otomatik ayarlayarak imajı inşa eden betik
+│   ├── docker-compose-amd.yml       # AMD/Intel grafik birimleri için donanım hızlandırmalı Compose yapılandırması
+│   ├── docker-compose.yml           # Nvidia ekran kartları için GPU destekli Compose yapılandırması
+│   └── entrypoint.sh                # Konteyner başlatıldığında ROS çalışma alanını aktif eden başlangıç betiği
+│-------------------------------------------------------------------------------------------------------------------------------------
+├── docs/                            # Şartname, teknik raporlar ve detaylı proje dokümantasyonu dizini
+│-------------------------------------------------------------------------------------------------------------------------------------
+├── scripts/                         # Simülasyon dünyası üretimi ve sistem başlatma betikleri
+│   ├── generate_task1_world.py      # Görev 1 (Dinamik Sürü) için sahada rastgele QR ve iniş pedleri üreten betik
+│   ├── generate_task2_worlds.py     # Görev 2 için formasyon, navigasyon ve çarpışmadan kaçınma dünyalarını üreten betik
+│   ├── install.sh                   # Tüm kurulumları tamamlayıp ortamı hazır hale getiren betik (NVIDIA)
+│   ├── install.sh                   # Tüm kurulumları tamamlayıp ortamı hazır hale getiren betik (AMD/INTEL)
+│   └── start-docker.sh              # Kullanıcının GPU seçimine göre Docker'ı ayağa kaldıran ve içine girilmesini sağlayan betik
+│-------------------------------------------------------------------------------------------------------------------------------------
+├── sim/                             # Gazebo Harmonic simülasyon ortamları ve 3D modeller
+│   └── worlds/
+│       ├── base_world.sdf           # Ortak futbol sahası ve temel fizik/ışık ortamını barındıran şablon dünya
+│       ├── task1_dynamic_swarm.sdf  # Üretilmiş Görev 1 simülasyon dünyası dosyası
+│       ├── task2_collision.sdf      # Üretilmiş Görev 2 (Çarpışma) simülasyon dünyası dosyası
+│       ├── task2_formation.sdf      # Üretilmiş Görev 2 (Formasyon) simülasyon dünyası dosyası
+│       └── task2_navigation.sdf     # Üretilmiş Görev 2 (Navigasyon/İniş) simülasyon dünyası dosyası
+│-------------------------------------------------------------------------------------------------------------------------------------
+├── src/                             # ROS 2 paketlerinin ve kaynak kodların bulunduğu ana çalışma alanı
+│   ├── gcs/                         # Yer Kontrol İstasyonu (GCS) paketi
+│   │   ├── gcs/gcs_node.py          # Joystick ve arayüz komutlarını dinleyerek sürüye ileten ana ROS 2 düğümü
+│   │   ├── package.xml              # GCS paketi ROS 2 bağımlılık tanımları
+│   │   └── setup.py                 # Paket kurulum ve çalıştırılabilir komut tanımları
+│   ├── network/                     # İHA'lar arası iletişim ve telemetri trafiğini yöneten paket
+│   │   ├── network/network_manager.py # Sürü içi ve GCS haberleşme altyapısını yöneten ROS 2 düğümü
+│   │   ├── package.xml              # Ağ paketi bağımlılık tanımları
+│   │   └── setup.py                 # Paket kurulum ve komut tanımları
+│   ├── swarm/                       # Sürü zekası, formasyon kontrolü ve otonom karar mekanizmaları paketi
+│   │   ├── swarm/swarm_controller.py # İHA'ların görev dağılımını ve hareket algoritmasını yürüten ROS 2 düğümü
+│   │   ├── package.xml              # Sürü paketi bağımlılık tanımları
+│   │   └── setup.py                 # Paket kurulum ve komut tanımları
+│   ├── vision/                      # Kamera verisi, QR tespiti ve hassas konumlandırma paketi
+│   │   ├── vision/qr_detector.py    # Görüntü işleyen ve elde edilen QRData mesajlarını yayınlayan ROS 2 düğümü
+│   │   ├── package.xml              # Görüntü işleme paketi bağımlılık tanımları
+│   │   └── setup.py                 # Paket kurulum ve komut tanımları
+│   └── yelpence_msgs/               # Sürü sistemine özel tanımlanmış veri yapıları (ROS 2 mesaj tipleri)
+│       ├── msg/
+│       │   ├── FormationCommand.msg # Sürü dizilim komutlarını taşıyan mesaj tipi (formasyon tipi, irtifa, aralık)
+│       │   ├── QRData.msg           # Görüntüden çözümlenen QR içeriğini ve hedef bilgileri taşıyan mesaj tipi
+│       │   └── SwarmState.msg       # Her bir İHA'nın konum, batarya ve görev durumunu taşıyan telemetri mesaj tipi
+│       ├── CMakeLists.txt           # C++ tabanlı mesaj derleme konfigürasyonu
+│       └── package.xml              # Mesaj paketi bağımlılık tanımları
+│-------------------------------------------------------------------------------------------------------------------------------------
+├── tests/                           # Yazılım bileşenleri için birim (unit) ve entegrasyon testlerinin ekleneceği dizin
+├── .gitattributes                   # Git LFS ile (.world, .mp4, .onnx) büyük simülasyon dosyalarını takip eden konfigürasyon
+├── .gitignore                       # Derleme çıktıları, IDE klasörleri ve önbellek dosyalarının Git'e eklenmesini engelleyen yapılandırma
+├── LICENSE                          # Yazılımın kullanım haklarını belirleyen Unlicense (Kamu Malı) sözleşmesi
+└── README.md                        # Projenin amacını, mimarisini ve Docker kurulum adımlarını içeren ana bilgi dokümanı
 ```
----
 
 # Kurulum ve Başlangıç
 
 ## 1. Git LFS (Large File Storage) Yapılandırması
 
-Bu projede ağır veri setleri ve simülasyon modelleri LFS ile takip edilmektedir. Repoyu kopyalamadan önce LFS'yi bilgisayarınıza kurmanız zorunludur:
+Ağır veri setleri ve simülasyon modelleri LFS ile takip edilmektedir. Repoyu kopyalamadan önce LFS'yi bilgisayarınıza kurmanız zorunludur:
 
 ```bash
 # Ubuntu için:
@@ -98,172 +91,91 @@ git clone https://github.com/yelpence-uav/yelpence-2026-swarm.git
 ```
 
 ## 3. Geliştirme Ortamı Kurulumu
-Projemiz, "Bende çalışıyor sende çalışmıyor" sorununu önlemek için Docker konteynerleri üzerinde çalışmaktadır. Aşağıdaki adımları sırasıyla uygulayarak kurulumu tamamlayınız.
-
-> Not: Bu komutlar Ubuntu 22.04 ve 24.04 ile uyumludur.
-
-### 3.1. Docker Engine Kurulumu
-Docker'ı kurmak ve sudo kullanmadan çalıştırabilmek için:
+Projemiz Docker konteynerleri üzerinde çalışmaktadır. Aşağıdaki betikleri uygulayarak kurulumu tamamlayınız. Bu aşamanın sonunda; Docker kurulur, Nvidia Toolkit kurulumu ve ayarları yapılır, Docker kullanıcı grubu ayarları yapılır, dosya izinleri verilir ve Docker imajı inşa edilir.
 
 ```bash
-# Gerekli başlangıç paketlerini kurun
-sudo apt-get update
-sudo apt-get install ca-certificates curl
+# Proje dosyasındaki sciprits/ dizinine gidin
+cd scripts/
 
-# Docker'ın resmi GPG anahtarını ekleyin
-sudo install -m 0755 -d /etc/apt/keyrings
-sudo curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
-sudo chmod a+r /etc/apt/keyrings/docker.asc
+# Kurulum betiğine çalıştırma izni verin
+chmod +x install.sh # NVIDIA GPU
+chmod +x install-amd.sh # AMD/INTEL GPU
 
-# Docker deposunu kaynaklara ekleyin
-echo \
-  "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu \
-  $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | \
-  sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
-
-# Docker'ı yükleyin
-sudo apt-get update
-sudo apt-get install docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
-
-# Kullanıcınızı 'docker' grubuna ekleyin
-# Bu işlem sayesinde her seferinde 'sudo' yazmak zorunda kalmazsınız.
-sudo usermod -aG docker $USER
-
-# Grup değişikliğini aktif edin
-newgrp docker
+# Kurulum betiğini çalıştırın
+./install.sh # NVIDIA GPU
+./install-amd.sh # AMD/INTEL GPU
 ```
 
-### 3.2. NVIDIA Container Toolkit Kurulumu (Sadece Nvidia İçin)
-Simülasyonun ekran kartını kullanabilmesi ve siyah ekran hatası vermemesi için bu adım zorunludur. AMD kullanıcıları **3.3. Dosya İzinleri**  bölümüne geçebilir.
+## 4. Sanal Ortamı Başlatma ve Ortama Giriş
+Kurulum bittikten sonra aşağıdaki betiği kullanarak sistemi ayağa kaldırın. Docker konteyneri aktif hale gelir ve betik sonunda oluşan konteynerin içine girersiniz. Kurulum sırasında yönergeleri takip edin.
 
-```bash
-# Nvidia deposunu ekleyin
-curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey | sudo gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg \
-  && curl -s -L https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list | \
-  sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' | \
-  sudo tee /etc/apt/sources.list.d/nvidia-container-toolkit.list
-
-# Toolkit'i yükleyin
-sudo apt-get update
-sudo apt-get install -y nvidia-container-toolkit
-
-# Docker'ı Nvidia sürücüsüyle yapılandırın
-sudo nvidia-ctk runtime configure --runtime=docker
-
-# Docker servisini yeniden başlatın
-sudo systemctl restart docker
-```
-
-### 3.3. Dosya İzinlerinin Ayarlanması
-Proje içindeki yardımcı scriptlerin çalışabilmesi için izinleri verin:
-
-```bash
-cd docker
-chmod +x build.bash entrypoint.sh ../scripts/sim_start.sh
-```
-
-### 3.4. Docker İmajının İnşası
-Takım üyelerinin farklı kullanıcı ID'leri (UID) sebebiyle dosya izin hatası yaşamaması için özel inşa scriptini çalıştırın. Bu script, imajı size özel paketler.
-
-```bash
-# docker klasörü içerisindeyken:
-./build.bash
-```
-> Not: İnternet hızınıza bağlı olarak ilk kurulum 5-10 dakika sürebilir.
-
-### 3.5. Sanal Ortamı Başlatma
-Kurulum bittikten sonra sistemi ayağa kaldırın:
 ```Bash
-# GUI izinlerini tazeleyin
-xhost +local:root
+# scripts/ dizininde olduğunuza emin olun
+chmod +x start-docker.sh
 
-# Konteyneri başlatın
-# Nvidia Kullanıcıları: 
-docker compose up -d
+# Betiği çalıştırın
+./start-docker.sh
+```
+
+> Bundan sonra konteyneri çalıştırmak ve içine girmek için her zaman "./start-docker.sh" betiğini kullanabilirsiniz. Çalıştırma izinlerinin bir kere verilmesi yeterlidir.
+
+## 5. Çalışmayı Durdurma
+İşiniz bittiğinde bilgisayarınızı yormaması için sistemi kapatın:
+
+```bash
+# Host terminalinde docker dizinine gidin:
+cd ../docker
+
+# Nvidia Kullanıcıları:
+docker compose down
 
 # AMD Kullanıcıları:
-docker compose -f docker-compose-amd.yml up -d
+docker compose -f docker-compose-amd.yml down
+
 ```
-### 3.1. Geliştirme Ortamına Giriş
-Sanal bilgisayarın içine girmek için:
+
+> docker ps komutunu kullanarak hali hazırda aktif olan konteynerleri listeleyebilirsiniz. Bu listede bulunanlar kaynak tüketirler.
+
+## 6. Simülasyon Ortamının Kullanımı
+Aşağıdaki python scriptleri base_world.sdf dünyasını şablon alarak task1_dynamic_swarm.sdf, task2_collision.sdf, task2_formation.sdf, task2_navigation.sdf dünyalarını inşa eder.
+
+```python
+python3 scripts/generate_task1_world.py     # task1_dynamic_swarm.sdf
+python3 sctipts/generate_task2_worlds.py    # task2 dünyaları
+```
+
+> DİKKAT! Dünyalar üzerinde yaptığınız değişiklikler bu komutların çalışması ile kaybolabilir.
+
+İstediğiniz bir dünyayı Gazebo ile başlatmak için aşağıdaki komutu kullanabilirsiniz.
 
 ```bash
-docker exec -it yelpence_swarm_container bash
+gz sim /sim/worlds/[DÜNYANIN ADI]
 ```
-> Artık içeridesiniz! ros2 topic list gibi komutlar çalışacaktır.
 
-## 4. Yazılım Mimarisi ve ROS 2 Altyapısı
+## 7. Yazılım Mimarisi ve ROS 2 Altyapısı
 
-### 4.1. Amaç ve Mantık
+### 7.1. Amaç ve Mantık
 ROS 2 projelerinde kodların derlenebilmesi ve sistem tarafından tanınabilmesi için belirli bir paket yapısına sahip olması gerekir. Projemizin başlangıç aşamasında oluşturulan hiyerarşik klasörler, içlerine `package.xml` ve `setup.py` / `CMakeLists.txt` dosyaları eklenerek resmi birer ROS 2 yazılım modülüne dönüştürülmüştür. 
 
 Bu sayede modüler, görev dağılımına uygun ve birindeki hata diğerinin çalışmasını engellemeyen bir çalışma alanı altyapısı kurulmuştur.
 
 Ayrıca, sürü İHA'lar arasındaki yüksek frekanslı haberleşme trafiğini en düşük gecikmeyle ve en stabil şekilde yönetebilmek adına, ROS 2'nin varsayılan haberleşme protokolü yerine çoklu otonom sistemler için endüstri standardı olan **CycloneDDS** altyapısı sisteme entegre edilmiş ve Docker ortamımıza kalıcı olarak dahil edilmiştir.
 
-### 4.2. Paket Mimarisi ve Görev Dağılımı
+### 7.2. Paket Mimarisi ve Görev Dağılımı
 Projemizin `src` dizini altındaki yazılım modülleri ve görev tanımları şu şekildedir:
 
 * **`swarm`:** Sürü İHA formasyon kontrolü, otonom karar alma mekanizmaları ve dinamik görev paylaşımı algoritmalarını barındırır.
 * **`vision`:** Kamera verilerinin işlenmesi, sahada yer alan QR kodların okunup çözümlenmesi ve hedef alanlara hassas iniş görevlerini yönetir.
 * **`network`:** İHA'ların kendi aralarındaki ve Yer İstasyonu ile olan ağ haberleşmesinin mantıksal döngülerini kontrol eder.
 * **`gcs`:** Yer Kontrol İstasyonu kullanıcı arayüzünü, telemetri takibini ve yarışmadaki "Yarı Otonom Sürü Kontrolü" görevi için joystick/kumanda entegrasyonunu içerir.
-* **`msgs`:** ROS 2 standart mesaj tiplerinin yetersiz kaldığı durumlarda, Yelpençe takımına özel veri yapılarını tanımladığımız kütüphanedir.
+* **`yelpence_msgs`**: Sürü algoritmalarının ihtiyaç duyduğu özel ROS 2 mesaj tiplerini barındırır. Şartnamede geçen görevlerin icrası için İHA'ların kimlik ve konumlarını bildiren SwarmState, okunan şifreleri ileten QRData ve sürüye yeni dizilim komutları veren FormationCommand mesajlarını içerir.
 
-### 4.3. Geliştirme Ortamını Hazırlama
-Repoyu bilgisayarınıza klonladıktan sonra projeyi geliştirmeye başlamak için aşağıdaki standart adımları izlemeniz yeterlidir:
+# 8. CI/CD ve Otomatik Test Süreçleri
+Yelpençe takımı, kod kalitesini standartlaştırmak ve sisteme hatalı modüllerin dahil edilmesini önlemek amacıyla GitHub Actions destekli Sürekli Entegrasyon (CI) mimarisi kullanmaktadır.
 
-**1. Docker Ortamını Başlatma:**
-Projeyi VS Code üzerinden açın ve sol alt köşedeki yeşil butona tıklayarak (veya komut paletini kullanarak) "Reopen in Container" seçeneğini seçin. Bu işlem, Ubuntu 24.04, ROS 2 Jazzy, Gazebo ve CycloneDDS barındıran geliştirme ortamımızı otomatik olarak ayağa kaldıracaktır.
+Projeye gönderilen her yeni kod (push veya pull_request işlemi) otomatik olarak aşağıdaki denetimlerden geçer:
 
-**2. Çalışma Alanını Derleme:**
-Docker içindeki terminalde çalışma alanının kök dizinine giderek tüm paketleri derleyin:
-```bash
-cd ~/ros2_ws
-colcon build
-```
-
-### 4.4. Ortamı Aktif Etme:
-Derleme işlemi başarıyla tamamlandıktan sonra, ROS 2'nin paketlerimizi sistemde çalıştırılabilir olarak görmesi için ortamı güncelleyin:
-
-```Bash
-source install/setup.bash
-```
-> source komutunu terminali her yeniden açtığınızda çalıştırmalısınız.
-
-## 5. Simülasyonu Başlatma
-Gazebo'yu doğru grafik ayarlarıyla başlatmak için hazırladığımız otomatik başlatıcıyı kullanın.
-
-Konteynerin içindeyken:
-
-```bash
-./scripts/sim_start.sh  
-```
-
-Bu komut:
-
-- Fizik motorunu başlatır.
-- ROS 2 köprülerini kurar.
-- 3D Grafik Arayüzü açar.
-- Kapatıldığında tüm süreçleri temizler.
-
-### 5.1. Çalışmayı Durdurma
-İşiniz bittiğinde bilgisayarınızı yormaması için sistemi kapatın:
-
-```bash
-# Host terminalinde (docker klasöründe):
-# Nvidia Kullanıcıları:
-docker compose down
-
-# AMD Kullanıcıları:
-docker compose -f docker-compose-amd.yml down
-```
-
-## 6. Sorun Giderme
-
-| Sorun | Çözüm |
-| :--- | :--- |
-| `permission denied` hatası | `chmod +x` komutunu (Bölüm 3.3) tekrar uygulayın. |
-| Gazebo Siyah Ekran | Host makinede `xhost +local:root` komutunu çalıştırın. |
-| `Docker command not found` | `newgrp docker` komutunu çalıştırın veya bilgisayarı yeniden başlatın. |
-| GPU Görünmüyor | `nvidia-smi` komutunu host makinede deneyin, Bölüm 3.2'yi tekrarlayın. |
+- Docker Image Build Test: Eklenen yeni bir kodun veya kütüphanenin, takımın ortak Docker imajının derlenmesini bozup bozmadığı test edilir.
+- ROS 2 Build Test: Tüm çalışma alanı (colcon build) Ubuntu 24.04 ve ROS 2 Jazzy standartlarında sıfırdan derlenerek paket çakışmaları denetlenir.
+- Birim Testler (Unit Tests): colcon test komutu çalıştırılarak önceden yazılmış özel senaryo testlerinin başarı durumu kontrol edilir.
+- Linter ve Stil Denetimleri: Ekip içi tutarlılık için PEP 8 standartları (ament_flake8) ve yorum satırı / dokümantasyon kuralları (ament_pep257) analiz edilir. Kurallara uymayan kodların ana yapıya (main) birleşmesi engellenir.
