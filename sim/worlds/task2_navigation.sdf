@@ -160,7 +160,7 @@
 
     <model name="landing_pad_red">
       <static>true</static>
-      <pose>-19.67 -10.29 0.02 0 0 0</pose>
+      <pose>6.03 -2.19 0.02 0 0 0</pose>
       <link name="link">
         <visual name="visual">
           <geometry><cylinder><radius>0.5</radius><length>0.01</length></cylinder></geometry>
@@ -171,7 +171,7 @@
 
     <model name="landing_pad_blue">
       <static>true</static>
-      <pose>14.97 -6.55 0.02 0 0 0</pose>
+      <pose>-19.76 -1.95 0.02 0 0 0</pose>
       <link name="link">
         <visual name="visual">
           <geometry><cylinder><radius>0.5</radius><length>0.01</length></cylinder></geometry>
@@ -182,7 +182,7 @@
 
     <model name="landing_pad_green">
       <static>true</static>
-      <pose>5.83 10.51 0.02 0 0 0</pose>
+      <pose>12.14 6.42 0.02 0 0 0</pose>
       <link name="link">
         <visual name="visual">
           <geometry><cylinder><radius>0.5</radius><length>0.01</length></cylinder></geometry>
@@ -193,7 +193,7 @@
 
     <model name="landing_pad_yellow">
       <static>true</static>
-      <pose>-4.81 -0.07 0.02 0 0 0</pose>
+      <pose>16.21 8.37 0.02 0 0 0</pose>
       <link name="link">
         <visual name="visual">
           <geometry><cylinder><radius>0.5</radius><length>0.01</length></cylinder></geometry>
