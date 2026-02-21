@@ -29,6 +29,9 @@ RUN apt-get update && apt-get install -y \
     libgl1-mesa-dri \
     && rm -rf /var/lib/apt/lists/*
 
+# QR kod üretimi için Python bağımlılığı
+RUN pip3 install --break-system-packages qrcode[pil]
+
 # --- YELPENÇE ÖZELLEŞTİRMESİ ---
 ARG USERNAME=yelpence
 ARG USER_UID=1000
