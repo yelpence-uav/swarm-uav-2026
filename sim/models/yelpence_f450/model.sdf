@@ -1,0 +1,665 @@
+<?xml version="1.0" ?>
+<sdf version="1.9">
+  <model name="yelpence_f450">
+    <include>
+      <uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/X3 UAV/4</uri>
+      <name>platform</name>
+      
+      <!-- Motor 0: Front-Right, CCW – Emax MT2213 935KV + 8045 -->
+      <plugin filename="gz-sim-multicopter-motor-model-system"
+              name="gz::sim::systems::MulticopterMotorModel">
+        <robotNamespace>yelpence_f450_0</robotNamespace>
+        <jointName>X3/rotor_0_joint</jointName>
+        <linkName>X3/rotor_0</linkName>
+        <turningDirection>ccw</turningDirection>
+        <timeConstantUp>0.0125</timeConstantUp>
+        <timeConstantDown>0.025</timeConstantDown>
+        <maxRotVelocity>1500.0</maxRotVelocity>
+        <motorConstant>1.19e-05</motorConstant>
+        <momentConstant>0.016</momentConstant>
+        <commandSubTopic>command/motor_speed</commandSubTopic>
+        <motorNumber>0</motorNumber>
+        <rotorDragCoefficient>8.06428e-05</rotorDragCoefficient>
+        <rollingMomentCoefficient>1e-06</rollingMomentCoefficient>
+        <motorSpeedPubTopic>motor_speed/0</motorSpeedPubTopic>
+        <rotorVelocitySlowdownSim>10</rotorVelocitySlowdownSim>
+        <motorType>velocity</motorType>
+      </plugin>
+      
+      <!-- Motor 1: Back-Left, CW – Emax MT2213 935KV + 8045 -->
+      <plugin filename="gz-sim-multicopter-motor-model-system"
+              name="gz::sim::systems::MulticopterMotorModel">
+        <robotNamespace>yelpence_f450_0</robotNamespace>
+        <jointName>X3/rotor_1_joint</jointName>
+        <linkName>X3/rotor_1</linkName>
+        <turningDirection>ccw</turningDirection>
+        <timeConstantUp>0.0125</timeConstantUp>
+        <timeConstantDown>0.025</timeConstantDown>
+        <maxRotVelocity>1500.0</maxRotVelocity>
+        <motorConstant>1.19e-05</motorConstant>
+        <momentConstant>0.016</momentConstant>
+        <commandSubTopic>command/motor_speed</commandSubTopic>
+        <motorNumber>1</motorNumber>
+        <rotorDragCoefficient>8.06428e-05</rotorDragCoefficient>
+        <rollingMomentCoefficient>1e-06</rollingMomentCoefficient>
+        <motorSpeedPubTopic>motor_speed/1</motorSpeedPubTopic>
+        <rotorVelocitySlowdownSim>10</rotorVelocitySlowdownSim>
+        <motorType>velocity</motorType>
+      </plugin>
+
+      <!-- Motor 2: Front-Left, CW – Emax MT2213 935KV + 8045 -->
+      <plugin filename="gz-sim-multicopter-motor-model-system"
+              name="gz::sim::systems::MulticopterMotorModel">
+        <robotNamespace>yelpence_f450_0</robotNamespace>
+        <jointName>X3/rotor_2_joint</jointName>
+        <linkName>X3/rotor_2</linkName>
+        <turningDirection>cw</turningDirection>
+        <timeConstantUp>0.0125</timeConstantUp>
+        <timeConstantDown>0.025</timeConstantDown>
+        <maxRotVelocity>1500.0</maxRotVelocity>
+        <motorConstant>1.19e-05</motorConstant>
+        <momentConstant>0.016</momentConstant>
+        <commandSubTopic>command/motor_speed</commandSubTopic>
+        <motorNumber>2</motorNumber>
+        <rotorDragCoefficient>8.06428e-05</rotorDragCoefficient>
+        <rollingMomentCoefficient>1e-06</rollingMomentCoefficient>
+        <motorSpeedPubTopic>motor_speed/2</motorSpeedPubTopic>
+        <rotorVelocitySlowdownSim>10</rotorVelocitySlowdownSim>
+        <motorType>velocity</motorType>
+      </plugin>
+
+      <!-- Motor 3: Back-Right, CCW – Emax MT2213 935KV + 8045 -->
+      <plugin filename="gz-sim-multicopter-motor-model-system"
+              name="gz::sim::systems::MulticopterMotorModel">
+        <robotNamespace>yelpence_f450_0</robotNamespace>
+        <jointName>X3/rotor_3_joint</jointName>
+        <linkName>X3/rotor_3</linkName>
+        <turningDirection>cw</turningDirection>
+        <timeConstantUp>0.0125</timeConstantUp>
+        <timeConstantDown>0.025</timeConstantDown>
+        <maxRotVelocity>1500.0</maxRotVelocity>
+        <motorConstant>1.19e-05</motorConstant>
+        <momentConstant>0.016</momentConstant>
+        <commandSubTopic>command/motor_speed</commandSubTopic>
+        <motorNumber>3</motorNumber>
+        <rotorDragCoefficient>8.06428e-05</rotorDragCoefficient>
+        <rollingMomentCoefficient>1e-06</rollingMomentCoefficient>
+        <motorSpeedPubTopic>motor_speed/3</motorSpeedPubTopic>
+        <rotorVelocitySlowdownSim>10</rotorVelocitySlowdownSim>
+        <motorType>velocity</motorType>
+      </plugin>
+
+      <!-- Gazebo Velocity Controller KALDIRILDI.
+           Motorlar, PX4 SITL MAVLink eklentisi tarafından
+           orijinal gazebo topic'lerine doğrudan hız komutları gönderilerek sürülecektir. -->
+
+      <!-- PX4 Odometry (Local Position) üzerinden gideceği için bunu kaldırıyoruz veya tutuyoruz:
+           Eğer drone'un gerçek gazebo ground-truth pozisyonunu debug amaçlı bilmek istersek
+           odometry publisher kalsın ama namespace'ini netleştirelim. -->
+      <plugin filename="gz-sim-odometry-publisher-system"
+              name="gz::sim::systems::OdometryPublisher">
+        <dimensions>3</dimensions>
+        <odom_topic>ground_truth/odom</odom_topic>
+      </plugin>
+    </include>
+
+    <!-- ──────────────────────────────────────────────
+         PX4 ESSENTIAL SENSORS (Baro, Mag, IMU, GPS)
+         ────────────────────────────────────────────── -->
+    <link name="base_link">
+      <pose>0 0 0.05 0 0 0</pose>
+      <inertial>
+        <mass>0.05</mass>
+        <inertia>
+          <ixx>0.0001</ixx><ixy>0</ixy><ixz>0</ixz>
+          <iyy>0.0001</iyy><iyz>0</iyz><izz>0.0001</izz>
+        </inertia>
+      </inertial>
+      <sensor name="air_pressure_sensor" type="air_pressure">
+        <gz_frame_id>base_link</gz_frame_id>
+        <always_on>1</always_on>
+        <update_rate>50</update_rate>
+        <air_pressure>
+          <pressure>
+            <noise type="gaussian">
+              <mean>0</mean>
+              <stddev>3</stddev>
+            </noise>
+          </pressure>
+        </air_pressure>
+      </sensor>
+      <sensor name="magnetometer_sensor" type="magnetometer">
+        <gz_frame_id>base_link</gz_frame_id>
+        <always_on>1</always_on>
+        <update_rate>100</update_rate>
+        <magnetometer>
+          <x><noise type="gaussian"><stddev>0.0001</stddev></noise></x>
+          <y><noise type="gaussian"><stddev>0.0001</stddev></noise></y>
+          <z><noise type="gaussian"><stddev>0.0001</stddev></noise></z>
+        </magnetometer>
+      </sensor>
+      <sensor name="imu_sensor" type="imu">
+        <gz_frame_id>base_link</gz_frame_id>
+        <always_on>1</always_on>
+        <update_rate>250</update_rate>
+        <imu>
+          <angular_velocity>
+            <x><noise type="gaussian"><mean>0.0</mean><stddev>0.0008726646</stddev></noise></x>
+            <y><noise type="gaussian"><mean>0.0</mean><stddev>0.0008726646</stddev></noise></y>
+            <z><noise type="gaussian"><mean>0.0</mean><stddev>0.0008726646</stddev></noise></z>
+          </angular_velocity>
+          <linear_acceleration>
+            <x><noise type="gaussian"><mean>0.0</mean><stddev>0.00637</stddev></noise></x>
+            <y><noise type="gaussian"><mean>0.0</mean><stddev>0.00637</stddev></noise></y>
+            <z><noise type="gaussian"><mean>0.0</mean><stddev>0.00686</stddev></noise></z>
+          </linear_acceleration>
+        </imu>
+      </sensor>
+      <sensor name="navsat_sensor" type="navsat">
+        <gz_frame_id>base_link</gz_frame_id>
+        <always_on>1</always_on>
+        <update_rate>30</update_rate>
+      </sensor>
+    </link>
+    <joint name="fcu_joint" type="fixed">
+      <parent>platform::X3/base_link</parent>
+      <child>base_link</child>
+    </joint>
+
+    <!-- ──────────────────────────────────────────────
+         yELPENCE CUSTOM HARDWARE
+         ────────────────────────────────────────────── -->
+    
+    <!-- 1. RPLidar A1 (Top Center) -->
+    <link name="lidar_link">
+      <pose>0 0 0.12 0 0 0</pose>
+      <inertial>
+        <mass>0.170</mass>
+        <inertia>
+          <ixx>0.0001</ixx><ixy>0</ixy><ixz>0</ixz>
+          <iyy>0.0001</iyy><iyz>0</iyz><izz>0.0001</izz>
+        </inertia>
+      </inertial>
+      <visual name="lidar_visual">
+        <geometry><cylinder><radius>0.035</radius><length>0.04</length></cylinder></geometry>
+        <material><ambient>0.05 0.05 0.05 1</ambient><diffuse>0.05 0.05 0.05 1</diffuse></material>
+      </visual>
+      <visual name="lidar_top">
+         <pose>0 0 0.022 0 0 0</pose>
+         <geometry><cylinder><radius>0.035</radius><length>0.005</length></cylinder></geometry>
+         <material><ambient>0 0 1 1</ambient><diffuse>0 0 0.8 1</diffuse></material>
+      </visual>
+      <collision name="lidar_collision">
+        <geometry><cylinder><radius>0.035</radius><length>0.04</length></cylinder></geometry>
+      </collision>
+      <sensor name="lidar" type="gpu_ray">
+        <pose>0 0 0 0 0 0</pose>
+        <topic>lidar</topic>
+        <update_rate>10</update_rate>
+        <ray>
+          <scan>
+            <horizontal>
+              <samples>360</samples>
+              <resolution>1</resolution>
+              <min_angle>-3.14159</min_angle>
+              <max_angle>3.14159</max_angle>
+            </horizontal>
+          </scan>
+          <range><min>0.15</min><max>12.0</max><resolution>0.01</resolution></range>
+        </ray>
+        <always_on>1</always_on>
+        <visualize>true</visualize>
+      </sensor>
+    </link>
+     <!-- Using scoped name platform::X3/base_link -->
+    <joint name="lidar_joint" type="fixed">
+      <parent>platform::X3/base_link</parent>
+      <child>lidar_link</child>
+    </joint>
+
+    <!-- 2. RealSense D435i (Front) -->
+    <link name="camera_link">
+      <pose>0.1 0 0.05 0 0 0</pose>
+      <inertial>
+        <mass>0.072</mass>
+        <inertia>
+          <ixx>0.001</ixx><ixy>0</ixy><ixz>0</ixz>
+          <iyy>0.001</iyy><iyz>0</iyz><izz>0.001</izz>
+        </inertia>
+      </inertial>
+      <visual name="camera_visual">
+        <geometry><box><size>0.025 0.090 0.025</size></box></geometry>
+        <material><ambient>0.8 0.8 0.8 1</ambient><diffuse>0.8 0.8 0.8 1</diffuse></material>
+      </visual>
+      <visual name="lens_l">
+         <pose>0.013 0.02 0 0 1.57 0</pose>
+         <geometry><cylinder><radius>0.008</radius><length>0.005</length></cylinder></geometry>
+         <material><ambient>0 0 0 1</ambient><diffuse>0 0 0 1</diffuse></material>
+      </visual>
+      <collision name="camera_collision">
+        <geometry><box><size>0.025 0.090 0.025</size></box></geometry>
+      </collision>
+      <sensor name="camera" type="rgbd_camera">
+        <topic>camera</topic>
+        <update_rate>30</update_rate>
+        <camera>
+          <horizontal_fov>1.50098</horizontal_fov>
+          <image><width>640</width><height>480</height><format>R8G8B8</format></image>
+          <clip><near>0.1</near><far>20.0</far></clip>
+        </camera>
+        <always_on>1</always_on>
+        <visualize>true</visualize>
+      </sensor>
+    </link>
+    <joint name="camera_joint" type="fixed">
+      <parent>platform::X3/base_link</parent>
+      <child>camera_link</child>
+    </joint>
+
+    <!-- 3. Here3 GPS (Back Top) -->
+    <link name="gps_link">
+      <pose>-0.05 0 0.12 0 0 0</pose>
+      <inertial>
+        <mass>0.050</mass>
+        <inertia>
+          <ixx>0.00002</ixx><ixy>0</ixy><ixz>0</ixz>
+          <iyy>0.00002</iyy><iyz>0</iyz><izz>0.00002</izz>
+        </inertia>
+      </inertial>
+      <visual name="gps_visual">
+        <geometry><cylinder><radius>0.03</radius><length>0.015</length></cylinder></geometry>
+        <material><ambient>0.1 0.1 0.1 1</ambient><diffuse>0.1 0.1 0.1 1</diffuse></material>
+      </visual>
+      <visual name="led_ring">
+        <pose>0 0 0.008 0 0 0</pose>
+        <geometry><cylinder><radius>0.025</radius><length>0.001</length></cylinder></geometry>
+        <material><ambient>0 1 0 1</ambient><diffuse>0 1 0 1</diffuse><emissive>0 1 0 1</emissive></material>
+      </visual>
+      <collision name="gps_collision">
+        <geometry><cylinder><radius>0.03</radius><length>0.015</length></cylinder></geometry>
+      </collision>
+      <sensor name="gps" type="navsat">
+        <topic>gps/fix</topic>
+        <update_rate>5</update_rate>
+        <always_on>1</always_on>
+      </sensor>
+      <sensor name="magnetometer" type="magnetometer">
+        <always_on>1</always_on>
+        <update_rate>50</update_rate>
+        <topic>mag</topic>
+      </sensor>
+    </link>
+    <joint name="gps_joint" type="fixed">
+      <parent>platform::X3/base_link</parent>
+      <child>gps_link</child>
+    </joint>
+
+    <!-- 4. Flight Controller -->
+    <link name="fc_link">
+      <pose>0 0 0.02 0 0 0</pose>
+      <inertial>
+        <mass>0.075</mass>
+        <inertia>
+          <ixx>0.00005</ixx><ixy>0</ixy><ixz>0</ixz>
+          <iyy>0.00005</iyy><iyz>0</iyz><izz>0.00005</izz>
+        </inertia>
+      </inertial>
+      <visual name="fc_visual">
+        <geometry><box><size>0.038 0.038 0.022</size></box></geometry>
+        <material><ambient>1 0.5 0 1</ambient><diffuse>1 0.5 0 1</diffuse></material>
+      </visual>
+      <collision name="fc_collision">
+        <geometry><box><size>0.038 0.038 0.022</size></box></geometry>
+      </collision>
+      <sensor name="imu_sensor" type="imu">
+        <always_on>1</always_on>
+        <update_rate>100</update_rate>
+        <visualize>true</visualize>
+        <topic>imu</topic>
+      </sensor>
+    </link>
+    <joint name="fc_joint" type="fixed">
+      <parent>platform::X3/base_link</parent>
+      <child>fc_link</child>
+    </joint>
+
+    <!-- 5. Battery – 14.8V 4S LiPo 5200mAh 45C (THK) -->
+    <!-- Dimensions: 145x48x34mm, Weight: ~490g -->
+    <!-- Pose: frame alt yüzeyi (~z=-0.020) - batarya yarı yüksekliği (0.017) = -0.037 -->
+    <!-- Batarya gövdeye dayalı, boşluksuz -->
+    <link name="battery_link">
+      <pose>0 0 -0.010 0 0 0</pose>
+      <inertial>
+        <!-- 490g measured, mounted under center plate -->
+        <mass>0.490</mass>
+        <inertia>
+          <!-- Box inertia: m*(y²+z²)/12 etc. for 145x48x34mm -->
+          <ixx>0.000553</ixx><ixy>0</ixy><ixz>0</ixz>
+          <iyy>0.001448</iyy><iyz>0</iyz>
+          <izz>0.001757</izz>
+        </inertia>
+      </inertial>
+      <visual name="battery_visual">
+        <!-- 145mm(L) x 48mm(W) x 34mm(H) -->
+        <geometry><box><size>0.145 0.048 0.034</size></box></geometry>
+        <material><ambient>0 0 0 1</ambient><diffuse>0.05 0.05 0.05 1</diffuse></material>
+      </visual>
+      <collision name="battery_collision">
+        <geometry><box><size>0.145 0.048 0.034</size></box></geometry>
+      </collision>
+    </link>
+    <joint name="battery_joint" type="fixed">
+      <parent>platform::X3/base_link</parent>
+      <child>battery_link</child>
+    </joint>
+
+    <!-- ═══════════════════════════════════════════════════════
+         F450 LANDING GEAR – Gerçek Yapı
+         ─────────────────────────────────────────────────────
+         2 adet yatay skid tüpü (sol + sağ, ön-arka yönünde)
+         4 adet eğimli bağlantı kolu (her köşede)
+         Malzeme: ABS Plastik – Beyaz/Açık Gri
+         Skid uzunluğu: ~360mm, y-offset: ±155mm
+         Bağlantı kolu: ~160mm, ~20° dışa eğimli
+         ═══════════════════════════════════════════════════════ -->
+
+    <!-- ── SOL SKID TÜPÜ (y = +0.155m, yere değen yatay tüp) ── -->
+    <link name="skid_left_link">
+      <!-- merkez: ön-arka ortası, solda, zemin seviyesinden ~200mm yukarı -->
+      <pose>0 0.155 -0.200 0 0 0</pose>
+      <inertial>
+        <mass>0.017</mass>
+        <inertia><ixx>0.000002</ixx><ixy>0</ixy><ixz>0</ixz><iyy>0.000190</iyy><iyz>0</iyz><izz>0.000190</izz></inertia>
+      </inertial>
+      <!-- Ana yatay tüp: 360mm uzun, ön-arka yönünde (X ekseni) -->
+      <visual name="skid_left_tube">
+        <pose>0 0 0 0 1.5707 0</pose>
+        <geometry><cylinder><radius>0.008</radius><length>0.360</length></cylinder></geometry>
+        <material><ambient>0.85 0.85 0.85 1</ambient><diffuse>0.90 0.90 0.90 1</diffuse><specular>0.3 0.3 0.3 1</specular></material>
+      </visual>
+      <!-- Ön uç kapağı -->
+      <visual name="skid_left_cap_front">
+        <pose>0.180 0 0 0 1.5707 0</pose>
+        <geometry><sphere><radius>0.008</radius></sphere></geometry>
+        <material><ambient>0.85 0.85 0.85 1</ambient><diffuse>0.90 0.90 0.90 1</diffuse></material>
+      </visual>
+      <!-- Arka uç kapağı -->
+      <visual name="skid_left_cap_back">
+        <pose>-0.180 0 0 0 1.5707 0</pose>
+        <geometry><sphere><radius>0.008</radius></sphere></geometry>
+        <material><ambient>0.85 0.85 0.85 1</ambient><diffuse>0.90 0.90 0.90 1</diffuse></material>
+      </visual>
+      <collision name="skid_left_col">
+        <pose>0 0 0 0 1.5707 0</pose>
+        <geometry><cylinder><radius>0.008</radius><length>0.360</length></cylinder></geometry>
+      </collision>
+    </link>
+    <joint name="skid_left_joint" type="fixed"><parent>platform::X3/base_link</parent><child>skid_left_link</child></joint>
+
+    <!-- ── SAĞ SKID TÜPÜ (y = -0.155m) ── -->
+    <link name="skid_right_link">
+      <pose>0 -0.155 -0.200 0 0 0</pose>
+      <inertial>
+        <mass>0.017</mass>
+        <inertia><ixx>0.000002</ixx><ixy>0</ixy><ixz>0</ixz><iyy>0.000190</iyy><iyz>0</iyz><izz>0.000190</izz></inertia>
+      </inertial>
+      <visual name="skid_right_tube">
+        <pose>0 0 0 0 1.5707 0</pose>
+        <geometry><cylinder><radius>0.008</radius><length>0.360</length></cylinder></geometry>
+        <material><ambient>0.85 0.85 0.85 1</ambient><diffuse>0.90 0.90 0.90 1</diffuse><specular>0.3 0.3 0.3 1</specular></material>
+      </visual>
+      <visual name="skid_right_cap_front">
+        <pose>0.180 0 0 0 1.5707 0</pose>
+        <geometry><sphere><radius>0.008</radius></sphere></geometry>
+        <material><ambient>0.85 0.85 0.85 1</ambient><diffuse>0.90 0.90 0.90 1</diffuse></material>
+      </visual>
+      <visual name="skid_right_cap_back">
+        <pose>-0.180 0 0 0 1.5707 0</pose>
+        <geometry><sphere><radius>0.008</radius></sphere></geometry>
+        <material><ambient>0.85 0.85 0.85 1</ambient><diffuse>0.90 0.90 0.90 1</diffuse></material>
+      </visual>
+      <collision name="skid_right_col">
+        <pose>0 0 0 0 1.5707 0</pose>
+        <geometry><cylinder><radius>0.008</radius><length>0.360</length></cylinder></geometry>
+      </collision>
+    </link>
+    <joint name="skid_right_joint" type="fixed"><parent>platform::X3/base_link</parent><child>skid_right_link</child></joint>
+
+    <!-- ── EĞİMLİ BAĞLANTI KOLLARI ──
+         Frame tabanından (~z=0) skid tüpüne (~z=-0.200, y=±0.155) uzanır
+         Kol uzunluğu: sqrt(0.155²+0.200²) ≈ 0.255m
+         Eğim açısı (X eksenine göre): atan2(0.155,0.200) ≈ 37.8° → 0.660 rad
+         Ön kollar X=+0.100, Arka kollar X=-0.100 konumunda -->
+
+    <!-- Ön-Sol bağlantı kolu (frame → sol skid, ön taraf) -->
+    <link name="strut_fl_link">
+      <!-- Kolun orta noktası: ön-sol köşe ile skid arası -->
+      <pose>0.100 0.0775 -0.100 0.660 0 0</pose>
+      <inertial>
+        <mass>0.009</mass>
+        <inertia><ixx>0.000001</ixx><ixy>0</ixy><ixz>0</ixz><iyy>0.000045</iyy><iyz>0</iyz><izz>0.000045</izz></inertia>
+      </inertial>
+      <visual name="strut_fl_v">
+        <geometry><cylinder><radius>0.007</radius><length>0.255</length></cylinder></geometry>
+        <material><ambient>0.80 0.80 0.80 1</ambient><diffuse>0.85 0.85 0.85 1</diffuse></material>
+      </visual>
+      <collision name="strut_fl_col">
+        <geometry><cylinder><radius>0.007</radius><length>0.255</length></cylinder></geometry>
+      </collision>
+    </link>
+    <joint name="strut_fl_joint" type="fixed"><parent>platform::X3/base_link</parent><child>strut_fl_link</child></joint>
+
+    <!-- Ön-Sağ bağlantı kolu -->
+    <link name="strut_fr_link">
+      <pose>0.100 -0.0775 -0.100 -0.660 0 0</pose>
+      <inertial>
+        <mass>0.009</mass>
+        <inertia><ixx>0.000001</ixx><ixy>0</ixy><ixz>0</ixz><iyy>0.000045</iyy><iyz>0</iyz><izz>0.000045</izz></inertia>
+      </inertial>
+      <visual name="strut_fr_v">
+        <geometry><cylinder><radius>0.007</radius><length>0.255</length></cylinder></geometry>
+        <material><ambient>0.80 0.80 0.80 1</ambient><diffuse>0.85 0.85 0.85 1</diffuse></material>
+      </visual>
+      <collision name="strut_fr_col">
+        <geometry><cylinder><radius>0.007</radius><length>0.255</length></cylinder></geometry>
+      </collision>
+    </link>
+    <joint name="strut_fr_joint" type="fixed"><parent>platform::X3/base_link</parent><child>strut_fr_link</child></joint>
+
+    <!-- Arka-Sol bağlantı kolu -->
+    <link name="strut_bl_link">
+      <pose>-0.100 0.0775 -0.100 0.660 0 0</pose>
+      <inertial>
+        <mass>0.009</mass>
+        <inertia><ixx>0.000001</ixx><ixy>0</ixy><ixz>0</ixz><iyy>0.000045</iyy><iyz>0</iyz><izz>0.000045</izz></inertia>
+      </inertial>
+      <visual name="strut_bl_v">
+        <geometry><cylinder><radius>0.007</radius><length>0.255</length></cylinder></geometry>
+        <material><ambient>0.80 0.80 0.80 1</ambient><diffuse>0.85 0.85 0.85 1</diffuse></material>
+      </visual>
+      <collision name="strut_bl_col">
+        <geometry><cylinder><radius>0.007</radius><length>0.255</length></cylinder></geometry>
+      </collision>
+    </link>
+    <joint name="strut_bl_joint" type="fixed"><parent>platform::X3/base_link</parent><child>strut_bl_link</child></joint>
+
+    <!-- Arka-Sağ bağlantı kolu -->
+    <link name="strut_br_link">
+      <pose>-0.100 -0.0775 -0.100 -0.660 0 0</pose>
+      <inertial>
+        <mass>0.009</mass>
+        <inertia><ixx>0.000001</ixx><ixy>0</ixy><ixz>0</ixz><iyy>0.000045</iyy><iyz>0</iyz><izz>0.000045</izz></inertia>
+      </inertial>
+      <visual name="strut_br_v">
+        <geometry><cylinder><radius>0.007</radius><length>0.255</length></cylinder></geometry>
+        <material><ambient>0.80 0.80 0.80 1</ambient><diffuse>0.85 0.85 0.85 1</diffuse></material>
+      </visual>
+      <collision name="strut_br_col">
+        <geometry><cylinder><radius>0.007</radius><length>0.255</length></cylinder></geometry>
+      </collision>
+    </link>
+    <joint name="strut_br_joint" type="fixed"><parent>platform::X3/base_link</parent><child>strut_br_link</child></joint>
+
+    <!-- 6. Telemetry -->
+    <link name="telemetry_link">
+      <pose>-0.1 0.05 0.1 0 0 0</pose>
+      <inertial>
+        <mass>0.030</mass>
+        <inertia>
+          <ixx>0.00001</ixx><ixy>0</ixy><ixz>0</ixz>
+          <iyy>0.00001</iyy><iyz>0</iyz><izz>0.00001</izz>
+        </inertia>
+      </inertial>
+      <visual name="antenna_visual">
+        <geometry><cylinder><radius>0.005</radius><length>0.15</length></cylinder></geometry>
+        <material><ambient>0.2 0.2 0.2 1</ambient><diffuse>0.2 0.2 0.2 1</diffuse></material>
+      </visual>
+      <collision name="telemetry_collision">
+        <geometry><cylinder><radius>0.005</radius><length>0.15</length></cylinder></geometry>
+      </collision>
+    </link>
+    <joint name="telemetry_joint" type="fixed">
+      <parent>platform::X3/base_link</parent>
+      <child>telemetry_link</child>
+    </joint>
+
+    <!-- 7. TF-Luna Lidar (Downward, Landing Control) -->
+    <link name="tf_luna_link">
+      <pose>0 0 -0.05 0 1.5707 0</pose>
+      <inertial>
+        <mass>0.005</mass>
+        <inertia><ixx>0.000001</ixx><ixy>0</ixy><ixz>0</ixz><iyy>0.000001</iyy><iyz>0</iyz><izz>0.000001</izz></inertia>
+      </inertial>
+      <visual name="tfluna_visual">
+        <geometry><box><size>0.035 0.021 0.015</size></box></geometry>
+        <material><ambient>0.2 0.2 0.2 1</ambient><diffuse>0.2 0.2 0.2 1</diffuse></material>
+      </visual>
+      <collision name="tfluna_collision">
+        <geometry><box><size>0.035 0.021 0.015</size></box></geometry>
+      </collision>
+      <sensor name="tf_luna" type="gpu_ray">
+        <pose>0 0 0 0 0 0</pose>
+        <topic>tfluna/range</topic>
+        <update_rate>100</update_rate>
+        <ray>
+          <scan>
+            <horizontal><samples>1</samples><resolution>1</resolution><min_angle>0</min_angle><max_angle>0</max_angle></horizontal>
+          </scan>
+          <range><min>0.2</min><max>8.0</max><resolution>0.01</resolution></range>
+          <noise><type>gaussian</type><mean>0.0</mean><stddev>0.02</stddev></noise>
+        </ray>
+        <always_on>1</always_on>
+        <visualize>true</visualize>
+      </sensor>
+    </link>
+    <joint name="tf_luna_joint" type="fixed">
+      <parent>platform::X3/base_link</parent>
+      <child>tf_luna_link</child>
+    </joint>
+
+    <!-- 8. TOF400C VL53L1X (Front) -->
+    <link name="tof_front_link">
+      <pose>0.15 0 0.02 0 0 0</pose>
+      <inertial>
+        <mass>0.005</mass>
+        <inertia><ixx>0.000001</ixx><ixy>0</ixy><ixz>0</ixz><iyy>0.000001</iyy><iyz>0</iyz><izz>0.000001</izz></inertia>
+      </inertial>
+      <visual name="toffront_vi"><geometry><box><size>0.01 0.015 0.005</size></box></geometry></visual>
+      <collision name="toffront_col"><geometry><box><size>0.01 0.015 0.005</size></box></geometry></collision>
+      <sensor name="tof_front" type="gpu_ray">
+        <topic>tof/front</topic>
+        <update_rate>50</update_rate>
+        <ray>
+          <scan>
+            <horizontal><samples>10</samples><resolution>1</resolution><min_angle>-0.2356</min_angle><max_angle>0.2356</max_angle></horizontal>
+            <vertical><samples>10</samples><resolution>1</resolution><min_angle>-0.2356</min_angle><max_angle>0.2356</max_angle></vertical>
+          </scan>
+          <range><min>0.04</min><max>4.0</max><resolution>0.005</resolution></range>
+          <noise><type>gaussian</type><mean>0.0</mean><stddev>0.01</stddev></noise>
+        </ray>
+        <always_on>1</always_on>
+        <visualize>true</visualize>
+      </sensor>
+    </link>
+    <joint name="tof_front_joint" type="fixed"><parent>platform::X3/base_link</parent><child>tof_front_link</child></joint>
+
+    <!-- 9. TOF400C VL53L1X (Back) -->
+    <link name="tof_back_link">
+      <pose>-0.15 0 0.02 0 0 3.14159</pose>
+      <inertial>
+        <mass>0.005</mass>
+        <inertia><ixx>0.000001</ixx><ixy>0</ixy><ixz>0</ixz><iyy>0.000001</iyy><iyz>0</iyz><izz>0.000001</izz></inertia>
+      </inertial>
+      <visual name="tofback_vi"><geometry><box><size>0.01 0.015 0.005</size></box></geometry></visual>
+      <collision name="tofback_col"><geometry><box><size>0.01 0.015 0.005</size></box></geometry></collision>
+      <sensor name="tof_back" type="gpu_ray">
+        <topic>tof/back</topic>
+        <update_rate>50</update_rate>
+        <ray>
+          <scan>
+            <horizontal><samples>10</samples><resolution>1</resolution><min_angle>-0.2356</min_angle><max_angle>0.2356</max_angle></horizontal>
+            <vertical><samples>10</samples><resolution>1</resolution><min_angle>-0.2356</min_angle><max_angle>0.2356</max_angle></vertical>
+          </scan>
+          <range><min>0.04</min><max>4.0</max><resolution>0.005</resolution></range>
+          <noise><type>gaussian</type><mean>0.0</mean><stddev>0.01</stddev></noise>
+        </ray>
+        <always_on>1</always_on>
+        <visualize>true</visualize>
+      </sensor>
+    </link>
+    <joint name="tof_back_joint" type="fixed"><parent>platform::X3/base_link</parent><child>tof_back_link</child></joint>
+
+    <!-- 10. TOF400C VL53L1X (Right) -->
+    <link name="tof_right_link">
+      <pose>0 -0.15 0.02 0 0 -1.57079</pose>
+      <inertial>
+        <mass>0.005</mass>
+        <inertia><ixx>0.000001</ixx><ixy>0</ixy><ixz>0</ixz><iyy>0.000001</iyy><iyz>0</iyz><izz>0.000001</izz></inertia>
+      </inertial>
+      <visual name="tofright_vi"><geometry><box><size>0.01 0.015 0.005</size></box></geometry></visual>
+      <collision name="tofright_col"><geometry><box><size>0.01 0.015 0.005</size></box></geometry></collision>
+      <sensor name="tof_right" type="gpu_ray">
+        <topic>tof/right</topic>
+        <update_rate>50</update_rate>
+        <ray>
+          <scan>
+            <horizontal><samples>10</samples><resolution>1</resolution><min_angle>-0.2356</min_angle><max_angle>0.2356</max_angle></horizontal>
+            <vertical><samples>10</samples><resolution>1</resolution><min_angle>-0.2356</min_angle><max_angle>0.2356</max_angle></vertical>
+          </scan>
+          <range><min>0.04</min><max>4.0</max><resolution>0.005</resolution></range>
+          <noise><type>gaussian</type><mean>0.0</mean><stddev>0.01</stddev></noise>
+        </ray>
+        <always_on>1</always_on>
+        <visualize>true</visualize>
+      </sensor>
+    </link>
+    <joint name="tof_right_joint" type="fixed"><parent>platform::X3/base_link</parent><child>tof_right_link</child></joint>
+
+    <!-- 11. TOF400C VL53L1X (Left) -->
+    <link name="tof_left_link">
+      <pose>0 0.15 0.02 0 0 1.57079</pose>
+      <inertial>
+        <mass>0.005</mass>
+        <inertia><ixx>0.000001</ixx><ixy>0</ixy><ixz>0</ixz><iyy>0.000001</iyy><iyz>0</iyz><izz>0.000001</izz></inertia>
+      </inertial>
+      <visual name="tofleft_vi"><geometry><box><size>0.01 0.015 0.005</size></box></geometry></visual>
+      <collision name="tofleft_col"><geometry><box><size>0.01 0.015 0.005</size></box></geometry></collision>
+      <sensor name="tof_left" type="gpu_ray">
+        <topic>tof/left</topic>
+        <update_rate>50</update_rate>
+        <ray>
+          <scan>
+            <horizontal><samples>10</samples><resolution>1</resolution><min_angle>-0.2356</min_angle><max_angle>0.2356</max_angle></horizontal>
+            <vertical><samples>10</samples><resolution>1</resolution><min_angle>-0.2356</min_angle><max_angle>0.2356</max_angle></vertical>
+          </scan>
+          <range><min>0.04</min><max>4.0</max><resolution>0.005</resolution></range>
+          <noise><type>gaussian</type><mean>0.0</mean><stddev>0.01</stddev></noise>
+        </ray>
+        <always_on>1</always_on>
+        <visualize>true</visualize>
+      </sensor>
+    </link>
+    <joint name="tof_left_joint" type="fixed"><parent>platform::X3/base_link</parent><child>tof_left_link</child></joint>
+
+  </model>
+</sdf>
