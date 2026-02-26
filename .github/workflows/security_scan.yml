@@ -1,0 +1,35 @@
+name: "Security and Logic Scan"
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  analyze:
+    name: Bandit and Cppcheck Scan
+    runs-on: ubuntu-24.04
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+
+    - name: Install Bandit (Python Analyzer)
+      run: pip install bandit
+
+    - name: Run Bandit on Python files
+      # Sadece orta ve yüksek seviyeli hatalarda işlemi durdurur
+      run: bandit -r src/ scripts/ -ll -ii
+
+    - name: Install Cppcheck (C++ Analyzer)
+      run: sudo apt-get update && sudo apt-get install -y cppcheck
+
+    - name: Run Cppcheck on C++ files
+      # C++ kodlarındaki olası mantık ve bellek hatalarını tarar
+      run: cppcheck --enable=warning,performance,portability,information,missingInclude --error-exitcode=1 src/
