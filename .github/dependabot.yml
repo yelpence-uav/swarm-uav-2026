@@ -1,0 +1,19 @@
+version: 2
+updates:
+  # 1. GitHub Actions eklentilerini takip eder (ör. checkout@v4, setup-ros@v0.7)
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+
+  # 2. Dockerfile içindeki temel imajları (ör. osrf/ros:jazzy) takip eder
+  - package-ecosystem: "docker"
+    directory: "/docker"
+    schedule:
+      interval: "weekly"
+
+  # 3. İleride eklenebilecek Python paketleri (setup.py veya requirements.txt) için
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
