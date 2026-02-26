@@ -25,5 +25,5 @@ jobs:
 
     - name: Run Bandit on Python files
       # Sadece orta ve yüksek seviyeli hatalarda işlemi durdurur
-      run: bandit -r src/ scripts/ -ll -ii
+      run: bandit -r . -ll -ii
 
