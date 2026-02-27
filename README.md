@@ -169,13 +169,3 @@ Projemizin `src` dizini altındaki yazılım modülleri ve görev tanımları ş
 * **`network`:** İHA'ların kendi aralarındaki ve Yer İstasyonu ile olan ağ haberleşmesinin mantıksal döngülerini kontrol eder.
 * **`gcs`:** Yer Kontrol İstasyonu kullanıcı arayüzünü, telemetri takibini ve yarışmadaki "Yarı Otonom Sürü Kontrolü" görevi için joystick/kumanda entegrasyonunu içerir.
 * **`yelpence_msgs`**: Sürü algoritmalarının ihtiyaç duyduğu özel ROS 2 mesaj tiplerini barındırır. Şartnamede geçen görevlerin icrası için İHA'ların kimlik ve konumlarını bildiren SwarmState, okunan şifreleri ileten QRData ve sürüye yeni dizilim komutları veren FormationCommand mesajlarını içerir.
-
-# 8. CI/CD ve Otomatik Test Süreçleri
-Yelpençe takımı, kod kalitesini standartlaştırmak ve sisteme hatalı modüllerin dahil edilmesini önlemek amacıyla GitHub Actions destekli Sürekli Entegrasyon (CI) mimarisi kullanmaktadır.
-
-Projeye gönderilen her yeni kod (push veya pull_request işlemi) otomatik olarak aşağıdaki denetimlerden geçer:
-
-- Docker Image Build Test: Eklenen yeni bir kodun veya kütüphanenin, takımın ortak Docker imajının derlenmesini bozup bozmadığı test edilir.
-- ROS 2 Build Test: Tüm çalışma alanı (colcon build) Ubuntu 24.04 ve ROS 2 Jazzy standartlarında sıfırdan derlenerek paket çakışmaları denetlenir.
-- Birim Testler (Unit Tests): colcon test komutu çalıştırılarak önceden yazılmış özel senaryo testlerinin başarı durumu kontrol edilir.
-- Linter ve Stil Denetimleri: Ekip içi tutarlılık için PEP 8 standartları (ament_flake8) ve yorum satırı / dokümantasyon kuralları (ament_pep257) analiz edilir. Kurallara uymayan kodların ana yapıya (main) birleşmesi engellenir.
