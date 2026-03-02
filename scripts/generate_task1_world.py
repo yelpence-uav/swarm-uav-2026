@@ -2,12 +2,18 @@ import random
 import math
 import os
 
+from qr_generator import generate_qr_images
+
 def generate_task1_sdf():
     # Yolların belirlenmesi
     script_dir = os.path.dirname(__file__)
     base_world_path = os.path.join(script_dir, "..", "sim", "worlds", "base_world.sdf")
     output_path = os.path.join(script_dir, "..", "sim", "worlds", "task1_dynamic_swarm.sdf")
     
+    # QR PNG'lerini üret
+    qr_output_dir = os.path.join(script_dir, "..", "sim", "qr")
+    qr_paths = generate_qr_images(qr_output_dir)
+
     # base_world.sdf dosyasını şablon olarak oku
     try:
         with open(base_world_path, "r") as f:
@@ -31,6 +37,9 @@ def generate_task1_sdf():
         y = radius * math.sin(math.radians(angle))
         qr_name = qr_names[i]
         
+        qr_num = int(qr_name[2:])
+        texture_path = qr_paths[qr_num]
+
         dynamic_elements_sdf += f"""
     <model name="{qr_name}">
       <static>true</static>
@@ -38,7 +47,17 @@ def generate_task1_sdf():
       <link name="link">
         <visual name="visual">
           <geometry><box><size>1.2 1.2 0.01</size></box></geometry>
-          <material><ambient>1 1 1 1</ambient><diffuse>1 1 1 1</diffuse></material>
+          <material>
+            <ambient>1 1 1 1</ambient>
+            <diffuse>1 1 1 1</diffuse>
+            <pbr>
+              <metal>
+                <albedo_map>{texture_path}</albedo_map>
+                <roughness>1.0</roughness>
+                <metalness>0.0</metalness>
+              </metal>
+            </pbr>
+          </material>
         </visual>
       </link>
     </model>
