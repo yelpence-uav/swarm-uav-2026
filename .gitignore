@@ -281,7 +281,8 @@ local.properties
 # AWS User-specific
 
 # Generated files
-
+src/PX4-Autopilot/
+src/px4_msgs/
 # Sensitive or high-churn files
 
 # Gradle

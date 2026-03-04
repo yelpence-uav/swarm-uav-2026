@@ -22,6 +22,9 @@ setup(
         'console_scripts': [
             # Yeni eklenen çalıştırılabilir komut:
             'swarm_controller = swarm.swarm_controller:main',
+            'offboard_control = swarm.offboard_control:main',
+            'swarm_commander = swarm.swarm_commander:main',
+            'swarm_dashboard = swarm.swarm_dashboard:main',
         ],
     },
 )
