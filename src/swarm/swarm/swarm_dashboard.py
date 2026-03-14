@@ -23,7 +23,7 @@ class SwarmDashboard(Node):
                 qos_profile_sensor_data
             )
             
-        self.timer = self.create_timer(0.5, self.timer_callback)
+        self.timer = self.create_timer(0.2, self.timer_callback)
 
     def position_callback(self, msg, drone_id):
         # Odometry mesajında X, Y, Z değerleri "position" isimli bir dizinin içindedir (0:X, 1:Y, 2:Z)
@@ -32,7 +32,7 @@ class SwarmDashboard(Node):
         self.positions[drone_id]['z'] = msg.position[2]
 
     def timer_callback(self):
-        os.system('cls' if os.name == 'nt' else 'clear')
+        print('\033c', end='')
         
         print("=========================================")
         print("       🛰️ SÜRÜ CANLI TELEMETRİ 🛰️       ")
