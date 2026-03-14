@@ -50,6 +50,8 @@ RUN git clone https://github.com/eProsima/Micro-XRCE-DDS-Agent.git /tmp/Micro-XR
 
 # ROS 2 İletişim Altyapısını FastDDS Olarak Ayarla
 ENV RMW_IMPLEMENTATION=rmw_fastrtps_cpp 
+# QR kod üretimi için Python bağımlılığı
+RUN pip3 install --break-system-packages qrcode[pil]
 
 # --- YELPENÇE ÖZELLEŞTİRMESİ ---
 ARG USERNAME=yelpence
