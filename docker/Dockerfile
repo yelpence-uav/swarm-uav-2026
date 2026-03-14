@@ -29,6 +29,27 @@ RUN apt-get update && apt-get install -y \
     libgl1-mesa-dri \
     && rm -rf /var/lib/apt/lists/*
 
+# ====================================================================
+# YELPENÇE PX4 SITL PYTHON BAĞIMLILIKLARI 
+# ====================================================================
+RUN pip3 install kconfiglib jinja2 jsonschema pyros-genmsg empy packaging toml numpy --break-system-packages
+# ====================================================================
+
+# ====================================================================
+# MICRO XRCE-DDS AGENT KURULUMU (ROS 2 - PX4 Haberleşme Köprüsü)
+# ====================================================================
+RUN git clone https://github.com/eProsima/Micro-XRCE-DDS-Agent.git /tmp/Micro-XRCE-DDS-Agent \
+    && cd /tmp/Micro-XRCE-DDS-Agent \
+    && mkdir build && cd build \
+    && cmake .. \
+    && make \
+    && make install \
+    && ldconfig /usr/local/lib/ \
+    && rm -rf /tmp/Micro-XRCE-DDS-Agent
+# ====================================================================
+
+# ROS 2 İletişim Altyapısını FastDDS Olarak Ayarla
+ENV RMW_IMPLEMENTATION=rmw_fastrtps_cpp 
 # QR kod üretimi için Python bağımlılığı
 RUN pip3 install --break-system-packages qrcode[pil]
 
@@ -53,8 +74,25 @@ ENV HOME=/home/$USERNAME
 WORKDIR /home/$USERNAME/ros2_ws
 
 # .bashrc Ayarları
+
+# 1. Temel ROS 2 ve Çalışma Alanı Kurulumu
 RUN echo "source /opt/ros/jazzy/setup.bash" >> ~/.bashrc
 RUN echo "if [ -f /home/$USERNAME/ros2_ws/install/setup.bash ]; then source /home/$USERNAME/ros2_ws/install/setup.bash; fi" >> ~/.bashrc
+
+# 2. Ağ ve DDS İletişim Otomasyonu (Senin İstediğin Kısım)
+RUN echo "export ROS_DOMAIN_ID=0" >> ~/.bashrc
+RUN echo "export ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST" >> ~/.bashrc
+RUN echo "export RMW_IMPLEMENTATION=rmw_fastrtps_cpp" >> ~/.bashrc
+
+# 3. Hayat Kurtaran Kısayollar (Alias)
+# Ajanı tek kelimeyle başlatmak için:
+RUN echo "alias ajan='MicroXRCEAgent udp4 -p 8888'" >> ~/.bashrc
+# Kodu derleyip hemen source etmek için:
+RUN echo "alias build_swarm='cd ~/ros2_ws && colcon build --packages-select swarm && source install/setup.bash'" >> ~/.bashrc
+# Hızlıca kök dizine gitmek için:
+RUN echo "alias ws='cd ~/ros2_ws'" >> ~/.bashrc
+
+
 
 # Nvidia Uyumluluk Değişkenleri
 ENV NVIDIA_VISIBLE_DEVICES=all
