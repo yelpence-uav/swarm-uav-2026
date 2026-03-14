@@ -1,0 +1,29 @@
+name: "Security and Logic Scan"
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  analyze:
+    name: Bandit Scan (Python)
+    runs-on: ubuntu-24.04
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v6
+
+    - name: Set up Python
+      uses: actions/setup-python@v6
+      with:
+        python-version: '3.12'
+
+    - name: Install Bandit (Python Analyzer)
+      run: pip install bandit
+
+    - name: Run Bandit on Python files
+      # Sadece orta ve yüksek seviyeli hatalarda işlemi durdurur
+      run: bandit -r . -ll -ii
+
