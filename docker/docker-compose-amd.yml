@@ -9,12 +9,12 @@ services:
         USER_GID: ${USER_GID:-1000}
     image: yelpence_swarm:2026
     container_name: yelpence_swarm_container
-    
+
     # Ağ Ayarları: Host makine ile aynı ağı kullan
     network_mode: host
     ipc: host
     pid: host
-    
+
     # Donanım Erişim İzni (AMD için kritiktir)
     privileged: true
 
@@ -22,17 +22,17 @@ services:
       - DISPLAY=${DISPLAY}
       - QT_X11_NO_MITSHM=1
       - ROS_DOMAIN_ID=0
-      
+
       # --- AMD / INTEL Grafik Ayarları ---
       # Nvidia ile ilgili her şeyi sildik.
       # Yazılım tabanlı render'ı yasakla (Donanım hızlandırma kullan)
       - LIBGL_ALWAYS_SOFTWARE=0
-      
+
       # Gazebo'yu Ogre2 kullanmaya zorla (AMD'de en kararlı çalışan motor)
       - GZ_SIM_RENDER_ENGINE_BACKEND=ogre2
-      
-      - RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
-    
+
+      - RMW_IMPLEMENTATION=rmw_fastrtps_cpp
+
     volumes:
       # X11 Soketi
       - /tmp/.X11-unix:/tmp/.X11-unix:rw
@@ -40,13 +40,14 @@ services:
       - ../src:/home/yelpence/ros2_ws/src
       - ../scripts:/home/yelpence/ros2_ws/scripts
       - ../sim:/home/yelpence/ros2_ws/sim
-      
+      - ../tests:/home/yelpence/ros2_ws/tests
+
     # --- DONANIM BAĞLANTILARI ---
     # AMD/Intel kartların Linux'taki adresi burasıdır (/dev/dri)
     devices:
       - /dev/dri:/dev/dri
       - /dev/snd:/dev/snd
-              
+
     stdin_open: true
     tty: true
     command: /bin/bash

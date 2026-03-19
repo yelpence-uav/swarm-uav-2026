@@ -1,0 +1,1225 @@
+<!DOCTYPE html>
+<html lang="tr">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Yelpençe Sürü Dashboard</title>
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg: #070b14;
+            --card: rgba(15, 23, 42, 0.8);
+            --accent: #0ea5e9;
+            --accent-glow: rgba(14, 165, 233, 0.3);
+            --green: #10b981;
+            --red: #f43f5e;
+            --text: #f8fafc;
+            --muted: #64748b;
+            --border: rgba(255, 255, 255, 0.06);
+        }
+
+        @keyframes blink {
+            from {
+                opacity: 1;
+                transform: scale(1);
+            }
+
+            to {
+                opacity: 0.4;
+                transform: scale(0.95);
+            }
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Outfit', sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            padding: 24px;
+            min-height: 100vh;
+            overflow-x: hidden;
+        }
+
+        /* Scanline effect */
+        body::before {
+            content: "";
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.1) 50%),
+                linear-gradient(90deg, rgba(255, 0, 0, 0.03), rgba(0, 255, 0, 0.01), rgba(0, 0, 255, 0.03));
+            background-size: 100% 4px, 3px 100%;
+            pointer-events: none;
+            z-index: 100;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            display: flex;
+            flex-direction: column;
+            gap: 24px;
+        }
+
+        .header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 20px 32px;
+            background: var(--card);
+            border-radius: 20px;
+            border: 1px solid var(--border);
+            backdrop-filter: blur(20px);
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+        }
+
+        .header h1 {
+            font-size: 1.6rem;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+            font-weight: 700;
+        }
+
+        .header h1 span {
+            color: var(--accent);
+            text-shadow: 0 0 15px var(--accent-glow);
+        }
+
+        .status-group {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+            width: min(900px, 100%);
+        }
+
+        .control-box {
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            padding: 10px;
+        }
+
+        .control-title {
+            font-size: 0.72rem;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+            color: var(--muted);
+            margin-bottom: 8px;
+            font-weight: 700;
+        }
+
+        .control-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            align-items: center;
+        }
+
+        .control-row button {
+            flex: 1 1 auto;
+            min-width: 120px;
+        }
+
+        .formation-select {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(110px, 1fr));
+            gap: 8px;
+            margin-bottom: 8px;
+        }
+
+        .formation-btn {
+            background: rgba(14, 165, 233, 0.08);
+            color: #dbeafe;
+            border: 1px solid rgba(14, 165, 233, 0.35);
+            padding: 9px 12px;
+            border-radius: 10px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: 0.2s ease;
+        }
+
+        .formation-btn:hover {
+            background: rgba(14, 165, 233, 0.2);
+            border-color: var(--accent);
+        }
+
+        .formation-btn:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+            background: rgba(100, 116, 139, 0.1);
+            border-color: rgba(100, 116, 139, 0.2);
+            color: var(--muted);
+        }
+
+        .formation-stop {
+            background: rgba(239, 68, 68, 0.2);
+            border: 1px solid rgba(239, 68, 68, 0.5);
+            color: #fecaca;
+        }
+
+        .formation-stop:hover {
+            background: rgba(239, 68, 68, 0.32);
+        }
+
+        .spacing-wrap {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 0.8rem;
+            color: var(--muted);
+        }
+
+        .spacing-wrap input {
+            width: 86px;
+            background: rgba(0, 0, 0, 0.35);
+            color: var(--text);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 6px 8px;
+        }
+
+        .badge {
+            padding: 6px 16px;
+            border-radius: 30px;
+            font-size: 0.75rem;
+            font-weight: 700;
+            letter-spacing: 1px;
+            border: 1px solid transparent;
+            text-transform: uppercase;
+        }
+
+        .badge-on {
+            background: rgba(16, 185, 129, 0.1);
+            color: var(--green);
+            border-color: rgba(16, 185, 129, 0.2);
+        }
+
+        .badge-off {
+            background: rgba(244, 63, 94, 0.1);
+            color: var(--red);
+            border-color: rgba(244, 63, 94, 0.2);
+        }
+
+        .badge-warn {
+            background: rgba(245, 158, 11, 0.1);
+            color: #f59e0b;
+            border-color: rgba(245, 158, 11, 0.2);
+        }
+
+        .drone-selector {
+            display: flex;
+            gap: 12px;
+            overflow-x: auto;
+            padding: 4px;
+        }
+
+        .drone-btn {
+            padding: 10px 24px;
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            color: var(--muted);
+            cursor: pointer;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            font-weight: 600;
+            white-space: nowrap;
+        }
+
+        .drone-btn.active {
+            background: var(--accent);
+            color: white;
+            border-color: var(--accent);
+            box-shadow: 0 0 20px var(--accent-glow);
+        }
+
+        /* CAMERA MODAL / PANEL */
+        .camera-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.95);
+            z-index: 1000;
+            display: none;
+            flex-direction: column;
+            padding: 40px;
+            backdrop-filter: blur(15px);
+        }
+
+        .camera-grid {
+            display: grid;
+            gap: 20px;
+            width: 100%;
+            height: 100%;
+            grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+            align-content: center;
+            justify-content: center;
+        }
+
+        .camera-box {
+            position: relative;
+            background: #000;
+            border: 2px solid var(--accent);
+            border-radius: 12px;
+            overflow: hidden;
+            aspect-ratio: 16/9;
+            box-shadow: 0 0 20px var(--accent-glow);
+        }
+
+        .camera-box img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        .camera-label {
+            position: absolute;
+            bottom: 10px;
+            left: 10px;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 4px 12px;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            color: var(--accent);
+            font-weight: 700;
+        }
+
+        .camera-close {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            background: var(--red);
+            color: white;
+            border: none;
+            padding: 10px 24px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: 700;
+            z-index: 1100;
+            transition: all 0.3s;
+        }
+
+        /* SELECTION MODAL */
+        .modal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.8);
+            display: none;
+            justify-content: center;
+            align-items: center;
+            z-index: 2000;
+            backdrop-filter: blur(5px);
+        }
+
+        .modal-content {
+            background: var(--card);
+            border: 1px solid var(--accent);
+            border-radius: 20px;
+            padding: 32px;
+            width: 400px;
+            box-shadow: 0 0 40px var(--accent-glow);
+        }
+
+        .modal-header {
+            margin-bottom: 24px;
+            text-align: center;
+        }
+
+        .drone-list {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            margin-bottom: 24px;
+            max-height: 300px;
+            overflow-y: auto;
+            padding-right: 8px;
+        }
+
+        .drone-item {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            background: rgba(255, 255, 255, 0.03);
+            padding: 12px 16px;
+            border-radius: 12px;
+            border: 1px solid var(--border);
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .drone-item:hover {
+            background: rgba(14, 165, 233, 0.1);
+            border-color: var(--accent);
+        }
+
+        .drone-item input {
+            width: 18px;
+            height: 18px;
+            cursor: pointer;
+        }
+
+        .modal-footer {
+            display: flex;
+            gap: 12px;
+        }
+
+        .modal-btn {
+            flex: 1;
+            padding: 12px;
+            border: none;
+            border-radius: 10px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .confirm-btn {
+            background: var(--accent);
+            color: white;
+        }
+
+        .cancel-btn {
+            background: rgba(255, 255, 255, 0.05);
+            color: var(--muted);
+        }
+
+        .takeoff-btn {
+            background: linear-gradient(135deg, #f59e0b, #d97706);
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 12px;
+            cursor: pointer;
+            font-weight: 700;
+            box-shadow: 0 4px 15px rgba(245, 158, 11, 0.3);
+            transition: all 0.3s;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .takeoff-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(245, 158, 11, 0.4);
+            filter: brightness(1.1);
+        }
+
+        .takeoff-btn:active {
+            transform: translateY(0);
+        }
+
+        .takeoff-btn:disabled {
+            background: #334155;
+            color: #64748b;
+            cursor: not-allowed;
+            box-shadow: none;
+            transform: none;
+            filter: grayscale(1);
+        }
+
+        .arm-btn {
+            background: linear-gradient(135deg, #10b981, #059669);
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 12px;
+            cursor: pointer;
+            font-weight: 700;
+            box-shadow: 0 4px 15px rgba(16, 185, 129, 0.3);
+            transition: all 0.3s;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .arm-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(16, 185, 129, 0.4);
+            filter: brightness(1.1);
+        }
+
+        .alt-sync-btn {
+            background: linear-gradient(135deg, #f59e0b, #d97706);
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 12px;
+            cursor: pointer;
+            font-weight: 700;
+            box-shadow: 0 4px 15px rgba(245, 158, 11, 0.3);
+            transition: all 0.3s;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .alt-sync-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(245, 158, 11, 0.4);
+            filter: brightness(1.1);
+        }
+
+        .land-btn {
+            background: linear-gradient(135deg, #ef4444, #b91c1c);
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 12px;
+            cursor: pointer;
+            font-weight: 700;
+            box-shadow: 0 4px 15px rgba(239, 68, 68, 0.3);
+            transition: all 0.3s;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .land-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(239, 68, 68, 0.4);
+            filter: brightness(1.1);
+        }
+
+        .land-btn:active {
+            transform: translateY(0);
+        }
+
+        .cam-btn {
+            background: rgba(14, 165, 233, 0.1);
+            color: var(--accent);
+            border: 1px solid var(--accent);
+            padding: 10px 20px;
+            border-radius: 12px;
+            cursor: pointer;
+            font-weight: 700;
+            transition: all 0.3s;
+        }
+
+        .cam-btn:hover {
+            background: var(--accent);
+            color: white;
+        }
+
+        /* MAIN GRID */
+        .dashboard-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 24px;
+        }
+
+        .card {
+            background: var(--card);
+            border-radius: 20px;
+            border: 1px solid var(--border);
+            padding: 16px;
+            backdrop-filter: blur(20px);
+            display: flex;
+            flex-direction: column;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .card::after {
+            content: "";
+            position: absolute;
+            top: 0;
+            right: 0;
+            width: 40px;
+            height: 40px;
+            background: linear-gradient(45deg, transparent 50%, var(--border) 50%);
+        }
+
+        .card-title {
+            font-size: 0.8rem;
+            font-weight: 700;
+            color: var(--muted);
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            margin-bottom: 24px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .card-title i {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            background: var(--accent);
+            border-radius: 50%;
+            box-shadow: 0 0 8px var(--accent);
+        }
+
+        /* GPS STYLES */
+        .gps-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+
+        .data-item {
+            background: rgba(0, 0, 0, 0.2);
+            padding: 12px;
+            border-radius: 16px;
+            border: 1px solid var(--border);
+        }
+
+        .data-label {
+            font-size: 0.75rem;
+            color: var(--muted);
+            margin-bottom: 8px;
+        }
+
+        .data-value {
+            font-size: 1.2rem;
+            font-weight: 700;
+            font-variant-numeric: tabular-nums;
+            color: var(--text);
+        }
+
+        .data-unit {
+            font-size: 0.8rem;
+            color: var(--muted);
+            margin-left: 4px;
+        }
+
+
+        /* MOTORS BAR */
+        .motor-strip {
+            grid-column: 1 / -1;
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 24px;
+        }
+
+        .motor-card {
+            background: var(--card);
+            border: 1px solid var(--border);
+            padding: 20px;
+            border-radius: 16px;
+            text-align: center;
+            position: relative;
+        }
+
+        .motor-id {
+            font-size: 0.7rem;
+            font-weight: 700;
+            color: var(--muted);
+            margin-bottom: 8px;
+        }
+
+        .motor-speed {
+            font-size: 2rem;
+            font-weight: 800;
+            color: var(--accent);
+        }
+
+        .motor-progress {
+            width: 100%;
+            height: 4px;
+            background: rgba(255, 255, 255, 0.05);
+            margin-top: 12px;
+            border-radius: 2px;
+            overflow: hidden;
+        }
+
+        .motor-fill {
+            height: 100%;
+            background: var(--accent);
+            width: 0%;
+            transition: width 0.1s linear;
+            box-shadow: 0 0 10px var(--accent);
+        }
+
+        @media (max-width: 1000px) {
+            .header {
+                flex-direction: column;
+                align-items: stretch;
+                gap: 12px;
+            }
+
+            .status-group {
+                grid-template-columns: 1fr;
+                width: 100%;
+            }
+
+            .dashboard-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .motor-strip {
+                grid-template-columns: 1fr 1fr;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <!-- HEADER -->
+        <div class="header">
+            <div>
+                <h1>🚁 <span>YELPENÇE</span> SÜRÜ SİSTEMİ</h1>
+            </div>
+            <div class="status-group">
+                <div class="control-box">
+                    <div class="control-title">Temel Komutlar</div>
+                    <div class="control-row">
+                        <button class="arm-btn" onclick="openSelection('mass_arm')">Motorları Çalıştır</button>
+                        <button class="takeoff-btn" id="mass-takeoff-btn"
+                            onclick="openSelection('mass_takeoff')">Havalan</button>
+                        <button class="alt-sync-btn" onclick="openSelection('set_target_altitude')">Hedef
+                            İrtifa</button>
+                        <button class="land-btn" onclick="openSelection('mass_land')">İniş</button>
+                        <button class="cam-btn" onclick="openSelection('request_camera')">Kamera</button>
+                    </div>
+                </div>
+                <div class="control-box">
+                    <div class="control-title">Formasyon Kontrolü</div>
+                    <div class="spacing-wrap">
+                        <label for="formation-spacing">Aralık</label>
+                        <input id="formation-spacing" type="number" min="1.0" max="15.0" step="0.5" value="2.0">
+                        <span>m</span>
+                    </div>
+                    <div class="formation-select">
+                        <button class="formation-btn" data-type="arrowhead"
+                            onclick="openFormationSelection('arrowhead')">Ok Başı</button>
+                        <button class="formation-btn" data-type="reverse_arrowhead"
+                            onclick="openFormationSelection('reverse_arrowhead')">Ters Ok Başı</button>
+                        <button class="formation-btn" data-type="line" onclick="openFormationSelection('line')" disabled
+                            title="Henüz hazır değil">Sağa Doğru Çizgi</button>
+                        <button class="formation-btn" data-type="column" onclick="openFormationSelection('column')"
+                            disabled title="Henüz hazır değil">İleriye Doğru Çizgi</button>
+                    </div>
+                    <button id="formation-stop-btn" class="formation-btn formation-stop" onclick="stopFormation()"
+                        disabled>
+                        Formasyonu Durdur
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- TABS -->
+        <div class="drone-selector" id="drone-tabs">
+            <!-- Dynamic Buttons -->
+        </div>
+
+        <!-- MAIN GRID -->
+        <div class="dashboard-grid">
+
+            <!-- NAVIGATION & SENSORS PANEL -->
+            <div class="card" style="grid-column: 1 / -1;">
+                <div class="card-title"><i></i> NAVİGASYON VE SENSÖR VERİLERİ</div>
+                <div class="gps-grid" style="grid-template-columns: repeat(5, 1fr);">
+                    <div class="data-item">
+                        <div class="data-label">ENLEM</div>
+                        <div class="data-value" id="gps-lat">0.000000</div>
+                    </div>
+                    <div class="data-item">
+                        <div class="data-label">BOYLAM</div>
+                        <div class="data-value" id="gps-lon">0.000000</div>
+                    </div>
+                    <div class="data-item" style="border-left: 2px solid var(--accent-glow);">
+                        <div class="data-label">LIDAR</div>
+                        <div class="data-value" id="lidar-min">0.00<span class="data-unit">m</span></div>
+                    </div>
+                    <div class="data-item">
+                        <div class="data-label">İRTİFA (GPS)</div>
+                        <div class="data-value" id="gps-alt">0.00<span class="data-unit">m</span></div>
+                    </div>
+                    <div class="data-item">
+                        <div class="data-label">TELEMETRİ</div>
+                        <div class="data-value" id="tel-status" style="color: var(--red);">YOK</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- MOTOR STRIP -->
+            <div class="motor-strip">
+                <div class="motor-card">
+                    <div class="motor-id">MOTOR 01</div>
+                    <div class="motor-speed" id="m1">0</div>
+                    <div class="motor-progress">
+                        <div class="motor-fill" id="mf1"></div>
+                    </div>
+                </div>
+                <div class="motor-card">
+                    <div class="motor-id">MOTOR 02</div>
+                    <div class="motor-speed" id="m2">0</div>
+                    <div class="motor-progress">
+                        <div class="motor-fill" id="mf2"></div>
+                    </div>
+                </div>
+                <div class="motor-card">
+                    <div class="motor-id">MOTOR 03</div>
+                    <div class="motor-speed" id="m3">0</div>
+                    <div class="motor-progress">
+                        <div class="motor-fill" id="mf3"></div>
+                    </div>
+                </div>
+                <div class="motor-card">
+                    <div class="motor-id">MOTOR 04</div>
+                    <div class="motor-speed" id="m4">0</div>
+                    <div class="motor-progress">
+                        <div class="motor-fill" id="mf4"></div>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <!-- CAMERA OVERLAY -->
+    <div id="cam-overlay" class="camera-overlay">
+        <button class="camera-close" onclick="closeCamera()">KAPAT</button>
+        <div id="camera-grid" class="camera-grid">
+            <!-- Dynamic Images -->
+        </div>
+    </div>
+
+    <!-- DRONE SELECTION MODAL -->
+    <div id="drone-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 id="modal-title">İHA SEÇİMİ</h2>
+                <p id="modal-subtitle" style="font-size: 0.8rem; color: var(--muted); margin-top: 4px;">İşlem yapılacak
+                    İHA'ları işaretleyin</p>
+            </div>
+
+            <div style="margin-bottom: 12px; display: flex; justify-content: flex-end;">
+                <button onclick="selectAllDrones(true)"
+                    style="background:none; border:none; color:var(--accent); cursor:pointer; font-size: 0.75rem;">Tümünü
+                    Seç</button>
+                <span style="margin: 0 4px; color:var(--muted)">|</span>
+                <button onclick="selectAllDrones(false)"
+                    style="background:none; border:none; color:var(--muted); cursor:pointer; font-size: 0.75rem;">Seçimleri
+                    Kaldır</button>
+            </div>
+
+            <div id="modal-drone-list" class="drone-list">
+                <!-- Checkboxes -->
+            </div>
+
+            <div class="modal-footer">
+                <button class="modal-btn cancel-btn" onclick="closeModal()">İPTAL</button>
+                <button id="modal-confirm-btn" class="modal-btn confirm-btn">ONAYLA</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const socket = io();
+        let currentDroneId = 1;
+        const drones = {};
+
+        function initDrone(id) {
+            if (!drones[id]) {
+                drones[id] = {
+                    gps: { lat: 0, lon: 0, alt_abs: 0, alt_rel: 0 },
+                    dist_bottom: 0,
+                    lidar: [],
+                    tof: { front: 0, back: 0, left: 0, right: 0 },
+                    motors: [0, 0, 0, 0],
+                    status: { armed: false, mode: 'OFF' }
+                };
+
+                const btn = document.createElement('button');
+                btn.className = 'drone-btn' + (id === currentDroneId ? ' active' : '');
+                btn.id = 'btn-' + id;
+                btn.innerHTML = '<span>İHA ' + id + '</span>' +
+                    '<span id="col-lbl-' + id + '" class="collision-text" style="display:none; color:#fb923c; margin-left:8px; font-size:0.65rem; font-weight:800; animation: blink 0.5s infinite alternate;">[MÜDAHALE]</span>';
+                btn.onclick = () => {
+                    currentDroneId = id;
+                    document.querySelectorAll('.drone-btn').forEach(b => b.classList.remove('active'));
+                    btn.classList.add('active');
+                    if (isCameraOpen) {
+                        socket.emit('request_camera', { drone_ids: activeCameraDrones });
+                    }
+                    updateUI();
+                };
+
+                // Sort buttons numerically: Find the first button with a higher ID and insert before it
+                const tabs = document.getElementById('drone-tabs');
+                const existingBtns = Array.from(tabs.querySelectorAll('.drone-btn'));
+                let inserted = false;
+                for (let otherBtn of existingBtns) {
+                    const otherId = parseInt(otherBtn.id.replace('btn-', ''));
+                    if (id < otherId) {
+                        tabs.insertBefore(btn, otherBtn);
+                        inserted = true;
+                        break;
+                    }
+                }
+                if (!inserted) {
+                    tabs.appendChild(btn);
+                }
+            }
+        }
+
+        let isCameraOpen = false;
+        let activeCameraDrones = [];
+
+        function openSelection(commandType) {
+            console.log("[DEBUG] openSelection çağrıldı:", commandType);
+            const modal = document.getElementById('drone-modal');
+            const list = document.getElementById('modal-drone-list');
+            const confirmBtn = document.getElementById('modal-confirm-btn');
+
+            list.innerHTML = '';
+            const activeIds = Object.keys(drones).sort((a, b) => a - b);
+            console.log("[DEBUG] Aktif İHA ID'leri:", activeIds);
+
+            if (activeIds.length === 0) {
+                alert("Bağlı İHA bulunamadı! Lütfen droneların gelmesini bekleyin.");
+                return;
+            }
+
+            activeIds.forEach(id => {
+                const item = document.createElement('label');
+                item.className = 'drone-item';
+                item.innerHTML = `
+                    <input type="checkbox" value="${id}" class="drone-checkbox" checked>
+                    <span>İHA ${id}</span>
+                `;
+                list.appendChild(item);
+            });
+
+            modal.style.display = 'flex';
+
+            confirmBtn.onclick = () => {
+                const checkedBoxes = document.querySelectorAll('.drone-checkbox:checked');
+                const selected = Array.from(checkedBoxes).map(cb => parseInt(cb.value));
+                console.log("[DEBUG] Onayla tıklandı. Seçilen listesi:", selected);
+
+                if (selected.length === 0) {
+                    alert("Lütfen en az bir İHA seçin.");
+                    return;
+                }
+
+                executeCommand(commandType, selected);
+                closeModal();
+            };
+        }
+
+        function selectAllDrones(status) {
+            document.querySelectorAll('.drone-checkbox').forEach(cb => cb.checked = status);
+        }
+
+        function closeModal() {
+            const modal = document.getElementById('drone-modal');
+            if (modal) modal.style.display = 'none';
+            // Global reset for title/subtitle
+            document.getElementById('modal-title').innerText = "İHA SEÇİMİ";
+            document.getElementById('modal-subtitle').innerText = "İşlem yapılacak İHA'ları işaretleyin";
+        }
+
+        let formationActive = false;
+        let currentFormationType = null;
+        const formationLabels = {
+            arrowhead: "Ok Başı",
+            reverse_arrowhead: "Ters Ok Başı",
+            line: "Sağa Doğru Çizgi",
+            column: "İleriye Doğru Çizgi"
+        };
+
+        function getFormationSpacing() {
+            const input = document.getElementById('formation-spacing');
+            const parsed = parseFloat(input.value);
+            if (Number.isNaN(parsed)) return 2.0;
+            return Math.min(Math.max(parsed, 1.0), 15.0);
+        }
+
+        function getFormationMinCount(type) {
+            if (type === 'arrowhead' || type === 'reverse_arrowhead') return 3;
+            return 2;
+        }
+
+        function updateFormationUiState() {
+            const stopBtn = document.getElementById('formation-stop-btn');
+            const formationBtns = document.querySelectorAll('.formation-select .formation-btn');
+            stopBtn.disabled = !formationActive;
+
+            formationBtns.forEach(btn => {
+                const isCurrent = formationActive && btn.dataset.type === currentFormationType;
+                btn.style.boxShadow = isCurrent ? '0 0 16px var(--accent-glow)' : 'none';
+            });
+        }
+
+        function stopFormation() {
+            socket.emit('stop_formation');
+            formationActive = false;
+            currentFormationType = null;
+            updateFormationUiState();
+        }
+
+        function openFormationSelection(formationType) {
+            const activeIds = Object.keys(drones).sort((a, b) => a - b);
+            const minCount = getFormationMinCount(formationType);
+            const formationName = formationLabels[formationType] || "Formasyon";
+            if (activeIds.length < minCount) {
+                alert(`Uyarı: ${formationName} için en az ${minCount} İHA bağlı olmalıdır! Şu anki İHA sayısı: ${activeIds.length}`);
+                return;
+            }
+
+            const modal = document.getElementById('drone-modal');
+            const list = document.getElementById('modal-drone-list');
+            const confirmBtn = document.getElementById('modal-confirm-btn');
+            const title = document.getElementById('modal-title');
+            const subtitle = document.getElementById('modal-subtitle');
+
+            title.innerText = `${formationName.toUpperCase()} | LİDER İHA`;
+            subtitle.innerText = "Lider dronu seçip formasyonu başlatın";
+            list.innerHTML = '';
+
+            activeIds.forEach(id => {
+                const item = document.createElement('label');
+                item.className = 'drone-item';
+                item.innerHTML = `
+                    <input type="radio" name="leader-select" value="${id}" class="leader-radio">
+                    <span>İHA ${id} (Lider Adayı)</span>
+                `;
+                list.appendChild(item);
+            });
+
+            modal.style.display = 'flex';
+
+            confirmBtn.onclick = () => {
+                const selected = document.querySelector('.leader-radio:checked');
+                if (!selected) {
+                    alert("Lütfen bir Lider İHA seçin.");
+                    return;
+                }
+
+                const leaderId = parseInt(selected.value);
+                socket.emit('start_formation', {
+                    leader_id: leaderId,
+                    spacing: getFormationSpacing(),
+                    formation_type: formationType
+                });
+                formationActive = true;
+                currentFormationType = formationType;
+                updateFormationUiState();
+
+                closeModal();
+            };
+        }
+
+        function executeCommand(type, droneIds) {
+            console.log(`[DEBUG] executeCommand: ${type} for drones:`, droneIds);
+
+            if (type === 'mass_arm') {
+                socket.emit('mass_arm', { drone_ids: droneIds });
+            } else if (type === 'mass_takeoff') {
+                socket.emit('mass_takeoff', { drone_ids: droneIds });
+            } else if (type === 'mass_land') {
+                if (formationActive) {
+                    console.log("[DEBUG] İniş komutu: Aktif formasyon durduruluyor...");
+                    stopFormation();
+                }
+                socket.emit('mass_land', { drone_ids: droneIds });
+            } else if (type === 'set_target_altitude') {
+                let alt_cm = prompt("Hedef irtifayı CM cinsinden girin:", "500");
+                if (alt_cm) {
+                    let alt_m = parseFloat(alt_cm) / 100.0;
+                    socket.emit('set_target_altitude', { altitude_m: alt_m, drone_ids: droneIds });
+                }
+            } else if (type === 'toggle_altitude_protector') {
+                altitudeProtectorEnabled = !altitudeProtectorEnabled;
+                updateProtectorButton();
+                socket.emit('toggle_altitude_protector', { enabled: altitudeProtectorEnabled, drone_ids: droneIds });
+            } else if (type === 'request_camera') {
+                openCameraGrid(droneIds);
+            }
+        }
+
+        function updateProtectorButton() {
+            const btn = document.getElementById('alt-protector-btn');
+            if (altitudeProtectorEnabled) {
+                btn.innerText = '🛡️ İRTİFA KORUMASI: AKTİF';
+                btn.style.background = 'linear-gradient(135deg, #10b981, #059669)';
+                btn.style.boxShadow = '0 0 15px var(--green)';
+            } else {
+                btn.innerText = '🛡️ İRTİFA KORUMASI: KAPALI';
+                btn.style.background = 'var(--muted)';
+                btn.style.boxShadow = 'none';
+            }
+        }
+
+        function openCameraGrid(droneIds) {
+            isCameraOpen = true;
+            activeCameraDrones = droneIds;
+            const overlay = document.getElementById('cam-overlay');
+            const grid = document.getElementById('camera-grid');
+
+            grid.innerHTML = '';
+            droneIds.forEach(id => {
+                const box = document.createElement('div');
+                box.className = 'camera-box';
+                box.innerHTML = `
+                    <img id="stream-${id}" src="" alt="İHA ${id} Kamera">
+                    <div class="camera-label">İHA ${id} CANLI</div>
+                `;
+                grid.appendChild(box);
+            });
+
+            overlay.style.display = 'flex';
+            socket.emit('request_camera', { drone_ids: droneIds });
+        }
+
+        function closeCamera() {
+            isCameraOpen = false;
+            activeCameraDrones = [];
+            document.getElementById('cam-overlay').style.display = 'none';
+            document.getElementById('camera-grid').innerHTML = '';
+            socket.emit('request_camera', { drone_ids: [] });
+        }
+
+        function toggleCamera() {
+            // Replaced by Modal
+        }
+        function massTakeoff() {
+            // Replaced by Modal
+        }
+        function massArm() {
+            // Replaced by Modal
+        }
+        function setTargetAltitude() {
+            // Replaced by Modal
+        }
+        function massLand() {
+            // Replaced by Modal
+        }
+        function massDisarm() {
+            if (confirm("DİKKAT: Tüm motorlar ANINDA DURDURULACAK! Onaylıyor musunuz?")) {
+                console.log("TOPLU DISARM emri gönderiliyor...");
+                socket.emit('mass_disarm');
+            }
+        }
+
+        let altitudeProtectorEnabled = false;
+        function toggleAltitudeProtector() {
+            // Replaced by Modal
+        }
+
+        function updateUI() {
+            const d = drones[currentDroneId];
+            if (!d) return;
+
+            // GPS
+            document.getElementById('gps-lat').innerText = d.gps.lat.toFixed(6);
+            document.getElementById('gps-lon').innerText = d.gps.lon.toFixed(6);
+            // Altitude (EKF2 Fused)
+            const relAlt = (d.gps.alt_rel || 0).toFixed(2);
+            const distBot = (d.dist_bottom || 0).toFixed(2);
+            document.getElementById('gps-alt').innerHTML = relAlt + '<span class="data-unit">m rel</span>';
+            // Telemetry Status
+            const telStatus = document.getElementById('tel-status');
+            if (telStatus) {
+                const now = Date.now();
+                if (d.lastSeen && (now - d.lastSeen) < 3000) {
+                    telStatus.innerText = 'AKTİF';
+                    telStatus.style.color = 'var(--green)';
+                } else {
+                    telStatus.innerText = 'YOK';
+                    telStatus.style.color = 'var(--red)';
+                }
+            }
+
+            // Takeoff button is now always available
+
+            // Motors
+            for (let i = 0; i < 4; i++) {
+                const val = d.motors[i] || 0;
+                document.getElementById(`m${i + 1}`).innerText = val;
+                const pct = Math.min((val / 1200) * 100, 100);
+                document.getElementById(`mf${i + 1}`).style.width = pct + '%';
+            }
+        }
+
+        socket.on('connect', () => {
+            console.log('Sunucuya bağlandı');
+        });
+
+        socket.on('disconnect', () => {
+            console.log('Sunucu bağlantısı kesildi');
+            formationActive = false;
+            currentFormationType = null;
+            updateFormationUiState();
+        });
+
+        socket.on('collision_update', (msg) => {
+            console.log("COLLISION_UPDATE:", msg);
+            var label = document.getElementById('col-lbl-' + msg.drone_id);
+            if (label) {
+                label.style.display = msg.active ? 'inline' : 'none';
+                if (msg.active) {
+                    label.innerText = '[MÜDAHALE vs ' + msg.against_id + ']';
+                }
+            }
+        });
+
+        socket.on('telemetry', (msg) => {
+            const id = msg.drone_id;
+            initDrone(id);
+            const d = drones[id];
+            d.lastSeen = Date.now();
+
+            if (msg.type === 'gps') {
+                d.gps.lat = msg.lat;
+                d.gps.lon = msg.lon;
+                d.gps.alt_abs = msg.alt;
+            } else if (msg.type === 'position') {
+                d.gps.alt_rel = msg.local_alt;
+                if (msg.dist_bottom !== undefined && msg.dist_bottom > 0) {
+                    d.dist_bottom = msg.dist_bottom;
+                }
+            } else if (msg.type === 'lidar') {
+                d.lidar = msg.ranges;
+                const min = Math.min(...msg.ranges.filter(r => r > 0.05));
+                if (id === currentDroneId) {
+                    document.getElementById('lidar-min').innerHTML = min.toFixed(2) + '<span class="data-unit">m</span>';
+                }
+            } else if (msg.type === 'tof') {
+                d.tof[msg.side] = msg.dist;
+            } else if (msg.type === 'motors') {
+                d.motors = msg.speeds;
+                if (msg.armed !== undefined) {
+                    d.status.armed = msg.armed;
+                }
+                if (id === currentDroneId) {
+                    console.log(`Drone ${id} Motors [${msg.source}]:`, msg.speeds, "Raw:", msg.raw);
+                }
+            } else if (msg.type === 'status') {
+                console.log(`Drone ${id} Status Update:`, msg);
+                d.status = { armed: msg.armed, mode: msg.nav_state };
+            }
+
+            if (id === currentDroneId) updateUI();
+        });
+
+        socket.on('camera_frame', (msg) => {
+            if (isCameraOpen && activeCameraDrones.includes(msg.drone_id)) {
+                const img = document.getElementById(`stream-${msg.drone_id}`);
+                if (img) {
+                    img.src = 'data:image/jpeg;base64,' + msg.frame;
+                }
+            }
+        });
+
+        updateFormationUiState();
+
+    </script>
+</body>
+
+</html>

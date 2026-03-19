@@ -22,6 +22,7 @@ setup(
         'console_scripts': [
             # Yeni eklenen calistirilabilir komut:
             'network_manager = network.network_manager:main',
+            'chaos_network = network.chaos_network:main',
         ],
     },
 )

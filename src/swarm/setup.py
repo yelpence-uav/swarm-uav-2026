@@ -10,6 +10,7 @@ setup(
         ('share/ament_index/resource_index/packages',
             ['resource/' + package_name]),
         ('share/' + package_name, ['package.xml']),
+        ('share/' + package_name, ['swarm/swarm_launch.py']),
     ],
     install_requires=['setuptools'],
     zip_safe=True,
@@ -20,8 +21,10 @@ setup(
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
-            # Yeni eklenen çalıştırılabilir komut:
-            'swarm_controller = swarm.swarm_controller:main',
+            'swarm_launch = swarm.swarm_launch:main',
+            'lidar_relay = swarm.lidar_relay:main',
+            'camera_relay = swarm.camera_relay:main',
+            'tof_relay = swarm.tof_relay:main',
         ],
     },
 )

@@ -1,0 +1,14 @@
+flask
+flask-socketio
+eventlet
+opencv-python
+numpy<2.0.0
+# Required for PX4 build
+kconfiglib
+jinja2
+jsonschema
+future
+pyros-genmsg
+pyyaml
+# Required for Micro-XRCE-DDS-Agent build usually handled by apt but good to have
+six

@@ -36,6 +36,6 @@ chmod +x build.bash entrypoint.sh ../scripts/sim_start.sh
 
 echo "=================================================="
 echo "AMD/Intel için Kurulum ve İmaj İnşası Tamamlandı!"
-echo "Simülasyonu AMD yapılandırmasıyla başlatmak için:"
-echo "docker compose -f docker/docker-compose-amd.yml up -d"
+echo "KONTEYNERİ BAŞLATMAK İÇİN ana dizine gelip şu komutu girin (yelpence-2026-swarm dizini):"
+echo "bash scripts/start-docker.sh"
 echo "=================================================="

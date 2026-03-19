@@ -41,7 +41,7 @@ echo "3. DOSYA İZİNLERİNİN AYARLANMASI VE DOCKER İMAJININ İNŞASI..."
 echo "=================================================="
 sg docker -c '
 cd docker
-chmod +x build.bash entrypoint.sh ../scripts/sim_start.sh
+chmod +x build.bash entrypoint.sh ../scripts/start_swarm.sh
 ./build.bash
 '
 

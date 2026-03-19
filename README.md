@@ -1,6 +1,8 @@
 # Yelpençe Sürü İHA Projesi - TEKNOFEST 2026
 
-> Bu depo, Yelpençe takımının TEKNOFEST 2026 Sürü İHA Yarışması için geliştirdiği tüm yazılım mimarisini, algoritma setlerini ve dokümantasyon süreçlerini barındıran ana merkezdir. Proje; dinamik sürü formasyonları, otonom görev icrası ve gelişmiş yer kontrol istasyonu entegrasyonuna odaklanmaktadır.
+> Bu depo, Yelpençe takımının TEKNOFEST 2026 Sürü İHA Yarışması için geliştirdiği tüm yazılım mimarisini, algoritma setlerini ve dokümantasyon süreçlerini barındıran ana merkezdir. Proje; dinamik sürü formasyonları, otonom görev icrası ve gelişmiş yer kontrol istasyonu entegrasyonuna odaklanmaktadır. 
+
+****İLK ÇALIŞTIRMA İÇİN YOL HARİTASI EN AŞAĞIDA BULUNMAKTADIR.****
 
 # Proje Dizin Yapısı ve Dosya Açıklamaları
 
@@ -27,8 +29,10 @@ yelpence-2026-swarm/
 │   ├── generate_task1_world.py      # Görev 1 (Dinamik Sürü) için sahada rastgele QR ve iniş pedleri üreten betik
 │   ├── generate_task2_worlds.py     # Görev 2 için formasyon, navigasyon ve çarpışmadan kaçınma dünyalarını üreten betik
 │   ├── install.sh                   # Tüm kurulumları tamamlayıp ortamı hazır hale getiren betik (NVIDIA)
-│   ├── install.sh                   # Tüm kurulumları tamamlayıp ortamı hazır hale getiren betik (AMD/INTEL)
-│   └── start-docker.sh              # Kullanıcının GPU seçimine göre Docker'ı ayağa kaldıran ve içine girilmesini sağlayan betik
+│   ├── install-amd.sh               # Tüm kurulumları tamamlayıp ortamı hazır hale getiren betik (AMD/INTEL)
+│   ├── start-docker.sh              # Kullanıcının GPU seçimine göre Docker'ı ayağa kaldıran ve içine girilmesini sağlayan betik
+│   ├── setup_px4.sh                 # Konteyner içinde PX4 ve mesaj altyapısını kuran ana kurulum betiği
+│   └── start_swarm.sh               # Tüm sistemleri (Gazebo, PX4, Chaos, GUI) tek seferde başlatan betik
 │-------------------------------------------------------------------------------------------------------------------------------------
 ├── sim/                             # Gazebo Harmonic simülasyon ortamları ve 3D modeller
 │   └── worlds/
@@ -40,7 +44,7 @@ yelpence-2026-swarm/
 │-------------------------------------------------------------------------------------------------------------------------------------
 ├── src/                             # ROS 2 paketlerinin ve kaynak kodların bulunduğu ana çalışma alanı
 │   ├── gcs/                         # Yer Kontrol İstasyonu (GCS) paketi
-│   │   ├── gcs/gcs_node.py          # Joystick ve arayüz komutlarını dinleyerek sürüye ileten ana ROS 2 düğümü
+│   │   ├── gcs/web_gui_server.py    # Flask-SocketIO tabanlı gelişmiş web arayüzü ve telemetri köprüsü
 │   │   ├── package.xml              # GCS paketi ROS 2 bağımlılık tanımları
 │   │   └── setup.py                 # Paket kurulum ve çalıştırılabilir komut tanımları
 │   ├── network/                     # İHA'lar arası iletişim ve telemetri trafiğini yöneten paket
@@ -48,7 +52,9 @@ yelpence-2026-swarm/
 │   │   ├── package.xml              # Ağ paketi bağımlılık tanımları
 │   │   └── setup.py                 # Paket kurulum ve komut tanımları
 │   ├── swarm/                       # Sürü zekası, formasyon kontrolü ve otonom karar mekanizmaları paketi
-│   │   ├── swarm/swarm_controller.py # İHA'ların görev dağılımını ve hareket algoritmasını yürüten ROS 2 düğümü
+│   │   ├── swarm/swarm_launch.py    # Tüm sürü sistemini (Gazebo, PX4, Lidar, Agent) orkestre eden ana başlatıcı
+│   │   ├── swarm/lidar_relay.py     # Gazebo LiDAR verilerini PX4 DistanceSensor formatına çeviren köprü
+│   │   ├── swarm/chaos_network.py   # Ağ gecikmesi ve paket kaybı simüle eden test düğümü
 │   │   ├── package.xml              # Sürü paketi bağımlılık tanımları
 │   │   └── setup.py                 # Paket kurulum ve komut tanımları
 │   ├── vision/                      # Kamera verisi, QR tespiti ve hassas konumlandırma paketi
@@ -106,6 +112,9 @@ chmod +x install-amd.sh # AMD/INTEL GPU
 ./install-amd.sh # AMD/INTEL GPU
 ```
 
+> [!NOTE]
+> Eğer kullanıcı ID'niz standart dışıysa (1000 değilse), kurulumdan önce `export USER_UID=$(id -u)` ve `export USER_GID=$(id -g)` komutlarını çalıştırınız.
+
 ## 4. Sanal Ortamı Başlatma ve Ortama Giriş
 Kurulum bittikten sonra aşağıdaki betiği kullanarak sistemi ayağa kaldırın. Docker konteyneri aktif hale gelir ve betik sonunda oluşan konteynerin içine girersiniz. Kurulum sırasında yönergeleri takip edin.
 
@@ -119,7 +128,32 @@ chmod +x start-docker.sh
 
 > Bundan sonra konteyneri çalıştırmak ve içine girmek için her zaman "./start-docker.sh" betiğini kullanabilirsiniz. Çalıştırma izinlerinin bir kere verilmesi yeterlidir.
 
-## 5. Çalışmayı Durdurma
+## 5. PX4 ve Mesaj Altyapısının Kurulması (Konteyner İçi İlk Kurulum)
+Konteynerin içine girdikten sonra, PX4 uçuş kodlarını ve ROS 2 mesaj setlerini kurmanız gerekir. Bu işlem bir kereye mahsustur:
+
+1. Konteyner içinde scripts dizinine gidin: `cd scripts`
+2. Kurulum betiğini çalıştırın:
+```bash
+chmod +x setup_px4.sh
+./setup_px4.sh
+```
+
+> **NOT:** Bu işlem internet hızınıza bağlı olarak 15-20 dakika sürebilir. Kurulum tamamlandığında `ros2_ws` dizininiz otomatik olarak derlenecektir.
+
+## 6. Sürü Simülasyonunu Başlatma (Hızlı Başlangıç)
+
+Simülasyonu, tüm alt bileşenleriyle (DDS, PX4, Kaos Ağı, GUI) tek bir komutla başlatabilirsiniz:
+
+1. Konteyner içinde `scripts` dizinine gidin: `cd scripts`
+2. Ana başlatıcıyı çalıştırın:
+```bash
+./start_swarm.sh
+```
+3. Karşınıza gelen menüden **Dünya Dosyası** (1-5) ve **İHA Sayısı** seçin.
+
+> **NOT:** Sistem arka planda Web GUI sunucusunu (`localhost:5000`) ve gerçekçi ağ gecikmelerini taklit eden Kaos Ağı modülünü otomatik olarak başlatacaktır.
+
+## 7. Çalışmayı Durdurma
 İşiniz bittiğinde bilgisayarınızı yormaması için sistemi kapatın:
 
 ```bash
@@ -136,12 +170,12 @@ docker compose -f docker-compose-amd.yml down
 
 > docker ps komutunu kullanarak hali hazırda aktif olan konteynerleri listeleyebilirsiniz. Bu listede bulunanlar kaynak tüketirler.
 
-## 6. Simülasyon Ortamının Kullanımı
+## 8. Simülasyon Ortamının Kullanımı
 Aşağıdaki python scriptleri base_world.sdf dünyasını şablon alarak task1_dynamic_swarm.sdf, task2_collision.sdf, task2_formation.sdf, task2_navigation.sdf dünyalarını inşa eder.
 
 ```python
 python3 scripts/generate_task1_world.py     # task1_dynamic_swarm.sdf
-python3 sctipts/generate_task2_worlds.py    # task2 dünyaları
+python3 scripts/generate_task2_worlds.py    # task2 dünyaları
 ```
 
 > DİKKAT! Dünyalar üzerinde yaptığınız değişiklikler bu komutların çalışması ile kaybolabilir.
@@ -152,14 +186,14 @@ python3 sctipts/generate_task2_worlds.py    # task2 dünyaları
 gz sim /sim/worlds/[DÜNYANIN ADI]
 ```
 
-## 7. Yazılım Mimarisi ve ROS 2 Altyapısı
+## 9. Yazılım Mimarisi ve ROS 2 Altyapısı
 
-### 7.1. Amaç ve Mantık
+### 9.1. Amaç ve Mantık
 ROS 2 projelerinde kodların derlenebilmesi ve sistem tarafından tanınabilmesi için belirli bir paket yapısına sahip olması gerekir. Projemizin başlangıç aşamasında oluşturulan hiyerarşik klasörler, içlerine `package.xml` ve `setup.py` / `CMakeLists.txt` dosyaları eklenerek resmi birer ROS 2 yazılım modülüne dönüştürülmüştür. 
 
 Bu sayede modüler, görev dağılımına uygun ve birindeki hata diğerinin çalışmasını engellemeyen bir çalışma alanı altyapısı kurulmuştur.
 
-Ayrıca, sürü İHA'lar arasındaki yüksek frekanslı haberleşme trafiğini en düşük gecikmeyle ve en stabil şekilde yönetebilmek adına, ROS 2'nin varsayılan haberleşme protokolü yerine çoklu otonom sistemler için endüstri standardı olan **CycloneDDS** altyapısı sisteme entegre edilmiş ve Docker ortamımıza kalıcı olarak dahil edilmiştir.
+Ayrıca, sürü İHA'lar arasındaki yüksek frekanslı haberleşme trafiğini en düşük gecikmeyle ve en stabil şekilde yönetebilmek adına, ROS 2'nin varsayılan haberleşme protokolü yerine çoklu otonom sistemler için endüstri standardı olan **FastDDS (rmw_fastrtps_cpp)** altyapısı sisteme entegre edilmiş ve Docker ortamımıza kalıcı olarak dahil edilmiştir.
 
 ### 7.2. Paket Mimarisi ve Görev Dağılımı
 Projemizin `src` dizini altındaki yazılım modülleri ve görev tanımları şu şekildedir:
@@ -179,3 +213,23 @@ Projeye gönderilen her yeni kod (push veya pull_request işlemi) otomatik olara
 - ROS 2 Build Test: Tüm çalışma alanı (colcon build) Ubuntu 24.04 ve ROS 2 Jazzy standartlarında sıfırdan derlenerek paket çakışmaları denetlenir.
 - Birim Testler (Unit Tests): colcon test komutu çalıştırılarak önceden yazılmış özel senaryo testlerinin başarı durumu kontrol edilir.
 - Linter ve Stil Denetimleri: Ekip içi tutarlılık için PEP 8 standartları (ament_flake8) ve yorum satırı / dokümantasyon kuralları (ament_pep257) analiz edilir. Kurallara uymayan kodların ana yapıya (main) birleşmesi engellenir.
+
+
+****************************************************
+
+İLK ÇALIŞTIRMA YOL HARİTASI:
+1. NVIDIA GPU için ./scripts/install.sh 
+   AMD/INTEL GPU için ./scripts/install-amd.sh
+2. ./scripts/start-docker.sh
+3. ./scripts/setup_px4.sh
+4. ./scripts/start_swarm.sh
+
+SONRAKİ ÇALIŞTIRMALAR
+(Kurulum bittikten sonra pc yeniden başlatıldığında 
+ya da konteyner kapatılıp açıldığında):
+1. ./scripts/start-docker.sh
+2. ./scripts/start_swarm.sh
+
+GUİ için localhost:5000 adresine gidiniz.
+
+****************************************************

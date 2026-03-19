@@ -29,6 +29,31 @@ RUN apt-get update && apt-get install -y \
     libgl1-mesa-dri \
     && rm -rf /var/lib/apt/lists/*
 
+# ====================================================================
+# YELPENÇE PX4 SITL PYTHON BAĞIMLILIKLARI 
+# ====================================================================
+RUN pip3 install --break-system-packages kconfiglib jinja2 jsonschema pyros-genmsg empy packaging toml \
+    flask flask-socketio eventlet opencv-python "numpy<2.0.0"
+# ====================================================================
+
+# ====================================================================
+# MICRO XRCE-DDS AGENT KURULUMU (ROS 2 - PX4 Haberleşme Köprüsü)
+# ====================================================================
+RUN git clone https://github.com/eProsima/Micro-XRCE-DDS-Agent.git /tmp/Micro-XRCE-DDS-Agent \
+    && cd /tmp/Micro-XRCE-DDS-Agent \
+    && mkdir build && cd build \
+    && cmake .. \
+    && make \
+    && make install \
+    && ldconfig /usr/local/lib/ \
+    && rm -rf /tmp/Micro-XRCE-DDS-Agent
+# ====================================================================
+
+# ROS 2 İletişim Altyapısını FastDDS Olarak Ayarla
+ENV RMW_IMPLEMENTATION=rmw_fastrtps_cpp 
+# QR kod üretimi için Python bağımlılığı
+RUN pip3 install --break-system-packages qrcode[pil]
+
 # --- YELPENÇE ÖZELLEŞTİRMESİ ---
 ARG USERNAME=yelpence
 ARG USER_UID=1000
