@@ -494,19 +494,29 @@ class TelemetryBridge(Node):
         socketio.emit('telemetry', data)
 
     def lidar_callback(self, msg, drone_id):
+        """LiDAR verisini alır, filtreler ve saklar."""
         if not msg.ranges:
             return
-        # Engelleri filtrele (0 veya inf değerleri temizle)
-        ranges = [float(r) for r in msg.ranges if not math.isinf(r) and not math.isnan(r) and r > 0.01]
-        if not ranges:
-            ranges = [8.0] # model.sdf max range (8.0m)
             
+        # 1. Filtreleme: inf, nan ve 0.1m altı parazitleri ayıkla
+        valid_ranges = [
+            float(r) for r in msg.ranges 
+            if not math.isinf(r) and not math.isnan(r) and r > 0.1
+        ]
+        
+        # Eğer hiç geçerli veri yoksa, varsayılan olarak maksimum menzili (8m) ekle
+        if not valid_ranges:
+            valid_ranges = [8.0]
+        
         if drone_id in self.drones:
-            self.drones[drone_id]['lidar'] = [float(r) for r in msg.ranges]
+            # Sadece geçerli filtreli veriyi saklıyoruz
+            self.drones[drone_id]['lidar'] = valid_ranges
+            
+            # Telemetriyi gönder
             socketio.emit('telemetry', {
                 'type': 'lidar',
                 'drone_id': drone_id,
-                'ranges': self.drones[drone_id]['lidar']
+                'ranges': valid_ranges
             })
 
     def tof_callback(self, msg, drone_id, side):
@@ -767,7 +777,7 @@ def altitude_correction_loop():
     print("Altitude Correction Loop: Started.")
     
     while True:
-        socketio.sleep(3.0)
+        socketio.sleep(0.5)
         if bridge_node is None:
             continue
             
@@ -800,8 +810,8 @@ def altitude_correction_loop():
             # Sapma miktarını hesapla
             error = target_altitude - true_alt
             
-            # ÖNEMLİ: Sadece 15cm'den fazla sapma varsa düzeltme yap (Dalgalanmayı önlemek için deadband)
-            if abs(error) > 0.15:
+            # ÖNEMLİ: Sadece 5cm'den fazla sapma varsa düzeltme yap (Daha agresif takip)
+            if abs(error) > 0.05:
                 # EKF'ye göre yeni hedef
                 target_ekf_alt = current_ekf_alt + error
                 target_amsl = ref_alt + target_ekf_alt

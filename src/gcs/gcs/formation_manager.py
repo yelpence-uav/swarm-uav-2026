@@ -17,7 +17,7 @@ class FormationManager:
         self.last_targets_xy = {}
         # Keep XY step above typical PX4 acceptance radius so reposition commands are actually executed.
         self.max_step_xy_m = 2.5
-        self.max_step_alt_m = 0.35
+        self.max_step_alt_m = 0.70
         self.cmd_speed_mps = 0.8
         self.min_separation_m = 1.2
         self.on_road_states = {} # drone_id -> bool
