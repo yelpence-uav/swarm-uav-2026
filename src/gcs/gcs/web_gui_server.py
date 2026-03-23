@@ -194,9 +194,11 @@ def quaternion_to_euler(w, x, y, z):
 class TelemetryBridge(Node):
     def __init__(self):
         super().__init__('web_gui_bridge')
-        self.get_logger().info(f'Yelpençe Web GUI Bridge (v4.0-ROBUST) başlatıldı! Drone Count: {DRONE_COUNT}')
         self.bridge = CvBridge()
         self.cmd_pubs = {}
+        self.alert_pub = self.create_publisher(String, '/gcs/alerts', 10)
+        self.manual_pub = self.create_publisher(String, '/gcs/manual_control', 10)
+        self.get_logger().info(f'Yelpençe Web GUI Bridge (v4.0-ROBUST) başlatıldı! Drone Count: {DRONE_COUNT}')
         
         # Best Effort QoS (telemetry)
         qos_best_effort = QoSProfile(
@@ -232,6 +234,11 @@ class TelemetryBridge(Node):
         for i in range(DRONE_COUNT):
             drone_id = i + 1
             ns = f'/drone_{drone_id}'
+            # Alerts from Collision Avoidance
+            self.create_subscription(String, '/gcs/alerts', self.alert_callback, 10)
+            # Manual Control Active Signal (v8.0.3 Bypass)
+            self.create_subscription(String, '/gcs/manual_active_ids', self.manual_active_callback, 10)
+            
             self.get_logger().info(f'Drone {drone_id} abonelikleri kuruluyor...')
             
             # IMU
@@ -408,6 +415,29 @@ class TelemetryBridge(Node):
             # Only update if local_pos hasn't been set yet
             if d['local_z'] == 0.0 and abs(float(msg.position[2])) > 0.01:
                 d['gps']['alt_rel'] = -float(msg.position[2])
+
+
+    def manual_active_callback(self, msg):
+        """Relays which drones are under manual control to the formation manager."""
+        try:
+            manual_ids = json.loads(msg.data)
+            if formation_mgr:
+                formation_mgr.manual_mask = manual_ids
+        except Exception as e:
+            self.get_logger().error(f"Manual active callback error: {e}")
+
+    def alert_callback(self, msg):
+        """Çarpışma önleyici veya diğer sistemlerden gelen uyarıları alır ve GUI'ye yollar."""
+        try:
+            alert_data = json.loads(msg.data)
+            socketio.emit('telemetry', {
+                'type': 'alert',
+                'drone_id': alert_data.get('drone_id', 0),
+                'level': alert_data.get('level', 'warning'),
+                'msg': alert_data.get('msg', 'Bilinmeyen uyarı!')
+            })
+        except Exception as e:
+            self.get_logger().error(f"Alert Callback Error: {e}")
 
     def status_callback(self, msg, drone_id):
         is_armed = msg.arming_state == 2
@@ -683,6 +713,28 @@ def handle_mass_takeoff(data=None):
             bridge_node.get_logger().info(f"Drone {drone_id}: Kalkış emri verildi.")
     finally:
         is_processing_command = False
+
+
+@socketio.on('toggle_collision_avoidance')
+def handle_toggle_collision_avoidance(data):
+    """Çarpışma önleyiciyi uzaktan açıp kapatır."""
+    global bridge_node
+    enabled = data.get('enabled', True)
+    print(f"DEMO Çarpışma Önleyici Durumu: {'AKTİF' if enabled else 'KAPALI'}")
+    
+    if bridge_node:
+        alert_msg = String()
+        alert_msg.data = json.dumps({'type': 'control', 'enabled': enabled})
+        bridge_node.alert_pub.publish(alert_msg)
+
+@socketio.on('manual_command')
+def handle_manual_command(data):
+    """Klavye/Buton komutlarını ROS 2'ye aktarır."""
+    global bridge_node
+    if bridge_node:
+        msg = String()
+        msg.data = json.dumps(data)
+        bridge_node.manual_pub.publish(msg)
 
 @socketio.on('set_target_altitude')
 @socketio.on('mass_equalize_altitude')

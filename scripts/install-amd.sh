@@ -30,7 +30,7 @@ echo "=================================================="
 # Grup değişikliğinin bu oturumda geçerli olması için 'sg docker' kullanılır.
 sg docker -c '
 cd docker
-chmod +x build.bash entrypoint.sh ../scripts/sim_start.sh
+chmod +x build.bash entrypoint.sh
 ./build.bash
 '
 

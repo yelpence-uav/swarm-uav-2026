@@ -4,6 +4,8 @@ import sys
 import subprocess
 import time
 import signal
+import math
+import random
 
 WORKSPACE = "/home/yelpence/ros2_ws"
 PX4_PATH = os.path.join(WORKSPACE, "src/PX4-Autopilot")
@@ -70,13 +72,32 @@ def generate_spawn_sdf(world_path, drone_count):
     with open(world_path, 'r') as f:
         content = f.read()
 
+    import random
     spawn_elements = ""
-    spacing = 3.0
+    used_positions = [] # (x, y) listesi
+    
     for i in range(drone_count):
         drone_name = f"IHA_{i+1}"
-        x = (i % 5) * spacing
-        y = (i // 5) * spacing
         
+        # Uygun bir rastgele konum bulana kadar dene
+        attempts = 0
+        while attempts < 100:
+            x = random.uniform(-15.0, 15.0)
+            y = random.uniform(-15.0, 15.0)
+            
+            # Diğer İHA'lara çok yakın mı? (En az 2.5m)
+            too_close = False
+            for ux, uy in used_positions:
+                dist = math.sqrt((x - ux)**2 + (y - uy)**2)
+                if dist < 2.5:
+                    too_close = True
+                    break
+            
+            if not too_close:
+                used_positions.append((x, y))
+                break
+            attempts += 1
+            
         spawn_elements += f"""
     <include>
       <name>{drone_name}</name>
@@ -252,9 +273,11 @@ def main():
     run_background(f"ros2 run swarm camera_relay {drone_count}", "camera_relay")
     run_background(f"ros2 run swarm tof_relay {drone_count}", "tof_relay")
 
-    # 4.5 Chaos Network (Simulated Latency)
-    print(">> Chaos Network (Ağ Gecikmesi) başlatılıyor...")
+    # 4.5 Chaos Network & Collision Avoidance
+    print(">> Chaos Network ve Çarpışma Önleyici başlatılıyor...")
     run_background(f"ros2 run network chaos_network {drone_count}", "chaos_network")
+    run_background(f"ros2 run swarm collision_avoidance {drone_count}", "collision_avoidance")
+    run_background(f"ros2 run swarm manual_control", "manual_control")
 
     # 5. Web GUI
     print(">> Web GUI Sunucusu başlatılıyor...")

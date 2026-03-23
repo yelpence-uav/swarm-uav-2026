@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Yelpençe Sürü Dashboard</title>
+    <title>YELPENÇE GCS [v4.5]</title>
     <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -33,6 +33,57 @@
                 transform: scale(0.95);
             }
         }
+
+        @keyframes blink-red {
+            0% {
+                background: var(--red);
+                box-shadow: 0 0 15px var(--red);
+                color: white;
+            }
+
+            50% {
+                background: transparent;
+                box-shadow: none;
+                color: inherit;
+            }
+
+            100% {
+                background: var(--red);
+                box-shadow: 0 0 15px var(--red);
+                color: white;
+            }
+        }
+
+        @keyframes blink-yellow {
+            0% {
+                background: #f59e0b;
+                box-shadow: 0 0 15px #f59e0b;
+                color: white;
+            }
+
+            50% {
+                background: transparent;
+                box-shadow: none;
+                color: inherit;
+            }
+
+            100% {
+                background: #f59e0b;
+                box-shadow: 0 0 15px #f59e0b;
+                color: white;
+            }
+        }
+
+        .alert-critical {
+            animation: blink-red 0.5s infinite !important;
+            border-color: var(--red) !important;
+        }
+
+        .alert-warning {
+            animation: blink-yellow 0.8s infinite !important;
+            border-color: #f59e0b !important;
+        }
+
 
         * {
             box-sizing: border-box;
@@ -309,6 +360,110 @@
             font-weight: 700;
             z-index: 1100;
             transition: all 0.3s;
+        }
+
+        /* ALERT NOTIFICATIONS */
+        .alert-container {
+            position: fixed;
+            bottom: 24px;
+            right: 24px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            z-index: 3000;
+            max-width: 350px;
+        }
+
+        .toast {
+            background: rgba(15, 23, 42, 0.95);
+            border-left: 4px solid var(--accent);
+            color: var(--text);
+            padding: 12px 20px;
+            border-radius: 8px;
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
+            backdrop-filter: blur(10px);
+            animation: slideIn 0.3s ease-out;
+            font-size: 0.85rem;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .toast.critical {
+            border-left-color: var(--red);
+        }
+
+        .toast.warning {
+            border-left-color: #f59e0b;
+        }
+
+        @keyframes slideIn {
+            from {
+                transform: translateX(100%);
+                opacity: 0;
+            }
+
+            to {
+                transform: translateX(0);
+                opacity: 1;
+            }
+        }
+
+        /* MANUAL CONTROL OVERLAY */
+        .manual-overlay {
+            position: fixed;
+            bottom: 120px;
+            right: 24px;
+            background: rgba(15, 23, 42, 0.9);
+            border: 2px solid var(--accent);
+            border-radius: 20px;
+            padding: 24px;
+            display: none;
+            flex-direction: column;
+            gap: 15px;
+            z-index: 2500;
+            box-shadow: 0 0 30px var(--accent-glow);
+            backdrop-filter: blur(10px);
+            user-select: none;
+        }
+
+        .control-grid {
+            display: grid;
+            grid-template-areas: "q w e" "a s d";
+            gap: 10px;
+        }
+
+        .key-btn {
+            width: 50px;
+            height: 50px;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            background: rgba(255, 255, 255, 0.05);
+            color: white;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 10px;
+            font-weight: 700;
+            font-size: 1.2rem;
+            transition: all 0.1s;
+        }
+
+        .key-btn.active {
+            background: var(--accent);
+            box-shadow: 0 0 15px var(--accent);
+            transform: scale(0.95);
+        }
+
+        .vert-controls {
+            display: flex;
+            justify-content: space-between;
+            gap: 10px;
+        }
+
+        .key-wide {
+            flex: 1;
+            height: 40px;
+            font-size: 0.8rem;
         }
 
         /* SELECTION MODAL */
@@ -669,13 +824,18 @@
     <div class="container">
         <!-- HEADER -->
         <div class="header">
+            <div class="alert-container" id="alert-container"></div>
             <div>
-                <h1>🚁 <span>YELPENÇE</span> SÜRÜ SİSTEMİ</h1>
+                <h1>🚁 <span>YELPENÇE</span> SÜRÜ SİSTEMİ <span
+                        style="font-size: 0.8rem; color: var(--accent);">v4.5</span></h1>
             </div>
             <div class="status-group">
-                <div class="control-box">
-                    <div class="control-title">Temel Komutlar</div>
-                    <div class="control-row">
+                <div class="control-box"
+                    style="margin-right: 20px; border: 1px solid rgba(255,255,255,0.1); padding: 10px; border-radius: 12px; background: rgba(0,0,0,0.2);">
+                    <div
+                        style="font-size: 0.65rem; color: var(--muted); margin-bottom: 8px; font-weight: 800; text-transform: uppercase; letter-spacing: 1px;">
+                        Temel Komutlar</div>
+                    <div style="display: flex; gap: 8px;">
                         <button class="arm-btn" onclick="openSelection('mass_arm')">Motorları Çalıştır</button>
                         <button class="takeoff-btn" id="mass-takeoff-btn"
                             onclick="openSelection('mass_takeoff')">Havalan</button>
@@ -683,101 +843,109 @@
                             İrtifa</button>
                         <button class="land-btn" onclick="openSelection('mass_land')">İniş</button>
                         <button class="cam-btn" onclick="openSelection('request_camera')">Kamera</button>
+                        <button class="cam-btn"
+                            style="background: linear-gradient(135deg, #f59e0b, #d97706); font-weight: 800;"
+                            onclick="openSelection('manual_control')">🎮 MANUEL KONTROL</button>
                     </div>
                 </div>
-                <div class="control-box">
-                    <div class="control-title">Formasyon Kontrolü</div>
-                    <div class="spacing-wrap">
-                        <label for="formation-spacing">Aralık</label>
-                        <input id="formation-spacing" type="number" min="1.0" max="15.0" step="0.5" value="2.0">
-                        <span>m</span>
-                    </div>
-                    <div class="formation-select">
-                        <button class="formation-btn" data-type="arrowhead"
-                            onclick="openFormationSelection('arrowhead')">Ok Başı</button>
-                        <button class="formation-btn" data-type="reverse_arrowhead"
-                            onclick="openFormationSelection('reverse_arrowhead')">Ters Ok Başı</button>
-                        <button class="formation-btn" data-type="line" onclick="openFormationSelection('line')" disabled
-                            title="Henüz hazır değil">Sağa Doğru Çizgi</button>
-                        <button class="formation-btn" data-type="column" onclick="openFormationSelection('column')"
-                            disabled title="Henüz hazır değil">İleriye Doğru Çizgi</button>
-                    </div>
-                    <button id="formation-stop-btn" class="formation-btn formation-stop" onclick="stopFormation()"
-                        disabled>
-                        Formasyonu Durdur
-                    </button>
+                <button class="arm-btn" id="collision-toggle-btn"
+                    style="background: linear-gradient(135deg, #10b981, #059669); border: none; height: fit-content; align-self: flex-end; margin-bottom: 10px;"
+                    onclick="openSelection('toggle_collision_avoidance')">🛡️ ÇARPIŞMA ÖNLEYİCİ: AKTİF</button>
+            </div>
+        </div>
+        <div class="control-box">
+            <div class="control-title">Formasyon Kontrolü</div>
+            <div class="spacing-wrap">
+                <label for="formation-spacing">Aralık (Min. 3m Önerilir)</label>
+                <input id="formation-spacing" type="number" min="1.0" max="15.0" step="0.5" value="2.0">
+                <span>m</span>
+            </div>
+            <div class="formation-select">
+                <button class="formation-btn" data-type="arrowhead" onclick="openFormationSelection('arrowhead')">Ok
+                    Başı</button>
+                <button class="formation-btn" data-type="reverse_arrowhead"
+                    onclick="openFormationSelection('reverse_arrowhead')">Ters Ok Başı</button>
+                <button class="formation-btn" data-type="line" onclick="openFormationSelection('line')">Sağa-Sola Doğru
+                    Çizgi</button>
+                <button class="formation-btn" data-type="column"
+                    onclick="openFormationSelection('column')">İleriye-Geriye
+                    Doğru Çizgi</button>
+            </div>
+            <button id="formation-stop-btn" class="formation-btn formation-stop" onclick="stopFormation()" disabled>
+                Formasyonu Durdur
+            </button>
+        </div>
+    </div>
+    </div>
+
+    <!-- TABS -->
+    <div class="drone-selector" id="drone-tabs">
+        <!-- Dynamic Buttons -->
+    </div>
+
+    <!-- MAIN GRID -->
+    <div class="dashboard-grid">
+
+        <!-- NAVIGATION & SENSORS PANEL -->
+        <div class="card" style="grid-column: 1 / -1;">
+            <div class="card-title"><i></i> NAVİGASYON VE SENSÖR VERİLERİ</div>
+            <div class="gps-grid" style="grid-template-columns: repeat(5, 1fr);">
+                <div class="data-item">
+                    <div class="data-label">ENLEM</div>
+                    <div class="data-value" id="gps-lat">0.000000</div>
+                </div>
+                <div class="data-item">
+                    <div class="data-label">BOYLAM</div>
+                    <div class="data-value" id="gps-lon">0.000000</div>
+                </div>
+                <div class="data-item" style="border-left: 2px solid var(--accent-glow);">
+                    <div class="data-label">LIDAR</div>
+                    <div class="data-value" id="lidar-min">0.00<span class="data-unit">m</span></div>
+                </div>
+                <div class="data-item">
+                    <div class="data-label">İRTİFA (GPS)</div>
+                    <div class="data-value" id="gps-alt">0.00<span class="data-unit">m</span></div>
+                </div>
+                <div class="data-item">
+                    <div class="data-label">TELEMETRİ</div>
+                    <div class="data-value" id="tel-status" style="color: var(--red);">YOK</div>
                 </div>
             </div>
         </div>
 
-        <!-- TABS -->
-        <div class="drone-selector" id="drone-tabs">
-            <!-- Dynamic Buttons -->
-        </div>
-
-        <!-- MAIN GRID -->
-        <div class="dashboard-grid">
-
-            <!-- NAVIGATION & SENSORS PANEL -->
-            <div class="card" style="grid-column: 1 / -1;">
-                <div class="card-title"><i></i> NAVİGASYON VE SENSÖR VERİLERİ</div>
-                <div class="gps-grid" style="grid-template-columns: repeat(5, 1fr);">
-                    <div class="data-item">
-                        <div class="data-label">ENLEM</div>
-                        <div class="data-value" id="gps-lat">0.000000</div>
-                    </div>
-                    <div class="data-item">
-                        <div class="data-label">BOYLAM</div>
-                        <div class="data-value" id="gps-lon">0.000000</div>
-                    </div>
-                    <div class="data-item" style="border-left: 2px solid var(--accent-glow);">
-                        <div class="data-label">LIDAR</div>
-                        <div class="data-value" id="lidar-min">0.00<span class="data-unit">m</span></div>
-                    </div>
-                    <div class="data-item">
-                        <div class="data-label">İRTİFA (GPS)</div>
-                        <div class="data-value" id="gps-alt">0.00<span class="data-unit">m</span></div>
-                    </div>
-                    <div class="data-item">
-                        <div class="data-label">TELEMETRİ</div>
-                        <div class="data-value" id="tel-status" style="color: var(--red);">YOK</div>
-                    </div>
+        <!-- MOTOR STRIP -->
+        <div class="motor-strip">
+            <div class="motor-card">
+                <div class="motor-id">MOTOR 01</div>
+                <div class="motor-speed" id="m1">0</div>
+                <div class="motor-progress">
+                    <div class="motor-fill" id="mf1"></div>
                 </div>
             </div>
-
-            <!-- MOTOR STRIP -->
-            <div class="motor-strip">
-                <div class="motor-card">
-                    <div class="motor-id">MOTOR 01</div>
-                    <div class="motor-speed" id="m1">0</div>
-                    <div class="motor-progress">
-                        <div class="motor-fill" id="mf1"></div>
-                    </div>
-                </div>
-                <div class="motor-card">
-                    <div class="motor-id">MOTOR 02</div>
-                    <div class="motor-speed" id="m2">0</div>
-                    <div class="motor-progress">
-                        <div class="motor-fill" id="mf2"></div>
-                    </div>
-                </div>
-                <div class="motor-card">
-                    <div class="motor-id">MOTOR 03</div>
-                    <div class="motor-speed" id="m3">0</div>
-                    <div class="motor-progress">
-                        <div class="motor-fill" id="mf3"></div>
-                    </div>
-                </div>
-                <div class="motor-card">
-                    <div class="motor-id">MOTOR 04</div>
-                    <div class="motor-speed" id="m4">0</div>
-                    <div class="motor-progress">
-                        <div class="motor-fill" id="mf4"></div>
-                    </div>
+            <div class="motor-card">
+                <div class="motor-id">MOTOR 02</div>
+                <div class="motor-speed" id="m2">0</div>
+                <div class="motor-progress">
+                    <div class="motor-fill" id="mf2"></div>
                 </div>
             </div>
-
+            <div class="motor-card">
+                <div class="motor-id">MOTOR 03</div>
+                <div class="motor-speed" id="m3">0</div>
+                <div class="motor-progress">
+                    <div class="motor-fill" id="mf3"></div>
+                </div>
+            </div>
+            <div class="motor-card">
+                <div class="motor-id">MOTOR 04</div>
+                <div class="motor-speed" id="m4">0</div>
+                <div class="motor-progress">
+                    <div class="motor-fill" id="mf4"></div>
+                </div>
+            </div>
         </div>
+
+    </div>
     </div>
 
     <!-- CAMERA OVERLAY -->
@@ -824,6 +992,7 @@
         const drones = {};
 
         function initDrone(id) {
+            if (id < 1) return; // Master filter: Sadece gerçek İHA'lar (1, 2, ...)
             if (!drones[id]) {
                 drones[id] = {
                     gps: { lat: 0, lon: 0, alt_abs: 0, alt_rel: 0 },
@@ -1040,7 +1209,31 @@
                 socket.emit('toggle_altitude_protector', { enabled: altitudeProtectorEnabled, drone_ids: droneIds });
             } else if (type === 'request_camera') {
                 openCameraGrid(droneIds);
+            } else if (type === 'toggle_collision_avoidance') {
+                toggleCollisionAvoidance(droneIds);
+            } else if (type === 'manual_control') {
+                console.log("[MANUAL] executeCommand -> manual_control");
+                startManualControl(droneIds);
             }
+        }
+
+        function showToast(msg, level) {
+            console.log("SHOW TOAST:", msg, level);
+            const container = document.getElementById('alert-container');
+            if (!container) {
+                console.error("Alert container not found!");
+                return;
+            }
+            const toast = document.createElement('div');
+            toast.className = `toast ${level}`;
+            toast.innerHTML = `<span>${msg}</span>`;
+            container.appendChild(toast);
+            setTimeout(() => {
+                toast.style.opacity = '0';
+                toast.style.transform = 'translateX(100%)';
+                toast.style.transition = 'all 0.3s ease-out';
+                setTimeout(() => toast.remove(), 300);
+            }, 5000);
         }
 
         function updateProtectorButton() {
@@ -1107,10 +1300,23 @@
             }
         }
 
-        let altitudeProtectorEnabled = false;
+        let collisionAvoidanceEnabled = true;
+        function toggleCollisionAvoidance(droneIds) {
+            collisionAvoidanceEnabled = !collisionAvoidanceEnabled;
+            const btn = document.getElementById('collision-toggle-btn');
+            if (collisionAvoidanceEnabled) {
+                btn.innerText = '🛡️ ÇARPIŞMA ÖNLEYİCİ: AKTİF';
+                btn.style.background = 'linear-gradient(135deg, #10b981, #059669)';
+            } else {
+                btn.innerText = '🛡️ ÇARPIŞMA ÖNLEYİCİ: KAPALI';
+                btn.style.background = 'var(--muted)';
+            }
+            socket.emit('toggle_collision_avoidance', { enabled: collisionAvoidanceEnabled, drone_ids: droneIds });
+        }
         function toggleAltitudeProtector() {
             // Replaced by Modal
         }
+
 
         function updateUI() {
             const d = drones[currentDroneId];
@@ -1158,15 +1364,18 @@
             updateFormationUiState();
         });
 
+
         socket.on('collision_update', (msg) => {
-            console.log("COLLISION_UPDATE:", msg);
-            var label = document.getElementById('col-lbl-' + msg.drone_id);
-            if (label) {
-                label.style.display = msg.active ? 'inline' : 'none';
-                if (msg.active) {
-                    label.innerText = '[MÜDAHALE vs ' + msg.against_id + ']';
-                }
-            }
+            const label = document.getElementById('col-lbl-' + msg.drone_id);
+            if (label) label.style.display = msg.active ? 'inline' : 'none';
+        });
+
+        socket.on('alert', (msg) => {
+            const data = typeof msg === 'string' ? JSON.parse(msg) : msg;
+            // Sistem mesajlarını (-1 gibi) filtrele, sadece gerçek İHA'ları göster
+            if (data.drone_id < 1) return;
+
+            showToast(`İHA ${data.drone_id}: ${data.msg}`, data.level);
         });
 
         socket.on('telemetry', (msg) => {
@@ -1203,6 +1412,14 @@
             } else if (msg.type === 'status') {
                 console.log(`Drone ${id} Status Update:`, msg);
                 d.status = { armed: msg.armed, mode: msg.nav_state };
+            } else if (msg.type === 'alert') {
+                const btn = document.getElementById('btn-' + id);
+                if (btn) {
+                    const className = msg.level === 'critical' ? 'alert-critical' : 'alert-warning';
+                    btn.classList.add(className);
+                    setTimeout(() => btn.classList.remove('alert-warning', 'alert-critical'), 3000);
+                }
+                showToast(msg.msg, msg.level);
             }
 
             if (id === currentDroneId) updateUI();
@@ -1217,9 +1434,109 @@
             }
         });
 
+        // --- MANUAL CONTROL LOGIC ---
+        let manualSelectedIds = [];
+        let isManualMode = false;
+        const keyMap = {
+            'w': 'w', 's': 's', 'a': 'a', 'd': 'd',
+            'q': 'q', 'e': 'e',
+            'shift': 'shift', 'control': 'control'
+        };
+
+        function startManualControl(ids) {
+            console.log("[MANUAL] startManualControl IDs:", ids);
+            manualSelectedIds = ids;
+            isManualMode = true;
+            const overlay = document.getElementById('manual-control-overlay');
+            if (overlay) {
+                overlay.style.display = 'flex';
+                document.getElementById('manual-selected-list').innerText = "Seçili: İHA " + ids.join(', ');
+                showToast("Manuel Kontrol Aktif: " + ids.join(', '), 'warning');
+            } else {
+                console.error("[ERROR] manual-control-overlay not found!");
+            }
+        }
+
+        function closeManualControl() {
+            isManualMode = false;
+            document.getElementById('manual-control-overlay').style.display = 'none';
+            // Stop all movement
+            if (manualSelectedIds.length > 0) {
+                socket.emit('manual_command', { ids: manualSelectedIds, key: null, state: 'up' });
+            }
+            showToast("Manuel Kontrol Kapatıldı", 'info');
+        }
+
+        function handleManualKeyEvent(key, state) {
+            if (!isManualMode || manualSelectedIds.length === 0) return;
+            const k = key.toLowerCase();
+            if (keyMap[k]) {
+                const element = document.getElementById('key-' + keyMap[k]);
+                if (element) {
+                    if (state === 'down') element.classList.add('active');
+                    else element.classList.remove('active');
+                }
+                socket.emit('manual_command', { ids: manualSelectedIds, key: keyMap[k], state: state });
+            }
+        }
+
+        // --- ANTI-STUCK FOCUS SAFETY ---
+        window.addEventListener('blur', () => { if (isManualMode) emergencyStop(); });
+        document.addEventListener('visibilitychange', () => { if (document.hidden && isManualMode) emergencyStop(); });
+
+        function emergencyStop() {
+            if (!isManualMode || manualSelectedIds.length === 0) return;
+            console.log("[MANUAL] Focus lost! Emergency stop sent.");
+            // Reset all UI keys
+            document.querySelectorAll('.key-btn').forEach(btn => btn.classList.remove('active'));
+            // Send full stop to backend
+            socket.emit('manual_command', { ids: manualSelectedIds, key: null, state: 'up' });
+        }
+
+        window.addEventListener('keydown', (e) => {
+            if (!isManualMode) return;
+            if (['w', 'a', 's', 'd', 'q', 'e', 'shift', 'control'].includes(e.key.toLowerCase())) {
+                e.preventDefault();
+                handleManualKeyEvent(e.key, 'down');
+            }
+        });
+
+        window.addEventListener('keyup', (e) => {
+            if (!isManualMode) return;
+            if (['w', 'a', 's', 'd', 'q', 'e', 'shift', 'control'].includes(e.key.toLowerCase())) {
+                handleManualKeyEvent(e.key, 'up');
+            }
+        });
+
+
         updateFormationUiState();
 
     </script>
+    <!-- MANUAL CONTROL OVERLAY -->
+    <div id="manual-control-overlay" class="manual-overlay">
+        <div style="font-size: 0.7rem; color: var(--accent); font-weight: 800; text-align: center; margin-bottom: 5px;">
+            MANUEL KONTROL</div>
+        <div class="control-grid">
+            <div class="key-btn" style="grid-area: q;" id="key-q">Q</div>
+            <div class="key-btn" style="grid-area: w;" id="key-w">W</div>
+            <div class="key-btn" style="grid-area: e;" id="key-e">E</div>
+            <div class="key-btn" style="grid-area: a;" id="key-a">A</div>
+            <div class="key-btn" style="grid-area: s;" id="key-s">S</div>
+            <div class="key-btn" style="grid-area: d;" id="key-d">D</div>
+        </div>
+        <div class="vert-controls" style="margin-top:10px; display:flex; gap:10px;">
+            <div class="key-btn key-wide" id="key-shift" style="flex:1; height:40px; font-size:0.8rem;">SHIFT (↑)</div>
+            <div class="key-btn key-wide" id="key-control" style="flex:1; height:40px; font-size:0.8rem;">CTRL (↓)</div>
+        </div>
+        <div id="manual-selected-list"
+            style="font-size: 0.6rem; color: var(--muted); margin-top: 10px; border-top: 1px solid var(--border); padding-top: 5px;">
+            Seçili: -</div>
+        <button onclick="closeManualControl()"
+            style="background: var(--red); border:none; color:white; padding:8px; border-radius:5px; font-size:0.7rem; font-weight:700; cursor:pointer; margin-top:10px; width:100%;">MODU
+            KAPAT</button>
+    </div>
+
+    <div class="alert-container" id="alert-container"></div>
 </body>
 
 </html>

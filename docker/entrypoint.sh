@@ -1,25 +1,20 @@
 #!/bin/bash
 set -e
 
-# ---------------------------------------------------------
-# YELPENÇE SÜRÜ İHA - BAŞLANGIÇ SCRİPTİ
-# Bu script her yeni terminal açılışında otomatik çalışır.
-# ---------------------------------------------------------
+# --- YELPENÇE ENTRYPOINT v9.4 ---
 
-# 1. ROS 2 Jazzy Global Ortamını Yükle
-# Bu sayede 'ros2 topic list' gibi komutlar çalışır.
-source /opt/ros/jazzy/setup.bash
-
-# 2. Yelpençe Çalışma Alanını (Workspace) Yükle
-# Eğer proje daha önce derlenmişse (colcon build), sizin kodlarınızı sisteme tanıtır.
-if [ -f "/home/yelpence/ros2_ws/install/setup.bash" ]; then
-    source "/home/yelpence/ros2_ws/install/setup.bash"
-else
-    # İlk açılışta bilgilendirme mesajı
-    echo "Yelpençe Workspace henüz derlenmemiş. Kodlarınızı derlemek için:"
-    echo "    cd ~/ros2_ws && colcon build --symlink-install"
+# 1. GUI Dizin Hazırlığı
+if [ -n "$XDG_RUNTIME_DIR" ]; then
+    sudo mkdir -p "$XDG_RUNTIME_DIR" >/dev/null 2>&1 || true
+    sudo chmod 700 "$XDG_RUNTIME_DIR" >/dev/null 2>&1 || true
+    sudo chown yelpence:yelpence "$XDG_RUNTIME_DIR" >/dev/null 2>&1 || true
 fi
 
-# 3. İstenilen Komutu Çalıştır
-# Dockerfile'ın sonundaki CMD ["/bin/bash"] komutunu burası tetikler.
+# 2. ROS Ortamını Yükle
+source /opt/ros/jazzy/setup.bash
+if [ -f "/home/yelpence/ros2_ws/install/setup.bash" ]; then
+    source "/home/yelpence/ros2_ws/install/setup.bash"
+fi
+
+# 3. Devam Et
 exec "$@"

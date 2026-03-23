@@ -48,6 +48,9 @@ services:
       - /dev/dri:/dev/dri
       - /dev/snd:/dev/snd
 
+    group_add:
+      - "${VIDEO_GID:-44}"
+      - "${RENDER_GID:-107}"
     stdin_open: true
     tty: true
     command: /bin/bash

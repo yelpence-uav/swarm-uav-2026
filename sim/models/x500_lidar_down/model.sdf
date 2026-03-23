@@ -76,7 +76,7 @@
     <!-- 4-Way ToF Sensors (Omnidirectional awareness) -->
     <!-- Front ToF Sensor -->
     <link name='tof_front_link'>
-      <pose relative_to='base_link'>0.2 0 -0.02 0 0 0</pose>
+      <pose relative_to='base_link'>0.2 0 -0.022 0 0 0</pose>
       <inertial>
         <mass>0.002</mass>
         <inertia><ixx>0.000001</ixx><iyy>0.000001</iyy><izz>0.000001</izz></inertia>
@@ -99,7 +99,7 @@
 
     <!-- Back ToF Sensor -->
     <link name='tof_back_link'>
-      <pose relative_to='base_link'>-0.2 0 -0.02 0 0 3.14159</pose>
+      <pose relative_to='base_link'>-0.2 0 -0.022 0 0 3.14159</pose>
       <inertial>
         <mass>0.002</mass>
         <inertia><ixx>0.000001</ixx><iyy>0.000001</iyy><izz>0.000001</izz></inertia>
@@ -122,7 +122,7 @@
 
     <!-- Right ToF Sensor -->
     <link name='tof_right_link'>
-      <pose relative_to='base_link'>0 -0.2 -0.02 0 0 -1.5707</pose>
+      <pose relative_to='base_link'>0 -0.2 -0.022 0 0 -1.5707</pose>
       <inertial>
         <mass>0.002</mass>
         <inertia><ixx>0.000001</ixx><iyy>0.000001</iyy><izz>0.000001</izz></inertia>
@@ -145,7 +145,7 @@
 
     <!-- Left ToF Sensor -->
     <link name='tof_left_link'>
-      <pose relative_to='base_link'>0 0.2 -0.02 0 0 1.5707</pose>
+      <pose relative_to='base_link'>0 0.2 -0.022 0 0 1.5707</pose>
       <inertial>
         <mass>0.002</mass>
         <inertia><ixx>0.000001</ixx><iyy>0.000001</iyy><izz>0.000001</izz></inertia>

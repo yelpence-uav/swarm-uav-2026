@@ -18,7 +18,7 @@ class TofTestNode(Node):
         self.data = {side: 0.0 for side in self.sides}
         
         for side in self.sides:
-            topic = f'/drone_2/tof/{side}'
+            topic = f'/drone_1/tof/{side}'
             self.create_subscription(
                 LaserScan,
                 topic,
@@ -26,7 +26,7 @@ class TofTestNode(Node):
                 qos)
         
         self.create_timer(0.5, self.display)
-        print("ToF Test Başlatıldı: Drone 2 (4 Yön) dinleniyor...")
+        print("ToF Test Başlatıldı: Drone 1 (4 Yön) dinleniyor...")
 
     def tof_callback(self, msg, side):
         if msg.ranges:
@@ -39,7 +39,7 @@ class TofTestNode(Node):
     def display(self):
         os.system('clear')
         print("="*40)
-        print("TOF SENSÖRÜ CANLI VERI (Drone 2)")
+        print("TOF SENSÖRÜ CANLI VERI (Drone 1)")
         print("="*40)
         print(f"ÖN:    {self.data['front']:.2f} m")
         print(f"ARKA:  {self.data['back']:.2f} m")

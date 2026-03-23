@@ -25,6 +25,8 @@ setup(
             'lidar_relay = swarm.lidar_relay:main',
             'camera_relay = swarm.camera_relay:main',
             'tof_relay = swarm.tof_relay:main',
+            'collision_avoidance = swarm.collision_avoidance:main',
+            'manual_control = swarm.manual_control:main',
         ],
     },
 )

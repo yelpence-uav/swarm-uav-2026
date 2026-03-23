@@ -1,5 +1,6 @@
 import math
 import json
+import time
 from std_msgs.msg import String
 
 class FormationManager:
@@ -14,6 +15,7 @@ class FormationManager:
         self.spacing = 2.0
         self.formation_type = "arrowhead"
         self.bridge_node = None
+        self.manual_mask = [] # İHA ID'leri (Manuel Kontroldekiler)
         self.last_targets_xy = {}
         # Keep XY step above typical PX4 acceptance radius so reposition commands are actually executed.
         self.max_step_xy_m = 2.5
@@ -113,9 +115,13 @@ class FormationManager:
             for i, f_id in enumerate(active_ids):
                 # Leader body frame offsets by formation type.
                 if self.formation_type == "line":
-                    offset_idx = i - ((len(active_ids) - 1) / 2.0)
+                    # Takipçileri liderin sağına ve soluna spacing adımlarla diz
+                    # i=0 → sağa 1×spacing, i=1 → sola 1×spacing
+                    # i=2 → sağa 2×spacing, i=3 → sola 2×spacing ...
+                    slot = (i // 2) + 1
+                    side = 1 if (i % 2 == 0) else -1
                     body_x = 0.0
-                    body_y = offset_idx * self.spacing
+                    body_y = side * slot * self.spacing
                 elif self.formation_type == "column":
                     body_x = -(i + 1) * self.spacing
                     body_y = 0.0
@@ -138,6 +144,11 @@ class FormationManager:
                 desired_targets_xy[f_id] = (f_target_x, f_target_y)
 
             for f_id in active_ids:
+                if f_id in self.manual_mask:
+                    if time.time() % 2 < 0.1: # Throttled print
+                        print(f"FORMATION: Drone {f_id} manuel kontrolde, komutlar BAYPAS edildi.")
+                    continue
+
                 f_data = self.bridge_node.drones[f_id]
                 f_ref_alt = f_data.get('ref_alt', 0.0)
                 desired_x, desired_y = desired_targets_xy.get(f_id, (l_x, l_y))
