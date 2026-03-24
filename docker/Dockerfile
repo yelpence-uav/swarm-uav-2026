@@ -54,6 +54,14 @@ ENV RMW_IMPLEMENTATION=rmw_fastrtps_cpp
 # QR kod üretimi için Python bağımlılığı
 RUN pip3 install --break-system-packages qrcode[pil]
 
+# ====================================================================
+# QGROUNDCONTROL BAĞIMLILIKLARI (QGC dosyası host'tan volume ile gelir)
+# ====================================================================
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    fuse libfuse2 libpulse-mainloop-glib0 \
+    && rm -rf /var/lib/apt/lists/*
+# ====================================================================
+
 # --- YELPENÇE ÖZELLEŞTİRMESİ ---
 ARG USERNAME=yelpence
 ARG USER_UID=1000

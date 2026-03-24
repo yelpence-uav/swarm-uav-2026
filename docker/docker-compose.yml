@@ -45,6 +45,7 @@ services:
       - ../scripts:/home/yelpence/ros2_ws/scripts
       - ../sim:/home/yelpence/ros2_ws/sim
       - ../tests:/home/yelpence/ros2_ws/tests
+      - ../tools:/home/yelpence/ros2_ws/tools
       # Donanım Bağlantıları (GPU ve Giriş Cihazları)
       - /dev/dri:/dev/dri
       - /dev/nvidia0:/dev/nvidia0

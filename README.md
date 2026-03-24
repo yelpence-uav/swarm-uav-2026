@@ -31,7 +31,7 @@ yelpence-2026-swarm/
 │   ├── install.sh                   # Tüm kurulumları tamamlayıp ortamı hazır hale getiren betik (NVIDIA)
 │   ├── install-amd.sh               # Tüm kurulumları tamamlayıp ortamı hazır hale getiren betik (AMD/INTEL)
 │   ├── start-docker.sh              # Kullanıcının GPU seçimine göre Docker'ı ayağa kaldıran ve içine girilmesini sağlayan betik
-│   ├── setup_px4.sh                 # Konteyner içinde PX4 ve mesaj altyapısını kuran ana kurulum betiği
+│   ├── setup.sh                      # Konteyner içinde PX4, QGC ve tüm bağımlılıkları kuran ana kurulum betiği
 │   └── start_swarm.sh               # Tüm sistemleri (Gazebo, PX4, Chaos, GUI) tek seferde başlatan betik
 │-------------------------------------------------------------------------------------------------------------------------------------
 ├── sim/                             # Gazebo Harmonic simülasyon ortamları ve 3D modeller
@@ -134,8 +134,8 @@ Konteynerin içine girdikten sonra, PX4 uçuş kodlarını ve ROS 2 mesaj setler
 1. Konteyner içinde scripts dizinine gidin: `cd scripts`
 2. Kurulum betiğini çalıştırın:
 ```bash
-chmod +x setup_px4.sh
-./setup_px4.sh
+chmod +x setup.sh
+./setup.sh
 ```
 
 > **NOT:** Bu işlem internet hızınıza bağlı olarak 15-20 dakika sürebilir. Kurulum tamamlandığında `ros2_ws` dizininiz otomatik olarak derlenecektir.
@@ -221,7 +221,7 @@ Projeye gönderilen her yeni kod (push veya pull_request işlemi) otomatik olara
 1. NVIDIA GPU için ./scripts/install.sh 
    AMD/INTEL GPU için ./scripts/install-amd.sh
 2. ./scripts/start-docker.sh
-3. ./scripts/setup_px4.sh
+3. ./scripts/setup.sh
 4. ./scripts/start_swarm.sh
 
 SONRAKİ ÇALIŞTIRMALAR

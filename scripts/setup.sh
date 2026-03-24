@@ -1,6 +1,7 @@
 #!/bin/bash
 
-# Yelpençe PX4 & Component Setup Script
+# Yelpençe Sürü İHA - Konteyner İçi Kurulum Scripti
+# PX4, QGroundControl, DDS Agent, ROS 2 workspace ve tüm bağımlılıkları kurar.
 # Bu script konteyner içinde çalıştırılmalıdır.
 
 set -e
@@ -9,8 +10,7 @@ WORKSPACE_DIR="/home/yelpence/ros2_ws"
 PX4_DIR="$WORKSPACE_DIR/src/PX4-Autopilot"
 
 echo "=================================================="
-# shellcheck disable=SC2021
-echo " YELPENÇE PX4 VE BİLEŞEN KURULUMU BAŞLIYOR"
+echo " YELPENÇE SÜRÜ İHA - TAM KURULUM BAŞLIYOR"
 echo "=================================================="
 
 # 0. Sistem Gereksinimlerini Kur
@@ -78,6 +78,12 @@ if [ -f "$X500_FILE" ] && ! grep -q "COM_RCL_EXCEPT" "$X500_FILE"; then
     echo "param set-default NAV_DLL_ACT 0" >> "$X500_FILE"
     echo "param set-default NAV_RCL_ACT 0" >> "$X500_FILE"
     echo "param set-default COM_RCL_EXCEPT 4" >> "$X500_FILE"
+    echo "# SITL Health Check Bypass (QGC arm icin gerekli)" >> "$X500_FILE"
+    echo "param set-default CBRK_SUPPLY_CHK 894281" >> "$X500_FILE"
+    echo "param set-default CBRK_USB_CHK 197848" >> "$X500_FILE"
+    echo "param set-default COM_ARM_WO_GPS 1" >> "$X500_FILE"
+    echo "param set-default COM_ARM_CHK_ESCS 0" >> "$X500_FILE"
+    echo "param set-default COM_RC_IN_MODE 4" >> "$X500_FILE"
 fi
 
 # 5. PX4 ve ROS 2 arasındaki mesaj sözlüğünü (px4_msgs) indir
@@ -118,7 +124,22 @@ rm -rf build/px4 install/px4
 source /opt/ros/jazzy/setup.bash
 colcon build --symlink-install
 
+# 9. QGroundControl İndirme
+QGC_FILE="$WORKSPACE_DIR/tools/QGroundControl.AppImage"
+mkdir -p "$WORKSPACE_DIR/tools"
+sudo chown -R "$(id -u):$(id -g)" "$WORKSPACE_DIR/tools"
+if [ ! -f "$QGC_FILE" ] || [ "$(stat -c%s "$QGC_FILE" 2>/dev/null)" -lt 1000000 ]; then
+    rm -f "$QGC_FILE"
+    echo ">> QGroundControl indiriliyor (~180MB)..."
+    curl -L --fail -o "$QGC_FILE" \
+      https://github.com/mavlink/qgroundcontrol/releases/download/v5.0.8/QGroundControl-x86_64.AppImage && \
+    chmod +x "$QGC_FILE" && echo ">> QGroundControl indirildi." || \
+    { rm -f "$QGC_FILE"; echo ">> UYARI: QGroundControl indirilemedi."; }
+else
+    echo ">> QGroundControl zaten mevcut."
+fi
+
 echo "=================================================="
 echo " KURULUM TAMAMLANDI!"
-echo " Artık 'ros2 run swarm swarm_launch' ile sistemi başlatabilirsiniz."
+echo " Artik 'ros2 run swarm swarm_launch' ile sistemi baslatabilirsiniz."
 echo "=================================================="

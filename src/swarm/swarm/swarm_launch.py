@@ -237,7 +237,7 @@ def main():
             f"px4-param --instance {drone_id} set NAV_DLL_ACT 0",
             f"px4-param --instance {drone_id} set SIM_BAT_ENABLE 0",
             f"px4-param --instance {drone_id} set CBRK_SUPPLY_CHK 894281",
-            f"px4-param --instance {drone_id} set COM_RC_IN_MODE 1",
+            f"px4-param --instance {drone_id} set COM_RC_IN_MODE 4",
             f"px4-param --instance {drone_id} set EKF2_MAG_TYPE 0",
             f"px4-param --instance {drone_id} set EKF2_MAG_NOISE 0.5",
             f"px4-param --instance {drone_id} set COM_ARM_EKF_YAW 1.0",
@@ -247,6 +247,11 @@ def main():
             f"px4-param --instance {drone_id} set CBRK_USB_CHK 894281",
             f"px4-param --instance {drone_id} set CBRK_IO_SAFETY 22027",
             f"px4-param --instance {drone_id} set COM_ARM_WO_GPS 1",
+            f"px4-param --instance {drone_id} set COM_ARM_CHK_ESCS 0",
+            f"px4-param --instance {drone_id} set CBRK_BUZZER 782097",
+            f"px4-param --instance {drone_id} set COM_POWER_COUNT 0",
+            f"px4-param --instance {drone_id} set COM_ARM_IMU_ACC 1.0",
+            f"px4-param --instance {drone_id} set COM_ARM_IMU_GYR 0.7",
             f"px4-param --instance {drone_id} set MIS_TAKEOFF_ALT 2.5",
             f"px4-param --instance {drone_id} set MPC_XY_P 0.5",
             f"px4-param --instance {drone_id} set MPC_Z_P 0.6",
@@ -262,9 +267,11 @@ def main():
             else:
                 print(f"   [ERR] {cmd} : {res.stderr.strip()}")
         
-        # Mode switch to MANUAL (Mission mode arming'ı engelleyebilir)
-        mode_cmd = f"source /opt/ros/jazzy/setup.bash && {PX4_PATH}/build/px4_sitl_default/bin/px4-commander --instance {drone_id} mode manual"
-        subprocess.run(["bash", "-c", mode_cmd], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        # Bazı parametreler (COM_RC_IN_MODE) reboot gerektirir — PX4'ü yeniden başlat
+        print(f"   >> PX4 Instance {drone_id} yeniden başlatılıyor (param reload)...")
+        reboot_cmd = f"source /opt/ros/jazzy/setup.bash && {PX4_PATH}/build/px4_sitl_default/bin/px4-commander --instance {drone_id} reboot"
+        subprocess.run(["bash", "-c", reboot_cmd], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        time.sleep(3)  # PX4'ün yeniden başlamasını bekle
 
 
     # 4.1 Lidar and Camera Relays (Sensor Management)
@@ -278,6 +285,10 @@ def main():
     run_background(f"ros2 run network chaos_network {drone_count}", "chaos_network")
     run_background(f"ros2 run swarm collision_avoidance {drone_count}", "collision_avoidance")
     run_background(f"ros2 run swarm manual_control", "manual_control")
+
+    # 4.6 QGroundControl
+    print(">> QGroundControl başlatılıyor...")
+    run_in_xterm("/home/yelpence/ros2_ws/tools/QGroundControl.AppImage --appimage-extract-and-run", "QGroundControl", "qgc")
 
     # 5. Web GUI
     print(">> Web GUI Sunucusu başlatılıyor...")
