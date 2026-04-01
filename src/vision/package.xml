@@ -3,9 +3,9 @@
 <package format="3">
   <name>vision</name>
   <version>0.0.0</version>
-  <description>TODO: Package description</description>
+  <description>Package description</description>
   <maintainer email="yelpence@todo.todo">yelpence</maintainer>
-  <license>TODO: License declaration</license>
+  <license>License declaration</license>
 
   <depend>rclpy</depend>
   <depend>sensor_msgs</depend>
