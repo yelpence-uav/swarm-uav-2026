@@ -6,12 +6,10 @@
 pymavlink==2.4.49
 pyserial==3.5
 opencv-python==4.13.0.92
-numpy==2.4.4
+numpy==1.26.4
 pyzbar==0.1.9
 pyqt6==6.11.0
 matplotlib==3.10.8
-psutil==7.2.2
-pyyaml==6.0.3
 pytest==9.0.2
 flake8==7.3.0
 black==26.3.1
