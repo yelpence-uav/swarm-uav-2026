@@ -15,6 +15,7 @@ docs/
 build/
 install/
 log/
+src/PX4-Autopilot/build/
 
 # Python Önbellek ve Sanal Ortamlar
 __pycache__/

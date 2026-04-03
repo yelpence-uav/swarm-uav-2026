@@ -1,15 +1,16 @@
-# Temel İmaj: Ubuntu 24.04 (Noble) + ROS 2 Jazzy
+# Uçtan uca hazır bir simülasyon konteyneri için hazırlanmış Dockerfile.
+
+# Temel İmaj---------------------------
 ARG BASE_IMAGE=osrf/ros
 ARG BASE_TAG=jazzy-desktop-full
 FROM ${BASE_IMAGE}:${BASE_TAG}
-
-# Kurulum sırasında soru sorulmasını engelle
 ENV DEBIAN_FRONTEND=noninteractive
 ENV GZ_VERSION=harmonic
+# --------------------------------------
 
-# Gerekli Paketlerin Kurulumu
-# DÜZELTME YAPILDI: 'libgl1-mesa-glx' yerine 'libgl1' kullanıldı.
+# Sistem Paketleri --------------------
 RUN apt-get update && apt-get install -y \
+    # ros-jazzy paketleri. https://index.ros.org/ adresinde paketler bulunabilir.
     ros-jazzy-ros-gz \
     ros-jazzy-gz-ros2-control \
     ros-jazzy-ros2-control \
@@ -17,6 +18,7 @@ RUN apt-get update && apt-get install -y \
     ros-jazzy-xacro \
     ros-jazzy-rqt* \
     ros-jazzy-rmw-cyclonedds-cpp \
+    # Ubuntu sistem paketleri. https://packages.ubuntu.com/ adresinde paketler bulunabilir.
     python3-pip \
     python3-rosdep \
     iputils-ping \
@@ -27,17 +29,43 @@ RUN apt-get update && apt-get install -y \
     curl \
     libgl1 \
     libgl1-mesa-dri \
+    openssh-server \
+    cmake \
+    build-essential \
     && rm -rf /var/lib/apt/lists/*
+# --------------------------------------
 
-# ====================================================================
-# YELPENÇE PX4 SITL PYTHON BAĞIMLILIKLARI 
-# ====================================================================
-RUN pip3 install kconfiglib jinja2 jsonschema pyros-genmsg empy packaging toml numpy --break-system-packages
-# ====================================================================
+# Kullanıcı Ayarları ------------------- 
+ARG USERNAME=yelpence
+ARG USER_UID=1000
+ARG USER_GID=$USER_UID
 
-# ====================================================================
-# MICRO XRCE-DDS AGENT KURULUMU (ROS 2 - PX4 Haberleşme Köprüsü)
-# ====================================================================
+# Kullanıcı ve grup çakışmalarını temizle 
+RUN if id -u $USER_UID >/dev/null 2>&1; then userdel -r $(id -un $USER_UID) || true; fi \
+    && if getent group $USER_GID >/dev/null 2>&1; then groupdel $(getent group $USER_GID | cut -d: -f1) || true; fi
+
+# Takım Kullanıcısını oluştur ve sudo yetkisi ver
+RUN groupadd --gid $USER_GID $USERNAME \
+    && useradd --uid $USER_UID --gid $USER_GID -m $USERNAME \
+    && echo "$USERNAME ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/$USERNAME \
+    && chmod 0440 /etc/sudoers.d/$USERNAME
+# --------------------------------------
+
+# SSH Yapılandırması-------------------- 
+RUN echo 'root:yelpence2026' | chpasswd \
+    && echo 'yelpence:yelpence2026' | chpasswd
+
+# SSH dizinini oluştur
+RUN mkdir /var/run/sshd
+
+# Root girişine ve şifreli girişe izin ver
+RUN sed -i 's/#PermitRootLogin prohibit-password/PermitRootLogin yes/' /etc/ssh/sshd_config \
+    && sed -i 's/#PasswordAuthentication yes/PasswordAuthentication yes/' /etc/ssh/sshd_config
+
+EXPOSE 22
+# --------------------------------------
+
+# Micro Xrce-DDS Agent Kurulumu---------
 RUN git clone https://github.com/eProsima/Micro-XRCE-DDS-Agent.git /tmp/Micro-XRCE-DDS-Agent \
     && cd /tmp/Micro-XRCE-DDS-Agent \
     && mkdir build && cd build \
@@ -46,62 +74,71 @@ RUN git clone https://github.com/eProsima/Micro-XRCE-DDS-Agent.git /tmp/Micro-XR
     && make install \
     && ldconfig /usr/local/lib/ \
     && rm -rf /tmp/Micro-XRCE-DDS-Agent
-# ====================================================================
+# --------------------------------------
 
-# ROS 2 İletişim Altyapısını FastDDS Olarak Ayarla
-ENV RMW_IMPLEMENTATION=rmw_fastrtps_cpp 
-# QR kod üretimi için Python bağımlılığı
-RUN pip3 install --break-system-packages qrcode[pil]
+# ROS2 FASTDDS Ayarı--------------------
+ENV RMW_IMPLEMENTATION=rmw_fastrtps_cpp
+ENV ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST
+ENV ROS_DOMAIN_ID=0
+# --------------------------------------
 
-# --- YELPENÇE ÖZELLEŞTİRMESİ ---
-ARG USERNAME=yelpence
-ARG USER_UID=1000
-ARG USER_GID=$USER_UID
+# Nvidia Uyumluluk----------------------
+ENV NVIDIA_VISIBLE_DEVICES=all
+ENV NVIDIA_DRIVER_CAPABILITIES=all
+# --------------------------------------
 
-# KRİTİK ADIM: UID Çakışma Çözücü
-# Eğer 1000 ID'li bir kullanıcı (ubuntu) zaten varsa onu siler.
-RUN if id -u $USER_UID >/dev/null 2>&1; then userdel -r $(id -un $USER_UID); fi
-
-# Takım Kullanıcısını (yelpence) oluştur
-RUN groupadd --gid $USER_GID $USERNAME \
-    && useradd --uid $USER_UID --gid $USER_GID -m $USERNAME \
-    && echo "$USERNAME ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/$USERNAME \
-    && chmod 0440 /etc/sudoers.d/$USERNAME
-
-# Kullanıcı Ortamına Geçiş
+# Kullanıcı Ortamına Geçiş--------------
 USER $USERNAME
 ENV HOME=/home/$USERNAME
 WORKDIR /home/$USERNAME/ros2_ws
+# --------------------------------------
 
-# .bashrc Ayarları
+# Python Bağımlılıkları----------------- 
+# src/requirements.txt kullanılarak yönetilir. Eklemek istediğiniz bağımlılığı buraya değil dosyaya ekleyin.
+RUN python3 -m venv /home/$USERNAME/venv
+ENV PATH="/home/$USERNAME/venv/bin:$PATH"
 
-# 1. Temel ROS 2 ve Çalışma Alanı Kurulumu
-RUN echo "source /opt/ros/jazzy/setup.bash" >> ~/.bashrc
-RUN echo "if [ -f /home/$USERNAME/ros2_ws/install/setup.bash ]; then source /home/$USERNAME/ros2_ws/install/setup.bash; fi" >> ~/.bashrc
+COPY --chown=$USERNAME:$USERNAME src/requirements.txt /tmp/requirements.txt
 
-# 2. Ağ ve DDS İletişim Otomasyonu (Senin İstediğin Kısım)
-RUN echo "export ROS_DOMAIN_ID=0" >> ~/.bashrc
-RUN echo "export ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST" >> ~/.bashrc
-RUN echo "export RMW_IMPLEMENTATION=rmw_fastrtps_cpp" >> ~/.bashrc
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir -r /tmp/requirements.txt && \
+    rm /tmp/requirements.txt
+# --------------------------------------
 
-# 3. Hayat Kurtaran Kısayollar (Alias)
-# Ajanı tek kelimeyle başlatmak için:
-RUN echo "alias ajan='MicroXRCEAgent udp4 -p 8888'" >> ~/.bashrc
-# Kodu derleyip hemen source etmek için:
-RUN echo "alias build_swarm='cd ~/ros2_ws && colcon build --packages-select swarm && source install/setup.bash'" >> ~/.bashrc
-# Hızlıca kök dizine gitmek için:
-RUN echo "alias ws='cd ~/ros2_ws'" >> ~/.bashrc
+# PX4 Autopilot Yapılandırması----------
+# src klasörünü oluşturur, repoları çeker, colcon ignore ekler ve x500 ayarlarını yapar.
+RUN mkdir -p src \
+    && echo "PX4-Autopilot indiriliyor..." \
+    && git clone https://github.com/PX4/PX4-Autopilot.git --recursive src/PX4-Autopilot \
+    && echo "ROS 2 derleme koruması ekleniyor..." \
+    && touch src/PX4-Autopilot/COLCON_IGNORE \
+    && echo "px4_msgs indiriliyor..." \
+    && git clone https://github.com/PX4/px4_msgs.git src/px4_msgs \
+    && echo "x500 otonom uçuş parametreleri ayarlanıyor..." \
+    && echo "" >> src/PX4-Autopilot/ROMFS/px4fmu_common/init.d-posix/airframes/4001_gz_x500 \
+    && echo "# YELPENCE SURU IHA - Otonom Ucus Izinleri" >> src/PX4-Autopilot/ROMFS/px4fmu_common/init.d-posix/airframes/4001_gz_x500 \
+    && echo "param set-default NAV_DLL_ACT 0" >> src/PX4-Autopilot/ROMFS/px4fmu_common/init.d-posix/airframes/4001_gz_x500 \
+    && echo "param set-default NAV_RCL_ACT 0" >> src/PX4-Autopilot/ROMFS/px4fmu_common/init.d-posix/airframes/4001_gz_x500 \
+    && echo "param set-default COM_RCL_EXCEPT 4" >> src/PX4-Autopilot/ROMFS/px4fmu_common/init.d-posix/airframes/4001_gz_x500
+# --------------------------------------
 
+# .bashrc Ayarları----------------------
+RUN echo "source /opt/ros/jazzy/setup.bash" >> ~/.bashrc \
+    && echo "if [ -f ~/ros2_ws/install/setup.bash ]; then source ~/ros2_ws/install/setup.bash; fi" >> ~/.bashrc \
+    && echo "source ~/venv/bin/activate" >> ~/.bashrc \
+    && echo "# --- Yelpençe Kısayolları ---" >> ~/.bashrc \
+    && echo "alias ajan='MicroXRCEAgent udp4 -p 8888'" >> ~/.bashrc \
+    && echo "alias build_swarm='cd ~/ros2_ws && colcon build --packages-select swarm && source install/setup.bash'" >> ~/.bashrc \
+    && echo "alias ws='cd ~/ros2_ws'" >> ~/.bashrc
+# --------------------------------------
 
+# Başlangıç Betiği----------------------
+COPY --chown=$USERNAME:$USERNAME docker/entrypoint.sh /usr/local/bin/entrypoint.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh
+# --------------------------------------
 
-# Nvidia Uyumluluk Değişkenleri
-ENV NVIDIA_VISIBLE_DEVICES=all
-ENV NVIDIA_DRIVER_CAPABILITIES=all
-
-# Entrypoint Scriptini Kopyala
-COPY --chown=$USERNAME:$USERNAME docker/entrypoint.sh /entrypoint.sh
-RUN sudo chmod +x /entrypoint.sh
-
-# Başlangıç Noktası
-ENTRYPOINT ["/entrypoint.sh"]
+# Konteyner Başlatma--------------------
+USER $USERNAME
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
 CMD ["/bin/bash"]
+# --------------------------------------
