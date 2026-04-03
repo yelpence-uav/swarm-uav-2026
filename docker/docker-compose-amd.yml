@@ -4,12 +4,15 @@ services:
       context: ..
       dockerfile: docker/Dockerfile
       args:
+        # Kullanıcı yapılandırması. create-docker.sh tarafından otomatik doldurulur.
         USERNAME: yelpence
         USER_UID: ${USER_UID:-1000}
         USER_GID: ${USER_GID:-1000}
 
     image: yelpence_swarm_amd:2026
     container_name: yelpence_swarm_container_amd
+
+    # SSH bağlantısı için port ayarı.
     port:
       - "2222:22"
 
@@ -28,12 +31,14 @@ services:
       - MESA_LOADER_DRIVER_OVERRIDE=radeonsi
       - GALLIUM_DRIVER=radeonsi
 
+    # Host ile konteyner arasında bağlanmış dizinler.
+    # DİKKAT! src/ dizinini asla mount etmeyin. Örneğin src/swarm gibi spesifik mountlar yapın.
+    # src/ mount edilirse PX4 Autopilot kodları silinir.
     volumes:
       - /tmp/.X11-unix:/tmp/.X11-unix:rw
-      - ../src/yelpence_swarm:/home/yelpence/ros2_ws/src/yelpence-src
+      - ../src/swarm:/home/yelpence/ros2_ws/src/swarm
       - ../scripts:/home/yelpence/ros2_ws/scripts
       - ../sim:/home/yelpence/ros2_ws/sim
-      - ../docker/Dockerfile:/home/yelpence/ros2_ws/src/yelpence-src/docker/Dockerfile:ro
       - ../src/requirements.txt:/home/yelpence/ros2_ws/src/requirements.txt:ro
 
     devices:

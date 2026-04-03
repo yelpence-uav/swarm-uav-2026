@@ -4,12 +4,12 @@
 
 set -e
 
-echo -e "YELPENÇE DOCKER ORTAMI KURULUMU BAŞLIYOR..."
+echo -e "\033[0;36m[BİLGİ] YELPENÇE DOCKER ORTAMI KURULUMU BAŞLIYOR...\033[0m"
 sleep 1
 
 while true; do
 
-    echo -e "\nDAĞITIMINIZI SEÇİN:"
+    echo -e "DAĞITIMINIZI SEÇİN:"
     echo -e "-------------------"
     echo -e "1) Arch Linux"
     echo -e "2) Ubuntu"
@@ -18,10 +18,10 @@ while true; do
 
     case $SECIM in
     1)
-        echo -e "\nArch Linux seçildi. Kuruluma devam ediliyor..."
+        echo -e "\033[0;36m[BİLGİ] ARCH LINUX SEÇİLDİ. KURULUMA DEVAM EDİLİYOR...\033[0m"
         sleep 1
 
-        echo -e "\nDOCKER ENGINE VE NVIDIA TOOLKIT KURULUMU BAŞLIYOR"
+        echo -e "\033[0;36m[BİLGİ] DOCKER ENGINE VE NVIDIA TOOLKIT KURULUMU BAŞLIYOR...\033[0m"
 
         sudo pacman -S --noconfirm docker docker-compose
         sudo systemctl enable --now docker.service
@@ -33,7 +33,7 @@ while true; do
         break
         ;;
     2)
-        echo -e "\nUbuntu seçildi. Kuruluma devam ediliyor..."
+        echo -e "\033[0;36m[BİLGİ] UBUNTU SEÇİLDİ. KURULUMA DEVAM EDİLİYOR...\033[0m"
         sleep 1
 
         sudo apt-get update
@@ -62,13 +62,13 @@ while true; do
         break
         ;;
     *)
-        echo -e "\nGeçersiz seçim. Lütfen tekrar deneyin."
-        sleep 3
+        echo -e "\033[0;31m[HATA] GEÇERSİZ SEÇİM. LÜTFEN TEKRAR DENEYİN.\033[0m"
+        sleep 1
         ;;
     esac
 done
 
-echo -e "\nPaket indirmeleri ve docker servis ayarları başarıyla tamamlandı. Kuruluma devam ediliyor..."
+echo -e "\033[0;36m[BİLGİ] PAKETLER İNDİRİLDİ. KURULUMA DEVAM EDİLİYOR...\033[0m"
 sleep 1
 
 sg docker -c '
@@ -81,19 +81,15 @@ CURRENT_UID=$(id -u)
 CURRENT_GID=$(id -g)
 CURRENT_USER=$(whoami)
 
-echo -e "\n---------------------------------------"
-echo -e "Tespit Edilen Kullanıcı : $CURRENT_USER"
-echo -e "Kullanıcı ID (UID)      : $CURRENT_UID"
-echo -e "Grup ID (GID)           : $CURRENT_GID"
-echo -e "---------------------------------------"
+echo -e "\033[0;36m[BİLGİ] KULLANICI YAPILANDIRMASI UYGULANDI. KURULUMA DEVAM EDİLİYOR...\033[0m"
 sleep 1
 
 docker compose build \
     --build-arg USER_UID=$CURRENT_UID \
     --build-arg USER_GID=$CURRENT_GID
 
-# --- Yelpençe Alias Tanımlamaları ---
-echo -e "\nKısayollar .bashrc dosyasına ekleniyor..."
+echo -e "\033[0;36m[BİLGİ] KISAYOLLAR .bashrc DOSYASINA EKLENİYOR...\033[0m"
+sleep 1
 BASHRC_PATH="$HOME/.bashrc"
 sed -i '/# YELPENCE_START/,/# YELPENCE_END/d' "$BASHRC_PATH"
 
@@ -105,5 +101,5 @@ alias yelpence_gir_amd='docker exec -it yelpence_swarm_container_amd /usr/local/
 # YELPENCE_END
 EOF
 
-echo -e "Kurulum başarıyla tamamlandı. Değişikliklerin geçerli olması için mevcut terminali kapatıp yenisini açın."
+echo -e "\033[0;32m [TAMAM] KURULUM BAŞARIYLA TAMAMLANDI. DEVAM ETMEK İÇİN MEVCUT TERMİNALİNİZİ KAPATIP YENİSİNİ AÇIN.\033[0m"
 '

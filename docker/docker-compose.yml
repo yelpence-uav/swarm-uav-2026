@@ -4,11 +4,14 @@ services:
       context: ..
       dockerfile: docker/Dockerfile
       args:
+        # Kullanıcı yapılandırması. create-docker.sh tarafından otomatik doldurulur.
         USERNAME: yelpence
         USER_UID: ${USER_UID:-1000}
         USER_GID: ${USER_GID:-1000}
     image: yelpence_swarm:2026
     container_name: yelpence_swarm_container
+
+    # SSH bağlantısı için port ayarı.
     ports:
       - "2222:22"
 
@@ -33,14 +36,15 @@ services:
       - __NV_PRIME_RENDER_OFFLOAD=1
       - __GLX_VENDOR_LIBRARY_NAME=nvidia
 
+    # Host ile konteyner arasında bağlanmış dizinler.
+    # DİKKAT! src/ dizinini asla mount etmeyin. Örneğin src/swarm gibi spesifik mountlar yapın.
+    # src/ mount edilirse PX4 Autopilot kodları silinir.
     volumes:
       - /tmp/.X11-unix:/tmp/.X11-unix:rw
       - /dev/dri:/dev/dri
-      - ../src/yelpence_swarm:/home/yelpence/ros2_ws/src/yelpence-src
+      - ../src/swarm:/home/yelpence/ros2_ws/src/swarm
       - ../scripts:/home/yelpence/ros2_ws/scripts
       - ../sim:/home/yelpence/ros2_ws/sim
-      - ./logs:/home/yelpence/.ros/log
-      - ../docker/Dockerfile:/home/yelpence/ros2_ws/src/yelpence-src/docker/Dockerfile:ro
       - ../src/requirements.txt:/home/yelpence/ros2_ws/src/requirements.txt:ro
 
     runtime: nvidia

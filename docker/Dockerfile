@@ -122,17 +122,12 @@ RUN pip install --no-cache-dir --upgrade pip && \
 # PX4 Autopilot Yapılandırması----------
 # src klasörünü oluşturur, repoları çeker, colcon ignore ekler ve x500 ayarlarını yapar.
 RUN mkdir -p src \
-    && echo "PX4-Autopilot sığ kopyalama ile indiriliyor..." \
     && git clone --depth 1 --branch v1.15.0 --recursive https://github.com/PX4/PX4-Autopilot.git src/PX4-Autopilot \
-    && echo "Gereksiz Git verileri temizleniyor..." \
     && find src/PX4-Autopilot -name ".git" -type d -exec rm -rf {} + \
     && find src/PX4-Autopilot -name ".github" -type d -exec rm -rf {} + \
-    && echo "ROS 2 derleme koruması ekleniyor..." \
     && touch src/PX4-Autopilot/COLCON_IGNORE \
-    && echo "px4_msgs indiriliyor..." \
     && git clone --depth 1 https://github.com/PX4/px4_msgs.git src/px4_msgs \
     && find src/px4_msgs -name ".git" -type d -exec rm -rf {} + \
-    && echo "x500 otonom uçuş parametreleri ayarlanıyor..." \
     && { \
     echo ""; \
     echo "# YELPENCE SURU IHA - Otonom Ucus Izinleri (SIMULASYON)"; \
@@ -148,7 +143,7 @@ RUN echo "source /opt/ros/jazzy/setup.bash" >> ~/.bashrc \
     && echo "source ~/venv/bin/activate" >> ~/.bashrc \
     && echo "# --- Yelpençe Kısayolları ---" >> ~/.bashrc \
     && echo "alias ajan='MicroXRCEAgent udp4 -p 8888'" >> ~/.bashrc \
-    && echo "alias build_swarm='cd ~/ros2_ws && colcon build --packages-select swarm && source install/setup.bash'" >> ~/.bashrc \
+    && echo "alias build_swarm='cd ~/ros2_ws && colcon build --symlink-install --packages-select px4_msgs swarm && source install/setup.bash'" >> ~/.bashrc \
     && echo "alias ws='cd ~/ros2_ws'" >> ~/.bashrc
 # --------------------------------------
 

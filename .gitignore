@@ -1,6 +1,12 @@
 # Created by https://www.toptal.com/developers/gitignore/api/linux,jetbrains,ros2,ros,pycharm,clion,qt,python,c,c++,eclipse,visualstudio,visualstudiocode,windows,cmake,ssh,vim
 # Edit at https://www.toptal.com/developers/gitignore?templates=linux,jetbrains,ros2,ros,pycharm,clion,qt,python,c,c++,eclipse,visualstudio,visualstudiocode,windows,cmake,ssh,vim
 
+sim/worlds/task1_dynamic_swarm.sdf
+sim/worlds/task2_collision.sdf
+sim/worlds/task2_formation.sdf
+sim/worlds/task2_navigation.sdf
+qr/
+
 ### C ###
 # Prerequisites
 *.d
@@ -1169,3 +1175,5 @@ FodyWeavers.xsd
 # Additional files built by Visual Studio
 
 # End of https://www.toptal.com/developers/gitignore/api/linux,jetbrains,ros2,ros,pycharm,clion,qt,python,c,c++,eclipse,visualstudio,visualstudiocode,windows,cmake,ssh,vim
+/sim/worlds/task1_dynamic_swarm.sdf
+/sim/worlds/task2_navigation.sdf
