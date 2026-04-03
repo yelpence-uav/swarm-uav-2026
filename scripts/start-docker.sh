@@ -1,41 +1,62 @@
 #!/bin/bash
 
-SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-PROJE_KOK="$(dirname "$SCRIPT_DIR")"
+# ---------------------------------------------------------
+# YELPENÇE SÜRÜ İHA - KONTEYNER BAŞLATICI
+# ---------------------------------------------------------
 
-echo "GUI izinleri tanımlanıyor..."
-xhost +local:root
+CONTAINER_NAME="yelpence_swarm_container"
+CONTAINER_NAME_AMD="yelpence_swarm_container_amd"
 
-if [ ! -d "$PROJE_KOK/docker" ]; then
-    echo "Hata: docker klasorü bulunamadı."
+# Çalışan konteyner kontrolü
+if [ "$(docker ps -q -f name=^/${CONTAINER_NAME}$ -f status=running)" ] ||
+    [ "$(docker ps -q -f name=^/${CONTAINER_NAME_AMD}$ -f status=running)" ]; then
+    echo -e "\e[31m[HATA] Yelpençe konteyneri zaten çalışıyor!\e[0m"
+    echo -e "İçeri girmek için: \e[32mdocker exec -it <konteyner_adi> /usr/local/bin/entrypoint.sh /bin/bash\e[0m"
     exit 1
 fi
 
-echo "=================================================="
-echo "YELPENCE SURU IHA SİSTEMİ BAŞLATILIYOR"
-echo "=================================================="
-echo "Ekran kartı tipinizi seçin:"
-echo "1) NVIDIA "
-echo "2) AMD / INTEL"
-read -p "Seçiminiz [1-2]: " SECIM
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJE_KOK="$(dirname "$SCRIPT_DIR")"
 
-case $SECIM in
+# GUI izinlerini ver
+xhost +local:root >/dev/null 2>&1
+
+echo -e "\n=================================================="
+echo -e "   YELPENÇE SÜRÜ İHA SİSTEMİ BAŞLATILIYOR"
+echo -e "=================================================="
+
+while true; do
+    echo -e "\nEkran kartı tipinizi seçin:"
+    echo -e "1) NVIDIA"
+    echo -e "2) AMD / INTEL"
+    echo -e "3) İptal ve Çıkış"
+    read -p "Seçiminiz [1-3]: " SECIM
+
+    case $SECIM in
     1)
-        echo "NVIDIA yapılandırılmasıyla başlatılıyor..."
+        echo -e "\e[34mNVIDIA yapılandırılmasıyla başlatılıyor...\e[0m"
         docker compose -f "$PROJE_KOK/docker/docker-compose.yml" up -d
+        TARGET_NAME=$CONTAINER_NAME
+        break
         ;;
     2)
-        echo "AMD/INTEL yapılandırılmasıyla başlatılıyor..."
+        echo -e "\e[34mAMD/INTEL yapılandırılmasıyla başlatılıyor...\e[0m"
         docker compose -f "$PROJE_KOK/docker/docker-compose-amd.yml" up -d
+        TARGET_NAME=$CONTAINER_NAME_AMD
+        break
+        ;;
+    3)
+        echo "Çıkış yapılıyor."
+        exit 0
         ;;
     *)
-        echo "Geçersiz seçim. İşlem iptal edildi."
-        exit 1
+        echo -e "\e[31mGeçersiz seçim!\e[0m"
         ;;
-esac
+    esac
+done
 
-echo "Çalışma alanı derleniyor (colcon build)..."
-docker exec -it yelpence_swarm_container bash -c "source /opt/ros/jazzy/setup.bash && cd ~/ros2_ws && colcon build --symlink-install"
-
-docker exec -it yelpence_swarm_container bash
-
+echo -e "\n\e[32m[BAŞARILI] Konteyner arka planda başlatıldı.\e[0m"
+echo -e "--------------------------------------------------"
+echo -e "İçeri girmek için şu komutu kullanın (Entrypoint otomatik tetiklenir):"
+echo -e "\e[33m  docker exec -it $TARGET_NAME /usr/local/bin/entrypoint.sh /bin/bash\e[0m"
+echo -e "--------------------------------------------------\n"

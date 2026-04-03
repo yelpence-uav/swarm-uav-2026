@@ -71,11 +71,11 @@ done
 echo -e "\nPaket indirmeleri ve docker servis ayarları başarıyla tamamlandı. Kuruluma devam ediliyor..."
 sleep 1
 
-echo -e "\nDOCKER İMAJININ İNŞASI BAŞLIYOR"
-sleep 1
-
 sg docker -c '
 cd ../docker/
+
+SCRIPT_DIR="$(pwd)"
+PROJE_KOK="$(dirname "$SCRIPT_DIR")"
 
 CURRENT_UID=$(id -u)
 CURRENT_GID=$(id -g)
@@ -92,7 +92,18 @@ docker compose build \
     --build-arg USER_UID=$CURRENT_UID \
     --build-arg USER_GID=$CURRENT_GID
 
-echo -e "\nKURULUM BAŞARIYLA TAMAMLANDI"
-sleep 1
-echo -e "Değişikliklerin geçerli olması için mevcut terminali kapatıp yenisini açın."
+# --- Yelpençe Alias Tanımlamaları ---
+echo -e "\nKısayollar .bashrc dosyasına ekleniyor..."
+BASHRC_PATH="$HOME/.bashrc"
+sed -i '/# YELPENCE_START/,/# YELPENCE_END/d' "$BASHRC_PATH"
+
+cat << EOF >> "$BASHRC_PATH"
+# YELPENCE_START
+alias yelpence_durdur='docker compose -f $PROJE_KOK/docker/docker-compose.yml down && docker compose -f $PROJE_KOK/docker/docker-compose-amd.yml down'
+alias yelpence_gir='docker exec -it yelpence_swarm_container /usr/local/bin/entrypoint.sh /bin/bash'
+alias yelpence_gir_amd='docker exec -it yelpence_swarm_container_amd /usr/local/bin/entrypoint.sh /bin/bash'
+# YELPENCE_END
+EOF
+
+echo -e "Kurulum başarıyla tamamlandı. Değişikliklerin geçerli olması için mevcut terminali kapatıp yenisini açın."
 '

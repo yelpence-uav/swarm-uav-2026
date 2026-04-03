@@ -1,5 +1,5 @@
 services:
-  swarm_dev:
+  swarm_dev_amd:
     build:
       context: ..
       dockerfile: docker/Dockerfile
@@ -7,46 +7,45 @@ services:
         USERNAME: yelpence
         USER_UID: ${USER_UID:-1000}
         USER_GID: ${USER_GID:-1000}
-    image: yelpence_swarm:2026
-    container_name: yelpence_swarm_container
-    
-    # Ağ Ayarları: Host makine ile aynı ağı kullan
+
+    image: yelpence_swarm_amd:2026
+    container_name: yelpence_swarm_container_amd
+    port:
+      - "2222:22"
+
     network_mode: host
     ipc: host
     pid: host
-    
-    # Donanım Erişim İzni (AMD için kritiktir)
     privileged: true
 
     environment:
       - DISPLAY=${DISPLAY}
       - QT_X11_NO_MITSHM=1
-      - ROS_DOMAIN_ID=0
-      
-      # --- AMD / INTEL Grafik Ayarları ---
-      # Nvidia ile ilgili her şeyi sildik.
-      # Yazılım tabanlı render'ı yasakla (Donanım hızlandırma kullan)
-      - LIBGL_ALWAYS_SOFTWARE=0
-      
-      # Gazebo'yu Ogre2 kullanmaya zorla (AMD'de en kararlı çalışan motor)
-      - GZ_SIM_RENDER_ENGINE_BACKEND=ogre2
-      
+      - ROS_DOMAIN_ID=43
       - RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
-    
+      - LIBGL_ALWAYS_SOFTWARE=0
+      - GZ_SIM_RENDER_ENGINE_BACKEND=ogre2
+      - MESA_LOADER_DRIVER_OVERRIDE=radeonsi
+      - GALLIUM_DRIVER=radeonsi
+
     volumes:
-      # X11 Soketi
       - /tmp/.X11-unix:/tmp/.X11-unix:rw
-      # Proje Dosyaları
-      - ../src:/home/yelpence/ros2_ws/src
+      - ../src/yelpence_swarm:/home/yelpence/ros2_ws/src/yelpence-src
       - ../scripts:/home/yelpence/ros2_ws/scripts
       - ../sim:/home/yelpence/ros2_ws/sim
-      
-    # --- DONANIM BAĞLANTILARI ---
-    # AMD/Intel kartların Linux'taki adresi burasıdır (/dev/dri)
+      - ../docker/Dockerfile:/home/yelpence/ros2_ws/src/yelpence-src/docker/Dockerfile:ro
+      - ../src/requirements.txt:/home/yelpence/ros2_ws/src/requirements.txt:ro
+
     devices:
       - /dev/dri:/dev/dri
       - /dev/snd:/dev/snd
-              
+      - /dev/ttyUSB0:/dev/ttyUSB0
+      - /dev/ttyAMA0:/dev/ttyAMA0
+
+    group_add:
+      - video
+      - render
+
     stdin_open: true
     tty: true
     command: /bin/bash

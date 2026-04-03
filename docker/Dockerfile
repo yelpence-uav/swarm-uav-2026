@@ -21,6 +21,8 @@ RUN apt-get update && apt-get install -y \
     # Ubuntu sistem paketleri. https://packages.ubuntu.com/ adresinde paketler bulunabilir.
     python3-pip \
     python3-rosdep \
+    python3-venv \
+    python3-dev \
     iputils-ping \
     net-tools \
     nano \
@@ -65,19 +67,29 @@ RUN sed -i 's/#PermitRootLogin prohibit-password/PermitRootLogin yes/' /etc/ssh/
 EXPOSE 22
 # --------------------------------------
 
-# Micro Xrce-DDS Agent Kurulumu---------
-RUN git clone https://github.com/eProsima/Micro-XRCE-DDS-Agent.git /tmp/Micro-XRCE-DDS-Agent \
+# Micro Xrce-DDS Agent Uyumluluk--------
+RUN git clone --depth 1 --branch v3.0.1 https://github.com/eProsima/Micro-XRCE-DDS-Agent.git /tmp/Micro-XRCE-DDS-Agent \
     && cd /tmp/Micro-XRCE-DDS-Agent \
     && mkdir build && cd build \
-    && cmake .. \
-    && make \
+    && cmake -DCMAKE_BUILD_TYPE=Release \
+    -DUAGENT_FASTMETRICS=OFF \
+    -DUAGENT_BUILD_EXECUTABLE=ON .. \
+    && make -j$(nproc) \
     && make install \
     && ldconfig /usr/local/lib/ \
-    && rm -rf /tmp/Micro-XRCE-DDS-Agent
+    && cd / \
+    && rm -rf /tmp/Micro-XRCE-DDS-Agent \
+    && apt-get purge -y --auto-remove \
+    && rm -rf /var/lib/apt/lists/*
 # --------------------------------------
 
-# ROS2 FASTDDS Ayarı--------------------
-ENV RMW_IMPLEMENTATION=rmw_fastrtps_cpp
+# Başlangıç Betiği----------------------
+COPY --chown=$USERNAME:$USERNAME docker/entrypoint.sh /usr/local/bin/entrypoint.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh
+# --------------------------------------
+
+# ROS2 CycloneDDS Ayarı-----------------
+ENV RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
 ENV ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST
 ENV ROS_DOMAIN_ID=0
 # --------------------------------------
@@ -87,7 +99,9 @@ ENV NVIDIA_VISIBLE_DEVICES=all
 ENV NVIDIA_DRIVER_CAPABILITIES=all
 # --------------------------------------
 
-# Kullanıcı Ortamına Geçiş--------------
+# Kullanıcı Ortamına Betiği-------------
+# Bu noktadan sonra root yetkisi bulunmaz. Root yetkisi gereken işlemler buranın üstüne alınmalıdır.
+RUN mkdir -p /home/$USERNAME/ros2_ws && chown -R $USERNAME:$USERNAME /home/$USERNAME/ros2_ws
 USER $USERNAME
 ENV HOME=/home/$USERNAME
 WORKDIR /home/$USERNAME/ros2_ws
@@ -108,18 +122,24 @@ RUN pip install --no-cache-dir --upgrade pip && \
 # PX4 Autopilot Yapılandırması----------
 # src klasörünü oluşturur, repoları çeker, colcon ignore ekler ve x500 ayarlarını yapar.
 RUN mkdir -p src \
-    && echo "PX4-Autopilot indiriliyor..." \
-    && git clone https://github.com/PX4/PX4-Autopilot.git --recursive src/PX4-Autopilot \
+    && echo "PX4-Autopilot sığ kopyalama ile indiriliyor..." \
+    && git clone --depth 1 --branch v1.15.0 --recursive https://github.com/PX4/PX4-Autopilot.git src/PX4-Autopilot \
+    && echo "Gereksiz Git verileri temizleniyor..." \
+    && find src/PX4-Autopilot -name ".git" -type d -exec rm -rf {} + \
+    && find src/PX4-Autopilot -name ".github" -type d -exec rm -rf {} + \
     && echo "ROS 2 derleme koruması ekleniyor..." \
     && touch src/PX4-Autopilot/COLCON_IGNORE \
     && echo "px4_msgs indiriliyor..." \
-    && git clone https://github.com/PX4/px4_msgs.git src/px4_msgs \
+    && git clone --depth 1 https://github.com/PX4/px4_msgs.git src/px4_msgs \
+    && find src/px4_msgs -name ".git" -type d -exec rm -rf {} + \
     && echo "x500 otonom uçuş parametreleri ayarlanıyor..." \
-    && echo "" >> src/PX4-Autopilot/ROMFS/px4fmu_common/init.d-posix/airframes/4001_gz_x500 \
-    && echo "# YELPENCE SURU IHA - Otonom Ucus Izinleri" >> src/PX4-Autopilot/ROMFS/px4fmu_common/init.d-posix/airframes/4001_gz_x500 \
-    && echo "param set-default NAV_DLL_ACT 0" >> src/PX4-Autopilot/ROMFS/px4fmu_common/init.d-posix/airframes/4001_gz_x500 \
-    && echo "param set-default NAV_RCL_ACT 0" >> src/PX4-Autopilot/ROMFS/px4fmu_common/init.d-posix/airframes/4001_gz_x500 \
-    && echo "param set-default COM_RCL_EXCEPT 4" >> src/PX4-Autopilot/ROMFS/px4fmu_common/init.d-posix/airframes/4001_gz_x500
+    && { \
+    echo ""; \
+    echo "# YELPENCE SURU IHA - Otonom Ucus Izinleri (SIMULASYON)"; \
+    echo "param set-default NAV_DLL_ACT 0"; \
+    echo "param set-default NAV_RCL_ACT 0"; \
+    echo "param set-default COM_RCL_EXCEPT 4"; \
+    } >> src/PX4-Autopilot/ROMFS/px4fmu_common/init.d-posix/airframes/4001_gz_x500
 # --------------------------------------
 
 # .bashrc Ayarları----------------------
@@ -130,11 +150,6 @@ RUN echo "source /opt/ros/jazzy/setup.bash" >> ~/.bashrc \
     && echo "alias ajan='MicroXRCEAgent udp4 -p 8888'" >> ~/.bashrc \
     && echo "alias build_swarm='cd ~/ros2_ws && colcon build --packages-select swarm && source install/setup.bash'" >> ~/.bashrc \
     && echo "alias ws='cd ~/ros2_ws'" >> ~/.bashrc
-# --------------------------------------
-
-# Başlangıç Betiği----------------------
-COPY --chown=$USERNAME:$USERNAME docker/entrypoint.sh /usr/local/bin/entrypoint.sh
-RUN chmod +x /usr/local/bin/entrypoint.sh
 # --------------------------------------
 
 # Konteyner Başlatma--------------------
