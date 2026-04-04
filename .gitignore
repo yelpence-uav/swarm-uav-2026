@@ -1177,3 +1177,5 @@ FodyWeavers.xsd
 # End of https://www.toptal.com/developers/gitignore/api/linux,jetbrains,ros2,ros,pycharm,clion,qt,python,c,c++,eclipse,visualstudio,visualstudiocode,windows,cmake,ssh,vim
 /sim/worlds/task1_dynamic_swarm.sdf
 /sim/worlds/task2_navigation.sdf
+/sim/worlds/task2_collision.sdf
+/sim/worlds/task2_formation.sdf
