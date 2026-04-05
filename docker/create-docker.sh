@@ -7,6 +7,9 @@ set -e
 echo -e "\033[0;36m[BİLGİ] YELPENÇE DOCKER ORTAMI KURULUMU BAŞLIYOR...\033[0m"
 sleep 1
 
+SCRIPT_DIR="$(pwd)"
+PROJE_KOK="$(dirname "$SCRIPT_DIR")"
+
 while true; do
 
     echo -e "DAĞITIMINIZI SEÇİN:"
@@ -23,10 +26,10 @@ while true; do
 
         echo -e "\033[0;36m[BİLGİ] DOCKER ENGINE VE NVIDIA TOOLKIT KURULUMU BAŞLIYOR...\033[0m"
 
-        sudo pacman -S --noconfirm docker docker-compose
+        sudo pacman -S --noconfirm --needed docker docker-compose python-pip git
         sudo systemctl enable --now docker.service
         sudo usermod -aG docker $USER
-        sudo pacman -S --noconfirm nvidia-container-toolkit
+        sudo pacman -S --noconfirm --needed nvidia-container-toolkit
         sudo nvidia-ctk runtime configure --runtime=docker
         sudo systemctl restart docker
 
@@ -37,7 +40,7 @@ while true; do
         sleep 1
 
         sudo apt-get update
-        sudo apt-get install -y ca-certificates curl gpg
+        sudo apt-get install -y ca-certificates curl gpg python3-pip python3-venv git
         sudo install -m 0755 -d /etc/apt/keyrings
         sudo curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
         sudo chmod a+r /etc/apt/keyrings/docker.asc
@@ -73,9 +76,6 @@ sleep 1
 
 sg docker -c '
 cd ../docker/
-
-SCRIPT_DIR="$(pwd)"
-PROJE_KOK="$(dirname "$SCRIPT_DIR")"
 
 CURRENT_UID=$(id -u)
 CURRENT_GID=$(id -g)
