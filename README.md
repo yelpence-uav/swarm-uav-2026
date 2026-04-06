@@ -16,7 +16,6 @@ yelpence-2026-swarm
 ├── sim/            # İHA'ların fiziksel modellerini ve yarışma görevlerinin icra edileceği simülasyon dünyalarını barındırır.
 └── src/            # Sürü zekası, haberleşme protokolleri ve otonom kontrol algoritmalarımızın bulunduğu ana kaynak kod dizinidir.
 ```
-```
 
 # Kurulum ve Başlangıç 
 Bu projenin test, geliştirme ve simülasyon süreçleri izole bir Docker ortamında takip edilmektedir. Kurulum başlığını sonuna kadar uyguladığınızda uçtan uca hazır bir Docker ortamınız olacaktır. 
