@@ -8,12 +8,15 @@
 * [Sanal Ortamın Kullanımı](#sanal-ortamın-kullanımı)
 
 # Dizin Yapısı
+```text
 yelpence-2026-swarm
 ├── .github/        # CI/CD süreçlerini ve kod kalitesini denetleyen otomatik iş akışlarını içerir.
 ├── docker/         # Geliştirme ortamının tüm platformlarda izole ve tutarlı çalışmasını sağlayan yapılandırmaları barındırır.
 ├── scripts/        # Görev senaryoları üretme ve sistemi hızlıca ayağa kaldırma gibi operasyonel yardımcı betikleri içerir.
 ├── sim/            # İHA'ların fiziksel modellerini ve yarışma görevlerinin icra edileceği simülasyon dünyalarını barındırır.
 └── src/            # Sürü zekası, haberleşme protokolleri ve otonom kontrol algoritmalarımızın bulunduğu ana kaynak kod dizinidir.
+```
+```
 
 # Kurulum ve Başlangıç 
 Bu projenin test, geliştirme ve simülasyon süreçleri izole bir Docker ortamında takip edilmektedir. Kurulum başlığını sonuna kadar uyguladığınızda uçtan uca hazır bir Docker ortamınız olacaktır. 
