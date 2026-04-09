@@ -2,7 +2,6 @@
     path = src/px4_msgs
     url = https://github.com/PX4/px4_msgs.git
     branch = release/1.15
-
 [submodule "src/px4_autopilot"]
     path = src/px4_autopilot
     url = https://github.com/PX4/PX4-Autopilot
