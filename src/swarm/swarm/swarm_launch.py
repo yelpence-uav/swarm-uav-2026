@@ -79,24 +79,9 @@ def generate_spawn_sdf(world_path, drone_count):
     for i in range(drone_count):
         drone_name = f"IHA_{i+1}"
         
-        # Uygun bir rastgele konum bulana kadar dene
-        attempts = 0
-        while attempts < 100:
-            x = random.uniform(-15.0, 15.0)
-            y = random.uniform(-15.0, 15.0)
-            
-            # Diğer İHA'lara çok yakın mı? (En az 2.5m)
-            too_close = False
-            for ux, uy in used_positions:
-                dist = math.sqrt((x - ux)**2 + (y - uy)**2)
-                if dist < 2.5:
-                    too_close = True
-                    break
-            
-            if not too_close:
-                used_positions.append((x, y))
-                break
-            attempts += 1
+        # YENİ DÜZEN: Dronlar X=0 hizasında, Y ekseninde 3'er metre arayla dizilir.
+        x = 0.0
+        y = i * 3.0 
             
         spawn_elements += f"""
     <include>

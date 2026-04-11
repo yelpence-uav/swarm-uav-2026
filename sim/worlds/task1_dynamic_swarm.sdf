@@ -5,15 +5,15 @@
     <plugin filename="gz-sim-physics-system" name="gz::sim::systems::Physics"></plugin>
     <plugin filename="gz-sim-scene-broadcaster-system" name="gz::sim::systems::SceneBroadcaster"></plugin>
     <plugin filename="gz-sim-user-commands-system" name="gz::sim::systems::UserCommands"></plugin>
+    
     <plugin filename="gz-sim-sensors-system" name="gz::sim::systems::Sensors">
+      <render_engine>ogre2</render_engine>
+    </plugin>
     <plugin filename="gz-sim-imu-system" name="gz::sim::systems::Imu"></plugin>
     <plugin filename="gz-sim-air-pressure-system" name="gz::sim::systems::AirPressure"></plugin>
     <plugin filename="gz-sim-air-speed-system" name="gz::sim::systems::AirSpeed"></plugin>
     <plugin filename="gz-sim-navsat-system" name="gz::sim::systems::NavSat"></plugin>
     <plugin filename="gz-sim-magnetometer-system" name="gz::sim::systems::Magnetometer"></plugin>
-      <render_engine>ogre2</render_engine>
-    </plugin>
-
     <physics type="ode">
       <max_step_size>0.004</max_step_size>
       <real_time_factor>1.0</real_time_factor>
@@ -23,9 +23,19 @@
     <magnetic_field>6e-06 2.3e-05 -4.2e-05</magnetic_field>
     <atmosphere type="adiabatic"/>
 
+    <spherical_coordinates>
+      <surface_model>EARTH_WGS84</surface_model>
+      <world_frame_orientation>ENU</world_frame_orientation>
+      <latitude_deg>47.397971057728974</latitude_deg>
+      <longitude_deg>8.546163739800146</longitude_deg>
+      <elevation>0</elevation>
+    </spherical_coordinates>
+
     <scene>
       <ambient>1.0 1.0 1.0 1.0</ambient>
-      <background>0.5 0.8 0.95 1</background> <shadows>false</shadows> </scene>
+      <background>0.5 0.8 0.95 1</background> 
+      <shadows>false</shadows> 
+    </scene>
 
     <light type="directional" name="sun">
       <cast_shadows>false</cast_shadows>
@@ -173,7 +183,17 @@
       <link name="link">
         <visual name="visual">
           <geometry><box><size>1.2 1.2 0.01</size></box></geometry>
-          <material><ambient>1 1 1 1</ambient><diffuse>1 1 1 1</diffuse></material>
+          <material>
+            <ambient>1 1 1 1</ambient>
+            <diffuse>1 1 1 1</diffuse>
+            <pbr>
+              <metal>
+                <albedo_map>model://qr_codes/materials/textures/qr_model_1.png</albedo_map>
+                <roughness>1.0</roughness>
+                <metalness>0.0</metalness>
+              </metal>
+            </pbr>
+          </material>
         </visual>
       </link>
     </model>
@@ -184,7 +204,17 @@
       <link name="link">
         <visual name="visual">
           <geometry><box><size>1.2 1.2 0.01</size></box></geometry>
-          <material><ambient>1 1 1 1</ambient><diffuse>1 1 1 1</diffuse></material>
+          <material>
+            <ambient>1 1 1 1</ambient>
+            <diffuse>1 1 1 1</diffuse>
+            <pbr>
+              <metal>
+                <albedo_map>model://qr_codes/materials/textures/qr_model_6.png</albedo_map>
+                <roughness>1.0</roughness>
+                <metalness>0.0</metalness>
+              </metal>
+            </pbr>
+          </material>
         </visual>
       </link>
     </model>
@@ -195,7 +225,17 @@
       <link name="link">
         <visual name="visual">
           <geometry><box><size>1.2 1.2 0.01</size></box></geometry>
-          <material><ambient>1 1 1 1</ambient><diffuse>1 1 1 1</diffuse></material>
+          <material>
+            <ambient>1 1 1 1</ambient>
+            <diffuse>1 1 1 1</diffuse>
+            <pbr>
+              <metal>
+                <albedo_map>model://qr_codes/materials/textures/qr_model_3.png</albedo_map>
+                <roughness>1.0</roughness>
+                <metalness>0.0</metalness>
+              </metal>
+            </pbr>
+          </material>
         </visual>
       </link>
     </model>
@@ -206,7 +246,17 @@
       <link name="link">
         <visual name="visual">
           <geometry><box><size>1.2 1.2 0.01</size></box></geometry>
-          <material><ambient>1 1 1 1</ambient><diffuse>1 1 1 1</diffuse></material>
+          <material>
+            <ambient>1 1 1 1</ambient>
+            <diffuse>1 1 1 1</diffuse>
+            <pbr>
+              <metal>
+                <albedo_map>model://qr_codes/materials/textures/qr_model_2.png</albedo_map>
+                <roughness>1.0</roughness>
+                <metalness>0.0</metalness>
+              </metal>
+            </pbr>
+          </material>
         </visual>
       </link>
     </model>
@@ -217,7 +267,17 @@
       <link name="link">
         <visual name="visual">
           <geometry><box><size>1.2 1.2 0.01</size></box></geometry>
-          <material><ambient>1 1 1 1</ambient><diffuse>1 1 1 1</diffuse></material>
+          <material>
+            <ambient>1 1 1 1</ambient>
+            <diffuse>1 1 1 1</diffuse>
+            <pbr>
+              <metal>
+                <albedo_map>model://qr_codes/materials/textures/qr_model_5.png</albedo_map>
+                <roughness>1.0</roughness>
+                <metalness>0.0</metalness>
+              </metal>
+            </pbr>
+          </material>
         </visual>
       </link>
     </model>
@@ -228,7 +288,17 @@
       <link name="link">
         <visual name="visual">
           <geometry><box><size>1.2 1.2 0.01</size></box></geometry>
-          <material><ambient>1 1 1 1</ambient><diffuse>1 1 1 1</diffuse></material>
+          <material>
+            <ambient>1 1 1 1</ambient>
+            <diffuse>1 1 1 1</diffuse>
+            <pbr>
+              <metal>
+                <albedo_map>model://qr_codes/materials/textures/qr_model_4.png</albedo_map>
+                <roughness>1.0</roughness>
+                <metalness>0.0</metalness>
+              </metal>
+            </pbr>
+          </material>
         </visual>
       </link>
     </model>

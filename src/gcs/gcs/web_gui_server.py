@@ -4,8 +4,12 @@ Yelpençe Web GUI Server
 ROS 2 sensör verilerini WebSocket ile frontend'e stream eder.
 """
 import rclpy
+import time
+from pyzbar.pyzbar import decode
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
+from gcs.formation_manager import FormationManager
+from gcs.mission_manager import MissionManager
 from px4_msgs.msg import (
     SensorCombined,
     VehicleStatus,
@@ -138,23 +142,29 @@ def handle_toggle_altitude_protector(data):
 
 @socketio.on('start_formation')
 def handle_start_formation(data):
-    global formation_mgr, bridge_node, global_target_altitude, active_target_altitudes, altitude_protectors
-    leader_id = data.get('leader_id', -1)
+    global formation_mgr, bridge_node
+    # Artık leader_id almıyoruz! Sadece aralık, hız ve formasyon tipi
     spacing = data.get('spacing', 2.5)
+    speed = data.get('speed', 1.5)
     formation_type = data.get('formation_type', 'arrowhead')
-    # Ensure bridge node is set before starting
+    
     formation_mgr.bridge_node = bridge_node
-    formation_mgr.start(leader_id, spacing, formation_type)
+    # Yeni beynin start fonksiyonunu çağırıyoruz
+    formation_mgr.start(spacing, speed, formation_type)
 
     if formation_mgr.active:
-        # Formation active: only leader is altitude-locked, followers track leader in formation loop.
-        active_target_altitudes.clear()
-        for d_id in range(1, DRONE_COUNT + 1):
-            altitude_protectors[d_id] = (d_id == leader_id)
+        bridge_node.get_logger().info(f">>> Formasyon Sanal Merkez ile Başlatıldı: {formation_type}")
 
-        if global_target_altitude is not None:
-            active_target_altitudes[leader_id] = global_target_altitude
-            send_altitude_reposition(leader_id, global_target_altitude)
+
+@socketio.on('send_waypoint')
+def handle_send_waypoint(data):
+    global formation_mgr
+    if not formation_mgr.active:
+        return
+    target_x = float(data.get('x', 0.0))
+    target_y = float(data.get('y', 0.0))
+    # Hedefi doğrudan Sanal Liderin beynine gönderiyoruz
+    formation_mgr.set_target(target_x, target_y)
 
 @socketio.on('stop_formation')
 def handle_stop_formation():
@@ -312,17 +322,17 @@ class TelemetryBridge(Node):
                 self.offboard_ctrl_pubs[drone_id] = self.create_publisher(OffboardControlMode, f'{ns}/fmu/in/offboard_control_mode', qos_best_effort)
                 self.trajectory_setpoint_pubs[drone_id] = self.create_publisher(TrajectorySetpoint, f'{ns}/fmu/in/trajectory_setpoint', qos_best_effort)
 
-        # Global Altitude Status Publisher
+        # Global Status Publishers (Eski kodlar buralardaydı)
         self.altitude_status_pub = self.create_publisher(String, '/swarm/altitude_status', 10)
-        
-        # Navigation Status Publisher (For Collision Avoidance)
         self.nav_status_pub = self.create_publisher(String, '/swarm/navigation_status', 10)
-
-        # Collision Status Subscriber (From Collision Avoidance Node)
         self.create_subscription(String, '/swarm/collision_status', self.collision_callback, 10)
-
-        # Heartbeat timer to verify executor is spinning
         self.create_timer(1.0, self.heartbeat_callback)
+
+        # --- YENİ EKLENEN: GÖRME YETENEĞİ (OPENCV) ---
+        self.qr_detector = cv2.QRCodeDetector()
+        self.last_qr_time = 0.0
+        self.last_qr_data = ""
+        # ---------------------------------------------
 
     def collision_callback(self, msg):
         """Relays collision intervention status from ROS to the SocketIO clients."""
@@ -397,16 +407,17 @@ class TelemetryBridge(Node):
             if msg.dist_bottom_valid:
                 d['dist_bottom'] = float(msg.dist_bottom)
 
-        data = {
-            'type': 'position',
-            'drone_id': drone_id,
-            'x': float(msg.x), 'y': float(msg.y), 'z': float(msg.z),
-            'vz': float(msg.vz),
-            'local_alt': -float(msg.z),
-            'dist_bottom': float(msg.dist_bottom) if msg.dist_bottom_valid else -1.0,
-            'ref_alt': float(msg.ref_alt)
-        }
-        socketio.emit('telemetry', data)
+            data = {
+                'type': 'position',
+                'drone_id': drone_id,
+                'x': d.get('unified_x', float(msg.x)), # EKLENDİ: Artık Ortak X gidiyor
+                'y': d.get('unified_y', float(msg.y)), # EKLENDİ: Artık Ortak Y gidiyor
+                'z': float(msg.z),
+            }
+            socketio.emit('telemetry', data)
+        else:
+            # Eğer drone bulunamazsa yine de bir pozisyon olayı göndermeyiz.
+            return
 
     def pos_callback(self, msg, drone_id):
         """VehicleOdometry fallback (only used if LocalPosition not available)."""
@@ -477,18 +488,67 @@ class TelemetryBridge(Node):
         if msg.result == 1: # TEMPORARILY_REJECTED
             self.get_logger().warn(f"!!! Drone {drone_id} henüz hazır değil! (EKF2/GPS hatası olabilir). Lütfen 2-3 saniye bekleyip tekrar ARM yapın.")
 
+
     def image_callback(self, msg, drone_id):
         global active_drone_cameras
         if drone_id not in active_drone_cameras:
             return
             
         try:
-            # Convert ROS Image to OpenCV image
             cv_image = self.bridge.imgmsg_to_cv2(msg, "bgr8")
             
-            # Compress for bandwidth
+            # --- FPS OPTİMİZASYONU: Değişkenleri Başlat ---
+            if not hasattr(self, 'last_scan_time'):
+                self.last_scan_time = 0
+                self.last_qr_box = None
+                self.last_qr_text = ""
+                self.last_qr_time = 0
+                self.last_qr_data = ""
+
+            now = time.time()
+            
+            # 1. AĞIR İŞLEM (PYZBAR): Saniyede sadece 3 kere çalışır! (CPU'yu kurtarır)
+            if now - self.last_scan_time > 0.3:
+                self.last_scan_time = now
+                decoded_objects = decode(cv_image)
+                
+                if decoded_objects:
+                    obj = decoded_objects[0] # İlk gördüğü QR'ı al
+                    self.last_qr_text = obj.data.decode('utf-8')
+                    
+                    if len(obj.polygon) == 4:
+                        self.last_qr_box = [(p.x, p.y) for p in obj.polygon]
+
+                    # SPAM KORUMASI: 5 Saniye kuralı
+                    if now - self.last_qr_time > 5.0 or self.last_qr_data != self.last_qr_text:
+                        self.last_qr_time = now
+                        self.last_qr_data = self.last_qr_text
+                        self.get_logger().info(f"🎯 [GÖZLEM] İHA {drone_id} QR Kodu Çözdü!")
+                        
+                        socketio.emit('telemetry', {
+                            'type': 'alert', 'drone_id': drone_id, 'level': 'success',
+                            'msg': f"GÖREV ALINDI! Şifre: {self.last_qr_text[:25]}..."
+                        })
+                        
+                        # --- YENİ EKLENDİ: DOĞRUDAN BEYNİ TETİKLE ---
+                        if hasattr(self, 'mission_mgr') and self.mission_mgr:
+                            self.mission_mgr.process_qr_task(self.last_qr_text)
+                        else:
+                            self.get_logger().error("HATA: Beyin kameraya bağlanmamış!")
+                        # --------------------------------------------------------------
+                else:
+                    self.last_qr_box = None # QR görüşten çıkarsa kutuyu sil
+
+            # 2. HAFİF İŞLEM: Bulunan yeşil kutuyu her karede (30 FPS) çiz
+            if self.last_qr_box:
+                pts = self.last_qr_box
+                for i in range(4):
+                    cv2.line(cv_image, pts[i], pts[(i + 1) % 4], (0, 255, 0), 3)
+                cv2.putText(cv_image, f"QR:{self.last_qr_text[:10]}...", (pts[0][0], pts[0][1] - 10),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+
+            # 3. AKICI VİDEO AKTARIMI
             _, buffer = cv2.imencode('.jpg', cv_image, [cv2.IMWRITE_JPEG_QUALITY, 40])
-            # To Base64
             jpg_as_text = base64.b64encode(buffer).decode('utf-8')
             
             socketio.emit('camera_frame', {
@@ -497,6 +557,8 @@ class TelemetryBridge(Node):
             })
         except Exception as e:
             self.get_logger().error(f'Camera Error (Drone {drone_id}): {e}')
+
+
 
     def attitude_callback(self, msg, drone_id):
         q = msg.q
@@ -558,9 +620,22 @@ class TelemetryBridge(Node):
     def gps_callback(self, msg, drone_id):
         # Update local state
         if drone_id in self.drones:
-            self.drones[drone_id]['gps']['lat'] = float(msg.latitude_deg)
-            self.drones[drone_id]['gps']['lon'] = float(msg.longitude_deg)
-            self.drones[drone_id]['gps']['alt_abs'] = float(msg.altitude_msl_m)
+            d = self.drones[drone_id]
+            d['gps']['lat'] = float(msg.latitude_deg)
+            d['gps']['lon'] = float(msg.longitude_deg)
+            d['gps']['alt_abs'] = float(msg.altitude_msl_m)
+
+            # --- ORTAK KOORDİNAT SİSTEMİ (LİDER İHA 1 MERKEZDİR) ---
+            if drone_id == 1 and not hasattr(self, 'master_lat'):
+                # Sadece ilk geçerli GPS verisinde merkezi sabitle
+                if float(msg.latitude_deg) > 0:
+                    self.master_lat = float(msg.latitude_deg)
+                    self.master_lon = float(msg.longitude_deg)
+
+            if hasattr(self, 'master_lat'):
+                # 1 derece enlem yaklaşık 111320 metredir. Gerçek fiziksel mesafeyi buluyoruz.
+                d['unified_x'] = (float(msg.latitude_deg) - self.master_lat) * 111320.0
+                d['unified_y'] = (float(msg.longitude_deg) - self.master_lon) * (111320.0 * math.cos(math.radians(self.master_lat)))
 
         data = {
             'type': 'gps',
@@ -634,25 +709,20 @@ class TelemetryBridge(Node):
             self.get_logger().error(f"Motor Callback Error (Drone {drone_id}): {e}")
 
 def ros_thread():
-    print("ROS Thread: Starting...")
-    rclpy.init()
     global bridge_node
+    print("🚀 [SİSTEM] ROS 2 Veri Akışı (Thread) Başlatıldı!")
     try:
-        bridge_node = TelemetryBridge()
-        print("ROS Thread: Node created.")
-        executor = rclpy.executors.SingleThreadedExecutor()
-        executor.add_node(bridge_node)
-        print("ROS Thread: Executor ready, spinning...")
+        # ROS 2 motoru çalıştığı sürece durmadan dön
         while rclpy.ok():
-            executor.spin_once(timeout_sec=0.01)
-            socketio.sleep(0.01)
+            # Sadece anlık olarak gelen mesajları al ve bırak (0.05 saniye sınır)
+            rclpy.spin_once(bridge_node, timeout_sec=0.05)
+            
+            # ÇOK KRİTİK: ROS 2'nin web arayüzünü (SocketIO) boğmaması ve 
+            # verileri (kamera, telemetri) tarayıcıya iletebilmesi için nefes alma süresi!
+            socketio.sleep(0.01) 
+            
     except Exception as e:
-        print(f"ROS Thread Error: {e}")
-    finally:
-        bridge_node = None
-        print("ROS Thread: Shutting down.")
-        if rclpy.ok():
-            rclpy.shutdown()
+        print(f"!!! [HATA] ROS THREAD ÇÖKTÜ: {e} !!!")
 
 @app.route('/')
 def index():
@@ -739,37 +809,28 @@ def handle_manual_command(data):
 @socketio.on('set_target_altitude')
 @socketio.on('mass_equalize_altitude')
 def handle_set_target_altitude(data):
-    """Tüm droneları belirtilen hedef irtifaya çıkarır/indirir.
-    
-    Strateji: Droneların farklı zemin/barometre kalibrasyonlarından kaynaklanan EKF driftlerini hesaba katarak
-    Gerçek yüksekliği (LiDAR) baz alan kapalı döngü bir düzeltme yapar.
-    """
-    global bridge_node, global_target_altitude, active_target_altitudes, altitude_protectors
+    global bridge_node, global_target_altitude, active_target_altitudes, altitude_protectors, formation_mgr
     if bridge_node is None: return
     
     target_altitude = data.get('altitude_m', 5.0)
     global_target_altitude = target_altitude
-    drone_ids = data.get('drone_ids', [])
-    if not drone_ids:
-        drone_ids = list(range(1, DRONE_COUNT + 1))
 
-    if formation_mgr.active and formation_mgr.leader_id in bridge_node.drones:
-        target_ids = [formation_mgr.leader_id]
-        active_target_altitudes.clear()
-        for d_id in range(1, DRONE_COUNT + 1):
-            altitude_protectors[d_id] = (d_id == formation_mgr.leader_id)
-        bridge_node.get_logger().info(
-            f">>> HEDEF İRTİFA (Formasyon Aktif): {target_altitude}m | Lider: {formation_mgr.leader_id}"
-        )
+    # EĞER FORMASYON AKTİFSE: İrtifayı doğrudan yeni Sanal Beyne gönder
+    if formation_mgr.active:
+        formation_mgr.virtual_alt = target_altitude
+        bridge_node.get_logger().info(f">>> HEDEF İRTİFA (Formasyon Sanal Merkezi): {target_altitude}m")
+    # EĞER FORMASYON YOKSA (Serbest Uçuş): Klasik yöntemi kullan
     else:
-        target_ids = drone_ids
-        bridge_node.get_logger().info(f">>> HEDEF İRTİFA: {target_altitude}m | Seçili: {target_ids}")
+        drone_ids = data.get('drone_ids', [])
+        if not drone_ids:
+            drone_ids = list(range(1, DRONE_COUNT + 1))
+        
+        bridge_node.get_logger().info(f">>> HEDEF İRTİFA: {target_altitude}m | Seçili: {drone_ids}")
+        for drone_id in drone_ids:
+            active_target_altitudes[drone_id] = target_altitude
+            altitude_protectors[drone_id] = True
+            send_altitude_reposition(drone_id, target_altitude)
 
-    for drone_id in target_ids:
-        active_target_altitudes[drone_id] = target_altitude
-        altitude_protectors[drone_id] = True
-        send_altitude_reposition(drone_id, target_altitude)
-        socketio.sleep(0.05)
 
 @socketio.on('mass_land')
 def handle_mass_land(data=None):
@@ -823,9 +884,12 @@ def handle_mass_disarm(data=None):
         
     is_processing_command = False
 
+
+
+
 def altitude_correction_loop():
-    """Her 3 saniyede bir çalışan yumuşak irtifa düzeltme döngüsü."""
-    global bridge_node, active_target_altitudes
+    """Her 0.5 saniyede bir çalışan yumuşak irtifa düzeltme döngüsü."""
+    global bridge_node, active_target_altitudes, altitude_protectors, formation_mgr
     print("Altitude Correction Loop: Started.")
     
     while True:
@@ -837,11 +901,15 @@ def altitude_correction_loop():
             continue
             
         for drone_id, target_altitude in list(active_target_altitudes.items()):
-            # Formation aktifken sadece liderin sabit irtifası korunur.
-            if formation_mgr.active and drone_id != formation_mgr.leader_id:
+            
+            # --- YENİ EKLENEN HAYAT KURTARICI KOD ---
+            # Eğer Sanal Merkez (Formasyon) aktifse, bu döngü İrtifaya KESİNLİKLE KARIŞMAZ!
+            # İrtifa yönetimini tamamen formation_manager.py yapar.
+            if formation_mgr.active:
                 continue
+            # ----------------------------------------
 
-            # Sadece bu drone için koruyucu aktifse devam et
+            # Sadece bu drone için koruyucu aktifse (Serbest uçuş modunda) devam et
             if not altitude_protectors.get(drone_id, False):
                 continue
                 
@@ -849,20 +917,20 @@ def altitude_correction_loop():
                 continue
                 
             d = bridge_node.drones[drone_id]
-            ref_alt = d['ref_alt']
-            current_ekf_alt = -d['local_z']
+            ref_alt = d.get('ref_alt', 0.0)
+            current_ekf_alt = -d.get('local_z', 0.0)
             
-            # Gerçek yüksekliği belirle
+            # Gerçek yüksekliği belirle (LiDAR veya mesafe sensörü)
             true_alt = current_ekf_alt
-            if d['lidar']:
+            if d.get('lidar'):
                 true_alt = min(d['lidar'])
-            elif d['dist_bottom'] > 0:
+            elif d.get('dist_bottom', 0) > 0:
                 true_alt = d['dist_bottom']
             
             # Sapma miktarını hesapla
             error = target_altitude - true_alt
             
-            # ÖNEMLİ: Sadece 5cm'den fazla sapma varsa düzeltme yap (Daha agresif takip)
+            # ÖNEMLİ: Sadece 5cm'den fazla sapma varsa düzeltme yap
             if abs(error) > 0.05:
                 # EKF'ye göre yeni hedef
                 target_ekf_alt = current_ekf_alt + error
@@ -877,23 +945,38 @@ def altitude_correction_loop():
                                          param6=float('nan'), 
                                          param7=float(target_amsl))
                 
-                if formation_mgr.active and drone_id == formation_mgr.leader_id:
-                    bridge_node.get_logger().info(
-                        f"[DÖNGÜ] Lider {drone_id}: İrtifa kilidi düzeltmesi. Hata: {error:.2f}m"
-                    )
-                else:
-                    bridge_node.get_logger().info(
-                        f"[DÖNGÜ] Drone {drone_id}: Düzeltme Uygulanıyor (Bireysel). Hata: {error:.2f}m"
-                    )
+                bridge_node.get_logger().info(
+                    f"[DÖNGÜ] Drone {drone_id}: İrtifa Düzeltiliyor (Serbest Uçuş). Hata: {error:.2f}m"
+                )
 
 
-def main():
+# Otonom beyne diğer fonksiyonlardan ulaşabilmek için global yapıyoruz
+global mission_mgr 
+
+def main(args=None):
+    # Sistem değişkenlerini global olarak alıyoruz
+    global bridge_node, active_target_altitudes, altitude_protectors, formation_mgr, mission_mgr
+    
+    # --- İŞTE EKSİK OLAN KONTAK ANAHTARI BURASI ---
+    import rclpy
+    rclpy.init(args=args)
+    # ----------------------------------------------
+
     print("=" * 50)
     print("  YELPENÇE WEB GUI SERVER")
     print("  http://localhost:5000")
     print(f"  Drone Count: {DRONE_COUNT}")
     print("=" * 50)
     
+    # 1. ÖNCE DONANIMLARI VE SİSTEMLERİ AYAĞA KALDIR
+    bridge_node = TelemetryBridge()
+    formation_mgr = FormationManager(socketio)
+    
+    # 2. ŞİMDİ OTONOM BEYNİ BAŞLAT VE KAMERAYA (BRIDGE) FİZİKSEL OLARAK BAĞLA
+    print("Otonom Görev Beyni (Mission Manager) yükleniyor...")
+    mission_mgr = MissionManager(bridge_node, formation_mgr, socketio)
+    bridge_node.mission_mgr = mission_mgr 
+
     try:
         print("Starting ROS background task...")
         socketio.start_background_task(ros_thread)
@@ -905,6 +988,9 @@ def main():
         socketio.run(app, host='0.0.0.0', port=5000, debug=False)
     except Exception as e:
         print(f"Main Error: {e}")
+    finally:
+        # Sunucu kapanırken motoru temiz bir şekilde durdur
+        rclpy.shutdown()
 
 if __name__ == '__main__':
     main()

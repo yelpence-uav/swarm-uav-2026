@@ -855,21 +855,18 @@
         </div>
         <div class="control-box">
             <div class="control-title">Formasyon Kontrolü</div>
-            <div class="spacing-wrap">
-                <label for="formation-spacing">Aralık (Min. 3m Önerilir)</label>
-                <input id="formation-spacing" type="number" min="1.0" max="15.0" step="0.5" value="2.0">
-                <span>m</span>
+            <div class="spacing-wrap" style="margin-bottom: 8px;">
+                <label for="formation-spacing">Aralık:</label>
+                <input id="formation-spacing" type="number" min="1.0" max="15.0" step="0.5" value="2.0"><span>m</span>
+                
+                <label for="swarm-speed" style="margin-left: 10px;">Hız:</label>
+                <input id="swarm-speed" type="number" min="0.5" max="5.0" step="0.1" value="1.5"><span>m/s</span>
             </div>
             <div class="formation-select">
-                <button class="formation-btn" data-type="arrowhead" onclick="openFormationSelection('arrowhead')">Ok
-                    Başı</button>
-                <button class="formation-btn" data-type="reverse_arrowhead"
-                    onclick="openFormationSelection('reverse_arrowhead')">Ters Ok Başı</button>
-                <button class="formation-btn" data-type="line" onclick="openFormationSelection('line')">Sağa-Sola Doğru
-                    Çizgi</button>
-                <button class="formation-btn" data-type="column"
-                    onclick="openFormationSelection('column')">İleriye-Geriye
-                    Doğru Çizgi</button>
+                <button class="formation-btn" data-type="arrowhead" onclick="startDynamicFormation('arrowhead')">Ok Başı</button>
+                <button class="formation-btn" data-type="reverse_arrowhead" onclick="startDynamicFormation('reverse_arrowhead')">Ters Ok Başı</button>
+                <button class="formation-btn" data-type="line" onclick="startDynamicFormation('line')">Sağa-Sola Çizgi</button>
+                <button class="formation-btn" data-type="column" onclick="startDynamicFormation('column')">İleri-Geri Çizgi</button>
             </div>
             <button id="formation-stop-btn" class="formation-btn formation-stop" onclick="stopFormation()" disabled>
                 Formasyonu Durdur
@@ -877,6 +874,15 @@
         </div>
     </div>
     </div>
+
+    <div class="control-box">
+            <div class="control-title">📍 Otonom Hedef (Waypoint)</div>
+            <div class="spacing-wrap" style="margin-bottom: 8px;">
+                <input id="nav-x" type="number" placeholder="X (m)" style="width: 80px;">
+                <input id="nav-y" type="number" placeholder="Y (m)" style="width: 80px;">
+            </div>
+            <button class="arm-btn" style="width: 100%; background: var(--accent); color: white;" onclick="sendAutonomousWaypoint()">HEDEFE GİT 🚀</button>
+        </div>
 
     <!-- TABS -->
     <div class="drone-selector" id="drone-tabs">
@@ -891,12 +897,12 @@
             <div class="card-title"><i></i> NAVİGASYON VE SENSÖR VERİLERİ</div>
             <div class="gps-grid" style="grid-template-columns: repeat(5, 1fr);">
                 <div class="data-item">
-                    <div class="data-label">ENLEM</div>
-                    <div class="data-value" id="gps-lat">0.000000</div>
+                    <div class="data-label">X EKSENİ (İleri)</div>
+                    <div class="data-value" id="local-x">0.00<span class="data-unit">m</span></div>
                 </div>
                 <div class="data-item">
-                    <div class="data-label">BOYLAM</div>
-                    <div class="data-value" id="gps-lon">0.000000</div>
+                    <div class="data-label">Y EKSENİ (Sağ)</div>
+                    <div class="data-value" id="local-y">0.00<span class="data-unit">m</span></div>
                 </div>
                 <div class="data-item" style="border-left: 2px solid var(--accent-glow);">
                     <div class="data-label">LIDAR</div>
@@ -1132,56 +1138,21 @@
             updateFormationUiState();
         }
 
-        function openFormationSelection(formationType) {
-            const activeIds = Object.keys(drones).sort((a, b) => a - b);
-            const minCount = getFormationMinCount(formationType);
-            const formationName = formationLabels[formationType] || "Formasyon";
-            if (activeIds.length < minCount) {
-                alert(`Uyarı: ${formationName} için en az ${minCount} İHA bağlı olmalıdır! Şu anki İHA sayısı: ${activeIds.length}`);
-                return;
-            }
+        function startDynamicFormation(formationType) {
+            const spacing = getFormationSpacing();
+            const speedInput = document.getElementById('swarm-speed');
+            const speed = speedInput ? parseFloat(speedInput.value) : 1.5;
 
-            const modal = document.getElementById('drone-modal');
-            const list = document.getElementById('modal-drone-list');
-            const confirmBtn = document.getElementById('modal-confirm-btn');
-            const title = document.getElementById('modal-title');
-            const subtitle = document.getElementById('modal-subtitle');
-
-            title.innerText = `${formationName.toUpperCase()} | LİDER İHA`;
-            subtitle.innerText = "Lider dronu seçip formasyonu başlatın";
-            list.innerHTML = '';
-
-            activeIds.forEach(id => {
-                const item = document.createElement('label');
-                item.className = 'drone-item';
-                item.innerHTML = `
-                    <input type="radio" name="leader-select" value="${id}" class="leader-radio">
-                    <span>İHA ${id} (Lider Adayı)</span>
-                `;
-                list.appendChild(item);
+            socket.emit('start_formation', {
+                spacing: spacing,
+                speed: speed,
+                formation_type: formationType
             });
 
-            modal.style.display = 'flex';
-
-            confirmBtn.onclick = () => {
-                const selected = document.querySelector('.leader-radio:checked');
-                if (!selected) {
-                    alert("Lütfen bir Lider İHA seçin.");
-                    return;
-                }
-
-                const leaderId = parseInt(selected.value);
-                socket.emit('start_formation', {
-                    leader_id: leaderId,
-                    spacing: getFormationSpacing(),
-                    formation_type: formationType
-                });
-                formationActive = true;
-                currentFormationType = formationType;
-                updateFormationUiState();
-
-                closeModal();
-            };
+            formationActive = true;
+            currentFormationType = formationType;
+            updateFormationUiState();
+            showToast("Sanal Merkezli Formasyon Başlatıldı!", "info");
         }
 
         function executeCommand(type, droneIds) {
@@ -1215,6 +1186,26 @@
                 console.log("[MANUAL] executeCommand -> manual_control");
                 startManualControl(droneIds);
             }
+        }
+
+        // YENİ EKLENDİ: Otonom Navigasyon Gönderici
+        function sendAutonomousWaypoint() {
+            if (!formationActive) {
+                alert("DİKKAT: Otonom hedefe gitmek için önce bir Lider İHA seçip Formasyonu Başlatmalısınız!");
+                return;
+            }
+            
+            const xVal = parseFloat(document.getElementById('nav-x').value);
+            const yVal = parseFloat(document.getElementById('nav-y').value);
+            
+            if (isNaN(xVal) || isNaN(yVal)) {
+                alert("Lütfen geçerli X ve Y koordinatları (metre cinsinden) girin.");
+                return;
+            }
+            
+            console.log(`[NAV] Lider İHA hedefe yönlendiriliyor -> X: ${xVal}, Y: ${yVal}`);
+            socket.emit('send_waypoint', { x: xVal, y: yVal });
+            showToast(`Otonom Seyir: X=${xVal}, Y=${yVal} noktasına gidiliyor.`, 'info');
         }
 
         function showToast(msg, level) {
@@ -1322,11 +1313,13 @@
             const d = drones[currentDroneId];
             if (!d) return;
 
-            // GPS
-            document.getElementById('gps-lat').innerText = d.gps.lat.toFixed(6);
-            document.getElementById('gps-lon').innerText = d.gps.lon.toFixed(6);
+            // GPS (Artık Lokal X/Y Gösteriyoruz)
+            document.getElementById('local-x').innerHTML = (d.local_x || 0).toFixed(2) + '<span class="data-unit">m</span>';
+            document.getElementById('local-y').innerHTML = (d.local_y || 0).toFixed(2) + '<span class="data-unit">m</span>';
+            
             // Altitude (EKF2 Fused)
             const relAlt = (d.gps.alt_rel || 0).toFixed(2);
+            // ... (alt kısımlar aynı kalacak)
             const distBot = (d.dist_bottom || 0).toFixed(2);
             document.getElementById('gps-alt').innerHTML = relAlt + '<span class="data-unit">m rel</span>';
             // Telemetry Status
@@ -1390,6 +1383,8 @@
                 d.gps.alt_abs = msg.alt;
             } else if (msg.type === 'position') {
                 d.gps.alt_rel = msg.local_alt;
+                d.local_x = msg.x; // EKLENDİ
+                d.local_y = msg.y; // EKLENDİ
                 if (msg.dist_bottom !== undefined && msg.dist_bottom > 0) {
                     d.dist_bottom = msg.dist_bottom;
                 }
@@ -1510,6 +1505,11 @@
 
 
         updateFormationUiState();
+
+
+
+
+
 
     </script>
     <!-- MANUAL CONTROL OVERLAY -->

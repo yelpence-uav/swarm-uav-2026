@@ -5,6 +5,7 @@
 echo "--- Yelpençe Sürü Simülasyonu Hazırlanıyor ---"
 export RMW_IMPLEMENTATION=rmw_fastrtps_cpp
 export GZ_SIM_RENDER_ENGINE_BACKEND=ogre
+export GZ_SIM_RESOURCE_PATH=$GZ_SIM_RESOURCE_PATH:$(pwd)/sim/models
 source /opt/ros/jazzy/setup.bash
 source /home/yelpence/ros2_ws/install/setup.bash
 

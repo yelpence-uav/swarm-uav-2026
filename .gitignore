@@ -1168,3 +1168,5 @@ FodyWeavers.xsd
 # Additional files built by Visual Studio
 
 # End of https://www.toptal.com/developers/gitignore/api/linux,jetbrains,ros2,ros,pycharm,clion,qt,python,c,c++,eclipse,visualstudio,visualstudiocode,windows,cmake,ssh,vim
+src/PX4-Autopilot/
+src/px4_msgs/

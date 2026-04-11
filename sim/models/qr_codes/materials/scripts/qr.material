@@ -1,0 +1,24 @@
+material QRCode/QR1
+{
+  technique { pass { lighting off texture_unit { texture qr_model_1.png } } }
+}
+material QRCode/QR2
+{
+  technique { pass { lighting off texture_unit { texture qr_model_2.png } } }
+}
+material QRCode/QR3
+{
+  technique { pass { lighting off texture_unit { texture qr_model_3.png } } }
+}
+material QRCode/QR4
+{
+  technique { pass { lighting off texture_unit { texture qr_model_4.png } } }
+}
+material QRCode/QR5
+{
+  technique { pass { lighting off texture_unit { texture qr_model_5.png } } }
+}
+material QRCode/QR6
+{
+  technique { pass { lighting off texture_unit { texture qr_model_6.png } } }
+}
