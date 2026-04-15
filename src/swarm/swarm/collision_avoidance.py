@@ -1,15 +1,13 @@
 #!/usr/bin/env python3
 """
-Yelpençe Predictive Collision Avoidance v9.0
-============================================
+Yelpençe Predictive Collision Avoidance v10.0 — Formasyon Farkındalıklı
+========================================================================
 Tahminsel Hız Engeli (Predictive Velocity Obstacle) algoritması.
 
-Mevcut sistemdeki 5 kritik sorunu çözer:
-1. VehicleLocalPosition kullanır (GPS yerine) → 50Hz, ±0.05m hassasiyet
-2. Offboard velocity ile doğrudan müdahale → REPOSITION gecikmesi yok
-3. 3 katmanlı mesafe zonları → erken uyarı, kademeli müdahale
-4. Kapanma hızı tahmini → 1 sn ileriye bakarak önceden kaçış
-5. Tüm komşulardan itme vektörü toplama → çoklu tehdit desteği
+v10.0 Yenilikler:
+- Formasyon farkındalığı: Formasyondaki drone'lar birbirlerini tehdit olarak görmez
+- Sadece formasyon dışı engellere veya aşırı yaklaşmalarda müdahale eder
+- Formasyondaki drone çiftleri için zon parametreleri dinamik olarak ayarlanır
 """
 import rclpy
 from rclpy.node import Node
@@ -28,12 +26,17 @@ import json
 import time
 
 # ──────────────────────────────────────────────
-# ZON PARAMETRELERİ
+# ZON PARAMETRELERİ (Normal — Formasyon dışı hedefler)
 # ──────────────────────────────────────────────
 ZONE_WARN   = 3.5   # Uyarı bölgesi (m) — sadece log
 ZONE_ACTIVE = 2.0   # Aktif kaçış bölgesi (m) — yumuşak itme uygulanır
 ZONE_CRIT   = 1.0   # Kritik bölge (m) — sert acil kaçış
 CLEAR_DIST  = 4.0   # "Güvenli" etiketinin kalkması için gereken mesafe
+
+# FORMASYON İÇİ ZON ÇARPANLARI
+# Formasyondaki takım arkadaşları için zonlar, spacing'e göre hesaplanır
+FORMATION_ACTIVE_RATIO = 0.40   # spacing × 0.40 = Aktif zon (ör: 2m × 0.4 = 0.8m)
+FORMATION_CRIT_RATIO   = 0.25   # spacing × 0.25 = Kritik zon (ör: 2m × 0.25 = 0.5m)
 
 # İTME GÜCÜ PARAMETRELERİ
 MAX_PUSH_SPEED = 2.5   # Maksimum kaçış hızı (m/s)
@@ -45,11 +48,13 @@ LOOP_HZ        = 20    # Kontrol döngüsü frekansı
 
 class PredictiveCollisionAvoidance(Node):
     """
-    Tahminsel Hız Engeli (PVO) tabanlı çarpışma önleyici.
+    Tahminsel Hız Engeli (PVO) tabanlı çarpışma önleyici — Formasyon Farkındalıklı.
+    
     - Her drone için VehicleLocalPosition (konum+hız) dinler.
-    - Tehlike anında Offboard velocity setpoint ile doğrudan kaçış emri verir.
-    - Tehlike yoksa hiçbir şey yayınlamaz — diğer sistemlere (formasyon, manuel)
-      karışmaz.
+    - Tehlike anında Offboard velocity ile doğrudan kaçış emri verir.
+    - Formasyon aktifken, formasyondaki drone çiftleri arasında normal
+      zonların yerine çok daha dar zonlar kullanır (spacing bazlı).
+    - Formasyon dışı drone'lara ve engellere karşı normal çalışır.
     """
 
     def __init__(self, drone_count):
@@ -57,6 +62,12 @@ class PredictiveCollisionAvoidance(Node):
         self.drone_count = int(drone_count)
         self.enabled = True
         self.manual_mask = []
+
+        # FORMASYON DURUMU (FormationManager'dan gelir)
+        self.formation_active = False
+        self.formation_drone_ids = []
+        self.formation_spacing = 2.0
+        self.formation_state = 'idle'  # idle, rotating, stabilizing, moving
 
         # drone_id → {pos, vel, nav_state, avoiding, last_intervene_time}
         self.drones = {}
@@ -115,10 +126,13 @@ class PredictiveCollisionAvoidance(Node):
         self.create_subscription(String, '/gcs/alerts', self._gcs_cb, 10)
         self.create_subscription(String, '/gcs/manual_active_ids', self._manual_cb, 10)
 
+        # FORMASYON DURUMU ABONELİĞİ
+        self.create_subscription(String, '/swarm/formation_status', self._formation_cb, 10)
+
         # Kontrol döngüsü
         self.create_timer(1.0 / LOOP_HZ, self._control_loop)
         self.get_logger().info(
-            f'PVO v9.0: {self.drone_count} İHA için tahminsel çarpışma önleyici aktif. '
+            f'PVO v10.0 (Formasyon Farkındalıklı): {self.drone_count} İHA için aktif. '
             f'Zonlar: WARN={ZONE_WARN}m  ACTIVE={ZONE_ACTIVE}m  CRIT={ZONE_CRIT}m'
         )
 
@@ -167,6 +181,61 @@ class PredictiveCollisionAvoidance(Node):
         except Exception:
             pass
 
+    def _formation_cb(self, msg):
+        """FormationManager'dan gelen formasyon durumunu oku."""
+        try:
+            data = json.loads(msg.data)
+            self.formation_active = data.get('active', False)
+            self.formation_drone_ids = data.get('drone_ids', [])
+            self.formation_spacing = data.get('spacing', 2.0)
+            self.formation_state = data.get('state', 'idle')
+        except Exception:
+            pass
+
+    def _are_formation_teammates(self, id_a, id_b):
+        """İki drone aynı formasyonun üyesi mi?"""
+        if not self.formation_active:
+            return False
+        return id_a in self.formation_drone_ids and id_b in self.formation_drone_ids
+
+    def _is_formation_maneuvering(self):
+        """Formasyon dönüş veya stabilizasyon fazında mı?
+        Bu fazlarda drone'lar aktif olarak yer değiştiriyor, çarpışma önleme KARIŞMAMALI."""
+        return self.formation_state in ('rotating', 'stabilizing')
+
+    def _get_zones_for_pair(self, id_a, id_b):
+        """İki drone çifti için zon parametrelerini döndür."""
+        if self._are_formation_teammates(id_a, id_b):
+            # DÖNÜŞ/STABİLİZASYON FAZINDA: Takım arkadaşları arasında ÇARPIŞMA ÖNLEME TAMAMEN KAPALI
+            # Sadece gerçekten fiziksel temas mesafesinde (çok kısa) müdahale et
+            if self._is_formation_maneuvering():
+                return {
+                    'warn': 0.0,   # Uyarı yok
+                    'active': 0.0, # Aktif zon yok
+                    'crit': 0.3,   # Sadece 30cm altında (fiziksel temas) müdahale
+                    'clear': 0.5,
+                    'is_teammate': True,
+                    'skip': True    # Tamamen atla işareti
+                }
+            # NORMAL HAREKET FAZINDA: Dar zonlar
+            spacing = self.formation_spacing
+            return {
+                'warn': spacing * FORMATION_ACTIVE_RATIO * 1.2,
+                'active': spacing * FORMATION_ACTIVE_RATIO,
+                'crit': spacing * FORMATION_CRIT_RATIO,
+                'clear': spacing * FORMATION_ACTIVE_RATIO * 1.5,
+                'is_teammate': True,
+                'skip': False
+            }
+        else:
+            return {
+                'warn': ZONE_WARN,
+                'active': ZONE_ACTIVE,
+                'crit': ZONE_CRIT,
+                'clear': CLEAR_DIST,
+                'is_teammate': False
+            }
+
     # ──────────── Ana Kontrol Döngüsü ────────────
 
     def _control_loop(self):
@@ -185,6 +254,13 @@ class PredictiveCollisionAvoidance(Node):
             if i in self.manual_mask:
                 continue  # Manuel kontrolde, karışma
 
+            # FORMASYON MANEVRA FAZINDA: Bu drone formasyonun parçasıysa TAMAMEN ATLA
+            # Dönüş ve stabilizasyon sırasında çarpışma önleme formasyonu bozuyor
+            if self._is_formation_maneuvering() and i in self.formation_drone_ids:
+                if di['avoiding']:
+                    di['avoiding'] = False  # Önceki kaçış durumunu temizle
+                continue
+
             # ── Tüm komşulardan itme vektörü topla ──
             push_x, push_y, push_z = 0.0, 0.0, 0.0
             threat_level = 0  # 0=yok, 1=uyarı, 2=aktif, 3=kritik
@@ -198,6 +274,9 @@ class PredictiveCollisionAvoidance(Node):
                 if not dj['ready'] or not dj['has_gps'] or abs(dj['z']) < 0.5:
                     continue
 
+                # Bu çift için zon parametrelerini al
+                zones = self._get_zones_for_pair(i, j)
+
                 # Yatay mesafe: GPS tabanlı (küresel çerçeve — doğru sonuç verir)
                 dist_h = self._gps_distance(di['lat'], di['lon'], dj['lat'], dj['lon'])
                 dz = di['z'] - dj['z']
@@ -207,7 +286,7 @@ class PredictiveCollisionAvoidance(Node):
                     closest_dist = dist_3d
                     closest_id = j
 
-                if dist_3d >= ZONE_WARN:
+                if dist_3d >= zones['warn']:
                     continue  # Bu komşu güvenli
 
                 # ── Kapanma hızı (closing speed) ──
@@ -221,43 +300,51 @@ class PredictiveCollisionAvoidance(Node):
                 ux = dlat_m * inv_dist   # Kuzey ekseni
                 uy = dlon_m * inv_dist   # Doğu ekseni
                 uz = dz * inv_dist       # Aşağı ekseni
-                # Kapanma hızı = göreceli hızın, birbirlerine doğru olan bileşeni (pozitif = yaklaşıyor)
+                # Kapanma hızı = göreceli hızın, birbirlerine doğru olan bileşeni
                 v_closing = -(dvx * ux + dvy * uy + dvz * uz)
 
                 # ── Tahminsel mesafe (1 sn sonra ne olur?) ──
                 predicted_dist = dist_3d - max(v_closing, 0.0) * PREDICT_DT
 
                 # ── Zon belirleme (tahminsel mesafeye göre) ──
-                if predicted_dist < ZONE_CRIT:
+                if predicted_dist < zones['crit']:
                     level = 3
-                elif predicted_dist < ZONE_ACTIVE:
+                elif predicted_dist < zones['active']:
                     level = 2
-                elif predicted_dist < ZONE_WARN:
+                elif predicted_dist < zones['warn']:
                     level = 1
                 else:
                     continue
+
+                # FORMASYON TAKIŞ ARKADAŞLARI: Sadece kapanma hızı pozitifse (yaklaşıyorlarsa) müdahale et
+                # Eğer sabit duruyor veya birbirinden uzaklaşıyorlarsa, müdahale etme!
+                if zones['is_teammate'] and level < 3:
+                    if v_closing <= 0.3:  # Yaklaşmıyorlar veya çok yavaş yaklaşıyorlar
+                        continue
 
                 threat_level = max(threat_level, level)
 
                 # ── İtme vektörü hesabı ──
                 if level >= 2:  # Aktif veya Kritik → kaçış kuvveti uygula
-                    # Kuvvet şiddeti: mesafe azaldıkça artar
                     if level == 3:
-                        # Kritik: Çok sert itme
                         strength = MAX_PUSH_SPEED
                     else:
-                        # Aktif: Yumuşak itme (mesafeyle orantılı)
-                        t = (ZONE_ACTIVE - predicted_dist) / (ZONE_ACTIVE - ZONE_CRIT)
-                        t = max(0.0, min(1.0, t))  # 0..1 arası kırp
+                        t = (zones['active'] - predicted_dist) / (zones['active'] - zones['crit'])
+                        t = max(0.0, min(1.0, t))
                         strength = MAX_PUSH_SPEED * 0.3 + (MAX_PUSH_SPEED * 0.7) * t
 
-                    # Hız farkındalığı: yaklaşma hızı yüksekse ekstra güç
+                    # Hız farkındalığı
                     if v_closing > 1.0:
                         strength = min(strength * 1.5, MAX_PUSH_SPEED)
 
                     # ID hiyerarşisi: büyük ID daha çok esner
                     if i > j:
                         strength *= 1.3
+
+                    # FORMASYON ARKADAŞLARI İÇİN İTME GÜCÜNÜ AZALT
+                    # Takım arkadaşlarına karşı daha nazik ol
+                    if zones['is_teammate']:
+                        strength *= 0.5  # Yarı güçle it
 
                     # Kuvveti ters yöne (uzaklaşma vektörüne) uygula
                     push_x += ux * strength
@@ -290,8 +377,11 @@ class PredictiveCollisionAvoidance(Node):
                     log_level = 'AKTİF'
                     alert_level = 'warning'
 
+                is_teammate = self._are_formation_teammates(i, closest_id)
+                teammate_tag = " [TAKIM]" if is_teammate else ""
+
                 self.get_logger().info(
-                    f'[{log_level}] İHA_{i}←İHA_{closest_id}: '
+                    f'[{log_level}]{teammate_tag} İHA_{i}←İHA_{closest_id}: '
                     f'mesafe={closest_dist:.2f}m  '
                     f'kapanma={v_closing if "v_closing" in dir() else 0:.1f}m/s  '
                     f'itme=({push_x:.1f}, {push_y:.1f}, {push_z:.1f})'
@@ -300,7 +390,7 @@ class PredictiveCollisionAvoidance(Node):
                 alert.data = json.dumps({
                     'drone_id': i,
                     'level': alert_level,
-                    'msg': f'İHA_{closest_id} ile {log_level} mesafe: {closest_dist:.2f}m'
+                    'msg': f'İHA_{closest_id} ile {log_level} mesafe: {closest_dist:.2f}m{teammate_tag}'
                 })
                 self.alert_pub.publish(alert)
 
@@ -311,8 +401,8 @@ class PredictiveCollisionAvoidance(Node):
             else:
                 # Tehlike yok — eğer daha önce kaçıştaysa bırak
                 if di['avoiding']:
-                    # Yeterince uzaklaştı mı?
-                    if closest_dist > CLEAR_DIST or closest_id < 0:
+                    zones = self._get_zones_for_pair(i, closest_id) if closest_id > 0 else {'clear': CLEAR_DIST}
+                    if closest_dist > zones['clear'] or closest_id < 0:
                         di['avoiding'] = False
                         self.get_logger().info(f'İHA_{i}: Tehlike geçti, kontrol bırakıldı.')
 

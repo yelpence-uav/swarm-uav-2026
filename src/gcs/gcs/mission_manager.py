@@ -90,32 +90,3 @@ class MissionManager:
         # Görev bitti, bir sonraki QR kodu okumak için kilidi aç
         self.socketio.sleep(2) 
         self.is_executing = False
-
-        # 2. İRTİFA EMRİ
-        irtifa = gorev.get("irtifa_degisim", {})
-        if irtifa.get("aktif", False):
-            hedef_alt = float(irtifa.get("deger", 5.0))
-            self.bridge_node.get_logger().info(f" ---> EYLEM 2: İrtifa Değiştiriliyor ({hedef_alt}m)")
-            self.formation_mgr.virtual_alt = hedef_alt
-            self.socketio.sleep(4) # Tırmanış/Alçalış için fiziksel süre ver
-
-        # 3. BEKLEME EMRİ (Havada Asılı Kalma)
-        bekleme = gorev.get("bekleme_suresi_s", 0)
-        if bekleme > 0:
-            self.bridge_node.get_logger().info(f" ---> EYLEM 3: Görev Beklemesi ({bekleme} saniye)")
-            self.socketio.sleep(bekleme)
-
-        # 4. SONRAKİ HEDEFE SEYİR (Navigasyon)
-        sonraki_qr_id = data.get("sonraki_qr", {}).get("team_1", 0)
-        if sonraki_qr_id in self.qr_coordinates:
-            hedef_x, hedef_y = self.qr_coordinates[sonraki_qr_id]
-            self.bridge_node.get_logger().info(f" ---> EYLEM 4: Seyir Başlıyor. Hedef QR {sonraki_qr_id} (X:{hedef_x}, Y:{hedef_y})")
-            self.formation_mgr.set_target(hedef_x, hedef_y)
-        else:
-            self.bridge_node.get_logger().info(" ---> EYLEM 4: Sonraki Hedef Bulunamadı. Olduğun yerde asılı kal.")
-
-        self.bridge_node.get_logger().info(f"✅ [OTONOM BEYİN] QR {qr_id} Görev Zinciri Kusursuz Tamamlandı!")
-        
-        # Görev bitti, bir sonraki QR kodu okumak için kilidi aç
-        self.socketio.sleep(2) 
-        self.is_executing = False

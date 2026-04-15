@@ -12,7 +12,7 @@ setup(
         ('share/' + package_name, ['package.xml']),
         ('share/' + package_name + '/templates', ['gcs/templates/index.html']),
     ],
-    install_requires=['setuptools'],
+    install_requires=['setuptools', 'pyzbar'],
     zip_safe=True,
     maintainer='Yelpence',
     maintainer_email='iletisim@yelpence.com',

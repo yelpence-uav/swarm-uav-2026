@@ -27,13 +27,14 @@ RUN apt-get update && apt-get install -y \
     curl \
     libgl1 \
     libgl1-mesa-dri \
+    libzbar0 \
     && rm -rf /var/lib/apt/lists/*
 
 # ====================================================================
 # YELPENÇE PX4 SITL PYTHON BAĞIMLILIKLARI 
 # ====================================================================
 RUN pip3 install --break-system-packages kconfiglib jinja2 jsonschema pyros-genmsg empy packaging toml \
-    flask flask-socketio eventlet opencv-python "numpy<2.0.0"
+    flask flask-socketio eventlet opencv-python "numpy<2.0.0" pyzbar
 # ====================================================================
 
 # ====================================================================

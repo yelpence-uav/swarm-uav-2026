@@ -16,7 +16,7 @@ echo "=================================================="
 # 0. Sistem Gereksinimlerini Kur
 echo ">> Sistem bileşenleri kuruluyor (xterm vb.)..."
 sudo apt-get update
-sudo apt-get install -y xterm
+sudo apt-get install -y xterm libzbar0
 
 # 1. Kullanıcı İzinlerini Düzenle (GPU Erişimi İçin)
 echo ">> Kullanıcı izinleri düzenleniyor..."

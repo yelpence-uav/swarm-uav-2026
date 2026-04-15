@@ -105,8 +105,9 @@ def send_altitude_reposition(drone_id, target_altitude):
     current_ekf_alt = -d['local_z']
 
     true_alt = current_ekf_alt
-    if d['lidar']:
-        true_alt = min(d['lidar'])
+    lidar_alt = min(d['lidar']) if d['lidar'] else None
+    if lidar_alt is not None and lidar_alt < 7.5:  # LiDAR menzil dışıysa güvenme
+        true_alt = lidar_alt
     elif d['dist_bottom'] > 0:
         true_alt = d['dist_bottom']
 
@@ -161,10 +162,12 @@ def handle_send_waypoint(data):
     global formation_mgr
     if not formation_mgr.active:
         return
-    target_x = float(data.get('x', 0.0))
-    target_y = float(data.get('y', 0.0))
-    # Hedefi doğrudan Sanal Liderin beynine gönderiyoruz
-    formation_mgr.set_target(target_x, target_y)
+    # KOORDİNAT DÖNÜŞÜMü: Gazebo X = Doğu = unified_y (lon), Gazebo Y = Kuzey = unified_x (lat)
+    # Kullanıcı GUI'de Gazebo koordinatları girer, biz unified sisteme çeviriyoruz.
+    gazebo_x = float(data.get('x', 0.0))
+    gazebo_y = float(data.get('y', 0.0))
+    # GUI X → unified_y (lon/East), GUI Y → unified_x (lat/North)
+    formation_mgr.set_target(gazebo_y, gazebo_x)
 
 @socketio.on('stop_formation')
 def handle_stop_formation():
@@ -406,6 +409,8 @@ class TelemetryBridge(Node):
             d['ref_alt'] = float(msg.ref_alt)         # Home AMSL
             if msg.dist_bottom_valid:
                 d['dist_bottom'] = float(msg.dist_bottom)
+            else:
+                d['dist_bottom'] = 0.0  # Menzil dışı — stale veriyi temizle
 
             data = {
                 'type': 'position',
@@ -413,6 +418,8 @@ class TelemetryBridge(Node):
                 'x': d.get('unified_x', float(msg.x)), # EKLENDİ: Artık Ortak X gidiyor
                 'y': d.get('unified_y', float(msg.y)), # EKLENDİ: Artık Ortak Y gidiyor
                 'z': float(msg.z),
+                'local_alt': -float(msg.z),  # NED z → pozitif irtifa (GUI İRTİFA alanı için)
+                'dist_bottom': d.get('dist_bottom', 0.0),
             }
             socketio.emit('telemetry', data)
         else:
@@ -922,8 +929,9 @@ def altitude_correction_loop():
             
             # Gerçek yüksekliği belirle (LiDAR veya mesafe sensörü)
             true_alt = current_ekf_alt
-            if d.get('lidar'):
-                true_alt = min(d['lidar'])
+            lidar_alt = min(d['lidar']) if d.get('lidar') else None
+            if lidar_alt is not None and lidar_alt < 7.5:  # LiDAR menzil dışıysa güvenme
+                true_alt = lidar_alt
             elif d.get('dist_bottom', 0) > 0:
                 true_alt = d['dist_bottom']
             

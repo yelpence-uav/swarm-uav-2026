@@ -876,10 +876,12 @@
     </div>
 
     <div class="control-box">
-            <div class="control-title">📍 Otonom Hedef (Waypoint)</div>
+            <div class="control-title">📍 Otonom Hedef (Gazebo Koordinatları)</div>
             <div class="spacing-wrap" style="margin-bottom: 8px;">
-                <input id="nav-x" type="number" placeholder="X (m)" style="width: 80px;">
-                <input id="nav-y" type="number" placeholder="Y (m)" style="width: 80px;">
+                <label style="font-size: 0.75rem; color: var(--accent); font-weight: 700;">X:</label>
+                <input id="nav-x" type="number" placeholder="Gazebo X (m)" style="width: 100px;">
+                <label style="font-size: 0.75rem; color: var(--accent); font-weight: 700;">Y:</label>
+                <input id="nav-y" type="number" placeholder="Gazebo Y (m)" style="width: 100px;">
             </div>
             <button class="arm-btn" style="width: 100%; background: var(--accent); color: white;" onclick="sendAutonomousWaypoint()">HEDEFE GİT 🚀</button>
         </div>
