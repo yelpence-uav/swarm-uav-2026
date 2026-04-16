@@ -98,7 +98,11 @@ class FormationManager:
         elif self.formation_type == "column":
             body_x = -i * self.spacing
             body_y = 0.0
-        elif self.formation_type == "reverse_arrowhead":
+        elif self.formation_type in ["reverse_arrowhead", "v"]:
+            # Lider İHA (Slot 0) en arkada (Vertex), kanatlar önde (Hedefe bakan V)
+            # Slot 0: (0, 0)
+            # Slot 1, 2: (s, ±s)
+            # Slot 3, 4: (2s, ±2s)
             body_x = row * self.spacing
             body_y = side * row * self.spacing
         else:  # arrowhead (varsayılan)
@@ -120,6 +124,12 @@ class FormationManager:
         """İki açı arasındaki en kısa farkı bul (yön bilgisiyle)."""
         diff = self._normalize_angle(target - current)
         return diff
+
+    def stop(self):
+        """Formasyon navigasyonunu durdurur."""
+        self.active = False
+        if self.bridge_node:
+            self.bridge_node.get_logger().info("🛑 [FORMASYON] Navigasyon döngüsü DURDURULDU.")
 
     def start(self, spacing=2.0, speed=1.5, formation_type="arrowhead"):
         self.spacing = spacing
@@ -334,7 +344,10 @@ class FormationManager:
             # 3. İHA'LARI SANAL MERKEZİN ETRAFINA KOMUTA ET
             # ═══════════════════════════════════════════════
             for i, f_id in enumerate(active_ids):
-                
+                # ── MANUEL KONTROLDEYSE FORMASYON KOMUTU GÖNDERME ──
+                if f_id in self.manual_mask:
+                    continue
+
                 body_x, body_y = self._get_body_offset(i, len(active_ids))
 
                 f_target_x = self.virtual_x + (body_x * math.cos(self.virtual_yaw)) - (body_y * math.sin(self.virtual_yaw))

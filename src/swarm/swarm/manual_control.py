@@ -107,8 +107,8 @@ class ManualControlV6(Node):
         msg = VehicleCommand()
         msg.command = 176 # MAV_CMD_DO_SET_MODE
         msg.param1, msg.param2 = 1.0, 6.0 # Offboard Mode
-        msg.target_system, msg.target_component = 1, 1
-        msg.source_system, msg.source_component = 1, 1
+        msg.target_system, msg.target_component = int(drone_id), 1
+        msg.source_system, msg.source_component = 255, 1
         msg.from_external = True
         msg.timestamp = int(self.get_clock().now().nanoseconds / 1000)
         self.drones[drone_id]['pubs']['command'].publish(msg)

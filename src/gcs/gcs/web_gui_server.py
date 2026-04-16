@@ -55,6 +55,10 @@ DRONE_COUNT = args.count
 
 try:
     from ament_index_python.packages import get_package_share_directory
+    import time
+    import json
+    import math
+    from datetime import datetime
     package_share_directory = get_package_share_directory('gcs')
     template_dir = os.path.join(package_share_directory, 'templates')
 except Exception:
@@ -75,24 +79,49 @@ qos_profile = QoSProfile(
 active_drone_cameras = []
 
 @socketio.on('request_camera')
-def handle_camera_request(json):
-    global active_drone_cameras
-    # frontend artık bir liste yolluyor: drone_ids
-    active_drone_cameras = json.get('drone_ids', [])
-    print(f"INFO: Camera streams requested for Drones: {active_drone_cameras}")
+def handle_camera_request(data):
+    global active_drone_cameras, bridge_node
+    active_drone_cameras = data.get('drone_ids', [])
+    if bridge_node:
+        bridge_node.update_camera_subscriptions(active_drone_cameras)
+    print(f"INFO: Camera streams updated for Drones: {active_drone_cameras}")
+
+@socketio.on('confirm_qr_task')
+def handle_confirm_qr_task():
+    global bridge_node, mission_mgr
+    if bridge_node and bridge_node.pending_qr_task:
+        send_gui_log(f"QR Görevi Onaylandı. İşleniyor...", "success")
+        if mission_mgr:
+            mission_mgr.process_qr_task(bridge_node.pending_qr_task)
+        bridge_node.last_triggered_qr_data = bridge_node.pending_qr_task # Filtreyi kilitle
+        bridge_node.pending_qr_task = None
+
+@socketio.on('cancel_qr_task')
+def handle_cancel_qr_task():
+    global bridge_node
+    if bridge_node:
+        print(f"INFO: QR Görevi Operatör Tarafından İPTAL EDİLDİ.")
+        bridge_node.pending_qr_task = None
 
 # Global state for altitude lock (drone_id -> target_m)
 active_target_altitudes = {}
 # Global state for altitude protector (drone_id -> bool)
 altitude_protectors = {}
+
+def send_gui_log(msg, level="info"):
+    """GUI'deki terminale log gönderir."""
+    timestamp = datetime.now().strftime("%H:%M:%S")
+    socketio.emit('gui_log', {'msg': msg, 'level': level, 'time': timestamp})
+    print(f"[{timestamp}] GUI_LOG ({level.upper()}): {msg}")
+
 # User-selected global target altitude (meters above ground)
 global_target_altitude = None
 # Master flag for GCS processing state to avoid floods
 is_processing_command = False
-
-# Formation Management
-formation_mgr = FormationManager(socketio)
-
+# Global state for formation and mission
+formation_mgr = None
+mission_manager = None
+manual_active_ids = [] # Manuel modda olan İHA'ların listesi
 
 def send_altitude_reposition(drone_id, target_altitude):
     """Send a height-only reposition command using closed-loop altitude correction."""
@@ -211,10 +240,13 @@ class TelemetryBridge(Node):
         self.cmd_pubs = {}
         self.alert_pub = self.create_publisher(String, '/gcs/alerts', 10)
         self.manual_pub = self.create_publisher(String, '/gcs/manual_control', 10)
+        self.create_subscription(String, '/gcs/manual_active_ids', self.manual_active_callback, 10)
+        self.camera_subs = {} # drone_id -> subscription object
+        self.pending_qr_task = None # Onay bekleyen QR verisi
         self.get_logger().info(f'Yelpençe Web GUI Bridge (v4.0-ROBUST) başlatıldı! Drone Count: {DRONE_COUNT}')
         
         # Best Effort QoS (telemetry)
-        qos_best_effort = QoSProfile(
+        self.qos_best_effort = QoSProfile(
             reliability=ReliabilityPolicy.BEST_EFFORT,
             history=HistoryPolicy.KEEP_LAST,
             depth=1
@@ -256,74 +288,75 @@ class TelemetryBridge(Node):
             
             # IMU
             self.create_subscription(SensorCombined, f'{ns}/fmu/out/sensor_combined', 
-                lambda msg, d_id=drone_id: self.sensor_callback(msg, d_id), qos_best_effort)
+                lambda msg, d_id=drone_id: self.sensor_callback(msg, d_id), self.qos_best_effort)
             
             # VehicleLocalPosition — EKF2 fused position (BEST altitude source)
             self.create_subscription(VehicleLocalPosition, f'/swarm{ns}/delayed_local_position', 
-                lambda msg, d_id=drone_id: self.local_pos_callback(msg, d_id), qos_best_effort)
+                lambda msg, d_id=drone_id: self.local_pos_callback(msg, d_id), self.qos_best_effort)
             self.create_subscription(VehicleLocalPosition, f'{ns}/fmu/out/vehicle_local_position_v1', 
-                lambda msg, d_id=drone_id: self.local_pos_callback(msg, d_id), qos_best_effort)
+                lambda msg, d_id=drone_id: self.local_pos_callback(msg, d_id), self.qos_best_effort)
             
             # Odometry (fallback position)
             self.create_subscription(VehicleOdometry, f'/swarm{ns}/delayed_odometry', 
-                lambda msg, d_id=drone_id: self.pos_callback(msg, d_id), qos_best_effort)
+                lambda msg, d_id=drone_id: self.pos_callback(msg, d_id), self.qos_best_effort)
             
             # Status (BEST_EFFORT - PX4 uXRCE çıktıları genelde best effort)
             self.create_subscription(VehicleStatus, f'{ns}/fmu/out/vehicle_status', 
-                lambda msg, d_id=drone_id: self.status_callback(msg, d_id), qos_best_effort)
+                lambda msg, d_id=drone_id: self.status_callback(msg, d_id), self.qos_best_effort)
             self.create_subscription(VehicleStatus, f'{ns}/fmu/out/vehicle_status_v2', 
-                lambda msg, d_id=drone_id: self.status_callback(msg, d_id), qos_best_effort)
+                lambda msg, d_id=drone_id: self.status_callback(msg, d_id), self.qos_best_effort)
             
             # Attitude
             self.create_subscription(VehicleAttitude, f'{ns}/fmu/out/vehicle_attitude', 
-                lambda msg, d_id=drone_id: self.attitude_callback(msg, d_id), qos_best_effort)
+                lambda msg, d_id=drone_id: self.attitude_callback(msg, d_id), self.qos_best_effort)
             
             # Battery (Support standard and v1)
             self.create_subscription(BatteryStatus, f'{ns}/fmu/out/battery_status', 
-                lambda msg, d_id=drone_id: self.battery_callback(msg, d_id), qos_best_effort)
+                lambda msg, d_id=drone_id: self.battery_callback(msg, d_id), self.qos_best_effort)
             self.create_subscription(BatteryStatus, f'{ns}/fmu/out/battery_status_v1', 
-                lambda msg, d_id=drone_id: self.battery_callback(msg, d_id), qos_best_effort)
+                lambda msg, d_id=drone_id: self.battery_callback(msg, d_id), self.qos_best_effort)
             
             # LiDAR (Remapped from Gazebo)
             self.create_subscription(LaserScan, f'{ns}/lidar/scan', 
-                                     lambda msg, d=drone_id: self.lidar_callback(msg, d), qos_best_effort)
+                                     lambda msg, d=drone_id: self.lidar_callback(msg, d), self.qos_best_effort)
             
             # 4-Way ToF Sensors
             for side in ['front', 'back', 'left', 'right']:
                 self.create_subscription(LaserScan, f'{ns}/tof/{side}', 
-                                         lambda msg, d=drone_id, s=side: self.tof_callback(msg, d, s), qos_best_effort)
+                                         lambda msg, d=drone_id, s=side: self.tof_callback(msg, d, s), self.qos_best_effort)
             
-            # Camera (Remapped from Gazebo)
-            self.create_subscription(Image, f'{ns}/camera/image_raw',
-                lambda msg, d_id=drone_id: self.image_callback(msg, d_id), qos_best_effort)
+            # Camera - DYNAMİCALLY HANDLED via create_camera_subscription
  
             # GPS
             self.create_subscription(SensorGps, f'{ns}/fmu/out/vehicle_gps_position',
-                lambda msg, d_id=drone_id: self.gps_callback(msg, d_id), qos_best_effort)
+                lambda msg, d_id=drone_id: self.gps_callback(msg, d_id), self.qos_best_effort)
             self.create_subscription(VehicleCommandAck, f'{ns}/fmu/out/vehicle_command_ack',
-                lambda msg, d_id=drone_id: self.ack_callback(msg, d_id), qos_best_effort)
+                lambda msg, d_id=drone_id: self.ack_callback(msg, d_id), self.qos_best_effort)
  
             # Motors (Authority from PX4 - TOPICS MUST BE BEST_EFFORT)
             self.create_subscription(ActuatorOutputs, f'{ns}/fmu/out/actuator_outputs',
-                lambda msg, d_id=drone_id: self.motor_callback(msg, d_id, "outputs"), qos_best_effort)
+                lambda msg, d_id=drone_id: self.motor_callback(msg, d_id, "outputs"), self.qos_best_effort)
             
             # Alternative topics for different PX4/SITL versions
             self.create_subscription(ActuatorOutputs, f'{ns}/fmu/out/actuator_outputs_sim',
-                lambda msg, d_id=drone_id: self.motor_callback(msg, d_id, "outputs_sim"), qos_best_effort)
-
+                lambda msg, d_id=drone_id: self.motor_callback(msg, d_id, "outputs_sim"), self.qos_best_effort)
+ 
             self.create_subscription(ActuatorMotors, f'{ns}/fmu/out/actuator_motors',
-                lambda msg, d_id=drone_id: self.motor_callback(msg, d_id, "motors"), qos_best_effort)
+                lambda msg, d_id=drone_id: self.motor_callback(msg, d_id, "motors"), self.qos_best_effort)
             
             # Third fallback: Actuators (actuator_msgs)
             self.create_subscription(Actuators, f'{ns}/fmu/out/actuator_controls_0',
-                lambda msg, d_id=drone_id: self.motor_callback(msg, d_id, "actuators"), qos_best_effort)
+                lambda msg, d_id=drone_id: self.motor_callback(msg, d_id, "actuators"), self.qos_best_effort)
  
             # Commands (Inbound to PX4)
             self.cmd_pubs[drone_id] = self.create_publisher(VehicleCommand, f'{ns}/fmu/in/vehicle_command', qos_reliable)
             
             if OFFBOARD_AVAILABLE:
-                self.offboard_ctrl_pubs[drone_id] = self.create_publisher(OffboardControlMode, f'{ns}/fmu/in/offboard_control_mode', qos_best_effort)
-                self.trajectory_setpoint_pubs[drone_id] = self.create_publisher(TrajectorySetpoint, f'{ns}/fmu/in/trajectory_setpoint', qos_best_effort)
+                self.offboard_ctrl_pubs[drone_id] = self.create_publisher(OffboardControlMode, f'{ns}/fmu/in/offboard_control_mode', self.qos_best_effort)
+                self.trajectory_setpoint_pubs[drone_id] = self.create_publisher(TrajectorySetpoint, f'{ns}/fmu/in/trajectory_setpoint', self.qos_best_effort)
+
+        # LİDER İHA (Drone 1) Kamerasına en baştan abone ol (HER ZAMAN AÇIK)
+        self.update_camera_subscriptions([1])
 
         # Global Status Publishers (Eski kodlar buralardaydı)
         self.altitude_status_pub = self.create_publisher(String, '/swarm/altitude_status', 10)
@@ -337,6 +370,32 @@ class TelemetryBridge(Node):
         self.last_qr_data = ""
         # ---------------------------------------------
 
+    def update_camera_subscriptions(self, active_ids):
+        """Kamera aboneliklerini dinamik olarak yönetir (RTF Optimizasyonu)."""
+        # 1. Yeni açılan kameralara abone ol
+        for d_id in active_ids:
+            if d_id not in self.camera_subs:
+                ns = f'/drone_{d_id}'
+                self.get_logger().info(f"Dinamik Kamera Açılıyor: Drone {d_id}")
+                # Image callback için drone_id'yi sabitlemek gerekir (default argument trick)
+                sub = self.create_subscription(
+                    Image, f'{ns}/camera/image_raw',
+                    lambda msg, d=d_id: self.image_callback(msg, d),
+                    self.qos_best_effort
+                )
+                self.camera_subs[d_id] = sub
+        
+        # 2. Kapatılan kameraların aboneliğini sonlandır (LİDER İHA HARİÇ)
+        to_remove = []
+        for d_id in self.camera_subs:
+            if d_id not in active_ids and d_id != 1:
+                self.get_logger().info(f"Dinamik Kamera Kapatılıyor: Drone {d_id}")
+                self.destroy_subscription(self.camera_subs[d_id])
+                to_remove.append(d_id)
+        
+        for d_id in to_remove:
+            del self.camera_subs[d_id]
+
     def collision_callback(self, msg):
         """Relays collision intervention status from ROS to the SocketIO clients."""
         try:
@@ -344,6 +403,16 @@ class TelemetryBridge(Node):
             socketio.emit('collision_update', data)
         except Exception as e:
             self.get_logger().error(f"Error in collision_callback: {e}")
+
+    def manual_active_callback(self, msg):
+        """Manuel kontrol düğümünden gelen aktif İHA listesini günceller."""
+        global manual_active_ids, formation_mgr
+        try:
+            manual_active_ids = json.loads(msg.data)
+            if formation_mgr:
+                formation_mgr.manual_mask = manual_active_ids
+        except Exception as e:
+            self.get_logger().error(f"Error in manual_active_callback: {e}")
 
     def heartbeat_callback(self):
         self.get_logger().info("HEARTBEAT: ROS Executor is spinning.")
@@ -498,7 +567,8 @@ class TelemetryBridge(Node):
 
     def image_callback(self, msg, drone_id):
         global active_drone_cameras
-        if drone_id not in active_drone_cameras:
+        # Lider drone (1) her zaman QR taramalı, diğerleri sadece GUI'de açıksa
+        if drone_id not in active_drone_cameras and drone_id != 1:
             return
             
         try:
@@ -526,23 +596,40 @@ class TelemetryBridge(Node):
                     if len(obj.polygon) == 4:
                         self.last_qr_box = [(p.x, p.y) for p in obj.polygon]
 
-                    # SPAM KORUMASI: 5 Saniye kuralı
-                    if now - self.last_qr_time > 5.0 or self.last_qr_data != self.last_qr_text:
-                        self.last_qr_time = now
-                        self.last_qr_data = self.last_qr_text
-                        self.get_logger().info(f"🎯 [GÖZLEM] İHA {drone_id} QR Kodu Çözdü!")
-                        
-                        socketio.emit('telemetry', {
-                            'type': 'alert', 'drone_id': drone_id, 'level': 'success',
-                            'msg': f"GÖREV ALINDI! Şifre: {self.last_qr_text[:25]}..."
-                        })
-                        
-                        # --- YENİ EKLENDİ: DOĞRUDAN BEYNİ TETİKLE ---
-                        if hasattr(self, 'mission_mgr') and self.mission_mgr:
-                            self.mission_mgr.process_qr_task(self.last_qr_text)
-                        else:
-                            self.get_logger().error("HATA: Beyin kameraya bağlanmamış!")
-                        # --------------------------------------------------------------
+                    # --- KONJEKTÜREL FİLTRE: Aynı QR üst üste okunmasın ---
+                    if self.last_qr_text != getattr(self, 'last_triggered_qr_data', ''):
+                        # SPAM KORUMASI: Kesin 15 Saniye kuralı (Metin değişse bile bekle)
+                        if now - self.last_qr_time > 15.0:
+                            self.last_qr_time = now
+                            self.last_qr_data = self.last_qr_text
+                            self.get_logger().info(f"🎯 [GÖZLEM] İHA {drone_id} QR Kodu Çözdü! (Onay Bekleniyor)")
+                            send_gui_log(f"İHA {drone_id}: QR Kod Algılandı! Onay bekleniyor...", "warning")
+                            
+                            # --- YENİ EKLENDİ: ONAY MEKANİZMASI ---
+                            if drone_id == 1:
+                                self.pending_qr_task = self.last_qr_text
+                                try:
+                                    task_info = json.loads(self.last_qr_text)
+                                    
+                                    # QR 6 için modal içeriğini daha anlaşılır yap
+                                    if str(task_info.get("qr_id")) == "6":
+                                        task_info["mission"] = {
+                                            "DURUM": "⚠️ TOPLU İNİŞ TESPİT EDİLDİ",
+                                            "EYLEM": "Tüm sürü olduğu yere iniş yapacak.",
+                                            "NOT": "Otonom seyir sonlandırılacaktır."
+                                        }
+
+                                    socketio.emit('qr_scanned', {
+                                        'drone_id': drone_id,
+                                        'mission': task_info
+                                    })
+                                except:
+                                    self.get_logger().error("QR Metni JSON değil!")
+                            else:
+                                # Diğer dronelar doğrudan (varsa) işleyebilir (opsiyonel)
+                                if hasattr(self, 'mission_mgr') and self.mission_mgr:
+                                    self.mission_mgr.process_qr_task(self.last_qr_text)
+                            # -------------------------------------
                 else:
                     self.last_qr_box = None # QR görüşten çıkarsa kutuyu sil
 
@@ -555,7 +642,7 @@ class TelemetryBridge(Node):
                             cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
 
             # 3. AKICI VİDEO AKTARIMI
-            _, buffer = cv2.imencode('.jpg', cv_image, [cv2.IMWRITE_JPEG_QUALITY, 40])
+            _, buffer = cv2.imencode('.jpg', cv_image, [cv2.IMWRITE_JPEG_QUALITY, 70])
             jpg_as_text = base64.b64encode(buffer).decode('utf-8')
             
             socketio.emit('camera_frame', {
@@ -983,6 +1070,8 @@ def main(args=None):
     # 2. ŞİMDİ OTONOM BEYNİ BAŞLAT VE KAMERAYA (BRIDGE) FİZİKSEL OLARAK BAĞLA
     print("Otonom Görev Beyni (Mission Manager) yükleniyor...")
     mission_mgr = MissionManager(bridge_node, formation_mgr, socketio)
+    # İrtifa kilitlerine erişim ver (Landing fix için)
+    mission_mgr.set_altitude_locks(active_target_altitudes, altitude_protectors)
     bridge_node.mission_mgr = mission_mgr 
 
     try:

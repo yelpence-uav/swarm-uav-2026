@@ -190,15 +190,61 @@
         }
 
         .formation-btn {
-            background: rgba(14, 165, 233, 0.08);
-            color: #dbeafe;
-            border: 1px solid rgba(14, 165, 233, 0.35);
-            padding: 9px 12px;
+            background: rgba(14, 165, 233, 0.1);
+            color: white;
+            border: 1px solid rgba(14, 165, 233, 0.3);
+            padding: 12px;
             border-radius: 10px;
             font-weight: 700;
             cursor: pointer;
-            transition: 0.2s ease;
+            transition: transform 0.3s ease;
         }
+
+        /* LOG TERMINAL STYLES */
+        .log-container {
+            background: #0d1117;
+            border: 1px solid #30363d;
+            border-radius: 8px;
+            margin-top: 20px;
+            height: 180px;
+            display: flex;
+            flex-direction: column;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+            max-width: 1200px;
+            margin-left: auto;
+            margin-right: auto;
+        }
+        .log-header {
+            background: #161b22;
+            padding: 8px 15px;
+            font-size: 0.7rem;
+            font-weight: 800;
+            color: #8b949e;
+            border-bottom: 1px solid #30363d;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .log-content {
+            overflow-y: auto;
+            padding: 10px 15px;
+            font-family: 'JetBrains Mono', 'Courier New', monospace;
+            font-size: 0.75rem;
+            line-height: 1.4;
+            color: #e6edf3;
+            flex: 1;
+            scrollbar-width: thin;
+            scrollbar-color: #30363d transparent;
+        }
+        .log-content::-webkit-scrollbar { width: 6px; }
+        .log-content::-webkit-scrollbar-thumb { background: #30363d; border-radius: 3px; }
+        .log-line { margin-bottom: 4px; border-left: 2px solid transparent; padding-left: 8px; }
+        .log-time { color: #8b949e; font-size: 0.65rem; margin-right: 10px; }
+        .log-level-info { color: #58a6ff; font-weight: bold; }
+        .log-level-error { color: #f85149; font-weight: bold; }
+        .log-level-success { color: #3fb950; font-weight: bold; }
+        .log-level-warning { color: #d29922; font-weight: bold; }
+        .log-msg { color: #e6edf3; }
 
         .formation-btn:hover {
             background: rgba(14, 165, 233, 0.2);
@@ -817,6 +863,23 @@
                 grid-template-columns: 1fr 1fr;
             }
         }
+
+        /* QR MODAL EKLEMELERİ */
+        .timer-bar-container {
+            width: 100%;
+            height: 4px;
+            background: rgba(255, 255, 255, 0.1);
+            margin-top: 20px;
+            border-radius: 2px;
+            overflow: hidden;
+        }
+
+        .timer-bar {
+            width: 100%;
+            height: 100%;
+            background: var(--accent);
+            transition: width 0.1s linear;
+        }
     </style>
 </head>
 
@@ -857,34 +920,37 @@
             <div class="control-title">Formasyon Kontrolü</div>
             <div class="spacing-wrap" style="margin-bottom: 8px;">
                 <label for="formation-spacing">Aralık:</label>
-                <input id="formation-spacing" type="number" min="1.0" max="15.0" step="0.5" value="2.0"><span>m</span>
-                
+                <input id="formation-spacing" type="number" min="1.0" max="15.0" step="0.5" value="3.0"><span>m</span>
+
                 <label for="swarm-speed" style="margin-left: 10px;">Hız:</label>
                 <input id="swarm-speed" type="number" min="0.5" max="5.0" step="0.1" value="1.5"><span>m/s</span>
             </div>
             <div class="formation-select">
-                <button class="formation-btn" data-type="arrowhead" onclick="startDynamicFormation('arrowhead')">Ok Başı</button>
-                <button class="formation-btn" data-type="reverse_arrowhead" onclick="startDynamicFormation('reverse_arrowhead')">Ters Ok Başı</button>
-                <button class="formation-btn" data-type="line" onclick="startDynamicFormation('line')">Sağa-Sola Çizgi</button>
-                <button class="formation-btn" data-type="column" onclick="startDynamicFormation('column')">İleri-Geri Çizgi</button>
+                <button class="formation-btn" data-type="arrowhead" onclick="startDynamicFormation('arrowhead')">Ok
+                    Başı</button>
+                <button class="formation-btn" data-type="reverse_arrowhead"
+                    onclick="startDynamicFormation('reverse_arrowhead')">Ters Ok Başı</button>
+                <button class="formation-btn" data-type="line" onclick="startDynamicFormation('line')">Sağa-Sola
+                    Çizgi</button>
+                <button class="formation-btn" data-type="column" onclick="startDynamicFormation('column')">İleri-Geri
+                    Çizgi</button>
             </div>
             <button id="formation-stop-btn" class="formation-btn formation-stop" onclick="stopFormation()" disabled>
                 Formasyonu Durdur
             </button>
         </div>
-    </div>
-    </div>
 
     <div class="control-box">
-            <div class="control-title">📍 Otonom Hedef (Gazebo Koordinatları)</div>
-            <div class="spacing-wrap" style="margin-bottom: 8px;">
-                <label style="font-size: 0.75rem; color: var(--accent); font-weight: 700;">X:</label>
-                <input id="nav-x" type="number" placeholder="Gazebo X (m)" style="width: 100px;">
-                <label style="font-size: 0.75rem; color: var(--accent); font-weight: 700;">Y:</label>
-                <input id="nav-y" type="number" placeholder="Gazebo Y (m)" style="width: 100px;">
-            </div>
-            <button class="arm-btn" style="width: 100%; background: var(--accent); color: white;" onclick="sendAutonomousWaypoint()">HEDEFE GİT 🚀</button>
+        <div class="control-title">📍 Otonom Hedef (Gazebo Koordinatları)</div>
+        <div class="spacing-wrap" style="margin-bottom: 8px;">
+            <label style="font-size: 0.75rem; color: var(--accent); font-weight: 700;">X:</label>
+            <input id="nav-x" type="number" placeholder="Gazebo X (m)" style="width: 100px;">
+            <label style="font-size: 0.75rem; color: var(--accent); font-weight: 700;">Y:</label>
+            <input id="nav-y" type="number" placeholder="Gazebo Y (m)" style="width: 100px;">
         </div>
+        <button class="arm-btn" style="width: 100%; background: var(--accent); color: white;"
+            onclick="sendAutonomousWaypoint()">HEDEFE GİT 🚀</button>
+    </div>
 
     <!-- TABS -->
     <div class="drone-selector" id="drone-tabs">
@@ -953,7 +1019,21 @@
             </div>
         </div>
 
-    </div>
+        <!-- LOG TERMINAL -->
+        <div class="log-container">
+            <div class="log-header">
+                <span>SYSTEM LOGS - OTONOM BEYİN TERMİNALİ</span>
+                <span id="log-status" style="color:var(--accent); font-size:0.55rem;">● CONNECTED</span>
+            </div>
+            <div id="log-content" class="log-content">
+                <div class="log-line">
+                    <span class="log-time">[SİSTEM]</span>
+                    <span class="log-level-success">[INFO]</span>
+                    <span class="log-msg">Log terminali hazır. Otonom kararlar burada listelenecek...</span>
+                </div>
+            </div>
+        </div>
+
     </div>
 
     <!-- CAMERA OVERLAY -->
@@ -1196,15 +1276,15 @@
                 alert("DİKKAT: Otonom hedefe gitmek için önce bir Lider İHA seçip Formasyonu Başlatmalısınız!");
                 return;
             }
-            
+
             const xVal = parseFloat(document.getElementById('nav-x').value);
             const yVal = parseFloat(document.getElementById('nav-y').value);
-            
+
             if (isNaN(xVal) || isNaN(yVal)) {
                 alert("Lütfen geçerli X ve Y koordinatları (metre cinsinden) girin.");
                 return;
             }
-            
+
             console.log(`[NAV] Lider İHA hedefe yönlendiriliyor -> X: ${xVal}, Y: ${yVal}`);
             socket.emit('send_waypoint', { x: xVal, y: yVal });
             showToast(`Otonom Seyir: X=${xVal}, Y=${yVal} noktasına gidiliyor.`, 'info');
@@ -1318,7 +1398,7 @@
             // GPS (Artık Lokal X/Y Gösteriyoruz)
             document.getElementById('local-x').innerHTML = (d.local_x || 0).toFixed(2) + '<span class="data-unit">m</span>';
             document.getElementById('local-y').innerHTML = (d.local_y || 0).toFixed(2) + '<span class="data-unit">m</span>';
-            
+
             // Altitude (EKF2 Fused)
             const relAlt = (d.gps.alt_rel || 0).toFixed(2);
             // ... (alt kısımlar aynı kalacak)
@@ -1397,7 +1477,6 @@
                     document.getElementById('lidar-min').innerHTML = min.toFixed(2) + '<span class="data-unit">m</span>';
                 }
             } else if (msg.type === 'tof') {
-                d.tof[msg.side] = msg.dist;
             } else if (msg.type === 'motors') {
                 d.motors = msg.speeds;
                 if (msg.armed !== undefined) {
@@ -1509,10 +1588,71 @@
         updateFormationUiState();
 
 
+        // --- QR ONAY MANTIĞI ---
+        let qrTimer = null;
+        let qrCountdown = 3.0;
+
+        socket.on('qr_scanned', (data) => {
+            console.log("QR Tarandı:", data);
+            const modal = document.getElementById('qr-modal');
+            const content = document.getElementById('qr-content');
+            const confirmBtn = document.getElementById('qr-confirm-btn');
+            const timerBar = document.getElementById('qr-timer-bar');
+
+            if (!modal || !content || !confirmBtn || !timerBar) return;
+
+            content.innerHTML = `<pre>${JSON.stringify(data.mission, null, 2)}</pre>`;
+            modal.style.display = 'flex';
+
+            qrCountdown = 5.0;
+            if (qrTimer) clearInterval(qrTimer);
+
+            qrTimer = setInterval(() => {
+                qrCountdown -= 0.1;
+                if (qrCountdown <= 0) {
+                    confirmQR();
+                } else {
+                    confirmBtn.innerText = `DEVAM ET (${qrCountdown.toFixed(1)}s)`;
+                    timerBar.style.width = (qrCountdown / 5.0 * 100) + '%';
+                }
+            }, 100);
+        });
+
+        function confirmQR() {
+            if (qrTimer) clearInterval(qrTimer);
+            qrTimer = null;
+            socket.emit('confirm_qr_task');
+            document.getElementById('qr-modal').style.display = 'none';
+            showToast("QR Görevi Onaylandı ve Başlatıldı", "success");
+        }
+
+        function cancelQR() {
+            if (qrTimer) clearInterval(qrTimer);
+            qrTimer = null;
+            socket.emit('cancel_qr_task');
+            document.getElementById('qr-modal').style.display = 'none';
+            showToast("QR Görevi İptal Edildi", "warning");
+        }
 
 
 
 
+
+
+        socket.on('gui_log', function(data) {
+            const logContent = document.getElementById('log-content');
+            if (logContent) {
+                const line = document.createElement('div');
+                line.className = 'log-line';
+                line.innerHTML = `
+                    <span class="log-time">[${data.time}]</span>
+                    <span class="log-level-${data.level}">[${data.level.toUpperCase()}]</span>
+                    <span class="log-msg">${data.msg}</span>
+                `;
+                logContent.appendChild(line);
+                logContent.scrollTop = logContent.scrollHeight;
+            }
+        });
     </script>
     <!-- MANUAL CONTROL OVERLAY -->
     <div id="manual-control-overlay" class="manual-overlay">
@@ -1539,6 +1679,28 @@
     </div>
 
     <div class="alert-container" id="alert-container"></div>
+
+    <!-- QR ONAY MODALI -->
+    <div id="qr-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 style="color: var(--accent); margin-bottom: 5px;">🎯 QR GÖREVİ BULUNDU</h2>
+                <p id="qr-modal-subtitle" style="font-size: 0.8rem; color: var(--muted);">Operatör onayı bekleniyor...
+                </p>
+            </div>
+            <div id="qr-content"
+                style="background: rgba(0,0,0,0.3); padding: 15px; border-radius: 10px; font-family: monospace; font-size: 0.75rem; color: #cbd5e1; margin-bottom: 20px; border: 1px solid var(--border); max-height: 200px; overflow-y: auto;">
+                <!-- QR JSON verisi buraya gelecek -->
+            </div>
+            <div class="modal-footer">
+                <button onclick="confirmQR()" class="modal-btn confirm-btn" id="qr-confirm-btn">DEVAM ET (3s)</button>
+                <button onclick="cancelQR()" class="modal-btn cancel-btn">İPTAL</button>
+            </div>
+            <div class="timer-bar-container">
+                <div id="qr-timer-bar" class="timer-bar"></div>
+            </div>
+        </div>
+    </div>
 </body>
 
 </html>
