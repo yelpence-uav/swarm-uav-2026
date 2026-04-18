@@ -174,9 +174,6 @@
       </link>
     </model>
 
-  
-    
-
     <model name="QR1">
       <static>true</static>
       <pose>8.00 0.00 0.02 0 0 0</pose>
@@ -198,51 +195,9 @@
       </link>
     </model>
 
-    <model name="QR6">
-      <static>true</static>
-      <pose>4.00 6.93 0.02 0 0 0</pose>
-      <link name="link">
-        <visual name="visual">
-          <geometry><box><size>1.2 1.2 0.01</size></box></geometry>
-          <material>
-            <ambient>1 1 1 1</ambient>
-            <diffuse>1 1 1 1</diffuse>
-            <pbr>
-              <metal>
-                <albedo_map>model://qr_codes/materials/textures/qr_model_6.png</albedo_map>
-                <roughness>1.0</roughness>
-                <metalness>0.0</metalness>
-              </metal>
-            </pbr>
-          </material>
-        </visual>
-      </link>
-    </model>
-
-    <model name="QR3">
-      <static>true</static>
-      <pose>-4.00 6.93 0.02 0 0 0</pose>
-      <link name="link">
-        <visual name="visual">
-          <geometry><box><size>1.2 1.2 0.01</size></box></geometry>
-          <material>
-            <ambient>1 1 1 1</ambient>
-            <diffuse>1 1 1 1</diffuse>
-            <pbr>
-              <metal>
-                <albedo_map>model://qr_codes/materials/textures/qr_model_3.png</albedo_map>
-                <roughness>1.0</roughness>
-                <metalness>0.0</metalness>
-              </metal>
-            </pbr>
-          </material>
-        </visual>
-      </link>
-    </model>
-
     <model name="QR2">
       <static>true</static>
-      <pose>-8.00 0.00 0.02 0 0 0</pose>
+      <pose>-4.00 6.93 0.02 0 0 0</pose>
       <link name="link">
         <visual name="visual">
           <geometry><box><size>1.2 1.2 0.01</size></box></geometry>
@@ -261,7 +216,7 @@
       </link>
     </model>
 
-    <model name="QR5">
+    <model name="QR3">
       <static>true</static>
       <pose>-4.00 -6.93 0.02 0 0 0</pose>
       <link name="link">
@@ -272,28 +227,7 @@
             <diffuse>1 1 1 1</diffuse>
             <pbr>
               <metal>
-                <albedo_map>model://qr_codes/materials/textures/qr_model_5.png</albedo_map>
-                <roughness>1.0</roughness>
-                <metalness>0.0</metalness>
-              </metal>
-            </pbr>
-          </material>
-        </visual>
-      </link>
-    </model>
-
-    <model name="QR4">
-      <static>true</static>
-      <pose>4.00 -6.93 0.02 0 0 0</pose>
-      <link name="link">
-        <visual name="visual">
-          <geometry><box><size>1.2 1.2 0.01</size></box></geometry>
-          <material>
-            <ambient>1 1 1 1</ambient>
-            <diffuse>1 1 1 1</diffuse>
-            <pbr>
-              <metal>
-                <albedo_map>model://qr_codes/materials/textures/qr_model_4.png</albedo_map>
+                <albedo_map>model://qr_codes/materials/textures/qr_model_3.png</albedo_map>
                 <roughness>1.0</roughness>
                 <metalness>0.0</metalness>
               </metal>
@@ -305,7 +239,7 @@
 
     <model name="landing_pad_red">
       <static>true</static>
-      <pose>-18.86 11.78 0.02 0 0 0</pose>
+      <pose>2.00 3.465 0.02 0 0 0</pose>
       <link name="link">
         <visual name="visual">
           <geometry><cylinder><radius>0.5</radius><length>0.01</length></cylinder></geometry>
@@ -316,7 +250,7 @@
 
     <model name="landing_pad_blue">
       <static>true</static>
-      <pose>-15.00 -7.83 0.02 0 0 0</pose>
+      <pose>2.00 -3.465 0.02 0 0 0</pose>
       <link name="link">
         <visual name="visual">
           <geometry><cylinder><radius>0.5</radius><length>0.01</length></cylinder></geometry>
@@ -327,4 +261,3 @@
 
   </world>
 </sdf>
-

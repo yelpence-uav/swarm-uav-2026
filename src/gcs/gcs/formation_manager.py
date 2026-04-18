@@ -18,7 +18,6 @@ STABILIZE_WAIT = 10.0
 # LiDAR güvenilirlik eşiği (metre) — bu değerin üstündeki okumalar menzil dışı sayılır
 LIDAR_MAX_RELIABLE = 7.5
 
-
 class FormationManager:
     def __init__(self, socketio):
         self.socketio = socketio
@@ -28,6 +27,8 @@ class FormationManager:
         self.formation_type = "arrowhead"
         self.bridge_node = None
         self.manual_mask = []
+        self.detached_mask = [] # Sürüden geçici olarak ayrılan drone'lar
+        self.drone_errors = {} # Dronların hedefe olan mesafe hatalarını takip etmek için
 
         # SANAL MERKEZ MATEMATİĞİ
         self.virtual_x = 0.0
@@ -36,6 +37,8 @@ class FormationManager:
         self.target_x = 0.0
         self.target_y = 0.0
         self.virtual_yaw = 0.0
+        self.swarm_pitch = 0.0  # Sürü pitch manevra açısı
+        self.swarm_roll = 0.0   # Sürü roll manevra açısı
 
         # DURUM MAKİNESİ
         self.state = STATE_IDLE
@@ -111,6 +114,18 @@ class FormationManager:
 
         return body_x, body_y
 
+    def _get_geometric_center_offset(self, num_drones):
+        """Formasyonun geometrik merkezini hesaplar. Manevralar bu merkez etrafında yapılır."""
+        if num_drones == 0:
+            return 0.0, 0.0
+        sum_x = 0.0
+        sum_y = 0.0
+        for i in range(num_drones):
+            bx, by = self._get_body_offset(i, num_drones)
+            sum_x += bx
+            sum_y += by
+        return sum_x / num_drones, sum_y / num_drones
+
     @staticmethod
     def _normalize_angle(angle):
         """Açıyı -pi ile +pi arasına normalize et."""
@@ -128,6 +143,8 @@ class FormationManager:
     def stop(self):
         """Formasyon navigasyonunu durdurur."""
         self.active = False
+        self.swarm_pitch = 0.0
+        self.swarm_roll = 0.0
         if self.bridge_node:
             self.bridge_node.get_logger().info("🛑 [FORMASYON] Navigasyon döngüsü DURDURULDU.")
 
@@ -139,6 +156,8 @@ class FormationManager:
         if self.bridge_node is not None:
             self.active = True
             self.state = STATE_IDLE
+            self.swarm_pitch = 0.0
+            self.swarm_roll = 0.0
             self._ensure_publisher()
             
             # Başlangıçta havada olan dronları bul
@@ -217,9 +236,18 @@ class FormationManager:
             self.target_y = y
             self.state = STATE_MOVING
 
+    def set_maneuver(self, pitch_deg, roll_deg):
+        """Sürünün topluca yapacağı pitch ve roll manevra açılarını belirler."""
+        self.swarm_pitch = pitch_deg
+        self.swarm_roll = roll_deg
+        if self.bridge_node:
+            self.bridge_node.get_logger().info(f">>> MANEVRA AKTİF: Pitch={pitch_deg}°, Roll={roll_deg}°")
+
     def stop(self):
         self.active = False
         self.state = STATE_IDLE
+        self.swarm_pitch = 0.0
+        self.swarm_roll = 0.0
         if self._formation_status_pub is not None:
             msg = String()
             msg.data = json.dumps({
@@ -344,11 +372,19 @@ class FormationManager:
             # 3. İHA'LARI SANAL MERKEZİN ETRAFINA KOMUTA ET
             # ═══════════════════════════════════════════════
             for i, f_id in enumerate(active_ids):
-                # ── MANUEL KONTROLDEYSE FORMASYON KOMUTU GÖNDERME ──
-                if f_id in self.manual_mask:
+                # ── MANUEL KONTROLDEYSE VEYA SÜRÜDEN AYRILDIYSA FORMASYON KOMUTU GÖNDERME ──
+                if f_id in self.manual_mask or f_id in self.detached_mask:
                     continue
 
                 body_x, body_y = self._get_body_offset(i, len(active_ids))
+                cx, cy = self._get_geometric_center_offset(len(active_ids))
+                rel_x = body_x - cx
+                rel_y = body_y - cy
+
+                # Pitch ve Roll manevralarına göre Z ekseninde yükseklik sapması
+                pitch_rad = math.radians(self.swarm_pitch)
+                roll_rad = math.radians(self.swarm_roll)
+                z_offset = (rel_x * math.sin(pitch_rad)) - (rel_y * math.sin(roll_rad))
 
                 f_target_x = self.virtual_x + (body_x * math.cos(self.virtual_yaw)) - (body_y * math.sin(self.virtual_yaw))
                 f_target_y = self.virtual_y + (body_x * math.sin(self.virtual_yaw)) + (body_y * math.cos(self.virtual_yaw))
@@ -366,7 +402,10 @@ class FormationManager:
                 elif f_data.get('dist_bottom', 0) > 0:
                     true_alt = f_data['dist_bottom']
                 
-                alt_error = self.virtual_alt - true_alt
+                # Bireysel İrtifa = Sürü İrtifası + Manevra Yükseklik Farkı
+                individual_target_alt = self.virtual_alt + z_offset
+                alt_error = individual_target_alt - true_alt
+                
                 target_ekf_alt = current_ekf_alt + alt_error 
                 target_amsl = f_ref_alt + target_ekf_alt
 
@@ -380,6 +419,7 @@ class FormationManager:
                 drone_x = f_data.get('unified_x', f_data.get('x', 0.0))
                 drone_y = f_data.get('unified_y', f_data.get('y', 0.0))
                 err_dist = math.hypot(f_target_x - drone_x, f_target_y - drone_y)
+                self.drone_errors[f_id] = err_dist
 
                 if self.state == STATE_ROTATING:
                     # ── DÖNÜŞ FAZINDA: Yüksek minimum hız ──

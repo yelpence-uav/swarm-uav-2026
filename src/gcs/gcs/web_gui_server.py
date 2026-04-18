@@ -584,10 +584,66 @@ class TelemetryBridge(Node):
 
             now = time.time()
             
-            # 1. AĞIR İŞLEM (PYZBAR): Saniyede sadece 3 kere çalışır! (CPU'yu kurtarır)
+            # 1. AĞIR İŞLEM (PYZBAR & RENK TESPİTİ): Saniyede sadece 3 kere çalışır! (CPU'yu kurtarır)
             if now - self.last_scan_time > 0.3:
                 self.last_scan_time = now
                 decoded_objects = decode(cv_image)
+                
+                # --- İNİŞ PEDİ TESPİTİ (KIRMIZI VE MAVİ) ---
+                import numpy as np
+                import math
+                hsv = cv2.cvtColor(cv_image, cv2.COLOR_BGR2HSV)
+                mask_red = cv2.bitwise_or(
+                    cv2.inRange(hsv, np.array([0, 100, 100]), np.array([10, 255, 255])),
+                    cv2.inRange(hsv, np.array([160, 100, 100]), np.array([180, 255, 255]))
+                )
+                mask_blue = cv2.inRange(hsv, np.array([100, 100, 100]), np.array([140, 255, 255]))
+                
+                if not hasattr(self, 'pad_coordinates'):
+                    self.pad_coordinates = {}
+                    self.pad_min_dist = {}
+                    
+                for color_name, mask in [('KIRMIZI', mask_red), ('MAVİ', mask_blue)]:
+                    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                    if contours:
+                        largest = max(contours, key=cv2.contourArea)
+                        if cv2.contourArea(largest) > 500: # Yeterince büyükse
+                            M = cv2.moments(largest)
+                            if M["m00"] > 0:
+                                cx = int(M["m10"] / M["m00"])
+                                cy = int(M["m01"] / M["m00"])
+                                h_img, w_img, _ = cv_image.shape
+                                dist = math.hypot(cx - w_img/2, cy - h_img/2)
+                                
+                                # Eğer daha önce tespit edilmediyse veya şu an merkeze daha yakınsa güncelleyelim
+                                prev_min = self.pad_min_dist.get(color_name, 9999)
+                                if dist < prev_min:
+                                    d_info = self.drones.get(drone_id, {})
+                                    if 'unified_x' in d_info and 'unified_y' in d_info:
+                                        self.pad_min_dist[color_name] = dist
+                                        
+                                        # Kamera pixel ofsetini fiziksel metre ofsetine çevir (Hassas Konumlama)
+                                        alt = -d_info.get('local_z', -3.0)
+                                        # FOV = ~80 derece kabul edersek, metre/pixel oranı
+                                        meters_per_pixel = (alt * 1.67) / w_img
+                                        
+                                        dx_body = (h_img/2 - cy) * meters_per_pixel # İleri
+                                        dy_body = (cx - w_img/2) * meters_per_pixel # Sağa
+                                        
+                                        yaw_rad = math.radians(d_info.get('yaw', 0.0))
+                                        dx_world = dx_body * math.cos(yaw_rad) - dy_body * math.sin(yaw_rad)
+                                        dy_world = dx_body * math.sin(yaw_rad) + dy_body * math.cos(yaw_rad)
+                                        
+                                        pad_x = d_info['unified_x'] + dx_world
+                                        pad_y = d_info['unified_y'] + dy_world
+                                        
+                                        self.pad_coordinates[color_name] = (pad_x, pad_y)
+                                        
+                                        # Yalnızca ilk buluşta GUI log ekranına bas
+                                        if prev_min == 9999:
+                                            self.get_logger().info(f"📍 {color_name} Ped Bulundu! Koordinat: X={pad_x:.2f}, Y={pad_y:.2f}")
+                                            send_gui_log(f"📍 {color_name} Pedi Tespit Edildi! Konum: (X: {pad_x:.2f}, Y: {pad_y:.2f})", "info")
+                # -------------------------------------------
                 
                 if decoded_objects:
                     obj = decoded_objects[0] # İlk gördüğü QR'ı al
