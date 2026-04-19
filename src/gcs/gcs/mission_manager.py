@@ -221,16 +221,26 @@ class MissionManager:
                         self.socketio.sleep(5)
                         
                         # 5. Tekrar Kalkış yap ve eski irtifasına dön
-                        self.send_gui_log(f"Drone {ayrilacak_id} kalkış için motorlarını çalıştırıyor (Arm)...", "info")
-                        self.bridge_node.send_command(ayrilacak_id, 400, param1=1.0) # ARM komutu
-                        self.socketio.sleep(2) # Arming işlemi için süre tanı
+                        self.send_gui_log(f"Drone {ayrilacak_id} kalkış için hazırlanıyor...", "info")
+                        # 1. Modu AUTO.TAKEOFF'a al (Land modundan çıkmak ve Arm'a izin vermek için)
+                        self.bridge_node.send_command(ayrilacak_id, 176, param1=1.0, param2=4.0, param3=2.0)
+                        self.socketio.sleep(1.0)
                         
-                        self.send_gui_log(f"Drone {ayrilacak_id} sürüye katılmak üzere havalanıyor...", "info")
+                        self.send_gui_log(f"Drone {ayrilacak_id} motorları çalıştırıyor (Arm)...", "info")
+                        # 2. Force ARM (Güvenlik kilidini aşmak için param2=21196)
+                        self.bridge_node.send_command(ayrilacak_id, 400, param1=1.0, param2=21196.0)
+                        self.socketio.sleep(2.0) # Arming işlemi için süre tanı
+                        
+                        self.send_gui_log(f"Drone {ayrilacak_id} sürüye katılmak üzere dikey havalanıyor...", "info")
+                        # 3. Kalkışı tetiklemek için tekrar AUTO.TAKEOFF komutu
+                        self.bridge_node.send_command(ayrilacak_id, 176, param1=1.0, param2=4.0, param3=2.0)
+                        
+                        # Ekstra Güvence: MAV_CMD_NAV_TAKEOFF (22)
                         target_takeoff_alt = f_ref_alt + self.formation_mgr.virtual_alt
-                        self.bridge_node.send_command(ayrilacak_id, 22, param7=target_takeoff_alt) # MAV_CMD_NAV_TAKEOFF
+                        self.bridge_node.send_command(ayrilacak_id, 22, param5=float('nan'), param6=float('nan'), param7=target_takeoff_alt)
                         
-                        # Havalanmasını bekle (Daha hızlı kontrol)
-                        for _ in range(15):
+                        # Havalanmasını bekle (Daha uzun kontrol)
+                        for _ in range(40): # Max 20 saniye
                             if f_data.get('local_z', 0) < -1.5:
                                 break
                             self.socketio.sleep(0.5)
@@ -242,9 +252,12 @@ class MissionManager:
                         
                         # Formasyona tam yerleşmesini dinamik olarak bekle
                         self.socketio.sleep(2) # İlk hareketin başlaması için pay
-                        for _ in range(40): # Max 20 saniye
+                        for _ in range(120): # Max 60 saniye
                             err = self.formation_mgr.drone_errors.get(ayrilacak_id, 999)
-                            if err < 0.5: # Formasyondaki hedefine yarım metreden fazla yaklaştıysa yerleşmiş sayılır
+                            current_alt = -f_data.get('local_z', -self.formation_mgr.virtual_alt)
+                            alt_err = abs(current_alt - self.formation_mgr.virtual_alt)
+                            
+                            if err < 0.5 and alt_err < 0.5: # Formasyondaki hedefine 3D olarak yaklaştıysa yerleşmiş sayılır
                                 break
                             self.socketio.sleep(0.5)
                             
