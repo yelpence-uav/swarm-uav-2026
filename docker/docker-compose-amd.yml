@@ -31,15 +31,21 @@ services:
       - MESA_LOADER_DRIVER_OVERRIDE=radeonsi
       - GALLIUM_DRIVER=radeonsi
 
-    # Host ile konteyner arasında bağlanmış dizinler.
-    # DİKKAT! src/ dizinini asla mount etmeyin. Örneğin src/swarm gibi spesifik mountlar yapın.
-    # src/ mount edilirse PX4 Autopilot kodları silinir.
     volumes:
       - /tmp/.X11-unix:/tmp/.X11-unix:rw
-      - ../src/swarm:/home/yelpence/ros2_ws/src/swarm
+
+      # Kaynak kodlar ve scriptler
       - ../scripts:/home/yelpence/ros2_ws/scripts
       - ../sim:/home/yelpence/ros2_ws/sim
-      - ../src/requirements.txt:/home/yelpence/ros2_ws/src/requirements.txt:ro
+      - ./src:/home/yelpence/ros2_ws/src
+
+      # ROS 2 Derleme izolasyonu
+      - /home/yelpence/ros2_ws/build
+      - /home/yelpence/ros2_ws/install
+
+      # PX4 Derleme izolasyonu
+      # PX4'ün host makinenizin içine build klasörü açmasını engeller.
+      - /home/yelpence/ros2_ws/src/PX4-Autopilot/build
 
     devices:
       - /dev/dri:/dev/dri

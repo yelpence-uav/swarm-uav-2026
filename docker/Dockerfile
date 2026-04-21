@@ -24,6 +24,10 @@ RUN apt-get update && apt-get install -y \
     python3-venv \
     python3-dev \
     iputils-ping \
+    python3-kconfiglib \
+    python3-jinja2 \
+    python3-jsonschema \
+    libgtest-dev \
     net-tools \
     nano \
     git \
@@ -68,8 +72,8 @@ EXPOSE 22
 # --------------------------------------
 
 # Micro Xrce-DDS Agent Uyumluluk--------
-RUN git clone --depth 1 --branch v3.0.1 https://github.com/eProsima/Micro-XRCE-DDS-Agent.git /tmp/Micro-XRCE-DDS-Agent \
-    && cd /tmp/Micro-XRCE-DDS-Agent \
+COPY src/Micro-XRCE-DDS-Agent /tmp/Micro-XRCE-DDS-Agent
+RUN cd /tmp/Micro-XRCE-DDS-Agent \
     && mkdir build && cd build \
     && cmake -DCMAKE_BUILD_TYPE=Release \
     -DUAGENT_FASTMETRICS=OFF \
@@ -119,32 +123,10 @@ RUN pip install --no-cache-dir --upgrade pip && \
     rm /tmp/requirements.txt
 # --------------------------------------
 
-# PX4 Autopilot Yapılandırması----------
-# src klasörünü oluşturur, repoları çeker, colcon ignore ekler ve x500 ayarlarını yapar.
-RUN mkdir -p src \
-    && git clone --depth 1 --branch v1.15.0 --recursive https://github.com/PX4/PX4-Autopilot.git src/PX4-Autopilot \
-    && find src/PX4-Autopilot -name ".git" -type d -exec rm -rf {} + \
-    && find src/PX4-Autopilot -name ".github" -type d -exec rm -rf {} + \
-    && touch src/PX4-Autopilot/COLCON_IGNORE \
-    && git clone --depth 1 https://github.com/PX4/px4_msgs.git src/px4_msgs \
-    && find src/px4_msgs -name ".git" -type d -exec rm -rf {} + \
-    && { \
-    echo ""; \
-    echo "# YELPENCE SURU IHA - Otonom Ucus Izinleri (SIMULASYON)"; \
-    echo "param set-default NAV_DLL_ACT 0"; \
-    echo "param set-default NAV_RCL_ACT 0"; \
-    echo "param set-default COM_RCL_EXCEPT 4"; \
-    } >> src/PX4-Autopilot/ROMFS/px4fmu_common/init.d-posix/airframes/4001_gz_x500
-# --------------------------------------
-
 # .bashrc Ayarları----------------------
 RUN echo "source /opt/ros/jazzy/setup.bash" >> ~/.bashrc \
     && echo "if [ -f ~/ros2_ws/install/setup.bash ]; then source ~/ros2_ws/install/setup.bash; fi" >> ~/.bashrc \
-    && echo "source ~/venv/bin/activate" >> ~/.bashrc \
-    && echo "# --- Yelpençe Kısayolları ---" >> ~/.bashrc \
-    && echo "alias ajan='MicroXRCEAgent udp4 -p 8888'" >> ~/.bashrc \
-    && echo "alias build_swarm='cd ~/ros2_ws && colcon build --symlink-install --packages-select px4_msgs swarm && source install/setup.bash'" >> ~/.bashrc \
-    && echo "alias ws='cd ~/ros2_ws'" >> ~/.bashrc
+    && echo "source ~/venv/bin/activate" >> ~/.bashrc 
 # --------------------------------------
 
 # Konteyner Başlatma--------------------
