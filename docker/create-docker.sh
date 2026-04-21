@@ -95,7 +95,7 @@ sed -i '/# YELPENCE_START/,/# YELPENCE_END/d' "$BASHRC_PATH"
 
 cat << EOF >> "$BASHRC_PATH"
 # YELPENCE_START
-alias yelpence_durdur='docker compose -f $PROJE_KOK/docker/docker-compose.yml stop && docker compose -f $PROJE_KOK/docker/docker-compose-amd.yml stop'
+alias yelpence_dur='docker compose -f $PROJE_KOK/docker/docker-compose.yml stop && docker compose -f $PROJE_KOK/docker/docker-compose-amd.yml stop'
 alias yelpence_gir='docker exec -it yelpence_swarm_container /usr/local/bin/entrypoint.sh /bin/bash'
 alias yelpence_gir_amd='docker exec -it yelpence_swarm_container_amd /usr/local/bin/entrypoint.sh /bin/bash'
 # YELPENCE_END

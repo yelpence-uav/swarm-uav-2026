@@ -9,7 +9,7 @@ CONTAINER_NAME_AMD="yelpence_swarm_container_amd"
 if [ "$(docker ps -q -f name=^/${CONTAINER_NAME}$ -f status=running)" ] ||
     [ "$(docker ps -q -f name=^/${CONTAINER_NAME_AMD}$ -f status=running)" ]; then
     echo -e "\e[31m[HATA] KONTEYNER ZATEN ÇALIŞIYOR!\e[0m"
-    echo -e "İçeri girmek için: \e[32mdocker exec -it yelpence_swarm_container /usr/local/bin/entrypoint.sh /bin/bash\e[0m"
+    echo -e "İçeri girmek için: \e[32myelpence_gir\e[0m"
     exit 1
 fi
 

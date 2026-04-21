@@ -37,7 +37,7 @@ services:
       # Kaynak kodlar ve scriptler
       - ../scripts:/home/yelpence/ros2_ws/scripts
       - ../sim:/home/yelpence/ros2_ws/sim
-      - ./src:/home/yelpence/ros2_ws/src
+      - ../src:/home/yelpence/ros2_ws/src
 
       # ROS 2 Derleme izolasyonu
       - /home/yelpence/ros2_ws/build

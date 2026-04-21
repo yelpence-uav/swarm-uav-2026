@@ -131,6 +131,5 @@ RUN echo "source /opt/ros/jazzy/setup.bash" >> ~/.bashrc \
 
 # Konteyner Başlatma--------------------
 USER $USERNAME
-ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
 CMD ["/bin/bash"]
 # --------------------------------------

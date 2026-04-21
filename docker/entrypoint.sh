@@ -3,7 +3,12 @@
 
 set -e
 
-echo "--- Yelpençe Simülasyon Ortamı Başlatılıyor ---"
+# Kullanıcı sahiplik ayarı
+sudo sed -i "s/127.0.0.1\tlocalhost/127.0.0.1\tlocalhost $HOSTNAME/" /etc/hosts || true
+sudo chown -R yelpence:yelpence \
+    /home/yelpence/ros2_ws/build \
+    /home/yelpence/ros2_ws/install \
+    /home/yelpence/ros2_ws/src/PX4-Autopilot/build 2>/dev/null || true
 
 # Parmak izlerinin saklanacağı gizli klasör
 HASH_DIR="/home/yelpence/.config/yelpence_hashes"
@@ -45,7 +50,6 @@ check_and_update_deps
 cd /home/yelpence/ros2_ws
 
 # 5. PX4 Otonom Uçuş İzinlerinin (Parametrelerin) Ayarlanması
-# Eğer src dizini volume olarak dışarıdan bağlandıysa, bu değişiklik host makinedeki dosyaya da yansır.
 AIRFRAME_FILE="src/PX4-Autopilot/ROMFS/px4fmu_common/init.d-posix/airframes/4001_gz_x500"
 if [ -f "$AIRFRAME_FILE" ]; then
     # Dosyaya daha önce eklenip eklenmediğini kontrol et (Dosyanın şişmesini engellemek için)
@@ -60,19 +64,17 @@ fi
 
 # 6. İlk Kurulum ve Derleme Kontrolü
 # Eğer 'install' klasörü yoksa sıfırdan derleme yapılır.
-if [ ! -d "install" ]; then
-    echo -e "\e[33m--- [İLK KURULUM] Derlenmiş paket bulunamadı. Kurulum başlatılıyor... ---\e[0m"
+if [ ! -f "install/setup.bash" ]; then
 
     # PX4-Autopilot Derlemesi (SITL Gazebo Simülasyonu için)
     if [ -d "src/PX4-Autopilot" ]; then
-        echo "--- 1/2: PX4-Autopilot derleniyor ---"
-        make -C src/PX4-Autopilot px4_sitl_default gz_x500
+        make -C src/PX4-Autopilot px4_sitl_default
     else
         echo -e "\e[31m[HATA] src/PX4-Autopilot klasörü bulunamadı! Submodülleri çektiğinizden emin olun.\e[0m"
     fi
 
     # ROS 2 Paketlerinin Derlenmesi (px4_msgs, swarm vb.)
-    echo "--- 2/2: ROS 2 çalışma alanı derleniyor (colcon) ---"
+    touch /home/yelpence/ros2_ws/src/px4_autopilot/COLCON_IGNORE
     colcon build --symlink-install
 
     echo -e "\e[32m--- İlk kurulum ve derleme başarıyla tamamlandı! ---\e[0m"
