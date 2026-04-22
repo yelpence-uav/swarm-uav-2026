@@ -2,25 +2,9 @@
 
 > Bu depo, Yelpençe takımının TEKNOFEST 2026 Sürü İHA Yarışması için geliştirdiği tüm yazılım mimarisini, algoritma setlerini ve dokümantasyon süreçlerini barındıran ana merkezdir. Proje; dinamik sürü formasyonları, otonom görev icrası ve gelişmiş yer kontrol istasyonu entegrasyonuna odaklanmaktadır.
 
-# İçindekiler Tablosu
-* [Dizin Yapısı](#dizin-yapısı)
-* [Kurulum ve Başlangıç](#kurulum-ve-başlangıç)
-* [Sanal Ortamın Kullanımı](#sanal-ortamın-kullanımı)
-
-# Dizin Yapısı
-```text
-yelpence-2026-swarm
-├── .github/        # CI/CD süreçlerini ve kod kalitesini denetleyen otomatik iş akışlarını içerir.
-├── docker/         # Geliştirme ortamının tüm platformlarda izole ve tutarlı çalışmasını sağlayan yapılandırmaları barındırır.
-├── scripts/        # Görev senaryoları üretme ve sistemi hızlıca ayağa kaldırma gibi operasyonel yardımcı betikleri içerir.
-├── sim/            # İHA'ların fiziksel modellerini ve yarışma görevlerinin icra edileceği simülasyon dünyalarını barındırır.
-└── src/            # Sürü zekası, haberleşme protokolleri ve otonom kontrol algoritmalarımızın bulunduğu ana kaynak kod dizinidir.
-```
 
 # Kurulum ve Başlangıç 
 Bu projenin test, geliştirme ve simülasyon süreçleri izole bir Docker ortamında takip edilmektedir. Kurulum başlığını sonuna kadar uyguladığınızda uçtan uca hazır bir Docker ortamınız olacaktır. 
-
-> Projede tam verimle çalışabilmek için Ubuntu 22.04 veya üstü bir sistem sahip olmalısınız. Herhangi Debian veya Arch temelli bir dağıtım da uygundur ancak en hızlı ve etkili sonuç için Ubuntu'yu tercih ediniz.
 
 ## 1. Git LFS 
 Ağır veri setleri ve simülasyon modelleri Git LFS ile takip edilmektedir.
@@ -32,11 +16,13 @@ sudo apt install git-lfs
 # Etkinleştirmeyi unutmayalım
 git lfs install
 ```
-> "Git LFS initialized" yazısını görmeniz lazım.
 
 ## 2. Repoyu Klonlama
 ```bash
 git clone https://github.com/yelpence-uav/yelpence-2026-swarm
+
+# Tüm submodule'leri çekelim
+git submodule update --init --recursive
 ```
 
 ## 3. Geliştirme Ortamı Kurulumu
@@ -69,7 +55,7 @@ Bu noktada sanal ortam kullanmak için hazırdır. Aşağıdaki yönergelere uya
 * Eğer ```yelpence_dur``` komutu ile sistemi durdurduysanız tekrar docker dizinine gidip ```./start-docker.sh``` kodunu çalıştırmanız gerekir.
 
 ## 2. Geliştirme Rehberi
-* Sanal ortama ilk girişinizde hiçbir kod derlenmiş vaziyette değildir. ```colcon build``` komutu ile tüm düğümleri derlemeniz gerekir. Yeni bir kod eklediğinizde çalışması için derlemeniz gerekir. ```colcon build``` komutu tüm ortamı tekrar derler ancak önceden derlenmiş kodlar çok kısa sürer. 
+* Sanal ortama ilk girişinizde ```entrypoint.sh``` betiği gerekli derlemeleri yapacaktır. ```colcon build``` komutu tüm ortamı tekrar derler ancak önceden derlenmiş kodlar çok kısa sürer. 
 * Geliştirme yapmak için sanal ortama SSH kullanarak bağlanmanız gerekir. Host makinede birçok gerekli bağımlılık yoktur dolayısıyla hataları takip etmekte zorlanırsınız.
 * SSH bağlantısı için farklı yöntemler vardır. VS Code kullanıyorsanız en iyi çözüm Dev Containers eklentisidir. Jetbrains IDE'leri yerleşik olarak tam donanımlı ve tak çalıştır bir SSH ortamı sunar. Diğer IDE'ler ve editörler bunlar kadar başarılı bir deneyim sunamayabilir. VS Code veya Jetbrains önerilir.
 * SSH bilgileri: Kullanıcı Adı: yelpence - Şifre: yelpence2026 - Port: 2222:22
@@ -82,20 +68,4 @@ Bu noktada sanal ortam kullanmak için hazırdır. Aşağıdaki yönergelere uya
 * Python bağımlılıkları src/requirements.txt dosyası ile takip edilir. Yeni bir paket gerektiği takdirde talimatlara uyarak ekleme yapabilirsiniz.
 * Yeni bir bağımlılık eklediğinize sanal ortamı durdurmanıza gerek yoktur. ```yelpence_gir``` komutu ile girdiğinizde yeni eklenen bağımlılık otomatik olarak kurulur.
 * Sanal ortama bir sistem bağımlılığı eklemeniz gerekiyorsa Dockerfile üzerinde değişiklik yapmanız gerekir. Burada yapılan değişikliklerin uygulanması için ```create-docker.sh``` betiği tekrar çalıştırılmalıdır. 
-
-## Simülasyon Rehberi
-* Sanal ortamda Gazebo Harmonic tüm yapılandırması hazır şekilde gelmektedir. Simülasyon ile ilgili proje dosyaları sim/ dizini içinde bulunur.
-* Simülasyon dünyaları hazır şekilde gelmez. Her biri scripts/ içerisindeki scriptler ile ```base_world.sdf``` dosyasını temel alarak üretilir.
-
-Yeni kurulmuş bir ortamda aşağıdaki komutları çalıştırarak dünyaları hazır hale getirebilirsiniz.
-```bash
-python3 scripts/generate_task1_world.py     # task1_dynamic_swarm.sdf
-python3 sctipts/generate_task2_worlds.py    # task2 dünyaları
-```
-> DİKKAT! Dünyalar üzerinde yaptığınız değişiklikler bu komutların çalışması ile kaybolabilir. Eğer dünyalar üzerinde kalıcı değişiklik yapmak istiyorsanız buradaki scriptleri güncellemeniz gerekir.
-
-Bu dünyaları Gazebo ortamında çalıştırmak için aşağıdaki komutları kullanabilirsiniz.
-```bash
-gz sim /sim/worlds/[DÜNYANIN ADI]
-```
 
