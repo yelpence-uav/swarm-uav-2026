@@ -2,9 +2,9 @@ name: Yelpence CI Build Check
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
   pull_request:
-    branches: [ main ]
+    branches: [main]
 
 jobs:
   ros_build_and_test:
@@ -13,6 +13,8 @@ jobs:
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v6
+        with:
+          submodules: recursive
 
       - name: Setup ROS 2
         uses: ros-tooling/setup-ros@v0.7
