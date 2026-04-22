@@ -37,7 +37,7 @@ jobs:
         run: |
           source /opt/ros/jazzy/setup.bash
 
-          touch src/PX4-Autopilot/COLCON_IGNORE
+          touch src/PX4_Autopilot/COLCON_IGNORE
 
           colcon build \
             --executor sequential \
