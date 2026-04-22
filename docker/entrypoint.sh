@@ -1,25 +1,93 @@
 #!/bin/bash
+# Konteyner her sıfırdan başlatıldığında veya varolan konteynerin içine girildiğinde çalışan betik.
+
 set -e
 
-# ---------------------------------------------------------
-# YELPENÇE SÜRÜ İHA - BAŞLANGIÇ SCRİPTİ
-# Bu script her yeni terminal açılışında otomatik çalışır.
-# ---------------------------------------------------------
+# Kullanıcı sahiplik ayarı
+sudo sed -i "s/127.0.0.1\tlocalhost/127.0.0.1\tlocalhost $HOSTNAME/" /etc/hosts || true
+sudo chown -R yelpence:yelpence \
+    /home/yelpence/ros2_ws/build \
+    /home/yelpence/ros2_ws/install \
+    /home/yelpence/ros2_ws/src/PX4-Autopilot/build 2>/dev/null || true
+
+# Parmak izlerinin saklanacağı gizli klasör
+HASH_DIR="/home/yelpence/.config/yelpence_hashes"
+mkdir -p "$HASH_DIR"
+REQ_FILE="/home/yelpence/ros2_ws/src/requirements.txt"
+
+# Python bağımlılık kontrolü; her açılışta requirements.txt dosyasını kontrol eder.
+check_and_update_deps() {
+    if [ -f "$REQ_FILE" ]; then
+        current_hash=$(md5sum "$REQ_FILE" | awk '{ print $1 }')
+        old_hash_file="$HASH_DIR/req.hash"
+
+        if [ ! -f "$old_hash_file" ] || [ "$current_hash" != "$(cat "$old_hash_file")" ]; then
+            echo -e "\n\e[33m[UYARI] DEĞİŞİKLİK SAPTANDI. BAĞIMLILIKLAR GÜNCELLENİYOR...\e[0m"
+            # Sanal ortam aktif mi kontrol et ve yükle
+            source /home/yelpence/venv/bin/activate
+            pip install --no-cache-dir -r "$REQ_FILE"
+
+            # Yeni hash'i kaydet
+            echo "$current_hash" >"$old_hash_file"
+            echo -e "\e[32m[TAMAM] BAĞIMLILIKLAR GÜNCEL.\e[0m\n"
+        fi
+    fi
+}
+
+# --- Başlangıç İşlemleri ---
+sudo service ssh start >/dev/null 2>&1
 
 # 1. ROS 2 Jazzy Global Ortamını Yükle
-# Bu sayede 'ros2 topic list' gibi komutlar çalışır.
 source /opt/ros/jazzy/setup.bash
 
-# 2. Yelpençe Çalışma Alanını (Workspace) Yükle
-# Eğer proje daha önce derlenmişse (colcon build), sizin kodlarınızı sisteme tanıtır.
-if [ -f "/home/yelpence/ros2_ws/install/setup.bash" ]; then
-    source "/home/yelpence/ros2_ws/install/setup.bash"
-else
-    # İlk açılışta bilgilendirme mesajı
-    echo "Yelpençe Workspace henüz derlenmemiş. Kodlarınızı derlemek için:"
-    echo "    cd ~/ros2_ws && colcon build --symlink-install"
+# 2. Python Sanal Ortamını Aktif Et
+source /home/yelpence/venv/bin/activate
+
+# 3. Bağımlılık kontrollerini çalıştır
+check_and_update_deps
+
+# 4. Çalışma Alanına Geçiş Yap
+cd /home/yelpence/ros2_ws
+
+# 5. PX4 Otonom Uçuş İzinlerinin (Parametrelerin) Ayarlanması
+AIRFRAME_FILE="src/PX4-Autopilot/ROMFS/px4fmu_common/init.d-posix/airframes/4001_gz_x500"
+if [ -f "$AIRFRAME_FILE" ]; then
+    # Dosyaya daha önce eklenip eklenmediğini kontrol et (Dosyanın şişmesini engellemek için)
+    if ! grep -q "NAV_DLL_ACT 0" "$AIRFRAME_FILE"; then
+        echo -e "\n# YELPENCE SURU IHA - Otonom Ucus Izinleri (SIMULASYON)" >>"$AIRFRAME_FILE"
+        echo "param set-default NAV_DLL_ACT 0" >>"$AIRFRAME_FILE"
+        echo "param set-default NAV_RCL_ACT 0" >>"$AIRFRAME_FILE"
+        echo "param set-default COM_RCL_EXCEPT 4" >>"$AIRFRAME_FILE"
+        echo -e "\e[32m--- Otonom uçuş parametreleri x500 modeline başarıyla eklendi! ---\e[0m"
+    fi
 fi
 
-# 3. İstenilen Komutu Çalıştır
-# Dockerfile'ın sonundaki CMD ["/bin/bash"] komutunu burası tetikler.
+# 6. İlk Kurulum ve Derleme Kontrolü
+# Eğer 'install' klasörü yoksa sıfırdan derleme yapılır.
+if [ ! -f "install/setup.bash" ]; then
+
+    # PX4-Autopilot Derlemesi (SITL Gazebo Simülasyonu için)
+    if [ -d "src/PX4-Autopilot" ]; then
+        make -C src/PX4-Autopilot px4_sitl_default
+    else
+        echo -e "\e[31m[HATA] src/PX4-Autopilot klasörü bulunamadı! Submodülleri çektiğinizden emin olun.\e[0m"
+    fi
+
+    # ROS 2 Paketlerinin Derlenmesi (px4_msgs, swarm vb.)
+    touch /home/yelpence/ros2_ws/src/px4_autopilot/COLCON_IGNORE
+    colcon build --symlink-install
+
+    echo -e "\e[32m--- İlk kurulum ve derleme başarıyla tamamlandı! ---\e[0m"
+else
+    echo "--- Mevcut derleme bulundu. Hazır sistem üzerinden başlatılıyor... ---"
+fi
+
+# 7. Yelpençe Çalışma Alanını Yükle
+if [ -f "/home/yelpence/ros2_ws/install/setup.bash" ]; then
+    source "/home/yelpence/ros2_ws/install/setup.bash"
+fi
+
+echo -e "\n\e[32m--- Sistem Hazır. İyi uçuşlar! ---\e[0m\n"
+
+# Komutu çalıştır
 exec "$@"

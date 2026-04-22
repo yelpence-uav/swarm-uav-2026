@@ -103,7 +103,8 @@ def generate_qr_images(output_dir):
         payload = dict(data)
         payload["next_qr"] = next_map[qr_id]
 
-        json_str = json.dumps(payload, separators=(",", ":"), ensure_ascii=False)
+        json_str = json.dumps(payload, separators=(
+            ",", ":"), ensure_ascii=False)
 
         qr = qrcode.QRCode(
             error_correction=qrcode.constants.ERROR_CORRECT_H,

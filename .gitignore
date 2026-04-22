@@ -1,5 +1,4 @@
-# Created by https://www.toptal.com/developers/gitignore/api/linux,jetbrains,ros2,ros,pycharm,clion,qt,python,c,c++,eclipse,visualstudio,visualstudiocode,windows,cmake,ssh,vim
-# Edit at https://www.toptal.com/developers/gitignore?templates=linux,jetbrains,ros2,ros,pycharm,clion,qt,python,c,c++,eclipse,visualstudio,visualstudiocode,windows,cmake,ssh,vim
+# Eklemek istediklerinizi dosyanın en altına ekleyin.
 
 ### C ###
 # Prerequisites
@@ -350,6 +349,8 @@ src/px4_msgs/
 
 ### Linux ###
 *~
+*.AppImage
+/tools
 
 # temporary files which can be created if a process still has a handle open of a deleted file
 .fuse_hidden*
@@ -1169,3 +1170,9 @@ FodyWeavers.xsd
 # Additional files built by Visual Studio
 
 # End of https://www.toptal.com/developers/gitignore/api/linux,jetbrains,ros2,ros,pycharm,clion,qt,python,c,c++,eclipse,visualstudio,visualstudiocode,windows,cmake,ssh,vim
+/sim/worlds/task1_dynamic_swarm.sdf
+/sim/worlds/task2_navigation.sdf
+/sim/worlds/task2_collision.sdf
+/sim/worlds/task2_formation.sdf
+qr/
+

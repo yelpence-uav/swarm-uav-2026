@@ -2,9 +2,14 @@ name: Yelpence CI Build Check
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
+      - ".vscode/**"
   pull_request:
-    branches: [ main ]
+    branches: [main]
+  workflow_dispatch:
 
 jobs:
   ros_build_and_test:
@@ -12,7 +17,10 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
 
       - name: Setup ROS 2
         uses: ros-tooling/setup-ros@v0.7
@@ -28,13 +36,20 @@ jobs:
       - name: Build Workspace
         run: |
           source /opt/ros/jazzy/setup.bash
-          colcon build --event-handlers console_direct+
+
+          touch src/px4_autopilot/COLCON_IGNORE
+
+          colcon build \
+            --executor sequential \
+            --parallel-workers 1 \
+            --event-handlers console_direct+ \
+            --cmake-args -DCMAKE_BUILD_TYPE=Release
 
       - name: Run Linters and Unit Tests
         run: |
           source /opt/ros/jazzy/setup.bash
-          source install/setup.bash
-          colcon test --event-handlers console_direct+
+          [ -f install/setup.bash ] && source install/setup.bash
+          colcon test --executor sequential --parallel-workers 1 --event-handlers console_direct+
 
       - name: Check Test Results
         run: |
@@ -45,7 +60,9 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - name: Build Docker Image
         run: |

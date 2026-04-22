@@ -2,9 +2,11 @@ import os
 import random
 import math
 
+
 def generate_task2_worlds():
     script_dir = os.path.dirname(__file__)
-    base_world_path = os.path.join(script_dir, "..", "sim", "worlds", "base_world.sdf")
+    base_world_path = os.path.join(
+        script_dir, "..", "sim", "worlds", "base_world.sdf")
 
     # base_world.sdf dosyasını şablon olarak oku
     try:
@@ -20,8 +22,10 @@ def generate_task2_worlds():
         return
 
     # 1. task2_formation.sdf (Sadece boş saha)
-    formation_sdf = base_sdf_content.replace('name="base_world"', 'name="task2_formation"')
-    formation_path = os.path.join(script_dir, "..", "sim", "worlds", "task2_formation.sdf")
+    formation_sdf = base_sdf_content.replace(
+        'name="base_world"', 'name="task2_formation"')
+    formation_path = os.path.join(
+        script_dir, "..", "sim", "worlds", "task2_formation.sdf")
     with open(formation_path, "w") as f:
         f.write(formation_sdf)
     print(f"Başarılı: {os.path.abspath(formation_path)}")
@@ -30,20 +34,20 @@ def generate_task2_worlds():
     nav_elements = "\n    \n"
 
     pads = []
-    
+
     def get_valid_nav_position():
         # Sahanın güvenli sınırları
         while True:
             x = random.uniform(-22, 22)
             y = random.uniform(-12, 12)
-                
+
             # Diğer iniş alanlarıyla çakışmasın (aralarında en az 3 metre mesafe olsun)
             overlap = False
             for px, py in pads:
                 if math.hypot(x - px, y - py) < 3.0:
                     overlap = True
                     break
-            
+
             if not overlap:
                 return x, y
 
@@ -58,7 +62,7 @@ def generate_task2_worlds():
     for color_name, rgba in colors:
         px, py = get_valid_nav_position()
         pads.append((px, py))
-        
+
         nav_elements += f"""
     <model name="landing_pad_{color_name}">
       <static>true</static>
@@ -72,19 +76,24 @@ def generate_task2_worlds():
     </model>
 """
 
-    nav_sdf = base_sdf_content[:insertion_point] + nav_elements + "\n  " + base_sdf_content[insertion_point:]
+    nav_sdf = base_sdf_content[:insertion_point] + \
+        nav_elements + "\n  " + base_sdf_content[insertion_point:]
     nav_sdf = nav_sdf.replace('name="base_world"', 'name="task2_navigation"')
-    nav_path = os.path.join(script_dir, "..", "sim", "worlds", "task2_navigation.sdf")
+    nav_path = os.path.join(script_dir, "..", "sim",
+                            "worlds", "task2_navigation.sdf")
     with open(nav_path, "w") as f:
         f.write(nav_sdf)
     print(f"Başarılı: {os.path.abspath(nav_path)}")
 
     # 3. task2_collision.sdf (Sadece Boş Saha)
-    col_sdf = base_sdf_content.replace('name="base_world"', 'name="task2_collision"')
-    col_path = os.path.join(script_dir, "..", "sim", "worlds", "task2_collision.sdf")
+    col_sdf = base_sdf_content.replace(
+        'name="base_world"', 'name="task2_collision"')
+    col_path = os.path.join(script_dir, "..", "sim",
+                            "worlds", "task2_collision.sdf")
     with open(col_path, "w") as f:
         f.write(col_sdf)
     print(f"Başarılı: {os.path.abspath(col_path)}")
+
 
 if __name__ == "__main__":
     generate_task2_worlds()
