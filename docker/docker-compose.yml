@@ -11,10 +11,6 @@ services:
     image: yelpence_swarm:2026
     container_name: yelpence_swarm_container
 
-    # SSH bağlantısı için port ayarı.
-    ports:
-      - "2222:22"
-
     network_mode: host
     ipc: host
     pid: host
@@ -24,17 +20,23 @@ services:
       - "/dev/ttyUSB0:/dev/ttyUSB0"
       - "/dev/ttyAMA0:/dev/ttyAMA0"
       - "/dev/input:/dev/input"
+      - "/dev/dri:/dev/dri"
+
+    group_add:
+      - video
 
     environment:
       - DISPLAY=${DISPLAY}
       - QT_X11_NO_MITSHM=1
       - ROS_DOMAIN_ID=10
+      - XDG_RUNTIME_DIR=/tmp/runtime-yelpence
       - RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
       - NVIDIA_VISIBLE_DEVICES=all
       - NVIDIA_DRIVER_CAPABILITIES=all
       - GZ_SIM_RENDER_ENGINE_BACKEND=ogre2
       - __NV_PRIME_RENDER_OFFLOAD=1
       - __GLX_VENDOR_LIBRARY_NAME=nvidia
+      - __EGL_VENDOR_LIBRARY_FILENAMES=/usr/share/glvnd/egl_vendor.d/10_nvidia.json
 
     volumes:
       - /tmp/.X11-unix:/tmp/.X11-unix:rw
