@@ -9,13 +9,18 @@ Gazebo 3D arayüzü açılır ve süreçler Tmux sekmelerinden yönetilir.
 import os
 import subprocess
 import time
+import tempfile
+import glob
+import shutil
 
 # Sabit Değerler (Constants)
 WORKSPACE = "/home/yelpence/ros2_ws"
 PX4_PATH = os.path.join(WORKSPACE, "src/PX4-Autopilot")
 MODELS_PATH = os.path.join(WORKSPACE, "sim/models")
 DEFAULT_WORLD = os.path.join(WORKSPACE, "sim/worlds/task1_dynamic_swarm.sdf")
-TMP_WORLD = "/tmp/swarm_tmp_world.sdf"
+
+# [B108 Çözümü] Sabit /tmp/ yolu yerine sistemin güvenli geçici dizinini alıyoruz
+TMP_WORLD = os.path.join(tempfile.gettempdir(), "swarm_tmp_world.sdf")
 DRONE_COUNT = 3
 TMUX_SESSION = "yelpence_swarm"
 
@@ -24,9 +29,9 @@ def cleanup():
     """Arka planda kalmış eski süreçleri ve tmux oturumlarını temizler."""
     print("\n--- Eski süreçler temizleniyor... ---")
 
+    # [B602 Çözümü] shell=True yerine argümanlar liste olarak verildi
     subprocess.run(
-        f"tmux kill-session -t {TMUX_SESSION}",
-        shell=True,
+        ["tmux", "kill-session", "-t", TMUX_SESSION],
         stderr=subprocess.DEVNULL,
         stdout=subprocess.DEVNULL,
     )
@@ -39,24 +44,39 @@ def cleanup():
         "px4",
     ]
 
-    subprocess.run("pkill -9 -f 'gz sim'", shell=True, stderr=subprocess.DEVNULL)
-    subprocess.run("killall -9 ruby", shell=True, stderr=subprocess.DEVNULL)
+    subprocess.run(["pkill", "-9", "-f", "gz sim"], stderr=subprocess.DEVNULL)
+    subprocess.run(["pkill", "-9", "-f", "ruby"], stderr=subprocess.DEVNULL)
 
     for proc in processes_to_kill:
         subprocess.run(["pkill", "-9", "-f", proc], stderr=subprocess.DEVNULL)
 
-    subprocess.run(
-        "pkill -9 -f parameter_bridge", shell=True, stderr=subprocess.DEVNULL
+    subprocess.run(["pkill", "-9", "-f", "parameter_bridge"], stderr=subprocess.DEVNULL)
+    subprocess.run(["pkill", "-9", "-f", "ros_gz_bridge"], stderr=subprocess.DEVNULL)
+
+    # [B602 Çözümü] rm -f /tmp/px4* işlemi Python'un güvenli glob ve os modülleri ile yapılıyor
+    tmp_dir = tempfile.gettempdir()
+    px4_files = glob.glob(os.path.join(tmp_dir, "px4-sock-*")) + glob.glob(
+        os.path.join(tmp_dir, "px4_lock-*")
     )
-    subprocess.run("pkill -9 -f ros_gz_bridge", shell=True, stderr=subprocess.DEVNULL)
-    subprocess.run(
-        "rm -f /tmp/px4-sock-* /tmp/px4_lock-*", shell=True, stderr=subprocess.DEVNULL
-    )
-    subprocess.run(
-        f"rm -rf {PX4_PATH}/build/px4_sitl_default/rootfs/*",
-        shell=True,
-        stderr=subprocess.DEVNULL,
-    )
+    for f in px4_files:
+        try:
+            os.remove(f)
+        except OSError:
+            pass
+
+    # [B602 Çözümü] rm -rf rootfs/* işlemi Python'un güvenli shutil modülü ile yapılıyor
+    rootfs_path = os.path.join(PX4_PATH, "build/px4_sitl_default/rootfs")
+    if os.path.exists(rootfs_path):
+        for item in os.listdir(rootfs_path):
+            item_path = os.path.join(rootfs_path, item)
+            try:
+                if os.path.isfile(item_path) or os.path.islink(item_path):
+                    os.remove(item_path)
+                elif os.path.isdir(item_path):
+                    shutil.rmtree(item_path)
+            except OSError:
+                pass
+
     time.sleep(2)
 
 
