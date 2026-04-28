@@ -15,6 +15,11 @@ uint8 FORMATION_CUSTOM=99
 
 uint8 formation_type
 
+# Agents that must participate in this formation execution.
+# Empty array = formation_control decides from currently active IN_SWARM agents.
+# Explicit list is required after detach/rejoin or standby replacement flows.
+uint8[] participating_agent_ids
+
 float32 center_x
 float32 center_y
 float32 center_z

@@ -29,7 +29,13 @@ float32 heading_deg
 # Default spacing between agents
 float32 spacing_m
 
+# If true, formation_control uses current swarm centroid XY as reference.
 bool use_current_centroid
+
+# If true, formation_control preserves current average altitude / NED Z.
+# Use this when a QR command changes formation but does not request altitude change.
+bool use_current_altitude
+
 bool rotate_towards_target
 bool hold_after_reached
 

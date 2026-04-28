@@ -1,7 +1,7 @@
 <?xml version="1.0"?>
 <package format="3">
   <name>swarm_interfaces</name>
-  <version>0.3.1</version>
+  <version>0.4.0</version>
   <description>Custom ROS 2 interfaces for the swarm UAV architecture.</description>
   <maintainer email="team@example.com">Swarm UAV Team</maintainer>
   <license>Apache-2.0</license>

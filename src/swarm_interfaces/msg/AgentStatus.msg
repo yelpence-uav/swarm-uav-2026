@@ -138,6 +138,21 @@ bool v_xy_valid      # yatay hız tahmini güvenilir
 bool   origin_synced         # true = SwarmOrigin uygulandı
 uint32 origin_sequence       # uygulanan SwarmOrigin.sequence değeri
 
+# --- RC / KILL SWITCH ---
+# rc_link_ok: RC kumanda bağlantısı kurulu (SBUS/CRSF/SPEKTRUM).
+# kill_switch_active: RC kill switch tetiklendi; PX4 motor keser, failsafe_manager bu ajanı swarm'dan çıkarır.
+# rc_signal_failsafe_active: PX4 RC signal loss failsafe eşiğini aştı ve aksiyon başlattı.
+#   rc_link_ok anlık bağlantı durumu; bu alan PX4 failsafe'i resmi tetiklendiğinde true olur.
+bool rc_link_ok
+bool kill_switch_active
+bool rc_signal_failsafe_active
+
+# --- UÇUŞ KALİTESİ ---
+# oscillation_detected: formasyon setpoint etrafında salınım; şartname -10 puan.
+# unstable_flight: EKF/sensör kaynaklı fiziksel uçuş kararsızlığı; estimator_ok'tan bağımsız.
+bool oscillation_detected
+bool unstable_flight
+
 # Join request — STATE_STANDBY drone sets these true when it wants to join the swarm.
 # consensus_fsm monitors these; on approval calls AssignRole.srv.
 bool wants_to_join

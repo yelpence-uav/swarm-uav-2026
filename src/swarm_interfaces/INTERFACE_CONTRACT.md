@@ -1,6 +1,6 @@
 # Sürü İHA — Interface Contract
 # TEKNOFEST 2026 Sürü İHA Yarışması
-# v6.2-teknofest2026: 12 msg + 3 srv + 3 action
+# 12 msg + 3 srv + 3 action
 
 Bu dosya `swarm_interfaces` paketinin takım içi sözleşmesidir. Bu paketteki `.msg`, `.srv`, `.action`, topic adı, enum veya frame kuralı değişirse 3 geliştirici de haberdar edilmelidir.
 
@@ -100,7 +100,7 @@ GCS/RViz ENU kullanan taraflarda dönüşüm açıkça yapılmalıdır.
 | `ExecuteFormation.action` | `/swarm/formation/execute` | `formation_control` action server | `mission_fsm` / `mission_orchestrator` | — |
 | `ExecuteManeuver.action` | `/swarm/maneuver/execute` | `swarm_core/formation_control/maneuver_executor_node.py` action server | `mission_fsm`, `mode_manager` | — |
 | `ManageSwarmMember.action` | `/swarm/member/manage` | `swarm_missions/mission1_dynamic_swarm/member_manager_node.py` / target `agent_fsm` action server | `mission_fsm`/`mission_orchestrator` | — |
-| `AssignRole.srv` | `/swarm/assign_role` | `agent_fsm_node` | `consensus_fsm`, `mission_orchestrator` | — |
+| `AssignRole.srv` | `/swarm/agent/{id}/assign_role` | `agent_fsm_node` | `consensus_fsm`, `mission_orchestrator` | — |
 | `TriggerMission.srv` | `/swarm/mission/trigger` | `mission_fsm` | `GCS backend` | — |
 | `ManageSwarmMember.srv` | `/swarm/member/manage_request` | `swarm_missions/mission1_dynamic_swarm/member_manager_node.py` / `mission_fsm` | `GCS backend`, debug/test tools | — |
 
@@ -121,6 +121,10 @@ GCS/RViz ENU kullanan taraflarda dönüşüm açıkça yapılmalıdır.
 `AgentStatus.flight_mode`, `offboard_active` ve `pilot_override_active` gerçek uçuşta zorunlu izleme alanlarıdır. `mode_manager` ve `failsafe_fsm`, PX4'ün MANUAL/POSCTL/OFFBOARD/RTL/LAND gibi modlarını bu alanlardan okumalıdır. Pilot override aktifse otomatik setpoint zinciri HOLD/SAFE durumuna alınmalıdır.
 
 EKF2/estimator alanları gerçek donanımda pre-flight ve in-flight güvenlik için zorunlu kabul edilir. `estimator_ok=false`, `xy_valid=false`, `z_valid=false` veya `v_xy_valid=false` olan drone'a normal formation setpoint gönderilmemeli; ilgili drone HOLD/FAILSAFE akışına alınmalıdır. Sensör health alanları true olsa bile EKF2 diverge edebileceği için bu dört alan ayrı kontrol edilir.
+
+`rc_link_ok`, `kill_switch_active` ve `rc_signal_failsafe_active` per-drone RC izleme için gereklidir. `rc_link_ok` anlık bağlantı durumunu gösterir; `rc_signal_failsafe_active` PX4'ün RC loss failsafe eşiğini aşıp aksiyon başlattığını gösterir — ikisi farklı durumlardır. Kill switch tetiklenince `failsafe_manager` ilgili ajanı swarm'dan çıkarır.
+
+`oscillation_detected` formasyon setpoint etrafındaki salınım için; eşik `formation_control`'de config'den okunur. `unstable_flight` EKF/sensör kaynaklı fiziksel kararsızlık içindir, `estimator_ok` kapsamıyla örtüşmez.
 
 ### 3.3 AgentSetpoint Gerçek Donanım Kullanım Notu
 
@@ -172,6 +176,8 @@ QR akışı:
 qr_detector → /swarm/perception/qr_data [QRMissionData.msg]
   → mission_fsm
   → formation_active ise FormationCommand / ExecuteFormation.action
+    - FormationCommand.use_current_altitude=true ise mevcut sürü irtifası korunur
+    - ExecuteFormation.participating_agent_ids[] ile beklenen aktif ajan listesi net verilir
   → maneuver_active ise ExecuteManeuver.action
   → altitude_active ise FormationCommand.center_z veya AgentSetpoint hedef irtifa akışı
   → detach_active ise ManageSwarmMember.action
@@ -260,6 +266,10 @@ ORCA/APF: komşu state `7,8,13,14` ise avoidance hesabına dahil etme.
 0=UNKNOWN  1=OKBASI  2=V  3=CIZGI  99=CUSTOM
 ```
 
+`FormationCommand.use_current_altitude=true` ise formasyon değişimi sırasında mevcut ortalama sürü irtifası/NED Z korunur. QR mesajında `altitude_active=false` iken formasyon değiştirilirse bu alan true kullanılmalıdır.
+
+`ExecuteFormation.participating_agent_ids[]` action server'ın hangi ajanları bekleyeceğini netleştirir. Boş bırakılırsa `formation_control` aktif `IN_SWARM` ajanlarını kullanır; detach/rejoin veya standby replacement sonrası açık liste verilmesi önerilir.
+
 ### COLOR Enum
 `QRMissionData` ve `LandingZoneDetection`
 ```
@@ -292,7 +302,7 @@ Arming için minimum: `3D_FIX (3)`. HDOP < 1.5 beklenmeli.
 
 **Algı/Görev (20-39):** `20=QR_DETECTED  21=QR_PARSED  22=FORMATION_REACHED  23=FORMATION_FAILED  24=MISSION_STARTED  25=MISSION_COMPLETED  26=COLOR_ZONE_DETECTED  27=QR_SEQUENCE_REJECTED  28=PRECISION_LANDING_STARTED  29=PRECISION_LANDING_COMPLETED  30=ROTATION_STARTED  31=ROTATION_COMPLETED  32=MANEUVER_STARTED  33=MANEUVER_COMPLETED  34=MANEUVER_FAILED  35=MEMBER_DETACH_STARTED  36=MEMBER_REJOIN_STARTED  37=MEMBER_MANAGEMENT_FAILED`
 
-**Sistem/Güvenlik (40-59):** `40=GCS_LINK_LOST  41=GCS_LINK_RESTORED  42=BATTERY_LOW  43=COLLISION_RISK  44=OFFBOARD_LOST  45=RTL_TRIGGERED  46=EMERGENCY_LAND  47=PX4_LINK_LOST  48=LEADER_CHANGED  49=SAFETY_HOLD  50=FAILSAFE_CLEARED  51=ORIGIN_READY  52=ORIGIN_SYNCED  53=ORIGIN_FAILED`
+**Sistem/Güvenlik (40-59):** `40=GCS_LINK_LOST  41=GCS_LINK_RESTORED  42=BATTERY_LOW  43=COLLISION_RISK  44=OFFBOARD_LOST  45=RTL_TRIGGERED  46=EMERGENCY_LAND  47=PX4_LINK_LOST  48=LEADER_CHANGED  49=SAFETY_HOLD  50=FAILSAFE_CLEARED  51=ORIGIN_READY  52=ORIGIN_SYNCED  53=ORIGIN_FAILED  54=OSCILLATION_DETECTED  55=UNSTABLE_FLIGHT  56=GEOFENCE_VIOLATION  57=ALTITUDE_LIMIT_EXCEEDED  58=RC_LINK_LOST  59=KILL_SWITCH_ACTIVATED`
 
 ### EVENT SEVERITY Enum
 ```
@@ -327,7 +337,16 @@ Arming için minimum: `3D_FIX (3)`. HDOP < 1.5 beklenmeli.
 19. **`ManageSwarmMember.action`**: QR kaynaklı birey çıkarma/katma uzun süren bir akıştır. `mission_fsm`, detach/rejoin tamamlanmadan sonraki görev adımına geçmez.
 20. **`ManageSwarmMember.srv`**: Sadece hızlı başlatma, debug veya GCS isteği için kullanılmalıdır. Uzun süreli tamamlanma takibi gerekiyorsa action kullanılmalıdır.
 21. **`SWARM_ROTATING`**: `FormationCommand.rotate_towards_target=true` geldiğinde `swarm_fsm` `SWARM_ROTATING` state'ini açıkça kullanmalı; `EVENT_ROTATION_COMPLETED` sonrası `SWARM_NAVIGATING` durumuna dönmelidir.
-22. Interface değişikliğinde `CMakeLists.txt`, bu dosya ve ilgili node kodları birlikte güncellenir.
+22. **`FormationCommand.use_current_altitude`**: QR yalnızca formasyon değiştiriyor ve irtifa komutu vermiyorsa true kullanılmalıdır. Böylece default `center_z` değerleri nedeniyle yanlış irtifa komutu üretilmez.
+23. **`ExecuteFormation.participating_agent_ids[]`**: Formation action server detach/rejoin sonrası hangi ajanları bekleyeceğini bu listeden alır. Boş liste yalnızca normal durumda ve aktif ajan kümesi zaten netse kullanılmalıdır.
+24. Interface değişikliğinde `CMakeLists.txt`, bu dosya ve ilgili node kodları birlikte güncellenir.
+25. **`AgentStatus.rc_link_ok`**: `rc_link_ok=false` olduğunda `EVENT_RC_LINK_LOST` yayınlanır; `failsafe_manager` ilgili ajanın swarm davranışını kısıtlar.
+26. **`AgentStatus.kill_switch_active`**: `kill_switch_active=true` olduğunda `EVENT_KILL_SWITCH_ACTIVATED` yayınlanır; `failsafe_manager` bu ajanı swarm'dan çıkarır.
+27. **`AgentStatus.oscillation_detected`**: `formation_control` salınım tespitinde bu flag'i true yapar ve `EVENT_OSCILLATION_DETECTED` yayınlar. Eşik config'den (`oscillation_threshold_m`) okunur.
+28. **`AssignRole.srv` topic**: Servis per-drone'dur: `/swarm/agent/{id}/assign_role`. Global `/swarm/assign_role` kullanılmaz.
+29. **`QRMissionData.command_type`**: Backward compat için korunur; `mission_fsm` yalnızca `*_active` flag'lerini kullanır. Bir QR birden fazla bölüm içerebileceği için `command_type` tek başına yeterli değildir.
+30. **`SwarmControlCommand.max_tilt_deg`**: `AgentSetpoint`'e taşınmaz; `maneuver_executor_node` bu değeri `maneuver_config.yaml`'dan okur.
+31. **`EVENT_GEOFENCE_VIOLATION=56`**: Üretici `failsafe_manager`; geofence sınırı config'den okunur, aşımda ilgili ajan RTL'e alınır.
 
 ---
 
@@ -350,6 +369,8 @@ GCS backend, `START` komutuna izin vermeden önce her drone için şunları doğ
 ✓ AgentStatus.v_xy_valid = true
 ✓ AgentStatus.px4_link_ok = true
 ✓ AgentStatus.gcs_link_ok = true
+✓ AgentStatus.rc_link_ok = true      (şartname: her drone için ayrı RC + pilot zorunlu)
+✓ AgentStatus.kill_switch_active = false  (aktif kill switch ile takeoff yapılmaz)
 ```
 
 ---

@@ -15,7 +15,7 @@
 # Kim   : yeni lider olarak seçilen agent'ın consensus_fsm'i
 # Ne zaman: election tamamlandığında (tek seferlik, her election için)
 #
-# STALE MESAJ KORUMAASI:
+# STALE MESAJ KORUMASI:
 # Alıcılar: sequence_num gördükleri en yüksek değerden küçükse mesajı yok say.
 # election_round mevcut round'dan küçükse mesajı yok say.
 

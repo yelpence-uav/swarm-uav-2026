@@ -68,6 +68,12 @@ uint8 EVENT_FAILSAFE_CLEARED=50
 uint8 EVENT_ORIGIN_READY=51      # shared origin candidate is available
 uint8 EVENT_ORIGIN_SYNCED=52     # all required agents applied SwarmOrigin
 uint8 EVENT_ORIGIN_FAILED=53     # origin sync failed or timed out
+uint8 EVENT_OSCILLATION_DETECTED=54   # formation control oscillation detected; value=agent_id
+uint8 EVENT_UNSTABLE_FLIGHT=55        # physical flight instability; value=agent_id
+uint8 EVENT_GEOFENCE_VIOLATION=56     # agent exited competition geofence; value=agent_id
+uint8 EVENT_ALTITUDE_LIMIT_EXCEEDED=57 # agent exceeded altitude limit; value=altitude_agl_m
+uint8 EVENT_RC_LINK_LOST=58           # RC link lost; value=agent_id
+uint8 EVENT_KILL_SWITCH_ACTIVATED=59  # RC kill switch activated; value=agent_id
 
 # Event severity
 uint8 SEVERITY_INFO=0

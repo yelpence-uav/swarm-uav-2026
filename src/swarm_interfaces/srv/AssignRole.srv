@@ -1,5 +1,6 @@
 # AssignRole.srv
 # Assign or update agent role. Used by consensus / mission orchestration.
+# Topic: /swarm/agent/{id}/assign_role  (her drone'da ayrı agent_fsm_node çalışır; global topic kullanılmaz)
 
 uint8 ROLE_UNKNOWN=0
 uint8 ROLE_LEADER=1

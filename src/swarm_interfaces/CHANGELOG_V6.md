@@ -52,3 +52,49 @@ Bu sürüm, v5 üzerine gelen görev akışı geri bildirimlerine göre hazırla
   - `joystick_interpreter` → `swarm_state_machine/mode_manager/joystick_interpreter_node.py`
   - `inter_drone_comm` → `swarm_core/consensus/neighbor_monitor_node.py`
 - Yeni ana klasör önerisi yapılmadı; mevcut mimariye sadık kalındı.
+
+
+---
+
+## V6.3 Interface Patch
+
+- Yeni `.msg`, `.srv` veya `.action` dosyası eklenmedi.
+- `FormationCommand.msg` içine `use_current_altitude` alanı geri eklendi.
+  - QR yalnızca formasyon değiştiriyor ve irtifa komutu vermiyorsa mevcut sürü irtifası/NED Z korunur.
+- `ExecuteFormation.action` goal kısmına `participating_agent_ids[]` alanı eklendi.
+  - Formation action server detach/rejoin veya standby replacement sonrası hangi ajanları bekleyeceğini net bilir.
+- `INTERFACE_CONTRACT.md` v6.3 olarak güncellendi ve bu iki alanın kullanım kuralları eklendi.
+- `package.xml` sürümü `0.3.2` yapıldı.
+
+---
+
+## V6.4 Safety & Quality Patch
+
+- Yeni `.msg`, `.srv` veya `.action` dosyası eklenmedi.
+
+## Güncellenen arayüzler
+
+- `msg/AgentStatus.msg`
+  - `rc_link_ok`, `kill_switch_active`, `rc_signal_failsafe_active` eklendi
+  - `oscillation_detected`, `unstable_flight` eklendi
+
+- `msg/SystemEvent.msg`
+  - `EVENT_OSCILLATION_DETECTED=54` – `EVENT_KILL_SWITCH_ACTIVATED=59` arası 6 yeni event eklendi
+
+- `msg/SwarmState.msg`
+  - Yukarıdaki 6 event mirror edildi
+
+- `msg/LeaderHeartbeat.msg`
+  - Bully variant yorumu düzeltildi: en küçük active agent_id lider olur; STANDBY/DETACHED election dışı
+
+## Güncellenen dosyalar
+
+- `srv/AssignRole.srv`
+  - Topic adı notu eklendi: `/swarm/agent/{id}/assign_role`
+- `INTERFACE_CONTRACT.md`
+  - `AssignRole.srv` topic adresi düzeltildi: `/swarm/assign_role` → `/swarm/agent/{id}/assign_role`
+  - RC/kill switch ve uçuş kalitesi alanları belgelendi (bölüm 3.2)
+  - Preflight checklist güncellendi
+  - EVENT enum tablosu ve kurallar 25–31 güncellendi
+- `package.xml`
+  - Sürüm `0.4.0` yapıldı

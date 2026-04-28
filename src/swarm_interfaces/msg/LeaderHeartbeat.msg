@@ -14,7 +14,9 @@
 #
 # FOLLOWER KURALI:
 # Son heartbeat'ten 300ms geçmişse lider timeout → election başlat.
-# Bully algoritması: en yüksek agent_id olan sağlıklı agent lider olur.
+# Bully variant: aktif ajanlar arasında en küçük agent_id lider olur.
+#   En düşük ID birincil drone; drone-1 ayaktayken election başlamaz.
+#   STANDBY ve DETACHED ajanlar election dışı; yalnızca STATE_IN_SWARM ajanlar katılır.
 # election_round her yeni election başladığında +1 artar (stale mesaj koruması).
 
 builtin_interfaces/Time stamp
