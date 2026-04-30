@@ -9,7 +9,7 @@ opencv-python==4.10.0.84    # numpy <2.0 uyumluluğu için bu sürüm gerekiyor.
 numpy<2.0.0                 # ROS2 uyumluluğu için <2.0 sürümleri gerekiyor.
 pyzbar==0.1.9
 pyqt6==6.11.0
-matplotlib==3.10.8
+matplotlib==3.10.9
 pytest==9.0.2
 flake8==7.3.0
 black==26.3.1
