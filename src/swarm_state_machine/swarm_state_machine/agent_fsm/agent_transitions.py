@@ -84,7 +84,14 @@ def evaluate_transitions(ctx: AgentContext) -> AgentState | None:
         AgentState.STANDBY:           _from_standby,
     }
     handler = handlers.get(ctx.state)
-    return handler(ctx) if handler else None
+    next_state = handler(ctx) if handler else None
+
+    # home_set=False iken RETURN_HOME'a geçişi engelle — contract kural 13
+    if next_state == AgentState.RETURN_HOME and not ctx.home_set:
+        ctx.status_text = 'Home set değil — RTL yerine acil iniş'
+        return AgentState.LANDING
+
+    return next_state
 
 
 def _from_unknown(ctx: AgentContext) -> AgentState | None:
@@ -132,7 +139,8 @@ def _from_takeoff(ctx: AgentContext) -> AgentState | None:
     TAKEOFF → IN_SWARM: Hedef irtifaya ulaşıldı, stabilite sağlandı.
     TAKEOFF → FAILSAFE: Timeout.
     """
-    if (ctx.altitude_stable
+    if (ctx.target_altitude_reached
+            and ctx.altitude_stable
             and ctx.attitude_stable
             and ctx.vertical_speed_ok
             and ctx.origin_synced):

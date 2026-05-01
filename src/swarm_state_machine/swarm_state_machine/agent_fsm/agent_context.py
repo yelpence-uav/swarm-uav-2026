@@ -136,7 +136,18 @@ class AgentContext:
     state_entry_time: float = field(default_factory=time.monotonic)
 
     # Takeoff hedef irtifası (m, pozitif yukarı)
-    target_altitude_m: float = 2.5
+    target_altitude_m: float = 10.0
+
+    # agent_health_monitor hedef irtifaya ulaşıldığında true yapar
+    # TAKEOFF -> IN_SWARM koşulunda kullanılır (bkz. agent_transitions.py)
+    target_altitude_reached: bool = False
+
+    # Kritik batarya voltaj eşiği — healthy ve failsafe kararlarında kullanılır
+    # YAML parametresinden okunmalı; varsayılan 4S LiPo kritik eşiği
+    battery_critical_voltage_v: float = 13.6
+
+    # Jeofen ihlali — px4_interface veya swarm node tarafından set edilir
+    geofence_violated: bool = False
 
     # Geçiş talebi — node her tick'te kontrol eder, sonra None yapar
     pending_state: AgentState | None = None
@@ -162,7 +173,7 @@ class AgentContext:
             and self.xy_valid
             and self.z_valid
             and self.v_xy_valid
-            and self.battery_voltage_v > 0.0
+            and self.battery_voltage_v > self.battery_critical_voltage_v
             and not self.failsafe_active
         )
 

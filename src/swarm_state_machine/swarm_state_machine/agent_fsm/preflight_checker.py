@@ -28,7 +28,7 @@ def run_preflight_checks(
     # --- BAĞLANTI ---
     if not ctx.px4_link_ok:
         failures.append("PX4 bağlantısı yok")
-    if not ctx.gcs_link_ok:
+    if not ctx.sitl_mode and not ctx.gcs_link_ok:
         failures.append("GCS bağlantısı yok")
     if not ctx.sitl_mode and not ctx.rc_link_ok:
         failures.append("RC bağlantısı yok")
