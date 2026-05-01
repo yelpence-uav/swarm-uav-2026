@@ -108,6 +108,11 @@
         <visual name="pen_right_bottom"><pose>44.25 -15 0.015 0 0 0</pose><geometry><plane><normal>0 0 1</normal><size>16.5 0.15</size></plane></geometry><material><ambient>1 1 1 1</ambient><diffuse>1 1 1 1</diffuse></material></visual>
       </link>
     </model>
-
+    
+    <include>
+      <name>rtk_base_station</name>
+      <uri>model://rtk_base_station</uri>
+      <pose>0 32 0 0 0 0</pose>
+    </include>
   </world>
 </sdf>

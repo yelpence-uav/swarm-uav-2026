@@ -1,0 +1,80 @@
+<?xml version="1.0" ?>
+<sdf version="1.9">
+  <model name="rtk_base_station">
+    <static>true</static>
+    
+    <link name="base_link">
+      
+      <visual name="hub_visual">
+        <pose>0 0 1.2 0 0 0</pose>
+        <geometry><cylinder><radius>0.06</radius><length>0.08</length></cylinder></geometry>
+        <material><ambient>0.2 0.2 0.2 1</ambient><diffuse>0.2 0.2 0.2 1</diffuse></material>
+      </visual>
+      <collision name="hub_collision">
+        <pose>0 0 1.2 0 0 0</pose>
+        <geometry><cylinder><radius>0.06</radius><length>0.08</length></cylinder></geometry>
+      </collision>
+
+      <visual name="leg1_visual">
+        <pose>0.21 0 0.6 0 -0.34 0</pose>
+        <geometry><cylinder><radius>0.015</radius><length>1.3</length></cylinder></geometry>
+        <material><ambient>0.1 0.1 0.1 1</ambient><diffuse>0.1 0.1 0.1 1</diffuse></material>
+      </visual>
+      <collision name="leg1_collision">
+        <pose>0.21 0 0.6 0 -0.34 0</pose>
+        <geometry><cylinder><radius>0.015</radius><length>1.3</length></cylinder></geometry>
+      </collision>
+
+      <visual name="leg2_visual">
+        <pose>-0.105 0.1818 0.6 0 -0.34 2.0944</pose>
+        <geometry><cylinder><radius>0.015</radius><length>1.3</length></cylinder></geometry>
+        <material><ambient>0.1 0.1 0.1 1</ambient><diffuse>0.1 0.1 0.1 1</diffuse></material>
+      </visual>
+      <collision name="leg2_collision">
+        <pose>-0.105 0.1818 0.6 0 -0.34 2.0944</pose>
+        <geometry><cylinder><radius>0.015</radius><length>1.3</length></cylinder></geometry>
+      </collision>
+
+      <visual name="leg3_visual">
+        <pose>-0.105 -0.1818 0.6 0 -0.34 -2.0944</pose>
+        <geometry><cylinder><radius>0.015</radius><length>1.3</length></cylinder></geometry>
+        <material><ambient>0.1 0.1 0.1 1</ambient><diffuse>0.1 0.1 0.1 1</diffuse></material>
+      </visual>
+      <collision name="leg3_collision">
+        <pose>-0.105 -0.1818 0.6 0 -0.34 -2.0944</pose>
+        <geometry><cylinder><radius>0.015</radius><length>1.3</length></cylinder></geometry>
+      </collision>
+
+      <visual name="stalk_visual">
+        <pose>0 0 1.35 0 0 0</pose>
+        <geometry><cylinder><radius>0.012</radius><length>0.3</length></cylinder></geometry>
+        <material><ambient>0.7 0.7 0.7 1</ambient><diffuse>0.8 0.8 0.8 1</diffuse></material>
+      </visual>
+      <collision name="stalk_collision">
+        <pose>0 0 1.35 0 0 0</pose>
+        <geometry><cylinder><radius>0.012</radius><length>0.3</length></cylinder></geometry>
+      </collision>
+
+      <visual name="receiver_box_visual">
+        <pose>0 0 1.3 0 0 0</pose>
+        <geometry><box><size>0.12 0.12 0.08</size></box></geometry>
+        <material><ambient>0.9 0.4 0.0 1</ambient><diffuse>1.0 0.5 0.0 1</diffuse></material>
+      </visual>
+      <collision name="receiver_box_collision">
+        <pose>0 0 1.3 0 0 0</pose>
+        <geometry><box><size>0.12 0.12 0.08</size></box></geometry>
+      </collision>
+
+      <visual name="antenna_visual">
+        <pose>0 0 1.52 0 0 0</pose>
+        <geometry><cylinder><radius>0.08</radius><length>0.04</length></cylinder></geometry>
+        <material><ambient>0.9 0.9 0.9 1</ambient><diffuse>1.0 1.0 1.0 1</diffuse></material>
+      </visual>
+      <collision name="antenna_collision">
+        <pose>0 0 1.52 0 0 0</pose>
+        <geometry><cylinder><radius>0.08</radius><length>0.04</length></cylinder></geometry>
+      </collision>
+
+    </link>
+  </model>
+</sdf>
