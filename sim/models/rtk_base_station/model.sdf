@@ -75,6 +75,10 @@
         <geometry><cylinder><radius>0.08</radius><length>0.04</length></cylinder></geometry>
       </collision>
 
+      <sensor name="navsat_sensor" type="navsat">
+        <always_on>1</always_on>
+        <update_rate>1</update_rate>
+      </sensor>
     </link>
   </model>
 </sdf>

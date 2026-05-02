@@ -14,7 +14,7 @@ import glob
 import shutil
 
 WORKSPACE = "/home/yelpence/ros2_ws"
-PX4_PATH = os.path.join(WORKSPACE, "src/PX4-Autopilot")
+PX4_PATH = os.path.join(WORKSPACE, "src/px4_autopilot")
 MODELS_PATH = os.path.join(WORKSPACE, "sim/models")
 DEFAULT_WORLD = os.path.join(WORKSPACE, "sim/worlds/task1_dynamic_swarm.sdf")
 
@@ -284,6 +284,18 @@ def main():
     # 6. Kamera Relay Yazılımı
     print(">> Kamera Relay Düğümü başlatılıyor...")
     run_background(f"ros2 run swarm camera_relay {DRONE_COUNT}", "camera_relay")
+
+    # 7. RTK Yönetimi (Dahili C++ kodunda halledildiği için iptal edildi)
+    # print(">> RTK Baz İstasyonu Köprüsü ve Manager başlatılıyor...")
+    # rtk_gz_topic = f"/world/{world_name}/model/rtk_base_station/link/base_link/sensor/navsat_sensor/navsat"
+    # rtk_ros_topic = "/rtk_base/navsat"
+    # rtk_bridge_cmd = (
+    #     f"ros2 run ros_gz_bridge parameter_bridge "
+    #     f"'{rtk_gz_topic}@sensor_msgs/msg/NavSatFix[gz.msgs.NavSat' "
+    #     f"--ros-args -r '{rtk_gz_topic}:={rtk_ros_topic}'"
+    # )
+    # run_background(rtk_bridge_cmd, "rtk_bridge")
+    # run_background("python3 scripts/rtk_manager.py", "rtk_manager")
 
     print("\n--- TÜM SİSTEM BAŞARIYLA BAŞLATILDI ---")
     print(f"Süreçleri izlemek için: tmux attach -t {TMUX_SESSION}")

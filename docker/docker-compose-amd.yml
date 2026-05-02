@@ -13,7 +13,7 @@ services:
     container_name: yelpence_swarm_container_amd
 
     # SSH bağlantısı için port ayarı.
-    port:
+    ports:
       - "2222:22"
 
     network_mode: host
@@ -28,8 +28,9 @@ services:
       - RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
       - LIBGL_ALWAYS_SOFTWARE=0
       - GZ_SIM_RENDER_ENGINE_BACKEND=ogre2
-      - MESA_LOADER_DRIVER_OVERRIDE=radeonsi
-      - GALLIUM_DRIVER=radeonsi
+      - EGL_LOG_LEVEL=fatal
+      # MESA_LOADER_DRIVER_OVERRIDE=radeonsi # Bu ayar bazen dri2 hatası verdirir, yoruma alındı.
+      # GALLIUM_DRIVER=radeonsi
 
     volumes:
       - /tmp/.X11-unix:/tmp/.X11-unix:rw
@@ -40,8 +41,8 @@ services:
       - ../src:/home/yelpence/ros2_ws/src
 
       # ROS 2 Derleme izolasyonu
-      - /home/yelpence/ros2_ws/build
-      - /home/yelpence/ros2_ws/install
+      # - /home/yelpence/ros2_ws/build
+      # - /home/yelpence/ros2_ws/install
 
       # PX4 Derleme izolasyonu
       # PX4'ün host makinenizin içine build klasörü açmasını engeller.
@@ -55,7 +56,7 @@ services:
 
     group_add:
       - video
-      - render
+      - "992"
 
     stdin_open: true
     tty: true

@@ -24,6 +24,7 @@ services:
 
     group_add:
       - video
+      - "992"
 
     environment:
       - DISPLAY=${DISPLAY}
