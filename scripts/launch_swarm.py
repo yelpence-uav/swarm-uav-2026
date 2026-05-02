@@ -15,7 +15,7 @@ import shutil
 
 # Sabit Değerler (Constants)
 WORKSPACE = "/home/yelpence/ros2_ws"
-PX4_PATH = os.path.join(WORKSPACE, "src/PX4-Autopilot")
+PX4_PATH = os.path.join(WORKSPACE, "src/px4_autopilot")
 MODELS_PATH = os.path.join(WORKSPACE, "sim/models")
 DEFAULT_WORLD = os.path.join(WORKSPACE, "sim/worlds/task1_dynamic_swarm.sdf")
 

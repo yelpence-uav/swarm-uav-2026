@@ -1,0 +1,21 @@
+# GCS yapılandırması.
+# Sahada tek bağlantı string'ini değiştirmek yeterli (örn. udpin:... → serial:/dev/ttyUSB0:57600).
+# Tüm drone'lar tek MAVLink kanalından gelir; sysid'ye göre ayrıştırılır.
+
+mavlink:
+  # SITL: 3 PX4 da 14550'ye yayınlıyor.
+  # Saha: haberleşmeci ESP-NOW'dan alıp aynı port'a basacak.
+  connection: "udpin:0.0.0.0:14550"
+  #BİSMİLLAH 
+
+# Drone tanımları. sysid → drone_id eşlemesi.
+drones:
+  - { id: 1, name: "Drone 1", sysid: 1 }
+  - { id: 2, name: "Drone 2", sysid: 2 }
+  - { id: 3, name: "Drone 3", sysid: 3 }
+
+# Faz 1 — terminal print sıklığı (saniye). Faz 2'de WebSocket'e taşınacak.
+print_interval_sec: 1.0
+
+# Drone'dan kaç saniye paket gelmezse OFFLINE sayalım.
+offline_timeout_sec: 3.0
