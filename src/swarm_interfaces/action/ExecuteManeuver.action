@@ -1,0 +1,63 @@
+# ExecuteManeuver.action
+# Swarm-level pitch/roll/yaw maneuver execution interface.
+# Goal client: mission_fsm / mode_manager
+# Action server: maneuver_executor
+# Output path: maneuver_executor -> AgentSetpoint -> px4_interface
+# Coordinate convention: local NED frame. Angles are degrees.
+
+builtin_interfaces/Time stamp
+
+uint32 sequence_num
+
+uint8 MANEUVER_UNKNOWN=0
+uint8 MANEUVER_PITCH=1
+uint8 MANEUVER_ROLL=2
+uint8 MANEUVER_YAW=3
+uint8 MANEUVER_PITCH_ROLL=4
+uint8 MANEUVER_CUSTOM=99
+
+uint8 maneuver_type
+
+# Requested maneuver angles. Unused axes should be 0.0.
+float32 pitch_deg
+float32 roll_deg
+float32 yaw_deg
+
+# Keep swarm centroid fixed while applying the maneuver.
+bool keep_centroid_fixed
+
+# Hold final maneuver pose/geometry after completion until a new command arrives.
+bool hold_after_complete
+
+# Execution timing. timeout_s=0.0 means server default.
+float32 duration_s
+float32 timeout_s
+
+# Completion tolerances. 0.0 means server default.
+float32 angle_tolerance_deg
+float32 position_tolerance_m
+
+# Optional target/metadata.
+uint8 source_agent_id
+string source_module
+string reason
+---
+# Result
+bool success
+string result_message
+
+float32 final_pitch_error_deg
+float32 final_roll_error_deg
+float32 final_yaw_error_deg
+float32 final_max_position_error_m
+---
+# Feedback
+float32 progress_percent
+
+float32 current_pitch_deg
+float32 current_roll_deg
+float32 current_yaw_deg
+
+float32 current_max_position_error_m
+
+string feedback_message
