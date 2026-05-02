@@ -1,0 +1,61 @@
+# ManageSwarmMember.action
+# Long-running detach / rejoin / standby replacement flow for QR-based swarm member management.
+# Goal client: mission_fsm / mission_orchestrator
+# Action server: member_manager and/or target agent_fsm
+# Typical flow: detach -> go to colored zone -> precision land -> disarm wait -> rearm -> rejoin.
+
+builtin_interfaces/Time stamp
+
+uint32 sequence_num
+
+uint8 OP_UNKNOWN=0
+uint8 OP_DETACH=1
+uint8 OP_REJOIN=2
+uint8 OP_REPLACE_WITH_STANDBY=3
+
+uint8 operation
+
+uint8 target_agent_id
+
+uint8 COLOR_UNKNOWN=0
+uint8 COLOR_RED=1
+uint8 COLOR_BLUE=2
+
+# Used by OP_DETACH / OP_REPLACE_WITH_STANDBY.
+uint8 target_color
+
+# Landing/disarm wait duration after detach. 0.0 means no additional wait.
+float32 wait_s
+
+# Total action timeout. 0.0 means server default.
+float32 timeout_s
+
+string source_module
+string reason
+---
+# Result
+bool success
+string result_message
+
+uint8 final_agent_state
+bool detached
+bool landed
+bool disarmed
+bool rearmed
+bool rejoined
+---
+# Feedback
+uint8 PHASE_UNKNOWN=0
+uint8 PHASE_DETACHING=1
+uint8 PHASE_GOING_TO_ZONE=2
+uint8 PHASE_PRECISION_LANDING=3
+uint8 PHASE_DISARM_WAIT=4
+uint8 PHASE_REARMING=5
+uint8 PHASE_REJOINING=6
+uint8 PHASE_COMPLETED=7
+uint8 PHASE_ABORTED=8
+
+float32 progress_percent
+uint8 current_phase
+uint8 active_agent_id
+string feedback_message

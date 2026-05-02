@@ -1,0 +1,24 @@
+# TriggerMission.srv
+# GCS/mission launcher service for starting, pausing, aborting, or ending mission flow.
+# START is the normal mission trigger. RTL/LAND/ABORT are for test/safety/emergency use.
+
+uint8 MISSION_UNKNOWN=0
+uint8 MISSION_DYNAMIC_SWARM=1
+uint8 MISSION_SEMI_AUTONOMOUS=2
+
+uint8 COMMAND_UNKNOWN=0
+uint8 COMMAND_START=1
+uint8 COMMAND_ABORT=2
+uint8 COMMAND_PAUSE=3
+uint8 COMMAND_RESUME=4
+uint8 COMMAND_RTL=5
+uint8 COMMAND_LAND=6
+
+uint8 mission_id
+uint8 command
+
+string team_id
+string parameters_json
+---
+bool success
+string message
