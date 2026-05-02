@@ -1,0 +1,73 @@
+.status-bar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 8px 16px;
+  background: #0e1116;
+  color: #e6e6e6;
+  border-bottom: 1px solid #2a2f37;
+  font: 13px/1 ui-monospace, monospace;
+  flex: 0 0 auto;
+}
+
+.status-bar__brand {
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: #ffd166;
+}
+
+.status-bar__pill {
+  padding: 3px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.status-bar__pill--open {
+  background: rgba(76, 175, 80, 0.15);
+  color: #6fcf76;
+  border: 1px solid #4caf50;
+}
+
+.status-bar__pill--connecting {
+  background: rgba(255, 209, 102, 0.15);
+  color: #ffd166;
+  border: 1px solid #d4a93b;
+}
+
+.status-bar__pill--closed {
+  background: rgba(244, 67, 54, 0.15);
+  color: #ef5350;
+  border: 1px solid #e53935;
+}
+
+.status-bar__drones {
+  display: flex;
+  gap: 8px;
+  flex: 1;
+  overflow: hidden;
+}
+
+.status-bar__drone {
+  padding: 3px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  border: 1px solid #2a2f37;
+  white-space: nowrap;
+}
+
+.status-bar__drone.online {
+  color: #cfe9d2;
+  border-color: #2f5034;
+  background: rgba(76, 175, 80, 0.08);
+}
+
+.status-bar__drone.offline {
+  color: #888;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.status-bar__count {
+  color: #aaa;
+  font-size: 11px;
+}

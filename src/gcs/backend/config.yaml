@@ -6,7 +6,7 @@ mavlink:
   # SITL: 3 PX4 da 14550'ye yayınlıyor.
   # Saha: haberleşmeci ESP-NOW'dan alıp aynı port'a basacak.
   connection: "udpin:0.0.0.0:14550"
-  #BİSMİLLAH 
+  #BİSMİLLAH
 
 # Drone tanımları. sysid → drone_id eşlemesi.
 drones:
@@ -14,8 +14,17 @@ drones:
   - { id: 2, name: "Drone 2", sysid: 2 }
   - { id: 3, name: "Drone 3", sysid: 3 }
 
-# Faz 1 — terminal print sıklığı (saniye). Faz 2'de WebSocket'e taşınacak.
-print_interval_sec: 1.0
-
 # Drone'dan kaç saniye paket gelmezse OFFLINE sayalım.
 offline_timeout_sec: 3.0
+
+# HTTP / WebSocket sunucusu (Faz 2).
+server:
+  host: "0.0.0.0"
+  port: 8000
+  ws_hz: 10.0                  # WebSocket'ten saniyede kaç snapshot itelim
+  cors_origins:
+    - "http://localhost:5173"  # Vite dev server
+    - "http://127.0.0.1:5173"
+
+# Terminal'e debug print sıklığı (saniye). 0 ise basmaz.
+print_interval_sec: 1.0
