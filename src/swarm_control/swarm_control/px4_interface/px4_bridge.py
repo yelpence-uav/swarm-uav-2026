@@ -1,4 +1,19 @@
-"""PX4 ile FSM arasında köprü kuran ana ROS2 node."""
+"""
+px4_bridge.py
+
+PX4 ↔ FSM köprüsü — ana ROS2 node.
+
+İŞLEYİŞ:
+1. PX4 topic'lerini dinler (/fmu/out/...)
+   → telemetry_mapper ile AgentStatus'a çevirir
+   → /swarm/agent/drone{id}/telemetry'ye yayınlar (FSM okuyacak)
+
+2. FSM komut topic'ini dinler (/swarm/agent/drone{id}/commands)
+   → command_sender ile PX4'e iletir (/fmu/in/...)
+
+KULLANIM:
+    ros2 run swarm_control px4_bridge --ros-args -p agent_id:=1
+"""
 
 import rclpy
 from rclpy.node import Node
@@ -9,6 +24,7 @@ from rclpy.qos import (
     QoSReliabilityPolicy,
 )
 
+# PX4 mesaj tipleri
 from px4_msgs.msg import (
     BatteryStatus,
     EstimatorStatusFlags,
@@ -20,9 +36,14 @@ from px4_msgs.msg import (
     VehicleLocalPosition,
     VehicleStatus,
 )
+
+# Komut için basit string mesajı (FSM'den gelir)
 from std_msgs.msg import String
+
+# Bizim mesaj formatımız
 from swarm_interfaces.msg import AgentStatus
 
+# Aynı paket içindeki yardımcılar
 from .telemetry_mapper import (
     map_attitude,
     map_battery,
@@ -37,6 +58,7 @@ from .telemetry_mapper import (
 from .command_sender import CommandSender
 
 
+# PX4 BEST_EFFORT QoS — PX4 telemetri bu profili kullanır
 _PX4_QOS = QoSProfile(
     reliability=QoSReliabilityPolicy.BEST_EFFORT,
     durability=QoSDurabilityPolicy.VOLATILE,
@@ -46,41 +68,41 @@ _PX4_QOS = QoSProfile(
 
 
 class Px4BridgeNode(Node):
-    """PX4 telemetrisini AgentStatus'a çeviren ve FSM komutlarını ileten."""
+    """PX4 ↔ FSM ortadaki köprü node."""
 
     def __init__(self) -> None:
         super().__init__('px4_bridge')
 
+        # ROS2 parametreleri
         self.declare_parameter('agent_id', 1)
         self.declare_parameter('publish_rate_hz', 10.0)
-        self.declare_parameter('px4_namespace', '')
-
+        self.declare_parameter('px4_namespace', 'drone_1')
         self._agent_id: int = int(
             self.get_parameter('agent_id').value
         )
         publish_rate = float(
             self.get_parameter('publish_rate_hz').value
         )
-        ns = self.get_parameter('px4_namespace').value
-        self._px4_ns = ns if ns else f'drone_{self._agent_id}'
+        self._px4_ns: str = self.get_parameter('px4_namespace').value
 
+        # Drone'un anlık durumu — callback'ler bunu doldurur
         self._status = AgentStatus()
         self._status.agent_id = self._agent_id
 
-        self._cmd_sender = CommandSender(
-            self,
-            system_id=self._agent_id,
-            px4_namespace=self._px4_ns,
-        )
+        # PX4'e komut gönderen yardımcı
+        self._cmd_sender = CommandSender(self, system_id=self._agent_id)
 
+        # PX4 telemetri abonelikleri kur
         self._setup_px4_subscriptions()
 
+        # AgentStatus yayıncısı (FSM bunu okur)
         self._status_pub = self.create_publisher(
             AgentStatus,
             f'/swarm/agent/drone{self._agent_id}/telemetry',
             10,
         )
 
+        # FSM komut aboneliği (FSM buraya yazar, biz PX4'e iletiriz)
         self.create_subscription(
             String,
             f'/swarm/agent/drone{self._agent_id}/commands',
@@ -88,6 +110,7 @@ class Px4BridgeNode(Node):
             10,
         )
 
+        # AgentStatus'u periyodik yayınla — varsayılan 10 Hz
         self.create_timer(1.0 / publish_rate, self._publish_status)
 
         self.get_logger().info(
@@ -95,33 +118,36 @@ class Px4BridgeNode(Node):
             f'publish_rate={publish_rate} Hz'
         )
 
+    # =================================================================
+    # PX4 ABONELİKLERİ
+    # =================================================================
     def _setup_px4_subscriptions(self) -> None:
-        """PX4 telemetri topic'lerine abone olur."""
+        """PX4 telemetri topic'lerine abone olur, her topic için ilgili mapper callback'i atanır."""
         ns = self._px4_ns
         subs = [
-            (BatteryStatus,
-             f'/{ns}/fmu/out/battery_status', self._on_battery),
-            (VehicleStatus,
-             f'/{ns}/fmu/out/vehicle_status', self._on_vehicle_status),
-            (VehicleLocalPosition,
-             f'/{ns}/fmu/out/vehicle_local_position', self._on_local_pos),
-            (EstimatorStatusFlags,
-             f'/{ns}/fmu/out/estimator_status_flags', self._on_estimator),
-            (SensorGps,
-             f'/{ns}/fmu/out/vehicle_gps_position', self._on_gps),
-            (VehicleGlobalPosition,
-             f'/{ns}/fmu/out/vehicle_global_position', self._on_global_pos),
-            (HomePosition,
-             f'/{ns}/fmu/out/home_position', self._on_home),
-            (VehicleAttitude,
-             f'/{ns}/fmu/out/vehicle_attitude', self._on_attitude),
-            (ManualControlSetpoint,
-             f'/{ns}/fmu/out/manual_control_setpoint',
+            (BatteryStatus, f'/{ns}/fmu/out/battery_status',
+             self._on_battery),
+            (VehicleStatus, f'/{ns}/fmu/out/vehicle_status',
+             self._on_vehicle_status),
+            (VehicleLocalPosition, f'/{ns}/fmu/out/vehicle_local_position',
+             self._on_local_pos),
+            (EstimatorStatusFlags, f'/{ns}/fmu/out/estimator_status_flags',
+             self._on_estimator),
+            (SensorGps, f'/{ns}/fmu/out/vehicle_gps_position', self._on_gps),
+            (VehicleGlobalPosition, f'/{ns}/fmu/out/vehicle_global_position',
+             self._on_global_pos),
+            (HomePosition, f'/{ns}/fmu/out/home_position', self._on_home),
+            (VehicleAttitude, f'/{ns}/fmu/out/vehicle_attitude',
+             self._on_attitude),
+            (ManualControlSetpoint, f'/{ns}/fmu/out/manual_control_setpoint',
              self._on_manual_control),
         ]
         for msg_type, topic, cb in subs:
             self.create_subscription(msg_type, topic, cb, _PX4_QOS)
 
+    # =================================================================
+    # PX4 CALLBACKS — sadece mapper'ı çağırırlar
+    # =================================================================
     def _on_battery(self, msg: BatteryStatus) -> None:
         map_battery(msg, self._status)
 
@@ -149,14 +175,16 @@ class Px4BridgeNode(Node):
     def _on_manual_control(self, msg: ManualControlSetpoint) -> None:
         map_manual_control(msg, self._status)
 
+    # =================================================================
+    # FSM KOMUT KÖPRÜSÜ
+    # =================================================================
     def _on_fsm_command(self, msg: String) -> None:
-        """
-        FSM'den gelen string komutu PX4'e iletir.
+        """FSM komut topic'inden gelen string komutu ayrıştırarak PX4'e iletir.
 
         Args:
-            msg: Komut içeren String mesajı.
-                 Desteklenen değerler: arm, disarm, takeoff[:irtifa],
-                 land, rtl, offboard.
+            msg (String): FSM'den gelen komut mesajı.
+                Desteklenen değerler: "arm", "disarm", "takeoff", "takeoff:10.0",
+                "land", "rtl", "offboard".
         """
         cmd = msg.data.strip().lower()
 
@@ -165,6 +193,7 @@ class Px4BridgeNode(Node):
         elif cmd == 'disarm':
             self._cmd_sender.disarm()
         elif cmd.startswith('takeoff'):
+            # "takeoff:10.0" → altitude=10.0; sadece "takeoff" → 10.0 default
             altitude = 10.0
             if ':' in cmd:
                 try:
@@ -183,6 +212,9 @@ class Px4BridgeNode(Node):
         else:
             self.get_logger().warning(f'Bilinmeyen FSM komutu: {cmd}')
 
+    # =================================================================
+    # AGENTSTATUS YAYINLA (10 Hz timer)
+    # =================================================================
     def _publish_status(self) -> None:
         self._status.stamp = self.get_clock().now().to_msg()
         self._status_pub.publish(self._status)

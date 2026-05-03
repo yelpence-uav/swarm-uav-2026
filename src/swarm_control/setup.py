@@ -8,7 +8,7 @@ setup(
     packages=find_packages(exclude=['test']),
     data_files=[
         ('share/ament_index/resource_index/packages',
-         ['resource/' + package_name]),
+            ['resource/' + package_name]),
         ('share/' + package_name, ['package.xml']),
     ],
     install_requires=['setuptools'],
@@ -17,7 +17,6 @@ setup(
     maintainer_email='kocakseydagul@gmail.com',
     description='PX4 interface bridge',
     license='MIT',
-    tests_require=['pytest'],
     entry_points={
         'console_scripts': [
             'px4_bridge = swarm_control.px4_interface.px4_bridge:main',

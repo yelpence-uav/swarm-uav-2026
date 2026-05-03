@@ -1,4 +1,16 @@
-"""FSM komutlarını PX4 VehicleCommand mesajlarına çeviren sınıf."""
+"""
+command_sender.py
+
+FSM kararlarını PX4'ün anlayacağı komutlara çevirir ve yayınlar.
+
+Yayınlanan PX4 topic'leri:
+- /fmu/in/vehicle_command          → arm/disarm/mode/takeoff/land/RTL
+- /fmu/in/offboard_control_mode    → offboard kontrol türü (pozisyon/hız)
+- /fmu/in/trajectory_setpoint      → hedef pozisyon ve yaw
+
+Bu sınıf bir node'a bağlıdır (publisher'ları oluşturmak için), ama node mantığı
+içermez — px4_bridge çağırır.
+"""
 
 from px4_msgs.msg import (
     OffboardControlMode,
@@ -7,15 +19,19 @@ from px4_msgs.msg import (
 )
 
 
-_CMD_ARM_DISARM = 400
-_CMD_NAV_TAKEOFF = 22
+# PX4 VehicleCommand komut kodları (MAVLink standardı)
+_CMD_ARM_DISARM = 400          # param1=1.0 arm, 0.0 disarm
+_CMD_NAV_TAKEOFF = 22          # param7 = irtifa
 _CMD_NAV_LAND = 21
-_CMD_NAV_RTL = 20
-_CMD_DO_SET_MODE = 176
+_CMD_NAV_RTL = 20              # Return to Launch
+_CMD_DO_SET_MODE = 176         # base_mode + custom_main + custom_sub
 
+
+# PX4 PX4_CUSTOM_MAIN_MODE değerleri (DO_SET_MODE param2 için)
 _MAIN_MODE_OFFBOARD = 6
 _MAIN_MODE_AUTO = 4
 
+# AUTO alt modları (DO_SET_MODE param3 için)
 _SUB_AUTO_LOITER = 3
 _SUB_AUTO_LAND = 6
 _SUB_AUTO_RTL = 5
@@ -23,7 +39,7 @@ _SUB_AUTO_TAKEOFF = 2
 
 
 class CommandSender:
-    """FSM kararlarını PX4'e ileten komut gönderici.
+    """FSM → PX4 komut köprüsü.
 
     Kullanım:
         sender = CommandSender(node, system_id=1)
@@ -32,32 +48,26 @@ class CommandSender:
         sender.land()
     """
 
-    def __init__(
-        self, node, system_id: int = 1,
-        component_id: int = 1, px4_namespace: str = ''
-    ):
+    def __init__(self, node, system_id: int = 1, component_id: int = 1):
         """
         Args:
-            node: Publisher oluşturmak için kullanılan ROS2 node.
-            system_id: PX4 MAV_SYS_ID, drone numarasıyla eşleşir.
-            component_id: MAV_COMP_ID, varsayılan 1.
-            px4_namespace: PX4 topic namespace (ör. 'drone_1').
+            node: ROS2 node (publisher oluşturmak için)
+            system_id: PX4 MAV_SYS_ID — drone numarası (default 1)
+            component_id: MAV_COMP_ID — onboard bilgisayar (default 1)
         """
         self._node = node
         self._sys_id = system_id
         self._comp_id = component_id
-        ns = px4_namespace if px4_namespace else f'drone_{system_id}'
 
+        # PX4'e komut yayınlayan publisher'lar
         self._cmd_pub = node.create_publisher(
-            VehicleCommand, f'/{ns}/fmu/in/vehicle_command', 10
+            VehicleCommand, '/fmu/in/vehicle_command', 10
         )
         self._offboard_pub = node.create_publisher(
-            OffboardControlMode,
-            f'/{ns}/fmu/in/offboard_control_mode', 10
+            OffboardControlMode, '/fmu/in/offboard_control_mode', 10
         )
         self._setpoint_pub = node.create_publisher(
-            TrajectorySetpoint,
-            f'/{ns}/fmu/in/trajectory_setpoint', 10
+            TrajectorySetpoint, '/fmu/in/trajectory_setpoint', 10
         )
 
     def _send_vehicle_command(
@@ -71,12 +81,11 @@ class CommandSender:
         param6: float = 0.0,
         param7: float = 0.0,
     ) -> None:
-        """
-        VehicleCommand mesajı oluşturur ve PX4'e gönderir.
+        """VehicleCommand mesajı oluşturup PX4'e yayınlar.
 
         Args:
-            command: MAVLink komut kodu.
-            param1-param7: Komuta özgü parametreler.
+            command (int): MAVLink komut kodu (_CMD_* sabitleri).
+            param1..param7 (float): Komuta özgü MAVLink parametreleri.
         """
         msg = VehicleCommand()
         msg.timestamp = int(self._node.get_clock().now().nanoseconds / 1000)
@@ -96,15 +105,16 @@ class CommandSender:
         self._cmd_pub.publish(msg)
 
     def arm(self) -> None:
-        """Motorları arm eder."""
+        """Motorları arm eder, drone uçuşa hazır hale gelir."""
         self._send_vehicle_command(_CMD_ARM_DISARM, param1=1.0)
 
     def disarm(self) -> None:
-        """Motorları disarm eder."""
+        """Motorları disarm eder, drone yerde güvenli konuma geçer."""
         self._send_vehicle_command(_CMD_ARM_DISARM, param1=0.0)
 
     def set_offboard_mode(self) -> None:
-        """OFFBOARD moduna geçer."""
+        """OFFBOARD moduna geçer, drone harici setpoint'leri takip eder."""
+        # base_mode=1 (custom), custom_main=6 (OFFBOARD)
         self._send_vehicle_command(
             _CMD_DO_SET_MODE,
             param1=1.0,
@@ -112,7 +122,7 @@ class CommandSender:
         )
 
     def set_auto_loiter_mode(self) -> None:
-        """AUTO LOITER moduna geçer."""
+        """AUTO LOITER moduna geçer, drone havada sabit konumda bekler."""
         self._send_vehicle_command(
             _CMD_DO_SET_MODE,
             param1=1.0,
@@ -121,24 +131,26 @@ class CommandSender:
         )
 
     def takeoff(self, altitude_m: float = 10.0) -> None:
-        """
-        Belirtilen irtifaya kalkış yapar.
+        """AUTO_TAKEOFF modunu kullanarak belirtilen irtifaya kalkış yapar.
 
         Args:
-            altitude_m: Hedef kalkış irtifası (metre).
+            altitude_m (float): Hedef kalkış irtifası (metre). Varsayılan 10.0.
         """
         self._send_vehicle_command(_CMD_NAV_TAKEOFF, param7=altitude_m)
 
     def land(self) -> None:
-        """Bulunduğu konumda iniş yapar."""
+        """Bulunulan konumda iniş yapar."""
         self._send_vehicle_command(_CMD_NAV_LAND)
 
     def return_home(self) -> None:
-        """Home konumuna döner (RTL)."""
+        """RTL modunu tetikler, drone başlangıç konumuna döner."""
         self._send_vehicle_command(_CMD_NAV_RTL)
 
     def publish_offboard_position_mode(self) -> None:
-        """OFFBOARD modunda pozisyon kontrolü kullandığını bildirir."""
+        """OFFBOARD modunda PX4'e pozisyon kontrolü kullandığını bildirir.
+
+        Stream kesilirse PX4 OFFBOARD'dan çıkar; px4_bridge bu fonksiyonu 50 Hz yayınlamalıdır.
+        """
         msg = OffboardControlMode()
         msg.timestamp = int(self._node.get_clock().now().nanoseconds / 1000)
         msg.position = True
@@ -155,14 +167,13 @@ class CommandSender:
         z: float,
         yaw_rad: float = 0.0,
     ) -> None:
-        """
-        NED çerçevesinde hedef pozisyon ve yaw gönderir.
+        """Hedef pozisyon ve yaw setpoint'ini PX4'e yayınlar.
 
         Args:
-            x: Kuzey ekseni (metre).
-            y: Doğu ekseni (metre).
-            z: Aşağı ekseni (metre, pozitif aşağı).
-            yaw_rad: Yaw açısı (radyan).
+            x (float): NED kuzey ekseni hedef konumu (metre).
+            y (float): NED doğu ekseni hedef konumu (metre).
+            z (float): NED aşağı ekseni hedef konumu (metre, aşağı pozitif).
+            yaw_rad (float): Hedef yaw açısı (radyan). Varsayılan 0.0.
         """
         msg = TrajectorySetpoint()
         msg.timestamp = int(self._node.get_clock().now().nanoseconds / 1000)

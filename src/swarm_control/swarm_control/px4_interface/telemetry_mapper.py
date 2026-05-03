@@ -1,32 +1,49 @@
-"""PX4 mesajlarını AgentStatus formatına çeviren dönüştürme fonksiyonları."""
+"""
+telemetry_mapper.py
+
+PX4 mesajlarını AgentStatus formatına çevirir.
+
+Bu modül SAF — ROS2 ile alakası yok, sadece veri dönüştürme fonksiyonları.
+Test edilmesi kolay, başka yerlerde de kullanılabilir.
+
+Her PX4 mesaj tipi için ayrı bir map_* fonksiyonu var.
+Fonksiyonlar AgentStatus nesnesini in-place günceller.
+"""
 
 import math
 
 
-# PX4 nav_state → AgentStatus flight_mode eşleşmesi
+# PX4 nav_state → AgentStatus FLIGHT_MODE_* eşleşmesi
+# PX4'ün sayısal kodları AgentStatus.msg'deki sayısal kodlardan farklı.
 NAV_STATE_TO_FLIGHT_MODE: dict[int, int] = {
-    0: 1,   # MANUAL
-    1: 2,   # ALTCTL
-    2: 3,   # POSCTL
-    3: 5,   # AUTO_MISSION
-    4: 6,   # AUTO_LOITER
-    5: 7,   # AUTO_RTL
-    6: 9,   # ACRO
-    14: 4,   # OFFBOARD
-    15: 10,  # STABILIZED
-    18: 8,   # AUTO_LAND
+    0:  1,   # MANUAL       → FLIGHT_MODE_MANUAL
+    1:  2,   # ALTCTL       → FLIGHT_MODE_ALTCTL
+    2:  3,   # POSCTL       → FLIGHT_MODE_POSCTL
+    3:  5,   # AUTO_MISSION → FLIGHT_MODE_AUTO_MISSION
+    4:  6,   # AUTO_LOITER  → FLIGHT_MODE_AUTO_LOITER
+    5:  7,   # AUTO_RTL     → FLIGHT_MODE_AUTO_RTL
+    6:  9,   # ACRO         → FLIGHT_MODE_ACRO
+    14: 4,   # OFFBOARD     → FLIGHT_MODE_OFFBOARD
+    15: 10,  # STABILIZED   → FLIGHT_MODE_STABILIZED
+    18: 8,   # AUTO_LAND    → FLIGHT_MODE_AUTO_LAND
 }
 
-PILOT_FLIGHT_MODES: frozenset[int] = frozenset({1, 2, 3, 9, 10})
+# Pilot override olarak sayılan AgentStatus flight mode kodları
+PILOT_FLIGHT_MODES: frozenset[int] = frozenset({
+    1,   # MANUAL
+    2,   # ALTCTL
+    3,   # POSCTL
+    9,   # ACRO
+    10,  # STABILIZED
+})
 
 
 def map_battery(msg, status) -> None:
-    """
-    BatteryStatus mesajını AgentStatus batarya alanlarına çevirir.
+    """BatteryStatus verisini AgentStatus pil alanlarına yazar.
 
     Args:
-        msg: PX4 BatteryStatus mesajı.
-        status: Güncellenecek AgentStatus nesnesi.
+        msg (BatteryStatus): PX4'ten gelen pil durumu mesajı.
+        status (AgentStatus): Güncellenmesi gereken durum nesnesi.
     """
     status.battery_voltage_v = float(msg.voltage_v)
     status.battery_current_a = float(msg.current_a)
@@ -37,32 +54,32 @@ def map_battery(msg, status) -> None:
 
 
 def map_vehicle_status(msg, status) -> None:
-    """
-    VehicleStatus mesajını AgentStatus durum alanlarına çevirir.
+    """VehicleStatus verisini AgentStatus durum alanlarına yazar.
 
     Args:
-        msg: PX4 VehicleStatus mesajı.
-        status: Güncellenecek AgentStatus nesnesi.
+        msg (VehicleStatus): PX4'ten gelen araç durum mesajı.
+        status (AgentStatus): Güncellenmesi gereken durum nesnesi.
     """
+    # ARMING_STATE_ARMED = 2
     status.armed = (msg.arming_state == 2)
     status.failsafe_active = bool(msg.failsafe)
     status.rc_signal_failsafe_active = False
-    status.px4_link_ok = True
+    status.px4_link_ok = True  # Bu mesaj geliyorsa PX4 bağlı
 
-    fm = NAV_STATE_TO_FLIGHT_MODE.get(msg.nav_state, 0)
+    # nav_state → AgentStatus flight_mode
+    fm = NAV_STATE_TO_FLIGHT_MODE.get(msg.nav_state, 0)  # 0 = UNKNOWN
     status.flight_mode = fm
-    status.offboard_active = (fm == 4)
+    status.offboard_active = (fm == 4)   # FLIGHT_MODE_OFFBOARD
     status.offboard_enabled = status.offboard_active
     status.pilot_override_active = (fm in PILOT_FLIGHT_MODES)
 
 
 def map_local_position(msg, status) -> None:
-    """
-    VehicleLocalPosition mesajını AgentStatus konum alanlarına çevirir.
+    """VehicleLocalPosition verisini AgentStatus konum alanlarına yazar.
 
     Args:
-        msg: PX4 VehicleLocalPosition mesajı.
-        status: Güncellenecek AgentStatus nesnesi.
+        msg (VehicleLocalPosition): PX4'ten gelen yerel konum mesajı.
+        status (AgentStatus): Güncellenmesi gereken durum nesnesi.
     """
     status.pos_x = float(msg.x)
     status.pos_y = float(msg.y)
@@ -76,16 +93,13 @@ def map_local_position(msg, status) -> None:
 
 
 def map_estimator(msg, status) -> None:
-    """
-    EstimatorStatusFlags mesajını AgentStatus sensör sağlığı alanlarına
-    çevirir.
+    """EstimatorStatusFlags verisini AgentStatus sensör sağlığı alanlarına yazar.
 
-    PX4 sürümleri arasında alan adları değişebildiğinden getattr kullanılır.
-
+    PX4 sürümleri arasında alan adları değişebildiğinden getattr ile güvenli okuma yapılır.
 
     Args:
-        msg: PX4 EstimatorStatusFlags mesajı.
-        status: Güncellenecek AgentStatus nesnesi.
+        msg (EstimatorStatusFlags): PX4'ten gelen tahmin edici durum bayrakları mesajı.
+        status (AgentStatus): Güncellenmesi gereken durum nesnesi.
     """
     tilt_ok = bool(getattr(msg, 'cs_tilt_align', False))
     yaw_ok = bool(getattr(msg, 'cs_yaw_align', False))
@@ -93,23 +107,24 @@ def map_estimator(msg, status) -> None:
     status.imu_healthy = tilt_ok
     status.estimator_ok = tilt_ok and yaw_ok
 
+    # Mag — alan adı PX4 sürümüne göre değişir
     mag_ok = bool(
         getattr(msg, 'cs_mag_aligned_in_flight', None)
         or getattr(msg, 'cs_yaw_align', False)
     )
     status.mag_healthy = mag_ok
 
+    # Baro — fault yoksa sağlıklı
     baro_fault = bool(getattr(msg, 'cs_baro_fault', False))
     status.baro_healthy = not baro_fault
 
 
 def map_gps(msg, status) -> None:
-    """
-    SensorGps mesajını AgentStatus GPS alanlarına çevirir.
+    """SensorGps verisini AgentStatus GPS alanlarına yazar.
 
     Args:
-        msg: PX4 SensorGps mesajı.
-        status: Güncellenecek AgentStatus nesnesi.
+        msg (SensorGps): PX4'ten gelen GPS sensör mesajı.
+        status (AgentStatus): Güncellenmesi gereken durum nesnesi.
     """
     status.gps_fix_type = int(msg.fix_type)
     status.gps_hdop = float(msg.hdop)
@@ -117,12 +132,11 @@ def map_gps(msg, status) -> None:
 
 
 def map_global_position(msg, status) -> None:
-    """
-    VehicleGlobalPosition mesajını AgentStatus konum alanlarına çevirir.
+    """VehicleGlobalPosition verisini AgentStatus küresel konum alanlarına yazar.
 
     Args:
-        msg: PX4 VehicleGlobalPosition mesajı.
-        status: Güncellenecek AgentStatus nesnesi.
+        msg (VehicleGlobalPosition): PX4'ten gelen küresel konum mesajı.
+        status (AgentStatus): Güncellenmesi gereken durum nesnesi.
     """
     status.lat_deg = float(msg.lat)
     status.lon_deg = float(msg.lon)
@@ -130,12 +144,11 @@ def map_global_position(msg, status) -> None:
 
 
 def map_home_position(msg, status) -> None:
-    """
-    HomePosition mesajını AgentStatus ev konumu alanlarına çevirir.
+    """HomePosition verisini AgentStatus ev konumu alanlarına yazar.
 
     Args:
-        msg: PX4 HomePosition mesajı.
-        status: Güncellenecek AgentStatus nesnesi.
+        msg (HomePosition): PX4'ten gelen ev konumu mesajı.
+        status (AgentStatus): Güncellenmesi gereken durum nesnesi.
     """
     status.home_set = bool(msg.valid_hpos and msg.valid_vpos)
     status.home_lat_deg = float(msg.lat)
@@ -144,40 +157,40 @@ def map_home_position(msg, status) -> None:
 
 
 def map_attitude(msg, status) -> None:
-    """
-    VehicleAttitude kuaterniyonunu Euler açılarına çevirir.
+    """VehicleAttitude kuaterniyonunu Euler açılarına çevirerek AgentStatus'a yazar.
 
-    Kuaterniyon [w, x, y, z] formatında gelir (PX4 standardı).
-    ZYX Euler dönüşümü uygulanır.
+    Quaternion [w, x, y, z] formatındadır (PX4 standardı). ZYX Euler dönüşümü uygulanır.
 
     Args:
-        msg: PX4 VehicleAttitude mesajı.
-        status: Güncellenecek AgentStatus nesnesi.
+        msg (VehicleAttitude): PX4'ten gelen araç tutum mesajı.
+        status (AgentStatus): Güncellenmesi gereken durum nesnesi.
     """
-    q = msg.q
+    q = msg.q  # [w, x, y, z]
 
+    # Roll (x ekseni etrafında dönüş)
     sinr = 2.0 * (q[0] * q[1] + q[2] * q[3])
     cosr = 1.0 - 2.0 * (q[1] ** 2 + q[2] ** 2)
     status.roll_deg = math.degrees(math.atan2(sinr, cosr))
 
+    # Pitch (y ekseni)
     sinp = 2.0 * (q[0] * q[2] - q[3] * q[1])
-    sinp = max(-1.0, min(1.0, sinp))
+    sinp = max(-1.0, min(1.0, sinp))  # gimbal lock guard
     status.pitch_deg = math.degrees(math.asin(sinp))
 
+    # Yaw / heading (z ekseni)
     siny = 2.0 * (q[0] * q[3] + q[1] * q[2])
     cosy = 1.0 - 2.0 * (q[2] ** 2 + q[3] ** 2)
     yaw = math.degrees(math.atan2(siny, cosy))
     if yaw < 0:
-        yaw += 360.0
+        yaw += 360.0  # 0-360 arası normalize et
     status.heading_deg = yaw
 
 
 def map_manual_control(msg, status) -> None:
-    """
-    ManualControlSetpoint mesajını AgentStatus RC bağlantı alanına çevirir.
+    """ManualControlSetpoint verisini AgentStatus RC bağlantı alanına yazar.
 
     Args:
-        msg: PX4 ManualControlSetpoint mesajı.
-        status: Güncellenecek AgentStatus nesnesi.
+        msg (ManualControlSetpoint): PX4'ten gelen manuel kontrol mesajı.
+        status (AgentStatus): Güncellenmesi gereken durum nesnesi.
     """
     status.rc_link_ok = bool(getattr(msg, 'valid', True))
