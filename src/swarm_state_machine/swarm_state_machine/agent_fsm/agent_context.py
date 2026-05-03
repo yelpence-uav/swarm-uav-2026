@@ -12,11 +12,13 @@ Kaynak: swarm_interfaces/msg/AgentStatus.msg
 """
 
 import time  # Zaman ölçümü için — timeout kontrollerinde kullanılır
-from dataclasses import dataclass, field  # dataclass: otomatik __init__ oluşturur, field: özel başlangıç değerleri için
-from .agent_states import AgentState, AgentRole, FlightMode  # Aynı paketteki durum tanımlarını içe aktar
+# dataclass: otomatik __init__ oluşturur, field: özel başlangıç değerleri için
+from dataclasses import dataclass, field
+# Aynı paketteki durum tanımlarını içe aktar
+from .agent_states import AgentState, AgentRole, FlightMode
 
 
-@dataclass  # Bu dekoratör sayesinde tüm değişkenler otomatik olarak __init__'e eklenir
+@dataclass
 class AgentContext:
     """
     Tek bir drone'un tüm anlık durumunu tutar.
@@ -35,25 +37,32 @@ class AgentContext:
     # FSM DURUMU
     # Drone şu an hangi durumda ve ne rolde?
     # =================================================================
-    state: AgentState = AgentState.UNKNOWN   # Başlangıçta bilinmiyor, ilk tick'te IDLE'a geçer
+    # Başlangıçta bilinmiyor, ilk tick'te IDLE'a geçer
+    state: AgentState = AgentState.UNKNOWN
     role: AgentRole = AgentRole.UNKNOWN      # Rol atanana kadar bilinmiyor
 
     # =================================================================
     # BAĞLANTI DURUMU
     # Drone kimlerle iletişim kurabiliyör?
     # =================================================================
-    px4_link_ok: bool = False   # PX4 uçuş kontrolcüsüyle bağlantı var mı? (Micro-XRCE-DDS üzerinden)
-    gcs_link_ok: bool = False   # Yer kontrol istasyonuyla (GCS) bağlantı var mı?
+    # PX4 uçuş kontrolcüsüyle bağlantı var mı? (Micro-XRCE-DDS üzerinden)
+    px4_link_ok: bool = False
+    # Yer kontrol istasyonuyla (GCS) bağlantı var mı?
+    gcs_link_ok: bool = False
 
     # =================================================================
     # ARM ve OFFBOARD DURUMU
     # Drone uçmaya hazır mı, kim kontrol ediyor?
     # =================================================================
-    armed: bool = False                          # True = motorlar çalışıyor ve tehlikeli
-    offboard_enabled: bool = False               # OFFBOARD modu etkinleştirildi mi?
-    offboard_active: bool = False                # OFFBOARD modu şu an aktif mi? (PX4 onayladı mı?)
-    flight_mode: FlightMode = FlightMode.UNKNOWN # PX4'ün şu anki uçuş modu (OFFBOARD, RTL, LAND vs.)
-    pilot_override_active: bool = False          # Pilot joystick'e dokunduysa True — otomasyon durur
+    # True = motorlar çalışıyor ve tehlikeli
+    armed: bool = False
+    offboard_enabled: bool = False  # OFFBOARD modu etkinleştirildi mi?
+    # OFFBOARD modu şu an aktif mi? (PX4 onayladı mı?)
+    offboard_active: bool = False
+    # PX4'ün şu anki uçuş modu (OFFBOARD, RTL, LAND vs.)
+    flight_mode: FlightMode = FlightMode.UNKNOWN
+    # Pilot joystick'e dokunduysa True — otomasyon durur
+    pilot_override_active: bool = False
 
     # =================================================================
     # FAILSAFE ve GENEL SAĞLIK
@@ -65,7 +74,8 @@ class AgentContext:
     # Voltaj değeri kullanılır çünkü daha güvenilir — yüzde yanıltabilir
     # =================================================================
     battery_percent: float = 0.0    # Batarya yüzdesi (0-100), bilgi amaçlı
-    battery_voltage_v: float = 0.0  # Anlık voltaj — kritik karar burada: düşükse FAILSAFE
+    # Anlık voltaj — kritik karar burada: düşükse FAILSAFE
+    battery_voltage_v: float = 0.0
     battery_current_a: float = 0.0  # Anlık akım (amper)
 
     # =================================================================
@@ -79,12 +89,13 @@ class AgentContext:
     pos_z: float = 0.0   # Aşağı yönünde konum — yükseklik için -1 çarp!
     vel_x: float = 0.0   # Kuzey yönünde hız (m/s)
     vel_y: float = 0.0   # Doğu yönünde hız (m/s)
-    vel_z: float = 0.0   # Dikey hız — pozitif = aşağı iniyor, negatif = yukarı çıkıyor
+    vel_z: float = 0.0   # Dikey hız — pozitif=aşağı, negatif=yukarı
 
     # =================================================================
     # DRONE'UN DURUŞU (ATTITUDE)
     # =================================================================
-    heading_deg: float = 0.0  # Hangi yöne bakıyor? (0=Kuzey, 90=Doğu, 180=Güney)
+    # Hangi yöne bakıyor? (0=Kuzey, 90=Doğu, 180=Güney)
+    heading_deg: float = 0.0
     roll_deg: float = 0.0     # Yan yatma açısı (derece)
     pitch_deg: float = 0.0    # Öne-arkaya eğilme açısı (derece)
 
@@ -120,7 +131,8 @@ class AgentContext:
     # =================================================================
     imu_healthy: bool = False   # IMU (ivmeölçer + jiroskop) çalışıyor mu?
     mag_healthy: bool = False   # Manyetometre (pusula) çalışıyor mu?
-    baro_healthy: bool = False  # Barometre (basınç irtifa sensörü) çalışıyor mu?
+    # Barometre (basınç irtifa sensörü) çalışıyor mu?
+    baro_healthy: bool = False
 
     # =================================================================
     # EKF2 ESTIMATOR (Genişletilmiş Kalman Filtresi)
@@ -138,27 +150,34 @@ class AgentContext:
     # Lider drone referans noktayı yayınlar, diğerleri senkronize olur
     # =================================================================
     origin_synced: bool = False   # Koordinat sistemi senkronize mi?
-    origin_sequence: int = 0      # Kaçıncı origin mesajı alındı (güncelleme takibi için)
+    # Kaçıncı origin mesajı alındı (güncelleme takibi için)
+    origin_sequence: int = 0
 
     # =================================================================
     # RC (UZAKTAN KUMANDA) ve GÜVENLİK
     # =================================================================
     rc_link_ok: bool = False                # RC kumanda bağlantısı var mı?
-    kill_switch_active: bool = False        # Kill switch basıldı mı? — motorlar anında durur!
-    rc_signal_failsafe_active: bool = False # RC sinyal kaybı failsafe aktif mi?
+    # Kill switch basıldı mı? — motorlar anında durur!
+    kill_switch_active: bool = False
+    rc_signal_failsafe_active: bool = False  # RC sinyal kaybı failsafe
 
     # =================================================================
     # UÇUŞ STABİLİTESİ
     # agent_health_monitor son 2 saniyelik veriden hesaplar
     # =================================================================
-    oscillation_detected: bool = False  # Drone sallanıyor mu? (attitude varyansı yüksekse)
-    unstable_flight: bool = False       # Tehlikeli kararsız uçuş mu? (çok fazla sallanma veya hız)
+    # Drone sallanıyor mu? (attitude varyansı yüksekse)
+    oscillation_detected: bool = False
+    # Tehlikeli kararsız uçuş mu? (çok fazla sallanma veya hız)
+    unstable_flight: bool = False
 
     # =================================================================
     # STANDBY / SÜRÜYE KATILMA
     # =================================================================
-    wants_to_join: bool = False  # Drone sürüye katılmak istiyor mu? (EVENT_AGENT_JOIN_REQUEST ile set edilir)
-    ready_to_arm: bool = False   # PX4 preflight kontrollerini geçti mi? (pre_flight_checks_pass)
+    # Drone sürüye katılmak istiyor mu? (EVENT_AGENT_JOIN_REQUEST ile set
+    # edilir)
+    wants_to_join: bool = False
+    # PX4 preflight kontrollerini geçti mi? (pre_flight_checks_pass)
+    ready_to_arm: bool = False
 
     # =================================================================
     # DURUM METNİ
@@ -184,10 +203,12 @@ class AgentContext:
     attitude_stable: bool = False    # Duruş (roll/pitch) sabit mi?
     vertical_speed_ok: bool = False  # Dikey hız yeterince küçük mü?
 
-    # Pilot joystick'e dokunduğunda True — o an otonom komutlar görmezden gelinir
+    # Pilot joystick'e dokunduğunda True — o an otonom komutlar görmezden
+    # gelinir
     autonomous_control_paused: bool = False
 
-    # Safety hold aktifken True — geçişler dondurulur, drone olduğu yerde bekler
+    # Safety hold aktifken True — geçişler dondurulur, drone olduğu yerde
+    # bekler
     hold_active: bool = False
 
     # Bu state'e ne zaman girildi? — timeout kontrolü için
@@ -221,23 +242,24 @@ class AgentContext:
         Bu fonksiyon çağrıldığı anda tüm koşulları kontrol eder.
         Tüm koşullar True ise healthy=True döner.
 
-        NOT: pilot_override bu hesaba dahil DEĞİL (pilot müdahalesi sağlık sorunu değil).
-        NOT: oscillation ve unstable_flight tek başına healthy=False yapmaz.
+        NOT: pilot_override bu hesaba dahil değil.
+        NOT: oscillation tek başına healthy=False yapmaz.
         """
         return (
             self.px4_link_ok                           # PX4 ile bağlantı var
-            and (self.rc_link_ok or self.sitl_mode)    # RC bağlı VEYA simülasyon modundayız
-            and not self.kill_switch_active            # Kill switch basılı değil
-            and not self.rc_signal_failsafe_active     # RC sinyal kaybı yok
-            and self.imu_healthy                       # İvmeölçer/jiroskop çalışıyor
-            and self.mag_healthy                       # Pusula çalışıyor
-            and self.baro_healthy                      # Barometre çalışıyor
-            and self.estimator_ok                      # EKF2 konum tahmini güvenilir
-            and self.xy_valid                          # Yatay konum geçerli
-            and self.z_valid                           # Dikey konum geçerli
-            and self.v_xy_valid                        # Yatay hız geçerli
-            and self.battery_voltage_v > self.battery_critical_voltage_v  # Batarya kritik değil
-            and not self.failsafe_active               # PX4 failsafe aktif değil
+            # RC bağlı VEYA simülasyon modundayız
+            and (self.rc_link_ok or self.sitl_mode)
+            and not self.kill_switch_active  # Kill switch basılı değil
+            and not self.rc_signal_failsafe_active  # RC sinyal kaybı yok
+            and self.imu_healthy   # İvmeölçer/jiroskop çalışıyor
+            and self.mag_healthy   # Pusula çalışıyor
+            and self.baro_healthy  # Barometre çalışıyor
+            and self.estimator_ok  # EKF2 konum tahmini güvenilir
+            and self.xy_valid      # Yatay konum geçerli
+            and self.z_valid       # Dikey konum geçerli
+            and self.v_xy_valid    # Yatay hız geçerli
+            and self.battery_voltage_v > self.battery_critical_voltage_v
+            and not self.failsafe_active  # PX4 failsafe aktif değil
         )
 
     def set_state(self, new_state: AgentState) -> None:
@@ -248,7 +270,8 @@ class AgentContext:
         bu da yanlış timeout'lara neden olur.
         """
         self.state = new_state                    # Yeni durumu kaydet
-        self.state_entry_time = time.monotonic()  # Sayacı sıfırla: "şu an bu state'e girdik"
+        # Sayacı sıfırla: "şu an bu state'e girdik"
+        self.state_entry_time = time.monotonic()
 
     def time_in_state(self) -> float:
         """
@@ -259,4 +282,4 @@ class AgentContext:
         - LANDING 60 saniye geçerse FAILSAFE
         - RETURN_HOME 120 saniye geçerse safety_hold
         """
-        return time.monotonic() - self.state_entry_time  # Şu an - giriş zamanı = geçen süre
+        return time.monotonic() - self.state_entry_time

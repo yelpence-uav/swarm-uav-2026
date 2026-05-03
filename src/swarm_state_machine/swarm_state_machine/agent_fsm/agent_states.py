@@ -1,8 +1,12 @@
-from enum import IntEnum  # IntEnum: hem sayı hem enum özelliği taşır, ROS mesajlarıyla birebir eşleşir
+# IntEnum: hem sayı hem enum özelliği taşır, ROS mesajlarıyla birebir eşleşir
+from enum import IntEnum
 
 
 class AgentState(IntEnum):
-    """Ajan FSM durum sabitleri. AgentStatus.msg STATE_* ile birebir eşleşir."""
+    """Ajan FSM durum sabitleri.
+
+    AgentStatus.msg STATE_* ile birebir eşleşir.
+    """
 
     # Her durum bir tam sayıya karşılık gelir (0'dan 15'e)
     # Bu sayılar AgentStatus.msg'deki STATE_* sabitleriyle aynı olmalı

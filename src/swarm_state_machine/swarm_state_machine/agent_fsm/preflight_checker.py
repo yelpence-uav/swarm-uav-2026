@@ -20,7 +20,8 @@ from .agent_context import AgentContext  # Drone'un tüm durum verisi burada
 
 def run_preflight_checks(
     ctx: AgentContext,
-    battery_min_voltage: float = 15.2,  # Minimum güvenli voltaj — 4S LiPo tam dolu ~16.8V
+    # Minimum güvenli voltaj — 4S LiPo tam dolu ~16.8V
+    battery_min_voltage: float = 15.2,
 ) -> tuple[bool, list[str]]:
     """
     Arming'e izin verilip verilmeyeceğini kontrol eder.
@@ -31,13 +32,13 @@ def run_preflight_checks(
     Args:
         ctx: Drone'un anlık durum bilgisi.
         battery_min_voltage: Kalkış için minimum güvenli voltaj (V).
-                             Varsayılan 15.2V — 4S LiPo'nun %80 doluluğu civarı.
+                             Varsayılan 15.2V — 4S LiPo %80 doluluğu.
 
     Returns:
         (passed, failures):
             passed=True  → Tüm kontroller geçti, arming'e izin var
             passed=False → En az bir kontrol başarısız, failures listesine bak
-            failures     → Başarısız kontrollerin açıklamaları (boş liste = başarılı)
+            failures     → Başarısız kontrollerin açıklamaları
     """
     failures: list[str] = []  # Başarısız kontroller buraya eklenir
 
@@ -177,4 +178,5 @@ def run_preflight_checks(
     # =================================================================
     return (len(failures) == 0, failures)
     # Örnek başarılı dönüş: (True, [])
-    # Örnek başarısız dönüş: (False, ["GPS fix yetersiz: 2 (min 3)", "IMU sağlıksız"])
+    # Örnek başarısız dönüş: (False, ["GPS fix yetersiz: 2 (min 3)", "IMU
+    # sağlıksız"])

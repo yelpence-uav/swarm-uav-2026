@@ -20,10 +20,12 @@ Kullanım:
 import rclpy                    # ROS2 Python istemci kütüphanesi
 from rclpy.node import Node     # Tüm ROS2 node'larının temel sınıfı
 from rclpy.qos import (
-    DurabilityPolicy,    # Mesaj kalıcılığı: VOLATILE (geçici) veya TRANSIENT_LOCAL (kalıcı)
+    # Mesaj kalıcılığı: VOLATILE (geçici) veya TRANSIENT_LOCAL (kalıcı)
+    DurabilityPolicy,
     HistoryPolicy,       # Kaç mesaj saklanacak
     QoSProfile,          # Quality of Service profili — güvenilirlik ayarları
-    ReliabilityPolicy,   # RELIABLE (kesin ulaşsın) veya BEST_EFFORT (ulaşmazsa geç)
+    # RELIABLE (kesin ulaşsın) veya BEST_EFFORT (ulaşmazsa geç)
+    ReliabilityPolicy,
 )
 
 # Komut yayını için basit string mesajı (FSM → px4_bridge)
@@ -34,11 +36,13 @@ from swarm_interfaces.msg import AgentStatus, SwarmOrigin, SystemEvent
 from swarm_interfaces.srv import AssignRole  # Rol atama servisi
 
 # Kendi modüllerimiz
-from .agent_context import AgentContext                          # Drone'un hafızası
-from .agent_health_monitor import HealthCheckResult, check as health_check  # Sağlık kontrolü
-from .agent_states import AgentRole, AgentState, FlightMode     # State/rol/mod sabitleri
-from .agent_transitions import evaluate_transitions              # FSM geçiş kuralları
-from .preflight_checker import run_preflight_checks              # Kalkış öncesi kontrol
+from .agent_context import AgentContext
+from .agent_health_monitor import (
+    HealthCheckResult, check as health_check
+)
+from .agent_states import AgentRole, AgentState, FlightMode
+from .agent_transitions import evaluate_transitions
+from .preflight_checker import run_preflight_checks
 
 # =============================================================================
 # QoS PROFİLLERİ
@@ -50,7 +54,8 @@ from .preflight_checker import run_preflight_checks              # Kalkış önc
 # TRANSIENT_LOCAL: Sonradan bağlanan drone'lar son değeri alsın
 _ORIGIN_QOS = QoSProfile(
     reliability=ReliabilityPolicy.RELIABLE,          # Kesinlikle ulaşsın
-    durability=DurabilityPolicy.TRANSIENT_LOCAL,     # Geç gelen drone'a son değeri ver
+    durability=DurabilityPolicy.TRANSIENT_LOCAL,
+    # Geç gelen drone'a son değeri ver
     history=HistoryPolicy.KEEP_LAST,
     depth=1,
 )
@@ -79,9 +84,10 @@ class AgentFsmNode(Node):
     def __init__(self) -> None:
         super().__init__('agent_fsm_node')  # ROS2 node adı: 'agent_fsm_node'
 
-        self._declare_params()  # ROS2 parametrelerini oku (agent_id, sitl_mode vs.)
+        self._declare_params()
 
-        # Bu drone'un AgentContext nesnesini oluştur — tüm veriler burada tutulur
+        # Bu drone'un AgentContext nesnesini oluştur — tüm veriler burada
+        # tutulur
         self._ctx = AgentContext(
             agent_id=self._agent_id,
             sitl_mode=self._sitl_mode,
@@ -89,8 +95,9 @@ class AgentFsmNode(Node):
             target_altitude_m=self._target_altitude_m,
         )
 
-        self._px4_landed: bool = False           # VehicleLandDetected.landed değeri
-        self._prev_pilot_override: bool = False  # Önceki tick'te pilot override vardı mı? (kenar tespiti)
+        self._px4_landed: bool = False  # VehicleLandDetected.landed
+        # Önceki tick'te pilot override vardı mı? (kenar tespiti)
+        self._prev_pilot_override: bool = False
 
         self._setup_publishers()   # Yayıncıları kur
         self._setup_subscribers()  # Abonelikleri kur
@@ -116,11 +123,18 @@ class AgentFsmNode(Node):
         ros2 run swarm_state_machine agent_fsm_node --ros-args -p agent_id:=2
         """
         # Parametreleri varsayılan değerleriyle tanımla
-        self.declare_parameter('agent_id', 1)                       # Drone numarası
-        self.declare_parameter('sitl_mode', False)                   # Simülasyon modu
-        self.declare_parameter('battery_critical_voltage_v', 13.6)  # Kritik batarya eşiği
-        self.declare_parameter('tick_hz', 10.0)                      # FSM hızı (Hz)
-        self.declare_parameter('target_altitude_m', 10.0)           # Hedef kalkış irtifası
+        # Drone numarası
+        self.declare_parameter('agent_id', 1)
+        self.declare_parameter('sitl_mode',
+                               False)                   # Simülasyon modu
+        self.declare_parameter(
+            'battery_critical_voltage_v',
+            13.6)  # Kritik batarya eşiği
+        # FSM hızı (Hz)
+        self.declare_parameter('tick_hz', 10.0)
+        self.declare_parameter(
+            'target_altitude_m',
+            10.0)           # Hedef kalkış irtifası
 
         # Parametreleri oku ve instance değişkenlerine kaydet
         self._agent_id: int = (
@@ -147,7 +161,8 @@ class AgentFsmNode(Node):
         2. SystemEvent: FSM'in tetiklediği olaylar (landing, failsafe vs.)
         """
         aid = self._agent_id
-        # Her drone'un kendi status topic'i var: /swarm/agent/1/status, /swarm/agent/2/status...
+        # Her drone'un kendi status topic'i var: /swarm/agent/1/status,
+        # /swarm/agent/2/status...
         self._status_pub = self.create_publisher(
             AgentStatus,
             f'/swarm/agent/drone{aid}/status',
@@ -177,8 +192,7 @@ class AgentFsmNode(Node):
         """
         aid = self._agent_id
 
-        # px4_bridge'in yayınladığı telemetri — PX4 verisi AgentStatus'a maplenmiş
-        # FSM kendi context'ine kopyalar, FSM mantığını ekler, /status'a yayınlar
+        # px4_bridge telemetrisi — AgentStatus'a maplenmiş
         self.create_subscription(
             AgentStatus,
             f'/swarm/agent/drone{aid}/telemetry',
@@ -206,8 +220,7 @@ class AgentFsmNode(Node):
     def _setup_services(self) -> None:
         """Servisleri oluştur.
 
-        AssignRole servisi: swarm manager bu servisi çağırarak drone'un rolünü atar.
-        /swarm/agent/1/assign_role → Drone 1'e "LEADER ol" komutu
+        AssignRole: swarm manager bu servisi çağırarak rolü atar.
         """
         aid = self._agent_id
         self.create_service(
@@ -346,7 +359,8 @@ class AgentFsmNode(Node):
         if eid == SystemEvent.EVENT_MISSION_STARTED:
             # Görev başlatma sinyali — tüm dronelere gönderilir
             if ctx.state == AgentState.IDLE:
-                # IDLE'daysa hem arming hazırlığı yap hem de arming talebi oluştur
+                # IDLE'daysa hem arming hazırlığı yap hem de arming talebi
+                # oluştur
                 ctx.mission_start_sequence_active = True
                 ctx.pending_state = AgentState.ARMING
             elif ctx.state == AgentState.ARMED:
@@ -370,7 +384,7 @@ class AgentFsmNode(Node):
         elif eid == SystemEvent.EVENT_FAILSAFE_CLEARED:
             # Failsafe temizlendi — normal operasyona dön
             ctx.hold_active = False
-            self._handle_failsafe_cleared()  # Drone konumuna göre hedef belirle
+            self._handle_failsafe_cleared()
 
         elif eid == SystemEvent.EVENT_PX4_LINK_LOST:
             # PX4 bağlantısı koptu — health monitor zaten tespit eder ama
@@ -424,7 +438,7 @@ class AgentFsmNode(Node):
         elif eid in (
             SystemEvent.EVENT_MANEUVER_COMPLETED,  # Manevra tamamlandı
             SystemEvent.EVENT_ROTATION_COMPLETED,  # Rotasyon tamamlandı
-            SystemEvent.EVENT_FORMATION_REACHED,   # Formasyon pozisyonuna ulaşıldı
+            SystemEvent.EVENT_FORMATION_REACHED,
         ):
             # Görev bitti → sürüye geri dön
             if is_mine and ctx.state == AgentState.EXECUTING_TASK:
@@ -478,10 +492,10 @@ class AgentFsmNode(Node):
         - Arm + yerde ise → LANDING (zaten yerde, iniş tamamla)
         - Arm + havada ise → RETURN_HOME (güvenli şekilde eve dön)
 
-        Ayrıca geofence_violated sıfırlanır — failsafe temizlenince ihlal de biter.
+        geofence_violated failsafe temizlenince sıfırlanır.
         """
         ctx = self._ctx
-        ctx.geofence_violated = False  # Jeofen ihlali temizlendi
+        ctx.geofence_violated = False
 
         if not ctx.armed:
             # Disarm — yerde ve güvende, IDLE'a dön
@@ -540,9 +554,9 @@ class AgentFsmNode(Node):
 
         # Sayısal rol kodunu AgentRole enum'una çevir
         role_map = {
-            AssignRole.Request.ROLE_LEADER:   AgentRole.LEADER,
+            AssignRole.Request.ROLE_LEADER: AgentRole.LEADER,
             AssignRole.Request.ROLE_FOLLOWER: AgentRole.FOLLOWER,
-            AssignRole.Request.ROLE_STANDBY:  AgentRole.STANDBY,
+            AssignRole.Request.ROLE_STANDBY: AgentRole.STANDBY,
             AssignRole.Request.ROLE_DETACHED: AgentRole.DETACHED,
         }
         new_role = role_map.get(request.role)
@@ -575,9 +589,9 @@ class AgentFsmNode(Node):
     def _on_telemetry(self, msg: AgentStatus) -> None:
         """px4_bridge → AgentContext kopyalama.
 
-        px4_bridge AgentStatus'un PX4'le ilgili alanlarını doldurmuş halde gönderir.
-        FSM bu alanları kendi context'ine kopyalar; state, role, healthy gibi
-        FSM'e özel alanları AgentContext kendisi yönetir.
+        px4_bridge AgentStatus'un PX4 alanlarını doldurmuş halde gönderir.
+        FSM bu alanları kendi context'ine kopyalar; state, role, healthy
+        gibi FSM'e özel alanları AgentContext kendisi yönetir.
         """
         ctx = self._ctx
         prev_pilot = ctx.pilot_override_active
@@ -642,7 +656,8 @@ class AgentFsmNode(Node):
             not ctx.armed and abs(ctx.vel_z) < _GROUND_VEL_THR
         )
 
-        # Pilot override kenar tespiti — IDLE'dan pilot moduna geçişte event yayınla
+        # Pilot override kenar tespiti — IDLE'dan pilot moduna geçişte event
+        # yayınla
         if ctx.pilot_override_active and not prev_pilot:
             ctx.autonomous_control_paused = True
             ctx.status_text = (
@@ -792,13 +807,14 @@ def main(args=None) -> None:
     rclpy.init(args=args)          # ROS2 iletişim altyapısını başlat
     node = AgentFsmNode()          # Node'u oluştur
     try:
-        rclpy.spin(node)           # Mesaj gelene kadar bekle, callback'leri çalıştır
+        # Mesaj gelene kadar bekle, callback'leri çalıştır
+        rclpy.spin(node)
     except KeyboardInterrupt:
         pass                       # Ctrl+C ile düzgün kapat
     finally:
-        node.destroy_node()        # Node kaynaklarını serbest bırak
-        rclpy.shutdown()           # ROS2 altyapısını kapat
+        node.destroy_node()
+        rclpy.shutdown()
 
 
 if __name__ == '__main__':
-    main()  # Doğrudan python3 agent_fsm_node.py ile çalıştırılırsa burası çağrılır
+    main()

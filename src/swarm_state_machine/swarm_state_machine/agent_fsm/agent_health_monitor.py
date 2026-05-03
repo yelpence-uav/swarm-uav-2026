@@ -11,10 +11,11 @@ Kontrol sırası önemli: kritik hatalar önce kontrol edilir, erken dönülür.
 """
 
 import statistics           # İstatistik hesapları için (varyans, ortalama)
-from collections import deque   # Sabit boyutlu kuyruk — eski veriyi otomatik siler
+from collections import deque
 from dataclasses import dataclass  # Sonuç veri yapısı için
 
-from swarm_interfaces.msg import SystemEvent  # Event tipleri için (EVENT_PX4_LINK_LOST vs.)
+# Event tipleri için (EVENT_PX4_LINK_LOST vs.)
+from swarm_interfaces.msg import SystemEvent
 
 from .agent_context import AgentContext        # Drone'un tüm verisi burada
 from .agent_states import AgentRole, AgentState  # Durum ve rol sabitleri
@@ -23,18 +24,19 @@ from .agent_states import AgentRole, AgentState  # Durum ve rol sabitleri
 # ZAMAN SABİTLERİ — Timeout eşikleri (saniye)
 # Roadmap bölüm 6.5 — İleride YAML parametresine taşınmalı
 # =============================================================================
-_TAKEOFF_TIMEOUT_S = 30.0       # 30 saniyede hedef irtifaya ulaşamazsa → FAILSAFE
-_LANDING_TIMEOUT_S = 60.0       # 60 saniyede inemezse → FAILSAFE
-_RETURN_HOME_TIMEOUT_S = 120.0  # 120 saniyede eve dönemezse → safety_hold (bekle)
+_TAKEOFF_TIMEOUT_S = 30.0   # 30s hedef irtifaya ulaşamazsa → FAILSAFE
+_LANDING_TIMEOUT_S = 60.0   # 60s inemezse → FAILSAFE
+# 120 saniyede eve dönemezse → safety_hold (bekle)
+_RETURN_HOME_TIMEOUT_S = 120.0
 
 # =============================================================================
 # STABİLİTE EŞİKLERİ
 # Bu değerlerin altında/üstünde kalırsa drone stabil sayılır
 # =============================================================================
 _ALT_STABLE_VAR = 0.05    # m²  — irtifa varyansı bu kadar küçükse "stabil"
-_ATT_STABLE_VAR = 4.0     # deg² — roll/pitch varyansı bu kadar küçükse "stabil"
-_VEL_Z_OK_THR = 0.5       # m/s — dikey hız bu kadar küçükse "yeterince yavaş"
-_ALT_REACH_THR = 0.5      # m   — hedef irtifaya 0.5m yaklaşınca "ulaştı" sayılır
+_ATT_STABLE_VAR = 4.0    # deg² — roll/pitch varyansı küçükse "stabil"
+_VEL_Z_OK_THR = 0.5      # m/s — dikey hız küçükse "yeterince yavaş"
+_ALT_REACH_THR = 0.5     # m   — hedef irtifaya 0.5m yaklaşınca "ulaştı"
 _OSCILLATION_VAR = 9.0    # deg² — bu kadar sallanıyorsa "osilasyon" uyarısı
 _UNSTABLE_ATT_VAR = 25.0  # deg² — bu kadar sallanıyorsa "tehlikeli kararsız"
 _UNSTABLE_VEL_THR = 2.0   # m/s — dikey hız bu kadarı geçerse "tehlikeli"
@@ -44,7 +46,7 @@ _UNSTABLE_VEL_THR = 2.0   # m/s — dikey hız bu kadarı geçerse "tehlikeli"
 # Kritik eşik AgentContext'ten gelir (YAML parametresi)
 # Düşük uyarı: kritik eşik + 1V — "Batarya azalıyor, dikkat et"
 # =============================================================================
-_BATT_LOW_OFFSET_V = 1.0  # Kritik voltajın 1V üstünde "düşük batarya" uyarısı ver
+_BATT_LOW_OFFSET_V = 1.0  # Kritik voltajın 1V üstünde düşük batarya uyarısı
 
 # =============================================================================
 # MAKSİMUM İRTİFA
@@ -88,9 +90,11 @@ class HealthCheckResult:
         event_type: Yayınlanacak SystemEvent.event_type değeri.
         reason: status_text ve log için açıklama.
     """
-    critical_fault: bool = False                    # Kritik hata: hemen FAILSAFE
-    safety_hold: bool = False                       # Güvenlik beklemesi: dur ve bekle
-    warning: bool = False                           # Uyarı: sadece log, state değişmez
+    critical_fault: bool = False  # Kritik hata: hemen FAILSAFE
+    # Güvenlik beklemesi: dur ve bekle
+    safety_hold: bool = False
+    # Uyarı: sadece log, state değişmez
+    warning: bool = False
     event_type: int = SystemEvent.EVENT_UNKNOWN     # Hangi event yayınlanacak?
     reason: str = ''                                # Neden bu karar verildi?
 
@@ -113,10 +117,14 @@ class _StabilityWindow:
 
     def __init__(self) -> None:
         # Her biri 20 elemanlı kuyruk — dolunca eskiyi atar
-        self.pos_z: deque[float] = deque(maxlen=self.MAXLEN)  # Dikey konum geçmişi
-        self.vel_z: deque[float] = deque(maxlen=self.MAXLEN)  # Dikey hız geçmişi
-        self.roll: deque[float] = deque(maxlen=self.MAXLEN)   # Roll açısı geçmişi
-        self.pitch: deque[float] = deque(maxlen=self.MAXLEN)  # Pitch açısı geçmişi
+        self.pos_z: deque[float] = deque(
+            maxlen=self.MAXLEN)  # Dikey konum geçmişi
+        self.vel_z: deque[float] = deque(
+            maxlen=self.MAXLEN)  # Dikey hız geçmişi
+        self.roll: deque[float] = deque(
+            maxlen=self.MAXLEN)   # Roll açısı geçmişi
+        self.pitch: deque[float] = deque(
+            maxlen=self.MAXLEN)  # Pitch açısı geçmişi
 
     def update(self, ctx: AgentContext) -> None:
         """Her tick'te anlık sensör verisini kuyruğa ekle."""
@@ -138,7 +146,8 @@ def _get_window(ctx: AgentContext) -> _StabilityWindow:
     """Bu drone'un stabite penceresini getir, yoksa yeni oluştur."""
     aid = ctx.agent_id
     if aid not in _windows:
-        _windows[aid] = _StabilityWindow()  # İlk kez görülen drone için pencere aç
+        # İlk kez görülen drone için pencere aç
+        _windows[aid] = _StabilityWindow()
     return _windows[aid]
 
 
@@ -163,7 +172,7 @@ def check(ctx: AgentContext) -> HealthCheckResult:
     # 1. Kritik donanım hataları (PX4 bağlantısı, estimator, offboard, batarya)
     result = _check_critical_faults(ctx)
     if result.critical_fault:
-        return result  # Kritik hata varsa diğer kontrollere gerek yok — hemen dön
+        return result  # Kritik hata varsa hemen dön
 
     # 2. RC güvenlik kontrolleri (kill switch, RC bağlantısı, sinyal failsafe)
     result = _check_rc_safety(ctx)
@@ -203,7 +212,7 @@ def _check_critical_faults(ctx: AgentContext) -> HealthCheckResult:
     """
     En kritik donanım hatalarını kontrol eder.
 
-    PX4 bağlantısı koptu mu? EKF2 bozuldu mu? OFFBOARD kayboldu mu? Batarya kritik mi?
+    PX4 bağlantısı, EKF2, OFFBOARD ve batarya kritik kontrolü.
     Bunların herhangi biri olunca drone havadaysa FAILSAFE kaçınılmaz.
 
     Args:
@@ -259,7 +268,7 @@ def _check_critical_faults(ctx: AgentContext) -> HealthCheckResult:
         reason = f'Batarya dusuk: {ctx.battery_voltage_v:.1f}V'
         ctx.status_text = reason
         return HealthCheckResult(
-            warning=True,                               # Sadece uyarı, state değişmez
+            warning=True,  # Sadece uyarı, state değişmez
             event_type=SystemEvent.EVENT_BATTERY_LOW,
             reason=reason,
         )
@@ -338,7 +347,7 @@ def _check_geofence(ctx: AgentContext) -> HealthCheckResult:
         reason = 'Jeofen ihlali tespit edildi — RTL başlatılıyor'
         ctx.status_text = reason
         return HealthCheckResult(
-            critical_fault=True,                              # FAILSAFE → RTL zinciri başlar
+            critical_fault=True,  # FAILSAFE → RTL zinciri başlar
             event_type=SystemEvent.EVENT_GEOFENCE_VIOLATION,
             reason=reason,
         )
@@ -384,7 +393,8 @@ def _check_state_timeout(ctx: AgentContext) -> HealthCheckResult:
             reason=f'LANDING timeout: {elapsed:.0f}s',
         )
 
-    # RETURN_HOME 120 saniyeyi geçti — safety_hold: bekle, swarm manager müdahale etsin
+    # RETURN_HOME 120 saniyeyi geçti — safety_hold: bekle, swarm manager
+    # müdahale etsin
     if (
         ctx.state == AgentState.RETURN_HOME
         and elapsed > _RETURN_HOME_TIMEOUT_S
@@ -435,17 +445,17 @@ def _check_flight_stability(ctx: AgentContext) -> None:
     )
 
     # İrtifa stabilitesi: son 2 saniyelik irtifa varyansı küçükse "stabil"
-    pz_var = statistics.variance(win.pos_z)   # Varyans: ortalamadan ne kadar saptı?
-    ctx.altitude_stable = pz_var < _ALT_STABLE_VAR  # 0.05 m²'den küçükse stabil
+    # Varyans: ortalamadan ne kadar saptı?
+    pz_var = statistics.variance(win.pos_z)
+    ctx.altitude_stable = pz_var < _ALT_STABLE_VAR
 
     # Attitude (duruş) stabilitesi: roll ve pitch varyanslarının büyüğüne bak
     r_var = statistics.variance(win.roll)    # Roll varyansı
     p_var = statistics.variance(win.pitch)   # Pitch varyansı
     att_var = max(r_var, p_var)              # En kötü durumu al
-    ctx.attitude_stable = att_var < _ATT_STABLE_VAR  # 4 deg²'den küçükse stabil
+    ctx.attitude_stable = att_var < _ATT_STABLE_VAR
 
-    # Osilasyon tespiti: çok fazla sallanıyor mu?
-    ctx.oscillation_detected = att_var > _OSCILLATION_VAR   # 9 deg²'den büyükse
+    ctx.oscillation_detected = att_var > _OSCILLATION_VAR
 
     # Tehlikeli kararsız uçuş: çok sallanma VEYA çok hızlı dikey hareket
     max_vz = max(abs(v) for v in win.vel_z)  # Son 2 saniyedeki max dikey hız
@@ -460,7 +470,7 @@ def _check_altitude_limits(ctx: AgentContext) -> HealthCheckResult:
     Maksimum irtifa sınırını kontrol eder.
 
     Yarışma kuralı: 30m üstüne çıkamazlar.
-    Aşılırsa safety_hold: drone olduğu yerde bekler, swarm manager müdahale eder.
+    Aşılırsa safety_hold: drone bekler, swarm manager müdahale eder.
 
     Args:
         ctx: Drone durum bilgisi.
@@ -472,7 +482,7 @@ def _check_altitude_limits(ctx: AgentContext) -> HealthCheckResult:
     if ctx.state not in _AIRBORNE:
         return HealthCheckResult()
 
-    altitude_m = -ctx.pos_z  # NED → pozitif yukarı: pos_z negatif olduğu için -1 çarpıyoruz
+    altitude_m = -ctx.pos_z  # NED → pozitif yukarı
     if altitude_m > _MAX_ALTITUDE_M:
         reason = (
             f'Irtifa limiti asildi: {altitude_m:.1f}m '
@@ -480,7 +490,7 @@ def _check_altitude_limits(ctx: AgentContext) -> HealthCheckResult:
         )
         ctx.status_text = reason
         return HealthCheckResult(
-            safety_hold=True,                                    # Dur, aşağı in
+            safety_hold=True,  # Dur, aşağı in
             event_type=SystemEvent.EVENT_ALTITUDE_LIMIT_EXCEEDED,
             reason=reason,
         )
