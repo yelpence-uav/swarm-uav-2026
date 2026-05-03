@@ -1,63 +1,35 @@
-"""
-agent_transitions.py
-
-FSM'in (Sonlu Durum Makinesi) kalbi — hangi durumdan hangisine geçilecek?
-
-Bunu bir trafik ışığı sistemi gibi düşün:
-- Her state'in kendi geçiş kuralları var
-- Koşullar sağlandığında bir sonraki state'e geçilir
-- Koşullar sağlanmadıysa mevcut state korunur (None döner)
-
-evaluate_transitions(ctx) her FSM tick'inde (saniyede 10 kez) çağrılır.
-None dönerse → mevcut state korunur
-AgentState döner → o state'e geç
-"""
+"""FSM geçiş kuralları — hangi durumdan hangisine geçilecek."""
 
 from .agent_context import AgentContext
 from .agent_states import AgentState, FlightMode
 from .preflight_checker import run_preflight_checks
 
-# =============================================================================
-# ZAMAN SABİTLERİ — State timeout eşikleri (saniye)
-# Bu süre içinde geçiş olmazsa FAILSAFE'e düşülür
-# =============================================================================
-_ARMING_TIMEOUT_S = 15.0    # 15s içinde arm edilemezse → IDLE'a dön
-_TAKEOFF_TIMEOUT_S = 30.0   # 30s içinde irtifaya ulaşamazsa → FAILSAFE
-_PRECISION_LANDING_TIMEOUT_S = 60.0  # 60s içinde inemezse → FAILSAFE
-_REJOIN_TIMEOUT_S = 60.0             # 60s içinde sürüye katılamazsa → FAILSAFE
-# 120s içinde rejoin talebi gelmezse → FAILSAFE
+_ARMING_TIMEOUT_S = 15.0
+_TAKEOFF_TIMEOUT_S = 30.0
+_PRECISION_LANDING_TIMEOUT_S = 60.0
+_REJOIN_TIMEOUT_S = 60.0
 _WAITING_REJOIN_TIMEOUT_S = 120.0
 
-# =============================================================================
-# FAILSAFE'DEN MUAF STATE'LER
-# Bu state'lerde healthy=False olsa bile FAILSAFE tetiklenmez
-# Çünkü drone zaten yerde veya güvende
-# =============================================================================
 _FAILSAFE_EXEMPT = frozenset({
-    AgentState.UNKNOWN,         # Başlangıç, drone henüz aktif değil
-    AgentState.IDLE,            # Yerde bekliyor, güvende
-    AgentState.ARMING,          # Yerde, henüz kalkmadı
-    AgentState.ARMED,           # Yerde, arm edildi ama uçmadı
-    AgentState.WAITING_REJOIN,  # Yerde, disarm, rejoin bekliyor
-    AgentState.LANDED,          # İndi, güvende
-    AgentState.STANDBY,         # Pasif mod
-    AgentState.FAILSAFE,        # Zaten failsafe'de, tekrar tetiklenmesin
+    AgentState.UNKNOWN,
+    AgentState.IDLE,
+    AgentState.ARMING,
+    AgentState.ARMED,
+    AgentState.WAITING_REJOIN,
+    AgentState.LANDED,
+    AgentState.STANDBY,
+    AgentState.FAILSAFE,
 })
 
-# =============================================================================
-# OFFBOARD KONTROLÜ YAPILACAK STATE'LER
-# Bu state'lerde OFFBOARD modu kaybolursa → FAILSAFE
-# ARMING ve ARMED henüz OFFBOARD'a geçmediği için dahil değil
-# =============================================================================
 _OFFBOARD_CHECK_STATES = frozenset({
-    AgentState.TAKEOFF,            # Kalkıyor — OFFBOARD şart
-    AgentState.IN_SWARM,           # Sürüde — OFFBOARD şart
-    AgentState.EXECUTING_TASK,     # Görev yapıyor — OFFBOARD şart
-    AgentState.DETACHED,           # Sürüden kopuk uçuyor — OFFBOARD şart
-    AgentState.PRECISION_LANDING,  # Hassas iniş — OFFBOARD şart
-    AgentState.REJOINING,          # Sürüye katılıyor — OFFBOARD şart
-    AgentState.RETURN_HOME,        # Eve dönüyor — OFFBOARD şart
-    AgentState.LANDING,            # İniyor — OFFBOARD şart
+    AgentState.TAKEOFF,
+    AgentState.IN_SWARM,
+    AgentState.EXECUTING_TASK,
+    AgentState.DETACHED,
+    AgentState.PRECISION_LANDING,
+    AgentState.REJOINING,
+    AgentState.RETURN_HOME,
+    AgentState.LANDING,
 })
 
 
@@ -65,35 +37,21 @@ def evaluate_transitions(ctx: AgentContext) -> AgentState | None:
     """
     Mevcut duruma göre geçilmesi gereken sonraki state'i döner.
 
-    Bu fonksiyon her tick'te çağrılır ve şu sırayla çalışır:
-    1. Kontrol durdurulmuş mu? (pilot override veya safety hold)
-    2. Global öncelik: sağlık kaybı → FAILSAFE
-    3. Global öncelik: OFFBOARD kaybı → FAILSAFE
-    4. State'e özel geçiş kuralları
-
     Args:
         ctx: Drone'un anlık durum bilgisi.
 
     Returns:
         Geçilecek AgentState veya geçiş yoksa None.
     """
-    # Pilot joystick'e dokunmuş veya safety hold aktif → otonom geçiş yapma
-    # Pilot müdahale ederken sistem kendiliginden state değiştirmemeli
     if ctx.autonomous_control_paused or ctx.hold_active:
         return None
 
-    # GLOBAL ÖNCELİK 1: Havadayken sağlık kaybı → hemen FAILSAFE
-    # _FAILSAFE_EXEMPT state'leri yerde/güvende olduğu için muaf
     if ctx.state not in _FAILSAFE_EXEMPT and not ctx.healthy:
         return AgentState.FAILSAFE
 
-    # GLOBAL ÖNCELİK 2: Uçuş state'lerinde OFFBOARD kaybı → FAILSAFE
-    # OFFBOARD olmadan dış bilgisayar (biz) drone'u kontrol edemeyiz
     if ctx.state in _OFFBOARD_CHECK_STATES and not ctx.offboard_active:
         return AgentState.FAILSAFE
 
-    # Her state için kendi geçiş fonksiyonu var
-    # dict ile her state'i doğru handler'a yönlendir
     handlers = {
         AgentState.UNKNOWN: _from_unknown,
         AgentState.IDLE: _from_idle,
@@ -112,87 +70,75 @@ def evaluate_transitions(ctx: AgentContext) -> AgentState | None:
         AgentState.FAILSAFE: _from_failsafe,
         AgentState.STANDBY: _from_standby,
     }
-    # Bu state'in handler'ını bul
     handler = handlers.get(ctx.state)
-    # Handler varsa çalıştır
     next_state = handler(ctx) if handler else None
 
-    # ŞARTNAME KURAL 13: Home set değilken RTL yapılamaz
-    # Home konumu kaydedilmemişse drone nereye döneceğini bilemez
-    # RTL yerine acil iniş yap — bulunduğun yere in
+    # Şartname kural 13: home set değilken RTL yerine acil iniş yapılır.
     if next_state == AgentState.RETURN_HOME and not ctx.home_set:
         ctx.status_text = 'Home set değil — RTL yerine acil iniş'
-        return AgentState.LANDING  # RTL yerine direkt iniş
+        return AgentState.LANDING
 
-    return next_state  # Normal geçiş
+    return next_state
 
-
-# =============================================================================
-# STATE'E ÖZEL GEÇİŞ FONKSİYONLARI
-# Her fonksiyon: koşul sağlandıysa → hedef state, sağlanmadıysa → None
-# =============================================================================
 
 def _from_unknown(ctx: AgentContext) -> AgentState | None:
-    """
-    UNKNOWN → IDLE: Sistem ilk başladığında her zaman IDLE'a geç.
-
-    UNKNOWN sadece başlangıç anında olur.
-    İlk tick'te hemen IDLE'a geçilir, hiçbir koşul aranmaz.
-    """
-    return AgentState.IDLE  # Her zaman geç, koşul yok
+    """UNKNOWN → IDLE: İlk tick'te her zaman geçilir."""
+    return AgentState.IDLE
 
 
 def _from_idle(ctx: AgentContext) -> AgentState | None:
     """
-    IDLE → ARMING: Arming talebi varsa ve tüm preflight kontrolleri geçiyorsa.
+    IDLE → ARMING: Arming talebi varsa ve preflight kontrolleri geçiyorsa.
 
-    pending_state: EVENT_MISSION_STARTED event'i gelince ARMING yapılır.
-    Preflight geçmezse (GPS yok, batarya düşük vs.) IDLE'da kalınır.
+    Args:
+        ctx: Drone durum bilgisi.
+
+    Returns:
+        AgentState.ARMING veya None.
     """
     if ctx.pending_state == AgentState.ARMING:
-        # Preflight kontrol listesini çalıştır
         passed, _ = run_preflight_checks(ctx)
         if passed:
-            return AgentState.ARMING  # Tüm kontroller geçti, arm etmeye başla
-    return None  # Talep yok veya preflight başarısız
+            return AgentState.ARMING
+    return None
 
 
 def _from_arming(ctx: AgentContext) -> AgentState | None:
     """
     ARMING → ARMED: PX4 arm onayı verdi.
-    ARMING → IDLE: Sağlık kaybı veya timeout — arm edilemedi, geri dön.
+    ARMING → IDLE: Sağlık kaybı veya timeout.
 
-    Arm işlemi PX4'ün onaylaması gereken bir süreç.
-    15 saniye içinde onay gelmezse bir sorun var demek.
+    Args:
+        ctx: Drone durum bilgisi.
+
+    Returns:
+        Hedef AgentState veya None.
     """
     if ctx.armed:
-        return AgentState.ARMED  # PX4 arm onayı verdi, motorlar çalışıyor
-
+        return AgentState.ARMED
     if not ctx.healthy:
-        return AgentState.IDLE   # Sağlık kaybı → güvenli moda geç
-
+        return AgentState.IDLE
     if ctx.time_in_state() > _ARMING_TIMEOUT_S:
-        return AgentState.IDLE   # 15s içinde arm edilemedi → geri dön
-
-    return None  # Henüz arm olmadı, beklemeye devam
+        return AgentState.IDLE
+    return None
 
 
 def _from_armed(ctx: AgentContext) -> AgentState | None:
     """
     ARMED → TAKEOFF: Görev başlatma sinyali geldi ve OFFBOARD aktif.
-    ARMED → IDLE: Disarm oldu veya sağlık kaybı.
+    ARMED → IDLE: Disarm veya sağlık kaybı.
 
-    Drone arm edilmiş ama henüz kalkmadı.
-    İki şart birden sağlanmalı: hem görev başlatma sinyali hem OFFBOARD.
+    Args:
+        ctx: Drone durum bilgisi.
+
+    Returns:
+        Hedef AgentState veya None.
     """
     if not ctx.armed or not ctx.healthy:
-        return AgentState.IDLE  # Disarm veya sağlık kaybı → geri dön
-
-    # Görev başlatma sinyali geldi VE OFFBOARD modu aktif → kalkışa geç
+        return AgentState.IDLE
     if ctx.mission_start_sequence_active and ctx.offboard_active:
         return AgentState.TAKEOFF
-
-    return None  # Henüz hazır değil
+    return None
 
 
 def _from_takeoff(ctx: AgentContext) -> AgentState | None:
@@ -200,76 +146,65 @@ def _from_takeoff(ctx: AgentContext) -> AgentState | None:
     TAKEOFF → IN_SWARM: Hedef irtifaya ulaşıldı ve drone stabil.
     TAKEOFF → FAILSAFE: 30 saniyede irtifaya ulaşılamadı.
 
-    IN_SWARM'a geçmek için 5 koşul birden sağlanmalı:
-    1. Hedef irtifaya ulaşıldı (10m civarı)
-    2. İrtifa stabil (sallanmıyor)
-    3. Duruş stabil (roll/pitch küçük)
-    4. Dikey hız küçük (sakinleşti)
-    5. Origin senkronize (tüm dronelerle aynı koordinat sistemi)
+    Args:
+        ctx: Drone durum bilgisi.
+
+    Returns:
+        Hedef AgentState veya None.
     """
-    if (ctx.target_altitude_reached    # Hedef yüksekliğe ulaşıldı
-            and ctx.altitude_stable    # İrtifa sabitlendi
-            and ctx.attitude_stable    # Roll/pitch sabit
-            and ctx.vertical_speed_ok  # Dikey hız yeterince küçük
-            and ctx.origin_synced):    # Swarm koordinat sistemi hazır
-        return AgentState.IN_SWARM    # Tüm koşullar tamam → sürüye katıl
-
+    if (ctx.target_altitude_reached
+            and ctx.altitude_stable
+            and ctx.attitude_stable
+            and ctx.vertical_speed_ok
+            and ctx.origin_synced):
+        return AgentState.IN_SWARM
     if ctx.time_in_state() > _TAKEOFF_TIMEOUT_S:
-        return AgentState.FAILSAFE    # 30s geçti, bir şeyler yanlış
-
-    return None  # Henüz hazır değil, beklemeye devam
+        return AgentState.FAILSAFE
+    return None
 
 
 def _from_in_swarm(ctx: AgentContext) -> AgentState | None:
     """
-    IN_SWARM: Sürüdeyken gelen taleplere göre geçiş.
+    IN_SWARM: Swarm manager komutlarına göre geçiş yapar.
 
-    Swarm manager'dan gelen event'ler pending_state'i belirler:
-    - Görev komutu → EXECUTING_TASK
-    - Detach komutu → DETACHED (sürüden ayrıl)
-    - RTL komutu → RETURN_HOME
-    - İniş komutu → LANDING
+    Args:
+        ctx: Drone durum bilgisi.
+
+    Returns:
+        Hedef AgentState veya None.
     """
     if ctx.pending_state == AgentState.EXECUTING_TASK:
-        return AgentState.EXECUTING_TASK  # Görev başlıyor
-
+        return AgentState.EXECUTING_TASK
     if ctx.pending_state == AgentState.DETACHED:
-        return AgentState.DETACHED    # Sürüden ayrıl, hassas inişe hazırlan
-
+        return AgentState.DETACHED
     if ctx.pending_state == AgentState.RETURN_HOME:
-        return AgentState.RETURN_HOME     # Eve dön komutu geldi
-
+        return AgentState.RETURN_HOME
     if ctx.pending_state == AgentState.LANDING:
-        return AgentState.LANDING         # İniş komutu geldi
-
-    return None  # Sürüde devam, komut yok
+        return AgentState.LANDING
+    return None
 
 
 def _from_executing_task(ctx: AgentContext) -> AgentState | None:
     """
-    EXECUTING_TASK → IN_SWARM: Görev tamamlandı, sürüye geri dön.
-    EXECUTING_TASK → RETURN_HOME: Görev sırasında RTL komutu geldi.
+    EXECUTING_TASK → IN_SWARM: Görev tamamlandı.
+    EXECUTING_TASK → RETURN_HOME: RTL komutu geldi.
 
-    Görev yapılırken bile RTL komutu öncelikli.
-    Görev tamamlanınca veya başarısız olunca IN_SWARM'a dön.
+    Args:
+        ctx: Drone durum bilgisi.
+
+    Returns:
+        Hedef AgentState veya None.
     """
     if ctx.pending_state == AgentState.RETURN_HOME:
-        return AgentState.RETURN_HOME  # RTL — güvenlik öncelikli
-
+        return AgentState.RETURN_HOME
     if ctx.pending_state == AgentState.IN_SWARM:
-        return AgentState.IN_SWARM  # Görev tamamlandı → sürüye dön
-
-    return None  # Görev devam ediyor
+        return AgentState.IN_SWARM
+    return None
 
 
 def _from_detached(ctx: AgentContext) -> AgentState | None:
-    """
-    DETACHED → PRECISION_LANDING: Sürüden ayrılınca hassas iniş başlar.
-
-    Detach olunca yapılacak şey bellidir: hassas iniş.
-    Başka bir seçenek yok, direkt geçiş yapılır.
-    """
-    return AgentState.PRECISION_LANDING  # Her zaman geç, koşul yok
+    """DETACHED → PRECISION_LANDING: Her zaman geçilir."""
+    return AgentState.PRECISION_LANDING
 
 
 def _from_precision_landing(ctx: AgentContext) -> AgentState | None:
@@ -277,16 +212,17 @@ def _from_precision_landing(ctx: AgentContext) -> AgentState | None:
     PRECISION_LANDING → WAITING_REJOIN: Disarm oldu, iniş tamamlandı.
     PRECISION_LANDING → FAILSAFE: 60s içinde inemedi.
 
-    Hassas iniş tamamlandığının kanıtı: disarm olmuş olması.
-    Disarm = motorlar durdu = yere indi.
+    Args:
+        ctx: Drone durum bilgisi.
+
+    Returns:
+        Hedef AgentState veya None.
     """
     if not ctx.armed:
-        return AgentState.WAITING_REJOIN  # İndi → sürüye katılmayı bekle
-
+        return AgentState.WAITING_REJOIN
     if ctx.time_in_state() > _PRECISION_LANDING_TIMEOUT_S:
-        return AgentState.FAILSAFE  # 60s içinde inemedi — sorun var
-
-    return None  # İniş devam ediyor
+        return AgentState.FAILSAFE
+    return None
 
 
 def _from_waiting_rejoin(ctx: AgentContext) -> AgentState | None:
@@ -294,16 +230,17 @@ def _from_waiting_rejoin(ctx: AgentContext) -> AgentState | None:
     WAITING_REJOIN → REJOINING: Swarm manager yeniden katılma izni verdi.
     WAITING_REJOIN → FAILSAFE: 120s içinde izin gelmedi.
 
-    Drone yerde bekliyor, batarya değişimi yapılıyor olabilir.
-    Swarm manager uygun görünce EVENT_MEMBER_REJOIN_STARTED gönderir.
+    Args:
+        ctx: Drone durum bilgisi.
+
+    Returns:
+        Hedef AgentState veya None.
     """
     if ctx.pending_state == AgentState.REJOINING:
-        return AgentState.REJOINING   # İzin geldi, sürüye katılmaya başla
-
+        return AgentState.REJOINING
     if ctx.time_in_state() > _WAITING_REJOIN_TIMEOUT_S:
-        return AgentState.FAILSAFE    # 2 dakika geçti, bir sorun var
-
-    return None  # Hâlâ bekliyoruz
+        return AgentState.FAILSAFE
+    return None
 
 
 def _from_rejoining(ctx: AgentContext) -> AgentState | None:
@@ -311,97 +248,100 @@ def _from_rejoining(ctx: AgentContext) -> AgentState | None:
     REJOINING → IN_SWARM: Sürüye başarıyla katıldı.
     REJOINING → FAILSAFE: 60s içinde katılamadı.
 
-    Drone kalkıp sürünün formasyonuna giriyor.
-    Swarm manager "katıldı" onayı verince IN_SWARM'a geçilir.
+    Args:
+        ctx: Drone durum bilgisi.
+
+    Returns:
+        Hedef AgentState veya None.
     """
     if ctx.pending_state == AgentState.IN_SWARM:
-        return AgentState.IN_SWARM    # Swarm manager onayladı, sürüdeyiz
-
+        return AgentState.IN_SWARM
     if ctx.time_in_state() > _REJOIN_TIMEOUT_S:
-        return AgentState.FAILSAFE    # 60s içinde katılamadı
-
-    return None  # Katılmaya çalışıyoruz
+        return AgentState.FAILSAFE
+    return None
 
 
 def _from_return_home(ctx: AgentContext) -> AgentState | None:
     """
-    RETURN_HOME → LANDING: PX4 RTL tamamlandı, otomatik iniş başlıyor.
+    RETURN_HOME → LANDING: PX4 RTL tamamlandı veya swarm manager iniş
+    komutu verdi.
 
-    PX4 RTL süreci: eve uç → eve gelince otomatik iniş başlat (AUTO_LAND modu).
-    AUTO_LAND moduna geçince biz de LANDING state'ine geçeriz.
-    Ya da swarm manager direkt iniş komutu verebilir.
+    Args:
+        ctx: Drone durum bilgisi.
+
+    Returns:
+        Hedef AgentState veya None.
     """
     if ctx.flight_mode == FlightMode.AUTO_LAND:
-        return AgentState.LANDING     # PX4 otomatik iniş moduna geçti
-
+        return AgentState.LANDING
     if ctx.pending_state == AgentState.LANDING:
-        return AgentState.LANDING     # Swarm manager iniş komutu verdi
-
-    return None  # RTL devam ediyor
+        return AgentState.LANDING
+    return None
 
 
 def _from_landing(ctx: AgentContext) -> AgentState | None:
     """
     LANDING → LANDED: Disarm oldu, iniş tamamlandı.
 
-    İniş tamamlandığının kanıtı: disarm olmuş olması.
-    PX4 yere değince otomatik disarm yapar.
+    Args:
+        ctx: Drone durum bilgisi.
+
+    Returns:
+        AgentState.LANDED veya None.
     """
     if not ctx.armed:
-        return AgentState.LANDED  # İndi ve disarm oldu → LANDED
-
-    return None  # Hâlâ iniyor
+        return AgentState.LANDED
+    return None
 
 
 def _from_landed(ctx: AgentContext) -> AgentState | None:
     """
-    LANDED → IDLE: Sistem sıfırlanmaya hazır, yeni görev için hazırlan.
+    LANDED → IDLE: Yeni görev için hazırlan.
     LANDED → STANDBY: Drone pasif moda alınıyor.
 
-    İnişten sonra iki seçenek:
-    1. IDLE → yeniden görev için hazırlan
-    2. STANDBY → bu drone'u devre dışı bırak
+    Args:
+        ctx: Drone durum bilgisi.
+
+    Returns:
+        Hedef AgentState veya None.
     """
     if ctx.pending_state == AgentState.STANDBY:
-        return AgentState.STANDBY   # Pasif moda geç
-
+        return AgentState.STANDBY
     if ctx.pending_state == AgentState.IDLE:
-        return AgentState.IDLE      # Yeniden hazırlan
-
-    return None  # Komut bekleniyor
+        return AgentState.IDLE
+    return None
 
 
 def _from_failsafe(ctx: AgentContext) -> AgentState | None:
     """
-    FAILSAFE → RETURN_HOME: Sağlık geri geldi ve swarm manager RTL onayladı.
-    FAILSAFE → LANDING: RTL mümkün değilse (home_set=False) acil iniş.
+    FAILSAFE → RETURN_HOME: Sağlık geri geldi ve swarm manager onayladı.
+    FAILSAFE → LANDING: RTL mümkün değilse acil iniş.
 
-    FAILSAFE'den çıkış için:
-    1. Drone sağlıklı olmalı (healthy=True)
-    2. Swarm manager onay vermeli (pending_state=RETURN_HOME)
-    Home set değilse RTL yerine acil iniş — guard halleder.
+    Args:
+        ctx: Drone durum bilgisi.
+
+    Returns:
+        Hedef AgentState veya None.
     """
     if ctx.healthy and ctx.pending_state == AgentState.RETURN_HOME:
-        return AgentState.RETURN_HOME  # Sağlık geri geldi → eve dön
-
+        return AgentState.RETURN_HOME
     if ctx.pending_state == AgentState.LANDING:
-        return AgentState.LANDING      # RTL mümkün değil → bulunduğun yere in
-
-    return None  # FAILSAFE'de kal, bekle
+        return AgentState.LANDING
+    return None
 
 
 def _from_standby(ctx: AgentContext) -> AgentState | None:
     """
-    STANDBY → ARMING: Arm için hazır ve preflight geçiyor.
+    STANDBY → ARMING: Katılma isteği var ve preflight geçiyor.
 
-    Standby modundaki drone göreve katılmak isteyince:
-    1. wants_to_join=True olmalı (EVENT_AGENT_JOIN_REQUEST geldi)
-    2. ready_to_arm=True olmalı (PX4 preflight kontrollerini geçti)
-    3. Preflight kontrol listesi tekrar çalıştırılır
+    Args:
+        ctx: Drone durum bilgisi.
+
+    Returns:
+        AgentState.ARMING veya None.
     """
     if ctx.wants_to_join and ctx.ready_to_arm:
-        passed, _ = run_preflight_checks(ctx)  # Son bir kez daha kontrol et
+        passed, _ = run_preflight_checks(ctx)
         if passed:
-            return AgentState.ARMING   # Her şey hazır → arm etmeye başla
-
-    return None  # Henüz hazır değil veya katılmak istemiyor
+            return AgentState.ARMING
+    return None
