@@ -187,7 +187,7 @@ class AgentFsmNode(Node):
         State geçişini uygular ve loglar.
 
         Args:
-            new_state: Geçilecek hedef state.
+            new_state (AgentState): Geçilecek hedef state.
         """
         old = self._ctx.state
         self._ctx.set_state(new_state)
@@ -205,7 +205,7 @@ class AgentFsmNode(Node):
         Swarm event bus'tan gelen olayları işler.
 
         Args:
-            msg: Gelen SystemEvent mesajı.
+            msg (SystemEvent): Gelen SystemEvent mesajı.
         """
         ctx = self._ctx
         aid = ctx.agent_id
@@ -332,7 +332,7 @@ class AgentFsmNode(Node):
         Lider drone'un yayınladığı referans koordinat sistemini işler.
 
         Args:
-            msg: Gelen SwarmOrigin mesajı.
+            msg (SwarmOrigin): Gelen SwarmOrigin mesajı.
         """
         if msg.valid and msg.gps_fix_type >= 3:
             self._ctx.origin_synced = True

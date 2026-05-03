@@ -68,14 +68,22 @@ class _StabilityWindow:
         self.pitch: deque[float] = deque(maxlen=self.MAXLEN)
 
     def update(self, ctx: AgentContext) -> None:
-        """Her tick'te anlık sensör verisini kuyruğa ekle."""
+        """Her tick'te anlık sensör verisini kuyruğa ekler.
+
+        Args:
+            ctx (AgentContext): Drone'un anlık durum bilgisi.
+        """
         self.pos_z.append(ctx.pos_z)
         self.vel_z.append(ctx.vel_z)
         self.roll.append(ctx.roll_deg)
         self.pitch.append(ctx.pitch_deg)
 
     def is_full(self) -> bool:
-        """İstatistik hesabı için yeterli veri var mı?"""
+        """İstatistik hesabı için yeterli veri olup olmadığını döner.
+
+        Returns:
+            bool: Pencere doluysa True.
+        """
         return len(self.pos_z) == self.MAXLEN
 
 
@@ -83,7 +91,14 @@ _windows: dict[int, _StabilityWindow] = {}
 
 
 def _get_window(ctx: AgentContext) -> _StabilityWindow:
-    """Bu drone'un stabilite penceresini getir, yoksa yeni oluştur."""
+    """Bu drone'un stabilite penceresini döner, yoksa yeni oluşturur.
+
+    Args:
+        ctx (AgentContext): Drone'un anlık durum bilgisi.
+
+    Returns:
+        _StabilityWindow: Drone'a ait stabilite penceresi.
+    """
     aid = ctx.agent_id
     if aid not in _windows:
         _windows[aid] = _StabilityWindow()

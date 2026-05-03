@@ -82,7 +82,14 @@ def evaluate_transitions(ctx: AgentContext) -> AgentState | None:
 
 
 def _from_unknown(ctx: AgentContext) -> AgentState | None:
-    """UNKNOWN → IDLE: İlk tick'te her zaman geçilir."""
+    """İlk tick'te her zaman IDLE'a geçer.
+
+    Args:
+        ctx (AgentContext): Drone'un anlık durum bilgisi.
+
+    Returns:
+        AgentState: Her zaman AgentState.IDLE.
+    """
     return AgentState.IDLE
 
 
@@ -203,7 +210,14 @@ def _from_executing_task(ctx: AgentContext) -> AgentState | None:
 
 
 def _from_detached(ctx: AgentContext) -> AgentState | None:
-    """DETACHED → PRECISION_LANDING: Her zaman geçilir."""
+    """DETACHED'dan her zaman PRECISION_LANDING'e geçer.
+
+    Args:
+        ctx (AgentContext): Drone'un anlık durum bilgisi.
+
+    Returns:
+        AgentState: Her zaman AgentState.PRECISION_LANDING.
+    """
     return AgentState.PRECISION_LANDING
 
 
