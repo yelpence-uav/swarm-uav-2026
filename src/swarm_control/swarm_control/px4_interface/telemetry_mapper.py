@@ -16,13 +16,13 @@ import math
 # PX4 nav_state → AgentStatus FLIGHT_MODE_* eşleşmesi
 # PX4'ün sayısal kodları AgentStatus.msg'deki sayısal kodlardan farklı.
 NAV_STATE_TO_FLIGHT_MODE: dict[int, int] = {
-    0:  1,   # MANUAL       → FLIGHT_MODE_MANUAL
-    1:  2,   # ALTCTL       → FLIGHT_MODE_ALTCTL
-    2:  3,   # POSCTL       → FLIGHT_MODE_POSCTL
-    3:  5,   # AUTO_MISSION → FLIGHT_MODE_AUTO_MISSION
-    4:  6,   # AUTO_LOITER  → FLIGHT_MODE_AUTO_LOITER
-    5:  7,   # AUTO_RTL     → FLIGHT_MODE_AUTO_RTL
-    6:  9,   # ACRO         → FLIGHT_MODE_ACRO
+    0: 1,   # MANUAL       → FLIGHT_MODE_MANUAL
+    1: 2,   # ALTCTL       → FLIGHT_MODE_ALTCTL
+    2: 3,   # POSCTL       → FLIGHT_MODE_POSCTL
+    3: 5,   # AUTO_MISSION → FLIGHT_MODE_AUTO_MISSION
+    4: 6,   # AUTO_LOITER  → FLIGHT_MODE_AUTO_LOITER
+    5: 7,   # AUTO_RTL     → FLIGHT_MODE_AUTO_RTL
+    6: 9,   # ACRO         → FLIGHT_MODE_ACRO
     14: 4,   # OFFBOARD     → FLIGHT_MODE_OFFBOARD
     15: 10,  # STABILIZED   → FLIGHT_MODE_STABILIZED
     18: 8,   # AUTO_LAND    → FLIGHT_MODE_AUTO_LAND
@@ -39,12 +39,8 @@ PILOT_FLIGHT_MODES: frozenset[int] = frozenset({
 
 
 def map_battery(msg, status) -> None:
-    """BatteryStatus verisini AgentStatus pil alanlarına yazar.
-
-    Args:
-        msg (BatteryStatus): PX4'ten gelen pil durumu mesajı.
-        status (AgentStatus): Güncellenmesi gereken durum nesnesi.
-    """
+    """BatteryStatus → battery_voltage_v, battery_current_a,
+    battery_percent."""
     status.battery_voltage_v = float(msg.voltage_v)
     status.battery_current_a = float(msg.current_a)
     remaining = float(msg.remaining)
@@ -54,16 +50,12 @@ def map_battery(msg, status) -> None:
 
 
 def map_vehicle_status(msg, status) -> None:
-    """VehicleStatus verisini AgentStatus durum alanlarına yazar.
-
-    Args:
-        msg (VehicleStatus): PX4'ten gelen araç durum mesajı.
-        status (AgentStatus): Güncellenmesi gereken durum nesnesi.
-    """
+    """VehicleStatus → armed, flight_mode, failsafe_active,
+    pilot_override_active vs."""
     # ARMING_STATE_ARMED = 2
     status.armed = (msg.arming_state == 2)
     status.failsafe_active = bool(msg.failsafe)
-    status.rc_signal_failsafe_active = False
+    status.rc_signal_failsafe_active = bool(getattr(msg, 'rc_signal_lost', False))
     status.px4_link_ok = True  # Bu mesaj geliyorsa PX4 bağlı
 
     # nav_state → AgentStatus flight_mode
@@ -75,12 +67,7 @@ def map_vehicle_status(msg, status) -> None:
 
 
 def map_local_position(msg, status) -> None:
-    """VehicleLocalPosition verisini AgentStatus konum alanlarına yazar.
-
-    Args:
-        msg (VehicleLocalPosition): PX4'ten gelen yerel konum mesajı.
-        status (AgentStatus): Güncellenmesi gereken durum nesnesi.
-    """
+    """VehicleLocalPosition → pos_x/y/z, vel_x/y/z, valid flag'ler."""
     status.pos_x = float(msg.x)
     status.pos_y = float(msg.y)
     status.pos_z = float(msg.z)
@@ -93,13 +80,10 @@ def map_local_position(msg, status) -> None:
 
 
 def map_estimator(msg, status) -> None:
-    """EstimatorStatusFlags verisini AgentStatus sensör sağlığı alanlarına yazar.
+    """EstimatorStatusFlags → imu/mag/baro/estimator sağlığı.
 
-    PX4 sürümleri arasında alan adları değişebildiğinden getattr ile güvenli okuma yapılır.
-
-    Args:
-        msg (EstimatorStatusFlags): PX4'ten gelen tahmin edici durum bayrakları mesajı.
-        status (AgentStatus): Güncellenmesi gereken durum nesnesi.
+    PX4 sürümleri arasında alan adları değişebilir.
+    Bu yüzden getattr ile güvenli okuma yapıyoruz.
     """
     tilt_ok = bool(getattr(msg, 'cs_tilt_align', False))
     yaw_ok = bool(getattr(msg, 'cs_yaw_align', False))
@@ -120,50 +104,32 @@ def map_estimator(msg, status) -> None:
 
 
 def map_gps(msg, status) -> None:
-    """SensorGps verisini AgentStatus GPS alanlarına yazar.
-
-    Args:
-        msg (SensorGps): PX4'ten gelen GPS sensör mesajı.
-        status (AgentStatus): Güncellenmesi gereken durum nesnesi.
-    """
+    """SensorGps → gps_fix_type, gps_hdop, gps_satellites."""
     status.gps_fix_type = int(msg.fix_type)
     status.gps_hdop = float(msg.hdop)
     status.gps_satellites = int(msg.satellites_used)
 
 
 def map_global_position(msg, status) -> None:
-    """VehicleGlobalPosition verisini AgentStatus küresel konum alanlarına yazar.
-
-    Args:
-        msg (VehicleGlobalPosition): PX4'ten gelen küresel konum mesajı.
-        status (AgentStatus): Güncellenmesi gereken durum nesnesi.
-    """
+    """VehicleGlobalPosition → lat_deg, lon_deg, alt_amsl_m."""
     status.lat_deg = float(msg.lat)
     status.lon_deg = float(msg.lon)
     status.alt_amsl_m = float(msg.alt)
 
 
 def map_home_position(msg, status) -> None:
-    """HomePosition verisini AgentStatus ev konumu alanlarına yazar.
-
-    Args:
-        msg (HomePosition): PX4'ten gelen ev konumu mesajı.
-        status (AgentStatus): Güncellenmesi gereken durum nesnesi.
-    """
-    status.home_set = bool(msg.valid_hpos and msg.valid_vpos)
+    """HomePosition → home_set + home_lat/lon/alt."""
+    status.home_set = bool(msg.valid_hpos and msg.valid_alt)
     status.home_lat_deg = float(msg.lat)
     status.home_lon_deg = float(msg.lon)
     status.home_alt_amsl_m = float(msg.alt)
 
 
 def map_attitude(msg, status) -> None:
-    """VehicleAttitude kuaterniyonunu Euler açılarına çevirerek AgentStatus'a yazar.
+    """VehicleAttitude quaternion → roll_deg, pitch_deg, heading_deg.
 
-    Quaternion [w, x, y, z] formatındadır (PX4 standardı). ZYX Euler dönüşümü uygulanır.
-
-    Args:
-        msg (VehicleAttitude): PX4'ten gelen araç tutum mesajı.
-        status (AgentStatus): Güncellenmesi gereken durum nesnesi.
+    Quaternion [w, x, y, z] formatında geliyor (PX4 standardı).
+    ZYX Euler dönüşümüyle açılara çeviriyoruz.
     """
     q = msg.q  # [w, x, y, z]
 
@@ -187,10 +153,5 @@ def map_attitude(msg, status) -> None:
 
 
 def map_manual_control(msg, status) -> None:
-    """ManualControlSetpoint verisini AgentStatus RC bağlantı alanına yazar.
-
-    Args:
-        msg (ManualControlSetpoint): PX4'ten gelen manuel kontrol mesajı.
-        status (AgentStatus): Güncellenmesi gereken durum nesnesi.
-    """
+    """ManualControlSetpoint → rc_link_ok."""
     status.rc_link_ok = bool(getattr(msg, 'valid', True))

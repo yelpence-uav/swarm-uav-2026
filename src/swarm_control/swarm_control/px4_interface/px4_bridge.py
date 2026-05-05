@@ -4,16 +4,21 @@ px4_bridge.py
 PX4 ↔ FSM köprüsü — ana ROS2 node.
 
 İŞLEYİŞ:
-1. PX4 topic'lerini dinler (/fmu/out/...)
+1. PX4 topic'lerini dinler (/{drone_ns}/fmu/out/...)
    → telemetry_mapper ile AgentStatus'a çevirir
    → /swarm/agent/drone{id}/telemetry'ye yayınlar (FSM okuyacak)
 
 2. FSM komut topic'ini dinler (/swarm/agent/drone{id}/commands)
-   → command_sender ile PX4'e iletir (/fmu/in/...)
+   → command_sender ile PX4'e iletir (/{drone_ns}/fmu/in/...)
+
+3. OFFBOARD heartbeat (50 Hz) — PX4 offboard modda sürekli sinyal bekler.
+   xy_valid + z_valid varsa mevcut konum hold setpoint'i olarak gönderilir.
 
 KULLANIM:
     ros2 run swarm_control px4_bridge --ros-args -p agent_id:=1
 """
+
+import math
 
 import rclpy
 from rclpy.node import Node
@@ -76,21 +81,29 @@ class Px4BridgeNode(Node):
         # ROS2 parametreleri
         self.declare_parameter('agent_id', 1)
         self.declare_parameter('publish_rate_hz', 10.0)
-        self.declare_parameter('px4_namespace', 'drone_1')
         self._agent_id: int = int(
             self.get_parameter('agent_id').value
         )
         publish_rate = float(
             self.get_parameter('publish_rate_hz').value
         )
-        self._px4_ns: str = self.get_parameter('px4_namespace').value
+
+        # Micro-XRCE-DDS-Agent'ın kullandığı PX4 namespace — tüm /fmu/... topic'leri bu altında
+        self._fmu_ns = f'/drone_{self._agent_id}'
 
         # Drone'un anlık durumu — callback'ler bunu doldurur
         self._status = AgentStatus()
         self._status.agent_id = self._agent_id
 
-        # PX4'e komut gönderen yardımcı
-        self._cmd_sender = CommandSender(self, system_id=self._agent_id)
+        # OFFBOARD streaming aktif mi — FSM "offboard" gönderince True olur
+        self._offboard_streaming: bool = False
+
+        # PX4'e komut gönderen yardımcı — namespace ile doğru topic'lere yazar
+        self._cmd_sender = CommandSender(
+            self,
+            system_id=self._agent_id,
+            namespace=self._fmu_ns,
+        )
 
         # PX4 telemetri abonelikleri kur
         self._setup_px4_subscriptions()
@@ -113,34 +126,36 @@ class Px4BridgeNode(Node):
         # AgentStatus'u periyodik yayınla — varsayılan 10 Hz
         self.create_timer(1.0 / publish_rate, self._publish_status)
 
+        # OFFBOARD heartbeat — PX4 offboard modda min 2 Hz sinyal ister, 50 Hz gönderiyoruz.
+        # OffboardControlMode her zaman yayınlanır (offboard dışı modlarda PX4 yoksayar).
+        # TrajectorySetpoint sadece _offboard_streaming=True ve konum geçerliyken gönderilir.
+        self.create_timer(1.0 / 50.0, self._offboard_tick)
+
         self.get_logger().info(
             f'Px4BridgeNode başlatıldı: agent_id={self._agent_id}, '
-            f'publish_rate={publish_rate} Hz'
+            f'fmu_ns={self._fmu_ns}, publish_rate={publish_rate} Hz'
         )
 
     # =================================================================
     # PX4 ABONELİKLERİ
     # =================================================================
     def _setup_px4_subscriptions(self) -> None:
-        """PX4 telemetri topic'lerine abone olur, her topic için ilgili mapper callback'i atanır."""
-        ns = self._px4_ns
+        """PX4 telemetri topic'lerine abone ol.
+
+        Tüm topic'ler Micro-XRCE-DDS-Agent'ın namespace'i altında gelir:
+        /drone_{id}/fmu/out/...
+        """
+        ns = self._fmu_ns
         subs = [
-            (BatteryStatus, f'/{ns}/fmu/out/battery_status',
-             self._on_battery),
-            (VehicleStatus, f'/{ns}/fmu/out/vehicle_status',
-             self._on_vehicle_status),
-            (VehicleLocalPosition, f'/{ns}/fmu/out/vehicle_local_position',
-             self._on_local_pos),
-            (EstimatorStatusFlags, f'/{ns}/fmu/out/estimator_status_flags',
-             self._on_estimator),
-            (SensorGps, f'/{ns}/fmu/out/vehicle_gps_position', self._on_gps),
-            (VehicleGlobalPosition, f'/{ns}/fmu/out/vehicle_global_position',
-             self._on_global_pos),
-            (HomePosition, f'/{ns}/fmu/out/home_position', self._on_home),
-            (VehicleAttitude, f'/{ns}/fmu/out/vehicle_attitude',
-             self._on_attitude),
-            (ManualControlSetpoint, f'/{ns}/fmu/out/manual_control_setpoint',
-             self._on_manual_control),
+            (BatteryStatus,        f'{ns}/fmu/out/battery_status',         self._on_battery),
+            (VehicleStatus,        f'{ns}/fmu/out/vehicle_status',         self._on_vehicle_status),
+            (VehicleLocalPosition, f'{ns}/fmu/out/vehicle_local_position', self._on_local_pos),
+            (EstimatorStatusFlags, f'{ns}/fmu/out/estimator_status_flags', self._on_estimator),
+            (SensorGps,            f'{ns}/fmu/out/vehicle_gps_position',   self._on_gps),
+            (VehicleGlobalPosition,f'{ns}/fmu/out/vehicle_global_position',self._on_global_pos),
+            (HomePosition,         f'{ns}/fmu/out/home_position',          self._on_home),
+            (VehicleAttitude,      f'{ns}/fmu/out/vehicle_attitude',       self._on_attitude),
+            (ManualControlSetpoint,f'{ns}/fmu/out/manual_control_setpoint',self._on_manual_control),
         ]
         for msg_type, topic, cb in subs:
             self.create_subscription(msg_type, topic, cb, _PX4_QOS)
@@ -153,6 +168,9 @@ class Px4BridgeNode(Node):
 
     def _on_vehicle_status(self, msg: VehicleStatus) -> None:
         map_vehicle_status(msg, self._status)
+        # Offboard'dan çıkıldığında streaming'i durdur
+        if self._status.flight_mode != AgentStatus.FLIGHT_MODE_OFFBOARD:
+            self._offboard_streaming = False
 
     def _on_local_pos(self, msg: VehicleLocalPosition) -> None:
         map_local_position(msg, self._status)
@@ -176,21 +194,45 @@ class Px4BridgeNode(Node):
         map_manual_control(msg, self._status)
 
     # =================================================================
+    # OFFBOARD HEARTBEAT (50 Hz)
+    # =================================================================
+    def _offboard_tick(self) -> None:
+        """50 Hz'de çalışır.
+
+        OffboardControlMode her zaman yayınlanır — PX4 moda geçiş için bunu
+        görmek ister, diğer modlarda yoksayar.
+
+        TrajectorySetpoint sadece offboard aktifken ve konum geçerliyken
+        gönderilir; bu sayede drone mevcut konumda bekler (hold).
+        """
+        self._cmd_sender.publish_offboard_position_mode()
+
+        if self._offboard_streaming and self._status.xy_valid and self._status.z_valid:
+            self._cmd_sender.publish_position_setpoint(
+                self._status.pos_x,
+                self._status.pos_y,
+                self._status.pos_z,
+                yaw_rad=math.radians(self._status.heading_deg),
+            )
+
+    # =================================================================
     # FSM KOMUT KÖPRÜSÜ
     # =================================================================
     def _on_fsm_command(self, msg: String) -> None:
-        """FSM komut topic'inden gelen string komutu ayrıştırarak PX4'e iletir.
+        """FSM'den gelen komutu PX4'e ilet.
 
-        Args:
-            msg (String): FSM'den gelen komut mesajı.
-                Desteklenen değerler: "arm", "disarm", "takeoff", "takeoff:10.0",
-                "land", "rtl", "offboard".
+        Desteklenen komutlar (basit string formatı):
+            "arm", "disarm"
+            "takeoff:10.0"   (irtifa parametresi)
+            "land", "rtl"
+            "offboard"
         """
         cmd = msg.data.strip().lower()
 
         if cmd == 'arm':
             self._cmd_sender.arm()
         elif cmd == 'disarm':
+            self._offboard_streaming = False
             self._cmd_sender.disarm()
         elif cmd.startswith('takeoff'):
             # "takeoff:10.0" → altitude=10.0; sadece "takeoff" → 10.0 default
@@ -204,10 +246,15 @@ class Px4BridgeNode(Node):
                     )
             self._cmd_sender.takeoff(altitude_m=altitude)
         elif cmd == 'land':
+            self._offboard_streaming = False
             self._cmd_sender.land()
         elif cmd == 'rtl':
+            self._offboard_streaming = False
             self._cmd_sender.return_home()
         elif cmd == 'offboard':
+            # Önce streaming başlar, ardından mod değiştirilir.
+            # PX4, OffboardControlMode sinyalini görmeden offboard'a geçmez.
+            self._offboard_streaming = True
             self._cmd_sender.set_offboard_mode()
         else:
             self.get_logger().warning(f'Bilinmeyen FSM komutu: {cmd}')

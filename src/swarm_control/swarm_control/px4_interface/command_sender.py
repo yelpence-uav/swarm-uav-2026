@@ -4,9 +4,9 @@ command_sender.py
 FSM kararlarını PX4'ün anlayacağı komutlara çevirir ve yayınlar.
 
 Yayınlanan PX4 topic'leri:
-- /fmu/in/vehicle_command          → arm/disarm/mode/takeoff/land/RTL
-- /fmu/in/offboard_control_mode    → offboard kontrol türü (pozisyon/hız)
-- /fmu/in/trajectory_setpoint      → hedef pozisyon ve yaw
+- {namespace}/fmu/in/vehicle_command          → arm/disarm/mode/takeoff/land/RTL
+- {namespace}/fmu/in/offboard_control_mode    → offboard kontrol türü (pozisyon/hız)
+- {namespace}/fmu/in/trajectory_setpoint      → hedef pozisyon ve yaw
 
 Bu sınıf bir node'a bağlıdır (publisher'ları oluşturmak için), ama node mantığı
 içermez — px4_bridge çağırır.
@@ -42,34 +42,45 @@ class CommandSender:
     """FSM → PX4 komut köprüsü.
 
     Kullanım:
-        sender = CommandSender(node, system_id=1)
+        sender = CommandSender(node, system_id=1, namespace='/drone_1')
         sender.arm()
         sender.takeoff(altitude_m=10.0)
         sender.land()
     """
 
-    def __init__(self, node, system_id: int = 1, component_id: int = 1):
+    def __init__(
+        self,
+        node,
+        system_id: int = 1,
+        component_id: int = 1,
+        namespace: str = '',
+    ):
         """
         Args:
             node: ROS2 node (publisher oluşturmak için)
             system_id: PX4 MAV_SYS_ID — drone numarası (default 1)
             component_id: MAV_COMP_ID — onboard bilgisayar (default 1)
+            namespace: PX4 topic namespace, örn. '/drone_1'
+                       Micro-XRCE-DDS-Agent'ın kullandığı namespace ile eşleşmeli.
         """
         self._node = node
         self._sys_id = system_id
         self._comp_id = component_id
 
-        # PX4'e komut yayınlayan publisher'lar
+        # PX4'e komut yayınlayan publisher'lar — namespace ile doğru topic'e yazılır
         self._cmd_pub = node.create_publisher(
-            VehicleCommand, '/fmu/in/vehicle_command', 10
+            VehicleCommand, f'{namespace}/fmu/in/vehicle_command', 10
         )
         self._offboard_pub = node.create_publisher(
-            OffboardControlMode, '/fmu/in/offboard_control_mode', 10
+            OffboardControlMode, f'{namespace}/fmu/in/offboard_control_mode', 10
         )
         self._setpoint_pub = node.create_publisher(
-            TrajectorySetpoint, '/fmu/in/trajectory_setpoint', 10
+            TrajectorySetpoint, f'{namespace}/fmu/in/trajectory_setpoint', 10
         )
 
+    # =================================================================
+    # YARDIMCI: VehicleCommand mesajı oluştur ve yayınla
+    # =================================================================
     def _send_vehicle_command(
         self,
         command: int,
@@ -81,12 +92,7 @@ class CommandSender:
         param6: float = 0.0,
         param7: float = 0.0,
     ) -> None:
-        """VehicleCommand mesajı oluşturup PX4'e yayınlar.
-
-        Args:
-            command (int): MAVLink komut kodu (_CMD_* sabitleri).
-            param1..param7 (float): Komuta özgü MAVLink parametreleri.
-        """
+        """Tek bir VehicleCommand mesajı yayınlar."""
         msg = VehicleCommand()
         msg.timestamp = int(self._node.get_clock().now().nanoseconds / 1000)
         msg.command = command
@@ -104,17 +110,22 @@ class CommandSender:
         msg.from_external = True
         self._cmd_pub.publish(msg)
 
+    # =================================================================
+    # ARM / DISARM
+    # =================================================================
     def arm(self) -> None:
-        """Motorları arm eder, drone uçuşa hazır hale gelir."""
+        """Motorları arm et — drone uçmaya hazır hale gelir."""
         self._send_vehicle_command(_CMD_ARM_DISARM, param1=1.0)
 
     def disarm(self) -> None:
-        """Motorları disarm eder, drone yerde güvenli konuma geçer."""
+        """Motorları disarm et — drone yerde güvenli."""
         self._send_vehicle_command(_CMD_ARM_DISARM, param1=0.0)
 
+    # =================================================================
+    # MOD DEĞİŞTİRME
+    # =================================================================
     def set_offboard_mode(self) -> None:
-        """OFFBOARD moduna geçer, drone harici setpoint'leri takip eder."""
-        # base_mode=1 (custom), custom_main=6 (OFFBOARD)
+        """OFFBOARD moduna geç — bizim setpoint'lerimizi takip et."""
         self._send_vehicle_command(
             _CMD_DO_SET_MODE,
             param1=1.0,
@@ -122,7 +133,7 @@ class CommandSender:
         )
 
     def set_auto_loiter_mode(self) -> None:
-        """AUTO LOITER moduna geçer, drone havada sabit konumda bekler."""
+        """AUTO LOITER moduna geç — havada sabit bekle."""
         self._send_vehicle_command(
             _CMD_DO_SET_MODE,
             param1=1.0,
@@ -130,27 +141,28 @@ class CommandSender:
             param3=float(_SUB_AUTO_LOITER),
         )
 
+    # =================================================================
+    # KALKIŞ / İNİŞ / EVE DÖNÜŞ
+    # =================================================================
     def takeoff(self, altitude_m: float = 10.0) -> None:
-        """AUTO_TAKEOFF modunu kullanarak belirtilen irtifaya kalkış yapar.
-
-        Args:
-            altitude_m (float): Hedef kalkış irtifası (metre). Varsayılan 10.0.
-        """
+        """Belirtilen irtifaya kalk (AUTO_TAKEOFF modu)."""
         self._send_vehicle_command(_CMD_NAV_TAKEOFF, param7=altitude_m)
 
     def land(self) -> None:
-        """Bulunulan konumda iniş yapar."""
+        """Bulunduğu konumda iniş yap."""
         self._send_vehicle_command(_CMD_NAV_LAND)
 
     def return_home(self) -> None:
-        """RTL modunu tetikler, drone başlangıç konumuna döner."""
+        """Home konumuna dön (RTL)."""
         self._send_vehicle_command(_CMD_NAV_RTL)
 
+    # =================================================================
+    # OFFBOARD STREAMING
+    # PX4, OFFBOARD modunda sürekli setpoint bekler (min 2 Hz, tipik 50 Hz).
+    # Stream kesilirse PX4 failsafe'e geçer. px4_bridge 50 Hz timer ile çağırır.
+    # =================================================================
     def publish_offboard_position_mode(self) -> None:
-        """OFFBOARD modunda PX4'e pozisyon kontrolü kullandığını bildirir.
-
-        Stream kesilirse PX4 OFFBOARD'dan çıkar; px4_bridge bu fonksiyonu 50 Hz yayınlamalıdır.
-        """
+        """OFFBOARD modunda 'pozisyon kontrolü kullanıyorum' sinyali gönderir."""
         msg = OffboardControlMode()
         msg.timestamp = int(self._node.get_clock().now().nanoseconds / 1000)
         msg.position = True
@@ -167,13 +179,10 @@ class CommandSender:
         z: float,
         yaw_rad: float = 0.0,
     ) -> None:
-        """Hedef pozisyon ve yaw setpoint'ini PX4'e yayınlar.
+        """Hedef pozisyon (NED) ve yaw gönder.
 
-        Args:
-            x (float): NED kuzey ekseni hedef konumu (metre).
-            y (float): NED doğu ekseni hedef konumu (metre).
-            z (float): NED aşağı ekseni hedef konumu (metre, aşağı pozitif).
-            yaw_rad (float): Hedef yaw açısı (radyan). Varsayılan 0.0.
+        UYARI: NED frame — z aşağı pozitif!
+        20 metre yükseklik için z = -20.0
         """
         msg = TrajectorySetpoint()
         msg.timestamp = int(self._node.get_clock().now().nanoseconds / 1000)
