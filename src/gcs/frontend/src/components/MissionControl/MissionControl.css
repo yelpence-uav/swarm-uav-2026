@@ -1,0 +1,61 @@
+.mc {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  background: #131820;
+  color: #e6e6e6;
+  border-bottom: 1px solid #2a2f37;
+  font: 12px/1 ui-monospace, monospace;
+  flex-wrap: wrap;
+}
+
+.mc__label {
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: #aaa;
+  font-size: 11px;
+}
+
+.mc__btn {
+  padding: 6px 12px;
+  background: rgba(255, 255, 255, 0.04);
+  color: #e6e6e6;
+  border: 1px solid #2a2f37;
+  border-radius: 5px;
+  font: 600 11px/1 ui-monospace, monospace;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  transition: background 120ms, border-color 120ms;
+}
+
+.mc__btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: #3a4250;
+}
+
+.mc__btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.mc__btn.is-busy {
+  border-color: #6fcf76;
+}
+
+.mc__btn--danger {
+  background: rgba(229, 57, 53, 0.18);
+  color: #ff8a80;
+  border-color: #b71c1c;
+  font-weight: 700;
+}
+
+.mc__btn--danger:hover:not(:disabled) {
+  background: rgba(229, 57, 53, 0.32);
+}
+
+.mc__error {
+  margin-left: auto;
+  color: #ef5350;
+  font-size: 11px;
+}

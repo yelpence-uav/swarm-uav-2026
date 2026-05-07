@@ -7,6 +7,7 @@ Davranışlar:
   - Bağlantı kopuk drone için yalnızca link_timeout uyarısı (diğerleri stale veriyle yanıltır).
 """
 
+import threading
 import time
 from dataclasses import dataclass
 from typing import Iterable
@@ -38,10 +39,26 @@ class AlertManager:
     BAT_CRIT_ON = 10.0
     BAT_CRIT_OFF = 12.0
 
+    EVENT_TTL_SEC = 8.0  # info-level event'lar bu kadar süre görünür
+
     def __init__(self) -> None:
         self._started_at = time.time()
-        # Aktif alert'ler: (drone_id, code) -> Alert
+        # Aktif alert'ler: (drone_id, code) -> Alert (kural-tabanlı, kalıcı)
         self._active: dict[tuple[int, str], Alert] = {}
+        # Tek seferlik event'lar: liste — TTL dolunca düşer
+        self._events: list[Alert] = []
+        self._events_lock = threading.Lock()
+
+    def push_event(self, drone_id: int, severity: str, code: str, message: str) -> None:
+        """Tek seferlik bir event yayınla (komut ACK gibi). EVENT_TTL_SEC sonra düşer."""
+        with self._events_lock:
+            self._events.append(Alert(
+                drone_id=drone_id,
+                severity=severity,
+                code=code,
+                message=message,
+                timestamp=time.time(),
+            ))
 
     def _grace_active(self) -> bool:
         return (time.time() - self._started_at) < self.GPS_GRACE_SEC
@@ -111,9 +128,15 @@ class AlertManager:
                 else:
                     self._clear(gps_key)
 
+        # Süresi dolan event'ları temizle
+        now = time.time()
+        with self._events_lock:
+            self._events = [e for e in self._events if (now - e.timestamp) < self.EVENT_TTL_SEC]
+            current_events = list(self._events)
+
         # Severity sırası: critical → warning → info; aynı severity'de en yeni en üstte
         order = {SEVERITY_CRITICAL: 0, SEVERITY_WARNING: 1, SEVERITY_INFO: 2}
         return sorted(
-            self._active.values(),
+            list(self._active.values()) + current_events,
             key=lambda a: (order.get(a.severity, 3), -a.timestamp),
         )

@@ -3,10 +3,14 @@
 Bağlantı string'i pymavlink format'ında olmalı:
   - udpin:0.0.0.0:14550        (PX4 SITL veya ESP-NOW gateway)
   - serial:/dev/ttyUSB0:57600  (gerçek donanım, USB üstünden)
+
+`link` (mavutil bağlantı objesi) public — CommandSender aynı socket üzerinden
+geri yazar. Send/recv eşzamanlı olabildiği için `send_lock` ile sarmalanır.
 """
 
 import math
 import threading
+from typing import Callable, Optional
 
 from pymavlink import mavutil
 
@@ -51,17 +55,55 @@ def parse_px4_mode(custom_mode: int) -> str:
     return main_name
 
 
-class MavlinkListener:
-    """Tek MAVLink endpoint dinler, sysid → drone_id eşlemesine göre dağıtır."""
+# COMMAND_ACK callback imzası: (drone_id, command_id, result_code, result_text)
+AckCallback = Callable[[int, int, int, str], None]
 
-    def __init__(self, connection_string: str, sysid_to_drone_id: dict[int, int], store: StateStore):
+
+MAV_RESULT_NAMES = {
+    0: "ACCEPTED",
+    1: "TEMPORARILY_REJECTED",
+    2: "DENIED",
+    3: "UNSUPPORTED",
+    4: "FAILED",
+    5: "IN_PROGRESS",
+    6: "CANCELLED",
+}
+
+
+class MavlinkListener:
+    """Tek MAVLink endpoint dinler, sysid → drone_id eşlemesine göre dağıtır.
+
+    `link` public — CommandSender bu objeyi kullanarak komut yazar.
+    `send_lock` send/recv concurrency guard'ı (recv ayrı thread'de döner).
+    """
+
+    def __init__(
+        self,
+        connection_string: str,
+        sysid_to_drone_id: dict[int, int],
+        store: StateStore,
+        source_system: int = 255,
+    ):
         self.connection_string = connection_string
         self.sysid_map = sysid_to_drone_id
         self.store = store
+        self.source_system = source_system
+
+        self.link: Optional[mavutil.mavfile] = None
+        self.send_lock = threading.Lock()
+        self._ack_callback: Optional[AckCallback] = None
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
 
+    def set_ack_callback(self, cb: AckCallback) -> None:
+        self._ack_callback = cb
+
     def start(self) -> None:
+        self.link = mavutil.mavlink_connection(
+            self.connection_string,
+            dialect="common",
+            source_system=self.source_system,
+        )
         self._thread = threading.Thread(
             target=self._run, daemon=True, name="mavlink-listener"
         )
@@ -71,14 +113,14 @@ class MavlinkListener:
         self._stop.set()
 
     def _run(self) -> None:
-        link = mavutil.mavlink_connection(self.connection_string, dialect="common")
+        assert self.link is not None
         print(
             f"[mavlink] Dinleniyor: {self.connection_string} | "
             f"beklenen sysid'ler: {sorted(self.sysid_map.keys())}"
         )
 
         while not self._stop.is_set():
-            msg = link.recv_match(blocking=True, timeout=1.0)
+            msg = self.link.recv_match(blocking=True, timeout=1.0)
             if msg is None:
                 continue
             sysid = msg.get_srcSystem()
@@ -105,7 +147,11 @@ class MavlinkListener:
 
         elif t == "BATTERY_STATUS":
             pct = msg.battery_remaining if msg.battery_remaining >= 0 else 0
-            voltage = (msg.voltages[0] / 1000.0) if msg.voltages and msg.voltages[0] != 65535 else 0.0
+            voltage = (
+                (msg.voltages[0] / 1000.0)
+                if msg.voltages and msg.voltages[0] != 65535
+                else 0.0
+            )
             self.store.update(drone_id, battery_percent=float(pct), battery_voltage=voltage)
 
         elif t == "SYS_STATUS":
@@ -125,3 +171,9 @@ class MavlinkListener:
 
         elif t == "ATTITUDE":
             self.store.update(drone_id, yaw_deg=math.degrees(msg.yaw))
+
+        elif t == "COMMAND_ACK":
+            if self._ack_callback is not None:
+                code = msg.result
+                text = MAV_RESULT_NAMES.get(code, f"code={code}")
+                self._ack_callback(drone_id, int(msg.command), int(code), text)

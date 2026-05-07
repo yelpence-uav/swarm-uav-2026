@@ -1,4 +1,5 @@
 import type { DroneState } from "../../types/telemetry";
+import { CommandButtons } from "../CommandButtons/CommandButtons";
 import { BatteryGauge } from "./BatteryGauge";
 import "./DroneCard.css";
 
@@ -34,6 +35,7 @@ export function DroneCard({ drone }: DroneCardProps) {
           <span className="drone-card__badge drone-card__badge--offline">OFFLINE</span>
         </header>
         <p className="drone-card__offline-msg">Son paket gelmiyor</p>
+        <CommandButtons droneId={drone.drone_id} connected={false} />
       </article>
     );
   }
@@ -84,6 +86,8 @@ export function DroneCard({ drone }: DroneCardProps) {
       <footer className="drone-card__footer">
         {drone.lat.toFixed(5)}, {drone.lon.toFixed(5)}
       </footer>
+
+      <CommandButtons droneId={drone.drone_id} connected={true} />
     </article>
   );
 }

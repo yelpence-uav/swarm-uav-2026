@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 
 import { AlertList } from "./components/AlertSystem/AlertList";
 import { MapView } from "./components/Map/Map";
+import { MissionControl } from "./components/MissionControl/MissionControl";
 import { StatusBar } from "./components/StatusBar/StatusBar";
 import { TelemetryPanel } from "./components/TelemetryPanel/TelemetryPanel";
 import { TelemetryWS } from "./services/websocket";
@@ -43,9 +44,12 @@ export default function App() {
     };
   }, []);
 
+  const anyConnected = payload.drones.some((d) => d.connected);
+
   return (
     <div className="app">
       <StatusBar status={status} drones={payload.drones} />
+      <MissionControl anyConnected={anyConnected} />
       <main className="app__main">
         <div className="app__map">
           <MapView snapshot={payload.drones} />
