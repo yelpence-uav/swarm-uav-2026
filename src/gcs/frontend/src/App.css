@@ -7,6 +7,31 @@
 
 .app__main {
   flex: 1;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  overflow: hidden;
+  min-height: 0;
+}
+
+.app__map {
   position: relative;
   overflow: hidden;
+  min-width: 0;
+  min-height: 0;
+}
+
+.app__panel {
+  overflow: hidden;
+  min-width: 0;
+  min-height: 0;
+}
+
+@media (max-width: 768px) {
+  .app__main {
+    grid-template-columns: 1fr;
+    grid-template-rows: 1fr auto;
+  }
+  .app__panel {
+    max-height: 40vh;
+  }
 }

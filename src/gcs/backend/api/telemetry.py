@@ -14,7 +14,12 @@ router = APIRouter(prefix="/api", tags=["telemetry"])
 @router.get("/telemetry/snapshot")
 def get_snapshot(request: Request):
     store = request.app.state.store
-    return [dataclasses.asdict(d) for d in store.snapshot()]
+    alerts = request.app.state.alerts
+    snap = store.snapshot()
+    return {
+        "drones": [dataclasses.asdict(d) for d in snap],
+        "alerts": [dataclasses.asdict(a) for a in alerts.evaluate(snap)],
+    }
 
 
 @router.get("/health")

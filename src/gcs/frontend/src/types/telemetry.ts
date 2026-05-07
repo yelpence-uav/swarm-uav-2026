@@ -23,4 +23,17 @@ export interface DroneState {
   yaw_deg: number;
 }
 
-export type TelemetrySnapshot = DroneState[];
+export type AlertSeverity = "info" | "warning" | "critical";
+
+export interface Alert {
+  drone_id: number;
+  severity: AlertSeverity;
+  code: string;
+  message: string;
+  timestamp: number;
+}
+
+export interface TelemetryPayload {
+  drones: DroneState[];
+  alerts: Alert[];
+}

@@ -1,0 +1,55 @@
+.battery-gauge {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.battery-gauge__head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font: 600 13px/1 ui-monospace, monospace;
+}
+
+.battery-gauge__pct {
+  font-size: 18px;
+}
+
+.battery-gauge__pct--ok {
+  color: #6fcf76;
+}
+.battery-gauge__pct--warn {
+  color: #ffd166;
+}
+.battery-gauge__pct--crit {
+  color: #ef5350;
+}
+
+.battery-gauge__voltage {
+  color: #aaa;
+  font-size: 11px;
+}
+
+.battery-gauge__bar {
+  width: 100%;
+  height: 6px;
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.battery-gauge__fill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 200ms linear, background 200ms;
+}
+
+.battery-gauge__fill--ok {
+  background: #4caf50;
+}
+.battery-gauge__fill--warn {
+  background: #d4a93b;
+}
+.battery-gauge__fill--crit {
+  background: #e53935;
+}

@@ -28,6 +28,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from backend.api.telemetry import router as telemetry_router
 from backend.connections.mavlink_listener import MavlinkListener
+from backend.core.alert_manager import AlertManager
 from backend.core.state_store import StateStore
 from backend.ws.telemetry_ws import telemetry_ws
 
@@ -91,6 +92,7 @@ async def lifespan(app: FastAPI):
 
     app.state.store = store
     app.state.listener = listener
+    app.state.alerts = AlertManager()
     app.state.config = cfg
 
     print_interval = cfg.get("print_interval_sec", 0)
@@ -114,7 +116,7 @@ async def lifespan(app: FastAPI):
 
 def create_app() -> FastAPI:
     cfg = load_config()
-    app = FastAPI(title="Yelpence GCS", version="0.2.0", lifespan=lifespan)
+    app = FastAPI(title="Yelpence GCS", version="0.3.0", lifespan=lifespan)
 
     app.add_middleware(
         CORSMiddleware,
@@ -129,8 +131,9 @@ def create_app() -> FastAPI:
     @app.websocket("/ws/telemetry")
     async def ws_telemetry(websocket: WebSocket):
         store = websocket.app.state.store
+        alerts = websocket.app.state.alerts
         hz = float(websocket.app.state.config.get("server", {}).get("ws_hz", 10.0))
-        await telemetry_ws(websocket, store, hz=hz)
+        await telemetry_ws(websocket, store, alerts, hz=hz)
 
     return app
 

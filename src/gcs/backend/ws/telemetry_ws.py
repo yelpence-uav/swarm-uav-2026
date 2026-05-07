@@ -1,6 +1,6 @@
-"""WebSocket endpoint — 10 Hz drone snapshot push.
+"""WebSocket endpoint — 10 Hz drone snapshot + alert push.
 
-Frontend bağlanır, biz periyodik olarak StateStore'un anlık halini JSON olarak basarız.
+Frontend bağlanır, biz periyodik olarak {drones, alerts} JSON'unu basarız.
 Bağlantı koparsa sessizce çıkar; reconnect'i frontend yapar.
 """
 
@@ -11,12 +11,18 @@ import logging
 
 from fastapi import WebSocket, WebSocketDisconnect
 
+from backend.core.alert_manager import AlertManager
 from backend.core.state_store import StateStore
 
 logger = logging.getLogger(__name__)
 
 
-async def telemetry_ws(ws: WebSocket, store: StateStore, hz: float = 10.0) -> None:
+async def telemetry_ws(
+    ws: WebSocket,
+    store: StateStore,
+    alerts: AlertManager,
+    hz: float = 10.0,
+) -> None:
     await ws.accept()
     interval = 1.0 / hz
     client = f"{ws.client.host}:{ws.client.port}" if ws.client else "?"
@@ -24,7 +30,12 @@ async def telemetry_ws(ws: WebSocket, store: StateStore, hz: float = 10.0) -> No
 
     try:
         while True:
-            payload = [dataclasses.asdict(d) for d in store.snapshot()]
+            snap = store.snapshot()
+            active_alerts = alerts.evaluate(snap)
+            payload = {
+                "drones": [dataclasses.asdict(d) for d in snap],
+                "alerts": [dataclasses.asdict(a) for a in active_alerts],
+            }
             await ws.send_text(json.dumps(payload))
             await asyncio.sleep(interval)
     except WebSocketDisconnect:

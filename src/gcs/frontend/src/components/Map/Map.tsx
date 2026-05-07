@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
 import L from "leaflet";
 
-import type { DroneState, TelemetrySnapshot } from "../../types/telemetry";
+import type { DroneState } from "../../types/telemetry";
 import { droneIcon } from "./droneIcon";
 import "./Map.css";
 
@@ -21,7 +21,7 @@ interface DroneMarker {
 }
 
 export interface MapProps {
-  snapshot: TelemetrySnapshot;
+  snapshot: DroneState[];
 }
 
 export function MapView({ snapshot }: MapProps) {

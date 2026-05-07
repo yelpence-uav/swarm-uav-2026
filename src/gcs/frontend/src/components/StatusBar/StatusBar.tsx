@@ -1,10 +1,10 @@
 import type { ConnectionStatus } from "../../services/websocket";
-import type { TelemetrySnapshot } from "../../types/telemetry";
+import type { DroneState } from "../../types/telemetry";
 import "./StatusBar.css";
 
 interface StatusBarProps {
   status: ConnectionStatus;
-  snapshot: TelemetrySnapshot;
+  drones: DroneState[];
 }
 
 const STATUS_LABEL: Record<ConnectionStatus, string> = {
@@ -13,9 +13,9 @@ const STATUS_LABEL: Record<ConnectionStatus, string> = {
   closed: "KOPUK",
 };
 
-export function StatusBar({ status, snapshot }: StatusBarProps) {
-  const online = snapshot.filter((d) => d.connected).length;
-  const total = snapshot.length;
+export function StatusBar({ status, drones }: StatusBarProps) {
+  const online = drones.filter((d) => d.connected).length;
+  const total = drones.length;
 
   return (
     <header className="status-bar">
@@ -24,7 +24,7 @@ export function StatusBar({ status, snapshot }: StatusBarProps) {
         WS: {STATUS_LABEL[status]}
       </div>
       <div className="status-bar__drones">
-        {snapshot.map((d) => (
+        {drones.map((d) => (
           <span
             key={d.drone_id}
             className={`status-bar__drone ${d.connected ? "online" : "offline"}`}

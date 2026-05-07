@@ -1,6 +1,6 @@
-import type { TelemetrySnapshot } from "../types/telemetry";
+import type { TelemetryPayload } from "../types/telemetry";
 
-type Listener = (snap: TelemetrySnapshot) => void;
+type Listener = (payload: TelemetryPayload) => void;
 type StatusListener = (status: ConnectionStatus) => void;
 
 export type ConnectionStatus = "connecting" | "open" | "closed";
@@ -64,7 +64,7 @@ export class TelemetryWS {
 
     ws.onmessage = (ev) => {
       try {
-        const data = JSON.parse(ev.data) as TelemetrySnapshot;
+        const data = JSON.parse(ev.data) as TelemetryPayload;
         for (const cb of this.listeners) cb(data);
       } catch (err) {
         console.warn("ws: bozuk JSON", err);
