@@ -184,7 +184,7 @@ class AgentFsmNode(Node):
 
     def _transition(self, new_state: AgentState) -> None:
         """
-        State geçişini uygular ve loglar.
+        State geçişini uygular, px4_bridge'e komut yayınlar ve loglar.
 
         Args:
             new_state (AgentState): Geçilecek hedef state.
@@ -195,9 +195,49 @@ class AgentFsmNode(Node):
         if old == AgentState.ARMED and new_state == AgentState.TAKEOFF:
             self._ctx.mission_start_sequence_active = False
 
+        self._dispatch_px4_command(new_state)
+
         self.get_logger().info(
             f'[agent {self._ctx.agent_id}] '
             f'{old.name} -> {new_state.name}'
+        )
+
+    def _dispatch_px4_command(self, state: AgentState) -> None:
+        """
+        State entry'sine karşılık gelen PX4 komutunu px4_bridge'e yayınlar.
+
+        Komut zinciri:
+            ARMING       -> 'arm'                       (motorları arm et)
+            ARMED        -> 'offboard'                  (offboard streaming + mod)
+            TAKEOFF      -> 'takeoff:{target_altitude}' (PX4 AUTO_TAKEOFF)
+            LANDING      -> 'land'                      (PX4 AUTO_LAND)
+            RETURN_HOME  -> 'rtl'                       (PX4 AUTO_RTL)
+
+        Komut gerektirmeyen state'ler (IDLE, IN_SWARM, EXECUTING_TASK,
+        FAILSAFE, ...) sessizdir; setpoint akışları formation_control
+        gibi üst modüllerin sorumluluğundadır.
+
+        Args:
+            state: Yeni girilen state.
+        """
+        if state == AgentState.ARMING:
+            cmd = 'arm'
+        elif state == AgentState.ARMED:
+            cmd = 'offboard'
+        elif state == AgentState.TAKEOFF:
+            cmd = f'takeoff:{self._target_altitude_m}'
+        elif state == AgentState.LANDING:
+            cmd = 'land'
+        elif state == AgentState.RETURN_HOME:
+            cmd = 'rtl'
+        else:
+            return
+
+        msg = String()
+        msg.data = cmd
+        self._command_pub.publish(msg)
+        self.get_logger().info(
+            f'[agent {self._ctx.agent_id}] CMD -> px4_bridge: {cmd}'
         )
 
     def _on_event(self, msg: SystemEvent) -> None:

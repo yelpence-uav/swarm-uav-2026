@@ -49,10 +49,10 @@ def run_preflight_checks(
             f"Yetersiz uydu sayısı: {ctx.gps_satellites} (min 6)"
         )
 
-    if not ctx.home_set:
+    if not ctx.sitl_mode and not ctx.home_set:
         failures.append("Home konumu set edilmedi")
 
-    if not ctx.origin_synced:
+    if not ctx.sitl_mode and not ctx.origin_synced:
         failures.append("Swarm origin senkronize değil")
 
     if ctx.battery_voltage_v < battery_min_voltage:
