@@ -46,7 +46,7 @@ services:
 
       # PX4 Derleme izolasyonu
       # PX4'ün host makinenizin içine build klasörü açmasını engeller.
-      - /home/yelpence/ros2_ws/src/PX4-Autopilot/build
+      - /home/yelpence/ros2_ws/src/px4_autopilot/build
 
     devices:
       - /dev/dri:/dev/dri
