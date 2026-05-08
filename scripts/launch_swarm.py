@@ -237,6 +237,7 @@ def main():
             f"export PX4_GZ_MODEL_NAME={drone_name} && "
             f"export PX4_GZ_STANDALONE=1 && "
             f"export PX4_GZ_WORLD={world_name} && "
+            f"export PX4_SIM_SYNC=0 && "
             f"./build/px4_sitl_default/bin/px4 -i {drone_id}"
         )
 

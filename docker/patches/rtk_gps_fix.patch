@@ -17,7 +17,7 @@ diff --git a/ROMFS/px4fmu_common/init.d-posix/airframes/4001_gz_x500 b/ROMFS/px4
 index bb6bedd386..f6c87e3522 100644
 --- a/ROMFS/px4fmu_common/init.d-posix/airframes/4001_gz_x500
 +++ b/ROMFS/px4fmu_common/init.d-posix/airframes/4001_gz_x500
-@@ -14,9 +14,13 @@ PX4_SIM_MODEL=${PX4_SIM_MODEL:=x500}
+@@ -14,9 +14,16 @@ PX4_SIM_MODEL=${PX4_SIM_MODEL:=x500}
  param set-default SIM_GZ_EN 1
  
  param set-default SENS_EN_GPSSIM 1
@@ -25,19 +25,21 @@ index bb6bedd386..f6c87e3522 100644
 +param set-default SENS_EN_BAROSIM 1
  param set-default SENS_EN_MAGSIM 1
  
-+# EKF2 RTK Settings
++param set-default UXRCE_DDS_SYNCT 0
++
++# EKF2 Irtifa ve RTK Ayarlari
 +param set-default EKF2_HGT_MODE 1
 +param set-default EKF2_GPS_CHECK 0
 +
  param set-default CA_AIRFRAME 0
  param set-default CA_ROTOR_COUNT 4
  
-@@ -51,4 +55,6 @@ param set-default SIM_GZ_EC_MAX2 1000
+@@ -51,4 +58,6 @@ param set-default SIM_GZ_EC_MAX2 1000
  param set-default SIM_GZ_EC_MAX3 1000
  param set-default SIM_GZ_EC_MAX4 1000
  
 -param set-default MPC_THR_HOVER 0.60
-+param set-default MPC_THR_HOVER 0.65
++param set-default MPC_THR_HOVER 0.55
 +param set-default MPC_Z_P 1.0
 +
 diff --git a/src/lib/version/CMakeLists.txt b/src/lib/version/CMakeLists.txt
@@ -130,7 +132,7 @@ index 3a4fdff98e..d1f52f841e 100755
 +                                          cwd='src/modules/mavlink/mavlink', stderr=subprocess.STDOUT).decode('utf-8').strip()
 +    except:
 +        mavlink_git_version = "abcdef0123456789"
-+    
++
      mavlink_git_version_short = mavlink_git_version[0:16]
  
      header += f"""
@@ -153,7 +155,7 @@ index 3a4fdff98e..d1f52f841e 100755
 +    except:
 +        nuttx_git_tag = "v1.15.0"
 +        nuttx_git_version = "abcdef0123456789"
-+        
++
      nuttx_git_version_short = nuttx_git_version[0:16]
  
      header += f"""
@@ -189,10 +191,10 @@ index 5641706345..9a0430c40e 100644
 -			sensor_gps.hdop = 0.7f;
 -			sensor_gps.vdop = 1.1f;
 +			sensor_gps.fix_type = 6; // RTK fix
-+			sensor_gps.s_variance_m_s = 0.02f;
++			sensor_gps.s_variance_m_s = 0.1f;
 +			sensor_gps.c_variance_rad = 0.01f;
-+			sensor_gps.eph = 0.01f;
-+			sensor_gps.epv = 0.01f;
++			sensor_gps.eph = 0.05f;
++			sensor_gps.epv = 0.05f;
 +			sensor_gps.hdop = 0.1f;
 +			sensor_gps.vdop = 0.1f;
  
