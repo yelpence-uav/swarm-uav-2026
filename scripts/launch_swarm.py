@@ -13,13 +13,11 @@ import tempfile
 import glob
 import shutil
 
-# Sabit Değerler (Constants)
 WORKSPACE = "/home/yelpence/ros2_ws"
-PX4_PATH = os.path.join(WORKSPACE, "src/PX4-Autopilot")
+PX4_PATH = os.path.join(WORKSPACE, "src/px4_autopilot")
 MODELS_PATH = os.path.join(WORKSPACE, "sim/models")
 DEFAULT_WORLD = os.path.join(WORKSPACE, "sim/worlds/task1_dynamic_swarm.sdf")
 
-# [B108 Çözümü] Sabit /tmp/ yolu yerine sistemin güvenli geçici dizinini alıyoruz
 TMP_WORLD = os.path.join(tempfile.gettempdir(), "swarm_tmp_world.sdf")
 DRONE_COUNT = 3
 TMUX_SESSION = "yelpence_swarm"
@@ -29,7 +27,6 @@ def cleanup():
     """Arka planda kalmış eski süreçleri ve tmux oturumlarını temizler."""
     print("\n--- Eski süreçler temizleniyor... ---")
 
-    # [B602 Çözümü] shell=True yerine argümanlar liste olarak verildi
     subprocess.run(
         ["tmux", "kill-session", "-t", TMUX_SESSION],
         stderr=subprocess.DEVNULL,
@@ -53,7 +50,6 @@ def cleanup():
     subprocess.run(["pkill", "-9", "-f", "parameter_bridge"], stderr=subprocess.DEVNULL)
     subprocess.run(["pkill", "-9", "-f", "ros_gz_bridge"], stderr=subprocess.DEVNULL)
 
-    # [B602 Çözümü] rm -f /tmp/px4* işlemi Python'un güvenli glob ve os modülleri ile yapılıyor
     tmp_dir = tempfile.gettempdir()
     px4_files = glob.glob(os.path.join(tmp_dir, "px4-sock-*")) + glob.glob(
         os.path.join(tmp_dir, "px4_lock-*")
@@ -64,7 +60,6 @@ def cleanup():
         except OSError:
             pass
 
-    # [B602 Çözümü] rm -rf rootfs/* işlemi Python'un güvenli shutil modülü ile yapılıyor
     rootfs_path = os.path.join(PX4_PATH, "build/px4_sitl_default/rootfs")
     if os.path.exists(rootfs_path):
         for item in os.listdir(rootfs_path):
@@ -242,6 +237,7 @@ def main():
             f"export PX4_GZ_MODEL_NAME={drone_name} && "
             f"export PX4_GZ_STANDALONE=1 && "
             f"export PX4_GZ_WORLD={world_name} && "
+            f"export PX4_SIM_SYNC=0 && "
             f"./build/px4_sitl_default/bin/px4 -i {drone_id}"
         )
 
@@ -290,8 +286,22 @@ def main():
     print(">> Kamera Relay Düğümü başlatılıyor...")
     run_background(f"ros2 run swarm camera_relay {DRONE_COUNT}", "camera_relay")
 
+    # 7. RTK Yönetimi (Dahili C++ kodunda halledildiği için iptal edildi)
+    # print(">> RTK Baz İstasyonu Köprüsü ve Manager başlatılıyor...")
+    # rtk_gz_topic = f"/world/{world_name}/model/rtk_base_station/link/base_link/sensor/navsat_sensor/navsat"
+    # rtk_ros_topic = "/rtk_base/navsat"
+    # rtk_bridge_cmd = (
+    #     f"ros2 run ros_gz_bridge parameter_bridge "
+    #     f"'{rtk_gz_topic}@sensor_msgs/msg/NavSatFix[gz.msgs.NavSat' "
+    #     f"--ros-args -r '{rtk_gz_topic}:={rtk_ros_topic}'"
+    # )
+    # run_background(rtk_bridge_cmd, "rtk_bridge")
+    # run_background("python3 scripts/rtk_manager.py", "rtk_manager")
+
     print("\n--- TÜM SİSTEM BAŞARIYLA BAŞLATILDI ---")
-    print(">> Tmux arayüzüne (Mevcut Terminalinize) bağlanılıyor...")
+    print(f"Süreçleri izlemek için: tmux attach -t {TMUX_SESSION}")
+    print("Tmux'tan çıkmak için: Ctrl+b d")
+    print("Sistemi kapatmak için: tmux kill-session -t yelpence_swarm")
 
     try:
         subprocess.run(["tmux", "attach-session", "-t", TMUX_SESSION])
