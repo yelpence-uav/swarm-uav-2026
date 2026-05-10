@@ -5,6 +5,7 @@ from .agent_states import AgentState, FlightMode
 from .preflight_checker import run_preflight_checks
 
 _ARMING_TIMEOUT_S = 15.0
+_ARMED_STABILIZE_S = 2.0  # offboard + EKF2 stabilizasyonu için bekle
 _TAKEOFF_TIMEOUT_S = 30.0
 _PRECISION_LANDING_TIMEOUT_S = 60.0
 _REJOIN_TIMEOUT_S = 60.0
@@ -49,7 +50,9 @@ def evaluate_transitions(ctx: AgentContext) -> AgentState | None:
     if ctx.state not in _FAILSAFE_EXEMPT and not ctx.healthy:
         return AgentState.FAILSAFE
 
-    if ctx.state in _OFFBOARD_CHECK_STATES and not ctx.offboard_active:
+    if (ctx.state in _OFFBOARD_CHECK_STATES
+            and not ctx.offboard_active
+            and ctx.time_in_state() > 10.0):
         return AgentState.FAILSAFE
 
     handlers = {
@@ -143,7 +146,9 @@ def _from_armed(ctx: AgentContext) -> AgentState | None:
     """
     if not ctx.armed or not ctx.healthy:
         return AgentState.IDLE
-    if ctx.mission_start_sequence_active and ctx.offboard_active:
+    if (ctx.mission_start_sequence_active
+            and ctx.offboard_active
+            and ctx.time_in_state() >= _ARMED_STABILIZE_S):
         return AgentState.TAKEOFF
     return None
 
@@ -163,7 +168,7 @@ def _from_takeoff(ctx: AgentContext) -> AgentState | None:
             and ctx.altitude_stable
             and ctx.attitude_stable
             and ctx.vertical_speed_ok
-            and ctx.origin_synced):
+            and (ctx.origin_synced or ctx.sitl_mode)):
         return AgentState.IN_SWARM
     if ctx.time_in_state() > _TAKEOFF_TIMEOUT_S:
         return AgentState.FAILSAFE

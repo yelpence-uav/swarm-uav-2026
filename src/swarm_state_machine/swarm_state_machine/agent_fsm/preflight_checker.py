@@ -32,10 +32,10 @@ def run_preflight_checks(
     if ctx.kill_switch_active:
         failures.append("Kill switch aktif")
 
-    if ctx.failsafe_active:
+    if ctx.failsafe_active and not ctx.sitl_mode:
         failures.append("Failsafe aktif")
 
-    if ctx.rc_signal_failsafe_active:
+    if ctx.rc_signal_failsafe_active and not ctx.sitl_mode:
         failures.append("RC sinyal kaybı failsafe'i aktif")
 
     if ctx.gps_fix_type < 3:
@@ -55,7 +55,7 @@ def run_preflight_checks(
     if not ctx.sitl_mode and not ctx.origin_synced:
         failures.append("Swarm origin senkronize değil")
 
-    if ctx.battery_voltage_v < battery_min_voltage:
+    if ctx.battery_voltage_v > 0.0 and ctx.battery_voltage_v < battery_min_voltage:
         failures.append(
             f"Batarya voltajı düşük: {ctx.battery_voltage_v:.1f}V"
             f" (min {battery_min_voltage}V)"
@@ -72,6 +72,11 @@ def run_preflight_checks(
 
     if not ctx.estimator_ok:
         failures.append("EKF2 estimator sağlıksız")
+
+    if ctx.estimator_stable_ticks < 20:
+        failures.append(
+            f"EKF2 henüz kararlı değil: {ctx.estimator_stable_ticks}/20 tick"
+        )
 
     if not ctx.xy_valid:
         failures.append("Yatay pozisyon tahmini geçersiz")

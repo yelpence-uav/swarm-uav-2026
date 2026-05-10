@@ -70,6 +70,7 @@ class AgentContext:
     xy_valid: bool = False
     z_valid: bool = False
     v_xy_valid: bool = False
+    estimator_stable_ticks: int = 0  # kaç ardışık tick'te estimator sağlıklı
 
     origin_synced: bool = False
     origin_sequence: int = 0
@@ -110,6 +111,9 @@ class AgentContext:
 
     pending_state: AgentState | None = None
 
+    # Offboard'un kesintisiz kapalı olduğu an (None = offboard aktif)
+    offboard_lost_since: float | None = None
+
     @property
     def healthy(self) -> bool:
         """
@@ -117,20 +121,26 @@ class AgentContext:
 
         pilot_override ve oscillation bu hesaba dahil değil.
         """
+        battery_ok = (
+            self.battery_voltage_v <= 0.0  # 0V = sim battery disabled, skip
+            or self.battery_voltage_v > self.battery_critical_voltage_v
+        )
+        # SITL'de yaw/mag hizalaması başlangıçta salınım yapar; uçuşta converge eder
+        sitl = self.sitl_mode
         return (
             self.px4_link_ok
-            and (self.rc_link_ok or self.sitl_mode)
+            and (self.rc_link_ok or sitl)
             and not self.kill_switch_active
-            and not self.rc_signal_failsafe_active
-            and self.imu_healthy
-            and self.mag_healthy
-            and self.baro_healthy
-            and self.estimator_ok
+            and (not self.rc_signal_failsafe_active or sitl)
+            and (self.imu_healthy or sitl)
+            and (self.mag_healthy or sitl)
+            and (self.baro_healthy or sitl)
+            and (self.estimator_ok or sitl)
             and self.xy_valid
             and self.z_valid
             and self.v_xy_valid
-            and self.battery_voltage_v > self.battery_critical_voltage_v
-            and not self.failsafe_active
+            and battery_ok
+            and (not self.failsafe_active or sitl)
         )
 
     def set_state(self, new_state: AgentState) -> None:

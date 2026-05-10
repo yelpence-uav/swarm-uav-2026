@@ -1,6 +1,7 @@
 """Drone uçuş sağlık kontrollerini her FSM tick'inde çalıştırır."""
 
 import statistics
+import time
 from collections import deque
 from dataclasses import dataclass
 
@@ -8,6 +9,8 @@ from swarm_interfaces.msg import SystemEvent
 
 from .agent_context import AgentContext
 from .agent_states import AgentRole, AgentState
+
+_OFFBOARD_LOSS_TIMEOUT_S = 5.0
 
 _TAKEOFF_TIMEOUT_S = 30.0
 _LANDING_TIMEOUT_S = 60.0
@@ -161,14 +164,18 @@ def _check_critical_faults(ctx: AgentContext) -> HealthCheckResult:
             reason='PX4 link koptu',
         )
 
-    if ctx.state in _AIRBORNE and not ctx.estimator_ok:
+    # SITL'de yaw hizalaması başlangıçta salınım yapar; real flight'ta her zaman kontrol et
+    if ctx.state in _AIRBORNE and not ctx.estimator_ok and not ctx.sitl_mode:
         return HealthCheckResult(
             critical_fault=True,
             event_type=SystemEvent.EVENT_AGENT_FAULT,
             reason='EKF2 estimator hatalı',
         )
 
-    if ctx.state in _AIRBORNE and not ctx.offboard_active:
+    if (ctx.state in _AIRBORNE
+            and ctx.offboard_lost_since is not None
+            and (time.monotonic() - ctx.offboard_lost_since)
+            > _OFFBOARD_LOSS_TIMEOUT_S):
         return HealthCheckResult(
             critical_fault=True,
             event_type=SystemEvent.EVENT_OFFBOARD_LOST,
@@ -237,7 +244,7 @@ def _check_rc_safety(ctx: AgentContext) -> HealthCheckResult:
             reason=reason,
         )
 
-    if ctx.rc_signal_failsafe_active and ctx.state in _AIRBORNE:
+    if ctx.rc_signal_failsafe_active and ctx.state in _AIRBORNE and not ctx.sitl_mode:
         return HealthCheckResult(
             critical_fault=True,
             event_type=SystemEvent.EVENT_AGENT_FAULT,

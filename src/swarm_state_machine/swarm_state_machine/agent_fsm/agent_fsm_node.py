@@ -1,5 +1,7 @@
 """Tek bir drone'un FSM'ini çalıştıran ROS2 node."""
 
+import time
+
 import rclpy
 from rclpy.node import Node
 from rclpy.qos import (
@@ -142,6 +144,10 @@ class AgentFsmNode(Node):
         result: HealthCheckResult = health_check(ctx)
 
         if result.critical_fault and ctx.state != AgentState.FAILSAFE:
+            self.get_logger().error(
+                f'[FAILSAFE] {result.reason} | '
+                f'offboard={ctx.offboard_active} t={ctx.time_in_state():.1f}s'
+            )
             self._transition(AgentState.FAILSAFE)
             self._pub_event(
                 result.event_type,
@@ -162,6 +168,17 @@ class AgentFsmNode(Node):
 
         next_s = evaluate_transitions(ctx)
         if next_s is not None and next_s != ctx.state:
+            if next_s == AgentState.FAILSAFE and not ctx.healthy:
+                self.get_logger().error(
+                    f'[FAILSAFE] px4={ctx.px4_link_ok} rc={ctx.rc_link_ok} '
+                    f'rc_fs={ctx.rc_signal_failsafe_active} '
+                    f'px4_fs={ctx.failsafe_active} '
+                    f'xy={ctx.xy_valid} z={ctx.z_valid} vxy={ctx.v_xy_valid} '
+                    f'imu={ctx.imu_healthy} mag={ctx.mag_healthy} '
+                    f'baro={ctx.baro_healthy} est={ctx.estimator_ok} '
+                    f'kill={ctx.kill_switch_active} '
+                    f'batt={ctx.battery_voltage_v:.1f}V'
+                )
             self._transition(next_s)
 
         if (
@@ -434,6 +451,11 @@ class AgentFsmNode(Node):
         ctx.armed = msg.armed
         ctx.offboard_enabled = msg.offboard_enabled
         ctx.offboard_active = msg.offboard_active
+        if ctx.offboard_active:
+            ctx.offboard_lost_since = None
+        elif ctx.offboard_lost_since is None:
+            ctx.offboard_lost_since = time.monotonic()
+
         ctx.flight_mode = FlightMode(msg.flight_mode)
         ctx.pilot_override_active = msg.pilot_override_active
         ctx.failsafe_active = msg.failsafe_active
@@ -475,6 +497,15 @@ class AgentFsmNode(Node):
         ctx.xy_valid = msg.xy_valid
         ctx.z_valid = msg.z_valid
         ctx.v_xy_valid = msg.v_xy_valid
+
+        all_valid = (
+            msg.estimator_ok and msg.xy_valid
+            and msg.z_valid and msg.v_xy_valid
+        )
+        if all_valid:
+            ctx.estimator_stable_ticks += 1
+        else:
+            ctx.estimator_stable_ticks = 0
 
         self._px4_landed = (
             not ctx.armed and abs(ctx.vel_z) < _GROUND_VEL_THR
