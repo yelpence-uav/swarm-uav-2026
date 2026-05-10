@@ -23,9 +23,10 @@ NAV_STATE_TO_FLIGHT_MODE: dict[int, int] = {
     4: 6,   # AUTO_LOITER  → FLIGHT_MODE_AUTO_LOITER
     5: 7,   # AUTO_RTL     → FLIGHT_MODE_AUTO_RTL
     6: 9,   # ACRO         → FLIGHT_MODE_ACRO
-    14: 4,   # OFFBOARD     → FLIGHT_MODE_OFFBOARD
-    15: 10,  # STABILIZED   → FLIGHT_MODE_STABILIZED
-    18: 8,   # AUTO_LAND    → FLIGHT_MODE_AUTO_LAND
+    14: 4,   # OFFBOARD       → FLIGHT_MODE_OFFBOARD
+    17: 4,   # AUTO_TAKEOFF   → FLIGHT_MODE_OFFBOARD (PX4 v1.14: OFFBOARD setpoint tetikler)
+    15: 10,  # STABILIZED     → FLIGHT_MODE_STABILIZED
+    18: 8,   # AUTO_LAND      → FLIGHT_MODE_AUTO_LAND
 }
 
 # Pilot override olarak sayılan AgentStatus flight mode kodları

@@ -81,11 +81,15 @@ class Px4BridgeNode(Node):
         # ROS2 parametreleri
         self.declare_parameter('agent_id', 1)
         self.declare_parameter('publish_rate_hz', 10.0)
+        self.declare_parameter('sitl_mode', False)
         self._agent_id: int = int(
             self.get_parameter('agent_id').value
         )
         publish_rate = float(
             self.get_parameter('publish_rate_hz').value
+        )
+        self._sitl_mode: bool = bool(
+            self.get_parameter('sitl_mode').value
         )
 
         # Micro-XRCE-DDS-Agent'ın kullandığı PX4 namespace — tüm /fmu/... topic'leri bu altında
@@ -97,6 +101,29 @@ class Px4BridgeNode(Node):
 
         # OFFBOARD streaming aktif mi — FSM "offboard" gönderince True olur
         self._offboard_streaming: bool = False
+
+        # SITL: offboard yeniden-talep sayacı (50Hz tick'te rate-limit için)
+        self._offboard_rearm_counter: int = 0
+
+        # Hedef kalkış irtifası (NED: negatif=yukarı) — None ise hold modu
+        self._target_altitude_ned: float | None = None
+
+        # SITL: offboard mod takibi için önceki durum
+        self._was_offboard: bool = False
+
+        # Son geçerli konum cache'i — xy/z_valid false olsa bile setpoint akışını sürdür
+        self._cached_pos_x: float = 0.0
+        self._cached_pos_y: float = 0.0
+        self._cached_pos_z: float = 0.0
+        self._cached_yaw_rad: float = 0.0
+
+        # SITL: sahte RC publisher — gerçek donanımda oluşturulmaz
+        if self._sitl_mode:
+            self._fake_rc_pub = self.create_publisher(
+                ManualControlSetpoint,
+                f'{self._fmu_ns}/fmu/in/manual_control_input',
+                10,
+            )
 
         # PX4'e komut gönderen yardımcı — namespace ile doğru topic'lere yazar
         self._cmd_sender = CommandSender(
@@ -167,10 +194,25 @@ class Px4BridgeNode(Node):
         map_battery(msg, self._status)
 
     def _on_vehicle_status(self, msg: VehicleStatus) -> None:
+        prev_offboard = self._status.offboard_active
         map_vehicle_status(msg, self._status)
-        # Offboard'dan çıkıldığında streaming'i durdur
-        if self._status.flight_mode != AgentStatus.FLIGHT_MODE_OFFBOARD:
-            self._offboard_streaming = False
+
+        # SITL: RC kaybı nedeniyle PX4 offboard'dan çıkarsa hemen yeniden iste.
+        # Gerçek uçuşta bu blok hiç çalışmaz (sitl_mode=False).
+        if (self._sitl_mode
+                and prev_offboard
+                and not self._status.offboard_active
+                and self._status.armed):
+            self.get_logger().warn(
+                'SITL: Offboard kayboldu, yeniden isteniyor...'
+            )
+            self._cmd_sender.set_offboard_mode()
+
+        self.get_logger().info(
+            f'[DBG] nav_state={msg.nav_state} armed={self._status.armed} '
+            f'offboard_active={self._status.offboard_active}',
+            throttle_duration_sec=1.0,
+        )
 
     def _on_local_pos(self, msg: VehicleLocalPosition) -> None:
         map_local_position(msg, self._status)
@@ -196,6 +238,23 @@ class Px4BridgeNode(Node):
     # =================================================================
     # OFFBOARD HEARTBEAT (50 Hz)
     # =================================================================
+    def _publish_fake_rc(self) -> None:
+        """SITL modunda PX4'e sahte RC sinyali gönderir.
+
+        Gerçek donanımda bu metot hiç çağrılmaz (_fake_rc_pub oluşturulmaz).
+        PX4'ün RC kaybı failsafe'ini tetiklememesi için neutral stick pozisyonu
+        ile valid=True gönderilir. Offboard modda stick değerleri PX4 tarafından
+        yok sayılır; sadece 'RC bağlı' bilgisi önemlidir.
+        """
+        msg = ManualControlSetpoint()
+        msg.timestamp = int(self.get_clock().now().nanoseconds / 1000)
+        msg.roll = 0.0
+        msg.pitch = 0.0
+        msg.throttle = 0.0
+        msg.yaw = 0.0
+        msg.valid = True
+        self._fake_rc_pub.publish(msg)
+
     def _offboard_tick(self) -> None:
         """50 Hz'de çalışır.
 
@@ -207,13 +266,41 @@ class Px4BridgeNode(Node):
         """
         self._cmd_sender.publish_offboard_position_mode()
 
-        if self._offboard_streaming and self._status.xy_valid and self._status.z_valid:
-            self._cmd_sender.publish_position_setpoint(
-                self._status.pos_x,
-                self._status.pos_y,
-                self._status.pos_z,
-                yaw_rad=math.radians(self._status.heading_deg),
-            )
+        # SITL: sahte RC sinyali — gerçek donanımda çalışmaz
+        if self._sitl_mode:
+            self._publish_fake_rc()
+            # Offboard isteniyorsa ama aktif değilse 2Hz'de yeniden talep et
+            if (self._offboard_streaming
+                    and not self._status.offboard_active
+                    and self._status.armed):
+                self._offboard_rearm_counter += 1
+                if self._offboard_rearm_counter >= 25:  # 50Hz / 25 = 2Hz
+                    self._offboard_rearm_counter = 0
+                    self.get_logger().warn('SITL: Offboard yeniden talep ediliyor...')
+                    self._cmd_sender.set_offboard_mode()
+            else:
+                self._offboard_rearm_counter = 0
+
+        # Konum geçerliyken cache'i güncelle
+        if self._status.xy_valid and self._status.z_valid:
+            self._cached_pos_x = self._status.pos_x
+            self._cached_pos_y = self._status.pos_y
+            self._cached_pos_z = self._status.pos_z
+            self._cached_yaw_rad = math.radians(self._status.heading_deg)
+
+        # Setpoint'i her zaman gönder (cache ile) — xy/z_valid geçici false olsa bile
+        # akış kesilmez; PX4 offboard dışındayken yok sayar.
+        target_z = (
+            self._target_altitude_ned
+            if self._target_altitude_ned is not None
+            else self._cached_pos_z
+        )
+        self._cmd_sender.publish_position_setpoint(
+            self._cached_pos_x,
+            self._cached_pos_y,
+            target_z,
+            yaw_rad=self._cached_yaw_rad,
+        )
 
     # =================================================================
     # FSM KOMUT KÖPRÜSÜ
@@ -244,12 +331,19 @@ class Px4BridgeNode(Node):
                     self.get_logger().warning(
                         f'Geçersiz takeoff irtifası: {cmd}'
                     )
-            self._cmd_sender.takeoff(altitude_m=altitude)
+            # NED: yukarı = negatif Z — AUTO_TAKEOFF değil, offboard setpoint
+            self._target_altitude_ned = -altitude
+            self.get_logger().info(
+                f'Offboard kalkış hedefi: {altitude:.1f}m '
+                f'(NED z={self._target_altitude_ned:.1f})'
+            )
         elif cmd == 'land':
             self._offboard_streaming = False
+            self._target_altitude_ned = None
             self._cmd_sender.land()
         elif cmd == 'rtl':
             self._offboard_streaming = False
+            self._target_altitude_ned = None
             self._cmd_sender.return_home()
         elif cmd == 'offboard':
             # Önce streaming başlar, ardından mod değiştirilir.

@@ -12,12 +12,15 @@ Bu sınıf bir node'a bağlıdır (publisher'ları oluşturmak için), ama node 
 içermez — px4_bridge çağırır.
 """
 
+import math
+
 from px4_msgs.msg import (
     OffboardControlMode,
     TrajectorySetpoint,
     VehicleCommand,
 )
 
+_NAN = float('nan')
 
 # PX4 VehicleCommand komut kodları (MAVLink standardı)
 _CMD_ARM_DISARM = 400          # param1=1.0 arm, 0.0 disarm
@@ -187,5 +190,8 @@ class CommandSender:
         msg = TrajectorySetpoint()
         msg.timestamp = int(self._node.get_clock().now().nanoseconds / 1000)
         msg.position = [float(x), float(y), float(z)]
+        msg.velocity = [_NAN, _NAN, _NAN]
+        msg.acceleration = [_NAN, _NAN, _NAN]
         msg.yaw = float(yaw_rad)
+        msg.yawspeed = _NAN
         self._setpoint_pub.publish(msg)
