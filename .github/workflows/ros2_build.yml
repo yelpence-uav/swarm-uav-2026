@@ -22,16 +22,6 @@ jobs:
           submodules: recursive
           fetch-depth: 0
 
-      - name: Fetch swarm_interfaces
-        run: |
-          git clone \
-            --branch feature/swarm-interfaces \
-            --depth 1 \
-            "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" \
-            /tmp/swarm_if
-          cp -r /tmp/swarm_if/src/swarm_interfaces src/
-          rm -rf /tmp/swarm_if
-
       - name: Setup ROS 2
         uses: ros-tooling/setup-ros@v0.7
         with:
