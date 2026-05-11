@@ -6,10 +6,13 @@ CONTAINER_NAME="yelpence_swarm_container"
 CONTAINER_NAME_AMD="yelpence_swarm_container_amd"
 
 # Konteyner hali hazırda çalışıyorsa uyarı verir.
-if [ "$(docker ps -q -f name=^/${CONTAINER_NAME}$ -f status=running)" ] ||
-    [ "$(docker ps -q -f name=^/${CONTAINER_NAME_AMD}$ -f status=running)" ]; then
+if [ "$(docker ps -q -f name=^/${CONTAINER_NAME}$ -f status=running)" ]; then
     echo -e "\e[31m[HATA] KONTEYNER ZATEN ÇALIŞIYOR!\e[0m"
     echo -e "İçeri girmek için: \e[32myelpence_gir\e[0m"
+    exit 1
+elif [ "$(docker ps -q -f name=^/${CONTAINER_NAME_AMD}$ -f status=running)" ]; then
+    echo -e "\e[31m[HATA] AMD KONTEYNERİ ZATEN ÇALIŞIYOR!\e[0m"
+    echo -e "İçeri girmek için: \e[32myelpence_gir_amd\e[0m"
     exit 1
 fi
 
