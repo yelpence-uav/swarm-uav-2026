@@ -1,24 +1,26 @@
 # Yelpençe 2026 Sürü İHA Projesi - Mimari Dosya Yapısı
 
-Aşağıdaki ağaç yapısı, yelpence-2026-swarm/ ana dizini altındaki kritik mimari dosyalarını göstermektedir. Dosya isimlerine tıklayarak ilgili bileşenin detaylı açıklamasına ulaşabilirsiniz. 
+Aşağıdaki ağaç yapısı, yelpence-2026-swarm/ ana dizini altındaki kritik mimari dosyalarını göstermektedir.
 
+```
 yelpence-2026-swarm/
-├── [.github/](#.github)
-│   └── [workflows/](#.github/workflows)
-├── [docker/](#docker)
-│   └── [patches/](#docker/patches)
-├── [scripts/](#scripts)
-├── [sim/](#sim)
-│   ├── [models/](#sim/models)
-│   │   ├── [rtk_base_station/](#sim/models/rtk_base_station)
-│   │   ├── [x500/](#sim/models/x500-ve-sim/models/x500_base)
-│   │   └── [x500_base/](#sim/models/x500-ve-sim/models/x500_base)
-│   └── [worlds/](#sim/worlds)
-├── [src/](#src)
-│   ├── [swarm_interfaces/](#swarm_interfaces)
-│   ├── [swarm_control/](#swarm_control)
-│   └── [swarm_state_machine/](#swarm_state_machine)
-│       ├── [agent_fsm/](#swarm_state_machine/agent_fsm)
+├── .github/
+│   └── workflows/
+├── docker/
+│   └── patches/
+├── scripts/
+├── sim/
+│   ├── models/
+│   │   ├── rtk_base_station/
+│   │   ├── x500/
+│   │   └── x500_base
+│   └── worlds/
+├── src/
+│   ├── swarm_interfaces/
+│   ├── swarm_control/
+│   └── swarm_state_machine/
+│       ├── agent_fsm/
+```
 
 # Dizin ve Dosya Detayları
 
