@@ -18,8 +18,27 @@ yelpence-2026-swarm/
 ├── src/
 │   ├── swarm_interfaces/
 │   ├── swarm_control/
-│   └── swarm_state_machine/
-│       ├── agent_fsm/
+│   ├── swarm_state_machine/
+│   │   ├── agent_fsm/
+│   │   ├── *mission_fsm/ # Görev seviyesi durum makinesi 
+│   │   ├── *swarm_fsm/ # Sürü seviyesi durum makinesi
+│   │   ├── *mode_manager/ # Görev 2 için mod yöneticisi
+│   │   ├── *failsafe_fsm/ # Acil durum durum makinesi 
+│   │   └── *events/ # Olay tanımları (durum geçişleri için)
+│   ├── *swarm_core/ # Çekirdek sürü algoritmaları
+│   │   ├── *formation_control/ # Formasyon oluşturma/değişim
+│   │   ├── *consensus/ # Dağıtık karar alma (lider seçimi, senkronizasyon)
+│   │   ├── *collision_avoidance/ # Çarpışma önleme (APF, ORCA, vb.)
+│   │   ├── *path_planning/  # Rota planlama (A*, RRT)
+│   │   └── *maneuver_executor/  # Pitch/Roll/Yaw sürü manevraları
+│   ├── *swarm_perception/ # Algılama katmanı
+│   │   ├── *qr_detector/ # QR kod tespit ve çözümleme
+│   │   ├── *landing_zone_detector/ # Kırmızı/mavi iniş bölgesi tespiti
+│   │   └── *camera_driver/  # Kamera sürücüsü
+│   ├── *swarm_missions/ # Görev modülleri
+│   │   ├── *mission1_dynamic_swarm/  # Görev 1: Dinamik Sürü Kabiliyeti
+│   │   └── *mission2_semi_autonomous/ # Görev 2: Yarı Otonom Kontrol
+
 ```
 
 # Dizin ve Dosya Detayları
