@@ -26,7 +26,7 @@ yelpence-2026-swarm/
 
 Aşağıda mimari ağaçta belirtilen dizinlerin detaylı açıklamaları yer almaktadır:
 
-```
+```text
 .github/
 ```
 
