@@ -2,6 +2,7 @@
 
 Aşağıdaki ağaç yapısı, yelpence-2026-swarm/ ana dizini altındaki kritik mimari dosyalarını göstermektedir. Dosya isimlerine tıklayarak ilgili bileşenin detaylı açıklamasına ulaşabilirsiniz. 
 
+```
 yelpence-2026-swarm/
 ├── [.github/](#.github/)
 │   └──  [workflows/](#.githubworkflows/)
@@ -21,6 +22,7 @@ yelpence-2026-swarm/
 │       ├── [agent_fsm/](#src/swarm_state_machine/agent_fsm/)
 │       └── [misson_fsm/](#src/swarm_state_machine/misson_fsm/)
 └──
+```
 
 # Dizin ve Dosya Detayları
 
@@ -111,9 +113,7 @@ swarm_state_machine/
 Sürüdeki araçların yüksek seviyeli karar alma algoritmalarını ve durum makinelerini (Finite State Machine - FSM) yöneten ana ROS 2 paketidir.
 
 ```
-```
 swarm_state_machine/agent_fsm/
-```
 ```
 
 Bu dizin, sürüdeki her bir İHA'nın (ajanın) bireysel otonomisini, hayatta kalma mantığını ve karar alma mekanizmalarını yöneten çekirdek durum makinesi (Finite State Machine) altyapısıdır. Bir ajanın sistem başlatılıp göreve hazırlanmasından, uçuş öncesi kritik güvenlik kontrollerine (RTK düzeltmesi, donanım sağlığı), uçuş sırasındaki anlık sensör ve batarya denetimlerine kadar tüm yaşam döngüsünü kontrol eder. Ajanın bekleme, kalkış, formasyona dâhil olma, otonom seyir veya olası bir acil durumda (iletişim kopukluğu, GPS kaybı) güvenli moda geçiş gibi farklı uçuş durumları arasındaki mantıksal kurallar ve geçişler bu dizindeki modüller üzerinden işletilir. Böylece her bir araç, hem kendi iç bağlamını (context) yöneterek tutarlı kararlar alır hem de sistemin geneline hata toleranslı ve güvenli bir uçuş profili sunar.
