@@ -3,23 +3,22 @@
 Aşağıdaki ağaç yapısı, yelpence-2026-swarm/ ana dizini altındaki kritik mimari dosyalarını göstermektedir. Dosya isimlerine tıklayarak ilgili bileşenin detaylı açıklamasına ulaşabilirsiniz. 
 
 yelpence-2026-swarm/
-├── [.github/](#.github/)
-│   └── [workflows/](#.github/workflows/)
+├── [.github/](#.github)
+│   └── [workflows/](#.github/workflows)
 ├── [docker/](#docker)
-│   └── [patches/](#docker-patches)
+│   └── [patches/](#docker/patches)
 ├── [scripts/](#scripts)
 ├── [sim/](#sim)
-│   ├── [models/](#sim-models)
-│   │   ├── [rtk_base_station/](#sim-models-rtk-base-station)
-│   │   ├── [x500/](#sim-models-x500-ve-sim-models-x500-base)
-│   │   └── [x500_base/](#sim-models-x500-ve-sim-models-x500-base)
-│   └── [worlds/](#sim-worlds)
+│   ├── [models/](#sim/models)
+│   │   ├── [rtk_base_station/](#sim/models/rtk_base_station)
+│   │   ├── [x500/](#sim/models/x500-ve-sim/models/x500_base)
+│   │   └── [x500_base/](#sim/models/x500-ve-sim/models/x500_base)
+│   └── [worlds/](#sim/worlds)
 ├── [src/](#src)
-│   ├── [swarm_interfaces/](#swarm-interfaces)
-│   ├── [swarm_control/](#swarm-control)
-│   └── [swarm_state_machine/](####swarm_state_machine/)
-│       ├── [agent_fsm/](#swarm-state-machine-agent-fsm)
-│       └── [mission_fsm/](#dizin-ve-dosya-detayları)
+│   ├── [swarm_interfaces/](#swarm_interfaces)
+│   ├── [swarm_control/](#swarm_control)
+│   └── [swarm_state_machine/](#swarm_state_machine)
+│       ├── [agent_fsm/](#swarm_state_machine/agent_fsm)
 
 # Dizin ve Dosya Detayları
 
@@ -38,7 +37,7 @@ GitHub Actions kullanılarak yapılandırılmış otomasyon iş akışlarını i
 
 #### docker
 
-Sürü İHA sisteminin hem görev bilgisayarı üzerinde hem de geliştirici ortamlarında (Simülasyon/Gazebo) donanım bağımsız, izole ve tekrarlanabilir bir ROS 2 çevresinde çalışmasını sağlayan Docker altyapısıdır. Geliştiricilerin sistemi kolayca ayağa kaldırması için gereken imaj yapılandırmalarını ve yardımcı başlatma betiklerini barındırır.
+Sürü İHA sisteminin hem görev bilgisayarı üzerinde hem de geliştirici ortamlarında donanım bağımsız, izole ve tekrarlanabilir bir ROS 2 çevresinde çalışmasını sağlayan Docker altyapısıdır. Geliştiricilerin sistemi kolayca ayağa kaldırması için gereken imaj yapılandırmalarını ve yardımcı başlatma betiklerini barındırır.
 
 
 #### docker/patches
