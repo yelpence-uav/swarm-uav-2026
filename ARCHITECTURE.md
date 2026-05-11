@@ -3,8 +3,8 @@
 Aşağıdaki ağaç yapısı, yelpence-2026-swarm/ ana dizini altındaki kritik mimari dosyalarını göstermektedir. Dosya isimlerine tıklayarak ilgili bileşenin detaylı açıklamasına ulaşabilirsiniz. 
 
 yelpence-2026-swarm/
-├── [.github/](#github)
-│   └── [workflows/](#github-workflows)
+├── [.github/](#.github/)
+│   └── [workflows/](#.github/workflows/)
 ├── [docker/](#docker)
 │   └── [patches/](#docker-patches)
 ├── [scripts/](#scripts)
@@ -26,12 +26,12 @@ yelpence-2026-swarm/
 Aşağıda mimari ağaçta belirtilen dizinlerin detaylı açıklamaları yer almaktadır:
 
 
-```.github/```
+### .github/
 
 Bu dizin, GitHub deposunun CI/CD (Sürekli Entegrasyon ve Sürekli Dağıtım) süreçlerini ve genel depo otomasyon ayarlarını barındırır.
 
 
-```.github/workflows/```
+### .github/workflows/
 
 GitHub Actions kullanılarak yapılandırılmış otomasyon iş akışlarını (workflows) içerir. Repoya yapılan kod eklemelerinde ROS 2 paketlerinin otomatik derlenmesi, test edilmesi ve güvenlik taramalarının yapılması gibi CI/CD süreçlerini yürüten betikler burada bulunur.
 
