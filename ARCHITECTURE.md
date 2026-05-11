@@ -17,7 +17,7 @@ yelpence-2026-swarm/
 ├── [src/](#src)
 │   ├── [swarm_interfaces/](#swarm-interfaces)
 │   ├── [swarm_control/](#swarm-control)
-│   └── [swarm_state_machine/](#swarm_state_machine/)
+│   └── [swarm_state_machine/](####swarm_state_machine/)
 │       ├── [agent_fsm/](#swarm-state-machine-agent-fsm)
 │       └── [mission_fsm/](#dizin-ve-dosya-detayları)
 
