@@ -13,7 +13,7 @@ yelpence-2026-swarm/
 │   ├── models/
 │   │   ├── rtk_base_station/
 │   │   ├── x500/
-│   │   └── x500_base
+│   │   └── x500_base/
 │   └── worlds/
 ├── src/
 │   ├── swarm_interfaces/
