@@ -3,24 +3,23 @@
 Aşağıdaki ağaç yapısı, yelpence-2026-swarm/ ana dizini altındaki kritik mimari dosyalarını göstermektedir. Dosya isimlerine tıklayarak ilgili bileşenin detaylı açıklamasına ulaşabilirsiniz. 
 
 yelpence-2026-swarm/
-├── [.github/](#.github/)
-│   └──  [workflows/](#.githubworkflows/)
-├── [docker/](#docker/)
-│   └──  [patches/](#docker/patches/)
-├── [scripts/](#scripts/)
-├── [sim/](#sim/)
-│   ├── [models/](#sim/models/)
-│   │   ├── [rtk_base_station/](#sim/models/rtk_base_station/)
-│   │   ├── [x500/](#/sim/models/x500/)
-│   │   └── [x500_base/](#/sim/models/x500_base/)
-│   └── [worlds/](#sim/worlds/)
-├── [src/](#src/)
-│   ├── [swarm_interfaces/](#src/swarm_interfaces/)
-│   ├── [swarm_control/](#sim/swarm_control/)
-│   └── [swarm_state_machine/](#src/swarm_state_machine/)
-│       ├── [agent_fsm/](#src/swarm_state_machine/agent_fsm/)
-│       └── [misson_fsm/](#src/swarm_state_machine/misson_fsm/)
-└──
+├── [.github/](#github)
+│   └── [workflows/](#github-workflows)
+├── [docker/](#docker)
+│   └── [patches/](#docker-patches)
+├── [scripts/](#scripts)
+├── [sim/](#sim)
+│   ├── [models/](#sim-models)
+│   │   ├── [rtk_base_station/](#sim-models-rtk-base-station)
+│   │   ├── [x500/](#sim-models-x500-ve-sim-models-x500-base)
+│   │   └── [x500_base/](#sim-models-x500-ve-sim-models-x500-base)
+│   └── [worlds/](#sim-worlds)
+├── [src/](#src)
+│   ├── [swarm_interfaces/](#swarm-interfaces)
+│   ├── [swarm_control/](#swarm-control)
+│   └── [swarm_state_machine/](#swarm-state-machine)
+│       ├── [agent_fsm/](#swarm-state-machine-agent-fsm)
+│       └── [mission_fsm/](#dizin-ve-dosya-detayları)
 
 # Dizin ve Dosya Detayları
 
