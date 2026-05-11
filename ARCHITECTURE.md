@@ -2,7 +2,7 @@
 
 Aşağıdaki ağaç yapısı, yelpence-2026-swarm/ ana dizini altındaki kritik mimari dosyalarını göstermektedir. Dosya isimlerine tıklayarak ilgili bileşenin detaylı açıklamasına ulaşabilirsiniz. 
 
-```
+```text
 yelpence-2026-swarm/
 ├── [.github/](#.github/)
 │   └──  [workflows/](#.githubworkflows/)
