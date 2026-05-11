@@ -17,7 +17,7 @@ yelpence-2026-swarm/
 ├── [src/](#src)
 │   ├── [swarm_interfaces/](#swarm-interfaces)
 │   ├── [swarm_control/](#swarm-control)
-│   └── [swarm_state_machine/](#swarm-state-machine)
+│   └── [swarm_state_machine/](#swarm_state_machine/)
 │       ├── [agent_fsm/](#swarm-state-machine-agent-fsm)
 │       └── [mission_fsm/](#dizin-ve-dosya-detayları)
 
@@ -26,22 +26,22 @@ yelpence-2026-swarm/
 Aşağıda mimari ağaçta belirtilen dizinlerin detaylı açıklamaları yer almaktadır:
 
 
-### .github/
+#### .github/
 
 Bu dizin, GitHub deposunun CI/CD (Sürekli Entegrasyon ve Sürekli Dağıtım) süreçlerini ve genel depo otomasyon ayarlarını barındırır.
 
 
-### .github/workflows/
+#### .github/workflows/
 
 GitHub Actions kullanılarak yapılandırılmış otomasyon iş akışlarını (workflows) içerir. Repoya yapılan kod eklemelerinde ROS 2 paketlerinin otomatik derlenmesi, test edilmesi ve güvenlik taramalarının yapılması gibi CI/CD süreçlerini yürüten betikler burada bulunur.
 
 
-```docker/```
+#### docker/
 
 Sürü İHA sisteminin hem görev bilgisayarı (Raspberry Pi 5) üzerinde hem de geliştirici ortamlarında (Simülasyon/Gazebo) donanım bağımsız, izole ve tekrarlanabilir bir ROS 2 çevresinde çalışmasını sağlayan Docker altyapısıdır. Geliştiricilerin sistemi kolayca ayağa kaldırması için gereken imaj yapılandırmalarını ve yardımcı başlatma betiklerini barındırır.
 
 
-```docker/patches/```
+#### docker/patches/
 
 Açık kaynaklı sistem kütüphanelerine, simülasyon eklentilerine veya sürücülere dışarıdan müdahale edilerek projenin özel gereksinimlerine uydurulması gereken yamaları (patch) barındırır. Bu yamalar, Docker imajı inşa edilirken otomatik olarak ilgili kod kaynaklarına uygulanır.
 
@@ -91,7 +91,7 @@ Projenin ROS 2 tabanlı otonomi, haberleşme ve kontrol yazılımlarının kayna
 Sürüdeki İHA'ların (ajanların) birbirleriyle ve yer istasyonuyla haberleşmesi için gereken özel ROS 2 iletişim arayüzlerini (Action, Message, Service) barındıran pakettir. Ajan durum bilgileri (AgentStatus.msg), formasyon yönetim eylemleri (ExecuteFormation.action), sistem içi liderlik seçimi konsensüsleri (ElectionResult.msg, LeaderHeartbeat.msg) ve QR/İniş alanı tespiti (LandingZoneDetection.msg, QRMissionData.msg) gibi sürü otonomisinin tüm veri yapıları ve haberleşme kontratları burada tanımlanmıştır. Sistemdeki tüm diğer paketler tarafından bağımlılık olarak kullanılır.
 
 
-```swarm_state_machine/```
+#### swarm_state_machine/
 
 Sürüdeki araçların yüksek seviyeli karar alma algoritmalarını ve durum makinelerini (Finite State Machine - FSM) yöneten ana ROS 2 paketidir.
 
