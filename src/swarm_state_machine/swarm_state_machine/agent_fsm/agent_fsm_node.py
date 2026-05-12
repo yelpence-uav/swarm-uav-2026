@@ -21,7 +21,6 @@ from .agent_states import AgentRole, AgentState, FlightMode
 from .agent_transitions import evaluate_transitions
 from .preflight_checker import run_preflight_checks
 
-
 _ORIGIN_QOS = QoSProfile(
     reliability=ReliabilityPolicy.RELIABLE,
     durability=DurabilityPolicy.TRANSIENT_LOCAL,
@@ -42,7 +41,7 @@ class AgentFsmNode(Node):
     """
 
     def __init__(self) -> None:
-        super().__init__('agent_fsm_node')
+        super().__init__("agent_fsm_node")
 
         self._declare_params()
 
@@ -60,48 +59,42 @@ class AgentFsmNode(Node):
         self._setup_subscribers()
         self._setup_services()
 
-        self._timer = self.create_timer(
-            1.0 / self._tick_hz, self._tick
-        )
+        self._timer = self.create_timer(1.0 / self._tick_hz, self._tick)
 
-        self.get_logger().info(
-            f'AgentFsmNode başlatıldı: agent_id={self._agent_id}'
-        )
+        self.get_logger().info(f"AgentFsmNode başlatıldı: agent_id={self._agent_id}")
 
     def _declare_params(self) -> None:
         """ROS2 parametrelerini tanımlar ve okur."""
-        self.declare_parameter('agent_id', 1)
-        self.declare_parameter('sitl_mode', False)
-        self.declare_parameter('battery_critical_voltage_v', 13.6)
-        self.declare_parameter('tick_hz', 10.0)
-        self.declare_parameter('target_altitude_m', 10.0)
+        self.declare_parameter("agent_id", 1)
+        self.declare_parameter("sitl_mode", False)
+        self.declare_parameter("battery_critical_voltage_v", 13.6)
+        self.declare_parameter("tick_hz", 10.0)
+        self.declare_parameter("target_altitude_m", 10.0)
 
-        self._agent_id: int = self.get_parameter('agent_id').value
-        self._sitl_mode: bool = self.get_parameter('sitl_mode').value
-        self._batt_crit_v: float = (
-            self.get_parameter('battery_critical_voltage_v').value
-        )
-        self._tick_hz: float = self.get_parameter('tick_hz').value
-        self._target_altitude_m: float = (
-            self.get_parameter('target_altitude_m').value
-        )
+        self._agent_id: int = self.get_parameter("agent_id").value
+        self._sitl_mode: bool = self.get_parameter("sitl_mode").value
+        self._batt_crit_v: float = self.get_parameter(
+            "battery_critical_voltage_v"
+        ).value
+        self._tick_hz: float = self.get_parameter("tick_hz").value
+        self._target_altitude_m: float = self.get_parameter("target_altitude_m").value
 
     def _setup_publishers(self) -> None:
         """AgentStatus, SystemEvent ve komut publisher'larını oluşturur."""
         aid = self._agent_id
         self._status_pub = self.create_publisher(
             AgentStatus,
-            f'/swarm/agent/drone{aid}/status',
+            f"/swarm/internal/drone{aid}/status",
             10,
         )
         self._event_pub = self.create_publisher(
             SystemEvent,
-            '/swarm/events/system',
+            "/swarm/internal/events/system",
             10,
         )
         self._command_pub = self.create_publisher(
             String,
-            f'/swarm/agent/drone{aid}/commands',
+            f"/swarm/agent/drone{aid}/commands",
             10,
         )
 
@@ -111,19 +104,19 @@ class AgentFsmNode(Node):
 
         self.create_subscription(
             AgentStatus,
-            f'/swarm/agent/drone{aid}/telemetry',
+            f"/swarm/agent/drone{aid}/telemetry",
             self._on_telemetry,
             10,
         )
         self.create_subscription(
             SystemEvent,
-            '/swarm/events/system',
+            "/swarm/public/events/system",
             self._on_event,
             10,
         )
         self.create_subscription(
             SwarmOrigin,
-            '/swarm/origin',
+            "/swarm/public/origin",
             self._on_origin,
             _ORIGIN_QOS,
         )
@@ -133,7 +126,7 @@ class AgentFsmNode(Node):
         aid = self._agent_id
         self.create_service(
             AssignRole,
-            f'/swarm/agent/drone{aid}/assign_role',
+            f"/swarm/agent/drone{aid}/assign_role",
             self._handle_assign_role,
         )
 
@@ -145,8 +138,8 @@ class AgentFsmNode(Node):
 
         if result.critical_fault and ctx.state != AgentState.FAILSAFE:
             self.get_logger().error(
-                f'[FAILSAFE] {result.reason} | '
-                f'offboard={ctx.offboard_active} t={ctx.time_in_state():.1f}s'
+                f"[FAILSAFE] {result.reason} | "
+                f"offboard={ctx.offboard_active} t={ctx.time_in_state():.1f}s"
             )
             self._transition(AgentState.FAILSAFE)
             self._pub_event(
@@ -156,7 +149,7 @@ class AgentFsmNode(Node):
             )
         elif result.safety_hold and not ctx.hold_active:
             ctx.hold_active = True
-            ctx.status_text = 'Safety hold active'
+            ctx.status_text = "Safety hold active"
             self._pub_event(
                 SystemEvent.EVENT_SAFETY_HOLD,
                 SystemEvent.SEVERITY_WARNING,
@@ -170,14 +163,14 @@ class AgentFsmNode(Node):
         if next_s is not None and next_s != ctx.state:
             if next_s == AgentState.FAILSAFE and not ctx.healthy:
                 self.get_logger().error(
-                    f'[FAILSAFE] px4={ctx.px4_link_ok} rc={ctx.rc_link_ok} '
-                    f'rc_fs={ctx.rc_signal_failsafe_active} '
-                    f'px4_fs={ctx.failsafe_active} '
-                    f'xy={ctx.xy_valid} z={ctx.z_valid} vxy={ctx.v_xy_valid} '
-                    f'imu={ctx.imu_healthy} mag={ctx.mag_healthy} '
-                    f'baro={ctx.baro_healthy} est={ctx.estimator_ok} '
-                    f'kill={ctx.kill_switch_active} '
-                    f'batt={ctx.battery_voltage_v:.1f}V'
+                    f"[FAILSAFE] px4={ctx.px4_link_ok} rc={ctx.rc_link_ok} "
+                    f"rc_fs={ctx.rc_signal_failsafe_active} "
+                    f"px4_fs={ctx.failsafe_active} "
+                    f"xy={ctx.xy_valid} z={ctx.z_valid} vxy={ctx.v_xy_valid} "
+                    f"imu={ctx.imu_healthy} mag={ctx.mag_healthy} "
+                    f"baro={ctx.baro_healthy} est={ctx.estimator_ok} "
+                    f"kill={ctx.kill_switch_active} "
+                    f"batt={ctx.battery_voltage_v:.1f}V"
                 )
             self._transition(next_s)
 
@@ -193,7 +186,7 @@ class AgentFsmNode(Node):
             self._pub_event(
                 SystemEvent.EVENT_AGENT_LANDED,
                 SystemEvent.SEVERITY_INFO,
-                'Kill switch: landed+disarmed+stable doğrulandı',
+                "Kill switch: landed+disarmed+stable doğrulandı",
             )
 
         ctx.pending_state = None
@@ -215,8 +208,7 @@ class AgentFsmNode(Node):
         self._dispatch_px4_command(new_state)
 
         self.get_logger().info(
-            f'[agent {self._ctx.agent_id}] '
-            f'{old.name} -> {new_state.name}'
+            f"[agent {self._ctx.agent_id}] " f"{old.name} -> {new_state.name}"
         )
 
     def _dispatch_px4_command(self, state: AgentState) -> None:
@@ -238,24 +230,22 @@ class AgentFsmNode(Node):
             state: Yeni girilen state.
         """
         if state == AgentState.ARMING:
-            cmd = 'arm'
+            cmd = "arm"
         elif state == AgentState.ARMED:
-            cmd = 'offboard'
+            cmd = "offboard"
         elif state == AgentState.TAKEOFF:
-            cmd = f'takeoff:{self._target_altitude_m}'
+            cmd = f"takeoff:{self._target_altitude_m}"
         elif state == AgentState.LANDING:
-            cmd = 'land'
+            cmd = "land"
         elif state == AgentState.RETURN_HOME:
-            cmd = 'rtl'
+            cmd = "rtl"
         else:
             return
 
         msg = String()
         msg.data = cmd
         self._command_pub.publish(msg)
-        self.get_logger().info(
-            f'[agent {self._ctx.agent_id}] CMD -> px4_bridge: {cmd}'
-        )
+        self.get_logger().info(f"[agent {self._ctx.agent_id}] CMD -> px4_bridge: {cmd}")
 
     def _on_event(self, msg: SystemEvent) -> None:
         """
@@ -285,7 +275,7 @@ class AgentFsmNode(Node):
 
         elif eid == SystemEvent.EVENT_SAFETY_HOLD:
             ctx.hold_active = True
-            ctx.status_text = 'Safety hold active'
+            ctx.status_text = "Safety hold active"
 
         elif eid == SystemEvent.EVENT_FAILSAFE_CLEARED:
             ctx.hold_active = False
@@ -299,11 +289,11 @@ class AgentFsmNode(Node):
 
         elif eid == SystemEvent.EVENT_GCS_LINK_LOST:
             ctx.gcs_link_ok = False
-            ctx.status_text = 'GCS link lost'
+            ctx.status_text = "GCS link lost"
 
         elif eid == SystemEvent.EVENT_GCS_LINK_RESTORED:
             ctx.gcs_link_ok = True
-            ctx.status_text = ''
+            ctx.status_text = ""
 
         elif eid == SystemEvent.EVENT_MEMBER_DETACH_STARTED:
             if tgt == aid:
@@ -315,13 +305,12 @@ class AgentFsmNode(Node):
                 if passed:
                     ctx.pending_state = AgentState.REJOINING
                 else:
-                    ctx.status_text = (
-                        'Rejoin preflight failed: '
-                        + '; '.join(failures[:2])
+                    ctx.status_text = "Rejoin preflight failed: " + "; ".join(
+                        failures[:2]
                     )
                     self.get_logger().warn(
-                        f'[agent {aid}] Rejoin preflight başarısız: '
-                        + ', '.join(failures)
+                        f"[agent {aid}] Rejoin preflight başarısız: "
+                        + ", ".join(failures)
                     )
 
         elif eid in (
@@ -341,7 +330,7 @@ class AgentFsmNode(Node):
 
         elif eid == SystemEvent.EVENT_MANEUVER_FAILED and is_mine:
             if ctx.state == AgentState.EXECUTING_TASK:
-                ctx.status_text = 'Manevra başarısız, sürüye dönülüyor'
+                ctx.status_text = "Manevra başarısız, sürüye dönülüyor"
                 ctx.pending_state = AgentState.IN_SWARM
 
         elif eid == SystemEvent.EVENT_AGENT_JOIN_REQUEST and is_mine:
@@ -413,16 +402,16 @@ class AgentFsmNode(Node):
         ctx = self._ctx
 
         role_map = {
-            AssignRole.Request.ROLE_LEADER:   AgentRole.LEADER,
+            AssignRole.Request.ROLE_LEADER: AgentRole.LEADER,
             AssignRole.Request.ROLE_FOLLOWER: AgentRole.FOLLOWER,
-            AssignRole.Request.ROLE_STANDBY:  AgentRole.STANDBY,
+            AssignRole.Request.ROLE_STANDBY: AgentRole.STANDBY,
             AssignRole.Request.ROLE_DETACHED: AgentRole.DETACHED,
         }
         new_role = role_map.get(request.role)
 
         if new_role is None:
             response.success = False
-            response.message = f'Bilinmeyen rol: {request.role}'
+            response.message = f"Bilinmeyen rol: {request.role}"
             return response
 
         ctx.role = new_role
@@ -431,10 +420,8 @@ class AgentFsmNode(Node):
             ctx.set_state(AgentState.STANDBY)
 
         response.success = True
-        response.message = f'Rol atandı: {ctx.role.name}'
-        self.get_logger().info(
-            f'[agent {ctx.agent_id}] Rol: {ctx.role.name}'
-        )
+        response.message = f"Rol atandı: {ctx.role.name}"
+        self.get_logger().info(f"[agent {ctx.agent_id}] Rol: {ctx.role.name}")
         return response
 
     def _on_telemetry(self, msg: AgentStatus) -> None:
@@ -498,28 +485,21 @@ class AgentFsmNode(Node):
         ctx.z_valid = msg.z_valid
         ctx.v_xy_valid = msg.v_xy_valid
 
-        all_valid = (
-            msg.estimator_ok and msg.xy_valid
-            and msg.z_valid and msg.v_xy_valid
-        )
+        all_valid = msg.estimator_ok and msg.xy_valid and msg.z_valid and msg.v_xy_valid
         if all_valid:
             ctx.estimator_stable_ticks += 1
         else:
             ctx.estimator_stable_ticks = 0
 
-        self._px4_landed = (
-            not ctx.armed and abs(ctx.vel_z) < _GROUND_VEL_THR
-        )
+        self._px4_landed = not ctx.armed and abs(ctx.vel_z) < _GROUND_VEL_THR
 
         if ctx.pilot_override_active and not prev_pilot:
             ctx.autonomous_control_paused = True
-            ctx.status_text = (
-                'Pilot override active, autonomous control paused'
-            )
+            ctx.status_text = "Pilot override active, autonomous control paused"
             self._pub_event(
                 SystemEvent.EVENT_AGENT_PILOT_OVERRIDE,
                 SystemEvent.SEVERITY_WARNING,
-                'Manuel mod tespit edildi',
+                "Manuel mod tespit edildi",
             )
         elif not ctx.pilot_override_active:
             ctx.autonomous_control_paused = False
@@ -606,7 +586,7 @@ class AgentFsmNode(Node):
         self,
         event_type: int,
         severity: int,
-        message: str = '',
+        message: str = "",
     ) -> None:
         """
         SystemEvent yayınlar.
@@ -621,7 +601,7 @@ class AgentFsmNode(Node):
         m.event_type = event_type
         m.severity = severity
         m.source_agent_id = self._ctx.agent_id
-        m.source_module = 'agent_fsm'
+        m.source_module = "agent_fsm"
         m.message = message
         self._event_pub.publish(m)
 
@@ -638,5 +618,5 @@ def main(args=None) -> None:
         rclpy.shutdown()
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
