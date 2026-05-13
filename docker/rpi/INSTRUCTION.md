@@ -28,7 +28,6 @@ SD kartı güvenle çıkarıp Raspberry Pi 4'e takın ve cihazı başlatın.
 ## Aşama 3: zram Kurulumu (Sıkıştırılmış Takas Alanı)
 Pi 4 ayağa kalktıktan sonra SSH ile terminaline bağlanın. Fiziksel RAM sınırına takılmamak ve geleneksel SD kart tabanlı yavaş swap alanından kurtulmak için bellekte sıkıştırma yapan zram mekanizmasını kurun:
 
-
 ```bash
 sudo apt update && sudo apt install zram-config -y
 ```
@@ -52,7 +51,6 @@ net.core.wmem_max=2147483647
 
 3. Ayarları hemen aktif etmek için şu komutu koşturun:
 
-
 ```bash
 sudo sysctl -p
 ```
@@ -73,7 +71,6 @@ sudo nano /etc/docker/daemon.json
 
 3. İçerisine aynen şu konfigürasyonu yapıştırıp kaydedin:
 
-
 ```JSON
 {
   "log-driver": "json-file",
@@ -90,4 +87,36 @@ sudo nano /etc/docker/daemon.json
 sudo systemctl restart docker
 ```
 
-Not: Bu adımlar tamamlandığında elinizde sadece sürü görevlerine odaklanmış kararlı ve tertemiz bir ana işletim sistemi kalacaktır. Bu aşamada SD kartın yedeğini (.img veya .iso olarak) bilgisayarınıza alırsanız, sürüdeki diğer 4 İHA'nın işletim sistemini saniyeler içinde bu imajı klonlayarak hazır hale getirebilirsiniz. Burada tarif edilen yapı kararsız olabilir veya eksikler olabilir. Kurulum sırasında oluşan hatalar tamamlanmalıdır.
+Not: Bu adımlar tamamlandığında elinizde sadece sürü görevlerine odaklanmış kararlı ve tertemiz bir ana işletim sistemi kalacaktır. Bu aşamada SD kartın yedeğini (.img veya .iso olarak) bilgisayarınıza alırsanız, sürüdeki diğer 2 İHA'nın işletim sistemini saniyeler içinde bu imajı klonlayarak hazır hale getirebilirsiniz. Burada tarif edilen yapı kararsız olabilir veya eksikler olabilir. Kurulum sırasında oluşan hatalar tamamlanmalıdır.
+
+# Aşama 6: Yelpençe Uçuş İmajının (Docker) Derlenmesi
+İmajın uçtan uca hazır hale gelmesi için aşağıdaki betiği çalıştırın.
+
+```bash
+cd docker/rpi
+
+chmod +x build_rpi.sh
+
+./build_rpi.sh
+```
+
+Not: Bu işlem çok aşamalı (multi-stage) derleme yaptığı için Pi 4 üzerinde biraz vakit alacaktır. Sadece ilk kurulumda yapılır.
+
+# Aşama 7: Sahada Konteyneri Çalıştırma (Production Run)
+Derleme tamamlandığında elimizde yelpence-flight-system adında uçuşa hazır bir imaj olacak. İHA'ya güç verildiğinde donanımlarla (Pixhawk ve Kamera) konuşabilmesi ve gecikmesiz haberleşebilmesi için konteyneri şu komutla başlatın:
+
+```bash
+docker run -it --rm \
+  --network host \
+  --device=/dev/ttyAMA0 \
+  --device=/dev/video0 \
+  yelpence-flight-system
+```
+
+Parametrelerin Anlamları:
+
+* --network host: CycloneDDS'in RPi'nin Wi-Fi/ESP arayüzünü gecikmesiz kullanmasını sağlar (NAT izolasyonunu kaldırır).
+* --device=/dev/ttyAMA0: Pixhawk (Telemetry) UART pinlerini konteynere doğrudan bağlar. (Not: TTY portu sizin bağlantı şeklinize göre ttyUSB0 vs. olarak değişebilir).
+* --device=/dev/video0: Görüntü işleme ve QR tespiti için Arducam HQ kamerayı konteynere bağlar.
+
+Ekranda yeşil renkte "[YELPENÇE] Görev Bilgisayarı Konteyneri Hazır. İyi uçuşlar!" yazısını gördüğünüzde sistem otonom görev için emrinizi bekliyor demektir.

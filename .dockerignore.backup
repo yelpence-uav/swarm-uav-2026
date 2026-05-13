@@ -7,6 +7,7 @@
 
 # Dokümantasyon ve Raporlar
 *.md
+docs/
 *.pdf
 *.docx
 
@@ -14,6 +15,7 @@
 build/
 install/
 log/
+src/PX4-Autopilot/build/
 
 # Python Önbellek ve Sanal Ortamlar
 __pycache__/
@@ -54,17 +56,6 @@ Thumbs.db
 *.swo
 *~
 
-# Proje Dosyaları
+# Docker
 docker/docker-compose*.yml
 docker/Dockerfile
-docker/patches
-docker/create-docker.sh
-docker/docker-compose-amd.yml
-docker/docker-compose.yml
-docker/entrypoint.sh
-docker/start-docker.sh
-scripts/generate_task_world.py
-scripts/launch_swarm.py
-sim/
-src/px4_autopilot
-src/requirements.txt

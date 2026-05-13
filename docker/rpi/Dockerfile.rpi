@@ -1,0 +1,90 @@
+# ==========================================
+# AŞAMA 1: BUILDER (İnşaatçı)
+# Tüm derleme araçlarının ve derleyicilerin bulunduğu katman
+# ==========================================
+FROM ros:jazzy-ros-base AS builder
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV COLCON_IGNORE_USER_BASE=1
+
+# Sadece derleme için gereken paketler
+RUN apt-get update && apt-get install -y \
+  python3-colcon-common-extensions \
+  build-essential \
+  cmake \
+  git \
+  && rm -rf /var/lib/apt/lists/*
+
+# Micro-XRCE-DDS-Agent Derlemesi
+COPY src/Micro-XRCE-DDS-Agent /tmp/Micro-XRCE-DDS-Agent
+RUN cd /tmp/Micro-XRCE-DDS-Agent && mkdir build && cd build \
+  && cmake -DCMAKE_BUILD_TYPE=Release -DUAGENT_BUILD_EXECUTABLE=ON .. \
+  && make -j4 && make install
+
+# Yelpençe Workspace Derlemesi (Buraya kendi kodlarınızı kopyalayın)
+RUN mkdir -p /ros2_ws/src
+WORKDIR /home/yelpence/ros2_ws
+COPY src/ /home/yelpence/ros2_ws/src/
+RUN . /opt/ros/jazzy/setup.sh && colcon build --cmake-args -DCMAKE_BUILD_TYPE=Release
+
+# ==========================================
+# AŞAMA 2: RUNTIME (Çalışma Zamanı - RPi üzerinde çalışacak temiz imaj)
+# ==========================================
+FROM ros:jazzy-ros-core
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
+ENV ROS_DOMAIN_ID=0
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONDONTWRITEBYTECODE=1 
+
+# Sadece çalışma zamanında ihtiyaç duyulan hafif sistem paketleri
+RUN apt-get update && apt-get install -y \
+  ros-jazzy-rmw-cyclonedds-cpp \
+  python3-pip \
+  python3-venv \
+  nano \
+  sudo \
+  && rm -rf /var/lib/apt/lists/*
+
+# Kullanıcı Ayarları
+ARG USERNAME=yelpence
+ARG USER_UID=1000
+ARG USER_GID=1000
+
+# Ubuntu 24.04'ten gelen varsayılan kullanıcı (UID 1000) çakışmasını temizle
+RUN if id -u $USER_UID >/dev/null 2>&1; then userdel -r $(id -un $USER_UID) || true; fi \
+  && if getent group $USER_GID >/dev/null 2>&1; then groupdel $(getent group $USER_GID | cut -d: -f1) || true; fi
+
+# Yelpençe kullanıcısını şimdi güvenle oluşturabiliriz
+RUN groupadd --gid $USER_GID $USERNAME \
+  && useradd --uid $USER_UID --gid $USER_GID -m -G dialout,video $USERNAME \
+  && echo "$USERNAME ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/$USERNAME \
+  && chmod 0440 /etc/sudoers.d/$USERNAME
+
+# Builder aşamasından derlenmiş dosyaları ve DDS Agent'ı transfer et
+COPY --from=builder /usr/local/bin/MicroXRCEAgent /usr/local/bin/
+COPY --from=builder /usr/local/lib/libmicroxrcedds_agent* /usr/local/lib/
+RUN ldconfig /usr/local/lib/
+
+RUN mkdir -p /home/yelpence/ros2_ws
+COPY --from=builder --chown=$USERNAME:$USERNAME /home/yelpence/ros2_ws/install /home/yelpence/ros2_ws/install
+
+# Entrypoint aktarımı
+COPY --chown=$USERNAME:$USERNAME docker/rpi/entrypoint-rpi.sh /usr/local/bin/entrypoint.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh
+
+# Python Sanal Ortam ve Optimize Edilmiş Bağımlılıklar
+USER $USERNAME
+WORKDIR /home/yelpence
+
+RUN python3 -m venv /home/yelpence/venv
+ENV PATH="/home/yelpence/venv/bin:$PATH"
+
+COPY --chown=$USERNAME:$USERNAME docker/rpi/requirements-rpi.txt /tmp/requirements.txt
+RUN pip install --no-cache-dir --upgrade pip && \
+  pip install --no-cache-dir -r /tmp/requirements.txt && \
+  rm /tmp/requirements.txt
+
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
+CMD ["/bin/bash"]
