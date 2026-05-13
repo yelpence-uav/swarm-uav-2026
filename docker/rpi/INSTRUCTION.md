@@ -6,9 +6,9 @@ Bu talimatname, kısıtlı donanım kaynaklarımızı en verimli şekilde kullan
 1. Bilgisayarınıza Raspberry Pi Imager uygulamasını indirin ve açın.
 2. OS Seçimi: Other general-purpose OS -> Ubuntu -> Ubuntu Server 24.04 LTS (64-bit) seçeneğini seçin. (Masaüstü/GUI barındıran imajlara kıyasla doğrudan 400-500 MB RAM kazancımız olacaktır).
 3. Yazdırma işlemine geçmeden önce sağ alttaki Gelişmiş Ayarlar (Çark simgesi) menüsüne tıklayın:
-  * SSH'ı aktif edin.
-  * Sahanın/laboratuvarın Wi-Fi bilgilerini girin.
-  * Sürü koordinasyonu için standart bir kullanıcı adı ve şifre belirleyin.
+    * SSH'ı aktif edin.
+    * Sahanın/laboratuvarın Wi-Fi bilgilerini girin.
+    * Sürü koordinasyonu için standart bir kullanıcı adı ve şifre belirleyin.
 
 4. İmajı SD karta yazdırın. Bu ayarlar sayesinde cihazı monitöre bağlamadan doğrudan ağ üzerinden kontrol edebileceğiz.
 
