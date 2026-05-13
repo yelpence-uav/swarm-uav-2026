@@ -25,6 +25,7 @@ RUN cd /tmp/Micro-XRCE-DDS-Agent && mkdir build && cd build \
 RUN mkdir -p /ros2_ws/src
 WORKDIR /home/yelpence/ros2_ws
 COPY src/ /home/yelpence/ros2_ws/src/
+RUN rm -rf /home/yelpence/ros2_ws/src/network_proxy
 RUN . /opt/ros/jazzy/setup.sh && colcon build --cmake-args -DCMAKE_BUILD_TYPE=Release
 
 # ==========================================

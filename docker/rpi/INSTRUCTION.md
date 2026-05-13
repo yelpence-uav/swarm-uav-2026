@@ -90,17 +90,19 @@ sudo systemctl restart docker
 Not: Bu adımlar tamamlandığında elinizde sadece sürü görevlerine odaklanmış kararlı ve tertemiz bir ana işletim sistemi kalacaktır. Bu aşamada SD kartın yedeğini (.img veya .iso olarak) bilgisayarınıza alırsanız, sürüdeki diğer 2 İHA'nın işletim sistemini saniyeler içinde bu imajı klonlayarak hazır hale getirebilirsiniz. Burada tarif edilen yapı kararsız olabilir veya eksikler olabilir. Kurulum sırasında oluşan hatalar tamamlanmalıdır.
 
 # Aşama 6: Yelpençe Uçuş İmajının (Docker) Derlenmesi
-İmajın uçtan uca hazır hale gelmesi için aşağıdaki betiği çalıştırın.
+İmajın uçtan uca hazır hale gelmesi için aşağıdaki kodları çalıştırın.
 
 ```bash
-cd docker/rpi
+git clone https://github.com/yelpence-uav/yelpence-2026-swarm
+
+cd yelpence-2026-swarm/docker/rpi
 
 chmod +x build_rpi.sh
 
 ./build_rpi.sh
 ```
 
-Not: Bu işlem çok aşamalı (multi-stage) derleme yaptığı için Pi 4 üzerinde biraz vakit alacaktır. Sadece ilk kurulumda yapılır.
+Not: Bu işlem çok aşamalı derleme yaptığı için Pi 4 üzerinde biraz vakit alacaktır. Sadece ilk kurulumda yapılır.
 
 # Aşama 7: Sahada Konteyneri Çalıştırma (Production Run)
 Derleme tamamlandığında elimizde yelpence-flight-system adında uçuşa hazır bir imaj olacak. İHA'ya güç verildiğinde donanımlarla (Pixhawk ve Kamera) konuşabilmesi ve gecikmesiz haberleşebilmesi için konteyneri şu komutla başlatın:
