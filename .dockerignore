@@ -14,6 +14,7 @@
 build/
 install/
 log/
+src/px4_autopilot/build/
 
 # Python Önbellek ve Sanal Ortamlar
 __pycache__/
@@ -53,18 +54,3 @@ Thumbs.db
 *.swp
 *.swo
 *~
-
-# Proje Dosyaları
-docker/docker-compose*.yml
-docker/Dockerfile
-docker/patches
-docker/create-docker.sh
-docker/docker-compose-amd.yml
-docker/docker-compose.yml
-docker/entrypoint.sh
-docker/start-docker.sh
-scripts/generate_task_world.py
-scripts/launch_swarm.py
-sim/
-src/px4_autopilot
-src/requirements.txt
