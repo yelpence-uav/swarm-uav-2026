@@ -1,12 +1,20 @@
 # GCS yapılandırması.
-# Sahada tek bağlantı string'ini değiştirmek yeterli (örn. udpin:... → serial:/dev/ttyUSB0:57600).
-# Tüm drone'lar tek MAVLink kanalından gelir; sysid'ye göre ayrıştırılır.
+#
+# Faz 5 itibariyle GCS birincil yolu ROS 2 (swarm_interfaces kontratı).
+# MAVLink yan-yolu sim erken testleri için fallback olarak korunur.
+
+# Bağlantı modu — birincil iletişim katmanı seçimi
+#   "ros2"        : production yol. RosBridge AgentStatus/SwarmState/SystemEvent
+#                   dinler, TriggerMission/SwarmControlCommand yayınlar.
+#   "mavlink-sim" : Faz 1-4 yan-yolu. PX4 SITL'e doğrudan UDP/MAVLink.
+#                   Ekibin ROS 2 node'ları (agent_fsm, px4_interface) çalışmıyorsa
+#                   sadece sim'de hızlı görsel test için.
+connection_mode: "ros2"
 
 mavlink:
+  # mavlink-sim modunda kullanılır.
   # SITL: 3 PX4 da 14550'ye yayınlıyor.
-  # Saha: haberleşmeci ESP-NOW'dan alıp aynı port'a basacak.
   connection: "udpin:0.0.0.0:14550"
-  #BİSMİLLAH
 
 # Drone tanımları. sysid → drone_id eşlemesi.
 drones:

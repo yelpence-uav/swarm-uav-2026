@@ -26,7 +26,18 @@ router = APIRouter(prefix="/api/command", tags=["command"])
 
 
 def _gate(request: Request) -> CommandGate:
-    return request.app.state.gate
+    gate = request.app.state.gate
+    if gate is None:
+        # ROS 2 modunda Faz 4 MAVLink butonları devre dışı.
+        # Yeni TriggerMission tabanlı komut yolu için bkz. /api/mission/trigger.
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "Bireysel MAVLink komutları sadece mavlink-sim modunda kullanılır. "
+                "Şu anki mod: ros2. Görev tetikleme için /api/mission/trigger kullan."
+            ),
+        )
+    return gate
 
 
 def _drone_ids(request: Request) -> list[int]:

@@ -18,6 +18,7 @@ class DroneState:
     connected: bool = False
     last_message_time: float = 0.0
 
+    # Faz 1-4 alanları (frontend hâlâ bunları kullanıyor — geriye uyumluluk).
     armed: bool = False
     mode: str = "?"
 
@@ -33,6 +34,62 @@ class DroneState:
 
     groundspeed_mps: float = 0.0
     yaw_deg: float = 0.0
+
+    # --- Faz 5: AgentStatus kontratının zengin alanları ---
+    # FSM state (16 enum) + flight_mode (11 enum) — frontend rozet/etiket gösterir.
+    state: int = 0              # AgentStatus.STATE_*
+    role: int = 0               # ROLE_LEADER / FOLLOWER / STANDBY / DETACHED
+    flight_mode: int = 0        # FLIGHT_MODE_*
+
+    offboard_active: bool = False
+    pilot_override_active: bool = False
+    failsafe_active: bool = False
+    healthy: bool = False
+
+    # NED pozisyon + hız (formation_control için kritik, GCS'te gözleme).
+    pos_x: float = 0.0
+    pos_y: float = 0.0
+    pos_z: float = 0.0          # negatif = yukarı
+    vel_x: float = 0.0
+    vel_y: float = 0.0
+    vel_z: float = 0.0
+
+    # Attitude (Görev 2 manevra izleme).
+    roll_deg: float = 0.0
+    pitch_deg: float = 0.0
+
+    # Battery zenginleştirme.
+    battery_current_a: float = 0.0
+    gps_hdop: float = 0.0
+
+    # Home — RTL hedefi.
+    home_set: bool = False
+    home_lat: float = 0.0
+    home_lon: float = 0.0
+    home_alt_amsl_m: float = 0.0
+
+    # Sensor + EKF health (gerçek donanım pre-arm + in-flight).
+    imu_healthy: bool = False
+    mag_healthy: bool = False
+    baro_healthy: bool = False
+    estimator_ok: bool = False
+    xy_valid: bool = False
+    z_valid: bool = False
+    v_xy_valid: bool = False
+
+    # Origin sync (sahada paylaşılan NED origin).
+    origin_synced: bool = False
+
+    # RC + kill switch.
+    rc_link_ok: bool = False
+    kill_switch_active: bool = False
+    rc_signal_failsafe_active: bool = False
+
+    # Uçuş kalitesi.
+    oscillation_detected: bool = False
+    unstable_flight: bool = False
+
+    status_text: str = ""
 
 
 class StateStore:

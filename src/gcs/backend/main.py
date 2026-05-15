@@ -1,19 +1,23 @@
-"""GCS giriş noktası — Faz 4.
+"""GCS giriş noktası — Faz 5.
 
-FastAPI uygulaması:
-  - HTTP GET  /api/telemetry/snapshot       (anlık state + alerts)
-  - HTTP GET  /api/health                   (sağlık + drone sayısı)
-  - HTTP POST /api/command/{drone_id}/...   (takeoff/land/rtl/arm/disarm)
-  - HTTP POST /api/command/all/...          (tüm drone'lara aynı komut)
-  - WS        /ws/telemetry                 (10 Hz canlı snapshot push)
+FastAPI uygulaması iki moddan birinde çalışır (config: connection_mode):
 
-MavlinkListener arka plan thread'inde çalışır; CommandWorker (drone başına
-ayrı thread) komut kuyruğunu MAVLink'e yazar. Listener ile sender aynı UDP
-soketini paylaşır (send_lock korumalı).
+  ros2 (DEFAULT, production):
+    RosBridge AgentStatus/SwarmState/SystemEvent dinler. Faz 4 komut
+    butonları geçici olarak devre dışı (TriggerMission tabanlı yeni yol
+    Aşama 3'te eklenecek). swarm_interfaces kontratı + agent_fsm gerekli.
 
-Çalıştırma (proje kökünden):
-    cd src/gcs/backend
-    uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+  mavlink-sim (fallback):
+    Faz 1-4 davranışı — PX4 SITL'e doğrudan UDP/MAVLink. CommandWorker +
+    HeartbeatSender + bireysel komut endpoint'leri aktif. Sim'de drone
+    fiziksel yokken hızlı görsel test için.
+
+Çalıştırma (container içinde):
+    cd /home/yelpence/ros2_ws/src/gcs
+    source /opt/ros/jazzy/setup.bash
+    source /home/yelpence/ros2_ws/install/setup.bash
+    source /home/yelpence/venv/bin/activate
+    uvicorn backend.main:app --host 0.0.0.0 --port 8000 --reload
 """
 
 import asyncio
@@ -112,71 +116,105 @@ def make_ack_callback(alerts: AlertManager):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     cfg = load_config()
+    mode = cfg.get("connection_mode", "ros2")
     store = StateStore(offline_timeout_sec=cfg.get("offline_timeout_sec", 3.0))
     alerts = AlertManager()
 
-    sysid_map: dict[int, int] = {}              # sysid -> drone_id (listener)
-    drone_id_to_sysid: dict[int, int] = {}      # drone_id -> sysid (sender)
+    sysid_map: dict[int, int] = {}              # sysid -> drone_id
+    drone_id_to_sysid: dict[int, int] = {}      # drone_id -> sysid
+    drone_ids: list[int] = []
     for drone_cfg in cfg["drones"]:
         store.register_drone(drone_cfg["id"], drone_cfg["name"], drone_cfg["sysid"])
         sysid_map[drone_cfg["sysid"]] = drone_cfg["id"]
         drone_id_to_sysid[drone_cfg["id"]] = drone_cfg["sysid"]
+        drone_ids.append(drone_cfg["id"])
 
-    listener = MavlinkListener(
-        connection_string=cfg["mavlink"]["connection"],
-        sysid_to_drone_id=sysid_map,
-        store=store,
-    )
-    listener.set_ack_callback(make_ack_callback(alerts))
-    listener.start()
-
-    # Send tarafı — listener'ın connection'ını paylaşır.
-    sender = CommandSender(link=listener.link, send_lock=listener.send_lock)
-
-    # GCS heartbeat — yoksa PX4 datalink loss failsafe drone'u indirir.
-    heartbeat = HeartbeatSender(link=listener.link, send_lock=listener.send_lock)
-    heartbeat.start()
-
-    gate = CommandGate()
-    for drone_cfg in cfg["drones"]:
-        gate.register_drone(drone_cfg["id"])
-
-    worker = CommandWorker(gate=gate, sender=sender, drone_id_to_sysid=drone_id_to_sysid)
-    worker.start()
-
+    # app.state ortak alanlar (her iki mod da yazar)
     app.state.store = store
-    app.state.listener = listener
-    app.state.sender = sender
-    app.state.heartbeat = heartbeat
-    app.state.gate = gate
-    app.state.worker = worker
     app.state.alerts = alerts
     app.state.config = cfg
+    app.state.connection_mode = mode
+
+    # Mod-spesifik componentleri None'la başlat — mode dallandırması doldurur.
+    app.state.bridge = None        # ROS 2 modu
+    app.state.listener = None      # MAVLink modu
+    app.state.sender = None
+    app.state.heartbeat = None
+    app.state.gate = None
+    app.state.worker = None
+
+    if mode == "ros2":
+        # Lazy import — ROS 2 paketleri sadece bu modda yüklenir.
+        from backend.connections.ros_bridge import RosBridge
+
+        bridge = RosBridge(
+            drone_ids=drone_ids,
+            store=store,
+            alerts=alerts,
+        )
+        bridge.start()
+        app.state.bridge = bridge
+        logger.info(
+            "GCS hazır [mode=ros2] — %d drone, ROS 2 köprüsü aktif (drone_ids: %s)",
+            len(drone_ids), drone_ids,
+        )
+    elif mode == "mavlink-sim":
+        listener = MavlinkListener(
+            connection_string=cfg["mavlink"]["connection"],
+            sysid_to_drone_id=sysid_map,
+            store=store,
+        )
+        listener.set_ack_callback(make_ack_callback(alerts))
+        listener.start()
+
+        sender = CommandSender(link=listener.link, send_lock=listener.send_lock)
+        heartbeat = HeartbeatSender(link=listener.link, send_lock=listener.send_lock)
+        heartbeat.start()
+
+        gate = CommandGate()
+        for drone_cfg in cfg["drones"]:
+            gate.register_drone(drone_cfg["id"])
+        worker = CommandWorker(gate=gate, sender=sender, drone_id_to_sysid=drone_id_to_sysid)
+        worker.start()
+
+        app.state.listener = listener
+        app.state.sender = sender
+        app.state.heartbeat = heartbeat
+        app.state.gate = gate
+        app.state.worker = worker
+        logger.info(
+            "GCS hazır [mode=mavlink-sim] — %d drone bekleniyor (sysid'ler: %s)",
+            len(cfg["drones"]), sorted(sysid_map.keys()),
+        )
+    else:
+        raise ValueError(
+            f"Bilinmeyen connection_mode: {mode!r} (ros2 veya mavlink-sim olmalı)"
+        )
 
     print_interval = cfg.get("print_interval_sec", 0)
     printer_task = None
     if print_interval and print_interval > 0:
         printer_task = asyncio.create_task(terminal_printer(store, print_interval))
 
-    logger.info(
-        "GCS hazır — %d drone bekleniyor (sysid'ler: %s)",
-        len(cfg["drones"]), sorted(sysid_map.keys()),
-    )
-
     try:
         yield
     finally:
-        logger.info("kapanıyor...")
+        logger.info("kapanıyor [mode=%s]...", mode)
         if printer_task:
             printer_task.cancel()
-        worker.stop()
-        heartbeat.stop()
-        listener.stop()
+        if app.state.worker:
+            app.state.worker.stop()
+        if app.state.heartbeat:
+            app.state.heartbeat.stop()
+        if app.state.listener:
+            app.state.listener.stop()
+        if app.state.bridge:
+            app.state.bridge.stop()
 
 
 def create_app() -> FastAPI:
     cfg = load_config()
-    app = FastAPI(title="Yelpence GCS", version="0.4.0", lifespan=lifespan)
+    app = FastAPI(title="Yelpence GCS", version="0.5.0-dev", lifespan=lifespan)
 
     app.add_middleware(
         CORSMiddleware,
