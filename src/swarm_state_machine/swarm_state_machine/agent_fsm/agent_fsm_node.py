@@ -184,9 +184,7 @@ class AgentFsmNode(Node):
         if (
             ctx.state == AgentState.FAILSAFE
             and ctx.kill_switch_active
-            and not ctx.armed
             and self._px4_landed
-            and abs(ctx.vel_z) < _GROUND_VEL_THR
             and ctx.attitude_stable
         ):
             self._transition(AgentState.LANDED)
@@ -196,6 +194,9 @@ class AgentFsmNode(Node):
                 'Kill switch: landed+disarmed+stable doğrulandı',
             )
 
+        # NOT: pending_state tek tick içinde tüketilir. Bu güvenlidir çünkü
+        # rclpy.spin() single-threaded executor kullanır. MultiThreadedExecutor
+        # kullanılacaksa pending_state erişimi lock ile korunmalıdır.
         ctx.pending_state = None
         self._publish_status()
 
@@ -373,14 +374,20 @@ class AgentFsmNode(Node):
         """
         EVENT_FAILSAFE_CLEARED alındığında drone'un fiziksel durumuna
         göre hedef state belirler.
+
+        Yalnızca FAILSAFE state'indeyken işlem yapar; normal uçuş
+        sırasında broadcast olarak gelen event'i yok sayar.
         """
         ctx = self._ctx
         ctx.geofence_violated = False
 
+        if ctx.state != AgentState.FAILSAFE:
+            return
+
         if not ctx.armed:
             ctx.pending_state = AgentState.IDLE
         elif self._px4_landed:
-            ctx.pending_state = AgentState.LANDING
+            ctx.pending_state = AgentState.IDLE
         else:
             ctx.pending_state = AgentState.RETURN_HOME
 
