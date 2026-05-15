@@ -1,101 +1,87 @@
 """mission_states.py — MissionState, MissionType, QrTaskStep sabitleri.
 
-BU DOSYA SADECE SABIT TANIMLARINDAN OLUŞUR.
-Hiçbir mantık (logic) içermez — sadece sayılara isim verir.
-Diğer tüm dosyalar buradan import eder.
-
-IntEnum nedir?
-  Normal Python enum'dan farkı: integer gibi davranır.
-  Örnek: MissionState.IDLE == 1       → True
-         int(MissionState.IDLE)       → 1
-  ROS2 UInt8 mesajına yazarken bunu kullanırız:
-    msg.data = int(ctx.state)  # MissionState → sayıya çevir
+Bu dosya yalnizca sabit tanimlarindan olusur; hicbir mantik icermez.
+Diger tum dosyalar buradan import eder.
 """
 
-from enum import IntEnum   # integer gibi davranan enum — sayıya çevrilebilir
+from enum import IntEnum
 
 
 # =============================================================================
-# MİSSION STATE — görevin büyük resmi
+# MISSION STATE
 # =============================================================================
 
 class MissionState(IntEnum):
-    """SÜRÜ GENELİ görev durum makinesi sabitleri.
+    """
+    Suru geneli gorev durum makinesi sabitleri.
 
-    Bu FSM tek bir drone'u değil, TÜM SÜRÜYÜ temsil eder.
-    Bireysel drone durumları agent_fsm/agent_states.py'dadır (AgentState).
+    Bu FSM tek bir drone'u degil, TUM SURUYU temsil eder.
+    Bireysel drone durumlari agent_fsm/agent_states.py'dadir.
 
-    Mission FSM "sürü ne yapıyor?" sorusuna cevap verir:
-      NAVIGATE_TO_QR → sürünün tamamı QR noktasına gidiyor
-      EXECUTE_QR_TASK → sürünün tamamı QR görevini icra ediyor
-      LANDING → sürünün tamamının inişi bekleniyor
-
-    Sayılar önemli: ROS2 topic'te UInt8 olarak yayınlanır, bu sayılar abone
-    node'lar tarafından okunur (formation_control, mission1_dynamic_swarm vb.)
+    Sayilar ROS2 topic'te UInt8 olarak yayinlanir; abone node'lar
+    (formation_control, mission1_dynamic_swarm vb.) bu sayilari okur.
     """
 
-    UNKNOWN = 0   # başlangıç değeri; node ilk tick'te IDLE'a geçer
-    IDLE = 1   # GCS'ten START bekleniyor; sürü yerde bekler
-    PREFLIGHT = 2   # sürüdeki tüm ajanlar sağlıklı mı, GPS var mı? kontrol aşaması
-    SYNCHRONIZED_TAKEOFF = 3  # EVENT_MISSION_STARTED yayınlandı; sürünün tamamı kalkıyor
-    NAVIGATE_TO_QR = 4   # sürünün tamamı QR noktasının koordinatına doğru ilerliyor
-    EXECUTE_QR_TASK = 5   # QR'dan okunan alt görevler sürü genelinde sırayla çalışıyor
-    WAIT_AT_QR = 6   # QR'ın wait_s süresi kadar sürünün tamamı QR noktasında bekliyor
-    ROTATE_TO_NEXT = 7   # sürü formasyonu bir sonraki QR yönüne döndürülüyor
-    SEMI_AUTONOMOUS = 8   # Görev 2: GCS joystick ile sürünün tamamı yönlendiriliyor
-    RETURN_HOME = 9   # RTL tetiklendi; sürünün tamamı başlangıç noktasına dönüyor
-    LANDING = 10  # sürünün tamamının inişi izleniyor
-    MISSION_COMPLETE = 11  # sürünün tamamı indi, görev başarıyla tamamlandı
-    ABORTED = 12  # görev iptal edildi (timeout, arıza veya GCS abort komutu)
-    PAUSED = 13  # GCS PAUSE komutu geldi; sürü hover'da bekliyor, RESUME bekleniyor
+    UNKNOWN = 0             # baslangic degeri; node ilk tick'te IDLE'a gecer
+    IDLE = 1                # GCS'ten START bekleniyor
+    PREFLIGHT = 2           # tum ajanlar saglikli mi, GPS var mi?
+    SYNCHRONIZED_TAKEOFF = 3  # EVENT_MISSION_STARTED yayinlandi; suru kalkiyor
+    NAVIGATE_TO_QR = 4      # suru QR noktasina dogru ilerliyor
+    EXECUTE_QR_TASK = 5     # QR'dan okunan alt gorevler sirasyla calistirilyor
+    WAIT_AT_QR = 6          # QR'in wait_s suresi kadar bekleniyor
+    ROTATE_TO_NEXT = 7      # formasyon bir sonraki QR yonune dondurulüyor
+    SEMI_AUTONOMOUS = 8     # Gorev 2: GCS joystick ile suru yonlendiriliyor
+    RETURN_HOME = 9         # RTL tetiklendi; suru baslangic noktasina doniyor
+    LANDING = 10            # surunun tamaminın inisi izleniyor
+    MISSION_COMPLETE = 11   # tum suru indi, gorev basariyla tamamlandi
+    ABORTED = 12            # gorev iptal edildi (timeout, ariza veya GCS komutu)
+    PAUSED = 13             # GCS PAUSE komutu; suru hover'da, RESUME bekleniyor
 
 
 # =============================================================================
-# MİSSION TYPE — hangi görev çalışıyor?
+# MISSION TYPE
 # =============================================================================
 
 class MissionType(IntEnum):
-    """TriggerMission.srv'deki mission_id alanıyla birebir eşleşir.
+    """
+    TriggerMission.srv'deki mission_id alaniyla birebir eslesir.
 
-    GCS START komutuyla birlikte mission_id gönderir.
-    Bu değer ctx.mission_type'a yazılır.
-    SYNCHRONIZED_TAKEOFF'ta bu değere bakılarak:
-      DYNAMIC_SWARM  → NAVIGATE_TO_QR'a geçilir
-      SEMI_AUTONOMOUS → SEMI_AUTONOMOUS'a geçilir
+    GCS START komutuyla birlikte mission_id gonderir.
+    SYNCHRONIZED_TAKEOFF'ta bu degere bakilarak sonraki state secilir:
+      DYNAMIC_SWARM   -> NAVIGATE_TO_QR
+      SEMI_AUTONOMOUS -> SEMI_AUTONOMOUS
     """
 
-    UNKNOWN = 0   # henüz belirlenmedi; IDLE state'inde bu değerdedir
-    DYNAMIC_SWARM = 1   # Görev 1: QR okuma + dinamik sürü formasyon değişimi
-    SEMI_AUTONOMOUS = 2   # Görev 2: GCS joystick ile yarı otonom sürü kontrolü
+    UNKNOWN = 0         # henuz belirlenmedi
+    DYNAMIC_SWARM = 1   # Gorev 1: QR okuma + dinamik suru formasyon degisimi
+    SEMI_AUTONOMOUS = 2  # Gorev 2: GCS joystick ile yari otonom suru kontrolu
 
 
 # =============================================================================
-# QR TASK STEP — EXECUTE_QR_TASK içindeki alt adımlar
+# QR TASK STEP
 # =============================================================================
 
 class QrTaskStep(IntEnum):
-    """EXECUTE_QR_TASK aşamasındaki sıralı alt görev adımları.
+    """
+    EXECUTE_QR_TASK asamasindaki sirali alt gorev adimlari.
 
-    Şartname 5.1.2 sırası: FORMATION → MANEUVER → ALTITUDE → DETACH
+    Sartname 5.1.2 sirasi: FORMATION -> MANEUVER -> ALTITUDE -> DETACH
 
-    Bir QR mesajı aynı anda birden fazla bölüm içerebilir.
-    Örnek: formation_active=True, maneuver_active=True → önce FORMATION, sonra MANEUVER
+    Hangi alan aktifse o adim calisir:
+      QRMissionData.formation_active -> FORMATION
+      QRMissionData.maneuver_active  -> MANEUVER
+      QRMissionData.altitude_active  -> ALTITUDE
+      QRMissionData.detach_active    -> DETACH
 
-    Hangi alan aktif ise o adım çalışır:
-      QRMissionData.formation_active → FORMATION adımı var mı?
-      QRMissionData.maneuver_active  → MANEUVER  adımı var mı?
-      QRMissionData.altitude_active  → ALTITUDE  adımı var mı?
-      QRMissionData.detach_active    → DETACH    adımı var mı?
-
-    Adım tamamlanma sinyalleri (kim yayınlar → hangi event):
-      FORMATION / ALTITUDE → formation_control    → EVENT_FORMATION_REACHED
-      MANEUVER             → maneuver_executor    → EVENT_MANEUVER_COMPLETED
-      DETACH               → agent_fsm            → EVENT_AGENT_DETACHED
+    Adim tamamlanma sinyalleri:
+      FORMATION / ALTITUDE -> formation_control  -> EVENT_FORMATION_REACHED
+      MANEUVER             -> maneuver_executor  -> EVENT_MANEUVER_COMPLETED
+      DETACH               -> agent_fsm          -> EVENT_AGENT_DETACHED
     """
 
-    NONE = 0   # henüz adım seçilmedi; EXECUTE_QR_TASK'a girilmemiş demektir
-    FORMATION = 1   # formasyon tipi değiştiriliyor (ör. okbaşı → V)
-    MANEUVER = 2   # pitch/roll manevrası — sürü merkezi sabit kalır (şartname sırası: 2.)
-    ALTITUDE = 3   # irtifa değişimi — yüksel veya alçal (şartname sırası: 3.)
-    DETACH = 4   # sürüden birey ekleme veya çıkarma
-    DONE = 5   # tüm aktif adımlar tamamlandı; ana state geçişi bekleniyor
+    NONE = 0       # henuz adim secilmedi
+    FORMATION = 1  # formasyon tipi degistiriliyor
+    MANEUVER = 2   # pitch/roll manevrasi
+    ALTITUDE = 3   # irtifa degisimi
+    DETACH = 4     # suruden birey ekleme veya cikarma
+    DONE = 5       # tum aktif adimlar tamamlandi
