@@ -35,3 +35,20 @@
     max-height: 40vh;
   }
 }
+
+.app__joystick-toggle {
+  background: #111827;
+  color: #94a3b8;
+  border: none;
+  border-top: 1px solid #1f2937;
+  padding: 6px 12px;
+  font-size: 11px;
+  cursor: pointer;
+  text-align: left;
+  font-family: inherit;
+}
+
+.app__joystick-toggle:hover {
+  color: #e5e7eb;
+  background: #1f2937;
+}

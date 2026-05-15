@@ -27,7 +27,8 @@ from rclpy.executors import SingleThreadedExecutor
 from rclpy.node import Node
 from rclpy.qos import QoSPresetProfiles, QoSProfile, QoSReliabilityPolicy
 
-from swarm_interfaces.msg import AgentStatus, SwarmState, SystemEvent
+from swarm_interfaces.msg import AgentStatus, SwarmControlCommand, SwarmState, SystemEvent
+from swarm_interfaces.srv import TriggerMission
 
 from backend.core.alert_manager import (
     AlertManager,
@@ -218,6 +219,9 @@ class RosBridge:
 
     NODE_NAME = "yelpence_gcs_bridge"
 
+    # TriggerMission service'in cevap için bekleme süresi.
+    TRIGGER_MISSION_TIMEOUT_SEC = 5.0
+
     def __init__(
         self,
         drone_ids: list[int],
@@ -249,9 +253,107 @@ class RosBridge:
         self._thread: Optional[threading.Thread] = None
         self._stop = threading.Event()
 
+        # Service client + publisher (Aşama 3)
+        self._trigger_mission_client = None
+        self._control_pub = None
+
     def get_swarm_state(self) -> Optional[dict]:
         with self._swarm_state_lock:
             return self.latest_swarm_state
+
+    def trigger_mission(
+        self,
+        mission_id: int,
+        command: int,
+        team_id: str = "",
+        parameters_json: str = "",
+    ) -> dict:
+        """TriggerMission.srv çağrısı — GCS'in tek müdahale yolu.
+
+        Senkron — service çağrı thread'de blocking yapılır, max
+        TRIGGER_MISSION_TIMEOUT_SEC bekler. FastAPI endpoint'i bunu
+        run_in_executor ile çağırmalı (event loop'u bloklamasın).
+
+        Returns:
+          {"success": bool, "message": str}
+        """
+        if self._trigger_mission_client is None:
+            return {"success": False, "message": "ROS 2 service client hazır değil"}
+
+        # Karşı tarafta server var mı?
+        if not self._trigger_mission_client.service_is_ready():
+            # Bir kez wait — server yeni başladıysa şans verelim.
+            ready = self._trigger_mission_client.wait_for_service(timeout_sec=1.0)
+            if not ready:
+                return {
+                    "success": False,
+                    "message": (
+                        "/swarm/mission/trigger service'i bulunamadı "
+                        "(mission_fsm çalışıyor mu?)"
+                    ),
+                }
+
+        req = TriggerMission.Request()
+        req.mission_id = int(mission_id)
+        req.command = int(command)
+        req.team_id = str(team_id or "")
+        req.parameters_json = str(parameters_json or "")
+
+        future = self._trigger_mission_client.call_async(req)
+
+        # Future'u kendi executor thread'imizde döndüğümüz için spin_until
+        # yerine event üzerinden bekleyelim. rclpy Future done callback'i
+        # destekler.
+        done_evt = threading.Event()
+        future.add_done_callback(lambda _f: done_evt.set())
+        if not done_evt.wait(timeout=self.TRIGGER_MISSION_TIMEOUT_SEC):
+            self._trigger_mission_client.remove_pending_request(future)
+            return {
+                "success": False,
+                "message": f"Service zaman aşımı ({self.TRIGGER_MISSION_TIMEOUT_SEC}s)",
+            }
+
+        if future.exception() is not None:
+            return {"success": False, "message": f"Service hatası: {future.exception()}"}
+
+        resp = future.result()
+        return {"success": bool(resp.success), "message": str(resp.message)}
+
+    def publish_swarm_control(self, payload: dict) -> None:
+        """SwarmControlCommand.msg yayınla — Görev 2 joystick frame'i.
+
+        payload: frontend'den gelen normalized joystick + mod + bayraklar.
+        20-50 Hz çağrı bekleniyor; mesaj inşası fast-path.
+        """
+        if self._control_pub is None:
+            raise RuntimeError("SwarmControlCommand publisher hazır değil")
+
+        m = SwarmControlCommand()
+        m.stamp = self._node.get_clock().now().to_msg()
+        m.sequence_num = int(payload.get("sequence_num", 0))
+        m.command_valid = bool(payload.get("command_valid", False))
+        m.deadman_pressed = bool(payload.get("deadman_pressed", False))
+        m.deadman_timeout_s = float(payload.get("deadman_timeout_s", 0.5))
+        m.mode = int(payload.get("mode", SwarmControlCommand.MODE_UNKNOWN))
+        m.pitch_cmd = float(payload.get("pitch_cmd", 0.0))
+        m.roll_cmd = float(payload.get("roll_cmd", 0.0))
+        m.yaw_cmd = float(payload.get("yaw_cmd", 0.0))
+        m.throttle_cmd = float(payload.get("throttle_cmd", 0.0))
+        m.takeoff = bool(payload.get("takeoff", False))
+        m.land = bool(payload.get("land", False))
+        m.rtl = bool(payload.get("rtl", False))
+        m.emergency_stop = bool(payload.get("emergency_stop", False))
+        m.formation_change_requested = bool(payload.get("formation_change_requested", False))
+        m.requested_formation = int(
+            payload.get("requested_formation", SwarmControlCommand.FORMATION_UNKNOWN)
+        )
+        m.requested_spacing_m = float(payload.get("requested_spacing_m", 0.0))
+        m.duration_s = float(payload.get("duration_s", 0.0))
+        m.max_speed_mps = float(payload.get("max_speed_mps", 0.0))
+        m.max_yaw_rate_deg_s = float(payload.get("max_yaw_rate_deg_s", 0.0))
+        m.max_tilt_deg = float(payload.get("max_tilt_deg", 0.0))
+        m.source_module = str(payload.get("source_module", "gcs"))
+        self._control_pub.publish(m)
 
     def start(self) -> None:
         """rclpy init + node + subscriber'lar + executor thread başlat."""
@@ -291,6 +393,20 @@ class RosBridge:
             SystemEvent, "/swarm/events/system", self._on_system_event, reliable_qos
         )
         logger.info("subscribe → /swarm/events/system")
+
+        # TriggerMission service client — GCS'in tek müdahale noktası.
+        # mission_fsm karşı tarafta server kuracak.
+        self._trigger_mission_client = self._node.create_client(
+            TriggerMission, "/swarm/mission/trigger"
+        )
+        logger.info("service client → /swarm/mission/trigger")
+
+        # SwarmControlCommand publisher — Görev 2 joystick mesajı.
+        # Kontrata göre BEST_EFFORT, 20-50 Hz; deadman switch ile guard.
+        self._control_pub = self._node.create_publisher(
+            SwarmControlCommand, "/swarm/control/command", sensor_qos
+        )
+        logger.info("publisher → /swarm/control/command")
 
         self._executor = SingleThreadedExecutor()
         self._executor.add_node(self._node)

@@ -6,6 +6,8 @@ import "./CommandButtons.css";
 interface CommandButtonsProps {
   droneId: number;
   connected: boolean;
+  /** Görev aktif iken bireysel komutlar yasak (şartname). */
+  disabled?: boolean;
 }
 
 type ActionKey = "takeoff" | "land" | "rtl" | "disarm";
@@ -44,7 +46,7 @@ const ACTIONS: Record<ActionKey, ActionMeta> = {
   },
 };
 
-export function CommandButtons({ droneId, connected }: CommandButtonsProps) {
+export function CommandButtons({ droneId, connected, disabled = false }: CommandButtonsProps) {
   const [busy, setBusy] = useState<ActionKey | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -95,9 +97,15 @@ export function CommandButtons({ droneId, connected }: CommandButtonsProps) {
             type="button"
             className={`cmd-btn ${meta.className} ${isBusy ? "is-busy" : ""}`}
             onClick={() => run(key)}
-            disabled={!connected || busy !== null}
+            disabled={!connected || busy !== null || disabled}
             aria-label={meta.label}
-            title={connected ? meta.label : "Drone bağlı değil"}
+            title={
+              !connected
+                ? "Drone bağlı değil"
+                : disabled
+                  ? "Görev aktif iken bireysel komut yasak (şartname)"
+                  : meta.label
+            }
           >
             <span className="cmd-btn__icon">{meta.icon}</span>
             <span className="cmd-btn__label">{meta.label}</span>

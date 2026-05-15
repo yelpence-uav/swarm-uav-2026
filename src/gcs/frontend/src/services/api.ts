@@ -83,3 +83,101 @@ export const api = {
   disarmAll: (force = false) =>
     postCommand(`/command/all/disarm`, force ? { force: true } : undefined),
 };
+
+// --- Faz 5: Mission + Swarm Control endpoint'leri ----------------------------
+
+export const MISSION_ID = {
+  DYNAMIC_SWARM: 1,         // Görev 1
+  SEMI_AUTONOMOUS: 2,       // Görev 2
+} as const;
+
+export const MISSION_COMMAND = {
+  START: 1,
+  ABORT: 2,
+  PAUSE: 3,
+  RESUME: 4,
+  RTL: 5,
+  LAND: 6,
+} as const;
+
+export interface TriggerMissionRequest {
+  mission_id: number;
+  command: number;
+  team_id: string;
+  parameters_json?: string;
+}
+
+export interface TriggerMissionResponse {
+  success: boolean;
+  message: string;
+  mission_id: number;
+  command: number;
+}
+
+export const SWARM_CONTROL_MODE = {
+  UNKNOWN: 0,
+  SWARM_MOVEMENT: 1,
+  MANEUVER: 2,
+} as const;
+
+export const SWARM_FORMATION = {
+  UNKNOWN: 0,
+  OKBASI: 1,
+  V: 2,
+  CIZGI: 3,
+} as const;
+
+export interface SwarmControlBody {
+  sequence_num: number;
+  command_valid: boolean;
+  deadman_pressed: boolean;
+  deadman_timeout_s?: number;
+  mode: number;
+  pitch_cmd: number;
+  roll_cmd: number;
+  yaw_cmd: number;
+  throttle_cmd: number;
+  takeoff?: boolean;
+  land?: boolean;
+  rtl?: boolean;
+  emergency_stop?: boolean;
+  formation_change_requested?: boolean;
+  requested_formation?: number;
+  requested_spacing_m?: number;
+  duration_s?: number;
+  max_speed_mps?: number;
+  max_yaw_rate_deg_s?: number;
+  max_tilt_deg?: number;
+  source_module?: string;
+}
+
+async function postJson<T>(path: string, body: unknown): Promise<T> {
+  const res = await fetch(`${API_BASE}${path}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => res.statusText);
+    throw new CommandFailure(text || res.statusText, res.status);
+  }
+  return res.json() as Promise<T>;
+}
+
+export const missionApi = {
+  trigger: (req: TriggerMissionRequest) =>
+    postJson<TriggerMissionResponse>(`/mission/trigger`, {
+      mission_id: req.mission_id,
+      command: req.command,
+      team_id: req.team_id,
+      parameters_json: req.parameters_json ?? "",
+    }),
+};
+
+export const swarmApi = {
+  control: (body: SwarmControlBody) =>
+    postJson<{ published: boolean; sequence_num: number }>(
+      `/swarm/control`,
+      body,
+    ),
+};

@@ -22,7 +22,13 @@ async def telemetry_ws(
     store: StateStore,
     alerts: AlertManager,
     hz: float = 10.0,
+    bridge=None,
 ) -> None:
+    """drones + alerts + swarm_state üçlüsünü periyodik push.
+
+    bridge None ise (mavlink-sim modu) swarm_state alanı da None gider —
+    frontend bunu graceful handle eder.
+    """
     await ws.accept()
     interval = 1.0 / hz
     client = f"{ws.client.host}:{ws.client.port}" if ws.client else "?"
@@ -32,9 +38,11 @@ async def telemetry_ws(
         while True:
             snap = store.snapshot()
             active_alerts = alerts.evaluate(snap)
+            swarm_state = bridge.get_swarm_state() if bridge is not None else None
             payload = {
                 "drones": [dataclasses.asdict(d) for d in snap],
                 "alerts": [dataclasses.asdict(a) for a in active_alerts],
+                "swarm_state": swarm_state,
             }
             await ws.send_text(json.dumps(payload))
             await asyncio.sleep(interval)

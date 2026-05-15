@@ -1,0 +1,139 @@
+.mission-panel {
+  background: #1f2937;
+  border-bottom: 1px solid #374151;
+  padding: 12px 16px;
+  color: #e5e7eb;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.mission-panel__row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.mission-panel__field {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+}
+
+.mission-panel__field span {
+  color: #9ca3af;
+  font-weight: 600;
+}
+
+.mission-panel__field select,
+.mission-panel__field input {
+  background: #111827;
+  color: #e5e7eb;
+  border: 1px solid #4b5563;
+  border-radius: 4px;
+  padding: 6px 10px;
+  font-size: 13px;
+  font-family: inherit;
+}
+
+.mission-panel__field select:focus,
+.mission-panel__field input:focus {
+  outline: none;
+  border-color: #3b82f6;
+}
+
+.mission-panel__field input {
+  width: 110px;
+}
+
+.mission-panel__start {
+  background: #16a34a;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  padding: 8px 18px;
+  font-weight: 700;
+  font-size: 14px;
+  cursor: pointer;
+  letter-spacing: 0.3px;
+  transition: background 0.15s;
+}
+
+.mission-panel__start:hover:not(:disabled) {
+  background: #15803d;
+}
+
+.mission-panel__start:disabled {
+  background: #374151;
+  color: #6b7280;
+  cursor: not-allowed;
+}
+
+.mission-panel__row--safety {
+  border-top: 1px dashed #374151;
+  padding-top: 8px;
+  font-size: 12px;
+}
+
+.mission-panel__safety-label {
+  color: #fbbf24;
+  font-weight: 600;
+  margin-right: 4px;
+}
+
+.mission-panel__safety-btn {
+  background: #374151;
+  color: #d1d5db;
+  border: 1px solid #4b5563;
+  border-radius: 4px;
+  padding: 5px 10px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.mission-panel__safety-btn:hover:not(:disabled) {
+  background: #4b5563;
+}
+
+.mission-panel__safety-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.mission-panel__safety-btn--abort {
+  background: #7f1d1d;
+  color: white;
+  border-color: #991b1b;
+}
+
+.mission-panel__safety-btn--abort:hover:not(:disabled) {
+  background: #991b1b;
+}
+
+.mission-panel__result {
+  font-size: 12px;
+  padding: 4px 8px;
+  border-radius: 3px;
+  font-family: monospace;
+}
+
+.mission-panel__result--ok {
+  background: #064e3b;
+  color: #6ee7b7;
+}
+
+.mission-panel__result--fail {
+  background: #7f1d1d;
+  color: #fca5a5;
+}
+
+.mission-panel__error {
+  font-size: 12px;
+  background: #7f1d1d;
+  color: #fca5a5;
+  padding: 4px 8px;
+  border-radius: 3px;
+  font-family: monospace;
+}

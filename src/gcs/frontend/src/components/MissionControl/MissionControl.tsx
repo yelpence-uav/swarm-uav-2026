@@ -22,9 +22,11 @@ const CONFIRM_MSG: Record<ActionKey, string | null> = {
 
 interface MissionControlProps {
   anyConnected: boolean;
+  /** Görev aktif iken bireysel/bulk MAVLink komutları yasak (şartname). */
+  disabled?: boolean;
 }
 
-export function MissionControl({ anyConnected }: MissionControlProps) {
+export function MissionControl({ anyConnected, disabled = false }: MissionControlProps) {
   const [busy, setBusy] = useState<ActionKey | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -66,7 +68,9 @@ export function MissionControl({ anyConnected }: MissionControlProps) {
 
   return (
     <div className="mc">
-      <span className="mc__label">SÜRÜ KOMUTU:</span>
+      <span className="mc__label">
+        SÜRÜ KOMUTU{disabled ? " (görev aktif → kilit)" : ""}:
+      </span>
       {(Object.keys(ACTION_LABEL) as ActionKey[]).map((key) => {
         const meta = ACTION_LABEL[key];
         const isBusy = busy === key;
@@ -77,7 +81,8 @@ export function MissionControl({ anyConnected }: MissionControlProps) {
             type="button"
             className={`mc__btn ${isDanger ? "mc__btn--danger" : ""} ${isBusy ? "is-busy" : ""}`}
             onClick={() => run(key)}
-            disabled={!anyConnected || busy !== null}
+            disabled={!anyConnected || busy !== null || disabled}
+            title={disabled ? "Görev aktif iken bireysel komut yasak (şartname)" : undefined}
           >
             <span aria-hidden="true">{meta.icon}</span> {meta.label}
           </button>
