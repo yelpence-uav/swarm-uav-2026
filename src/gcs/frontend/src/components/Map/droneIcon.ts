@@ -14,8 +14,8 @@ export function droneIcon({ color, yawDeg, offline, label }: IconOptions): L.Div
   const html = `
     <div class="drone-marker" style="opacity: ${opacity};">
       <div class="drone-marker__rot" style="transform: rotate(${yawDeg}deg);">
-        <svg viewBox="0 0 32 32" width="32" height="32">
-          <polygon points="16,2 28,28 16,22 4,28" fill="${fill}" stroke="#000" stroke-width="1.5" stroke-linejoin="round"/>
+        <svg viewBox="0 0 40 40" width="40" height="40">
+          <polygon points="20,3 35,36 20,27 5,36" fill="${fill}" stroke="#000" stroke-width="2" stroke-linejoin="round"/>
         </svg>
       </div>
       <div class="drone-marker__label">${label}</div>
@@ -25,7 +25,7 @@ export function droneIcon({ color, yawDeg, offline, label }: IconOptions): L.Div
   return L.divIcon({
     className: "drone-marker-wrapper",
     html,
-    iconSize: [32, 32],
-    iconAnchor: [16, 16],
+    iconSize: [40, 40],
+    iconAnchor: [20, 20],
   });
 }
