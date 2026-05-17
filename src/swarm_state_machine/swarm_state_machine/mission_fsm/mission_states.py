@@ -27,7 +27,7 @@ class MissionState(IntEnum):
 
 
 class MissionType(IntEnum):
-    """GCS'in TriggerMission.srv mission_id ile seçtiği görev tipi."""
+    """Görev tipi (GCS'in TriggerMission.srv mission_id ile seçtiği)."""
 
     UNKNOWN = 0
     DYNAMIC_SWARM = 1

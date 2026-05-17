@@ -60,7 +60,7 @@ class MissionFsmNode(Node):
     """
 
     def __init__(self) -> None:
-        """MissionFsmNode'u başlatır."""
+        """Node'u başlatır ve ROS2 arayüzlerini kurar."""
         super().__init__('mission_fsm')
 
         self._declare_params()
@@ -159,7 +159,7 @@ class MissionFsmNode(Node):
         )
 
     def _setup_service(self) -> None:
-        """TriggerMission servis sunucusunu oluşturur.
+        """Servis sunucusunu (TriggerMission) oluşturur.
 
         GCS alındıyı onaylayabilsin diye topic yerine servis kullanılır.
         """
@@ -425,7 +425,7 @@ class MissionFsmNode(Node):
         request: TriggerMission.Request,
         response: TriggerMission.Response,
     ) -> TriggerMission.Response:
-        """GCS'den gelen TriggerMission servis isteklerini işler.
+        """Servis isteklerini (GCS'den gelen TriggerMission) işler.
 
         START yalnızca IDLE durumunda kabul edilir. mission_id geçerli
         bir MissionType'a eşlenmelidir. team_id verilmişse güncellenir.
@@ -501,7 +501,7 @@ class MissionFsmNode(Node):
         message: str = '',
         target_agent_id: int = 0,
     ) -> None:
-        """SystemEvent mesajı oluşturur ve yayınlar.
+        """Sistem olayı (SystemEvent) mesajı oluşturur ve yayınlar.
 
         Args:
             event_type (int): SystemEvent.EVENT_* sabiti.

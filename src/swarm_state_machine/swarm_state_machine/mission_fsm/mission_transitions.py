@@ -323,7 +323,7 @@ _HANDLERS = {
 
 
 def find_first_qr_step(qr) -> QrTaskStep:
-    """QRMissionData mesajındaki ilk aktif QrTaskStep'i döner.
+    """Mesajdaki (QRMissionData) ilk aktif QrTaskStep'i döner.
 
     Args:
         qr: QRMissionData mesaj örneği ya da None.
