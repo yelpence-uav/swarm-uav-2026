@@ -1,7 +1,7 @@
 """mission_context.py — MissionFSM çalışma zamanı durum kabı."""
 
-import time
 from dataclasses import dataclass, field
+import time
 from typing import Any, Optional
 
 from .mission_states import MissionState, MissionType, QrTaskStep
@@ -27,7 +27,7 @@ class MissionContext:
 
     agent_ids: list
 
-    team_id: str = ""
+    team_id: str = ''
     sitl_mode: bool = False
 
     state: MissionState = MissionState.UNKNOWN
@@ -50,7 +50,7 @@ class MissionContext:
     event_rotation_completed: bool = False
 
     pending_command: int = 0
-    abort_reason: str = ""
+    abort_reason: str = ''
 
     def set_state(self, new_state: MissionState) -> None:
         """Durum geçişini uygular ve geçici bayrakları sıfırlar.

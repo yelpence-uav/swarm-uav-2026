@@ -311,7 +311,7 @@ class MissionFsmNode(Node):
         if self._ctx.team_id == '':
             self.get_logger().warn(
                 '[mission_fsm] team_id ayarlı değil;'
-                ' tüm QR\'lar kabul ediliyor.',
+                " tüm QR'lar kabul ediliyor.",
                 throttle_duration_sec=10.0,
             )
         elif msg.team_id != self._ctx.team_id:
