@@ -92,9 +92,33 @@ class _StabilityWindow:
 
 _windows: dict[int, _StabilityWindow] = {}
 
+# Yerde veya başlangıçta stabilite penceresi sıfırlanmalı
+_GROUND_STATES = frozenset({
+    AgentState.UNKNOWN,
+    AgentState.IDLE,
+    AgentState.LANDED,
+    AgentState.STANDBY,
+})
+
+
+def clear_window(agent_id: int) -> None:
+    """Belirtilen ajan için stabilite penceresini temizler.
+
+    Node yeniden başlatıldığında veya ajan yere indiğinde
+    eski verilerin kalmaması için çağrılmalıdır.
+
+    Args:
+        agent_id: Temizlenecek ajanın ID'si.
+    """
+    _windows.pop(agent_id, None)
+
 
 def _get_window(ctx: AgentContext) -> _StabilityWindow:
     """Bu drone'un stabilite penceresini döner, yoksa yeni oluşturur.
+
+    Drone yerdeyse (IDLE, LANDED, STANDBY) eski pencere temizlenir
+    ve yeni boş pencere oluşturulur — eski uçuş verileri
+    yeni kalkışı kirletmez.
 
     Args:
         ctx (AgentContext): Drone'un anlık durum bilgisi.
@@ -103,6 +127,8 @@ def _get_window(ctx: AgentContext) -> _StabilityWindow:
         _StabilityWindow: Drone'a ait stabilite penceresi.
     """
     aid = ctx.agent_id
+    if ctx.state in _GROUND_STATES:
+        _windows.pop(aid, None)
     if aid not in _windows:
         _windows[aid] = _StabilityWindow()
     return _windows[aid]
