@@ -90,6 +90,7 @@ float32 target_heading_deg
 # Formation tilts as a unit; swarm centroid stays fixed.
 float32 pitch_deg       # signed; see MANOEUVRE SIGN CONVENTION above
 float32 roll_deg        # signed; see MANOEUVRE SIGN CONVENTION above
+float32 yaw_deg         # signed; clockwise positive in NED frame
 
 # Altitude change from QR text. Positive upward, e.g. QR says 20 m -> altitude_agl_m = 20.0.
 float32 altitude_agl_m

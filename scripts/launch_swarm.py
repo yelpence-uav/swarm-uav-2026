@@ -39,6 +39,7 @@ def cleanup():
         "ros_gz_bridge",
         "parameter_bridge",
         "px4",
+        "network_proxy_node",
     ]
 
     subprocess.run(["pkill", "-9", "-f", "gz sim"], stderr=subprocess.DEVNULL)
@@ -297,6 +298,12 @@ def main():
     # )
     # run_background(rtk_bridge_cmd, "rtk_bridge")
     # run_background("python3 scripts/rtk_manager.py", "rtk_manager")
+
+    # 8. ESP-NOW Ağ Simülatörü (Network Proxy)
+    print(">> ESP-NOW Ağ Köprüsü Tmux üzerinde başlatılıyor...")
+    run_in_tmux(
+        "ros2 run network_proxy network_proxy_node", "Network_Proxy", "network_proxy"
+    )
 
     print("\n--- TÜM SİSTEM BAŞARIYLA BAŞLATILDI ---")
     print(f"Süreçleri izlemek için: tmux attach -t {TMUX_SESSION}")
