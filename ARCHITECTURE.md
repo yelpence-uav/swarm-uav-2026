@@ -228,6 +228,7 @@ Bu bölüm, yazılımın geliştirme ortamından çıkarak gerçek dünya donan�
 Bu proje, kodun hem donanımsal hem de yazılımsal zafiyetlere karşı dirençli olmasını sağlamak için sağlam bir simülasyon ve test altyapısı üzerine kurulmuştur. Yeni geliştiricilerin sisteme hızla adapte olması hedeflenmiştir.
 
 **Geliştirme Ortamı Kurulumu:**
+
 Geliştiricilerin kendi makinelerinde (Linux/Ubuntu) izole bir ortamda çalışabilmesi için tüm yapı Docker ile paketlenmiştir. Projeye katkıda bulunmaya başlamak için gerekli adımlar depo kökündeki CONTRIBUTING.md dosyasında detaylandırılmıştır. Geliştirmeler tamamlandığında simülasyon ortamını ayağa kaldırmak için scripts/launch_swarm.py betiği kullanılır; bu sayede Gazebo Harmonic fizik motorunda kodlar güvenle denenebilir.
 
 **Test Çerçeveleri:**
@@ -236,6 +237,7 @@ Geliştiricilerin kendi makinelerinde (Linux/Ubuntu) izole bir ortamda çalışa
 * **Yazılım Döngüsü:** Tüm entegrasyon ve fiziksel davranış/sürü algoritması testleri, gerçek İHA kodunun birebir simüle edildiği Gazebo Harmonic ortamında yapılır.
 
 **Kod Kalite ve Analiz Araçları**
+ 
 Proje genelinde ROS 2 standartlarını ve güvenliği korumak için CI/CD süreçlerine aşağıdaki toollar entegre edilmiştir:
 
 * **Statik Kod Analizi:** Python kodlarında sözdizimi doğruluğu için flake8 ve ament_lint, C++ kodlarında ise cpplint kullanılır.
