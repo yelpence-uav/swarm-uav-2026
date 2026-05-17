@@ -251,24 +251,29 @@ class TestPreflight(unittest.TestCase):
 class TestSynchronizedTakeoff(unittest.TestCase):
     """SYNCHRONIZED_TAKEOFF state geçiş testleri."""
 
-    def test_gorev1_qr_varsa_navigate(self):
-        """Görev 1: tüm ajanlar IN_SWARM ve QR alındıysa NAVIGATE_TO_QR."""
+    def test_gorev1_qr_varsa_rotate(self):
+        """Görev 1: tüm ajanlar IN_SWARM ise önce ROTATE_TO_NEXT.
+
+        Şartname: kalkış sonrası sürü ilk QR'a dönerek yaklaşmaya başlar.
+        """
         ctx = _ctx(MissionState.SYNCHRONIZED_TAKEOFF)
         _all_agents(ctx, state=5)   # IN_SWARM=5
         ctx.current_qr = _qr()
         result = evaluate_transitions(ctx)
-        self.assertEqual(result, MissionState.NAVIGATE_TO_QR)
+        self.assertEqual(result, MissionState.ROTATE_TO_NEXT)
 
-    def test_gorev1_qr_yok_yine_navigate(self):
-        """Görev 1: ajanlar IN_SWARM ise QR olsa da olmasa da NAVIGATE_TO_QR.
+    def test_gorev1_qr_yok_yine_rotate(self):
+        """Görev 1: ajanlar IN_SWARM ise QR olsa da olmasa da ROTATE_TO_NEXT.
 
-        Şartname: QR koordinatı yarışma öncesi paylaşılır; QR içeriği oraya varınca okunur.
-        Eski davranış (current_qr=None ise bekle) deadlock yaratırdı.
+        Şartname: QR koordinatı yarışma öncesi paylaşılır; dönerek yaklaş.
+        Eski davranış (current_qr=None ise bekle) kilitlenmeye yol açardı.
         """
         ctx = _ctx(MissionState.SYNCHRONIZED_TAKEOFF)
         _all_agents(ctx, state=5)
         ctx.current_qr = None   # QR henüz okunmadı — yine de geçiş olmalı
-        self.assertEqual(evaluate_transitions(ctx), MissionState.NAVIGATE_TO_QR)
+        self.assertEqual(
+            evaluate_transitions(ctx), MissionState.ROTATE_TO_NEXT
+        )
 
     def test_gorev2_semi_autonomous(self):
         """Görev 2: tüm ajanlar IN_SWARM ise SEMI_AUTONOMOUS."""
@@ -383,9 +388,9 @@ class TestExecuteQrTask(unittest.TestCase):
         self.assertEqual(result, MissionState.RETURN_HOME)
 
     def test_qr_henuz_okunmadi_bekle(self):
-        """current_qr=None → kamera gecikmiş olabilir, timeout dolana kadar bekle.
+        """current_qr=None → kamera gecikmiş olabilir, timeout bekle.
 
-        Eski davranış (hemen RETURN_HOME) her QR geçişinde yanlış eve dönüş yapardı.
+        Eski davranış (hemen RETURN_HOME) yanlış eve dönüşe yol açardı.
         """
         ctx = _ctx(MissionState.EXECUTE_QR_TASK)
         ctx.current_qr = None
@@ -705,7 +710,7 @@ class TestGlobalPause(unittest.TestCase):
         """IDLE'da PAUSE etkisiz olmalı."""
         ctx = _ctx(MissionState.IDLE)
         ctx.pending_command = _PAUSE
-        # IDLE'dan PAUSE geçişi tanımsız; START olmadan PREFLIGHT'a da geçmemeli
+        # IDLE'dan PAUSE tanımsız; START olmadan PREFLIGHT'a da geçmemeli
         result = evaluate_transitions(ctx)
         self.assertNotEqual(result, MissionState.PAUSED)
 
@@ -748,7 +753,7 @@ class TestFindFirstQrStep(unittest.TestCase):
         self.assertEqual(find_first_qr_step(qr), QrTaskStep.FORMATION)
 
     def test_maneuver_ve_altitude_maneuver_once(self):
-        """Maneuver ve altitude aktifse şartname sırasına göre MANEUVER önce gelmeli.
+        """Maneuver ve altitude aktifse şartnameye göre MANEUVER önce gelmeli.
 
         Şartname sırası: FORMATION → MANEUVER → ALTITUDE → DETACH.
         """
@@ -797,7 +802,7 @@ class TestFindNextQrStep(unittest.TestCase):
         self.assertEqual(result, QrTaskStep.DONE)
 
     def test_tum_adimlar_aktif_sira(self):
-        """Tüm adımlar aktifken sıra FORMATION→MANEUVER→ALTITUDE→DETACH (şartname 5.1.2)."""
+        """Tüm adımlar aktifken sıra: FORMATION→MANEUVER→ALTITUDE→DETACH."""
         qr = _qr(
             formation_active=True,
             altitude_active=True,

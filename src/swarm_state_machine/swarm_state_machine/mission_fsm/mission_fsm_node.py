@@ -1,11 +1,12 @@
-"""mission_fsm_node.py — Gorev seviyesi durum makinesi ROS2 node'u.
+"""mission_fsm_node.py — Sürü seviyesi görev FSM ROS2 node'u.
 
-mission_fsm bir izleyicidir; drona dogrudan komut vermez.
-Gelen verileri ctx'e kaydeder, 5 Hz'de gecis degerlendirir, state yayinlar.
+mission_fsm bir gözlemcidir: gelen veriyi ctx'e depolar,
+5 Hz'de geçişleri değerlendirir ve mevcut durumu yayınlar.
+Drone'lara veya aktüatör node'larına doğrudan komut göndermez.
 
-Osman'in proxy kurali:
-  Yayın   -> /swarm/internal/...
-  Abonelik <- /swarm/public/...
+Proxy kuralı (Osman):
+  Publisher  -> /swarm/internal/...  (proxy /swarm/public/'e iletir)
+  Subscriber <- /swarm/public/...    (proxy /swarm/internal/'den iletir)
 """
 
 import time
@@ -23,15 +24,17 @@ from std_msgs.msg import UInt8
 from swarm_interfaces.msg import (
     AgentStatus,
     QRMissionData,
-    SwarmControlCommand,
     SystemEvent,
 )
 from swarm_interfaces.srv import TriggerMission
 
 from .mission_context import MissionContext
 from .mission_states import MissionState, MissionType, QrTaskStep
-from .mission_transitions import evaluate_transitions, find_first_qr_step, find_next_qr_step
-
+from .mission_transitions import (
+    evaluate_transitions,
+    find_first_qr_step,
+    find_next_qr_step,
+)
 
 _RELIABLE_QOS = QoSProfile(
     reliability=ReliabilityPolicy.RELIABLE,
@@ -40,18 +43,24 @@ _RELIABLE_QOS = QoSProfile(
     depth=10,
 )
 
+# agent_fsm AgentStatus'u BEST_EFFORT yayınlar; burada eşleşmeli.
+_BEST_EFFORT_QOS = QoSProfile(
+    reliability=ReliabilityPolicy.BEST_EFFORT,
+    durability=DurabilityPolicy.VOLATILE,
+    history=HistoryPolicy.KEEP_LAST,
+    depth=5,
+)
+
 
 class MissionFsmNode(Node):
-    """
-    Gorev seviyesi FSM node'u.
+    """Sürü seviyesi görev FSM node'u.
 
-    Tek ornek calisir; lider drone'un companion computer'inda (Raspberry Pi) calisir.
+    Hibrit dağıtık mimaride seçili lider drone üzerinde çalışır.
+    Lider değişirse consensus_fsm bu node'u yeni liderde yeniden başlatır.
     """
 
     def __init__(self) -> None:
-        """
-        MissionFsmNode'u baslatin.
-        """
+        """MissionFsmNode'u başlatır."""
         super().__init__('mission_fsm')
 
         self._declare_params()
@@ -66,71 +75,78 @@ class MissionFsmNode(Node):
         self._setup_subscribers()
         self._setup_service()
 
-        self._timer = self.create_timer(1.0 / self._tick_hz, self._tick)
+        self._timer = self.create_timer(
+            1.0 / self._tick_hz, self._tick
+        )
 
         self.get_logger().info(
-            f'MissionFsmNode basladi: agents={self._agent_ids} '
-            f'team={self._team_id} sitl={self._sitl_mode}'
+            f'MissionFsmNode başladı: ajanlar={self._agent_ids} '
+            f'takım={self._team_id} sitl={self._sitl_mode}'
         )
 
     # =========================================================================
-    # BASLANGIC METODLARI
+    # BAŞLATMA
     # =========================================================================
 
     def _declare_params(self) -> None:
-        """
-        ROS2 parametrelerini tanimlar ve okur.
+        """ROS2 parametrelerini tanımlar ve okur.
 
-        Ornek kullanim:
+        Örnek kullanım:
             ros2 run swarm_state_machine mission_fsm_node
                 --ros-args -p agent_ids:=[1,2,3] -p sitl_mode:=true
         """
         self.declare_parameter('agent_ids', [1, 2, 3])
-        self.declare_parameter('team_id', '')
+        self.declare_parameter('team_id', '752825')
         self.declare_parameter('tick_hz', 5.0)
         self.declare_parameter('sitl_mode', False)
 
-        self._agent_ids: list = list(self.get_parameter('agent_ids').value)
+        self._agent_ids: list = list(
+            self.get_parameter('agent_ids').value
+        )
         self._team_id: str = str(self.get_parameter('team_id').value)
-        self._tick_hz: float = float(self.get_parameter('tick_hz').value)
-        self._sitl_mode: bool = bool(self.get_parameter('sitl_mode').value)
+        self._tick_hz: float = float(
+            self.get_parameter('tick_hz').value
+        )
+        self._sitl_mode: bool = bool(
+            self.get_parameter('sitl_mode').value
+        )
 
     def _setup_publishers(self) -> None:
-        """
-        Yayin kanallarini (publisher) olusturur.
+        """Yayıncı kanallarını oluşturur.
 
-        /swarm/mission/state   (UInt8) -> mevcut MissionState; her tick yayinlanir
-        /swarm/mission/qr_step (UInt8) -> mevcut QrTaskStep; EXECUTE_QR_TASK'ta anlamlidir
-        /swarm/internal/events/system (SystemEvent) -> yasam dongusu olaylari
+        /swarm/internal/mission/state   (UInt8)       — mevcut durum
+        /swarm/internal/mission/qr_step (UInt8)       — mevcut QR adımı
+        /swarm/internal/events/system   (SystemEvent) — yaşam döngüsü olayları
+
+        mission1_dynamic_swarm bunları okuyarak aktüatör komutlarını gönderir.
         """
         self._state_pub = self.create_publisher(
-            UInt8, '/swarm/mission/state', _RELIABLE_QOS,
+            UInt8, '/swarm/internal/mission/state', _RELIABLE_QOS,
         )
         self._qr_step_pub = self.create_publisher(
-            UInt8, '/swarm/mission/qr_step', _RELIABLE_QOS,
+            UInt8, '/swarm/internal/mission/qr_step', _RELIABLE_QOS,
         )
         self._event_pub = self.create_publisher(
             SystemEvent, '/swarm/internal/events/system', _RELIABLE_QOS,
         )
 
     def _setup_subscribers(self) -> None:
-        """
-        Abonelik kanallarini (subscriber) olusturur.
+        """Abone kanallarını oluşturur.
 
-        Her ajan icin ayri topic kullanilir; lambda'da a=aid ile deger sabitleniyor.
-        Sabitlenmezse dongu bittikten sonra tum lambda'larda son aid degeri kaliyor.
+        Her drone için bir AgentStatus aboneliği; lambda, Python kapanma
+        sorununu önlemek için drone ID'sini değer olarak yakalar.
         """
         for aid in self._agent_ids:
             self.create_subscription(
                 AgentStatus,
                 f'/swarm/public/drone{aid}/status',
                 lambda msg, a=aid: self._on_agent_status(msg, a),
-                10,
+                _BEST_EFFORT_QOS,
             )
 
         self.create_subscription(
             QRMissionData,
-            '/swarm/perception/qr_data',
+            '/swarm/public/perception/qr_data',
             self._on_qr_data,
             _RELIABLE_QOS,
         )
@@ -142,19 +158,10 @@ class MissionFsmNode(Node):
             _RELIABLE_QOS,
         )
 
-        self.create_subscription(
-            SwarmControlCommand,
-            '/swarm/control/command',
-            self._on_control_cmd,
-            10,
-        )
-
     def _setup_service(self) -> None:
-        """
-        TriggerMission servis sunucusunu olusturur.
+        """TriggerMission servis sunucusunu oluşturur.
 
-        Servis (topic yerine) kullanilir; GCS komutun alınıp alinmadigini dogrulayabilir.
-        /swarm/mission/trigger -> TriggerMission.srv
+        GCS alındıyı onaylayabilsin diye topic yerine servis kullanılır.
         """
         self._trigger_srv = self.create_service(
             TriggerMission,
@@ -163,18 +170,16 @@ class MissionFsmNode(Node):
         )
 
     # =========================================================================
-    # FSM ANA DONGUSU
+    # FSM ANA DÖNGÜSÜ
     # =========================================================================
 
     def _tick(self) -> None:
-        """
-        5 Hz'de calisan FSM ana dongusu (her 200ms bir kez).
+        """tick_hz (varsayılan 5 Hz) hızında çalışan FSM döngüsü.
 
-        Akis:
-          1. evaluate_transitions(ctx) -> gecis var mi?
-          2. Gecis varsa _transition() cagir
-          3. Her tick _publish_state() cagir
-          4. pending_command'i sifirla
+        1. Geçişleri değerlendir.
+        2. Durum değişiyorsa geçişi uygula.
+        3. Her tick'te mevcut durumu yayınla.
+        4. pending_command'ı temizle (terminal durumlarda hariç).
         """
         ctx = self._ctx
 
@@ -186,47 +191,43 @@ class MissionFsmNode(Node):
         self._publish_state()
 
         terminal = (MissionState.ABORTED, MissionState.MISSION_COMPLETE)
-        if ctx.state not in terminal:
+        if ctx.state in terminal:
+            if hasattr(self, '_timer'):
+                self._timer.cancel()
+        else:
             ctx.pending_command = 0
 
     def _transition(self, new_state: MissionState) -> None:
-        """
-        State gecisini uygular.
+        """Durum geçişini uygular.
 
         Args:
-            new_state: Gecilecek hedef MissionState.
+            new_state (MissionState): Geçilecek hedef durum.
         """
         old = self._ctx.state
 
-        # set_state()'den once kaydet; set_state() ctx.state'i degistirir.
         if new_state == MissionState.PAUSED:
             self._ctx.pause_return_state = old
 
         self._ctx.set_state(new_state)
 
         if new_state == MissionState.ABORTED and not self._ctx.abort_reason:
-            self._ctx.abort_reason = f'Timeout veya preflight hatasi ({old.name})'
+            self._ctx.abort_reason = (
+                f'Timeout veya preflight hatası ({old.name})'
+            )
 
-        self.get_logger().info(f'[mission_fsm] {old.name} -> {new_state.name}')
+        self.get_logger().info(
+            f'[mission_fsm] {old.name} -> {new_state.name}'
+        )
 
         self._on_state_entry(new_state)
 
     def _on_state_entry(self, state: MissionState) -> None:
-        """
-        Yeni state'e girilince calisir; yasam dongusu eventleri yayinlar.
+        """Yeni girilen durum için giriş eylemlerini çalıştırır.
 
-        BU FONKSIYON DRONA KOMUT VERMEZ.
-
-        SYNCHRONIZED_TAKEOFF -> EVENT_MISSION_STARTED (agent_fsm'ler arm+kalkis yapar)
-        EXECUTE_QR_TASK      -> ilk QR adimini belirle
-        NAVIGATE_TO_QR       -> onceki QR verisini temizle
-        WAIT_AT_QR           -> wait_deadline hesapla
-        RETURN_HOME          -> EVENT_RTL_TRIGGERED (agent_fsm'ler RTL yapar)
-        MISSION_COMPLETE     -> EVENT_MISSION_COMPLETED
-        ABORTED              -> EVENT_EMERGENCY_LAND
+        Yaşam döngüsü SystemEvent'lerini yayınlar; aktüatör komutu göndermez.
 
         Args:
-            state: Girilen yeni MissionState.
+            state (MissionState): Az önce girilmiş durum.
         """
         ctx = self._ctx
 
@@ -234,79 +235,83 @@ class MissionFsmNode(Node):
             self._pub_event(
                 SystemEvent.EVENT_MISSION_STARTED,
                 SystemEvent.SEVERITY_INFO,
-                f'Gorev {ctx.mission_type.name} baslatiuyor',
+                f'Görev {ctx.mission_type.name} başlıyor',
             )
 
         elif state == MissionState.EXECUTE_QR_TASK:
             if ctx.current_qr is not None:
                 ctx.qr_task_step = find_first_qr_step(ctx.current_qr)
                 self.get_logger().info(
-                    f'[mission_fsm] QR gorevi basladi, ilk adim: {ctx.qr_task_step.name}'
+                    f'[mission_fsm] QR görevi başladı, '
+                    f'ilk adım: {ctx.qr_task_step.name}'
                 )
             else:
                 ctx.qr_task_step = QrTaskStep.NONE
-                self.get_logger().info('[mission_fsm] QR gorevi basladi, QR okunmasi bekleniyor')
+                self.get_logger().info(
+                    '[mission_fsm] QR görevi başladı, QR bekleniyor'
+                )
 
         elif state == MissionState.NAVIGATE_TO_QR:
-            # Yeni QR noktasina gidiyoruz; eski veri temizlenmelidir.
-            # Temizlenmezse EXECUTE_QR_TASK'ta onceki QR gorevi yeniden calisir.
-            self._ctx.current_qr = None
+            # Eski QR verisini temizle; EXECUTE_QR_TASK taze veriyi okusun.
+            ctx.current_qr = None
+            ctx.last_accepted_qr_seq = 0
 
         elif state == MissionState.WAIT_AT_QR:
             wait_s = ctx.current_qr.wait_s if ctx.current_qr else 0.0
             ctx.wait_deadline = time.monotonic() + max(wait_s, 0.0)
-            self.get_logger().info(f'[mission_fsm] QR bekleme: {wait_s:.1f}s')
+            self.get_logger().info(
+                f'[mission_fsm] QR noktasında bekleniyor: {wait_s:.1f}s'
+            )
 
         elif state == MissionState.RETURN_HOME:
             self._pub_event(
                 SystemEvent.EVENT_RTL_TRIGGERED,
                 SystemEvent.SEVERITY_WARNING,
-                'Mission FSM RTL tetikledi',
+                'Görev FSM RTL tetikledi',
             )
 
         elif state == MissionState.MISSION_COMPLETE:
             self._pub_event(
                 SystemEvent.EVENT_MISSION_COMPLETED,
                 SystemEvent.SEVERITY_INFO,
-                'Gorev basariyla tamamlandi',
+                'Görev başarıyla tamamlandı',
             )
 
         elif state == MissionState.ABORTED:
             self._pub_event(
                 SystemEvent.EVENT_EMERGENCY_LAND,
                 SystemEvent.SEVERITY_CRITICAL,
-                f'Gorev iptal: {ctx.abort_reason}',
+                f'Görev iptal edildi: {ctx.abort_reason}',
             )
 
     # =========================================================================
-    # ABONELIK CALLBACK'LERI
+    # ABONELİK CALLBACK'LERİ
     # =========================================================================
 
     def _on_agent_status(self, msg: AgentStatus, agent_id: int) -> None:
-        """
-        Ajan durumu mesajini ctx'e kaydeder.
+        """Belirtilen ajan için en güncel AgentStatus'u depolar.
 
         Args:
-            msg: Gelen AgentStatus mesaji.
-            agent_id: Hangi drone'dan geldigi.
+            msg (AgentStatus): Gelen durum mesajı.
+            agent_id (int): Bildiren ajanın ID'si.
         """
         self._ctx.agent_statuses[agent_id] = msg
 
     def _on_qr_data(self, msg: QRMissionData) -> None:
-        """
-        QR verisini filtreler ve gecerliyse ctx'e kaydeder.
+        """Gelen QR görev verisini filtreler ve depolar.
 
-        Filtreler (sirasıyla):
-          1. team_id: baska takim QR'i -> yoksay
-          2. decoded + valid: bozuk okuma -> yoksay
-          3. qr_seq: eski mesaj (stale) -> yoksay
+        Sırasıyla uygulanan filtreler:
+          1. team_id uyuşmazlığı  -> atla
+          2. decoded veya valid False -> atla
+          3. eski qr_seq -> atla
 
         Args:
-            msg: Gelen QRMissionData mesaji.
+            msg (QRMissionData): Gelen QR görev verisi mesajı.
         """
         if self._ctx.team_id == '':
             self.get_logger().warn(
-                '[mission_fsm] team_id set edilmemis! Tum QR\'lar kabul ediliyor.',
+                '[mission_fsm] team_id ayarlı değil;'
+                ' tüm QR\'lar kabul ediliyor.',
                 throttle_duration_sec=10.0,
             )
         elif msg.team_id != self._ctx.team_id:
@@ -317,52 +322,36 @@ class MissionFsmNode(Node):
 
         if msg.qr_seq <= self._ctx.last_accepted_qr_seq:
             self.get_logger().warn(
-                f'[mission_fsm] Stale QR reddedildi: seq={msg.qr_seq}'
+                f'[mission_fsm] Eski QR reddedildi: seq={msg.qr_seq}'
             )
             self._pub_event(
                 SystemEvent.EVENT_QR_SEQUENCE_REJECTED,
                 SystemEvent.SEVERITY_WARNING,
-                f'Stale QR seq={msg.qr_seq}',
+                f'Eski QR seq={msg.qr_seq}',
             )
             return
 
         self._ctx.last_accepted_qr_seq = msg.qr_seq
         self._ctx.current_qr = msg
         self.get_logger().info(
-            f'[mission_fsm] QR kabul: seq={msg.qr_seq} '
-            f'formation={msg.formation_active} maneuver={msg.maneuver_active}'
+            f'[mission_fsm] QR kabul edildi: seq={msg.qr_seq} '
+            f'formasyon={msg.formation_active} '
+            f'manevra={msg.maneuver_active}'
         )
 
-        # EXECUTE_QR_TASK'tayken QR gecikmeyle geldiyse adimi simdi baslat.
         if (self._ctx.state == MissionState.EXECUTE_QR_TASK
                 and self._ctx.qr_task_step == QrTaskStep.NONE):
             self._ctx.qr_task_step = find_first_qr_step(msg)
             self.get_logger().info(
-                f'[mission_fsm] EXECUTE_QR_TASK: ilk adim: {self._ctx.qr_task_step.name}'
+                f'[mission_fsm] Geç QR alındı, '
+                f'ilk adım: {self._ctx.qr_task_step.name}'
             )
 
     def _on_event(self, msg: SystemEvent) -> None:
-        """
-        Suruden gelen sistem eventlerini dinler ve ctx'i gunceller.
-
-        EVENT_FORMATION_REACHED:
-          -> NAVIGATE_TO_QR: event_formation_reached=True
-          -> EXECUTE_QR_TASK + FORMATION/ALTITUDE: adimi ilerlet
-
-        EVENT_ROTATION_COMPLETED:
-          -> ROTATE_TO_NEXT: event_rotation_completed=True
-
-        EVENT_MANEUVER_COMPLETED:
-          -> EXECUTE_QR_TASK + MANEUVER: adimi ilerlet
-
-        EVENT_MANEUVER_FAILED / EVENT_FORMATION_FAILED / EVENT_MEMBER_MANAGEMENT_FAILED:
-          -> action_done=True, action_success=False -> RETURN_HOME
-
-        EVENT_AGENT_DETACHED:
-          -> EXECUTE_QR_TASK + DETACH: adimi ilerlet
+        """Gelen SystemEvent'leri işler ve ctx bayraklarını günceller.
 
         Args:
-            msg: Gelen SystemEvent mesaji.
+            msg (SystemEvent): Gelen sistem olayı mesajı.
         """
         eid = msg.event_type
         ctx = self._ctx
@@ -371,7 +360,9 @@ class MissionFsmNode(Node):
             if ctx.state == MissionState.NAVIGATE_TO_QR:
                 ctx.event_formation_reached = True
             elif ctx.state == MissionState.EXECUTE_QR_TASK:
-                if ctx.qr_task_step in (QrTaskStep.FORMATION, QrTaskStep.ALTITUDE):
+                if ctx.qr_task_step in (
+                    QrTaskStep.FORMATION, QrTaskStep.ALTITUDE
+                ):
                     self._advance_qr_step()
 
         elif eid == SystemEvent.EVENT_ROTATION_COMPLETED:
@@ -408,37 +399,25 @@ class MissionFsmNode(Node):
                 ctx.action_done = True
                 ctx.action_success = False
 
-    def _on_control_cmd(self, msg: SwarmControlCommand) -> None:
-        """
-        Gorev 2 joystick komutunu ctx'e kaydeder.
-
-        command_valid ve deadman_pressed ikisi birden True olmalidir.
-
-        Args:
-            msg: Gelen SwarmControlCommand mesaji.
-        """
-        if msg.command_valid and msg.deadman_pressed:
-            self._ctx.latest_control_cmd = msg
-            self._ctx.last_control_cmd_time = time.monotonic()
-
     # =========================================================================
-    # QR ADIM TAKIBI
+    # QR ADIM TAKİBİ
     # =========================================================================
 
     def _advance_qr_step(self) -> None:
-        """
-        Tamamlanan QR adimından sonraki adima gecer.
+        """Bir sonraki aktif QR alt-adımına ilerler.
 
-        Sartname sirasi: FORMATION -> MANEUVER -> ALTITUDE -> DETACH -> DONE
-        DONE olunca _from_execute_qr_task() bir sonraki state'e gecer.
+        qr_task_step güncellenir; mission1_dynamic_swarm yayınlanan
+        qr_step topic'ini okuyarak uygun aktüatör komutunu gönderir.
         """
         ctx = self._ctx
         next_step = find_next_qr_step(ctx.current_qr, ctx.qr_task_step)
         ctx.qr_task_step = next_step
-        self.get_logger().info(f'[mission_fsm] QR adim: {next_step.name}')
+        self.get_logger().info(
+            f'[mission_fsm] QR adımı ilerledi: {next_step.name}'
+        )
 
     # =========================================================================
-    # SERVIS HANDLER
+    # SERVİS İŞLEYİCİ
     # =========================================================================
 
     def _handle_trigger(
@@ -446,20 +425,17 @@ class MissionFsmNode(Node):
         request: TriggerMission.Request,
         response: TriggerMission.Response,
     ) -> TriggerMission.Response:
-        """
-        TriggerMission.srv GCS istegini isler.
+        """GCS'den gelen TriggerMission servis isteklerini işler.
 
-        START ozeli isleme:
-          - IDLE state'inde degilsek reddedilir
-          - mission_id MissionType'a donusturulur
-          - team_id gonderildiyse guncellenir
+        START yalnızca IDLE durumunda kabul edilir. mission_id geçerli
+        bir MissionType'a eşlenmelidir. team_id verilmişse güncellenir.
 
         Args:
-            request: Gelen servis istegi.
-            response: Doldurulup geri gonderilecek yanit.
+            request (TriggerMission.Request): Gelen servis isteği.
+            response (TriggerMission.Response): Doldurulacak yanıt.
 
         Returns:
-            Doldurulmus TriggerMission.Response.
+            TriggerMission.Response: Doldurulmuş yanıt.
         """
         ctx = self._ctx
         cmd = request.command
@@ -467,19 +443,23 @@ class MissionFsmNode(Node):
         if cmd == TriggerMission.Request.COMMAND_START:
             if ctx.state != MissionState.IDLE:
                 response.success = False
-                response.message = f'START reddedildi: state={ctx.state.name}'
+                response.message = (
+                    f'START reddedildi: durum={ctx.state.name}'
+                )
                 return response
 
             try:
                 mission_type = MissionType(request.mission_id)
             except ValueError:
                 response.success = False
-                response.message = f'Gecersiz mission_id: {request.mission_id}'
+                response.message = (
+                    f'Geçersiz mission_id: {request.mission_id}'
+                )
                 return response
 
             if mission_type == MissionType.UNKNOWN:
                 response.success = False
-                response.message = 'mission_id=0 (UNKNOWN) ile gorev baslatilamaz'
+                response.message = 'mission_id=0 (UNKNOWN) kullanılamaz'
                 return response
 
             ctx.mission_type = mission_type
@@ -488,28 +468,24 @@ class MissionFsmNode(Node):
                 ctx.team_id = request.team_id
 
         elif cmd == TriggerMission.Request.COMMAND_ABORT:
-            ctx.abort_reason = 'GCS abort komutu'
+            ctx.abort_reason = 'GCS iptal komutu'
 
         ctx.pending_command = cmd
 
         response.success = True
-        response.message = f'Komut alindi: cmd={cmd}'
+        response.message = f'Komut kabul edildi: cmd={cmd}'
         self.get_logger().info(
-            f'[mission_fsm] TriggerMission: cmd={cmd} mission={request.mission_id}'
+            f'[mission_fsm] TriggerMission: cmd={cmd} '
+            f'görev={request.mission_id}'
         )
         return response
 
     # =========================================================================
-    # YARDIMCI METODLAR
+    # YARDIMCILAR
     # =========================================================================
 
     def _publish_state(self) -> None:
-        """
-        Mevcut mission state ve QR adimini topic'lere yayinlar.
-
-        Her tick cagrilir; state degismese de yayinlanir.
-        Yeni baslayan bir icra node'u boylece hemen senkron olur.
-        """
+        """Her tick'te mevcut MissionState ve QrTaskStep'i yayınlar."""
         state_msg = UInt8()
         state_msg.data = int(self._ctx.state)
         self._state_pub.publish(state_msg)
@@ -525,14 +501,13 @@ class MissionFsmNode(Node):
         message: str = '',
         target_agent_id: int = 0,
     ) -> None:
-        """
-        SystemEvent mesaji olusturup /swarm/internal/events/system'e yayinlar.
+        """SystemEvent mesajı oluşturur ve yayınlar.
 
         Args:
-            event_type: SystemEvent.EVENT_* integer sabiti.
-            severity: SystemEvent.SEVERITY_* seviyesi.
-            message: Istege bagli aciklama.
-            target_agent_id: Hedef ajan ID; 0 = tum suru.
+            event_type (int): SystemEvent.EVENT_* sabiti.
+            severity (int): SystemEvent.SEVERITY_* seviyesi.
+            message (str): İsteğe bağlı okunabilir açıklama.
+            target_agent_id (int): Hedef ajan; 0 tüm sürü anlamına gelir.
         """
         m = SystemEvent()
         m.stamp = self.get_clock().now().to_msg()
@@ -546,13 +521,11 @@ class MissionFsmNode(Node):
 
 
 # =============================================================================
-# GIRIS NOKTASI
+# GİRİŞ NOKTASI
 # =============================================================================
 
 def main(args=None) -> None:
-    """
-    ros2 run komutu bu fonksiyonu cagirır.
-    """
+    """ros2 run tarafından çağrılan giriş noktası."""
     rclpy.init(args=args)
     node = MissionFsmNode()
     try:
