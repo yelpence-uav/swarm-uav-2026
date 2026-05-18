@@ -4,6 +4,61 @@
 #include "mesh_config.h"
 #include "fail_safe.h"
 
+// ===== CRC16-CCITT =====
+static uint16_t crc16(const uint8_t* veri, uint8_t uzunluk) {
+    uint16_t crc = 0xFFFF;
+    for (uint8_t i = 0; i < uzunluk; i++) {
+        crc ^= (uint16_t)veri[i] << 8;
+        for (uint8_t j = 0; j < 8; j++)
+            crc = (crc & 0x8000) ? (crc << 1) ^ 0x1021 : (crc << 1);
+    }
+    return crc;
+}
+
+// ===== COBS ENCODE =====
+static uint8_t cobs_encode(const uint8_t* giris, uint8_t uzunluk, uint8_t* cikis) {
+    uint8_t kod_idx = 0;
+    uint8_t yaz_idx = 1;
+    uint8_t kod     = 1;
+    for (uint8_t i = 0; i < uzunluk; i++) {
+        if (giris[i] != 0x00) {
+            cikis[yaz_idx++] = giris[i];
+            kod++;
+            if (kod == 0xFF) {
+                cikis[kod_idx] = kod;
+                kod_idx = yaz_idx;
+                cikis[yaz_idx++] = 0x01;
+                kod = 1;
+            }
+        } else {
+            cikis[kod_idx] = kod;
+            kod_idx = yaz_idx;
+            cikis[yaz_idx++] = 0x01;
+            kod = 1;
+        }
+    }
+    cikis[kod_idx] = kod;
+    cikis[yaz_idx++] = 0x00;
+    return yaz_idx;
+}
+
+// ===== UART PAKET GONDER (Serial2 → RPi) =====
+static void uart_gonder(uint8_t tip, uint8_t iha_id,
+                        const uint8_t* payload, uint8_t payload_uzunluk) {
+    if (payload_uzunluk > 16) return;
+    uint8_t ham[20];
+    uint8_t cobs_buf[25];
+    ham[0] = tip;
+    ham[1] = iha_id;
+    memcpy(&ham[2], payload, payload_uzunluk);
+    uint16_t crc = crc16(ham, 2 + payload_uzunluk);
+    ham[2 + payload_uzunluk]     = (crc >> 8) & 0xFF;
+    ham[2 + payload_uzunluk + 1] =  crc & 0xFF;
+    uint8_t toplam       = 2 + payload_uzunluk + 2;
+    uint8_t cobs_uzunluk = cobs_encode(ham, toplam, cobs_buf);
+    Serial2.write(cobs_buf, cobs_uzunluk);
+}
+
 volatile unsigned long   son_paket_ms         = 0;
 bool                     failsafe_tetiklendi  = false;
 uint8_t                  _failsafe_asama      = 0;
@@ -186,7 +241,8 @@ void setup() {
     Serial2.begin(57600, SERIAL_8N1, 16, 17);
     Serial.println("[UART] Pixhawk bagli");
 #else
-    Serial.println("[UART] Test modu");
+    Serial2.begin(57600, SERIAL_8N1, 16, 17);
+    Serial.println("[UART] RPi bagli");
 #endif
 
     WiFi.mode(WIFI_STA);
@@ -229,18 +285,14 @@ void loop() {
             Serial.printf("[KOMUT] %s\n", (char*)gelen.payload);
         }
         else if (gelen.tip == TIP_POSE) {
-            pose_veri_t* pose = (pose_veri_t*)gelen.payload;
-            Serial.printf("[POSE] lat:%ld lon:%ld alt:%d\n",
-                pose->lat, pose->lon, pose->alt_cm);
+            uart_gonder(TIP_POSE, DRONE_ID, gelen.payload, sizeof(pose_veri_t));
         }
         else if (gelen.tip == TIP_RENK) {
             renk_veri_t* renk = (renk_veri_t*)gelen.payload;
             renk_alani_kaydet(renk->renk, renk->lat, renk->lon);
         }
         else if (gelen.tip == TIP_DURUM) {
-            durum_veri_t* durum = (durum_veri_t*)gelen.payload;
-            Serial.printf("[DURUM] Drone:%d durum:%d\n",
-                durum->drone_id, durum->durum);
+            uart_gonder(TIP_DURUM, DRONE_ID, gelen.payload, sizeof(durum_veri_t));
         }
     }
 
