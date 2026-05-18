@@ -19,8 +19,12 @@ setup(
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
-            'agent_fsm_node = swarm_state_machine.agent_fsm.agent_fsm_node:main',
-            'swarm_fsm_node = swarm_state_machine.swarm_fsm.swarm_fsm_node:main',
+            'agent_fsm_node = '
+            'swarm_state_machine.agent_fsm.agent_fsm_node:main',
+            'mission_fsm_node = '
+            'swarm_state_machine.mission_fsm.mission_fsm_node:main',
+            'swarm_fsm_node = '
+            'swarm_state_machine.swarm_fsm.swarm_fsm_node:main',
         ],
     },
 )
