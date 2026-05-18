@@ -4,18 +4,15 @@
 #include "mesh_config.h"
 #include "fail_safe.h"
 
-volatile unsigned long son_paket_ms        = 0;
-bool          failsafe_tetiklendi  = false;
-uint8_t       _failsafe_asama      = 0;
-volatile uint8_t ardisik_kayip_sayisi = 0;
-uint8_t       failsafe_active_mode = APM_MODE_RTL;
+volatile unsigned long   son_paket_ms         = 0;
+bool                     failsafe_tetiklendi  = false;
+uint8_t                  _failsafe_asama      = 0;
+volatile uint8_t         ardisik_kayip_sayisi = 0;
+uint8_t                  failsafe_active_mode = APM_MODE_RTL;
 
-// Drone ID MAC adresinin son byte'indan otomatik atanir
+// ===== DRONE ID =====
 static const struct { uint8_t mac_son; uint8_t id; } _drone_id_tablo[] = {
-    {0xB4, 1},
-    {0x88, 2},
-    {0x00, 3},
-    {0xFF, 4},
+    {0xB4, 1}, {0x88, 2}, {0x00, 3}, {0xFF, 4},
 };
 static uint8_t DRONE_ID = 0;
 
@@ -29,18 +26,17 @@ void drone_id_ata() {
             return;
         }
     }
-    DRONE_ID = mac[5];
-    Serial.printf("[DRONE] ID bilinmiyor, MAC son byte: %d\n", DRONE_ID);
+    DRONE_ID = 0xFF;
+    Serial.printf("[DRONE] UYARI: Bilinmeyen MAC 0x%02X, gorev almayacak\n", mac[5]);
 }
 
-// ===== RENK ALANI KAYIT =====
-// Şartname: rota üzerindeki kırmızı/mavi alanlar kameradan tespit edilip kaydedilmeli
+// ===== RENK ALANI =====
 #define MAX_RENK_ALANI 8
 struct {
-    uint8_t  renk;
-    int32_t  lat;
-    int32_t  lon;
-    bool     dolu;
+    uint8_t renk;
+    int32_t lat;
+    int32_t lon;
+    bool    dolu;
 } renk_alanlari[MAX_RENK_ALANI] = {};
 
 void renk_alani_kaydet(uint8_t renk, int32_t lat, int32_t lon) {
@@ -58,116 +54,95 @@ void renk_alani_kaydet(uint8_t renk, int32_t lat, int32_t lon) {
     Serial.println("[RENK] UYARI: Alan tablosu dolu!");
 }
 
-// ===== GOREV İŞLEME =====
+// ===== FREERTOS QUEUE =====
+struct gorev_mesaj_t {
+    uint8_t tip;
+    uint8_t payload[16];
+};
+static QueueHandle_t gorev_kuyruk = nullptr;
+
+static_assert(sizeof(gorev_veri_t) <= 16, "gorev_veri_t 16 byte'i asiyor");
+static_assert(sizeof(pose_veri_t)  <= 16, "pose_veri_t 16 byte'i asiyor");
+static_assert(sizeof(durum_veri_t) <= 16, "durum_veri_t 16 byte'i asiyor");
+static_assert(sizeof(renk_veri_t)  <= 16, "renk_veri_t 16 byte'i asiyor");
+
+// ===== GOREV ISLE - loop() icinde calisir =====
 void gorev_isle(const gorev_veri_t* gorev) {
     switch (gorev->tip) {
-
         case GOREV_FORMASYON:
-            Serial.printf("[GOREV] Formasyon degisimi: tip=%d\n", gorev->param1);
-            // param1: FORMASYON_OKBASI / FORMASYON_V / FORMASYON_CIZGI
-#ifdef HAS_PIXHAWK
-            // TODO: Suru algoritmasi formasyon guncelle
-#endif
+            Serial.printf("[GOREV] Formasyon: tip=%d\n", gorev->param1);
             break;
-
         case GOREV_MANEVRA:
             Serial.printf("[GOREV] Manevra: pitch=%d roll=%d\n",
                 gorev->param1, gorev->param2);
-            // param1: pitch derece, param2: roll derece
-            // Suru merkezi sabit tutularak formasyon egim yapar
-#ifdef HAS_PIXHAWK
-            // TODO: MAVLink SET_POSITION_TARGET ile uygula
-#endif
             break;
-
         case GOREV_IRTIFA:
-            Serial.printf("[GOREV] Irtifa degisimi: %d cm\n", gorev->param1);
-            // param1: hedef irtifa (metre)
-#ifdef HAS_PIXHAWK
-            // TODO: MAVLink ile irtifa komutu gonder
-#endif
+            Serial.printf("[GOREV] Irtifa: %d cm\n", gorev->param1);
             break;
-
         case GOREV_AYRIL:
+            if (DRONE_ID == 0xFF) {
+                Serial.println("[GOREV] Bilinmeyen drone, komut reddedildi");
+                break;
+            }
             Serial.printf("[GOREV] Suruden ayril: drone_id=%d renk=%d\n",
                 gorev->param1, gorev->param2);
-            // param1: ayrilacak drone ID
-            // param2: inis yapilacak renk (RENK_KIRMIZI / RENK_MAVI)
             if (gorev->param1 == DRONE_ID) {
-                // Bu drone ayrılacak — renk alanını bul ve in
                 bool inis_bulundu = false;
                 for (uint8_t i = 0; i < MAX_RENK_ALANI; i++) {
                     if (renk_alanlari[i].dolu &&
                         renk_alanlari[i].renk == (uint8_t)gorev->param2) {
                         Serial.printf("[GOREV] Inis alani: lat:%ld lon:%ld\n",
                             renk_alanlari[i].lat, renk_alanlari[i].lon);
-#ifdef HAS_PIXHAWK
-                        // TODO: MAVLink ile inis noktasina git ve in
-#endif
                         inis_bulundu = true;
                         break;
                     }
                 }
                 if (inis_bulundu) {
-                durum_veri_t d = {};
-                d.drone_id = DRONE_ID;
-                d.durum    = DURUM_AYRILDI;
-                uint8_t veri[16] = {0};
-                memcpy(veri, &d, sizeof(durum_veri_t));
-                mesh_gonder(veri, TIP_DURUM);
+                    durum_veri_t d = {};
+                    d.drone_id = DRONE_ID;
+                    d.durum    = DURUM_AYRILDI;
+                    uint8_t veri[16] = {0};
+                    memcpy(veri, &d, sizeof(durum_veri_t));
+                    mesh_gonder(veri, TIP_DURUM);
                 } else {
                     Serial.println("[GOREV] HATA: Inis alani bulunamadi!");
                 }
             }
             break;
-
         default:
             Serial.printf("[GOREV] Bilinmeyen tip: %d\n", gorev->tip);
             break;
     }
 }
 
-// ===== MESH CALLBACK =====
+// ===== MESH CALLBACK - sadece kuyruga yaz =====
 void mesh_veri_al(const mesh_paket_t* p) {
     uint8_t acik[16] = {0};
     aes_coz_iv(p->sifreli_veri, acik, p->paket_id);
+
+    portENTER_CRITICAL(&_recv_mux);
+    ardisik_kayip_sayisi = 0;
+    son_paket_ms = millis();
+    portEXIT_CRITICAL(&_recv_mux);
+
     failsafe_reset();
 
-    if (p->tip == TIP_GOREV) {
-        gorev_veri_t* gorev = (gorev_veri_t*)acik;
-        gorev_isle(gorev);
-    }
-    else if (p->tip == TIP_KOMUT) {
-        Serial.printf("[KOMUT] %s\n", (char*)acik);
-#ifdef HAS_PIXHAWK
-        // TODO: MAVLink ile Pixhawk'a ilet
-#endif
-    }
-    else if (p->tip == TIP_POSE) {
-        pose_veri_t* pose = (pose_veri_t*)acik;
-        Serial.printf("[POSE] Kaynak:%02X:%02X:%02X:%02X:%02X:%02X lat:%ld lon:%ld alt:%d\n",
-            p->kaynak_mac[0], p->kaynak_mac[1], p->kaynak_mac[2],
-            p->kaynak_mac[3], p->kaynak_mac[4], p->kaynak_mac[5],
-            pose->lat, pose->lon, pose->alt_cm);
-    }
-    else if (p->tip == TIP_RENK) {
-        // Şartname: rota üzerinde renk alanı tespit edildi, kaydet
-        renk_veri_t* renk = (renk_veri_t*)acik;
-        renk_alani_kaydet(renk->renk, renk->lat, renk->lon);
-    }
-    else if (p->tip == TIP_DURUM) {
-        durum_veri_t* durum = (durum_veri_t*)acik;
-        Serial.printf("[DURUM] Drone:%d durum:%d\n",
-            durum->drone_id, durum->durum);
+    if (gorev_kuyruk) {
+        gorev_mesaj_t msg = {};
+        msg.tip = p->tip;
+        memcpy(msg.payload, acik, 16);
+        if (xQueueSend(gorev_kuyruk, &msg, 0) != pdPASS) {
+            static volatile uint32_t _kuyruk_dolu_sayisi = 0;
+            _kuyruk_dolu_sayisi++;
+        }
     }
 }
 
 // ===== POSE GONDER =====
 void pose_gonder() {
     pose_veri_t pose = {};
-
 #ifdef HAS_PIXHAWK
-    // TODO: Pixhawk'tan MAVLink ile GPS oku
+    // TODO: Pixhawk MAVLink GPS oku
 #else
     static int32_t test_lat = 411234567;
     static int32_t test_lon = 291234567;
@@ -179,7 +154,6 @@ void pose_gonder() {
     pose.vx      = 0;
     pose.vy      = 0;
 #endif
-
     uint8_t veri[16] = {0};
     memcpy(veri, &pose, sizeof(pose_veri_t));
     mesh_gonder(veri, TIP_POSE);
@@ -200,6 +174,12 @@ void setup() {
     Serial.begin(115200);
     delay(1000);
     drone_id_ata();
+
+    gorev_kuyruk = xQueueCreate(10, sizeof(gorev_mesaj_t));
+    if (!gorev_kuyruk) {
+        Serial.println("[HATA] Kuyruk olusturulamadi!");
+    }
+
     Serial.printf("[DRONE] ID:%d HAZIR\n", DRONE_ID);
 
 #ifdef HAS_PIXHAWK
@@ -228,7 +208,7 @@ void loop() {
         son_kayip_kontrol = millis();
         if (millis() - son_paket_ms > 150) {
             portENTER_CRITICAL(&_recv_mux);
-            ardisik_kayip_sayisi++;
+            if (ardisik_kayip_sayisi < 255) ardisik_kayip_sayisi++;
             portEXIT_CRITICAL(&_recv_mux);
         }
     }
@@ -238,6 +218,31 @@ void loop() {
 #else
     failsafe_kontrol_log();
 #endif
+
+    // ===== KUYRUKTAN ISLE =====
+    gorev_mesaj_t gelen;
+    while (xQueueReceive(gorev_kuyruk, &gelen, 0) == pdPASS) {
+        if (gelen.tip == TIP_GOREV) {
+            gorev_isle((gorev_veri_t*)gelen.payload);
+        }
+        else if (gelen.tip == TIP_KOMUT) {
+            Serial.printf("[KOMUT] %s\n", (char*)gelen.payload);
+        }
+        else if (gelen.tip == TIP_POSE) {
+            pose_veri_t* pose = (pose_veri_t*)gelen.payload;
+            Serial.printf("[POSE] lat:%ld lon:%ld alt:%d\n",
+                pose->lat, pose->lon, pose->alt_cm);
+        }
+        else if (gelen.tip == TIP_RENK) {
+            renk_veri_t* renk = (renk_veri_t*)gelen.payload;
+            renk_alani_kaydet(renk->renk, renk->lat, renk->lon);
+        }
+        else if (gelen.tip == TIP_DURUM) {
+            durum_veri_t* durum = (durum_veri_t*)gelen.payload;
+            Serial.printf("[DURUM] Drone:%d durum:%d\n",
+                durum->drone_id, durum->durum);
+        }
+    }
 
     // 10Hz pose gonder
     static uint32_t son_pose = 0;

@@ -1,8 +1,8 @@
 #pragma once
 #include <Arduino.h>
-#include <common/mavlink.h>
 #include "freertos/FreeRTOS.h"
 extern portMUX_TYPE _recv_mux;
+#include <common/mavlink.h>
 
 #define FAILSAFE_WARN_MS    3000UL
 #define FAILSAFE_SOFT_MS    8000UL
@@ -106,9 +106,7 @@ inline void failsafe_reset() {
         Serial.printf("[FAILSAFE] Sifirlandi (asama %u)\n", _failsafe_asama);
         _failsafe_asama      = 0;
         failsafe_tetiklendi  = false;
-        portENTER_CRITICAL(&_recv_mux);
         ardisik_kayip_sayisi = 0;
-        portEXIT_CRITICAL(&_recv_mux);
     }
     son_paket_ms = millis();
 }

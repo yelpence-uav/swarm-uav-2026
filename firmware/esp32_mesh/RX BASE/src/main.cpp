@@ -4,89 +4,174 @@
 #include "mesh_config.h"
 #include "fail_safe.h"
 
-volatile unsigned long son_paket_ms = 0;
-bool   failsafe_tetiklendi  = false;
-uint8_t _failsafe_asama     = 0;
-volatile uint8_t ardisik_kayip_sayisi = 0;
-uint8_t failsafe_active_mode = APM_MODE_RTL;
+// ===== CRC16-CCITT =====
+static uint16_t crc16(const uint8_t* veri, uint8_t uzunluk) {
+    uint16_t crc = 0xFFFF;
+    for (uint8_t i = 0; i < uzunluk; i++) {
+        crc ^= (uint16_t)veri[i] << 8;
+        for (uint8_t j = 0; j < 8; j++)
+            crc = (crc & 0x8000) ? (crc << 1) ^ 0x1021 : (crc << 1);
+    }
+    return crc;
+}
+
+// ===== COBS ENCODE =====
+static uint8_t cobs_encode(const uint8_t* giris, uint8_t uzunluk, uint8_t* cikis) {
+    uint8_t kod_idx = 0;
+    uint8_t yaz_idx = 1;
+    uint8_t kod     = 1;
+    for (uint8_t i = 0; i < uzunluk; i++) {
+        if (giris[i] != 0x00) {
+            cikis[yaz_idx++] = giris[i];
+            kod++;
+            if (kod == 0xFF) {
+                cikis[kod_idx] = kod;
+                kod_idx = yaz_idx;
+                cikis[yaz_idx++] = 0x01;
+                kod = 1;
+            }
+        } else {
+            cikis[kod_idx] = kod;
+            kod_idx = yaz_idx;
+            cikis[yaz_idx++] = 0x01;
+            kod = 1;
+        }
+    }
+    cikis[kod_idx] = kod;
+    cikis[yaz_idx++] = 0x00;
+    return yaz_idx;
+}
+
+// ===== COBS DECODE =====
+static uint8_t cobs_decode(const uint8_t* giris, uint8_t uzunluk, uint8_t* cikis) {
+    if (uzunluk == 0) return 0;
+    uint8_t oku_idx = 0;
+    uint8_t yaz_idx = 0;
+    while (oku_idx < uzunluk) {
+        uint8_t kod = giris[oku_idx++];
+        if (kod == 0) return 0;
+        for (uint8_t i = 1; i < kod; i++) {
+            if (oku_idx >= uzunluk) return 0;
+            cikis[yaz_idx++] = giris[oku_idx++];
+        }
+        if (kod < 0xFF && oku_idx < uzunluk)
+            cikis[yaz_idx++] = 0x00;
+    }
+    return yaz_idx;
+}
+
+// ===== FREERTOS QUEUE =====
+struct uart_mesaj_t {
+    uint8_t tip;
+    uint8_t iha_id;
+    uint8_t payload[16];
+    uint8_t uzunluk;
+};
+static QueueHandle_t uart_kuyruk = nullptr;
+
+// ===== UART PAKET GONDER =====
+static void uart_gonder(uint8_t tip, uint8_t iha_id,
+                        const uint8_t* payload, uint8_t payload_uzunluk) {
+    if (payload_uzunluk > 16) return;
+
+    uint8_t ham[20];
+    uint8_t cobs_buf[25];
+
+    ham[0] = tip;
+    ham[1] = iha_id;
+    memcpy(&ham[2], payload, payload_uzunluk);
+
+    uint16_t crc = crc16(ham, 2 + payload_uzunluk);
+    ham[2 + payload_uzunluk]     = (crc >> 8) & 0xFF;
+    ham[2 + payload_uzunluk + 1] =  crc & 0xFF;
+
+    uint8_t toplam       = 2 + payload_uzunluk + 2;
+    uint8_t cobs_uzunluk = cobs_encode(ham, toplam, cobs_buf);
+    Serial.write(cobs_buf, cobs_uzunluk);
+}
+
+// ===== SISTEM MESAJI =====
+static void sistem_mesaj(const char* mesaj) {
+    uint8_t buf[16] = {0};
+    strncpy((char*)buf, mesaj, 15);
+    uart_gonder(0xFF, 0x00, buf, 16);
+}
+
+volatile unsigned long   son_paket_ms         = 0;
+bool                     failsafe_tetiklendi  = false;
+uint8_t                  _failsafe_asama      = 0;
+volatile uint8_t         ardisik_kayip_sayisi = 0;
+uint8_t                  failsafe_active_mode = APM_MODE_RTL;
 
 // ===== DRONE ID ESLESTIRME =====
-// MAC'in son byte'ina gore IHA numarasi
 struct { uint8_t mac_son; uint8_t id; } drone_tablo[] = {
-    {0xB4, 1},
-    {0x88, 2},
-    {0x00, 3},
-    {0xFF, 4},
+    {0xB4, 1}, {0x88, 2}, {0x00, 3}, {0xFF, 4},
 };
 
 uint8_t mac_to_id(const uint8_t* mac) {
     for (uint8_t i = 0; i < 4; i++)
         if (drone_tablo[i].mac_son == mac[5])
             return drone_tablo[i].id;
-    return 0; // bilinmiyor
+    return 0;
 }
 
-// ===== JOYSTICK LIMIT =====
-#define JOYSTICK_MIN_ARALIK_MS 200  // 5Hz
+#define JOYSTICK_MIN_ARALIK_MS 200
 static uint32_t son_joystick_ms = 0;
 
 // ===== MESH CALLBACK =====
+// Burada sadece kuyruga yaz — UART I/O yok
 void mesh_veri_al(const mesh_paket_t* p) {
     uint8_t acik[16] = {0};
     aes_coz_iv(p->sifreli_veri, acik, p->paket_id);
+
+    portENTER_CRITICAL(&_recv_mux);
     ardisik_kayip_sayisi = 0;
+    son_paket_ms = millis(); // failsafe sayacini sifirla
+    portEXIT_CRITICAL(&_recv_mux);
+
     failsafe_reset();
 
-    char mac_str[18];
-    snprintf(mac_str, sizeof(mac_str), "%02X:%02X:%02X:%02X:%02X:%02X",
-        p->kaynak_mac[0], p->kaynak_mac[1], p->kaynak_mac[2],
-        p->kaynak_mac[3], p->kaynak_mac[4], p->kaynak_mac[5]);
+    uart_mesaj_t msg = {};
+    msg.tip    = p->tip;
+    msg.iha_id = mac_to_id(p->kaynak_mac);
 
-    uint8_t iha_id = mac_to_id(p->kaynak_mac);
-    uint32_t ts    = millis();
+    if      (p->tip == TIP_POSE)      msg.uzunluk = sizeof(pose_veri_t);
+    else if (p->tip == TIP_GOREV)     msg.uzunluk = sizeof(gorev_veri_t);
+    else if (p->tip == TIP_RENK)      msg.uzunluk = sizeof(renk_veri_t);
+    else if (p->tip == TIP_DURUM)     msg.uzunluk = sizeof(durum_veri_t);
+    else if (p->tip == TIP_TELEMETRI) msg.uzunluk = 16;
+    else return; // bilinmeyen tip, at
 
-    if (p->tip == TIP_POSE) {
-        pose_veri_t* pose = (pose_veri_t*)acik;
-        Serial.printf("{\"tip\":\"POSE\",\"id\":%d,\"mac\":\"%s\",\"lat\":%ld,\"lon\":%ld,\"alt\":%d,\"hdg\":%d,\"vx\":%d,\"vy\":%d,\"ts\":%lu}\n",
-            iha_id, mac_str, pose->lat, pose->lon, pose->alt_cm,
-            pose->heading, pose->vx, pose->vy, ts);
-    }
-    else if (p->tip == TIP_GOREV) {
-        gorev_veri_t* gorev = (gorev_veri_t*)acik;
-        Serial.printf("{\"tip\":\"GOREV\",\"id\":%d,\"mac\":\"%s\",\"gorev_tip\":%d,\"param1\":%d,\"param2\":%d,\"ts\":%lu}\n",
-            iha_id, mac_str, gorev->tip, gorev->param1, gorev->param2, ts);
-    }
-    else if (p->tip == TIP_RENK) {
-        renk_veri_t* renk = (renk_veri_t*)acik;
-        Serial.printf("{\"tip\":\"RENK\",\"id\":%d,\"mac\":\"%s\",\"renk\":%d,\"lat\":%ld,\"lon\":%ld,\"ts\":%lu}\n",
-            iha_id, mac_str, renk->renk, renk->lat, renk->lon, ts);
-    }
-    else if (p->tip == TIP_DURUM) {
-        durum_veri_t* durum = (durum_veri_t*)acik;
-        Serial.printf("{\"tip\":\"DURUM\",\"id\":%d,\"mac\":\"%s\",\"drone_id\":%d,\"durum\":%d,\"ts\":%lu}\n",
-            iha_id, mac_str, durum->drone_id, durum->durum, ts);
-    }
-    else if (p->tip == TIP_TELEMETRI) {
-        Serial.printf("{\"tip\":\"TELEMETRI\",\"id\":%d,\"mac\":\"%s\",\"veri\":\"%s\",\"ts\":%lu}\n",
-            iha_id, mac_str, (char*)acik, ts);
+    memcpy(msg.payload, acik, msg.uzunluk);
+
+    // Wi-Fi gorevini bekletme — kuyruğa at ve çik
+    if (uart_kuyruk) {
+        if (xQueueSend(uart_kuyruk, &msg, 0) != pdPASS) {
+            static volatile uint32_t _kuyruk_dolu_sayisi = 0;
+            _kuyruk_dolu_sayisi++;
+        }
     }
 }
 
 void setup() {
     Serial.begin(115200);
     delay(1000);
-    Serial.println("{\"tip\":\"SISTEM\",\"durum\":\"RX BASE HAZIR\"}");
+
+    // 20 mesajlik kuyruk — 10Hz * 8 drone = 80 paket/s, 20 slot yeterli
+    uart_kuyruk = xQueueCreate(20, sizeof(uart_mesaj_t));
+
+    sistem_mesaj("RX BASE HAZIR");
 
 #ifdef HAS_PIXHAWK
     Serial2.begin(57600, SERIAL_8N1, 16, 17);
-    Serial.println("{\"tip\":\"SISTEM\",\"durum\":\"PIXHAWK BAGLI\"}");
+    sistem_mesaj("PIXHAWK BAGLI");
 #endif
 
     WiFi.mode(WIFI_STA);
     esp_wifi_set_channel(MESH_KANAL, WIFI_SECOND_CHAN_NONE);
     mesh_init(mesh_veri_al);
     son_paket_ms = millis();
-    Serial.println("{\"tip\":\"SISTEM\",\"durum\":\"MESH HAZIR\"}");
+    sistem_mesaj("MESH HAZIR");
 }
 
 void loop() {
@@ -98,7 +183,7 @@ void loop() {
         son_kayip_kontrol = millis();
         if (millis() - son_paket_ms > 150) {
             portENTER_CRITICAL(&_recv_mux);
-            ardisik_kayip_sayisi++;
+            if (ardisik_kayip_sayisi < 255) ardisik_kayip_sayisi++;
             portEXIT_CRITICAL(&_recv_mux);
         }
     }
@@ -109,26 +194,54 @@ void loop() {
     failsafe_kontrol_log();
 #endif
 
-    // Failsafe durumunu YKI'ye bildir
+    // Failsafe durumunu bildir
     static bool son_failsafe = false;
     if (failsafe_tetiklendi != son_failsafe) {
         son_failsafe = failsafe_tetiklendi;
-        Serial.printf("{\"tip\":\"FAILSAFE\",\"failsafe_aktif\":%d,\"ts\":%lu}\n",
-            failsafe_tetiklendi ? 1 : 0, millis());
+        uint8_t buf[16] = {0};
+        buf[0] = failsafe_tetiklendi ? 1 : 0;
+        uart_gonder(0xFE, 0x00, buf, 16);
     }
 
-    // YKI'den gelen komutlari oku — 5Hz limit
-    if (Serial.available()) {
-        String komut = Serial.readStringUntil('\n');
-        komut.trim();
-        if (komut.length() > 0) {
-            uint32_t simdi = millis();
-            if (simdi - son_joystick_ms >= JOYSTICK_MIN_ARALIK_MS) {
-                son_joystick_ms = simdi;
-                uint8_t veri[16] = {0};
-                komut.getBytes(veri, 15);
-                mesh_gonder(veri, TIP_KOMUT);
+    // ===== KUYRUKTAN UART'A YAZ =====
+    // loop()'ta calisir — blocking riski yok
+    uart_mesaj_t gelen;
+    while (xQueueReceive(uart_kuyruk, &gelen, 0) == pdPASS) {
+        uart_gonder(gelen.tip, gelen.iha_id, gelen.payload, gelen.uzunluk);
+    }
+
+    // ===== YKI'DEN GELEN KOMUTLAR =====
+    static uint8_t rx_buf[32];
+    static uint8_t rx_idx = 0;
+    uint8_t okunan = 0;
+    while (Serial.available() && okunan < 64) {
+        uint8_t b = Serial.read();
+        okunan++;
+        if (b == 0x00) {
+            if (rx_idx >= 4) {
+                uint8_t decoded[32] = {0};
+                uint8_t decoded_uzunluk = cobs_decode(rx_buf, rx_idx, decoded);
+                if (decoded_uzunluk >= 5) {
+                    uint8_t veri_uzunluk = decoded_uzunluk - 2;
+                    uint16_t crc_hesap   = crc16(decoded, veri_uzunluk);
+                    uint16_t crc_gelen   = ((uint16_t)decoded[veri_uzunluk] << 8)
+                                         |  (uint16_t)decoded[veri_uzunluk + 1];
+                    if (crc_hesap == crc_gelen) {
+                        uint32_t simdi = millis();
+                        if (simdi - son_joystick_ms >= JOYSTICK_MIN_ARALIK_MS) {
+                            son_joystick_ms = simdi;
+                            uint8_t veri[16] = {0};
+                            uint8_t payload_uzunluk = min((int)veri_uzunluk - 2, 16);
+                            memcpy(veri, &decoded[2], payload_uzunluk);
+                            mesh_gonder(veri, TIP_KOMUT);
+                        }
+                    }
+                }
             }
+            rx_idx = 0;
+        } else {
+            if (rx_idx < sizeof(rx_buf))
+                rx_buf[rx_idx++] = b;
         }
     }
 
@@ -139,7 +252,9 @@ void loop() {
         uint8_t aktif = 0;
         for (uint8_t i = 0; i < MESH_MAX_NODES; i++)
             if (_bilinen_nodlar[i].aktif) aktif++;
-        Serial.printf("{\"tip\":\"MESH_DURUM\",\"aktif\":%d,\"maks\":%d,\"ts\":%lu}\n",
-            aktif, MESH_MAX_NODES, millis());
+        uint8_t buf[16] = {0};
+        buf[0] = aktif;
+        buf[1] = MESH_MAX_NODES;
+        uart_gonder(0xFD, 0x00, buf, 16);
     }
 }
