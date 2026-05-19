@@ -61,7 +61,7 @@ Gerçek sahada PX4, her drone'un kendi GPS konumunu local NED origin'i olarak at
 
 **Çözüm: `SwarmOrigin.msg`**
 
-Leader arming öncesinde GPS kilidini aldıktan sonra `/swarm/origin` topic'ine yayın yapar.
+Leader arming öncesinde GPS kilidini aldıktan sonra `/swarm/internal/origin` topic'ine yayın yapar; proxy `/swarm/public/origin`'e iletir.
 Diğer drone'ların `px4_interface`'leri bu origin'i MAVLink `SET_GPS_GLOBAL_ORIGIN` komutuyla PX4'e gönderir.
 Tüm local NED frame'ler aynı GPS noktasına kilitlenir.
 
@@ -83,40 +83,71 @@ GCS/RViz ENU kullanan taraflarda dönüşüm açıkça yapılmalıdır.
 
 ## 3. Topic Tablosu
 
-| Arayüz | Topic | Yayıncı | Dinleyici | QoS |
-|---|---|---|---|---|
-| `AgentStatus.msg` | `/swarm/agent/{id}/status` | `agent_fsm_node` | `mission_fsm`, `swarm_fsm`, `GCS`, `diagnostics` | BEST_EFFORT, 5-20 Hz |
-| `SwarmState.msg` | `/swarm/state` | `swarm_fsm` | `GCS`, `mission_fsm`, `logger` | RELIABLE, 1-10 Hz |
-| `SwarmOrigin.msg` | `/swarm/origin` | leader `px4_interface` | tüm follower `px4_interface`'leri | RELIABLE + TRANSIENT_LOCAL, 0.2-1 Hz |
-| `FormationCommand.msg` | `/swarm/formation/target` | `mission_fsm` | `formation_control` | RELIABLE, event |
-| `AgentSetpoint.msg` | `/drone_{id}/control/setpoint` | `swarm_core/formation_control`, `swarm_core/formation_control/maneuver_executor_node.py`, `failsafe_fsm/failsafe_handler.py` | ilgili drone `px4_interface` | BEST_EFFORT/RELIABLE, 10-50 Hz |
-| `QRMissionData.msg` | `/swarm/perception/qr_data` | `qr_detector` / `qr_mission_parser` | `mission_fsm`, `consensus_fsm` | RELIABLE, event |
-| `LandingZoneDetection.msg` | `/drone_{id}/perception/landing_zone` | `landing_zone_detector` (lokal) | `swarm_missions/mission1_dynamic_swarm/precision_landing_node.py` (lokal), `GCS bridge` | BEST_EFFORT, 20-50 Hz |
-| `NeighborInfo.msg` | `/swarm/agent/{self_id}/neighbor/{neighbor_id}` | `swarm_core/consensus/neighbor_monitor_node.py` | `collision_avoidance`, `consensus` | BEST_EFFORT, 5-20 Hz |
-| `SwarmControlCommand.msg` | `/swarm/control/command` | `swarm_state_machine/mode_manager/joystick_interpreter_node.py` | `mode_manager/movement_mode.py`, `mode_manager/maneuver_mode.py`, `swarm_core/formation_control` | BEST_EFFORT, 20-50 Hz |
-| `SystemEvent.msg` | `/swarm/events/system` | `event_bus`, `failsafe_manager`, `mission_fsm`, `perception` | `GCS`, `logger`, `diagnostics`, `swarm_fsm` | RELIABLE, event |
-| `LeaderHeartbeat.msg` | `/swarm/leader/heartbeat` | aktif lider `consensus_fsm` | follower `consensus_fsm`, `swarm_fsm`, `failsafe_manager` | RELIABLE + VOLATILE, depth=5, 10 Hz |
-| `ElectionResult.msg` | `/swarm/election/result` | yeni lider `consensus_fsm` | `consensus_fsm`, `swarm_fsm`, `mission_fsm`, `GCS bridge` | RELIABLE + TRANSIENT_LOCAL, depth=10, event |
-| `ExecuteFormation.action` | `/swarm/formation/execute` | `formation_control` action server | `mission_fsm` / `mission_orchestrator` | — |
-| `ExecuteManeuver.action` | `/swarm/maneuver/execute` | `swarm_core/formation_control/maneuver_executor_node.py` action server | `mission_fsm`, `mode_manager` | — |
-| `ManageSwarmMember.action` | `/swarm/member/manage` | `swarm_missions/mission1_dynamic_swarm/member_manager_node.py` / target `agent_fsm` action server | `mission_fsm`/`mission_orchestrator` | — |
-| `AssignRole.srv` | `/swarm/agent/{id}/assign_role` | `agent_fsm_node` | `consensus_fsm`, `mission_orchestrator` | — |
-| `TriggerMission.srv` | `/swarm/mission/trigger` | `mission_fsm` | `GCS backend` | — |
-| `ManageSwarmMember.srv` | `/swarm/member/manage_request` | `swarm_missions/mission1_dynamic_swarm/member_manager_node.py` / `mission_fsm` | `GCS backend`, debug/test tools | — |
+### 3.0 Network Proxy Adlandırma Kuralı (ZORUNLU)
 
-### 3.1 Topic Adı Netleştirmesi
+Sürü içi haberleşme `network_proxy` üzerinden geçer (gerçek donanımda ESP-NOW Mesh).
+Proxy 250 byte sınırı, mesafeye bağlı paket kaybı ve gecikme uygular. Bu yüzden
+**havadan iletilen** her topic için iki ayrı isim vardır:
 
-`/swarm/agent/{self_id}/neighbor/{neighbor_id}`: `{self_id}` yayıncı drone, `{neighbor_id}` gözlemlenen drone.
-`/drone_{id}/perception/landing_zone`: `{id}` kamerayı çalıştıran drone. Lokal onboard topic'tir.
-`/swarm/origin`: RELIABLE + TRANSIENT_LOCAL durability kullanılmalıdır; yeni başlayan follower drone son değeri otomatik alır.
-`/drone_{id}/control/setpoint`: `{id}` hedef setpoint alacak drone. Yüksek frekanslı onboard/local kontrol topic’idir.
-`/swarm/leader/heartbeat`: yalnızca aktif lider yayınlar; follower’lar timeout ile election başlatır.
-`/swarm/election/result`: yeni lider seçimi sonucunu duyurur; servis değil topic tabanlıdır.
+| Yön | Topic prefix | Anlamı |
+|---|---|---|
+| Yayıncı (publisher) | `/swarm/internal/...` | Drone bu topic'e yazar; proxy süzgeçten geçirip iletir |
+| Abone (subscriber) | `/swarm/public/...` | Drone bu topic'i dinler; proxy'nin süzdüğü mesajları alır |
+
+**Kural 3 — Lokal topic'ler dokunulmaz.** Aynı drone içindeki node'lar arası
+(RPi ↔ PX4, formation_control → px4_interface) topic'ler proxy'den geçmez ve
+`/drone_{id}/...` ya da `/swarm/agent/drone{id}/...` formatında kalır.
+
+Aşağıdaki tabloda **Yayın** sütunu publisher'ın yazdığı topic'i, **Abone**
+sütunu subscriber'ın dinlediği topic'i gösterir. **LOKAL** etiketi olan
+topic'ler tek bir drone içinde kalır; aynı isimle hem yayın hem dinleme yapılır.
+
+### 3.1 Mesaj Topic'leri
+
+| Arayüz | Yayın topic | Abone topic | Yayıncı | Dinleyici | QoS |
+|---|---|---|---|---|---|
+| `AgentStatus.msg` (havadan) | `/swarm/internal/drone{id}/status` | `/swarm/public/drone{id}/status` | `agent_fsm_node` | `mission_fsm`, `swarm_fsm`, `GCS`, `diagnostics` | BEST_EFFORT, 5-20 Hz |
+| `AgentStatus.msg` (lokal telemetri) | `/swarm/agent/drone{id}/telemetry` **LOKAL** | aynı | `px4_interface` | aynı drone `agent_fsm` | BEST_EFFORT |
+| `SwarmState.msg` | `/swarm/internal/state` | `/swarm/public/state` | `swarm_fsm` | `GCS`, `mission_fsm`, `logger`, `formation_control` | RELIABLE, 1-10 Hz |
+| `SwarmOrigin.msg` | `/swarm/internal/origin` | `/swarm/public/origin` | leader `px4_interface` | tüm follower `px4_interface`'leri | RELIABLE + TRANSIENT_LOCAL, 0.2-1 Hz |
+| `FormationCommand.msg` | `/swarm/internal/formation/target` | `/swarm/public/formation/target` | `mission_fsm` / `mission1_dynamic_swarm` | `formation_control` (her drone) | RELIABLE, event |
+| `AgentSetpoint.msg` | `/drone_{id}/control/setpoint` **LOKAL** | aynı | `swarm_core/formation_control`, `swarm_core/formation_control/maneuver_executor_node.py`, `failsafe_fsm/failsafe_handler.py` | ilgili drone `px4_interface` | BEST_EFFORT/RELIABLE, 10-50 Hz |
+| `QRMissionData.msg` | `/swarm/internal/perception/qr_data` | `/swarm/public/perception/qr_data` | `qr_detector` / `qr_mission_parser` | `mission_fsm`, `consensus_fsm` | RELIABLE, event |
+| `LandingZoneDetection.msg` | `/drone_{id}/perception/landing_zone` **LOKAL** | aynı | `landing_zone_detector` | `precision_landing_node`, `GCS bridge` | BEST_EFFORT, 20-50 Hz |
+| `NeighborInfo.msg` | `/swarm/agent/{self_id}/neighbor/{neighbor_id}` **LOKAL** | aynı | `swarm_core/consensus/neighbor_monitor_node.py` | `collision_avoidance`, `consensus` | BEST_EFFORT, 5-20 Hz |
+| `SwarmControlCommand.msg` | `/swarm/internal/control/command` | `/swarm/public/control/command` | `mode_manager/joystick_interpreter_node.py` | `mode_manager/movement_mode.py`, `mode_manager/maneuver_mode.py`, `formation_control` | BEST_EFFORT, 20-50 Hz |
+| `SystemEvent.msg` | `/swarm/internal/events/system` | `/swarm/public/events/system` | `event_bus`, `failsafe_manager`, `mission_fsm`, `perception`, `agent_fsm` | `GCS`, `logger`, `diagnostics`, `swarm_fsm`, `agent_fsm` | RELIABLE, event |
+| `LeaderHeartbeat.msg` | `/swarm/internal/leader/heartbeat` | `/swarm/public/leader/heartbeat` | aktif lider `consensus_fsm` | follower `consensus_fsm`, `swarm_fsm`, `failsafe_manager` | RELIABLE + VOLATILE, depth=5, 10 Hz |
+| `ElectionResult.msg` | `/swarm/internal/election/result` | `/swarm/public/election/result` | yeni lider `consensus_fsm` | `consensus_fsm`, `swarm_fsm`, `mission_fsm`, `GCS bridge` | RELIABLE + TRANSIENT_LOCAL, depth=10, event |
+
+### 3.2 Action ve Servisler
+
+Servisler (request/reply) ve action'lar proxy'den geçmez; aynı drone içinde
+veya doğrudan adreslemeyle çalışırlar. Topic isminde `internal/public` ayrımı
+yoktur.
+
+| Arayüz | Topic | Sunucu | İstemci |
+|---|---|---|---|
+| `ExecuteFormation.action` | `/swarm/formation/execute` | `formation_control` action server | `mission_fsm` / `mission_orchestrator` |
+| `ExecuteManeuver.action` | `/swarm/maneuver/execute` | `swarm_core/formation_control/maneuver_executor_node.py` | `mission_fsm`, `mode_manager` |
+| `ManageSwarmMember.action` | `/swarm/member/manage` | `swarm_missions/mission1_dynamic_swarm/member_manager_node.py` / target `agent_fsm` | `mission_fsm`/`mission_orchestrator` |
+| `AssignRole.srv` | `/swarm/agent/{id}/assign_role` | `agent_fsm_node` (per-drone) | `consensus_fsm`, `mission_orchestrator` |
+| `TriggerMission.srv` | `/swarm/mission/trigger` | `mission_fsm` | `GCS backend` |
+| `ManageSwarmMember.srv` | `/swarm/member/manage_request` | `member_manager_node.py` / `mission_fsm` | `GCS backend`, debug/test tools |
+
+### 3.3 Topic Adı Netleştirmesi
+
+`/swarm/agent/{self_id}/neighbor/{neighbor_id}`: `{self_id}` yayıncı drone, `{neighbor_id}` gözlemlenen drone. **LOKAL**.
+`/drone_{id}/perception/landing_zone`: `{id}` kamerayı çalıştıran drone. **LOKAL** onboard topic'tir.
+`/swarm/internal/origin` ↔ `/swarm/public/origin`: RELIABLE + TRANSIENT_LOCAL durability kullanılmalıdır; yeni başlayan follower drone son değeri otomatik alır.
+`/drone_{id}/control/setpoint`: `{id}` hedef setpoint alacak drone. **LOKAL** yüksek frekanslı onboard kontrol topic'idir.
+`/swarm/internal/leader/heartbeat` ↔ `/swarm/public/leader/heartbeat`: yalnızca aktif lider yayınlar; follower'lar timeout ile election başlatır.
+`/swarm/internal/election/result` ↔ `/swarm/public/election/result`: yeni lider seçimi sonucunu duyurur; servis değil topic tabanlıdır.
 `/swarm/maneuver/execute`: QR veya joystick kaynaklı pitch/roll/yaw manevralarını uzun süreli action olarak yürütür.
 `/swarm/member/manage`: QR kaynaklı detach/rejoin/standby replacement akışını uzun süreli action olarak yürütür.
 `/swarm/member/manage_request`: yalnızca hızlı başlatma/debug içindir; tamamlanma takibi için action tercih edilir.
 
-### 3.2 AgentStatus Gerçek Donanım Kullanım Notu
+### 3.4 AgentStatus Gerçek Donanım Kullanım Notu
 
 `AgentStatus.flight_mode`, `offboard_active` ve `pilot_override_active` gerçek uçuşta zorunlu izleme alanlarıdır. `mode_manager` ve `failsafe_fsm`, PX4'ün MANUAL/POSCTL/OFFBOARD/RTL/LAND gibi modlarını bu alanlardan okumalıdır. Pilot override aktifse otomatik setpoint zinciri HOLD/SAFE durumuna alınmalıdır.
 
@@ -126,11 +157,11 @@ EKF2/estimator alanları gerçek donanımda pre-flight ve in-flight güvenlik i�
 
 `oscillation_detected` formasyon setpoint etrafındaki salınım için; eşik `formation_control`'de config'den okunur. `unstable_flight` EKF/sensör kaynaklı fiziksel kararsızlık içindir, `estimator_ok` kapsamıyla örtüşmez.
 
-### 3.3 AgentSetpoint Gerçek Donanım Kullanım Notu
+### 3.5 AgentSetpoint Gerçek Donanım Kullanım Notu
 
 `AgentSetpoint` yüksek frekanslı uçuş hedefidir. Gerçek uçuşta bu akışın `swarm_core/formation_control` / `swarm_core/formation_control/maneuver_executor_node.py` ile `px4_interface` arasında onboard/local çalışması önerilir. GCS veya merkezi WiFi üzerinden sürekli yüksek frekanslı setpoint gönderimi gecikme, paket kaybı ve failsafe riski oluşturabilir. GCS yalnızca görev başlatma, izleme ve güvenlik komutları için kullanılmalıdır.
 
-### 3.4 Mevcut Mimariye Yerleştirme Kuralı
+### 3.6 Mevcut Mimariye Yerleştirme Kuralı
 
 Bu contract içinde geçen bazı fonksiyonel adlar yeni ana klasör açmak anlamına gelmez. Takımın mevcut `src/` mimarisine sadık kalınacak ve ek action/service rollerinin karşılığı mevcut klasörlerin içinde node dosyası olarak tutulacaktır.
 
@@ -152,28 +183,31 @@ Bu nedenle yeni ana klasör açmak yerine yukarıdaki dosya yolları kullanılac
 
 ```text
 1. Leader GPS kilidi alır (gps_fix_type >= 3, hdop < 1.5)
-2. Leader /swarm/origin [SwarmOrigin.msg] yayınlar  ← RELIABLE + TRANSIENT_LOCAL
-3. Follower px4_interface'leri mesajı alır
-4. Her follower MAVLink SET_GPS_GLOBAL_ORIGIN gönderir → PX4 local frame'ini sıfırlar
-5. Follower AgentStatus.origin_synced = true ayarlar
-6. formation_control tüm drone'ların origin_synced=true olmasını bekler
-7. Ancak bundan sonra arming + takeoff izni
+2. Leader /swarm/internal/origin [SwarmOrigin.msg] yayınlar  ← RELIABLE + TRANSIENT_LOCAL
+3. Proxy /swarm/public/origin'e iletir
+4. Follower px4_interface'leri mesajı /swarm/public/origin'den alır
+5. Her follower MAVLink SET_GPS_GLOBAL_ORIGIN gönderir → PX4 local frame'ini sıfırlar
+6. Follower AgentStatus.origin_synced = true ayarlar
+7. formation_control tüm drone'ların origin_synced=true olmasını bekler
+8. Ancak bundan sonra arming + takeoff izni
 ```
 
 ### 4.1 Görev 1: Dinamik Sürü Kabiliyeti
 
 ```text
 GCS → /swarm/mission/trigger [TriggerMission.srv]
-  → mission_fsm
-  → /swarm/formation/target [FormationCommand.msg]
-  → formation_control
-  → /drone_{id}/control/setpoint [AgentSetpoint.msg]  ← max_speed_mps burada taşınır
+  → mission_fsm (lider drone)
+  → /swarm/internal/formation/target [FormationCommand.msg]
+  → proxy → /swarm/public/formation/target
+  → formation_control (her drone)
+  → /drone_{id}/control/setpoint [AgentSetpoint.msg]  ← LOKAL, max_speed_mps burada taşınır
   → px4_interface → PX4 TrajectorySetpoint
 ```
 
 QR akışı:
 ```text
-qr_detector → /swarm/perception/qr_data [QRMissionData.msg]
+qr_detector → /swarm/internal/perception/qr_data [QRMissionData.msg]
+  → proxy → /swarm/public/perception/qr_data
   → mission_fsm
   → formation_active ise FormationCommand / ExecuteFormation.action
     - FormationCommand.use_current_altitude=true ise mevcut sürü irtifası korunur
@@ -205,17 +239,18 @@ QRMissionData.detach_active + detach_agent_id + detach_target_color + wait_s
 
 Precision landing akışı:
 ```text
-landing_zone_detector → /drone_{id}/perception/landing_zone [LandingZoneDetection.msg]  20-50 Hz
+landing_zone_detector → /drone_{id}/perception/landing_zone [LandingZoneDetection.msg]  20-50 Hz  ← LOKAL
   → `swarm_missions/mission1_dynamic_swarm/precision_landing_node.py` → AgentSetpoint → px4_interface → PX4
 ```
 
 ### 4.2 Görev 2: Yarı Otonom Sürü Kontrolü
 
 ```text
-`swarm_state_machine/mode_manager/joystick_interpreter_node.py` → /swarm/control/command [SwarmControlCommand.msg]
-  → `mode_manager/movement_mode.py` / `mode_manager/maneuver_mode.py`
-  → `swarm_core/formation_control` / `swarm_core/formation_control/maneuver_executor_node.py`
-  → AgentSetpoint (max_speed_mps, max_tilt_deg kopyalanır)
+joystick_interpreter_node.py → /swarm/internal/control/command [SwarmControlCommand.msg]
+  → proxy → /swarm/public/control/command
+  → mode_manager/movement_mode.py / mode_manager/maneuver_mode.py
+  → swarm_core/formation_control / maneuver_executor_node.py
+  → AgentSetpoint (max_speed_mps, max_tilt_deg kopyalanır)  ← LOKAL
   → px4_interface
 ```
 
@@ -331,7 +366,7 @@ Arming için minimum: `3D_FIX (3)`. HDOP < 1.5 beklenmeli.
 13. **`AgentStatus.home_set`**: GCS arming öncesi `home_set=false` olan drone'u işaretler; bu drone RTL komutunu reddetmeli.
 14. **`SwarmOrigin.msg`**: Leader arming öncesi GPS kilidi doğrulandıktan sonra yayınlar. Follower'lar `SET_GPS_GLOBAL_ORIGIN` gönderince `origin_synced=true` ayarlar.
 15. **`LeaderHeartbeat`**: Sadece aktif lider `consensus_fsm` tarafından 10 Hz yayınlanır. Follower tarafında timeout değeri config ile 300–500 ms aralığında tutulur.
-16. **`ElectionResult`**: Lider seçimi sonucu `AssignRole.srv` ile değil `/swarm/election/result` topic’i ile duyurulur. `sequence_num` ve `election_round` eski mesajları reddetmek için kullanılmalıdır.
+16. **`ElectionResult`**: Lider seçimi sonucu `AssignRole.srv` ile değil `/swarm/internal/election/result` (yayıncı) ↔ `/swarm/public/election/result` (abone) topic'i ile duyurulur. `sequence_num` ve `election_round` eski mesajları reddetmek için kullanılmalıdır.
 17. **`AssignRole.srv`**: Gerçek zamanlı leader election için kullanılmaz; yalnızca pre-flight, manuel/debug rol atama için kullanılır.
 18. **`ExecuteManeuver.action`**: QR'dan gelen `pitch_deg`/`roll_deg`/`yaw_deg` değerleri `FormationCommand` içine gömülmez; `mission_fsm` bu action üzerinden `swarm_core/formation_control/maneuver_executor_node.py`'a gönderir. `mission_fsm`, action result success olmadan sonraki QR adımına geçmez.
 19. **`ManageSwarmMember.action`**: QR kaynaklı birey çıkarma/katma uzun süren bir akıştır. `mission_fsm`, detach/rejoin tamamlanmadan sonraki görev adımına geçmez.
