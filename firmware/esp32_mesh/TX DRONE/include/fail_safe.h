@@ -1,4 +1,5 @@
 #pragma once
+extern uint8_t mac_to_id(const uint8_t* mac);
 #include <Arduino.h>
 #include "freertos/FreeRTOS.h"
 extern portMUX_TYPE _recv_mux;
@@ -101,12 +102,15 @@ inline void failsafe_kontrol_log() {
 
 #endif
 
+// FIX #5: ardisik_kayip_sayisi critical section icinde sifirlanıyor
 inline void failsafe_reset() {
     if (_failsafe_asama > 0) {
         Serial.printf("[FAILSAFE] Sifirlandi (asama %u)\n", _failsafe_asama);
-        _failsafe_asama      = 0;
-        failsafe_tetiklendi  = false;
+        _failsafe_asama     = 0;
+        failsafe_tetiklendi = false;
+        portENTER_CRITICAL(&_recv_mux);
         ardisik_kayip_sayisi = 0;
+        portEXIT_CRITICAL(&_recv_mux);
     }
     son_paket_ms = millis();
 }

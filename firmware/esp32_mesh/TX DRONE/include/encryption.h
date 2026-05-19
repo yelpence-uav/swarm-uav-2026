@@ -1,9 +1,10 @@
 #pragma once
-#include "mbedtls/aes.h"
+#include "mbedtls/gcm.h"
 #include <stdint.h>
 #include <string.h>
+#include <esp_random.h>
 
-// ===== AES-128 CBC ANAHTARI =====
+// ===== AES-128 GCM ANAHTARI =====
 static const uint8_t AES_KEY[16] = {
     0xF5,0x5F,0x70,0x2C,
     0xBE,0xF9,0xFB,0x9D,
@@ -11,46 +12,41 @@ static const uint8_t AES_KEY[16] = {
     0xA4,0xFB,0x6C,0xE4
 };
 
-// IV: paket_id'den türetilir — ECB'nin örüntü zayıflığını giderir
-// paket_id her pakette farklı olduğu için her şifreli blok farklı çıkar
-static inline void _iv_uret(uint8_t iv[16], uint32_t paket_id) {
-    memset(iv, 0, 16);
-    iv[0] = (paket_id >> 24) & 0xFF;
-    iv[1] = (paket_id >> 16) & 0xFF;
-    iv[2] = (paket_id >>  8) & 0xFF;
-    iv[3] = (paket_id      ) & 0xFF;
-    // Kalan 12 byte sabit tuz — çarpışma riskini azaltır
-    iv[4]  = 0xA5; iv[5]  = 0x3C; iv[6]  = 0x7F; iv[7]  = 0x11;
-    iv[8]  = 0xDE; iv[9]  = 0xAD; iv[10] = 0xBE; iv[11] = 0xEF;
-    iv[12] = 0x01; iv[13] = 0x23; iv[14] = 0x45; iv[15] = 0x67;
+// GCM context — key expansion bir kez yapilir
+// NOT: sadece loop() gorevinden cagriliyor, ISR-safe degil
+static mbedtls_gcm_context _gcm_ctx;
+static bool _gcm_hazir = false;
+
+static inline void aes_init() {
+    if (_gcm_hazir) return;
+    mbedtls_gcm_init(&_gcm_ctx);
+    mbedtls_gcm_setkey(&_gcm_ctx, MBEDTLS_CIPHER_ID_AES, AES_KEY, 128);
+    _gcm_hazir = true;
 }
 
-// Şifrele — CBC modu, IV paket_id'den türetilir
-inline void aes_sifrele_iv(const uint8_t* girdi, uint8_t* cikti, uint32_t paket_id) {
-    uint8_t iv[16];
-    _iv_uret(iv, paket_id);
-    mbedtls_aes_context ctx;
-    mbedtls_aes_init(&ctx);
-    mbedtls_aes_setkey_enc(&ctx, AES_KEY, 128);
-    mbedtls_aes_crypt_cbc(&ctx, MBEDTLS_AES_ENCRYPT, 16, iv, girdi, cikti);
-    mbedtls_aes_free(&ctx);
+// Nonce: 12 byte (GCM icin standart boyut — NIST SP 800-38D)
+static inline void iv_uret_rastgele(uint8_t iv[12]) {
+    uint32_t r0 = esp_random();
+    uint32_t r1 = esp_random();
+    uint32_t r2 = esp_random();
+    memcpy(iv,     &r0, 4);
+    memcpy(iv + 4, &r1, 4);
+    memcpy(iv + 8, &r2, 4);
 }
 
-// Çöz — CBC modu, aynı IV ile
-inline void aes_coz_iv(const uint8_t* girdi, uint8_t* cikti, uint32_t paket_id) {
-    uint8_t iv[16];
-    _iv_uret(iv, paket_id);
-    mbedtls_aes_context ctx;
-    mbedtls_aes_init(&ctx);
-    mbedtls_aes_setkey_dec(&ctx, AES_KEY, 128);
-    mbedtls_aes_crypt_cbc(&ctx, MBEDTLS_AES_DECRYPT, 16, iv, girdi, cikti);
-    mbedtls_aes_free(&ctx);
+// Sifrele — GCM, 16 byte plaintext → 16 byte ciphertext + 16 byte auth tag
+inline void aes_sifrele_gcm(const uint8_t* girdi, size_t uzunluk, uint8_t* cikti,
+                              const uint8_t iv[12], uint8_t tag[16]) {
+    aes_init();
+    mbedtls_gcm_crypt_and_tag(&_gcm_ctx, MBEDTLS_GCM_ENCRYPT,
+        uzunluk, iv, 12, NULL, 0, girdi, cikti, 16, tag);
 }
 
-// Geriye dönük uyumluluk — paket_id=0 ile ECB benzeri davranış (geçiş için)
-inline void aes_sifrele(const uint8_t* girdi, uint8_t* cikti) {
-    aes_sifrele_iv(girdi, cikti, 0);
-}
-inline void aes_coz(const uint8_t* girdi, uint8_t* cikti) {
-    aes_coz_iv(girdi, cikti, 0);
+// Coz + dogrula — false donerse tag uyusmadi: sahte veya bozuk paket, at
+inline bool aes_coz_gcm(const uint8_t* girdi, size_t uzunluk, uint8_t* cikti,
+                          const uint8_t iv[12], const uint8_t tag[16]) {
+    aes_init();
+    int ret = mbedtls_gcm_auth_decrypt(&_gcm_ctx, uzunluk,
+        iv, 12, NULL, 0, tag, 16, girdi, cikti);
+    return (ret == 0);
 }

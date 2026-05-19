@@ -22,6 +22,7 @@
 #define TIP_GOREV       0x05
 #define TIP_RENK        0x06
 #define TIP_DURUM       0x07
+#define TIP_ORIGIN      0x08   // RPi → Mesh origin broadcast
 
 #define FORMASYON_OKBASI  0x01
 #define FORMASYON_V       0x02
@@ -66,7 +67,12 @@ struct __attribute__((packed)) renk_veri_t {
 struct __attribute__((packed)) durum_veri_t {
     uint8_t  drone_id;
     uint8_t  durum;
-    uint8_t  rezerv[14];
+    uint8_t  armed;         // 0/1
+    uint8_t  gps_fix_type;  // 0-6
+    uint8_t  battery_pct;   // 0-100
+    float    battery_volt;  // 4 byte
+    uint8_t  ekf_ok;        // 0/1
+    uint8_t  rezerv[6];
 };
 
 static const uint8_t BROADCAST_MAC[6] = {0xFF,0xFF,0xFF,0xFF,0xFF,0xFF};
@@ -77,19 +83,40 @@ struct __attribute__((packed)) mesh_paket_t {
     uint32_t paket_id;
     uint8_t  atlama_sayisi;
     uint8_t  tip;
-    uint8_t  sifreli_veri[16];
+    uint8_t  iv[12];           // GCM nonce (12 byte, NIST onerisi)
+    uint8_t  sifreli_veri[22]; // anti_replay(6) + payload(16)
+    uint8_t  tag[16];          // GCM auth tag — sifre cozumunde dogrulanir
+};
+
+// ===== SLIDING WINDOW ANTI-REPLAY (Yontem 1) =====
+// TODO: GPS_TIMESTAMP — HAS_PIXHAWK + MAVLink GPS okumasi hazir oldugunda
+//   stateless GPS zaman damgasina gec: |alici_gps_ms - paket_gps_ms| > 2000 ise at.
+//   session_id, pencere ve ilk_paket mekanizmasina gerek kalmaz.
+#define PENCERE_BOYU 64
+
+struct __attribute__((packed)) anti_replay_t {
+    uint16_t session_id; // boot basina rastgele — reboot sonrasi pencereyi sifirlar
+    uint32_t paket_id;   // sifrelenmis payload icinde — baslik manipulasyonu engellenir
+};
+
+struct replay_state_t {
+    uint16_t session_id;
+    uint32_t en_yuksek_id;
+    uint64_t pencere_bitmask; // son 64 paketin gelis durumu
+    bool     ilk_paket;       // true: ilk pakette pencereyi baslatir
 };
 
 struct node_durum_t {
-    uint8_t  mac[6];
-    uint32_t son_heartbeat_ms;
-    bool     aktif;
-    bool     peer_kayitli;
+    uint8_t        mac[6];
+    uint32_t       son_heartbeat_ms;
+    bool           aktif;
+    bool           peer_kayitli;
+    replay_state_t replay;
 };
 
 // ===== ISR-SAFE PAKET BUFFER =====
 // Callback sadece buraya yazar, mesh_loop() okur
-#define RECV_BUFFER_SIZE 8
+#define RECV_BUFFER_SIZE 16
 static struct {
     mesh_paket_t paket;
     bool         dolu;
@@ -103,6 +130,7 @@ extern volatile unsigned long son_paket_ms;
 
 static uint8_t  _benim_mac[6];
 static uint32_t _paket_sayaci     = 0;
+static uint16_t _session_id       = 0; // mesh_init() atar
 static uint32_t _son_heartbeat_ms = 0;
 static node_durum_t _bilinen_nodlar[MESH_MAX_NODES] = {};
 static uint32_t _duplikat_tampon[DUPLIKAT_TAMPON]   = {};
@@ -119,6 +147,37 @@ static inline IRAM_ATTR bool _benim_mac_mi(const uint8_t* mac) {
 }
 static inline bool _broadcast_mi(const uint8_t* mac) {
     return _mac_esit(mac, BROADCAST_MAC);
+}
+
+static inline bool _replay_kontrol(node_durum_t* node, const anti_replay_t* ar) {
+    replay_state_t* rs = &node->replay;
+    if (rs->ilk_paket) {
+        rs->session_id      = ar->session_id;
+        rs->en_yuksek_id    = ar->paket_id;
+        rs->pencere_bitmask = 1ULL;
+        rs->ilk_paket       = false;
+        return true;
+    }
+    if (ar->session_id != rs->session_id) {
+        // Reboot algilandi — yeni session kabul et, pencereyi sifirla
+        rs->session_id      = ar->session_id;
+        rs->en_yuksek_id    = ar->paket_id;
+        rs->pencere_bitmask = 1ULL;
+        return true;
+    }
+    if (ar->paket_id > rs->en_yuksek_id) {
+        uint32_t ilerleme   = ar->paket_id - rs->en_yuksek_id;
+        rs->pencere_bitmask = (ilerleme >= PENCERE_BOYU)
+                              ? 0ULL : (rs->pencere_bitmask << ilerleme);
+        rs->pencere_bitmask |= 1ULL;
+        rs->en_yuksek_id    = ar->paket_id;
+        return true;
+    }
+    uint32_t fark = rs->en_yuksek_id - ar->paket_id;
+    if (fark >= PENCERE_BOYU)                 return false; // cok eski
+    if (rs->pencere_bitmask & (1ULL << fark)) return false; // replay!
+    rs->pencere_bitmask |= (1ULL << fark);
+    return true;
 }
 
 static inline uint32_t _paket_hash(const mesh_paket_t* p) {
@@ -165,6 +224,8 @@ static node_durum_t* _node_bul_veya_ekle(const uint8_t* mac) {
         bos->aktif = true;
         bos->peer_kayitli = false;
         bos->son_heartbeat_ms = millis();
+        bos->replay = {};
+        bos->replay.ilk_paket = true;
     }
     return bos;
 }
@@ -199,7 +260,13 @@ static inline void mesh_gonder(const uint8_t* veri, uint8_t tip,
     p.paket_id      = ++_paket_sayaci;
     p.atlama_sayisi = 0;
     p.tip           = tip;
-    aes_sifrele_iv(veri, p.sifreli_veri, p.paket_id);
+    iv_uret_rastgele(p.iv);
+    // Anti-replay basligini (session_id + paket_id) sifrelenmis payload icine gom
+    uint8_t tam_veri[22];
+    anti_replay_t ar_out = { _session_id, p.paket_id };
+    memcpy(tam_veri, &ar_out, sizeof(anti_replay_t));
+    memcpy(tam_veri + sizeof(anti_replay_t), veri, 16);
+    aes_sifrele_gcm(tam_veri, sizeof(tam_veri), p.sifreli_veri, p.iv, p.tag);
     _duplikat_kaydet(&p);
     _mesh_gonder(&p);
 }
@@ -256,7 +323,7 @@ static inline IRAM_ATTR bool _isr_duplikat_mi(const mesh_paket_t* p) {
 
 static portMUX_TYPE _recv_mux = portMUX_INITIALIZER_UNLOCKED;
 
-static void IRAM_ATTR _esp_now_recv_cb(const uint8_t* mac,
+static void IRAM_ATTR _esp_now_recv_cb(const uint8_t* mac_addr,
                                         const uint8_t* data, int len) {
     if (len != sizeof(mesh_paket_t)) return;
     const mesh_paket_t* p = reinterpret_cast<const mesh_paket_t*>(data);
@@ -286,6 +353,7 @@ static void _esp_now_send_cb(const uint8_t* mac, esp_now_send_status_t status) {
 
 // ===== BUFFER'DAN PAKET İŞLE — mesh_loop() içinde çağrılır =====
 static inline void _recv_isle() {
+    _recv_flag = false; // Once sifirla — sonraki ISR yazimini kaybetme
     while (_recv_oku != _recv_yaz) {
         mesh_paket_t* p = &_recv_buffer[_recv_oku].paket;
 
@@ -294,8 +362,7 @@ static inline void _recv_isle() {
 
             node_durum_t* node = _node_bul_veya_ekle(p->kaynak_mac);
             if (node) {
-                node->son_heartbeat_ms = millis();
-                node->aktif = true;
+                // peer kaydini hemen yap — bu MAC doğrulanmadan da yapilabilir
                 if (!node->peer_kayitli) {
                     _peer_ekle(p->kaynak_mac);
                     node->peer_kayitli = true;
@@ -305,18 +372,27 @@ static inline void _recv_isle() {
             if (p->tip != TIP_HEARTBEAT) {
                 bool benim_icin = _broadcast_mi(p->hedef_mac) ||
                                   _benim_mac_mi(p->hedef_mac);
-                if (benim_icin && _veri_callback) _veri_callback(p);
+                if (benim_icin && _veri_callback) {
+                    _veri_callback(p);
+                    // Heartbeat sadece sifre cozumu yapan callback sonrasi guncellenir
+                    if (node) { node->son_heartbeat_ms = millis(); node->aktif = true; }
+                }
                 if (_broadcast_mi(p->hedef_mac)) _paketi_ilet(p);
+            } else {
+                // Heartbeat paketi — sifreleme yok, ama en azindan duplikat kontrolunden gecti
+                if (node) { node->son_heartbeat_ms = millis(); node->aktif = true; }
             }
         }
 
         _recv_buffer[_recv_oku].dolu = false;
         _recv_oku = (_recv_oku + 1) % RECV_BUFFER_SIZE;
     }
-    _recv_flag = false;
 }
 
 static inline void mesh_init(mesh_veri_callback_t callback) {
+    aes_init(); // Key expansion bir kez yapilir
+    _session_id = (uint16_t)(esp_random() & 0xFFFF);
+    if (_session_id == 0) _session_id = 1; // 0 deger rezerv
     _veri_callback = callback;
     esp_read_mac(_benim_mac, ESP_MAC_WIFI_STA);
     Serial.printf("[MESH] MAC: %02X:%02X:%02X:%02X:%02X:%02X\n",

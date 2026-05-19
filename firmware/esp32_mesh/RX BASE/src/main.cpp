@@ -117,16 +117,35 @@ uint8_t mac_to_id(const uint8_t* mac) {
 
 #define JOYSTICK_MIN_ARALIK_MS 200
 static uint32_t son_joystick_ms = 0;
+#define MESH_GONDERIM_MIN_MS 50
+static uint32_t son_mesh_gonderim_ms = 0;
+
+// REPLAY KONTROL HELPER (FIX #4)
+static inline bool mesh_replay_dogrula(const uint8_t* mac, const uint8_t* decrypted_baslik) {
+    node_durum_t* node = _node_bul_veya_ekle(mac);
+    if (!node) return false;
+    return _replay_kontrol(node, (const anti_replay_t*)decrypted_baslik);
+}
+
 
 // ===== MESH CALLBACK =====
-// Burada sadece kuyruga yaz — UART I/O yok
 void mesh_veri_al(const mesh_paket_t* p) {
-    uint8_t acik[16] = {0};
-    aes_coz_iv(p->sifreli_veri, acik, p->paket_id);
+    uint8_t acik[22] = {0}; // FIX #2: Buffer 22'ye cikarildi
+    
+    // FIX #1: Uzunluk (22) parametresi eklendi
+    if (!aes_coz_gcm(p->sifreli_veri, 22, acik, p->iv, p->tag)) {
+        return; 
+    }
+
+    // FIX #4: Replay kontrolu
+    if (!mesh_replay_dogrula(p->kaynak_mac, acik)) {
+        Serial.println("[MESH] Replay/Eski Paket reddedildi!");
+        return; 
+    }
 
     portENTER_CRITICAL(&_recv_mux);
     ardisik_kayip_sayisi = 0;
-    son_paket_ms = millis(); // failsafe sayacini sifirla
+    son_paket_ms = millis(); 
     portEXIT_CRITICAL(&_recv_mux);
 
     failsafe_reset();
@@ -140,13 +159,13 @@ void mesh_veri_al(const mesh_paket_t* p) {
     else if (p->tip == TIP_RENK)      msg.uzunluk = sizeof(renk_veri_t);
     else if (p->tip == TIP_DURUM)     msg.uzunluk = sizeof(durum_veri_t);
     else if (p->tip == TIP_TELEMETRI) msg.uzunluk = 16;
-    else return; // bilinmeyen tip, at
+    else return; 
 
-    memcpy(msg.payload, acik, msg.uzunluk);
+    // FIX #3: Ilk 6 byte'i atla (anti-replay basligi)
+    memcpy(msg.payload, acik + sizeof(anti_replay_t), msg.uzunluk);
 
-    // Wi-Fi gorevini bekletme — kuyruğa at ve çik
     if (uart_kuyruk) {
-        if (xQueueSend(uart_kuyruk, &msg, 0) != pdPASS) {
+        if (xQueueSend(uart_kuyruk, &msg, pdMS_TO_TICKS(5)) != pdPASS) { // FIX: Timeout 5ms
             static volatile uint32_t _kuyruk_dolu_sayisi = 0;
             _kuyruk_dolu_sayisi++;
         }
@@ -157,9 +176,7 @@ void setup() {
     Serial.begin(115200);
     delay(1000);
 
-    // 20 mesajlik kuyruk — 10Hz * 8 drone = 80 paket/s, 20 slot yeterli
     uart_kuyruk = xQueueCreate(20, sizeof(uart_mesaj_t));
-
     sistem_mesaj("RX BASE HAZIR");
 
 #ifdef HAS_PIXHAWK
@@ -177,7 +194,6 @@ void setup() {
 void loop() {
     mesh_loop();
 
-    // Ardisik kayip sayaci
     static uint32_t son_kayip_kontrol = 0;
     if (millis() - son_kayip_kontrol >= 100) {
         son_kayip_kontrol = millis();
@@ -194,7 +210,6 @@ void loop() {
     failsafe_kontrol_log();
 #endif
 
-    // Failsafe durumunu bildir
     static bool son_failsafe = false;
     if (failsafe_tetiklendi != son_failsafe) {
         son_failsafe = failsafe_tetiklendi;
@@ -203,18 +218,15 @@ void loop() {
         uart_gonder(0xFE, 0x00, buf, 16);
     }
 
-    // ===== KUYRUKTAN UART'A YAZ =====
-    // loop()'ta calisir — blocking riski yok
     uart_mesaj_t gelen;
     while (xQueueReceive(uart_kuyruk, &gelen, 0) == pdPASS) {
         uart_gonder(gelen.tip, gelen.iha_id, gelen.payload, gelen.uzunluk);
     }
 
-    // ===== YKI'DEN GELEN KOMUTLAR =====
     static uint8_t rx_buf[32];
     static uint8_t rx_idx = 0;
     uint8_t okunan = 0;
-    while (Serial.available() && okunan < 64) {
+    while (Serial.available() && okunan < 32) {
         uint8_t b = Serial.read();
         okunan++;
         if (b == 0x00) {
@@ -227,13 +239,30 @@ void loop() {
                     uint16_t crc_gelen   = ((uint16_t)decoded[veri_uzunluk] << 8)
                                          |  (uint16_t)decoded[veri_uzunluk + 1];
                     if (crc_hesap == crc_gelen) {
-                        uint32_t simdi = millis();
-                        if (simdi - son_joystick_ms >= JOYSTICK_MIN_ARALIK_MS) {
-                            son_joystick_ms = simdi;
-                            uint8_t veri[16] = {0};
-                            uint8_t payload_uzunluk = min((int)veri_uzunluk - 2, 16);
-                            memcpy(veri, &decoded[2], payload_uzunluk);
-                            mesh_gonder(veri, TIP_KOMUT);
+                        uint8_t tip_byte = decoded[0];
+                        uint32_t simdi   = millis();
+                        uint8_t veri[16] = {0};
+                        uint8_t payload_uzunluk = min((int)veri_uzunluk - 2, 16);
+                        memcpy(veri, &decoded[2], payload_uzunluk);
+
+                        if (tip_byte == TIP_RENK) {
+                            if (simdi - son_mesh_gonderim_ms >= MESH_GONDERIM_MIN_MS) {
+                                son_mesh_gonderim_ms = simdi;
+                                mesh_gonder(veri, TIP_RENK);
+                            }
+                        } else if (tip_byte == TIP_DURUM) {
+                            if (simdi - son_mesh_gonderim_ms >= MESH_GONDERIM_MIN_MS) {
+                                son_mesh_gonderim_ms = simdi;
+                                mesh_gonder(veri, TIP_DURUM);
+                            }
+                        } else {
+                            if (simdi - son_joystick_ms >= JOYSTICK_MIN_ARALIK_MS) {
+                                son_joystick_ms = simdi;
+                                if (simdi - son_mesh_gonderim_ms >= MESH_GONDERIM_MIN_MS) {
+                                    son_mesh_gonderim_ms = simdi;
+                                    mesh_gonder(veri, TIP_KOMUT);
+                                }
+                            }
                         }
                     }
                 }
@@ -245,13 +274,14 @@ void loop() {
         }
     }
 
-    // Mesh durum raporu — 5 saniyede bir
     static uint32_t son_durum = 0;
     if (millis() - son_durum >= 5000) {
         son_durum = millis();
         uint8_t aktif = 0;
+        portENTER_CRITICAL(&_recv_mux);
         for (uint8_t i = 0; i < MESH_MAX_NODES; i++)
             if (_bilinen_nodlar[i].aktif) aktif++;
+        portEXIT_CRITICAL(&_recv_mux);
         uint8_t buf[16] = {0};
         buf[0] = aktif;
         buf[1] = MESH_MAX_NODES;
