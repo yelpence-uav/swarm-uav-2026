@@ -89,12 +89,6 @@ echo -e "\033[0;36m[BİLGİ] ALT MODÜLLER (PX4) KONTROL EDİLİYOR...\033[0m"
 cd "$PROJE_KOK"
 git submodule update --init --recursive
 
-echo -e "\033[0;36m[BİLGİ] PX4 RTK VE İRTİFA YAMALARI UYGULANIYOR...\033[0m"
-if [ -d "$PROJE_KOK/src/px4_autopilot" ]; then
-    cd "$PROJE_KOK/src/px4_autopilot"
-    git apply --whitespace=fix --recount "$PROJE_KOK/docker/patches/rtk_gps_fix.patch" || echo -e "\033[0;33m[UYARI] Yama zaten uygulanmış veya ufak bir hata oluştu.\033[0m"
-fi
-
 cd "$PROJE_KOK/docker/"
 
 docker compose build \
