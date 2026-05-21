@@ -46,7 +46,7 @@ from px4_msgs.msg import (
 from std_msgs.msg import String
 
 # Bizim mesaj formatımız
-from swarm_interfaces.msg import AgentStatus
+from swarm_interfaces.msg import AgentSetpoint, AgentStatus
 
 # Aynı paket içindeki yardımcılar
 from .telemetry_mapper import (
@@ -76,6 +76,12 @@ class Px4BridgeNode(Node):
     """PX4 ↔ FSM ortadaki köprü node."""
 
     def __init__(self) -> None:
+        """
+        PX4 ↔ FSM köprüsünü başlatır, arayüzleri kurar.
+
+        ROS2 parametrelerini okur, PX4 topic aboneliklerini,
+        AgentStatus publisher'ını ve OFFBOARD timer'ı oluşturur.
+        """
         super().__init__('px4_bridge')
 
         # ROS2 parametreleri
@@ -92,7 +98,7 @@ class Px4BridgeNode(Node):
             self.get_parameter('sitl_mode').value
         )
 
-        # Micro-XRCE-DDS-Agent'ın kullandığı PX4 namespace — tüm /fmu/... topic'leri bu altında
+        # Micro-XRCE-DDS-Agent'ın PX4 namespace'i — /fmu/... topic'leri
         self._fmu_ns = f'/drone_{self._agent_id}'
 
         # Drone'un anlık durumu — callback'ler bunu doldurur
@@ -111,11 +117,18 @@ class Px4BridgeNode(Node):
         # SITL: offboard mod takibi için önceki durum
         self._was_offboard: bool = False
 
-        # Son geçerli konum cache'i — xy/z_valid false olsa bile setpoint akışını sürdür
+        # Son geçerli konum cache'i — xy/z_valid false olsa bile
+        # setpoint akışını sürdür
         self._cached_pos_x: float = 0.0
         self._cached_pos_y: float = 0.0
         self._cached_pos_z: float = 0.0
         self._cached_yaw_rad: float = 0.0
+
+        # formation_node'dan gelen son AgentSetpoint — None ise hold modu
+        self._latest_setpoint: AgentSetpoint | None = None
+        self._setpoint_stamp: float = 0.0
+        # Bu kadar süredir setpoint gelmezse hold'a düş (saniye)
+        self._setpoint_timeout_s: float = 0.5
 
         # SITL: sahte RC publisher — gerçek donanımda oluşturulmaz
         if self._sitl_mode:
@@ -150,12 +163,20 @@ class Px4BridgeNode(Node):
             10,
         )
 
+        # Formation setpoint aboneliği — lokal, proxy'den geçmez
+        self.create_subscription(
+            AgentSetpoint,
+            f'/drone_{self._agent_id}/control/setpoint',
+            self._on_agent_setpoint,
+            _PX4_QOS,
+        )
+
         # AgentStatus'u periyodik yayınla — varsayılan 10 Hz
         self.create_timer(1.0 / publish_rate, self._publish_status)
 
-        # OFFBOARD heartbeat — PX4 offboard modda min 2 Hz sinyal ister, 50 Hz gönderiyoruz.
-        # OffboardControlMode her zaman yayınlanır (offboard dışı modlarda PX4 yoksayar).
-        # TrajectorySetpoint sadece _offboard_streaming=True ve konum geçerliyken gönderilir.
+        # OFFBOARD heartbeat — PX4 min 2 Hz sinyal ister, 50 Hz gönderiyoruz.
+        # OffboardControlMode her zaman yayınlanır (diğer modlarda yoksayılır).
+        # TrajectorySetpoint sadece konum geçerliyken gönderilir.
         self.create_timer(1.0 / 50.0, self._offboard_tick)
 
         self.get_logger().info(
@@ -174,15 +195,26 @@ class Px4BridgeNode(Node):
         """
         ns = self._fmu_ns
         subs = [
-            (BatteryStatus,        f'{ns}/fmu/out/battery_status',         self._on_battery),
-            (VehicleStatus,        f'{ns}/fmu/out/vehicle_status',         self._on_vehicle_status),
-            (VehicleLocalPosition, f'{ns}/fmu/out/vehicle_local_position', self._on_local_pos),
-            (EstimatorStatusFlags, f'{ns}/fmu/out/estimator_status_flags', self._on_estimator),
-            (SensorGps,            f'{ns}/fmu/out/vehicle_gps_position',   self._on_gps),
-            (VehicleGlobalPosition,f'{ns}/fmu/out/vehicle_global_position',self._on_global_pos),
-            (HomePosition,         f'{ns}/fmu/out/home_position',          self._on_home),
-            (VehicleAttitude,      f'{ns}/fmu/out/vehicle_attitude',       self._on_attitude),
-            (ManualControlSetpoint,f'{ns}/fmu/out/manual_control_setpoint',self._on_manual_control),
+            (BatteryStatus,
+             f'{ns}/fmu/out/battery_status', self._on_battery),
+            (VehicleStatus,
+             f'{ns}/fmu/out/vehicle_status', self._on_vehicle_status),
+            (VehicleLocalPosition,
+             f'{ns}/fmu/out/vehicle_local_position', self._on_local_pos),
+            (EstimatorStatusFlags,
+             f'{ns}/fmu/out/estimator_status_flags', self._on_estimator),
+            (SensorGps,
+             f'{ns}/fmu/out/vehicle_gps_position', self._on_gps),
+            (VehicleGlobalPosition,
+             f'{ns}/fmu/out/vehicle_global_position',
+             self._on_global_pos),
+            (HomePosition,
+             f'{ns}/fmu/out/home_position', self._on_home),
+            (VehicleAttitude,
+             f'{ns}/fmu/out/vehicle_attitude', self._on_attitude),
+            (ManualControlSetpoint,
+             f'{ns}/fmu/out/manual_control_setpoint',
+             self._on_manual_control),
         ]
         for msg_type, topic, cb in subs:
             self.create_subscription(msg_type, topic, cb, _PX4_QOS)
@@ -243,8 +275,8 @@ class Px4BridgeNode(Node):
 
         Gerçek donanımda bu metot hiç çağrılmaz (_fake_rc_pub oluşturulmaz).
         PX4'ün RC kaybı failsafe'ini tetiklememesi için neutral stick pozisyonu
-        ile valid=True gönderilir. Offboard modda stick değerleri PX4 tarafından
-        yok sayılır; sadece 'RC bağlı' bilgisi önemlidir.
+        ile valid=True gönderilir. Offboard modda stick değerleri
+        PX4 tarafından yok sayılır; sadece 'RC bağlı' bilgisi önemli.
         """
         msg = ManualControlSetpoint()
         msg.timestamp = int(self.get_clock().now().nanoseconds / 1000)
@@ -264,7 +296,27 @@ class Px4BridgeNode(Node):
         TrajectorySetpoint sadece offboard aktifken ve konum geçerliyken
         gönderilir; bu sayede drone mevcut konumda bekler (hold).
         """
-        self._cmd_sender.publish_offboard_position_mode()
+        # Konum geçerliyken cache'i güncelle
+        if self._status.xy_valid and self._status.z_valid:
+            self._cached_pos_x = self._status.pos_x
+            self._cached_pos_y = self._status.pos_y
+            self._cached_pos_z = self._status.pos_z
+            _yaw = math.radians(self._status.heading_deg)
+            self._cached_yaw_rad = (_yaw + math.pi) % (2 * math.pi) - math.pi
+
+        # Formation setpoint tazeyse kullan; eskimişse hold'a düş.
+        now = self.get_clock().now().nanoseconds * 1e-9
+        setpoint_fresh = (
+            self._latest_setpoint is not None
+            and (now - self._setpoint_stamp) < self._setpoint_timeout_s
+        )
+
+        use_velocity = setpoint_fresh and self._latest_setpoint.velocity_valid
+
+        if use_velocity:
+            self._cmd_sender.publish_offboard_position_velocity_mode()
+        else:
+            self._cmd_sender.publish_offboard_position_mode()
 
         # SITL: sahte RC sinyali — gerçek donanımda çalışmaz
         if self._sitl_mode:
@@ -276,31 +328,54 @@ class Px4BridgeNode(Node):
                 self._offboard_rearm_counter += 1
                 if self._offboard_rearm_counter >= 25:  # 50Hz / 25 = 2Hz
                     self._offboard_rearm_counter = 0
-                    self.get_logger().warn('SITL: Offboard yeniden talep ediliyor...')
+                    self.get_logger().warn(
+                        'SITL: Offboard yeniden talep ediliyor...'
+                    )
                     self._cmd_sender.set_offboard_mode()
             else:
                 self._offboard_rearm_counter = 0
 
-        # Konum geçerliyken cache'i güncelle
-        if self._status.xy_valid and self._status.z_valid:
-            self._cached_pos_x = self._status.pos_x
-            self._cached_pos_y = self._status.pos_y
-            self._cached_pos_z = self._status.pos_z
-            self._cached_yaw_rad = math.radians(self._status.heading_deg)
+        if setpoint_fresh:
+            sp = self._latest_setpoint
+            target_x = float(sp.x)
+            target_y = float(sp.y)
+            target_z = float(sp.z)
+            _yaw = math.radians(float(sp.heading_deg))
+            target_yaw = (_yaw + math.pi) % (2 * math.pi) - math.pi
+        else:
+            target_x = self._cached_pos_x
+            target_y = self._cached_pos_y
+            target_z = (
+                self._target_altitude_ned
+                if self._target_altitude_ned is not None
+                else self._cached_pos_z
+            )
+            target_yaw = self._cached_yaw_rad
 
-        # Setpoint'i her zaman gönder (cache ile) — xy/z_valid geçici false olsa bile
-        # akış kesilmez; PX4 offboard dışındayken yok sayar.
-        target_z = (
-            self._target_altitude_ned
-            if self._target_altitude_ned is not None
-            else self._cached_pos_z
-        )
-        self._cmd_sender.publish_position_setpoint(
-            self._cached_pos_x,
-            self._cached_pos_y,
-            target_z,
-            yaw_rad=self._cached_yaw_rad,
-        )
+        if use_velocity:
+            sp = self._latest_setpoint
+            self._cmd_sender.publish_position_velocity_setpoint(
+                target_x, target_y, target_z,
+                float(sp.vx), float(sp.vy), float(sp.vz),
+                yaw_rad=target_yaw,
+            )
+        else:
+            self._cmd_sender.publish_position_setpoint(
+                target_x, target_y, target_z,
+                yaw_rad=target_yaw,
+            )
+
+    def _on_agent_setpoint(self, msg: AgentSetpoint) -> None:
+        """
+        formation_node'dan gelen setpoint'i saklar.
+
+        Args:
+            msg (AgentSetpoint): Hedef pozisyon ve hız bilgisi.
+        """
+        if not msg.position_valid:
+            return
+        self._latest_setpoint = msg
+        self._setpoint_stamp = self.get_clock().now().nanoseconds * 1e-9
 
     # =================================================================
     # FSM KOMUT KÖPRÜSÜ

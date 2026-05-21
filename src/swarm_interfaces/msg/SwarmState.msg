@@ -105,6 +105,12 @@ float32 formation_heading_error_deg
 
 AgentStatus[] agents
 
+# Aktif ajan ID'leri — swarm_fsm tarafından doldurulur.
+# healthy + origin_synced + IN_SWARM/EXECUTING_TASK kontrollerini geçen
+# drone'ların agent_id listesi (küçükten büyüğe sıralı).
+# formation_control bu listeyi okuyarak rank hesaplar (agents[] boş).
+uint8[] active_agent_ids
+
 string active_mission
 string status_text
 

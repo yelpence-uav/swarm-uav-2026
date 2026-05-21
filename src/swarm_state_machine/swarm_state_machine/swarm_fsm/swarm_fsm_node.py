@@ -79,6 +79,9 @@ class SwarmFsmNode(Node):
     """
 
     def __init__(self) -> None:
+        """
+        Sürü FSM node'unu başlatır, publisher ve subscriber'ları kurar.
+        """
         super().__init__('swarm_fsm_node')
 
         self._declare_params()
@@ -667,6 +670,20 @@ class SwarmFsmNode(Node):
         )
 
         # agents[] boş — 250 byte ESP-NOW limiti (Kural 4)
+
+        # active_agent_ids: küçük payload, formation_control'un tek kaynağı.
+        # Decision B: a.healthy tek bayrak (agent_fsm aggregate'i).
+        _active_states = frozenset({
+            AgentState.IN_SWARM, AgentState.EXECUTING_TASK,
+        })
+        m.active_agent_ids = [
+            a.agent_id
+            for a in sorted(ctx.agents.values(), key=lambda x: x.agent_id)
+            if a.healthy
+            and a.origin_synced
+            and not a.is_stale()
+            and a.state in _active_states
+        ]
 
         m.active_mission = ctx.active_mission
         m.status_text = ctx.status_text
