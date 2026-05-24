@@ -31,6 +31,20 @@ _DURUM_FMT = '<BBBBBfBBBBbBB'  # bkz. DurumVeri alanları
 _RENK_FMT = '<Bii7x'         # renk, lat, lon, rezerv[7]
 _GOREV_FMT = '<BBbB12x'      # tip, param1, param2, bekleme, rezerv[12]
 _ORIGIN_FMT = '<iiiI'        # lat_1e7, lon_1e7, alt_mm, sequence
+_KOMUT_FMT = '<BBhhhh6x'     # alt_tip, flags, roll/pitch/yaw/throttle x100
+_LEADER_HB_FMT = '<BIBBB8x'  # leader_id, seq, round, agent_count, mission
+_ELECTION_FMT = '<BBBBIBBBB4x'  # leader, round, reason, trigger, seq, ids
+
+# Joystick komutu bayrak bitleri (komut_veri_t.flags için)
+KOMUT_FLAG_TAKEOFF = 0x01
+KOMUT_FLAG_LAND = 0x02
+KOMUT_FLAG_RTL = 0x04
+KOMUT_FLAG_EMERGENCY = 0x08
+KOMUT_FLAG_FORMATION_CHANGE = 0x10
+
+# SwarmControlCommand.mode değerleri
+KOMUT_MODE_SWARM_MOVEMENT = 1
+KOMUT_MODE_MANEUVER = 2
 
 _FRAME_MIN = 20  # 1 + 1 + 16 + 2
 
@@ -96,6 +110,45 @@ class OriginVeri:
     lon_1e7: int   # 1e-7 derece
     alt_mm: int    # milimetre
     sequence: int
+
+
+@dataclass
+class KomutVeri:
+    """TIP_KOMUT payload — joystick / yarı otonom sürü komutu.
+
+    SwarmControlCommand'ın 16 bayta sığdırılmış mesh karşılığıdır.
+    Float32 komutlar int16 * 100 (×0.01 ölçek) ile taşınır.
+    """
+
+    alt_tip: int        # MODE_SWARM_MOVEMENT=1 / MODE_MANEUVER=2
+    flags: int          # bit alanı, KOMUT_FLAG_* bitleri
+    roll_x100: int      # roll_cmd * 100  ([-32767, 32767])
+    pitch_x100: int
+    yaw_x100: int
+    throttle_x100: int
+
+
+@dataclass
+class LeaderHbVeri:
+    """TIP_LEADER_HB payload — aktif liderin consensus heartbeat'i."""
+
+    leader_id: int
+    sequence_num: int       # her yayında +1
+    election_round: int     # mevcut election turu
+    active_agent_count: int  # liderin gördüğü aktif ajan sayısı
+    mission_active: int      # 0/1
+
+
+@dataclass
+class ElectionVeri:
+    """TIP_ELECTION payload — yeni lider seçim sonucu."""
+
+    new_leader_id: int
+    election_round: int
+    reason: int              # REASON_* (1=TIMEOUT, 2=FAULT, 3=MANUAL)
+    triggered_by: int        # election'ı başlatan ajan, 0=sistem
+    sequence_num: int
+    confirmed_ids: tuple[int, int, int, int]  # max 4 ajan, 0 = boş
 
 
 @dataclass
@@ -197,3 +250,91 @@ def pose_paketle(lat: int, lon: int, alt_cm: int, heading: int,
         bytes: 16 baytlık payload.
     """
     return struct.pack(_POSE_FMT, lat, lon, alt_cm, heading, vx, vy)
+
+
+def komut_coz(payload: bytes) -> KomutVeri:
+    """TIP_KOMUT payload'ını KomutVeri'ye çözer."""
+    alt_tip, flags, roll, pitch, yaw, throttle = struct.unpack(
+        _KOMUT_FMT, payload
+    )
+    return KomutVeri(alt_tip, flags, roll, pitch, yaw, throttle)
+
+
+def komut_paketle(alt_tip: int, flags: int, roll_x100: int,
+                  pitch_x100: int, yaw_x100: int,
+                  throttle_x100: int) -> bytes:
+    """Joystick komutunu 16 baytlık mesh payload'ına paketler.
+
+    Args:
+        alt_tip (int): Mod (1=SWARM_MOVEMENT, 2=MANEUVER).
+        flags (int): KOMUT_FLAG_* bitleri.
+        roll_x100 (int): roll_cmd * 100 (float -> int16 ölçek).
+        pitch_x100 (int): pitch_cmd * 100.
+        yaw_x100 (int): yaw_cmd * 100.
+        throttle_x100 (int): throttle_cmd * 100.
+
+    Returns:
+        bytes: 16 baytlık payload.
+    """
+    return struct.pack(
+        _KOMUT_FMT, alt_tip, flags,
+        roll_x100, pitch_x100, yaw_x100, throttle_x100,
+    )
+
+
+def leader_hb_coz(payload: bytes) -> LeaderHbVeri:
+    """TIP_LEADER_HB payload'ını LeaderHbVeri'ye çözer."""
+    leader_id, seq, election_round, agent_count, mission = struct.unpack(
+        _LEADER_HB_FMT, payload
+    )
+    return LeaderHbVeri(leader_id, seq, election_round, agent_count, mission)
+
+
+def leader_hb_paketle(leader_id: int, sequence_num: int,
+                      election_round: int, active_agent_count: int,
+                      mission_active: int) -> bytes:
+    """LeaderHeartbeat alanlarını 16 baytlık payload'a paketler.
+
+    Returns:
+        bytes: 16 baytlık payload.
+    """
+    return struct.pack(
+        _LEADER_HB_FMT,
+        leader_id, sequence_num, election_round,
+        active_agent_count, mission_active,
+    )
+
+
+def election_coz(payload: bytes) -> ElectionVeri:
+    """TIP_ELECTION payload'ını ElectionVeri'ye çözer."""
+    (leader, election_round, reason, triggered_by, seq,
+     id0, id1, id2, id3) = struct.unpack(_ELECTION_FMT, payload)
+    return ElectionVeri(
+        new_leader_id=leader,
+        election_round=election_round,
+        reason=reason,
+        triggered_by=triggered_by,
+        sequence_num=seq,
+        confirmed_ids=(id0, id1, id2, id3),
+    )
+
+
+def election_paketle(new_leader_id: int, election_round: int,
+                     reason: int, triggered_by: int,
+                     sequence_num: int,
+                     confirmed_ids: tuple) -> bytes:
+    """ElectionResult alanlarını 16 baytlık payload'a paketler.
+
+    Args:
+        confirmed_ids (tuple): Onay veren ajan ID'leri. 4'ten kısaysa 0
+            ile doldurulur, 4'ten uzunsa kırpılır.
+
+    Returns:
+        bytes: 16 baytlık payload.
+    """
+    ids = list(confirmed_ids[:4]) + [0] * (4 - len(confirmed_ids[:4]))
+    return struct.pack(
+        _ELECTION_FMT,
+        new_leader_id, election_round, reason, triggered_by,
+        sequence_num, ids[0], ids[1], ids[2], ids[3],
+    )

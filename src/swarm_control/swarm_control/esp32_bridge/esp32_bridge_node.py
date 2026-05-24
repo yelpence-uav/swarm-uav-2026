@@ -34,7 +34,14 @@ from rclpy.qos import (
     QoSReliabilityPolicy,
 )
 
-from swarm_interfaces.msg import AgentStatus, SwarmOrigin
+from swarm_interfaces.msg import (
+    AgentStatus,
+    ElectionResult,
+    LeaderHeartbeat,
+    SwarmControlCommand,
+    SwarmOrigin,
+    SystemEvent,
+)
 
 from . import packet_parser as pp
 from .cobs import cobs_decode, cobs_encode
@@ -56,7 +63,50 @@ _ORIGIN_QOS = QoSProfile(
     depth=1,
 )
 
+# LeaderHeartbeat: RELIABLE + VOLATILE, depth=5 (contract madde 3.1)
+_HEARTBEAT_QOS = QoSProfile(
+    reliability=QoSReliabilityPolicy.RELIABLE,
+    durability=QoSDurabilityPolicy.VOLATILE,
+    history=QoSHistoryPolicy.KEEP_LAST,
+    depth=5,
+)
+
+# ElectionResult: RELIABLE + TRANSIENT_LOCAL, depth=10 (geç gelen alır)
+_ELECTION_QOS = QoSProfile(
+    reliability=QoSReliabilityPolicy.RELIABLE,
+    durability=QoSDurabilityPolicy.TRANSIENT_LOCAL,
+    history=QoSHistoryPolicy.KEEP_LAST,
+    depth=10,
+)
+
+# SystemEvent: RELIABLE, event tabanlı
+_EVENT_QOS = QoSProfile(
+    reliability=QoSReliabilityPolicy.RELIABLE,
+    durability=QoSDurabilityPolicy.VOLATILE,
+    history=QoSHistoryPolicy.KEEP_LAST,
+    depth=10,
+)
+
 _FRAME_DELIM = 0x00
+
+# Firmware durum_veri_t.durum -> AgentStatus.state eşleşmesi.
+# ORCA/APF, state 7/8/13/14 olan komşuları avoidance hesabından çıkarır
+# (INTERFACE_CONTRACT madde 8). DURUM_AYRILDI -> STATE_DETACHED kritik:
+# AYRILDI/INDI olan drone'a çarpışma önleme yapılmamalı, aksi halde
+# şartname madde 13 ihlali ve -20*N çarpışma cezası riski oluşur.
+_DURUM_AKTIF = 1
+_DURUM_AYRILDI = 2
+_DURUM_INDI = 3
+_DURUM_STATE_MAP = {
+    _DURUM_AKTIF: AgentStatus.STATE_IN_SWARM,    # 5
+    _DURUM_AYRILDI: AgentStatus.STATE_DETACHED,  # 7
+    _DURUM_INDI: AgentStatus.STATE_LANDED,       # 13
+}
+
+
+def _kirp_int16(deger: float) -> int:
+    """float değeri int16 aralığına (-32768..32767) kırpıp tamsayı döner."""
+    return max(-32768, min(32767, int(deger)))
 
 
 class Esp32BridgeNode(Node):
@@ -82,6 +132,26 @@ class Esp32BridgeNode(Node):
         self._origin_pub = self.create_publisher(
             SwarmOrigin, '/swarm/public/origin', _ORIGIN_QOS
         )
+        self._control_pub = self.create_publisher(
+            SwarmControlCommand,
+            '/swarm/public/control/command',
+            _MESH_QOS,
+        )
+        self._leader_hb_pub = self.create_publisher(
+            LeaderHeartbeat,
+            '/swarm/public/leader/heartbeat',
+            _HEARTBEAT_QOS,
+        )
+        self._election_pub = self.create_publisher(
+            ElectionResult,
+            '/swarm/public/election/result',
+            _ELECTION_QOS,
+        )
+        self._event_pub = self.create_publisher(
+            SystemEvent,
+            '/swarm/public/events/system',
+            _EVENT_QOS,
+        )
 
         # Seri portu aç
         try:
@@ -105,6 +175,30 @@ class Esp32BridgeNode(Node):
             '/swarm/internal/origin',
             self._on_origin_out,
             _ORIGIN_QOS,
+        )
+
+        # RPi -> ESP32: joystick komutu (Görev 2) mesh'e iletilecek
+        self.create_subscription(
+            SwarmControlCommand,
+            '/swarm/internal/control/command',
+            self._on_control_out,
+            _MESH_QOS,
+        )
+
+        # RPi -> ESP32: lider kalp atışı (yalnızca aktif lider yayınlar)
+        self.create_subscription(
+            LeaderHeartbeat,
+            '/swarm/internal/leader/heartbeat',
+            self._on_leader_hb_out,
+            _HEARTBEAT_QOS,
+        )
+
+        # RPi -> ESP32: lider seçim sonucu (yeni lider yayınlar)
+        self.create_subscription(
+            ElectionResult,
+            '/swarm/internal/election/result',
+            self._on_election_out,
+            _ELECTION_QOS,
         )
 
         # Seri okuma thread'i
@@ -152,14 +246,28 @@ class Esp32BridgeNode(Node):
         if cerceve is None:
             return  # CRC hatası veya eksik veri — sessizce at
 
+        # Defansif: firmware kendi paketlerini ISR'da filtreler ama
+        # bir hata olur da kendi paketimiz geri gelirse komşu yayını
+        # yapmayalım (kendi pose'umuz px4_bridge'den geliyor).
+        if cerceve.iha_id == 0 or cerceve.iha_id == self._agent_id:
+            return
+
         if cerceve.tip == pp.TIP_POSE:
             self._isle_pose(cerceve.iha_id, cerceve.payload)
         elif cerceve.tip == pp.TIP_DURUM:
             self._isle_durum(cerceve.iha_id, cerceve.payload)
         elif cerceve.tip == pp.TIP_ORIGIN:
             self._isle_origin(cerceve.iha_id, cerceve.payload)
-        # TIP_RENK / TIP_GOREV / TIP_LEADER_HB / TIP_ELECTION:
-        # ilgili tüketiciler hazır olunca eklenecek (TODO).
+        elif cerceve.tip == pp.TIP_KOMUT:
+            self._isle_komut(cerceve.iha_id, cerceve.payload)
+        elif cerceve.tip == pp.TIP_LEADER_HB:
+            self._isle_leader_hb(cerceve.iha_id, cerceve.payload)
+        elif cerceve.tip == pp.TIP_ELECTION:
+            self._isle_election(cerceve.iha_id, cerceve.payload)
+        elif cerceve.tip == pp.TIP_RENK:
+            self._isle_renk(cerceve.iha_id, cerceve.payload)
+        # TIP_GOREV: QR çözümleme qr_detector'da yapılır; mesh üzerinden
+        # taşınmasına şu an gerek yok (TODO: takım kararı).
 
     # =================================================================
     # MESH -> ROS2 İŞLEYİCİLERİ
@@ -187,10 +295,19 @@ class Esp32BridgeNode(Node):
             self._yayinla_status(drone_id, status)
 
     def _isle_durum(self, drone_id: int, payload: bytes) -> None:
-        """TIP_DURUM -> komşu AgentStatus sağlık alanlarını günceller."""
+        """TIP_DURUM -> komşu AgentStatus sağlık alanlarını günceller.
+
+        Firmware'in 3 seviyeli durum'u (AKTIF/AYRILDI/INDI) AgentStatus
+        FSM state'ine eşleştirilir. ORCA/APF için kritik: AYRILDI/INDI
+        olan komşulara avoidance hesabı yapılmamalı.
+        """
         durum = pp.durum_coz(payload)
+        # Bilinmeyen durum kodları STATE_UNKNOWN (0) olarak bırakılır;
+        # contract gereği UNKNOWN, "aktif gibi davran" anlamına gelir.
+        state = _DURUM_STATE_MAP.get(durum.durum, AgentStatus.STATE_UNKNOWN)
         with self._cache_lock:
             status = self._komsu_status_al(drone_id)
+            status.state = state
             status.armed = bool(durum.armed)
             status.gps_fix_type = durum.gps_fix_type
             status.battery_percent = float(durum.battery_pct)
@@ -230,6 +347,79 @@ class Esp32BridgeNode(Node):
         msg.valid = True
         msg.sequence = origin.sequence
         self._origin_pub.publish(msg)
+
+    def _isle_komut(self, source_id: int, payload: bytes) -> None:
+        """TIP_KOMUT -> /swarm/public/control/command'a SwarmControlCommand.
+
+        Joystick float32 değerleri int16*100 ile taşındığı için 100'e
+        bölünerek geri çevrilir.
+        """
+        k = pp.komut_coz(payload)
+        msg = SwarmControlCommand()
+        msg.stamp = self.get_clock().now().to_msg()
+        msg.mode = k.alt_tip
+        msg.roll_cmd = k.roll_x100 / 100.0
+        msg.pitch_cmd = k.pitch_x100 / 100.0
+        msg.yaw_cmd = k.yaw_x100 / 100.0
+        msg.throttle_cmd = k.throttle_x100 / 100.0
+        msg.takeoff = bool(k.flags & pp.KOMUT_FLAG_TAKEOFF)
+        msg.land = bool(k.flags & pp.KOMUT_FLAG_LAND)
+        msg.rtl = bool(k.flags & pp.KOMUT_FLAG_RTL)
+        msg.emergency_stop = bool(k.flags & pp.KOMUT_FLAG_EMERGENCY)
+        msg.formation_change_requested = bool(
+            k.flags & pp.KOMUT_FLAG_FORMATION_CHANGE
+        )
+        msg.command_valid = True
+        msg.source_module = f'esp32_bridge_from_agent_{source_id}'
+        self._control_pub.publish(msg)
+
+    def _isle_leader_hb(self, source_id: int, payload: bytes) -> None:
+        """TIP_LEADER_HB -> /swarm/public/leader/heartbeat'e yayın."""
+        hb = pp.leader_hb_coz(payload)
+        msg = LeaderHeartbeat()
+        msg.stamp = self.get_clock().now().to_msg()
+        msg.leader_id = hb.leader_id
+        msg.sequence_num = hb.sequence_num
+        msg.election_round = hb.election_round
+        msg.active_agent_count = hb.active_agent_count
+        msg.mission_active = bool(hb.mission_active)
+        self._leader_hb_pub.publish(msg)
+
+    def _isle_election(self, source_id: int, payload: bytes) -> None:
+        """TIP_ELECTION -> /swarm/public/election/result'a yayın."""
+        e = pp.election_coz(payload)
+        msg = ElectionResult()
+        msg.stamp = self.get_clock().now().to_msg()
+        msg.sequence_num = e.sequence_num
+        msg.new_leader_id = e.new_leader_id
+        msg.election_round = e.election_round
+        msg.triggered_by_agent_id = e.triggered_by
+        msg.reason = e.reason
+        # 0 dolgu ID'lerini at — gerçekte onay verenler bunlar
+        msg.confirmed_by_agent_ids = [
+            i for i in e.confirmed_ids if i != 0
+        ]
+        self._election_pub.publish(msg)
+
+    def _isle_renk(self, source_id: int, payload: bytes) -> None:
+        """TIP_RENK -> SystemEvent.EVENT_COLOR_ZONE_DETECTED olarak yayın.
+
+        Mesh üzerinden komşulardan gelen renk bölgesi tespitleri sürünün
+        ortak hafızasına SystemEvent olarak yayımlanır. GPS koordinatları
+        1e-7 derece tamsayı olduğu için NED pos_x/y'ye konmaz; mesaj
+        string'inde taşınır.
+        """
+        r = pp.renk_coz(payload)
+        msg = SystemEvent()
+        msg.stamp = self.get_clock().now().to_msg()
+        msg.event_type = SystemEvent.EVENT_COLOR_ZONE_DETECTED
+        msg.severity = SystemEvent.SEVERITY_INFO
+        msg.source_agent_id = source_id
+        msg.value = float(r.renk)
+        msg.has_position = False
+        msg.source_module = 'esp32_bridge'
+        msg.message = f'renk={r.renk} lat_1e7={r.lat} lon_1e7={r.lon}'
+        self._event_pub.publish(msg)
 
     # =================================================================
     # ROS2 -> MESH İŞLEYİCİLERİ (UART'a yaz)
@@ -274,6 +464,57 @@ class Esp32BridgeNode(Node):
             sequence=msg.sequence,
         )
         self._uart_yaz(pp.TIP_ORIGIN, self._agent_id, payload)
+
+    def _on_control_out(self, msg: SwarmControlCommand) -> None:
+        """SwarmControlCommand'ı TIP_KOMUT olarak ESP32'ye gönderir.
+
+        Görev 2 joystick akışı: int16 ölçeklemesi sınırı dışına çıkan
+        değerler kırpılır.
+        """
+        flags = 0
+        if msg.takeoff:
+            flags |= pp.KOMUT_FLAG_TAKEOFF
+        if msg.land:
+            flags |= pp.KOMUT_FLAG_LAND
+        if msg.rtl:
+            flags |= pp.KOMUT_FLAG_RTL
+        if msg.emergency_stop:
+            flags |= pp.KOMUT_FLAG_EMERGENCY
+        if msg.formation_change_requested:
+            flags |= pp.KOMUT_FLAG_FORMATION_CHANGE
+
+        payload = pp.komut_paketle(
+            alt_tip=msg.mode,
+            flags=flags,
+            roll_x100=_kirp_int16(msg.roll_cmd * 100.0),
+            pitch_x100=_kirp_int16(msg.pitch_cmd * 100.0),
+            yaw_x100=_kirp_int16(msg.yaw_cmd * 100.0),
+            throttle_x100=_kirp_int16(msg.throttle_cmd * 100.0),
+        )
+        self._uart_yaz(pp.TIP_KOMUT, self._agent_id, payload)
+
+    def _on_leader_hb_out(self, msg: LeaderHeartbeat) -> None:
+        """LeaderHeartbeat'i TIP_LEADER_HB olarak ESP32'ye gönderir."""
+        payload = pp.leader_hb_paketle(
+            leader_id=msg.leader_id,
+            sequence_num=msg.sequence_num,
+            election_round=msg.election_round,
+            active_agent_count=msg.active_agent_count,
+            mission_active=1 if msg.mission_active else 0,
+        )
+        self._uart_yaz(pp.TIP_LEADER_HB, self._agent_id, payload)
+
+    def _on_election_out(self, msg: ElectionResult) -> None:
+        """ElectionResult'ı TIP_ELECTION olarak ESP32'ye gönderir."""
+        payload = pp.election_paketle(
+            new_leader_id=msg.new_leader_id,
+            election_round=msg.election_round,
+            reason=msg.reason,
+            triggered_by=msg.triggered_by_agent_id,
+            sequence_num=msg.sequence_num,
+            confirmed_ids=tuple(msg.confirmed_by_agent_ids),
+        )
+        self._uart_yaz(pp.TIP_ELECTION, self._agent_id, payload)
 
     # =================================================================
     # KAPANIŞ

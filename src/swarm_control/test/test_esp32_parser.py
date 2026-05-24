@@ -62,3 +62,70 @@ def test_bozuk_crc_reddedilir():
 def test_kisa_cerceve_reddedilir():
     """20 bayttan kısa çerçeve None döner."""
     assert pp.cerceve_coz(b'\x04\x02\x00') is None
+
+
+def test_komut_round_trip():
+    """TIP_KOMUT joystick komutu alanları korumalı."""
+    payload = pp.komut_paketle(
+        alt_tip=pp.KOMUT_MODE_SWARM_MOVEMENT,
+        flags=pp.KOMUT_FLAG_TAKEOFF | pp.KOMUT_FLAG_FORMATION_CHANGE,
+        roll_x100=50, pitch_x100=-25, yaw_x100=100, throttle_x100=0,
+    )
+    assert len(payload) == 16
+    k = pp.komut_coz(payload)
+    assert k.alt_tip == pp.KOMUT_MODE_SWARM_MOVEMENT
+    assert k.flags & pp.KOMUT_FLAG_TAKEOFF
+    assert k.flags & pp.KOMUT_FLAG_FORMATION_CHANGE
+    assert not k.flags & pp.KOMUT_FLAG_LAND
+    assert k.roll_x100 == 50
+    assert k.pitch_x100 == -25
+
+
+def test_leader_hb_round_trip():
+    """LeaderHeartbeat alanları 16 bayta sığar ve geri çözülür."""
+    payload = pp.leader_hb_paketle(
+        leader_id=2, sequence_num=1234567,
+        election_round=3, active_agent_count=4, mission_active=1,
+    )
+    assert len(payload) == 16
+    hb = pp.leader_hb_coz(payload)
+    assert hb.leader_id == 2
+    assert hb.sequence_num == 1234567
+    assert hb.election_round == 3
+    assert hb.active_agent_count == 4
+    assert hb.mission_active == 1
+
+
+def test_election_round_trip():
+    """ElectionResult alanları 16 bayta sığar; confirmed_ids 4 ile padle."""
+    payload = pp.election_paketle(
+        new_leader_id=2, election_round=4, reason=1,
+        triggered_by=0, sequence_num=42, confirmed_ids=(1, 2, 3),
+    )
+    assert len(payload) == 16
+    e = pp.election_coz(payload)
+    assert e.new_leader_id == 2
+    assert e.reason == 1
+    assert e.sequence_num == 42
+    # 3 onay verildi, 4. slot 0 ile dolduruldu
+    assert e.confirmed_ids == (1, 2, 3, 0)
+
+
+def test_election_kirpma_4ten_fazla_id():
+    """4'ten fazla confirmed_id verilirse ilk 4 alınır."""
+    payload = pp.election_paketle(
+        new_leader_id=1, election_round=1, reason=2,
+        triggered_by=3, sequence_num=10, confirmed_ids=(1, 2, 3, 4, 5),
+    )
+    e = pp.election_coz(payload)
+    assert e.confirmed_ids == (1, 2, 3, 4)
+
+
+def test_yeni_tipler_cerceve_uyumlu():
+    """Yeni paket tipleri tam çerçevede taşınabilir (POSE/DURUM gibi)."""
+    payload = pp.komut_paketle(
+        pp.KOMUT_MODE_MANEUVER, 0, 10, 20, 30, -40,
+    )
+    decoded = cobs_decode(_cerceve_uret(pp.TIP_KOMUT, 1, payload))
+    c = pp.cerceve_coz(decoded)
+    assert c is not None and c.tip == pp.TIP_KOMUT
