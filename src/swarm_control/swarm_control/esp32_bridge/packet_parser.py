@@ -206,16 +206,81 @@ def durum_coz(payload: bytes) -> DurumVeri:
     )
 
 
+def durum_paketle(drone_id: int, durum: int, armed: int,
+                  gps_fix_type: int, battery_pct: int,
+                  battery_volt: float, ekf_ok: int, imu_ok: int,
+                  mag_ok: int, baro_ok: int, rssi: int,
+                  mesh_link_ok: int) -> bytes:
+    """DurumVeri alanlarını 16 baytlık mesh payload'ına paketler.
+
+    RPi kendi durumunu (agent_fsm çıktısı) ESP32'ye gönderirken
+    kullanır. Sürünün §5.1 m.15 ayrılma akışı için kritik.
+
+    Args:
+        drone_id (int): Kendi ID.
+        durum (int): _DURUM_* enum kodu (firmware ile aynı).
+        armed (int): 0/1.
+        gps_fix_type (int): 0-6 (RTK FIX = 6).
+        battery_pct (int): 0-100.
+        battery_volt (float): Pak voltajı.
+        ekf_ok (int): 0/1.
+        imu_ok (int): 0/1.
+        mag_ok (int): 0/1.
+        baro_ok (int): 0/1.
+        rssi (int): dBm, -128..127.
+        mesh_link_ok (int): 0/1.
+
+    Returns:
+        bytes: 16 baytlık payload.
+    """
+    return struct.pack(
+        _DURUM_FMT,
+        drone_id, durum, armed, gps_fix_type, battery_pct,
+        float(battery_volt), ekf_ok, imu_ok, mag_ok, baro_ok,
+        rssi, mesh_link_ok, 0,  # son alan: rezerv/pad
+    )
+
+
 def renk_coz(payload: bytes) -> RenkVeri:
     """TIP_RENK payload'ını RenkVeri'ye çözer."""
     renk, lat, lon = struct.unpack(_RENK_FMT, payload)
     return RenkVeri(renk, lat, lon)
 
 
+def renk_paketle(renk: int, lat: int, lon: int) -> bytes:
+    """Renk bölgesi tespitini 16 baytlık mesh payload'a paketler.
+
+    Args:
+        renk (int): 1=KIRMIZI, 2=MAVI (şartname §5.1 m.15).
+        lat (int): Enlem, 1e-7 derece.
+        lon (int): Boylam, 1e-7 derece.
+
+    Returns:
+        bytes: 16 baytlık payload.
+    """
+    return struct.pack(_RENK_FMT, renk, lat, lon)
+
+
 def gorev_coz(payload: bytes) -> GorevVeri:
     """TIP_GOREV payload'ını GorevVeri'ye çözer."""
     tip, param1, param2, bekleme = struct.unpack(_GOREV_FMT, payload)
     return GorevVeri(tip, param1, param2, bekleme)
+
+
+def gorev_paketle(tip: int, param1: int, param2: int,
+                  bekleme_suresi_s: int) -> bytes:
+    """Sürü görev komutunu 16 baytlık mesh payload'a paketler.
+
+    Args:
+        tip (int): Görev tipi (formasyon/irtifa/manevra alt-tipi).
+        param1 (int): 0-255 birinci parametre.
+        param2 (int): -128..127 ikinci parametre.
+        bekleme_suresi_s (int): 0-255 saniye bekleme süresi.
+
+    Returns:
+        bytes: 16 baytlık payload.
+    """
+    return struct.pack(_GOREV_FMT, tip, param1, param2, bekleme_suresi_s)
 
 
 def origin_coz(payload: bytes) -> OriginVeri:

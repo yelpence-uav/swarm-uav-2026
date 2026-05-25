@@ -5,6 +5,10 @@ ESP-NOW mesh üzerinden gelip ESP32'nin UART'a yazdığı paketleri çözer,
 ROS2 topic'lerine yayınlar. Ters yönde, bu drone'dan çıkması gereken
 mesajları (origin, kendi pozisyonu) ESP32'ye UART üzerinden gönderir.
 
+SÜRÜ BOYUTU: Şartname §5/§6.1 en az 3 İHA istiyor; üst sınır
+belirtilmemiş. Yelpençe takımı 3 drone (1 lider + 2 follower) ile
+yarışacak. Kod 1-254 ID aralığında esnek (test/yedek için).
+
 UART protokolü (firmware ile AYNI):
     [tip][iha_id][payload 16B][crc16 2B] -> COBS encode -> 0x00 ayraç
 
@@ -23,6 +27,7 @@ KULLANIM:
 """
 
 import threading
+import time
 
 import rclpy
 import serial
@@ -91,16 +96,66 @@ _FRAME_DELIM = 0x00
 
 # Firmware durum_veri_t.durum -> AgentStatus.state eşleşmesi.
 # ORCA/APF, state 7/8/13/14 olan komşuları avoidance hesabından çıkarır
-# (INTERFACE_CONTRACT madde 8). DURUM_AYRILDI -> STATE_DETACHED kritik:
-# AYRILDI/INDI olan drone'a çarpışma önleme yapılmamalı, aksi halde
-# şartname madde 13 ihlali ve -20*N çarpışma cezası riski oluşur.
-_DURUM_AKTIF = 1
-_DURUM_AYRILDI = 2
-_DURUM_INDI = 3
+# (INTERFACE_CONTRACT madde 8). Şartname §8.4: çarpışma cezası -20*N.
+#
+# ŞARTNAME BAĞLAMI: 2026 Sürü İHA Şartnamesi §5.1 (Dinamik Görev) ve
+# §5.2 (Yarı Otonom) tüm senaryoları kapsar. AgentStatus enum'ı zaten
+# §5.1 madde 15-16-18'i tam destekliyor. Aşağıdaki firmware durum
+# kodları Büşra ile koordine edilmek üzere ÖNERİDİR; nihai değerler
+# mesh_config.h ile birebir tutulmalıdır.
+_DURUM_BILINMIYOR = 0
+_DURUM_BOSTA = 1         # yerde, arm değil (§5.1 başlangıç, §5.1 yedek)
+_DURUM_KALKIS = 2        # §5.1 m.3 kalkış (TAKEOFF)
+_DURUM_SURUDE = 3        # §5.1 m.4 sürüde uçuş (IN_SWARM)
+_DURUM_GOREV = 4         # §5.1 m.6-9 formasyon/manevra/irtifa
+_DURUM_AYRILDI = 5       # §5.1 m.15 sürüden ayrıldı
+_DURUM_HASSAS_INIS = 6   # §5.1 m.15 renkli alana iniyor
+_DURUM_KATILMA = 7       # §5.1 m.15 yeniden katılma (kalkış sonrası)
+_DURUM_BEKLIYOR = 8      # §5.1 m.15-16 yerde disarm, bekleme süresi
+_DURUM_RTL = 9           # §5.4 RTL failsafe / §5.1 m.17 home dönüş
+_DURUM_INIS = 10         # §5.1 m.18 home iniş (LANDING)
+_DURUM_INDI = 11         # §5.1 m.19 disarm, görev tamam
+_DURUM_FAILSAFE = 12     # §5.4 failsafe (kumanda kaybı, vs.)
+_DURUM_STANDBY = 13      # §5.1 m.16 yedek ajan (yerde, katılmaya hazır)
 _DURUM_STATE_MAP = {
-    _DURUM_AKTIF: AgentStatus.STATE_IN_SWARM,    # 5
-    _DURUM_AYRILDI: AgentStatus.STATE_DETACHED,  # 7
-    _DURUM_INDI: AgentStatus.STATE_LANDED,       # 13
+    _DURUM_BILINMIYOR:  AgentStatus.STATE_UNKNOWN,            # 0
+    _DURUM_BOSTA:       AgentStatus.STATE_IDLE,               # 1
+    _DURUM_KALKIS:      AgentStatus.STATE_TAKEOFF,            # 4
+    _DURUM_SURUDE:      AgentStatus.STATE_IN_SWARM,           # 5
+    _DURUM_GOREV:       AgentStatus.STATE_EXECUTING_TASK,     # 6
+    _DURUM_AYRILDI:     AgentStatus.STATE_DETACHED,           # 7
+    _DURUM_HASSAS_INIS: AgentStatus.STATE_PRECISION_LANDING,  # 8
+    _DURUM_KATILMA:     AgentStatus.STATE_REJOINING,          # 10
+    _DURUM_BEKLIYOR:    AgentStatus.STATE_WAITING_REJOIN,     # 9
+    _DURUM_RTL:         AgentStatus.STATE_RETURN_HOME,        # 11
+    _DURUM_INIS:        AgentStatus.STATE_LANDING,            # 12
+    _DURUM_INDI:        AgentStatus.STATE_LANDED,             # 13
+    _DURUM_FAILSAFE:    AgentStatus.STATE_FAILSAFE,           # 14
+    _DURUM_STANDBY:     AgentStatus.STATE_STANDBY,            # 15
+}
+
+# Ters yön: AgentStatus.state -> firmware durum kodu.
+# DURUM mesh paketi gönderirken agent_fsm'in atadığı state'i
+# 14 firmware koduna eşliyoruz. AgentStatus'ın ARMING(2)/ARMED(3)
+# state'leri firmware'de ayrı kod taşımıyor → DURUM_KALKIS'a eşlenir
+# (kalkış öncesi/sırası birleşik).
+_STATE_DURUM_MAP = {
+    AgentStatus.STATE_UNKNOWN:           _DURUM_BILINMIYOR,
+    AgentStatus.STATE_IDLE:              _DURUM_BOSTA,
+    AgentStatus.STATE_ARMING:            _DURUM_KALKIS,
+    AgentStatus.STATE_ARMED:             _DURUM_KALKIS,
+    AgentStatus.STATE_TAKEOFF:           _DURUM_KALKIS,
+    AgentStatus.STATE_IN_SWARM:          _DURUM_SURUDE,
+    AgentStatus.STATE_EXECUTING_TASK:    _DURUM_GOREV,
+    AgentStatus.STATE_DETACHED:          _DURUM_AYRILDI,
+    AgentStatus.STATE_PRECISION_LANDING: _DURUM_HASSAS_INIS,
+    AgentStatus.STATE_WAITING_REJOIN:    _DURUM_BEKLIYOR,
+    AgentStatus.STATE_REJOINING:         _DURUM_KATILMA,
+    AgentStatus.STATE_RETURN_HOME:       _DURUM_RTL,
+    AgentStatus.STATE_LANDING:           _DURUM_INIS,
+    AgentStatus.STATE_LANDED:            _DURUM_INDI,
+    AgentStatus.STATE_FAILSAFE:          _DURUM_FAILSAFE,
+    AgentStatus.STATE_STANDBY:           _DURUM_STANDBY,
 }
 
 
@@ -122,12 +177,42 @@ class Esp32BridgeNode(Node):
         port = str(self.get_parameter('serial_port').value)
         baud = int(self.get_parameter('baud').value)
 
+        # agent_id: 1-254 (0 = broadcast/invalid, 255 = ESP-NOW broadcast).
+        # Bu sınırın dışı sessiz hata üretir, erken patlayalım.
+        if not 1 <= self._agent_id <= 254:
+            raise ValueError(
+                f'agent_id 1-254 arasında olmalı, verilen: {self._agent_id}'
+            )
+        # baud rate: ESP32 UART için yaygın değerler. 115200 default.
+        if baud not in (9600, 19200, 38400, 57600, 115200, 230400, 460800):
+            self.get_logger().warning(
+                f'Olağandışı baud rate: {baud} (yaygın değil)'
+            )
+
         # Komşu drone başına AgentStatus cache'i (POSE + DURUM birleşir)
         self._komsu_durum: dict[int, AgentStatus] = {}
         self._cache_lock = threading.Lock()
 
         # Komşu status yayıncıları drone_id'ye göre tembel oluşturulur
         self._status_pubs: dict[int, object] = {}
+
+        # Mesh sağlık sayaçları (şartname §5.4 failsafe gözlemi için).
+        # swarm_fsm, bridge bu sayaçları durdurursa mesh kopuk sanar ve
+        # RTL/Land tetikleyebilir.
+        self._alim_ok = 0          # COBS+CRC doğrulanmış paket sayısı
+        self._crc_fail = 0         # CRC eşleşmemiş paket sayısı
+        self._gonderim_ok = 0      # UART'a başarılı yazılan paket sayısı
+        self._gonderim_drop = 0    # port kapalı/hata ile düşürülen
+        self._son_alim_ts = 0.0    # son başarılı paket zamanı (monotonic)
+        # Son N saniyede mesaj duyan komşu ID'leri
+        self._komsu_son_goruldu: dict[int, float] = {}
+        # POSE giden son zaman — rate limit için (Ö3)
+        self._son_pose_gonderim_ts = 0.0
+        # Rate-limit eşiği: saniyede 10 POSE = 100ms aralık
+        self._pose_periyot_s = 0.1
+        # DURUM giden son zaman — 1Hz tavan (state nadiren değişir)
+        self._son_durum_gonderim_ts = 0.0
+        self._durum_periyot_s = 1.0
 
         self._origin_pub = self.create_publisher(
             SwarmOrigin, '/swarm/public/origin', _ORIGIN_QOS
@@ -147,25 +232,41 @@ class Esp32BridgeNode(Node):
             '/swarm/public/election/result',
             _ELECTION_QOS,
         )
-        self._event_pub = self.create_publisher(
+        # Event yayıncıları iki ayrı topic'e (kontrat 3.1 satır 119):
+        #  - _event_pub_internal: BU drone'un kendi ürettiği event'ler
+        #    (mesh diag, link lost). Publisher kuralı /internal/'a yazar.
+        #  - _event_pub_public: mesh'ten relay edilen komşu event'leri.
+        #    Bridge proxy rolünde, başkasının event'ini /public/'a düşürür.
+        self._event_pub_internal = self.create_publisher(
+            SystemEvent,
+            '/swarm/internal/events/system',
+            _EVENT_QOS,
+        )
+        self._event_pub_public = self.create_publisher(
             SystemEvent,
             '/swarm/public/events/system',
             _EVENT_QOS,
         )
 
-        # Seri portu aç
-        try:
-            self._ser = serial.Serial(port, baud, timeout=0.1)
-            self.get_logger().info(f'Seri port açıldı: {port} @ {baud}')
-        except serial.SerialException as exc:
-            self.get_logger().error(f'Seri port açılamadı: {exc}')
-            raise
+        # Seri port ayarlarını sakla — kopma sonrası reconnect için
+        self._port = port
+        self._baud = baud
+        self._ser_lock = threading.Lock()  # write/reconnect yarış engeli
 
-        # RPi -> ESP32: kendi RTK konumunu mesh'e yaymak için
+        # Seri portu aç (ilk açılış başarısızsa fail-fast yapma; reconnect
+        # thread'i sahaya gidip ESP32 sonra takılırsa da yakalar).
+        self._ser: serial.Serial | None = None
+        self._seri_ac()
+
+        # RPi -> ESP32: kendi otoritatif durumumuzu mesh'e yaymak için.
+        # Kontrat 3.1 satır 109: agent_fsm /swarm/internal/drone{id}/status
+        # yayınlar (state, armed, battery, GPS, sensör sağlığı dahil).
+        # LOKAL /swarm/agent/.../telemetry ham PX4 verisidir; mesh için
+        # kullanmamalıyız — state alanı oradan UNKNOWN gelir.
         self.create_subscription(
             AgentStatus,
-            f'/swarm/agent/drone{self._agent_id}/telemetry',
-            self._on_own_telemetry,
+            f'/swarm/internal/drone{self._agent_id}/status',
+            self._on_own_status,
             _MESH_QOS,
         )
 
@@ -208,22 +309,145 @@ class Esp32BridgeNode(Node):
         )
         self._okuma_thread.start()
 
+        # Mesh sağlık raporu: her 1 sn'de bir SystemEvent ile yayın.
+        # Şartname §5.4 failsafe: mesh kopuksa swarm_fsm görür.
+        self._diag_timer = self.create_timer(1.0, self._diag_yayinla)
+
         self.get_logger().info(
             f'Esp32BridgeNode başlatıldı: agent_id={self._agent_id}'
         )
 
     # =================================================================
+    # MESH SAĞLIK RAPORLAMA
+    # =================================================================
+    def _diag_yayinla(self) -> None:
+        """Her saniye mesh diagnostik sayaçlarını SystemEvent yayar.
+
+        Şartname §5.4: GPS/mesh güvenilir olmayabilir, failsafe kritik.
+        swarm_fsm bu mesajı dinler ve son alım zamanına bakarak mesh
+        kopukluğunu (>= 2 sn yok ise) algılayabilir.
+        """
+        now = time.monotonic()
+        # Son 5 sn'de mesaj duyduğumuz komşu sayısı
+        aktif_komsu = sum(
+            1 for ts in self._komsu_son_goruldu.values()
+            if now - ts < 5.0
+        )
+        son_alim_yas = (
+            now - self._son_alim_ts if self._son_alim_ts > 0 else -1.0
+        )
+        link_ok = (
+            self._ser is not None and self._ser.is_open
+            and son_alim_yas >= 0 and son_alim_yas < 2.0
+        )
+
+        msg = SystemEvent()
+        msg.stamp = self.get_clock().now().to_msg()
+        msg.event_type = SystemEvent.EVENT_UNKNOWN
+        msg.severity = (
+            SystemEvent.SEVERITY_INFO if link_ok
+            else SystemEvent.SEVERITY_WARNING
+        )
+        msg.source_agent_id = self._agent_id
+        msg.source_module = 'esp32_bridge'
+        msg.value = float(aktif_komsu)
+        msg.has_position = False
+        msg.message = (
+            f'mesh_diag link_ok={int(link_ok)} '
+            f'komsu={aktif_komsu} alim_ok={self._alim_ok} '
+            f'crc_fail={self._crc_fail} '
+            f'gonderim_ok={self._gonderim_ok} '
+            f'gonderim_drop={self._gonderim_drop} '
+            f'son_alim_yas_s={son_alim_yas:.2f}'
+        )
+        # Mesh diag: bu drone'un kendi gözleminden çıkıyor → /internal/
+        self._event_pub_internal.publish(msg)
+
+    # =================================================================
+    # SERİ PORT YÖNETİMİ
+    # =================================================================
+    def _seri_ac(self) -> bool:
+        """Seri portu açar. Başarılı ise True, başarısız ise False.
+
+        Saha senaryosu: USB gevşedi, ESP32 reset attı, kablo değişti.
+        Hata fırlatmaz; reconnect döngüsü tekrar dener.
+        """
+        with self._ser_lock:
+            if self._ser is not None and self._ser.is_open:
+                return True
+            try:
+                self._ser = serial.Serial(
+                    self._port, self._baud, timeout=0.1
+                )
+                self.get_logger().info(
+                    f'Seri port açıldı: {self._port} @ {self._baud}'
+                )
+                self._mesh_olay_yayinla(
+                    SystemEvent.SEVERITY_INFO,
+                    f'mesh link restored ({self._port})',
+                )
+                return True
+            except serial.SerialException as exc:
+                self._ser = None
+                self.get_logger().error(
+                    f'Seri port açılamadı ({self._port}): {exc}'
+                )
+                return False
+
+    def _mesh_olay_yayinla(self, severity: int, mesaj: str) -> None:
+        """Mesh link durumu için SystemEvent yayınlar (operatör görür).
+
+        NOT: swarm_interfaces'te EVENT_MESH_LINK_LOST/RESTORED yok.
+        EVENT_UNKNOWN ile gönderilir, mesaj string'i ayırt edici.
+        TODO: Beyza'nın branch'ine EVENT_MESH_LINK_LOST=60,
+        EVENT_MESH_LINK_RESTORED=61 sabitleri eklenebilir.
+        """
+        msg = SystemEvent()
+        msg.stamp = self.get_clock().now().to_msg()
+        msg.event_type = SystemEvent.EVENT_UNKNOWN
+        msg.severity = severity
+        msg.source_agent_id = self._agent_id
+        msg.source_module = 'esp32_bridge'
+        msg.message = mesaj
+        msg.value = 0.0
+        msg.has_position = False
+        # Kendi event'imiz: /swarm/internal/events/system
+        self._event_pub_internal.publish(msg)
+
+    # =================================================================
     # SERİ OKUMA (arka plan thread)
     # =================================================================
     def _seri_oku_dongusu(self) -> None:
-        """Seri porttan sürekli okur, 0x00'da çerçeve keser ve işler."""
+        """Seri porttan sürekli okur, 0x00'da çerçeve keser ve işler.
+
+        Bağlantı koparsa thread ölmez; portu kapatır, 1 saniye bekler,
+        yeniden açmayı dener. Saha güvenilirliği için kritik.
+        """
         tampon = bytearray()
         while self._calisiyor:
+            if self._ser is None or not self._ser.is_open:
+                time.sleep(1.0)
+                self._seri_ac()
+                continue
             try:
                 veri = self._ser.read(64)
             except serial.SerialException as exc:
-                self.get_logger().error(f'Seri okuma hatası: {exc}')
-                return
+                self.get_logger().warning(
+                    f'Seri okuma hatası, yeniden bağlanılacak: {exc}'
+                )
+                self._mesh_olay_yayinla(
+                    SystemEvent.SEVERITY_WARNING,
+                    f'mesh link lost (read): {exc}',
+                )
+                with self._ser_lock:
+                    if self._ser is not None:
+                        try:
+                            self._ser.close()
+                        except Exception:  # noqa: BLE001
+                            pass
+                    self._ser = None
+                tampon.clear()
+                continue
 
             for byte in veri:
                 if byte == _FRAME_DELIM:
@@ -244,7 +468,12 @@ class Esp32BridgeNode(Node):
         decoded = cobs_decode(ham)
         cerceve = pp.cerceve_coz(decoded)
         if cerceve is None:
-            return  # CRC hatası veya eksik veri — sessizce at
+            # CRC hatası veya eksik veri — sayacı artır, sessizce at
+            self._crc_fail += 1
+            return
+        self._alim_ok += 1
+        self._son_alim_ts = time.monotonic()
+        self._komsu_son_goruldu[cerceve.iha_id] = self._son_alim_ts
 
         # Defansif: firmware kendi paketlerini ISR'da filtreler ama
         # bir hata olur da kendi paketimiz geri gelirse komşu yayını
@@ -419,7 +648,8 @@ class Esp32BridgeNode(Node):
         msg.has_position = False
         msg.source_module = 'esp32_bridge'
         msg.message = f'renk={r.renk} lat_1e7={r.lat} lon_1e7={r.lon}'
-        self._event_pub.publish(msg)
+        # Komşudan gelen event: bridge proxy rolünde /public/'a düşürür
+        self._event_pub_public.publish(msg)
 
     # =================================================================
     # ROS2 -> MESH İŞLEYİCİLERİ (UART'a yaz)
@@ -438,22 +668,74 @@ class Esp32BridgeNode(Node):
         govde = bytes([tip, iha_id]) + payload
         crc = crc16(govde)
         cerceve = govde + bytes([(crc >> 8) & 0xFF, crc & 0xFF])
-        try:
-            self._ser.write(cobs_encode(cerceve))
-        except serial.SerialException as exc:
-            self.get_logger().error(f'Seri yazma hatası: {exc}')
+        with self._ser_lock:
+            if self._ser is None or not self._ser.is_open:
+                # Port kopuk; okuma thread'i reconnect dener. Drop et.
+                self._gonderim_drop += 1
+                return
+            try:
+                self._ser.write(cobs_encode(cerceve))
+                self._gonderim_ok += 1
+            except serial.SerialException as exc:
+                self.get_logger().warning(
+                    f'Seri yazma hatası, port kapatılıyor: {exc}'
+                )
+                try:
+                    self._ser.close()
+                except Exception:  # noqa: BLE001
+                    pass
+                self._ser = None
+                self._gonderim_drop += 1
 
-    def _on_own_telemetry(self, msg: AgentStatus) -> None:
-        """Kendi telemetrisini TIP_POSE olarak ESP32'ye gönderir."""
-        payload = pp.pose_paketle(
-            lat=int(msg.lat_deg * 1e7),
-            lon=int(msg.lon_deg * 1e7),
-            alt_cm=int(msg.alt_amsl_m * 100.0),
-            heading=int(msg.heading_deg * 10.0),
-            vx=int(msg.vel_x * 100.0),
-            vy=int(msg.vel_y * 100.0),
-        )
-        self._uart_yaz(pp.TIP_POSE, self._agent_id, payload)
+    def _on_own_status(self, msg: AgentStatus) -> None:
+        """Kendi otoritatif durumumuzu TIP_POSE + TIP_DURUM olarak yayar.
+
+        Kontrat 3.1: agent_fsm'in /swarm/internal/drone{id}/status
+        yayınını alıp mesh'e iletiriz. POSE 10Hz tavanında (çarpışma
+        önleme için yeterli), DURUM 1Hz tavanında (state değişimi
+        nadiren, batarya/sensör 1Hz yeterli). Hem rate-limit hem UART
+        akış kontrolü için iki ayrı periyot.
+        """
+        now = time.monotonic()
+
+        # --- POSE 10Hz ---
+        if now - self._son_pose_gonderim_ts >= self._pose_periyot_s:
+            self._son_pose_gonderim_ts = now
+            payload = pp.pose_paketle(
+                lat=int(msg.lat_deg * 1e7),
+                lon=int(msg.lon_deg * 1e7),
+                alt_cm=int(msg.alt_amsl_m * 100.0),
+                heading=int(msg.heading_deg * 10.0),
+                vx=int(msg.vel_x * 100.0),
+                vy=int(msg.vel_y * 100.0),
+            )
+            self._uart_yaz(pp.TIP_POSE, self._agent_id, payload)
+
+        # --- DURUM 1Hz ---
+        # Şartname §5.1 m.15 ayrılma akışı için kritik: komşular bizim
+        # state'imizi bilmeli. ORCA da DETACHED/LANDED komşulara
+        # avoidance hesaplamaz (şartname §8.4 -20*N).
+        if now - self._son_durum_gonderim_ts >= self._durum_periyot_s:
+            self._son_durum_gonderim_ts = now
+            # AgentStatus.state -> firmware DURUM kodu çevir
+            durum_kodu = _STATE_DURUM_MAP.get(msg.state, _DURUM_BILINMIYOR)
+            # battery_pct'i 0-100 aralığına kırp (negatif veya >100 olabilir)
+            batt_pct = max(0, min(100, int(msg.battery_percent)))
+            payload = pp.durum_paketle(
+                drone_id=self._agent_id,
+                durum=durum_kodu,
+                armed=1 if msg.armed else 0,
+                gps_fix_type=msg.gps_fix_type,
+                battery_pct=batt_pct,
+                battery_volt=float(msg.battery_voltage_v),
+                ekf_ok=1 if msg.estimator_ok else 0,
+                imu_ok=1 if msg.imu_healthy else 0,
+                mag_ok=1 if msg.mag_healthy else 0,
+                baro_ok=1 if msg.baro_healthy else 0,
+                rssi=0,        # bizim kendi RSSI yok; firmware doldurur
+                mesh_link_ok=1,  # gönderebiliyorsak link kuruluyor
+            )
+            self._uart_yaz(pp.TIP_DURUM, self._agent_id, payload)
 
     def _on_origin_out(self, msg: SwarmOrigin) -> None:
         """Lider origin'ini TIP_ORIGIN olarak ESP32'ye gönderir."""
@@ -520,12 +802,28 @@ class Esp32BridgeNode(Node):
     # KAPANIŞ
     # =================================================================
     def destroy_node(self) -> bool:
-        """Thread'i durdurur ve seri portu kapatır."""
+        """Thread'i durdurur, seri portu kapatır, son istatistik basar."""
+        self.get_logger().info(
+            f'Kapanış: alim_ok={self._alim_ok} '
+            f'crc_fail={self._crc_fail} '
+            f'gonderim_ok={self._gonderim_ok} '
+            f'gonderim_drop={self._gonderim_drop}'
+        )
         self._calisiyor = False
         if self._okuma_thread.is_alive():
-            self._okuma_thread.join(timeout=1.0)
-        if self._ser.is_open:
-            self._ser.close()
+            self._okuma_thread.join(timeout=2.0)
+            if self._okuma_thread.is_alive():
+                self.get_logger().warning(
+                    'UART thread 2 sn içinde durmadı, terk ediliyor'
+                )
+        with self._ser_lock:
+            if self._ser is not None and self._ser.is_open:
+                try:
+                    self._ser.close()
+                except Exception as exc:  # noqa: BLE001
+                    self.get_logger().warning(
+                        f'Seri port kapatma hatası: {exc}'
+                    )
         return super().destroy_node()
 
 

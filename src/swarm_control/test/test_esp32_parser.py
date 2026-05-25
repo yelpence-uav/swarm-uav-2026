@@ -129,3 +129,47 @@ def test_yeni_tipler_cerceve_uyumlu():
     decoded = cobs_decode(_cerceve_uret(pp.TIP_KOMUT, 1, payload))
     c = pp.cerceve_coz(decoded)
     assert c is not None and c.tip == pp.TIP_KOMUT
+
+
+def test_durum_paketle_round_trip():
+    """durum_paketle -> durum_coz tüm alanları korumalı."""
+    payload = pp.durum_paketle(
+        drone_id=2, durum=5, armed=1, gps_fix_type=6,
+        battery_pct=78, battery_volt=16.5,
+        ekf_ok=1, imu_ok=1, mag_ok=1, baro_ok=0,
+        rssi=-72, mesh_link_ok=1,
+    )
+    assert len(payload) == 16
+    d = pp.durum_coz(payload)
+    assert d.drone_id == 2
+    assert d.durum == 5
+    assert d.armed == 1
+    assert d.gps_fix_type == 6
+    assert d.battery_pct == 78
+    assert abs(d.battery_volt - 16.5) < 0.01
+    assert d.ekf_ok == 1 and d.baro_ok == 0
+    assert d.rssi == -72
+    assert d.mesh_link_ok == 1
+
+
+def test_renk_round_trip():
+    """TIP_RENK paketle -> çöz alanları korumalı (şartname §5.1 m.15)."""
+    payload = pp.renk_paketle(renk=1, lat=411234567, lon=291234567)
+    assert len(payload) == 16
+    r = pp.renk_coz(payload)
+    assert r.renk == 1
+    assert r.lat == 411234567
+    assert r.lon == 291234567
+
+
+def test_gorev_round_trip():
+    """TIP_GOREV paketle -> çöz alanları korumalı."""
+    payload = pp.gorev_paketle(
+        tip=2, param1=180, param2=-15, bekleme_suresi_s=3,
+    )
+    assert len(payload) == 16
+    g = pp.gorev_coz(payload)
+    assert g.tip == 2
+    assert g.param1 == 180
+    assert g.param2 == -15
+    assert g.bekleme_suresi_s == 3
