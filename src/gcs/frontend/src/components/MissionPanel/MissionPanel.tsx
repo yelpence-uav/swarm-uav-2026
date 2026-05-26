@@ -60,7 +60,6 @@ export function MissionPanel({ missionActive }: MissionPanelProps) {
   }
 
   const startDisabled = busy !== null || teamId.trim().length === 0 || missionActive;
-  const safetyDisabled = busy !== null || !missionActive;
 
   return (
     <section className="mission-panel">
@@ -108,44 +107,19 @@ export function MissionPanel({ missionActive }: MissionPanelProps) {
         </button>
       </div>
 
+      {/* Şartname §5.1: görev başladıktan sonra GCS müdahalesi yasak. Tek
+          istisna operatörün görevi sonlandırması — acil senaryoda kullanılır,
+          basıldığında görev başarısız sayılır. */}
       <div className="mission-panel__row mission-panel__row--safety">
         <span className="mission-panel__safety-label">
-          ⚠ Güvenlik (sadece acil/test):
+          ⚠ Acil sonlandırma (görev başarısız sayılır):
         </span>
         <button
-          className="mission-panel__safety-btn"
-          disabled={safetyDisabled}
-          onClick={() => trigger(MISSION_COMMAND.PAUSE, "DURAKLAT")}
-        >
-          ⏸ Duraklat
-        </button>
-        <button
-          className="mission-panel__safety-btn"
-          disabled={safetyDisabled || busy !== null}
-          onClick={() => trigger(MISSION_COMMAND.RESUME, "DEVAM")}
-        >
-          ▷ Devam
-        </button>
-        <button
-          className="mission-panel__safety-btn"
-          disabled={safetyDisabled}
-          onClick={() => trigger(MISSION_COMMAND.RTL, "EVE DÖN", true)}
-        >
-          🏠 RTL
-        </button>
-        <button
-          className="mission-panel__safety-btn"
-          disabled={safetyDisabled}
-          onClick={() => trigger(MISSION_COMMAND.LAND, "İNİŞ", true)}
-        >
-          ⬇ İniş
-        </button>
-        <button
           className="mission-panel__safety-btn mission-panel__safety-btn--abort"
-          disabled={busy !== null}
+          disabled={busy !== null || !missionActive}
           onClick={() => trigger(MISSION_COMMAND.ABORT, "GÖREVİ İPTAL", true)}
         >
-          ✕ İptal
+          ✕ Görevi İptal Et
         </button>
       </div>
 

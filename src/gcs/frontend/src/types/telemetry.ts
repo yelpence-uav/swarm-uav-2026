@@ -180,8 +180,11 @@ export interface Alert {
 
 // --- WebSocket payload --------------------------------------------------------
 
+export type ConnectionMode = "ros2" | "mavlink-sim";
+
 export interface TelemetryPayload {
   drones: DroneState[];
   alerts: Alert[];
   swarm_state: SwarmState | null;   // mavlink-sim modunda veya henüz mesaj gelmediyse null
+  connection_mode?: ConnectionMode; // backend hangi yolda — UI yarışma-dışı butonları gizler
 }

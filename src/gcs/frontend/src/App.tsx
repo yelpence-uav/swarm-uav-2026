@@ -57,16 +57,22 @@ export default function App() {
     () => payload.swarm_state?.mission_active ?? false,
     [payload.swarm_state],
   );
+  // MAVLink yan-yolu butonları (MissionControl, bireysel CommandButtons) sadece
+  // dev/sim modunda görünür — yarışmada bunlar şartname §5.1 "müdahale yasak"
+  // ihlali sayılır. Production ros2 modunda gizli.
+  const isSimMode = payload.connection_mode === "mavlink-sim";
 
   return (
     <div className="app">
       <StatusBar status={status} drones={payload.drones} />
       <SwarmStatePanel swarmState={payload.swarm_state} />
       <MissionPanel missionActive={missionActive} />
-      <MissionControl
-        anyConnected={anyConnected}
-        disabled={missionActive}
-      />
+      {isSimMode && (
+        <MissionControl
+          anyConnected={anyConnected}
+          disabled={missionActive}
+        />
+      )}
       <main className="app__main">
         <div className="app__map">
           <MapView snapshot={payload.drones} />
@@ -76,6 +82,7 @@ export default function App() {
           <TelemetryPanel
             drones={payload.drones}
             commandsDisabled={missionActive}
+            showCommands={isSimMode}
           />
         </div>
       </main>

@@ -19,6 +19,7 @@ def get_snapshot(request: Request):
     return {
         "drones": [dataclasses.asdict(d) for d in snap],
         "alerts": [dataclasses.asdict(a) for a in alerts.evaluate(snap)],
+        "connection_mode": request.app.state.connection_mode,
     }
 
 

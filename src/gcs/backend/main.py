@@ -234,7 +234,8 @@ def create_app() -> FastAPI:
         state = websocket.app.state
         hz = float(state.config.get("server", {}).get("ws_hz", 10.0))
         await telemetry_ws(
-            websocket, state.store, state.alerts, hz=hz, bridge=state.bridge
+            websocket, state.store, state.alerts, hz=hz, bridge=state.bridge,
+            connection_mode=state.connection_mode,
         )
 
     return app

@@ -22,9 +22,15 @@ const GPS_LABEL: Record<number, string> = {
 interface DroneCardProps {
   drone: DroneState;
   commandsDisabled?: boolean;
+  /** Bireysel MAVLink komut butonları — sadece sim modunda görünür. */
+  showCommands?: boolean;
 }
 
-export function DroneCard({ drone, commandsDisabled = false }: DroneCardProps) {
+export function DroneCard({
+  drone,
+  commandsDisabled = false,
+  showCommands = false,
+}: DroneCardProps) {
   const color = COLORS[drone.drone_id] ?? "#999";
 
   if (!drone.connected) {
@@ -36,11 +42,13 @@ export function DroneCard({ drone, commandsDisabled = false }: DroneCardProps) {
           <span className="drone-card__badge drone-card__badge--offline">OFFLINE</span>
         </header>
         <p className="drone-card__offline-msg">Son paket gelmiyor</p>
-        <CommandButtons
-          droneId={drone.drone_id}
-          connected={false}
-          disabled={commandsDisabled}
-        />
+        {showCommands && (
+          <CommandButtons
+            droneId={drone.drone_id}
+            connected={false}
+            disabled={commandsDisabled}
+          />
+        )}
       </article>
     );
   }
@@ -92,11 +100,13 @@ export function DroneCard({ drone, commandsDisabled = false }: DroneCardProps) {
         {drone.lat.toFixed(5)}, {drone.lon.toFixed(5)}
       </footer>
 
-      <CommandButtons
-        droneId={drone.drone_id}
-        connected={true}
-        disabled={commandsDisabled}
-      />
+      {showCommands && (
+        <CommandButtons
+          droneId={drone.drone_id}
+          connected={true}
+          disabled={commandsDisabled}
+        />
+      )}
     </article>
   );
 }
