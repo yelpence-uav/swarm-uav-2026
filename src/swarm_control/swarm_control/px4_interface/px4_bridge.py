@@ -46,7 +46,7 @@ from px4_msgs.msg import (
 from std_msgs.msg import String
 
 # Bizim mesaj formatımız
-from swarm_interfaces.msg import AgentSetpoint, AgentStatus
+from swarm_interfaces.msg import AgentSetpoint, AgentStatus, SwarmOrigin
 
 # Aynı paket içindeki yardımcılar
 from .telemetry_mapper import (
@@ -114,6 +114,13 @@ class Px4BridgeNode(Node):
         # Hedef kalkış irtifası (NED: negatif=yukarı) — None ise hold modu
         self._target_altitude_ned: float | None = None
 
+        # Kalkış yatay çapası — takeoff anında bir kez dondurulur.
+        # Tırmanış boyunca x,y bu sabit noktada tutulur (anlık konumu
+        # takip etmez); PX4 pozisyon kontrolcüsü drift'i bu çapaya göre
+        # düzeltir. None ise henüz kalkış komutu gelmedi.
+        self._takeoff_anchor_x: float | None = None
+        self._takeoff_anchor_y: float | None = None
+
         # SITL: offboard mod takibi için önceki durum
         self._was_offboard: bool = False
 
@@ -129,6 +136,9 @@ class Px4BridgeNode(Node):
         self._setpoint_stamp: float = 0.0
         # Bu kadar süredir setpoint gelmezse hold'a düş (saniye)
         self._setpoint_timeout_s: float = 0.5
+
+        # SwarmOrigin — uygulanmış sequence takibi (tekrar göndermemek için)
+        self._applied_origin_seq: int = -1
 
         # SITL: sahte RC publisher — gerçek donanımda oluşturulmaz
         if self._sitl_mode:
@@ -169,6 +179,20 @@ class Px4BridgeNode(Node):
             f'/drone_{self._agent_id}/control/setpoint',
             self._on_agent_setpoint,
             _PX4_QOS,
+        )
+
+        # SwarmOrigin — ortak NED referansını PX4'e ilet
+        _origin_qos = QoSProfile(
+            reliability=QoSReliabilityPolicy.RELIABLE,
+            durability=QoSDurabilityPolicy.TRANSIENT_LOCAL,
+            history=QoSHistoryPolicy.KEEP_LAST,
+            depth=1,
+        )
+        self.create_subscription(
+            SwarmOrigin,
+            '/swarm/public/origin',
+            self._on_swarm_origin,
+            _origin_qos,
         )
 
         # AgentStatus'u periyodik yayınla — varsayılan 10 Hz
@@ -311,6 +335,14 @@ class Px4BridgeNode(Node):
             and (now - self._setpoint_stamp) < self._setpoint_timeout_s
         )
 
+        # offboard_streaming kapalıysa (land/rtl/disarm sonrası) offboard mode ve
+        # setpoint yayınlama — yoksa PX4 sürekli offboard'a geri zorlanır ve
+        # land/rtl modu tutmaz.
+        if not self._offboard_streaming:
+            if self._sitl_mode:
+                self._publish_fake_rc()
+            return
+
         use_velocity = setpoint_fresh and self._latest_setpoint.velocity_valid
 
         if use_velocity:
@@ -342,14 +374,25 @@ class Px4BridgeNode(Node):
             target_z = float(sp.z)
             _yaw = math.radians(float(sp.heading_deg))
             target_yaw = (_yaw + math.pi) % (2 * math.pi) - math.pi
+        elif self._target_altitude_ned is not None:
+            # Kalkış/irtifa-hold: yatayda dondurulmuş çapa, dikeyde hedef irtifa.
+            target_x = (
+                self._takeoff_anchor_x
+                if self._takeoff_anchor_x is not None
+                else self._cached_pos_x
+            )
+            target_y = (
+                self._takeoff_anchor_y
+                if self._takeoff_anchor_y is not None
+                else self._cached_pos_y
+            )
+            target_z = self._target_altitude_ned
+            target_yaw = self._cached_yaw_rad
         else:
+            # Yerde/komut yok: anlık konumda bekle.
             target_x = self._cached_pos_x
             target_y = self._cached_pos_y
-            target_z = (
-                self._target_altitude_ned
-                if self._target_altitude_ned is not None
-                else self._cached_pos_z
-            )
+            target_z = self._cached_pos_z
             target_yaw = self._cached_yaw_rad
 
         if use_velocity:
@@ -364,6 +407,34 @@ class Px4BridgeNode(Node):
                 target_x, target_y, target_z,
                 yaw_rad=target_yaw,
             )
+
+    def _on_swarm_origin(self, msg: SwarmOrigin) -> None:
+        """Ortak NED origin'i PX4'e gönderir.
+
+        Lider drone bu mesajı yayınlar; diğer drone'lar (ve lider kendi
+        kendine) SET_GPS_GLOBAL_ORIGIN komutuyla PX4'ü senkronize eder.
+        Aynı sequence tekrar gönderilmez.
+        """
+        if not msg.valid or msg.gps_fix_type < 3:
+            return
+        if msg.sequence == self._applied_origin_seq:
+            return
+        self._applied_origin_seq = msg.sequence
+        self._cmd_sender.set_gps_global_origin(
+            msg.origin_lat_deg,
+            msg.origin_lon_deg,
+            msg.origin_alt_amsl_m,
+        )
+        # Ortak origin PX4'e uygulandı: telemetride bildir ki formation_node
+        # (ve diğer tüketiciler) shared→local dönüşümünü güvenle yapabilsin.
+        # Bu flag true olmadan formation_node setpoint üretmez.
+        self._status.origin_synced = True
+        self._status.origin_sequence = msg.sequence
+        self.get_logger().info(
+            f'GPS origin set: lat={msg.origin_lat_deg:.6f}, '
+            f'lon={msg.origin_lon_deg:.6f}, '
+            f'alt={msg.origin_alt_amsl_m:.1f}m (seq={msg.sequence})'
+        )
 
     def _on_agent_setpoint(self, msg: AgentSetpoint) -> None:
         """
@@ -408,17 +479,26 @@ class Px4BridgeNode(Node):
                     )
             # NED: yukarı = negatif Z — AUTO_TAKEOFF değil, offboard setpoint
             self._target_altitude_ned = -altitude
+            # Yatay çapayı şimdi dondur — tırmanış boyunca sabit kalsın.
+            self._takeoff_anchor_x = self._cached_pos_x
+            self._takeoff_anchor_y = self._cached_pos_y
             self.get_logger().info(
                 f'Offboard kalkış hedefi: {altitude:.1f}m '
-                f'(NED z={self._target_altitude_ned:.1f})'
+                f'(NED z={self._target_altitude_ned:.1f}) '
+                f'çapa=({self._takeoff_anchor_x:.2f}, '
+                f'{self._takeoff_anchor_y:.2f})'
             )
         elif cmd == 'land':
             self._offboard_streaming = False
             self._target_altitude_ned = None
+            self._takeoff_anchor_x = None
+            self._takeoff_anchor_y = None
             self._cmd_sender.land()
         elif cmd == 'rtl':
             self._offboard_streaming = False
             self._target_altitude_ned = None
+            self._takeoff_anchor_x = None
+            self._takeoff_anchor_y = None
             self._cmd_sender.return_home()
         elif cmd == 'offboard':
             # Önce streaming başlar, ardından mod değiştirilir.

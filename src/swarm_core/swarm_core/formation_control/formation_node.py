@@ -1,40 +1,10 @@
 """Dağıtık formasyon kontrol node'u — her drone'da ayrı çalışır.
 
-İşleyiş:
-    1. mission_fsm /swarm/internal/formation/target'a FormationCommand
-       yayınlar; proxy /swarm/public/formation/target'a iletir.
-    2. swarm_fsm /swarm/internal/state'e SwarmState yayınlar; proxy
-       /swarm/public/state'e iletir.
-    3. Bu node /swarm/public/... aboneliklerinden mesajları alır,
-       kendi agent_id'sine göre rank bulur, formation_geometry ile
-       setpoint hesaplar ve /drone_{id}/control/setpoint üzerinden
-       lokal px4_interface'e yayınlar.
-
-Topic kuralları (network_proxy):
-    - Yayıncılar: /swarm/internal/...
-    - Aboneler: /swarm/public/...
-    - Lokal (drone içi): /drone_{id}/...
-    AgentSetpoint LOKAL kalır, proxy'den geçmez.
-
-Aktif ajan listesi (tek kaynak: swarm_fsm):
-    swarm_fsm, SwarmState.active_agent_ids alanını doldurur.
-    Filtre swarm_fsm'de uygulanır: healthy + origin_synced +
-    IN_SWARM/EXECUTING_TASK + stale değil. Bu node listeyi direkt okur,
-    tekrar filtrelemez (tek kaynak ilkesi, kod tekrarı yok).
-
-Spacing önceliği:
-    1. FormationCommand.spacing_m > 0 ise (QR/YKİ'den) kullan.
-    2. Aksi halde YAML'daki default_spacing_m'e düş.
-
-Merkez çözümleme önceliği:
-    1. use_current_centroid=true ise SwarmState.centroid_x/y kullan.
-    2. use_current_altitude=true ise SwarmState.centroid_z kullan.
-    3. Aksi halde FormationCommand.center_x/y/z kullan.
-    SwarmState henüz gelmemişse her durumda mesajdaki değerlere düşer.
+FormationCommand + SwarmState okur, kendi rank'ini Macar algoritmasıyla
+belirler, shared NED → local NED dönüşümü yaparak AgentSetpoint üretir.
 """
 
 import math
-
 import rclpy
 from rclpy.node import Node
 from rclpy.qos import (
@@ -48,18 +18,22 @@ from swarm_interfaces.msg import (
     AgentSetpoint,
     AgentStatus,
     FormationCommand,
+    SwarmOrigin,
     SwarmState,
 )
 
 from .formation_geometry import (
     compute_setpoint,
+    compute_slot_offsets,
+    hungarian_assignment,
+    latlon_to_ned,
+    rotate_offset,
     FORMATION_CIZGI,
     FORMATION_OKBASI,
     FORMATION_V,
 )
 
 
-# mission_fsm RELIABLE yayınlıyor.
 _RELIABLE_QOS = QoSProfile(
     reliability=ReliabilityPolicy.RELIABLE,
     durability=DurabilityPolicy.VOLATILE,
@@ -67,8 +41,6 @@ _RELIABLE_QOS = QoSProfile(
     depth=10,
 )
 
-
-# AgentSetpoint yüksek frekanslı; BEST_EFFORT yeterli.
 _BEST_EFFORT_QOS = QoSProfile(
     reliability=ReliabilityPolicy.BEST_EFFORT,
     durability=DurabilityPolicy.VOLATILE,
@@ -76,17 +48,15 @@ _BEST_EFFORT_QOS = QoSProfile(
     depth=5,
 )
 
-
-# Desteklenen formasyon tipleri.
-_SUPPORTED_FORMATIONS = (
-    FORMATION_OKBASI,
-    FORMATION_V,
-    FORMATION_CIZGI,
+_ORIGIN_QOS = QoSProfile(
+    reliability=ReliabilityPolicy.RELIABLE,
+    durability=DurabilityPolicy.TRANSIENT_LOCAL,
+    history=HistoryPolicy.KEEP_LAST,
+    depth=1,
 )
 
+_SUPPORTED_FORMATIONS = (FORMATION_OKBASI, FORMATION_V, FORMATION_CIZGI)
 
-# Setpoint yayınlanmayacak pasif sürü durumları (Decision C).
-# Bu durumlarda misyon yok veya drone'lar yerde/RTL modunda.
 _PASSIVE_SWARM_STATES = frozenset({
     SwarmState.SWARM_UNKNOWN,
     SwarmState.SWARM_IDLE,
@@ -98,35 +68,39 @@ _PASSIVE_SWARM_STATES = frozenset({
 
 
 class FormationControlNode(Node):
-    """
-    Tek drone için dağıtık formasyon setpoint hesaplayıcısı.
-
-    Her drone bu node'u kendi çalıştırır. mission_fsm tek bir
-    FormationCommand yayınladığında tüm drone'lar aynı mesajı alır,
-    ama her biri kendi agent_id'sine göre farklı setpoint üretir.
-    Merkezi koordinasyon yoktur.
-    """
+    """Tek drone için dağıtık formasyon setpoint hesaplayıcısı."""
 
     def __init__(self) -> None:
-        """Node'u başlatır ve ROS2 arayüzlerini kurar."""
         super().__init__('formation_control')
 
         self._declare_params()
 
-        # State — gelen mesajlardan doldurulur.
         self._current_formation: FormationCommand | None = None
         self._latest_swarm_state: SwarmState | None = None
         self._active_agent_ids: list[int] = []
         self._sequence_num: int = 0
 
-        # Bu drone'un anlık pozisyonu ve uçuş kalitesi (AgentStatus'tan).
+        self._cached_rank: int | None = None
+        self._cached_formation_seq: int = -1
+
         self._current_pos_x: float = 0.0
         self._current_pos_y: float = 0.0
         self._current_pos_z: float = 0.0
         self._pos_valid: bool = False
         self._oscillating: bool = False
 
-        # Feed-forward için centroid hız tahmini.
+        self._origin_synced: bool = False
+        self._estimator_ok: bool = False
+        self._xy_valid: bool = False
+        self._z_valid: bool = False
+
+        self._current_lat: float = 0.0
+        self._current_lon: float = 0.0
+        self._gps_valid: bool = False
+
+        self._origin_lat: float | None = None
+        self._origin_lon: float | None = None
+
         self._centroid_vel_x: float = 0.0
         self._centroid_vel_y: float = 0.0
         self._centroid_vel_z: float = 0.0
@@ -152,32 +126,19 @@ class FormationControlNode(Node):
         )
 
     def _declare_params(self) -> None:
-        """ROS2 parametrelerini tanımlar ve okur.
-
-        Kullanım:
-            ros2 run swarm_core formation_node --ros-args
-                -p agent_id:=1
-                --params-file config/formations.yaml
-        """
         self.declare_parameter('agent_id', 1)
         self.declare_parameter('default_spacing_m', 5.0)
-        self.declare_parameter('alpha_deg', 30.0)
+        self.declare_parameter('alpha_deg', 50.0)
         self.declare_parameter('publish_rate_hz', 20.0)
         self.declare_parameter('position_tolerance_m', 0.5)
         self.declare_parameter('heading_tolerance_deg', 5.0)
         self.declare_parameter('max_speed_mps', 3.0)
-        self.declare_parameter('svt_gain', 0.2)
-        self.declare_parameter('svt_threshold_m', 2.0)
 
-        self._agent_id: int = int(
-            self.get_parameter('agent_id').value
-        )
+        self._agent_id: int = int(self.get_parameter('agent_id').value)
         self._default_spacing_m: float = float(
             self.get_parameter('default_spacing_m').value
         )
-        self._alpha_deg: float = float(
-            self.get_parameter('alpha_deg').value
-        )
+        self._alpha_deg: float = float(self.get_parameter('alpha_deg').value)
         self._publish_rate_hz: float = float(
             self.get_parameter('publish_rate_hz').value
         )
@@ -190,16 +151,9 @@ class FormationControlNode(Node):
         self._max_speed_mps: float = float(
             self.get_parameter('max_speed_mps').value
         )
-        self._svt_gain: float = float(
-            self.get_parameter('svt_gain').value
-        )
-        self._svt_threshold_m: float = float(
-            self.get_parameter('svt_threshold_m').value
-        )
         self._alpha_rad: float = math.radians(self._alpha_deg)
 
     def _setup_publishers(self) -> None:
-        """Publisher'ları oluşturur: AgentSetpoint."""
         self._setpoint_pub = self.create_publisher(
             AgentSetpoint,
             f'/drone_{self._agent_id}/control/setpoint',
@@ -207,11 +161,6 @@ class FormationControlNode(Node):
         )
 
     def _setup_subscribers(self) -> None:
-        """Abonelikleri oluşturur: FormationCommand, SwarmState.
-
-        İkisi de proxy'den geçtiği için /swarm/public/... prefix'i
-        kullanılır (network_proxy Kural 2).
-        """
         self.create_subscription(
             FormationCommand,
             '/swarm/public/formation/target',
@@ -224,21 +173,20 @@ class FormationControlNode(Node):
             self._on_swarm_state,
             _RELIABLE_QOS,
         )
-        # Bu drone'un pozisyonu — lokal, proxy'den geçmez (Kural 3).
         self.create_subscription(
             AgentStatus,
             f'/swarm/agent/drone{self._agent_id}/telemetry',
             self._on_agent_status,
             _BEST_EFFORT_QOS,
         )
+        self.create_subscription(
+            SwarmOrigin,
+            '/swarm/public/origin',
+            self._on_swarm_origin,
+            _ORIGIN_QOS,
+        )
 
     def _on_formation_command(self, msg: FormationCommand) -> None:
-        """
-        Yeni formasyon komutu geldiğinde son komutu saklar.
-
-        Args:
-            msg (FormationCommand): mission_fsm'den gelen komut.
-        """
         self._current_formation = msg
         self.get_logger().info(
             f'FormationCommand alindi: type={msg.formation_type}, '
@@ -250,30 +198,13 @@ class FormationControlNode(Node):
         )
 
     def _on_swarm_state(self, msg: SwarmState) -> None:
-        """
-        Sürü durumunu işler: aktif ajan listesi + güncel centroid.
-
-        Aktif filtre swarm_fsm tarafından uygulanmış; bu node
-        SwarmState.active_agent_ids alanını direkt okur.
-        Rank ataması en küçük agent_id'den büyüğüne doğru sıralıdır.
-
-        Args:
-            msg (SwarmState): swarm_fsm'den gelen sürü durumu.
-        """
-        # Feed-forward: centroid hızını ardışık mesajlardan türet.
         now = self.get_clock().now().nanoseconds * 1e-9
         if self._prev_centroid_time is not None:
             dt = now - self._prev_centroid_time
             if dt >= 0.05:
-                self._centroid_vel_x = (
-                    (msg.centroid_x - self._prev_centroid_x) / dt
-                )
-                self._centroid_vel_y = (
-                    (msg.centroid_y - self._prev_centroid_y) / dt
-                )
-                self._centroid_vel_z = (
-                    (msg.centroid_z - self._prev_centroid_z) / dt
-                )
+                self._centroid_vel_x = (msg.centroid_x - self._prev_centroid_x) / dt
+                self._centroid_vel_y = (msg.centroid_y - self._prev_centroid_y) / dt
+                self._centroid_vel_z = (msg.centroid_z - self._prev_centroid_z) / dt
         self._prev_centroid_x = float(msg.centroid_x)
         self._prev_centroid_y = float(msg.centroid_y)
         self._prev_centroid_z = float(msg.centroid_z)
@@ -284,7 +215,7 @@ class FormationControlNode(Node):
         active_ids = sorted(int(i) for i in msg.active_agent_ids)
         if active_ids != self._active_agent_ids:
             self._active_agent_ids = active_ids
-            # N değişince centroid anında kayar → FF spike önle.
+            # N değişince centroid hız tahmini geçersizleşir.
             self._prev_centroid_time = None
             self._centroid_vel_x = 0.0
             self._centroid_vel_y = 0.0
@@ -294,16 +225,47 @@ class FormationControlNode(Node):
             )
 
     def _on_agent_status(self, msg: AgentStatus) -> None:
-        """Bu drone'un anlık pozisyonunu ve uçuş kalitesini saklar.
-
-        Args:
-            msg (AgentStatus): Lokal agent_fsm_node'dan gelen durum.
-        """
         self._current_pos_x = float(msg.pos_x)
         self._current_pos_y = float(msg.pos_y)
         self._current_pos_z = float(msg.pos_z)
         self._pos_valid = True
         self._oscillating = msg.oscillation_detected
+
+        self._origin_synced = bool(msg.origin_synced)
+        self._estimator_ok = bool(msg.estimator_ok)
+        self._xy_valid = bool(msg.xy_valid)
+        self._z_valid = bool(msg.z_valid)
+
+        if msg.lat_deg != 0.0 or msg.lon_deg != 0.0:
+            self._current_lat = float(msg.lat_deg)
+            self._current_lon = float(msg.lon_deg)
+            self._gps_valid = True
+
+    def _on_swarm_origin(self, msg: SwarmOrigin) -> None:
+        if not msg.valid:
+            return
+        self._origin_lat = float(msg.origin_lat_deg)
+        self._origin_lon = float(msg.origin_lon_deg)
+
+    def _shared_to_local(
+        self,
+        shared_x: float,
+        shared_y: float,
+    ) -> tuple[float, float]:
+        """Shared NED → local NED dönüşümü.
+
+        local = shared_hedef - shared_anlik + local_anlik
+        Origin veya GPS yoksa dönüşüm uygulanmaz.
+        """
+        if self._origin_lat is None or not self._gps_valid:
+            return shared_x, shared_y
+
+        cur_n, cur_e = latlon_to_ned(
+            self._current_lat, self._current_lon,
+            self._origin_lat, self._origin_lon,
+        )
+        return shared_x - cur_n + self._current_pos_x, \
+               shared_y - cur_e + self._current_pos_y
 
     def _compute_velocity(
         self,
@@ -314,40 +276,10 @@ class FormationControlNode(Node):
         use_ff_xy: bool = False,
         use_ff_z: bool = False,
     ) -> tuple[float, float, float]:
-        """Feed-forward + SVT birleşik hız vektörü hesaplar.
-
-        Feed-forward: sadece merkez hareketliyse (use_current_centroid/
-        use_current_altitude) centroid hızı eklenir. Sabit merkezde
-        centroid yakınsama hareketi spurious FF oluşturmaması için
-        flag'e bağlıdır.
-
-        SVT (Soft Virtual Tether): drone hedef slotundan uzaklaşırsa
-        elastik düzeltme kuvveti uygular → slot hatası azalır.
-
-        Args:
-            target_x: Hedef slot NED X, metre.
-            target_y: Hedef slot NED Y, metre.
-            target_z: Hedef slot NED Z, metre.
-            max_speed: Hız sınırı, m/s.
-            use_ff_xy: True ise XY ekseninde centroid hızı eklenir.
-            use_ff_z: True ise Z ekseninde centroid hızı eklenir.
-
-        Returns:
-            tuple: (vx, vy, vz) NED hız, m/s.
-        """
+        """Centroid hareketine dayalı feed-forward hız vektörü."""
         vx = self._centroid_vel_x if use_ff_xy else 0.0
         vy = self._centroid_vel_y if use_ff_xy else 0.0
         vz = self._centroid_vel_z if use_ff_z else 0.0
-
-        if self._pos_valid and not self._oscillating:
-            ex = target_x - self._current_pos_x
-            ey = target_y - self._current_pos_y
-            ez = target_z - self._current_pos_z
-            err = math.sqrt(ex * ex + ey * ey + ez * ez)
-            if err > self._svt_threshold_m:
-                vx += self._svt_gain * ex
-                vy += self._svt_gain * ey
-                vz += self._svt_gain * ez
 
         speed = math.sqrt(vx * vx + vy * vy + vz * vz)
         if speed > max_speed:
@@ -359,16 +291,6 @@ class FormationControlNode(Node):
         return vx, vy, vz
 
     def _resolve_spacing(self, msg: FormationCommand) -> float:
-        """
-        Geçerli spacing değerini belirler.
-
-        Args:
-            msg (FormationCommand): Aktif formasyon komutu.
-
-        Returns:
-            float: QR'dan gelen spacing_m geçerliyse onu,
-                aksi halde YAML default'unu döndürür.
-        """
         if msg.spacing_m > 0.0:
             return float(msg.spacing_m)
         return self._default_spacing_m
@@ -377,24 +299,6 @@ class FormationControlNode(Node):
         self,
         msg: FormationCommand,
     ) -> tuple[float, float, float]:
-        """
-        Formasyon merkezini, mesajdaki flaglere göre belirler.
-
-        Öncelik sırası:
-            1. use_current_centroid=true → SwarmState.centroid_x/y
-            2. use_current_altitude=true → SwarmState.centroid_z
-            3. Aksi halde mesajdaki center_x/y/z
-
-        SwarmState henüz alınmamışsa (state is None) güvenli düşüş:
-        mesajdaki değerleri kullan. Bu durum normalde olmaz çünkü
-        _publish_setpoint zaten active_agent_ids boşsa erken çıkar.
-
-        Args:
-            msg (FormationCommand): Aktif formasyon komutu.
-
-        Returns:
-            tuple: (center_x, center_y, center_z) NED, metre.
-        """
         cx = float(msg.center_x)
         cy = float(msg.center_y)
         cz = float(msg.center_z)
@@ -411,41 +315,85 @@ class FormationControlNode(Node):
         return cx, cy, cz
 
     def _find_rank(self) -> int | None:
-        """
-        Bu drone'un aktif liste içindeki rank'ini döndürür.
-
-        Returns:
-            int | None: rank (0-based) veya bu drone listede
-                yoksa None.
-        """
-        try:
-            return self._active_agent_ids.index(self._agent_id)
-        except ValueError:
+        """Rank'i döndürür; yeni komutta Macar ile yeniden hesaplar, aynı komutta kilitli kalır."""
+        if self._agent_id not in self._active_agent_ids:
             return None
 
-    def _publish_setpoint(self) -> None:
-        """
-        Periyodik setpoint hesaplama ve AgentSetpoint yayını.
+        msg = self._current_formation
+        if msg is None:
+            return self._active_agent_ids.index(self._agent_id)
 
-        Şu durumlarda hiçbir mesaj yayınlanmaz:
-            - Henüz FormationCommand gelmemişse.
-            - Aktif ajan listesi boşsa.
-            - Sürü pasif durumda (IDLE, LANDING, RTL, FAILSAFE vb.).
-            - Misyon aktif değilse.
-            - Bu drone aktif listede yoksa.
-            - formation_type desteklenmiyorsa.
-        """
+        if msg.sequence_num != self._cached_formation_seq:
+            self._cached_rank = self._compute_optimal_rank(msg)
+            self._cached_formation_seq = msg.sequence_num
+
+        return self._cached_rank
+
+    def _compute_optimal_rank(self, msg: FormationCommand) -> int:
+        """O(N³) Macar algoritmasıyla optimal slot ataması yapar."""
+        ids = self._active_agent_ids
+        n = len(ids)
+
+        state = self._latest_swarm_state
+        if state is None or len(state.agent_pos_x) != n:
+            return ids.index(self._agent_id)
+
+        drone_xy: list[tuple[float, float]] = [
+            (float(state.agent_pos_x[i]), float(state.agent_pos_y[i]))
+            for i in range(n)
+        ]
+
+        spacing = float(msg.spacing_m) if msg.spacing_m > 0.0 else self._default_spacing_m
+        heading_rad = math.radians(msg.heading_deg)
+        center_x, center_y, _ = self._resolve_center(msg)
+
+        offsets = compute_slot_offsets(
+            int(msg.formation_type), n, spacing, self._alpha_rad
+        )
+        slot_xy: list[tuple[float, float]] = []
+        for dx, dy, _ in offsets:
+            rx, ry = rotate_offset(dx, dy, heading_rad)
+            slot_xy.append((center_x + rx, center_y + ry))
+
+        cost = [
+            [
+                math.hypot(
+                    drone_xy[i][0] - slot_xy[j][0],
+                    drone_xy[i][1] - slot_xy[j][1],
+                )
+                for j in range(n)
+            ]
+            for i in range(n)
+        ]
+        assignment = hungarian_assignment(cost)
+        return assignment[ids.index(self._agent_id)]
+
+    def _publish_setpoint(self) -> None:
         msg = self._current_formation
         if msg is None or not self._active_agent_ids:
             return
 
-        # Decision C: pasif sürü durumlarında setpoint yayınlama.
         state = self._latest_swarm_state
         if state is not None:
             if not state.mission_active:
                 return
             if state.swarm_state in _PASSIVE_SWARM_STATES:
                 return
+
+        if not self._origin_synced:
+            self.get_logger().warn(
+                'origin senkronlanmadi; setpoint bekletiliyor',
+                throttle_duration_sec=2.0,
+            )
+            return
+
+        # estimator_ok SITL'de bypass edildiği için xy/z_valid kullanılır.
+        if not (self._xy_valid and self._z_valid):
+            self.get_logger().warn(
+                'konum tahmini gecersiz (xy/z_valid); setpoint bekletiliyor',
+                throttle_duration_sec=2.0,
+            )
+            return
 
         rank = self._find_rank()
         if rank is None:
@@ -483,6 +431,8 @@ class FormationControlNode(Node):
             )
             return
 
+        x, y = self._shared_to_local(x, y)
+
         max_speed = (
             float(msg.max_speed_mps)
             if msg.max_speed_mps > 0.0
@@ -506,21 +456,6 @@ class FormationControlNode(Node):
         vy: float,
         vz: float,
     ) -> AgentSetpoint:
-        """
-        Hesaplanmış pozisyondan AgentSetpoint mesajı üretir.
-
-        Args:
-            cmd (FormationCommand): Aktif formasyon komutu.
-            x (float): Hedef NED X, metre.
-            y (float): Hedef NED Y, metre.
-            z (float): Hedef NED Z, metre.
-            vx (float): FF+SVT hızı NED X, m/s.
-            vy (float): FF+SVT hızı NED Y, m/s.
-            vz (float): FF+SVT hızı NED Z, m/s.
-
-        Returns:
-            AgentSetpoint: Doldurulmuş mesaj.
-        """
         out = AgentSetpoint()
         out.stamp = self.get_clock().now().to_msg()
         out.sequence_num = self._sequence_num
@@ -538,7 +473,7 @@ class FormationControlNode(Node):
         out.vx = float(vx)
         out.vy = float(vy)
         out.vz = float(vz)
-        out.velocity_valid = True
+        out.velocity_valid = bool(cmd.use_current_centroid or cmd.use_current_altitude)
         out.acceleration_valid = False
 
         out.heading_deg = float(cmd.heading_deg)
@@ -563,7 +498,6 @@ class FormationControlNode(Node):
 
 
 def main(args=None) -> None:
-    """ROS2 entry point — node'u başlatır ve spin eder."""
     rclpy.init(args=args)
     node = FormationControlNode()
     try:
@@ -572,8 +506,4 @@ def main(args=None) -> None:
         pass
     finally:
         node.destroy_node()
-        rclpy.shutdown()
-
-
-if __name__ == '__main__':
-    main()
+        rclpy.try_shutdown()

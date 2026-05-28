@@ -28,6 +28,7 @@ _CMD_NAV_TAKEOFF = 22          # param7 = irtifa
 _CMD_NAV_LAND = 21
 _CMD_NAV_RTL = 20              # Return to Launch
 _CMD_DO_SET_MODE = 176         # base_mode + custom_main + custom_sub
+_CMD_SET_GPS_GLOBAL_ORIGIN = 2015  # param5=lat*1e7, param6=lon*1e7, param7=alt_amsl
 
 
 # PX4 PX4_CUSTOM_MAIN_MODE değerleri (DO_SET_MODE param2 için)
@@ -268,3 +269,25 @@ class CommandSender:
         msg.yaw = float(yaw_rad)
         msg.yawspeed = _NAN
         self._setpoint_pub.publish(msg)
+
+    def set_gps_global_origin(
+        self,
+        lat_deg: float,
+        lon_deg: float,
+        alt_amsl_m: float,
+    ) -> None:
+        """Tüm sürüm için ortak NED origin'i PX4'e bildir.
+
+        MAVLink SET_GPS_GLOBAL_ORIGIN (2015): PX4'ün local NED (0,0,0)
+        noktasını verilen GPS koordinatına kilitler. Swarm'daki tüm
+        drone'lar aynı origin kullanırsa formation setpoint'leri aynı
+        fiziksel noktaya işaret eder.
+
+        Gerçek donanımda kalkıştan önce çağrılmalıdır.
+        """
+        self._send_vehicle_command(
+            _CMD_SET_GPS_GLOBAL_ORIGIN,
+            param5=lat_deg * 1e7,
+            param6=lon_deg * 1e7,
+            param7=float(alt_amsl_m),
+        )

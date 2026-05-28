@@ -22,6 +22,9 @@ setup(
         'console_scripts': [
             'formation_node = '
             'swarm_core.formation_control.formation_node:main',
+            'formation_test_publisher = '
+            'swarm_core.formation_control'
+            '.formation_test_publisher:main',
         ],
     },
 )

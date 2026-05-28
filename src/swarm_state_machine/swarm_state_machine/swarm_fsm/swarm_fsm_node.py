@@ -9,6 +9,7 @@ Topic adlandırma kuralları (network_proxy uyumlu):
     - Lokal iç haberleşme: /swarm/agent/drone{id}/...
 """
 
+import math
 import time
 
 import rclpy
@@ -24,9 +25,12 @@ from swarm_interfaces.msg import (
     AgentStatus,
     ElectionResult,
     LeaderHeartbeat,
+    SwarmOrigin,
     SwarmState as SwarmStateMsg,
     SystemEvent,
 )
+
+_M_PER_DEG_LAT = 111_320.0
 
 from ..agent_fsm.agent_states import AgentState
 from .swarm_context import AgentStatusCache, SwarmContext
@@ -50,6 +54,13 @@ _ELECTION_QOS = QoSProfile(
     durability=DurabilityPolicy.TRANSIENT_LOCAL,
     history=HistoryPolicy.KEEP_LAST,
     depth=10,
+)
+
+_ORIGIN_QOS = QoSProfile(
+    reliability=ReliabilityPolicy.RELIABLE,
+    durability=DurabilityPolicy.TRANSIENT_LOCAL,
+    history=HistoryPolicy.KEEP_LAST,
+    depth=1,
 )
 
 _HEARTBEAT_QOS = QoSProfile(
@@ -94,6 +105,8 @@ class SwarmFsmNode(Node):
         )
 
         self._max_election_seq: int = 0
+        self._origin_lat: float | None = None
+        self._origin_lon: float | None = None
 
         self._setup_publishers()
         self._setup_subscribers()
@@ -196,6 +209,14 @@ class SwarmFsmNode(Node):
             '/swarm/public/election/result',
             self._on_election,
             _ELECTION_QOS,
+        )
+
+        # SwarmOrigin — shared NED frame referansı (transient: geç başlansa da alır)
+        self.create_subscription(
+            SwarmOrigin,
+            '/swarm/public/origin',
+            self._on_swarm_origin,
+            _ORIGIN_QOS,
         )
 
     # ==================================================================
@@ -501,6 +522,9 @@ class SwarmFsmNode(Node):
         cache.pos_x = msg.pos_x
         cache.pos_y = msg.pos_y
         cache.pos_z = msg.pos_z
+        if msg.lat_deg != 0.0 or msg.lon_deg != 0.0:
+            cache.lat_deg = float(msg.lat_deg)
+            cache.lon_deg = float(msg.lon_deg)
         cache.vel_x = msg.vel_x
         cache.vel_y = msg.vel_y
         cache.vel_z = msg.vel_z
@@ -536,6 +560,21 @@ class SwarmFsmNode(Node):
             ctx.last_event_pos_y = msg.pos_y
             ctx.last_event_pos_z = msg.pos_z
         ctx.last_event_message = msg.message
+
+    def _on_swarm_origin(self, msg: SwarmOrigin) -> None:
+        if msg.valid:
+            self._origin_lat = float(msg.origin_lat_deg)
+            self._origin_lon = float(msg.origin_lon_deg)
+
+    def _to_shared_ned(self, lat: float, lon: float) -> tuple[float, float]:
+        """GPS lat/lon → shared NED (north, east) metre."""
+        if self._origin_lat is None:
+            return 0.0, 0.0
+        d_lat = lat - self._origin_lat
+        d_lon = lon - self._origin_lon
+        north = d_lat * _M_PER_DEG_LAT
+        east = d_lon * _M_PER_DEG_LAT * math.cos(math.radians(self._origin_lat))
+        return north, east
 
         # Formasyon olayları
         if eid == SystemEvent.EVENT_FORMATION_REACHED:
@@ -671,19 +710,32 @@ class SwarmFsmNode(Node):
 
         # agents[] boş — 250 byte ESP-NOW limiti (Kural 4)
 
-        # active_agent_ids: küçük payload, formation_control'un tek kaynağı.
+        # active_agent_ids + paralel pozisyon dizileri.
         # Decision B: a.healthy tek bayrak (agent_fsm aggregate'i).
         _active_states = frozenset({
             AgentState.IN_SWARM, AgentState.EXECUTING_TASK,
         })
-        m.active_agent_ids = [
-            a.agent_id
+        active_agents = [
+            a
             for a in sorted(ctx.agents.values(), key=lambda x: x.agent_id)
             if a.healthy
             and a.origin_synced
             and not a.is_stale()
             and a.state in _active_states
         ]
+        m.active_agent_ids = [a.agent_id for a in active_agents]
+        # Pozisyonlar shared NED'de olmalı (formation_node Macar maliyet matrisi için).
+        # Origin geldiyse GPS→shared NED; gelmemişse local NED ile devam (fallback).
+        shared_positions = []
+        for a in active_agents:
+            if self._origin_lat is not None and (a.lat_deg != 0.0 or a.lon_deg != 0.0):
+                n, e = self._to_shared_ned(a.lat_deg, a.lon_deg)
+                shared_positions.append((n, e, float(a.pos_z)))
+            else:
+                shared_positions.append((float(a.pos_x), float(a.pos_y), float(a.pos_z)))
+        m.agent_pos_x = [p[0] for p in shared_positions]
+        m.agent_pos_y = [p[1] for p in shared_positions]
+        m.agent_pos_z = [p[2] for p in shared_positions]
 
         m.active_mission = ctx.active_mission
         m.status_text = ctx.status_text
