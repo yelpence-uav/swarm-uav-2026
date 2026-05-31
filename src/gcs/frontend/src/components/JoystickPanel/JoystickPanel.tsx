@@ -67,7 +67,10 @@ export function JoystickPanel({ enabled }: JoystickPanelProps) {
       seqRef.current += 1;
       const body: SwarmControlBody = {
         sequence_num: seqRef.current,
-        command_valid: live.connected,
+        // Kontrat (SwarmControlCommand.msg §6-9): command_valid AND deadman_pressed
+        // ikisi de true olmadan drone'lar HOLD'a düşmeli. Sadece pad bağlantısı
+        // yetmez — pilot R1'i bıraktığında hareket komutu iptal edilmeli.
+        command_valid: live.connected && live.deadman_pressed,
         deadman_pressed: live.deadman_pressed,
         deadman_timeout_s: 0.5,
         mode,
