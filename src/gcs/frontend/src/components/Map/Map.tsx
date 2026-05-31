@@ -5,7 +5,7 @@ import type { DroneState } from "../../types/telemetry";
 import { droneIcon } from "./droneIcon";
 import "./Map.css";
 
-// PX4 SITL default home (Zürich Hönggerberg) — mock burayı kullanıyor.
+// PX4 SITL default home (Zürich Hönggerberg) — test publisher burayı kullanıyor.
 // Saha'da ilk gerçek pozisyon gelince auto-fit zaten doğru yere alır.
 const ZURICH: L.LatLngTuple = [47.397742, 8.545594];
 const DEFAULT_ZOOM = 19;

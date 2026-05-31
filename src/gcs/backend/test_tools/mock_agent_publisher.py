@@ -110,7 +110,7 @@ class MockAgentPublisher(Node):
         self.create_timer(1.0 / self.SWARM_STATE_HZ, self._tick_swarm_state)
         self.create_timer(0.5, self._tick_event)
         self.get_logger().info(
-            f"mock başladı [mode={self._mode}] — "
+            f"test publisher başladı [mode={self._mode}] — "
             f"AgentStatus@{self.PUBLISH_HZ}Hz × {len(self.DRONE_IDS)} drone, "
             f"SwarmState@{self.SWARM_STATE_HZ}Hz, "
             f"TriggerMission server hazır"
@@ -230,7 +230,7 @@ class MockAgentPublisher(Node):
         m.formation_avg_error_m = 0.2 if self._mode == MockMode.ACTIVE else 0.0
         m.formation_heading_error_deg = 1.5 if self._mode == MockMode.ACTIVE else 0.0
         m.active_mission = "qr_chain" if m.mission_active else ""
-        m.status_text = f"mock mode={self._mode}"
+        m.status_text = ""
         m.current_qr_id = 1 if m.mission_active else 0
         m.current_qr_seq = 1 if m.mission_active else 0
         m.last_event_type = 0
@@ -258,41 +258,41 @@ class MockAgentPublisher(Node):
                     s["battery"] = max(s["battery"], 80.0)
                 self._set_mode(MockMode.ACTIVE, "START: yerden kalkış")
                 response.success = True
-                response.message = f"mock: {mid}/START — kalktı (team={team})"
+                response.message = f"{mid}/START — kalktı (team={team})"
             else:
                 response.success = False
-                response.message = f"mock: zaten aktif (mode={self._mode})"
+                response.message = f"zaten aktif (mode={self._mode})"
         elif request.command == 2:  # ABORT
             self._set_mode(MockMode.ABORTED, "ABORT komutu")
             response.success = True
-            response.message = "mock: görev iptal, drone'lar yerde"
+            response.message = "görev iptal, drone'lar yerde"
         elif request.command == 3:  # PAUSE
             if self._mode == MockMode.ACTIVE:
                 self._set_mode(MockMode.PAUSED, "PAUSE komutu")
                 response.success = True
-                response.message = "mock: duraklatıldı, drone'lar havada bekliyor"
+                response.message = "duraklatıldı, drone'lar havada bekliyor"
             else:
                 response.success = False
-                response.message = f"mock: PAUSE sadece ACTIVE'den (mode={self._mode})"
+                response.message = f"PAUSE sadece ACTIVE'den (mode={self._mode})"
         elif request.command == 4:  # RESUME
             if self._mode == MockMode.PAUSED:
                 self._set_mode(MockMode.ACTIVE, "RESUME komutu")
                 response.success = True
-                response.message = "mock: göreve devam"
+                response.message = "göreve devam"
             else:
                 response.success = False
-                response.message = f"mock: RESUME sadece PAUSED'dan (mode={self._mode})"
+                response.message = f"RESUME sadece PAUSED'dan (mode={self._mode})"
         elif request.command == 5:  # RTL
             self._set_mode(MockMode.RTL, "RTL komutu")
             response.success = True
-            response.message = "mock: drone'lar home'a dönüyor"
+            response.message = "drone'lar home'a dönüyor"
         elif request.command == 6:  # LAND
             self._set_mode(MockMode.LANDING, "LAND komutu")
             response.success = True
-            response.message = "mock: iniş başladı"
+            response.message = "iniş başladı"
         else:
             response.success = False
-            response.message = f"mock: bilinmeyen komut {request.command}"
+            response.message = f"bilinmeyen komut {request.command}"
 
         self.get_logger().info(
             f"TriggerMission: mission={mid} command={cmd} team={team} "
@@ -330,7 +330,7 @@ class MockAgentPublisher(Node):
         m.pos_x = 0.0
         m.pos_y = 0.0
         m.pos_z = 0.0
-        m.source_module = "mock"
+        m.source_module = "test_publisher"
         m.message = text
         self._event_pub.publish(m)
 
@@ -443,7 +443,7 @@ class MockAgentPublisher(Node):
         m.wants_to_join = False
         m.ready_to_arm = (self._mode == MockMode.IDLE)
 
-        m.status_text = f"mock {self._mode} drone {drone_id}"
+        m.status_text = ""
         return m
 
 
