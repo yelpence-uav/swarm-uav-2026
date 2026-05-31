@@ -25,10 +25,15 @@ const MISSION_LABELS: Record<number, string> = {
 
 interface MissionPanelProps {
   missionActive: boolean;
+  missionId: number;
+  onMissionIdChange: (id: number) => void;
 }
 
-export function MissionPanel({ missionActive }: MissionPanelProps) {
-  const [missionId, setMissionId] = useState<number>(MISSION_ID.DYNAMIC_SWARM);
+export function MissionPanel({
+  missionActive,
+  missionId,
+  onMissionIdChange,
+}: MissionPanelProps) {
   const [teamId, setTeamId] = useState<string>("team_1");
   const [busy, setBusy] = useState<string | null>(null);
   const [lastResult, setLastResult] = useState<TriggerMissionResponse | null>(null);
@@ -68,7 +73,7 @@ export function MissionPanel({ missionActive }: MissionPanelProps) {
           <span>Görev:</span>
           <select
             value={missionId}
-            onChange={(e) => setMissionId(Number(e.target.value))}
+            onChange={(e) => onMissionIdChange(Number(e.target.value))}
             disabled={busy !== null}
           >
             {Object.entries(MISSION_LABELS).map(([id, label]) => (
@@ -105,6 +110,13 @@ export function MissionPanel({ missionActive }: MissionPanelProps) {
         >
           {busy === "GÖREV BAŞLAT" ? "GÖNDERİLİYOR..." : "▶ GÖREV BAŞLAT"}
         </button>
+
+        {missionId === MISSION_ID.SEMI_AUTONOMOUS && !missionActive && (
+          <div className="mission-panel__hint">
+            ⓘ Görev başlayınca joystick paneli sağda açılacak. Pilot kumandayı
+            hazır tutmalı (deadman R1).
+          </div>
+        )}
       </div>
 
       {/* Şartname §5.1: görev başladıktan sonra GCS müdahalesi yasak. Tek
