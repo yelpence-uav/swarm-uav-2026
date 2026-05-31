@@ -4,7 +4,7 @@
   align-items: center;
   gap: var(--space-6);
   padding: 0 var(--space-6);
-  height: 64px;
+  height: 72px;
   background: var(--color-bg-elevated);
   border-bottom: 1px solid var(--color-border);
   box-shadow: var(--shadow-sm), var(--shadow-inset);
@@ -31,8 +31,8 @@
 }
 
 .app-header__logo {
-  width: 48px;
-  height: 48px;
+  width: 64px;
+  height: 64px;
   display: grid;
   place-items: center;
   position: relative;
@@ -203,8 +203,8 @@ html[data-theme="light"] .app-header__logo::before {
 }
 
 @media (max-width: 768px) {
-  .app-header { padding: 0 var(--space-3); gap: var(--space-3); height: 56px; }
-  .app-header__logo { width: 40px; height: 40px; }
+  .app-header { padding: 0 var(--space-3); gap: var(--space-3); height: 64px; }
+  .app-header__logo { width: 52px; height: 52px; }
   .app-header__title { display: none; }
   .app-header__metrics { gap: 4px; }
   .metric { min-width: 64px; padding: 4px var(--space-2); }
