@@ -1,107 +1,184 @@
 .drone-card {
+  --accent: var(--color-accent);
+
+  position: relative;
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  padding: 12px 14px;
-  background: #131820;
-  border: 1px solid #2a2f37;
-  border-radius: 8px;
-  font-family: ui-monospace, monospace;
-  color: #e6e6e6;
-  flex: 1 1 0;
-  min-height: 0;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  background: var(--gradient-card);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
   overflow: hidden;
+  transition: all var(--transition-base);
+  animation: fade-in var(--transition-base);
 }
 
-.drone-card--offline {
-  background: rgba(60, 60, 60, 0.4);
-  color: #888;
+/* Sol kenarda drone rengi şerit */
+.drone-card::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  background: var(--accent);
+  box-shadow: 0 0 16px var(--accent);
+  opacity: 0.8;
 }
 
+/* Üst hafif glow */
+.drone-card::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle at top left, var(--accent), transparent 60%);
+  opacity: 0.06;
+  pointer-events: none;
+}
+
+.drone-card:hover {
+  border-color: var(--accent);
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+}
+
+.drone-card:hover::after {
+  opacity: 0.12;
+}
+
+/* === Head ================================================== */
 .drone-card__head {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
+  position: relative;
 }
 
 .drone-card__dot {
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
+  width: 8px;
+  height: 8px;
+  border-radius: var(--radius-full);
+  background: var(--color-text-muted);
   flex-shrink: 0;
+}
+.drone-card__dot--live {
+  background: var(--accent);
+  box-shadow: 0 0 8px var(--accent);
+  animation: pulse-dot 2s ease-in-out infinite;
+}
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.4; }
 }
 
 .drone-card__title {
   margin: 0;
-  font-size: 14px;
+  font-size: var(--text-base);
   font-weight: 700;
+  color: var(--color-text-primary);
+  letter-spacing: 0.02em;
   flex: 1;
 }
 
 .drone-card__badge {
-  padding: 2px 8px;
-  border-radius: 4px;
   font-size: 10px;
   font-weight: 700;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.1em;
+  padding: 2px var(--space-2);
+  border-radius: var(--radius-sm);
+  text-transform: uppercase;
 }
 
 .drone-card__badge--armed {
-  background: rgba(244, 67, 54, 0.18);
-  color: #ef5350;
-  border: 1px solid #e53935;
+  background: rgba(239, 68, 68, 0.15);
+  color: var(--color-danger);
+  border: 1px solid rgba(239, 68, 68, 0.3);
 }
-
 .drone-card__badge--ground {
-  background: rgba(255, 255, 255, 0.06);
-  color: #bbb;
-  border: 1px solid #444;
+  background: var(--color-bg-glass);
+  color: var(--color-text-muted);
+  border: 1px solid var(--color-border);
 }
-
 .drone-card__badge--offline {
-  background: rgba(255, 255, 255, 0.05);
-  color: #888;
-  border: 1px solid #444;
+  background: rgba(91, 102, 119, 0.15);
+  color: var(--color-text-muted);
+  border: 1px solid var(--color-border);
 }
 
-.drone-card__mode {
-  font-size: 12px;
-  color: #cfe9d2;
-  letter-spacing: 0.04em;
-}
-
-.drone-card__stats {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 6px 12px;
-  margin: 0;
-  font-size: 12px;
-}
-
-.drone-card__stats > div {
+/* === State =================================================== */
+.drone-card__state {
   display: flex;
-  justify-content: space-between;
-  align-items: baseline;
+  align-items: center;
+  gap: var(--space-2);
 }
 
-.drone-card__stats dt {
-  color: #888;
+.drone-card__state-label {
+  font-size: var(--text-xs);
+  color: var(--color-text-secondary);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
 }
 
-.drone-card__stats dd {
+/* === Stats grid ============================================ */
+.drone-card__stats {
   margin: 0;
-  color: #e6e6e6;
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: var(--space-1) var(--space-3);
+}
+
+.drone-card__stat {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.drone-card__stat dt {
+  font-size: 9px;
+  color: var(--color-text-muted);
+  letter-spacing: 0.12em;
   font-weight: 600;
 }
 
-.drone-card__footer {
-  font-size: 10px;
-  color: #666;
-  text-align: right;
+.drone-card__stat dd {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--color-text-primary);
+  font-weight: 500;
 }
 
-.drone-card__offline-msg {
-  margin: 0;
-  font-size: 12px;
-  color: #888;
+/* === Footer ================================================= */
+.drone-card__footer {
+  font-size: 10px;
+  color: var(--color-text-muted);
+  border-top: 1px solid var(--color-border);
+  padding-top: var(--space-2);
+  margin-top: auto;
+}
+
+/* === Offline state ========================================= */
+.drone-card--offline {
+  opacity: 0.7;
+}
+.drone-card--offline::before {
+  background: var(--color-text-muted);
+  box-shadow: none;
+}
+
+.drone-card__offline-body {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-3) 0;
+  color: var(--color-text-muted);
+}
+.drone-card__offline-icon {
+  font-size: var(--text-lg);
+  color: var(--color-warning);
+}
+.drone-card__offline-text {
+  font-size: var(--text-sm);
 }

@@ -1,99 +1,127 @@
+/* Alert listesi: harita üzerinde sağ üst köşeden toast-style yığılır */
 .alert-list {
   position: absolute;
-  top: 12px;
-  right: 12px;
-  z-index: 1000;
+  top: var(--space-4);
+  right: var(--space-4);
+  z-index: var(--z-toast);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  max-width: 360px;
   list-style: none;
   margin: 0;
   padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  max-width: 360px;
-  pointer-events: auto;
+  pointer-events: none; /* item'lar pointer-events: auto override eder */
 }
 
 .alert-item {
+  position: relative;
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  padding: 8px 10px;
-  border-radius: 6px;
-  font-family: ui-monospace, monospace;
-  color: #fff;
-  border: 1px solid;
-  backdrop-filter: blur(6px);
-  animation: alert-slide-in 200ms ease-out;
+  gap: var(--space-1);
+  padding: var(--space-3) var(--space-4);
+  background: var(--color-bg-overlay);
+  backdrop-filter: blur(12px);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md);
+  pointer-events: auto;
+  animation: slide-in-right var(--transition-base);
+  overflow: hidden;
 }
 
-@keyframes alert-slide-in {
-  from {
-    opacity: 0;
-    transform: translateX(20px);
-  }
-  to {
-    opacity: 1;
-    transform: translateX(0);
-  }
-}
-
-.alert-item--critical {
-  background: rgba(229, 57, 53, 0.92);
-  border-color: #b71c1c;
-  box-shadow: 0 4px 12px rgba(229, 57, 53, 0.4);
-}
-
-.alert-item--warning {
-  background: rgba(212, 169, 59, 0.92);
-  border-color: #8d6e1f;
-  color: #1a1a1a;
+/* Sol kenarda severity şeridi */
+.alert-item::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
 }
 
 .alert-item--info {
-  background: rgba(33, 150, 243, 0.9);
-  border-color: #1565c0;
+  border-color: rgba(56, 189, 248, 0.3);
+}
+.alert-item--info::before {
+  background: var(--color-accent);
+  box-shadow: 0 0 12px var(--color-accent-glow);
 }
 
+.alert-item--warning {
+  border-color: rgba(245, 158, 11, 0.4);
+  box-shadow: var(--shadow-md), var(--shadow-glow-warning);
+}
+.alert-item--warning::before {
+  background: var(--color-warning);
+  box-shadow: 0 0 12px var(--color-warning-glow);
+}
+
+.alert-item--critical {
+  border-color: rgba(239, 68, 68, 0.5);
+  box-shadow: var(--shadow-md), var(--shadow-glow-danger);
+  animation:
+    slide-in-right var(--transition-base),
+    pulse-glow 1.8s ease-in-out 0.4s infinite;
+}
+.alert-item--critical::before {
+  background: var(--color-danger);
+  box-shadow: 0 0 16px var(--color-danger-glow);
+}
+
+/* === Head ================================================== */
 .alert-item__head {
   display: flex;
   align-items: center;
-  gap: 8px;
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.06em;
+  gap: var(--space-2);
 }
 
 .alert-item__severity {
-  padding: 1px 5px;
-  background: rgba(0, 0, 0, 0.25);
-  border-radius: 3px;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
 }
+.alert-item--info .alert-item__severity     { color: var(--color-accent); }
+.alert-item--warning .alert-item__severity  { color: var(--color-warning); }
+.alert-item--critical .alert-item__severity { color: var(--color-danger); }
 
 .alert-item__drone {
-  flex: 1;
+  font-size: var(--text-xs);
+  color: var(--color-text-secondary);
+  font-weight: 600;
 }
 
 .alert-item__age {
-  opacity: 0.8;
-  font-weight: 400;
+  font-size: 10px;
+  color: var(--color-text-muted);
+  font-family: var(--font-mono);
+  margin-left: auto;
+  padding-right: var(--space-2);
 }
 
 .alert-item__close {
+  width: 20px;
+  height: 20px;
+  border-radius: var(--radius-sm);
   background: transparent;
-  border: 0;
-  color: inherit;
-  font-size: 18px;
+  color: var(--color-text-muted);
+  border: none;
+  font-size: var(--text-md);
   line-height: 1;
-  cursor: pointer;
-  padding: 0 4px;
-  opacity: 0.7;
+  display: grid;
+  place-items: center;
+  transition: all var(--transition-fast);
 }
 
 .alert-item__close:hover {
-  opacity: 1;
+  background: var(--color-bg-glass);
+  color: var(--color-text-primary);
 }
 
+/* === Body =================================================== */
 .alert-item__msg {
-  font-size: 12px;
-  font-weight: 600;
+  font-size: var(--text-sm);
+  color: var(--color-text-primary);
+  line-height: var(--leading-base);
 }

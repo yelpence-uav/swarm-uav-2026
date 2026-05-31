@@ -12,10 +12,11 @@ const DEFAULT_ZOOM = 19;
 const MIN_FOLLOW_ZOOM = 18;        // auto-follow bu zoom'un altına inmesin
 const TRAIL_MAX_POINTS = 80;       // drone başına iz çizgisi uzunluğu
 
+// DroneCard'taki --color-drone-* ile eşleşmeli (cyan/violet/orange tematik aksent).
 const COLORS: Record<number, string> = {
-  1: "#2196F3",
-  2: "#4CAF50",
-  3: "#FF9800",
+  1: "#38bdf8",  // cyan — Drone 1
+  2: "#a78bfa",  // violet — Drone 2
+  3: "#fb923c",  // orange — Drone 3
 };
 
 interface DroneVisuals {

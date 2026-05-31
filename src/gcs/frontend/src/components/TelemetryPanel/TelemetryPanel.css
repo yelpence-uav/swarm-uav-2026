@@ -1,19 +1,18 @@
+/* Drone strip — yatay 3 kart, app__drone-strip içinde grid'i devralır */
 .telemetry-panel {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  padding: 12px;
-  background: #0a0d12;
-  border-left: 1px solid #2a2f37;
-  height: 100%;
-  overflow-y: auto;
-  box-sizing: border-box;
+  display: contents; /* parent (.app__drone-strip) zaten grid; biz wrapper olmayalım */
 }
 
 .telemetry-panel__empty {
-  color: #777;
-  font-size: 12px;
-  text-align: center;
-  padding: 20px;
-  font-family: ui-monospace, monospace;
+  grid-column: 1 / -1;
+  display: grid;
+  place-items: center;
+  padding: var(--space-6);
+  background: var(--gradient-card);
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius-lg);
+  color: var(--color-text-muted);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  letter-spacing: 0.05em;
 }

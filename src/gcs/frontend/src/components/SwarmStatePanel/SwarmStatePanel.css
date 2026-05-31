@@ -1,96 +1,139 @@
 .swarm-state-panel {
-  background: #0f172a;
-  border-bottom: 1px solid #1e293b;
-  padding: 8px 16px;
-  color: #cbd5e1;
+  position: relative;
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  font-size: 12px;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  background: var(--gradient-card);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  backdrop-filter: blur(8px);
+  transition: all var(--transition-base);
+  animation: fade-in var(--transition-base);
 }
 
-.swarm-state-panel--emergency {
-  background: #450a0a;
-  border-bottom-color: #7f1d1d;
+/* Üst kenarda accent çizgi */
+.swarm-state-panel::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: var(--space-4);
+  right: var(--space-4);
+  height: 1px;
+  background: var(--gradient-accent-line);
+  opacity: 0.6;
 }
 
 .swarm-state-panel--empty {
-  color: #6b7280;
-  font-style: italic;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: var(--space-3);
+  border-style: dashed;
+  opacity: 0.7;
 }
 
+.swarm-state-panel--emergency {
+  border-color: var(--color-danger);
+  box-shadow: var(--shadow-glow-danger);
+  animation: pulse-glow 2s ease-in-out infinite;
+}
+
+/* === Header satır ========================================== */
 .swarm-state-panel__row {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: var(--space-2);
   flex-wrap: wrap;
 }
-
 .swarm-state-panel__row--compact {
-  gap: 16px;
-  font-size: 11px;
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: var(--space-2) var(--space-3);
 }
 
 .swarm-state-panel__title {
-  color: #60a5fa;
+  font-size: 10px;
   font-weight: 700;
-  letter-spacing: 1px;
-}
-
-.swarm-state-panel__placeholder {
-  font-size: 11px;
+  letter-spacing: 0.16em;
+  color: var(--color-text-muted);
+  text-transform: uppercase;
 }
 
 .swarm-state-panel__state {
-  font-weight: 600;
-  color: #e2e8f0;
+  font-size: var(--text-md);
+  font-weight: 700;
+  color: var(--color-accent);
+  letter-spacing: 0.02em;
+  flex: 1;
 }
 
+.swarm-state-panel__placeholder {
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+  font-style: italic;
+}
+
+/* === Chip badges =========================================== */
 .swarm-state-panel__badge {
   font-size: 10px;
-  padding: 2px 6px;
-  border-radius: 3px;
-  letter-spacing: 0.5px;
   font-weight: 700;
+  letter-spacing: 0.12em;
+  padding: 3px var(--space-2);
+  border-radius: var(--radius-sm);
+  text-transform: uppercase;
 }
 
 .swarm-state-panel__badge--active {
-  background: #16a34a;
-  color: white;
+  background: rgba(56, 189, 248, 0.16);
+  color: var(--color-accent);
+  border: 1px solid var(--color-border-accent);
+  box-shadow: 0 0 12px var(--color-accent-glow);
 }
 
 .swarm-state-panel__badge--emergency {
-  background: #dc2626;
-  color: white;
-  animation: emergency-pulse 1s infinite;
+  background: rgba(239, 68, 68, 0.18);
+  color: var(--color-danger);
+  border: 1px solid rgba(239, 68, 68, 0.4);
+  box-shadow: var(--shadow-glow-danger);
+  animation: pulse-glow 1.4s ease-in-out infinite;
 }
 
-@keyframes emergency-pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.5; }
-}
-
+/* === Stats ================================================= */
 .swarm-state-panel__stat {
   display: flex;
   flex-direction: column;
-  gap: 1px;
+  gap: 2px;
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-bg-glass);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
 }
 
 .swarm-state-panel__stat-label {
-  color: #64748b;
-  font-size: 10px;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
-  letter-spacing: 0.5px;
+  color: var(--color-text-muted);
 }
 
 .swarm-state-panel__stat-value {
-  color: #f1f5f9;
-  font-family: monospace;
+  font-size: var(--text-sm);
   font-weight: 600;
+  color: var(--color-text-primary);
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
 }
 
+/* === Status text ============================================ */
 .swarm-state-panel__status {
-  color: #94a3b8;
-  font-style: italic;
-  font-size: 11px;
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-bg-glass);
+  border-left: 2px solid var(--color-accent);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-xs);
+  color: var(--color-text-secondary);
+  font-family: var(--font-mono);
 }

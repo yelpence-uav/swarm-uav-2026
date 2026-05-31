@@ -1,61 +1,54 @@
 .mc {
   display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 16px;
-  background: #131820;
-  color: #e6e6e6;
-  border-bottom: 1px solid #2a2f37;
-  font: 12px/1 ui-monospace, monospace;
   flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  background: var(--color-bg-glass);
+  border: 1px dashed var(--color-warning);
+  border-radius: var(--radius-md);
 }
 
 .mc__label {
+  font-size: 10px;
   font-weight: 700;
-  letter-spacing: 0.06em;
-  color: #aaa;
-  font-size: 11px;
+  letter-spacing: 0.14em;
+  color: var(--color-warning);
+  text-transform: uppercase;
+  margin-right: var(--space-2);
 }
 
 .mc__btn {
-  padding: 6px 12px;
-  background: rgba(255, 255, 255, 0.04);
-  color: #e6e6e6;
-  border: 1px solid #2a2f37;
-  border-radius: 5px;
-  font: 600 11px/1 ui-monospace, monospace;
-  letter-spacing: 0.04em;
-  cursor: pointer;
-  transition: background 120ms, border-color 120ms;
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  background: var(--color-bg-glass);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  color: var(--color-text-secondary);
+  transition: all var(--transition-fast);
 }
 
 .mc__btn:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.08);
-  border-color: #3a4250;
-}
-
-.mc__btn:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
-}
-
-.mc__btn.is-busy {
-  border-color: #6fcf76;
+  color: var(--color-accent);
+  border-color: var(--color-border-accent);
 }
 
 .mc__btn--danger {
-  background: rgba(229, 57, 53, 0.18);
-  color: #ff8a80;
-  border-color: #b71c1c;
-  font-weight: 700;
+  color: var(--color-danger);
+  border-color: rgba(239, 68, 68, 0.3);
+}
+.mc__btn--danger:hover:not(:disabled) {
+  background: var(--gradient-danger);
+  color: white;
 }
 
-.mc__btn--danger:hover:not(:disabled) {
-  background: rgba(229, 57, 53, 0.32);
-}
+.mc__btn:disabled { opacity: 0.3; cursor: not-allowed; }
+.mc__btn.is-busy { opacity: 0.5; }
 
 .mc__error {
-  margin-left: auto;
-  color: #ef5350;
-  font-size: 11px;
+  flex-basis: 100%;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--color-danger);
 }

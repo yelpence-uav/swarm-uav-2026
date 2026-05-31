@@ -1,55 +1,72 @@
 .battery-gauge {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--space-1);
 }
 
 .battery-gauge__head {
   display: flex;
-  justify-content: space-between;
   align-items: baseline;
-  font: 600 13px/1 ui-monospace, monospace;
+  justify-content: space-between;
 }
 
 .battery-gauge__pct {
-  font-size: 18px;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--text-lg);
+  font-weight: 700;
+  letter-spacing: -0.02em;
 }
 
-.battery-gauge__pct--ok {
-  color: #6fcf76;
-}
-.battery-gauge__pct--warn {
-  color: #ffd166;
-}
-.battery-gauge__pct--crit {
-  color: #ef5350;
+.battery-gauge__pct--ok    { color: var(--color-success); }
+.battery-gauge__pct--warn  { color: var(--color-warning); }
+.battery-gauge__pct--crit  {
+  color: var(--color-danger);
+  text-shadow: 0 0 12px var(--color-danger-glow);
 }
 
 .battery-gauge__voltage {
-  color: #aaa;
-  font-size: 11px;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
 }
 
 .battery-gauge__bar {
+  position: relative;
   width: 100%;
   height: 6px;
-  background: rgba(255, 255, 255, 0.06);
-  border-radius: 3px;
+  background: var(--color-bg-glass);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-full);
   overflow: hidden;
 }
 
 .battery-gauge__fill {
   height: 100%;
-  border-radius: 3px;
-  transition: width 200ms linear, background 200ms;
+  border-radius: var(--radius-full);
+  transition: width var(--transition-slow), background var(--transition-base);
+  position: relative;
+  overflow: hidden;
 }
 
-.battery-gauge__fill--ok {
-  background: #4caf50;
+/* Hareketli "shimmer" efekti, sürü yaşadığını hissettirir */
+.battery-gauge__fill::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.25),
+    transparent
+  );
+  background-size: 200% 100%;
+  animation: shimmer 2.4s linear infinite;
 }
-.battery-gauge__fill--warn {
-  background: #d4a93b;
-}
+
+.battery-gauge__fill--ok   { background: var(--gradient-success); }
+.battery-gauge__fill--warn { background: linear-gradient(90deg, #f59e0b, #fbbf24); }
 .battery-gauge__fill--crit {
-  background: #e53935;
+  background: var(--gradient-danger);
+  box-shadow: 0 0 8px var(--color-danger-glow);
 }
