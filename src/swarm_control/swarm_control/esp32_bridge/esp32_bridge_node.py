@@ -782,7 +782,8 @@ class Esp32BridgeNode(Node):
         g = pp.gorev_coz(payload)
         msg = SystemEvent()
         msg.stamp = self.get_clock().now().to_msg()
-        msg.event_type = SystemEvent.EVENT_TYPE_INFO
+        # GOREV paketi QR çözümünden çıkar, en yakın event QR_PARSED
+        msg.event_type = SystemEvent.EVENT_QR_PARSED
         msg.severity = SystemEvent.SEVERITY_INFO
         msg.source_agent_id = source_id
         msg.value = float(g.tip)
