@@ -1,0 +1,37 @@
+/**:
+  ros__parameters:
+    # ── QR Kod İşleme Parametreleri ──
+    # RPi 5 CPU'sunu korumak için QR işleme frekansı.
+    qr_processing_rate_hz: 5.0
+
+    # QR tespiti yapılırken kullanılacak asgari güven eşiği
+    qr_min_confidence: 0.5
+
+    # ── İniş Bölgesi (Landing Zone) İşleme Parametreleri ──
+    # Renk tespiti çok daha hafif olduğu için daha yüksek frekansta çalışır.
+    landing_zone_rate_hz: 15.0
+
+    # İniş bölgesi için asgari alan boyutu (piksel kare)
+    min_zone_area_px: 500.0
+
+    # Gürültüyü azaltmak için Gauss filtresi çekirdek boyutu
+    gaussian_blur_kernel: 5
+
+    # ── Renk Eşikleri (HSV Uzayı) ──
+    # [H_min, S_min, V_min, H_max, S_max, V_max]
+    # GERÇEK DONANIM: Sahada ışık koşullarına göre mutlaka kalibre edin!
+    color_ranges:
+      # Kırmızı renk HSV'de genellikle 0 ve 180 etrafında iki parçadır
+      red_lower_1: [0, 100, 100]
+      red_upper_1: [10, 255, 255]
+      red_lower_2: [160, 100, 100]
+      red_upper_2: [180, 255, 255]
+
+      # Mavi renk
+      blue_lower: [100, 150, 50]
+      blue_upper: [140, 255, 255]
+
+    # ── Test & Debug ──
+    # Eğer true ise, tespit edilen hedefler görsel olarak işaretlenir.
+    # (GUI olmayan RPi'de false olmalıdır)
+    sitl_mode: false
