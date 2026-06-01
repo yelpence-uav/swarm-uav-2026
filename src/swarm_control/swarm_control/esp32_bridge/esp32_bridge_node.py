@@ -26,6 +26,7 @@ KULLANIM:
         -p agent_id:=1 -p serial_port:=/dev/ttyUSB0
 """
 
+import math
 import threading
 import time
 
@@ -203,6 +204,22 @@ class Esp32BridgeNode(Node):
         self._crc_fail = 0         # CRC eşleşmemiş paket sayısı
         self._gonderim_ok = 0      # UART'a başarılı yazılan paket sayısı
         self._gonderim_drop = 0    # port kapalı/hata ile düşürülen
+        # Mesh'ten gelen KOMUT için bridge-tarafı sequence sayacı;
+        # firmware payload'ında seq alanı eklenene kadar 0 yerine monoton
+        # değer üretir, downstream dedup yapabilir.
+        self._komut_rx_seq = 0
+        # Header iha_id ile payload drone_id uyumsuzluk sayacı
+        self._id_uyumsuz = 0
+        # En son bilinen SwarmOrigin (GPS→NED dönüşümü için gerekli).
+        # Origin liderden /swarm/internal/origin'a veya mesh'ten
+        # _isle_origin yoluyla gelir; iki yolda da kaydedilir.
+        # Beyza inceleme #1: bridge mesh GPS'i NED'e çevirmezse
+        # kinematic_fusion ve swarm_fsm pos_x/y/z=0.0 görür.
+        self._son_origin: SwarmOrigin | None = None
+        # NED dönüşüm için: 1 derece enlem ≈ 111.32 km. Saha 10m × 10m
+        # için düz-dünya yaklaşımı yeterince doğru (<10 km'de hata
+        # cm seviyesinde).
+        self._METRE_PER_DERECE_LAT = 111_320.0
         self._son_alim_ts = 0.0    # son başarılı paket zamanı (monotonic)
         # Son N saniyede mesaj duyan komşu ID'leri
         self._komsu_son_goruldu: dict[int, float] = {}
@@ -358,6 +375,7 @@ class Esp32BridgeNode(Node):
             f'crc_fail={self._crc_fail} '
             f'gonderim_ok={self._gonderim_ok} '
             f'gonderim_drop={self._gonderim_drop} '
+            f'id_uyumsuz={self._id_uyumsuz} '
             f'son_alim_yas_s={son_alim_yas:.2f}'
         )
         # Mesh diag: bu drone'un kendi gözleminden çıkıyor → /internal/
@@ -495,8 +513,8 @@ class Esp32BridgeNode(Node):
             self._isle_election(cerceve.iha_id, cerceve.payload)
         elif cerceve.tip == pp.TIP_RENK:
             self._isle_renk(cerceve.iha_id, cerceve.payload)
-        # TIP_GOREV: QR çözümleme qr_detector'da yapılır; mesh üzerinden
-        # taşınmasına şu an gerek yok (TODO: takım kararı).
+        elif cerceve.tip == pp.TIP_GOREV:
+            self._isle_gorev(cerceve.iha_id, cerceve.payload)
 
     # =================================================================
     # MESH -> ROS2 İŞLEYİCİLERİ
@@ -511,17 +529,86 @@ class Esp32BridgeNode(Node):
         return status
 
     def _isle_pose(self, drone_id: int, payload: bytes) -> None:
-        """TIP_POSE -> komşu AgentStatus konum alanlarını günceller."""
+        """TIP_POSE -> komşu AgentStatus konum alanlarını günceller.
+
+        Mesh GPS olarak gelir; kinematic_fusion/swarm_fsm/collision
+        NED bekler. Yerel SwarmOrigin'i kullanarak GPS→NED dönüşümü
+        burada yapılır. Origin henüz yoksa NED alanları doldurulamaz;
+        bu durumda xy/z_valid=false bırakılır → downstream kullanmaz.
+
+        Beyza inceleme #1, #2, #3: NED + validity + origin_synced
+        eskiden hiç set edilmiyordu, hepsi burada düzelir.
+
+        vel_z mesh protokolünde yok (POSE 16 byte dolu). Bu kısıt
+        Büşra ile koordine edilecek; şimdilik vel_z=0.0 (v_xy_valid
+        sadece yatay hızı kapsar, contract ile uyumlu).
+        """
         pose = pp.pose_coz(payload)
+        lat_deg = pose.lat / 1e7
+        lon_deg = pose.lon / 1e7
+        alt_amsl_m = pose.alt_cm / 100.0
+        vel_x_ned, vel_y_ned = pose.vx / 100.0, pose.vy / 100.0
         with self._cache_lock:
             status = self._komsu_status_al(drone_id)
-            status.lat_deg = pose.lat / 1e7
-            status.lon_deg = pose.lon / 1e7
-            status.alt_amsl_m = pose.alt_cm / 100.0
+            # GPS alanları (her durumda doldur)
+            status.lat_deg = lat_deg
+            status.lon_deg = lon_deg
+            status.alt_amsl_m = alt_amsl_m
             status.heading_deg = pose.heading / 10.0
-            status.vel_x = pose.vx / 100.0
-            status.vel_y = pose.vy / 100.0
+            status.vel_x = vel_x_ned
+            status.vel_y = vel_y_ned
+            status.vel_z = 0.0  # mesh protokolünde vz yok (Büşra TODO)
+            # GPS→NED dönüşümü ve validity bayrakları
+            ned = self._gps_ned_cevir(lat_deg, lon_deg, alt_amsl_m)
+            if ned is not None:
+                status.pos_x = ned[0]
+                status.pos_y = ned[1]
+                status.pos_z = ned[2]
+                status.origin_synced = True
+                status.xy_valid = True
+                status.z_valid = True
+                status.v_xy_valid = True
+                # v_z_valid YOK çünkü vz mesh'te taşınmıyor;
+                # AgentStatus.msg'de v_z_valid alanı varsa false kalır
+            else:
+                # Origin yok → NED hesaplanamaz, downstream skipler
+                status.pos_x = 0.0
+                status.pos_y = 0.0
+                status.pos_z = 0.0
+                status.origin_synced = False
+                status.xy_valid = False
+                status.z_valid = False
+                status.v_xy_valid = False
             self._yayinla_status(drone_id, status)
+
+    def _gps_ned_cevir(
+        self, lat_deg: float, lon_deg: float, alt_amsl_m: float,
+    ) -> tuple[float, float, float] | None:
+        """GPS koordinatını yerel NED frame'e çevirir.
+
+        Düz-dünya yaklaşımı (flat-earth approximation): saha < 10 km
+        olduğunda hatası cm seviyesinde. Yarışma sahası 10m × 10m
+        için fazlasıyla yeterli.
+
+        Returns:
+            (pos_x, pos_y, pos_z) NED: North, East, Down (m), veya
+            origin yoksa None.
+        """
+        origin = self._son_origin
+        if origin is None:
+            return None
+        olat = float(origin.origin_lat_deg)
+        olon = float(origin.origin_lon_deg)
+        oalt = float(origin.origin_alt_amsl_m)
+        # 1 derece enlem ≈ 111.32 km (sabit); 1 derece boylam ≈
+        # 111.32 km × cos(enlem). Origin enlemi referans alınır.
+        m_per_deg_lon = self._METRE_PER_DERECE_LAT * math.cos(
+            math.radians(olat)
+        )
+        pos_x = (lat_deg - olat) * self._METRE_PER_DERECE_LAT
+        pos_y = (lon_deg - olon) * m_per_deg_lon
+        pos_z = oalt - alt_amsl_m  # NED: Down = aşağı pozitif
+        return (pos_x, pos_y, pos_z)
 
     def _isle_durum(self, drone_id: int, payload: bytes) -> None:
         """TIP_DURUM -> komşu AgentStatus sağlık alanlarını günceller.
@@ -531,6 +618,17 @@ class Esp32BridgeNode(Node):
         olan komşulara avoidance hesabı yapılmamalı.
         """
         durum = pp.durum_coz(payload)
+        # Header iha_id ile payload drone_id eşleşmeli; aksi halde
+        # paket bozulmuş ya da firmware yanlış kaynak ID yazmış demektir.
+        # Frame header (iha_id) gerçek kaynak kabul edilir; sayacı artır,
+        # log basarak gözlemleyelim ama paketi düşürme (downstream'in
+        # state'i hâlâ değerli olabilir).
+        if durum.drone_id != drone_id:
+            self._id_uyumsuz += 1
+            self.get_logger().warning(
+                f'DURUM ID uyumsuz: header={drone_id} '
+                f'payload={durum.drone_id} — header esas alındı'
+            )
         # Bilinmeyen durum kodları STATE_UNKNOWN (0) olarak bırakılır;
         # contract gereği UNKNOWN, "aktif gibi davran" anlamına gelir.
         state = _DURUM_STATE_MAP.get(durum.durum, AgentStatus.STATE_UNKNOWN)
@@ -565,7 +663,13 @@ class Esp32BridgeNode(Node):
         pub.publish(status)
 
     def _isle_origin(self, leader_id: int, payload: bytes) -> None:
-        """TIP_ORIGIN -> /swarm/public/origin'e SwarmOrigin yayınlar."""
+        """TIP_ORIGIN -> /swarm/public/origin'e SwarmOrigin yayınlar.
+
+        Sender (gönderici lider) sadece gps_fix_type>=3 olduğunda ORIGIN
+        yayınladığı için (bkz. _on_origin_out), bu pakedi gördüğümüzde
+        kalite garantilidir. gps_fix_type=3 (3D fix) varsayılır;
+        firmware ileride alanı paketleyebilirse gerçek değer kullanılır.
+        """
         origin = pp.origin_coz(payload)
         msg = SwarmOrigin()
         msg.stamp = self.get_clock().now().to_msg()
@@ -574,14 +678,23 @@ class Esp32BridgeNode(Node):
         msg.origin_lon_deg = origin.lon_1e7 / 1e7
         msg.origin_alt_amsl_m = origin.alt_mm / 1000.0
         msg.valid = True
+        # Sender garantisi: en az 3D fix. Gerçek değer payload'da yok
+        # (16 byte dolu); subscriber bu varsayım üzerinden çalışsın.
+        msg.gps_fix_type = 3
         msg.sequence = origin.sequence
+        # NED dönüşümü için yerel kopya — komşu POSE paketlerini ortak
+        # NED frame'e çevirebilelim (Beyza inceleme #1).
+        self._son_origin = msg
         self._origin_pub.publish(msg)
 
     def _isle_komut(self, source_id: int, payload: bytes) -> None:
         """TIP_KOMUT -> /swarm/public/control/command'a SwarmControlCommand.
 
         Joystick float32 değerleri int16*100 ile taşındığı için 100'e
-        bölünerek geri çevrilir.
+        bölünerek geri çevrilir. deadman_pressed mesh'te bayrak biti
+        olarak taşınır; aksi halde downstream motion'u sessizce reddeder.
+        sequence_num bridge tarafında üretilir (firmware payload'da
+        sequence yok henüz; Büşra ile koordine edilecek).
         """
         k = pp.komut_coz(payload)
         msg = SwarmControlCommand()
@@ -598,7 +711,14 @@ class Esp32BridgeNode(Node):
         msg.formation_change_requested = bool(
             k.flags & pp.KOMUT_FLAG_FORMATION_CHANGE
         )
+        msg.deadman_pressed = bool(
+            k.flags & pp.KOMUT_FLAG_DEADMAN_PRESSED
+        )
         msg.command_valid = True
+        # Bridge-tarafı sequence: her alınan KOMUT için +1. Dedup yapan
+        # downstream'ler 0 görmek yerine monoton bir sayı görmeli.
+        self._komut_rx_seq = (self._komut_rx_seq + 1) & 0xFFFFFFFF
+        msg.sequence_num = self._komut_rx_seq
         msg.source_module = f'esp32_bridge_from_agent_{source_id}'
         self._control_pub.publish(msg)
 
@@ -649,6 +769,29 @@ class Esp32BridgeNode(Node):
         msg.source_module = 'esp32_bridge'
         msg.message = f'renk={r.renk} lat_1e7={r.lat} lon_1e7={r.lon}'
         # Komşudan gelen event: bridge proxy rolünde /public/'a düşürür
+        self._event_pub_public.publish(msg)
+
+    def _isle_gorev(self, source_id: int, payload: bytes) -> None:
+        """TIP_GOREV -> SystemEvent olarak yayınlanır.
+
+        QR çözümleme normalde qr_detector'da yapılır; ancak mesh
+        üzerinden komşu drone bir görev paketi (formasyon tipi, irtifa,
+        bekleme süresi) iletmek isterse bu handler devreye girer.
+        SystemEvent ile downstream (mission_fsm, GCS) haberdar edilir.
+        """
+        g = pp.gorev_coz(payload)
+        msg = SystemEvent()
+        msg.stamp = self.get_clock().now().to_msg()
+        msg.event_type = SystemEvent.EVENT_TYPE_INFO
+        msg.severity = SystemEvent.SEVERITY_INFO
+        msg.source_agent_id = source_id
+        msg.value = float(g.tip)
+        msg.has_position = False
+        msg.source_module = 'esp32_bridge'
+        msg.message = (
+            f'gorev tip={g.tip} p1={g.param1} p2={g.param2} '
+            f'bekleme={g.bekleme_suresi_s}s'
+        )
         self._event_pub_public.publish(msg)
 
     # =================================================================
@@ -738,7 +881,34 @@ class Esp32BridgeNode(Node):
             self._uart_yaz(pp.TIP_DURUM, self._agent_id, payload)
 
     def _on_origin_out(self, msg: SwarmOrigin) -> None:
-        """Lider origin'ini TIP_ORIGIN olarak ESP32'ye gönderir."""
+        """Lider origin'ini TIP_ORIGIN olarak ESP32'ye gönderir.
+
+        ORIGIN payload 16 byte (lat+lon+alt+seq) — gps_fix_type ve
+        gps_hdop'u taşıyacak yer yok. Bu yüzden örtük kalite garantisi
+        uygulanır: SADECE valid=True VE gps_fix_type>=3 (3D fix)
+        olduğunda mesh'e yollanır. Aksi halde sürü kötü origin
+        uygulamasın diye yayın atlanır (kontrat: 'gps_fix_type>=3
+        olana kadar origin uygulanmamalı').
+
+        Yan etki: Origin yerel olarak da kaydedilir → komşu POSE
+        paketleri NED'e çevrilebilsin (Beyza inceleme #1).
+        """
+        # Bu drone lider ise origin'i kendi GPS'imizden alıyoruz;
+        # NED dönüşümü için sakla (mesh'e yayın koşullarından önce,
+        # çünkü kendi pos hesaplaması için lokal değer geçerlidir).
+        if msg.valid and msg.gps_fix_type >= 3:
+            self._son_origin = msg
+        if not msg.valid:
+            self.get_logger().warning(
+                'ORIGIN valid=false, mesh yayını atlandı'
+            )
+            return
+        if msg.gps_fix_type < 3:
+            self.get_logger().warning(
+                f'ORIGIN gps_fix_type={msg.gps_fix_type} < 3, '
+                f'mesh yayını atlandı (kalite yetersiz)'
+            )
+            return
         payload = pp.origin_paketle(
             lat_1e7=int(msg.origin_lat_deg * 1e7),
             lon_1e7=int(msg.origin_lon_deg * 1e7),
@@ -764,6 +934,11 @@ class Esp32BridgeNode(Node):
             flags |= pp.KOMUT_FLAG_EMERGENCY
         if msg.formation_change_requested:
             flags |= pp.KOMUT_FLAG_FORMATION_CHANGE
+        # SwarmControlCommand.deadman_pressed mesh'te bayrak biti olarak
+        # taşınır; aksi halde alıcı tarafta downstream motion'u sessizce
+        # reddeder ("command_valid AND deadman_pressed" şartı).
+        if msg.deadman_pressed:
+            flags |= pp.KOMUT_FLAG_DEADMAN_PRESSED
 
         payload = pp.komut_paketle(
             alt_tip=msg.mode,

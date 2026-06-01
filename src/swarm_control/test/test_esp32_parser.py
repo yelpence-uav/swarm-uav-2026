@@ -81,6 +81,44 @@ def test_komut_round_trip():
     assert k.pitch_x100 == -25
 
 
+def test_komut_deadman_flag():
+    """KOMUT_FLAG_DEADMAN_PRESSED bit'i ayrı set/test edilebilmeli.
+
+    Beyza inceleme #2: deadman_pressed mesh'te bayrak biti olmazsa
+    downstream tüm komutları reddeder. Bu bit eklendi (0x20).
+    """
+    flags = pp.KOMUT_FLAG_TAKEOFF | pp.KOMUT_FLAG_DEADMAN_PRESSED
+    payload = pp.komut_paketle(
+        alt_tip=1, flags=flags,
+        roll_x100=0, pitch_x100=0, yaw_x100=0, throttle_x100=0,
+    )
+    k = pp.komut_coz(payload)
+    assert k.flags & pp.KOMUT_FLAG_DEADMAN_PRESSED
+    assert k.flags & pp.KOMUT_FLAG_TAKEOFF
+    assert not k.flags & pp.KOMUT_FLAG_LAND
+
+
+def test_pose_paketle_int16_kirpma():
+    """pose_paketle alt_cm/heading/vx/vy int16 dışı verince crash etmez.
+
+    Beyza inceleme #3: alt_cm int16 → 327.67 m üstünde struct.error.
+    Kırpma savunması yeni eklendi.
+    """
+    # 500 m irtifa = 50000 cm — int16 üstü
+    payload = pp.pose_paketle(
+        lat=411234567, lon=291234567,
+        alt_cm=50000,    # >32767, kırpılmalı
+        heading=99999,   # >32767
+        vx=-99999,       # <-32768
+        vy=0,
+    )
+    assert len(payload) == 16
+    pose = pp.pose_coz(payload)
+    assert pose.alt_cm == 32767      # üst sınıra kırpıldı
+    assert pose.heading == 32767
+    assert pose.vx == -32768          # alt sınıra kırpıldı
+
+
 def test_leader_hb_round_trip():
     """LeaderHeartbeat alanları 16 bayta sığar ve geri çözülür."""
     payload = pp.leader_hb_paketle(

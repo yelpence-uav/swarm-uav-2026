@@ -35,12 +35,16 @@ _KOMUT_FMT = '<BBhhhh6x'     # alt_tip, flags, roll/pitch/yaw/throttle x100
 _LEADER_HB_FMT = '<BIBBB8x'  # leader_id, seq, round, agent_count, mission
 _ELECTION_FMT = '<BBBBIBBBB4x'  # leader, round, reason, trigger, seq, ids
 
-# Joystick komutu bayrak bitleri (komut_veri_t.flags için)
+# Joystick komutu bayrak bitleri (komut_veri_t.flags için).
+# DEADMAN_PRESSED: SwarmControlCommand.deadman_pressed mesh üzerinden
+# taşınması için. False ise downstream motion uygulamaz (msg dosyası
+# kuralı). Bayrak biti olmadığında her komut sessizce reddedilir.
 KOMUT_FLAG_TAKEOFF = 0x01
 KOMUT_FLAG_LAND = 0x02
 KOMUT_FLAG_RTL = 0x04
 KOMUT_FLAG_EMERGENCY = 0x08
 KOMUT_FLAG_FORMATION_CHANGE = 0x10
+KOMUT_FLAG_DEADMAN_PRESSED = 0x20
 
 # SwarmControlCommand.mode değerleri
 KOMUT_MODE_SWARM_MOVEMENT = 1
@@ -63,10 +67,15 @@ class PoseVeri:
 
 @dataclass
 class DurumVeri:
-    """TIP_DURUM payload — komşu drone'un durum/sağlık verisi."""
+    """TIP_DURUM payload — komşu drone'un durum/sağlık verisi.
+
+    Firmware'in durum kodu 14 değerli enum'dur (AgentStatus.STATE_*
+    ile eşleşir). Bkz. esp32_bridge_node._DURUM_STATE_MAP. Şartname
+    §5.1 m.15 ayrılma akışı 14 state üzerinden işler.
+    """
 
     drone_id: int
-    durum: int          # DURUM_AKTIF=1, AYRILDI=2, INDI=3
+    durum: int          # 0=BILINMIYOR..13=STANDBY (14 değerli enum)
     armed: int          # 0/1
     gps_fix_type: int   # 0-6
     battery_pct: int    # 0-100
@@ -311,10 +320,20 @@ def pose_paketle(lat: int, lon: int, alt_cm: int, heading: int,
 
     RPi kendi RTK konumunu ESP32'ye gönderirken kullanır.
 
+    alt_cm/heading/vx/vy int16 (±327.67 m / 3276.7°/cm·s) aralığında
+    kırpılır; sınır dışı değerler struct.error fırlatmak yerine sessizce
+    kırpılır. Yarışma sahası 10 m × 10 m, ~30 m irtifa için aralık
+    fazlasıyla yeterli; bu kırpma sadece sensör glitch korumasıdır.
+
     Returns:
         bytes: 16 baytlık payload.
     """
-    return struct.pack(_POSE_FMT, lat, lon, alt_cm, heading, vx, vy)
+    def _kirp(v: int) -> int:
+        return max(-32768, min(32767, int(v)))
+    return struct.pack(
+        _POSE_FMT, int(lat), int(lon),
+        _kirp(alt_cm), _kirp(heading), _kirp(vx), _kirp(vy),
+    )
 
 
 def komut_coz(payload: bytes) -> KomutVeri:
