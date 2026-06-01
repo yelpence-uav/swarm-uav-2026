@@ -72,7 +72,12 @@ struct __attribute__((packed)) durum_veri_t {
     uint8_t  battery_pct;   // 0-100
     float    battery_volt;  // 4 byte
     uint8_t  ekf_ok;        // 0/1
-    uint8_t  rezerv[6];
+    uint8_t  imu_ok;        // 0/1
+    uint8_t  mag_ok;        // 0/1
+    uint8_t  baro_ok;       // 0/1
+    int8_t   rssi;          // dBm (-120..0)
+    uint8_t  mesh_link_ok;  // 0/1
+    uint8_t  mesh_komsu_sayisi; // aktif mesh node sayisi — failsafe + lider secimi + ground izleme
 };
 
 static const uint8_t BROADCAST_MAC[6] = {0xFF,0xFF,0xFF,0xFF,0xFF,0xFF};

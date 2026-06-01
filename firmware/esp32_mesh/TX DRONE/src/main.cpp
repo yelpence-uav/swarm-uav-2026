@@ -355,12 +355,14 @@ void durum_gonder(uint8_t durum) {
     d.baro_ok      = mav_baro_ok;
     d.rssi         = _son_rssi;
     d.mesh_link_ok = ((millis() - son_paket_ms) < NODE_TIMEOUT_MS) ? 1 : 0;
+    { uint8_t _k = 0; for (uint8_t i = 0; i < MESH_MAX_NODES; i++) if (_bilinen_nodlar[i].aktif) _k++; d.mesh_komsu_sayisi = _k; }
 #else
     d.armed        = 0;
     d.gps_fix_type = 0;
     d.battery_pct  = 0;
     d.battery_volt = 0.0f;
     d.ekf_ok       = 0;
+    { uint8_t _k = 0; for (uint8_t i = 0; i < MESH_MAX_NODES; i++) if (_bilinen_nodlar[i].aktif) _k++; d.mesh_komsu_sayisi = _k; }
 #endif
     uint8_t veri[16] = {0};
     memcpy(veri, &d, sizeof(durum_veri_t));
