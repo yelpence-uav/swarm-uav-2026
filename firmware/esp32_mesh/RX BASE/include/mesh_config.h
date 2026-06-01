@@ -7,7 +7,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
-#define MESH_KANAL            1
+#define MESH_KANAL            8   // §5.4: 1/6/11 non-overlapping kanallardan spektral izolasyon
 #define MESH_MAX_NODES        8
 #define ATLAMA_MAKS           3
 #define HEARTBEAT_ARALIK_MS   500UL
@@ -231,6 +231,9 @@ static node_durum_t* _node_bul_veya_ekle(const uint8_t* mac) {
 }
 
 static uint32_t _csma_son_ms = 0;
+static volatile uint32_t _gonderim_basari = 0;
+static volatile uint32_t _gonderim_hata  = 0;
+static volatile uint32_t _paket_dustu    = 0;
 
 static inline esp_err_t _mesh_gonder(mesh_paket_t* p) {
     if (!esp_now_is_peer_exist(BROADCAST_MAC)) {
@@ -240,15 +243,29 @@ static inline esp_err_t _mesh_gonder(mesh_paket_t* p) {
         bp.encrypt = false;
         esp_now_add_peer(&bp);
     }
-    if (p->tip == TIP_TELEMETRI || p->tip == TIP_HEARTBEAT) {
-        uint32_t _csma_bekleme = (uint32_t)esp_random() % (CSMA_GECIKME_MAKS_MS + 1);
-        if (_csma_bekleme > 0) vTaskDelay(pdMS_TO_TICKS(_csma_bekleme));
-        _csma_son_ms = millis();
-    }
+    // CSMA: tum tipler icin kanal mesguliyse rastgele bekle
+    uint32_t _csma_bekleme = (uint32_t)esp_random() % (CSMA_GECIKME_MAKS_MS + 1);
+    if (_csma_bekleme > 0) vTaskDelay(pdMS_TO_TICKS(_csma_bekleme));
+    _csma_son_ms = millis();
+
     const uint8_t* hedef = _broadcast_mi(p->hedef_mac) ? BROADCAST_MAC : p->hedef_mac;
-    esp_err_t ret = esp_now_send(hedef, (const uint8_t*)p, sizeof(mesh_paket_t));
-    if (ret != ESP_OK)
-        Serial.printf("[MESH] Gonderim hatasi: %d tip:%d\n", ret, p->tip);
+
+    // Kritik paketler icin retry (3 deneme, aralikli)
+    const bool kritik = (p->tip == TIP_KOMUT || p->tip == TIP_ORIGIN ||
+                         p->tip == TIP_GOREV || p->tip == TIP_ELECTION);
+    const int deneme_maks = kritik ? 3 : 1;
+    esp_err_t ret = ESP_FAIL;
+    for (int d = 0; d < deneme_maks; d++) {
+        ret = esp_now_send(hedef, (const uint8_t*)p, sizeof(mesh_paket_t));
+        if (ret == ESP_OK) break;
+        if (d < deneme_maks - 1)
+            vTaskDelay(pdMS_TO_TICKS(2 + (uint32_t)esp_random() % 6));
+    }
+    if (ret != ESP_OK) {
+        _paket_dustu++;
+        Serial.printf("[MESH] Gonderim hatasi: %d tip:%d dustu:%lu\n",
+                      ret, p->tip, _paket_dustu);
+    }
     return ret;
 }
 
@@ -348,7 +365,12 @@ static void IRAM_ATTR _esp_now_recv_cb(const uint8_t* mac_addr,
 }
 
 static void _esp_now_send_cb(const uint8_t* mac, esp_now_send_status_t status) {
-    (void)mac; (void)status;
+    if (status == ESP_NOW_SEND_SUCCESS) _gonderim_basari++;
+    else {
+        _gonderim_hata++;
+        Serial.printf("[MESH] ACK yok: %02X:%02X:%02X:%02X:%02X:%02X\n",
+            mac[0],mac[1],mac[2],mac[3],mac[4],mac[5]);
+    }
 }
 
 // ===== BUFFER'DAN PAKET İŞLE — mesh_loop() içinde çağrılır =====
