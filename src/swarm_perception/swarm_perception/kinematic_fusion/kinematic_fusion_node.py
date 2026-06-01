@@ -15,10 +15,11 @@ GİRİŞ TOPIC'LERİ:
     /swarm/agent/drone{self_id}/neighbor/drone{neighbor_id}  (LOKAL)
 
 YAYIN MANTIĞI:
-    Timer 10Hz tetiklenir. Her komşu için son alınan AgentStatus'a EMA
-    uygulanmış değerler ile NeighborInfo doldurulur. data_age_ms eşiği
-    aşıldıysa link_active=false işaretlenir; collision_avoidance bu
-    bayrağı görünce o komşuyu hesaba katmaz (INTERFACE_CONTRACT m.9).
+    Timer 20Hz tetiklenir (§5.2 SwarmControlCommand 20-50 Hz). Her
+    komşu için son alınan AgentStatus'a EMA uygulanmış değerler ile
+    NeighborInfo doldurulur. data_age_ms 300ms'i aşarsa link_active
+    false işaretlenir; collision_avoidance bu bayrağı görünce o komşuyu
+    hesaba katmaz (INTERFACE_CONTRACT m.9, şartname 10m × 10m saha).
 
 KULLANIM:
     ros2 run swarm_perception kinematic_fusion --ros-args \\
@@ -54,11 +55,12 @@ _AVOIDANCE_DISI_STATELER = frozenset({
 # UNKNOWN'a düşür ki avoidance yanlış geçmesin.
 _GECERLI_STATELER = frozenset(range(0, 16))
 
-# Akıllı mantığa "saçma değer" sayılan konum sınırı (m).
-# Yarışma sahası birkaç yüz metre; 100 km'lik bir değer sensör glitch'i ya
-# da bozuk paket demektir. Bu eşiğin üstündeki ölçüm reddedilir.
-_MAKUL_KONUM_SINIR = 100_000.0  # 100 km
-_MAKUL_HIZ_SINIR = 200.0        # 200 m/s (uçak değil, sürü drone)
+# Akıllı mantığa "saçma değer" sayılan konum/hız sınırları (NED frame).
+# Yarışma sahası 10 m × 10 m yatay, ~30 m dikey irtifa örneği. 100 m
+# sınır saha + manevra + güvenlik payı; bunun ötesi sensör glitch'i.
+# PX4 X500 pratik üst hız limiti ~12 m/s; 15 m/s outlier eşiği.
+_MAKUL_KONUM_SINIR = 100.0      # 100 m (saha 10 m, geniş güvenlik payı)
+_MAKUL_HIZ_SINIR = 15.0         # 15 m/s (PX4 X500 max ~12 m/s)
 
 
 def _sayisal_gecerli(*degerler: float) -> bool:
@@ -176,11 +178,17 @@ class KinematicFusionNode(Node):
         self.declare_parameter('neighbor_ids', [2, 3])
         self.declare_parameter('alpha_pos', 0.3)
         self.declare_parameter('alpha_vel', 0.5)
-        self.declare_parameter('publish_rate_hz', 10.0)
-        self.declare_parameter('stale_threshold_ms', 500)
+        # 20 Hz: §5.2 SwarmControlCommand 20-50 Hz aralığı; collision
+        # avoidance için 100 ms latency çok, 50 ms makul
+        self.declare_parameter('publish_rate_hz', 20.0)
+        # 300 ms: 10 m saha + mesh latency tamponu. INTERFACE_CONTRACT
+        # m.9 üst sınır 500 ms ama mesh gecikmesi düşülünce gerçek
+        # buffer çok azalır; daha sıkı eşik osilasyon riskini azaltır.
+        self.declare_parameter('stale_threshold_ms', 300)
         # Filtre reset eşiği: bu kadar saniye veri yoksa filtreyi
-        # tamamen sıfırla (eski state şişmemiş gerçekliği bozmasın)
-        self.declare_parameter('reset_threshold_s', 5.0)
+        # tamamen sıfırla (eski state şişmemiş gerçekliği bozmasın).
+        # 10 m sahada 3 sn = 45 m gitmiş olabilir, filtre artık eski.
+        self.declare_parameter('reset_threshold_s', 3.0)
         # Kendi durumumuzu da eski sayma eşiği (clock jump koruması)
         self.declare_parameter('self_stale_ms', 1000)
 
@@ -241,6 +249,8 @@ class KinematicFusionNode(Node):
         self._red_state = 0        # state avoidance dışı
         self._red_validity = 0     # PX4 validity flag false
         self._reset_filtre = 0     # filtre sıfırlama sayısı
+        # Log spam koruması: "kendi durum eski" uyarısı için son log zamanı
+        self._son_self_stale_log_ts: Time | None = None
 
         # ----- Abonelikler -----
         self.create_subscription(
@@ -397,10 +407,17 @@ class KinematicFusionNode(Node):
             0, (now - self._self_son_alim).nanoseconds // 1_000_000
         )
         if self_yas_ms > self._self_stale_ms:
-            if (now.nanoseconds // 1_000_000_000) % 5 == 0:
+            # Log spam koruması: son log üzerinden 5sn geçtiyse bas.
+            # Timer 20Hz olduğu için "saniye%5==0" hilesi 5 log üretirdi;
+            # zaman damgası bazlı kontrol tek log garantiler.
+            son_log = self._son_self_stale_log_ts
+            if son_log is None or (
+                (now - son_log).nanoseconds >= 5_000_000_000
+            ):
                 self.get_logger().warning(
                     f'kendi durum {self_yas_ms}ms eski, yayın atlandı'
                 )
+                self._son_self_stale_log_ts = now
             return
 
         for nid in self._neighbor_ids:

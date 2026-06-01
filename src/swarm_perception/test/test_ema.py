@@ -136,18 +136,18 @@ def test_makul_aralikta_normal_degerler():
 
 
 def test_makul_aralikta_konum_disi():
-    """100 km'den uzak konum reddedilmeli (sensör glitch'i)."""
+    """2 km'den uzak konum reddedilmeli (saha çok büyük, sensör glitch'i)."""
     assert _makul_aralikta(
-        pos_x=200_000.0, pos_y=0.0, pos_z=0.0,
+        pos_x=5_000.0, pos_y=0.0, pos_z=0.0,
         vel_x=0.0, vel_y=0.0, vel_z=0.0,
     ) is False
 
 
 def test_makul_aralikta_hiz_disi():
-    """200 m/s üstü hız reddedilmeli (uçak değil, drone)."""
+    """30 m/s üstü hız reddedilmeli (PX4 X500 max ~12 m/s)."""
     assert _makul_aralikta(
         pos_x=0.0, pos_y=0.0, pos_z=0.0,
-        vel_x=500.0, vel_y=0.0, vel_z=0.0,
+        vel_x=50.0, vel_y=0.0, vel_z=0.0,
     ) is False
 
 
@@ -156,7 +156,7 @@ def test_sinir_disi_olcum_filtreye_yansimaz():
     f = _EmaDurum(alpha_pos=0.3, alpha_vel=0.5)
     f.guncelle(_yapay_status(pos_x=10.0, vel_x=1.0))
     onceki_x = f.x
-    # 1 milyar metre saçmalığı
+    # 1 milyar metre saçmalığı (2 km eşiğinin çok ötesinde)
     sacma = _yapay_status(pos_x=1e9, vel_x=1.0)
     assert f.guncelle(sacma) is False
     assert f.x == onceki_x
