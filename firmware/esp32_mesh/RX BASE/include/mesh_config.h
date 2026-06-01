@@ -23,6 +23,9 @@
 #define TIP_RENK        0x06
 #define TIP_DURUM       0x07
 #define TIP_ORIGIN      0x08   // RPi → Mesh origin broadcast
+#define TIP_LEADER_HB   0x09   // LeaderHeartbeat — lider secimi
+#define TIP_ELECTION    0x0A   // ElectionResult  — lider degisimi
+#define TIP_VERSION     0x0B   // VersionInfo     — boot'ta 1 kez, debug
 
 #define FORMASYON_OKBASI  0x01
 #define FORMASYON_V       0x02
