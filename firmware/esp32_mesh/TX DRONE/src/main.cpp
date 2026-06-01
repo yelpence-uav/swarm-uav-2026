@@ -1,3 +1,4 @@
+#include "esp_task_wdt.h"
 #include <Arduino.h>
 #include <WiFi.h>
 #include "esp_wifi.h"
@@ -396,6 +397,9 @@ void setup() {
     esp_wifi_set_channel(MESH_KANAL, WIFI_SECOND_CHAN_NONE);
     mesh_init(mesh_veri_al);
     son_paket_ms = millis();
+    // Watchdog: 8 saniye — loop donerse ESP32 reset atar
+    esp_task_wdt_init(8, true);
+    esp_task_wdt_add(NULL);
 
     durum_gonder(DURUM_AKTIF);
     Serial.println("[MESH] Hazir");
@@ -405,6 +409,7 @@ void setup() {
 
 // ===== LOOP =====
 void loop() {
+    esp_task_wdt_reset();
     mesh_loop();
 
     // MAVLink parse (Task 3)
