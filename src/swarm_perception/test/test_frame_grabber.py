@@ -1,3 +1,23 @@
+# Copyright 2026 Yelpence TEKNOFEST 2026
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in
+# all copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
+# THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+# THE SOFTWARE.
+
 """
 test_frame_grabber.py
 
@@ -10,7 +30,7 @@ test_telemetry_mapper.py deseni takip edilir:
 """
 
 import unittest
-from unittest.mock import MagicMock, patch, PropertyMock
+from unittest.mock import MagicMock, patch
 
 import numpy as np
 
@@ -229,7 +249,7 @@ class TestFrameGrabberMock(unittest.TestCase):
 
     @patch('swarm_perception.camera_driver.frame_grabber.cv2')
     def test_cozunurluk_ayarlari(self, mock_cv2):
-        """Kamera açılırken çözünürlük ve FPS ayarlarının set edildiğini doğrula."""
+        """Kamera açılırken çözünürlük ayarlarının set edildiğini doğrula."""
         mock_cap = MagicMock()
         mock_cap.isOpened.return_value = True
         mock_cv2.VideoCapture.return_value = mock_cap
@@ -238,7 +258,9 @@ class TestFrameGrabberMock(unittest.TestCase):
         g.open()
 
         # set çağrılarını kontrol et
-        set_calls = {call[0][0]: call[0][1] for call in mock_cap.set.call_args_list}
+        set_calls = {
+            call[0][0]: call[0][1] for call in mock_cap.set.call_args_list
+        }
         self.assertIn(mock_cv2.CAP_PROP_FRAME_WIDTH, set_calls)
         self.assertIn(mock_cv2.CAP_PROP_FRAME_HEIGHT, set_calls)
         self.assertIn(mock_cv2.CAP_PROP_FPS, set_calls)
