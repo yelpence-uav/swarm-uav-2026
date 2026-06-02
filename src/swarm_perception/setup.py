@@ -1,6 +1,6 @@
 from setuptools import find_packages, setup
 
-package_name = 'swarm_control'
+package_name = 'swarm_perception'
 
 setup(
     name=package_name,
@@ -15,17 +15,13 @@ setup(
     zip_safe=True,
     maintainer='Yelpence TEKNOFEST 2026',
     maintainer_email='kocakseydagul@gmail.com',
-    description='PX4 interface bridge',
+    description='Sürü algılama: kinematik füzyon ve görüntü işleme',
     license='MIT',
+    tests_require=['pytest'],
     entry_points={
         'console_scripts': [
-            'px4_bridge = swarm_control.px4_interface.px4_bridge:main',
-<<<<<<< HEAD
-            'swarm_origin_publisher = swarm_control.swarm_origin_publisher:main',
-=======
-            'esp32_bridge = '
-            'swarm_control.esp32_bridge.esp32_bridge_node:main',
->>>>>>> origin/main
+            'kinematic_fusion = '
+            'swarm_perception.kinematic_fusion.kinematic_fusion_node:main',
         ],
     },
 )
