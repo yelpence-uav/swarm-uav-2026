@@ -21,10 +21,12 @@
 #define TIP_POSE        0x04
 #define TIP_GOREV       0x05
 #define TIP_RENK        0x06
+#define TIP_RTK         0x07
 #define TIP_DURUM       0x07
 #define TIP_ORIGIN      0x08   // RPi → Mesh origin broadcast
 #define TIP_LEADER_HB   0x09   // LeaderHeartbeat — lider secimi
 #define TIP_ELECTION    0x0A   // ElectionResult  — lider degisimi
+#define TIP_VERSION     0x0B   // VersionInfo     — boot'ta 1 kez, debug
 
 #define FORMASYON_OKBASI  0x01
 #define FORMASYON_V       0x02
@@ -49,6 +51,15 @@ struct __attribute__((packed)) pose_veri_t {
     int16_t  heading;
     int16_t  vx;
     int16_t  vy;
+};
+
+struct __attribute__((packed)) version_veri_t {
+    uint8_t  major;        // firmware major
+    uint8_t  minor;        // firmware minor
+    uint8_t  patch;        // firmware patch
+    uint8_t  drone_id;     // kaynak drone
+    uint32_t build_unix;   // __unix__ build timestamp (debug)
+    uint8_t  rezerv[8];    // toplam 16 byte
 };
 
 struct __attribute__((packed)) gorev_veri_t {
