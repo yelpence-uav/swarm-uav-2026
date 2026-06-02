@@ -119,28 +119,24 @@ class AgentContext:
         """
         Drone şu an uçuşa güvenli mi?
 
-        pilot_override ve oscillation bu hesaba dahil değil.
+        Sadece uçuşu fiilen engelleyen 7 kritik koşul kontrol edilir.
+        rc_link, imu/mag/baro, estimator_ok çıkarıldı — bunların
+        gerçek etkisi zaten xy_valid/z_valid/v_xy_valid'e yansır;
+        EKF bozulursa bu üçü zaten false olur. Anlık titremelerde
+        drone'un formasyondan gereksiz çıkmasını önler.
         """
         battery_ok = (
             self.battery_voltage_v <= 0.0  # 0V = sim battery disabled, skip
             or self.battery_voltage_v > self.battery_critical_voltage_v
         )
-        # SITL'de yaw/mag hizalaması başlangıçta salınım yapar; uçuşta converge eder
-        sitl = self.sitl_mode
         return (
             self.px4_link_ok
-            and (self.rc_link_ok or sitl)
             and not self.kill_switch_active
-            and (not self.rc_signal_failsafe_active or sitl)
-            and (self.imu_healthy or sitl)
-            and (self.mag_healthy or sitl)
-            and (self.baro_healthy or sitl)
-            and (self.estimator_ok or sitl)
+            and not self.failsafe_active
             and self.xy_valid
             and self.z_valid
             and self.v_xy_valid
             and battery_ok
-            and (not self.failsafe_active or sitl)
         )
 
     def set_state(self, new_state: AgentState) -> None:

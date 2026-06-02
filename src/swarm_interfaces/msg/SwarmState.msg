@@ -105,6 +105,14 @@ float32 formation_heading_error_deg
 
 AgentStatus[] agents
 
+# Aktif ajan ID'leri ve pozisyonları — swarm_fsm tarafından doldurulur.
+# active_agent_ids ile paralel diziler (aynı indeks = aynı drone).
+# formation_node optimal rank ataması için bu pozisyonları kullanır.
+uint8[] active_agent_ids
+float32[] agent_pos_x
+float32[] agent_pos_y
+float32[] agent_pos_z
+
 string active_mission
 string status_text
 

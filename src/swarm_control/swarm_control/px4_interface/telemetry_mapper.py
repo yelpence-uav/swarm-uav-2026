@@ -24,7 +24,7 @@ NAV_STATE_TO_FLIGHT_MODE: dict[int, int] = {
     5: 7,   # AUTO_RTL     → FLIGHT_MODE_AUTO_RTL
     6: 9,   # ACRO         → FLIGHT_MODE_ACRO
     14: 4,   # OFFBOARD       → FLIGHT_MODE_OFFBOARD
-    17: 4,   # AUTO_TAKEOFF   → FLIGHT_MODE_OFFBOARD (PX4 v1.14: OFFBOARD setpoint tetikler)
+    17: 4,   # AUTO_TAKEOFF → FLIGHT_MODE_OFFBOARD (PX4 v1.14)
     15: 10,  # STABILIZED     → FLIGHT_MODE_STABILIZED
     18: 8,   # AUTO_LAND      → FLIGHT_MODE_AUTO_LAND
 }
@@ -56,7 +56,9 @@ def map_vehicle_status(msg, status) -> None:
     # ARMING_STATE_ARMED = 2
     status.armed = (msg.arming_state == 2)
     status.failsafe_active = bool(msg.failsafe)
-    status.rc_signal_failsafe_active = bool(getattr(msg, 'rc_signal_lost', False))
+    status.rc_signal_failsafe_active = bool(
+        getattr(msg, 'rc_signal_lost', False)
+    )
     status.px4_link_ok = True  # Bu mesaj geliyorsa PX4 bağlı
 
     # nav_state → AgentStatus flight_mode

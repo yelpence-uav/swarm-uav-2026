@@ -4,15 +4,15 @@ command_sender.py
 FSM kararlarını PX4'ün anlayacağı komutlara çevirir ve yayınlar.
 
 Yayınlanan PX4 topic'leri:
-- {namespace}/fmu/in/vehicle_command          → arm/disarm/mode/takeoff/land/RTL
-- {namespace}/fmu/in/offboard_control_mode    → offboard kontrol türü (pozisyon/hız)
+- {namespace}/fmu/in/vehicle_command
+  → arm/disarm/mode/takeoff/land/RTL
+- {namespace}/fmu/in/offboard_control_mode
+  → offboard kontrol türü (pozisyon/hız)
 - {namespace}/fmu/in/trajectory_setpoint      → hedef pozisyon ve yaw
 
 Bu sınıf bir node'a bağlıdır (publisher'ları oluşturmak için), ama node mantığı
 içermez — px4_bridge çağırır.
 """
-
-import math
 
 from px4_msgs.msg import (
     OffboardControlMode,
@@ -28,6 +28,8 @@ _CMD_NAV_TAKEOFF = 22          # param7 = irtifa
 _CMD_NAV_LAND = 21
 _CMD_NAV_RTL = 20              # Return to Launch
 _CMD_DO_SET_MODE = 176         # base_mode + custom_main + custom_sub
+# param5=lat*1e7, param6=lon*1e7, param7=alt_amsl_m
+_CMD_SET_GPS_GLOBAL_ORIGIN = 2015
 
 
 # PX4 PX4_CUSTOM_MAIN_MODE değerleri (DO_SET_MODE param2 için)
@@ -59,23 +61,27 @@ class CommandSender:
         namespace: str = '',
     ):
         """
+        PX4'e komut gönderecek publisher'ları oluşturur.
+
         Args:
-            node: ROS2 node (publisher oluşturmak için)
-            system_id: PX4 MAV_SYS_ID — drone numarası (default 1)
-            component_id: MAV_COMP_ID — onboard bilgisayar (default 1)
-            namespace: PX4 topic namespace, örn. '/drone_1'
-                       Micro-XRCE-DDS-Agent'ın kullandığı namespace ile eşleşmeli.
+            node: ROS2 node (publisher oluşturmak için).
+            system_id (int): MAV_SYS_ID — drone numarası.
+            component_id (int): MAV_COMP_ID — onboard bilgisayar.
+            namespace (str): PX4 topic namespace, örn. '/drone_1'.
         """
         self._node = node
         self._sys_id = system_id
         self._comp_id = component_id
 
-        # PX4'e komut yayınlayan publisher'lar — namespace ile doğru topic'e yazılır
+        # PX4'e komut yayınlayan publisher'lar —
+        # namespace ile doğru topic'e yazılır
         self._cmd_pub = node.create_publisher(
             VehicleCommand, f'{namespace}/fmu/in/vehicle_command', 10
         )
         self._offboard_pub = node.create_publisher(
-            OffboardControlMode, f'{namespace}/fmu/in/offboard_control_mode', 10
+            OffboardControlMode,
+            f'{namespace}/fmu/in/offboard_control_mode',
+            10,
         )
         self._setpoint_pub = node.create_publisher(
             TrajectorySetpoint, f'{namespace}/fmu/in/trajectory_setpoint', 10
@@ -95,7 +101,19 @@ class CommandSender:
         param6: float = 0.0,
         param7: float = 0.0,
     ) -> None:
-        """Tek bir VehicleCommand mesajı yayınlar."""
+        """
+        Tek bir VehicleCommand mesajı oluşturup yayınlar.
+
+        Args:
+            command (int): MAVLink komut kodu.
+            param1 (float): MAVLink param1 alanı.
+            param2 (float): MAVLink param2 alanı.
+            param3 (float): MAVLink param3 alanı.
+            param4 (float): MAVLink param4 alanı.
+            param5 (float): MAVLink param5 alanı.
+            param6 (float): MAVLink param6 alanı.
+            param7 (float): MAVLink param7 alanı.
+        """
         msg = VehicleCommand()
         msg.timestamp = int(self._node.get_clock().now().nanoseconds / 1000)
         msg.command = command
@@ -148,7 +166,12 @@ class CommandSender:
     # KALKIŞ / İNİŞ / EVE DÖNÜŞ
     # =================================================================
     def takeoff(self, altitude_m: float = 10.0) -> None:
-        """Belirtilen irtifaya kalk (AUTO_TAKEOFF modu)."""
+        """
+        Belirtilen irtifaya kalk.
+
+        Args:
+            altitude_m (float): Hedef kalkış irtifası, metre.
+        """
         self._send_vehicle_command(_CMD_NAV_TAKEOFF, param7=altitude_m)
 
     def land(self) -> None:
@@ -162,14 +185,26 @@ class CommandSender:
     # =================================================================
     # OFFBOARD STREAMING
     # PX4, OFFBOARD modunda sürekli setpoint bekler (min 2 Hz, tipik 50 Hz).
-    # Stream kesilirse PX4 failsafe'e geçer. px4_bridge 50 Hz timer ile çağırır.
+    # Stream kesilirse PX4 failsafe'e geçer.
+    # px4_bridge 50 Hz timer ile çağırır.
     # =================================================================
     def publish_offboard_position_mode(self) -> None:
-        """OFFBOARD modunda 'pozisyon kontrolü kullanıyorum' sinyali gönderir."""
+        """OFFBOARD pozisyon kontrol modunu PX4'e bildirir."""
         msg = OffboardControlMode()
         msg.timestamp = int(self._node.get_clock().now().nanoseconds / 1000)
         msg.position = True
         msg.velocity = False
+        msg.acceleration = False
+        msg.attitude = False
+        msg.body_rate = False
+        self._offboard_pub.publish(msg)
+
+    def publish_offboard_position_velocity_mode(self) -> None:
+        """OFFBOARD pozisyon + hız feed-forward modunu PX4'e bildirir."""
+        msg = OffboardControlMode()
+        msg.timestamp = int(self._node.get_clock().now().nanoseconds / 1000)
+        msg.position = True
+        msg.velocity = True
         msg.acceleration = False
         msg.attitude = False
         msg.body_rate = False
@@ -182,10 +217,16 @@ class CommandSender:
         z: float,
         yaw_rad: float = 0.0,
     ) -> None:
-        """Hedef pozisyon (NED) ve yaw gönder.
+        """
+        Hedef pozisyon (NED) ve yaw gönder.
 
-        UYARI: NED frame — z aşağı pozitif!
-        20 metre yükseklik için z = -20.0
+        NED frame: z aşağı pozitif, 20m için z=-20.0.
+
+        Args:
+            x (float): NED X koordinatı, metre.
+            y (float): NED Y koordinatı, metre.
+            z (float): NED Z koordinatı (aşağı pozitif), metre.
+            yaw_rad (float): Hedef yaw açısı, radyan.
         """
         msg = TrajectorySetpoint()
         msg.timestamp = int(self._node.get_clock().now().nanoseconds / 1000)
@@ -195,3 +236,59 @@ class CommandSender:
         msg.yaw = float(yaw_rad)
         msg.yawspeed = _NAN
         self._setpoint_pub.publish(msg)
+
+    def publish_position_velocity_setpoint(
+        self,
+        x: float,
+        y: float,
+        z: float,
+        vx: float,
+        vy: float,
+        vz: float,
+        yaw_rad: float = 0.0,
+    ) -> None:
+        """
+        Hedef pozisyon + hız feed-forward (NED) gönder.
+
+        publish_offboard_position_velocity_mode ile birlikte
+        kullanılmalıdır.
+
+        Args:
+            x (float): NED X koordinatı, metre.
+            y (float): NED Y koordinatı, metre.
+            z (float): NED Z koordinatı, metre.
+            vx (float): Feed-forward NED X hızı, m/s.
+            vy (float): Feed-forward NED Y hızı, m/s.
+            vz (float): Feed-forward NED Z hızı, m/s.
+            yaw_rad (float): Hedef yaw açısı, radyan.
+        """
+        msg = TrajectorySetpoint()
+        msg.timestamp = int(self._node.get_clock().now().nanoseconds / 1000)
+        msg.position = [float(x), float(y), float(z)]
+        msg.velocity = [float(vx), float(vy), float(vz)]
+        msg.acceleration = [_NAN, _NAN, _NAN]
+        msg.yaw = float(yaw_rad)
+        msg.yawspeed = _NAN
+        self._setpoint_pub.publish(msg)
+
+    def set_gps_global_origin(
+        self,
+        lat_deg: float,
+        lon_deg: float,
+        alt_amsl_m: float,
+    ) -> None:
+        """Tüm sürüm için ortak NED origin'i PX4'e bildir.
+
+        MAVLink SET_GPS_GLOBAL_ORIGIN (2015): PX4'ün local NED (0,0,0)
+        noktasını verilen GPS koordinatına kilitler. Swarm'daki tüm
+        drone'lar aynı origin kullanırsa formation setpoint'leri aynı
+        fiziksel noktaya işaret eder.
+
+        Gerçek donanımda kalkıştan önce çağrılmalıdır.
+        """
+        self._send_vehicle_command(
+            _CMD_SET_GPS_GLOBAL_ORIGIN,
+            param5=lat_deg * 1e7,
+            param6=lon_deg * 1e7,
+            param7=float(alt_amsl_m),
+        )
