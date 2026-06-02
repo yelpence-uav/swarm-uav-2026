@@ -28,7 +28,8 @@ _CMD_NAV_TAKEOFF = 22          # param7 = irtifa
 _CMD_NAV_LAND = 21
 _CMD_NAV_RTL = 20              # Return to Launch
 _CMD_DO_SET_MODE = 176         # base_mode + custom_main + custom_sub
-_CMD_SET_GPS_GLOBAL_ORIGIN = 2015  # param5=lat*1e7, param6=lon*1e7, param7=alt_amsl
+# param5=lat*1e7, param6=lon*1e7, param7=alt_amsl_m
+_CMD_SET_GPS_GLOBAL_ORIGIN = 2015
 
 
 # PX4 PX4_CUSTOM_MAIN_MODE değerleri (DO_SET_MODE param2 için)

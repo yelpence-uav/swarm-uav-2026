@@ -34,6 +34,8 @@ def compute_slot_offsets(
 ) -> list[Offset]:
     """N drone için heading=0 varsayımıyla slot offsetlerini döndürür.
 
+    Index = rank. rank=0 daima (0, 0, 0) merkezdir.
+
     Returns:
         Uzunluğu total olan (dx, dy, dz) listesi. Index = rank.
 
@@ -84,7 +86,10 @@ def validate_formation_safety(
     alpha_rad: float,
     min_distance_m: float = DEFAULT_MIN_DRONE_DISTANCE_M,
 ) -> None:
-    """Minimum drone mesafesini doğrular; eşiğin altındaysa ValueError fırlatır."""
+    """Minimum drone mesafesini doğrular.
+
+    Eşiğin altındaysa ValueError fırlatır.
+    """
     actual = compute_min_drone_distance(formation_type, spacing, alpha_rad)
     if actual < min_distance_m:
         raise ValueError(

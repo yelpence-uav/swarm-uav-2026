@@ -10,9 +10,9 @@ Origin, hiçbir drone'un verisinden TÜRETİLMEZ. Dışarıdan verilen sabit bir
 noktadır. Böylece:
   * Her drone açıldığı an, kimseyi beklemeden / kimseye sormadan aynı referansa
     oturur — tam dağıtık (decentralized).
-  * Sürüden bir drone ayrılır veya sonradan katılırsa frame değişmez; ayrılan
-    drone tek başına da aynı sabit referansı kullanıp konumunu hesaplamaya devam
-    eder.
+  * Sürüden bir drone ayrılır veya sonradan katılırsa frame değişmez;
+    ayrılan drone tek başına da aynı sabit referansı kullanıp konumunu
+    hesaplamaya devam eder.
   * SITL ve gerçek donanım kod yolu aynıdır; yalnızca noktanın KAYNAĞI değişir.
 
 İki kaynak modu (origin_source parametresi):
@@ -26,8 +26,9 @@ noktadır. Böylece:
     RTK baz istasyonunun konumunu (RTK sürücüsünün yayınladığı NavSatFix
     topic'inden) origin olarak kilitler. Gerçek harici sabit çapa.
 
-Origin'in DEĞERİ formasyon şeklini etkilemez (relatif hesapta sadeleşir); önemli
-olan tüm drone'ların AYNI değeri kullanmasıdır. Tüketiciler (formation_node,
+Origin'in DEĞERİ formasyon şeklini etkilemez (relatif hesapta sadeleşir);
+önemli olan tüm drone'ların AYNI değeri kullanmasıdır.
+Tüketiciler (formation_node,
 bridge) origin'in nereden geldiğini bilmez, sadece /swarm/public/origin
 topic'ini dinler.
 
@@ -63,7 +64,10 @@ _RELIABLE_TRANSIENT = QoSProfile(
 
 
 class SwarmOriginPublisher(Node):
+    """Sürü için ortak NED referans noktasını (SwarmOrigin) yayınlar."""
+
     def __init__(self):
+        """Node'u başlatır, modu okur ve origin kilit mantığını kurar."""
         super().__init__('swarm_origin_publisher')
 
         self.declare_parameter('origin_source', 'fixed')  # fixed | rtk_base
@@ -75,9 +79,9 @@ class SwarmOriginPublisher(Node):
         # rtk_base mod RTK sürücü topic'i:
         self.declare_parameter('rtk_base_topic', '/rtk/base/fix')
 
+        _src_param = self.get_parameter('origin_source')
         self._origin_source = (
-            self.get_parameter('origin_source').get_parameter_value().string_value
-            or 'fixed'
+            _src_param.get_parameter_value().string_value or 'fixed'
         )
         rate_hz = float(
             self.get_parameter('rate_hz').get_parameter_value().double_value
@@ -106,9 +110,15 @@ class SwarmOriginPublisher(Node):
     # fixed modu (SITL) — config'den sabit çapa, drone'dan bağımsız
     # ------------------------------------------------------------------ #
     def _setup_fixed(self) -> None:
-        lat = float(self.get_parameter('fixed_lat').get_parameter_value().double_value)
-        lon = float(self.get_parameter('fixed_lon').get_parameter_value().double_value)
-        alt = float(self.get_parameter('fixed_alt').get_parameter_value().double_value)
+        lat = float(
+            self.get_parameter('fixed_lat').get_parameter_value().double_value
+        )
+        lon = float(
+            self.get_parameter('fixed_lon').get_parameter_value().double_value
+        )
+        alt = float(
+            self.get_parameter('fixed_alt').get_parameter_value().double_value
+        )
 
         if lat == 0.0 and lon == 0.0:
             self.get_logger().error(
@@ -128,13 +138,15 @@ class SwarmOriginPublisher(Node):
     # rtk_base modu (donanım) — RTK bazının konumu
     # ------------------------------------------------------------------ #
     def _setup_rtk_base(self) -> None:
-        topic = self.get_parameter('rtk_base_topic').get_parameter_value().string_value
+        _topic_param = self.get_parameter('rtk_base_topic')
+        topic = _topic_param.get_parameter_value().string_value
         self.create_subscription(
             NavSatFix, topic, self._on_rtk_base,
             QoSPresetProfiles.SENSOR_DATA.value,
         )
         self.get_logger().info(
-            f'SwarmOriginPublisher (mod=rtk_base): topic={topic} — RTK bazı bekleniyor'
+            f'SwarmOriginPublisher (mod=rtk_base): topic={topic}'
+            f' — RTK bazı bekleniyor'
         )
 
     def _on_rtk_base(self, msg: NavSatFix) -> None:

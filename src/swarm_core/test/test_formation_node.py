@@ -48,8 +48,11 @@ def _make_node(
     node._alpha_deg = 30.0
     node._alpha_rad = math.radians(30.0)
     node._max_speed_mps = max_speed
-    node._svt_gain = svt_gain
+    node._svt_k = svt_gain
     node._svt_threshold_m = svt_threshold
+    node._svt_k_z = 2.0
+    node._svt_threshold_z_m = 0.05
+    node._svt_z_filter = 0.5
     node._position_tolerance_m = 0.5
     node._heading_tolerance_deg = 5.0
     node._publish_rate_hz = 20.0

@@ -247,9 +247,11 @@ class Px4BridgeNode(Node):
     # PX4 CALLBACKS — sadece mapper'ı çağırırlar
     # =================================================================
     def _on_battery(self, msg: BatteryStatus) -> None:
+        """Batarya telemetrisini AgentStatus'a işler."""
         map_battery(msg, self._status)
 
     def _on_vehicle_status(self, msg: VehicleStatus) -> None:
+        """Araç durumunu işler; SITL'de offboard kaybını yakalar."""
         prev_offboard = self._status.offboard_active
         map_vehicle_status(msg, self._status)
 
@@ -335,9 +337,9 @@ class Px4BridgeNode(Node):
             and (now - self._setpoint_stamp) < self._setpoint_timeout_s
         )
 
-        # offboard_streaming kapalıysa (land/rtl/disarm sonrası) offboard mode ve
-        # setpoint yayınlama — yoksa PX4 sürekli offboard'a geri zorlanır ve
-        # land/rtl modu tutmaz.
+        # offboard_streaming kapalıysa (land/rtl/disarm sonrası)
+        # offboard mode ve setpoint yayınlama — yoksa PX4 sürekli
+        # offboard'a geri zorlanır ve land/rtl modu tutmaz.
         if not self._offboard_streaming:
             if self._sitl_mode:
                 self._publish_fake_rc()
@@ -353,7 +355,11 @@ class Px4BridgeNode(Node):
         # SITL: sahte RC sinyali — gerçek donanımda çalışmaz
         if self._sitl_mode:
             self._publish_fake_rc()
-            # Offboard isteniyorsa ama aktif değilse 2Hz'de yeniden talep et
+            # Offboard isteniyorsa ama aktif değilse 2Hz'de yeniden talep et.
+            # NOT: 10Hz denendi ama mode komutunu (DO_SET_MODE) flood'lamak arm
+            # geçişinde çakışma yaratıp bir drone'un disarm olmasına yol açtı.
+            # 2Hz kanıtlanmış güvenli değer — sync için sync_takeoff zaten
+            # 3/3 offboard'ı bekliyor, bu yeterli.
             if (self._offboard_streaming
                     and not self._status.offboard_active
                     and self._status.armed):
@@ -361,7 +367,8 @@ class Px4BridgeNode(Node):
                 if self._offboard_rearm_counter >= 25:  # 50Hz / 25 = 2Hz
                     self._offboard_rearm_counter = 0
                     self.get_logger().warn(
-                        'SITL: Offboard yeniden talep ediliyor...'
+                        'SITL: Offboard yeniden talep ediliyor...',
+                        throttle_duration_sec=1.0,
                     )
                     self._cmd_sender.set_offboard_mode()
             else:
@@ -375,7 +382,8 @@ class Px4BridgeNode(Node):
             _yaw = math.radians(float(sp.heading_deg))
             target_yaw = (_yaw + math.pi) % (2 * math.pi) - math.pi
         elif self._target_altitude_ned is not None:
-            # Kalkış/irtifa-hold: yatayda dondurulmuş çapa, dikeyde hedef irtifa.
+            # Kalkış/irtifa-hold: yatayda dondurulmuş çapa,
+            # dikeyde hedef irtifa.
             target_x = (
                 self._takeoff_anchor_x
                 if self._takeoff_anchor_x is not None
@@ -477,7 +485,11 @@ class Px4BridgeNode(Node):
                     self.get_logger().warning(
                         f'Geçersiz takeoff irtifası: {cmd}'
                     )
-            # NED: yukarı = negatif Z — AUTO_TAKEOFF değil, offboard setpoint
+            # NED: yukarı = negatif Z. Local z her drone'un kendi
+            # kalkış noktasına göredir; aynı zeminden başlayanlar
+            # local z=-altitude ile aynı GERÇEK yüksekliğe çıkar.
+            # (alt_amsl tahminleri bias'lı → AMSL düzeltmesi gerçek
+            # yüksekliği bozar — kullanmıyoruz.)
             self._target_altitude_ned = -altitude
             # Yatay çapayı şimdi dondur — tırmanış boyunca sabit kalsın.
             self._takeoff_anchor_x = self._cached_pos_x
