@@ -1,4 +1,4 @@
-"""kinematic_fusion_node.py — komşu telemetrisinin EMA tabanlı füzyonu.
+r"""kinematic_fusion_node.py — komşu telemetrisinin EMA tabanlı füzyonu.
 
 ESP32 mesh üzerinden gelen komşu drone telemetrisi (AgentStatus) hafif
 gürültülüdür: paket kaybı, ESP-NOW kanal jitter'ı ve int32 (1.1cm) tabanlı
@@ -75,7 +75,7 @@ def _makul_aralikta(
     pos_x: float, pos_y: float, pos_z: float,
     vel_x: float, vel_y: float, vel_z: float,
 ) -> bool:
-    """Konum/hız değerleri fiziksel olarak makul aralıkta mı?"""
+    """Konum/hız değerlerinin fiziksel olarak makul aralıkta olduğunu döner."""
     if (abs(pos_x) > _MAKUL_KONUM_SINIR
             or abs(pos_y) > _MAKUL_KONUM_SINIR
             or abs(pos_z) > _MAKUL_KONUM_SINIR):
@@ -155,7 +155,7 @@ class _EmaDurum:
         self.son_olcum_gecerli = False
 
     def hazir(self) -> bool:
-        """Tüm eksenler için warm start tamam mı?"""
+        """Tüm eksenler için warm start tamamlandı mı döner."""
         return None not in (self.x, self.y, self.z,
                             self.vx, self.vy, self.vz)
 

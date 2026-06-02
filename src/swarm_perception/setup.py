@@ -17,6 +17,7 @@ setup(
     maintainer_email='kocakseydagul@gmail.com',
     description='Sürü algılama: kinematik füzyon ve görüntü işleme',
     license='MIT',
+    tests_require=['pytest'],
     entry_points={
         'console_scripts': [
             'kinematic_fusion = '
