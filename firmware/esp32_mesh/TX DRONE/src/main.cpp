@@ -158,12 +158,12 @@ void renk_alani_kaydet(uint8_t renk, int32_t lat, int32_t lon) {
 struct gorev_mesaj_t {
     uint8_t tip;
     uint8_t iha_id;
-    uint8_t payload[16];
+    uint8_t payload[18];
 };
 static QueueHandle_t gorev_kuyruk = nullptr;
 
 static_assert(sizeof(gorev_veri_t) <= 16, "gorev_veri_t 16 byte'i asiyor");
-static_assert(sizeof(pose_veri_t)  <= 16, "pose_veri_t 16 byte'i asiyor");
+static_assert(sizeof(pose_veri_t)  <= 18, "pose_veri_t 18 byte'i asiyor");
 static_assert(sizeof(durum_veri_t) <= 16, "durum_veri_t 16 byte'i asiyor");
 static_assert(sizeof(renk_veri_t)  <= 16, "renk_veri_t 16 byte'i asiyor");
 
@@ -282,8 +282,9 @@ void pose_gonder() {
     pose.heading = 900;
     pose.vx      = 0;
     pose.vy      = 0;
+    pose.vz      = 0;
 #endif
-    uint8_t veri[16] = {0};
+    uint8_t veri[18] = {0};
     memcpy(veri, &pose, sizeof(pose_veri_t));
     mesh_gonder(veri, TIP_POSE);
 }

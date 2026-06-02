@@ -65,7 +65,7 @@ static uint8_t cobs_decode(const uint8_t* giris, uint8_t uzunluk, uint8_t* cikis
 struct uart_mesaj_t {
     uint8_t tip;
     uint8_t iha_id;
-    uint8_t payload[16];
+    uint8_t payload[18];
     uint8_t uzunluk;
 };
 static QueueHandle_t uart_kuyruk = nullptr;
@@ -159,7 +159,10 @@ void mesh_veri_al(const mesh_paket_t* p) {
     else if (p->tip == TIP_GOREV)     msg.uzunluk = sizeof(gorev_veri_t);
     else if (p->tip == TIP_RENK)      msg.uzunluk = sizeof(renk_veri_t);
     else if (p->tip == TIP_DURUM)     msg.uzunluk = sizeof(durum_veri_t);
-    else if (p->tip == TIP_TELEMETRI) msg.uzunluk = 16;
+    else if (p->tip == TIP_TELEMETRI)  msg.uzunluk = 16;
+    else if (p->tip == TIP_LEADER_HB)  msg.uzunluk = sizeof(leader_hb_veri_t);
+    else if (p->tip == TIP_ELECTION)   msg.uzunluk = sizeof(election_veri_t);
+    else if (p->tip == TIP_VERSION)    msg.uzunluk = sizeof(version_veri_t);
     else return; 
 
     // FIX #3: Ilk 6 byte'i atla (anti-replay basligi)

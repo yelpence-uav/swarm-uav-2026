@@ -51,7 +51,36 @@ struct __attribute__((packed)) pose_veri_t {
     int16_t  heading;
     int16_t  vx;
     int16_t  vy;
+    int16_t  vz;        // cm/s (NED asagi pozitif)
 };
+
+
+
+struct __attribute__((packed)) origin_veri_t {
+    int32_t  lat_1e7;    // 1e-7 derece (RTK 1.1 cm hassasiyet)
+    int32_t  lon_1e7;
+    int32_t  alt_mm;     // milimetre
+    uint32_t sequence;   // origin tekrar yakalanirsa +1
+};   // toplam 16 byte
+
+struct __attribute__((packed)) leader_hb_veri_t {
+    uint8_t  leader_id;
+    uint32_t sequence_num;        // her HB'de +1
+    uint8_t  election_round;      // mevcut tur
+    uint8_t  active_agent_count;  // liderin gordugu ajan sayisi
+    uint8_t  mission_active;      // 0/1
+    uint8_t  rezerv[8];
+};   // 16 byte
+
+struct __attribute__((packed)) election_veri_t {
+    uint8_t  new_leader_id;
+    uint8_t  election_round;
+    uint8_t  reason;              // 0=UNKNOWN 1=TIMEOUT 2=FAULT 3=MANUAL
+    uint8_t  triggered_by;        // election'i baslatan ajan ID (0=sistem)
+    uint32_t sequence_num;
+    uint8_t  confirmed_ids[4];    // onay veren ilk 4 ID (0=bos)
+    uint8_t  rezerv[4];
+};   // 16 byte
 
 struct __attribute__((packed)) version_veri_t {
     uint8_t  major;        // firmware major
