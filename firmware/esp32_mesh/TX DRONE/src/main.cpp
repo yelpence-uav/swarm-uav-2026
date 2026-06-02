@@ -4,6 +4,7 @@
 #include "esp_wifi.h"
 #include "mesh_config.h"
 #include "fail_safe.h"
+#include "rtk_handler.h"
 
 // ===== FORWARD DECLARATIONS =====
 void durum_gonder(uint8_t durum);
@@ -409,6 +410,7 @@ void setup() {
 
 // ===== LOOP =====
 void loop() {
+    rtk_loop();
     esp_task_wdt_reset();
     mesh_loop();
 
@@ -489,10 +491,14 @@ void loop() {
             gorev_isle((gorev_veri_t*)gelen.payload);
             uart_gonder(TIP_GOREV, gelen.iha_id, gelen.payload, sizeof(gorev_veri_t));
         } else if (gelen.tip == TIP_KOMUT) {
-            Serial.printf("[KOMUT] %s\n", (char*)gelen.payload);
-            uart_gonder(TIP_KOMUT, gelen.iha_id, gelen.payload, sizeof(gorev_veri_t));
+            // FIX: Binary struct'i %s ile basmak Core Panic yapar
+            { const komut_veri_t* k = (const komut_veri_t*)gelen.payload;
+              Serial.printf("[KOMUT] alt_tip=%u roll=%d pitch=%d yaw=%d thr=%d\n", k->alt_tip, k->roll_x100, k->pitch_x100, k->yaw_x100, k->throttle_x100); }
+            uart_gonder(TIP_KOMUT, gelen.iha_id, gelen.payload, sizeof(komut_veri_t));
         } else if (gelen.tip == TIP_POSE) {
             uart_gonder(TIP_POSE, gelen.iha_id, gelen.payload, sizeof(pose_veri_t));
+        } else if (gelen.tip == TIP_RTK) {
+            rtk_paket_isle(gelen.payload, sizeof(rtk_paket_t));
         } else if (gelen.tip == TIP_RENK) {
             renk_veri_t* renk = (renk_veri_t*)gelen.payload;
             renk_alani_kaydet(renk->renk, renk->lat, renk->lon);
