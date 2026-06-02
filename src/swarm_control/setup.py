@@ -20,6 +20,8 @@ setup(
     entry_points={
         'console_scripts': [
             'px4_bridge = swarm_control.px4_interface.px4_bridge:main',
+            'esp32_bridge = '
+            'swarm_control.esp32_bridge.esp32_bridge_node:main',
         ],
     },
 )
