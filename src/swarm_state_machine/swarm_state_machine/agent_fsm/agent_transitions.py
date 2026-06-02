@@ -342,6 +342,8 @@ def _from_failsafe(ctx: AgentContext) -> AgentState | None:
     Returns:
         Hedef AgentState veya None.
     """
+    if not ctx.armed and ctx.pending_state == AgentState.IDLE:
+        return AgentState.IDLE
     if ctx.healthy and ctx.pending_state == AgentState.RETURN_HOME:
         return AgentState.RETURN_HOME
     if ctx.pending_state == AgentState.LANDING:

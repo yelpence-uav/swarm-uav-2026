@@ -34,6 +34,8 @@ class AgentStatusCache:
     pos_x: float = 0.0
     pos_y: float = 0.0
     pos_z: float = 0.0
+    lat_deg: float = 0.0
+    lon_deg: float = 0.0
     vel_x: float = 0.0
     vel_y: float = 0.0
     vel_z: float = 0.0
