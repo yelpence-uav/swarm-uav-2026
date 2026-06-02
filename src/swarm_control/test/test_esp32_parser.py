@@ -175,7 +175,7 @@ def test_durum_paketle_round_trip():
         drone_id=2, durum=5, armed=1, gps_fix_type=6,
         battery_pct=78, battery_volt=16.5,
         ekf_ok=1, imu_ok=1, mag_ok=1, baro_ok=0,
-        rssi=-72, mesh_link_ok=1,
+        rssi=-72, mesh_link_ok=1, mesh_komsu_sayisi=3,
     )
     assert len(payload) == 16
     d = pp.durum_coz(payload)
@@ -188,6 +188,7 @@ def test_durum_paketle_round_trip():
     assert d.ekf_ok == 1 and d.baro_ok == 0
     assert d.rssi == -72
     assert d.mesh_link_ok == 1
+    assert d.mesh_komsu_sayisi == 3
 
 
 def test_renk_round_trip():

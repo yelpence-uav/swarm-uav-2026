@@ -86,6 +86,7 @@ class DurumVeri:
     baro_ok: int
     rssi: int           # dBm
     mesh_link_ok: int   # 0/1
+    mesh_komsu_sayisi: int  # firmware: aktif mesh node sayısı (Büşra)
 
 
 @dataclass
@@ -212,6 +213,7 @@ def durum_coz(payload: bytes) -> DurumVeri:
         baro_ok=alanlar[9],
         rssi=alanlar[10],
         mesh_link_ok=alanlar[11],
+        mesh_komsu_sayisi=alanlar[12],
     )
 
 
@@ -219,7 +221,8 @@ def durum_paketle(drone_id: int, durum: int, armed: int,
                   gps_fix_type: int, battery_pct: int,
                   battery_volt: float, ekf_ok: int, imu_ok: int,
                   mag_ok: int, baro_ok: int, rssi: int,
-                  mesh_link_ok: int) -> bytes:
+                  mesh_link_ok: int,
+                  mesh_komsu_sayisi: int = 0) -> bytes:
     """DurumVeri alanlarını 16 baytlık mesh payload'ına paketler.
 
     RPi kendi durumunu (agent_fsm çıktısı) ESP32'ye gönderirken
@@ -238,6 +241,8 @@ def durum_paketle(drone_id: int, durum: int, armed: int,
         baro_ok (int): 0/1.
         rssi (int): dBm, -128..127.
         mesh_link_ok (int): 0/1.
+        mesh_komsu_sayisi (int): aktif mesh node sayısı (Büşra,
+            firmware tarafı sayıyor). Default 0 — RPi tarafı bilmeyebilir.
 
     Returns:
         bytes: 16 baytlık payload.
@@ -246,7 +251,7 @@ def durum_paketle(drone_id: int, durum: int, armed: int,
         _DURUM_FMT,
         drone_id, durum, armed, gps_fix_type, battery_pct,
         float(battery_volt), ekf_ok, imu_ok, mag_ok, baro_ok,
-        rssi, mesh_link_ok, 0,  # son alan: rezerv/pad
+        rssi, mesh_link_ok, mesh_komsu_sayisi,
     )
 
 

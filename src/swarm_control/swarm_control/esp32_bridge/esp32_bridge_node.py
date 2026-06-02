@@ -643,7 +643,17 @@ class Esp32BridgeNode(Node):
             status.imu_healthy = bool(durum.imu_ok)
             status.mag_healthy = bool(durum.mag_ok)
             status.baro_healthy = bool(durum.baro_ok)
-            status.status_text = f'mesh durum={durum.durum} rssi={durum.rssi}'
+            # mesh_link_ok ve mesh_komsu_sayisi henüz AgentStatus.msg'ye
+            # eklenmedi (Beyza listesinde). Eklenince hasattr otomatik
+            # set eder; o zamana kadar status_text üzerinden taşınır.
+            if hasattr(status, 'mesh_link_ok'):
+                status.mesh_link_ok = bool(durum.mesh_link_ok)
+            if hasattr(status, 'mesh_node_count'):
+                status.mesh_node_count = int(durum.mesh_komsu_sayisi)
+            status.status_text = (
+                f'mesh durum={durum.durum} rssi={durum.rssi} '
+                f'link={durum.mesh_link_ok} komsu={durum.mesh_komsu_sayisi}'
+            )
             self._yayinla_status(drone_id, status)
 
     def _yayinla_status(self, drone_id: int, status: AgentStatus) -> None:
@@ -878,6 +888,7 @@ class Esp32BridgeNode(Node):
                 baro_ok=1 if msg.baro_healthy else 0,
                 rssi=0,        # bizim kendi RSSI yok; firmware doldurur
                 mesh_link_ok=1,  # gönderebiliyorsak link kuruluyor
+                mesh_komsu_sayisi=len(self._komsu_son_goruldu),
             )
             self._uart_yaz(pp.TIP_DURUM, self._agent_id, payload)
 
