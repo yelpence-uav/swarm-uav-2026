@@ -26,11 +26,18 @@ Pyzbar mocklanarak saf test edilir.
 """
 
 import unittest
+import sys
 from unittest.mock import MagicMock, patch
 
 import numpy as np
 
-from swarm_perception.vision_node.qr_detector import QRDetector
+# Pyzbar GitHub Actions uzerinde bulunamazsa testlerin
+# 'ModuleNotFoundError' vererek patlamasini onlemek icin
+# sahte (mock) modul yuklenir.
+sys.modules['pyzbar'] = MagicMock()
+sys.modules['pyzbar.pyzbar'] = MagicMock()
+
+from swarm_perception.vision_node.qr_detector import QRDetector  # noqa: E402
 
 
 class TestQRDetector(unittest.TestCase):
