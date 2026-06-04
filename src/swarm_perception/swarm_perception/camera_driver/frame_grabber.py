@@ -19,7 +19,7 @@
 # THE SOFTWARE.
 
 """
-frame_grabber.py
+frame_grabber.py.
 
 Kamera erişim katmanı — ROS 2'den bağımsız saf Python modülü.
 
@@ -86,6 +86,7 @@ class FrameGrabber:
         flip_vertical: bool = False,
         flip_horizontal: bool = False,
     ) -> None:
+        """Initialize."""
         self._device_id = device_id
         self._width = width
         self._height = height
@@ -97,7 +98,7 @@ class FrameGrabber:
         self._last_grab_time: float = 0.0
         self._frame_count: int = 0
 
-    def open(self) -> bool:
+    def open_camera(self) -> bool:
         """Kamerayı açar ve çözünürlük/fps ayarlarını uygular.
 
         Returns:
@@ -226,13 +227,14 @@ class SimFrameGrabber:
         width: int = 1280,
         height: int = 720,
     ) -> None:
+        """Initialize."""
         self._width = width
         self._height = height
         self._opened = False
         self._frame_count: int = 0
         self._last_grab_time: float = 0.0
 
-    def open(self) -> bool:
+    def open_camera(self) -> bool:
         """Sentetik kaynak açar (her zaman başarılı)."""
         self._opened = True
         self._last_grab_time = time.monotonic()

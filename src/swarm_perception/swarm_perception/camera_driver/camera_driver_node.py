@@ -18,8 +18,8 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 # THE SOFTWARE.
 
-"""
-camera_driver_node.py
+r"""
+camera_driver_node.py.
 
 Arducam HQ kameradan görüntü yakalayan ve ROS 2 topic'lerine
 yayınlayan ana sürücü düğümü.
@@ -99,6 +99,7 @@ class CameraDriverNode(Node):
     """
 
     def __init__(self) -> None:
+        """Initialize."""
         super().__init__('camera_driver')
 
         # ── Parametreler ── (agent_fsm_node._declare_params deseni)
@@ -234,10 +235,10 @@ class CameraDriverNode(Node):
             flip_vertical=self._flip_v,
             flip_horizontal=self._flip_h,
         )
-        if not self._grabber.open():
+        if not self._grabber.open_camera():
             self.get_logger().error(
                 f'Kamera açılamadı: /dev/video{self._device_id}. '
-                f'Cihaz bağlı mı? Docker --device flag\'i var mı?'
+                f"Cihaz bağlı mı? Docker --device flag'i var mı?"
             )
             # Kamera açılamasa bile düğüm çalışmaya devam eder.
             # health_check watchdog'u hata bildirimi yapacak.
@@ -294,7 +295,7 @@ class CameraDriverNode(Node):
             width=self._width,
             height=self._height,
         )
-        self._grabber.open()
+        self._grabber.open_camera()
 
         # Bridge'den ilk mesaj gelince _sim_subscriber_active = True
         # olacak ve timer tabanlı capture_loop SimFrameGrabber'ı
@@ -389,7 +390,7 @@ class CameraDriverNode(Node):
         if self._sitl_mode:
             # SITL'de SimFrameGrabber her zaman açılır
             if self._grabber is not None and not self._grabber.is_opened():
-                self._grabber.open()
+                self._grabber.open_camera()
             return
 
         if self._grabber is None:
@@ -402,7 +403,7 @@ class CameraDriverNode(Node):
                 flip_horizontal=self._flip_h,
             )
 
-        if self._grabber.open():
+        if self._grabber.open_camera():
             self.get_logger().info('Kamera yeniden bağlandı.')
         else:
             self.get_logger().warn(
@@ -443,7 +444,7 @@ class CameraDriverNode(Node):
     # CAMERAINFO MESAJI OLUŞTURMA
     # =================================================================
     def _build_camera_info_msg(self) -> CameraInfo:
-        """CameraInfo mesajını bir kere oluşturur ve önbelleğe alır.
+        """Camerainfo mesajını bir kere oluşturur ve önbelleğe alır.
 
         Her frame ile birlikte yayınlanır — sadece header güncellenir.
 
@@ -480,7 +481,7 @@ class CameraDriverNode(Node):
         severity: int,
         message: str = '',
     ) -> None:
-        """SystemEvent yayınlar.
+        """Systemevent yayınlar.
 
         agent_fsm_node._pub_event() deseni takip edilir.
 
@@ -510,7 +511,7 @@ class CameraDriverNode(Node):
 
 
 def main(args=None) -> None:
-    """camera_driver entry point.
+    r"""camera_driver entry point.
 
     KULLANIM:
         ros2 run swarm_perception camera_driver \\

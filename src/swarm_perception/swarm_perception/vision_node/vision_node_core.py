@@ -19,7 +19,7 @@
 # THE SOFTWARE.
 
 """
-vision_node_core.py
+vision_node_core.py.
 
 Ana Vision ROS 2 Düğümü.
 Görüntü verilerini dinler, qr_detector ve landing_zone_detector modüllerini
@@ -65,6 +65,7 @@ class VisionNode(Node):
     """Görüntüleri işleyip tespit sonuçları yayınlayan düğüm."""
 
     def __init__(self) -> None:
+        """Initialize."""
         super().__init__('vision_node')
 
         self._declare_params()

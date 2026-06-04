@@ -19,7 +19,7 @@
 # THE SOFTWARE.
 
 """
-qr_detector.py
+qr_detector.py.
 
 Pyzbar kullanarak BGR görüntülerde QR kod tespiti yapan saf modül.
 ROS 2 bağımlılığı taşımaz, yalnızca numpy ve pyzbar kullanır.
@@ -36,7 +36,7 @@ class QRDetector:
 
     def __init__(self, min_confidence: float = 0.5) -> None:
         """
-        QRDetector sınıfını ilklendirir.
+        Qrdetector sınıfını ilklendirir.
 
         Args:
             min_confidence (float): Asgari güven eşiği (pyzbar desteklemez,

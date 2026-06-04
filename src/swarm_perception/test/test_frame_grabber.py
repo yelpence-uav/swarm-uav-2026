@@ -52,7 +52,7 @@ class TestSimFrameGrabber(unittest.TestCase):
 
     def test_open_basarili(self):
         g = self.SimFrameGrabber(width=640, height=480)
-        self.assertTrue(g.open())
+        self.assertTrue(g.open_camera())
         self.assertTrue(g.is_opened())
 
     def test_kapali_grab_basarisiz(self):
@@ -63,7 +63,7 @@ class TestSimFrameGrabber(unittest.TestCase):
 
     def test_grab_frame_boyut(self):
         g = self.SimFrameGrabber(width=320, height=240)
-        g.open()
+        g.open_camera()
         success, frame = g.grab()
         self.assertTrue(success)
         self.assertIsNotNone(frame)
@@ -73,7 +73,7 @@ class TestSimFrameGrabber(unittest.TestCase):
 
     def test_frame_count_artar(self):
         g = self.SimFrameGrabber(width=160, height=120)
-        g.open()
+        g.open_camera()
         self.assertEqual(g.frame_count, 0)
         g.grab()
         self.assertEqual(g.frame_count, 1)
@@ -83,14 +83,14 @@ class TestSimFrameGrabber(unittest.TestCase):
 
     def test_release(self):
         g = self.SimFrameGrabber()
-        g.open()
+        g.open_camera()
         self.assertTrue(g.is_opened())
         g.release()
         self.assertFalse(g.is_opened())
 
     def test_release_sonrasi_grab_basarisiz(self):
         g = self.SimFrameGrabber()
-        g.open()
+        g.open_camera()
         g.release()
         success, frame = g.grab()
         self.assertFalse(success)
@@ -105,7 +105,7 @@ class TestSimFrameGrabber(unittest.TestCase):
 
     def test_last_grab_time_guncellenir(self):
         g = self.SimFrameGrabber(width=160, height=120)
-        g.open()
+        g.open_camera()
         t0 = g.last_grab_time
         g.grab()
         t1 = g.last_grab_time
@@ -133,7 +133,7 @@ class TestFrameGrabberMock(unittest.TestCase):
         mock_cv2.VideoCapture.return_value = mock_cap
 
         g = self.FrameGrabber(device_id=0, width=1280, height=720, fps=15.0)
-        result = g.open()
+        result = g.open_camera()
 
         self.assertTrue(result)
         self.assertTrue(g.is_opened())
@@ -146,7 +146,7 @@ class TestFrameGrabberMock(unittest.TestCase):
         mock_cv2.VideoCapture.return_value = mock_cap
 
         g = self.FrameGrabber(device_id=0, width=640, height=480, fps=30.0)
-        result = g.open()
+        result = g.open_camera()
 
         self.assertFalse(result)
 
@@ -159,7 +159,7 @@ class TestFrameGrabberMock(unittest.TestCase):
         mock_cv2.VideoCapture.return_value = mock_cap
 
         g = self.FrameGrabber(device_id=0, width=1280, height=720, fps=15.0)
-        g.open()
+        g.open_camera()
         success, frame = g.grab()
 
         self.assertTrue(success)
@@ -174,7 +174,7 @@ class TestFrameGrabberMock(unittest.TestCase):
         mock_cv2.VideoCapture.return_value = mock_cap
 
         g = self.FrameGrabber(device_id=0, width=1280, height=720, fps=15.0)
-        g.open()
+        g.open_camera()
         success, frame = g.grab()
 
         self.assertFalse(success)
@@ -193,7 +193,7 @@ class TestFrameGrabberMock(unittest.TestCase):
             device_id=0, width=640, height=480, fps=15.0,
             flip_vertical=True,
         )
-        g.open()
+        g.open_camera()
         g.grab()
 
         mock_cv2.flip.assert_called_once()
@@ -214,7 +214,7 @@ class TestFrameGrabberMock(unittest.TestCase):
             device_id=0, width=640, height=480, fps=15.0,
             flip_vertical=True, flip_horizontal=True,
         )
-        g.open()
+        g.open_camera()
         g.grab()
 
         # flip(frame, -1) — her iki eksen
@@ -228,7 +228,7 @@ class TestFrameGrabberMock(unittest.TestCase):
         mock_cv2.VideoCapture.return_value = mock_cap
 
         g = self.FrameGrabber(device_id=0, width=1280, height=720, fps=15.0)
-        g.open()
+        g.open_camera()
         g.release()
 
         mock_cap.release.assert_called_once()
@@ -242,7 +242,7 @@ class TestFrameGrabberMock(unittest.TestCase):
         mock_cv2.VideoCapture.return_value = mock_cap
 
         g = self.FrameGrabber(device_id=0, width=1280, height=720, fps=15.0)
-        g.open()
+        g.open_camera()
         self.assertEqual(g.frame_count, 0)
         g.grab()
         self.assertEqual(g.frame_count, 1)
@@ -255,7 +255,7 @@ class TestFrameGrabberMock(unittest.TestCase):
         mock_cv2.VideoCapture.return_value = mock_cap
 
         g = self.FrameGrabber(device_id=0, width=1280, height=720, fps=15.0)
-        g.open()
+        g.open_camera()
 
         # set çağrılarını kontrol et
         set_calls = {

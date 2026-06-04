@@ -19,7 +19,7 @@
 # THE SOFTWARE.
 
 """
-landing_zone_detector.py
+landing_zone_detector.py.
 
 OpenCV kullanarak HSV uzayında kırmızı/mavi bölgeleri bulur.
 PEP 8 ve PEP 257 standartlarına uygundur.
@@ -36,7 +36,7 @@ class LandingZoneDetector:
 
     def __init__(self, config: Dict[str, Any]) -> None:
         """
-        LandingZoneDetector sınıfını ilklendirir.
+        Landingzonedetector sınıfını ilklendirir.
 
         Args:
             config (Dict[str, Any]): vision_params.yaml dosyasından gelen

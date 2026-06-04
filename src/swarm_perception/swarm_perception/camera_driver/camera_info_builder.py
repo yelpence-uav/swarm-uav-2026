@@ -19,7 +19,7 @@
 # THE SOFTWARE.
 
 """
-camera_info_builder.py
+camera_info_builder.py.
 
 sensor_msgs/CameraInfo mesajı oluşturan yardımcı modül.
 
@@ -89,7 +89,7 @@ def build_camera_info(
     cy: float = 360.0,
     distortion_coeffs: list[float] | None = None,
 ) -> dict:
-    """CameraInfo mesajı için alan sözlüğü oluşturur.
+    """Camerainfo mesajı için alan sözlüğü oluşturur.
 
     ROS 2 sensor_msgs/CameraInfo mesaj formatına uygun bir dict döner.
     camera_driver_node.py bu dict'i doğrudan CameraInfo mesajına aktarır.
