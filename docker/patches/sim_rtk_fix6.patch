@@ -1,0 +1,53 @@
+From: Yelpence TEKNOFEST 2026
+Subject: SITL fix_type=6 (RTK) + EKF2 RTK-friendly defaults
+
+PX4 v1.16 SensorGpsSim modulu varsayilan olarak fix_type=3 (3D fix) uretir.
+RTK akisinin SITL'de gozlemlenebilmesi icin fix_type'i 6 (RTK fixed)
+yapariz, eph degerini 0.05 m'ye dusururuz ve lat/lon Gauss gurultusunu
+sifirlariz (RTK seviyesinde duzeltme cikti uretmek icin).
+
+Ek olarak 4001_gz_x500 airframe'inde EKF2_GPS_CHECK 0 (RTK uyumlu kontrol
+gevsetme) ve EKF2_HGT_MODE 1 (GPS irtifa kaynagi) varsayilani eklenir.
+
+YALNIZ-SIM yamasidir; gercek donanim akisini etkilemez.
+
+diff --git a/src/modules/simulation/sensor_gps_sim/SensorGpsSim.cpp b/src/modules/simulation/sensor_gps_sim/SensorGpsSim.cpp
+--- a/src/modules/simulation/sensor_gps_sim/SensorGpsSim.cpp
++++ b/src/modules/simulation/sensor_gps_sim/SensorGpsSim.cpp
+@@ -114,8 +114,8 @@
+ 		vehicle_global_position_s gpos{};
+ 		_vehicle_global_position_sub.copy(&gpos);
+
+-		double latitude = gpos.lat + math::degrees((double)generate_wgn() * 0.2 / CONSTANTS_RADIUS_OF_EARTH);
+-		double longitude = gpos.lon + math::degrees((double)generate_wgn() * 0.2 / CONSTANTS_RADIUS_OF_EARTH);
++		double latitude = gpos.lat;
++		double longitude = gpos.lon;
+ 		double altitude = (double)(gpos.alt + (generate_wgn() * 0.5f));
+
+ 		Vector3f gps_vel = Vector3f{lpos.vx, lpos.vy, lpos.vz} + noiseGauss3f(0.06f, 0.077f, 0.158f);
+@@ -131,11 +131,11 @@
+ 		sensor_gps_s sensor_gps{};
+
+ 		if (_sim_gps_used.get() >= 4) {
+-			// fix
+-			sensor_gps.fix_type = 3; // 3D fix
++			// RTK fixed (Yelpence SITL)
++			sensor_gps.fix_type = 6; // RTK fixed
+ 			sensor_gps.s_variance_m_s = 0.4f;
+ 			sensor_gps.c_variance_rad = 0.1f;
+-			sensor_gps.eph = 0.9f;
++			sensor_gps.eph = 0.05f;
+ 			sensor_gps.epv = 1.78f;
+ 			sensor_gps.hdop = 0.7f;
+ 			sensor_gps.vdop = 1.1f;
+diff --git a/ROMFS/px4fmu_common/init.d-posix/airframes/4001_gz_x500 b/ROMFS/px4fmu_common/init.d-posix/airframes/4001_gz_x500
+--- a/ROMFS/px4fmu_common/init.d-posix/airframes/4001_gz_x500
++++ b/ROMFS/px4fmu_common/init.d-posix/airframes/4001_gz_x500
+@@ -52,3 +52,7 @@
+ param set-default SIM_GZ_EC_MAX4 1000
+
+ param set-default MPC_THR_HOVER 0.60
++
++# Yelpence SITL: RTK uyumlu EKF2 varsayilanlari
++param set-default EKF2_GPS_CHECK 0
++param set-default EKF2_HGT_MODE 1
