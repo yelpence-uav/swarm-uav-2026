@@ -36,6 +36,31 @@ html[data-theme="dark"] .leaflet-tile {
   filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.6));
 }
 
+/* Lider halkası — marker'ın altında, nabız atan çember */
+.drone-marker__ring-layer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  pointer-events: none;
+}
+
+.drone-marker__leader-ring {
+  transform-origin: 50% 50%;
+  animation: leader-pulse 1.8s ease-in-out infinite;
+}
+
+@keyframes leader-pulse {
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 0.9;
+  }
+  50% {
+    transform: scale(1.18);
+    opacity: 0.35;
+  }
+}
+
 .drone-marker__label {
   position: absolute;
   top: -18px;

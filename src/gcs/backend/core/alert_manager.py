@@ -39,6 +39,9 @@ class AlertManager:
     BAT_CRIT_ON = 10.0
     BAT_CRIT_OFF = 12.0
 
+    # RTK fix tipi: 5 = RTK Float, 6 = RTK Fixed. Bunun altı RTK kaybıdır.
+    RTK_FIX_MIN = 5
+
     EVENT_TTL_SEC = 8.0  # info-level event'lar bu kadar süre görünür
 
     def __init__(self) -> None:
@@ -48,6 +51,9 @@ class AlertManager:
         # Tek seferlik event'lar: liste — TTL dolunca düşer
         self._events: list[Alert] = []
         self._events_lock = threading.Lock()
+        # RTK kaybı tespiti için: bir kez RTK'ya ulaşan drone'ları hatırla.
+        # Sonradan fix bu seviyenin altına düşerse "RTK kaybı" uyarısı verilir.
+        self._had_rtk: set[int] = set()
 
     def push_event(self, drone_id: int, severity: str, code: str, message: str) -> None:
         """Tek seferlik bir event yayınla (komut ACK gibi). EVENT_TTL_SEC sonra düşer."""
@@ -84,6 +90,7 @@ class AlertManager:
             bat_low_key = (d.drone_id, "low_battery")
             bat_crit_key = (d.drone_id, "critical_battery")
             gps_key = (d.drone_id, "weak_gps")
+            rtk_key = (d.drone_id, "rtk_lost")
 
             if not d.connected:
                 # Bağlantı yoksa diğer kuralları çalıştırma — stale veri.
@@ -92,6 +99,7 @@ class AlertManager:
                 self._clear(bat_low_key)
                 self._clear(bat_crit_key)
                 self._clear(gps_key)
+                self._clear(rtk_key)
                 continue
 
             self._clear(link_key)
@@ -127,6 +135,20 @@ class AlertManager:
                     )
                 else:
                     self._clear(gps_key)
+
+            # RTK kaybı — drone bir kez RTK'ya (fix 5/6) ulaştıysa ve sonra
+            # bu seviyenin altına düştüyse uyar. Hassas konumlandırma kaybolur.
+            if d.gps_fix_type >= self.RTK_FIX_MIN:
+                self._had_rtk.add(d.drone_id)
+                self._clear(rtk_key)
+            elif d.drone_id in self._had_rtk and not self._grace_active():
+                fix_name = {0: "yok", 1: "yok", 2: "2D", 3: "3D", 4: "DGPS"}.get(
+                    d.gps_fix_type, str(d.gps_fix_type)
+                )
+                self._set(
+                    rtk_key, SEVERITY_WARNING,
+                    f"RTK sinyali kayboldu (şu an {fix_name})",
+                )
 
         # Süresi dolan event'ları temizle
         now = time.time()

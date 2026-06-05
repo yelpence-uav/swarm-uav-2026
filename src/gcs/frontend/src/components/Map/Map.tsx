@@ -137,6 +137,7 @@ function updateDroneVisuals(
   if (!hasValidPosition(drone)) return;
 
   const color = COLORS[drone.drone_id] ?? "#999";
+  const isLeader = drone.role === 1; // AgentStatus.ROLE_LEADER
   const existing = visuals.get(drone.drone_id);
   const newPos: L.LatLngTuple = [drone.lat, drone.lon];
 
@@ -147,6 +148,7 @@ function updateDroneVisuals(
         yawDeg: drone.yaw_deg,
         offline: !drone.connected,
         label: String(drone.drone_id),
+        isLeader,
       }),
       title: drone.name,
     }).addTo(map);
@@ -188,6 +190,7 @@ function updateDroneVisuals(
       yawDeg: drone.yaw_deg,
       offline: !drone.connected,
       label: String(drone.drone_id),
+      isLeader,
     }),
   );
 

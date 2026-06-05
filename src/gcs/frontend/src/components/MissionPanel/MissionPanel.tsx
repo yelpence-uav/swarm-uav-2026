@@ -39,9 +39,28 @@ export function MissionPanel({
   const [lastResult, setLastResult] = useState<TriggerMissionResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  async function trigger(commandCode: number, commandLabel: string, confirm = false) {
-    if (confirm && !window.confirm(`${commandLabel} komutunu göndermek üzeresin. Emin misin?`)) {
-      return;
+  async function trigger(
+    commandCode: number,
+    commandLabel: string,
+    confirmLevel: "none" | "single" | "double" = "none",
+  ) {
+    // Geri dönüşü olmayan komutlar (görev iptali) için kazara basmayı önleyen
+    // onay zinciri. "double" → ardışık iki ayrı onay diyaloğu.
+    if (confirmLevel !== "none") {
+      if (!window.confirm(`${commandLabel} komutu gönderilecek. Emin misin?`)) {
+        return;
+      }
+    }
+    if (confirmLevel === "double") {
+      if (
+        !window.confirm(
+          `SON UYARI — ${commandLabel}\n\n` +
+            "Bu işlem görevi sonlandırır ve görev BAŞARISIZ sayılır. " +
+            "Tüm sürü görevi durdurulacak.\n\nOnaylıyor musun?",
+        )
+      ) {
+        return;
+      }
     }
     setBusy(commandLabel);
     setError(null);
@@ -129,7 +148,7 @@ export function MissionPanel({
         <button
           className="mission-panel__safety-btn mission-panel__safety-btn--abort"
           disabled={busy !== null || !missionActive}
-          onClick={() => trigger(MISSION_COMMAND.ABORT, "GÖREVİ İPTAL", true)}
+          onClick={() => trigger(MISSION_COMMAND.ABORT, "GÖREVİ İPTAL", "double")}
         >
           ✕ Görevi İptal Et
         </button>
