@@ -1,7 +1,20 @@
 """Dağıtık formasyon kontrol node'u — her drone'da ayrı çalışır.
 
-FormationCommand + SwarmState okur, kendi rank'ini Macar algoritmasıyla
-belirler, shared NED → local NED dönüşümü yaparak AgentSetpoint üretir.
+Slot ataması lider tarafından FormationCommand içinde (agent_ids +
+offset_x/y/z) yayınlanır; bu node yalnızca KENDİ slotunu okur, shared NED
+→ local NED dönüşümü yaparak AgentSetpoint üretir.
+
+Merkezi SwarmState'e bağlı DEĞİLDİR: konumunu kendi telemetrisinden
+(AgentStatus), ortak frame'i SwarmOrigin'den, atamasını lider komutundan
+alır.
+
+HİBRİT FORMASYON KORUMA (A7):
+  - Mutlak terim (SVT): kendi slot koordinatına çeker → dünyaya çapa,
+    kolektif sürüklenmeyi önler.
+  - Göreli terim: komşuların gerçek konumunu (kinematic_fusion →
+    NeighborInfo) okuyup istenen mesafeyi korur → GPS sapmasına ve lider
+    kaybına dayanıklılık (komşuya bakarak formasyonu sıkı tutar).
+  - Link kopuk/eski komşu hesaba katılmaz → otomatik mutlak-only fallback.
 """
 
 import math
@@ -19,17 +32,11 @@ from swarm_interfaces.msg import (
     AgentSetpoint,
     AgentStatus,
     FormationCommand,
+    NeighborInfo,
     SwarmOrigin,
-    SwarmState,
 )
 
 from .formation_geometry import (
-    compute_setpoint,
-    compute_slot_offsets,
-    FORMATION_CIZGI,
-    FORMATION_OKBASI,
-    FORMATION_V,
-    hungarian_assignment,
     latlon_to_ned,
     rotate_offset,
 )
@@ -56,20 +63,14 @@ _ORIGIN_QOS = QoSProfile(
     depth=1,
 )
 
-_SUPPORTED_FORMATIONS = (FORMATION_OKBASI, FORMATION_V, FORMATION_CIZGI)
-
-_PASSIVE_SWARM_STATES = frozenset({
-    SwarmState.SWARM_UNKNOWN,
-    SwarmState.SWARM_IDLE,
-    SwarmState.SWARM_LANDING,
-    SwarmState.SWARM_RTL,
-    SwarmState.SWARM_FAILSAFE,
-    SwarmState.SWARM_MISSION_COMPLETE,
-})
-
 
 class FormationControlNode(Node):
-    """Tek drone için dağıtık formasyon setpoint hesaplayıcısı."""
+    """Tek drone için dağıtık formasyon setpoint hesaplayıcısı.
+
+    Slot ataması lider'in yaydığı FormationCommand içindedir
+    (agent_ids + offset_x/y/z). Bu node kendi slotunu uygular ve komşulara
+    göre (NeighborInfo) formasyonu sıkı tutar.
+    """
 
     def __init__(self) -> None:
         """Node'u baslatir; parametreler, publisher ve subscriber'lar kurulur."""
@@ -78,20 +79,15 @@ class FormationControlNode(Node):
         self._declare_params()
 
         self._current_formation: FormationCommand | None = None
-        self._latest_swarm_state: SwarmState | None = None
-        self._active_agent_ids: list[int] = []
         self._sequence_num: int = 0
-
-        self._cached_rank: int | None = None
-        self._cached_formation_seq: int = -1
 
         self._current_pos_x: float = 0.0
         self._current_pos_y: float = 0.0
         self._current_pos_z: float = 0.0
         self._pos_valid: bool = False
-        self._z_error_filtered: float = 0.0
         self._oscillating: bool = False
 
+        # Kendi telemetrimizden gelen lokal çalışma izni bayrakları.
         self._origin_synced: bool = False
         self._estimator_ok: bool = False
         self._xy_valid: bool = False
@@ -104,19 +100,16 @@ class FormationControlNode(Node):
         self._origin_lat: float | None = None
         self._origin_lon: float | None = None
 
-        self._centroid_vel_x: float = 0.0
-        self._centroid_vel_y: float = 0.0
-        self._centroid_vel_z: float = 0.0
-        self._prev_centroid_x: float = 0.0
-        self._prev_centroid_y: float = 0.0
-        self._prev_centroid_z: float = 0.0
-        self._prev_centroid_time: float | None = None
-
         # Hedef pozisyon ramp — ani sıçramayı yumuşatır
         self._ramp_x: float | None = None
         self._ramp_y: float | None = None
         self._ramp_z: float | None = None
         self._last_publish_time: float | None = None
+
+        # A7 — komşu durumu (göreli koruma için)
+        self._neighbors: dict[int, NeighborInfo] = {}
+        self._neighbor_rx_time: dict[int, float] = {}
+        self._neighbor_subs: dict[int, object] = {}
 
         self._setup_publishers()
         self._setup_subscribers()
@@ -130,15 +123,13 @@ class FormationControlNode(Node):
             f'FormationControlNode baslatildi: '
             f'agent_id={self._agent_id}, '
             f'publish_rate={self._publish_rate_hz} Hz, '
-            f'default_spacing={self._default_spacing_m} m, '
-            f'alpha={self._alpha_deg} deg'
+            f'max_speed={self._max_speed_mps} m/s, '
+            f'rel_enable={self._rel_enable}'
         )
 
     def _declare_params(self) -> None:
         """ROS2 parametrelerini tanımlar ve sınıf değişkenlerine okur."""
         self.declare_parameter('agent_id', 1)
-        self.declare_parameter('default_spacing_m', 5.0)
-        self.declare_parameter('alpha_deg', 50.0)
         self.declare_parameter('publish_rate_hz', 20.0)
         self.declare_parameter('position_tolerance_m', 0.5)
         self.declare_parameter('heading_tolerance_deg', 5.0)
@@ -147,14 +138,14 @@ class FormationControlNode(Node):
         self.declare_parameter('svt_threshold_m', 0.5)
         self.declare_parameter('svt_k_z', 2.0)
         self.declare_parameter('svt_threshold_z_m', 0.05)
-        self.declare_parameter('svt_z_filter', 0.5)
         self.declare_parameter('target_ramp_mps', 1.0)
+        # A7 — göreli (komşu tabanlı) formasyon koruma
+        self.declare_parameter('rel_enable', True)
+        self.declare_parameter('rel_k', 0.2)
+        self.declare_parameter('rel_threshold_m', 0.2)
+        self.declare_parameter('rel_stale_s', 0.5)
 
         self._agent_id: int = int(self.get_parameter('agent_id').value)
-        self._default_spacing_m: float = float(
-            self.get_parameter('default_spacing_m').value
-        )
-        self._alpha_deg: float = float(self.get_parameter('alpha_deg').value)
         self._publish_rate_hz: float = float(
             self.get_parameter('publish_rate_hz').value
         )
@@ -175,13 +166,19 @@ class FormationControlNode(Node):
         self._svt_threshold_z_m: float = float(
             self.get_parameter('svt_threshold_z_m').value
         )
-        self._svt_z_filter: float = float(
-            self.get_parameter('svt_z_filter').value
-        )
         self._target_ramp_mps: float = float(
             self.get_parameter('target_ramp_mps').value
         )
-        self._alpha_rad: float = math.radians(self._alpha_deg)
+        self._rel_enable: bool = bool(
+            self.get_parameter('rel_enable').value
+        )
+        self._rel_k: float = float(self.get_parameter('rel_k').value)
+        self._rel_threshold_m: float = float(
+            self.get_parameter('rel_threshold_m').value
+        )
+        self._rel_stale_s: float = float(
+            self.get_parameter('rel_stale_s').value
+        )
 
     def _setup_publishers(self) -> None:
         """Setpoint publisher'ini olusturur (AgentSetpoint)."""
@@ -192,20 +189,17 @@ class FormationControlNode(Node):
         )
 
     def _setup_subscribers(self) -> None:
-        """Tüm topic aboneliklerini oluşturur.
+        """Topic aboneliklerini oluşturur.
 
-        FormationCommand, SwarmState, AgentStatus ve SwarmOrigin.
+        FormationCommand (lider'in atama+merkez komutu), kendi AgentStatus
+        telemetrisi ve SwarmOrigin. NeighborInfo abonelikleri komut gelince
+        dinamik kurulur (atamadaki komşulara göre). Merkezi SwarmState'e
+        abone OLUNMAZ.
         """
         self.create_subscription(
             FormationCommand,
             '/swarm/public/formation/target',
             self._on_formation_command,
-            _RELIABLE_QOS,
-        )
-        self.create_subscription(
-            SwarmState,
-            '/swarm/public/state',
-            self._on_swarm_state,
             _RELIABLE_QOS,
         )
         self.create_subscription(
@@ -221,8 +215,39 @@ class FormationControlNode(Node):
             _ORIGIN_QOS,
         )
 
+    def _ensure_neighbor_subs(self, agent_ids) -> None:
+        """Atamadaki her komşu için NeighborInfo aboneliğini kurar.
+
+        Komşu kümesi komutla değişebilir (üye ekleme/çıkarma); yeni görülen
+        her komşu için bir kez abonelik açılır. kinematic_fusion bu topic'i
+        yayınlar: /swarm/agent/drone{self}/neighbor/drone{nid}.
+        """
+        if not self._rel_enable:
+            return
+        for nid in agent_ids:
+            nid = int(nid)
+            if nid == self._agent_id or nid in self._neighbor_subs:
+                continue
+            topic = (
+                f'/swarm/agent/drone{self._agent_id}'
+                f'/neighbor/drone{nid}'
+            )
+            self._neighbor_subs[nid] = self.create_subscription(
+                NeighborInfo,
+                topic,
+                lambda m, n=nid: self._on_neighbor(n, m),
+                _BEST_EFFORT_QOS,
+            )
+            self.get_logger().info(
+                f'NeighborInfo aboneligi kuruldu: drone{nid}'
+            )
+
     def _on_formation_command(self, msg: FormationCommand) -> None:
-        """Gelen FormationCommand'ı saklar."""
+        """Gelen FormationCommand'ı saklar.
+
+        Atama (agent_ids + offset_x/y/z) komutun içindedir. Lider sussa bile
+        son komut elde kalır → drone formasyonu korumaya devam eder.
+        """
         prev = self._current_formation
         self._current_formation = msg
         # Formasyon tipi değişirse ramp'i sıfırla — yeni slota yumuşak geçiş
@@ -230,48 +255,15 @@ class FormationControlNode(Node):
             self._ramp_x = None
             self._ramp_y = None
             self._ramp_z = None
+        # Atamadaki komşular için NeighborInfo abonelikleri (A7)
+        self._ensure_neighbor_subs(msg.agent_ids)
         self.get_logger().info(
             f'FormationCommand alindi: type={msg.formation_type}, '
-            f'spacing={msg.spacing_m:.1f}m, '
             f'heading={msg.heading_deg:.1f}deg, '
             f'center=({msg.center_x:.1f}, {msg.center_y:.1f}, '
-            f'{msg.center_z:.1f})',
+            f'{msg.center_z:.1f}), atama={list(msg.agent_ids)}',
             throttle_duration_sec=1.0,
         )
-
-    def _on_swarm_state(self, msg: SwarmState) -> None:
-        """Suru durumunu isler; ajan listesini ve centroid hizini gunceller."""
-        now = self.get_clock().now().nanoseconds * 1e-9
-        if self._prev_centroid_time is not None:
-            dt = now - self._prev_centroid_time
-            if dt >= 0.05:
-                self._centroid_vel_x = (
-                    (msg.centroid_x - self._prev_centroid_x) / dt
-                )
-                self._centroid_vel_y = (
-                    (msg.centroid_y - self._prev_centroid_y) / dt
-                )
-                self._centroid_vel_z = (
-                    (msg.centroid_z - self._prev_centroid_z) / dt
-                )
-        self._prev_centroid_x = float(msg.centroid_x)
-        self._prev_centroid_y = float(msg.centroid_y)
-        self._prev_centroid_z = float(msg.centroid_z)
-        self._prev_centroid_time = now
-
-        self._latest_swarm_state = msg
-
-        active_ids = sorted(int(i) for i in msg.active_agent_ids)
-        if active_ids != self._active_agent_ids:
-            self._active_agent_ids = active_ids
-            # N değişince centroid hız tahmini geçersizleşir.
-            self._prev_centroid_time = None
-            self._centroid_vel_x = 0.0
-            self._centroid_vel_y = 0.0
-            self._centroid_vel_z = 0.0
-            self.get_logger().info(
-                f'Aktif ajan listesi guncellendi: {active_ids}'
-            )
 
     def _on_agent_status(self, msg: AgentStatus) -> None:
         """Bu drone'un pozisyon, GPS ve güvenlik flag'lerini günceller."""
@@ -290,6 +282,13 @@ class FormationControlNode(Node):
             self._current_lat = float(msg.lat_deg)
             self._current_lon = float(msg.lon_deg)
             self._gps_valid = True
+
+    def _on_neighbor(self, nid: int, msg: NeighborInfo) -> None:
+        """Komşudan gelen NeighborInfo'yu ve alım zamanını saklar (A7)."""
+        self._neighbors[nid] = msg
+        self._neighbor_rx_time[nid] = (
+            self.get_clock().now().nanoseconds * 1e-9
+        )
 
     def _on_swarm_origin(self, msg: SwarmOrigin) -> None:
         """Ortak GPS referans noktasını saklar."""
@@ -326,13 +325,15 @@ class FormationControlNode(Node):
         target_y: float,
         target_z: float,
         max_speed: float,
-        use_ff_xy: bool = False,
-        use_ff_z: bool = False,
     ) -> tuple[float, float, float]:
-        """Feed-forward hız + SVT (Soft Virtual Tethering) düzeltmesi."""
-        vx = self._centroid_vel_x if use_ff_xy else 0.0
-        vy = self._centroid_vel_y if use_ff_xy else 0.0
-        vz = self._centroid_vel_z if use_ff_z else 0.0
+        """Mutlak SVT (Soft Virtual Tethering) düzeltme hızını üretir.
+
+        Kendi konumumuzu kendi slot koordinatına çeker (dünyaya çapa).
+        Çıktı max_speed'e kırpılır.
+        """
+        vx = 0.0
+        vy = 0.0
+        vz = 0.0
 
         # SVT: threshold'u aşınca sabit kazançlı yay kuvveti uygula.
         # oscillating=True ise salınım tespit edilmiş — SVT atlanır.
@@ -350,146 +351,120 @@ class FormationControlNode(Node):
             if abs(ez) > self._svt_threshold_z_m:
                 vz -= self._svt_k_z * ez
 
-        speed = math.sqrt(vx * vx + vy * vy + vz * vz)
-        if speed > max_speed:
-            scale = max_speed / speed
-            vx *= scale
-            vy *= scale
-            vz *= scale
+        return self._clamp_speed(vx, vy, vz, max_speed)
 
+    def _compute_relative_correction(
+        self,
+        msg: FormationCommand,
+        my_idx: int,
+        heading_rad: float,
+        now: float,
+    ) -> tuple[float, float, float]:
+        """Komşulara göre formasyon koruma düzeltmesi (A7 göreli terim).
+
+        Her aktif+taze komşu için: slot geometrisinden istenen göreli konum
+        ile NeighborInfo'dan gelen gerçek göreli konum arasındaki hatayı
+        kapatır. Link kopuk/eski komşu hesaba katılmaz → o komşu için
+        otomatik mutlak-only fallback. Komşu yoksa (0,0,0) döner.
+        """
+        if not self._rel_enable:
+            return 0.0, 0.0, 0.0
+
+        agent_ids = list(msg.agent_ids)
+        my_ox = float(msg.offset_x[my_idx])
+        my_oy = float(msg.offset_y[my_idx])
+        my_oz = float(msg.offset_z[my_idx])
+
+        sum_ex = 0.0
+        sum_ey = 0.0
+        sum_ez = 0.0
+        count = 0
+        for nid in agent_ids:
+            nid = int(nid)
+            if nid == self._agent_id:
+                continue
+            info = self._neighbors.get(nid)
+            if info is None or not info.link_active:
+                continue
+            rx = self._neighbor_rx_time.get(nid, 0.0)
+            if now - rx > self._rel_stale_s:
+                continue
+            n_idx = agent_ids.index(nid)
+            if (n_idx >= len(msg.offset_x) or n_idx >= len(msg.offset_y)
+                    or n_idx >= len(msg.offset_z)):
+                continue
+            # İstenen göreli (komşu - ben), body frame → shared NED
+            dbx = float(msg.offset_x[n_idx]) - my_ox
+            dby = float(msg.offset_y[n_idx]) - my_oy
+            dbz = float(msg.offset_z[n_idx]) - my_oz
+            des_x, des_y = rotate_offset(dbx, dby, heading_rad)
+            des_z = dbz
+            # Gerçek göreli (NeighborInfo: komşu - ben, shared NED)
+            sum_ex += float(info.relative_x) - des_x
+            sum_ey += float(info.relative_y) - des_y
+            sum_ez += float(info.relative_z) - des_z
+            count += 1
+
+        if count == 0:
+            return 0.0, 0.0, 0.0
+
+        mean_ex = sum_ex / count
+        mean_ey = sum_ey / count
+        mean_ez = sum_ez / count
+
+        # Deadband: küçük hataya dokunma (gürültü/titreme önleme).
+        # Hareket yönü hatayı kapatmaya doğru: v = rel_k * (gerçek - istenen).
+        horiz = math.sqrt(mean_ex * mean_ex + mean_ey * mean_ey)
+        vx = self._rel_k * mean_ex if horiz > self._rel_threshold_m else 0.0
+        vy = self._rel_k * mean_ey if horiz > self._rel_threshold_m else 0.0
+        if abs(mean_ez) > self._rel_threshold_m:
+            vz = self._rel_k * mean_ez
+        else:
+            vz = 0.0
         return vx, vy, vz
 
-    def _resolve_spacing(self, msg: FormationCommand) -> float:
-        """Komuttaki spacing_m'i döndürür; 0 ise varsayılan parametre."""
-        if msg.spacing_m > 0.0:
-            return float(msg.spacing_m)
-        return self._default_spacing_m
+    @staticmethod
+    def _clamp_speed(
+        vx: float,
+        vy: float,
+        vz: float,
+        max_speed: float,
+    ) -> tuple[float, float, float]:
+        """Hız vektörünü max_speed büyüklüğüne kırpar."""
+        speed = math.sqrt(vx * vx + vy * vy + vz * vz)
+        if speed > max_speed and speed > 0.0:
+            scale = max_speed / speed
+            return vx * scale, vy * scale, vz * scale
+        return vx, vy, vz
 
     def _resolve_center(
         self,
         msg: FormationCommand,
     ) -> tuple[float, float, float]:
-        """Formasyon merkezini döndürür; bayraklara göre centroid'den okur."""
-        cx = float(msg.center_x)
-        cy = float(msg.center_y)
-        cz = float(msg.center_z)
-
-        state = self._latest_swarm_state
-        if state is None:
-            return cx, cy, cz
-
-        if msg.use_current_centroid:
-            cx = float(state.centroid_x)
-            cy = float(state.centroid_y)
-        if msg.use_current_altitude:
-            cz = float(state.centroid_z)
-        return cx, cy, cz
-
-    def _find_rank(self) -> int | None:
-        """Bu drone'un rank'ini döndürür.
-
-        Yeni FormationCommand geldiğinde Macar algoritmasıyla yeniden hesaplar;
-        aynı komut süresince rank kilitli kalır (titreme önleme).
-        """
-        if self._agent_id not in self._active_agent_ids:
-            return None
-
-        msg = self._current_formation
-        if msg is None:
-            return self._active_agent_ids.index(self._agent_id)
-
-        # Merkezi atama: publisher Macar'ı kendi yapmışsa agent_ids dolludur.
-        # Her tick'te güncel assignment'ı al — publisher GPS düzeldikçe
-        # assignment'ı düzeltebilir, kilitleme yapma (dağıtık Macar'ın aksine).
-        if len(msg.agent_ids) > 0 and self._agent_id in list(msg.agent_ids):
-            idx = list(msg.agent_ids).index(self._agent_id)
-            self._cached_rank = idx
-            self._cached_formation_seq = msg.sequence_num
-            return self._cached_rank
-
-        if msg.sequence_num != self._cached_formation_seq:
-
-            # Merkezi atama yoksa dağıtık Macar (fallback)
-            state = self._latest_swarm_state
-            if state is not None:
-                cmd_t = msg.stamp.sec + msg.stamp.nanosec * 1e-9
-                state_t = state.stamp.sec + state.stamp.nanosec * 1e-9
-                if state_t < cmd_t:
-                    return self._active_agent_ids.index(self._agent_id)
-
-            rank = self._compute_optimal_rank(msg)
-            if rank is None:
-                return self._active_agent_ids.index(self._agent_id)
-            self._cached_rank = rank
-            self._cached_formation_seq = msg.sequence_num
-
-        return self._cached_rank
-
-    def _compute_optimal_rank(self, msg: FormationCommand) -> int | None:
-        """Bu drone için optimal slot rank'ini hesaplar (O(N³) Macar).
-
-        GPS gecikmesi nedeniyle pozisyonlar henüz hazır değilse None döner;
-        çağıran cache'i kilitlemeden yeniden dener.
-        """
-        ids = self._active_agent_ids
-        n = len(ids)
-
-        state = self._latest_swarm_state
-        if state is None or len(state.agent_pos_x) != n:
-            return None
-
-        drone_xy: list[tuple[float, float]] = [
-            (float(state.agent_pos_x[i]), float(state.agent_pos_y[i]))
-            for i in range(n)
-        ]
-
-        # GPS hazır olmadan test publisher pozisyonları (0,0) ile doldurur;
-        # bu maliyet matrisini bozar → kilitleme, hazır olunca yeniden dene.
-        if any(px == 0.0 and py == 0.0 for px, py in drone_xy):
-            return None
-
-        spacing = (
-            float(msg.spacing_m)
-            if msg.spacing_m > 0.0
-            else self._default_spacing_m
+        """Formasyon merkezini doğrudan komuttan döndürür (shared NED)."""
+        return (
+            float(msg.center_x),
+            float(msg.center_y),
+            float(msg.center_z),
         )
-        heading_rad = math.radians(msg.heading_deg)
-        center_x, center_y, _ = self._resolve_center(msg)
-
-        offsets = compute_slot_offsets(
-            int(msg.formation_type), n, spacing, self._alpha_rad
-        )
-        slot_xy: list[tuple[float, float]] = []
-        for dx, dy, _ in offsets:
-            rx, ry = rotate_offset(dx, dy, heading_rad)
-            slot_xy.append((center_x + rx, center_y + ry))
-
-        cost = [
-            [
-                math.hypot(
-                    drone_xy[i][0] - slot_xy[j][0],
-                    drone_xy[i][1] - slot_xy[j][1],
-                )
-                for j in range(n)
-            ]
-            for i in range(n)
-        ]
-        assignment = hungarian_assignment(cost)
-        return assignment[ids.index(self._agent_id)]
 
     def _publish_setpoint(self) -> None:
-        """Periyodik setpoint hesaplar ve AgentSetpoint yayınlar."""
+        """Periyodik setpoint hesaplar ve AgentSetpoint yayınlar.
+
+        Slot ataması lider'in komutundadır; bu node kendi slotunu uygular
+        ve komşulara göre (NeighborInfo) formasyonu sıkı tutar.
+        """
         msg = self._current_formation
-        if msg is None or not self._active_agent_ids:
+        if msg is None:
             return
 
-        state = self._latest_swarm_state
-        if state is not None:
-            if not state.mission_active:
-                return
-            if state.swarm_state in _PASSIVE_SWARM_STATES:
-                return
+        # Atama lider tarafından komutta yayınlanır. Atama yoksa (lider henüz
+        # dağıtmadıysa) veya bu drone atamada değilse bekle.
+        agent_ids = list(msg.agent_ids)
+        if not agent_ids or self._agent_id not in agent_ids:
+            return
 
+        # Lokal çalışma izni — merkezi SwarmState yerine kendi validity'si.
         if not self._origin_synced:
             self.get_logger().warn(
                 'origin senkronlanmadi; setpoint bekletiliyor',
@@ -505,54 +480,28 @@ class FormationControlNode(Node):
             )
             return
 
-        rank = self._find_rank()
-        if rank is None:
+        idx = agent_ids.index(self._agent_id)
+        if (idx >= len(msg.offset_x) or idx >= len(msg.offset_y)
+                or idx >= len(msg.offset_z)):
+            self.get_logger().warn(
+                'komuttaki offset dizileri eksik; setpoint atlandi',
+                throttle_duration_sec=2.0,
+            )
             return
 
         center_x, center_y, center_z = self._resolve_center(msg)
         heading_rad = math.radians(msg.heading_deg)
 
-        # Merkezi atama: publisher offset'i hazır vermiş — doğrudan kullan.
-        if len(msg.agent_ids) > 0 and self._agent_id in list(msg.agent_ids):
-            idx = list(msg.agent_ids).index(self._agent_id)
-            if idx < len(msg.offset_x):
-                dx, dy = rotate_offset(
-                    msg.offset_x[idx], msg.offset_y[idx], heading_rad
-                )
-                x = center_x + dx
-                y = center_y + dy
-                z = center_z + msg.offset_z[idx]
-            else:
-                return
-        else:
-            # Dağıtık Macar fallback
-            if msg.formation_type not in _SUPPORTED_FORMATIONS:
-                self.get_logger().warn(
-                    f'Desteklenmeyen formation_type={msg.formation_type}',
-                    throttle_duration_sec=2.0,
-                )
-                return
-            spacing = self._resolve_spacing(msg)
-            total = len(self._active_agent_ids)
-            try:
-                x, y, z = compute_setpoint(
-                    center_x=center_x, center_y=center_y, center_z=center_z,
-                    formation_type=int(msg.formation_type), rank=rank,
-                    total=total, spacing=spacing,
-                    alpha_rad=self._alpha_rad, heading_rad=heading_rad,
-                )
-            except ValueError as e:
-                self.get_logger().error(
-                    f'Setpoint hesaplanamadi: {e}',
-                    throttle_duration_sec=1.0,
-                )
-                return
+        dx, dy = rotate_offset(
+            msg.offset_x[idx], msg.offset_y[idx], heading_rad
+        )
+        x = center_x + dx
+        y = center_y + dy
+        z = center_z + msg.offset_z[idx]
 
         x, y = self._shared_to_local(x, y)
         # Z dönüştürülmez: local z=center_z her drone'un kendi origin'ine göre,
-        # aynı zeminden kalkanlar için aynı gerçek yükseklik demektir. (AMSL
-        # düzeltmesi denendi → tahmin bias'ı yüksekliği bozuyor + feedback
-        # salınımı yapıyordu, kaldırıldı.)
+        # aynı zeminden kalkanlar için aynı gerçek yükseklik demektir.
 
         # max_speed komuttan veya parametreden çözülür (ramp hızı tavanı).
         max_speed = (
@@ -562,9 +511,7 @@ class FormationControlNode(Node):
         )
 
         # Hedef pozisyonu ramp ile yumuşat — ani slot atlamasını önler.
-        # Ramp hızı max_speed ile sınırlanır: statik formasyonda
-        # (velocity_valid=False) bridge pozisyon-only moda geçip SVT hızını
-        # attığı için EFEKTİF hız knob'u budur. target_ramp_mps daha yavaş
+        # Ramp hızı max_speed ile sınırlanır; target_ramp_mps daha yavaş
         # bir değer isterse (ekstra yumuşaklık) onu kullanır.
         now = self.get_clock().now().nanoseconds * 1e-9
         dt = (
@@ -595,14 +542,15 @@ class FormationControlNode(Node):
                 setattr(self, attr, cur + step)
         x, y, z = self._ramp_x, self._ramp_y, self._ramp_z
 
-        # Hareket ederken: velocity_valid=False → PX4 kendi pozisyon
-        # kontrolcüsüyle yumuşak gider, SVT hızı görmez → sert eğilme olmaz.
-        # Slota yerleştikten sonra: velocity_valid=True → SVT aktif,
-        # GPS gürültüsüne karşı aktif düzeltme yapar, formasyon tutulur.
-        vx, vy, vz = self._compute_velocity(
-            x, y, z, max_speed,
-            use_ff_xy=msg.use_current_centroid,
-            use_ff_z=msg.use_current_altitude,
+        # Mutlak SVT (dünyaya çapa) + göreli koruma (komşuya sıkılaştırma).
+        # Hareket ederken velocity_valid=False (ramp converge etmedi) → PX4
+        # pozisyon kontrolü sürer; slota oturunca SVT+göreli aktif olur.
+        vx, vy, vz = self._compute_velocity(x, y, z, max_speed)
+        rvx, rvy, rvz = self._compute_relative_correction(
+            msg, idx, heading_rad, now
+        )
+        vx, vy, vz = self._clamp_speed(
+            vx + rvx, vy + rvy, vz + rvz, max_speed
         )
         out = self._build_setpoint_msg(
             msg, x, y, z, vx, vy, vz,
