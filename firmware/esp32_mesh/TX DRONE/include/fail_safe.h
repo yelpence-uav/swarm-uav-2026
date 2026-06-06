@@ -24,6 +24,11 @@ extern bool               failsafe_tetiklendi;
 extern volatile uint8_t   ardisik_kayip_sayisi;
 extern uint8_t            _failsafe_asama;
 
+// Manevra sirasinda failsafe RTL geciktirilir
+volatile bool             manevra_aktif     = false;
+volatile uint32_t         manevra_bitis_ms  = 0;
+#define MANEVRA_FAILSAFE_GECIKME_MS  3000UL  // Manevra bittikten 3sn sonra RTL
+
 #ifdef HAS_PIXHAWK
 
 inline void px4_mod_gonder(HardwareSerial &seri, uint8_t sub_mode) {
@@ -49,11 +54,21 @@ inline void px4_mod_gonder(HardwareSerial &seri, uint8_t sub_mode) {
 inline void failsafe_kontrol(HardwareSerial &pixhawk_seri) {
     unsigned long gecen = millis() - son_paket_ms;
 
+    // Manevra aktifse RTL'yi geciktir
+    bool manevra_bekleniyor = manevra_aktif ||
+        (manevra_bitis_ms > 0 && (millis() - manevra_bitis_ms) < MANEVRA_FAILSAFE_GECIKME_MS);
+
     if (ardisik_kayip_sayisi >= ARDISIK_KAYIP_ESIGI && _failsafe_asama < 2) {
-        _failsafe_asama     = 2;
-        failsafe_tetiklendi = true;
-        Serial.printf("[FAILSAFE] Ardisik kayip (%u), RTL\n", ardisik_kayip_sayisi);
-        px4_mod_gonder(pixhawk_seri, PX4_CUSTOM_SUB_MODE_AUTO_RTL);
+        _failsafe_asama = 1;
+        Serial.printf("[FAILSAFE] Ardisik kayip (%u), UYARI\n", ardisik_kayip_sayisi);
+        if (!manevra_bekleniyor) {
+            _failsafe_asama     = 2;
+            failsafe_tetiklendi = true;
+            Serial.println("[FAILSAFE] Ardisik kayip: RTL");
+            px4_mod_gonder(pixhawk_seri, PX4_CUSTOM_SUB_MODE_AUTO_RTL);
+        } else {
+            Serial.println("[FAILSAFE] Ardisik kayip: Manevra aktif, RTL bekleniyor");
+        }
         return;
     }
     if (gecen >= FAILSAFE_WARN_MS && _failsafe_asama == 0) {
@@ -61,10 +76,14 @@ inline void failsafe_kontrol(HardwareSerial &pixhawk_seri) {
         Serial.println("[FAILSAFE] UYARI: Baglanti zayif");
     }
     if (gecen >= FAILSAFE_SOFT_MS && _failsafe_asama == 1) {
-        _failsafe_asama     = 2;
-        failsafe_tetiklendi = true;
-        Serial.printf("[FAILSAFE] SOFT (%lums): RTL\n", gecen);
-        px4_mod_gonder(pixhawk_seri, PX4_CUSTOM_SUB_MODE_AUTO_RTL);
+        if (!manevra_bekleniyor) {
+            _failsafe_asama     = 2;
+            failsafe_tetiklendi = true;
+            Serial.printf("[FAILSAFE] SOFT (%lums): RTL\n", gecen);
+            px4_mod_gonder(pixhawk_seri, PX4_CUSTOM_SUB_MODE_AUTO_RTL);
+        } else {
+            Serial.printf("[FAILSAFE] SOFT (%lums): Manevra aktif, RTL bekleniyor\n", gecen);
+        }
     }
     if (gecen >= FAILSAFE_HARD_MS && _failsafe_asama == 2) {
         _failsafe_asama = 3;

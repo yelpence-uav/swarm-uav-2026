@@ -176,6 +176,9 @@ void gorev_isle(const gorev_veri_t* gorev) {
         case GOREV_MANEVRA:
             Serial.printf("[GOREV] Manevra: pitch=%d roll=%d\n",
                 gorev->param1, gorev->param2);
+            manevra_aktif    = true;
+            manevra_bitis_ms = 0;
+            // TODO: Manevra tamamlaninca manevra_aktif=false, manevra_bitis_ms=millis() set et
             break;
         case GOREV_IRTIFA:
             Serial.printf("[GOREV] Irtifa: %d cm\n", gorev->param1);
