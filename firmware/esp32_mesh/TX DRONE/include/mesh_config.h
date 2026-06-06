@@ -166,7 +166,6 @@ struct node_durum_t {
 #define RECV_BUFFER_SIZE 16
 static struct {
     mesh_paket_t paket;
-    bool         dolu;
 } _recv_buffer[RECV_BUFFER_SIZE];
 static volatile uint8_t _recv_yaz  = 0;
 static volatile uint8_t _recv_oku  = 0;
@@ -409,7 +408,6 @@ static void IRAM_ATTR _esp_now_recv_cb(const uint8_t* mac_addr,
         return; // buffer dolu, paketi at
     }
     memcpy(&_recv_buffer[_recv_yaz].paket, data, sizeof(mesh_paket_t));
-    _recv_buffer[_recv_yaz].dolu = true;
     _recv_yaz = sonraki;
     _recv_flag = true;
     portEXIT_CRITICAL_ISR(&_recv_mux);
@@ -457,7 +455,6 @@ static inline void _recv_isle() {
             }
         }
 
-        _recv_buffer[_recv_oku].dolu = false;
         _recv_oku = (_recv_oku + 1) % RECV_BUFFER_SIZE;
     }
 }

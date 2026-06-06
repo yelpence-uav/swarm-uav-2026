@@ -526,8 +526,7 @@ void loop() {
             uart_gonder(TIP_KOMUT, gelen.iha_id, gelen.payload, sizeof(komut_veri_t));
         } else if (gelen.tip == TIP_POSE) {
             uart_gonder(TIP_POSE, gelen.iha_id, gelen.payload, sizeof(pose_veri_t));
-        } else if (gelen.tip == TIP_RTK) {
-            rtk_paket_isle(gelen.payload, sizeof(rtk_paket_t));
+        
         } else if (gelen.tip == TIP_RENK) {
             renk_veri_t* renk = (renk_veri_t*)gelen.payload;
             renk_alani_kaydet(renk->renk, renk->lat, renk->lon);
