@@ -1,15 +1,31 @@
 From: Yelpence TEKNOFEST 2026
-Subject: SITL fix_type=6 (RTK) + EKF2 RTK-friendly defaults
+Subject: SITL fix_type=6 (RTK) + EKF2 RTK-friendly defaults (GUVENLI)
 
-PX4 v1.16 SensorGpsSim modulu varsayilan olarak fix_type=3 (3D fix) uretir.
-RTK akisinin SITL'de gozlemlenebilmesi icin fix_type'i 6 (RTK fixed)
-yapariz, eph degerini 0.05 m'ye dusururuz ve lat/lon Gauss gurultusunu
-sifirlariz (RTK seviyesinde duzeltme cikti uretmek icin).
+PX4 v1.16 SensorGpsSim modulu varsayilan olarak fix_type=3 (3D fix) ve
+~20 cm lat/lon Gauss gurultusu uretir. RTK akisinin SITL'de gozlemlenmesi
+icin:
+  - fix_type 3 -> 6 (RTK fixed)
+  - eph 0.9 -> 0.05 m
+  - lat/lon Gauss gurultusu 0.20 -> 0.02 m (RTK seviyesi)
 
-Ek olarak 4001_gz_x500 airframe'inde EKF2_GPS_CHECK 0 (RTK uyumlu kontrol
-gevsetme) ve EKF2_HGT_MODE 1 (GPS irtifa kaynagi) varsayilani eklenir.
+Bu degisiklikler EKF2'nin GPS saglik kontrollerini DOGAL OLARAK tatmin
+eder. Bu sebeple EKF2_GPS_CHECK parametresine DOKUNULMAZ (kontroller
+acik kalir; bu hem SIM hem URETIM icin guvenlidir).
 
-YALNIZ-SIM yamasidir; gercek donanim akisini etkilemez.
+Airframe (4001_gz_x500) yalniz EKF2_HGT_MODE=1 (GPS irtifa) varsayilani
+alir. Bu degisiklik gercek RTK donaniminda da tutarli davranis sergiler.
+
+GUVENLIK NOTU:
+  Bu yama yanlislikla URETIM image'ine uygulansa dahi GPS saglik
+  kontrolleri AKTIF kalir. SensorGpsSim modulu yalniz SITL'de derlenir
+  (CONFIG_MODULES_SIMULATION_SENSOR_GPS_SIM), bu sebeple gercek donanim
+  GPS akisi etkilenmez.
+
+DOGRULAMA (komple SITL):
+  - PX4 konsolu 'listener sensor_gps' -> fix_type: 6, eph alani RTK seviyesi
+  - 'commander check' -> Preflight check: OK (GPS check kontrolu gecer)
+  - 'commander arm' -> Armed by internal command (silahlanma basarili)
+  - 'commander takeoff' -> Takeoff detected (kalkis basarili)
 
 diff --git a/src/modules/simulation/sensor_gps_sim/SensorGpsSim.cpp b/src/modules/simulation/sensor_gps_sim/SensorGpsSim.cpp
 --- a/src/modules/simulation/sensor_gps_sim/SensorGpsSim.cpp
@@ -20,8 +36,8 @@ diff --git a/src/modules/simulation/sensor_gps_sim/SensorGpsSim.cpp b/src/module
 
 -		double latitude = gpos.lat + math::degrees((double)generate_wgn() * 0.2 / CONSTANTS_RADIUS_OF_EARTH);
 -		double longitude = gpos.lon + math::degrees((double)generate_wgn() * 0.2 / CONSTANTS_RADIUS_OF_EARTH);
-+		double latitude = gpos.lat;
-+		double longitude = gpos.lon;
++		double latitude = gpos.lat + math::degrees((double)generate_wgn() * 0.02 / CONSTANTS_RADIUS_OF_EARTH);
++		double longitude = gpos.lon + math::degrees((double)generate_wgn() * 0.02 / CONSTANTS_RADIUS_OF_EARTH);
  		double altitude = (double)(gpos.alt + (generate_wgn() * 0.5f));
 
  		Vector3f gps_vel = Vector3f{lpos.vx, lpos.vy, lpos.vz} + noiseGauss3f(0.06f, 0.077f, 0.158f);
@@ -43,11 +59,10 @@ diff --git a/src/modules/simulation/sensor_gps_sim/SensorGpsSim.cpp b/src/module
 diff --git a/ROMFS/px4fmu_common/init.d-posix/airframes/4001_gz_x500 b/ROMFS/px4fmu_common/init.d-posix/airframes/4001_gz_x500
 --- a/ROMFS/px4fmu_common/init.d-posix/airframes/4001_gz_x500
 +++ b/ROMFS/px4fmu_common/init.d-posix/airframes/4001_gz_x500
-@@ -52,3 +52,7 @@
+@@ -52,3 +52,6 @@
  param set-default SIM_GZ_EC_MAX4 1000
 
  param set-default MPC_THR_HOVER 0.60
 +
 +# Yelpence SITL: RTK uyumlu EKF2 varsayilanlari
-+param set-default EKF2_GPS_CHECK 0
 +param set-default EKF2_HGT_MODE 1
