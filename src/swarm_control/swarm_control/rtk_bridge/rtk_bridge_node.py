@@ -21,8 +21,9 @@ GİRİŞ:
     3. Her tam mesaj rtcm_packing.fragment_for_inject ile 300 byte
        parçalara bölünür; fragmented bayrağı flags LSB'sine yazılır.
     4. Her parça GpsInjectData mesajına sarılıp PX4'e yayınlanır.
-    5. max_rate_hz ile yayın hızı kısıtlanır (PX4 ORB_QUEUE_LENGTH=8).
-    6. 1 Hz tanı log'u: alınan mesaj / yayınlanan fragment sayacı.
+       Rate-limit YOK: RTCM epoch bundle'ları (1005+1077 vb.) bir bütün
+       gönderilir; PX4 ORB kuyruğu (QUEUE_LENGTH=8) burst'ü kaldırır.
+    5. 1 Hz tanı log'u: alınan mesaj / yayınlanan fragment sayacı.
 
 device_id ATAMASI:
     PX4 gps.cpp:574 self-injection korunmasından geçmek için ground
@@ -30,8 +31,6 @@ device_id ATAMASI:
     referansı). Gerçek GPS sensörlerinin device_id'si bus/devtype/
     address bitfield'i ile non-zero üretilir — biz 0 ile çarpışmayız.
 """
-
-import time
 
 import rclpy
 from rclpy.node import Node
@@ -91,12 +90,9 @@ class RtkBridgeNode(Node):
         # ----- Durum -----
         # iter_rtcm_messages yarım kuyruğu
         self._tampon: bytes = b''
-        # Rate limit için son yayın zamanı (monotonic)
-        self._son_yayin_ts: float = 0.0
         # Tanı sayaçları
         self._alinan_msg = 0
         self._yayinlanan_frag = 0
-        self._rate_red = 0
         self._cb_hata = 0
 
         # ----- Topic'ler -----
@@ -140,6 +136,13 @@ class RtkBridgeNode(Node):
 
         Kaynak sustuğunda hiçbir şey yayınlamaz (sessiz bekleme).
         Yarım kuyruk callback'ler arası korunur.
+
+        NOT: RTCM düşük hızlı bir akıştır (tipik 1 Hz) ve her epoch'ta
+        BIRDEN FAZLA mesaj (ör. 1005 + 1077) bundle olarak gelir. Eski
+        sürümde her mesaj arası `max_rate_hz` ile rate-limit yapılıyordu;
+        bu epoch içindeki ikinci mesajı (genelde 1077 GPS gözlemi)
+        sessizce düşürüyordu. PX4 ORB kuyruğu (QUEUE_LENGTH=8) bu burst'ü
+        zaten kaldırır, ek rate-limit'e GEREK YOK ve ZARARLI.
         """
         if not msg.data:
             return
@@ -147,14 +150,7 @@ class RtkBridgeNode(Node):
         mesajlar, self._tampon = iter_rtcm_messages(akis)
         if not mesajlar:
             return  # yarım kuyruk biriktiriyoruz, bekle
-        # Rate limit: mesaj başına minimum aralık
-        min_aralik = 1.0 / self._max_rate_hz
         for rtcm_msg in mesajlar:
-            simdi = time.monotonic()
-            if (simdi - self._son_yayin_ts) < min_aralik:
-                self._rate_red += 1
-                continue
-            self._son_yayin_ts = simdi
             self._alinan_msg += 1
             self._yayinla_fragmenler(rtcm_msg)
 
@@ -167,7 +163,7 @@ class RtkBridgeNode(Node):
         parcalar = fragment_for_inject(
             rtcm_msg, max_payload=self._max_payload
         )
-        ts_us = int(self.get_clock().now().nanoseconds / 1000)
+        ts_us = self.get_clock().now().nanoseconds // 1000
         for chunk, fragmented in parcalar:
             inject = GpsInjectData()
             inject.timestamp = ts_us
@@ -186,7 +182,6 @@ class RtkBridgeNode(Node):
             self.get_logger().info(
                 f'tani: msg={self._alinan_msg} '
                 f'frag={self._yayinlanan_frag} '
-                f'rate_red={self._rate_red} '
                 f'tampon={len(self._tampon)}B '
                 f'cb_hata={self._cb_hata}'
             )

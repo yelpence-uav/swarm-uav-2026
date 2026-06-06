@@ -13,7 +13,8 @@ Iki mode destekler:
     (replay_file parametresi). Dosya 1 kere okunup byte byte yayilir.
 
 YAYIN TOPIC:
-    /drone_{agent_id}/rtcm/in  (std_msgs/UInt8MultiArray, BEST_EFFORT)
+    /drone_{agent_id}/rtcm/in  (std_msgs/UInt8MultiArray,
+        RELIABLE depth=10, command_sender deseni)
     - LOKAL topic — network_proxy'den gecmez.
     - rtk_bridge bu topic'i dinler.
 
