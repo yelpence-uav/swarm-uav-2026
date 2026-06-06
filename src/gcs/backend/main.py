@@ -249,7 +249,9 @@ if __name__ == "__main__":
     cfg = load_config().get("server", {})
     uvicorn.run(
         "main:app",
-        host=cfg.get("host", "0.0.0.0"),
+        # GCS sunucusu LAN'daki operatör tarayıcısı ve drone gateway'i
+        # erişebilsin diye tüm arayüzlere bağlanır — kasıtlı, izole sürü ağında.
+        host=cfg.get("host", "0.0.0.0"),  # nosec B104
         port=cfg.get("port", 8000),
         reload=False,
     )
