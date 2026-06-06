@@ -232,10 +232,10 @@ static inline bool mesh_replay_dogrula(const uint8_t* mac, const uint8_t* decryp
 
 // ===== MESH CALLBACK =====
 void mesh_veri_al(const mesh_paket_t* p) {
-    uint8_t acik[22] = {0}; // FIX #2: Buffer 22 yapildi
+    uint8_t acik[24] = {0}; // FIX: Buffer 24e cikarildi
     
     // FIX #1: Uzunluk (22) eklendi
-    if (!aes_coz_gcm(p->sifreli_veri, 22, acik, p->iv, p->tag)) {
+    if (!aes_coz_gcm(p->sifreli_veri, 24, acik, p->iv, p->tag)) {
         return; 
     }
 

@@ -327,10 +327,10 @@ static inline void mesh_gonder(const uint8_t* veri, uint8_t tip,
     p.tip           = tip;
     iv_uret_rastgele(p.iv);
     // Anti-replay basligini (session_id + paket_id) sifrelenmis payload icine gom
-    uint8_t tam_veri[22];
+    uint8_t tam_veri[24];
     anti_replay_t ar_out = { _session_id, p.paket_id };
     memcpy(tam_veri, &ar_out, sizeof(anti_replay_t));
-    memcpy(tam_veri + sizeof(anti_replay_t), veri, 16);
+    memcpy(tam_veri + sizeof(anti_replay_t), veri, 18);
     aes_sifrele_gcm(tam_veri, sizeof(tam_veri), p.sifreli_veri, p.iv, p.tag);
     _duplikat_kaydet(&p);
     _mesh_gonder(&p);

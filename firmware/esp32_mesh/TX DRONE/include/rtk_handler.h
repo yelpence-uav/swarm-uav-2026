@@ -58,14 +58,14 @@ static inline void _rtk_uart_gonder(const uint8_t* veri, uint16_t uzunluk) {
     }
     // tip(1) + iha_id(1) + payload(N) + crc16(2)
     uint16_t ham_uzunluk = 1 + 1 + uzunluk + 2;
-    uint8_t ham[ham_uzunluk];
+    uint8_t ham[228];
     ham[0] = TIP_RTK;
     ham[1] = 99; // BAZ_ID
     memcpy(ham + 2, veri, uzunluk);
     ham[ham_uzunluk - 2] = (uint8_t)(crc >> 8);
     ham[ham_uzunluk - 1] = (uint8_t)(crc & 0xFF);
     // COBS encode
-    uint8_t cobs_buf[ham_uzunluk + 2];
+    uint8_t cobs_buf[230];
     uint16_t cobs_len = 0;
     uint16_t code_idx = 0;
     uint8_t code = 1;
