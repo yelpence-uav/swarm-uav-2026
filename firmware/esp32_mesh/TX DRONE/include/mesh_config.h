@@ -21,7 +21,7 @@
 #define TIP_POSE        0x04
 #define TIP_GOREV       0x05
 #define TIP_RENK        0x06
-#define TIP_RTK         0x07
+#define TIP_RTK         0x0C
 #define TIP_DURUM       0x07
 #define TIP_ORIGIN      0x08   // RPi → Mesh origin broadcast
 #define TIP_LEADER_HB   0x09   // LeaderHeartbeat — lider secimi
@@ -131,7 +131,7 @@ struct __attribute__((packed)) mesh_paket_t {
     uint8_t  atlama_sayisi;
     uint8_t  tip;
     uint8_t  iv[12];           // GCM nonce (12 byte, NIST onerisi)
-    uint8_t  sifreli_veri[22]; // anti_replay(6) + payload(16)
+    uint8_t  sifreli_veri[24]; // anti_replay(6) + payload(18)
     uint8_t  tag[16];          // GCM auth tag — sifre cozumunde dogrulanir
 };
 

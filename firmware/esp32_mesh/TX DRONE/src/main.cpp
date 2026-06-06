@@ -71,8 +71,8 @@ static uint8_t cobs_decode(const uint8_t* giris, uint8_t uzunluk, uint8_t* cikis
 // ===== UART PAKET GONDER (Serial1 → RPi) =====
 static void uart_gonder(uint8_t tip, uint8_t iha_id,
                         const uint8_t* payload, uint8_t payload_uzunluk) {
-    if (payload_uzunluk > 16) return;
-    uint8_t ham[20];
+    if (payload_uzunluk > 18) return;
+    uint8_t ham[22];
     uint8_t cobs_buf[32]; // FIX: Buffer boyutu genisletildi
     ham[0] = tip;
     ham[1] = iha_id;
@@ -258,7 +258,7 @@ void mesh_veri_al(const mesh_paket_t* p) {
         msg.iha_id = mac_to_id(p->kaynak_mac); // FIX #7: Gonderenin MAC'i alindi
         
         // FIX #3: Ilk 6 byte atlandi
-        memcpy(msg.payload, acik + sizeof(anti_replay_t), 16);
+        memcpy(msg.payload, acik + sizeof(anti_replay_t), 18);
         
         if (xQueueSend(gorev_kuyruk, &msg, pdMS_TO_TICKS(5)) != pdPASS) {
             static volatile uint32_t _kuyruk_dolu_sayisi = 0;
@@ -271,7 +271,13 @@ void mesh_veri_al(const mesh_paket_t* p) {
 void pose_gonder() {
     pose_veri_t pose = {};
 #ifdef HAS_PIXHAWK
-    // TODO: Pixhawk MAVLink GPS oku
+    pose.lat     = mav_lat;
+    pose.lon     = mav_lon;
+    pose.alt_cm  = mav_alt_cm;
+    pose.heading = mav_hdg_01deg;
+    pose.vx      = mav_vx_cms;
+    pose.vy      = mav_vy_cms;
+    pose.vz      = mav_vz_cms;
 #else
     static int32_t test_lat = 411234567;
     static int32_t test_lon = 291234567;
@@ -300,6 +306,13 @@ static uint8_t  mav_ekf_ok       = 0;
 static uint8_t  mav_imu_ok       = 0;
 static uint8_t  mav_mag_ok       = 0;
 static uint8_t  mav_baro_ok      = 0;
+static int32_t  mav_lat           = 0;   // 1e-7 derece
+static int32_t  mav_lon           = 0;   // 1e-7 derece
+static int16_t  mav_alt_cm        = 0;   // santimetre
+static int16_t  mav_vx_cms        = 0;   // cm/s NED
+static int16_t  mav_vy_cms        = 0;   // cm/s NED
+static int16_t  mav_vz_cms        = 0;   // cm/s NED
+static int16_t  mav_hdg_01deg     = 0;   // 0.1 derece
 
 static void pixhawk_mavlink_isle() {
     mavlink_message_t msg;
@@ -334,6 +347,18 @@ static void pixhawk_mavlink_isle() {
                 mav_imu_ok  = (ekf.flags & 0x01) ? 1 : 0;
                 mav_mag_ok  = (ekf.flags & 0x02) ? 1 : 0;
                 mav_baro_ok = (ekf.flags & 0x08) ? 1 : 0;
+                break;
+            }
+            case MAVLINK_MSG_ID_GLOBAL_POSITION_INT: {
+                mavlink_global_position_int_t gp;
+                mavlink_msg_global_position_int_decode(&msg, &gp);
+                mav_lat       = gp.lat;                    // 1e-7 derece
+                mav_lon       = gp.lon;                    // 1e-7 derece
+                mav_alt_cm    = (int16_t)(gp.alt / 10);   // mm -> cm
+                mav_vx_cms    = gp.vx;                     // cm/s NED kuzey
+                mav_vy_cms    = gp.vy;                     // cm/s NED dogu
+                mav_vz_cms    = gp.vz;                     // cm/s NED asagi
+                mav_hdg_01deg = (int16_t)(gp.hdg / 10);   // 0.01deg -> 0.1deg
                 break;
             }
             default: break;

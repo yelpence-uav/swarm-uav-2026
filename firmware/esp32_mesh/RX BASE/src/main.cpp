@@ -73,10 +73,10 @@ static QueueHandle_t uart_kuyruk = nullptr;
 // ===== UART PAKET GONDER =====
 static void uart_gonder(uint8_t tip, uint8_t iha_id,
                         const uint8_t* payload, uint8_t payload_uzunluk) {
-    if (payload_uzunluk > 16) return;
+    if (payload_uzunluk > 18) return;
 
-    uint8_t ham[20];
-    uint8_t cobs_buf[25];
+    uint8_t ham[22];
+    uint8_t cobs_buf[27];
 
     ham[0] = tip;
     ham[1] = iha_id;
@@ -131,10 +131,10 @@ static inline bool mesh_replay_dogrula(const uint8_t* mac, const uint8_t* decryp
 
 // ===== MESH CALLBACK =====
 void mesh_veri_al(const mesh_paket_t* p) {
-    uint8_t acik[22] = {0}; // FIX #2: Buffer 22'ye cikarildi
+    uint8_t acik[24] = {0}; // FIX: Buffer 24'e cikarildi
     
     // FIX #1: Uzunluk (22) parametresi eklendi
-    if (!aes_coz_gcm(p->sifreli_veri, 22, acik, p->iv, p->tag)) {
+    if (!aes_coz_gcm(p->sifreli_veri, 24, acik, p->iv, p->tag)) {
         return; 
     }
 
