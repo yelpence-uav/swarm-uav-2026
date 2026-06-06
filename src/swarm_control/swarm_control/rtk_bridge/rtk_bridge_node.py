@@ -44,7 +44,6 @@ from .rtcm_packing import fragment_for_inject, iter_rtcm_messages
 # Sabitler
 _DEFAULT_AGENT_ID = 1
 _DEFAULT_MAX_PAYLOAD = 300       # GpsInjectData.data sabit boyut
-_DEFAULT_MAX_RATE_HZ = 5.0
 _DEFAULT_GPS_DEVICE_ID = 0       # ground injector standardı
 _GPS_INJECT_QOS_DEPTH = 10       # command_sender deseni
 _DIAG_PERIOD_S = 1.0
@@ -61,16 +60,12 @@ class RtkBridgeNode(Node):
         self.declare_parameter('agent_id', _DEFAULT_AGENT_ID)
         self.declare_parameter('sitl_mode', True)
         self.declare_parameter('max_payload', _DEFAULT_MAX_PAYLOAD)
-        self.declare_parameter('max_rate_hz', _DEFAULT_MAX_RATE_HZ)
         self.declare_parameter('gps_device_id', _DEFAULT_GPS_DEVICE_ID)
 
         self._agent_id = int(self.get_parameter('agent_id').value)
         self._sitl_mode = bool(self.get_parameter('sitl_mode').value)
         self._max_payload = int(
             self.get_parameter('max_payload').value
-        )
-        self._max_rate_hz = float(
-            self.get_parameter('max_rate_hz').value
         )
         self._gps_device_id = int(
             self.get_parameter('gps_device_id').value
@@ -82,8 +77,6 @@ class RtkBridgeNode(Node):
                 'max_payload 1-300 arasında olmalı '
                 f'(verilen: {self._max_payload})'
             )
-        if self._max_rate_hz <= 0:
-            raise ValueError('max_rate_hz pozitif olmalı')
         if self._agent_id <= 0:
             raise ValueError('agent_id pozitif olmalı')
 
@@ -116,7 +109,6 @@ class RtkBridgeNode(Node):
             f'rtk_bridge başlatıldı: agent_id={self._agent_id} '
             f'sitl={self._sitl_mode} '
             f'max_payload={self._max_payload} '
-            f'rate={self._max_rate_hz}Hz '
             f'device_id={self._gps_device_id}'
         )
 
