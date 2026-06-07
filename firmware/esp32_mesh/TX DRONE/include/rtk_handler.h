@@ -12,6 +12,8 @@
 #define RTK_COBS_BUF_SIZE  (RTK_HAM_BUF_SIZE + (RTK_HAM_BUF_SIZE / 254) + 2)
 #define RTK_FRAG_TIMEOUT_MS      2000UL
 
+#ifndef RTK_MESH_FRAG_DEFINED
+#define RTK_MESH_FRAG_DEFINED
 // ===== MESH FRAGMENT YAPISI (RX BASE gönderir, TX DRONE alır) =====
 // Mesh payload limiti 18 byte — bu struct tam sığar.
 typedef struct __attribute__((packed)) {
@@ -20,6 +22,7 @@ typedef struct __attribute__((packed)) {
     uint8_t  frag_total;    // 1 byte — toplam parça sayısı
     uint8_t  payload[12];   // 12 byte — RTCM verisi
 } rtk_mesh_frag_t;          // Toplam: 18 byte
+#endif // RTK_MESH_FRAG_DEFINED
 
 // ===== PAKET YAPISI (eski ESP-NOW tabanlı, geriye uyumluluk) =====
 typedef struct __attribute__((packed)) {

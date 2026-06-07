@@ -129,7 +129,18 @@ void mesh_veri_al(const mesh_paket_t* p) {
     }
 
     uint8_t* payload = acik + sizeof(anti_replay_t);
-    uart_gonder(p->tip, kaynak_id, payload, 18);
+    uint8_t uzunluk = 0;
+    if      (p->tip == TIP_POSE)        uzunluk = sizeof(pose_veri_t);
+    else if (p->tip == TIP_GOREV)       uzunluk = sizeof(gorev_veri_t);
+    else if (p->tip == TIP_RENK)        uzunluk = sizeof(renk_veri_t);
+    else if (p->tip == TIP_DURUM)       uzunluk = sizeof(durum_veri_t);
+    else if (p->tip == TIP_LEADER_HB)   uzunluk = sizeof(leader_hb_veri_t);
+    else if (p->tip == TIP_ELECTION)    uzunluk = sizeof(election_veri_t);
+    else if (p->tip == TIP_VERSION)     uzunluk = sizeof(version_veri_t);
+    else if (p->tip == TIP_SWARM_STATE) uzunluk = sizeof(swarm_state_veri_t);
+    else if (p->tip == TIP_QR_DATA)     uzunluk = sizeof(qr_veri_t);
+    else return; // bilinmeyen tip — gonderme
+    uart_gonder(p->tip, kaynak_id, payload, uzunluk);
 }
 
 void setup() {
