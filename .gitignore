@@ -1177,3 +1177,7 @@ FodyWeavers.xsd
 qr/
 .dockerignore.backup
 
+
+# AES anahtari — asla commit edilmez
+firmware/esp32_mesh/*/include/aes_key.h
+firmware/esp32_mesh/*/.env
