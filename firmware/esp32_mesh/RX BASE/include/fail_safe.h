@@ -108,7 +108,7 @@ inline void failsafe_reset() {
         failsafe_tetiklendi  = false;
         portENTER_CRITICAL(&_recv_mux);
         ardisik_kayip_sayisi = 0;
+        son_paket_ms = millis();
         portEXIT_CRITICAL(&_recv_mux);
     }
-    son_paket_ms = millis();
 }

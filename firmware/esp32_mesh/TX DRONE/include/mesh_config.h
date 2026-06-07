@@ -47,14 +47,12 @@
 struct __attribute__((packed)) pose_veri_t {
     int32_t  lat;
     int32_t  lon;
-    int16_t  alt_cm;
+    int16_t  alt_dm;
     int16_t  heading;
     int16_t  vx;
     int16_t  vy;
     int16_t  vz;        // cm/s (NED asagi pozitif)
 };
-
-
 
 struct __attribute__((packed)) origin_veri_t {
     int32_t  lat_1e7;    // 1e-7 derece (RTK 1.1 cm hassasiyet)
@@ -280,8 +278,6 @@ static uint32_t _csma_son_ms = 0;
 static volatile uint32_t _gonderim_basari = 0;
 static volatile uint32_t _gonderim_hata  = 0;
 static volatile uint32_t _paket_dustu    = 0;
-
-
 static inline esp_err_t _mesh_gonder(mesh_paket_t* p) {
     if (!esp_now_is_peer_exist(BROADCAST_MAC)) {
         esp_now_peer_info_t bp = {};
@@ -376,8 +372,7 @@ static DRAM_ATTR uint32_t _isr_hashler[ISR_DUPLIKAT_TAMPON] = {};
 static DRAM_ATTR uint8_t  _isr_hash_idx = 0;
 
 static inline IRAM_ATTR bool _isr_duplikat_mi(const mesh_paket_t* p) {
-    uint32_t h = ((uint32_t)p->kaynak_mac[4] << 8 | p->kaynak_mac[5])
-                 | ((uint32_t)(p->paket_id & 0xFFFF) << 16);
+    uint32_t h = p->paket_id ^ ((uint32_t)p->kaynak_mac[5] << 24) ^ ((uint32_t)p->kaynak_mac[4] << 16);
     for (uint8_t i = 0; i < ISR_DUPLIKAT_TAMPON; i++)
         if (_isr_hashler[i] == h) return true;
     _isr_hashler[_isr_hash_idx] = h;
@@ -396,10 +391,6 @@ static void IRAM_ATTR _esp_now_recv_cb(const uint8_t* mac_addr,
     const uint8_t* mac = mac_addr;
     if (_benim_mac_mi(p->kaynak_mac)) return;
     if (_isr_duplikat_mi(p))          return;
-
-    // Bağlantıyı canlı tut — sadece volatile write, ISR-safe
-    son_paket_ms = millis();
-
     // Kritik bolge — dual-core race condition onleme
     portENTER_CRITICAL_ISR(&_recv_mux);
     uint8_t sonraki = (_recv_yaz + 1) % RECV_BUFFER_SIZE;

@@ -98,10 +98,18 @@ inline void failsafe_kontrol(HardwareSerial &pixhawk_seri) {
 
 inline void failsafe_kontrol_log() {
     unsigned long gecen = millis() - son_paket_ms;
+    bool manevra_bekleniyor = manevra_aktif ||
+        (manevra_bitis_ms > 0 && (millis() - manevra_bitis_ms) < MANEVRA_FAILSAFE_GECIKME_MS);
     if (ardisik_kayip_sayisi >= ARDISIK_KAYIP_ESIGI && _failsafe_asama < 2) {
-        _failsafe_asama     = 2;
-        failsafe_tetiklendi = true;
-        Serial.printf("[FAILSAFE][LOG] Ardisik kayip (%u), RTL olurdu\n", ardisik_kayip_sayisi);
+        _failsafe_asama = 1;
+        Serial.printf("[FAILSAFE][LOG] Ardisik kayip (%u), UYARI\n", ardisik_kayip_sayisi);
+        if (!manevra_bekleniyor) {
+            _failsafe_asama     = 2;
+            failsafe_tetiklendi = true;
+            Serial.println("[FAILSAFE][LOG] Ardisik kayip: RTL olurdu");
+        } else {
+            Serial.println("[FAILSAFE][LOG] Ardisik kayip: Manevra aktif, RTL bekleniyor");
+        }
         return;
     }
     if (gecen >= FAILSAFE_WARN_MS && _failsafe_asama == 0) {
@@ -109,9 +117,13 @@ inline void failsafe_kontrol_log() {
         Serial.println("[FAILSAFE][LOG] UYARI");
     }
     if (gecen >= FAILSAFE_SOFT_MS && _failsafe_asama == 1) {
-        _failsafe_asama     = 2;
-        failsafe_tetiklendi = true;
-        Serial.println("[FAILSAFE][LOG] SOFT: RTL olurdu");
+        if (!manevra_bekleniyor) {
+            _failsafe_asama     = 2;
+            failsafe_tetiklendi = true;
+            Serial.printf("[FAILSAFE][LOG] SOFT (%lums): RTL olurdu\n", gecen);
+        } else {
+            Serial.printf("[FAILSAFE][LOG] SOFT (%lums): Manevra aktif, RTL bekleniyor\n", gecen);
+        }
     }
     if (gecen >= FAILSAFE_HARD_MS && _failsafe_asama == 2) {
         _failsafe_asama = 3;
@@ -129,7 +141,7 @@ inline void failsafe_reset() {
         failsafe_tetiklendi = false;
         portENTER_CRITICAL(&_recv_mux);
         ardisik_kayip_sayisi = 0;
+        son_paket_ms = millis();
         portEXIT_CRITICAL(&_recv_mux);
     }
-    son_paket_ms = millis();
 }

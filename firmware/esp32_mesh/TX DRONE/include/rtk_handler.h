@@ -11,6 +11,7 @@ typedef struct {
     uint8_t  frag_index;
     uint8_t  frag_total;
     uint8_t  payload[RTK_MAX_PAYLOAD];
+    uint16_t payload_uzunluk; // gercek veri uzunlugu
     uint16_t crc;
 } rtk_paket_t;
 
@@ -69,7 +70,6 @@ static inline void _rtk_uart_gonder(const uint8_t* veri, uint16_t uzunluk) {
     uint16_t cobs_len = 0;
     uint16_t code_idx = 0;
     uint8_t code = 1;
-    cobs_buf[cobs_len++] = 0; // placeholder
     code_idx = 0;
     cobs_len = 1;
     for (uint16_t i = 0; i < ham_uzunluk; i++) {
@@ -176,11 +176,10 @@ static inline void rtk_paket_isle(const uint8_t* ham_veri, uint16_t uzunluk) {
         return;
     }
 
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wstringop-overflow"
-    memcpy(_rtk_asm.buf + offset, (const void*)p->payload, RTK_MAX_PAYLOAD);
-#pragma GCC diagnostic pop
-    _rtk_asm.parca_uzunluk[idx] = RTK_MAX_PAYLOAD;
+    uint16_t gercek_uzunluk = (p->payload_uzunluk > 0 && p->payload_uzunluk <= RTK_MAX_PAYLOAD)
+                             ? p->payload_uzunluk : RTK_MAX_PAYLOAD;
+    memcpy(_rtk_asm.buf + offset, p->payload, gercek_uzunluk);
+    _rtk_asm.parca_uzunluk[idx] = gercek_uzunluk;
     _rtk_asm.alinan_maske |= (1u << idx);
     _rtk_asm.son_parca_ms  = simdi;
 

@@ -276,7 +276,7 @@ void pose_gonder() {
 #ifdef HAS_PIXHAWK
     pose.lat     = mav_lat;
     pose.lon     = mav_lon;
-    pose.alt_cm  = mav_alt_cm;
+    pose.alt_dm  = mav_alt_dm;
     pose.heading = mav_hdg_01deg;
     pose.vx      = mav_vx_cms;
     pose.vy      = mav_vy_cms;
@@ -287,7 +287,7 @@ void pose_gonder() {
     test_lat += 10;
     pose.lat     = test_lat;
     pose.lon     = test_lon;
-    pose.alt_cm  = 1500;
+    pose.alt_dm  = 150;
     pose.heading = 900;
     pose.vx      = 0;
     pose.vy      = 0;
@@ -311,7 +311,7 @@ static uint8_t  mav_mag_ok       = 0;
 static uint8_t  mav_baro_ok      = 0;
 static int32_t  mav_lat           = 0;   // 1e-7 derece
 static int32_t  mav_lon           = 0;   // 1e-7 derece
-static int16_t  mav_alt_cm        = 0;   // santimetre
+static int16_t  mav_alt_dm        = 0;   // desimetre
 static int16_t  mav_vx_cms        = 0;   // cm/s NED
 static int16_t  mav_vy_cms        = 0;   // cm/s NED
 static int16_t  mav_vz_cms        = 0;   // cm/s NED
@@ -357,7 +357,7 @@ static void pixhawk_mavlink_isle() {
                 mavlink_msg_global_position_int_decode(&msg, &gp);
                 mav_lat       = gp.lat;                    // 1e-7 derece
                 mav_lon       = gp.lon;                    // 1e-7 derece
-                mav_alt_cm    = (int16_t)(gp.alt / 10);   // mm -> cm
+                mav_alt_dm    = (int16_t)(gp.alt / 100);  // mm -> dm (max 3276m)
                 mav_vx_cms    = gp.vx;                     // cm/s NED kuzey
                 mav_vy_cms    = gp.vy;                     // cm/s NED dogu
                 mav_vz_cms    = gp.vz;                     // cm/s NED asagi

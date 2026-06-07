@@ -4,6 +4,7 @@
 #include "esp_wifi.h"
 #include "mesh_config.h"
 #include "fail_safe.h"
+#include "rtk_handler.h"
 
 // ===== CRC16-CCITT =====
 static uint16_t crc16(const uint8_t* veri, uint8_t uzunluk) {
@@ -199,6 +200,7 @@ void setup() {
 }
 
 void loop() {
+    rtk_loop();
     esp_task_wdt_reset();
     mesh_loop();
 
