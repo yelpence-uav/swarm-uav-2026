@@ -26,11 +26,51 @@ extern uint8_t            _failsafe_asama;
 // ===== FAILSAFE BILDIRIMi RPiye GONDER =====
 // ESP karar vermez — sadece baglanti durumunu RPiye bildirir.
 // RTL/LAND kararini RPi/ROS2 verir ve Pixhawka iletir.
+// ===== FAILSAFE BİLDİRİMİ RPİ'YE GÖNDER — COBS+CRC16 SARMALI =====
+// Eski: 3 raw byte (Serial1.write) — bridge drop ediyordu
+// Yeni: diger tum mesajlarla ayni format: [TIP][IHA_ID][FAILSAFE_TIP] + CRC16, COBS sarmalı
+//
+// Frame yapisi (decode sonrasi):
+//   [0] = 0xFA          — failsafe tip markeri
+//   [1] = 0x00          — iha_id (broadcast)
+//   [2] = failsafe_tip  — FAILSAFE_TIP_UYARI / RTL / LAND
+//   [3..4] = CRC16-CCITT (big-endian)
+// COBS encode + 0x00 terminator ile Serial1'e yazilir.
 static inline void _failsafe_rpi_bildir(uint8_t failsafe_tip) {
-    // Basit 3 byteli bildirim: [0xFA][tip][0x00]
-    uint8_t buf[3] = {0xFA, failsafe_tip, 0x00};
-    Serial1.write(buf, 3);
-    Serial.printf("[FAILSAFE] RPiye bildirildi: tip=0x%02X\n", failsafe_tip);
+    // --- Ham frame ---
+    uint8_t ham[5];
+    ham[0] = 0xFA;           // marker (tip)
+    ham[1] = 0x00;           // iha_id broadcast
+    ham[2] = failsafe_tip;
+    // CRC16-CCITT ilk 3 byte uzerinden
+    uint16_t crc = 0xFFFF;
+    for (uint8_t i = 0; i < 3; i++) {
+        crc ^= (uint16_t)ham[i] << 8;
+        for (uint8_t b = 0; b < 8; b++)
+            crc = (crc & 0x8000) ? (crc << 1) ^ 0x1021 : (crc << 1);
+    }
+    ham[3] = (uint8_t)(crc >> 8);
+    ham[4] = (uint8_t)(crc & 0xFF);
+    // --- COBS encode (5 byte ham → max 7 byte COBS + 1 terminator) ---
+    uint8_t cobs_buf[8];
+    uint8_t kod_idx = 0;
+    uint8_t yaz_idx = 1;
+    uint8_t kod     = 1;
+    for (uint8_t i = 0; i < 5; i++) {
+        if (ham[i] != 0x00) {
+            cobs_buf[yaz_idx++] = ham[i];
+            kod++;
+        } else {
+            cobs_buf[kod_idx] = kod;
+            kod_idx = yaz_idx;
+            cobs_buf[yaz_idx++] = 0x01;
+            kod = 1;
+        }
+    }
+    cobs_buf[kod_idx]   = kod;
+    cobs_buf[yaz_idx++] = 0x00;  // COBS frame terminator
+    Serial1.write(cobs_buf, yaz_idx);
+    Serial.printf("[FAILSAFE] RPiye bildirildi (COBS+CRC): tip=0x%02X\n", failsafe_tip);
 }
 
 inline void failsafe_kontrol() {

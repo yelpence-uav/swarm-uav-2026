@@ -1,17 +1,36 @@
 #pragma once
-#include <stdint.h>
-#include <string.h>
 #include <Arduino.h>
+#include <string.h>
+#include "mesh_config.h"   // TIP_RTK, mesh_gonder
 
-// ===== RTK PAKET YAPISI =====
-#define RTK_MAX_PAYLOAD  220
+// ===== SABITLER =====
+#define RTK_MAX_PAYLOAD          220    // TX DRONE alim tarafı (eski ESP-NOW fragment boyutu)
+#define RTK_MAX_FRAGS            100    // 6'dan 100'e: 1000 byte / 12 byte = ~84 frag max
+                                        // DIKKAT: alinan_maske uint32_t olmali (asagida)
+#define RTK_REASSEMBLY_BUF_SIZE  1200
+#define RTK_HAM_BUF_SIZE   (1 + 1 + RTK_REASSEMBLY_BUF_SIZE + 2)
+#define RTK_COBS_BUF_SIZE  (RTK_HAM_BUF_SIZE + (RTK_HAM_BUF_SIZE / 254) + 2)
+#define RTK_FRAG_TIMEOUT_MS      2000UL
 
-typedef struct {
+// ===== MESH FRAGMENT YAPISI (RX BASE gönderir, TX DRONE alır) =====
+// Mesh payload limiti 18 byte — bu struct tam sığar.
+#ifndef RTK_MESH_FRAG_DEFINED
+#define RTK_MESH_FRAG_DEFINED
+typedef struct __attribute__((packed)) {
+    uint32_t paket_id;      // 4 byte — hangi RTCM mesajına ait
+    uint8_t  frag_index;    // 1 byte — bu parçanın sırası (0'dan başlar)
+    uint8_t  frag_total;    // 1 byte — toplam parça sayısı
+    uint8_t  payload[12];   // 12 byte — RTCM verisi
+} rtk_mesh_frag_t;          // Toplam: 18 byte
+#endif // RTK_MESH_FRAG_DEFINED
+
+// ===== PAKET YAPISI (eski ESP-NOW tabanlı, geriye uyumluluk) =====
+typedef struct __attribute__((packed)) {
     uint32_t paket_id;
     uint8_t  frag_index;
     uint8_t  frag_total;
     uint8_t  payload[RTK_MAX_PAYLOAD];
-    uint16_t payload_uzunluk; // gercek veri uzunlugu
+    uint16_t payload_uzunluk;
     uint16_t crc;
 } rtk_paket_t;
 
@@ -21,16 +40,16 @@ static uint32_t rtk_kayip           = 0;
 static uint32_t rtk_uart_gonderilen = 0;
 
 // ===== FRAGMENTASYON YENİDEN BİRLEŞTİRME =====
-#define RTK_MAX_FRAGS            6
-#define RTK_REASSEMBLY_BUF_SIZE  1200
-#define RTK_HAM_BUF_SIZE   (1 + 1 + RTK_REASSEMBLY_BUF_SIZE + 2)
-#define RTK_COBS_BUF_SIZE  (RTK_HAM_BUF_SIZE + (RTK_HAM_BUF_SIZE / 254) + 2)
-#define RTK_FRAG_TIMEOUT_MS      2000UL
-
+// alinan_maske: uint8_t → uint32_t
+//   Eski uint8_t ile max 8 bit → max 8 fragment takip edilebilirdi.
+//   RTK_MAX_FRAGS=100 ile uint32_t gerekli (32 bit → max 32 frag).
+//   NOT: 32 bit maske ile 33+ fragment göndermek istenirse
+//        maske yerine alinan_sayac karşılaştırması kullanılmalı.
+//        Tipik RTCM: 250 byte / 12 byte ≈ 21 fragment — 32 bit yeter.
 static struct {
     uint32_t paket_id;
     uint8_t  toplam;
-    uint8_t  alinan_maske;
+    uint32_t alinan_maske;          // uint8_t → uint32_t (max 32 frag)
     uint8_t  buf[RTK_REASSEMBLY_BUF_SIZE];
     uint16_t parca_uzunluk[RTK_MAX_FRAGS];
     uint32_t son_parca_ms;
@@ -51,9 +70,6 @@ static inline void _rtk_asm_sifirla(void) {
 }
 
 static inline void _rtk_uart_gonder(const uint8_t* veri, uint16_t uzunluk) {
-    // RTK verisi her zaman RPi'ya (Serial1) gonderilir
-    // NOT: Bu CRC UART frame bütünlügünü korur (ESP-NOW katmanindaki
-    //   rtk_paket_t.crc'den bagimsiz — o mesh fragment bütünlügü icin)
     uint16_t crc = 0xFFFF;
     for (uint16_t i = 0; i < uzunluk; i++) {
         crc ^= (uint16_t)veri[i] << 8;
@@ -97,7 +113,8 @@ static inline void _rtk_uart_gonder(const uint8_t* veri, uint16_t uzunluk) {
 }
 
 static inline void _rtk_tamamsa_gonder(void) {
-    uint8_t tam_maske = (uint8_t)((1u << _rtk_asm.toplam) - 1u);
+    // uint32_t maske — toplam 32'den buyuk olamaz (yukarida not var)
+    uint32_t tam_maske = (uint32_t)((1u << _rtk_asm.toplam) - 1u);
     if (_rtk_asm.alinan_maske != tam_maske) return;
 
     uint16_t toplam_uzunluk = 0;
@@ -116,6 +133,79 @@ static inline void _rtk_tamamsa_gonder(void) {
     _rtk_asm_sifirla();
 }
 
+// ===== MESH'TEN GELEN RTK FRAGMENT İŞLE (TX DRONE) =====
+// mesh_veri_al callback'inde TIP_RTK görülünce bu fonksiyona yönlendirilir.
+// rtk_mesh_frag_t (18 byte) parse eder, reassembly buffer'a koyar,
+// tamamlanınca _rtk_uart_gonder ile RPi'ye iletir.
+static inline void rtk_mesh_frag_handle(const uint8_t* ham_veri, uint16_t uzunluk) {
+    if (uzunluk < sizeof(rtk_mesh_frag_t)) {
+        Serial.printf("[RTK] HATA: fragment cok kisa (%u byte, beklenen %u)\n",
+                      uzunluk, (unsigned)sizeof(rtk_mesh_frag_t));
+        rtk_kayip++;
+        return;
+    }
+
+    const rtk_mesh_frag_t* f = (const rtk_mesh_frag_t*)ham_veri;
+
+    // Gecersiz fragment parametreleri
+    if (f->frag_total == 0 || f->frag_total > RTK_MAX_FRAGS ||
+        f->frag_index >= f->frag_total) {
+        Serial.printf("[RTK] HATA: gecersiz frag index=%u total=%u\n",
+                      f->frag_index, f->frag_total);
+        rtk_kayip++;
+        return;
+    }
+
+    uint32_t simdi = millis();
+
+    // Farkli paket_id ya da timeout → sifirla
+    if (_rtk_asm.toplam > 0 &&
+        (f->paket_id != _rtk_asm.paket_id ||
+         (simdi - _rtk_asm.son_parca_ms) > RTK_FRAG_TIMEOUT_MS)) {
+        Serial.printf("[RTK] TIMEOUT/ID DEGISIM — yeniden baslaniyor\n");
+        rtk_kayip++;
+        _rtk_asm_sifirla();
+    }
+
+    // Yeni paket baslar
+    if (_rtk_asm.toplam == 0) {
+        _rtk_asm.paket_id = f->paket_id;
+        _rtk_asm.toplam   = f->frag_total;
+    }
+
+    uint8_t idx = f->frag_index;
+
+    // Duplikat kontrol
+    if (_rtk_asm.alinan_maske & (1u << idx)) {
+        Serial.printf("[RTK] Duplikat frag %u, atlaniyor\n", idx);
+        return;
+    }
+
+    // Buffer taşma kontrol
+    // Her fragment 12 byte payload, offset = idx * 12
+    uint16_t offset = (uint16_t)idx * 12;
+    if (offset + 12 > RTK_REASSEMBLY_BUF_SIZE) {
+        Serial.printf("[RTK] HATA: buffer tasacak offset=%u\n", offset);
+        rtk_kayip++;
+        _rtk_asm_sifirla();
+        return;
+    }
+
+    memcpy(_rtk_asm.buf + offset, f->payload, 12);
+    // Son fragment kısa olabilir — parca_uzunluk'u sonradan düzelt
+    // (son fragment 12 byte dolmayabilir; tam uzunluk bilinmiyorsa 12 yaz)
+    _rtk_asm.parca_uzunluk[idx] = 12;
+    _rtk_asm.alinan_maske      |= (1u << idx);
+    _rtk_asm.son_parca_ms       = simdi;
+
+    rtk_alinan++;
+    Serial.printf("[RTK] Mesh frag %u/%u alindi (paket_id=%lu)\n",
+                  idx + 1, _rtk_asm.toplam, (unsigned long)f->paket_id);
+
+    _rtk_tamamsa_gonder();
+}
+
+// ===== ESKİ ESP-NOW BAZLI PAKET İŞLEME (geriye uyumluluk) =====
 static inline void rtk_paket_isle(const uint8_t* ham_veri, uint16_t uzunluk) {
     if (uzunluk < sizeof(rtk_paket_t)) {
         Serial.printf("[RTK] HATA: kisa paket (%u byte)\n", uzunluk);
@@ -185,13 +275,14 @@ static inline void rtk_paket_isle(const uint8_t* ham_veri, uint16_t uzunluk) {
     _rtk_tamamsa_gonder();
 }
 
+// ===== TIMEOUT KONTROL — loop()'tan çağrılır =====
 static inline void rtk_loop(void) {
     if (_rtk_asm.toplam == 0) return;
     if ((millis() - _rtk_asm.son_parca_ms) > RTK_FRAG_TIMEOUT_MS) {
-        Serial.printf("[RTK] Assembly timeout — paket_id=%lu maske=%02X/%02X\n",
+        Serial.printf("[RTK] Assembly timeout — paket_id=%lu maske=%08lX/%08lX\n",
                       (unsigned long)_rtk_asm.paket_id,
-                      _rtk_asm.alinan_maske,
-                      (uint8_t)((1u << _rtk_asm.toplam) - 1u));
+                      (unsigned long)_rtk_asm.alinan_maske,
+                      (unsigned long)((1u << _rtk_asm.toplam) - 1u));
         rtk_kayip++;
         _rtk_asm_sifirla();
     }

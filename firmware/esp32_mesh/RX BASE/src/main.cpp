@@ -224,7 +224,7 @@ void loop() {
     }
 
 #ifdef HAS_PIXHAWK
-    failsafe_kontrol(Serial2);
+    failsafe_kontrol();
 #else
     failsafe_kontrol_log();
 #endif

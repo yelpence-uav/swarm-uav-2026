@@ -78,6 +78,17 @@ uint8_t                failsafe_active_mode = APM_MODE_RTL;
 volatile bool          manevra_aktif        = false;
 volatile uint32_t      manevra_bitis_ms     = 0;
 
+// ===== DRONE ID ESLESTIRME =====
+static const struct { uint8_t mac_son; uint8_t id; } drone_tablo[] = {
+    {0xB4, 1}, {0x88, 2}, {0x00, 3}, {0xFF, 4},
+};
+static constexpr uint8_t DRONE_SAYISI = sizeof(drone_tablo) / sizeof(drone_tablo[0]);
+static uint8_t mac_to_id(const uint8_t* mac) {
+    for (uint8_t i = 0; i < DRONE_SAYISI; i++)
+        if (drone_tablo[i].mac_son == mac[5])
+            return drone_tablo[i].id;
+    return 0;
+}
 void mesh_veri_al(const mesh_paket_t* p) {
     // C1 fix: GCM + replay gecerse peer kaydet ve heartbeat guncelle
     uint8_t acik[24] = {0};
