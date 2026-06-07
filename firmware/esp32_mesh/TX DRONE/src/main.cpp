@@ -104,8 +104,12 @@ void mesh_veri_al(const mesh_paket_t* p) {
     portEXIT_CRITICAL(&_recv_mux);
     failsafe_reset();
 
-    uint8_t kaynak_id = acik[sizeof(anti_replay_t)];
-    uint8_t* payload  = acik + sizeof(anti_replay_t);
+    uint8_t kaynak_id = mac_to_id(p->kaynak_mac);
+    if (kaynak_id == 0) {
+        Serial.println("[MESH] Bilinmeyen MAC, paket reddedildi");
+        return;
+    }
+    uint8_t* payload = acik + sizeof(anti_replay_t);
     uart_gonder(p->tip, kaynak_id, payload, 18);
 }
 
