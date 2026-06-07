@@ -157,6 +157,10 @@ void mesh_veri_al(const mesh_paket_t* p) {
     uart_mesaj_t msg = {};
     msg.tip    = p->tip;
     msg.iha_id = mac_to_id(p->kaynak_mac);
+    if (msg.iha_id == 0) {
+        Serial.println("[MESH] Bilinmeyen MAC, paket reddedildi");
+        return;
+    }
 
     if      (p->tip == TIP_POSE)      msg.uzunluk = sizeof(pose_veri_t);
     else if (p->tip == TIP_GOREV)     msg.uzunluk = sizeof(gorev_veri_t);
