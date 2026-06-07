@@ -111,6 +111,11 @@ void mesh_veri_al(const mesh_paket_t* p) {
     failsafe_reset();
     // HEARTBEAT sadece node aktivasyonu icin — RPi'ya gonderilmez
     if (p->tip == TIP_HEARTBEAT) return;
+    // #1 RTK: mesh fragment dogrudan rtk_handler'a yonlendir, RPi Serial1'den alir
+    if (p->tip == TIP_RTK) {
+        rtk_mesh_frag_handle(acik + sizeof(anti_replay_t), sizeof(rtk_mesh_frag_t));
+        return;
+    }
 
     uint8_t* payload = acik + sizeof(anti_replay_t);
     uart_gonder(p->tip, kaynak_id, payload, 18);
