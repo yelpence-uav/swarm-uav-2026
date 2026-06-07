@@ -1,0 +1,285 @@
+/* ============================================================
+   Yelpence GCS — Tasarım Sistemi
+   ============================================================
+   Renkler, gölgeler, gradyanlar, tipografi, spacing token'ları.
+   Koyu tema default; html[data-theme="light"] overrides aşağıda.
+   Componentler doğrudan hex/px yazmaz, sadece var(--token) kullanır.
+   ============================================================ */
+
+:root {
+  /* === Renk paleti (koyu tema) ============================== */
+  --color-bg-base:       #070b14;
+  --color-bg-elevated:   #0e1424;
+  --color-bg-panel:      #131b30;
+  --color-bg-glass:      rgba(255, 255, 255, 0.03);
+  --color-bg-overlay:    rgba(7, 11, 20, 0.72);
+
+  --color-border:        rgba(255, 255, 255, 0.08);
+  --color-border-strong: rgba(255, 255, 255, 0.16);
+  --color-border-accent: rgba(56, 189, 248, 0.32);
+
+  --color-text-primary:   #e8edf5;
+  --color-text-secondary: #94a3b8;
+  --color-text-muted:     #5b6677;
+  --color-text-inverse:   #0a0e1a;
+
+  /* Accent renkleri — tema değişse de korunur (parlaklık ayarlanır) */
+  --color-accent:         #38bdf8;
+  --color-accent-strong:  #0ea5e9;
+  --color-accent-glow:    rgba(56, 189, 248, 0.45);
+
+  --color-secondary:      #fb923c;
+  --color-secondary-glow: rgba(251, 146, 60, 0.45);
+
+  /* Semantik renkler */
+  --color-success:        #10b981;
+  --color-success-glow:   rgba(16, 185, 129, 0.4);
+  --color-warning:        #f59e0b;
+  --color-warning-glow:   rgba(245, 158, 11, 0.4);
+  --color-danger:         #ef4444;
+  --color-danger-glow:    rgba(239, 68, 68, 0.5);
+  --color-critical:       #dc2626;
+
+  /* Drone renkleri (3 drone — tematik aksent farklı) */
+  --color-drone-1:       #38bdf8;  /* cyan */
+  --color-drone-2:       #a78bfa;  /* violet */
+  --color-drone-3:       #fb923c;  /* orange */
+
+  /* === Gradientler ========================================== */
+  --gradient-bg:
+    radial-gradient(ellipse at top left, rgba(56, 189, 248, 0.08), transparent 60%),
+    radial-gradient(ellipse at bottom right, rgba(251, 146, 60, 0.06), transparent 60%),
+    linear-gradient(180deg, #070b14 0%, #0a0f1c 100%);
+
+  --gradient-card:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.04) 0%, rgba(255, 255, 255, 0.01) 100%);
+
+  --gradient-card-hover:
+    linear-gradient(135deg, rgba(56, 189, 248, 0.08) 0%, rgba(255, 255, 255, 0.02) 100%);
+
+  --gradient-cta:
+    linear-gradient(135deg, #0ea5e9 0%, #6366f1 100%);
+  --gradient-cta-hover:
+    linear-gradient(135deg, #38bdf8 0%, #818cf8 100%);
+
+  --gradient-danger:
+    linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+
+  --gradient-success:
+    linear-gradient(135deg, #10b981 0%, #059669 100%);
+
+  --gradient-accent-line:
+    linear-gradient(90deg, transparent, var(--color-accent), transparent);
+
+  /* === Gölgeler ============================================= */
+  --shadow-sm:    0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-md:    0 4px 12px rgba(0, 0, 0, 0.5);
+  --shadow-lg:    0 12px 32px rgba(0, 0, 0, 0.6);
+  --shadow-xl:    0 24px 64px rgba(0, 0, 0, 0.7);
+
+  --shadow-glow-accent:  0 0 24px var(--color-accent-glow);
+  --shadow-glow-danger:  0 0 24px var(--color-danger-glow);
+  --shadow-glow-warning: 0 0 24px var(--color-warning-glow);
+  --shadow-glow-success: 0 0 24px var(--color-success-glow);
+
+  --shadow-inset: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+
+  /* === Spacing (4px ölçek) ================================== */
+  --space-1:  4px;
+  --space-2:  8px;
+  --space-3:  12px;
+  --space-4:  16px;
+  --space-5:  20px;
+  --space-6:  24px;
+  --space-8:  32px;
+  --space-10: 40px;
+  --space-12: 48px;
+  --space-16: 64px;
+
+  /* === Radius ================================================ */
+  --radius-sm:   6px;
+  --radius-md:   10px;
+  --radius-lg:   14px;
+  --radius-xl:   20px;
+  --radius-full: 9999px;
+
+  /* === Tipografi ============================================ */
+  --font-ui:   "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: "JetBrains Mono", "SF Mono", Menlo, monospace;
+
+  --text-xs:   11px;
+  --text-sm:   12px;
+  --text-base: 14px;
+  --text-md:   16px;
+  --text-lg:   18px;
+  --text-xl:   22px;
+  --text-2xl:  28px;
+  --text-3xl:  36px;
+
+  --leading-tight: 1.2;
+  --leading-base:  1.45;
+  --leading-loose: 1.65;
+
+  /* === Geçişler ============================================= */
+  --ease-out:    cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+
+  --transition-fast: 150ms var(--ease-out);
+  --transition-base: 250ms var(--ease-out);
+  --transition-slow: 400ms var(--ease-out);
+
+  /* === Z-index ============================================== */
+  --z-base:     0;
+  --z-elevated: 10;
+  --z-overlay:  100;
+  --z-toast:    500;
+  --z-modal:    1000;
+}
+
+/* === Açık tema ============================================== */
+html[data-theme="light"] {
+  --color-bg-base:       #f1f5f9;
+  --color-bg-elevated:   #ffffff;
+  --color-bg-panel:      #ffffff;
+  --color-bg-glass:      rgba(0, 0, 0, 0.025);
+  --color-bg-overlay:    rgba(241, 245, 249, 0.85);
+
+  --color-border:        rgba(15, 23, 42, 0.08);
+  --color-border-strong: rgba(15, 23, 42, 0.16);
+  --color-border-accent: rgba(14, 165, 233, 0.4);
+
+  --color-text-primary:   #0f172a;
+  --color-text-secondary: #475569;
+  --color-text-muted:     #94a3b8;
+  --color-text-inverse:   #ffffff;
+
+  --color-accent:         #0284c7;
+  --color-accent-strong:  #0369a1;
+  --color-accent-glow:    rgba(2, 132, 199, 0.3);
+
+  --gradient-bg:
+    radial-gradient(ellipse at top left, rgba(56, 189, 248, 0.12), transparent 60%),
+    radial-gradient(ellipse at bottom right, rgba(251, 146, 60, 0.1), transparent 60%),
+    linear-gradient(180deg, #f1f5f9 0%, #e2e8f0 100%);
+
+  --gradient-card:
+    linear-gradient(135deg, #ffffff 0%, #f8fafc 100%);
+  --gradient-card-hover:
+    linear-gradient(135deg, #ffffff 0%, rgba(56, 189, 248, 0.06) 100%);
+
+  --shadow-sm:    0 1px 2px rgba(15, 23, 42, 0.06);
+  --shadow-md:    0 4px 12px rgba(15, 23, 42, 0.08);
+  --shadow-lg:    0 12px 32px rgba(15, 23, 42, 0.12);
+  --shadow-xl:    0 24px 64px rgba(15, 23, 42, 0.16);
+  --shadow-inset: inset 0 1px 0 rgba(255, 255, 255, 0.5);
+}
+
+/* === Global reset + base =================================== */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  font-family: var(--font-ui);
+  font-size: var(--text-base);
+  line-height: var(--leading-base);
+  color: var(--color-text-primary);
+  background: var(--color-bg-base);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+body {
+  background: var(--gradient-bg);
+  background-attachment: fixed;
+  transition: background-color var(--transition-base);
+}
+
+a {
+  color: var(--color-accent);
+  text-decoration: none;
+  transition: color var(--transition-fast);
+}
+a:hover {
+  color: var(--color-accent-strong);
+}
+
+button {
+  font-family: inherit;
+  cursor: pointer;
+}
+
+/* Monospaced sayısal değerler için utility */
+.mono {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+
+/* === Scrollbar (koyu tema) ================================= */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-border-strong);
+  border-radius: var(--radius-full);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-accent);
+  background-clip: padding-box;
+  border: 2px solid transparent;
+}
+
+/* === Animasyon keyframes (global olarak kullanılır) ======== */
+@keyframes pulse-glow {
+  0%, 100% { box-shadow: 0 0 0 0 var(--color-danger-glow); }
+  50%      { box-shadow: 0 0 0 8px transparent; }
+}
+
+@keyframes shimmer {
+  0%   { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes slide-in-right {
+  from { opacity: 0; transform: translateX(20px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes slide-in-up {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* prefers-reduced-motion için animasyonları kapat */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

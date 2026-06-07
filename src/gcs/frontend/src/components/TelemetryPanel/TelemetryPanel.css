@@ -1,0 +1,18 @@
+/* Drone strip — yatay 3 kart, app__drone-strip içinde grid'i devralır */
+.telemetry-panel {
+  display: contents; /* parent (.app__drone-strip) zaten grid; biz wrapper olmayalım */
+}
+
+.telemetry-panel__empty {
+  grid-column: 1 / -1;
+  display: grid;
+  place-items: center;
+  padding: var(--space-6);
+  background: var(--gradient-card);
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius-lg);
+  color: var(--color-text-muted);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  letter-spacing: 0.05em;
+}
