@@ -52,6 +52,8 @@ static inline void _rtk_asm_sifirla(void) {
 
 static inline void _rtk_uart_gonder(const uint8_t* veri, uint16_t uzunluk) {
     // RTK verisi her zaman RPi'ya (Serial1) gonderilir
+    // NOT: Bu CRC UART frame bütünlügünü korur (ESP-NOW katmanindaki
+    //   rtk_paket_t.crc'den bagimsiz — o mesh fragment bütünlügü icin)
     uint16_t crc = 0xFFFF;
     for (uint16_t i = 0; i < uzunluk; i++) {
         crc ^= (uint16_t)veri[i] << 8;

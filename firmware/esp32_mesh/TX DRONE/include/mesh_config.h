@@ -54,6 +54,21 @@ struct __attribute__((packed)) pose_veri_t {
     int16_t  vz;        // cm/s (NED asagi pozitif)
 };
 
+struct __attribute__((packed)) gorev_veri_t {
+    uint8_t  tip;             // GOREV_FORMASYON / MANEVRA / IRTIFA / AYRIL
+    uint8_t  param1;          // formasyon tipi / pitch deg / irtifa / drone_id
+    int8_t   param2;          // roll deg / hedef renk
+    uint8_t  bekleme_suresi_s;// QR noktasinda bekleme suresi (saniye)
+    uint8_t  rezerv[12];      // toplam 16 byte korunur
+};
+
+struct __attribute__((packed)) renk_veri_t {
+    uint8_t  renk;
+    int32_t  lat;
+    int32_t  lon;
+    uint8_t  rezerv[7];
+};
+
 struct __attribute__((packed)) origin_veri_t {
     int32_t  lat_1e7;    // 1e-7 derece (RTK 1.1 cm hassasiyet)
     int32_t  lon_1e7;
@@ -81,28 +96,13 @@ struct __attribute__((packed)) election_veri_t {
 };   // 16 byte
 
 struct __attribute__((packed)) version_veri_t {
-    uint8_t  major;        // firmware major
-    uint8_t  minor;        // firmware minor
-    uint8_t  patch;        // firmware patch
-    uint8_t  drone_id;     // kaynak drone
-    uint32_t build_unix;   // __unix__ build timestamp (debug)
-    uint8_t  rezerv[8];    // toplam 16 byte
-};
-
-struct __attribute__((packed)) gorev_veri_t {
-    uint8_t  tip;             // GOREV_FORMASYON / MANEVRA / IRTIFA / AYRIL
-    uint8_t  param1;          // formasyon tipi / pitch deg / irtifa / drone_id
-    int8_t   param2;          // roll deg / hedef renk
-    uint8_t  bekleme_suresi_s;// QR noktasinda bekleme suresi (saniye)
-    uint8_t  rezerv[12];      // toplam 16 byte korunur
-};
-
-struct __attribute__((packed)) renk_veri_t {
-    uint8_t  renk;
-    int32_t  lat;
-    int32_t  lon;
-    uint8_t  rezerv[7];
-};
+    uint8_t  major;
+    uint8_t  minor;
+    uint8_t  patch;
+    uint8_t  drone_id;
+    uint32_t build_unix;
+    uint8_t  rezerv[8];
+};   // 16 byte
 
 struct __attribute__((packed)) durum_veri_t {
     uint8_t  drone_id;
@@ -383,7 +383,6 @@ static void IRAM_ATTR _esp_now_recv_cb(const uint8_t* mac_addr,
     _son_rssi = 0; // TODO: esp-idf >=5.x ile esp_now_recv_info_t->rx_ctrl->rssi kullan
     if (len != sizeof(mesh_paket_t)) return;
     const mesh_paket_t* p = reinterpret_cast<const mesh_paket_t*>(data);
-    const uint8_t* mac = mac_addr;
     if (_benim_mac_mi(p->kaynak_mac)) return;
     if (_isr_duplikat_mi(p))          return;
     // Kritik bolge — dual-core race condition onleme
@@ -429,6 +428,7 @@ static inline void _recv_isle() {
                     if (!aes_coz_gcm(p->sifreli_veri, 24, _acik_cb, p->iv, p->tag)) {
                         Serial.printf("[MESH] GCM hatasi tip:%d %02X:%02X\n",
                             p->tip, p->kaynak_mac[4], p->kaynak_mac[5]);
+                        // Bug2 fix: sahte MAC peer listesinden cikar
                         if (node) { node->aktif = false; node->peer_kayitli = false;
                                     esp_now_del_peer(node->mac); }
                         _recv_oku = (_recv_oku + 1) % RECV_BUFFER_SIZE;
