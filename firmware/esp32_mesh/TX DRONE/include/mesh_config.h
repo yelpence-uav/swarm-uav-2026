@@ -104,6 +104,9 @@ struct __attribute__((packed)) version_veri_t {
     uint8_t  rezerv[8];
 };   // 16 byte
 
+// TODO: HAS_PIXHAWK=1 oldugunda durum_veri_t doldur ve loop() icinde TIP_DURUM gonder (500ms).
+// Bagimliliklar: mesh_komsu_sayisi(), MAVLink SYS_STATUS/GPS_RAW_INT/EKF_STATUS_REPORT okuma fonksiyonlari.
+// Stub implementasyonu hazir — Pixhawk fiziksel baglantiginda aktif edilecek.
 struct __attribute__((packed)) durum_veri_t {
     uint8_t  drone_id;
     uint8_t  durum;

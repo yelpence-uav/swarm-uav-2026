@@ -104,6 +104,9 @@ struct __attribute__((packed)) version_veri_t {
     uint8_t  rezerv[8];
 };   // 16 byte
 
+// TODO: HAS_PIXHAWK=1 oldugunda durum_veri_t doldur ve loop() icinde TIP_DURUM gonder (500ms).
+// Bagimliliklar: mesh_komsu_sayisi(), MAVLink SYS_STATUS/GPS_RAW_INT/EKF_STATUS_REPORT okuma fonksiyonlari.
+// Stub implementasyonu hazir — Pixhawk fiziksel baglantiginda aktif edilecek.
 struct __attribute__((packed)) durum_veri_t {
     uint8_t  drone_id;
     uint8_t  durum;
@@ -515,3 +518,15 @@ static inline void mesh_durum_yazdir() {
     Serial.printf("  Aktif: %d/%d\n", aktif, MESH_MAX_NODES);
     Serial.println("==================");
 }
+
+// ===== JOYSTICK KOMUT STRUCT (float32 encoding) =====
+struct __attribute__((packed)) komut_veri_t {
+    uint8_t  alt_tip;      // komut alt tipi
+    uint8_t  rezerv1;
+    int16_t  roll_x100;    // float * 100 → int16 (±327.67 derece/s)
+    int16_t  pitch_x100;
+    int16_t  yaw_x100;
+    int16_t  throttle_x100;
+    uint8_t  rezerv[6];    // toplam 16 byte
+};
+static_assert(sizeof(komut_veri_t) <= 16, "komut_veri_t 16 byte'i asiyor");
