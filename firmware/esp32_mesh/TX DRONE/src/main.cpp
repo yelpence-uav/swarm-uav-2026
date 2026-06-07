@@ -153,10 +153,41 @@ void setup() {
 
 #define MESH_GONDERIM_MIN_MS 50
 
+
+uint8_t mav_battery_pct = 0;
+uint8_t mav_gps_fix_type = 0;
+uint8_t mav_ekf_ok = 0;
+float   mav_battery_volt = 0.0f;
+uint8_t mav_armed = 0;
+
 void loop() {
     rtk_loop();
     esp_task_wdt_reset();
     mesh_loop();
+
+#ifdef HAS_PIXHAWK
+    static uint32_t son_durum_ms = 0;
+    if (millis() - son_durum_ms >= 500) {
+        son_durum_ms = millis();
+        durum_veri_t dv = {0};
+        uint8_t mac[6];
+        esp_wifi_get_mac(WIFI_IF_STA, mac);
+        dv.drone_id = mac_to_id(mac);
+        dv.durum = DURUM_AKTIF;
+        dv.armed = mav_armed;
+        dv.gps_fix_type = mav_gps_fix_type;
+        dv.battery_pct = mav_battery_pct;
+        dv.battery_volt = mav_battery_volt;
+        dv.ekf_ok = mav_ekf_ok;
+        dv.imu_ok = 1;
+        dv.mag_ok = 1;
+        dv.baro_ok = 1;
+        dv.rssi = WiFi.RSSI();
+        dv.mesh_link_ok = 1;
+        dv.mesh_komsu_sayisi = mesh_komsu_sayisi();
+        mesh_gonder((uint8_t*)&dv, TIP_DURUM);
+    }
+#endif
 
     static uint32_t son_kayip_kontrol = 0;
     if (millis() - son_kayip_kontrol >= 100) {
@@ -199,7 +230,9 @@ void loop() {
                                                   tip_byte == TIP_GOREV  ||
                                                   tip_byte == TIP_RENK   ||
                                                   tip_byte == TIP_ORIGIN ||
-                                                  tip_byte == TIP_DURUM);
+                                                  tip_byte == TIP_DURUM  ||
+                                                  tip_byte == TIP_SWARM_STATE ||
+                                                  tip_byte == TIP_QR_DATA);
                             if (!izinli) break;
                             uint32_t simdi = millis();
                             if (simdi - son_rpi_mesh_ms >= MESH_GONDERIM_MIN_MS) {

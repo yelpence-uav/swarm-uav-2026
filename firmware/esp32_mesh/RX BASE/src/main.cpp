@@ -168,10 +168,11 @@ void mesh_veri_al(const mesh_paket_t* p) {
     else if (p->tip == TIP_GOREV)     msg.uzunluk = sizeof(gorev_veri_t);
     else if (p->tip == TIP_RENK)      msg.uzunluk = sizeof(renk_veri_t);
     else if (p->tip == TIP_DURUM)     msg.uzunluk = sizeof(durum_veri_t);
-    else if (p->tip == TIP_TELEMETRI)  msg.uzunluk = 16;
     else if (p->tip == TIP_LEADER_HB)  msg.uzunluk = sizeof(leader_hb_veri_t);
     else if (p->tip == TIP_ELECTION)   msg.uzunluk = sizeof(election_veri_t);
     else if (p->tip == TIP_VERSION)    msg.uzunluk = sizeof(version_veri_t);
+    else if (p->tip == TIP_SWARM_STATE) msg.uzunluk = sizeof(swarm_state_veri_t);
+    else if (p->tip == TIP_QR_DATA)    msg.uzunluk = sizeof(qr_veri_t);
     else return; 
 
     // FIX #3: Ilk 6 byte'i atla (anti-replay basligi)
@@ -208,11 +209,43 @@ void setup() {
     sistem_mesaj("MESH HAZIR");
 }
 
+
+
+uint8_t mav_battery_pct = 0;
+uint8_t mav_gps_fix_type = 0;
+uint8_t mav_ekf_ok = 0;
+float   mav_battery_volt = 0.0f;
+uint8_t mav_armed = 0;
+
 void loop() {
     rtk_loop();
     rtk_serial_isle(Serial1);
     esp_task_wdt_reset();
     mesh_loop();
+
+#ifdef HAS_PIXHAWK
+    static uint32_t son_durum_ms = 0;
+    if (millis() - son_durum_ms >= 500) {
+        son_durum_ms = millis();
+        durum_veri_t dv = {0};
+        uint8_t mac[6];
+        esp_wifi_get_mac(WIFI_IF_STA, mac);
+        dv.drone_id = mac_to_id(mac);
+        dv.durum = DURUM_AKTIF;
+        dv.armed = mav_armed;
+        dv.gps_fix_type = mav_gps_fix_type;
+        dv.battery_pct = mav_battery_pct;
+        dv.battery_volt = mav_battery_volt;
+        dv.ekf_ok = mav_ekf_ok;
+        dv.imu_ok = 1;
+        dv.mag_ok = 1;
+        dv.baro_ok = 1;
+        dv.rssi = WiFi.RSSI();
+        dv.mesh_link_ok = 1;
+        dv.mesh_komsu_sayisi = mesh_komsu_sayisi();
+        mesh_gonder((uint8_t*)&dv, TIP_DURUM);
+    }
+#endif
 
     static uint32_t son_kayip_kontrol = 0;
     if (millis() - son_kayip_kontrol >= 100) {
@@ -265,15 +298,10 @@ void loop() {
                         uint8_t payload_uzunluk = min((int)veri_uzunluk - 2, 16);
                         memcpy(veri, &decoded[2], payload_uzunluk);
 
-                        if (tip_byte == TIP_RENK) {
+                        if (tip_byte == TIP_RENK || tip_byte == TIP_DURUM || tip_byte == TIP_SWARM_STATE || tip_byte == TIP_QR_DATA) {
                             if (simdi - son_mesh_gonderim_ms >= MESH_GONDERIM_MIN_MS) {
                                 son_mesh_gonderim_ms = simdi;
-                                mesh_gonder(veri, TIP_RENK);
-                            }
-                        } else if (tip_byte == TIP_DURUM) {
-                            if (simdi - son_mesh_gonderim_ms >= MESH_GONDERIM_MIN_MS) {
-                                son_mesh_gonderim_ms = simdi;
-                                mesh_gonder(veri, TIP_DURUM);
+                                mesh_gonder(veri, tip_byte);
                             }
                         } else {
                             if (simdi - son_joystick_ms >= JOYSTICK_MIN_ARALIK_MS) {

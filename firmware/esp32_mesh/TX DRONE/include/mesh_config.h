@@ -15,7 +15,6 @@
 #define CSMA_GECIKME_MAKS_MS  10
 #define DUPLIKAT_TAMPON       32
 
-#define TIP_TELEMETRI   0x01
 #define TIP_KOMUT       0x02
 #define TIP_HEARTBEAT   0x03
 #define TIP_POSE        0x04
@@ -27,6 +26,8 @@
 #define TIP_LEADER_HB   0x09   // LeaderHeartbeat — lider secimi
 #define TIP_ELECTION    0x0A   // ElectionResult  — lider degisimi
 #define TIP_VERSION     0x0B   // VersionInfo     — boot'ta 1 kez, debug
+#define TIP_SWARM_STATE 0x0D   // Sürü seviyesi FSM durumu
+#define TIP_QR_DATA     0x0E   // QR tespit ve çözümleme verisi
 
 #define FORMASYON_OKBASI  0x01
 #define FORMASYON_V       0x02
@@ -67,6 +68,23 @@ struct __attribute__((packed)) renk_veri_t {
     int32_t  lat;
     int32_t  lon;
     uint8_t  rezerv[7];
+};
+
+struct __attribute__((packed)) qr_veri_t {
+    uint8_t  drone_id;        // QR algılayan drone
+    uint32_t action_id;       // Çözümlenen QR eylemi
+    int32_t  lat;
+    int32_t  lon;
+    uint8_t  rezerv[3];       // toplam 16 byte
+};
+
+struct __attribute__((packed)) swarm_state_veri_t {
+    uint8_t  mission_id;      // Mevcut aktif görev (mission1, mission2)
+    uint8_t  swarm_fsm_state; // Sürü FSM genel state'i
+    uint8_t  active_leader;   // Lider ID
+    uint8_t  formation;       // Mevcut formasyon
+    uint32_t timestamp;       // State time
+    uint8_t  rezerv[8];       // toplam 16 byte
 };
 
 struct __attribute__((packed)) origin_veri_t {
@@ -332,6 +350,17 @@ static inline void mesh_gonder(const uint8_t* veri, uint8_t tip,
     aes_sifrele_gcm(tam_veri, sizeof(tam_veri), p.sifreli_veri, p.iv, p.tag);
     _duplikat_kaydet(&p);
     _mesh_gonder(&p);
+}
+
+static inline uint8_t mesh_komsu_sayisi() {
+    uint8_t count = 0;
+    uint32_t now = millis();
+    for (uint8_t i = 0; i < MESH_MAX_NODES; i++) {
+        if (_bilinen_nodlar[i].aktif && (now - _bilinen_nodlar[i].son_heartbeat_ms < NODE_TIMEOUT_MS)) {
+            count++;
+        }
+    }
+    return count;
 }
 
 static inline void _paketi_ilet(const mesh_paket_t* gelen) {
