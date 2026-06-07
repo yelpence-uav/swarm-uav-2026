@@ -23,6 +23,8 @@ static uint32_t rtk_uart_gonderilen = 0;
 // ===== FRAGMENTASYON YENİDEN BİRLEŞTİRME =====
 #define RTK_MAX_FRAGS            6
 #define RTK_REASSEMBLY_BUF_SIZE  1200
+#define RTK_HAM_BUF_SIZE   (1 + 1 + RTK_REASSEMBLY_BUF_SIZE + 2)
+#define RTK_COBS_BUF_SIZE  (RTK_HAM_BUF_SIZE + (RTK_HAM_BUF_SIZE / 254) + 2)
 #define RTK_FRAG_TIMEOUT_MS      2000UL
 
 static struct {
@@ -49,29 +51,24 @@ static inline void _rtk_asm_sifirla(void) {
 }
 
 static inline void _rtk_uart_gonder(const uint8_t* veri, uint16_t uzunluk) {
-#ifdef HAS_PIXHAWK
-    // COBS + CRC16-CCITT sarmalama
+    // RTK verisi her zaman RPi'ya (Serial1) gonderilir
     uint16_t crc = 0xFFFF;
     for (uint16_t i = 0; i < uzunluk; i++) {
         crc ^= (uint16_t)veri[i] << 8;
         for (uint8_t b = 0; b < 8; b++)
             crc = (crc & 0x8000) ? (crc << 1) ^ 0x1021 : (crc << 1);
     }
-    // tip(1) + iha_id(1) + payload(N) + crc16(2)
     uint16_t ham_uzunluk = 1 + 1 + uzunluk + 2;
-    uint8_t ham[228];
+    static uint8_t ham[RTK_HAM_BUF_SIZE];
     ham[0] = TIP_RTK;
     ham[1] = 99; // BAZ_ID
     memcpy(ham + 2, veri, uzunluk);
     ham[ham_uzunluk - 2] = (uint8_t)(crc >> 8);
     ham[ham_uzunluk - 1] = (uint8_t)(crc & 0xFF);
-    // COBS encode
-    uint8_t cobs_buf[230];
-    uint16_t cobs_len = 0;
+    static uint8_t cobs_buf[RTK_COBS_BUF_SIZE];
+    uint16_t cobs_len = 1;
     uint16_t code_idx = 0;
     uint8_t code = 1;
-    code_idx = 0;
-    cobs_len = 1;
     for (uint16_t i = 0; i < ham_uzunluk; i++) {
         if (ham[i] == 0x00) {
             cobs_buf[code_idx] = code;
@@ -90,14 +87,11 @@ static inline void _rtk_uart_gonder(const uint8_t* veri, uint16_t uzunluk) {
         }
     }
     cobs_buf[code_idx] = code;
-    cobs_buf[cobs_len++] = 0x00; // frame delimiter
+    cobs_buf[cobs_len++] = 0x00;
     Serial1.write(cobs_buf, cobs_len);
     rtk_uart_gonderilen++;
-    Serial.printf("[RTK] UART gonderildi: %u byte (toplam: %lu)\n",
+    Serial.printf("[RTK] RPiye gonderildi: %u byte (toplam: %lu)\n",
                   uzunluk, rtk_uart_gonderilen);
-#else
-    Serial.printf("[RTK][LOG] UART olmadan %u byte iletilirdi\n", uzunluk);
-#endif
 }
 
 static inline void _rtk_tamamsa_gonder(void) {

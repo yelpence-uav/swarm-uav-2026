@@ -181,6 +181,7 @@ void setup() {
     Serial.begin(115200);
     delay(1000);
 
+
     uart_kuyruk = xQueueCreate(20, sizeof(uart_mesaj_t));
     sistem_mesaj("RX BASE HAZIR");
 

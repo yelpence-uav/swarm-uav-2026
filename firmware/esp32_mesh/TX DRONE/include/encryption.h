@@ -7,8 +7,12 @@
 // ===== AES-128 GCM ANAHTARI =====
 // ANAHTAR BURAYA YAZILMAZ — ortam degiskeninden veya NVS'den yuklenir
 // Gecici placeholder: production oncesi degistirin
-static uint8_t AES_KEY[16] = {0};
-// Baslatma: nvs_get_blob(handle, "aes_key", AES_KEY, &len) ile yukleyin
+static const uint8_t AES_KEY[16] = {
+    0xF5,0x5F,0x70,0x2C,
+    0xBE,0xF9,0xFB,0x9D,
+    0x9F,0x5A,0x91,0xC2,
+    0xA4,0xFB,0x6C,0xE4
+};
 
 // GCM context — key expansion bir kez yapilir
 // NOT: sadece loop() gorevinden cagriliyor, ISR-safe degil
