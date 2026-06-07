@@ -130,30 +130,6 @@ void drone_id_ata() {
     Serial.printf("[DRONE] UYARI: Bilinmeyen MAC 0x%02X, gorev almayacak\n", mac[5]);
 }
 
-// ===== RENK ALANI =====
-#define MAX_RENK_ALANI 8
-struct {
-    uint8_t renk;
-    int32_t lat;
-    int32_t lon;
-    bool    dolu;
-} renk_alanlari[MAX_RENK_ALANI] = {};
-
-void renk_alani_kaydet(uint8_t renk, int32_t lat, int32_t lon) {
-    for (uint8_t i = 0; i < MAX_RENK_ALANI; i++) {
-        if (!renk_alanlari[i].dolu) {
-            renk_alanlari[i].renk = renk;
-            renk_alanlari[i].lat  = lat;
-            renk_alanlari[i].lon  = lon;
-            renk_alanlari[i].dolu = true;
-            Serial.printf("[RENK] Kaydedildi: %s lat:%ld lon:%ld\n",
-                renk == RENK_KIRMIZI ? "KIRMIZI" : "MAVI", lat, lon);
-            return;
-        }
-    }
-    Serial.println("[RENK] UYARI: Alan tablosu dolu!");
-}
-
 // FIX #7: gorev_mesaj_t icine iha_id eklendi
 struct gorev_mesaj_t {
     uint8_t tip;
@@ -166,65 +142,6 @@ static_assert(sizeof(gorev_veri_t) <= 16, "gorev_veri_t 16 byte'i asiyor");
 static_assert(sizeof(pose_veri_t)  <= 18, "pose_veri_t 18 byte'i asiyor");
 static_assert(sizeof(durum_veri_t) <= 16, "durum_veri_t 16 byte'i asiyor");
 static_assert(sizeof(renk_veri_t)  <= 16, "renk_veri_t 16 byte'i asiyor");
-
-// ===== GOREV ISLE =====
-void gorev_isle(const gorev_veri_t* gorev) {
-    switch (gorev->tip) {
-        case GOREV_FORMASYON:
-            Serial.printf("[GOREV] Formasyon: tip=%d\n", gorev->param1);
-            break;
-        case GOREV_MANEVRA:
-            Serial.printf("[GOREV] Manevra: pitch=%d roll=%d\n",
-                gorev->param1, gorev->param2);
-            manevra_aktif    = true;
-            manevra_bitis_ms = 0;
-            // TODO: Manevra tamamlaninca manevra_aktif=false, manevra_bitis_ms=millis() set et
-            break;
-        case GOREV_IRTIFA:
-            Serial.printf("[GOREV] Irtifa: %d cm\n", gorev->param1);
-            break;
-        case GOREV_AYRIL:
-            if (DRONE_ID == 0xFF) {
-                Serial.println("[GOREV] Bilinmeyen drone, komut reddedildi");
-                break;
-            }
-            Serial.printf("[GOREV] Suruden ayril: drone_id=%d renk=%d\n",
-                gorev->param1, gorev->param2);
-            if (gorev->param1 == DRONE_ID) {
-                bool inis_bulundu = false;
-                for (uint8_t i = 0; i < MAX_RENK_ALANI; i++) {
-                    if (renk_alanlari[i].dolu &&
-                        renk_alanlari[i].renk == (uint8_t)gorev->param2) {
-                        Serial.printf("[GOREV] Inis alani: lat:%ld lon:%ld\n",
-                            renk_alanlari[i].lat, renk_alanlari[i].lon);
-                        inis_bulundu = true;
-                        break;
-                    }
-                }
-                if (inis_bulundu) {
-                    durum_veri_t d = {};
-                    d.drone_id = DRONE_ID;
-                    d.durum    = DURUM_AYRILDI;
-                    uint8_t veri[16] = {0};
-                    memcpy(veri, &d, sizeof(durum_veri_t));
-                    mesh_gonder(veri, TIP_DURUM);
-                } else {
-                    Serial.println("[GOREV] HATA: Inis alani bulunamadi! RTL baslatiliyor.");
-#ifdef HAS_PIXHAWK
-                    px4_mod_gonder(Serial2, PX4_CUSTOM_SUB_MODE_AUTO_RTL);
-#else
-                    Serial.println("[GOREV][LOG] RTL olurdu");
-#endif
-                    // BUG-B FIX: nullptr crash onlendi
-                    durum_gonder(DURUM_AKTIF);
-                }
-            }
-            break;
-        default:
-            Serial.printf("[GOREV] Bilinmeyen tip: %d\n", gorev->tip);
-            break;
-    }
-}
 
 // REPLAY KONTROL HELPER (FIX #4)
 static inline bool mesh_replay_dogrula(const uint8_t* mac, const uint8_t* decrypted_baslik) {
@@ -491,8 +408,6 @@ void loop() {
                             if (simdi - son_rpi_mesh_ms >= MESH_GONDERIM_MIN_MS) {
                                 if (tip_byte == TIP_RENK) {
                                     son_rpi_mesh_ms = simdi;
-                                    renk_veri_t* rv = (renk_veri_t*)payload;
-                                    renk_alani_kaydet(rv->renk, rv->lat, rv->lon);
                                     mesh_gonder(payload, TIP_RENK);
                                 } else if (tip_byte == TIP_KOMUT) {
                                     son_rpi_mesh_ms = simdi;
@@ -517,7 +432,6 @@ void loop() {
     gorev_mesaj_t gelen;
     while (xQueueReceive(gorev_kuyruk, &gelen, 0) == pdPASS) {
         if (gelen.tip == TIP_GOREV) {
-            gorev_isle((gorev_veri_t*)gelen.payload);
             uart_gonder(TIP_GOREV, gelen.iha_id, gelen.payload, sizeof(gorev_veri_t));
         } else if (gelen.tip == TIP_KOMUT) {
             // FIX: Binary struct'i %s ile basmak Core Panic yapar
@@ -528,8 +442,6 @@ void loop() {
             uart_gonder(TIP_POSE, gelen.iha_id, gelen.payload, sizeof(pose_veri_t));
         
         } else if (gelen.tip == TIP_RENK) {
-            renk_veri_t* renk = (renk_veri_t*)gelen.payload;
-            renk_alani_kaydet(renk->renk, renk->lat, renk->lon);
             uart_gonder(TIP_RENK, gelen.iha_id, gelen.payload, sizeof(renk_veri_t));
         } else if (gelen.tip == TIP_DURUM) {
             uart_gonder(TIP_DURUM, gelen.iha_id, gelen.payload, sizeof(durum_veri_t));
