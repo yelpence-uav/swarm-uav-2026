@@ -376,6 +376,11 @@ void loop() {
     }
 
 #ifdef HAS_PIXHAWK
+    // Manevra bitis zamanini kontrol et
+    if (manevra_aktif && millis() >= manevra_bitis_ms) {
+        manevra_aktif = false;
+        Serial.println("[MANEVRA] Tamamlandi, failsafe aktif");
+    }
     failsafe_kontrol(Serial2);
 #else
     failsafe_kontrol_log();
@@ -432,6 +437,12 @@ void loop() {
     gorev_mesaj_t gelen;
     while (xQueueReceive(gorev_kuyruk, &gelen, 0) == pdPASS) {
         if (gelen.tip == TIP_GOREV) {
+            { const gorev_veri_t* g = (const gorev_veri_t*)gelen.payload;
+              if (g->tip == GOREV_MANEVRA) {
+                  manevra_aktif    = true;
+                  manevra_bitis_ms = millis() + (uint32_t)g->bekleme_suresi_s * 1000UL;
+                  Serial.printf("[MANEVRA] Aktif, sure=%us\n", g->bekleme_suresi_s);
+              } }
             uart_gonder(TIP_GOREV, gelen.iha_id, gelen.payload, sizeof(gorev_veri_t));
         } else if (gelen.tip == TIP_KOMUT) {
             // FIX: Binary struct'i %s ile basmak Core Panic yapar
