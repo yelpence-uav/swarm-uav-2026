@@ -365,13 +365,14 @@ class RosBridge:
 
         # Drone başına AgentStatus subscriber.
         # QoS: kontrata göre BEST_EFFORT, 5-20 Hz.
+        # TOPIC ADLANDIRMA — network_proxy kontratı (INTERFACE_CONTRACT.md):
+        #   yayıncı (drone) → /swarm/internal/...  (proxy ESP-NOW süzgecinden geçirir)
+        #   abone  (tüketici) → /swarm/public/...  (proxy çıktısı)
+        # GCS bir TÜKETİCİDİR → daima /swarm/public/... dinler.
+        # GCS joystick komutu AĞA GİRER → /swarm/internal/control/command'a yayınlar.
         sensor_qos = QoSPresetProfiles.SENSOR_DATA.value
         for drone_id in self.drone_ids:
-            # Topic adı kuralı: ROS 2 token sayıyla başlayamaz, bu yüzden
-            # `drone{id}` prefix'i kullanılır. Ekip kontratı `{id}` placeholder
-            # gösterse de gerçek implementasyon `drone1`/`drone2`/... şeklindedir
-            # (bkz. agent_fsm_node.py).
-            topic = f"/swarm/agent/drone{drone_id}/status"
+            topic = f"/swarm/public/drone{drone_id}/status"
             self._node.create_subscription(
                 AgentStatus,
                 topic,
@@ -380,33 +381,34 @@ class RosBridge:
             )
             logger.info("subscribe → %s (drone_id=%d)", topic, drone_id)
 
-        # SwarmState — kontrata göre RELIABLE, 1-10 Hz. swarm_fsm henüz yazılmamış,
-        # mesaj gelmezse latest_swarm_state None kalır (frontend bunu handle eder).
+        # SwarmState — kontrata göre RELIABLE, 1-10 Hz. swarm_fsm yayıncı.
+        # Mesaj gelmezse latest_swarm_state None kalır (frontend bunu handle eder).
         reliable_qos = QoSProfile(depth=10, reliability=QoSReliabilityPolicy.RELIABLE)
         self._node.create_subscription(
-            SwarmState, "/swarm/state", self._on_swarm_state, reliable_qos
+            SwarmState, "/swarm/public/state", self._on_swarm_state, reliable_qos
         )
-        logger.info("subscribe → /swarm/state")
+        logger.info("subscribe → /swarm/public/state")
 
-        # SystemEvent — RELIABLE event akışı. agent_fsm + diğerleri publisher.
+        # SystemEvent — RELIABLE event akışı. agent_fsm + diğerleri yayıncı.
         self._node.create_subscription(
-            SystemEvent, "/swarm/events/system", self._on_system_event, reliable_qos
+            SystemEvent, "/swarm/public/events/system", self._on_system_event, reliable_qos
         )
-        logger.info("subscribe → /swarm/events/system")
+        logger.info("subscribe → /swarm/public/events/system")
 
         # TriggerMission service client — GCS'in tek müdahale noktası.
-        # mission_fsm karşı tarafta server kuracak.
+        # mission_fsm_node karşı tarafta server (doğrulandı: /swarm/mission/trigger).
         self._trigger_mission_client = self._node.create_client(
             TriggerMission, "/swarm/mission/trigger"
         )
         logger.info("service client → /swarm/mission/trigger")
 
         # SwarmControlCommand publisher — Görev 2 joystick mesajı.
+        # GCS ağa komut enjekte ettiği için /swarm/internal/... (proxy public'e iletir).
         # Kontrata göre BEST_EFFORT, 20-50 Hz; deadman switch ile guard.
         self._control_pub = self._node.create_publisher(
-            SwarmControlCommand, "/swarm/control/command", sensor_qos
+            SwarmControlCommand, "/swarm/internal/control/command", sensor_qos
         )
-        logger.info("publisher → /swarm/control/command")
+        logger.info("publisher → /swarm/internal/control/command")
 
         self._executor = SingleThreadedExecutor()
         self._executor.add_node(self._node)
