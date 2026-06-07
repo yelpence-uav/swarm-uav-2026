@@ -122,9 +122,8 @@ static uint32_t son_joystick_ms = 0;
 #define MESH_GONDERIM_MIN_MS 50
 static uint32_t son_mesh_gonderim_ms = 0;
 
-// REPLAY KONTROL HELPER (FIX #4)
-static inline bool mesh_replay_dogrula(const uint8_t* mac, const uint8_t* decrypted_baslik) {
-    node_durum_t* node = _node_bul_veya_ekle(mac);
+// REPLAY KONTROL HELPER — C2 fix: node disaridan alinir
+static inline bool mesh_replay_dogrula(node_durum_t* node, const uint8_t* decrypted_baslik) {
     if (!node) return false;
     return _replay_kontrol(node, (const anti_replay_t*)decrypted_baslik);
 }
@@ -140,7 +139,9 @@ void mesh_veri_al(const mesh_paket_t* p) {
     }
 
     // FIX #4: Replay kontrolu
-    if (!mesh_replay_dogrula(p->kaynak_mac, acik)) {
+    node_durum_t* node = _node_bul_veya_ekle(p->kaynak_mac);
+    if (!node) return;
+    if (!mesh_replay_dogrula(node, acik)) {
         Serial.println("[MESH] Replay/Eski Paket reddedildi!");
         return; 
     }

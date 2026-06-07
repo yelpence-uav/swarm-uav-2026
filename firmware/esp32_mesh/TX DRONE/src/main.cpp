@@ -79,6 +79,7 @@ volatile bool          manevra_aktif        = false;
 volatile uint32_t      manevra_bitis_ms     = 0;
 
 void mesh_veri_al(const mesh_paket_t* p) {
+    // C1 fix: GCM + replay gecerse peer kaydet ve heartbeat guncelle
     uint8_t acik[24] = {0};
     if (!aes_coz_gcm(p->sifreli_veri, 24, acik, p->iv, p->tag)) return;
 
@@ -88,6 +89,14 @@ void mesh_veri_al(const mesh_paket_t* p) {
         Serial.println("[MESH] Replay reddedildi");
         return;
     }
+
+    // GCM + replay gecti: peer kaydet, heartbeat guncelle
+    if (!node->peer_kayitli) {
+        _peer_ekle(p->kaynak_mac);
+        node->peer_kayitli = true;
+    }
+    node->son_heartbeat_ms = millis();
+    node->aktif = true;
 
     portENTER_CRITICAL(&_recv_mux);
     ardisik_kayip_sayisi = 0;

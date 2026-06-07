@@ -7,7 +7,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
-#define MESH_KANAL            8   // §5.4: 1/6/11 non-overlapping kanallardan spektral izolasyon
+#define MESH_KANAL            8   // 2.4GHz kanal 8 — TR mevzuatinda izin verilen ISM bandinda
 #define MESH_MAX_NODES        8
 #define ATLAMA_MAKS           3
 #define HEARTBEAT_ARALIK_MS   500UL
