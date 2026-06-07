@@ -340,14 +340,9 @@ static inline void _paketi_ilet(const mesh_paket_t* gelen) {
 }
 
 static inline void _heartbeat_gonder() {
-    mesh_paket_t p = {};
-    memcpy(p.kaynak_mac, _benim_mac, 6);
-    memcpy(p.hedef_mac,  BROADCAST_MAC, 6);
-    p.paket_id      = ++_paket_sayaci;
-    p.atlama_sayisi = 0;
-    p.tip           = TIP_HEARTBEAT;
-    _duplikat_kaydet(&p);
-    _mesh_gonder(&p);
+    // GCM ile sifrele — sahte HB ile MAC listesine girilmesini engeller
+    uint8_t bos[18] = {};
+    mesh_gonder(bos, TIP_HEARTBEAT);
 }
 
 static inline void mesh_node_timeout_kontrol() {
@@ -441,8 +436,20 @@ static inline void _recv_isle() {
                 }
                 if (_broadcast_mi(p->hedef_mac)) _paketi_ilet(p);
             } else {
-                // Heartbeat paketi — sifreleme yok, ama en azindan duplikat kontrolunden gecti
-                if (node) { node->son_heartbeat_ms = millis(); node->aktif = true; }
+                // Heartbeat — GCM dogrulama zorunlu (MAC spoofing onleme)
+                uint8_t acik[24];
+                if (aes_coz_gcm(p->sifreli_veri, 24, acik, p->iv, p->tag)) {
+                    anti_replay_t* ar = (anti_replay_t*)acik;
+                    if (node && _replay_kontrol(node, ar)) {
+                        node->son_heartbeat_ms = millis();
+                        node->aktif = true;
+                    }
+                    if (_broadcast_mi(p->hedef_mac)) _paketi_ilet(p);
+                } else {
+                    Serial.printf("[MESH] Sahte HEARTBEAT! %02X:%02X:%02X:%02X:%02X:%02X\n",
+                        p->kaynak_mac[0], p->kaynak_mac[1], p->kaynak_mac[2],
+                        p->kaynak_mac[3], p->kaynak_mac[4], p->kaynak_mac[5]);
+                }
             }
         }
 
