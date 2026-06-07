@@ -140,28 +140,29 @@ void mesh_veri_al(const mesh_paket_t* p) {
         return; 
     }
 
-    // FIX #4: Replay kontrolu
+    // FIX #4: mac_to_id whitelist ONCE — bilinmeyen MAC state'e hic girmiyor
+    uint8_t iha_id = mac_to_id(p->kaynak_mac);
+    if (iha_id == 0) {
+        Serial.println("[MESH] Bilinmeyen MAC, paket reddedildi");
+        return;
+    }
     node_durum_t* node = _node_bul_veya_ekle(p->kaynak_mac);
     if (!node) return;
     if (!mesh_replay_dogrula(node, acik)) {
         Serial.println("[MESH] Replay/Eski Paket reddedildi!");
-        return; 
+        return;
     }
 
     portENTER_CRITICAL(&_recv_mux);
     ardisik_kayip_sayisi = 0;
-    son_paket_ms = millis(); 
+    son_paket_ms = millis();
     portEXIT_CRITICAL(&_recv_mux);
 
     failsafe_reset();
 
     uart_mesaj_t msg = {};
     msg.tip    = p->tip;
-    msg.iha_id = mac_to_id(p->kaynak_mac);
-    if (msg.iha_id == 0) {
-        Serial.println("[MESH] Bilinmeyen MAC, paket reddedildi");
-        return;
-    }
+    msg.iha_id = iha_id;
 
     if      (p->tip == TIP_POSE)      msg.uzunluk = sizeof(pose_veri_t);
     else if (p->tip == TIP_GOREV)     msg.uzunluk = sizeof(gorev_veri_t);
