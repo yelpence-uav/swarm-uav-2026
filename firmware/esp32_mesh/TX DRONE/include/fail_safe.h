@@ -31,24 +31,37 @@ volatile uint32_t         manevra_bitis_ms  = 0;
 
 #ifdef HAS_PIXHAWK
 
-inline void px4_mod_gonder(HardwareSerial &seri, uint8_t sub_mode) {
-    mavlink_message_t msg;
-    uint8_t buf[MAVLINK_MAX_PACKET_LEN];
-    mavlink_msg_command_long_pack(
-        255, 190, &msg,
-        1, 1,
-        176,
-        0,
-        1,
-        PX4_CUSTOM_MAIN_MODE_AUTO,
-        (float)sub_mode,
-        0, 0, 0, 0
-    );
-    uint16_t len = mavlink_msg_to_send_buffer(buf, &msg);
-    seri.write(buf, len);
-    Serial.printf("[FAILSAFE] PX4 mod: sub_mode=%u (%s)\n",
+static inline void _failsafe_cobs_gonder(uint8_t sub_mode) {
+    uint8_t ham[18] = {0};
+    ham[0] = 0xFE;
+    ham[1] = 0x00;
+    ham[2] = sub_mode;
+    uint16_t crc = 0xFFFF;
+    for (uint8_t i = 0; i < 16; i++) {
+        crc ^= (uint16_t)ham[i] << 8;
+        for (uint8_t j = 0; j < 8; j++)
+            crc = (crc & 0x8000) ? (crc << 1) ^ 0x1021 : (crc << 1);
+    }
+    ham[16] = (crc >> 8) & 0xFF;
+    ham[17] =  crc & 0xFF;
+    uint8_t cobs[22] = {0};
+    uint8_t kod_idx = 0, yaz_idx = 1, kod = 1;
+    for (uint8_t i = 0; i < 18; i++) {
+        if (ham[i] != 0x00) { cobs[yaz_idx++] = ham[i]; kod++;
+            if (kod == 0xFF) { cobs[kod_idx] = kod; kod_idx = yaz_idx; cobs[yaz_idx++] = 0x01; kod = 1; }
+        } else { cobs[kod_idx] = kod; kod_idx = yaz_idx; cobs[yaz_idx++] = 0x01; kod = 1; }
+    }
+    cobs[kod_idx] = kod;
+    cobs[yaz_idx++] = 0x00;
+    Serial1.write(cobs, yaz_idx);
+    Serial.printf("[FAILSAFE] RPi Serial1: sub_mode=%u (%s)\n",
         sub_mode,
         sub_mode == PX4_CUSTOM_SUB_MODE_AUTO_RTL ? "RTL" : "LAND");
+}
+
+inline void px4_mod_gonder(HardwareSerial &seri, uint8_t sub_mode) {
+    (void)seri;
+    _failsafe_cobs_gonder(sub_mode);
 }
 
 inline void failsafe_kontrol(HardwareSerial &pixhawk_seri) {
