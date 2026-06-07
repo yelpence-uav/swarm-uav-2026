@@ -416,21 +416,31 @@ static inline void _recv_isle() {
             _duplikat_kaydet(p);
 
             node_durum_t* node = _node_bul_veya_ekle(p->kaynak_mac);
-            if (node) {
-                // peer kaydini hemen yap — bu MAC doğrulanmadan da yapilabilir
-                if (!node->peer_kayitli) {
-                    _peer_ekle(p->kaynak_mac);
-                    node->peer_kayitli = true;
-                }
-            }
+            // peer kaydı GCM dogrulamasindan sonra yapilir (Bug2 fix)
 
             if (p->tip != TIP_HEARTBEAT) {
                 bool benim_icin = _broadcast_mi(p->hedef_mac) ||
                                   _benim_mac_mi(p->hedef_mac);
-                if (benim_icin && _veri_callback) {
-                    _veri_callback(p);
-                    // Heartbeat sadece sifre cozumu yapan callback sonrasi guncellenir
+                if (benim_icin) {
+                    // Bug1+Bug3 fix: GCM burda dogrulanir; gecerse node guncellenir
+                    uint8_t _acik_cb[24] = {0};
+                    if (!aes_coz_gcm(p->sifreli_veri, 24, _acik_cb, p->iv, p->tag)) {
+                        Serial.printf("[MESH] GCM hatasi tip:%d %02X:%02X\n",
+                            p->tip, p->kaynak_mac[4], p->kaynak_mac[5]);
+                        // Bug2 fix: sahte MAC peer listesinden cikar
+                        if (node) { node->aktif = false; node->peer_kayitli = false;
+                                    esp_now_del_peer(node->mac); }
+                        _recv_oku = (_recv_oku + 1) % RECV_BUFFER_SIZE;
+                        continue;
+                    }
+                    // GCM gecti — peer kaydet (Bug2 fix: sadece dogrulanmis MAC)
+                    if (node && !node->peer_kayitli) {
+                        _peer_ekle(p->kaynak_mac);
+                        node->peer_kayitli = true;
+                    }
+                    // Bug1 fix: son_heartbeat_ms sadece GCM sonrasi guncellenir
                     if (node) { node->son_heartbeat_ms = millis(); node->aktif = true; }
+                    if (_veri_callback) _veri_callback(p);
                 }
                 if (_broadcast_mi(p->hedef_mac)) _paketi_ilet(p);
             } else {
