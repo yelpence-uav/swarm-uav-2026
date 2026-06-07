@@ -83,6 +83,12 @@ void mesh_veri_al(const mesh_paket_t* p) {
     uint8_t acik[24] = {0};
     if (!aes_coz_gcm(p->sifreli_veri, 24, acik, p->iv, p->tag)) return;
 
+    uint8_t kaynak_id = mac_to_id(p->kaynak_mac);
+    if (kaynak_id == 0) {
+        Serial.println("[MESH] Bilinmeyen MAC, paket reddedildi");
+        return;
+    }
+
     node_durum_t* node = _node_bul_veya_ekle(p->kaynak_mac);
     if (!node) return;
     if (!_replay_kontrol(node, (const anti_replay_t*)acik)) {
@@ -103,12 +109,9 @@ void mesh_veri_al(const mesh_paket_t* p) {
     son_paket_ms = millis();
     portEXIT_CRITICAL(&_recv_mux);
     failsafe_reset();
+    // HEARTBEAT sadece node aktivasyonu icin — RPi'ya gonderilmez
+    if (p->tip == TIP_HEARTBEAT) return;
 
-    uint8_t kaynak_id = mac_to_id(p->kaynak_mac);
-    if (kaynak_id == 0) {
-        Serial.println("[MESH] Bilinmeyen MAC, paket reddedildi");
-        return;
-    }
     uint8_t* payload = acik + sizeof(anti_replay_t);
     uart_gonder(p->tip, kaynak_id, payload, 18);
 }
@@ -175,6 +178,13 @@ void loop() {
                             uint8_t payload[16]     = {0};
                             uint8_t payload_uzunluk = (uint8_t)min((int)veri_uzunluk - 2, 16);
                             memcpy(payload, &decoded[2], payload_uzunluk);
+                            // Whitelist: sadece Pi'den gelmesi beklenen tipler
+                            const bool izinli = (tip_byte == TIP_KOMUT  ||
+                                                  tip_byte == TIP_GOREV  ||
+                                                  tip_byte == TIP_RENK   ||
+                                                  tip_byte == TIP_ORIGIN ||
+                                                  tip_byte == TIP_DURUM);
+                            if (!izinli) break;
                             uint32_t simdi = millis();
                             if (simdi - son_rpi_mesh_ms >= MESH_GONDERIM_MIN_MS) {
                                 son_rpi_mesh_ms = simdi;
