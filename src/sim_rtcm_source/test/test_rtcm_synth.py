@@ -153,3 +153,105 @@ def test_sample_data_dosyasi_var_ve_gecerli():
     assert len(mesajlar) >= 1
     for m in mesajlar:
         assert _crc_dogrula(m)
+
+
+# =====================================================================
+# pyrtcm round-trip decode testleri (SADECE 1005)
+# ---------------------------------------------------------------------
+# 1077 sentetik mesajimiz BILINEN sinirla pipeline-stub'dir: MSM7 govdesi
+# (DF394, DF395 vb.) doldurulmadigi icin pyrtcm/gercek receiver onu MSM7
+# olarak cozemez. Bu sebeple round-trip test yalniz 1005 cerceveleri icin
+# yapilir. Gercek 1077 testi icin replay mode + sample_data/ kullan.
+# =====================================================================
+
+def test_pyrtcm_1005_referans_round_trip_decode():
+    """1005 referans cercevesi pyrtcm ile hatasiz parse edilmeli ve
+    identity 1005 donmelidir (gercek RTCM3 parser ile capraz dogrulama).
+    """
+    import io
+    pyrtcm = pytest.importorskip('pyrtcm')
+    RTCMReader = pyrtcm.RTCMReader
+
+    raw = produce_1005_referans()
+    mesajlar = []
+    for (_rawmsg, parsed) in RTCMReader(io.BytesIO(raw)):
+        if parsed is not None:
+            mesajlar.append(parsed)
+    assert len(mesajlar) == 1, (
+        f'pyrtcm tam 1 mesaj parse etmeli, edildi: {len(mesajlar)}'
+    )
+    assert mesajlar[0].identity == '1005'
+
+
+def test_pyrtcm_1005_sentetik_round_trip_decode():
+    """Sentetik 1005 cercevesi pyrtcm ile hatasiz parse edilmeli ve
+    identity 1005 donmelidir.
+    """
+    import io
+    pyrtcm = pytest.importorskip('pyrtcm')
+    RTCMReader = pyrtcm.RTCMReader
+
+    raw = produce_1005_sentetik()
+    mesajlar = []
+    for (_rawmsg, parsed) in RTCMReader(io.BytesIO(raw)):
+        if parsed is not None:
+            mesajlar.append(parsed)
+    assert len(mesajlar) == 1, (
+        f'pyrtcm tam 1 mesaj parse etmeli, edildi: {len(mesajlar)}'
+    )
+    assert mesajlar[0].identity == '1005'
+
+
+# =====================================================================
+# NEGATIF TEST — bozuk CRC reddediliyor
+# ---------------------------------------------------------------------
+# Pozitif testler "kodumuz gecerli veriyi kabul ediyor" der, ama bu yeterli
+# degil. Sahada bozulmus veri gelir (radyo paraziti, yarim cerceve vb.).
+# Negatif test bozuk veriyi kodun REDDETTIGINI kanitlar.
+# =====================================================================
+
+def test_bozuk_payload_byte_iter_rtcm_messages_reddetmeli():
+    """Gecerli 1005 cercevesinin PAYLOAD byte'i bozulunca CRC eslesmez
+    ve iter_rtcm_messages bu cerceveyi YAYINLAMAMALI.
+
+    Senaryo: gecerli RTKLib referans 1005 cercevesi alinir, payload
+    icindeki bir byte degistirilir (CRC gecersizlesir). Framer'in bunu
+    sessizce dusurdugu (mesajlar listesinde olmadigi) dogrulanir.
+    """
+    # Once temiz cerceve kabul edildigini dogrula (sanity check)
+    temiz = produce_1005_referans()
+    mesajlar_temiz, _ = iter_rtcm_messages(temiz)
+    assert len(mesajlar_temiz) == 1
+    assert mesajlar_temiz[0] == temiz
+
+    # Payload icindeki bir byte'i boz (4. byte = ilk payload byte'i,
+    # XOR 0xFF ile flip). CRC gecersizlesir.
+    bozuk = bytearray(temiz)
+    bozuk[3] = bozuk[3] ^ 0xFF
+    bozuk_bytes = bytes(bozuk)
+
+    # Bozuk cerceve framer tarafindan REDDEDILMELI
+    mesajlar, _ = iter_rtcm_messages(bozuk_bytes)
+    assert mesajlar == [], (
+        f'Bozuk CRC reddedilmeliydi, yayilmis: {len(mesajlar)} mesaj'
+    )
+
+
+def test_bozuk_crc_byte_iter_rtcm_messages_reddetmeli():
+    """Gecerli 1005 cercevesinin CRC24Q byte'i bozulunca framer
+    bu cerceveyi YAYINLAMAMALI.
+
+    Senaryo: cerceve sonundaki 3 byte'lik CRC24Q'nun ortasinda 1 byte
+    flip edilir (payload bozulmaz, sadece CRC). Framer artik dogru
+    payload'in CRC'sini hesaplar, gelen CRC ile eslesmez -> drop.
+    """
+    temiz = produce_1005_referans()
+    bozuk = bytearray(temiz)
+    # Cerceve sonundaki 3 byte CRC24Q; ortadaki byte'i flip et
+    bozuk[-2] = bozuk[-2] ^ 0xFF
+    bozuk_bytes = bytes(bozuk)
+
+    mesajlar, _ = iter_rtcm_messages(bozuk_bytes)
+    assert mesajlar == [], (
+        f'Bozuk CRC24Q reddedilmeliydi, yayilmis: {len(mesajlar)} mesaj'
+    )

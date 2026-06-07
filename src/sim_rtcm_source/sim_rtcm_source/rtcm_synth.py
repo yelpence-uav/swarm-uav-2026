@@ -10,6 +10,16 @@ UYARI: Bu modulun urettigi cerceveler RECEIVER-anlamli RTCM3 verisi
 DEGILDIR. Sadece pipeline testi (preamble + uzunluk + CRC dogrulugu)
 icin gecerli minimal RTCM3 cerceveleridir. Gercek bir GPS modulune
 beslenirse 'kabul edilir' ama anlamli duzeltme uretmez.
+
+Synthetic mod sinirlari:
+  - 1005 (referans istasyon ARP): pyrtcm round-trip parse OK (identity
+    1005 dogrulandi, test_pyrtcm_1005_*).
+  - 1077 (GPS MSM7): pipeline-stub; cerceve gecerli, mesaj no 1077,
+    ama MSM7 govdesi (DF394/DF395) doldurulmamis -> pyrtcm/gercek
+    receiver MSM7 olarak cozemez.
+
+Gercek 1077 verisi gerekirse: replay mode + sample_data/ (gercek baz
+istasyonu kayitlari).
 """
 
 from pyrtcm.rtcmhelpers import calc_crc24q
@@ -92,14 +102,23 @@ def produce_1005_sentetik() -> bytes:
 
 
 def produce_1077_sentetik() -> bytes:
-    """Sentetik 1077 (GPS MSM7) minimum cerceve.
+    """Sentetik 1077 (GPS MSM7) PIPELINE-STUB cerceve.
 
-    MSM7 mesajlari degisken uzunluktadir; biz 20 byte sabit boyut
-    kullaniyoruz. Receiver-anlamli observation verisi YOK; sadece
-    pipeline testi icin gecerli RTCM3 CRC ve 1077 mesaj no isaretli.
+    Yalniz gecerli RTCM3 CERCEVESI uretir (preamble + uzunluk + CRC24Q).
+    MSM7 govdesi (DF394 uydu maskesi, DF395 hucre maskesi, sinyal
+    bilgileri vb.) DOLDURULMAZ; bu yuzden pyrtcm/gercek receiver bu
+    cerceveyi MSM7 olarak COZEMEZ — sadece mesaj numarasini (1077)
+    okur, MSM7 alanlarini parse etmeye calisirken hata verir.
+
+    KASITLIDIR: rtk_bridge RTCM'i opak byte tasir; sim'de PX4 fix=6'yi
+    sim_rtk_fix6.patch ile taklit eder. Bu uretici sadece pipeline
+    testi icin (cerceve gecerliligi + framer kabulu) tasarlanmistir.
+
+    Gercek 1077 verisi icin replay mode + sample_data/ icindeki gercek
+    baz istasyonu kayitlari kullanilmalidir.
 
     Returns:
-        bytes: 26 byte sentetik 1077 cercevesi.
+        bytes: 26 byte sentetik 1077 cercevesi (pipeline-stub).
     """
     payload = bytearray(20)
     # DF002 (12 bit) = 1077 mesaj numarasi
