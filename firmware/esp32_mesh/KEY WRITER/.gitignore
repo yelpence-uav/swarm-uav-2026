@@ -1,0 +1,7 @@
+# KEY WRITER — provision firmware
+# main.cpp icinde SAHA_ANAHTARI var — REPOYA GIRMESIN
+src/main.cpp
+
+# Uretilen anahtar dosyasi
+aes_key.txt
+*.key
