@@ -7,7 +7,8 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
-#define MESH_KANAL            8   // 2.4GHz kanal 8 — TR mevzuatinda izin verilen ISM bandinda
+#define MESH_KANAL           11   // Birincil — non-overlapping, TR ISM, sahada en az meşgul
+#define MESH_KANAL_YEDEK      6   // Yedek — uçuş öncesi spektrum analizi olumsuzsa buraya geç
 #define MESH_MAX_NODES        8
 #define ATLAMA_MAKS           3
 #define HEARTBEAT_ARALIK_MS   500UL
