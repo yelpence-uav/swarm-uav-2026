@@ -1,0 +1,148 @@
+/* ============================================================
+   App shell — dashboard grid layout
+   ============================================================
+   Layout: header (full) → main grid (map + sidebar) → drone strip (full)
+   Görev 2 aktifken: map alanı yarıya bölünür, joystick panel yan tarafa gelir.
+   ============================================================ */
+
+.app {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 360px;
+  grid-template-rows: auto 1fr auto;
+  grid-template-areas:
+    "header   header"
+    "map-area sidebar"
+    "strip    strip";
+  height: 100vh;
+  width: 100vw;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  background: var(--gradient-bg);
+  background-attachment: fixed;
+}
+
+.app > * {
+  min-width: 0;
+  min-height: 0;
+}
+
+/* Joystick aktif: map-area sütununu ortadan ikiye böl. */
+.app--joystick {
+  grid-template-columns: minmax(0, 1fr) 380px 360px;
+  grid-template-areas:
+    "header   header   header"
+    "map-area joystick sidebar"
+    "strip    strip    strip";
+}
+
+/* === Areas ================================================== */
+.app-header {
+  /* AppHeader.css'te detaylı tanımlandı */
+  border-radius: var(--radius-lg);
+}
+
+.app__map-area {
+  grid-area: map-area;
+  position: relative;
+  overflow: hidden;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--color-border);
+  background: var(--color-bg-elevated);
+  box-shadow: var(--shadow-md);
+}
+
+.app__map-area::after {
+  /* Subtle accent glow at the top edge */
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: var(--radius-lg);
+  pointer-events: none;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+.app__joystick {
+  grid-area: joystick;
+  overflow: hidden;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--color-border-accent);
+  background: var(--color-bg-elevated);
+  box-shadow: var(--shadow-md), var(--shadow-glow-accent);
+  animation: slide-in-right var(--transition-slow);
+}
+
+.app__sidebar {
+  grid-area: sidebar;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  overflow-y: auto;
+  padding-right: 2px; /* scrollbar için pay */
+}
+
+.app__sidebar > * {
+  flex-shrink: 0;
+}
+
+.app__drone-strip {
+  grid-area: strip;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(0, 1fr));
+  gap: var(--space-3);
+  /* max-height yok → content kadar yer alır, kartlar tam görünür.
+     Üst alandaki harita (1fr) buna göre kısılır, esnek davranır. */
+}
+
+/* === Responsive ============================================ */
+@media (max-width: 1280px) {
+  .app {
+    grid-template-columns: minmax(0, 1fr) 320px;
+  }
+  .app--joystick {
+    grid-template-columns: minmax(0, 1fr) 320px 320px;
+  }
+}
+
+@media (max-width: 1024px) {
+  .app {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto auto 1fr auto;
+    grid-template-areas:
+      "header"
+      "sidebar"
+      "map-area"
+      "strip";
+  }
+  .app--joystick {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto auto 1fr auto auto;
+    grid-template-areas:
+      "header"
+      "sidebar"
+      "map-area"
+      "joystick"
+      "strip";
+  }
+  .app__sidebar {
+    flex-direction: row;
+    overflow-x: auto;
+    overflow-y: hidden;
+    max-height: none;
+  }
+  .app__sidebar > * {
+    min-width: 280px;
+  }
+}
+
+@media (max-width: 640px) {
+  .app {
+    gap: var(--space-2);
+    padding: var(--space-2);
+  }
+  .app__sidebar {
+    flex-direction: column;
+  }
+  .app__drone-strip {
+    grid-template-columns: 1fr;
+  }
+}

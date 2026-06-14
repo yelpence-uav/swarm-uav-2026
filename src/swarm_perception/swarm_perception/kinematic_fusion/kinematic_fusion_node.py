@@ -171,6 +171,7 @@ class KinematicFusionNode(Node):
     """Komşu telemetrisini EMA ile yumuşatan ROS2 düğümü."""
 
     def __init__(self) -> None:
+        """Initialize."""
         super().__init__('kinematic_fusion')
 
         # ----- Parametreler -----
@@ -569,6 +570,7 @@ class KinematicFusionNode(Node):
 
 
 def main(args=None):
+    """Run main."""
     rclpy.init(args=args)
     node = KinematicFusionNode()
     try:

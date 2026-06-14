@@ -1,3 +1,5 @@
+"""Setup configuration for swarm_perception."""
+
 from setuptools import find_packages, setup
 
 package_name = 'swarm_perception'

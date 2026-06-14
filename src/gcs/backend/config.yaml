@@ -1,0 +1,38 @@
+# GCS yapılandırması.
+#
+# Faz 5 itibariyle GCS birincil yolu ROS 2 (swarm_interfaces kontratı).
+# MAVLink yan-yolu sim erken testleri için fallback olarak korunur.
+
+# Bağlantı modu — birincil iletişim katmanı seçimi
+#   "ros2"        : production yol. RosBridge AgentStatus/SwarmState/SystemEvent
+#                   dinler, TriggerMission/SwarmControlCommand yayınlar.
+#   "mavlink-sim" : Faz 1-4 yan-yolu. PX4 SITL'e doğrudan UDP/MAVLink.
+#                   Ekibin ROS 2 node'ları (agent_fsm, px4_interface) çalışmıyorsa
+#                   sadece sim'de hızlı görsel test için.
+connection_mode: "ros2"
+
+mavlink:
+  # mavlink-sim modunda kullanılır.
+  # SITL: 3 PX4 da 14550'ye yayınlıyor.
+  connection: "udpin:0.0.0.0:14550"
+
+# Drone tanımları. sysid → drone_id eşlemesi.
+drones:
+  - { id: 1, name: "Drone 1", sysid: 1 }
+  - { id: 2, name: "Drone 2", sysid: 2 }
+  - { id: 3, name: "Drone 3", sysid: 3 }
+
+# Drone'dan kaç saniye paket gelmezse OFFLINE sayalım.
+offline_timeout_sec: 3.0
+
+# HTTP / WebSocket sunucusu (Faz 2).
+server:
+  host: "0.0.0.0"
+  port: 8000
+  ws_hz: 10.0                  # WebSocket'ten saniyede kaç snapshot itelim
+  cors_origins:
+    - "http://localhost:5173"  # Vite dev server
+    - "http://127.0.0.1:5173"
+
+# Terminal'e debug print sıklığı (saniye). 0 ise basmaz.
+print_interval_sec: 1.0

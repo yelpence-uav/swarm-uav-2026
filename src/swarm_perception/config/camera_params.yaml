@@ -1,0 +1,64 @@
+# ==========================================================================
+# Yelpençe Sürü İHA — Kamera Parametreleri
+# ==========================================================================
+# Bu dosya camera_driver düğümünün varsayılan parametrelerini içerir.
+# Varsayılan değerler Gazebo Harmonic simülasyonundaki kamera sensörü
+# (sim/models/x500_base/model.sdf) ile tutarlı olacak şekilde ayarlanmıştır.
+#
+# GERÇEK DONANIM GEÇİŞİ:
+# Sahaya çıkıldığında bu dosyadaki değerleri Arducam HQ kameranızın
+# gerçek kalibrasyon sonuçlarıyla güncelleyin. Özellikle fx, fy, cx, cy
+# değerleri OpenCV kalibrasyon (checkerboard) ile elde edilmelidir.
+# ==========================================================================
+
+camera_driver:
+  ros__parameters:
+    agent_id: 1
+    device_id: 0
+
+    # Çözünürlük ve FPS
+    # Gazebo model.sdf: 1280x720, 15 Hz
+    # GERÇEK DONANIM: Arducam HQ 1280x720@30fps destekler.
+    # RPi 5 CPU yükü izlenerek fps artırılabilir.
+    width: 1280
+    height: 720
+    fps: 15.0
+
+    # Çalışma modu
+    # false = gerçek kamera (/dev/video0), true = Gazebo bridge
+    sitl_mode: false
+
+    # Kamera montaj yönü düzeltmesi
+    # GERÇEK DONANIM: Kamera drone gövdesine monte edildikten sonra
+    # görüntünün doğru yönde olup olmadığını kontrol edin.
+    # Ters montaj durumunda flip_vertical: true yapın.
+    flip_vertical: false
+    flip_horizontal: false
+
+    # ---------------------------------------------------------------
+    # Kamera intrinsic parametreleri
+    # ---------------------------------------------------------------
+    # Gazebo model.sdf horizontal_fov: 1.047 rad (~60°)
+    # Aşağıdaki fx/fy değerleri 1280x720 çözünürlük + 60° FOV için
+    # hesaplanmış yaklaşık değerlerdir:
+    #   fx = (width / 2) / tan(hfov / 2) = 640 / tan(0.5235) ≈ 1108.5
+    #
+    # GERÇEK DONANIM: Bu değerleri mutlaka OpenCV checkerboard
+    # kalibrasyonu ile elde edin. Arducam HQ + 6mm CS lens için
+    # gerçek değerler farklı olacaktır.
+    # Kalibrasyon komutu:
+    #   python3 -m cv2 calibrateCamera ...
+    # veya ROS 2 camera_calibration paketi:
+    #   ros2 run camera_calibration cameracalibrator \
+    #     --size 9x6 --square 0.025 \
+    #     image:=/drone_1/camera/image_raw
+    # ---------------------------------------------------------------
+    fx: 1108.5
+    fy: 1108.5
+    cx: 640.0
+    cy: 360.0
+    fov_horizontal_rad: 1.047
+
+    # Kamera sağlık kontrolü — bu süre boyunca frame gelmezse
+    # SystemEvent.EVENT_AGENT_FAULT yayınlanır.
+    health_timeout_sec: 3.0
