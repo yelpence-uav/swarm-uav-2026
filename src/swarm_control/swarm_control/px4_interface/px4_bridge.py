@@ -88,6 +88,10 @@ class Px4BridgeNode(Node):
         self.declare_parameter('agent_id', 1)
         self.declare_parameter('publish_rate_hz', 10.0)
         self.declare_parameter('sitl_mode', False)
+        # velocity_only (B mimarisi): True → PX4'e pozisyon GÖNDERİLMEZ
+        # (sadece hız). Pozisyon kontrolü ROS'taki SVT'ye ait. False → A
+        # (pozisyon+hız feedforward, PX4 pozisyon kontrolcüsü sahibi).
+        self.declare_parameter('velocity_only', False)
         self._agent_id: int = int(
             self.get_parameter('agent_id').value
         )
@@ -96,6 +100,9 @@ class Px4BridgeNode(Node):
         )
         self._sitl_mode: bool = bool(
             self.get_parameter('sitl_mode').value
+        )
+        self._velocity_only: bool = bool(
+            self.get_parameter('velocity_only').value
         )
 
         # Micro-XRCE-DDS-Agent'ın PX4 namespace'i — /fmu/... topic'leri
@@ -347,9 +354,15 @@ class Px4BridgeNode(Node):
 
         use_velocity = setpoint_fresh and self._latest_setpoint.velocity_valid
 
-        if use_velocity:
+        if use_velocity and self._velocity_only:
+            # B: saf hız modu (PX4 pozisyon yapmaz, SVT ROS'ta tutar)
+            self._cmd_sender.publish_offboard_velocity_mode()
+        elif use_velocity:
+            # A: pozisyon + hız feedforward (PX4 pozisyon sahibi)
             self._cmd_sender.publish_offboard_position_velocity_mode()
         else:
+            # Setpoint stale/yok → pozisyon-hold (velocity_only'de bile GÜVENLİ:
+            # flyaway yerine konum tutar → failsafe).
             self._cmd_sender.publish_offboard_position_mode()
 
         # SITL: sahte RC sinyali — gerçek donanımda çalışmaz
@@ -403,7 +416,15 @@ class Px4BridgeNode(Node):
             target_z = self._cached_pos_z
             target_yaw = self._cached_yaw_rad
 
-        if use_velocity:
+        if use_velocity and self._velocity_only:
+            # B: SADECE hız (pozisyon=NaN). Konum kontrolü SVT'de.
+            sp = self._latest_setpoint
+            self._cmd_sender.publish_velocity_setpoint(
+                float(sp.vx), float(sp.vy), float(sp.vz),
+                yaw_rad=target_yaw,
+            )
+        elif use_velocity:
+            # A: pozisyon + hız feedforward
             sp = self._latest_setpoint
             self._cmd_sender.publish_position_velocity_setpoint(
                 target_x, target_y, target_z,
@@ -411,6 +432,7 @@ class Px4BridgeNode(Node):
                 yaw_rad=target_yaw,
             )
         else:
+            # Stale/yok → pozisyon-hold (failsafe, flyaway önler)
             self._cmd_sender.publish_position_setpoint(
                 target_x, target_y, target_z,
                 yaw_rad=target_yaw,
@@ -451,7 +473,12 @@ class Px4BridgeNode(Node):
         Args:
             msg (AgentSetpoint): Hedef pozisyon ve hız bilgisi.
         """
-        if not msg.position_valid:
+        # C MODU (saf hız): setpoint position_valid=False, velocity_valid=True
+        # gelir. Eskiden "not position_valid → return" idi; bu saf-hız komutunu
+        # ÇÖPE atıp _latest_setpoint'i bayatlatıyor, bridge position-hold'a
+        # düşüyordu (dron kıpırdamıyor). Doğru kontrol: İKİSİ de geçersizse
+        # (gerçekten boş setpoint) reddet; biri geçerliyse kabul et.
+        if not (msg.position_valid or msg.velocity_valid):
             return
         self._latest_setpoint = msg
         self._setpoint_stamp = self.get_clock().now().nanoseconds * 1e-9
