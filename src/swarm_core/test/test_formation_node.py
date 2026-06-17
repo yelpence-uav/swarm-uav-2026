@@ -60,6 +60,12 @@ def _make_node(
     node._current_pos_x = 0.0
     node._current_pos_y = 0.0
     node._current_pos_z = 0.0
+    # OSİLASYON DÜZELTMESİ: tether hız sönümü için gereken alanlar.
+    # _current_vel=0 ve ff varsayılan=0 → damping katkısı 0 (saf SVT testleri).
+    node._svt_damp = 0.2
+    node._current_vel_x = 0.0
+    node._current_vel_y = 0.0
+    node._current_vel_z = 0.0
     node._pos_valid = False
     node._oscillating = False
 
@@ -95,12 +101,19 @@ def _fcmd(agent_ids, off_x, off_y, off_z, heading_deg=0.0) -> SimpleNamespace:
     )
 
 
-def _neighbor(rel_x, rel_y, rel_z, link_active=True) -> SimpleNamespace:
-    """Sahte NeighborInfo (göreli konum + link durumu)."""
+def _neighbor(
+    rel_x, rel_y, rel_z,
+    link_active=True,
+    rel_vx=0.0, rel_vy=0.0, rel_vz=0.0,
+) -> SimpleNamespace:
+    """Sahte NeighborInfo (göreli konum + göreli hız + link durumu)."""
     return SimpleNamespace(
         relative_x=rel_x,
         relative_y=rel_y,
         relative_z=rel_z,
+        relative_vx=rel_vx,
+        relative_vy=rel_vy,
+        relative_vz=rel_vz,
         link_active=link_active,
     )
 
@@ -197,13 +210,19 @@ class TestComputeVelocity(unittest.TestCase):
         vx, vy, vz = self.node._compute_velocity(0.0, 0.0, -1.0, 5.0)
         self.assertAlmostEqual(vz, -2.0)
 
-    def test_oscillating_svt_bypass(self):
-        """oscillating=True ise SVT uygulanmaz."""
+    def test_oscillating_svt_uygulanir(self):
+        """C-modu: oscillating=True olsa bile SVT uygulanır (atlanmaz).
+
+        SVT tek pozisyon kontrolcüsü olduğundan oscillating'de atlanamaz
+        (atlanırsa konum tutma çöker); salınımı hız sönümü (-svt_damp·v)
+        söndürür. Burada _current_vel=0 olduğundan saf SVT görülür:
+        ex = 0-10 = -10 → vx = -0.5·(-10) = 5.0.
+        """
         self.node._pos_valid = True
         self.node._oscillating = True
         self.node._current_pos_x = 0.0
         vx, vy, vz = self.node._compute_velocity(10.0, 0.0, 0.0, 5.0)
-        self.assertAlmostEqual(vx, 0.0)
+        self.assertAlmostEqual(vx, 5.0)
 
     def test_max_speed_asimaz(self):
         """Hesaplanan hız max_speed'i aşarsa ölçeklenir."""

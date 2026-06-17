@@ -84,6 +84,10 @@ class FormationControlNode(Node):
         self._current_pos_x: float = 0.0
         self._current_pos_y: float = 0.0
         self._current_pos_z: float = 0.0
+        # OSİLASYON DÜZELTMESİ: tether sönümü için anlık hız durumu.
+        self._current_vel_x: float = 0.0
+        self._current_vel_y: float = 0.0
+        self._current_vel_z: float = 0.0
         self._pos_valid: bool = False
         self._oscillating: bool = False
 
@@ -134,16 +138,29 @@ class FormationControlNode(Node):
         self.declare_parameter('position_tolerance_m', 0.5)
         self.declare_parameter('heading_tolerance_deg', 5.0)
         self.declare_parameter('max_speed_mps', 3.0)
-        self.declare_parameter('svt_k', 0.3)
-        self.declare_parameter('svt_threshold_m', 0.5)
+        # C MODU SVT kazançları: SVT artık TEK pozisyon kontrolcüsü (PX4 değil),
+        # bu yüzden pozisyon-tabanlı moddan DAHA güçlü + DAHA sıkı deadband:
+        #   svt_k 0.3→0.8 (güçlü çekme: 0.5m hata→0.4m/s toparlama)
+        #   threshold 0.5→0.1 (sıkı: hover'da gevşek drift yok, sürü rijit)
+        self.declare_parameter('svt_k', 0.8)
+        self.declare_parameter('svt_threshold_m', 0.1)
         self.declare_parameter('svt_k_z', 2.0)
         self.declare_parameter('svt_threshold_z_m', 0.05)
+        # SVT hız sönümü (overdamped): güçlü SVT yayının overshoot'unu söndürür.
+        # b_s 0.2→0.35 (k artınca rezonansı bastırmak için sönüm de artar).
+        self.declare_parameter('svt_damp', 0.35)
         self.declare_parameter('target_ramp_mps', 1.0)
         # A7 — göreli (komşu tabanlı) formasyon koruma
         self.declare_parameter('rel_enable', True)
         self.declare_parameter('rel_k', 0.2)
         self.declare_parameter('rel_threshold_m', 0.2)
         self.declare_parameter('rel_stale_s', 0.5)
+        # C MODU (SAF HIZ-TABANLI): position_valid=False, velocity_valid=True.
+        # in_formation gate KALDIRILDI; keeping_* artık KULLANILMIYOR (geri
+        # uyumluluk için duruyor). v_ff LPF alfa:
+        self.declare_parameter('keeping_enter_m', 1.2)
+        self.declare_parameter('keeping_exit_m', 1.8)
+        self.declare_parameter('vff_lpf_alpha', 0.3)
 
         self._agent_id: int = int(self.get_parameter('agent_id').value)
         self._publish_rate_hz: float = float(
@@ -166,6 +183,8 @@ class FormationControlNode(Node):
         self._svt_threshold_z_m: float = float(
             self.get_parameter('svt_threshold_z_m').value
         )
+        # OSİLASYON DÜZELTMESİ: tether hız sönüm katsayısı.
+        self._svt_damp: float = float(self.get_parameter('svt_damp').value)
         self._target_ramp_mps: float = float(
             self.get_parameter('target_ramp_mps').value
         )
@@ -179,12 +198,39 @@ class FormationControlNode(Node):
         self._rel_stale_s: float = float(
             self.get_parameter('rel_stale_s').value
         )
+        self._keeping_enter_m: float = float(
+            self.get_parameter('keeping_enter_m').value
+        )
+        self._keeping_exit_m: float = float(
+            self.get_parameter('keeping_exit_m').value
+        )
+        self._vff_lpf_alpha: float = float(
+            self.get_parameter('vff_lpf_alpha').value
+        )
+        # C MODU (SAF HIZ-TABANLI): position_valid=False → pozisyon kontrolü
+        # TÜMÜYLE bizde (SVT tek feedback, PX4 ile çakışmaz). v_cmd = v_svt +
+        # v_damp + v_rel + v_ff. in_formation gate KALDIRILDI — SVT hem form-up
+        # hem seyirde çalışır, tek mod. v_ff LPF durumu:
+        self._vff_x: float = 0.0
+        self._vff_y: float = 0.0
+        self._vff_z: float = 0.0
+        # v_ff = d(SHARED slot)/dt — KOMUT callback'inde (2Hz) hesaplanır,
+        # publish loop'ta (50Hz) DEĞİL. 50Hz'de sabit-merkezi türevlemek
+        # testere dişi (impuls treni) üretir → sallanma. Komut frekansında:
+        # merkez 0.5s'de 0.5m kayar → v_ff=1.0 düz.
+        self._prev_slot_x: float | None = None
+        self._prev_slot_y: float | None = None
+        self._prev_slot_z: float | None = None
+        self._prev_cmd_time: float | None = None
 
     def _setup_publishers(self) -> None:
         """Setpoint publisher'ini olusturur (AgentSetpoint)."""
+        # NOT: çıkış artık doğrudan px4_interface'e değil, collision_avoidance
+        # filtresine gider (APF son emniyet katmanı). collision_avoidance bu
+        # ham hedefi komşulara göre harmanlayıp /control/setpoint'e yazar.
         self._setpoint_pub = self.create_publisher(
             AgentSetpoint,
-            f'/drone_{self._agent_id}/control/setpoint',
+            f'/drone_{self._agent_id}/control/setpoint/raw',
             _BEST_EFFORT_QOS,
         )
 
@@ -250,11 +296,50 @@ class FormationControlNode(Node):
         """
         prev = self._current_formation
         self._current_formation = msg
+        type_changed = prev is None or prev.formation_type != msg.formation_type
         # Formasyon tipi değişirse ramp'i sıfırla — yeni slota yumuşak geçiş
-        if prev is None or prev.formation_type != msg.formation_type:
+        if type_changed:
             self._ramp_x = None
             self._ramp_y = None
             self._ramp_z = None
+
+        # === v_ff = d(SHARED slot)/dt — KOMUT FREKANSINDA (burada, ~2Hz) =====
+        # slot_shared = merkez + R(heading)·offset. Tüm girdileri komuttan gelir,
+        # yani slot SADECE burada değişir; 50Hz publish loop'ta sabittir. Türevi
+        # burada almak DOĞRU dt'yi (komut periyodu ~0.5s) kullanır → düz hız.
+        # Publish'te alsaydık dt=0.02s ile bölüp testere dişi üretirdik (sallanma).
+        agent_ids = list(msg.agent_ids)
+        if self._agent_id in agent_ids:
+            idx = agent_ids.index(self._agent_id)
+            if (idx < len(msg.offset_x) and idx < len(msg.offset_y)
+                    and idx < len(msg.offset_z)):
+                hr = math.radians(msg.heading_deg)
+                odx, ody = rotate_offset(
+                    msg.offset_x[idx], msg.offset_y[idx], hr
+                )
+                ssx = float(msg.center_x) + odx
+                ssy = float(msg.center_y) + ody
+                ssz = float(msg.center_z) + float(msg.offset_z[idx])
+                now = self.get_clock().now().nanoseconds * 1e-9
+                if (not type_changed and self._prev_slot_x is not None
+                        and self._prev_cmd_time is not None):
+                    dtc = now - self._prev_cmd_time
+                    if dtc > 1e-3:
+                        a = self._vff_lpf_alpha
+                        self._vff_x = (a * (ssx - self._prev_slot_x) / dtc
+                                       + (1.0 - a) * self._vff_x)
+                        self._vff_y = (a * (ssy - self._prev_slot_y) / dtc
+                                       + (1.0 - a) * self._vff_y)
+                        self._vff_z = (a * (ssz - self._prev_slot_z) / dtc
+                                       + (1.0 - a) * self._vff_z)
+                else:
+                    # tip değişimi / ilk komut → slot zıplar, v_ff spike'ını engelle
+                    self._vff_x = self._vff_y = self._vff_z = 0.0
+                self._prev_slot_x, self._prev_slot_y, self._prev_slot_z = (
+                    ssx, ssy, ssz
+                )
+                self._prev_cmd_time = now
+
         # Atamadaki komşular için NeighborInfo abonelikleri (A7)
         self._ensure_neighbor_subs(msg.agent_ids)
         self.get_logger().info(
@@ -270,6 +355,10 @@ class FormationControlNode(Node):
         self._current_pos_x = float(msg.pos_x)
         self._current_pos_y = float(msg.pos_y)
         self._current_pos_z = float(msg.pos_z)
+        # OSİLASYON DÜZELTMESİ: tether sönümü için hızı sakla.
+        self._current_vel_x = float(msg.vel_x)
+        self._current_vel_y = float(msg.vel_y)
+        self._current_vel_z = float(msg.vel_z)
         self._pos_valid = True
         self._oscillating = msg.oscillation_detected
 
@@ -336,8 +425,9 @@ class FormationControlNode(Node):
         vz = 0.0
 
         # SVT: threshold'u aşınca sabit kazançlı yay kuvveti uygula.
-        # oscillating=True ise salınım tespit edilmiş — SVT atlanır.
-        if self._pos_valid and not self._oscillating:
+        # C MODU: SVT TEK pozisyon kontrolcüsü → oscillating'de ATLANMAZ
+        # (atlanırsa pozisyon tutma çöker). Salınımı damping (-b·v) söndürür.
+        if self._pos_valid:
             # XY
             ex = self._current_pos_x - target_x
             ey = self._current_pos_y - target_y
@@ -350,6 +440,15 @@ class FormationControlNode(Node):
             ez = self._current_pos_z - target_z
             if abs(ez) > self._svt_threshold_z_m:
                 vz -= self._svt_k_z * ez
+
+            # OSİLASYON DÜZELTMESİ (#5 tether rezonansı): hız sönümü.
+            # F_tether = -k_s*displacement - b_s*velocity. Saf yay engel sonrası
+            # eski formasyona dönerken overshoot/rezonans yapıyordu; hıza orantılı
+            # sönüm overdamped davranış sağlar (slota yumuşak oturma, titremez).
+            # Slota oturunca v≈0 → sönüm≈0 (steady-state'i bozmaz).
+            vx -= self._svt_damp * self._current_vel_x
+            vy -= self._svt_damp * self._current_vel_y
+            vz -= self._svt_damp * self._current_vel_z
 
         return self._clamp_speed(vx, vy, vz, max_speed)
 
@@ -499,6 +598,8 @@ class FormationControlNode(Node):
         y = center_y + dy
         z = center_z + msg.offset_z[idx]
 
+        # Shared NED slot → lokal NED (dronun kendi GPS/EKF origin'ine göre).
+        # v_ff burada DEĞİL, komut callback'inde (shared frame, 2Hz) hesaplandı.
         x, y = self._shared_to_local(x, y)
         # Z dönüştürülmez: local z=center_z her drone'un kendi origin'ine göre,
         # aynı zeminden kalkanlar için aynı gerçek yükseklik demektir.
@@ -528,7 +629,7 @@ class FormationControlNode(Node):
             self._ramp_x = self._current_pos_x if self._pos_valid else x
             self._ramp_y = self._current_pos_y if self._pos_valid else y
             self._ramp_z = self._current_pos_z if self._pos_valid else z
-        ramp_converged = True
+        # Ramp: ani slot sıçramasını yumuşat (SVT'ye giren hedef pürüzsüz olsun).
         if dt > 0.0 and ramp_rate > 0.0:
             max_step = ramp_rate * dt
             for attr, target in [
@@ -536,25 +637,33 @@ class FormationControlNode(Node):
             ]:
                 cur = getattr(self, attr)
                 diff = target - cur
-                if abs(diff) > 0.05:
-                    ramp_converged = False
                 step = max(-max_step, min(max_step, diff))
                 setattr(self, attr, cur + step)
         x, y, z = self._ramp_x, self._ramp_y, self._ramp_z
 
-        # Mutlak SVT (dünyaya çapa) + göreli koruma (komşuya sıkılaştırma).
-        # Hareket ederken velocity_valid=False (ramp converge etmedi) → PX4
-        # pozisyon kontrolü sürer; slota oturunca SVT+göreli aktif olur.
-        vx, vy, vz = self._compute_velocity(x, y, z, max_speed)
+        # === HIZ KOMUTU (C MODU: SAF HIZ-TABANLI) =========================
+        # v_cmd = v_svt + v_damp + v_rel + v_ff. Pozisyon kontrolü TÜMÜYLE
+        # burada (SVT tek feedback) → position_valid=False, PX4 ile ÇAKIŞMAZ.
+        # in_formation gate YOK: SVT form-up'ta büyük hata→büyük çekme, seyirde
+        # küçük→ince koruma; tek mod. APF (CA node) bu hıza zincirde eklenir.
+        #
+        # SVT + damping: ramp'lı lokal slota çeker (-k·err) + sönümler (-b·v).
+        svx, svy, svz = self._compute_velocity(x, y, z, max_speed)
+        # rel: komşulara göre düzeltme (dağıtık sürü koordinasyonu, hız uzayı).
         rvx, rvy, rvz = self._compute_relative_correction(
             msg, idx, heading_rad, now
         )
+        # v_ff: merkez hızı feed-forward. KOMUT callback'inde (2Hz) hesaplandı
+        # (self._vff_*); burada SADECE eklenir. Hız frame-bağımsız (sabit origin
+        # offset'i türevde kaybolur) → shared'de hesaplanan lokalde de geçerli.
         vx, vy, vz = self._clamp_speed(
-            vx + rvx, vy + rvy, vz + rvz, max_speed
-        )
+            svx + rvx + self._vff_x,
+            svy + rvy + self._vff_y,
+            svz + rvz + self._vff_z, max_speed)
         out = self._build_setpoint_msg(
             msg, x, y, z, vx, vy, vz,
-            velocity_valid=ramp_converged,
+            position_valid=False,
+            velocity_valid=True,
         )
         self._setpoint_pub.publish(out)
 
@@ -568,6 +677,7 @@ class FormationControlNode(Node):
         vy: float,
         vz: float,
         velocity_valid: bool = False,
+        position_valid: bool = True,
     ) -> AgentSetpoint:
         """Hesaplanan pozisyon ve hızdan AgentSetpoint mesajı üretir."""
         out = AgentSetpoint()
@@ -582,7 +692,7 @@ class FormationControlNode(Node):
         out.x = float(x)
         out.y = float(y)
         out.z = float(z)
-        out.position_valid = True
+        out.position_valid = position_valid
 
         out.vx = float(vx)
         out.vy = float(vy)
