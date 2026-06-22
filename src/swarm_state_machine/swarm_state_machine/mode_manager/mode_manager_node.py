@@ -242,7 +242,9 @@ class ModeManagerNode(Node):
             self._dispatch_hold()
 
         # 3. Formasyon değişikliği talebi
-        if ctx.formation_change_requested and ctx.state in ACTIVE_CONTROL_STATES:
+        if ctx.formation_change_requested and (
+            ctx.state in ACTIVE_CONTROL_STATES
+        ):
             self._handle_formation_change()
 
         # 4. Geçici bayrakları temizle

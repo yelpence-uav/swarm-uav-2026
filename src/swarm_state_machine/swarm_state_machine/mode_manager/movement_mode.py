@@ -9,8 +9,6 @@
 Çıktı: FormationCommand → formation_control → AgentSetpoint.
 """
 
-import math
-
 
 def compute_formation_command(
     ctx,

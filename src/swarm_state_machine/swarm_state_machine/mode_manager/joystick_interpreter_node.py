@@ -1,4 +1,4 @@
-"""joystick_interpreter_node.py — PX4 ManualControlSetpoint → SwarmControlCommand.
+"""joystick_interpreter_node.py — PX4 uORB to SwarmControlCommand.
 
 PX4'ün /fmu/out/manual_control_setpoint uORB mesajını XRCE-DDS
 üzerinden okur, normalize ederek SwarmControlCommand mesajına

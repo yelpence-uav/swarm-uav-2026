@@ -13,7 +13,6 @@ doğrudan setpoint hesaplaması yapılır.
 """
 
 import math
-from typing import Optional
 
 
 def compute_agent_setpoints(
@@ -82,8 +81,9 @@ def compute_agent_setpoints(
         # Hedef pozisyon (NED)
         target_x = ctx.centroid_x + rx
         target_y = ctx.centroid_y + ry
-        target_z = (ctx.centroid_z + oz + dz_throttle
-                     - dz_pitch - dz_roll)
+        target_z = (
+            ctx.centroid_z + oz + dz_throttle - dz_pitch - dz_roll
+        )
 
         setpoints.append({
             'agent_id': agent_id,
