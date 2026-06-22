@@ -197,6 +197,7 @@ def _from_hold(ctx: ModeContext) -> ModeState | None:
     """HOLD: Deadman bırakıldı, sürü yerinde duruyor.
 
     Deadman tekrar basılınca aktif moda döner.
+    Eğer 5 saniye boyunca komut gelmezse Failsafe (LANDING) moduna geçer.
 
     Args:
         ctx: FSM çalışma zamanı durumu.
@@ -205,6 +206,8 @@ def _from_hold(ctx: ModeContext) -> ModeState | None:
         Hedef ModeState veya None.
     """
     if not ctx.command_active:
+        if ctx.time_in_state() > 5.0:
+            return ModeState.LANDING
         return None
 
     if ctx.control_mode == ControlMode.SWARM_MOVEMENT:
