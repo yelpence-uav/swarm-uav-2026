@@ -81,8 +81,11 @@ class RtkBridgeNode(Node):
             raise ValueError('agent_id pozitif olmalı')
 
         # ----- Durum -----
-        # iter_rtcm_messages yarım kuyruğu
-        self._tampon: bytes = b''
+        # iter_rtcm_messages yarım kuyruğu.
+        # bytearray: yeni veri `extend` ile YERİNDE eklenir (amortized O(1)).
+        # bytes olsaydı her callback'te `tampon + yeni` yeni kopya üretirdi
+        # (O(n)); sürekli akışta bu gereksiz kopyalama olurdu.
+        self._tampon = bytearray()
         # Tanı sayaçları
         self._alinan_msg = 0
         self._yayinlanan_frag = 0
@@ -138,8 +141,12 @@ class RtkBridgeNode(Node):
         """
         if not msg.data:
             return
-        akis = self._tampon + bytes(msg.data)
-        mesajlar, self._tampon = iter_rtcm_messages(akis)
+        # Yeni veriyi tampona YERİNDE ekle (O(1) amortized; kopya yok).
+        self._tampon.extend(msg.data)
+        mesajlar, kalan = iter_rtcm_messages(self._tampon)
+        # Tüketilen baş kısmı at; geriye yalnız yarım kuyruk (kalan) durur.
+        # kalan küçük olduğundan bu kırpma pratikte O(1) gibi davranır.
+        del self._tampon[:len(self._tampon) - len(kalan)]
         if not mesajlar:
             return  # yarım kuyruk biriktiriyoruz, bekle
         for rtcm_msg in mesajlar:
