@@ -1,0 +1,127 @@
+/* Alert listesi: harita üzerinde sağ üst köşeden toast-style yığılır */
+.alert-list {
+  position: absolute;
+  top: var(--space-4);
+  right: var(--space-4);
+  z-index: var(--z-toast);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  max-width: 360px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  pointer-events: none; /* item'lar pointer-events: auto override eder */
+}
+
+.alert-item {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-3) var(--space-4);
+  background: var(--color-bg-overlay);
+  backdrop-filter: blur(12px);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md);
+  pointer-events: auto;
+  animation: slide-in-right var(--transition-base);
+  overflow: hidden;
+}
+
+/* Sol kenarda severity şeridi */
+.alert-item::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+}
+
+.alert-item--info {
+  border-color: rgba(56, 189, 248, 0.3);
+}
+.alert-item--info::before {
+  background: var(--color-accent);
+  box-shadow: 0 0 12px var(--color-accent-glow);
+}
+
+.alert-item--warning {
+  border-color: rgba(245, 158, 11, 0.4);
+  box-shadow: var(--shadow-md), var(--shadow-glow-warning);
+}
+.alert-item--warning::before {
+  background: var(--color-warning);
+  box-shadow: 0 0 12px var(--color-warning-glow);
+}
+
+.alert-item--critical {
+  border-color: rgba(239, 68, 68, 0.5);
+  box-shadow: var(--shadow-md), var(--shadow-glow-danger);
+  animation:
+    slide-in-right var(--transition-base),
+    pulse-glow 1.8s ease-in-out 0.4s infinite;
+}
+.alert-item--critical::before {
+  background: var(--color-danger);
+  box-shadow: 0 0 16px var(--color-danger-glow);
+}
+
+/* === Head ================================================== */
+.alert-item__head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.alert-item__severity {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+.alert-item--info .alert-item__severity     { color: var(--color-accent); }
+.alert-item--warning .alert-item__severity  { color: var(--color-warning); }
+.alert-item--critical .alert-item__severity { color: var(--color-danger); }
+
+.alert-item__drone {
+  font-size: var(--text-xs);
+  color: var(--color-text-secondary);
+  font-weight: 600;
+}
+
+.alert-item__age {
+  font-size: 10px;
+  color: var(--color-text-muted);
+  font-family: var(--font-mono);
+  margin-left: auto;
+  padding-right: var(--space-2);
+}
+
+.alert-item__close {
+  width: 20px;
+  height: 20px;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-muted);
+  border: none;
+  font-size: var(--text-md);
+  line-height: 1;
+  display: grid;
+  place-items: center;
+  transition: all var(--transition-fast);
+}
+
+.alert-item__close:hover {
+  background: var(--color-bg-glass);
+  color: var(--color-text-primary);
+}
+
+/* === Body =================================================== */
+.alert-item__msg {
+  font-size: var(--text-sm);
+  color: var(--color-text-primary);
+  line-height: var(--leading-base);
+}

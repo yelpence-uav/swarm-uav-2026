@@ -1,0 +1,211 @@
+.mission-panel {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  background: var(--gradient-card);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  animation: fade-in var(--transition-base);
+}
+
+.mission-panel::before {
+  content: "GÖREV";
+  position: absolute;
+  top: var(--space-3);
+  right: var(--space-4);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  color: var(--color-text-muted);
+}
+
+/* === Row =================================================== */
+.mission-panel__row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.mission-panel__row--safety {
+  border-top: 1px solid var(--color-border);
+  padding-top: var(--space-3);
+  margin-top: var(--space-1);
+}
+
+/* === Field ================================================== */
+.mission-panel__field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.mission-panel__field > span {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+.mission-panel__field select,
+.mission-panel__field input {
+  font-family: var(--font-ui);
+  font-size: var(--text-sm);
+  color: var(--color-text-primary);
+  background: var(--color-bg-glass);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-2) var(--space-3);
+  transition: all var(--transition-fast);
+  outline: none;
+}
+
+.mission-panel__field select:hover,
+.mission-panel__field input:hover {
+  border-color: var(--color-border-strong);
+}
+
+.mission-panel__field select:focus,
+.mission-panel__field input:focus {
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 3px var(--color-accent-glow);
+}
+
+.mission-panel__field input::placeholder {
+  color: var(--color-text-muted);
+}
+
+/* === Start CTA ============================================= */
+.mission-panel__start {
+  width: 100%;
+  padding: var(--space-4) var(--space-5);
+  font-size: var(--text-md);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: white;
+  background: var(--gradient-cta);
+  border: none;
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md), var(--shadow-glow-accent);
+  transition: all var(--transition-base);
+  position: relative;
+  overflow: hidden;
+}
+
+.mission-panel__start::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.15),
+    transparent
+  );
+  background-size: 200% 100%;
+  animation: shimmer 3s linear infinite;
+}
+
+.mission-panel__start:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-lg), 0 0 32px var(--color-accent-glow);
+  background: var(--gradient-cta-hover);
+}
+
+.mission-panel__start:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.mission-panel__start:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  background: var(--color-bg-glass);
+  color: var(--color-text-muted);
+  border: 1px solid var(--color-border);
+  box-shadow: none;
+}
+
+.mission-panel__start:disabled::before {
+  display: none;
+}
+
+/* === Hint =================================================== */
+.mission-panel__hint {
+  padding: var(--space-2) var(--space-3);
+  background: rgba(56, 189, 248, 0.08);
+  border-left: 2px solid var(--color-accent);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-xs);
+  color: var(--color-text-secondary);
+  line-height: var(--leading-base);
+  animation: fade-in var(--transition-base);
+}
+
+/* === Safety label ========================================== */
+.mission-panel__safety-label {
+  font-size: var(--text-xs);
+  color: var(--color-warning);
+  font-weight: 600;
+  display: block;
+  margin-bottom: var(--space-2);
+  letter-spacing: 0.02em;
+}
+
+.mission-panel__safety-btn--abort {
+  width: 100%;
+  padding: var(--space-3) var(--space-4);
+  font-size: var(--text-sm);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: white;
+  background: var(--gradient-danger);
+  border: none;
+  border-radius: var(--radius-md);
+  transition: all var(--transition-fast);
+}
+
+.mission-panel__safety-btn--abort:hover:not(:disabled) {
+  box-shadow: var(--shadow-glow-danger);
+  transform: translateY(-1px);
+}
+
+.mission-panel__safety-btn--abort:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+  background: var(--color-bg-glass);
+  color: var(--color-text-muted);
+}
+
+/* === Result / error ======================================== */
+.mission-panel__result {
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  font-size: var(--text-xs);
+  font-family: var(--font-mono);
+  animation: fade-in var(--transition-base);
+}
+
+.mission-panel__result--ok {
+  background: rgba(16, 185, 129, 0.12);
+  color: var(--color-success);
+  border: 1px solid rgba(16, 185, 129, 0.3);
+}
+
+.mission-panel__result--fail {
+  background: rgba(239, 68, 68, 0.12);
+  color: var(--color-danger);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+}
+
+.mission-panel__error {
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  background: rgba(239, 68, 68, 0.12);
+  color: var(--color-danger);
+  font-size: var(--text-xs);
+  font-family: var(--font-mono);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+}

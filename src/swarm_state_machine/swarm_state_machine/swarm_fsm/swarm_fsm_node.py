@@ -561,21 +561,6 @@ class SwarmFsmNode(Node):
             ctx.last_event_pos_z = msg.pos_z
         ctx.last_event_message = msg.message
 
-    def _on_swarm_origin(self, msg: SwarmOrigin) -> None:
-        if msg.valid:
-            self._origin_lat = float(msg.origin_lat_deg)
-            self._origin_lon = float(msg.origin_lon_deg)
-
-    def _to_shared_ned(self, lat: float, lon: float) -> tuple[float, float]:
-        """GPS lat/lon → shared NED (north, east) metre."""
-        if self._origin_lat is None:
-            return 0.0, 0.0
-        d_lat = lat - self._origin_lat
-        d_lon = lon - self._origin_lon
-        north = d_lat * _M_PER_DEG_LAT
-        east = d_lon * _M_PER_DEG_LAT * math.cos(math.radians(self._origin_lat))
-        return north, east
-
         # Formasyon olayları
         if eid == SystemEvent.EVENT_FORMATION_REACHED:
             ctx.formation_reached = True
@@ -620,6 +605,21 @@ class SwarmFsmNode(Node):
 
         elif eid == SystemEvent.EVENT_LEADER_CHANGED:
             ctx.status_text = msg.message or 'Lider değişti'
+
+    def _on_swarm_origin(self, msg: SwarmOrigin) -> None:
+        if msg.valid:
+            self._origin_lat = float(msg.origin_lat_deg)
+            self._origin_lon = float(msg.origin_lon_deg)
+
+    def _to_shared_ned(self, lat: float, lon: float) -> tuple[float, float]:
+        """GPS lat/lon → shared NED (north, east) metre."""
+        if self._origin_lat is None:
+            return 0.0, 0.0
+        d_lat = lat - self._origin_lat
+        d_lon = lon - self._origin_lon
+        north = d_lat * _M_PER_DEG_LAT
+        east = d_lon * _M_PER_DEG_LAT * math.cos(math.radians(self._origin_lat))
+        return north, east
 
     def _on_heartbeat(self, msg: LeaderHeartbeat) -> None:
         """Lider heartbeat mesajını işler.

@@ -210,6 +210,43 @@ class CommandSender:
         msg.body_rate = False
         self._offboard_pub.publish(msg)
 
+    def publish_offboard_velocity_mode(self) -> None:
+        """OFFBOARD saf HIZ kontrol modunu PX4'e bildirir (B mimarisi).
+
+        position=False → PX4 pozisyon kontrolü YAPMAZ, yalnız hızı izler.
+        Konum kontrolü ROS tarafında (SVT). velocity-only akış için.
+        """
+        msg = OffboardControlMode()
+        msg.timestamp = int(self._node.get_clock().now().nanoseconds / 1000)
+        msg.position = False
+        msg.velocity = True
+        msg.acceleration = False
+        msg.attitude = False
+        msg.body_rate = False
+        self._offboard_pub.publish(msg)
+
+    def publish_velocity_setpoint(
+        self,
+        vx: float,
+        vy: float,
+        vz: float,
+        yaw_rad: float = 0.0,
+    ) -> None:
+        """Saf hız setpoint'i gönder (pozisyon=NaN → PX4 pozisyon yapmaz).
+
+        velocity-only mod (B): pozisyon NaN olunca PX4 yalnız hızı izler;
+        konum kontrolü ROS'taki SVT'ye aittir. publish_offboard_velocity_mode
+        ile birlikte kullanılmalıdır.
+        """
+        msg = TrajectorySetpoint()
+        msg.timestamp = int(self._node.get_clock().now().nanoseconds / 1000)
+        msg.position = [_NAN, _NAN, _NAN]
+        msg.velocity = [float(vx), float(vy), float(vz)]
+        msg.acceleration = [_NAN, _NAN, _NAN]
+        msg.yaw = float(yaw_rad)
+        msg.yawspeed = _NAN
+        self._setpoint_pub.publish(msg)
+
     def publish_position_setpoint(
         self,
         x: float,

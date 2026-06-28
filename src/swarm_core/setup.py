@@ -25,6 +25,11 @@ setup(
             'formation_test_publisher = '
             'swarm_core.formation_control'
             '.formation_test_publisher:main',
+            'collision_avoidance = '
+            'swarm_core.collision_avoidance'
+            '.collision_avoidance_node:main',
+            'path_planner = '
+            'swarm_core.path_planning.path_planner_node:main',
         ],
     },
 )

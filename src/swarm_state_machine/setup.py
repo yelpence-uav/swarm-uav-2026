@@ -25,6 +25,10 @@ setup(
             'swarm_state_machine.mission_fsm.mission_fsm_node:main',
             'swarm_fsm_node = '
             'swarm_state_machine.swarm_fsm.swarm_fsm_node:main',
+            'mode_manager_node = '
+            'swarm_state_machine.mode_manager.mode_manager_node:main',
+            'joystick_interpreter_node = '
+            'swarm_state_machine.mode_manager.joystick_interpreter_node:main',
         ],
     },
 )
