@@ -248,6 +248,29 @@ class Px4BridgeNode(Node):
     # =================================================================
     def _setup_rtk(self) -> None:
         """RTCM aboneliği + GpsInjectData publisher + tanı timer kurar."""
+        # RTK parametreleri — sahada yeniden derlemeden ayarlanabilsin diye
+        # declare_parameter ile dışa açık (eski rtk_bridge node'unda da
+        # parametreydi; gömülürken korunması için geri eklendi).
+        self.declare_parameter('rtk_max_payload', _RTK_DEFAULT_MAX_PAYLOAD)
+        self.declare_parameter('rtk_gps_device_id', _RTK_GPS_DEVICE_ID)
+        self.declare_parameter('rtk_makul_payload', _RTK_MAKUL_PAYLOAD)
+        self._rtk_max_payload = int(
+            self.get_parameter('rtk_max_payload').value
+        )
+        self._rtk_device_id = int(
+            self.get_parameter('rtk_gps_device_id').value
+        )
+        self._rtk_makul_payload = int(
+            self.get_parameter('rtk_makul_payload').value
+        )
+        # Güvenlik: tek fragman GpsInjectData.data (300 B) sınırını aşamaz.
+        if not 1 <= self._rtk_max_payload <= _GPS_INJECT_DATA_SIZE:
+            self.get_logger().warning(
+                f'rtk_max_payload={self._rtk_max_payload} gecersiz '
+                f'(1..{_GPS_INJECT_DATA_SIZE}); varsayilan kullanilacak'
+            )
+            self._rtk_max_payload = _RTK_DEFAULT_MAX_PAYLOAD
+
         # iter_rtcm_messages yarım kuyruğu (bytearray: extend ile O(1)).
         self._rtk_tampon = bytearray()
         # Tanı sayaçları
@@ -291,7 +314,7 @@ class Px4BridgeNode(Node):
         # Yeni veriyi tampona YERİNDE ekle (O(1) amortized; kopya yok).
         self._rtk_tampon.extend(msg.data)
         mesajlar, kalan = iter_rtcm_messages(
-            self._rtk_tampon, _RTK_MAKUL_PAYLOAD
+            self._rtk_tampon, self._rtk_makul_payload
         )
         # Tüketilen baş kısmı at; geriye yalnız yarım kuyruk kalır.
         del self._rtk_tampon[:len(self._rtk_tampon) - len(kalan)]
@@ -311,14 +334,14 @@ class Px4BridgeNode(Node):
     def _rtk_yayinla_fragmenler(self, rtcm_msg: bytes) -> None:
         """RTCM mesajını fragmenter'a verip her parçayı PX4'e yayınlar."""
         parcalar = fragment_for_inject(
-            rtcm_msg, max_payload=_RTK_DEFAULT_MAX_PAYLOAD
+            rtcm_msg, max_payload=self._rtk_max_payload
         )
         for chunk, fragmented in parcalar:
             inject = GpsInjectData()
             inject.timestamp = int(
                 self.get_clock().now().nanoseconds / 1000
             )
-            inject.device_id = _RTK_GPS_DEVICE_ID
+            inject.device_id = self._rtk_device_id
             inject.len = len(chunk)
             inject.flags = 1 if fragmented else 0
             # data alanı uint8[300] sabit; chunk'u 0 ile padle
