@@ -30,6 +30,9 @@ _CRC24Q_POLY = 0x1864CFB
 _CRC24Q_INIT = 0x000000
 _CRC24Q_MASK = 0xFFFFFF
 
+# RTCM3 uzunluk alanı 10 bit -> teorik en büyük payload 1023 bayt.
+_RTCM3_MAX_PAYLOAD = 1023
+
 
 def crc24q(veri: bytes) -> int:
     """RTCM3 CRC24Q değerini hesaplar.
@@ -51,7 +54,10 @@ def crc24q(veri: bytes) -> int:
     return crc
 
 
-def iter_rtcm_messages(akis: bytes):
+def iter_rtcm_messages(
+    akis: bytes,
+    max_makul_payload: int = _RTCM3_MAX_PAYLOAD,
+):
     """Byte akışından tam ve CRC-doğrulanmış RTCM3 mesajlarını ayıklar.
 
     Streaming kullanım için tasarlandı: tüketilmemiş yarım kuyruğu
@@ -62,6 +68,10 @@ def iter_rtcm_messages(akis: bytes):
 
     Args:
         akis (bytes): Çözümlenecek bayt akışı (eski kuyruk + yeni veri).
+        max_makul_payload (int): Bu değerden büyük uzunluk iddia eden
+            preamble, CRC hesaplanmadan sahte kabul edilir (fail-fast).
+            Varsayılan RTCM3 teorik tavanı (1023) = filtre kapalı; çağıran
+            kendi alanına uygun daha küçük bir sınır geçebilir.
 
     Returns:
         tuple[list[bytes], bytes]: (mesajlar, remainder).
@@ -81,6 +91,13 @@ def iter_rtcm_messages(akis: bytes):
             break
         # Uzunluk: header[1] alt 2 biti + header[2] (10 bit toplam)
         uzunluk = ((akis[i + 1] & 0x03) << 8) | akis[i + 2]
+        # FAIL-FAST: makul üst sınırı aşan uzunluk sahte preamble'dır.
+        # CRC (pahalı) hesaplamadan reddet, 1 bayt ilerle. Bu olmadan
+        # 0xD3/0xFF-dolu gürültü her pozisyonda boşa CRC tetikler ve
+        # callback'i ~ms'lere uzatır (algorithmic-complexity / DoS).
+        if uzunluk > max_makul_payload:
+            i += 1
+            continue
         cerceve_boy = _RTCM3_HEADER_LEN + uzunluk + _RTCM3_CRC_LEN
         if i + cerceve_boy > n:
             # Tam çerçeve gelmedi; remainder'a kalsın

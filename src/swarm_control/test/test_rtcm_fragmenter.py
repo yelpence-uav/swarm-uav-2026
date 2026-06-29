@@ -2,7 +2,7 @@
 
 import pytest
 
-from swarm_control.rtk_bridge.rtcm_packing import fragment_for_inject
+from swarm_control.px4_interface.rtcm_packing import fragment_for_inject
 
 
 def test_kucuk_mesaj_tek_parca_fragmented_false():

@@ -23,8 +23,6 @@ setup(
             'swarm_origin_publisher = swarm_control.swarm_origin_publisher:main',
             'esp32_bridge = '
             'swarm_control.esp32_bridge.esp32_bridge_node:main',
-            'rtk_bridge = '
-            'swarm_control.rtk_bridge.rtk_bridge_node:main',
         ],
     },
 )

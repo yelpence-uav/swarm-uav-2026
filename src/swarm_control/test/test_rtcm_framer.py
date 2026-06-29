@@ -4,7 +4,7 @@ Birim test deseni `test_esp32_cobs.py` ile aynıdır: pytest function-style,
 docstring'li, edge case'leri kapsar. Saf Python (ROS importu yok).
 """
 
-from swarm_control.rtk_bridge.rtcm_packing import (
+from swarm_control.px4_interface.rtcm_packing import (
     crc24q,
     iter_rtcm_messages,
 )

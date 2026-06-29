@@ -33,6 +33,7 @@ from rclpy.qos import (
 from px4_msgs.msg import (
     BatteryStatus,
     EstimatorStatusFlags,
+    GpsInjectData,
     HomePosition,
     ManualControlSetpoint,
     SensorGps,
@@ -42,8 +43,8 @@ from px4_msgs.msg import (
     VehicleStatus,
 )
 
-# Komut için basit string mesajı (FSM'den gelir)
-from std_msgs.msg import String
+# Komut için basit string (FSM) ve RTCM bayt akışı (mesh -> RTK)
+from std_msgs.msg import String, UInt8MultiArray
 
 # Bizim mesaj formatımız
 from swarm_interfaces.msg import AgentSetpoint, AgentStatus, SwarmOrigin
@@ -62,6 +63,13 @@ from .telemetry_mapper import (
 )
 from .command_sender import CommandSender
 
+# RTK: RTCM3 framer + GpsInjectData fragmenter (saf modül, ROS bağımsız).
+# Ayrı node yerine bu köprünün içine alındı — ayrı process/DDS/px4_msgs
+# yükünü (~66 MB) ikinci kez ödememek için. Parse mantığı yine ayrı
+# modülde (test edilebilir kalsın); RTK callback'i hızlı (~38 µs) olduğu
+# için tek thread'de offboard heartbeat'i etkilemez.
+from .rtcm_packing import fragment_for_inject, iter_rtcm_messages
+
 
 # PX4 BEST_EFFORT QoS — PX4 telemetri bu profili kullanır
 _PX4_QOS = QoSProfile(
@@ -70,6 +78,21 @@ _PX4_QOS = QoSProfile(
     history=QoSHistoryPolicy.KEEP_LAST,
     depth=5,
 )
+
+# --- RTK / RTCM sabitleri (eski rtk_bridge'den taşındı) ---
+_GPS_INJECT_DATA_SIZE = 300      # px4_msgs/GpsInjectData.data uzunluğu
+_RTK_DEFAULT_MAX_PAYLOAD = 300   # tek GpsInjectData fragmanı
+_RTK_GPS_DEVICE_ID = 0           # ground injector standardı
+# RTCM3 tek frame en fazla: header(3) + payload(<=1023) + crc(3) = 1029 B.
+_RTCM_MAX_FRAME = 1029
+# Tampon iki frame'i aşarsa sync kaybı/bozuk akış kabul edilir; biriken
+# çöp atılır (yoksa her çağrı tüm tamponu yeniden tarar -> O(n^2)).
+_RTK_MAX_TAMPON_BYTE = 2 * _RTCM_MAX_FRAME
+# RTK düzeltme paketleri pratikte küçüktür (<500 B). Bunu aşan uzunluk
+# iddia eden preamble, fail-fast ile (CRC'siz) sahte sayılır.
+_RTK_MAKUL_PAYLOAD = 768
+_GPS_INJECT_QOS_DEPTH = 10       # command_sender deseni
+_RTK_DIAG_PERIOD_S = 1.0         # RTK tanı log periyodu
 
 
 class Px4BridgeNode(Node):
@@ -210,10 +233,112 @@ class Px4BridgeNode(Node):
         # TrajectorySetpoint sadece konum geçerliyken gönderilir.
         self.create_timer(1.0 / 50.0, self._offboard_tick)
 
+        # RTK/RTCM köprüsü (eski rtk_bridge node'undan taşındı)
+        self._setup_rtk()
+
         self.get_logger().info(
             f'Px4BridgeNode başlatıldı: agent_id={self._agent_id}, '
             f'fmu_ns={self._fmu_ns}, publish_rate={publish_rate} Hz'
         )
+
+    # =================================================================
+    # RTK / RTCM KÖPRÜSÜ (eski rtk_bridge node'undan taşındı)
+    # Ayrı sorumluluk olduğu için kod burada bir arada tutulur; parse
+    # mantığı rtcm_packing modülünde (ROS bağımsız, test edilebilir).
+    # =================================================================
+    def _setup_rtk(self) -> None:
+        """RTCM aboneliği + GpsInjectData publisher + tanı timer kurar."""
+        # iter_rtcm_messages yarım kuyruğu (bytearray: extend ile O(1)).
+        self._rtk_tampon = bytearray()
+        # Tanı sayaçları
+        self._rtk_alinan_msg = 0
+        self._rtk_yayinlanan_frag = 0
+        self._rtk_cb_hata = 0
+        self._rtk_sync_kayip = 0
+
+        ns = self._fmu_ns
+        self._rtcm_sub = self.create_subscription(
+            UInt8MultiArray,
+            f'{ns}/rtcm/in',
+            self._on_rtcm,
+            10,
+        )
+        self._gps_inject_pub = self.create_publisher(
+            GpsInjectData,
+            f'{ns}/fmu/in/gps_inject_data',
+            _GPS_INJECT_QOS_DEPTH,
+        )
+        self.create_timer(_RTK_DIAG_PERIOD_S, self._rtk_tani_yayinla)
+
+    def _on_rtcm(self, msg: UInt8MultiArray) -> None:
+        """RTCM callback'i (try'lı, exception node'u çökertmez)."""
+        try:
+            self._on_rtcm_inner(msg)
+        except Exception as e:  # noqa: BLE001
+            self._rtk_cb_hata += 1
+            self.get_logger().error(
+                f'_on_rtcm hata: {type(e).__name__}: {e}'
+            )
+
+    def _on_rtcm_inner(self, msg: UInt8MultiArray) -> None:
+        """RTCM akışını işleyip tam mesajları fragmenter'a yollar.
+
+        RTCM düşük hızlıdır (tipik 1 Hz) ve her epoch'ta birden fazla
+        mesaj bundle olarak gelir; rate-limit'e gerek yoktur.
+        """
+        if not msg.data:
+            return
+        # Yeni veriyi tampona YERİNDE ekle (O(1) amortized; kopya yok).
+        self._rtk_tampon.extend(msg.data)
+        mesajlar, kalan = iter_rtcm_messages(
+            self._rtk_tampon, _RTK_MAKUL_PAYLOAD
+        )
+        # Tüketilen baş kısmı at; geriye yalnız yarım kuyruk kalır.
+        del self._rtk_tampon[:len(self._rtk_tampon) - len(kalan)]
+        # Bozuk akışta geçerli frame çıkmaz, tampon birikir; iki frame'i
+        # aşarsa sync kaybı kabul edilir, çöp atılır (O(n^2) önlenir).
+        if len(self._rtk_tampon) > _RTK_MAX_TAMPON_BYTE:
+            del self._rtk_tampon[
+                :len(self._rtk_tampon) - _RTCM_MAX_FRAME
+            ]
+            self._rtk_sync_kayip += 1
+        if not mesajlar:
+            return  # yarım kuyruk biriktiriyoruz, bekle
+        for rtcm_msg in mesajlar:
+            self._rtk_alinan_msg += 1
+            self._rtk_yayinla_fragmenler(rtcm_msg)
+
+    def _rtk_yayinla_fragmenler(self, rtcm_msg: bytes) -> None:
+        """RTCM mesajını fragmenter'a verip her parçayı PX4'e yayınlar."""
+        parcalar = fragment_for_inject(
+            rtcm_msg, max_payload=_RTK_DEFAULT_MAX_PAYLOAD
+        )
+        for chunk, fragmented in parcalar:
+            inject = GpsInjectData()
+            inject.timestamp = int(
+                self.get_clock().now().nanoseconds / 1000
+            )
+            inject.device_id = _RTK_GPS_DEVICE_ID
+            inject.len = len(chunk)
+            inject.flags = 1 if fragmented else 0
+            # data alanı uint8[300] sabit; chunk'u 0 ile padle
+            dolgu = _GPS_INJECT_DATA_SIZE - len(chunk)
+            inject.data = list(chunk) + [0] * dolgu
+            self._gps_inject_pub.publish(inject)
+            self._rtk_yayinlanan_frag += 1
+
+    def _rtk_tani_yayinla(self) -> None:
+        """1 Hz RTK tanı log'u; köprü sağlığını dışarıya bildirir."""
+        try:
+            self.get_logger().info(
+                f'rtk: msg={self._rtk_alinan_msg} '
+                f'frag={self._rtk_yayinlanan_frag} '
+                f'tampon={len(self._rtk_tampon)}B '
+                f'sync_kayip={self._rtk_sync_kayip} '
+                f'cb_hata={self._rtk_cb_hata}'
+            )
+        except Exception as e:  # noqa: BLE001
+            self.get_logger().error(f'rtk tani log hata: {e}')
 
     # =================================================================
     # PX4 ABONELİKLERİ

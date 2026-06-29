@@ -305,9 +305,10 @@ def main():
         "ros2 run network_proxy network_proxy_node", "Network_Proxy", "network_proxy"
     )
 
-    # 9. Sim RTCM Kaynağı + RTK Köprüsü (her drone için)
-    # YALNIZCA-SIM: sim_rtcm_source rtk_bridge'in /drone_{id}/rtcm/in
-    # girişini besler; rtk_bridge alıp PX4'e GpsInjectData enjekte eder.
+    # 9. Sim RTCM Kaynağı (her drone için)
+    # YALNIZCA-SIM: sim_rtcm_source /drone_{id}/rtcm/in girişini besler.
+    # RTK köprüsü artık px4_bridge içine alındı; o bu topic'i dinleyip
+    # PX4'e GpsInjectData enjekte eder. Ayrı rtk_bridge başlatılmaz.
     # Sahada esp32_bridge bu topic'i besleyecek; bu launch'a EKLENMEZ.
     for drone_id in range(1, DRONE_COUNT + 1):
         print(f">> Sim RTCM Source (drone_{drone_id}) başlatılıyor...")
@@ -317,13 +318,6 @@ def main():
             f"-p publish_hz:=1.0",
             f"SimRTCM_{drone_id}",
             f"sim_rtcm_source_{drone_id}",
-        )
-        print(f">> RTK Bridge (drone_{drone_id}) başlatılıyor...")
-        run_in_tmux(
-            f"ros2 run swarm_control rtk_bridge "
-            f"--ros-args -p agent_id:={drone_id} -p sitl_mode:=true",
-            f"RTKBridge_{drone_id}",
-            f"rtk_bridge_{drone_id}",
         )
 
     print("\n--- TÜM SİSTEM BAŞARIYLA BAŞLATILDI ---")
