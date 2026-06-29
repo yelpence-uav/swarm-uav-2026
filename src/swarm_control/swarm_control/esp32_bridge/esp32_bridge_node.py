@@ -1,4 +1,4 @@
-"""esp32_bridge.py — ESP32 mesh ↔ ROS2 köprüsü (ana node).
+r"""esp32_bridge.py — ESP32 mesh ↔ ROS2 köprüsü (ana node).
 
 Gerçek donanımda network_proxy'nin yerini alır: komşu drone'lardan
 ESP-NOW mesh üzerinden gelip ESP32'nin UART'a yazdığı paketleri çözer,
@@ -31,7 +31,6 @@ import threading
 import time
 
 import rclpy
-import serial
 from rclpy.node import Node
 from rclpy.qos import (
     QoSDurabilityPolicy,
@@ -39,6 +38,7 @@ from rclpy.qos import (
     QoSProfile,
     QoSReliabilityPolicy,
 )
+import serial
 
 from swarm_interfaces.msg import (
     AgentStatus,
@@ -161,7 +161,7 @@ _STATE_DURUM_MAP = {
 
 
 def _kirp_int16(deger: float) -> int:
-    """float değeri int16 aralığına (-32768..32767) kırpıp tamsayı döner."""
+    """Float değeri int16 aralığına (-32768..32767) kırpıp tamsayı döner."""
     return max(-32768, min(32767, int(deger)))
 
 
@@ -963,7 +963,7 @@ class Esp32BridgeNode(Node):
         self._uart_yaz(pp.TIP_KOMUT, self._agent_id, payload)
 
     def _on_leader_hb_out(self, msg: LeaderHeartbeat) -> None:
-        """LeaderHeartbeat'i TIP_LEADER_HB olarak ESP32'ye gönderir."""
+        """Lider kalp atışını TIP_LEADER_HB olarak ESP32'ye gönderir."""
         payload = pp.leader_hb_paketle(
             leader_id=msg.leader_id,
             sequence_num=msg.sequence_num,
