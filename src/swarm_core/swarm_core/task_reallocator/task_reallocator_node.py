@@ -171,6 +171,13 @@ class TaskReallocatorNode(Node):
             self._on_election, assign_qos,
         )
 
+        # Aktif formasyon komutu — güncel tip/mesafe/yönü ÖĞRENMEK için
+        # (formation_control yayınlar; biz yalnızca okuruz, değiştirmeyiz).
+        self._formation_sub = self.create_subscription(
+            FormationCommand, '/swarm/public/formation/target',
+            self._on_formation_command, event_qos,
+        )
+
         self._assignment_pub = self.create_publisher(
             FormationCommand, str(self._gp('assignment_topic')), assign_qos
         )
@@ -247,6 +254,23 @@ class TaskReallocatorNode(Node):
             self.get_logger().info('[election] %s' % note)
         if result.changed_ids:
             self._publish_assignment('election')
+
+    def _on_formation_command(self, msg: FormationCommand) -> None:
+        """Aktif formasyon tipi/mesafe/yönünü ÖĞRENİR (formasyonu SAHİPLENMEZ).
+
+        formation_control/mission_fsm formasyonu değiştirince (QR: ok→V,
+        mesafe 5→3) buradan haberdar oluruz; böylece SONRAKİ üye değişiminde
+        katılan İHA'yı GÜNCEL formasyona göre yerleştiririz. Formasyonu biz
+        DEĞİŞTİRMEYİZ veya yeniden dağıtmayız — yalnızca okuruz.
+
+        Not: kendi atama yayınımız ayrı topic'tedir; bu callback onu
+        tüketmez (geri besleme döngüsü yok).
+        """
+        if int(msg.formation_type) != 0:
+            self._formation_type = int(msg.formation_type)
+        if float(msg.spacing_m) > 0.0:
+            self._core.p.spacing_m = float(msg.spacing_m)
+        self._heading_rad = math.radians(float(msg.heading_deg))
 
     # ------------------------------------------------------------------ #
     #  Karar akışları                                                     #
