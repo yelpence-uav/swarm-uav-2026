@@ -61,8 +61,7 @@ def test_assign_formation_all_ranked_and_leader_at_zero():
     assert set(r.rank_map) == {1, 2, 3}
     assert sorted(r.rank_map.values()) == [0, 1, 2]
     leaders = [a for a, role in r.role_map.items() if role == ROLE_LEADER]
-    assert len(leaders) == 1
-    assert r.rank_map[leaders[0]] == 0
+    assert leaders == [1]  # en küçük id'li güvenli ajan lider olur
 
 
 def test_assign_formation_minimizes_travel():
@@ -196,18 +195,59 @@ def test_rejoin_takes_lowest_free_rank():
     assert rej.rank_map[2] == det.vacated_rank
 
 
-def test_leader_detach_then_standby_notes_election():
-    """Lider (rank 0) ayrılıp yedekle dolunca seçim notu eklenir."""
-    tr = TaskReallocator(ReallocatorParams(formation_size=3))
-    _add(tr, 1, 0.0, 0.0)
-    _add(tr, 2, -3.0, 5.0)
-    _add(tr, 3, -3.0, -5.0)
-    _add(tr, 5, -10.0, 0.0, state=STATE_STANDBY)
+def test_leader_detach_triggers_election_smallest_id():
+    """Lider ayrılınca 'leader_lost' notu + en küçük id yeni lider olur.
+
+    Şartname gereği yeni lider FİZİKSEL yer değiştirmez; rol devreder.
+    """
+    tr = _make3()
     tr.assign_formation(FORMATION_OKBASI, 0.0, pinned_leader=1)
+    assert tr.get_entry(1).role == ROLE_LEADER
+    rank2_before = tr.get_entry(2).rank
     det = tr.detach(1)
-    assert det.vacated_rank == 0
-    rep = tr.replace_with_standby(FORMATION_OKBASI, 0)
-    assert 'leader_slot_filled_pending_election' in rep.notes
+    assert 'leader_lost' in det.notes
+    el = tr.elect_leader()
+    # Kalan en küçük id = 2 → yeni lider.
+    assert el.role_map[2] == ROLE_LEADER
+    assert tr.get_entry(2).role == ROLE_LEADER
+    # Yeni lider kendi slotunda kaldı (rank değişmedi) — şartname s.13.
+    assert tr.get_entry(2).rank == rank2_before
+
+
+def test_election_prefers_pinned_leader():
+    """elect_leader pinned (consensus) verilince onu tercih eder."""
+    tr = _make3()
+    tr.assign_formation(FORMATION_OKBASI, 0.0)
+    el = tr.elect_leader(pinned_leader=3)
+    assert tr.get_entry(3).role == ROLE_LEADER
+    assert el.role_map.get(3) == ROLE_LEADER
+
+
+def test_election_no_eligible_leader_safe():
+    """Hiç uygun aktif ajan yoksa elect_leader patlamaz, not döner."""
+    tr = TaskReallocator(ReallocatorParams(formation_size=3))
+    el = tr.elect_leader()
+    assert 'no_eligible_leader' in el.notes
+
+
+def test_apply_leader_consumes_consensus_decision():
+    """apply_leader consensus liderini İŞLER (seçmez); slot korunur."""
+    tr = _make3()
+    tr.assign_formation(FORMATION_OKBASI, 0.0)  # default lider = 1
+    rank3_before = tr.get_entry(3).rank
+    res = tr.apply_leader(3)  # consensus "lider = 3" dedi
+    assert tr.get_entry(3).role == ROLE_LEADER
+    assert tr.get_entry(1).role == ROLE_FOLLOWER
+    assert tr.get_entry(3).rank == rank3_before  # slot değişmedi
+    assert 'leader_applied:3' in res.notes
+
+
+def test_apply_leader_unranked_safe():
+    """Lider henüz rank almadıysa apply_leader patlamaz, not döner."""
+    tr = _make3()
+    tr.assign_formation(FORMATION_OKBASI, 0.0)
+    res = tr.apply_leader(99)
+    assert any(n.startswith('leader_not_ranked') for n in res.notes)
 
 
 def test_degradation_thresholds():

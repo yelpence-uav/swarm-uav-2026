@@ -313,6 +313,7 @@ class TaskReallocator:
                 continue
             self._apply_rank(entry, rank, slots[rank], r)
 
+        self._assign_leader(pinned_leader, r)
         self._demote_standbys(r)
         self._append_degradation_note(r)
         return r
@@ -334,12 +335,16 @@ class TaskReallocator:
         if entry is None:
             r.notes.append('unknown_agent:%d' % target_id)
             return r
+        was_leader = entry.role == ROLE_LEADER
         r.vacated_rank = entry.rank if entry.rank >= 0 else None
         entry.role = ROLE_DETACHED
         entry.rank = _RANK_UNASSIGNED
         r.role_map[target_id] = ROLE_DETACHED
         r.rank_map[target_id] = _RANK_UNASSIGNED
         r.changed_ids.append(target_id)
+        if was_leader:
+            # Liderlik boşaldı — node elect_leader() çağırmalı (en küçük id).
+            r.notes.append('leader_lost')
         self._append_degradation_note(r)
         return r
 
@@ -374,9 +379,8 @@ class TaskReallocator:
         offset = self._slot_offset(formation_type, rank, r)
         if offset is None:
             return r
-        if rank == 0:
-            # Lider slotu: yalnızca defter; gerçek seçim consensus'ta.
-            r.notes.append('leader_slot_filled_pending_election')
+        # Yedek FOLLOWER olarak slota oturur. Boşalan slot rank 0 olsa bile
+        # liderlik buradan ATANMAZ; lider ayrı seçilir (elect_leader).
         self._apply_rank(standby, rank, offset, r)
         r.activated_standby_id = standby.agent_id
         r.vacated_rank = rank
@@ -561,9 +565,14 @@ class TaskReallocator:
         offset: tuple[float, float, float],
         r: Reallocation,
     ) -> None:
-        """Bir ajana rank/rol/offset uygular ve delta'yı kaydeder."""
+        """Bir ajana SLOT (rank/offset) uygular; rolü FOLLOWER yapar.
+
+        Rank fiziksel slottur; liderlik ayrı bir karardır (``_set_leader`` /
+        ``elect_leader``). Bu metot yalnızca yerleştirme yapar — bir slota
+        oturan ajan varsayılan olarak takipçidir, liderlik buradan ATANMAZ.
+        """
         entry.rank = rank
-        entry.role = ROLE_LEADER if rank == 0 else ROLE_FOLLOWER
+        entry.role = ROLE_FOLLOWER
         r.rank_map[entry.agent_id] = rank
         r.role_map[entry.agent_id] = entry.role
         r.offset_map[entry.agent_id] = offset
@@ -607,6 +616,106 @@ class TaskReallocator:
                 entry.rank = _RANK_UNASSIGNED
                 r.role_map[entry.agent_id] = ROLE_STANDBY
                 r.rank_map[entry.agent_id] = _RANK_UNASSIGNED
+                if entry.agent_id not in r.changed_ids:
+                    r.changed_ids.append(entry.agent_id)
+
+    def elect_leader(
+        self, pinned_leader: int | None = None,
+    ) -> Reallocation:
+        """En küçük id'li UYGUN aktif ajanı lider yapar (yer tutucu seçim).
+
+        Lider düştüğünde çağrılır. Şartname gereği FİZİKSEL slot DEĞİŞMEZ;
+        yalnızca LİDER rolü devreder (yeni lider kendi rank'inde kalır, rank
+        0 boş kalabilir). ``pinned_leader`` verilirse (consensus kararı) o
+        ajan tercih edilir; aksi hâlde en küçük agent_id.
+
+        Args:
+            pinned_leader: Dışarıdan (consensus) dayatılan lider; opsiyonel.
+
+        Returns:
+            Reallocation: yalnızca rol değişimleri (slot korunur).
+        """
+        r = Reallocation()
+        leader = self._choose_leader(pinned_leader)
+        if leader is None:
+            r.notes.append('no_eligible_leader')
+            self._append_degradation_note(r)
+            return r
+        self._set_leader(leader, r)
+        r.notes.append('leader_elected:%d' % leader)
+        self._append_degradation_note(r)
+        return r
+
+    def apply_leader(self, leader_id: int) -> Reallocation:
+        """Consensus'un seçtiği lideri rol defterine İŞLER (seçim YAPMAZ).
+
+        Lider KARARI consensus'undur (Beyza/ElectionResult). Bu metot o
+        kararı yalnızca uygular: leader_id → LİDER, diğer rank'liler →
+        FOLLOWER. Fiziksel slot korunur (şartname).
+
+        Args:
+            leader_id: Consensus'un seçtiği lider ajan kimliği.
+
+        Returns:
+            Reallocation: rol değişimleri (slot korunur). Lider henüz rank
+            almadıysa yalnızca not döner.
+        """
+        r = Reallocation()
+        entry = self._roster.get(leader_id)
+        if entry is None or entry.rank < 0:
+            r.notes.append('leader_not_ranked:%d' % leader_id)
+            return r
+        self._set_leader(leader_id, r)
+        r.notes.append('leader_applied:%d' % leader_id)
+        return r
+
+    def has_leader(self) -> bool:
+        """Rank atanmış ajanlar arasında lider var mı?"""
+        return any(
+            e.role == ROLE_LEADER and e.rank >= 0
+            for e in self._roster.values()
+        )
+
+    def _eligible_active(self) -> list[RosterEntry]:
+        """Uygun + rank atanmış ajanları agent_id sırasıyla döner."""
+        return sorted(
+            (
+                e for e in self._roster.values()
+                if _eligible(e) and e.rank >= 0
+            ),
+            key=lambda e: e.agent_id,
+        )
+
+    def _choose_leader(self, pinned: int | None) -> int | None:
+        """Lider adayı: pinned (uygunsa) yoksa en küçük id'li güvenli aktif."""
+        cands = self._eligible_active()
+        ids = [e.agent_id for e in cands]
+        if pinned is not None and pinned in ids:
+            return pinned
+        return cands[0].agent_id if cands else None
+
+    def _assign_leader(self, pinned: int | None, r: Reallocation) -> None:
+        """assign_formation içinde lideri belirler ve uygular."""
+        leader = self._choose_leader(pinned)
+        if leader is not None:
+            self._set_leader(leader, r)
+
+    def _set_leader(self, leader_id: int, r: Reallocation) -> None:
+        """Tek lider bırakır: leader_id → LİDER, diğer rank'liler → FOLLOWER.
+
+        Yalnızca rolü değişen ajan delta'ya yazılır; slot (rank) korunur.
+        """
+        for entry in self._roster.values():
+            if entry.rank < 0:
+                continue
+            desired = (
+                ROLE_LEADER if entry.agent_id == leader_id
+                else ROLE_FOLLOWER
+            )
+            if entry.role != desired:
+                entry.role = desired
+                r.role_map[entry.agent_id] = desired
+                r.rank_map[entry.agent_id] = entry.rank
                 if entry.agent_id not in r.changed_ids:
                     r.changed_ids.append(entry.agent_id)
 

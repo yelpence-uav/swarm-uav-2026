@@ -33,7 +33,12 @@ from rclpy.qos import (
     ReliabilityPolicy,
 )
 
-from swarm_interfaces.msg import AgentStatus, FormationCommand, SystemEvent
+from swarm_interfaces.msg import (
+    AgentStatus,
+    ElectionResult,
+    FormationCommand,
+    SystemEvent,
+)
 from swarm_interfaces.srv import AssignRole
 
 from swarm_core.task_reallocator.task_reallocator_core import (
@@ -90,6 +95,11 @@ class TaskReallocatorNode(Node):
         self._formation_assigned = False
         self._seq = 0
         self._emergency = False
+
+        # Consensus (Beyza) ElectionResult'tan gelen lider — biz SEÇMEYİZ.
+        self._consensus_leader: int | None = None
+        self._last_election_round = -1
+        self._last_election_seq = 0
 
         self._setup_interfaces()
         self.get_logger().info(
@@ -155,6 +165,12 @@ class TaskReallocatorNode(Node):
             self._on_event, event_qos,
         )
 
+        # Consensus lider sonucu — latched (TRANSIENT_LOCAL), geç katılan alır.
+        self._election_sub = self.create_subscription(
+            ElectionResult, '/swarm/public/election/result',
+            self._on_election, assign_qos,
+        )
+
         self._assignment_pub = self.create_publisher(
             FormationCommand, str(self._gp('assignment_topic')), assign_qos
         )
@@ -207,6 +223,31 @@ class TaskReallocatorNode(Node):
         elif event_type in _REJOIN_EVENTS and target > 0:
             self._handle_rejoin(target)
 
+    def _on_election(self, msg: ElectionResult) -> None:
+        """Consensus lider sonucunu UYGULAR (lideri SEÇMEZ).
+
+        Lider KARARI consensus'undur (Beyza). Biz yalnızca rol defterine
+        yansıtır ve slot atamasını yeniden yayınlarız. Lider rolü için
+        AssignRole GÖNDERMEYİZ — onu consensus duyurur. Eski round/sequence
+        mesajları yok sayılır.
+        """
+        rnd = int(msg.election_round)
+        seq = int(msg.sequence_num)
+        is_stale = rnd < self._last_election_round or (
+            rnd == self._last_election_round
+            and seq <= self._last_election_seq
+        )
+        if is_stale:
+            return
+        self._last_election_round = rnd
+        self._last_election_seq = seq
+        self._consensus_leader = int(msg.new_leader_id)
+        result = self._core.apply_leader(self._consensus_leader)
+        for note in result.notes:
+            self.get_logger().info('[election] %s' % note)
+        if result.changed_ids:
+            self._publish_assignment('election')
+
     # ------------------------------------------------------------------ #
     #  Karar akışları                                                     #
     # ------------------------------------------------------------------ #
@@ -220,7 +261,7 @@ class TaskReallocatorNode(Node):
         ) == 0:
             r = self._core.assign_formation(
                 self._formation_type, self._heading_rad,
-                pinned_leader=self._pinned_leader,
+                pinned_leader=self._leader_hint(),
             )
             if r.rank_map:
                 self._formation_assigned = True
@@ -237,6 +278,13 @@ class TaskReallocatorNode(Node):
             )
             if rep.changed_ids:
                 self._apply(rep, 'replace_standby')
+        # Lider SEÇİMİ consensus'un (Beyza) işidir; ElectionResult ile gelir.
+        # Yalnızca consensus HİÇ konuşmadıysa (lider hiç bilinmiyor) son çare
+        # olarak en küçük id'li güvenli ajanı yedek seçeriz.
+        if not self._core.has_leader() and self._consensus_leader is None:
+            el = self._core.elect_leader()
+            if el.changed_ids:
+                self._apply(el, 'fallback_election')
 
     def _handle_rejoin(self, target_id: int) -> None:
         """Katılma olayını işler; en küçük boş rank'e oturtur."""
@@ -323,6 +371,12 @@ class TaskReallocatorNode(Node):
                 continue
             last = self._last_seen.get(agent_id, 0.0)
             entry.fresh = (now - last) <= self._stale_timeout_s
+
+    def _leader_hint(self) -> int | None:
+        """Lider ipucu: consensus kararı varsa o, yoksa manuel pinned param."""
+        if self._consensus_leader is not None:
+            return self._consensus_leader
+        return self._pinned_leader if self._pinned_leader else None
 
     def _has_standby(self) -> bool:
         """Uygun (taze + origin) en az bir yedek var mı?"""
