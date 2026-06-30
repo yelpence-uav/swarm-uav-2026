@@ -33,6 +33,11 @@ from rclpy.qos import (
     ReliabilityPolicy,
 )
 
+from swarm_core.task_reallocator.task_reallocator_core import (
+    ReallocatorParams,
+    STATE_STANDBY,
+    TaskReallocator,
+)
 from swarm_interfaces.msg import (
     AgentStatus,
     ElectionResult,
@@ -40,12 +45,6 @@ from swarm_interfaces.msg import (
     SystemEvent,
 )
 from swarm_interfaces.srv import AssignRole
-
-from swarm_core.task_reallocator.task_reallocator_core import (
-    ReallocatorParams,
-    STATE_STANDBY,
-    TaskReallocator,
-)
 
 
 # Tetikleyici member-management olayları (SystemEvent.event_type).
@@ -194,7 +193,7 @@ class TaskReallocatorNode(Node):
     #  Callback'ler                                                       #
     # ------------------------------------------------------------------ #
     def _on_status(self, msg: AgentStatus) -> None:
-        """AgentStatus telemetrisini roster'a işler (atama TETİKLEMEZ).
+        """Telemetriyi (AgentStatus) roster'a işler (atama TETİKLEMEZ).
 
         Yalnızca defter güncellenir (O(1)). Acil durum bayrağı burada
         izlenir. İlk formasyon ataması için hazırlık kontrolü yapılır.
@@ -331,7 +330,7 @@ class TaskReallocatorNode(Node):
             self._publish_assignment(reason)
 
     def _send_role(self, agent_id: int, role: int, reason: str) -> None:
-        """AssignRole servisini ASENKRON çağırır (executor'ı bloklamaz)."""
+        """Rol atamasını ASENKRON servis çağrısıyla gönderir (bloklamaz)."""
         client = self._role_clients.get(agent_id)
         if client is None:
             return
@@ -348,7 +347,7 @@ class TaskReallocatorNode(Node):
         future.add_done_callback(self._on_role_response)
 
     def _on_role_response(self, future) -> None:
-        """AssignRole yanıtını loglar (hata sessizce yutulmaz)."""
+        """Servis (AssignRole) yanıtını loglar (hata sessizce yutulmaz)."""
         try:
             result = future.result()
         except Exception as exc:  # noqa: BLE001 — servis hatasini raporla
@@ -403,7 +402,7 @@ class TaskReallocatorNode(Node):
         return self._pinned_leader if self._pinned_leader else None
 
     def _has_standby(self) -> bool:
-        """Uygun (taze + origin) en az bir yedek var mı?"""
+        """Uygun (taze + origin) en az bir yedek olup olmadığını döner."""
         for agent_id in self._agent_ids:
             entry = self._core.get_entry(agent_id)
             if (

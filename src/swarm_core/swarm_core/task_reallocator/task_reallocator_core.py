@@ -41,8 +41,8 @@ LİTERATÜR / TASARIM:
 
 from __future__ import annotations
 
-import math
 from dataclasses import dataclass, field
+import math
 
 from swarm_core.formation_control.formation_geometry import (
     compute_slot_offsets,
@@ -422,7 +422,7 @@ class TaskReallocator:
     def build_custom_offsets(
         self, formation_type: int,
     ) -> tuple[list[int], list[float], list[float], list[float]]:
-        """FormationCommand CUSTOM alanları için atama listelerini üretir.
+        """Atama listelerini FormationCommand CUSTOM alanları için üretir.
 
         Yalnızca rank atanmış ajanları rank sırasıyla döner. Offset'ler
         body-frame'dir (heading döndürmesini tüketici uygular).
@@ -670,7 +670,7 @@ class TaskReallocator:
         return r
 
     def has_leader(self) -> bool:
-        """Rank atanmış ajanlar arasında lider var mı?"""
+        """Rank atanmış ajanlar arasında lider olup olmadığını döner."""
         return any(
             e.role == ROLE_LEADER and e.rank >= 0
             for e in self._roster.values()
