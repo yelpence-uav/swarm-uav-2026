@@ -136,8 +136,12 @@ def test_replay_byte_akisi_dosya_okur():
 
 def test_replay_byte_akisi_bulunamayan_dosya():
     """Yok dosya FileNotFoundError firlatmali."""
+    # Hardcoded '/tmp' yerine tasinabilir tempfile (Bandit B108).
+    yok_dosya = os.path.join(
+        tempfile.gettempdir(), 'yok_olmayan_dosya_123456.rtcm'
+    )
     with pytest.raises(FileNotFoundError):
-        replay_byte_akisi('/tmp/yok_olmayan_dosya_123456.rtcm')
+        replay_byte_akisi(yok_dosya)
 
 
 def test_sample_data_dosyasi_var_ve_gecerli():
