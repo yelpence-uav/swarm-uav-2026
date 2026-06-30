@@ -28,6 +28,9 @@ setup(
             'collision_avoidance = '
             'swarm_core.collision_avoidance'
             '.collision_avoidance_node:main',
+            'precision_landing_node = '
+            'swarm_core.precision_landing'
+            '.precision_landing_node:main',
         ],
     },
 )
