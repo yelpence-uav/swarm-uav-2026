@@ -30,6 +30,8 @@ setup(
             '.collision_avoidance_node:main',
             'path_planner = '
             'swarm_core.path_planning.path_planner_node:main',
+            'task_reallocator_node = '
+            'swarm_core.task_reallocator.task_reallocator_node:main',
         ],
     },
 )
