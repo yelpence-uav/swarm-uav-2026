@@ -1,24 +1,25 @@
-"""Değişken liderli dağıtık consensus node'u — her drone'da ayrı çalışır.
+"""Dağıtık consensus düğümü: sürü lideri arbitrasyonu (drone başına bir örnek).
 
-Tek sorumluluğu: SÜRÜDE KİM LİDER? KTR 5.1'e göre deterministik ve ek
-oylama olmadan çözer (lider = güvenli havuzdaki en küçük agent_id,
-preemptive), lider ise heartbeat yayınlar, kendi rolünü kendi agent_fsm'ine
-yerel AssignRole servisiyle uygular.
+Bu düğümün tek sorumluluğu, sürüde liderin kim olduğunu belirlemektir. Lider,
+ek bir oylama turu olmaksızın deterministik biçimde seçilir: uygunluk
+koşullarını sağlayan ajanlar arasından en küçük agent_id'ye sahip olan lider
+olur (preemptive). Lider seçilen düğüm periyodik heartbeat yayınlar ve kendi
+rolünü yerel AssignRole servisi üzerinden kendi agent_fsm'ine uygular.
 
-SINIR: Bu node SADECE rol arbitrasyonu yapar. Formasyon tipi / QR / manevra
-/ standby-join / origin yayını BU NODE'UN İŞİ DEĞİLDİR (mission_fsm,
-agent_fsm, swarm_origin_publisher). Consensus yalnızca "leader_id + role"
-üretir; diğer katmanlar bunu okur.
+Kapsam: Bu düğüm yalnızca rol arbitrasyonu yapar. Formasyon tipi, QR görev
+akışı, manevra, standby katılımı ve origin yayını bu düğümün kapsamı dışındadır
+(sırasıyla mission_fsm, agent_fsm ve swarm_origin_publisher sorumluluğundadır).
+Consensus yalnızca "leader_id + role" üretir; üst katmanlar bu çıktıyı tüketir.
 
-Karar/durum ayrımı:
-    election.py          → saf seçim mantığı (test edilebilir)
-    consensus_context.py → durum (ajan cache + lider state)
-    bu dosya             → ROS bağlantısı (pub/sub/srv, timer, yayın)
+Karar / durum / bağlantı ayrımı:
+    election.py          - saf seçim mantığı (birim test edilebilir)
+    consensus_context.py - durum (komşu cache'i ve lider state'i)
+    bu modül             - ROS 2 bağlantısı (pub/sub/srv, timer, yayın)
 
-Topic adlandırma (network_proxy / esp32_bridge uyumlu):
-    Yayın (ağa çıkan)  : /swarm/internal/...
-    Abone (ağdan gelen): /swarm/public/...
-    Kendi durumu       : /swarm/internal/drone{id}/status (yerel, otoriter)
+Topic adlandırma kuralı (network_proxy / esp32_bridge ile uyumlu):
+    Yayın (ağa çıkan)   : /swarm/internal/...
+    Abone (ağdan gelen) : /swarm/public/...
+    Kendi durumu        : /swarm/internal/drone{id}/status (yerel, otoriter)
 """
 
 import time
@@ -45,9 +46,9 @@ from .consensus_context import ConsensusContext
 from .consensus_states import AIRBORNE_STATES, ELIGIBLE_STATES
 
 
-# --- QoS profilleri (network_proxy tablosuyla birebir) ---
-# Heartbeat: BEST_EFFORT + KEEP_LAST(1). Eski heartbeat'in retransmit'i
-# "lider hayatta" yanılgısı üretir → reliable OLMAMALI.
+# --- QoS profilleri (network_proxy QoS tablosu ile birebir uyumlu) ---
+# Heartbeat BEST_EFFORT + KEEP_LAST(1) olmalıdır. RELIABLE seçilirse eski bir
+# heartbeat'in yeniden iletimi "lider hâlâ canlı" yanılgısına yol açabilir.
 _HEARTBEAT_QOS = QoSProfile(
     reliability=ReliabilityPolicy.BEST_EFFORT,
     durability=DurabilityPolicy.VOLATILE,
@@ -55,8 +56,8 @@ _HEARTBEAT_QOS = QoSProfile(
     depth=1,
 )
 
-# ElectionResult: RELIABLE + TRANSIENT_LOCAL. Latched → geç katılan dron
-# son lideri alabilmeli (öğren-ve-hatırla).
+# ElectionResult RELIABLE + TRANSIENT_LOCAL (latched). Sonradan katılan bir
+# drone'un en güncel lider ilanını alabilmesi için kalıcı tutulur.
 _ELECTION_QOS = QoSProfile(
     reliability=ReliabilityPolicy.RELIABLE,
     durability=DurabilityPolicy.TRANSIENT_LOCAL,
@@ -75,9 +76,10 @@ _U32 = 2 ** 32
 
 
 class ConsensusNode(Node):
-    """Tek drone için deterministik, preemptive lider seçim node'u."""
+    """Tek bir drone için deterministik, preemptive lider seçim düğümü."""
 
     def __init__(self) -> None:
+        """Parametreleri, bağlamı, G/Ç'yi ve ana döngü timer'ını başlatır."""
         super().__init__('consensus_node')
 
         self._declare_params()
@@ -104,6 +106,7 @@ class ConsensusNode(Node):
     # ==================================================================
 
     def _declare_params(self) -> None:
+        """ROS 2 parametrelerini tanımlar ve örnek alanlarına okur."""
         self.declare_parameter('agent_id', 1)
         self.declare_parameter('agent_count', 3)
         self.declare_parameter('tick_hz', 10.0)
@@ -133,7 +136,8 @@ class ConsensusNode(Node):
     # ==================================================================
 
     def _setup_io(self) -> None:
-        # Yayıncılar (ağa çıkan → internal)
+        """Yayıncıları, aboneleri ve servis istemcisini oluşturur."""
+        # Yayıncılar (ağa çıkan kanallar -> internal)
         self._hb_pub = self.create_publisher(
             LeaderHeartbeat, '/swarm/internal/leader/heartbeat',
             _HEARTBEAT_QOS,
@@ -146,7 +150,8 @@ class ConsensusNode(Node):
             SystemEvent, '/swarm/internal/events/system', _RELIABLE_QOS,
         )
 
-        # Tüm ajanların durumu — komşular public'ten, kendisi internal'dan.
+        # Tüm ajanların durumu izlenir: komşular public, kendi
+        # durumumuz internal kanaldan alınır.
         for aid in range(1, self._agent_count + 1):
             self.create_subscription(
                 AgentStatus, f'/swarm/public/drone{aid}/status',
@@ -157,7 +162,8 @@ class ConsensusNode(Node):
             self._make_status_cb(self._agent_id), 10,
         )
 
-        # Liderden gelen heartbeat ve election ilanı (ağdan → public)
+        # Liderden gelen heartbeat ve seçim sonucu
+        # (ağdan gelen -> public).
         self.create_subscription(
             LeaderHeartbeat, '/swarm/public/leader/heartbeat',
             self._on_heartbeat, _HEARTBEAT_QOS,
@@ -167,7 +173,7 @@ class ConsensusNode(Node):
             self._on_election, _ELECTION_QOS,
         )
 
-        # Kendi rolünü kendi agent_fsm'ine uygulamak için (localhost).
+        # Kendi rolünü yerel agent_fsm'e uygulamak için servis istemcisi.
         self._role_client = self.create_client(
             AssignRole, f'/swarm/agent/drone{self._agent_id}/assign_role',
         )
@@ -177,6 +183,7 @@ class ConsensusNode(Node):
     # ==================================================================
 
     def _tick(self) -> None:
+        """Periyodik değerlendirme: uygunluk, lider değişimi ve heartbeat."""
         now = time.monotonic()
         ctx = self._ctx
         own = ctx.own()
@@ -185,7 +192,8 @@ class ConsensusNode(Node):
         elig = election.eligible_ids(ctx, now)
         effective = election.effective_set(ctx, now, own_airborne, elig)
 
-        # Bootstrap grace zamanlayıcısı: lider yokken ilk uygun görülünce başlat.
+        # Bootstrap bekleme süresi: lider yokken ilk uygun aday
+        # görüldüğünde başlatılır.
         if ctx.leader_id == 0 and effective and ctx.bootstrap_since == 0.0:
             ctx.bootstrap_since = now
 
@@ -197,6 +205,7 @@ class ConsensusNode(Node):
             self._publish_heartbeat(len(elig))
 
     def _set_leader(self, new_id: int, reason: int) -> None:
+        """Yeni lideri uygular: round, rol ve yayınları günceller."""
         ctx = self._ctx
         old = ctx.leader_id
         ctx.election_round = (ctx.election_round + 1) % 256
@@ -220,11 +229,11 @@ class ConsensusNode(Node):
     # ==================================================================
 
     def _apply_role(self) -> None:
-        """Kendi rolünü kendi agent_fsm'ine yerel AssignRole ile uygular.
+        """Kendi rolünü yerel AssignRole servisiyle agent_fsm'e uygular.
 
-        Yalnızca durumum aktif uçuş/armed iken ve rol değiştiğinde çağırır.
-        STANDBY/DETACHED/IDLE/LANDED durumlarına dokunmaz (onları agent_fsm
-        ve mission yönetir).
+        Yalnızca ajan aktif/armed durumdayken ve rol gerçekten değiştiğinde
+        çağrı yapar. STANDBY / DETACHED / IDLE / LANDED durumlarına dokunmaz;
+        bunları agent_fsm ve mission katmanı yönetir.
         """
         ctx = self._ctx
         own = ctx.own()
@@ -238,7 +247,9 @@ class ConsensusNode(Node):
         if desired == ctx.applied_role:
             return
         if not self._role_client.service_is_ready():
-            return  # servis hazır değilse bir sonraki değişimde tekrar dener
+            # Servis henüz hazır değil; sonraki rol değişiminde
+            # yeniden denenir.
+            return
 
         req = AssignRole.Request()
         req.target_agent_id = self._agent_id
@@ -252,23 +263,25 @@ class ConsensusNode(Node):
     # ==================================================================
 
     def _make_status_cb(self, agent_id: int):
+        """Belirli bir ajan için AgentStatus callback'i üretir (closure)."""
         def _cb(msg: AgentStatus) -> None:
             self._ctx.update_status(agent_id, msg, time.monotonic())
         return _cb
 
     def _on_heartbeat(self, msg: LeaderHeartbeat) -> None:
-        """Liderden gelen heartbeat — canlılık, geç-katılım ve split-brain.
+        """Liderden gelen heartbeat: canlılık, geç katılım, split-brain.
 
-        - Mevcut lider ise: canlılığı tazele.
-        - Liderim yoksa (bootstrap/geç katılım): ilan edileni benimse.
-        - Farklı ve KÜÇÜK ID'li bir lider duyarsam (bölünmüş ağ / iki lider):
-          ona çekilirim (küçük ID kazanır) → split-brain kendiliğinden çözülür.
-          Lider isem liderlikten çekilirim. Büyük ID'li lider duyarsam yok
-          sayarım (benim/mevcut küçük ID kazanır).
+        - Heartbeat mevcut liderden geliyorsa canlılık zaman damgası tazelenir.
+        - Henüz lider bilinmiyorsa (bootstrap / geç katılım) ilan edilen lider
+          benimsenir.
+        - Daha küçük agent_id'li farklı bir lider duyulursa (ağ bölünmesi) ona
+          geçilir; bu düğüm liderse liderliği bırakır. Böylece split-brain
+          deterministik olarak çözülür (en küçük ID kazanır). Daha büyük ID'li
+          lider yok sayılır.
         """
         ctx = self._ctx
         if msg.leader_id == self._agent_id:
-            return  # kendi yankımız
+            return  # kendi yayınımızın yankısı
         now = time.monotonic()
         if msg.leader_id == ctx.leader_id:
             ctx.last_hb_time = now
@@ -278,7 +291,7 @@ class ConsensusNode(Node):
     def _adopt_leader(
         self, leader_id: int, election_round: int, now: float,
     ) -> None:
-        """Dışarıdan ilan edilen lideri benimser (gerekirse liderlikten çekil)."""
+        """İlan edilen lideri benimser; gerekirse liderliği bırakır."""
         ctx = self._ctx
         was_leader = ctx.is_leader
         ctx.leader_id = leader_id
@@ -293,13 +306,13 @@ class ConsensusNode(Node):
         self._apply_role()
 
     def _on_election(self, msg: ElectionResult) -> None:
-        """Latched ElectionResult — stale koruması + lider benimseme."""
+        """Latched ElectionResult: stale koruması + lider benimseme."""
         ctx = self._ctx
         if msg.sequence_num <= ctx.max_seen_seq:
-            return  # stale (sıra geriye)
+            return  # eski mesaj (sequence geriye gitmiş)
         ctx.max_seen_seq = msg.sequence_num
         if msg.election_round < ctx.election_round:
-            return  # stale (eski round)
+            return  # eski round
 
         ctx.election_round = max(ctx.election_round, msg.election_round)
         ctx.leader_id = msg.new_leader_id
@@ -312,6 +325,7 @@ class ConsensusNode(Node):
     # ==================================================================
 
     def _publish_heartbeat(self, active_count: int) -> None:
+        """Lider canlılık heartbeat'ini yayınlar."""
         ctx = self._ctx
         m = LeaderHeartbeat()
         m.stamp = self.get_clock().now().to_msg()
@@ -324,6 +338,7 @@ class ConsensusNode(Node):
         self._hb_pub.publish(m)
 
     def _publish_election_result(self, leader_id: int, reason: int) -> None:
+        """Latched seçim sonucunu yayınlar (geç katılanlar için kalıcı)."""
         ctx = self._ctx
         m = ElectionResult()
         m.stamp = self.get_clock().now().to_msg()
@@ -333,11 +348,12 @@ class ConsensusNode(Node):
         m.election_round = ctx.election_round
         m.triggered_by_agent_id = self._agent_id
         m.reason = reason
-        m.confirmed_by_agent_ids = []  # bilgi amaçlı; bloklayıcı oy değil
+        m.confirmed_by_agent_ids = []  # bilgi amaçlı; bloklayıcı bir oy değil
         m.message = f'Lider: drone{leader_id} (round {ctx.election_round})'
         self._election_pub.publish(m)
 
     def _pub_leader_changed(self, leader_id: int) -> None:
+        """Lider değişimini olay veri yoluna (event bus) bildirir."""
         m = SystemEvent()
         m.stamp = self.get_clock().now().to_msg()
         m.event_type = SystemEvent.EVENT_LEADER_CHANGED
@@ -350,6 +366,7 @@ class ConsensusNode(Node):
 
 
 def main(args=None) -> None:
+    """Düğüm giriş noktası."""
     rclpy.init(args=args)
     node = ConsensusNode()
     try:
