@@ -2,8 +2,8 @@
 
 Birim testler ROS2 ortami olmadan koshturulabilsin diye rclpy ve
 std_msgs MagicMock ile yer degistirilir. swarm_control paketinin
-rtk_bridge.rtcm_packing modulu cross-validation icin sys.path'e
-eklenir (Faz 1 crc24q'sini kullanmak istiyoruz).
+px4_interface.rtcm_packing modulu cross-validation icin sys.path'e
+eklenir (bagimsiz crc24q'sini kullanmak istiyoruz).
 """
 
 import os
@@ -13,7 +13,7 @@ from unittest.mock import MagicMock
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
-# swarm_control sister paketten rtk_bridge.rtcm_packing icin sys.path
+# swarm_control sister paketten px4_interface.rtcm_packing icin sys.path
 _SWARM_CONTROL_PATH = os.path.abspath(
     os.path.join(
         os.path.dirname(__file__), '..', '..',

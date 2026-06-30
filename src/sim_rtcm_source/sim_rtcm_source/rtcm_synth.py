@@ -1,9 +1,10 @@
 """rtcm_synth.py — Sentetik RTCM3 cerceve uretici (saf Python).
 
 Sim ortaminda RTCM3 byte akisi taklit etmek icin kullanilir. ROS importu
-yok; birim testlerde dogrudan koshturulabilir. CRC24Q hesaplamasi
-pyrtcm'in calc_crc24q yardimcisina delege edilir; test tarafinda
-rtk_bridge.rtcm_packing.crc24q (Faz 1, bagimsiz uygulama) ile capraz
+yok; birim testlerde dogrudan koshturulabilir. CRC24Q hesaplamasi varsa
+pyrtcm'in calc_crc24q yardimcisina delege edilir, yoksa yerel (ayni
+algoritma) implementasyona duser; test tarafinda
+px4_interface.rtcm_packing.crc24q (bagimsiz uygulama) ile capraz
 dogrulanir.
 
 UYARI: Bu modulun urettigi cerceveler RECEIVER-anlamli RTCM3 verisi
@@ -22,7 +23,26 @@ Gercek 1077 verisi gerekirse: replay mode + sample_data/ (gercek baz
 istasyonu kayitlari).
 """
 
-from pyrtcm.rtcmhelpers import calc_crc24q
+# pyrtcm bir gelistirme/dogrulama bagimliligidir ve CI gibi ortamlarda
+# kurulu olmayabilir. Yoksa kendi (dogrulanmis) CRC24Q implementasyonumuza
+# duseriz; uretim her ortamda calisir, pyrtcm yalnizca capraz-dogrulama
+# (round-trip parse) testleri icin gereklidir.
+try:
+    from pyrtcm.rtcmhelpers import calc_crc24q
+except ImportError:
+    _CRC24Q_POLY = 0x1864CFB
+
+    def calc_crc24q(govde: bytes) -> int:
+        """RTCM3 CRC24Q — pyrtcm yoksa yerel fallback (ayni algoritma)."""
+        crc = 0
+        for byte in govde:
+            crc ^= byte << 16
+            for _ in range(8):
+                crc <<= 1
+                if crc & 0x1000000:
+                    crc ^= _CRC24Q_POLY
+            crc &= 0xFFFFFF
+        return crc
 
 
 _RTCM3_PREAMBLE = 0xD3
@@ -110,7 +130,7 @@ def produce_1077_sentetik() -> bytes:
     cerceveyi MSM7 olarak COZEMEZ — sadece mesaj numarasini (1077)
     okur, MSM7 alanlarini parse etmeye calisirken hata verir.
 
-    KASITLIDIR: rtk_bridge RTCM'i opak byte tasir; sim'de PX4 fix=6'yi
+    KASITLIDIR: px4_bridge (RTK) RTCM'i opak byte tasir; sim'de PX4 fix=6'yi
     sim_rtk_fix6.patch ile taklit eder. Bu uretici sadece pipeline
     testi icin (cerceve gecerliligi + framer kabulu) tasarlanmistir.
 

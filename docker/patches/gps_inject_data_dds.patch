@@ -6,8 +6,8 @@ topic'ini icermiyor. Bu yama, ROS2 tarafindan yayinlanan RTCM duzeltme
 verilerinin PX4 gps_inject_data uORB topic'ine ulasabilmesi icin yamayi
 ekler.
 
-Etkilenen modul: rtk_bridge (RTCM3 framer + GpsInjectData yayini).
-Yama uygulanmadan rtk_bridge calisir ancak PX4'e veri ulasmaz; SITL'de
+Etkilenen modul: px4_bridge (RTK: RTCM3 framer + GpsInjectData yayini).
+Yama uygulanmadan px4_bridge (RTK) calisir ancak PX4'e veri ulasmaz; SITL'de
 sessiz hata uretir.
 
 UYGULAMA:
@@ -16,7 +16,7 @@ UYGULAMA:
        cd src/px4_autopilot
        git apply ../../docker/patches/gps_inject_data_dds.patch
   2. uXRCE-DDS istemcisi yeniden derlenmelidir (px4_sitl_default).
-  3. Yama firmware/build sahibinin onayinda uygulanir (rtk_bridge PR'inin
+  3. Yama firmware/build sahibinin onayinda uygulanir (RTK PR'inin
      parcasi DEGILDIR; ayri bir koordinasyon adimidir).
 
 KAYNAKLAR:

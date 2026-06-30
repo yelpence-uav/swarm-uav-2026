@@ -1,6 +1,6 @@
 """sim_rtcm_source_node.py — Yalniz-sim RTCM3 byte akisi yayincisi.
 
-Sim ortaminda rtk_bridge'in girisini (/drone_{id}/rtcm/in) besler.
+Sim ortaminda px4_bridge'in RTK girisini (/drone_{id}/rtcm/in) besler.
 Iki mode destekler:
 
   mode='synthetic' (default):
@@ -16,7 +16,7 @@ YAYIN TOPIC:
     /drone_{agent_id}/rtcm/in  (std_msgs/UInt8MultiArray,
         RELIABLE depth=10, command_sender deseni)
     - LOKAL topic — network_proxy'den gecmez.
-    - rtk_bridge bu topic'i dinler.
+    - px4_bridge (RTK) bu topic'i dinler.
 
 YALNIZCA-SIM:
     Bu paket gercek donanim launch'una EKLENMEZ. Sahada esp32_bridge

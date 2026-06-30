@@ -1,8 +1,8 @@
 """test_rtcm_synth.py — Sentetik RTCM3 ureticisi birim testleri.
 
-Capraz dogrulama: uretilen cerceveler Faz 1'deki bagimsiz crc24q
-(swarm_control.rtk_bridge.rtcm_packing) ile kontrol edilir. Iki
-ayri CRC24Q uygulamasi (pyrtcm + bizim Faz 1) ayni sonucu uretirse
+Capraz dogrulama: uretilen cerceveler bagimsiz crc24q
+(swarm_control.px4_interface.rtcm_packing) ile kontrol edilir. Iki
+ayri CRC24Q uygulamasi (pyrtcm + bizimki) ayni sonucu uretirse
 algoritma dogruluyor demektir.
 """
 
@@ -169,8 +169,9 @@ def test_sample_data_dosyasi_var_ve_gecerli():
 # =====================================================================
 
 def test_pyrtcm_1005_referans_round_trip_decode():
-    """1005 referans cercevesi pyrtcm ile hatasiz parse edilmeli ve
-    identity 1005 donmelidir (gercek RTCM3 parser ile capraz dogrulama).
+    """1005 referans cercevesi pyrtcm ile hatasiz parse edilmelidir.
+
+    Identity 1005 donmelidir (gercek RTCM3 parser ile capraz dogrulama).
     """
     import io
     pyrtcm = pytest.importorskip('pyrtcm')
@@ -188,8 +189,9 @@ def test_pyrtcm_1005_referans_round_trip_decode():
 
 
 def test_pyrtcm_1005_sentetik_round_trip_decode():
-    """Sentetik 1005 cercevesi pyrtcm ile hatasiz parse edilmeli ve
-    identity 1005 donmelidir.
+    """Sentetik 1005 cercevesi pyrtcm ile hatasiz parse edilmelidir.
+
+    Identity 1005 donmelidir.
     """
     import io
     pyrtcm = pytest.importorskip('pyrtcm')
@@ -215,9 +217,9 @@ def test_pyrtcm_1005_sentetik_round_trip_decode():
 # =====================================================================
 
 def test_bozuk_payload_byte_iter_rtcm_messages_reddetmeli():
-    """Gecerli 1005 cercevesinin PAYLOAD byte'i bozulunca CRC eslesmez
-    ve iter_rtcm_messages bu cerceveyi YAYINLAMAMALI.
+    """Bozuk PAYLOAD byte'i CRC eslesmesini bozar, framer reddetmelidir.
 
+    iter_rtcm_messages bu cerceveyi YAYINLAMAMALI.
     Senaryo: gecerli RTKLib referans 1005 cercevesi alinir, payload
     icindeki bir byte degistirilir (CRC gecersizlesir). Framer'in bunu
     sessizce dusurdugu (mesajlar listesinde olmadigi) dogrulanir.
@@ -242,9 +244,9 @@ def test_bozuk_payload_byte_iter_rtcm_messages_reddetmeli():
 
 
 def test_bozuk_crc_byte_iter_rtcm_messages_reddetmeli():
-    """Gecerli 1005 cercevesinin CRC24Q byte'i bozulunca framer
-    bu cerceveyi YAYINLAMAMALI.
+    """Bozuk CRC24Q byte'i framer tarafindan reddedilmelidir.
 
+    Framer bu cerceveyi YAYINLAMAMALI.
     Senaryo: cerceve sonundaki 3 byte'lik CRC24Q'nun ortasinda 1 byte
     flip edilir (payload bozulmaz, sadece CRC). Framer artik dogru
     payload'in CRC'sini hesaplar, gelen CRC ile eslesmez -> drop.

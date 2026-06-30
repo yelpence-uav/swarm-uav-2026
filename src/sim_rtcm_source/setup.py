@@ -22,7 +22,7 @@ setup(
     maintainer='Yelpence TEKNOFEST 2026',
     maintainer_email='kocakseydagul@gmail.com',
     description=(
-        'Yalniz-sim RTCM3 uretici (rtk_bridge pipeline testi icin)'
+        'Yalniz-sim RTCM3 uretici (px4_bridge RTK pipeline testi icin)'
     ),
     license='MIT',
     tests_require=['pytest'],
