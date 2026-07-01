@@ -257,6 +257,14 @@ class TaskReallocator:
         )
         return [e.agent_id for e in ranked]
 
+    def eligible_active_count(self) -> int:
+        """Uygun (origin+EKF+taze) ve aktif state'teki ajan sayısını döner.
+
+        İlk formasyon atamasının 'yeterli ajan hazır mı' kararında kullanılır;
+        böylece tek drone'la erken atama yapılmaz.
+        """
+        return len(self._sorted_active())
+
     def degradation_status(self) -> str:
         """Şartname minimum-İHA kuralına göre bozulma seviyesi.
 

@@ -88,11 +88,17 @@ class TaskReallocatorNode(Node):
         self._stale_timeout_s = float(self._gp('stale_timeout_s'))
         pinned = int(self._gp('pinned_leader_id'))
         self._pinned_leader = pinned if pinned > 0 else None
+        # İlk formasyon için gereken uygun ajan sayısı (0 => formation_size).
+        req = int(self._gp('agents_required'))
+        self._agents_required = req if req > 0 else params.formation_size
 
         # agent_id -> son telemetri alış anı (monotonic).
         self._last_seen: dict[int, float] = {}
         self._formation_assigned = False
         self._seq = 0
+        # Acil durum LATCH DEĞİL: her ajanın anlık durumu izlenir; global
+        # bayrak bunlardan türetilir (drone toparlayınca modül geri açılır).
+        self._agent_emergency: dict[int, bool] = {}
         self._emergency = False
 
         # Consensus (Beyza) ElectionResult'tan gelen lider — biz SEÇMEYİZ.
@@ -113,6 +119,7 @@ class TaskReallocatorNode(Node):
         """Tüm ROS parametrelerini varsayılanlarıyla tanımlar."""
         self.declare_parameter('agent_ids', [1, 2, 3])
         self.declare_parameter('formation_size', 3)
+        self.declare_parameter('agents_required', 0)  # 0 = formation_size
         self.declare_parameter('spacing_m', 5.0)
         self.declare_parameter('alpha_deg', 45.0)
         self.declare_parameter('formation_type', 1)  # 1=OKBASI
@@ -199,6 +206,8 @@ class TaskReallocatorNode(Node):
         izlenir. İlk formasyon ataması için hazırlık kontrolü yapılır.
         """
         agent_id = int(msg.agent_id)
+        if agent_id <= 0 or agent_id not in self._agent_ids:
+            return  # sistem/bilinmeyen id (0 veya listede yok) — yok say
         self._last_seen[agent_id] = time.monotonic()
 
         pos_valid = bool(msg.xy_valid) and bool(msg.estimator_ok)
@@ -212,8 +221,12 @@ class TaskReallocatorNode(Node):
             fresh=True,
         )
 
-        if bool(msg.failsafe_active) or bool(msg.kill_switch_active):
-            self._emergency = True
+        # Anlık acil durum (LATCH DEĞİL): global bayrak her ajanın son
+        # durumundan türetilir → drone toparlayınca modül geri açılır.
+        self._agent_emergency[agent_id] = (
+            bool(msg.failsafe_active) or bool(msg.kill_switch_active)
+        )
+        self._emergency = any(self._agent_emergency.values())
 
         self._maybe_initial_assign()
 
@@ -248,6 +261,7 @@ class TaskReallocatorNode(Node):
         self._last_election_round = rnd
         self._last_election_seq = seq
         self._consensus_leader = int(msg.new_leader_id)
+        self._refresh_freshness()
         result = self._core.apply_leader(self._consensus_leader)
         for note in result.notes:
             self.get_logger().info('[election] %s' % note)
@@ -275,20 +289,26 @@ class TaskReallocatorNode(Node):
     #  Karar akışları                                                     #
     # ------------------------------------------------------------------ #
     def _maybe_initial_assign(self) -> None:
-        """Yeterli uygun aktif ajan varsa ilk formasyonu bir kez atar."""
+        """Yeterli uygun aktif ajan hazır olunca formasyonu bir kez atar.
+
+        'Yeterli' eşiği ``agents_required`` (0 ise formation_size). Böylece
+        ilk telemetride tek drone'la formasyon kurulmaz; tüm sürü hazır
+        olana dek beklenir (eksik-drone formasyonu önlenir).
+        """
         if self._formation_assigned or self._emergency:
             return
+        if self._core.active_ranked_ids():
+            return
         self._refresh_freshness()
-        if self._core.active_count() >= 0 and len(
-            self._core.active_ranked_ids()
-        ) == 0:
-            r = self._core.assign_formation(
-                self._formation_type, self._heading_rad,
-                pinned_leader=self._leader_hint(),
-            )
-            if r.rank_map:
-                self._formation_assigned = True
-                self._apply(r, 'initial_assignment')
+        if self._core.eligible_active_count() < self._agents_required:
+            return
+        r = self._core.assign_formation(
+            self._formation_type, self._heading_rad,
+            pinned_leader=self._leader_hint(),
+        )
+        if r.rank_map:
+            self._formation_assigned = True
+            self._apply(r, 'initial_assignment')
 
     def _handle_detach(self, target_id: int) -> None:
         """Ayrılma olayını işler; yedek varsa devreye sokar."""

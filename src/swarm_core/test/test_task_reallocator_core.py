@@ -130,6 +130,23 @@ def test_no_eligible_agents_returns_note():
     assert 'no_eligible_agents' in r.notes
 
 
+def test_eligible_active_count_only_counts_ready():
+    """eligible_active_count yalnızca uygun+aktif ajanları sayar (K1 eşiği).
+
+    Node ilk formasyonu bu sayı yeterli olana dek ERTELER; tek drone'la
+    erken atama yapılmaz.
+    """
+    tr = TaskReallocator(ReallocatorParams(formation_size=3))
+    _add(tr, 1, 0.0, 0.0)               # uygun + aktif → sayılır
+    assert tr.eligible_active_count() == 1
+    tr.update_agent(2, state=STATE_IN_SWARM, pos_x=1.0, pos_y=1.0,
+                    origin_synced=False, pos_valid=True, fresh=True)
+    assert tr.eligible_active_count() == 1  # origin yok → sayılmaz
+    _add(tr, 3, -3.0, 5.0)
+    _add(tr, 4, -3.0, -5.0)
+    assert tr.eligible_active_count() == 3  # 1,3,4 hazır
+
+
 # --------------------------------------------------------------------- #
 #  Şartname — detach kalan rank'leri DONDURUR                           #
 # --------------------------------------------------------------------- #
