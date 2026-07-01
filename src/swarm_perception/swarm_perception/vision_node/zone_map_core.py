@@ -53,7 +53,7 @@ class ZoneMapCore:
         confidence_obs_full: int = 5,
     ) -> None:
         """
-        ZoneMapCore sınıfını ilklendirir.
+        Bölge haritasını verilen eşiklerle ilklendirir.
 
         Args:
             merge_dist_m (float): Aynı renkteki yeni tespit, mevcut bir bölgeye
