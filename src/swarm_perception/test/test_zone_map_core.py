@@ -62,7 +62,7 @@ def test_heading_donusu_uygulanir():
 
 
 def test_min_irtifa_clamp():
-    """Çok alçakta (hatta yerde) projeksiyon patlamaz, min irtifa kullanılır."""
+    """Çok alçakta projeksiyon patlamaz, min irtifa kullanılır."""
     zm = ZoneMapCore(min_height_m=0.5)
     gx, gy, _ = zm.project(0.75, 0.5, 60.0, (0.0, 0.0, 0.0, 0.0))
     assert math.isfinite(gx) and math.isfinite(gy)

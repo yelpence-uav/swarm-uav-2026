@@ -252,7 +252,7 @@ class PrecisionLandingCore:
     def _horizontal_velocity(
         self, err_x: float, err_y: float, cap: float
     ) -> Tuple[float, float]:
-        """Konum hatasını P-kontrol ile kapalı hız vektörüne çevirir (cap'li)."""
+        """Konum hatasını cap'li hız vektörüne çevirir (P-kontrol)."""
         vx = self.kp * err_x
         vy = self.kp * err_y
         speed = math.hypot(vx, vy)

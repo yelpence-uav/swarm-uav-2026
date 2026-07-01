@@ -29,8 +29,8 @@ sırasında tespit edilip KAYDEDİLMESİNİ ister (ayrı tarama yasak). Bu sın�
 hafızadır: anlık tespiti drone pozu + irtifa ile GLOBAL NED'e projekte eder ve
 aynı bölgenin tekrar gözlemlerini kümeleyerek tek kayıt olarak biriktirir.
 
-vision_node_core bu sınıfı import edip besler; sınıfın kendisi bir node değildir.
-PEP 8 ve PEP 257 standartlarına uygundur.
+vision_node_core bu sınıfı import edip besler; sınıfın kendisi bir node
+değildir. PEP 8 ve PEP 257 standartlarına uygundur.
 """
 
 import math
@@ -44,7 +44,7 @@ COLOR_BLUE = 2
 
 
 class ZoneMapCore:
-    """Renkli bölgeleri global NED'de biriktiren hafıza + projeksiyon mantığı."""
+    """Renkli bölgeleri global NED'de biriktiren hafıza + projeksiyon."""
 
     def __init__(
         self,
@@ -60,10 +60,10 @@ class ZoneMapCore:
                 bu mesafeden (metre) yakınsa ayrı kayıt açılmaz, mevcut kayıtla
                 birleştirilir (kümeleme). Bölgeler ~1 m yarıçaplı olduğundan
                 varsayılan 2.0 m aynı bölgenin tekrar gözlemlerini toplar.
-            min_height_m (float): Projeksiyonda kullanılacak en düşük AGL irtifa.
+            min_height_m (float): Projeksiyonda kullanılan en düşük AGL.
                 Çok alçakta sıfıra bölme/aşırı büyümeyi önler.
-            confidence_obs_full (int): Bir bölgenin güveninin 1.0'a ulaşması için
-                gereken gözlem sayısı. Çok görülen bölge daha güvenilirdir.
+            confidence_obs_full (int): Güvenin 1.0'a ulaşması için gereken
+                gözlem sayısı. Çok görülen bölge daha güvenilirdir.
         """
         self._merge_dist_m = float(merge_dist_m)
         self._min_height_m = float(min_height_m)
@@ -94,7 +94,7 @@ class ZoneMapCore:
         Args:
             image_x (float): Bölge merkezinin yatay piksel oranı [0.0, 1.0].
             image_y (float): Bölge merkezinin dikey piksel oranı [0.0, 1.0].
-            fov_deg (float): Kameranın görüş açısı (derece). 0 ise 60 varsayılır.
+            fov_deg (float): Kamera görüş açısı (derece); 0 ise 60 varsayılır.
             pose (Tuple[float, float, float, float]): Drone'un global NED pozu
                 (pos_x, pos_y, pos_z, heading_deg). pos_z NED'de aşağı pozitif.
 
@@ -138,10 +138,10 @@ class ZoneMapCore:
         """
         Global NED'de bir bölge gözlemini haritaya ekler veya birleştirir.
 
-        Aynı renkten, merge_dist_m içinde mevcut bir kayıt varsa yeni ayrı kayıt
+        Aynı renkten, merge_dist_m içinde mevcut kayıt varsa yeni kayıt
         açılmaz: konum koşan ortalama ile güncellenir, gözlem sayısı artırılır.
-        Böylece her gerçek bölge tek kayıt olur ve çok görüldükçe daha güvenilir
-        konumlanır.
+        Böylece her gerçek bölge tek kayıt olur; çok görüldükçe daha
+        güvenilir konumlanır.
 
         Args:
             color (int): COLOR_* enum (yalnızca RED/BLUE biriktirilir).
@@ -219,7 +219,8 @@ class ZoneMapCore:
             y (float): Referans global NED y, metre.
 
         Returns:
-            Optional[Dict[str, float]]: En yakın bölge kaydının kopyası veya None.
+            Optional[Dict[str, float]]: En yakın bölge kaydının kopyası
+                veya None.
         """
         best = None
         best_d = float('inf')
