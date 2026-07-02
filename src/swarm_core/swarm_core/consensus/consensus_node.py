@@ -47,10 +47,13 @@ from .consensus_states import AIRBORNE_STATES, ELIGIBLE_STATES
 
 
 # --- QoS profilleri (network_proxy QoS tablosu ile birebir uyumlu) ---
-# Heartbeat BEST_EFFORT + KEEP_LAST(1) olmalıdır. RELIABLE seçilirse eski bir
-# heartbeat'in yeniden iletimi "lider hâlâ canlı" yanılgısına yol açabilir.
+# Heartbeat RELIABLE + VOLATILE + KEEP_LAST(1). "Broadcast" radyo modelidir;
+# DDS reliability AYRI eksendir. Radyo kaybını proxy modelliyor (drop ederek);
+# proxy'nin GEÇİRDİĞİ paket DDS bacağında ikinci kez düşmesin diye RELIABLE.
+# VOLATILE olduğu için "eski heartbeat replay" olmaz (o yalnız TRANSIENT_LOCAL'de
+# olur). consensus + network_proxy + swarm_fsm + LeaderHeartbeat.msg burada hizalı.
 _HEARTBEAT_QOS = QoSProfile(
-    reliability=ReliabilityPolicy.BEST_EFFORT,
+    reliability=ReliabilityPolicy.RELIABLE,
     durability=DurabilityPolicy.VOLATILE,
     history=HistoryPolicy.KEEP_LAST,
     depth=1,

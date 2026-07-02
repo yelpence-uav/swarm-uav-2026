@@ -8,7 +8,7 @@
 # consensus katmanı ölmüş olabilir. İki katman ayrı izlenmelidir.
 #
 # Topic : /swarm/leader/heartbeat
-# QoS   : RELIABLE + VOLATILE, depth=5
+# QoS   : RELIABLE + VOLATILE, KEEP_LAST(1)  (network_proxy tablosu = tek gerçek)
 # Kim   : consensus_fsm (sadece STATE_IN_SWARM + ROLE_LEADER olan node)
 # Hz    : 10 Hz
 #
