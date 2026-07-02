@@ -33,6 +33,8 @@ setup(
             'precision_landing_node = '
             'swarm_core.precision_landing'
             '.precision_landing_node:main',
+            'task_reallocator_node = '
+            'swarm_core.task_reallocator.task_reallocator_node:main',
         ],
     },
 )
