@@ -10,8 +10,8 @@ payload struct'ları firmware'deki mesh_config.h ile BİREBİR aynıdır
 güncellenmelidir.
 """
 
-import struct
 from dataclasses import dataclass
+import struct
 
 from .crc16 import crc16
 
@@ -223,7 +223,7 @@ def durum_paketle(drone_id: int, durum: int, armed: int,
                   mag_ok: int, baro_ok: int, rssi: int,
                   mesh_link_ok: int,
                   mesh_komsu_sayisi: int = 0) -> bytes:
-    """DurumVeri alanlarını 16 baytlık mesh payload'ına paketler.
+    """Durum verisi alanlarını 16 baytlık mesh payload'ına paketler.
 
     RPi kendi durumunu (agent_fsm çıktısı) ESP32'ye gönderirken
     kullanır. Sürünün §5.1 m.15 ayrılma akışı için kritik.
@@ -305,7 +305,7 @@ def origin_coz(payload: bytes) -> OriginVeri:
 
 def origin_paketle(lat_1e7: int, lon_1e7: int, alt_mm: int,
                    sequence: int) -> bytes:
-    """OriginVeri alanlarını 16 baytlık mesh payload'ına paketler.
+    """Origin verisi alanlarını 16 baytlık mesh payload'ına paketler.
 
     Args:
         lat_1e7 (int): Enlem, 1e-7 derece.
@@ -321,7 +321,7 @@ def origin_paketle(lat_1e7: int, lon_1e7: int, alt_mm: int,
 
 def pose_paketle(lat: int, lon: int, alt_cm: int, heading: int,
                  vx: int, vy: int) -> bytes:
-    """PoseVeri alanlarını 16 baytlık mesh payload'ına paketler.
+    """Pose verisi alanlarını 16 baytlık mesh payload'ına paketler.
 
     RPi kendi RTK konumunu ESP32'ye gönderirken kullanır.
 
@@ -382,7 +382,7 @@ def leader_hb_coz(payload: bytes) -> LeaderHbVeri:
 def leader_hb_paketle(leader_id: int, sequence_num: int,
                       election_round: int, active_agent_count: int,
                       mission_active: int) -> bytes:
-    """LeaderHeartbeat alanlarını 16 baytlık payload'a paketler.
+    """Lider kalp atışı alanlarını 16 baytlık payload'a paketler.
 
     Returns:
         bytes: 16 baytlık payload.
@@ -412,7 +412,7 @@ def election_paketle(new_leader_id: int, election_round: int,
                      reason: int, triggered_by: int,
                      sequence_num: int,
                      confirmed_ids: tuple) -> bytes:
-    """ElectionResult alanlarını 16 baytlık payload'a paketler.
+    """Seçim sonucu alanlarını 16 baytlık payload'a paketler.
 
     Args:
         confirmed_ids (tuple): Onay veren ajan ID'leri. 4'ten kısaysa 0
