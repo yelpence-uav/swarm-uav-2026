@@ -32,6 +32,9 @@ setup(
             'swarm_core.path_planning.path_planner_node:main',
             'maneuver_executor = '
             'swarm_core.maneuver_executor.maneuver_executor_node:main',
+            'precision_landing_node = '
+            'swarm_core.precision_landing'
+            '.precision_landing_node:main',
         ],
     },
 )

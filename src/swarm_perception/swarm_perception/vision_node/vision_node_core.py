@@ -40,10 +40,16 @@ from rclpy.qos import (
 )
 
 from sensor_msgs.msg import CameraInfo, Image
-from swarm_interfaces.msg import LandingZoneDetection, QRMissionData
+from swarm_interfaces.msg import (
+    AgentStatus,
+    LandingZoneDetection,
+    QRMissionData,
+    ZoneMap,
+)
 
 from .landing_zone_detector import LandingZoneDetector
 from .qr_detector import QRDetector
+from .zone_map_core import ZoneMapCore
 
 # QoS Profilleri
 _BEST_EFFORT_QOS = QoSProfile(
@@ -84,6 +90,20 @@ class VisionNode(Node):
         self._fx = 1108.5
         self._fy = 1108.5
 
+        # Kalıcı bölge haritası (hafıza). Anlık tespit unutulur; bu biriktirir.
+        self._zone_map = ZoneMapCore(
+            merge_dist_m=self._zone_merge_dist_m,
+            min_height_m=self._zone_min_height_m,
+        )
+        # Projeksiyon için en son bilinen kendi pozumuz (global NED).
+        # (pos_x, pos_y, pos_z, heading_deg) veya None.
+        self._my_pose = None
+
+        # Harita yavaş değişir; her karede değil düşük frekansta yayınla (CPU).
+        self.create_timer(
+            1.0 / self._zonemap_pub_rate_hz, self._publish_zone_map
+        )
+
         self.get_logger().info(
             f'VisionNode başlatıldı: agent_id={self._agent_id}, '
             f'QR Rate: {self._qr_rate_hz}Hz, LZ Rate: {self._lz_rate_hz}Hz'
@@ -99,6 +119,11 @@ class VisionNode(Node):
         self.declare_parameter('gaussian_blur_kernel', 5)
         self.declare_parameter('sitl_mode', False)
 
+        # Bölge haritası (hafıza) parametreleri
+        self.declare_parameter('zone_merge_dist_m', 2.0)
+        self.declare_parameter('zone_min_height_m', 0.5)
+        self.declare_parameter('zonemap_publish_rate_hz', 2.0)
+
         # Renk Eşikleri
         self.declare_parameter('color_ranges.red_lower_1', [0, 100, 100])
         self.declare_parameter('color_ranges.red_upper_1', [10, 255, 255])
@@ -111,6 +136,15 @@ class VisionNode(Node):
         self._qr_rate_hz = self.get_parameter('qr_processing_rate_hz').value
         self._lz_rate_hz = self.get_parameter('landing_zone_rate_hz').value
         self._sitl_mode = self.get_parameter('sitl_mode').value
+        self._zone_merge_dist_m = self.get_parameter(
+            'zone_merge_dist_m'
+        ).value
+        self._zone_min_height_m = self.get_parameter(
+            'zone_min_height_m'
+        ).value
+        self._zonemap_pub_rate_hz = self.get_parameter(
+            'zonemap_publish_rate_hz'
+        ).value
 
     def _setup_detectors(self) -> None:
         """Saf Python tespit algoritmalarını başlatır."""
@@ -161,6 +195,13 @@ class VisionNode(Node):
             _BEST_EFFORT_QOS,
         )
 
+        # Kalıcı bölge haritası -> precision_landing, GCS/log
+        self._zonemap_pub = self.create_publisher(
+            ZoneMap,
+            '/swarm/perception/zone_map',
+            _RELIABLE_QOS,
+        )
+
     def _setup_subscriptions(self) -> None:
         """Kamera kanallarını dinlemeye başlar."""
         self.create_subscription(
@@ -175,6 +216,24 @@ class VisionNode(Node):
             f'/drone_{self._agent_id}/camera/camera_info',
             self._camera_info_callback,
             _BEST_EFFORT_QOS,
+        )
+
+        # Kendi durumumuz -> projeksiyon için poz/irtifa/heading.
+        # kinematic_fusion ile aynı kanonik topic.
+        self.create_subscription(
+            AgentStatus,
+            f'/swarm/internal/drone{self._agent_id}/status',
+            self._on_status,
+            _BEST_EFFORT_QOS,
+        )
+
+    def _on_status(self, msg: AgentStatus) -> None:
+        """Kendi pozumuzu projeksiyon için saklar (global NED)."""
+        self._my_pose = (
+            float(msg.pos_x),
+            float(msg.pos_y),
+            float(msg.pos_z),
+            float(msg.heading_deg),
         )
 
     def _camera_info_callback(self, msg: CameraInfo) -> None:
@@ -305,6 +364,33 @@ class VisionNode(Node):
         msg.image_y = zones[0]['image_y']
 
         self._lz_pub.publish(msg)
+
+        # Anlık tespiti kalıcı haritaya yaz (transit boyunca biriktirme).
+        # Pozumuz bilinmiyorsa projekte edemeyiz; bu kareyi atla.
+        if self._my_pose is not None:
+            for z in zones:
+                gx, gy, gz = self._zone_map.project(
+                    z['image_x'], z['image_y'], msg.fov_deg, self._my_pose
+                )
+                self._zone_map.add(
+                    int(z['color']), gx, gy, gz, z['confidence']
+                )
+
+    def _publish_zone_map(self) -> None:
+        """Biriktirilen bölge haritasını düşük frekansta yayınlar."""
+        zones = self._zone_map.zones
+        msg = ZoneMap()
+        msg.stamp = self.get_clock().now().to_msg()
+        msg.publisher_agent_id = self._agent_id
+        msg.zone_count = len(zones)
+        for z in zones:
+            msg.zone_colors.append(int(z['color']))
+            msg.zone_x.append(float(z['x']))
+            msg.zone_y.append(float(z['y']))
+            msg.zone_z.append(float(z['z']))
+            msg.observation_count.append(int(z['count']))
+            msg.zone_confidence.append(float(z['confidence']))
+        self._zonemap_pub.publish(msg)
 
 
 def main(args=None) -> None:
