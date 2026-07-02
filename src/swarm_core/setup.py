@@ -30,6 +30,8 @@ setup(
             '.collision_avoidance_node:main',
             'path_planner = '
             'swarm_core.path_planning.path_planner_node:main',
+            'consensus_node = '
+            'swarm_core.consensus.consensus_node:main',
             'precision_landing_node = '
             'swarm_core.precision_landing'
             '.precision_landing_node:main',
