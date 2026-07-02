@@ -1,4 +1,4 @@
-"""esp32_bridge.py — ESP32 mesh ↔ ROS2 köprüsü (ana node).
+r"""esp32_bridge.py — ESP32 mesh ↔ ROS2 köprüsü (ana node).
 
 Gerçek donanımda network_proxy'nin yerini alır: komşu drone'lardan
 ESP-NOW mesh üzerinden gelip ESP32'nin UART'a yazdığı paketleri çözer,
@@ -31,7 +31,6 @@ import threading
 import time
 
 import rclpy
-import serial
 from rclpy.node import Node
 from rclpy.qos import (
     QoSDurabilityPolicy,
@@ -39,6 +38,7 @@ from rclpy.qos import (
     QoSProfile,
     QoSReliabilityPolicy,
 )
+import serial
 
 from swarm_interfaces.msg import (
     AgentStatus,
@@ -161,7 +161,7 @@ _STATE_DURUM_MAP = {
 
 
 def _kirp_int16(deger: float) -> int:
-    """float değeri int16 aralığına (-32768..32767) kırpıp tamsayı döner."""
+    """Float değeri int16 aralığına (-32768..32767) kırpıp tamsayı döner."""
     return max(-32768, min(32767, int(deger)))
 
 
@@ -345,11 +345,13 @@ class Esp32BridgeNode(Node):
         kopukluğunu (>= 2 sn yok ise) algılayabilir.
         """
         now = time.monotonic()
-        # Son 5 sn'de mesaj duyduğumuz komşu sayısı
-        aktif_komsu = sum(
-            1 for ts in self._komsu_son_goruldu.values()
-            if now - ts < 5.0
-        )
+        # Son 5 sn'de mesaj duydugumuz komsu sayisi.
+        # _cache_lock + snapshot: seri okuma thread'i ayni dict'e yazarken
+        # dogrudan iterasyon "dict changed size" cokmesine yol acar (race).
+        # Kilidi sadece kopya alirken tut, sayma disarida yapilir.
+        with self._cache_lock:
+            komsu_ts = list(self._komsu_son_goruldu.values())
+        aktif_komsu = sum(1 for ts in komsu_ts if now - ts < 5.0)
         son_alim_yas = (
             now - self._son_alim_ts if self._son_alim_ts > 0 else -1.0
         )
@@ -491,7 +493,11 @@ class Esp32BridgeNode(Node):
             return
         self._alim_ok += 1
         self._son_alim_ts = time.monotonic()
-        self._komsu_son_goruldu[cerceve.iha_id] = self._son_alim_ts
+        # _cache_lock: bu metod seri okuma thread'inden cagrilir; ayni
+        # dict'i _diag_yayinla (ROS timer thread'i) itere eder. Kilitsiz
+        # yazma, iterasyon sirasinda "dict changed size" cokmesine yol acar.
+        with self._cache_lock:
+            self._komsu_son_goruldu[cerceve.iha_id] = self._son_alim_ts
 
         # Defansif: firmware kendi paketlerini ISR'da filtreler ama
         # bir hata olur da kendi paketimiz geri gelirse komşu yayını
@@ -963,7 +969,7 @@ class Esp32BridgeNode(Node):
         self._uart_yaz(pp.TIP_KOMUT, self._agent_id, payload)
 
     def _on_leader_hb_out(self, msg: LeaderHeartbeat) -> None:
-        """LeaderHeartbeat'i TIP_LEADER_HB olarak ESP32'ye gönderir."""
+        """Lider kalp atışını TIP_LEADER_HB olarak ESP32'ye gönderir."""
         payload = pp.leader_hb_paketle(
             leader_id=msg.leader_id,
             sequence_num=msg.sequence_num,
