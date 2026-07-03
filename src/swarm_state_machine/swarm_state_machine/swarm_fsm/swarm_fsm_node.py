@@ -30,8 +30,6 @@ from swarm_interfaces.msg import (
     SystemEvent,
 )
 
-_M_PER_DEG_LAT = 111_320.0
-
 from ..agent_fsm.agent_states import AgentState
 from .swarm_context import AgentStatusCache, SwarmContext
 from .swarm_states import (
@@ -40,6 +38,8 @@ from .swarm_states import (
     SwarmState,
 )
 from .swarm_transitions import evaluate_transitions
+
+_M_PER_DEG_LAT = 111_320.0
 
 
 _RELIABLE_QOS = QoSProfile(
@@ -63,8 +63,10 @@ _ORIGIN_QOS = QoSProfile(
     depth=1,
 )
 
+# BEST_EFFORT: consensus heartbeat'i BEST_EFFORT yayınlıyor; RELIABLE abone
+# BEST_EFFORT yayıncıyla EŞLEŞMEZ (bağlantı kurulmaz) → leader_id alınamaz.
 _HEARTBEAT_QOS = QoSProfile(
-    reliability=ReliabilityPolicy.RELIABLE,
+    reliability=ReliabilityPolicy.BEST_EFFORT,
     durability=DurabilityPolicy.VOLATILE,
     history=HistoryPolicy.KEEP_LAST,
     depth=5,
@@ -251,8 +253,9 @@ class SwarmFsmNode(Node):
         if self._check_agent_health():
             return
 
-        if self._check_leader_heartbeat():
-            return
+        # Lider kaybı tespiti + yeniden seçim artık consensus_node'un işidir.
+        # swarm_fsm yalnızca gelen heartbeat/election'dan leader_id'yi
+        # yansıtır (tüketici-only); kendi karar/olay üretmez.
 
         self._update_formation_metrics()
 
@@ -348,51 +351,11 @@ class SwarmFsmNode(Node):
 
         return False
 
-    def _check_leader_heartbeat(self) -> bool:
-        """Lider heartbeat timeout kontrolü yapar.
-
-        Lider kaybolduğunda leader_id sıfırlanır ve CRITICAL
-        seviyesinde EVENT_LEADER_CHANGED yayınlanır. Consensus
-        modülü bu olayı dinleyerek yeni lider seçimi başlatır.
-
-        Returns:
-            True ise lider kaybı tespit edildi ve işlendi.
-        """
-        ctx = self._ctx
-
-        # Havada değilken kontrol gereksiz
-        if ctx.swarm_state not in AIRBORNE_SWARM_STATES:
-            return False
-
-        # Lider veya heartbeat yoksa atla
-        if ctx.leader_id == 0 or ctx.last_heartbeat_time <= 0.0:
-            return False
-
-        elapsed = time.monotonic() - ctx.last_heartbeat_time
-        if elapsed > ctx.heartbeat_timeout_s:
-            lost_leader = ctx.leader_id
-            reason = (
-                f'Lider heartbeat timeout: '
-                f'lider={lost_leader} '
-                f'{elapsed * 1000:.0f}ms > '
-                f'{ctx.heartbeat_timeout_s * 1000:.0f}ms'
-            )
-            self.get_logger().error(
-                f'[SWARM] {reason}'
-            )
-
-            # Lider ID'yi sıfırla — consensus modülü yeni seçim başlatır
-            ctx.leader_id = 0
-            ctx.last_heartbeat_time = 0.0
-
-            self._pub_event(
-                SystemEvent.EVENT_LEADER_CHANGED,
-                SystemEvent.SEVERITY_CRITICAL,
-                reason,
-            )
-            return True
-
-        return False
+    # _check_leader_heartbeat KALDIRILDI (tüketici-only geçişi).
+    # Lider kaybı tespiti + yeniden seçim + EVENT_LEADER_CHANGED üretimi
+    # artık consensus_node'un sorumluluğudur. swarm_fsm liderlik bilgisini
+    # yalnızca _on_heartbeat / _on_election callback'lerinden TÜKETİR ve
+    # SwarmState içinde yansıtır.
 
     def _update_formation_metrics(self) -> None:
         """Centroid ve formasyon kalite metriklerini günceller."""
