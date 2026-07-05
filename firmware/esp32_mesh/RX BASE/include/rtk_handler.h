@@ -7,7 +7,8 @@
 #define RTK_MAX_PAYLOAD          220    // TX DRONE alim tarafı (eski ESP-NOW fragment boyutu)
 #define RTK_MAX_FRAGS             64    // KRITIK-1 FIX: alinan_maske artik uint64_t (asagida).
                                         // 64 bit maske guvenle 0..63 index temsil eder.
-                                        // 64*12 = 768 byte -> tipik MSM7 (400-600B) rahat sigar.
+                                        // 64*11 = 704 byte -> tipik MSM7 (400-600B) rahat sigar.
+                                        // (DUSUK-1 FIX ile fragment payload'i 12->11 oldu.)
                                         // 65+ fragmentli mesaj artik SENDER'da reddedilir
                                         // (rtk_sender.h ayni sinira guncellendi, senkron kalmali).
 #define RTK_REASSEMBLY_BUF_SIZE  1200
@@ -15,16 +16,28 @@
 #define RTK_COBS_BUF_SIZE  (RTK_HAM_BUF_SIZE + (RTK_HAM_BUF_SIZE / 254) + 2)
 #define RTK_FRAG_TIMEOUT_MS      2000UL
 
+// DUSUK-1 FIX: fragment basina gercek payload boyutu 12 -> 11 byte'a indi;
+// kazanilan 1 byte frag_uzunluk alanina ayrildi (struct toplami 18 byte'ta sabit).
+// SENDER (rtk_sender.h) ve RECEIVER (burasi) bu sabiti PAYLASMALI.
+#define RTK_FRAG_PAYLOAD_MAKS 11
+
 // ===== MESH FRAGMENT YAPISI (RX BASE gönderir, TX DRONE alır) =====
 // Mesh payload limiti 18 byte — bu struct tam sığar.
+// DUSUK-1 FIX: frag_uzunluk eklendi — bu parçanın GERÇEK veri byte sayısını
+// taşır (son parça hariç hepsi RTK_FRAG_PAYLOAD_MAKS=11'dir). Eskiden her
+// parça reassembly'de sabit 12 sayılıyordu; son parça 12'den kısaysa
+// toplam_uzunluk gerçekte olduğundan uzun çıkıyordu (dolgu sıfırlar dahil
+// ediliyordu). Şimdi eski ESP-NOW yolundaki (rtk_paket_isle, satır ~273)
+// gercek_uzunluk mantığıyla tutarlı.
 #ifndef RTK_MESH_FRAG_DEFINED
 #define RTK_MESH_FRAG_DEFINED
 typedef struct __attribute__((packed)) {
-    uint32_t paket_id;      // 4 byte — hangi RTCM mesajına ait
-    uint8_t  frag_index;    // 1 byte — bu parçanın sırası (0'dan başlar)
-    uint8_t  frag_total;    // 1 byte — toplam parça sayısı
-    uint8_t  payload[12];   // 12 byte — RTCM verisi
-} rtk_mesh_frag_t;          // Toplam: 18 byte
+    uint32_t paket_id;               // 4 byte  — hangi RTCM mesajına ait
+    uint8_t  frag_index;             // 1 byte  — bu parçanın sırası (0'dan başlar)
+    uint8_t  frag_total;             // 1 byte  — toplam parça sayısı
+    uint8_t  frag_uzunluk;           // 1 byte  — bu parçadaki GERÇEK veri byte sayısı (1..11)
+    uint8_t  payload[RTK_FRAG_PAYLOAD_MAKS]; // 11 byte — RTCM verisi
+} rtk_mesh_frag_t;                   // Toplam: 18 byte
 #endif // RTK_MESH_FRAG_DEFINED
 
 // ===== PAKET YAPISI (eski ESP-NOW tabanlı, geriye uyumluluk) =====
@@ -161,6 +174,14 @@ static inline void rtk_mesh_frag_handle(const uint8_t* ham_veri, uint16_t uzunlu
         return;
     }
 
+    // DUSUK-1 FIX: frag_uzunluk sinir disi olamaz (0 ya da MAKS'i asamaz)
+    if (f->frag_uzunluk == 0 || f->frag_uzunluk > RTK_FRAG_PAYLOAD_MAKS) {
+        Serial.printf("[RTK] HATA: gecersiz frag_uzunluk=%u (idx=%u)\n",
+                      f->frag_uzunluk, f->frag_index);
+        rtk_kayip++;
+        return;
+    }
+
     uint32_t simdi = millis();
 
     // Farkli paket_id ya da timeout → sifirla
@@ -187,19 +208,18 @@ static inline void rtk_mesh_frag_handle(const uint8_t* ham_veri, uint16_t uzunlu
     }
 
     // Buffer taşma kontrol
-    // Her fragment 12 byte payload, offset = idx * 12
-    uint16_t offset = (uint16_t)idx * 12;
-    if (offset + 12 > RTK_REASSEMBLY_BUF_SIZE) {
+    // Her fragment en fazla RTK_FRAG_PAYLOAD_MAKS byte payload, offset = idx * MAKS
+    uint16_t offset = (uint16_t)idx * RTK_FRAG_PAYLOAD_MAKS;
+    if (offset + RTK_FRAG_PAYLOAD_MAKS > RTK_REASSEMBLY_BUF_SIZE) {
         Serial.printf("[RTK] HATA: buffer tasacak offset=%u\n", offset);
         rtk_kayip++;
         _rtk_asm_sifirla();
         return;
     }
 
-    memcpy(_rtk_asm.buf + offset, f->payload, 12);
-    // Son fragment kısa olabilir — parca_uzunluk'u sonradan düzelt
-    // (son fragment 12 byte dolmayabilir; tam uzunluk bilinmiyorsa 12 yaz)
-    _rtk_asm.parca_uzunluk[idx] = 12;
+    // DUSUK-1 FIX: gercek uzunluk kadar kopyala ve kaydet (12 sabit degil)
+    memcpy(_rtk_asm.buf + offset, f->payload, f->frag_uzunluk);
+    _rtk_asm.parca_uzunluk[idx] = f->frag_uzunluk;
     _rtk_asm.alinan_maske      |= (1ull << idx);
     _rtk_asm.son_parca_ms       = simdi;
 

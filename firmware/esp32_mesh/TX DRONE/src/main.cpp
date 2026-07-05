@@ -1,6 +1,7 @@
 #include "esp_task_wdt.h"
 #include <Arduino.h>
 #include <WiFi.h>
+#include <string.h>   // ORTA-2 FIX: memcmp icin
 #include "esp_wifi.h"
 #include "mesh_config.h"
 #include "fail_safe.h"
@@ -79,15 +80,47 @@ volatile bool          manevra_aktif        = false;
 volatile uint32_t      manevra_bitis_ms     = 0;
 
 // ===== DRONE ID ESLESTIRME =====
-static const struct { uint8_t mac_son; uint8_t id; } drone_tablo[] = {
-    {0xB4, 1}, {0x88, 2}, {0x00, 3}, {0xFF, 4},
+// ORTA-2 FIX: eskiden yalnizca MAC'in son byte'i karsilastiriliyordu; iki
+// ESP32'nin son byte'i ayni olursa (Espressif atamasinda mumkun) iki drone
+// ayni ID'ye eslenip sessizce kimlik cakismasi olusuyordu. Simdi tam 6 byte
+// karsilastiriliyor.
+// !!! DIKKAT: asagidaki ilk 5 byte SIFIR PLACEHOLDER'dir. Gercek MAC
+// adreslerini (esptool.py chip_id ile veya WiFi.macAddress() ile okunan
+// tam adresi) buraya girmeden derleyip yuklemeyin — aksi halde tum
+// dronelarin ilk 5 byte'i esit sayilir ve son byte'a geri donmus oluruz.
+static const struct { uint8_t mac[6]; uint8_t id; } drone_tablo[] = {
+    {{0x00, 0x00, 0x00, 0x00, 0x00, 0xB4}, 1},
+    {{0x00, 0x00, 0x00, 0x00, 0x00, 0x88}, 2},
+    {{0x00, 0x00, 0x00, 0x00, 0x00, 0x00}, 3},
+    {{0x00, 0x00, 0x00, 0x00, 0x00, 0xFF}, 4},
 };
 static constexpr uint8_t DRONE_SAYISI = sizeof(drone_tablo) / sizeof(drone_tablo[0]);
 static uint8_t mac_to_id(const uint8_t* mac) {
     for (uint8_t i = 0; i < DRONE_SAYISI; i++)
-        if (drone_tablo[i].mac_son == mac[5])
+        if (memcmp(drone_tablo[i].mac, mac, 6) == 0)
             return drone_tablo[i].id;
     return 0;
+}
+
+// ORTA-2 FIX: boot'ta provision tablosunun benzersizligini dogrula.
+// Iki satir ayni MAC'e sahipse (kopyala-yapistir hatasi, doldurulmamis
+// placeholder vb.) sistemi acikca uyar — sessiz kimlik cakismasindansa
+// gurultulu bir boot hatasi tercih edilir.
+static void _drone_tablo_dogrula() {
+    bool hata = false;
+    for (uint8_t i = 0; i < DRONE_SAYISI; i++) {
+        for (uint8_t j = i + 1; j < DRONE_SAYISI; j++) {
+            if (memcmp(drone_tablo[i].mac, drone_tablo[j].mac, 6) == 0) {
+                Serial.printf("[BOOT] HATA: drone_tablo[%u] ve [%u] AYNI MAC! "
+                              "ID %u ve %u cakisiyor.\n",
+                              i, j, drone_tablo[i].id, drone_tablo[j].id);
+                hata = true;
+            }
+        }
+    }
+    if (hata) {
+        Serial.println("[BOOT] drone_tablo duzeltilmeden ucusa cikilmamali!");
+    }
 }
 void mesh_veri_al(const mesh_paket_t* p) {
     // C1 fix: GCM + replay gecerse peer kaydet ve heartbeat guncelle
@@ -150,6 +183,7 @@ void setup() {
     Serial.begin(115200);
     delay(1000);
     Serial.println("[ESP32] Basliyor...");
+    _drone_tablo_dogrula();  // ORTA-2 FIX: MAC benzersizligini boot'ta dogrula
 
     Serial1.begin(115200, SERIAL_8N1, RPI_RX_PIN, RPI_TX_PIN);
     Serial.println("[UART] RPi (Serial1) bagli");

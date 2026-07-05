@@ -318,8 +318,16 @@ static inline esp_err_t _mesh_gonder(mesh_paket_t* p) {
     const uint8_t* hedef = _broadcast_mi(p->hedef_mac) ? BROADCAST_MAC : p->hedef_mac;
 
     // Kritik paketler icin retry (3 deneme, aralikli)
+    // ORTA-1 FIX: TIP_RTK eklendi. RTCM ~21 fragment/sn; tek fragment kaybi
+    // rtk_handler'da 2sn timeout ile TUM RTCM mesajini dusuruyordu (rtk_kayip++).
+    // NOT: hedef broadcast oldugu icin ESP-NOW donanim ACK'i YOKTUR — bu retry
+    // sadece YEREL gonderim hatasini (TX kuyrugu dolu, esp_now_send() basarisiz)
+    // kurtarir; havada/menzil disinda kaybolan paketi retry ile kurtaramaz.
+    // Yogun trafikte (RTK+heartbeat+election ayni kanalda) yerel kuyruk dolmasi
+    // sik bir kayip nedeni oldugundan yine de net bir iyilestirmedir.
     const bool kritik = (p->tip == TIP_KOMUT || p->tip == TIP_ORIGIN ||
-                         p->tip == TIP_GOREV || p->tip == TIP_ELECTION);
+                         p->tip == TIP_GOREV || p->tip == TIP_ELECTION ||
+                         p->tip == TIP_RTK);
     const int deneme_maks = kritik ? 3 : 1;
     esp_err_t ret = ESP_FAIL;
     for (int d = 0; d < deneme_maks; d++) {

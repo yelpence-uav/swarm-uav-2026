@@ -1,7 +1,9 @@
 #pragma once
 // ===== RX BASE — RTK SENDER =====
-// RTCM3 mesajlarini 12-byte payload'li mesh fragmentlarina boler
-// ve mesh_gonder(payload, TIP_RTK) ile AES-GCM sifreli mesh'e yayar.
+// RTCM3 mesajlarini RTK_FRAG_PAYLOAD_MAKS (11) byte payload'li mesh
+// fragmentlarina boler ve mesh_gonder(payload, TIP_RTK) ile AES-GCM
+// sifreli mesh'e yayar. (DUSUK-1 FIX: eskiden 12 byte'ti, frag_uzunluk
+// alani icin 1 byte ayrildi.)
 //
 // AKIŞ:
 //   Pi (Serial1) → RTCM bytes → rtk_rtcm_isle (loop'ta okunur)
@@ -10,7 +12,7 @@
 //   → TX DRONE'da rtk_mesh_frag_handle → reassembly → Serial1 → Pi
 //
 // BANT HESABİ:
-//   Tipik RTCM 1 Hz, ~250 byte → 250/12 = 21 fragment/saniye
+//   Tipik RTCM 1 Hz, ~250 byte → 250/11 ≈ 23 fragment/saniye
 //   Mesh kapasitesi rahatca destekler.
 
 #include <Arduino.h>
@@ -19,17 +21,19 @@
 #include "rtk_handler.h"   // RTK_MAX_FRAGS — KRITIK-1 fix: sender/receiver ayni sinira uymali
                            // (pragma once sayesinde main.cpp'de cift include zararsiz)
 
-// rtk_mesh_frag_t TX DRONE'la ortak tanim — mesh_config.h'a tasinabilir
-// ya da bu dosyadan include edilebilir.
-// Simdilik burada tanimliyoruz; cakisma varsa mesh_config.h'a tasinsin.
+// rtk_mesh_frag_t TX DRONE'la ortak tanim. Kanonik tanim rtk_handler.h'de
+// (bu dosya onu zaten include ediyor, RTK_MESH_FRAG_DEFINED guard sayesinde
+// buradaki blok normalde derlenmez). DUSUK-1 FIX: frag_uzunluk alani eklendi,
+// payload 12->11. Burasi sadece belgeleme/fallback amaçlı guncel tutulur.
 #ifndef RTK_MESH_FRAG_DEFINED
 #define RTK_MESH_FRAG_DEFINED
 typedef struct __attribute__((packed)) {
-    uint32_t paket_id;      // 4 byte
-    uint8_t  frag_index;    // 1 byte
-    uint8_t  frag_total;    // 1 byte
-    uint8_t  payload[12];   // 12 byte RTCM verisi
-} rtk_mesh_frag_t;          // 18 byte — mesh payload'a tam sığar
+    uint32_t paket_id;               // 4 byte
+    uint8_t  frag_index;             // 1 byte
+    uint8_t  frag_total;             // 1 byte
+    uint8_t  frag_uzunluk;           // 1 byte — bu parçadaki gercek veri byte sayisi
+    uint8_t  payload[RTK_FRAG_PAYLOAD_MAKS]; // 11 byte RTCM verisi
+} rtk_mesh_frag_t;                   // 18 byte — mesh payload'a tam sığar
 #endif
 
 // ===== GLOBAL PAKET SAYACI =====
@@ -41,25 +45,25 @@ static uint32_t _rtk_paket_sayaci = 0;
 // uzunluk:   mesajın toplam byte sayısı
 //
 // Her çağrıda yeni bir paket_id atanır.
-// Fragment sayısı = ceil(uzunluk / 12)
-// Son fragment 12 byte dolmayabilir — payload sıfırlanmış başlar,
-// gerçek veri kopyalanır. TX DRONE parca_uzunluk[son]=kalan bilmez;
-// RTK_MAX_PAYLOAD=12 ile çalışır. Gerekirse uzunluk bilgisi
-// frag yapısına eklenebilir (şimdilik sorun değil: RTCM kendi uzunluğunu içerir).
+// Fragment sayısı = ceil(uzunluk / RTK_FRAG_PAYLOAD_MAKS)
+// DUSUK-1 FIX: son fragment RTK_FRAG_PAYLOAD_MAKS'tan kısa olabilir — artık
+// frag.frag_uzunluk alanına gerçek byte sayısı yazılıyor, TX DRONE tarafı
+// bunu okuyup reassembly toplam_uzunluğunu doğru hesaplıyor (eskiden her
+// parça sabit 12 sayılıyor, dolgu sıfırları toplam uzunluğa dahil oluyordu).
 static inline void rtk_rtcm_fragment_ve_gonder(const uint8_t* rtcm_veri, uint16_t uzunluk) {
     if (!rtcm_veri || uzunluk == 0) return;
 
     // Fragment sayisi hesapla
-    uint8_t frag_toplam = (uint8_t)((uzunluk + 11) / 12);   // ceil(uzunluk/12)
+    uint8_t frag_toplam = (uint8_t)((uzunluk + (RTK_FRAG_PAYLOAD_MAKS - 1)) / RTK_FRAG_PAYLOAD_MAKS);
     if (frag_toplam == 0) return;
     // KRITIK-1 FIX: TX DRONE tarafi alinan_maske artik uint64_t (max 64 frag
     // guvenle temsil edilebilir). Daha once burada 100'e izin veriliyordu,
     // ama alici 32 bitle sessizce hicbir zaman birlestiremiyordu (>=32 frag UB).
     // 64'u asan mesaji artik burada, gonderim oncesi, gurultuyle reddediyoruz.
     if (frag_toplam > RTK_MAX_FRAGS) {
-        // 64 * 12 = 768 byte maksimum — TX DRONE'daki alinan_maske (uint64_t) ile eslesir
+        // 64 * 11 = 704 byte maksimum — TX DRONE'daki alinan_maske (uint64_t) ile eslesir
         Serial.printf("[RTK-TX] HATA: mesaj cok buyuk (%u byte, max %u)\n",
-                      uzunluk, (unsigned)(RTK_MAX_FRAGS * 12));
+                      uzunluk, (unsigned)(RTK_MAX_FRAGS * RTK_FRAG_PAYLOAD_MAKS));
         return;
     }
 
@@ -76,11 +80,13 @@ static inline void rtk_rtcm_fragment_ve_gonder(const uint8_t* rtcm_veri, uint16_
         frag.frag_index = i;
         frag.frag_total = frag_toplam;
 
-        uint16_t offset    = (uint16_t)i * 12;
+        uint16_t offset    = (uint16_t)i * RTK_FRAG_PAYLOAD_MAKS;
         uint16_t kalan     = uzunluk - offset;
-        uint8_t  kopyala   = (kalan >= 12) ? 12 : (uint8_t)kalan;
+        uint8_t  kopyala   = (kalan >= RTK_FRAG_PAYLOAD_MAKS) ? RTK_FRAG_PAYLOAD_MAKS : (uint8_t)kalan;
+        frag.frag_uzunluk  = kopyala;   // DUSUK-1 FIX: gercek uzunluk artik iletiliyor
         memcpy(frag.payload, rtcm_veri + offset, kopyala);
-        // Son fragmentte kalan < 12 ise payload sonu sifir kalir (memset ile)
+        // Son fragmentte kalan < MAKS ise payload sonu sifir kalir (memset ile),
+        // ama artik frag_uzunluk sayesinde alici bu dolguyu veriye katmiyor.
 
         // mesh_gonder: sifreler ve yayar
         mesh_gonder((uint8_t*)&frag, TIP_RTK);
