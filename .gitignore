@@ -1186,3 +1186,4 @@ tools/aes_key.txt
 *.pem
 id_ed25519*
 *.patch
+mesh-firmware.zip
