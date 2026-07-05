@@ -1185,3 +1185,4 @@ firmware/esp32_mesh/*/.env
 tools/aes_key.txt
 *.pem
 id_ed25519*
+*.patch
