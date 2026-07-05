@@ -166,6 +166,53 @@ export const FORMATION_LABELS: Record<number, string> = {
   99: "Özel",
 };
 
+// --- QRMissionData (çözülmüş QR görev içeriği) -------------------------------
+// Şartname V2: görev boyunca en az 1 kez GCS'te gösterilmeli (yoksa -20 ceza).
+// Backend ros_bridge.py:qr_mission_data_to_dict ile birebir uyumlu.
+
+export interface QRMissionData {
+  detector_agent_id: number;
+  qr_id: number;
+  qr_seq: number;
+  next_qr: number;          // 0 = son görev, home'a dön
+  team_id: string;
+  command_type: number;
+
+  detected: boolean;
+  decoded: boolean;
+  valid: boolean;
+  raw_text: string;
+  error_message: string;
+  confidence: number;
+
+  formation_active: boolean;
+  target_active: boolean;
+  maneuver_active: boolean;
+  altitude_active: boolean;
+  detach_active: boolean;
+  complete_mission: boolean;
+
+  formation_type: number;   // FORMATION_* enum
+  spacing_m: number;
+
+  pitch_deg: number;
+  roll_deg: number;
+  yaw_deg: number;
+
+  altitude_agl_m: number;   // pozitif = yukarı
+  wait_s: number;
+
+  target_agent_id: number;  // ayrılacak/eklenecek drone
+  detach_color: number;     // COLOR_* enum (r/b)
+  detach_wait_s: number;
+}
+
+export const QR_COLOR_LABELS: Record<number, string> = {
+  0: "?",
+  1: "Kırmızı",
+  2: "Mavi",
+};
+
 // --- Alert (mevcut AlertManager + SystemEvent köprüsü) -----------------------
 
 export type AlertSeverity = "info" | "warning" | "critical";
@@ -186,5 +233,6 @@ export interface TelemetryPayload {
   drones: DroneState[];
   alerts: Alert[];
   swarm_state: SwarmState | null;   // mavlink-sim modunda veya henüz mesaj gelmediyse null
+  qr?: QRMissionData | null;        // çözülmüş son QR — henüz okunmadıysa null
   connection_mode?: ConnectionMode; // backend hangi yolda — UI yarışma-dışı butonları gizler
 }

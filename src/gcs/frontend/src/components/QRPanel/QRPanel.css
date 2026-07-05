@@ -1,0 +1,183 @@
+.qr-panel {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  background: var(--gradient-card);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  backdrop-filter: blur(8px);
+  transition: all var(--transition-base);
+  animation: fade-in var(--transition-base);
+}
+
+.qr-panel::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: var(--space-4);
+  right: var(--space-4);
+  height: 1px;
+  background: var(--gradient-accent-line);
+  opacity: 0.6;
+}
+
+.qr-panel--empty {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: var(--space-3);
+  border-style: dashed;
+  opacity: 0.7;
+}
+
+.qr-panel--invalid {
+  border-color: var(--color-danger);
+  box-shadow: var(--shadow-glow-danger);
+}
+
+/* === Header =============================================== */
+.qr-panel__row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.qr-panel__title {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+}
+
+.qr-panel__id {
+  font-size: var(--text-md);
+  font-weight: 700;
+  color: var(--color-accent);
+  font-family: var(--font-mono);
+  flex: 1;
+}
+
+.qr-panel__seq {
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+  font-weight: 500;
+}
+
+.qr-panel__placeholder {
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+  font-style: italic;
+}
+
+/* === Badges ============================================== */
+.qr-panel__badge {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  padding: 3px var(--space-2);
+  border-radius: var(--radius-sm);
+  text-transform: uppercase;
+}
+
+.qr-panel__badge--ok {
+  background: rgba(34, 197, 94, 0.16);
+  color: var(--color-success, #22c55e);
+  border: 1px solid rgba(34, 197, 94, 0.4);
+}
+
+.qr-panel__badge--invalid {
+  background: rgba(239, 68, 68, 0.18);
+  color: var(--color-danger);
+  border: 1px solid rgba(239, 68, 68, 0.4);
+}
+
+.qr-panel__badge--done {
+  background: rgba(56, 189, 248, 0.16);
+  color: var(--color-accent);
+  border: 1px solid var(--color-border-accent);
+}
+
+/* === Task grid =========================================== */
+.qr-panel__grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: var(--space-2) var(--space-3);
+}
+
+.qr-panel__task {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-bg-glass);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+.qr-panel__task--red {
+  border-color: rgba(239, 68, 68, 0.5);
+  background: rgba(239, 68, 68, 0.1);
+}
+
+.qr-panel__task--blue {
+  border-color: rgba(56, 130, 246, 0.5);
+  background: rgba(56, 130, 246, 0.1);
+}
+
+.qr-panel__task-label {
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+.qr-panel__task-value {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--color-text-primary);
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+/* === Raw text ============================================ */
+.qr-panel__raw {
+  font-size: var(--text-xs);
+  color: var(--color-text-secondary);
+}
+
+.qr-panel__raw summary {
+  cursor: pointer;
+  color: var(--color-text-muted);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  user-select: none;
+}
+
+.qr-panel__raw pre {
+  margin: var(--space-2) 0 0;
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-bg-glass);
+  border-left: 2px solid var(--color-accent);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--color-text-secondary);
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.qr-panel__error {
+  padding: var(--space-2) var(--space-3);
+  background: rgba(239, 68, 68, 0.1);
+  border-left: 2px solid var(--color-danger);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-xs);
+  color: var(--color-danger);
+  font-family: var(--font-mono);
+}
