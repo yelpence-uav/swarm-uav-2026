@@ -1183,3 +1183,5 @@ firmware/esp32_mesh/*/include/aes_key.h
 firmware/esp32_mesh/*/.env
 .pio/
 tools/aes_key.txt
+*.pem
+id_ed25519*
