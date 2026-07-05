@@ -3,6 +3,7 @@
 #include <Arduino.h>
 #include <esp_now.h>
 #include <WiFi.h>
+#include "esp_wifi.h"      // DUSUK-2: promiscuous mod kanal taramasi icin
 #include "encryption.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -515,6 +516,58 @@ static inline void _recv_isle() {
 
         _recv_oku = (_recv_oku + 1) % RECV_BUFFER_SIZE;
     }
+}
+
+// ===== DUSUK-2 FIX: Ucus-oncesi MANUEL spektrum taramasi =====
+// BILINCLI TASARIM KARARI: otomatik kanal degisimi YOK. Dagitik bir mesh'te
+// haberlesme kesildiginde cihazlarin "hangi kanala gecelim" diye anlasmasi
+// zaten mumkun degil (tavuk-yumurta problemi) — bu yuzden calisma zamaninda
+// reaktif kanal degisimi denemek, calismayan bir kanalda senkron kalmaktan
+// daha kotu bir arizaya (kalici desync) yol acabilir.
+// Bunun yerine: operator ucustan once bu fonksiyonu calistirir, MESH_KANAL
+// (11) ve MESH_KANAL_YEDEK (6) uzerindeki trafik/gurultuyu Serial'e raporlar.
+// Rapora gore MESH_KANAL define'i gerekirse degistirilip TUM cihazlar
+// (base + her drone) AYNI degerle yeniden flaslanir — senkronizasyon boylece
+// "ayni kaynak kod, ayni derleme" ile saglanir, calisma-zamaninda haberlesme
+// gerektirmez.
+static volatile uint32_t _kanal_tara_paket_sayaci = 0;
+static volatile int64_t  _kanal_tara_rssi_toplam  = 0;
+
+static void IRAM_ATTR _kanal_tara_rx_cb(void* buf, wifi_promiscuous_pkt_type_t type) {
+    wifi_promiscuous_pkt_t* paket = (wifi_promiscuous_pkt_t*)buf;
+    _kanal_tara_paket_sayaci++;
+    _kanal_tara_rssi_toplam += paket->rx_ctrl.rssi;
+}
+
+static inline void mesh_kanal_tara(void) {
+    const uint8_t   adaylar[]     = { MESH_KANAL, MESH_KANAL_YEDEK };
+    const char*     etiketler[]   = { "birincil", "yedek" };
+    const uint16_t  kanal_basi_ms = 1500;
+
+    Serial.println("[KANAL-TARA] Spektrum taramasi basliyor...");
+    wifi_promiscuous_filter_t filtre = { .filter_mask = WIFI_PROMIS_FILTER_MASK_ALL };
+    esp_wifi_set_promiscuous_filter(&filtre);
+    esp_wifi_set_promiscuous_rx_cb(_kanal_tara_rx_cb);
+    esp_wifi_set_promiscuous(true);
+
+    for (uint8_t i = 0; i < sizeof(adaylar) / sizeof(adaylar[0]); i++) {
+        _kanal_tara_paket_sayaci = 0;
+        _kanal_tara_rssi_toplam  = 0;
+        esp_wifi_set_channel(adaylar[i], WIFI_SECOND_CHAN_NONE);
+        delay(kanal_basi_ms);
+        int32_t ort_rssi = _kanal_tara_paket_sayaci
+                          ? (int32_t)(_kanal_tara_rssi_toplam / (int64_t)_kanal_tara_paket_sayaci)
+                          : 0;
+        Serial.printf("[KANAL-TARA] Kanal %2u (%s): %4lu paket, ort RSSI %ld dBm\n",
+                      adaylar[i], etiketler[i],
+                      (unsigned long)_kanal_tara_paket_sayaci, (long)ort_rssi);
+    }
+
+    esp_wifi_set_promiscuous(false);
+    esp_wifi_set_channel(MESH_KANAL, WIFI_SECOND_CHAN_NONE);  // calisma kanaline geri don
+    Serial.println("[KANAL-TARA] Bitti. Az paket + zayif RSSI = daha bos kanal.");
+    Serial.println("[KANAL-TARA] Degisiklik gerekiyorsa MESH_KANAL degistirip TUM");
+    Serial.println("[KANAL-TARA] cihazlari (base + her drone) AYNI degerle yeniden flaslayin.");
 }
 
 static inline void mesh_init(mesh_veri_callback_t callback) {

@@ -155,6 +155,18 @@ void setup() {
     Serial.println("[UART] RPi (Serial1) bagli");
 
     WiFi.mode(WIFI_STA);
+
+    // DUSUK-2 FIX: ucus oncesi opsiyonel manuel kanal taramasi.
+    // Otomatik degisim YOK — sadece operator isterse rapor alir.
+    Serial.println("[BOOT] Kanal taramasi icin 3 sn icinde 'T' gonderin (opsiyonel)...");
+    uint32_t _tara_bekleme_baslangic = millis();
+    while (millis() - _tara_bekleme_baslangic < 3000) {
+        if (Serial.available() && Serial.read() == 'T') {
+            mesh_kanal_tara();
+            break;
+        }
+    }
+
     esp_wifi_set_channel(MESH_KANAL, WIFI_SECOND_CHAN_NONE);
     mesh_init(mesh_veri_al);
     son_paket_ms = millis();
