@@ -1,0 +1,495 @@
+diff --git a/firmware/esp32_mesh/RX BASE/include/encryption.h b/firmware/esp32_mesh/RX BASE/include/encryption.h
+index d76db94..6352eef 100644
+--- a/firmware/esp32_mesh/RX BASE/include/encryption.h	
++++ b/firmware/esp32_mesh/RX BASE/include/encryption.h	
+@@ -60,18 +60,25 @@ static inline void iv_uret_rastgele(uint8_t iv[12]) {
+ }
+ 
+ // Sifrele — GCM, plaintext → ciphertext + 16 byte auth tag
++// ORTA-1 FIX: aad/aad_uzunluk eklendi. Paket basligi (tip+kaynak_mac+hedef_mac)
++// AAD olarak verilirse, sifreli payload degismeden basligi degistirmek artik
++// tag'i gecersiz kilar (mesh_config.h::mesh_gonder AAD'i hesaplayip geciyor).
+ inline void aes_sifrele_gcm(const uint8_t* girdi, size_t uzunluk, uint8_t* cikti,
+-                              const uint8_t iv[12], uint8_t tag[16]) {
++                              const uint8_t iv[12], uint8_t tag[16],
++                              const uint8_t* aad = nullptr, size_t aad_uzunluk = 0) {
+     aes_init();
+     mbedtls_gcm_crypt_and_tag(&_gcm_ctx, MBEDTLS_GCM_ENCRYPT,
+-        uzunluk, iv, 12, NULL, 0, girdi, cikti, 16, tag);
++        uzunluk, iv, 12, aad, aad_uzunluk, girdi, cikti, 16, tag);
+ }
+ 
+ // Coz + dogrula — false donerse tag uyusmadi: sahte veya bozuk paket, at
++// ORTA-1 FIX: coz tarafi da ayni AAD'i vermeli (sifrelemede kullanilanla birebir
++// ayni tip+kaynak_mac+hedef_mac), aksi halde dogrulama hep basarisiz olur.
+ inline bool aes_coz_gcm(const uint8_t* girdi, size_t uzunluk, uint8_t* cikti,
+-                          const uint8_t iv[12], const uint8_t tag[16]) {
++                          const uint8_t iv[12], const uint8_t tag[16],
++                          const uint8_t* aad = nullptr, size_t aad_uzunluk = 0) {
+     aes_init();
+     int ret = mbedtls_gcm_auth_decrypt(&_gcm_ctx, uzunluk,
+-        iv, 12, NULL, 0, tag, 16, girdi, cikti);
++        iv, 12, aad, aad_uzunluk, tag, 16, girdi, cikti);
+     return (ret == 0);
+ }
+diff --git a/firmware/esp32_mesh/RX BASE/include/mesh_config.h b/firmware/esp32_mesh/RX BASE/include/mesh_config.h
+index cfed5b9..47443d5 100644
+--- a/firmware/esp32_mesh/RX BASE/include/mesh_config.h	
++++ b/firmware/esp32_mesh/RX BASE/include/mesh_config.h	
+@@ -335,6 +335,19 @@ static inline esp_err_t _mesh_gonder(mesh_paket_t* p) {
+     return ret;
+ }
+ 
++// ===== ORTA-1 FIX: GCM AAD (Ek Dogrulanmis Veri) =====
++// tip + kaynak_mac + hedef_mac AAD olarak verilir; boylece bu 3 alan artik
++// sifreli payload'i hic bozmadan degistirilemez (ornegin TIP_POSE -> TIP_GOREV).
++// atlama_sayisi kasitli olarak DISARIDA tutulur: _paketi_ilet() her hop'ta onu
++// artirir, ayni iv/tag ile iletir — AAD'e girseydi relay ilk hop'ta tag'i
++// gecersiz kilardi.
++static inline void _mesh_aad_olustur(uint8_t tip, const uint8_t* kaynak_mac,
++                                      const uint8_t* hedef_mac, uint8_t aad[13]) {
++    aad[0] = tip;
++    memcpy(aad + 1, kaynak_mac, 6);
++    memcpy(aad + 7, hedef_mac, 6);
++}
++
+ static inline void mesh_gonder(const uint8_t* veri, uint8_t tip,
+                                 const uint8_t* hedef = nullptr) {
+     mesh_paket_t p = {};
+@@ -349,7 +362,9 @@ static inline void mesh_gonder(const uint8_t* veri, uint8_t tip,
+     anti_replay_t ar_out = { _session_id, p.paket_id };
+     memcpy(tam_veri, &ar_out, sizeof(anti_replay_t));
+     memcpy(tam_veri + sizeof(anti_replay_t), veri, 18);
+-    aes_sifrele_gcm(tam_veri, sizeof(tam_veri), p.sifreli_veri, p.iv, p.tag);
++    uint8_t aad[13];
++    _mesh_aad_olustur(p.tip, p.kaynak_mac, p.hedef_mac, aad);
++    aes_sifrele_gcm(tam_veri, sizeof(tam_veri), p.sifreli_veri, p.iv, p.tag, aad, sizeof(aad));
+     _duplikat_kaydet(&p);
+     _mesh_gonder(&p);
+ }
+@@ -457,7 +472,9 @@ static inline void _recv_isle() {
+                 if (benim_icin) {
+                     // Bug1+Bug3 fix: GCM burda dogrulanir; gecerse node guncellenir
+                     uint8_t _acik_cb[24] = {0};
+-                    if (!aes_coz_gcm(p->sifreli_veri, 24, _acik_cb, p->iv, p->tag)) {
++                    uint8_t _aad_cb[13];
++                    _mesh_aad_olustur(p->tip, p->kaynak_mac, p->hedef_mac, _aad_cb);
++                    if (!aes_coz_gcm(p->sifreli_veri, 24, _acik_cb, p->iv, p->tag, _aad_cb, sizeof(_aad_cb))) {
+                         Serial.printf("[MESH] GCM hatasi tip:%d %02X:%02X\n",
+                             p->tip, p->kaynak_mac[4], p->kaynak_mac[5]);
+                         // Bug2 fix: sahte MAC peer listesinden cikar
+@@ -479,7 +496,9 @@ static inline void _recv_isle() {
+             } else {
+                 // Heartbeat — GCM dogrulama zorunlu (MAC spoofing onleme)
+                 uint8_t acik[24];
+-                if (aes_coz_gcm(p->sifreli_veri, 24, acik, p->iv, p->tag)) {
++                uint8_t aad_hb[13];
++                _mesh_aad_olustur(p->tip, p->kaynak_mac, p->hedef_mac, aad_hb);
++                if (aes_coz_gcm(p->sifreli_veri, 24, acik, p->iv, p->tag, aad_hb, sizeof(aad_hb))) {
+                     anti_replay_t* ar = (anti_replay_t*)acik;
+                     if (node && _replay_kontrol(node, ar)) {
+                         node->son_heartbeat_ms = millis();
+diff --git a/firmware/esp32_mesh/RX BASE/include/rtk_handler.h b/firmware/esp32_mesh/RX BASE/include/rtk_handler.h
+index 36cc3c1..3b97c7c 100644
+--- a/firmware/esp32_mesh/RX BASE/include/rtk_handler.h	
++++ b/firmware/esp32_mesh/RX BASE/include/rtk_handler.h	
+@@ -5,8 +5,11 @@
+ 
+ // ===== SABITLER =====
+ #define RTK_MAX_PAYLOAD          220    // TX DRONE alim tarafı (eski ESP-NOW fragment boyutu)
+-#define RTK_MAX_FRAGS            100    // 6'dan 100'e: 1000 byte / 12 byte = ~84 frag max
+-                                        // DIKKAT: alinan_maske uint32_t olmali (asagida)
++#define RTK_MAX_FRAGS             64    // KRITIK-1 FIX: alinan_maske artik uint64_t (asagida).
++                                        // 64 bit maske guvenle 0..63 index temsil eder.
++                                        // 64*12 = 768 byte -> tipik MSM7 (400-600B) rahat sigar.
++                                        // 65+ fragmentli mesaj artik SENDER'da reddedilir
++                                        // (rtk_sender.h ayni sinira guncellendi, senkron kalmali).
+ #define RTK_REASSEMBLY_BUF_SIZE  1200
+ #define RTK_HAM_BUF_SIZE   (1 + 1 + RTK_REASSEMBLY_BUF_SIZE + 2)
+ #define RTK_COBS_BUF_SIZE  (RTK_HAM_BUF_SIZE + (RTK_HAM_BUF_SIZE / 254) + 2)
+@@ -40,16 +43,16 @@ static uint32_t rtk_kayip           = 0;
+ static uint32_t rtk_uart_gonderilen = 0;
+ 
+ // ===== FRAGMENTASYON YENİDEN BİRLEŞTİRME =====
+-// alinan_maske: uint8_t → uint32_t
+-//   Eski uint8_t ile max 8 bit → max 8 fragment takip edilebilirdi.
+-//   RTK_MAX_FRAGS=100 ile uint32_t gerekli (32 bit → max 32 frag).
+-//   NOT: 32 bit maske ile 33+ fragment göndermek istenirse
+-//        maske yerine alinan_sayac karşılaştırması kullanılmalı.
+-//        Tipik RTCM: 250 byte / 12 byte ≈ 21 fragment — 32 bit yeter.
++// alinan_maske: uint32_t → uint64_t (KRITIK-1 FIX)
++//   uint32_t ile (1u << toplam), toplam>=32 oldugunda TANIMSIZ DAVRANIS idi.
++//   Cok-uydulu RTCM (MSM7: GPS+GLONASS+Galileo+BeiDou) 400-600B -> 34-50 fragment,
++//   32 bit maskeyi rahatlikla asiyordu -> sessiz birlesme hatasi + rtk_kayip artisi.
++//   uint64_t ile guvenli sinir 64 fragment (768 byte). toplam==64 ozel durumla
++//   ele alinir; (1ull<<64) de tanimsizdir (bkz _rtk_tamamsa_gonder / rtk_loop).
+ static struct {
+     uint32_t paket_id;
+     uint8_t  toplam;
+-    uint32_t alinan_maske;          // uint8_t → uint32_t (max 32 frag)
++    uint64_t alinan_maske;          // uint32_t → uint64_t (KRITIK-1 fix, max 64 frag)
+     uint8_t  buf[RTK_REASSEMBLY_BUF_SIZE];
+     uint16_t parca_uzunluk[RTK_MAX_FRAGS];
+     uint32_t son_parca_ms;
+@@ -113,8 +116,10 @@ static inline void _rtk_uart_gonder(const uint8_t* veri, uint16_t uzunluk) {
+ }
+ 
+ static inline void _rtk_tamamsa_gonder(void) {
+-    // uint32_t maske — toplam 32'den buyuk olamaz (yukarida not var)
+-    uint32_t tam_maske = (uint32_t)((1u << _rtk_asm.toplam) - 1u);
++    // KRITIK-1 FIX: uint64_t maske. toplam==64 icin (1ull<<64) tanimsizdir
++    // (shift genisligi >= tip genisligi), bu yuzden ozel durumla ele alinir.
++    uint64_t tam_maske = (_rtk_asm.toplam >= 64) ? ~0ULL
++                        : ((1ull << _rtk_asm.toplam) - 1ull);
+     if (_rtk_asm.alinan_maske != tam_maske) return;
+ 
+     uint16_t toplam_uzunluk = 0;
+@@ -176,7 +181,7 @@ static inline void rtk_mesh_frag_handle(const uint8_t* ham_veri, uint16_t uzunlu
+     uint8_t idx = f->frag_index;
+ 
+     // Duplikat kontrol
+-    if (_rtk_asm.alinan_maske & (1u << idx)) {
++    if (_rtk_asm.alinan_maske & (1ull << idx)) {
+         Serial.printf("[RTK] Duplikat frag %u, atlaniyor\n", idx);
+         return;
+     }
+@@ -195,7 +200,7 @@ static inline void rtk_mesh_frag_handle(const uint8_t* ham_veri, uint16_t uzunlu
+     // Son fragment kısa olabilir — parca_uzunluk'u sonradan düzelt
+     // (son fragment 12 byte dolmayabilir; tam uzunluk bilinmiyorsa 12 yaz)
+     _rtk_asm.parca_uzunluk[idx] = 12;
+-    _rtk_asm.alinan_maske      |= (1u << idx);
++    _rtk_asm.alinan_maske      |= (1ull << idx);
+     _rtk_asm.son_parca_ms       = simdi;
+ 
+     rtk_alinan++;
+@@ -249,7 +254,7 @@ static inline void rtk_paket_isle(const uint8_t* ham_veri, uint16_t uzunluk) {
+ 
+     uint8_t idx = p->frag_index;
+ 
+-    if (_rtk_asm.alinan_maske & (1u << idx)) {
++    if (_rtk_asm.alinan_maske & (1ull << idx)) {
+         Serial.printf("[RTK] Duplikat frag %u, atlaniyor\n", idx);
+         return;
+     }
+@@ -266,7 +271,7 @@ static inline void rtk_paket_isle(const uint8_t* ham_veri, uint16_t uzunluk) {
+                              ? p->payload_uzunluk : RTK_MAX_PAYLOAD;
+     memcpy(_rtk_asm.buf + offset, p->payload, gercek_uzunluk);
+     _rtk_asm.parca_uzunluk[idx] = gercek_uzunluk;
+-    _rtk_asm.alinan_maske |= (1u << idx);
++    _rtk_asm.alinan_maske |= (1ull << idx);
+     _rtk_asm.son_parca_ms  = simdi;
+ 
+     Serial.printf("[RTK] Frag %u/%u alindi (paket_id=%lu)\n",
+@@ -279,10 +284,12 @@ static inline void rtk_paket_isle(const uint8_t* ham_veri, uint16_t uzunluk) {
+ static inline void rtk_loop(void) {
+     if (_rtk_asm.toplam == 0) return;
+     if ((millis() - _rtk_asm.son_parca_ms) > RTK_FRAG_TIMEOUT_MS) {
+-        Serial.printf("[RTK] Assembly timeout — paket_id=%lu maske=%08lX/%08lX\n",
++        uint64_t _tam_maske_dbg = (_rtk_asm.toplam >= 64) ? ~0ULL
++                                : ((1ull << _rtk_asm.toplam) - 1ull);
++        Serial.printf("[RTK] Assembly timeout — paket_id=%lu maske=%016llX/%016llX\n",
+                       (unsigned long)_rtk_asm.paket_id,
+-                      (unsigned long)_rtk_asm.alinan_maske,
+-                      (unsigned long)((1u << _rtk_asm.toplam) - 1u));
++                      (unsigned long long)_rtk_asm.alinan_maske,
++                      (unsigned long long)_tam_maske_dbg);
+         rtk_kayip++;
+         _rtk_asm_sifirla();
+     }
+diff --git a/firmware/esp32_mesh/RX BASE/include/rtk_sender.h b/firmware/esp32_mesh/RX BASE/include/rtk_sender.h
+index 91243f7..25a6d4c 100644
+--- a/firmware/esp32_mesh/RX BASE/include/rtk_sender.h	
++++ b/firmware/esp32_mesh/RX BASE/include/rtk_sender.h	
+@@ -16,6 +16,8 @@
+ #include <Arduino.h>
+ #include <string.h>
+ #include "mesh_config.h"   // TIP_RTK, mesh_gonder
++#include "rtk_handler.h"   // RTK_MAX_FRAGS — KRITIK-1 fix: sender/receiver ayni sinira uymali
++                           // (pragma once sayesinde main.cpp'de cift include zararsiz)
+ 
+ // rtk_mesh_frag_t TX DRONE'la ortak tanim — mesh_config.h'a tasinabilir
+ // ya da bu dosyadan include edilebilir.
+@@ -50,9 +52,14 @@ static inline void rtk_rtcm_fragment_ve_gonder(const uint8_t* rtcm_veri, uint16_
+     // Fragment sayisi hesapla
+     uint8_t frag_toplam = (uint8_t)((uzunluk + 11) / 12);   // ceil(uzunluk/12)
+     if (frag_toplam == 0) return;
+-    if (frag_toplam > 100) {
+-        // 100 * 12 = 1200 byte maksimum — RTK_REASSEMBLY_BUF_SIZE ile eslesir
+-        Serial.printf("[RTK-TX] HATA: mesaj cok buyuk (%u byte, max 1200)\n", uzunluk);
++    // KRITIK-1 FIX: TX DRONE tarafi alinan_maske artik uint64_t (max 64 frag
++    // guvenle temsil edilebilir). Daha once burada 100'e izin veriliyordu,
++    // ama alici 32 bitle sessizce hicbir zaman birlestiremiyordu (>=32 frag UB).
++    // 64'u asan mesaji artik burada, gonderim oncesi, gurultuyle reddediyoruz.
++    if (frag_toplam > RTK_MAX_FRAGS) {
++        // 64 * 12 = 768 byte maksimum — TX DRONE'daki alinan_maske (uint64_t) ile eslesir
++        Serial.printf("[RTK-TX] HATA: mesaj cok buyuk (%u byte, max %u)\n",
++                      uzunluk, (unsigned)(RTK_MAX_FRAGS * 12));
+         return;
+     }
+ 
+diff --git a/firmware/esp32_mesh/RX BASE/src/main.cpp b/firmware/esp32_mesh/RX BASE/src/main.cpp
+index 9d6b743..cbbb3e6 100644
+--- a/firmware/esp32_mesh/RX BASE/src/main.cpp	
++++ b/firmware/esp32_mesh/RX BASE/src/main.cpp	
+@@ -134,9 +134,12 @@ static inline bool mesh_replay_dogrula(node_durum_t* node, const uint8_t* decryp
+ // ===== MESH CALLBACK =====
+ void mesh_veri_al(const mesh_paket_t* p) {
+     uint8_t acik[24] = {0}; // FIX: Buffer 24'e cikarildi
+-    
+-    // FIX #1: Uzunluk (22) parametresi eklendi
+-    if (!aes_coz_gcm(p->sifreli_veri, 24, acik, p->iv, p->tag)) {
++
++    // FIX #1: Uzunluk (24) parametresi eklendi
++    // ORTA-1 fix: AAD (tip+kaynak_mac+hedef_mac) de dogrulanir
++    uint8_t aad[13];
++    _mesh_aad_olustur(p->tip, p->kaynak_mac, p->hedef_mac, aad);
++    if (!aes_coz_gcm(p->sifreli_veri, 24, acik, p->iv, p->tag, aad, sizeof(aad))) {
+         return; 
+     }
+ 
+@@ -257,7 +260,14 @@ void loop() {
+                     if (crc_hesap == crc_gelen) {
+                         uint8_t tip_byte = decoded[0];
+                         uint32_t simdi   = millis();
+-                        uint8_t veri[16] = {0};
++                        // ORTA-2 FIX (rapordaki TX DRONE payload[16] hatasinin
++                        // ayni sekilde burada da bulundu): mesh_gonder() her
++                        // zaman 18 byte okur (memcpy(tam_veri+6, veri, 18));
++                        // 16 byte'lik buffer 2 byte stack over-read'e (UB) yol
++                        // aciyordu. Gercek payload struct'lari 16B oldugundan
++                        // payload_uzunluk siniri 16'da kaliyor, fazladan 2 byte
++                        // zaten-sifirlanmis dolgu.
++                        uint8_t veri[18] = {0};
+                         uint8_t payload_uzunluk = min((int)veri_uzunluk - 2, 16);
+                         memcpy(veri, &decoded[2], payload_uzunluk);
+ 
+diff --git a/firmware/esp32_mesh/TX DRONE/include/encryption.h b/firmware/esp32_mesh/TX DRONE/include/encryption.h
+index d76db94..6352eef 100644
+--- a/firmware/esp32_mesh/TX DRONE/include/encryption.h	
++++ b/firmware/esp32_mesh/TX DRONE/include/encryption.h	
+@@ -60,18 +60,25 @@ static inline void iv_uret_rastgele(uint8_t iv[12]) {
+ }
+ 
+ // Sifrele — GCM, plaintext → ciphertext + 16 byte auth tag
++// ORTA-1 FIX: aad/aad_uzunluk eklendi. Paket basligi (tip+kaynak_mac+hedef_mac)
++// AAD olarak verilirse, sifreli payload degismeden basligi degistirmek artik
++// tag'i gecersiz kilar (mesh_config.h::mesh_gonder AAD'i hesaplayip geciyor).
+ inline void aes_sifrele_gcm(const uint8_t* girdi, size_t uzunluk, uint8_t* cikti,
+-                              const uint8_t iv[12], uint8_t tag[16]) {
++                              const uint8_t iv[12], uint8_t tag[16],
++                              const uint8_t* aad = nullptr, size_t aad_uzunluk = 0) {
+     aes_init();
+     mbedtls_gcm_crypt_and_tag(&_gcm_ctx, MBEDTLS_GCM_ENCRYPT,
+-        uzunluk, iv, 12, NULL, 0, girdi, cikti, 16, tag);
++        uzunluk, iv, 12, aad, aad_uzunluk, girdi, cikti, 16, tag);
+ }
+ 
+ // Coz + dogrula — false donerse tag uyusmadi: sahte veya bozuk paket, at
++// ORTA-1 FIX: coz tarafi da ayni AAD'i vermeli (sifrelemede kullanilanla birebir
++// ayni tip+kaynak_mac+hedef_mac), aksi halde dogrulama hep basarisiz olur.
+ inline bool aes_coz_gcm(const uint8_t* girdi, size_t uzunluk, uint8_t* cikti,
+-                          const uint8_t iv[12], const uint8_t tag[16]) {
++                          const uint8_t iv[12], const uint8_t tag[16],
++                          const uint8_t* aad = nullptr, size_t aad_uzunluk = 0) {
+     aes_init();
+     int ret = mbedtls_gcm_auth_decrypt(&_gcm_ctx, uzunluk,
+-        iv, 12, NULL, 0, tag, 16, girdi, cikti);
++        iv, 12, aad, aad_uzunluk, tag, 16, girdi, cikti);
+     return (ret == 0);
+ }
+diff --git a/firmware/esp32_mesh/TX DRONE/include/mesh_config.h b/firmware/esp32_mesh/TX DRONE/include/mesh_config.h
+index f3d63d9..f17fa3c 100644
+--- a/firmware/esp32_mesh/TX DRONE/include/mesh_config.h	
++++ b/firmware/esp32_mesh/TX DRONE/include/mesh_config.h	
+@@ -334,6 +334,19 @@ static inline esp_err_t _mesh_gonder(mesh_paket_t* p) {
+     return ret;
+ }
+ 
++// ===== ORTA-1 FIX: GCM AAD (Ek Dogrulanmis Veri) =====
++// tip + kaynak_mac + hedef_mac AAD olarak verilir; boylece bu 3 alan artik
++// sifreli payload'i hic bozmadan degistirilemez (ornegin TIP_POSE -> TIP_GOREV).
++// atlama_sayisi kasitli olarak DISARIDA tutulur: _paketi_ilet() her hop'ta onu
++// artirir, ayni iv/tag ile iletir — AAD'e girseydi relay ilk hop'ta tag'i
++// gecersiz kilardi.
++static inline void _mesh_aad_olustur(uint8_t tip, const uint8_t* kaynak_mac,
++                                      const uint8_t* hedef_mac, uint8_t aad[13]) {
++    aad[0] = tip;
++    memcpy(aad + 1, kaynak_mac, 6);
++    memcpy(aad + 7, hedef_mac, 6);
++}
++
+ static inline void mesh_gonder(const uint8_t* veri, uint8_t tip,
+                                 const uint8_t* hedef = nullptr) {
+     mesh_paket_t p = {};
+@@ -348,7 +361,9 @@ static inline void mesh_gonder(const uint8_t* veri, uint8_t tip,
+     anti_replay_t ar_out = { _session_id, p.paket_id };
+     memcpy(tam_veri, &ar_out, sizeof(anti_replay_t));
+     memcpy(tam_veri + sizeof(anti_replay_t), veri, 18);
+-    aes_sifrele_gcm(tam_veri, sizeof(tam_veri), p.sifreli_veri, p.iv, p.tag);
++    uint8_t aad[13];
++    _mesh_aad_olustur(p.tip, p.kaynak_mac, p.hedef_mac, aad);
++    aes_sifrele_gcm(tam_veri, sizeof(tam_veri), p.sifreli_veri, p.iv, p.tag, aad, sizeof(aad));
+     _duplikat_kaydet(&p);
+     _mesh_gonder(&p);
+ }
+@@ -458,7 +473,9 @@ static inline void _recv_isle() {
+                 if (benim_icin) {
+                     // Bug1+Bug3 fix: GCM burda dogrulanir; gecerse node guncellenir
+                     uint8_t _acik_cb[24] = {0};
+-                    if (!aes_coz_gcm(p->sifreli_veri, 24, _acik_cb, p->iv, p->tag)) {
++                    uint8_t _aad_cb[13];
++                    _mesh_aad_olustur(p->tip, p->kaynak_mac, p->hedef_mac, _aad_cb);
++                    if (!aes_coz_gcm(p->sifreli_veri, 24, _acik_cb, p->iv, p->tag, _aad_cb, sizeof(_aad_cb))) {
+                         Serial.printf("[MESH] GCM hatasi tip:%d %02X:%02X\n",
+                             p->tip, p->kaynak_mac[4], p->kaynak_mac[5]);
+                         // Bug2 fix: sahte MAC peer listesinden cikar
+@@ -478,7 +495,9 @@ static inline void _recv_isle() {
+             } else {
+                 // Heartbeat — GCM dogrulama zorunlu (MAC spoofing onleme)
+                 uint8_t acik[24];
+-                if (aes_coz_gcm(p->sifreli_veri, 24, acik, p->iv, p->tag)) {
++                uint8_t aad_hb[13];
++                _mesh_aad_olustur(p->tip, p->kaynak_mac, p->hedef_mac, aad_hb);
++                if (aes_coz_gcm(p->sifreli_veri, 24, acik, p->iv, p->tag, aad_hb, sizeof(aad_hb))) {
+                     anti_replay_t* ar = (anti_replay_t*)acik;
+                     if (node && _replay_kontrol(node, ar)) {
+                         node->son_heartbeat_ms = millis();
+diff --git a/firmware/esp32_mesh/TX DRONE/include/rtk_handler.h b/firmware/esp32_mesh/TX DRONE/include/rtk_handler.h
+index 8774703..15e300e 100644
+--- a/firmware/esp32_mesh/TX DRONE/include/rtk_handler.h	
++++ b/firmware/esp32_mesh/TX DRONE/include/rtk_handler.h	
+@@ -5,8 +5,11 @@
+ 
+ // ===== SABITLER =====
+ #define RTK_MAX_PAYLOAD          220    // TX DRONE alim tarafı (eski ESP-NOW fragment boyutu)
+-#define RTK_MAX_FRAGS            100    // 6'dan 100'e: 1000 byte / 12 byte = ~84 frag max
+-                                        // DIKKAT: alinan_maske uint32_t olmali (asagida)
++#define RTK_MAX_FRAGS             64    // KRITIK-1 FIX: alinan_maske artik uint64_t (asagida).
++                                        // 64 bit maske guvenle 0..63 index temsil eder.
++                                        // 64*12 = 768 byte -> tipik MSM7 (400-600B) rahat sigar.
++                                        // 65+ fragmentli mesaj artik SENDER'da reddedilir
++                                        // (rtk_sender.h ayni sinira guncellendi, senkron kalmali).
+ #define RTK_REASSEMBLY_BUF_SIZE  1200
+ #define RTK_HAM_BUF_SIZE   (1 + 1 + RTK_REASSEMBLY_BUF_SIZE + 2)
+ #define RTK_COBS_BUF_SIZE  (RTK_HAM_BUF_SIZE + (RTK_HAM_BUF_SIZE / 254) + 2)
+@@ -40,16 +43,16 @@ static uint32_t rtk_kayip           = 0;
+ static uint32_t rtk_uart_gonderilen = 0;
+ 
+ // ===== FRAGMENTASYON YENİDEN BİRLEŞTİRME =====
+-// alinan_maske: uint8_t → uint32_t
+-//   Eski uint8_t ile max 8 bit → max 8 fragment takip edilebilirdi.
+-//   RTK_MAX_FRAGS=100 ile uint32_t gerekli (32 bit → max 32 frag).
+-//   NOT: 32 bit maske ile 33+ fragment göndermek istenirse
+-//        maske yerine alinan_sayac karşılaştırması kullanılmalı.
+-//        Tipik RTCM: 250 byte / 12 byte ≈ 21 fragment — 32 bit yeter.
++// alinan_maske: uint32_t → uint64_t (KRITIK-1 FIX)
++//   uint32_t ile (1u << toplam), toplam>=32 oldugunda TANIMSIZ DAVRANIS idi.
++//   Cok-uydulu RTCM (MSM7: GPS+GLONASS+Galileo+BeiDou) 400-600B -> 34-50 fragment,
++//   32 bit maskeyi rahatlikla asiyordu -> sessiz birlesme hatasi + rtk_kayip artisi.
++//   uint64_t ile guvenli sinir 64 fragment (768 byte). toplam==64 ozel durumla
++//   ele alinir; (1ull<<64) de tanimsizdir (bkz _rtk_tamamsa_gonder / rtk_loop).
+ static struct {
+     uint32_t paket_id;
+     uint8_t  toplam;
+-    uint32_t alinan_maske;          // uint8_t → uint32_t (max 32 frag)
++    uint64_t alinan_maske;          // uint32_t → uint64_t (KRITIK-1 fix, max 64 frag)
+     uint8_t  buf[RTK_REASSEMBLY_BUF_SIZE];
+     uint16_t parca_uzunluk[RTK_MAX_FRAGS];
+     uint32_t son_parca_ms;
+@@ -113,8 +116,10 @@ static inline void _rtk_uart_gonder(const uint8_t* veri, uint16_t uzunluk) {
+ }
+ 
+ static inline void _rtk_tamamsa_gonder(void) {
+-    // uint32_t maske — toplam 32'den buyuk olamaz (yukarida not var)
+-    uint32_t tam_maske = (uint32_t)((1u << _rtk_asm.toplam) - 1u);
++    // KRITIK-1 FIX: uint64_t maske. toplam==64 icin (1ull<<64) tanimsizdir
++    // (shift genisligi >= tip genisligi), bu yuzden ozel durumla ele alinir.
++    uint64_t tam_maske = (_rtk_asm.toplam >= 64) ? ~0ULL
++                        : ((1ull << _rtk_asm.toplam) - 1ull);
+     if (_rtk_asm.alinan_maske != tam_maske) return;
+ 
+     uint16_t toplam_uzunluk = 0;
+@@ -176,7 +181,7 @@ static inline void rtk_mesh_frag_handle(const uint8_t* ham_veri, uint16_t uzunlu
+     uint8_t idx = f->frag_index;
+ 
+     // Duplikat kontrol
+-    if (_rtk_asm.alinan_maske & (1u << idx)) {
++    if (_rtk_asm.alinan_maske & (1ull << idx)) {
+         Serial.printf("[RTK] Duplikat frag %u, atlaniyor\n", idx);
+         return;
+     }
+@@ -195,7 +200,7 @@ static inline void rtk_mesh_frag_handle(const uint8_t* ham_veri, uint16_t uzunlu
+     // Son fragment kısa olabilir — parca_uzunluk'u sonradan düzelt
+     // (son fragment 12 byte dolmayabilir; tam uzunluk bilinmiyorsa 12 yaz)
+     _rtk_asm.parca_uzunluk[idx] = 12;
+-    _rtk_asm.alinan_maske      |= (1u << idx);
++    _rtk_asm.alinan_maske      |= (1ull << idx);
+     _rtk_asm.son_parca_ms       = simdi;
+ 
+     rtk_alinan++;
+@@ -249,7 +254,7 @@ static inline void rtk_paket_isle(const uint8_t* ham_veri, uint16_t uzunluk) {
+ 
+     uint8_t idx = p->frag_index;
+ 
+-    if (_rtk_asm.alinan_maske & (1u << idx)) {
++    if (_rtk_asm.alinan_maske & (1ull << idx)) {
+         Serial.printf("[RTK] Duplikat frag %u, atlaniyor\n", idx);
+         return;
+     }
+@@ -266,7 +271,7 @@ static inline void rtk_paket_isle(const uint8_t* ham_veri, uint16_t uzunluk) {
+                              ? p->payload_uzunluk : RTK_MAX_PAYLOAD;
+     memcpy(_rtk_asm.buf + offset, p->payload, gercek_uzunluk);
+     _rtk_asm.parca_uzunluk[idx] = gercek_uzunluk;
+-    _rtk_asm.alinan_maske |= (1u << idx);
++    _rtk_asm.alinan_maske |= (1ull << idx);
+     _rtk_asm.son_parca_ms  = simdi;
+ 
+     Serial.printf("[RTK] Frag %u/%u alindi (paket_id=%lu)\n",
+@@ -279,10 +284,12 @@ static inline void rtk_paket_isle(const uint8_t* ham_veri, uint16_t uzunluk) {
+ static inline void rtk_loop(void) {
+     if (_rtk_asm.toplam == 0) return;
+     if ((millis() - _rtk_asm.son_parca_ms) > RTK_FRAG_TIMEOUT_MS) {
+-        Serial.printf("[RTK] Assembly timeout — paket_id=%lu maske=%08lX/%08lX\n",
++        uint64_t _tam_maske_dbg = (_rtk_asm.toplam >= 64) ? ~0ULL
++                                : ((1ull << _rtk_asm.toplam) - 1ull);
++        Serial.printf("[RTK] Assembly timeout — paket_id=%lu maske=%016llX/%016llX\n",
+                       (unsigned long)_rtk_asm.paket_id,
+-                      (unsigned long)_rtk_asm.alinan_maske,
+-                      (unsigned long)((1u << _rtk_asm.toplam) - 1u));
++                      (unsigned long long)_rtk_asm.alinan_maske,
++                      (unsigned long long)_tam_maske_dbg);
+         rtk_kayip++;
+         _rtk_asm_sifirla();
+     }
+diff --git a/firmware/esp32_mesh/TX DRONE/src/main.cpp b/firmware/esp32_mesh/TX DRONE/src/main.cpp
+index 4c7658c..fa99dea 100644
+--- a/firmware/esp32_mesh/TX DRONE/src/main.cpp	
++++ b/firmware/esp32_mesh/TX DRONE/src/main.cpp	
+@@ -91,8 +91,11 @@ static uint8_t mac_to_id(const uint8_t* mac) {
+ }
+ void mesh_veri_al(const mesh_paket_t* p) {
+     // C1 fix: GCM + replay gecerse peer kaydet ve heartbeat guncelle
++    // ORTA-1 fix: AAD (tip+kaynak_mac+hedef_mac) de dogrulanir
+     uint8_t acik[24] = {0};
+-    if (!aes_coz_gcm(p->sifreli_veri, 24, acik, p->iv, p->tag)) return;
++    uint8_t aad[13];
++    _mesh_aad_olustur(p->tip, p->kaynak_mac, p->hedef_mac, aad);
++    if (!aes_coz_gcm(p->sifreli_veri, 24, acik, p->iv, p->tag, aad, sizeof(aad))) return;
+ 
+     uint8_t kaynak_id = mac_to_id(p->kaynak_mac);
+     if (kaynak_id == 0) {
+@@ -205,7 +208,13 @@ void loop() {
+                                               |  (uint16_t)decoded[veri_uzunluk + 1];
+                         if (crc_hesap == crc_gelen) {
+                             uint8_t tip_byte        = decoded[0];
+-                            uint8_t payload[16]     = {0};
++                            // ORTA-2 FIX: 16 -> 18. mesh_gonder() her zaman 18 byte
++                            // okuyor (memcpy(tam_veri+6, veri, 18)); 16 byte'lik
++                            // buffer'dan okumak 2 byte stack over-read'e (UB) yol
++                            // aciyordu. Gercek payload struct'lari 16B oldugundan
++                            // payload_uzunluk siniri (asagida) 16'da kaliyor;
++                            // fazladan 2 byte sadece zaten-sifirlanmis dolgu.
++                            uint8_t payload[18]     = {0};
+                             uint8_t payload_uzunluk = (uint8_t)min((int)veri_uzunluk - 2, 16);
+                             memcpy(payload, &decoded[2], payload_uzunluk);
+                             // Whitelist: sadece Pi'den gelmesi beklenen tipler

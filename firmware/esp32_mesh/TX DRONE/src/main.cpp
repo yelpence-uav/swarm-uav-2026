@@ -91,8 +91,11 @@ static uint8_t mac_to_id(const uint8_t* mac) {
 }
 void mesh_veri_al(const mesh_paket_t* p) {
     // C1 fix: GCM + replay gecerse peer kaydet ve heartbeat guncelle
+    // ORTA-1 fix: AAD (tip+kaynak_mac+hedef_mac) de dogrulanir
     uint8_t acik[24] = {0};
-    if (!aes_coz_gcm(p->sifreli_veri, 24, acik, p->iv, p->tag)) return;
+    uint8_t aad[13];
+    _mesh_aad_olustur(p->tip, p->kaynak_mac, p->hedef_mac, aad);
+    if (!aes_coz_gcm(p->sifreli_veri, 24, acik, p->iv, p->tag, aad, sizeof(aad))) return;
 
     uint8_t kaynak_id = mac_to_id(p->kaynak_mac);
     if (kaynak_id == 0) {
@@ -205,7 +208,13 @@ void loop() {
                                               |  (uint16_t)decoded[veri_uzunluk + 1];
                         if (crc_hesap == crc_gelen) {
                             uint8_t tip_byte        = decoded[0];
-                            uint8_t payload[16]     = {0};
+                            // ORTA-2 FIX: 16 -> 18. mesh_gonder() her zaman 18 byte
+                            // okuyor (memcpy(tam_veri+6, veri, 18)); 16 byte'lik
+                            // buffer'dan okumak 2 byte stack over-read'e (UB) yol
+                            // aciyordu. Gercek payload struct'lari 16B oldugundan
+                            // payload_uzunluk siniri (asagida) 16'da kaliyor;
+                            // fazladan 2 byte sadece zaten-sifirlanmis dolgu.
+                            uint8_t payload[18]     = {0};
                             uint8_t payload_uzunluk = (uint8_t)min((int)veri_uzunluk - 2, 16);
                             memcpy(payload, &decoded[2], payload_uzunluk);
                             // Whitelist: sadece Pi'den gelmesi beklenen tipler

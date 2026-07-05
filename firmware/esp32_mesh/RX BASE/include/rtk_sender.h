@@ -16,6 +16,8 @@
 #include <Arduino.h>
 #include <string.h>
 #include "mesh_config.h"   // TIP_RTK, mesh_gonder
+#include "rtk_handler.h"   // RTK_MAX_FRAGS — KRITIK-1 fix: sender/receiver ayni sinira uymali
+                           // (pragma once sayesinde main.cpp'de cift include zararsiz)
 
 // rtk_mesh_frag_t TX DRONE'la ortak tanim — mesh_config.h'a tasinabilir
 // ya da bu dosyadan include edilebilir.
@@ -50,9 +52,14 @@ static inline void rtk_rtcm_fragment_ve_gonder(const uint8_t* rtcm_veri, uint16_
     // Fragment sayisi hesapla
     uint8_t frag_toplam = (uint8_t)((uzunluk + 11) / 12);   // ceil(uzunluk/12)
     if (frag_toplam == 0) return;
-    if (frag_toplam > 100) {
-        // 100 * 12 = 1200 byte maksimum — RTK_REASSEMBLY_BUF_SIZE ile eslesir
-        Serial.printf("[RTK-TX] HATA: mesaj cok buyuk (%u byte, max 1200)\n", uzunluk);
+    // KRITIK-1 FIX: TX DRONE tarafi alinan_maske artik uint64_t (max 64 frag
+    // guvenle temsil edilebilir). Daha once burada 100'e izin veriliyordu,
+    // ama alici 32 bitle sessizce hicbir zaman birlestiremiyordu (>=32 frag UB).
+    // 64'u asan mesaji artik burada, gonderim oncesi, gurultuyle reddediyoruz.
+    if (frag_toplam > RTK_MAX_FRAGS) {
+        // 64 * 12 = 768 byte maksimum — TX DRONE'daki alinan_maske (uint64_t) ile eslesir
+        Serial.printf("[RTK-TX] HATA: mesaj cok buyuk (%u byte, max %u)\n",
+                      uzunluk, (unsigned)(RTK_MAX_FRAGS * 12));
         return;
     }
 

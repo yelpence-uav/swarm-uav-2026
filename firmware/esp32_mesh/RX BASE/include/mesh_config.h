@@ -335,6 +335,19 @@ static inline esp_err_t _mesh_gonder(mesh_paket_t* p) {
     return ret;
 }
 
+// ===== ORTA-1 FIX: GCM AAD (Ek Dogrulanmis Veri) =====
+// tip + kaynak_mac + hedef_mac AAD olarak verilir; boylece bu 3 alan artik
+// sifreli payload'i hic bozmadan degistirilemez (ornegin TIP_POSE -> TIP_GOREV).
+// atlama_sayisi kasitli olarak DISARIDA tutulur: _paketi_ilet() her hop'ta onu
+// artirir, ayni iv/tag ile iletir — AAD'e girseydi relay ilk hop'ta tag'i
+// gecersiz kilardi.
+static inline void _mesh_aad_olustur(uint8_t tip, const uint8_t* kaynak_mac,
+                                      const uint8_t* hedef_mac, uint8_t aad[13]) {
+    aad[0] = tip;
+    memcpy(aad + 1, kaynak_mac, 6);
+    memcpy(aad + 7, hedef_mac, 6);
+}
+
 static inline void mesh_gonder(const uint8_t* veri, uint8_t tip,
                                 const uint8_t* hedef = nullptr) {
     mesh_paket_t p = {};
@@ -349,7 +362,9 @@ static inline void mesh_gonder(const uint8_t* veri, uint8_t tip,
     anti_replay_t ar_out = { _session_id, p.paket_id };
     memcpy(tam_veri, &ar_out, sizeof(anti_replay_t));
     memcpy(tam_veri + sizeof(anti_replay_t), veri, 18);
-    aes_sifrele_gcm(tam_veri, sizeof(tam_veri), p.sifreli_veri, p.iv, p.tag);
+    uint8_t aad[13];
+    _mesh_aad_olustur(p.tip, p.kaynak_mac, p.hedef_mac, aad);
+    aes_sifrele_gcm(tam_veri, sizeof(tam_veri), p.sifreli_veri, p.iv, p.tag, aad, sizeof(aad));
     _duplikat_kaydet(&p);
     _mesh_gonder(&p);
 }
@@ -457,7 +472,9 @@ static inline void _recv_isle() {
                 if (benim_icin) {
                     // Bug1+Bug3 fix: GCM burda dogrulanir; gecerse node guncellenir
                     uint8_t _acik_cb[24] = {0};
-                    if (!aes_coz_gcm(p->sifreli_veri, 24, _acik_cb, p->iv, p->tag)) {
+                    uint8_t _aad_cb[13];
+                    _mesh_aad_olustur(p->tip, p->kaynak_mac, p->hedef_mac, _aad_cb);
+                    if (!aes_coz_gcm(p->sifreli_veri, 24, _acik_cb, p->iv, p->tag, _aad_cb, sizeof(_aad_cb))) {
                         Serial.printf("[MESH] GCM hatasi tip:%d %02X:%02X\n",
                             p->tip, p->kaynak_mac[4], p->kaynak_mac[5]);
                         // Bug2 fix: sahte MAC peer listesinden cikar
@@ -479,7 +496,9 @@ static inline void _recv_isle() {
             } else {
                 // Heartbeat — GCM dogrulama zorunlu (MAC spoofing onleme)
                 uint8_t acik[24];
-                if (aes_coz_gcm(p->sifreli_veri, 24, acik, p->iv, p->tag)) {
+                uint8_t aad_hb[13];
+                _mesh_aad_olustur(p->tip, p->kaynak_mac, p->hedef_mac, aad_hb);
+                if (aes_coz_gcm(p->sifreli_veri, 24, acik, p->iv, p->tag, aad_hb, sizeof(aad_hb))) {
                     anti_replay_t* ar = (anti_replay_t*)acik;
                     if (node && _replay_kontrol(node, ar)) {
                         node->son_heartbeat_ms = millis();

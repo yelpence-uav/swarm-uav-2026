@@ -5,8 +5,11 @@
 
 // ===== SABITLER =====
 #define RTK_MAX_PAYLOAD          220    // TX DRONE alim tarafı (eski ESP-NOW fragment boyutu)
-#define RTK_MAX_FRAGS            100    // 6'dan 100'e: 1000 byte / 12 byte = ~84 frag max
-                                        // DIKKAT: alinan_maske uint32_t olmali (asagida)
+#define RTK_MAX_FRAGS             64    // KRITIK-1 FIX: alinan_maske artik uint64_t (asagida).
+                                        // 64 bit maske guvenle 0..63 index temsil eder.
+                                        // 64*12 = 768 byte -> tipik MSM7 (400-600B) rahat sigar.
+                                        // 65+ fragmentli mesaj artik SENDER'da reddedilir
+                                        // (rtk_sender.h ayni sinira guncellendi, senkron kalmali).
 #define RTK_REASSEMBLY_BUF_SIZE  1200
 #define RTK_HAM_BUF_SIZE   (1 + 1 + RTK_REASSEMBLY_BUF_SIZE + 2)
 #define RTK_COBS_BUF_SIZE  (RTK_HAM_BUF_SIZE + (RTK_HAM_BUF_SIZE / 254) + 2)
@@ -40,16 +43,16 @@ static uint32_t rtk_kayip           = 0;
 static uint32_t rtk_uart_gonderilen = 0;
 
 // ===== FRAGMENTASYON YENİDEN BİRLEŞTİRME =====
-// alinan_maske: uint8_t → uint32_t
-//   Eski uint8_t ile max 8 bit → max 8 fragment takip edilebilirdi.
-//   RTK_MAX_FRAGS=100 ile uint32_t gerekli (32 bit → max 32 frag).
-//   NOT: 32 bit maske ile 33+ fragment göndermek istenirse
-//        maske yerine alinan_sayac karşılaştırması kullanılmalı.
-//        Tipik RTCM: 250 byte / 12 byte ≈ 21 fragment — 32 bit yeter.
+// alinan_maske: uint32_t → uint64_t (KRITIK-1 FIX)
+//   uint32_t ile (1u << toplam), toplam>=32 oldugunda TANIMSIZ DAVRANIS idi.
+//   Cok-uydulu RTCM (MSM7: GPS+GLONASS+Galileo+BeiDou) 400-600B -> 34-50 fragment,
+//   32 bit maskeyi rahatlikla asiyordu -> sessiz birlesme hatasi + rtk_kayip artisi.
+//   uint64_t ile guvenli sinir 64 fragment (768 byte). toplam==64 ozel durumla
+//   ele alinir; (1ull<<64) de tanimsizdir (bkz _rtk_tamamsa_gonder / rtk_loop).
 static struct {
     uint32_t paket_id;
     uint8_t  toplam;
-    uint32_t alinan_maske;          // uint8_t → uint32_t (max 32 frag)
+    uint64_t alinan_maske;          // uint32_t → uint64_t (KRITIK-1 fix, max 64 frag)
     uint8_t  buf[RTK_REASSEMBLY_BUF_SIZE];
     uint16_t parca_uzunluk[RTK_MAX_FRAGS];
     uint32_t son_parca_ms;
@@ -113,8 +116,10 @@ static inline void _rtk_uart_gonder(const uint8_t* veri, uint16_t uzunluk) {
 }
 
 static inline void _rtk_tamamsa_gonder(void) {
-    // uint32_t maske — toplam 32'den buyuk olamaz (yukarida not var)
-    uint32_t tam_maske = (uint32_t)((1u << _rtk_asm.toplam) - 1u);
+    // KRITIK-1 FIX: uint64_t maske. toplam==64 icin (1ull<<64) tanimsizdir
+    // (shift genisligi >= tip genisligi), bu yuzden ozel durumla ele alinir.
+    uint64_t tam_maske = (_rtk_asm.toplam >= 64) ? ~0ULL
+                        : ((1ull << _rtk_asm.toplam) - 1ull);
     if (_rtk_asm.alinan_maske != tam_maske) return;
 
     uint16_t toplam_uzunluk = 0;
@@ -176,7 +181,7 @@ static inline void rtk_mesh_frag_handle(const uint8_t* ham_veri, uint16_t uzunlu
     uint8_t idx = f->frag_index;
 
     // Duplikat kontrol
-    if (_rtk_asm.alinan_maske & (1u << idx)) {
+    if (_rtk_asm.alinan_maske & (1ull << idx)) {
         Serial.printf("[RTK] Duplikat frag %u, atlaniyor\n", idx);
         return;
     }
@@ -195,7 +200,7 @@ static inline void rtk_mesh_frag_handle(const uint8_t* ham_veri, uint16_t uzunlu
     // Son fragment kısa olabilir — parca_uzunluk'u sonradan düzelt
     // (son fragment 12 byte dolmayabilir; tam uzunluk bilinmiyorsa 12 yaz)
     _rtk_asm.parca_uzunluk[idx] = 12;
-    _rtk_asm.alinan_maske      |= (1u << idx);
+    _rtk_asm.alinan_maske      |= (1ull << idx);
     _rtk_asm.son_parca_ms       = simdi;
 
     rtk_alinan++;
@@ -249,7 +254,7 @@ static inline void rtk_paket_isle(const uint8_t* ham_veri, uint16_t uzunluk) {
 
     uint8_t idx = p->frag_index;
 
-    if (_rtk_asm.alinan_maske & (1u << idx)) {
+    if (_rtk_asm.alinan_maske & (1ull << idx)) {
         Serial.printf("[RTK] Duplikat frag %u, atlaniyor\n", idx);
         return;
     }
@@ -266,7 +271,7 @@ static inline void rtk_paket_isle(const uint8_t* ham_veri, uint16_t uzunluk) {
                              ? p->payload_uzunluk : RTK_MAX_PAYLOAD;
     memcpy(_rtk_asm.buf + offset, p->payload, gercek_uzunluk);
     _rtk_asm.parca_uzunluk[idx] = gercek_uzunluk;
-    _rtk_asm.alinan_maske |= (1u << idx);
+    _rtk_asm.alinan_maske |= (1ull << idx);
     _rtk_asm.son_parca_ms  = simdi;
 
     Serial.printf("[RTK] Frag %u/%u alindi (paket_id=%lu)\n",
@@ -279,10 +284,12 @@ static inline void rtk_paket_isle(const uint8_t* ham_veri, uint16_t uzunluk) {
 static inline void rtk_loop(void) {
     if (_rtk_asm.toplam == 0) return;
     if ((millis() - _rtk_asm.son_parca_ms) > RTK_FRAG_TIMEOUT_MS) {
-        Serial.printf("[RTK] Assembly timeout — paket_id=%lu maske=%08lX/%08lX\n",
+        uint64_t _tam_maske_dbg = (_rtk_asm.toplam >= 64) ? ~0ULL
+                                : ((1ull << _rtk_asm.toplam) - 1ull);
+        Serial.printf("[RTK] Assembly timeout — paket_id=%lu maske=%016llX/%016llX\n",
                       (unsigned long)_rtk_asm.paket_id,
-                      (unsigned long)_rtk_asm.alinan_maske,
-                      (unsigned long)((1u << _rtk_asm.toplam) - 1u));
+                      (unsigned long long)_rtk_asm.alinan_maske,
+                      (unsigned long long)_tam_maske_dbg);
         rtk_kayip++;
         _rtk_asm_sifirla();
     }

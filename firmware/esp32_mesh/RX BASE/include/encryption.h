@@ -60,18 +60,25 @@ static inline void iv_uret_rastgele(uint8_t iv[12]) {
 }
 
 // Sifrele — GCM, plaintext → ciphertext + 16 byte auth tag
+// ORTA-1 FIX: aad/aad_uzunluk eklendi. Paket basligi (tip+kaynak_mac+hedef_mac)
+// AAD olarak verilirse, sifreli payload degismeden basligi degistirmek artik
+// tag'i gecersiz kilar (mesh_config.h::mesh_gonder AAD'i hesaplayip geciyor).
 inline void aes_sifrele_gcm(const uint8_t* girdi, size_t uzunluk, uint8_t* cikti,
-                              const uint8_t iv[12], uint8_t tag[16]) {
+                              const uint8_t iv[12], uint8_t tag[16],
+                              const uint8_t* aad = nullptr, size_t aad_uzunluk = 0) {
     aes_init();
     mbedtls_gcm_crypt_and_tag(&_gcm_ctx, MBEDTLS_GCM_ENCRYPT,
-        uzunluk, iv, 12, NULL, 0, girdi, cikti, 16, tag);
+        uzunluk, iv, 12, aad, aad_uzunluk, girdi, cikti, 16, tag);
 }
 
 // Coz + dogrula — false donerse tag uyusmadi: sahte veya bozuk paket, at
+// ORTA-1 FIX: coz tarafi da ayni AAD'i vermeli (sifrelemede kullanilanla birebir
+// ayni tip+kaynak_mac+hedef_mac), aksi halde dogrulama hep basarisiz olur.
 inline bool aes_coz_gcm(const uint8_t* girdi, size_t uzunluk, uint8_t* cikti,
-                          const uint8_t iv[12], const uint8_t tag[16]) {
+                          const uint8_t iv[12], const uint8_t tag[16],
+                          const uint8_t* aad = nullptr, size_t aad_uzunluk = 0) {
     aes_init();
     int ret = mbedtls_gcm_auth_decrypt(&_gcm_ctx, uzunluk,
-        iv, 12, NULL, 0, tag, 16, girdi, cikti);
+        iv, 12, aad, aad_uzunluk, tag, 16, girdi, cikti);
     return (ret == 0);
 }

@@ -134,9 +134,12 @@ static inline bool mesh_replay_dogrula(node_durum_t* node, const uint8_t* decryp
 // ===== MESH CALLBACK =====
 void mesh_veri_al(const mesh_paket_t* p) {
     uint8_t acik[24] = {0}; // FIX: Buffer 24'e cikarildi
-    
-    // FIX #1: Uzunluk (22) parametresi eklendi
-    if (!aes_coz_gcm(p->sifreli_veri, 24, acik, p->iv, p->tag)) {
+
+    // FIX #1: Uzunluk (24) parametresi eklendi
+    // ORTA-1 fix: AAD (tip+kaynak_mac+hedef_mac) de dogrulanir
+    uint8_t aad[13];
+    _mesh_aad_olustur(p->tip, p->kaynak_mac, p->hedef_mac, aad);
+    if (!aes_coz_gcm(p->sifreli_veri, 24, acik, p->iv, p->tag, aad, sizeof(aad))) {
         return; 
     }
 
@@ -257,7 +260,14 @@ void loop() {
                     if (crc_hesap == crc_gelen) {
                         uint8_t tip_byte = decoded[0];
                         uint32_t simdi   = millis();
-                        uint8_t veri[16] = {0};
+                        // ORTA-2 FIX (rapordaki TX DRONE payload[16] hatasinin
+                        // ayni sekilde burada da bulundu): mesh_gonder() her
+                        // zaman 18 byte okur (memcpy(tam_veri+6, veri, 18));
+                        // 16 byte'lik buffer 2 byte stack over-read'e (UB) yol
+                        // aciyordu. Gercek payload struct'lari 16B oldugundan
+                        // payload_uzunluk siniri 16'da kaliyor, fazladan 2 byte
+                        // zaten-sifirlanmis dolgu.
+                        uint8_t veri[18] = {0};
                         uint8_t payload_uzunluk = min((int)veri_uzunluk - 2, 16);
                         memcpy(veri, &decoded[2], payload_uzunluk);
 
