@@ -20,6 +20,8 @@ _BEKLENEN = {
         ReliabilityPolicy.RELIABLE, DurabilityPolicy.TRANSIENT_LOCAL, 10),
     "_ORIGIN_QOS": (
         ReliabilityPolicy.RELIABLE, DurabilityPolicy.TRANSIENT_LOCAL, 1),
+    "_FORMATION_QOS": (
+        ReliabilityPolicy.RELIABLE, DurabilityPolicy.VOLATILE, 10),
 }
 
 

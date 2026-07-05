@@ -26,6 +26,7 @@ from network_proxy.rf_model import ESPNowRFModel
 from swarm_interfaces.msg import (
     AgentStatus,
     ElectionResult,
+    FormationCommand,
     LeaderHeartbeat,
     QRMissionData,
     SwarmControlCommand,
@@ -80,6 +81,15 @@ _ORIGIN_QOS = QoSProfile(
     durability=DurabilityPolicy.TRANSIENT_LOCAL,
     history=HistoryPolicy.KEEP_LAST,
     depth=1,
+)
+# Formation: lider slot atamasını (agent_ids + offset) yayınlar (merkezi atama).
+# Üretici (mode_manager) ve tüketiciler (formation_node, collision_avoidance)
+# hepsi RELIABLE kullandığından RELIABLE.
+_FORMATION_QOS = QoSProfile(
+    reliability=ReliabilityPolicy.RELIABLE,
+    durability=DurabilityPolicy.VOLATILE,
+    history=HistoryPolicy.KEEP_LAST,
+    depth=10,
 )
 
 # Status: yüksek frekanslı, "en güncel değer kazanır" telemetri. Saha ikizi
@@ -257,6 +267,18 @@ class NetworkProxyNode(Node):
             self._on_internal_origin, _ORIGIN_QOS,
         )
 
+        # --- FormationCommand (lider→followers) — mesh'te GOREV üzerinden
+        # kritik/retry'li → kayıpsız (yalnız jitter). Lider slot atamasını
+        # (agent_ids + offset_x/y/z) yayınlar; formation_node/collision_avoidance
+        # /public'ten okur (merkezi formasyon).
+        self._formation_pub = self.create_publisher(
+            FormationCommand, "/swarm/public/formation/target", _FORMATION_QOS
+        )
+        self.create_subscription(
+            FormationCommand, "/swarm/internal/formation/target",
+            self._on_internal_formation, _FORMATION_QOS,
+        )
+
         self.get_logger().info("Network Proxy Node (ESP-NOW Simulator) Başlatıldı.")
         self.get_logger().info(
             "Yönlendirme aktif: /swarm/internal/... -> /swarm/public/..."
@@ -320,8 +342,8 @@ class NetworkProxyNode(Node):
 
         Mesh firmware'inde retry'siz (non-kritik) yayınlar radyo kaybına
         tabidir; bu zar onu modeller. Kritik/retry'li kanallar (control,
-        origin, election) bunu KULLANMAZ — 3 retry kaybı telafi ettiğinden
-        efektif kayıp ≈0. sender_key konumu yoksa fail-open (düşürme).
+        origin, election, events, formation) bunu KULLANMAZ — 3 retry kaybı
+        telafi ettiğinden efektif kayıp ≈0. sender_key yoksa fail-open.
 
         Fault-injection: gönderen menzil dışı işaretlenmişse tüm yayını
         düşürür (düğüm-seviyesi kesme; status/heartbeat/state/qr tutarlı).
@@ -410,9 +432,9 @@ class NetworkProxyNode(Node):
     def _simple_relay(self, msg, publisher, channel_key: str):
         """Yalnızca jitter uygulanan ortak yol (mesafe-zarı YOK).
 
-        Mesh'te retry'li kritik kanallar (events/GOREV, election, origin)
-        doğrudan burayı kullanır — efektif kayıp ≈0. state/qr non-kritik
-        olduğundan buraya gelmeden ÖNCE _broadcast_drop'tan geçer.
+        Mesh'te retry'li kritik kanallar (events/GOREV, election, origin,
+        formation) doğrudan burayı kullanır — efektif kayıp ≈0. state/qr
+        non-kritik olduğundan buraya gelmeden ÖNCE _broadcast_drop'tan geçer.
         """
         self._schedule(channel_key, publisher, msg)
 
@@ -453,6 +475,14 @@ class NetworkProxyNode(Node):
         if not self._within_budget(msg, "origin"):
             return
         self._simple_relay(msg, self._origin_pub, "origin")
+
+    def _on_internal_formation(self, msg: FormationCommand):
+        # Formation mesh'te GOREV üzerinden kritik/retry'li → kayıpsız, yalnız
+        # jitter. offset dizileri dron sayısıyla büyür; 250 bütçe kontrolü
+        # taşmayı yakalar.
+        if not self._within_budget(msg, "formation"):
+            return
+        self._simple_relay(msg, self._formation_pub, "formation")
 
     def _on_internal_control(self, msg: SwarmControlCommand):
         """YKİ->İHA komutunu taşır. Mesh'te KOMUT KRİTİK paket (firmware'de
