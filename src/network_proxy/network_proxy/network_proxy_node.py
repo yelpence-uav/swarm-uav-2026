@@ -28,6 +28,7 @@ from swarm_interfaces.msg import (
     ElectionResult,
     FormationCommand,
     LeaderHeartbeat,
+    QRCoordinates,
     QRMissionData,
     SwarmControlCommand,
     SwarmOrigin,
@@ -281,6 +282,17 @@ class NetworkProxyNode(Node):
         self.create_subscription(
             FormationCommand, "/swarm/internal/formation/target",
             self._on_internal_formation, _FORMATION_QOS,
+        )
+
+        # --- QRCoordinates (yarışma öncesi paylaşılan QR konum tablosu) —
+        # latched (origin ile aynı QoS). GCS/operatör yayınlar; statik ve nadir
+        # veri, mesh'te kritik/latched sınıf → mesafe zarı yok, yalnız jitter.
+        self._qr_coords_pub = self.create_publisher(
+            QRCoordinates, "/swarm/public/mission/qr_coords", _ORIGIN_QOS
+        )
+        self.create_subscription(
+            QRCoordinates, "/swarm/internal/mission/qr_coords",
+            self._on_internal_qr_coords, _ORIGIN_QOS,
         )
 
         self.get_logger().info("Network Proxy Node (ESP-NOW Simulator) Başlatıldı.")
@@ -577,6 +589,16 @@ class NetworkProxyNode(Node):
         # verirdik. Gerçek menzil davranışı için mesaja bir gönderen-drone
         # alanı eklenmesi gerekir (bilinen sınır).
         self._simple_relay(msg, self._origin_pub, "origin")
+
+    def _on_internal_qr_coords(self, msg: QRCoordinates):
+        # QR konum tablosu: statik, latched (origin sınıfı). Nadir yayınlanır,
+        # yarışma öncesi bir kez girilir → mesafe zarı yok, yalnız jitter.
+        # Gönderen GCS/operatör (fiziksel dron kimliği yok) → origin ile aynı
+        # sebepten menzil/izolasyon kontrolü uygulanamaz. 6 QR ≈ 60 byte < 250;
+        # bütçe kontrolü şişerse (çok fazla QR) yakalar.
+        if not self._within_budget(msg, "qr_coords"):
+            return
+        self._simple_relay(msg, self._qr_coords_pub, "qr_coords")
 
     def _on_internal_formation(self, msg: FormationCommand):
         # Formation mesh'te GOREV üzerinden kritik/retry'li → kayıpsız, yalnız

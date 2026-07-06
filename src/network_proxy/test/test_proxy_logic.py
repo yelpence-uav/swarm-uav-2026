@@ -11,6 +11,7 @@ import rclpy
 from swarm_interfaces.msg import (
     AgentStatus,
     ElectionResult,
+    QRCoordinates,
     QRMissionData,
     SwarmControlCommand,
     SwarmState,
@@ -261,6 +262,34 @@ def test_event_kaynak_izole_dusurulur(node):
     m = SystemEvent()
     m.source_agent_id = 1
     node._on_internal_event(m)
+    assert len(node._pending) == 0
+
+
+# ---------------- QRCoordinates (latched, origin sınıfı) ----------------
+def test_qr_coords_uzakta_bile_iletilir(node):
+    """QR tablosu latched/statik (origin sınıfı) → mesafe zarı yok, hep geçer."""
+    _reset(node)
+    for a in node.agent_ids:
+        node.positions[a] = _UZAK
+    m = QRCoordinates()
+    m.qr_ids = [1, 2, 3, 4, 5, 6]
+    m.lat_deg = [41.0] * 6
+    m.lon_deg = [29.0] * 6
+    m.alt_m = [15.0] * 6
+    node._on_internal_qr_coords(m)
+    assert len(node._pending) == 1
+
+
+def test_qr_coords_asiri_buyuk_dusurulur(node):
+    """Çok fazla QR (250 byte'ı aşan tablo) bütçe kontrolünde düşer."""
+    _reset(node)
+    m = QRCoordinates()
+    n = 300  # 300 QR → 250 byte'ı kesin aşar
+    m.qr_ids = [1] * n
+    m.lat_deg = [41.0] * n
+    m.lon_deg = [29.0] * n
+    m.alt_m = [15.0] * n
+    node._on_internal_qr_coords(m)
     assert len(node._pending) == 0
 
 
