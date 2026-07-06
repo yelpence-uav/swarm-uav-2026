@@ -87,8 +87,11 @@ class SwarmOriginPublisher(Node):
             self.get_parameter('rate_hz').get_parameter_value().double_value
         )
 
+        # /internal/origin'e yazılır — network_proxy bunu /public/origin'e
+        # taşır (diğer tüm kanallarla aynı internal->proxy->public akışı;
+        # önceden /public'e doğrudan basılıp proxy hop'u atlanıyordu).
         self._origin_pub = self.create_publisher(
-            SwarmOrigin, '/swarm/public/origin', _RELIABLE_TRANSIENT
+            SwarmOrigin, '/swarm/internal/origin', _RELIABLE_TRANSIENT
         )
 
         # Kilitlenmiş origin durumu (tüm modlarda ortak).

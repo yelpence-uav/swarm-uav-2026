@@ -1,0 +1,85 @@
+#!/bin/bash
+# 3 bridge + 3 FSM + 3 formation_node'u tmux'ta ayrı pencerelerde başlatır.
+# Önce: scripts/launch_swarm.py çalışıyor olmalı.
+
+SESSION="formation_test"
+
+# Önceki process'leri temizle — binary adına göre (ros2 run wrapper'ı geçer)
+for proc in px4_bridge agent_fsm_node formation_node swarm_fsm_node \
+            formation_test_publisher swarm_origin_publisher kinematic_fusion \
+            collision_avoidance; do
+    pkill -9 -f "$proc" 2>/dev/null
+done
+sleep 3  # binary'lerin tamamen kapanmasını bekle
+
+tmux kill-session -t $SESSION 2>/dev/null
+sleep 1
+# Bash shell ile başlat (source komutu için)
+tmux new-session -d -s $SESSION -x 220 -y 50 "/bin/bash"
+
+# Pencere 0 — Bridge (3 drone)
+tmux rename-window -t $SESSION:0 "bridge"
+tmux send-keys -t $SESSION:0 "source /opt/ros/jazzy/setup.bash && source ~/ros2_ws/install/setup.bash && echo 'ENV OK'" Enter
+sleep 3
+tmux send-keys -t $SESSION:0 "ros2 run swarm_control px4_bridge --ros-args -p agent_id:=1 -p sitl_mode:=true -p velocity_only:=true &" Enter
+sleep 0.5
+tmux send-keys -t $SESSION:0 "ros2 run swarm_control px4_bridge --ros-args -p agent_id:=2 -p sitl_mode:=true -p velocity_only:=true &" Enter
+sleep 0.5
+tmux send-keys -t $SESSION:0 "ros2 run swarm_control px4_bridge --ros-args -p agent_id:=3 -p sitl_mode:=true -p velocity_only:=true &" Enter
+tmux send-keys -t $SESSION:0 "echo '3 Bridge başlatıldı'" Enter
+sleep 0.5
+tmux send-keys -t $SESSION:0 "sleep 5 && ros2 run swarm_control swarm_origin_publisher --ros-args -p origin_source:=fixed -p fixed_lat:=41.0441 -p fixed_lon:=29.0017 -p fixed_alt:=0.0 &" Enter
+tmux send-keys -t $SESSION:0 "echo 'SwarmOrigin publisher başlatıldı'" Enter
+
+# Pencere 1 — FSM (12sn gecikme)
+tmux new-window -t $SESSION -n "fsm" "/bin/bash"
+tmux send-keys -t $SESSION:fsm "source /opt/ros/jazzy/setup.bash && source ~/ros2_ws/install/setup.bash && echo 'ENV OK'" Enter
+sleep 3
+tmux send-keys -t $SESSION:fsm "sleep 12 && ros2 run swarm_state_machine agent_fsm_node --ros-args -p agent_id:=1 -p sitl_mode:=true & ros2 run swarm_state_machine agent_fsm_node --ros-args -p agent_id:=2 -p sitl_mode:=true & ros2 run swarm_state_machine agent_fsm_node --ros-args -p agent_id:=3 -p sitl_mode:=true &" Enter
+tmux send-keys -t $SESSION:fsm "sleep 15 && ros2 run swarm_state_machine swarm_fsm_node --ros-args -p agent_count:=3 -p sitl_mode:=true &" Enter
+tmux send-keys -t $SESSION:fsm "echo 'FSM 12sn, swarm_fsm 15sn sonra başlayacak'" Enter
+
+# Pencere 2 — Formation node (3 drone)
+tmux new-window -t $SESSION -n "formation" "/bin/bash"
+tmux send-keys -t $SESSION:formation "source /opt/ros/jazzy/setup.bash && source ~/ros2_ws/install/setup.bash && echo 'ENV OK'" Enter
+sleep 3
+tmux send-keys -t $SESSION:formation "ros2 run swarm_core formation_node --ros-args -p agent_id:=1 -p alpha_deg:=30.0 -p target_ramp_mps:=4.0 -p vel_align_k:=0.0 -p svt_k:=0.3 -p leash_d_m:=0.0 &" Enter
+sleep 0.3
+tmux send-keys -t $SESSION:formation "ros2 run swarm_core formation_node --ros-args -p agent_id:=2 -p alpha_deg:=30.0 -p target_ramp_mps:=4.0 -p vel_align_k:=0.0 -p svt_k:=0.3 -p leash_d_m:=0.0 &" Enter
+sleep 0.3
+tmux send-keys -t $SESSION:formation "ros2 run swarm_core formation_node --ros-args -p agent_id:=3 -p alpha_deg:=30.0 -p target_ramp_mps:=4.0 -p vel_align_k:=0.0 -p svt_k:=0.3 -p leash_d_m:=0.0 &" Enter
+tmux send-keys -t $SESSION:formation "echo '3 Formation node başlatıldı'" Enter
+
+# Pencere 3 — Kinematic Fusion (komşu görüşü → NeighborInfo, A7 için)
+# agent_fsm status yaydıktan + proxy onu public'e ilettikten sonra başlamalı
+# (FSM +12s) → +14s. Proxy /swarm/public/drone{id}/status besler, remap gerekmez.
+tmux new-window -t $SESSION -n "kinematic" "/bin/bash"
+tmux send-keys -t $SESSION:kinematic "source /opt/ros/jazzy/setup.bash && source ~/ros2_ws/install/setup.bash && echo 'ENV OK'" Enter
+sleep 3
+tmux send-keys -t $SESSION:kinematic "sleep 14 && (ros2 run swarm_perception kinematic_fusion --ros-args -p agent_id:=1 -p neighbor_ids:='[2,3]' & ros2 run swarm_perception kinematic_fusion --ros-args -p agent_id:=2 -p neighbor_ids:='[1,3]' & ros2 run swarm_perception kinematic_fusion --ros-args -p agent_id:=3 -p neighbor_ids:='[1,2]' &)" Enter
+tmux send-keys -t $SESSION:kinematic "echo '3 kinematic_fusion 14sn sonra başlayacak (A7 için)'" Enter
+
+# Pencere 4 — Collision Avoidance (APF son emniyet filtresi)
+# Setpoint zincirinde formation ile px4_bridge ARASINDA durur:
+#   formation_node → /control/setpoint/raw → collision_avoidance → /control/setpoint
+# Bu yüzden formation ile birlikte ÇALIŞMAK ZORUNDA: kapalıysa setpoint
+# /raw'da kalır, px4_bridge'e ulaşmaz. Komşu yoksa ham setpoint'i aynen
+# geçirir (formasyon kalitesi korunur); komşu yaklaşınca APF harmanlar.
+# Erken başlar (raw gelene kadar zararsız bekler), takeoff'tan (+12s) önce hazır.
+tmux new-window -t $SESSION -n "collision" "/bin/bash"
+tmux send-keys -t $SESSION:collision "source /opt/ros/jazzy/setup.bash && source ~/ros2_ws/install/setup.bash && echo 'ENV OK'" Enter
+sleep 3
+tmux send-keys -t $SESSION:collision "ros2 run swarm_core collision_avoidance --ros-args -p agent_id:=1 -p neighbor_ids:='[0]' &" Enter
+sleep 0.3
+tmux send-keys -t $SESSION:collision "ros2 run swarm_core collision_avoidance --ros-args -p agent_id:=2 -p neighbor_ids:='[0]' &" Enter
+sleep 0.3
+tmux send-keys -t $SESSION:collision "ros2 run swarm_core collision_avoidance --ros-args -p agent_id:=3 -p neighbor_ids:='[0]' &" Enter
+tmux send-keys -t $SESSION:collision "echo '3 collision_avoidance (neighbor_ids=[0] = tam passthrough) baslatildi'" Enter
+
+# Pencere 5 — Durum izle
+tmux new-window -t $SESSION -n "status" "/bin/bash"
+tmux send-keys -t $SESSION:status "source /opt/ros/jazzy/setup.bash && source ~/ros2_ws/install/setup.bash && echo 'ENV OK'" Enter
+sleep 3
+tmux send-keys -t $SESSION:status "bash ~/ros2_ws/scripts/test/formation/03_status_izle.sh" Enter
+
+echo "Session hazır: tmux attach -t $SESSION"

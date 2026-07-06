@@ -8,7 +8,8 @@ from ament_flake8.main import main_with_errors
 def test_flake8():
     """Check PEP 8 compliance with flake8."""
     rc, errors = main_with_errors(
-        argv=['swarm_core/formation_control']
+        argv=['swarm_core/formation_control',
+              'swarm_core/collision_avoidance']
     )
     assert rc == 0, (
         'Found {} code style errors / warnings:\n'.format(len(errors))

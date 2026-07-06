@@ -137,7 +137,9 @@ def generate_spawn_sdf(world_path, drone_count):
     for i in range(drone_count):
         drone_name = f"IHA_{i+1}"
         x = 0.0
-        y = i * 3.0
+        # Spawn aralığı 6m: dronlar CA emergency_radius (4m) DIŞINDA doğsun →
+        # form-up'ta CA acil/sert itmesi tetiklenmez (fırlama yok), CA aktif kalır.
+        y = i * 6.0
 
         spawn_elements += f"""
     <include>
@@ -258,6 +260,11 @@ def main():
             f"px4-param --instance {drone_id} set COM_ARM_CHK_ESCS 0",
             f"px4-param --instance {drone_id} set CBRK_IO_SAFETY 22027",
             f"px4-param --instance {drone_id} set MIS_TAKEOFF_ALT 2.5",
+            # SITL-only: baro irtifa referansı. GPS her instance'a bağımsız
+            # dikey gürültü verip drone'ları 1.5m+ farklı yükseklikte bırakır.
+            # Boot'ta set edilince EKF baro ile sıfırdan yakınsar → arm öncesi stabil.
+            f"px4-param --instance {drone_id} set EKF2_HGT_REF 0",
+            f"px4-param --instance {drone_id} set EKF2_BARO_CTRL 1",
         ]
 
         for cmd in param_cmds:

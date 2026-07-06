@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from swarm_interfaces.msg import SystemEvent
 
 from .agent_context import AgentContext
+from .agent_states import AgentState
 from .agent_states import AgentRole, AgentState
 
 _OFFBOARD_LOSS_TIMEOUT_S = 5.0
@@ -183,6 +184,11 @@ def _check_critical_faults(ctx: AgentContext) -> HealthCheckResult:
     Returns:
         HealthCheckResult: critical_fault veya warning.
     """
+    # UNKNOWN state'de ilk telemetri henüz gelmemiş olabilir; başlatma
+    # yarış koşulunu önlemek için PX4 link kontrolü UNKNOWN'da atlanır.
+    if ctx.state == AgentState.UNKNOWN:
+        return HealthCheckResult()
+
     if not ctx.px4_link_ok:
         return HealthCheckResult(
             critical_fault=True,

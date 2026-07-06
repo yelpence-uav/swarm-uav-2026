@@ -25,6 +25,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/ZoneMap.msg"
   "msg/LeaderHeartbeat.msg"
   "msg/ElectionResult.msg"
+  "msg/QRCoordinates.msg"
 
   # Servisler
   "srv/AssignRole.srv"
