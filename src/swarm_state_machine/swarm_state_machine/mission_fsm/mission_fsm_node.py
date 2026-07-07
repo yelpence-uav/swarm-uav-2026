@@ -23,6 +23,7 @@ from std_msgs.msg import UInt8
 
 from swarm_interfaces.msg import (
     AgentStatus,
+    MissionTarget,
     QRCoordinates,
     QRMissionData,
     SystemEvent,
@@ -143,6 +144,11 @@ class MissionFsmNode(Node):
         )
         self._event_pub = self.create_publisher(
             SystemEvent, '/swarm/internal/events/system', _RELIABLE_QOS,
+        )
+        # Sonraki hedef QR konumu — mission1_dynamic_swarm buradan okuyup navige
+        # eder. RELIABLE: hedef her QR'da değişir, kaybolmamalı. Proxy /public'e taşır.
+        self._next_target_pub = self.create_publisher(
+            MissionTarget, '/swarm/internal/mission/next_target', _RELIABLE_QOS,
         )
 
     def _setup_subscribers(self) -> None:
@@ -446,6 +452,9 @@ class MissionFsmNode(Node):
                 f'lat={target[0]:.7f}, lon={target[1]:.7f}'
             )
 
+        # Çözülen hedefi mission1_dynamic_swarm'a yayınla (valid=konum var mı).
+        self._publish_next_target(qr.next_qr)
+
     def _resolve_initial_target(self) -> None:
         """Görev başındaki ilk hedefi (start_qr, şartname: QR1) çözer.
 
@@ -467,6 +476,26 @@ class MissionFsmNode(Node):
                 f'[mission_fsm] İlk hedef QR{self._start_qr} = '
                 f'lat={target[0]:.7f}, lon={target[1]:.7f}'
             )
+
+        self._publish_next_target(self._start_qr)
+
+    def _publish_next_target(self, qr_id: int) -> None:
+        """Çözülen sonraki hedefi mission1_dynamic_swarm'a yayınlar (MissionTarget).
+
+        ctx.next_qr_target (lat/lon) yoksa valid=False gönderilir — mission1
+        navige etmez; rota bilinmiyor demektir (QR-okuma failsafe'i devrede).
+
+        Args:
+            qr_id (int): Hedef QR numarası (next_qr ya da start_qr).
+        """
+        m = MissionTarget()
+        m.stamp = self.get_clock().now().to_msg()
+        m.qr_id = int(qr_id)
+        tgt = self._ctx.next_qr_target
+        m.valid = tgt is not None
+        m.lat_deg = float(tgt[0]) if tgt is not None else 0.0
+        m.lon_deg = float(tgt[1]) if tgt is not None else 0.0
+        self._next_target_pub.publish(m)
 
     def _on_event(self, msg: SystemEvent) -> None:
         """Gelen SystemEvent'leri işler ve ctx bayraklarını günceller.

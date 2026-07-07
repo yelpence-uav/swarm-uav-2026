@@ -19,6 +19,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/AgentSetpoint.msg"
   "msg/QRMissionData.msg"
   "msg/QRCoordinates.msg"
+  "msg/MissionTarget.msg"
   "msg/NeighborInfo.msg"
   "msg/SwarmControlCommand.msg"
   "msg/SystemEvent.msg"
