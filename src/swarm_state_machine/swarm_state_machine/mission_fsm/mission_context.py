@@ -40,6 +40,16 @@ class MissionContext:
     current_qr: Optional[Any] = None
     qr_task_step: QrTaskStep = QrTaskStep.NONE
 
+    # QR konum tablosu (Akış B) — operatör YKİ'den girer, mesh/proxy ile ulaşır.
+    # Anahtar: QR numarası (int) -> değer: (lat_deg, lon_deg). Şartname yalnız
+    # enlem/boylam paylaşır; irtifa QR görev komutundan (alt) gelir.
+    qr_coord_table: dict = field(default_factory=dict)
+    # current_qr.next_qr için tablodan çözülen hedef (lat_deg, lon_deg) ya da None.
+    next_qr_target: Optional[tuple] = None
+    # Rota çözülemedi: gidilmesi gereken QR'ın konumu tabloda yok. Şartname:
+    # rota bilinemezse ev konumuna dön. Failsafe geçişi bu bayrağı okur.
+    route_unknown: bool = False
+
     pause_return_state: MissionState = MissionState.NAVIGATE_TO_QR
     wait_deadline: Optional[float] = None
 
@@ -69,6 +79,21 @@ class MissionContext:
     def time_in_state(self) -> float:
         """Mevcut duruma girişten bu yana geçen saniyeyi döner."""
         return time.monotonic() - self.state_entry_time
+
+    def lookup_qr_position(self, qr_id: int) -> Optional[tuple]:
+        """QR numarasından paylaşılan tablodan konumu çözer (Akış B lookup).
+
+        QR mesajı yalnızca `next_qr` numarasını verir; o numaranın fiziksel
+        konumu (lat/lon) operatörün YKİ'den girdiği bu tablodan bulunur.
+
+        Args:
+            qr_id (int): Aranan QR numarası (örn. current_qr.next_qr).
+
+        Returns:
+            Optional[tuple]: (lat_deg, lon_deg); tablo boşsa ya da numara
+            tabloda yoksa None (rota bilinemez -> failsafe tetiklenmeli).
+        """
+        return self.qr_coord_table.get(int(qr_id))
 
     @property
     def all_agents_seen(self) -> bool:
