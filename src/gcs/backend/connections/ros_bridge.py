@@ -25,7 +25,12 @@ from typing import Callable, Optional
 import rclpy
 from rclpy.executors import SingleThreadedExecutor
 from rclpy.node import Node
-from rclpy.qos import QoSPresetProfiles, QoSProfile, QoSReliabilityPolicy
+from rclpy.qos import (
+    QoSDurabilityPolicy,
+    QoSPresetProfiles,
+    QoSProfile,
+    QoSReliabilityPolicy,
+)
 
 from swarm_interfaces.msg import (
     AgentStatus,
@@ -35,6 +40,16 @@ from swarm_interfaces.msg import (
     SystemEvent,
 )
 from swarm_interfaces.srv import TriggerMission
+
+# QRCoordinates (operatörün girdiği QR konum tablosu) feature/qr-coordinates
+# branch'inde tanımlı; henüz main'de/derli olmayabilir. Guarded import — yoksa
+# backend yine de normal çalışır, sadece QR konum yayını devre dışı kalır.
+try:
+    from swarm_interfaces.msg import QRCoordinates
+    _HAS_QR_COORDS = True
+except ImportError:  # pragma: no cover - mesaj tipi henüz derlenmemiş
+    QRCoordinates = None  # type: ignore
+    _HAS_QR_COORDS = False
 
 from backend.core.alert_manager import (
     AlertManager,
@@ -312,6 +327,9 @@ class RosBridge:
         # Service client + publisher (Aşama 3)
         self._trigger_mission_client = None
         self._control_pub = None
+        # QR konum tablosu yayıncısı (operatör → drone, latched). QRCoordinates
+        # mesajı derli değilse None kalır.
+        self._qr_coords_pub = None
 
     def get_swarm_state(self) -> Optional[dict]:
         with self._swarm_state_lock:
@@ -415,6 +433,45 @@ class RosBridge:
         m.source_module = str(payload.get("source_module", "gcs"))
         self._control_pub.publish(m)
 
+    def publish_qr_coords(
+        self,
+        qr_ids: list,
+        lat_deg: list,
+        lon_deg: list,
+        alt_m: Optional[list] = None,
+    ) -> None:
+        """QRCoordinates.msg yayınla — operatörün girdiği QR konum tablosu.
+
+        Paralel diziler EŞİT uzunlukta olmalı (çağıran doğrular). Latched
+        topic'e yayınlanır; tek sefer basmak yeterli, sonradan başlayan
+        drone'lar son tabloyu otomatik alır.
+
+        alt_m opsiyonel: form yalnızca enlem/boylam topluyor (irtifa QR
+        görev komutundan gelir). Mevcut mesajda alt_m alanı varsa sıfırla
+        (ya da verilen) doldurulur; Şeyda alt_m'i çıkarırsa hasattr guard'ı
+        sayesinde kod kırılmaz.
+        """
+        if self._qr_coords_pub is None:
+            raise RuntimeError(
+                "QRCoordinates yayıncısı yok — swarm_interfaces'te QRCoordinates "
+                "mesajı derli değil (feature/qr-coordinates merge edilmeli)."
+            )
+        n = len(qr_ids)
+        if not (len(lat_deg) == n and len(lon_deg) == n):
+            raise ValueError("qr_ids/lat_deg/lon_deg eşit uzunlukta olmalı")
+
+        m = QRCoordinates()
+        m.stamp = self._node.get_clock().now().to_msg()
+        m.qr_ids = [int(x) for x in qr_ids]
+        m.lat_deg = [float(x) for x in lat_deg]
+        m.lon_deg = [float(x) for x in lon_deg]
+        # alt_m alanı mesajda hâlâ varsa doldur (yoksa Şeyda çıkarmıştır — atla).
+        if hasattr(m, "alt_m"):
+            alts = alt_m if (alt_m is not None and len(alt_m) == n) else [0.0] * n
+            m.alt_m = [float(x) for x in alts]
+        self._qr_coords_pub.publish(m)
+        logger.info("QRCoordinates yayınlandı: %d QR konumu (latched)", n)
+
     def start(self) -> None:
         """rclpy init + node + subscriber'lar + executor thread başlat."""
         if not rclpy.ok():
@@ -480,6 +537,29 @@ class RosBridge:
             SwarmControlCommand, "/swarm/internal/control/command", sensor_qos
         )
         logger.info("publisher → /swarm/internal/control/command")
+
+        # QRCoordinates publisher — operatörün girdiği QR konum tablosu.
+        # Kontrat: GCS /swarm/internal/mission/qr_coords'a yayınlar, proxy
+        # /swarm/public/mission/qr_coords'a iletir, mission_fsm tabloyu saklar.
+        # QoS LATCHED (RELIABLE + TRANSIENT_LOCAL, depth=1) — SwarmOrigin gibi:
+        # sonradan başlayan/katılan drone son tabloyu otomatik alır. Proxy
+        # aboneliği (_ORIGIN_QOS) ile eşleşmeli, yoksa hiç bağlanmaz.
+        if _HAS_QR_COORDS:
+            latched_qos = QoSProfile(
+                depth=1,
+                reliability=QoSReliabilityPolicy.RELIABLE,
+                durability=QoSDurabilityPolicy.TRANSIENT_LOCAL,
+            )
+            self._qr_coords_pub = self._node.create_publisher(
+                QRCoordinates, "/swarm/internal/mission/qr_coords", latched_qos
+            )
+            logger.info("publisher → /swarm/internal/mission/qr_coords (latched)")
+        else:
+            self._qr_coords_pub = None
+            logger.warning(
+                "QRCoordinates mesajı derli değil — QR konum yayını devre dışı "
+                "(feature/qr-coordinates merge edilmeli)"
+            )
 
         self._executor = SingleThreadedExecutor()
         self._executor.add_node(self._node)

@@ -164,6 +164,17 @@ async function postJson<T>(path: string, body: unknown): Promise<T> {
   return res.json() as Promise<T>;
 }
 
+export interface QRCoordsRequest {
+  qr_ids: number[];
+  lat_deg: number[];
+  lon_deg: number[];
+}
+
+export interface QRCoordsResponse {
+  published: boolean;
+  count: number;
+}
+
 export const missionApi = {
   trigger: (req: TriggerMissionRequest) =>
     postJson<TriggerMissionResponse>(`/mission/trigger`, {
@@ -172,6 +183,10 @@ export const missionApi = {
       team_id: req.team_id,
       parameters_json: req.parameters_json ?? "",
     }),
+
+  // QR konum tablosunu sürüye gönder (latched). Paralel diziler eşit uzunlukta.
+  sendQrCoords: (req: QRCoordsRequest) =>
+    postJson<QRCoordsResponse>(`/mission/qr_coords`, req),
 };
 
 export const swarmApi = {

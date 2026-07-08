@@ -1,4 +1,7 @@
+import { useState } from "react";
+
 import { isQRPositionSet, type QRPosition } from "../../hooks/useQRPositions";
+import { CommandFailure, missionApi } from "../../services/api";
 import "./QRPositionForm.css";
 
 interface QRPositionFormProps {
@@ -14,8 +17,10 @@ interface QRPositionFormProps {
  * Şartname V2 s.14: QR lat/lon'ları yarışma öncesi hakemlerce paylaşılır,
  * sahada doğrulanabilir. Operatör buradan girer — config dosyası açmaya
  * gerek kalmaz (Şeyda kararı). Dinamik: QR sayısı 5/6/7 olabilir, ekle/çıkar.
- * Girilen konumlar haritada işaretlenir + (mesaj tipi gelince) mesh üzerinden
- * mission_fsm'e yayınlanacak.
+ *
+ * "Drone'lara Gönder" → backend POST /api/mission/qr_coords → QRCoordinates
+ * mesajı /swarm/internal/mission/qr_coords'a (latched) → proxy/mesh →
+ * mission_fsm tabloyu saklar (next_qr → konum çözümü).
  */
 export function QRPositionForm({
   positions,
@@ -23,7 +28,38 @@ export function QRPositionForm({
   add,
   remove,
 }: QRPositionFormProps) {
-  const setCount = positions.filter(isQRPositionSet).length;
+  const [sending, setSending] = useState(false);
+  const [sendMsg, setSendMsg] = useState<{ ok: boolean; text: string } | null>(
+    null,
+  );
+
+  const ready = positions.filter(isQRPositionSet);
+  const setCount = ready.length;
+
+  async function handleSend() {
+    if (ready.length === 0) {
+      setSendMsg({ ok: false, text: "Önce en az bir QR konumu gir." });
+      return;
+    }
+    setSending(true);
+    setSendMsg(null);
+    try {
+      const res = await missionApi.sendQrCoords({
+        qr_ids: ready.map((p) => p.qr_id),
+        lat_deg: ready.map((p) => p.lat),
+        lon_deg: ready.map((p) => p.lon),
+      });
+      setSendMsg({
+        ok: true,
+        text: `${res.count} QR konumu sürüye gönderildi ✓`,
+      });
+    } catch (e) {
+      const msg = e instanceof CommandFailure ? e.message : String(e);
+      setSendMsg({ ok: false, text: `Gönderilemedi: ${msg}` });
+    } finally {
+      setSending(false);
+    }
+  }
 
   return (
     <details className="qr-form" open>
@@ -91,9 +127,33 @@ export function QRPositionForm({
       <button className="qr-form__add" onClick={add}>
         + QR Ekle
       </button>
+
+      <button
+        className="qr-form__send"
+        onClick={handleSend}
+        disabled={sending || ready.length === 0}
+      >
+        {sending
+          ? "Gönderiliyor…"
+          : `📡 Drone'lara Gönder (${ready.length})`}
+      </button>
+
+      {sendMsg && (
+        <p
+          className={
+            "qr-form__send-status " +
+            (sendMsg.ok
+              ? "qr-form__send-status--ok"
+              : "qr-form__send-status--err")
+          }
+        >
+          {sendMsg.text}
+        </p>
+      )}
+
       <p className="qr-form__hint">
-        Konumlar tarayıcıda saklanır. Haritada işaretlenir; mesh üzerinden
-        sürüye iletilecek.
+        Konumlar tarayıcıda saklanır. Haritada işaretlenir; "Gönder" ile
+        sürüye iletilir.
       </p>
     </details>
   );
