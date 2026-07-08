@@ -15,6 +15,7 @@ from swarm_interfaces.msg import (
     ElectionResult,
     FormationCommand,
     LeaderHeartbeat,
+    MissionTarget,
     QRCoordinates,
     QRMissionData,
     SwarmControlCommand,
@@ -530,3 +531,18 @@ def test_mission_qr_step_lider_yakinken_iletilir(node):
     node._current_leader_id = 1
     node._on_internal_mission_qr_step(UInt8())
     assert len(node._pending) == 1
+
+
+def test_next_target_lider_yakinken_iletilir(node):
+    _reset(node)
+    node._current_leader_id = 1
+    node._on_internal_mission_next_target(MissionTarget())
+    assert len(node._pending) == 1
+
+
+def test_next_target_lider_izole_dusurulur(node):
+    _reset(node)
+    node._current_leader_id = 1
+    node.positions["drone1"] = _UZAK
+    node._on_internal_mission_next_target(MissionTarget())
+    assert len(node._pending) == 0

@@ -28,6 +28,7 @@ from swarm_interfaces.msg import (
     ElectionResult,
     FormationCommand,
     LeaderHeartbeat,
+    MissionTarget,
     QRCoordinates,
     QRMissionData,
     SwarmControlCommand,
@@ -338,6 +339,17 @@ class NetworkProxyNode(Node):
             self._on_internal_mission_qr_step, _FORMATION_QOS,
         )
 
+        # --- Sonraki QR hedefi (mission_fsm liderde→tüm dronlar) — MissionTarget
+        # (qr_id + lat/lon). mission1 bunu /public'ten okuyup navige eder. Liderin
+        # mission_fsm'inden çıkar → mesafe kaybı liderin konumuna göre (_leader_drop).
+        self._mission_next_target_pub = self.create_publisher(
+            MissionTarget, "/swarm/public/mission/next_target", _FORMATION_QOS
+        )
+        self.create_subscription(
+            MissionTarget, "/swarm/internal/mission/next_target",
+            self._on_internal_mission_next_target, _FORMATION_QOS,
+        )
+
         self.get_logger().info("Network Proxy Node (ESP-NOW Simulator) Başlatıldı.")
         self.get_logger().info(
             "Yönlendirme aktif: /swarm/internal/... -> /swarm/public/..."
@@ -548,8 +560,8 @@ class NetworkProxyNode(Node):
         Kendisi hiçbir kayıp kararı vermez — mesafeye bağlı kayıp zarı, çağıran
         handler'da bu fonksiyondan ÖNCE atılır. Gönderen kimliği taşıyan kanallar
         (events, election, control, state, qr) _broadcast_drop; gönderen kimliği
-        taşımayan ama LİDERDEN çıkan kanallar (formation, mission_state/qr_step)
-        _leader_drop kullanır. Yalnız origin (baz istasyonu) ve qr_coords
+        taşımayan ama LİDERDEN çıkan kanallar (formation, mission_state/qr_step/
+        next_target) _leader_drop kullanır. Yalnız origin (baz istasyonu) ve qr_coords
         (GCS/operatör) bir drondan çıkmadığından mesafe uygulanamaz → yalnız jitter.
         """
         self._schedule(channel_key, publisher, msg)
@@ -670,6 +682,17 @@ class NetworkProxyNode(Node):
         if self._leader_drop():
             return
         self._simple_relay(msg, self._mission_qr_step_pub, "mission_qr_step")
+
+    def _on_internal_mission_next_target(self, msg: MissionTarget):
+        # Sonraki hedef MissionTarget; mission_fsm liderde tek yayıncı → fiziksel
+        # gönderen = güncel lider, mesafe kaybı liderin konumuna göre (_leader_drop).
+        if not self._within_budget(msg, "mission_next_target"):
+            return
+        if self._leader_drop():
+            return
+        self._simple_relay(
+            msg, self._mission_next_target_pub, "mission_next_target"
+        )
 
     def _on_internal_control(self, msg: SwarmControlCommand):
         """YKİ->İHA komutunu taşır. Komut da havadan (GCS→mesh) gider ve
