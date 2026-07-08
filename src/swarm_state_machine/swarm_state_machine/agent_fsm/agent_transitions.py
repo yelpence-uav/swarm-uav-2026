@@ -246,8 +246,15 @@ def _from_precision_landing(ctx: AgentContext) -> AgentState | None:
 
 def _from_waiting_rejoin(ctx: AgentContext) -> AgentState | None:
     """
-    WAITING_REJOIN → REJOINING: Swarm manager yeniden katılma izni verdi.
-    WAITING_REJOIN → FAILSAFE: 120s içinde izin gelmedi.
+    WAITING_REJOIN → ARMING: Bekleme süresi doldu (ya da manuel rejoin
+        izni geldi); ajan tekrar arm olur.
+    WAITING_REJOIN → FAILSAFE: 120s içinde toparlanamadı.
+
+    Şartname: ayrılan ajan renkli pedde bekleme süresi (detach_wait_s) kadar
+    disarm bekler, ardından KENDİ KENDİNE tekrar arm olup sürüye yetişir
+    (en geç sonraki QR'da katılır). Zamanlama dronun kendisindedir. Tekrar
+    kalkış ARMING→ARMED→TAKEOFF→IN_SWARM yolunu yeniden kullanır;
+    IN_SWARM'da formation_control ajanı hareketli sürüye götürür.
 
     Args:
         ctx: Drone durum bilgisi.
@@ -255,8 +262,14 @@ def _from_waiting_rejoin(ctx: AgentContext) -> AgentState | None:
     Returns:
         Hedef AgentState veya None.
     """
-    if ctx.pending_state == AgentState.REJOINING:
-        return AgentState.REJOINING
+    ready = (
+        ctx.time_in_state() >= ctx.detach_wait_s
+        or ctx.pending_state == AgentState.REJOINING
+    )
+    if ready:
+        passed, _ = run_preflight_checks(ctx)
+        if passed:
+            return AgentState.ARMING
     if ctx.time_in_state() > _WAITING_REJOIN_TIMEOUT_S:
         return AgentState.FAILSAFE
     return None

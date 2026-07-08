@@ -260,9 +260,18 @@ def _from_return_home(ctx: MissionContext) -> MissionState | None:
         ctx (MissionContext): Mevcut FSM çalışma zamanı durumu.
 
     Returns:
-        MissionState: Ajanlar inişe geçince veya timeout'ta LANDING.
+        MissionState: QR başarısızlığında eve varınca ROTATE_TO_NEXT (restart);
+            ajanlar inişe geçince veya timeout'ta LANDING.
         None: Hâlâ geri dönülüyor.
     """
+    # Şartname madde 17: QR okunamadığı için eve dönüldüyse, eve varınca
+    # (formasyon home'a ulaşınca) rotayı baştan başlat. max_restarts ile
+    # sınırlı — aşılırsa normal inişe geçilir.
+    if (ctx.restart_pending
+            and ctx.event_formation_reached
+            and ctx.restart_count < ctx.max_restarts):
+        return MissionState.ROTATE_TO_NEXT
+
     if ctx.all_agents_landing() or ctx.all_agents_landed():
         return MissionState.LANDING
 

@@ -28,6 +28,8 @@ from rclpy.qos import (
     ReliabilityPolicy,
 )
 
+from std_msgs.msg import UInt8
+
 from swarm_interfaces.msg import (
     AgentSetpoint,
     AgentStatus,
@@ -40,6 +42,23 @@ from .formation_geometry import (
     latlon_to_ned,
     rotate_offset,
 )
+
+# mission_fsm aktif QR alt-adımını /swarm/public/mission/qr_step üzerinde
+# QrTaskStep değeriyle (UInt8) yayınlar. MANEUVER adımında formasyon çıkışı
+# susturulur; o an /raw'a yalnız maneuver_executor yazsın (tek yazıcı → drone
+# titremez). Manevra sonrası eğik poz, lider'in FormationCommand'a gömdüğü
+# eğik ofsetlerle korunur; bu node onları normal şekilde uygular.
+_QR_STEP_MANEUVER = 2
+
+# Bu drone formasyondan ayrılmış/iniş/rejoin durumundayken formation_control
+# susar; o an precision_landing veya agent_fsm/PX4 sürücüdür. Aynı /raw'a iki
+# yazıcı olmasın (ayrılan dronda formasyon-precision çakışması önlenir).
+_MUTE_STATES = frozenset({
+    AgentStatus.STATE_DETACHED,
+    AgentStatus.STATE_PRECISION_LANDING,
+    AgentStatus.STATE_WAITING_REJOIN,
+    AgentStatus.STATE_REJOINING,
+})
 
 
 _RELIABLE_QOS = QoSProfile(
@@ -222,6 +241,10 @@ class FormationControlNode(Node):
         self._prev_slot_y: float | None = None
         self._prev_slot_z: float | None = None
         self._prev_cmd_time: float | None = None
+        # Aktif QR alt-adımı (mission_fsm yayınlar); MANEUVER'da çıkış susar.
+        self._qr_step: int = 0
+        # Bu drone'un kendi FSM durumu; ayrılma/iniş durumlarında çıkış susar.
+        self._agent_state: int = 0
 
     def _setup_publishers(self) -> None:
         """Setpoint publisher'ini olusturur (AgentSetpoint)."""
@@ -259,6 +282,12 @@ class FormationControlNode(Node):
             '/swarm/public/origin',
             self._on_swarm_origin,
             _ORIGIN_QOS,
+        )
+        self.create_subscription(
+            UInt8,
+            '/swarm/public/mission/qr_step',
+            self._on_qr_step,
+            _RELIABLE_QOS,
         )
 
     def _ensure_neighbor_subs(self, agent_ids) -> None:
@@ -361,6 +390,8 @@ class FormationControlNode(Node):
         self._current_vel_z = float(msg.vel_z)
         self._pos_valid = True
         self._oscillating = msg.oscillation_detected
+
+        self._agent_state = int(msg.state)
 
         self._origin_synced = bool(msg.origin_synced)
         self._estimator_ok = bool(msg.estimator_ok)
@@ -547,12 +578,27 @@ class FormationControlNode(Node):
             float(msg.center_z),
         )
 
+    def _on_qr_step(self, msg: UInt8) -> None:
+        """mission_fsm'in yayınladığı aktif QR alt-adımını saklar."""
+        self._qr_step = int(msg.data)
+
     def _publish_setpoint(self) -> None:
         """Periyodik setpoint hesaplar ve AgentSetpoint yayınlar.
 
         Slot ataması lider'in komutundadır; bu node kendi slotunu uygular
         ve komşulara göre (NeighborInfo) formasyonu sıkı tutar.
         """
+        # MANEUVER adımında formasyon susar → /raw'a yalnız maneuver_executor
+        # yazar, iki yazıcı çakışması önlenir. Eğik poz sonradan eğik ofsetle
+        # korunduğu için bu susma yalnızca aktif manevra hareketi süresincedir.
+        if self._qr_step == _QR_STEP_MANEUVER:
+            return
+
+        # Bu drone ayrılmış/iniş/rejoin durumundaysa formation sürücü değildir
+        # (precision_landing veya agent_fsm/PX4). /raw'a yazma.
+        if self._agent_state in _MUTE_STATES:
+            return
+
         msg = self._current_formation
         if msg is None:
             return

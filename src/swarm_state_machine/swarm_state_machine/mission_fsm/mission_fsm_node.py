@@ -69,6 +69,7 @@ class MissionFsmNode(Node):
             agent_ids=self._agent_ids,
             team_id=self._team_id,
             sitl_mode=self._sitl_mode,
+            max_restarts=self._max_restarts,
         )
 
         self._setup_publishers()
@@ -99,6 +100,7 @@ class MissionFsmNode(Node):
         self.declare_parameter('team_id', '752825')
         self.declare_parameter('tick_hz', 5.0)
         self.declare_parameter('sitl_mode', False)
+        self.declare_parameter('max_restarts', 2)
 
         self._agent_ids: list = list(
             self.get_parameter('agent_ids').value
@@ -109,6 +111,9 @@ class MissionFsmNode(Node):
         )
         self._sitl_mode: bool = bool(
             self.get_parameter('sitl_mode').value
+        )
+        self._max_restarts: int = int(
+            self.get_parameter('max_restarts').value
         )
 
     def _setup_publishers(self) -> None:
@@ -210,6 +215,19 @@ class MissionFsmNode(Node):
 
         self._ctx.set_state(new_state)
 
+        # Şartname madde 17: eve varış sonrası restart. QR zincirini sıfırla
+        # ki rota QR1'den yeniden başlasın; sayacı artır (sonsuz döngü yok).
+        if (old == MissionState.RETURN_HOME
+                and new_state == MissionState.ROTATE_TO_NEXT):
+            self._ctx.restart_count += 1
+            self._ctx.restart_pending = False
+            self._ctx.last_accepted_qr_seq = 0
+            self._ctx.current_qr = None
+            self.get_logger().warn(
+                f'[mission_fsm] QR okunamadı — rota baştan başlıyor '
+                f'(deneme {self._ctx.restart_count}/{self._ctx.max_restarts})'
+            )
+
         if new_state == MissionState.ABORTED and not self._ctx.abort_reason:
             self._ctx.abort_reason = (
                 f'Timeout veya preflight hatası ({old.name})'
@@ -264,6 +282,9 @@ class MissionFsmNode(Node):
             )
 
         elif state == MissionState.RETURN_HOME:
+            # QR okunamadığı için dönülüyorsa (current_qr yok) eve varınca
+            # rota baştan başlar; görev tamamlandığı için dönülüyorsa inilir.
+            ctx.restart_pending = ctx.current_qr is None
             self._pub_event(
                 SystemEvent.EVENT_RTL_TRIGGERED,
                 SystemEvent.SEVERITY_WARNING,
@@ -358,6 +379,9 @@ class MissionFsmNode(Node):
 
         if eid == SystemEvent.EVENT_FORMATION_REACHED:
             if ctx.state == MissionState.NAVIGATE_TO_QR:
+                ctx.event_formation_reached = True
+            elif ctx.state == MissionState.RETURN_HOME:
+                # Eve ulaşıldı; restart bekliyorsa rota baştan başlar.
                 ctx.event_formation_reached = True
             elif ctx.state == MissionState.EXECUTE_QR_TASK:
                 if ctx.qr_task_step in (

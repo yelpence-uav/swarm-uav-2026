@@ -49,6 +49,13 @@ class MissionContext:
     event_formation_reached: bool = False
     event_rotation_completed: bool = False
 
+    # Şartname madde 17: QR çözülemezse eve dönüp rotayı baştan başlat.
+    # restart_pending, RETURN_HOME'un başarısızlık (QR okunamadı) kaynaklı
+    # olduğunu; max_restarts sonsuz döngüyü önler.
+    restart_pending: bool = False
+    restart_count: int = 0
+    max_restarts: int = 2
+
     pending_command: int = 0
     abort_reason: str = ''
 

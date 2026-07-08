@@ -827,5 +827,35 @@ class TestFindNextQrStep(unittest.TestCase):
         )
 
 
+class TestReturnHomeRestart(unittest.TestCase):
+    """Madde 17: QR okunamazsa eve dönüp rotayı baştan başlatma."""
+
+    def test_restart_when_home_reached(self):
+        """restart_pending + eve varış + bütçe içinde → ROTATE_TO_NEXT."""
+        ctx = _ctx(MissionState.RETURN_HOME)
+        ctx.restart_pending = True
+        ctx.event_formation_reached = True
+        ctx.restart_count = 0
+        self.assertEqual(
+            evaluate_transitions(ctx), MissionState.ROTATE_TO_NEXT
+        )
+
+    def test_no_restart_beyond_budget(self):
+        """Restart bütçesi dolunca restart yerine iniş yapılır."""
+        ctx = _ctx(MissionState.RETURN_HOME)
+        ctx.restart_pending = True
+        ctx.event_formation_reached = True
+        ctx.restart_count = ctx.max_restarts
+        _all_agents(ctx, 13)  # STATE_LANDED
+        self.assertEqual(evaluate_transitions(ctx), MissionState.LANDING)
+
+    def test_normal_completion_lands(self):
+        """Görev tamamlandıysa (restart yok) eve varış inişe götürür."""
+        ctx = _ctx(MissionState.RETURN_HOME)
+        ctx.restart_pending = False
+        _all_agents(ctx, 13)  # STATE_LANDED
+        self.assertEqual(evaluate_transitions(ctx), MissionState.LANDING)
+
+
 if __name__ == '__main__':
     unittest.main()

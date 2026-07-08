@@ -27,6 +27,7 @@ from swarm_interfaces.msg import (
     FormationCommand,
     SwarmControlCommand,
     SwarmOrigin,
+    SystemEvent,
 )
 
 from swarm_core.formation_control.formation_geometry import latlon_to_ned
@@ -138,10 +139,13 @@ class ManeuverExecutorNode(Node):
         self._maneuver_yaw_rad = 0.0
 
         self._action_cb_group = ReentrantCallbackGroup()
+        # Action adı per-drone: node her İHA'da agent_id ile çalışır; global
+        # ad kullanılırsa 3 sunucu çakışır. Her drone'un mission1'i kendi
+        # lokal maneuver_executor'ını çağırır (action mesh üzerinden gitmez).
         self._action_server = ActionServer(
             self,
             ExecuteManeuver,
-            '/swarm/maneuver/execute',
+            f'/drone_{self._agent_id}/maneuver/execute',
             execute_callback=self.execute_callback,
             goal_callback=self.goal_callback,
             cancel_callback=self.cancel_callback,
@@ -168,6 +172,12 @@ class ManeuverExecutorNode(Node):
             AgentSetpoint,
             topic,
             _BEST_EFFORT_QOS,
+        )
+        # Manevrayı yürüten birim, tamamlanma/başarısızlığı kendi bildirir
+        # (precision_landing'in kendi bitişini bildirmesiyle aynı desen).
+        # mission_fsm bu olayla QR manevra adımını ilerletir; proxy /public'e taşır.
+        self._event_pub = self.create_publisher(
+            SystemEvent, '/swarm/internal/events/system', _RELIABLE_QOS,
         )
 
     def _setup_subscribers(self):
@@ -303,6 +313,10 @@ class ManeuverExecutorNode(Node):
             if goal_handle.is_cancel_requested:
                 goal_handle.canceled()
                 self._publishing_active = False
+                self._pub_event(
+                    SystemEvent.EVENT_MANEUVER_FAILED,
+                    'Manevra iptal edildi',
+                )
                 return ExecuteManeuver.Result()
 
             now = time.time()
@@ -340,6 +354,10 @@ class ManeuverExecutorNode(Node):
             self._publishing_active = False
 
         goal_handle.succeed()
+        self._pub_event(
+            SystemEvent.EVENT_MANEUVER_COMPLETED,
+            'Manevra tamamlandı',
+        )
 
         res = ExecuteManeuver.Result()
         res.success = True
@@ -349,6 +367,22 @@ class ManeuverExecutorNode(Node):
         res.final_yaw_error_deg = 0.0
         res.final_max_position_error_m = 0.0
         return res
+
+    def _pub_event(self, event_type, message):
+        """SystemEvent yayınlar (manevra tamamlanma/başarısızlık bildirimi).
+
+        Args:
+            event_type: SystemEvent.EVENT_* sabiti.
+            message: İnsan okunabilir açıklama.
+        """
+        m = SystemEvent()
+        m.stamp = self.get_clock().now().to_msg()
+        m.event_type = int(event_type)
+        m.severity = SystemEvent.SEVERITY_INFO
+        m.source_agent_id = self._agent_id
+        m.source_module = 'maneuver_executor'
+        m.message = message
+        self._event_pub.publish(m)
 
     def _shared_to_local(self, shared_x, shared_y):
         """

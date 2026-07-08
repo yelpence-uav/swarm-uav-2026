@@ -213,12 +213,28 @@ class AgentFsmNode(Node):
         if old == AgentState.ARMED and new_state == AgentState.TAKEOFF:
             self._ctx.mission_start_sequence_active = False
 
+        # Rejoin: WAITING_REJOIN'den tekrar arm'a geçerken kalkış sekansını
+        # yeniden etkinleştir (ARMED→TAKEOFF bu bayrağı bekler).
+        if old == AgentState.WAITING_REJOIN and new_state == AgentState.ARMING:
+            self._ctx.mission_start_sequence_active = True
+
         self._dispatch_px4_command(new_state)
 
         self.get_logger().info(
             f'[agent {self._ctx.agent_id}] '
             f'{old.name} -> {new_state.name}'
         )
+
+        # Ajan sürüden ayrıldığını sürüye duyurur. target_agent_id ayrılan
+        # ajandır; task_reallocator rolleri buradan dağıtır, mission_fsm
+        # detach adımını buradan ilerletir. Kaynak ajanın kendisi yayınlar.
+        if new_state == AgentState.DETACHED:
+            self._pub_event(
+                SystemEvent.EVENT_AGENT_DETACHED,
+                SystemEvent.SEVERITY_INFO,
+                'Ajan sürüden ayrıldı',
+                target_agent_id=self._ctx.agent_id,
+            )
 
     def _dispatch_px4_command(self, state: AgentState) -> None:
         """
@@ -309,6 +325,9 @@ class AgentFsmNode(Node):
         elif eid == SystemEvent.EVENT_MEMBER_DETACH_STARTED:
             if tgt == aid:
                 ctx.pending_state = AgentState.DETACHED
+                # Bekleme süresi (event value) saklanır; WAITING_REJOIN bu
+                # süre dolunca kendi kendine tekrar arm olur.
+                ctx.detach_wait_s = float(msg.value)
 
         elif eid == SystemEvent.EVENT_MEMBER_REJOIN_STARTED:
             if tgt == aid:
@@ -614,6 +633,7 @@ class AgentFsmNode(Node):
         event_type: int,
         severity: int,
         message: str = '',
+        target_agent_id: int = 0,
     ) -> None:
         """
         SystemEvent yayınlar.
@@ -622,12 +642,14 @@ class AgentFsmNode(Node):
             event_type: SystemEvent.EVENT_* sabiti.
             severity: SystemEvent.SEVERITY_* seviyesi.
             message: İsteğe bağlı açıklama metni.
+            target_agent_id: Olayın hedef ajanı; 0 = hedef yok/sistem geneli.
         """
         m = SystemEvent()
         m.stamp = self.get_clock().now().to_msg()
         m.event_type = event_type
         m.severity = severity
         m.source_agent_id = self._ctx.agent_id
+        m.target_agent_id = target_agent_id
         m.source_module = 'agent_fsm'
         m.message = message
         self._event_pub.publish(m)
