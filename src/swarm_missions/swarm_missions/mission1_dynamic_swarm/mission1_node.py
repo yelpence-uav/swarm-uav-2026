@@ -9,7 +9,8 @@ modüllere iletir:
   DetachCmd          → EVENT_MEMBER_DETACH_STARTED     (lider; proxy taşır)
 
 Girdiler: SwarmState (lider_id, centroid, aktif ajan konumları), QRMissionData
-(görev içeriği), QRCoordinates (YKİ QR tablosu), SwarmOrigin (ortak NED çapası).
+(görev içeriği), MissionTarget (mission_fsm'in çözdüğü sıradaki hedef),
+SwarmOrigin (ortak NED çapası).
 
 Karar mantığı ROS'suz orchestrator'dadır; bu node yalnızca I/O ve icra yapar.
 """
@@ -30,7 +31,7 @@ from std_msgs.msg import UInt8
 from swarm_interfaces.action import ExecuteManeuver
 from swarm_interfaces.msg import (
     FormationCommand,
-    QRCoordinates,
+    MissionTarget,
     QRMissionData,
     SwarmOrigin,
     SwarmState,
@@ -53,7 +54,7 @@ _RELIABLE_QOS = QoSProfile(
     depth=10,
 )
 
-# origin + qr_coords latched yayınlanır; geç başlayan mission1 son değeri alsın.
+# origin latched yayınlanır; geç başlayan mission1 son değeri alsın.
 _LATCHED_QOS = QoSProfile(
     reliability=ReliabilityPolicy.RELIABLE,
     durability=DurabilityPolicy.TRANSIENT_LOCAL,
@@ -72,7 +73,6 @@ class Mission1Node(Node):
         self._declare_params()
 
         self._orch = Mission1Orchestrator(OrchestratorConfig(
-            start_qr=self._start_qr,
             default_formation_type=self._default_formation_type,
             default_spacing_m=self._default_spacing_m,
             wing_alpha_rad=math.radians(self._wing_alpha_deg),
@@ -113,7 +113,6 @@ class Mission1Node(Node):
         self.declare_parameter('agent_ids', [1, 2, 3])
         self.declare_parameter('team_id', '752825')
         self.declare_parameter('tick_hz', 5.0)
-        self.declare_parameter('start_qr', 1)
         self.declare_parameter('default_formation_type', 1)
         self.declare_parameter('default_spacing_m', 5.0)
         self.declare_parameter('wing_alpha_deg', 45.0)
@@ -123,7 +122,6 @@ class Mission1Node(Node):
         self._agent_ids = [int(a) for a in self.get_parameter('agent_ids').value]
         self._team_id = str(self.get_parameter('team_id').value)
         self._tick_hz = float(self.get_parameter('tick_hz').value)
-        self._start_qr = int(self.get_parameter('start_qr').value)
         self._default_formation_type = int(
             self.get_parameter('default_formation_type').value
         )
@@ -156,8 +154,8 @@ class Mission1Node(Node):
             self._on_swarm_state, _RELIABLE_QOS,
         )
         self.create_subscription(
-            QRCoordinates, '/swarm/public/mission/qr_coords',
-            self._on_qr_coords, _LATCHED_QOS,
+            MissionTarget, '/swarm/public/mission/next_target',
+            self._on_next_target, _RELIABLE_QOS,
         )
         self.create_subscription(
             SwarmOrigin, '/swarm/public/origin',
@@ -218,9 +216,12 @@ class Mission1Node(Node):
         if self._home_xy is None and msg.active_agent_count > 0:
             self._home_xy = (float(msg.centroid_x), float(msg.centroid_y))
 
-    def _on_qr_coords(self, msg: QRCoordinates) -> None:
-        """YKİ QR konum tablosunu orchestrator'a yükler."""
-        self._orch.set_qr_table(msg.qr_ids, msg.lat_deg, msg.lon_deg, msg.alt_m)
+    def _on_next_target(self, msg: MissionTarget) -> None:
+        """mission_fsm'in çözdüğü sıradaki hedefi orchestrator'a iletir."""
+        self._orch.set_next_target(msg.valid, msg.lat_deg, msg.lon_deg)
+        self.get_logger().info(
+            f'Sonraki hedef: QR{msg.qr_id} valid={msg.valid}'
+        )
 
     def _on_origin(self, msg: SwarmOrigin) -> None:
         """Geçerli SwarmOrigin'i orchestrator'a iletir."""

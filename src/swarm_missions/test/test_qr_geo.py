@@ -1,4 +1,4 @@
-"""qr_geo birim testleri — QR numarası → NED çözümü."""
+"""qr_geo birim testleri — güncel hedef GPS → NED çözümü."""
 
 from swarm_missions.mission1_dynamic_swarm.qr_geo import QrGeoResolver
 
@@ -6,45 +6,46 @@ from swarm_missions.mission1_dynamic_swarm.qr_geo import QrGeoResolver
 def test_not_ready_without_origin():
     """Origin gelmeden ready False ve çözüm None döner."""
     r = QrGeoResolver()
-    r.set_table([1], [41.0], [29.0], [20.0])
+    r.set_target(True, 41.0, 29.0)
     assert not r.ready
-    assert r.resolve_ned(1) is None
+    assert r.resolve_ned() is None
 
 
-def test_not_ready_without_table():
-    """Tablo gelmeden ready False'tur."""
+def test_not_ready_without_target():
+    """Hedef gelmeden ready False ve çözüm None döner."""
     r = QrGeoResolver()
     r.set_origin(41.0, 29.0)
     assert not r.ready
+    assert r.resolve_ned() is None
 
 
-def test_resolves_origin_qr_to_zero():
-    """Origin ile aynı konumdaki QR (0, 0, alt)'a çözülür."""
+def test_resolves_origin_target_to_zero():
+    """Origin ile aynı konumdaki hedef (0, 0)'a çözülür."""
     r = QrGeoResolver()
     r.set_origin(41.0, 29.0)
-    r.set_table([1, 4], [41.0, 41.001], [29.0, 29.0], [20.0, 25.0])
+    r.set_target(True, 41.0, 29.0)
     assert r.ready
-    assert r.has(4)
-    north, east, alt = r.resolve_ned(1)
+    north, east = r.resolve_ned()
     assert abs(north) < 1e-6
     assert abs(east) < 1e-6
-    assert alt == 20.0
 
 
 def test_north_positive_for_higher_lat():
-    """Origin'den kuzeydeki QR pozitif north verir."""
+    """Origin'den kuzeydeki hedef pozitif north verir."""
     r = QrGeoResolver()
     r.set_origin(41.0, 29.0)
-    r.set_table([4], [41.001], [29.0], [25.0])
-    north, east, alt = r.resolve_ned(4)
+    r.set_target(True, 41.001, 29.0)
+    north, east = r.resolve_ned()
     assert north > 0.0
     assert abs(east) < 1e-3
-    assert alt == 25.0
 
 
-def test_unknown_qr_returns_none():
-    """Tabloda olmayan QR numarası None döner."""
+def test_invalid_target_clears():
+    """valid=False hedefi temizler → ready False, çözüm None."""
     r = QrGeoResolver()
     r.set_origin(41.0, 29.0)
-    r.set_table([1], [41.0], [29.0], [20.0])
-    assert r.resolve_ned(99) is None
+    r.set_target(True, 41.0, 29.0)
+    assert r.ready
+    r.set_target(False, 0.0, 0.0)
+    assert not r.ready
+    assert r.resolve_ned() is None

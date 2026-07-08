@@ -1,15 +1,14 @@
-"""qr_geo.py — QR konum tablosu + SwarmOrigin ile NED hedef çözümü.
+"""qr_geo.py — güncel QR hedefi + SwarmOrigin ile NED konum çözümü.
 
-Şartname: QR kodu yalnızca ``next_qr`` NUMARASINI verir, konumu vermez.
-Konumlar yarışma öncesi YKİ'den girilir (QRCoordinates tablosu). Bu modül
-o tabloyu ve paylaşılan origin'i tutar; bir QR numarasını sürünün uçtuğu
-shared-NED çerçevesine (metre) çevirir.
+mission_fsm "gidilecek sıradaki QR"ı çözüp MissionTarget olarak yayınlar
+(qr_id + lat/lon). Bu modül o hedefin GPS konumunu, sürünün uçtuğu
+shared-NED çerçevesine (metre) çevirir; "hangi QR" kararını VERMEZ.
 
 Neden NED: otopilot metreyle çalışır (formation_control ofsetleri metre).
 GPS lat/lon → NED çevirimi ortak bir referans (SwarmOrigin) gerektirir;
-origin gelmeden hiçbir QR konuma çözülemez.
+origin gelmeden hedef konuma çözülemez.
 
-Kontrol/geometri matematiği yok; yalnızca tablo + latlon_to_ned sarmalı.
+Kontrol/geometri matematiği yok; yalnızca origin + latlon_to_ned sarmalı.
 ROS bağımlılığı yoktur → birim test edilebilir.
 """
 
@@ -17,32 +16,30 @@ from swarm_core.formation_control.formation_geometry import latlon_to_ned
 
 
 class QrGeoResolver:
-    """QR numarasını (north, east, agl) hedefine çözer.
+    """Güncel QR hedefini (north, east) konumuna çözer.
 
-    Tablo QRCoordinates mesajından, origin SwarmOrigin mesajından beslenir.
-    Her ikisi de gelmeden ``ready`` False'tur ve çözüm yapılmaz.
+    Hedef MissionTarget mesajından, origin SwarmOrigin mesajından beslenir.
+    İkisi de gelmeden (ve hedef geçerli olmadan) ``ready`` False'tur.
     """
 
     def __init__(self) -> None:
-        """Boş tablo ve tanımsız origin ile başlatır."""
-        self._table: dict = {}
+        """Tanımsız hedef ve origin ile başlatır."""
+        self._target: tuple | None = None
         self._origin: tuple | None = None
 
-    def set_table(self, qr_ids, lat_deg, lon_deg, alt_m) -> None:
-        """QR konum tablosunu paralel dizilerden kurar.
+    def set_target(self, valid, lat_deg, lon_deg) -> None:
+        """Güncel hedefi (MissionTarget) günceller.
 
         Args:
-            qr_ids: QR numaraları (örn. [1, 2, 3, 4, 5, 6]).
-            lat_deg: Her QR'ın enlemi (WGS84 derece).
-            lon_deg: Her QR'ın boylamı (WGS84 derece).
-            alt_m: Her QR'ın irtifası (metre, AGL, yukarı pozitif).
+            valid: MissionTarget.valid; False ise hedef temizlenir (konum
+                tabloda yok → navigasyon yapılmaz).
+            lat_deg: Hedef QR enlemi (WGS84 derece).
+            lon_deg: Hedef QR boylamı (WGS84 derece).
         """
-        table = {}
-        for i, qid in enumerate(qr_ids):
-            table[int(qid)] = (
-                float(lat_deg[i]), float(lon_deg[i]), float(alt_m[i]),
-            )
-        self._table = table
+        if valid:
+            self._target = (float(lat_deg), float(lon_deg))
+        else:
+            self._target = None
 
     def set_origin(self, lat_deg, lon_deg) -> None:
         """Paylaşılan NED origin'ini (SwarmOrigin) günceller.
@@ -55,32 +52,21 @@ class QrGeoResolver:
 
     @property
     def ready(self) -> bool:
-        """Hem origin hem de en az bir QR tablosu varsa True."""
-        return self._origin is not None and bool(self._table)
+        """Hem origin hem geçerli bir hedef varsa True."""
+        return self._origin is not None and self._target is not None
 
-    def has(self, qr_id) -> bool:
-        """Verilen QR numarası tabloda tanımlıysa True."""
-        return int(qr_id) in self._table
-
-    def resolve_ned(self, qr_id):
-        """QR numarasını shared-NED hedefine çözer.
-
-        Args:
-            qr_id: Çözülecek QR numarası.
+    def resolve_ned(self):
+        """Güncel hedefi shared-NED (north, east) konumuna çözer.
 
         Returns:
-            (north_m, east_m, alt_agl_m) demeti; hazır değilse veya QR
-            tabloda yoksa None. alt_agl_m yukarı pozitiftir; NED z'ye
-            çevirmek çağıranın sorumluluğundadır (down = -alt_agl_m).
+            (north_m, east_m) demeti; origin ya da geçerli hedef yoksa None.
+            İrtifa taşınmaz — navigasyon mevcut irtifayı korur; uçuş irtifası
+            QR görev adımından (altitude) gelir, konumdan değil.
         """
         if not self.ready:
             return None
-        qid = int(qr_id)
-        entry = self._table.get(qid)
-        if entry is None:
-            return None
-        lat, lon, alt = entry
+        lat, lon = self._target
         north, east = latlon_to_ned(
             lat, lon, self._origin[0], self._origin[1],
         )
-        return (north, east, alt)
+        return (north, east)

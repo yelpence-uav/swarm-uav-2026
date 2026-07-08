@@ -29,10 +29,10 @@ _HOME = (0.0, 0.0, 0.0)
 
 
 def _ready_orch():
-    """Origin + tablo yüklü (QR1 origin'de, QR4 kuzeyde) orkestratör."""
+    """Origin + sıradaki hedef (kuzeyde) yüklü orkestratör."""
     o = Mission1Orchestrator()
     o.set_origin(41.0, 29.0)
-    o.set_qr_table([1, 4], [41.0, 41.001], [29.0, 29.0], [20.0, 25.0])
+    o.set_next_target(True, 41.001, 29.0)
     return o
 
 
@@ -64,8 +64,8 @@ def test_navigate_blocked_until_qr_ready():
     assert not o.qr_ready
 
 
-def test_first_rotate_targets_start_qr():
-    """İlk ROTATE, start_qr (QR1) yönüne döndürür; QR1 kuzeyde → heading≈0."""
+def test_first_rotate_targets_next_qr():
+    """İlk ROTATE, next_target yönüne döndürür; hedef kuzeyde → heading≈0."""
     o = _ready_orch()
     cmds = o.decide(_inp(S_ROTATE, 0))
     assert len(cmds) == 1

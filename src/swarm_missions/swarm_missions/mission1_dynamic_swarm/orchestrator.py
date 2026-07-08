@@ -55,7 +55,6 @@ _ALT_FLOOR_M = 10.0
 class OrchestratorConfig:
     """mission1 orkestratörünün ayarlanabilir parametreleri."""
 
-    start_qr: int = 1
     default_formation_type: int = 1  # FORMATION_OKBASI
     default_spacing_m: float = 5.0
     wing_alpha_rad: float = math.radians(45.0)
@@ -125,8 +124,6 @@ class DetachCmd:
 class _State:
     """Orkestratörün faz/QR zinciri ve eğim takibi için iç durumu."""
 
-    target_qr: int = 0
-    last_next_qr: int = 0
     heading_deg: float = 0.0
     formation_type: int = 1
     spacing_m: float = 5.0
@@ -150,9 +147,13 @@ class Mission1Orchestrator:
 
     # --- Dışarıdan besleme (node topic callback'lerinden) --------------------
 
-    def set_qr_table(self, qr_ids, lat_deg, lon_deg, alt_m) -> None:
-        """QR konum tablosunu (YKİ'den gelen QRCoordinates) yükler."""
-        self._qr_geo.set_table(qr_ids, lat_deg, lon_deg, alt_m)
+    def set_next_target(self, valid, lat_deg, lon_deg) -> None:
+        """mission_fsm'in çözdüğü sıradaki hedefin konumunu yükler.
+
+        "Hangi QR" kararı mission_fsm'dedir; mission1 yalnız konuma gider.
+        valid=False → konum tabloda yok, navigasyon yapılmaz.
+        """
+        self._qr_geo.set_target(valid, lat_deg, lon_deg)
 
     def set_origin(self, lat_deg, lon_deg) -> None:
         """Paylaşılan NED origin'ini (SwarmOrigin) günceller."""
@@ -175,11 +176,6 @@ class Mission1Orchestrator:
             FormationTargetCmd / ManeuverCmd / DetachCmd örnekleri listesi.
             Lider değilse yalnız ManeuverCmd taşınır.
         """
-        # Geçerli QR'dan next_qr'ı yakala (navigasyon hedefi için; NAVIGATE
-        # fazında mission_fsm current_qr'ı sıfırladığı için burada saklanır).
-        if inp.qr is not None and getattr(inp.qr, 'valid', False):
-            self._st.last_next_qr = int(getattr(inp.qr, 'next_qr', 0))
-
         cmds = []
 
         # QR çözülemiyorsa: okumayı kolaylaştırmak için bir kez alçal.
@@ -255,22 +251,6 @@ class Mission1Orchestrator:
             return self._on_return_home(inp)
         return []
 
-    def _resolve_target(self):
-        """Mevcut hedef QR'ı belirler ve NED konumunu çözer.
-
-        Returns:
-            (target_qr, (north, east, alt_agl)) veya çözülemezse None.
-        """
-        target_qr = (
-            self._st.last_next_qr
-            if self._st.last_next_qr > 0
-            else self._cfg.start_qr
-        )
-        ned = self._qr_geo.resolve_ned(target_qr)
-        if ned is None:
-            return None
-        return target_qr, ned
-
     def _bearing_deg(self, frm, to) -> float:
         """frm'den to'ya yön açısı (kuzeyden saat yönüne, derece)."""
         dn = to[0] - frm[0]
@@ -296,11 +276,9 @@ class Mission1Orchestrator:
 
     def _on_rotate(self, inp: OrchestratorInput):
         """ROTATE_TO_NEXT: formasyonu bir sonraki QR'a döndürür (merkez sabit)."""
-        resolved = self._resolve_target()
-        if resolved is None:
+        ned = self._qr_geo.resolve_ned()
+        if ned is None:
             return None
-        target_qr, ned = resolved
-        self._st.target_qr = target_qr
         heading = self._bearing_deg(inp.centroid, ned)
         self._st.heading_deg = heading
         offsets = self._assign(
@@ -321,7 +299,7 @@ class Mission1Orchestrator:
 
     def _on_navigate(self, inp: OrchestratorInput):
         """NAVIGATE_TO_QR: hedef QR'a yatayda ilerler (irtifayı korur)."""
-        ned = self._qr_geo.resolve_ned(self._st.target_qr)
+        ned = self._qr_geo.resolve_ned()
         if ned is None:
             return None
         center = (ned[0], ned[1], inp.centroid[2])
@@ -472,12 +450,11 @@ class Mission1Orchestrator:
     def _on_return_home(self, inp: OrchestratorInput):
         """RETURN_HOME: eve doğru düz formasyonla ilerler (eğim sıfırlanır).
 
-        QR zinciri de sıfırlanır: madde 17 restart'ında sürü eve varınca rota
-        yeniden başlarsa (mission_fsm ROTATE_TO_NEXT), hedef tekrar QR1 olur.
+        Hedef zincirini mission_fsm yönetir: madde 17 restart'ında sürü eve
+        varıp rota yeniden başlarsa, mission_fsm yeni next_target'ı yayınlar.
         """
         self._st.tilt_pitch_deg = 0.0
         self._st.tilt_roll_deg = 0.0
-        self._st.last_next_qr = 0
         heading = self._bearing_deg(inp.centroid, inp.home)
         self._st.heading_deg = heading
         offsets = self._assign(
