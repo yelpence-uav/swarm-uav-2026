@@ -36,6 +36,29 @@ check_and_update_deps() {
   fi
 }
 
+# swarm_interfaces .msg/.srv değişince otomatik yeniden derler (yukarıdaki pip
+# kontrolüyle AYNI desen). Yeni bir mesaj (ör. MissionTarget) çekildiğinde kimse
+# elle 'colcon build' yapmayı unutmaz -> "MissionTarget bulunamadı" hatası olmaz.
+check_and_build_interfaces() {
+  IF_DIR="/home/yelpence/ros2_ws/src/swarm_interfaces"
+  if [ -d "$IF_DIR" ]; then
+    current_hash=$(cat "$IF_DIR"/msg/*.msg "$IF_DIR"/srv/*.srv "$IF_DIR/CMakeLists.txt" 2>/dev/null | md5sum | awk '{ print $1 }')
+    old_hash_file="$HASH_DIR/interfaces.hash"
+
+    if [ ! -f "$old_hash_file" ] || [ "$current_hash" != "$(cat "$old_hash_file")" ]; then
+      echo -e "\n\e[33m[UYARI] swarm_interfaces DEĞİŞTİ. YENİDEN DERLENİYOR...\e[0m"
+      # KURŞUN-GEÇİRMEZ: 'if ... then' içinde çalıştığı için derleme başarısız
+      # olsa bile set -e tetiklenmez; container DURMAZ, sadece uyarı basar.
+      if colcon build --packages-select swarm_interfaces; then
+        echo "$current_hash" >"$old_hash_file"
+        echo -e "\e[32m[TAMAM] swarm_interfaces GÜNCEL.\e[0m\n"
+      else
+        echo -e "\e[31m[UYARI] swarm_interfaces derlenemedi — elle: colcon build --packages-select swarm_interfaces\e[0m"
+      fi
+    fi
+  fi
+}
+
 # --- Başlangıç İşlemleri ---
 sudo service ssh start >/dev/null 2>&1
 
@@ -72,6 +95,24 @@ if [ ! -f "install/setup.bash" ]; then
     sudo mkdir -p src/px4_autopilot/build
     sudo chown -R yelpence:yelpence src/px4_autopilot/build
 
+    # PX4 yamalarını uygula (build'den ÖNCE, derlemeye girsin diye).
+    # gps_inject_data_dds: /fmu/in/gps_inject_data'yı uXRCE-DDS köprüsüne ekler (RTK ŞARTI).
+    # KURŞUN-GEÇİRMEZ: --check önce "uygulanabilir mi?" diye sorar; zaten uygulanmışsa
+    # 'else'e düşüp SESSİZCE atlar. Tüm git komutları 'if' içinde -> hata fırlatsa bile
+    # set -e tetiklenmez, container DURMAZ. En kötü ihtimalle "atlandı" yazar.
+    for YAMA in "$(pwd)"/docker/patches/*.patch; do
+      [ -f "$YAMA" ] || continue
+      if git -C src/px4_autopilot apply --check "$YAMA" 2>/dev/null; then
+        if git -C src/px4_autopilot apply "$YAMA" 2>/dev/null; then
+          echo -e "\e[32m[PATCH] uygulandı: $(basename "$YAMA")\e[0m"
+        else
+          echo -e "\e[33m[PATCH] uygulanamadı, atlandı: $(basename "$YAMA")\e[0m"
+        fi
+      else
+        echo -e "\e[90m[PATCH] zaten uygulanmış / gerekmiyor: $(basename "$YAMA")\e[0m"
+      fi
+    done
+
     # Sonrasında normal derlemeye devam et
     make -C src/px4_autopilot px4_sitl_default
   else
@@ -83,6 +124,8 @@ if [ ! -f "install/setup.bash" ]; then
   echo -e "\e[32m--- İlk kurulum ve derleme başarıyla tamamlandı! ---\e[0m"
 else
   echo "--- Mevcut derleme bulundu. Hazır sistem üzerinden başlatılıyor... ---"
+  # Mevcut kurulumda: swarm_interfaces .msg/.srv değiştiyse otomatik yeniden derle.
+  check_and_build_interfaces
 fi
 
 # 7. Yelpençe Çalışma Alanını Yükle

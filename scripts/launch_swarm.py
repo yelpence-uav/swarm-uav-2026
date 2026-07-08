@@ -262,13 +262,23 @@ def main():
             f"px4-param --instance {drone_id} set COM_RCL_EXCEPT 4",
             f"px4-param --instance {drone_id} set NAV_RCL_ACT 0",
             f"px4-param --instance {drone_id} set NAV_DLL_ACT 0",
-            f"px4-param --instance {drone_id} set SIM_BAT_ENABLE 0",
+            # Batarya simülasyonu AÇIK — YKİ'de batarya değeri görünsün.
+            f"px4-param --instance {drone_id} set SIM_BAT_ENABLE 1",
             f"px4-param --instance {drone_id} set CBRK_SUPPLY_CHK 894281",
             f"px4-param --instance {drone_id} set COM_RC_IN_MODE 4",
             f"px4-param --instance {drone_id} set COM_ARM_WO_GPS 1",
             f"px4-param --instance {drone_id} set COM_ARM_CHK_ESCS 0",
             f"px4-param --instance {drone_id} set CBRK_IO_SAFETY 22027",
             f"px4-param --instance {drone_id} set MIS_TAKEOFF_ALT 2.5",
+            # === SADECE SİMÜLASYON — EKF ön-uçuş gevşetmeleri ===
+            # Sim GPS/mag'ı çoklu-drone standalone Gazebo'da EKF kalite eşiğini
+            # tutturamıyor ("GPS speed drift" + "magnetic interference") → EKF
+            # global konum üretmiyor → lat/lon 0. Param reboot'tan ÖNCE set
+            # edildiği için EKF sıfırdan bunlarla başlar (runtime set çalışmıyordu).
+            # ⚠️ GERÇEK DONANIMDA ASLA — orada gerçek RTK GPS + kalibre pusula
+            # kontrolleri doğal geçer; kapatmak gerçek arızayı gizler.
+            f"px4-param --instance {drone_id} set EKF2_GPS_CHECK 0",
+            f"px4-param --instance {drone_id} set COM_ARM_MAG_STR 0",
         ]
 
         for cmd in param_cmds:
@@ -403,10 +413,11 @@ def main():
     # =====================================================================
 
     # 13. SwarmOrigin yayıncısı (TEKİL) — GPS↔NED ortak referansı.
-    #     Hakemler QR konumlarını GPS (lat/lon) verir; drone bunu yerel NED'e
-    #     çevirebilmek için ortak bir origin'e ihtiyaç duyar. fixed_lat/lon
-    #     Gazebo dünya origin'iyle (sim/worlds/base_world.sdf) BİREBİR eşleşir;
-    #     eşleşmezse GPS→NED dönüşümü kilometrelerce sapar, formasyon dağılır.
+    # GERİ AÇILDI: Asıl "her şey 0" sebebi swarm_origin DEĞİL, gz_bridge'miş
+    # (PX4 hiç çalışmıyordu). PX4 artık ayakta + GPS var ama lat/lon 0 →
+    # EKF global origin'i kurmuyor. swarm_origin'in SET_GPS_GLOBAL_ORIGIN'i tam
+    # bu origin'i verir → lat/lon dolmalı. fixed_lat/lon Gazebo dünya origin'iyle
+    # (base_world.sdf) eşleşir. formation_node da origin_synced'i bundan alır.
     print(">> SwarmOrigin yayıncısı (ortak NED referansı) başlatılıyor...")
     run_in_tmux(
         "ros2 run swarm_control swarm_origin_publisher --ros-args "
