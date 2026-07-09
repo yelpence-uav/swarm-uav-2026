@@ -518,6 +518,13 @@ static inline void _recv_isle() {
                     Serial.printf("[MESH] Sahte HEARTBEAT! %02X:%02X:%02X:%02X:%02X:%02X\n",
                         p->kaynak_mac[0], p->kaynak_mac[1], p->kaynak_mac[2],
                         p->kaynak_mac[3], p->kaynak_mac[4], p->kaynak_mac[5]);
+                    // ORTA-3 FIX: heartbeat GCM basarisiz olursa node'u da
+                    // Bug2 fix'teki gibi temizle (non-heartbeat dalinda zaten
+                    // yapiliyordu, heartbeat dalinda unutulmustu). Aksi halde
+                    // sahte kaynak MAC'li heartbeat NODE_TIMEOUT_MS (12sn)
+                    // boyunca "aktif" sayilmaya devam ediyordu.
+                    if (node) { node->aktif = false; node->peer_kayitli = false;
+                                esp_now_del_peer(node->mac); }
                 }
             }
         }
