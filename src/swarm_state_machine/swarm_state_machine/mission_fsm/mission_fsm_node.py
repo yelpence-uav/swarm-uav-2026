@@ -447,7 +447,7 @@ class MissionFsmNode(Node):
         if target is None:
             self.get_logger().warn(
                 f'[mission_fsm] next_qr={qr.next_qr} için konum tabloda YOK '
-                '— operatör YKİ\'den girdi mi? Rota bilinemez.'
+                "— operatör YKİ'den girdi mi? Rota bilinemez."
             )
         else:
             self.get_logger().info(
