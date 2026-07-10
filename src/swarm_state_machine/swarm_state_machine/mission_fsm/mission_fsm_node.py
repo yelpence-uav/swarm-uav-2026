@@ -145,10 +145,13 @@ class MissionFsmNode(Node):
         self._event_pub = self.create_publisher(
             SystemEvent, '/swarm/internal/events/system', _RELIABLE_QOS,
         )
-        # Sonraki hedef QR konumu — mission1_dynamic_swarm buradan okuyup navige
-        # eder. RELIABLE: hedef her QR'da değişir, kaybolmamalı. Proxy /public'e taşır.
+        # Sonraki hedef QR konumu — mission1_dynamic_swarm buradan okuyup
+        # navige eder. RELIABLE: hedef her QR'da değişir, kaybolmamalı.
+        # Proxy /public'e taşır.
         self._next_target_pub = self.create_publisher(
-            MissionTarget, '/swarm/internal/mission/next_target', _RELIABLE_QOS,
+            MissionTarget,
+            '/swarm/internal/mission/next_target',
+            _RELIABLE_QOS,
         )
 
     def _setup_subscribers(self) -> None:
@@ -179,7 +182,7 @@ class MissionFsmNode(Node):
             _RELIABLE_QOS,
         )
 
-        # QR konum tablosu (Akış B) — operatör YKİ'den girer, proxy/mesh public'e
+        # QR konum tablosu (Akış B) — operatör YKİ'den girer, proxy public'e
         # iletir. next_qr -> lat/lon çözümü için saklanır. Latched QoS: geç
         # başlasak bile son tabloyu yakalarız.
         self.create_subscription(
@@ -286,7 +289,7 @@ class MissionFsmNode(Node):
             # Eski QR verisini temizle; EXECUTE_QR_TASK taze veriyi okusun.
             ctx.current_qr = None
             ctx.last_accepted_qr_seq = 0
-            # İlk navigasyon: henüz hiç QR okunmadı → hedef sabit QR1 (şartname).
+            # İlk navigasyon: hiç QR okunmadı → hedef sabit QR1 (şartname).
             # Sonraki navigasyonlarda next_qr_target önceki QR'dan zaten dolu.
             if ctx.next_qr_target is None:
                 self._resolve_initial_target()
@@ -388,7 +391,7 @@ class MissionFsmNode(Node):
         """Operatörün girdiği QR konum tablosunu (Akış B) ctx'e depolar.
 
         Paralel diziler (qr_ids / lat_deg / lon_deg) tek bir dict'e çevrilir:
-        QR numarası -> (lat_deg, lon_deg). Şartname yalnız enlem/boylam paylaşır.
+        QR numarası -> (lat_deg, lon_deg). Şartname enlem/boylam paylaşır.
 
         Savunmacı kodlama: dizi uzunlukları eşleşmezse (bozuk/eksik mesaj) en
         kısa ortak uzunluğa göre işlenir; kısmi tablo, yanlış tablodan iyidir.
@@ -415,7 +418,7 @@ class MissionFsmNode(Node):
         )
 
         # Tablo, hedef çözülmesinden SONRA gelmiş olabilir; bekleyeni çöz.
-        # Bir QR okunduysa next_qr'ı, okunmadıysa (ilk navigasyon) start_qr'ı çöz.
+        # Bir QR okunduysa next_qr'ı, okunmadıysa (ilk nav) start_qr'ı çöz.
         if self._ctx.current_qr is not None:
             self._resolve_next_qr_target(self._ctx.current_qr)
         elif self._ctx.state == MissionState.NAVIGATE_TO_QR:
@@ -459,7 +462,7 @@ class MissionFsmNode(Node):
         """Görev başındaki ilk hedefi (start_qr, şartname: QR1) çözer.
 
         Sürü ilk QR'a giderken henüz hiçbir QR OKUMAMIŞTIR (current_qr None),
-        dolayısıyla next_qr yoktur; hedef doğrudan tablodan start_qr ile bulunur.
+        dolayısıyla next_qr yoktur; hedef tablodan start_qr ile bulunur.
         Konum tabloda yoksa uyarır — operatör YKİ'den girmemiş olabilir.
         """
         target = self._ctx.lookup_qr_position(self._start_qr)
@@ -480,7 +483,7 @@ class MissionFsmNode(Node):
         self._publish_next_target(self._start_qr)
 
     def _publish_next_target(self, qr_id: int) -> None:
-        """Çözülen sonraki hedefi mission1_dynamic_swarm'a yayınlar (MissionTarget).
+        """Çözülen sonraki hedefi mission1_dynamic_swarm'a yayınlar.
 
         ctx.next_qr_target (lat/lon) yoksa valid=False gönderilir — mission1
         navige etmez; rota bilinmiyor demektir (QR-okuma failsafe'i devrede).

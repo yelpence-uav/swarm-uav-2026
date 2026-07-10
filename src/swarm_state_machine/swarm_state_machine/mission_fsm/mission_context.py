@@ -40,11 +40,12 @@ class MissionContext:
     current_qr: Optional[Any] = None
     qr_task_step: QrTaskStep = QrTaskStep.NONE
 
-    # QR konum tablosu (Akış B) — operatör YKİ'den girer, mesh/proxy ile ulaşır.
+    # QR konum tablosu (Akış B) — operatör YKİ'den girer, proxy ile ulaşır.
     # Anahtar: QR numarası (int) -> değer: (lat_deg, lon_deg). Şartname yalnız
     # enlem/boylam paylaşır; irtifa QR görev komutundan (alt) gelir.
     qr_coord_table: dict = field(default_factory=dict)
-    # current_qr.next_qr için tablodan çözülen hedef (lat_deg, lon_deg) ya da None.
+    # current_qr.next_qr için tablodan çözülen hedef (lat_deg, lon_deg)
+    # ya da None.
     next_qr_target: Optional[tuple] = None
     # Rota çözülemedi: gidilmesi gereken QR'ın konumu tabloda yok. Şartname:
     # rota bilinemezse ev konumuna dön. Failsafe geçişi bu bayrağı okur.
