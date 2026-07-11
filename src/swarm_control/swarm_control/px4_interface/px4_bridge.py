@@ -377,7 +377,7 @@ class Px4BridgeNode(Node):
             (BatteryStatus,
              f'{ns}/fmu/out/battery_status', self._on_battery),
             (VehicleStatus,
-             f'{ns}/fmu/out/vehicle_status', self._on_vehicle_status),
+             f'{ns}/fmu/out/vehicle_status_v1', self._on_vehicle_status),
             (VehicleLocalPosition,
              f'{ns}/fmu/out/vehicle_local_position', self._on_local_pos),
             (EstimatorStatusFlags,
