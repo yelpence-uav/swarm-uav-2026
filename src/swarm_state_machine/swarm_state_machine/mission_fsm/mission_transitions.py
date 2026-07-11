@@ -27,6 +27,11 @@ _ROTATE_TIMEOUT_S = 30.0
 _RETURN_HOME_TIMEOUT_S = 120.0
 _LANDING_TIMEOUT_S = 90.0
 
+# Rota bilinemez (gidilecek QR'ın konumu tabloda yok) → RETURN_HOME'a geçmeden
+# önce tanınan süre. Geç gelen konum tablosuna / QR yeniden okumaya şans tanır;
+# NAVIGATE_TIMEOUT'u (120 s) beklemeden daha hızlı, kontrollü failsafe.
+_ROUTE_UNKNOWN_GRACE_S = 30.0
+
 _TERMINAL_STATES = frozenset({
     MissionState.MISSION_COMPLETE,
     MissionState.ABORTED,
@@ -153,6 +158,13 @@ def _from_navigate_to_qr(ctx: MissionContext) -> MissionState | None:
     """
     if ctx.event_formation_reached:
         return MissionState.EXECUTE_QR_TASK
+
+    # Failsafe: gidilecek QR'ın konumu tabloda yok (route_unknown). Şartname:
+    # rota bilinemezse ev konumuna dön. Grace süresi, geç gelen konum tablosuna
+    # veya QR'ın yeniden okunmasına şans tanır; dolunca NAVIGATE_TIMEOUT'u
+    # beklemeden RETURN_HOME'a geçilir.
+    if ctx.route_unknown and ctx.time_in_state() > _ROUTE_UNKNOWN_GRACE_S:
+        return MissionState.RETURN_HOME
 
     if ctx.time_in_state() > _NAVIGATE_TIMEOUT_S:
         return MissionState.RETURN_HOME
