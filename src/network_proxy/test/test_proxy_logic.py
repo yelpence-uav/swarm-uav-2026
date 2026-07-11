@@ -288,7 +288,6 @@ def test_qr_coords_uzakta_bile_iletilir(node):
     m.qr_ids = [1, 2, 3, 4, 5, 6]
     m.lat_deg = [41.0] * 6
     m.lon_deg = [29.0] * 6
-    m.alt_m = [15.0] * 6
     node._on_internal_qr_coords(m)
     assert len(node._pending) == 1
 
@@ -301,7 +300,6 @@ def test_qr_coords_asiri_buyuk_dusurulur(node):
     m.qr_ids = [1] * n
     m.lat_deg = [41.0] * n
     m.lon_deg = [29.0] * n
-    m.alt_m = [15.0] * n
     node._on_internal_qr_coords(m)
     assert len(node._pending) == 0
 
