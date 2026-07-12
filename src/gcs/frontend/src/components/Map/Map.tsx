@@ -1,8 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import L from "leaflet";
 
+import type { QRPosition } from "../../hooks/useQRPositions";
+import { isQRPositionSet } from "../../hooks/useQRPositions";
 import type { DroneState } from "../../types/telemetry";
 import { droneIcon } from "./droneIcon";
+import { qrIcon } from "./qrIcon";
 import "./Map.css";
 
 // PX4 SITL default home (Zürich Hönggerberg) — test publisher burayı kullanıyor.
@@ -29,12 +32,15 @@ interface DroneVisuals {
 
 export interface MapProps {
   snapshot: DroneState[];
+  qrPositions?: QRPosition[];
+  activeQrId?: number; // swarm_state.current_qr_id — aktif QR'ı vurgula
 }
 
-export function MapView({ snapshot }: MapProps) {
+export function MapView({ snapshot, qrPositions = [], activeQrId = 0 }: MapProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<L.Map | null>(null);
   const visualsRef = useRef<Map<number, DroneVisuals>>(new Map());
+  const qrMarkersRef = useRef<Map<number, L.Marker>>(new Map());
   const formationLineRef = useRef<L.Polyline | null>(null);
   const followRef = useRef<boolean>(true);
   const [followUI, setFollowUI] = useState<boolean>(true);
@@ -101,6 +107,63 @@ export function MapView({ snapshot }: MapProps) {
       }
     }
   }, [snapshot]);
+
+  // QR nokta işaretçileri — operatörün girdiği sabit konumlar. qrPositions
+  // veya aktif QR değişince güncellenir. Sadece lat/lon girilmiş olanlar çizilir.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+
+    const markers = qrMarkersRef.current;
+    const seen = new Set<number>();
+
+    for (const qr of qrPositions) {
+      if (!isQRPositionSet(qr)) continue;
+      seen.add(qr.qr_id);
+      const pos: L.LatLngTuple = [qr.lat, qr.lon];
+      const active = qr.qr_id === activeQrId;
+      const existing = markers.get(qr.qr_id);
+      if (!existing) {
+        const marker = L.marker(pos, {
+          icon: qrIcon({ qrId: qr.qr_id, active }),
+          title: `QR ${qr.qr_id}`,
+          interactive: true,
+          zIndexOffset: -100, // drone marker'larının altında kalsın
+        }).addTo(map);
+        marker.bindPopup(
+          `<b>QR ${qr.qr_id}</b><br>${qr.lat.toFixed(6)}, ${qr.lon.toFixed(6)}`,
+        );
+        markers.set(qr.qr_id, marker);
+      } else {
+        existing.setLatLng(pos);
+        existing.setIcon(qrIcon({ qrId: qr.qr_id, active }));
+        existing.setPopupContent(
+          `<b>QR ${qr.qr_id}</b><br>${qr.lat.toFixed(6)}, ${qr.lon.toFixed(6)}`,
+        );
+      }
+    }
+
+    // Silinen / koordinatı sıfırlanan QR'ların marker'ını kaldır
+    for (const [id, marker] of markers) {
+      if (!seen.has(id)) {
+        map.removeLayer(marker);
+        markers.delete(id);
+      }
+    }
+
+    // Kurulum aşaması: henüz uçan drone yokken haritayı QR noktalarına
+    // odakla ki operatör girdiği konumu görsün. Drone gelince snapshot
+    // effect'i devralır (o zaman bu blok atlanır).
+    const hasDrones = snapshot.some((d) => d.lat !== 0 || d.lon !== 0);
+    if (followRef.current && !hasDrones && markers.size > 0) {
+      const pts = [...markers.values()].map((m) => m.getLatLng());
+      if (pts.length === 1) {
+        map.setView(pts[0], Math.max(map.getZoom(), MIN_FOLLOW_ZOOM));
+      } else {
+        map.fitBounds(L.latLngBounds(pts).pad(0.4), { maxZoom: DEFAULT_ZOOM });
+      }
+    }
+  }, [qrPositions, activeQrId, snapshot]);
 
   const toggleFollow = () => {
     const next = !followRef.current;

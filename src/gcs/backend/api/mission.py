@@ -81,6 +81,55 @@ async def mission_trigger(body: TriggerMissionBody, request: Request):
     }
 
 
+# --- /api/mission/qr_coords ---------------------------------------------------
+
+
+class QRCoordsBody(BaseModel):
+    """QRCoordinates.msg gövdesi — operatörün girdiği QR konum tablosu.
+
+    Paralel diziler (hepsi aynı uzunlukta). Operatör YKİ formundan girer;
+    GCS bunu /swarm/internal/mission/qr_coords'a (latched) yayınlar → proxy →
+    mission_fsm tabloyu saklar, "next_qr → lat/lon" çözümü için kullanır.
+
+    alt_m opsiyonel: form yalnızca enlem/boylam topluyor (irtifa QR görev
+    komutundan gelir). Boş bırakılırsa backend sıfırla doldurur.
+    """
+
+    qr_ids: list[int] = Field(..., description="QR numaraları, örn. [1,2,3,4,5]")
+    lat_deg: list[float] = Field(..., description="her QR'ın enlemi (WGS84)")
+    lon_deg: list[float] = Field(..., description="her QR'ın boylamı (WGS84)")
+    alt_m: list[float] = Field(default_factory=list, description="opsiyonel irtifa")
+
+
+@router.post("/api/mission/qr_coords")
+def mission_qr_coords(body: QRCoordsBody, request: Request):
+    """QR konum tablosunu sürüye yayınla (latched).
+
+    Şartname V2: QR konumları önceden paylaşılır; operatör YKİ'den girer,
+    sürüye iletilir. Bu, GCS'in ağa yazdığı ikinci kanal (joystick dışında).
+    """
+    bridge = _bridge(request)
+    n = len(body.qr_ids)
+    if n == 0:
+        raise HTTPException(status_code=400, detail="En az bir QR konumu gerekli.")
+    if not (len(body.lat_deg) == n and len(body.lon_deg) == n):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Paralel diziler eşit uzunlukta olmalı "
+                f"(qr_ids={n}, lat={len(body.lat_deg)}, lon={len(body.lon_deg)})."
+            ),
+        )
+    try:
+        bridge.publish_qr_coords(body.qr_ids, body.lat_deg, body.lon_deg, body.alt_m)
+    except RuntimeError as e:
+        # QRCoordinates mesajı henüz derli değil → 503 (yapılandırma sorunu).
+        raise HTTPException(status_code=503, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"QR konum yayını hatası: {e}")
+    return {"published": True, "count": n}
+
+
 # --- /api/swarm/state ---------------------------------------------------------
 
 
