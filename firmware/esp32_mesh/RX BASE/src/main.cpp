@@ -231,7 +231,7 @@ void setup() {
     // hicbir zaman RTCM okuyamiyordu (Serial1.available() hep 0).
     // !!! DIKKAT: asagidaki pin numaralari PLACEHOLDER'dir. Ucus/saha
     // oncesi gercek RTCM kaynaginizin (GNSS modulu / Pi) hangi GPIO'lara
-    // bagli oldugunu DOGRULAYIN ve gerekirse degistirin.
+    // bagli oldugunu DOGRULAYIN ve gerekirse degistirilmeli.
     #define RTK_RX_PIN 16   // TODO: gercek RTCM RX pinini dogrula
     #define RTK_TX_PIN 17   // TODO: gercek RTCM TX pinini dogrula (genelde kullanilmaz)
     // TODO: baud 460800 olarak da istendi (RTCM kaynagi/Pi tarafi buna gore
@@ -298,13 +298,13 @@ void loop() {
     }
 
 
-    static bool son_failsafe = false;
-    if (failsafe_tetiklendi != son_failsafe) {
-        son_failsafe = failsafe_tetiklendi;
-        uint8_t buf[16] = {0};
-        buf[0] = failsafe_tetiklendi ? 1 : 0;
-        uart_gonder(0xFE, 0x00, buf, 16);
-    }
+    // RX BASE'in Pi hatti Serial2'dir (Serial1 RTCM'e ayrilmis) — bu yuzden
+    // acikca Serial2 verilir; aksi halde bildirim varsayilan Serial1'e (RTCM
+    // giris hattina) gider ve Pi'ye hic ulasmaz. Eskiden burada ayri, basit
+    // bir 0xFE bayrak gonderimi vardi (failsafe_kontrol() hic cagrilmadigi
+    // icin telafi amacli), ama o da tetiklenmiyordu; artik gercek kademeli
+    // (UYARI/RTL/LAND) bildirim TX DRONE ile ayni formatta calisir.
+    failsafe_kontrol(Serial2);
 
     uart_mesaj_t gelen;
     while (xQueueReceive(uart_kuyruk, &gelen, 0) == pdPASS) {

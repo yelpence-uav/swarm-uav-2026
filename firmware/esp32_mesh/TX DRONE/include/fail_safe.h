@@ -35,8 +35,11 @@ extern uint8_t            _failsafe_asama;
 //   [1] = 0x00          — iha_id (broadcast)
 //   [2] = failsafe_tip  — FAILSAFE_TIP_UYARI / RTL / LAND
 //   [3..4] = CRC16-CCITT (big-endian)
-// COBS encode + 0x00 terminator ile Serial1'e yazilir.
-static inline void _failsafe_rpi_bildir(uint8_t failsafe_tip) {
+// COBS encode + 0x00 terminator ile verilen uart'a yazilir.
+// uart parametreli: TX DRONE'da Serial1 tek Pi hatti, RX BASE'de ise
+// Serial1 SADECE RTCM girisine ayrilmis, Pi protokolu Serial2'de yuruyor —
+// bu yuzden hedef port sabitlenmez, cagiran main.cpp belirler.
+static inline void _failsafe_rpi_bildir(uint8_t failsafe_tip, HardwareSerial& uart) {
     // --- Ham frame ---
     uint8_t ham[5];
     ham[0] = 0xFA;           // marker (tip)
@@ -69,35 +72,38 @@ static inline void _failsafe_rpi_bildir(uint8_t failsafe_tip) {
     }
     cobs_buf[kod_idx]   = kod;
     cobs_buf[yaz_idx++] = 0x00;  // COBS frame terminator
-    Serial1.write(cobs_buf, yaz_idx);
+    uart.write(cobs_buf, yaz_idx);
     Serial.printf("[FAILSAFE] RPiye bildirildi (COBS+CRC): tip=0x%02X\n", failsafe_tip);
 }
 
-inline void failsafe_kontrol() {
+// uart: bildirimin yazilacagi Pi hatti. TX DRONE'da varsayilan Serial1
+// (tek Pi hatti) yeterli; RX BASE bunu acikca Serial2 ile cagirmali
+// (Serial1 orada RTCM'e ayrilmis, Pi orada dinlemiyor).
+inline void failsafe_kontrol(HardwareSerial& uart = Serial1) {
     unsigned long gecen = millis() - son_paket_ms;
 
     if (ardisik_kayip_sayisi >= ARDISIK_KAYIP_ESIGI && _failsafe_asama < 2) {
         _failsafe_asama     = 2;
         failsafe_tetiklendi = true;
         Serial.printf("[FAILSAFE] Ardisik kayip (%u): RPiye RTL bildiriliyor\n", ardisik_kayip_sayisi);
-        _failsafe_rpi_bildir(FAILSAFE_TIP_RTL);
+        _failsafe_rpi_bildir(FAILSAFE_TIP_RTL, uart);
         return;
     }
     if (gecen >= FAILSAFE_WARN_MS && _failsafe_asama == 0) {
         _failsafe_asama = 1;
         Serial.println("[FAILSAFE] UYARI: Baglanti zayif");
-        _failsafe_rpi_bildir(FAILSAFE_TIP_UYARI);
+        _failsafe_rpi_bildir(FAILSAFE_TIP_UYARI, uart);
     }
     if (gecen >= FAILSAFE_SOFT_MS && _failsafe_asama == 1) {
         _failsafe_asama     = 2;
         failsafe_tetiklendi = true;
         Serial.printf("[FAILSAFE] SOFT (%lums): RPiye RTL bildiriliyor\n", gecen);
-        _failsafe_rpi_bildir(FAILSAFE_TIP_RTL);
+        _failsafe_rpi_bildir(FAILSAFE_TIP_RTL, uart);
     }
     if (gecen >= FAILSAFE_HARD_MS && _failsafe_asama == 2) {
         _failsafe_asama = 3;
         Serial.println("[FAILSAFE] HARD 15s: RPiye LAND bildiriliyor");
-        _failsafe_rpi_bildir(FAILSAFE_TIP_LAND);
+        _failsafe_rpi_bildir(FAILSAFE_TIP_LAND, uart);
     }
 }
 
