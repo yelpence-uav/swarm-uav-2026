@@ -14,7 +14,12 @@
 #define RTK_REASSEMBLY_BUF_SIZE  1200
 #define RTK_HAM_BUF_SIZE   (1 + 1 + RTK_REASSEMBLY_BUF_SIZE + 2)
 #define RTK_COBS_BUF_SIZE  (RTK_HAM_BUF_SIZE + (RTK_HAM_BUF_SIZE / 254) + 2)
-#define RTK_FRAG_TIMEOUT_MS      2000UL
+// 2000 -> 500ms: fragment basina en kotu CSMA+retry gecikmesi ~40ms
+// (CSMA_GECIKME_MAKS_MS=10 + 3 deneme*~2-7ms), 500ms bu payi rahat
+// karsiliyor. Daha kisa timeout, kayip fragment durumunda reassembly
+// buffer'ini daha hizli serbest birakiyor (sonraki 1Hz RTCM dongusunu
+// beklemeden).
+#define RTK_FRAG_TIMEOUT_MS      500UL
 
 // DUSUK-1 FIX: fragment basina gercek payload boyutu 12 -> 11 byte'a indi;
 // kazanilan 1 byte frag_uzunluk alanina ayrildi (struct toplami 18 byte'ta sabit).
@@ -155,6 +160,15 @@ static inline void _rtk_tamamsa_gonder(void) {
 // mesh_veri_al callback'inde TIP_RTK görülünce bu fonksiyona yönlendirilir.
 // rtk_mesh_frag_t (18 byte) parse eder, reassembly buffer'a koyar,
 // tamamlanınca _rtk_uart_gonder ile RPi'ye iletir.
+//
+// TASARIM KARARI: burada ayrica ham CRC16 dogrulamasi YAPILMIYOR. Bu
+// fonksiyona ulasan her fragment zaten mesh_veri_al()'da aes_coz_gcm()
+// (AES-128-GCM auth tag) ile dogrulanmis durumda — bozuk/sahte paket GCM
+// asamasinda elenip buraya hic gelmiyor. GCM authentication CRC16'dan daha
+// guclu oldugu icin ayrica chunk-level CRC16 eklemek redundant olurdu; ustelik
+// rtk_mesh_frag_t zaten 18 byte'lik mesh payload limitini tam dolduruyor
+// (2 byte'lik CRC16 icin RTK_FRAG_PAYLOAD_MAKS'i 11'den 9'a dusurmek gerekirdi,
+// bu da surudeki paylasimli kanalda fragment/paket sayisini artirirdi).
 static inline void rtk_mesh_frag_handle(const uint8_t* ham_veri, uint16_t uzunluk) {
     if (uzunluk < sizeof(rtk_mesh_frag_t)) {
         Serial.printf("[RTK] HATA: fragment cok kisa (%u byte, beklenen %u)\n",

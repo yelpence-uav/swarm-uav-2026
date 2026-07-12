@@ -234,6 +234,10 @@ void setup() {
     // bagli oldugunu DOGRULAYIN ve gerekirse degistirin.
     #define RTK_RX_PIN 16   // TODO: gercek RTCM RX pinini dogrula
     #define RTK_TX_PIN 17   // TODO: gercek RTCM TX pinini dogrula (genelde kullanilmaz)
+    // TODO: baud 460800 olarak da istendi (RTCM kaynagi/Pi tarafi buna gore
+    // ayarliysa) ama gercek donanimda dogrulanmadi. Yanlis baud sessizce
+    // cop veri okutur (Serial1.available() calisir ama byte'lar hatali).
+    // Pi/GNSS tarafindaki gercek baud'u DOGRULAYIP ikisini birden degistirin.
     Serial1.begin(115200, SERIAL_8N1, RTK_RX_PIN, RTK_TX_PIN);
     Serial.println("[UART] RTCM (Serial1) baslatildi - PIN DOGRULAMASI GEREKLI");
 

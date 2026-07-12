@@ -185,6 +185,11 @@ void setup() {
     Serial.println("[ESP32] Basliyor...");
     _drone_tablo_dogrula();  // ORTA-2 FIX: MAC benzersizligini boot'ta dogrula
 
+    // TODO: RTCM icin 460800 baud da istendi ama gercek donanimda dogrulanmadi.
+    // Bu Serial1 hatti RTK'nin yani sira joystick/pose/vb TUM Pi<->mesh
+    // protokolunu de tasiyor (rtk_handler.h::_rtk_uart_gonder ayni porta yazar) —
+    // Pi tarafindaki gercek baud dogrulanmadan degistirilirse butun Pi
+    // haberlesmesi sessizce bozulur (RTCM'e ozel degil).
     Serial1.begin(115200, SERIAL_8N1, RPI_RX_PIN, RPI_TX_PIN);
     Serial.println("[UART] RPi (Serial1) bagli");
 
