@@ -18,6 +18,12 @@ RUN apt-get update && apt-get install -y \
     ros-jazzy-xacro \
     ros-jazzy-rqt* \
     ros-jazzy-rmw-cyclonedds-cpp \
+    # MAVROS: uXRCE-DDS yerine MAVLink <-> ROS2 kopru katmani.
+    # mavros: cekirdek eklentiler | extras: ek eklentiler (gps_rtk vb.)
+    # mavros-msgs: State/CommandBool/SetMode gibi mesaj-servis tanimlari.
+    ros-jazzy-mavros \
+    ros-jazzy-mavros-extras \
+    ros-jazzy-mavros-msgs \
     # Ubuntu sistem paketleri. https://packages.ubuntu.com/ adresinde paketler bulunabilir.
     python3-pip \
     python3-rosdep \
@@ -42,7 +48,15 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 # --------------------------------------
 
-# Kullanıcı Ayarları ------------------- 
+# MAVROS GeographicLib Veri Setleri ----
+# MAVROS, GPS (elipsoid) yuksekligini deniz seviyesi (geoid) yuksekligine
+# cevirmek icin geoid/gravity/magnetic veri setlerine ihtiyac duyar. Bu
+# setler kurulmazsa mavros_node acilista GeographicLib istisnasi ile olur.
+# Script mavros ile birlikte gelir; internetten veri setlerini indirir.
+RUN /opt/ros/jazzy/lib/mavros/install_geographiclib_datasets.sh
+# --------------------------------------
+
+# Kullanıcı Ayarları -------------------
 ARG USERNAME=yelpence
 ARG USER_UID=1000
 ARG USER_GID=$USER_UID
