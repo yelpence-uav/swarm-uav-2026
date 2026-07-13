@@ -7,62 +7,7 @@
 #include "fail_safe.h"
 #include "rtk_handler.h"
 #include "rtk_sender.h"
-
-// ===== CRC16-CCITT =====
-static uint16_t crc16(const uint8_t* veri, uint8_t uzunluk) {
-    uint16_t crc = 0xFFFF;
-    for (uint8_t i = 0; i < uzunluk; i++) {
-        crc ^= (uint16_t)veri[i] << 8;
-        for (uint8_t j = 0; j < 8; j++)
-            crc = (crc & 0x8000) ? (crc << 1) ^ 0x1021 : (crc << 1);
-    }
-    return crc;
-}
-
-// ===== COBS ENCODE =====
-static uint8_t cobs_encode(const uint8_t* giris, uint8_t uzunluk, uint8_t* cikis) {
-    uint8_t kod_idx = 0;
-    uint8_t yaz_idx = 1;
-    uint8_t kod     = 1;
-    for (uint8_t i = 0; i < uzunluk; i++) {
-        if (giris[i] != 0x00) {
-            cikis[yaz_idx++] = giris[i];
-            kod++;
-            if (kod == 0xFF) {
-                cikis[kod_idx] = kod;
-                kod_idx = yaz_idx;
-                cikis[yaz_idx++] = 0x01;
-                kod = 1;
-            }
-        } else {
-            cikis[kod_idx] = kod;
-            kod_idx = yaz_idx;
-            cikis[yaz_idx++] = 0x01;
-            kod = 1;
-        }
-    }
-    cikis[kod_idx] = kod;
-    cikis[yaz_idx++] = 0x00;
-    return yaz_idx;
-}
-
-// ===== COBS DECODE =====
-static uint8_t cobs_decode(const uint8_t* giris, uint8_t uzunluk, uint8_t* cikis) {
-    if (uzunluk == 0) return 0;
-    uint8_t oku_idx = 0;
-    uint8_t yaz_idx = 0;
-    while (oku_idx < uzunluk) {
-        uint8_t kod = giris[oku_idx++];
-        if (kod == 0) return 0;
-        for (uint8_t i = 1; i < kod; i++) {
-            if (oku_idx >= uzunluk) return 0;
-            cikis[yaz_idx++] = giris[oku_idx++];
-        }
-        if (kod < 0xFF && oku_idx < uzunluk)
-            cikis[yaz_idx++] = 0x00;
-    }
-    return yaz_idx;
-}
+#include "uart_cobs.h"   // REV B: ortak CRC16/COBS/cerceve kur-coz (RX BASE + TX DRONE)
 
 // ===== FREERTOS QUEUE =====
 struct uart_mesaj_t {
@@ -80,17 +25,7 @@ static void uart_gonder(uint8_t tip, uint8_t iha_id,
 
     uint8_t ham[22];
     uint8_t cobs_buf[27];
-
-    ham[0] = tip;
-    ham[1] = iha_id;
-    memcpy(&ham[2], payload, payload_uzunluk);
-
-    uint16_t crc = crc16(ham, 2 + payload_uzunluk);
-    ham[2 + payload_uzunluk]     = (crc >> 8) & 0xFF;
-    ham[2 + payload_uzunluk + 1] =  crc & 0xFF;
-
-    uint8_t toplam       = 2 + payload_uzunluk + 2;
-    uint8_t cobs_uzunluk = cobs_encode(ham, toplam, cobs_buf);
+    uint16_t cobs_uzunluk = cobs_cerceve_olustur(tip, iha_id, payload, payload_uzunluk, ham, cobs_buf);
     Serial2.write(cobs_buf, cobs_uzunluk);  // KRITIK-1 FIX: USB debug'tan ayrildi
 }
 
@@ -230,16 +165,23 @@ void setup() {
     // KRITIK-1 FIX: RTCM girisi icin Serial1 hic baslatilmiyordu -> RTK base
     // hicbir zaman RTCM okuyamiyordu (Serial1.available() hep 0).
     // !!! DIKKAT: asagidaki pin numaralari PLACEHOLDER'dir. Ucus/saha
-    // oncesi gercek RTCM kaynaginizin (GNSS modulu / Pi) hangi GPIO'lara
+    // oncesi gercek RTCM kaynaginizin (YKİ/PC) hangi GPIO'lara
     // bagli oldugunu DOGRULAYIN ve gerekirse degistirilmeli.
-    #define RTK_RX_PIN 16   // TODO: gercek RTCM RX pinini dogrula
-    #define RTK_TX_PIN 17   // TODO: gercek RTCM TX pinini dogrula (genelde kullanilmaz)
-    // TODO: baud 460800 olarak da istendi (RTCM kaynagi/Pi tarafi buna gore
-    // ayarliysa) ama gercek donanimda dogrulanmadi. Yanlis baud sessizce
-    // cop veri okutur (Serial1.available() calisir ama byte'lar hatali).
-    // Pi/GNSS tarafindaki gercek baud'u DOGRULAYIP ikisini birden degistirin.
-    Serial1.begin(115200, SERIAL_8N1, RTK_RX_PIN, RTK_TX_PIN);
-    Serial.println("[UART] RTCM (Serial1) baslatildi - PIN DOGRULAMASI GEREKLI");
+    #define RTK_RX_PIN 16   // TODO: gercek YKİ->ESP RX pinini dogrula
+    #define RTK_TX_PIN 17   // TODO: gercek YKİ->ESP TX pinini dogrula (genelde kullanilmaz)
+    // REV B: baud 460800 kesinlesti (spec + ekip karari). Onceki oturumda
+    // gercek donanimda dogrulanmadigi icin 115200'de birakilmisti — artik
+    // ekip karariyla degistirildi. setRxBufferSize() begin()'DEN ONCE
+    // cagrilmali; ESP32 Arduino corede sonra cagrilirsa SESSIZCE etkisiz
+    // kalir (varsayilan 256B ring buffer kullanilmaya devam eder).
+    Serial1.setRxBufferSize(2048);  // spec 3.2: UART RX buffer >= 2048B
+    Serial1.begin(460800, SERIAL_8N1, RTK_RX_PIN, RTK_TX_PIN);
+    Serial.println("[UART] YKİ/RTCM (Serial1, 460800) baslatildi - PIN DOGRULAMASI GEREKLI");
+
+    // ADIM 5: RTCM durum LED'i (spec 3.2 "saha teshisi icin yanip sonsun").
+    // TODO: pin PLACEHOLDER — gercek donanimda dogrulanmali (cogu ESP32
+    // gelistirme kartinda GPIO2 yerlesik LED'e bagli).
+    pinMode(RTK_LED_PIN, OUTPUT);
 
     // KRITIK-2 FIX: Pi ile COBS binary protokolu artik USB Serial yerine
     // Serial2'de - debug printf'leri ile artik CARPISMAZ.
@@ -298,7 +240,7 @@ void loop() {
     }
 
 
-    // RX BASE'in Pi hatti Serial2'dir (Serial1 RTCM'e ayrilmis) — bu yuzden
+    // RX BASE'in Pi hatti Serial2'dir (Serial1 RTCM'e ayrildi) — bu yuzden
     // acikca Serial2 verilir; aksi halde bildirim varsayilan Serial1'e (RTCM
     // giris hattina) gider ve Pi'ye hic ulasmaz. Eskiden burada ayri, basit
     // bir 0xFE bayrak gonderimi vardi (failsafe_kontrol() hic cagrilmadigi
@@ -320,14 +262,12 @@ void loop() {
         if (b == 0x00) {
             if (rx_idx >= 4) {
                 uint8_t decoded[32] = {0};
-                uint8_t decoded_uzunluk = cobs_decode(rx_buf, rx_idx, decoded);
-                if (decoded_uzunluk >= 5) {
-                    uint8_t veri_uzunluk = decoded_uzunluk - 2;
-                    uint16_t crc_hesap   = crc16(decoded, veri_uzunluk);
-                    uint16_t crc_gelen   = ((uint16_t)decoded[veri_uzunluk] << 8)
-                                         |  (uint16_t)decoded[veri_uzunluk + 1];
-                    if (crc_hesap == crc_gelen) {
-                        uint8_t tip_byte = decoded[0];
+                uint16_t decoded_uzunluk = cobs_decode(rx_buf, rx_idx, decoded);
+                uint8_t tip_byte, id_byte_unused;
+                const uint8_t* cerceve_payload;
+                uint16_t cerceve_payload_uzunluk;
+                if (cobs_cerceve_coz(decoded, decoded_uzunluk, &tip_byte, &id_byte_unused,
+                                      &cerceve_payload, &cerceve_payload_uzunluk)) {
                         uint32_t simdi   = millis();
                         // ORTA-2 FIX (rapordaki TX DRONE payload[16] hatasinin
                         // ayni sekilde burada da bulundu): mesh_gonder() her
@@ -337,8 +277,8 @@ void loop() {
                         // payload_uzunluk siniri 16'da kaliyor, fazladan 2 byte
                         // zaten-sifirlanmis dolgu.
                         uint8_t veri[18] = {0};
-                        uint8_t payload_uzunluk = min((int)veri_uzunluk - 2, 16);
-                        memcpy(veri, &decoded[2], payload_uzunluk);
+                        uint8_t payload_uzunluk = (uint8_t)min((int)cerceve_payload_uzunluk, 16);
+                        memcpy(veri, cerceve_payload, payload_uzunluk);
 
                         // FIX: eskiden bilinmeyen HER tip (orn. TIP_ORIGIN, TIP_GOREV)
                         // sessizce TIP_KOMUT'a donusturulup joystick sanilarak
@@ -368,7 +308,6 @@ void loop() {
                         // donusturulmez). TIP_LEADER_HB/TIP_ELECTION bilerek
                         // buraya dahil edilmedi: BASE, drone consensus'una
                         // taraf degil, kendi lider iddiasi uretmemeli.
-                    }
                 }
             }
             rx_idx = 0;

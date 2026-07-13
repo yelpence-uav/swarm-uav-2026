@@ -6,68 +6,17 @@
 #include "mesh_config.h"
 #include "fail_safe.h"
 #include "rtk_handler.h"
+#include "uart_cobs.h"   // REV B: ortak CRC16/COBS/cerceve kur-coz (RX BASE + TX DRONE)
 
 #define RPI_RX_PIN 18
 #define RPI_TX_PIN 19
-
-static uint16_t crc16(const uint8_t* veri, uint8_t uzunluk) {
-    uint16_t crc = 0xFFFF;
-    for (uint8_t i = 0; i < uzunluk; i++) {
-        crc ^= (uint16_t)veri[i] << 8;
-        for (uint8_t j = 0; j < 8; j++)
-            crc = (crc & 0x8000) ? (crc << 1) ^ 0x1021 : (crc << 1);
-    }
-    return crc;
-}
-
-static uint8_t cobs_encode(const uint8_t* giris, uint8_t uzunluk, uint8_t* cikis) {
-    uint8_t kod_idx = 0, yaz_idx = 1, kod = 1;
-    for (uint8_t i = 0; i < uzunluk; i++) {
-        if (giris[i] != 0x00) {
-            cikis[yaz_idx++] = giris[i];
-            if (++kod == 0xFF) {
-                cikis[kod_idx] = kod; kod_idx = yaz_idx;
-                cikis[yaz_idx++] = 0x01; kod = 1;
-            }
-        } else {
-            cikis[kod_idx] = kod; kod_idx = yaz_idx;
-            cikis[yaz_idx++] = 0x01; kod = 1;
-        }
-    }
-    cikis[kod_idx] = kod;
-    cikis[yaz_idx++] = 0x00;
-    return yaz_idx;
-}
-
-static uint8_t cobs_decode(const uint8_t* giris, uint8_t uzunluk, uint8_t* cikis) {
-    if (uzunluk == 0) return 0;
-    uint8_t oku_idx = 0, yaz_idx = 0;
-    while (oku_idx < uzunluk) {
-        uint8_t kod = giris[oku_idx++];
-        if (kod == 0) return 0;
-        for (uint8_t i = 1; i < kod; i++) {
-            if (oku_idx >= uzunluk) return 0;
-            cikis[yaz_idx++] = giris[oku_idx++];
-        }
-        if (kod < 0xFF && oku_idx < uzunluk)
-            cikis[yaz_idx++] = 0x00;
-    }
-    return yaz_idx;
-}
 
 static void uart_gonder(uint8_t tip, uint8_t kaynak_id,
                         const uint8_t* payload, uint8_t payload_uzunluk) {
     if (payload_uzunluk > 18) return;
     uint8_t ham[24];
     uint8_t cobs_buf[32];
-    ham[0] = tip;
-    ham[1] = kaynak_id;
-    memcpy(&ham[2], payload, payload_uzunluk);
-    uint16_t crc = crc16(ham, 2 + payload_uzunluk);
-    ham[2 + payload_uzunluk]     = (crc >> 8) & 0xFF;
-    ham[2 + payload_uzunluk + 1] =  crc & 0xFF;
-    uint8_t toplam       = 2 + payload_uzunluk + 2;
-    uint8_t cobs_uzunluk = cobs_encode(ham, toplam, cobs_buf);
+    uint16_t cobs_uzunluk = cobs_cerceve_olustur(tip, kaynak_id, payload, payload_uzunluk, ham, cobs_buf);
     Serial1.write(cobs_buf, cobs_uzunluk);
 }
 
@@ -158,11 +107,12 @@ void mesh_veri_al(const mesh_paket_t* p) {
     failsafe_reset();
     // HEARTBEAT sadece node aktivasyonu icin — RPi'ya gonderilmez
     if (p->tip == TIP_HEARTBEAT) return;
-    // #1 RTK: mesh fragment dogrudan rtk_handler'a yonlendir, RPi Serial1'den alir
-    if (p->tip == TIP_RTK) {
-        rtk_mesh_frag_handle(acik + sizeof(anti_replay_t), sizeof(rtk_mesh_frag_t));
-        return;
-    }
+    // REV B: TIP_RTK artik bu genel mesh_paket_t/mesh_veri_al yolundan hic
+    // gecmiyor — kendi buyuk zarfiyla ayri geliyor (bkz rtk_handler.h::
+    // rtk_mesh_loop(), loop()'ta mesh_loop() ile birlikte cagriliyor).
+    // Buraya TIP_RTK asla ulasmamali (ISR'da ayristiriliyor); yine de
+    // savunma amacli birakiyoruz.
+    if (p->tip == TIP_RTK) return;
 
     uint8_t* payload = acik + sizeof(anti_replay_t);
     uint8_t uzunluk = 0;
@@ -185,13 +135,14 @@ void setup() {
     Serial.println("[ESP32] Basliyor...");
     _drone_tablo_dogrula();  // ORTA-2 FIX: MAC benzersizligini boot'ta dogrula
 
-    // TODO: RTCM icin 460800 baud da istendi ama gercek donanimda dogrulanmadi.
-    // Bu Serial1 hatti RTK'nin yani sira joystick/pose/vb TUM Pi<->mesh
-    // protokolunu de tasiyor (rtk_handler.h::_rtk_uart_gonder ayni porta yazar) —
-    // Pi tarafindaki gercek baud dogrulanmadan degistirilirse butun Pi
-    // haberlesmesi sessizce bozulur (RTCM'e ozel degil).
-    Serial1.begin(115200, SERIAL_8N1, RPI_RX_PIN, RPI_TX_PIN);
-    Serial.println("[UART] RPi (Serial1) bagli");
+    // REV B: baud 460800 kesinlesti (spec + ekip karari). Bu Serial1 hatti
+    // RTK'nin yani sira joystick/pose/vb TUM Pi<->mesh protokolunu de tasiyor
+    // (rtk_handler.h::_rtk_uart_gonder ayni porta yazar) — Pi tarafi da ayni
+    // baud'a gecmeli. setRxBufferSize() begin()'DEN ONCE cagrilmali; sonra
+    // cagrilirsa ESP32 Arduino corede SESSIZCE etkisiz kalir.
+    Serial1.setRxBufferSize(2048);  // spec 3.2: UART RX buffer >= 2048B
+    Serial1.begin(460800, SERIAL_8N1, RPI_RX_PIN, RPI_TX_PIN);
+    Serial.println("[UART] RPi (Serial1, 460800) bagli");
 
     WiFi.mode(WIFI_STA);
 
@@ -221,7 +172,9 @@ void setup() {
 
 
 void loop() {
-    rtk_loop();
+    // REV B: rtk_loop() artik rtk_mesh_loop() icinden cagriliyor (RTK buyuk
+    // zarfini _rtk_recv_buffer'dan bosaltip cozen fonksiyon).
+    rtk_mesh_loop();
     esp_task_wdt_reset();
     mesh_loop();
 
@@ -238,6 +191,17 @@ void loop() {
 
     failsafe_kontrol();
 
+#ifndef RTK_ISTATISTIK_LOGLAMA_KAPALI
+    // ADIM 5: periyodik RTK istatistik logu (spec 3.3 "periyodik debug
+    // satiri"). build_flags'a -D RTK_ISTATISTIK_LOGLAMA_KAPALI eklenerek
+    // kapatilabilir.
+    static uint32_t son_rtk_istatistik_ms = 0;
+    if (millis() - son_rtk_istatistik_ms >= 10000) {
+        son_rtk_istatistik_ms = millis();
+        rtk_istatistik_yazdir();
+    }
+#endif
+
     {
         static uint8_t  rpi_rx_buf[32];
         static uint8_t  rpi_rx_idx      = 0;
@@ -251,14 +215,12 @@ void loop() {
             if (b == 0x00) {
                 if (rpi_rx_idx >= 4) {
                     uint8_t decoded[32] = {0};
-                    uint8_t dec_len = cobs_decode(rpi_rx_buf, rpi_rx_idx, decoded);
-                    if (dec_len >= 5) {
-                        uint8_t  veri_uzunluk = dec_len - 2;
-                        uint16_t crc_hesap    = crc16(decoded, veri_uzunluk);
-                        uint16_t crc_gelen    = ((uint16_t)decoded[veri_uzunluk] << 8)
-                                              |  (uint16_t)decoded[veri_uzunluk + 1];
-                        if (crc_hesap == crc_gelen) {
-                            uint8_t tip_byte        = decoded[0];
+                    uint16_t dec_len = cobs_decode(rpi_rx_buf, rpi_rx_idx, decoded);
+                    uint8_t tip_byte, id_byte_unused;
+                    const uint8_t* cerceve_payload;
+                    uint16_t cerceve_payload_uzunluk;
+                    if (cobs_cerceve_coz(decoded, dec_len, &tip_byte, &id_byte_unused,
+                                          &cerceve_payload, &cerceve_payload_uzunluk)) {
                             // ORTA-2 FIX: 16 -> 18. mesh_gonder() her zaman 18 byte
                             // okuyor (memcpy(tam_veri+6, veri, 18)); 16 byte'lik
                             // buffer'dan okumak 2 byte stack over-read'e (UB) yol
@@ -266,8 +228,8 @@ void loop() {
                             // payload_uzunluk siniri (asagida) 16'da kaliyor;
                             // fazladan 2 byte sadece zaten-sifirlanmis dolgu.
                             uint8_t payload[18]     = {0};
-                            uint8_t payload_uzunluk = (uint8_t)min((int)veri_uzunluk - 2, 16);
-                            memcpy(payload, &decoded[2], payload_uzunluk);
+                            uint8_t payload_uzunluk = (uint8_t)min((int)cerceve_payload_uzunluk, 16);
+                            memcpy(payload, cerceve_payload, payload_uzunluk);
                             // Whitelist: sadece Pi'den gelmesi beklenen tipler
                             // FIX: TIP_LEADER_HB ve TIP_ELECTION eksikti. Bu ikisi
                             // mesh->RPi yonunde (yukarida satir 140-141) taniniyordu
@@ -293,7 +255,6 @@ void loop() {
                                 son_rpi_mesh_ms = simdi;
                                 mesh_gonder(payload, tip_byte);
                             }
-                        }
                     }
                 }
                 rpi_rx_idx = 0;

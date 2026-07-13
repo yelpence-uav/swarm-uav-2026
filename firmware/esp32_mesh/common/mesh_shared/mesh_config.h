@@ -7,6 +7,7 @@
 #include "encryption.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "rtk_pure.h"      // ADIM 6: RTK_ENV_MAKS_TOPLAM vb. TEK yerden (portable)
 
 #define MESH_KANAL           11   // Birincil — non-overlapping, TR ISM, sahada en az meşgul
 #define MESH_KANAL_YEDEK      6   // Yedek — uçuş öncesi spektrum analizi olumsuzsa buraya geç
@@ -192,6 +193,24 @@ static volatile uint8_t _recv_yaz  = 0;
 static volatile uint8_t _recv_oku  = 0;
 static volatile bool    _recv_flag = false;
 
+// ===== TIP_RTK — AYRI, DEGISKEN BOYUTLU ISR-SAFE BUFFER =====
+// REV B: RTK artik sabit boyutlu mesh_paket_t zarfini degil, degisken
+// uzunlukta buyuk bir zarfi kullaniyor (bkz rtk_handler.h). Diger TIP'lerin
+// _recv_buffer/mesh_paket_t yolunu HIC degistirmemek icin RTK'ye tamamen
+// ayri, kendi ring buffer'i ayrildi. Zarf onsozu (kaynak_mac..tip) her iki
+// zarf tipinde de ayni bayt duzeninde oldugundan (offset 17'de tip byte'i),
+// ISR tam parse etmeden bu offset'e bakip hangi buffer'a yazacagina karar
+// verebiliyor.
+// RTK_ENV_MAKS_TOPLAM artik rtk_pure.h'den geliyor (ADIM 6, tek kaynak)
+#define RTK_RECV_BUFFER_SIZE  8
+static struct {
+    uint8_t  veri[RTK_ENV_MAKS_TOPLAM];
+    uint16_t uzunluk;
+} _rtk_recv_buffer[RTK_RECV_BUFFER_SIZE];
+static volatile uint8_t _rtk_recv_yaz  = 0;
+static volatile uint8_t _rtk_recv_oku  = 0;
+static volatile bool    _rtk_recv_flag = false;
+
 // son_paket_ms volatile — callback ve loop arasında paylaşılıyor
 extern volatile unsigned long son_paket_ms;
 
@@ -318,16 +337,14 @@ static inline esp_err_t _mesh_gonder(mesh_paket_t* p) {
     const uint8_t* hedef = _broadcast_mi(p->hedef_mac) ? BROADCAST_MAC : p->hedef_mac;
 
     // Kritik paketler icin retry (3 deneme, aralikli)
-    // ORTA-1 FIX: TIP_RTK eklendi. RTCM ~21 fragment/sn; tek fragment kaybi
-    // rtk_handler'da 2sn timeout ile TUM RTCM mesajini dusuruyordu (rtk_kayip++).
     // NOT: hedef broadcast oldugu icin ESP-NOW donanim ACK'i YOKTUR — bu retry
     // sadece YEREL gonderim hatasini (TX kuyrugu dolu, esp_now_send() basarisiz)
     // kurtarir; havada/menzil disinda kaybolan paketi retry ile kurtaramaz.
-    // Yogun trafikte (RTK+heartbeat+election ayni kanalda) yerel kuyruk dolmasi
-    // sik bir kayip nedeni oldugundan yine de net bir iyilestirmedir.
+    // REV B: TIP_RTK bu listeden cikarildi — artik mesh_paket_t/_mesh_gonder()
+    // yolundan hic gecmiyor (bkz rtk_handler.h: rtk_mesh_gonder(), kendi ayni
+    // CSMA+3-deneme retry mantigini ayri uyguluyor, REV B karari #4).
     const bool kritik = (p->tip == TIP_KOMUT || p->tip == TIP_ORIGIN ||
-                         p->tip == TIP_GOREV || p->tip == TIP_ELECTION ||
-                         p->tip == TIP_RTK);
+                         p->tip == TIP_GOREV || p->tip == TIP_ELECTION);
     const int deneme_maks = kritik ? 3 : 1;
     esp_err_t ret = ESP_FAIL;
     for (int d = 0; d < deneme_maks; d++) {
@@ -437,6 +454,25 @@ static portMUX_TYPE _recv_mux = portMUX_INITIALIZER_UNLOCKED;
 
 static void IRAM_ATTR _esp_now_recv_cb(const uint8_t* mac_addr,
                                         const uint8_t* data, int len) {
+    // REV B: TIP_RTK buyuk zarfi ayri yoldan isle. Zarf onsozu ortak
+    // oldugundan (kaynak_mac[6]+hedef_mac[6]+paket_id[4]+atlama_sayisi[1]
+    // = 17 byte sonrasi tip), tam parse etmeden offset 17'ye bakmak
+    // guvenli — mesh_paket_t'de de tip ayni offsette.
+    if (len >= 18 && data[17] == TIP_RTK) {
+        if (len > RTK_ENV_MAKS_TOPLAM) return;
+        portENTER_CRITICAL_ISR(&_recv_mux);
+        uint8_t sonraki_rtk = (_rtk_recv_yaz + 1) % RTK_RECV_BUFFER_SIZE;
+        if (sonraki_rtk == _rtk_recv_oku) {
+            portEXIT_CRITICAL_ISR(&_recv_mux);
+            return; // buffer dolu, paketi at
+        }
+        memcpy(_rtk_recv_buffer[_rtk_recv_yaz].veri, data, (size_t)len);
+        _rtk_recv_buffer[_rtk_recv_yaz].uzunluk = (uint16_t)len;
+        _rtk_recv_yaz = sonraki_rtk;
+        _rtk_recv_flag = true;
+        portEXIT_CRITICAL_ISR(&_recv_mux);
+        return;
+    }
     if (len != sizeof(mesh_paket_t)) return;
     const mesh_paket_t* p = reinterpret_cast<const mesh_paket_t*>(data);
     if (_benim_mac_mi(p->kaynak_mac)) return;
