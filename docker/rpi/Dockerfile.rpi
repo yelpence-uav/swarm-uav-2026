@@ -42,11 +42,17 @@ ENV PYTHONDONTWRITEBYTECODE=1
 # Sadece çalışma zamanında ihtiyaç duyulan hafif sistem paketleri
 RUN apt-get update && apt-get install -y \
   ros-jazzy-rmw-cyclonedds-cpp \
+  ros-jazzy-mavros \
+  ros-jazzy-mavros-extras \
+  ros-jazzy-mavros-msgs \
   python3-pip \
   python3-venv \
   nano \
   sudo \
   && rm -rf /var/lib/apt/lists/*
+
+# MAVROS GeographicLib veri setleri (mavros_node acilista gerekir)
+RUN /opt/ros/jazzy/lib/mavros/install_geographiclib_datasets.sh
 
 # Kullanıcı Ayarları
 ARG USERNAME=yelpence

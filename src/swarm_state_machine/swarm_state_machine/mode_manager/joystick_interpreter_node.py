@@ -16,6 +16,8 @@ GCS arayüzünden gelen mod değişimleri ve formasyon komutları bu
 node tarafından SwarmControlCommand'a gömülür.
 """
 
+from collections import namedtuple
+
 import rclpy
 from rclpy.node import Node
 from rclpy.qos import (
@@ -25,8 +27,16 @@ from rclpy.qos import (
     ReliabilityPolicy,
 )
 
+from mavros_msgs.msg import ManualControl
 from px4_msgs.msg import ManualControlSetpoint
 from swarm_interfaces.msg import SwarmControlCommand
+
+# MAVROS ManualControl -> px4-benzeri normalize alanlar (cevirici yeniden
+# kullanilsin diye). Araliklar SITL'de dogrulanmali.
+_MavrosManual = namedtuple('_MavrosManual', [
+    'pitch', 'roll', 'yaw', 'throttle',
+    'aux1', 'aux2', 'aux3', 'aux4', 'aux5', 'aux6',
+])
 
 # PX4 uORB topic'i BEST_EFFORT, VOLATILE QoS kullanır.
 _PX4_QOS = QoSProfile(
@@ -83,7 +93,12 @@ class JoystickInterpreterNode(Node):
         self.declare_parameter('max_speed_mps', 2.0)
         self.declare_parameter('max_yaw_rate_deg_s', 30.0)
         self.declare_parameter('max_tilt_deg', 15.0)
+        # use_mavros: True → MAVROS ManualControl; False → PX4 (DDS).
+        self.declare_parameter('use_mavros', False)
 
+        self._use_mavros: bool = bool(
+            self.get_parameter('use_mavros').value
+        )
         self._publish_hz = float(
             self.get_parameter('publish_hz').value
         )
@@ -115,13 +130,25 @@ class JoystickInterpreterNode(Node):
         )
 
     def _setup_subscribers(self) -> None:
-        """PX4 ManualControlSetpoint aboneliğini oluşturur."""
-        self.create_subscription(
-            ManualControlSetpoint,
-            '/fmu/out/manual_control_setpoint',
-            self._on_manual_control,
-            _PX4_QOS,
-        )
+        """Joystick girdi aboneliğini oluşturur (use_mavros'a göre).
+
+        MAVROS yolunda topic namespace'i launch'ta netleşecek
+        (Faz 6); şimdilik global /mavros/manual_control/control.
+        """
+        if self._use_mavros:
+            self.create_subscription(
+                ManualControl,
+                '/mavros/manual_control/control',
+                self._on_mavros_manual_control,
+                _PX4_QOS,
+            )
+        else:
+            self.create_subscription(
+                ManualControlSetpoint,
+                '/fmu/out/manual_control_setpoint',
+                self._on_manual_control,
+                _PX4_QOS,
+            )
 
     def _on_manual_control(self, msg: ManualControlSetpoint) -> None:
         """PX4 ManualControlSetpoint mesajını SwarmControlCommand'a çevirir.
@@ -183,6 +210,23 @@ class JoystickInterpreterNode(Node):
         cmd.source_module = 'joystick_interpreter'
 
         self._cmd_pub.publish(cmd)
+
+    def _on_mavros_manual_control(self, msg: ManualControl) -> None:
+        """MAVROS ManualControl'u normalize edip _on_manual_control'a verir.
+
+        MAVLink MANUAL_CONTROL aralığı [-1000, 1000]; sürü [-1, 1].
+        x=pitch, y=roll, r=yaw, z=throttle(0..1000). aux1..aux6 doğrudan.
+        NOT: aralıklar (özellikle aux) SITL'de doğrulanmalıdır.
+        """
+        norm = _MavrosManual(
+            pitch=self._clamp(msg.x / 1000.0),
+            roll=self._clamp(msg.y / 1000.0),
+            yaw=self._clamp(msg.r / 1000.0),
+            throttle=self._clamp(msg.z / 1000.0, 0.0, 1.0),
+            aux1=msg.aux1, aux2=msg.aux2, aux3=msg.aux3,
+            aux4=msg.aux4, aux5=msg.aux5, aux6=msg.aux6,
+        )
+        self._on_manual_control(norm)
 
     def _read_aux_channel(self, msg: ManualControlSetpoint) -> float:
         """Yapılandırılmış deadman kanalını okur.

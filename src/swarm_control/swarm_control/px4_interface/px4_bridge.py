@@ -27,6 +27,7 @@ from rclpy.qos import (
     QoSHistoryPolicy,
     QoSProfile,
     QoSReliabilityPolicy,
+    qos_profile_sensor_data,
 )
 
 # PX4 mesaj tipleri
@@ -49,6 +50,12 @@ from std_msgs.msg import String, UInt8MultiArray
 # Bizim mesaj formatımız
 from swarm_interfaces.msg import AgentSetpoint, AgentStatus, SwarmOrigin
 
+# MAVROS telemetri mesaj tipleri (use_mavros yolu)
+from mavros_msgs.msg import EstimatorStatus, GPSRAW, RCIn, State
+from mavros_msgs.msg import HomePosition as MavHomePosition
+from nav_msgs.msg import Odometry
+from sensor_msgs.msg import BatteryState, NavSatFix
+
 # Aynı paket içindeki yardımcılar
 from .telemetry_mapper import (
     map_attitude,
@@ -62,6 +69,17 @@ from .telemetry_mapper import (
     map_vehicle_status,
 )
 from .command_sender import CommandSender
+from .mavros_command_sender import MavrosCommandSender
+from .mavros_telemetry_mapper import (
+    map_battery as mav_map_battery,
+    map_estimator_status as mav_map_estimator,
+    map_global_position as mav_map_global,
+    map_gps_raw as mav_map_gps,
+    map_home as mav_map_home,
+    map_odometry as mav_map_odom,
+    map_rc_in as mav_map_rc,
+    map_state as mav_map_state,
+)
 
 # RTK: RTCM3 framer + GpsInjectData fragmenter (saf modül, ROS bağımsız).
 # Ayrı node yerine bu köprünün içine alındı — ayrı process/DDS/px4_msgs
@@ -115,6 +133,9 @@ class Px4BridgeNode(Node):
         # (sadece hız). Pozisyon kontrolü ROS'taki SVT'ye ait. False → A
         # (pozisyon+hız feedforward, PX4 pozisyon kontrolcüsü sahibi).
         self.declare_parameter('velocity_only', False)
+        # use_mavros: True → komutlar MAVROS (MavrosCommandSender) üzerinden
+        # gider; False → eski uXRCE-DDS (CommandSender). Strangler-fig geçişi.
+        self.declare_parameter('use_mavros', False)
         self._agent_id: int = int(
             self.get_parameter('agent_id').value
         )
@@ -126,6 +147,9 @@ class Px4BridgeNode(Node):
         )
         self._velocity_only: bool = bool(
             self.get_parameter('velocity_only').value
+        )
+        self._use_mavros: bool = bool(
+            self.get_parameter('use_mavros').value
         )
 
         # Micro-XRCE-DDS-Agent'ın PX4 namespace'i — /fmu/... topic'leri
@@ -178,15 +202,26 @@ class Px4BridgeNode(Node):
                 10,
             )
 
-        # PX4'e komut gönderen yardımcı — namespace ile doğru topic'lere yazar
-        self._cmd_sender = CommandSender(
-            self,
-            system_id=self._agent_id,
-            namespace=self._fmu_ns,
-        )
+        # PX4'e komut gönderen yardımcı — namespace ile doğru topic'lere yazar.
+        # use_mavros: yeni MAVROS yolu; aksi halde eski uXRCE-DDS yolu.
+        # İkisi de AYNI arayüzü sunar (strangler-fig), gerisi değişmez.
+        if self._use_mavros:
+            self._cmd_sender = MavrosCommandSender(
+                self,
+                namespace=self._fmu_ns,
+            )
+        else:
+            self._cmd_sender = CommandSender(
+                self,
+                system_id=self._agent_id,
+                namespace=self._fmu_ns,
+            )
 
-        # PX4 telemetri abonelikleri kur
-        self._setup_px4_subscriptions()
+        # Telemetri abonelikleri — use_mavros'a göre kaynak seç.
+        if self._use_mavros:
+            self._setup_mavros_subscriptions()
+        else:
+            self._setup_px4_subscriptions()
 
         # AgentStatus yayıncısı (FSM bunu okur)
         self._status_pub = self.create_publisher(
@@ -447,6 +482,84 @@ class Px4BridgeNode(Node):
 
     def _on_manual_control(self, msg: ManualControlSetpoint) -> None:
         map_manual_control(msg, self._status)
+
+    # =================================================================
+    # MAVROS ABONELİKLERİ + CALLBACKS (use_mavros yolu)
+    # =================================================================
+    def _setup_mavros_subscriptions(self) -> None:
+        """MAVROS telemetri topic'lerine abone ol.
+
+        Topic'ler mavros_node namespace'i altinda: /drone_{id}/mavros/...
+        Durum/olay topic'leri reliable; sensor-tipi topic'ler best_effort.
+        NOT: Kesin QoS profilleri sim'de 'ros2 topic info --verbose' ile
+        dogrulanmalidir.
+        """
+        ns = self._fmu_ns
+        # Durum/olay topic'leri — reliable (varsayilan depth=10)
+        self.create_subscription(
+            State, f'{ns}/mavros/state', self._on_mav_state, 10
+        )
+        self.create_subscription(
+            BatteryState, f'{ns}/mavros/battery',
+            self._on_mav_battery, 10
+        )
+        self.create_subscription(
+            MavHomePosition, f'{ns}/mavros/home_position/home',
+            self._on_mav_home, 10
+        )
+        # Sensor-tipi yuksek hizli topic'ler — best_effort
+        self.create_subscription(
+            Odometry, f'{ns}/mavros/local_position/odom',
+            self._on_mav_odom, qos_profile_sensor_data
+        )
+        self.create_subscription(
+            NavSatFix, f'{ns}/mavros/global_position/global',
+            self._on_mav_global, qos_profile_sensor_data
+        )
+        self.create_subscription(
+            GPSRAW, f'{ns}/mavros/gpsstatus/gps1/raw',
+            self._on_mav_gps, qos_profile_sensor_data
+        )
+        self.create_subscription(
+            EstimatorStatus, f'{ns}/mavros/estimator_status',
+            self._on_mav_estimator, 10
+        )
+        self.create_subscription(
+            RCIn, f'{ns}/mavros/rc/in',
+            self._on_mav_rc, qos_profile_sensor_data
+        )
+
+    def _on_mav_state(self, msg: State) -> None:
+        """MAVROS State -> AgentStatus (armed, mode, failsafe proxy)."""
+        mav_map_state(msg, self._status)
+
+    def _on_mav_battery(self, msg: BatteryState) -> None:
+        """MAVROS BatteryState -> AgentStatus batarya."""
+        mav_map_battery(msg, self._status)
+
+    def _on_mav_odom(self, msg: Odometry) -> None:
+        """MAVROS Odometry -> AgentStatus konum/hiz/heading (ENU->NED)."""
+        mav_map_odom(msg, self._status)
+
+    def _on_mav_global(self, msg: NavSatFix) -> None:
+        """MAVROS NavSatFix -> AgentStatus lat/lon/alt."""
+        mav_map_global(msg, self._status)
+
+    def _on_mav_gps(self, msg: GPSRAW) -> None:
+        """MAVROS GPSRAW -> AgentStatus fix_type/satellites."""
+        mav_map_gps(msg, self._status)
+
+    def _on_mav_home(self, msg: MavHomePosition) -> None:
+        """MAVROS HomePosition -> AgentStatus home."""
+        mav_map_home(msg, self._status)
+
+    def _on_mav_estimator(self, msg: EstimatorStatus) -> None:
+        """MAVROS EstimatorStatus -> AgentStatus kestirici saglik."""
+        mav_map_estimator(msg, self._status)
+
+    def _on_mav_rc(self, msg: RCIn) -> None:
+        """MAVROS RCIn -> AgentStatus rc_link_ok."""
+        mav_map_rc(msg, self._status)
 
     # =================================================================
     # OFFBOARD HEARTBEAT (50 Hz)
