@@ -20,6 +20,10 @@ DEFAULT_WORLD = os.path.join(WORKSPACE, "sim/worlds/task1_dynamic_swarm.sdf")
 
 TMP_WORLD = os.path.join(tempfile.gettempdir(), "swarm_tmp_world.sdf")
 DRONE_COUNT = 3
+# USE_MAVROS: True → MAVROS yolu (her drone için mavros_node + px4_bridge
+# use_mavros:=True). False → eski uXRCE-DDS yolu (MicroXRCEAgent).
+# Strangler-fig: MAVROS kanıtlanana kadar varsayılan False (eski yol yedek).
+USE_MAVROS = False
 TMUX_SESSION = "yelpence_swarm"
 
 
@@ -211,10 +215,13 @@ def main():
 
     time.sleep(10)  # Gazebonun ayağa kalkmasını bekle
 
-    # 3. MicroXRCEAgent Haberleşme Köprüsü
-    print(">> DDS Agent Tmux üzerinde başlatılıyor...")
-    run_in_tmux("MicroXRCEAgent udp4 -p 8888 -v 4", "DDS_Agent", "dds_agent")
-    time.sleep(2)
+    # 3. Haberleşme köprüsü — DDS'te XRCE Agent; MAVROS'ta mavros_node (aşağıda)
+    if not USE_MAVROS:
+        print(">> DDS Agent Tmux üzerinde başlatılıyor...")
+        run_in_tmux(
+            "MicroXRCEAgent udp4 -p 8888 -v 4", "DDS_Agent", "dds_agent"
+        )
+        time.sleep(2)
 
     # 4. Kamera Sensör Köprüleri
     print(f">> {DRONE_COUNT} adet Kamera Köprüsü (Arkaplan) başlatılıyor...")
@@ -347,6 +354,23 @@ def main():
     #  Bu düğümler olmadan proxy boş yönlendirir, arayüz kartları boş kalır.
     # =====================================================================
 
+    # 9.5. MAVROS düğümleri (her drone) — SADECE USE_MAVROS'ta.
+    #      fcu_url: PX4 SITL onboard portu (remote 14540+i / local 14580+i,
+    #      i=drone_id). namespace /drone_N/mavros → topic'ler px4_bridge'in
+    #      beklediği adta. PX4 SITL ayağa kalktıktan SONRA başlar (boot sırası).
+    if USE_MAVROS:
+        print(f">> {DRONE_COUNT} adet mavros_node başlatılıyor...")
+        for drone_id in range(1, DRONE_COUNT + 1):
+            fcu = f"udp://:{14540 + drone_id}@127.0.0.1:{14580 + drone_id}"
+            run_in_tmux(
+                f"ros2 run mavros mavros_node --ros-args "
+                f"-p fcu_url:={fcu} "
+                f"-r __ns:=/drone_{drone_id}/mavros",
+                f"Mavros_{drone_id}",
+                f"mavros_{drone_id}",
+            )
+            time.sleep(1)
+
     # 10. PX4 Bridge (her drone) — PX4 telemetriyi AgentStatus'a çevirir,
     #     /swarm/agent/drone{id}/telemetry yayınlar (agent_fsm bunu okur).
     print(f">> {DRONE_COUNT} adet PX4 Bridge başlatılıyor...")
@@ -354,6 +378,7 @@ def main():
         run_in_tmux(
             f"ros2 run swarm_control px4_bridge --ros-args "
             f"-p agent_id:={drone_id} -p sitl_mode:=True "
+            f"-p use_mavros:={USE_MAVROS} "
             f"-r __node:=px4_bridge_{drone_id}",
             f"PX4Bridge_{drone_id}",
             f"px4_bridge_{drone_id}",
