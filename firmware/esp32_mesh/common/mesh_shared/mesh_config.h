@@ -32,6 +32,15 @@
 #define TIP_SWARM_STATE 0x0D   // Sürü seviyesi FSM durumu
 #define TIP_QR_DATA     0x0E   // QR tespit ve çözümleme verisi
 
+// RTK çerçevelerinin kaynak/baz kimliği (spec §2.2). TIP tanımlarının yanında
+// çünkü TIP_RTK ile birlikte, ÇERÇEVE PREFİKSİNİN ikinci baytını oluşturur:
+//   COBS( TIP_RTK + BAZ_ID + rtcm + crc16_be ) + 0x00
+// Burada (paylaşılan header'da) tanımlı olması ŞART: hem RX BASE (çerçeveyi
+// çözüp ID'yi doğrular, rtk_sender.h) hem de rtk_handler.h (çerçeveyi kurar)
+// aynı değeri görmeli. Eskiden rtk_sender.h'de tanımlıydı ve rtk_handler.h
+// onu göremediği için 99'u hardcode ediyordu — iki taraf sessizce kayabilirdi.
+#define BAZ_ID          99
+
 #define FORMASYON_OKBASI  0x01
 #define FORMASYON_V       0x02
 #define FORMASYON_CIZGI   0x03

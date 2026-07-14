@@ -1,7 +1,7 @@
 #pragma once
 #include <Arduino.h>
 #include <string.h>
-#include "mesh_config.h"   // TIP_RTK, BROADCAST_MAC, MESH_KANAL, RTK_ENV_MAKS_TOPLAM, GCM/AAD/replay yardimcilari
+#include "mesh_config.h"   // TIP_RTK, BAZ_ID, BROADCAST_MAC, MESH_KANAL, GCM/AAD/replay yardimcilari
 #include "uart_cobs.h"     // REV B ADIM 2: ortak cobs_cerceve_olustur (CRC artik TIP+BAZ_ID dahil)
 #include "rtk_pure.h"      // ADIM 6: sabitler + saf fragmantasyon/reassembly mantigi (Arduino'dan bagimsiz)
 
@@ -48,7 +48,7 @@ static inline void _rtk_uart_gonder(const uint8_t* veri, uint16_t uzunluk,
                                      HardwareSerial& uart) {
     static uint8_t ham[RTK_HAM_BUF_SIZE];
     static uint8_t cobs_buf[RTK_COBS_BUF_SIZE];
-    uint16_t cobs_len = cobs_cerceve_olustur(TIP_RTK, 99 /*BAZ_ID*/, veri, uzunluk, ham, cobs_buf);
+    uint16_t cobs_len = cobs_cerceve_olustur(TIP_RTK, BAZ_ID, veri, uzunluk, ham, cobs_buf);
     uart.write(cobs_buf, cobs_len);
     rtk_uart_gonderilen++;
     Serial.printf("[RTK] RPiye gonderildi: %u byte (toplam: %lu)\n",
