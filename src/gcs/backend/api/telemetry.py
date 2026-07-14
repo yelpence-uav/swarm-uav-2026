@@ -15,10 +15,13 @@ router = APIRouter(prefix="/api", tags=["telemetry"])
 def get_snapshot(request: Request):
     store = request.app.state.store
     alerts = request.app.state.alerts
+    bridge = getattr(request.app.state, "bridge", None)
     snap = store.snapshot()
     return {
         "drones": [dataclasses.asdict(d) for d in snap],
         "alerts": [dataclasses.asdict(a) for a in alerts.evaluate(snap)],
+        "swarm_state": bridge.get_swarm_state() if bridge is not None else None,
+        "qr": bridge.get_qr_data() if bridge is not None else None,
         "connection_mode": request.app.state.connection_mode,
     }
 
