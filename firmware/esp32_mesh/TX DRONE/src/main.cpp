@@ -38,11 +38,22 @@ volatile uint32_t      manevra_bitis_ms     = 0;
 // adreslerini (esptool.py chip_id ile veya WiFi.macAddress() ile okunan
 // tam adresi) buraya girmeden derleyip yuklemeyin — aksi halde tum
 // dronelarin ilk 5 byte'i esit sayilir ve son byte'a geri donmus oluruz.
+//
+// BUG FIX (#1b): RX BASE'in MAC'i bu tabloda YOKTU. mesh_veri_al()
+// mac_to_id()==0 olan her paketi "Bilinmeyen MAC" diye reddettigi icin
+// BAZ'DAN GELEN HIC BIR PAKET (TIP_KOMUT/TIP_ORIGIN/TIP_GOREV) dispatch'e
+// ulasamiyordu — joystick komut yolu bu yuzden de kopuktu. Baz artik
+// BAZ_ID (99) ile tabloda. pi_bridge tarafi da uyumlu: agent_id 1-254
+// kabul ediyor ve iha_id==0/kendi agent_id'si disindakileri isliyor,
+// yani 99 gecerli bir kaynak kimligi.
 static const struct { uint8_t mac[6]; uint8_t id; } drone_tablo[] = {
     {{0x00, 0x00, 0x00, 0x00, 0x00, 0xB4}, 1},
     {{0x00, 0x00, 0x00, 0x00, 0x00, 0x88}, 2},
     {{0x00, 0x00, 0x00, 0x00, 0x00, 0x00}, 3},
     {{0x00, 0x00, 0x00, 0x00, 0x00, 0xFF}, 4},
+    // TODO: RX BASE'in GERCEK MAC'ini gir — bu satir doldurulmadan baz'dan
+    // gelen komutlar reddedilmeye devam eder (mac_to_id -> 0).
+    {{0x00, 0x00, 0x00, 0x00, 0x00, 0x63}, BAZ_ID},
 };
 static constexpr uint8_t DRONE_SAYISI = sizeof(drone_tablo) / sizeof(drone_tablo[0]);
 static uint8_t mac_to_id(const uint8_t* mac) {
@@ -126,7 +137,17 @@ void mesh_veri_al(const mesh_paket_t* p) {
 
     uint8_t* payload = acik + sizeof(anti_replay_t);
     uint8_t uzunluk = 0;
-    if      (p->tip == TIP_POSE)        uzunluk = sizeof(pose_veri_t);
+    // BUG FIX (#1a): TIP_KOMUT bu listede YOKTU -> joystick/surus komutu
+    // GCM+replay'i gecip son_paket_ms'i tazeledikten sonra "else return" ile
+    // SESSIZCE DUSUYORDU. Yani yer istasyonundan gelen komutlar drone'un
+    // Pi'sine hic ulasmiyordu (ESP mesh uzerinden ucus komut yolu kopuk).
+    // pi_bridge (feature/esp32-bridge) tarafi bunu BEKLIYOR:
+    // esp32_bridge_node.py::_cerceve_isle -> TIP_KOMUT -> _isle_komut() ->
+    // /swarm/public/control/command (SwarmControlCommand: takeoff/land/rtl/
+    // emergency_stop/deadman). Sim'de ROS2/DDS dogrudan kullanildigi icin
+    // bu yol hic egzersiz edilmemis, o yuzden fark edilmemis.
+    if      (p->tip == TIP_KOMUT)       uzunluk = sizeof(komut_veri_t);
+    else if (p->tip == TIP_POSE)        uzunluk = sizeof(pose_veri_t);
     else if (p->tip == TIP_GOREV)       uzunluk = sizeof(gorev_veri_t);
     else if (p->tip == TIP_RENK)        uzunluk = sizeof(renk_veri_t);
     else if (p->tip == TIP_DURUM)       uzunluk = sizeof(durum_veri_t);
