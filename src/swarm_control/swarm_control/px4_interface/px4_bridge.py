@@ -51,7 +51,7 @@ from std_msgs.msg import String, UInt8MultiArray
 from swarm_interfaces.msg import AgentSetpoint, AgentStatus, SwarmOrigin
 
 # MAVROS telemetri mesaj tipleri (use_mavros yolu)
-from mavros_msgs.msg import EstimatorStatus, GPSRAW, RCIn, State
+from mavros_msgs.msg import EstimatorStatus, GPSRAW, RCIn, RTCM, State
 from mavros_msgs.msg import HomePosition as MavHomePosition
 from nav_msgs.msg import Odometry
 from sensor_msgs.msg import BatteryState, NavSatFix
@@ -321,11 +321,20 @@ class Px4BridgeNode(Node):
             self._on_rtcm,
             10,
         )
-        self._gps_inject_pub = self.create_publisher(
-            GpsInjectData,
-            f'{ns}/fmu/in/gps_inject_data',
-            _GPS_INJECT_QOS_DEPTH,
-        )
+        # RTK çıkışı: MAVROS'ta /mavros/gps_rtk/send_rtcm (parçalamayı
+        # MAVROS yapar, ~720B/mesaj); DDS'te GpsInjectData (300B parça bizde).
+        if self._use_mavros:
+            self._rtcm_pub = self.create_publisher(
+                RTCM,
+                f'{ns}/mavros/gps_rtk/send_rtcm',
+                _GPS_INJECT_QOS_DEPTH,
+            )
+        else:
+            self._gps_inject_pub = self.create_publisher(
+                GpsInjectData,
+                f'{ns}/fmu/in/gps_inject_data',
+                _GPS_INJECT_QOS_DEPTH,
+            )
         self.create_timer(_RTK_DIAG_PERIOD_S, self._rtk_tani_yayinla)
 
     def _on_rtcm(self, msg: UInt8MultiArray) -> None:
@@ -367,7 +376,16 @@ class Px4BridgeNode(Node):
             self._rtk_yayinla_fragmenler(rtcm_msg)
 
     def _rtk_yayinla_fragmenler(self, rtcm_msg: bytes) -> None:
-        """RTCM mesajını fragmenter'a verip her parçayı PX4'e yayınlar."""
+        """RTCM mesajını PX4'e yayınlar (MAVROS: bütün; DDS: parçalı)."""
+        if self._use_mavros:
+            # MAVROS bütün RTCM mesajını alır ve GPS_RTCM_DATA'ya kendi
+            # parçalar (max ~720B/mesaj). Bizim parçalamamıza gerek yok.
+            out = RTCM()
+            out.header.stamp = self.get_clock().now().to_msg()
+            out.data = list(rtcm_msg)
+            self._rtcm_pub.publish(out)
+            self._rtk_yayinlanan_frag += 1
+            return
         parcalar = fragment_for_inject(
             rtcm_msg, max_payload=self._rtk_max_payload
         )
