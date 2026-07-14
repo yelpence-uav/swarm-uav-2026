@@ -83,7 +83,16 @@ static void _drone_tablo_dogrula() {
         }
     }
     if (hata) {
+        // BUG FIX (satır satır inceleme): eskiden sadece loglayip devam
+        // ediyordu — yorum "gurultulu bir boot hatasi tercih edilir" diyordu
+        // ama kod sessizce calismaya devam ediyordu. ID cakismasi iki
+        // drone'un telemetrisinin Pi'ye AYNI iha_id ile karismasi demek
+        // (yer istasyonu yanlis drone'u gosterir) — encryption.h::aes_init()
+        // 'teki provision-yok durumuyla ayni fail-closed desenine getirildi.
         Serial.println("[BOOT] drone_tablo duzeltilmeden ucusa cikilmamali!");
+        Serial.println("[BOOT] KRITIK: ID cakismasi - baslatma durduruldu.");
+        Serial.flush();
+        while (true) delay(1000);
     }
 }
 
@@ -223,7 +232,15 @@ void setup() {
 
 
 void loop() {
-    rtk_loop();
+    // BUG FIX (satır satır inceleme): eskiden burada sadece rtk_loop()
+    // (timeout kontrolü) çağrılıyordu. Ama _esp_now_recv_cb ISR'ı (ortak kod,
+    // mesh_config.h) RX BASE'te de TIP_RTK zarflarını _rtk_recv_buffer'a
+    // yazmaya devam ediyor — bu buffer'ı boşaltan tek fonksiyon
+    // rtk_mesh_loop() idi ve hiç çağrılmıyordu. Tek-baz topolojisinde RX BASE
+    // kendi yayınını geri almaz ama RF ortamında/testte gelecek herhangi bir
+    // TIP_RTK-etiketli paket bu 8 girişlik ring buffer'ı kalıcı ve sessizce
+    // tıkardı. rtk_mesh_loop() zaten rtk_loop()'u kendi içinde çağırıyor.
+    rtk_mesh_loop();
     rtk_serial_isle(Serial1);
     esp_task_wdt_reset();
     mesh_loop();

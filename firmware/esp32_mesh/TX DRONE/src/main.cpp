@@ -68,7 +68,16 @@ static void _drone_tablo_dogrula() {
         }
     }
     if (hata) {
+        // BUG FIX (satır satır inceleme): eskiden sadece loglayip devam
+        // ediyordu — yorum "gurultulu bir boot hatasi tercih edilir" diyordu
+        // ama kod sessizce ucusa izin veriyordu. ID cakismasi iki drone'un
+        // AYNI joystick komutuna cevap vermesi demek (guvenlik kritik) —
+        // encryption.h::aes_init()'teki provision-yok durumuyla ayni fail-
+        // closed desenine getirildi: duzeltilmeden mesh'e/ucusa katilamaz.
         Serial.println("[BOOT] drone_tablo duzeltilmeden ucusa cikilmamali!");
+        Serial.println("[BOOT] KRITIK: ID cakismasi - baslatma durduruldu.");
+        Serial.flush();
+        while (true) delay(1000);
     }
 }
 void mesh_veri_al(const mesh_paket_t* p) {
@@ -249,11 +258,22 @@ void loop() {
                                                   tip_byte == TIP_QR_DATA ||
                                                   tip_byte == TIP_LEADER_HB ||
                                                   tip_byte == TIP_ELECTION);
-                            if (!izinli) break;
-                            uint32_t simdi = millis();
-                            if (simdi - son_rpi_mesh_ms >= MESH_GONDERIM_MIN_MS) {
-                                son_rpi_mesh_ms = simdi;
-                                mesh_gonder(payload, tip_byte);
+                            // BUG FIX (satır satır inceleme): burada "break" tüm
+                            // dış while(Serial1.available()) okuma döngüsünü
+                            // kırıyordu, bu yüzden aşağıdaki rpi_rx_idx=0 hiç
+                            // çalışmıyordu — bir sonraki loop() çağrısında yeni
+                            // baytlar STALE (eski, reddedilmiş çerçeveden kalma)
+                            // rpi_rx_idx'ten itibaren yazılıyor, joystick/pose
+                            // komut hattını bozuyordu. Whitelist dışı TEK bir
+                            // tip byte'ı (TIP_VERSION/TIP_HEARTBEAT gibi geçerli
+                            // ama Pi->mesh yönünde beklenmeyen) sonraki tüm
+                            // komutları etkileyebiliyordu.
+                            if (izinli) {
+                                uint32_t simdi = millis();
+                                if (simdi - son_rpi_mesh_ms >= MESH_GONDERIM_MIN_MS) {
+                                    son_rpi_mesh_ms = simdi;
+                                    mesh_gonder(payload, tip_byte);
+                                }
                             }
                     }
                 }
