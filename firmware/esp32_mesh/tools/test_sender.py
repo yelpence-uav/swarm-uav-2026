@@ -28,15 +28,39 @@ def crc16_ccitt_false(data: bytes) -> int:
 
 
 def cobs_encode(data: bytes) -> bytes:
-    out, idx = bytearray(), 0
-    while True:
-        z = data.find(b"\x00", idx)
-        chunk = data[idx:] if z == -1 else data[idx:z]
-        out.append(len(chunk) + 1)
-        out += chunk
-        if z == -1:
-            return bytes(out)
-        idx = z + 1
+    """COBS encode — 254 bayt blok kuralı dahil.
+
+    Kod baytı 1..255 aralığına sığmak zorunda, yani bir blok en fazla 254
+    sıfırsız bayt taşıyabilir. Blok dolduğunda 0xFF ("254 bayt izliyor, sonuna
+    örtük 0x00 EKLEME") yazılıp yeni bloğa geçilir.
+
+    Onceki hali bu kurali uygulamiyor, tum sifirsiz diziyi tek blok sayip
+    out.append(len(chunk) + 1) yapiyordu: >=254 ardisik sifirsiz baytta
+    ValueError ("byte must be in range(0, 256)") ile COKUYORDU. Gonderdigi
+    sentetik ornek (25B, cogunlukla sifir) tetiklemedigi icin fark edilmemisti,
+    ama gercek bir MSM4 yakalamasi (~100-300B, cogunlukla sifirsiz) beslendigi
+    anda patlardi — kablolu koprü testinde bu arac elimizdeki tek bagimsiz
+    dogrulayici oldugu icin duzeltildi.
+
+    Firmware tarafindaki karsiligi: common/mesh_shared/uart_cobs.h::cobs_encode.
+    """
+    out = bytearray()
+    blok = bytearray()
+
+    def blogu_yaz(kod: int) -> None:
+        out.append(kod)
+        out.extend(blok)
+        blok.clear()
+
+    for b in data:
+        if b == 0x00:
+            blogu_yaz(len(blok) + 1)  # blok + örtük sıfır
+            continue
+        blok.append(b)
+        if len(blok) == 254:
+            blogu_yaz(0xFF)           # dolu blok — örtük sıfır YOK
+    blogu_yaz(len(blok) + 1)          # son blok
+    return bytes(out)
 
 
 def cerceve_olustur(tip: int, id_: int, payload: bytes) -> bytes:
