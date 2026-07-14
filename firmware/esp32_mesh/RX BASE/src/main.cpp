@@ -8,6 +8,7 @@
 #include "rtk_handler.h"
 #include "rtk_sender.h"
 #include "uart_cobs.h"   // REV B: ortak CRC16/COBS/cerceve kur-coz (RX BASE + TX DRONE)
+#include "uart_frame_parser.h"  // desync-güvenli ortak COBS çerçeve ayrıştırıcı (native testli)
 
 // ===== FREERTOS QUEUE =====
 struct uart_mesaj_t {
@@ -88,7 +89,8 @@ static void _drone_tablo_dogrula() {
         // ama kod sessizce calismaya devam ediyordu. ID cakismasi iki
         // drone'un telemetrisinin Pi'ye AYNI iha_id ile karismasi demek
         // (yer istasyonu yanlis drone'u gosterir) — encryption.h::aes_init()
-        // 'teki provision-yok durumuyla ayni fail-closed desenine getirildi.
+        // 'teki provision-yok durumuyla ayni fail-closed desenine getirildi:
+        // duzeltilmeden calismaya devam etmez.
         Serial.println("[BOOT] drone_tablo duzeltilmeden ucusa cikilmamali!");
         Serial.println("[BOOT] KRITIK: ID cakismasi - baslatma durduruldu.");
         Serial.flush();
@@ -233,13 +235,16 @@ void setup() {
 
 void loop() {
     // BUG FIX (satır satır inceleme): eskiden burada sadece rtk_loop()
-    // (timeout kontrolü) çağrılıyordu. Ama _esp_now_recv_cb ISR'ı (ortak kod,
-    // mesh_config.h) RX BASE'te de TIP_RTK zarflarını _rtk_recv_buffer'a
+    // (timeout kontrolü) çağrılıyordu. Ama _esp_now_recv_cb ISR'ı (ortak
+    // kod, mesh_config.h) RX BASE'te de TIP_RTK zarflarını _rtk_recv_buffer'a
     // yazmaya devam ediyor — bu buffer'ı boşaltan tek fonksiyon
-    // rtk_mesh_loop() idi ve hiç çağrılmıyordu. Tek-baz topolojisinde RX BASE
-    // kendi yayınını geri almaz ama RF ortamında/testte gelecek herhangi bir
-    // TIP_RTK-etiketli paket bu 8 girişlik ring buffer'ı kalıcı ve sessizce
-    // tıkardı. rtk_mesh_loop() zaten rtk_loop()'u kendi içinde çağırıyor.
+    // rtk_mesh_loop() idi ve hiç çağrılmıyordu. Normal tek-baz topolojisinde
+    // RX BASE kendi yayınını geri almaz (ESP-NOW self-loop yapmaz, ve
+    // _benim_mac_mi kontrolü de zaten eler) ama RF ortamında/testte gelecek
+    // herhangi bir TIP_RTK-etiketli paket bu 8 girişlik ring buffer'ı
+    // kalıcı ve sessizce doldurup tıkardı (hiç boşalmadığı için). rtk_mesh_loop()
+    // zaten rtk_loop()'u kendi içinde çağırıyor, bu yüzden davranış üst
+    // kümesi — güvenli.
     rtk_mesh_loop();
     rtk_serial_isle(Serial1);
     esp_task_wdt_reset();
@@ -270,68 +275,53 @@ void loop() {
         uart_gonder(gelen.tip, gelen.iha_id, gelen.payload, gelen.uzunluk);
     }
 
-    static uint8_t rx_buf[32];
-    static uint8_t rx_idx = 0;
+    // Ortak, desync-güvenli COBS çerçeve ayrıştırıcı (bkz uart_frame_parser.h).
+    // Whitelist/dispatch mantığı SADECE tamamlanmış çerçeveye uygulanır;
+    // hiçbir dalı ayrıştırıcı durumunu (idx) etkilemez.
+    static uart_frame_parser_t pi_parser;
     uint8_t okunan = 0;
     while (Serial2.available() && okunan < 32) {  // KRITIK-1 FIX: USB debug'tan ayrildi
         uint8_t b = Serial2.read();
         okunan++;
-        if (b == 0x00) {
-            if (rx_idx >= 4) {
-                uint8_t decoded[32] = {0};
-                uint16_t decoded_uzunluk = cobs_decode(rx_buf, rx_idx, decoded);
-                uint8_t tip_byte, id_byte_unused;
-                const uint8_t* cerceve_payload;
-                uint16_t cerceve_payload_uzunluk;
-                if (cobs_cerceve_coz(decoded, decoded_uzunluk, &tip_byte, &id_byte_unused,
-                                      &cerceve_payload, &cerceve_payload_uzunluk)) {
-                        uint32_t simdi   = millis();
-                        // ORTA-2 FIX (rapordaki TX DRONE payload[16] hatasinin
-                        // ayni sekilde burada da bulundu): mesh_gonder() her
-                        // zaman 18 byte okur (memcpy(tam_veri+6, veri, 18));
-                        // 16 byte'lik buffer 2 byte stack over-read'e (UB) yol
-                        // aciyordu. Gercek payload struct'lari 16B oldugundan
-                        // payload_uzunluk siniri 16'da kaliyor, fazladan 2 byte
-                        // zaten-sifirlanmis dolgu.
-                        uint8_t veri[18] = {0};
-                        uint8_t payload_uzunluk = (uint8_t)min((int)cerceve_payload_uzunluk, 16);
-                        memcpy(veri, cerceve_payload, payload_uzunluk);
+        uint8_t tip_byte, id_byte_unused;
+        const uint8_t* cerceve_payload;
+        uint16_t cerceve_payload_uzunluk;
+        if (!uart_frame_parser_push(&pi_parser, b, &tip_byte, &id_byte_unused,
+                                    &cerceve_payload, &cerceve_payload_uzunluk))
+            continue;
 
-                        // FIX: eskiden bilinmeyen HER tip (orn. TIP_ORIGIN, TIP_GOREV)
-                        // sessizce TIP_KOMUT'a donusturulup joystick sanilarak
-                        // gonderiliyordu -> alici tarafta yanlis struct olarak
-                        // yorumlanirdi. TX DRONE'daki acik whitelist+reddet
-                        // yaklasimiyla tutarli hale getirildi: TIP_KOMUT kendi
-                        // (daha siki) joystick hiz sinirini korur, bilinen diger
-                        // tipler ait olduklari tiple gonderilir, taninmayan tip
-                        // artik BASKA BIR TIPE DONUSTURULMEDEN atilir.
-                        if (tip_byte == TIP_KOMUT) {
-                            if (simdi - son_joystick_ms >= JOYSTICK_MIN_ARALIK_MS) {
-                                son_joystick_ms = simdi;
-                                if (simdi - son_mesh_gonderim_ms >= MESH_GONDERIM_MIN_MS) {
-                                    son_mesh_gonderim_ms = simdi;
-                                    mesh_gonder(veri, TIP_KOMUT);
-                                }
-                            }
-                        } else if (tip_byte == TIP_RENK  || tip_byte == TIP_DURUM ||
-                                   tip_byte == TIP_SWARM_STATE || tip_byte == TIP_QR_DATA ||
-                                   tip_byte == TIP_ORIGIN || tip_byte == TIP_GOREV) {
-                            if (simdi - son_mesh_gonderim_ms >= MESH_GONDERIM_MIN_MS) {
-                                son_mesh_gonderim_ms = simdi;
-                                mesh_gonder(veri, tip_byte);
-                            }
-                        }
-                        // else: taninmayan tip - sessizce atilir (TIP_KOMUT'a
-                        // donusturulmez). TIP_LEADER_HB/TIP_ELECTION bilerek
-                        // buraya dahil edilmedi: BASE, drone consensus'una
-                        // taraf degil, kendi lider iddiasi uretmemeli.
+        uint32_t simdi = millis();
+        // ORTA-2 FIX: mesh_gonder() her zaman 18 byte okur (memcpy(tam_veri+6,
+        // veri, 18)); 16 byte'lik buffer 2 byte stack over-read'e (UB) yol
+        // aciyordu. Gercek payload struct'lari 16B oldugundan payload_uzunluk
+        // siniri 16'da kaliyor, fazladan 2 byte zaten-sifirlanmis dolgu.
+        uint8_t veri[18] = {0};
+        uint8_t payload_uzunluk = (uint8_t)min((int)cerceve_payload_uzunluk, 16);
+        memcpy(veri, cerceve_payload, payload_uzunluk);
+
+        // FIX: eskiden bilinmeyen HER tip (orn. TIP_ORIGIN, TIP_GOREV)
+        // sessizce TIP_KOMUT'a donusturulup joystick sanilarak gonderiliyordu.
+        // TX DRONE'daki acik whitelist+reddet yaklasimiyla tutarli: TIP_KOMUT
+        // kendi (daha siki) joystick hiz sinirini korur, bilinen diger tipler
+        // ait olduklari tiple gonderilir, taninmayan tip atilir.
+        if (tip_byte == TIP_KOMUT) {
+            if (simdi - son_joystick_ms >= JOYSTICK_MIN_ARALIK_MS) {
+                son_joystick_ms = simdi;
+                if (simdi - son_mesh_gonderim_ms >= MESH_GONDERIM_MIN_MS) {
+                    son_mesh_gonderim_ms = simdi;
+                    mesh_gonder(veri, TIP_KOMUT);
                 }
             }
-            rx_idx = 0;
-        } else {
-            if (rx_idx < sizeof(rx_buf))
-                rx_buf[rx_idx++] = b;
+        } else if (tip_byte == TIP_RENK  || tip_byte == TIP_DURUM ||
+                   tip_byte == TIP_SWARM_STATE || tip_byte == TIP_QR_DATA ||
+                   tip_byte == TIP_ORIGIN || tip_byte == TIP_GOREV) {
+            if (simdi - son_mesh_gonderim_ms >= MESH_GONDERIM_MIN_MS) {
+                son_mesh_gonderim_ms = simdi;
+                mesh_gonder(veri, tip_byte);
+            }
         }
+        // else: taninmayan tip - sessizce atilir. TIP_LEADER_HB/TIP_ELECTION
+        // bilerek dahil edilmedi: BASE, drone consensus'una taraf degil.
     }
 
     static uint32_t son_durum = 0;

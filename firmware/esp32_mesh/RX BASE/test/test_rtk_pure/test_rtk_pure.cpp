@@ -11,6 +11,7 @@
 #include <vector>
 #include "rtk_pure.h"
 #include "uart_cobs.h"
+#include "uart_frame_parser.h"   // desync regresyon testleri
 
 // ===== CRC16 TEST VEKTORU (spec 2.1) =====
 void test_crc16_test_vektoru(void) {
@@ -144,6 +145,165 @@ void test_cobs_decode_gurultu_coklu_boyut_tamponu_asmaz(void) {
         uint16_t dec_len = cobs_decode(giris.data(), uzunluk, cikis.data());
         TEST_ASSERT_TRUE(dec_len < uzunluk);
     }
+}
+
+// ===== UART ÇERÇEVE AYRIŞTIRICI — DESYNC REGRESYONU (satır satır inceleme) =====
+// Gerçek bug: TX DRONE main.cpp'de whitelist-dışı bir tip gelince "break" tüm
+// okuma döngüsünü kırıp idx=0'ı atlıyordu; reddedilen çerçeve bir sonrakini
+// index kaydırarak bozuyordu. Framing artık uart_frame_parser.h'de saf/testli
+// ve "break"siz — bu testler o garantiyi doğrular.
+
+// Bir çerçeveyi (COBS + 0x00 terminatörü dahil) bayt bayt besler; tamamlanan
+// SON çerçeveyi çıkışlara yazar, kaç çerçeve tamamlandığını döner.
+static int _besle(uart_frame_parser_t* st, const uint8_t* cerceve, uint16_t n,
+                  uint8_t* tip_out, uint8_t* id_out,
+                  uint8_t* payload_kopya, uint16_t* plen_out) {
+    int tamamlanan = 0;
+    for (uint16_t i = 0; i < n; i++) {
+        uint8_t tip, id; const uint8_t* p; uint16_t plen;
+        if (uart_frame_parser_push(st, cerceve[i], &tip, &id, &p, &plen)) {
+            tamamlanan++;
+            if (tip_out) *tip_out = tip;
+            if (id_out)  *id_out  = id;
+            if (plen_out) *plen_out = plen;
+            if (payload_kopya && plen) memcpy(payload_kopya, p, plen);
+        }
+    }
+    return tamamlanan;
+}
+
+// Bir çerçeve inşa et: COBS(tip+id+payload+crc16_be) + 0x00. cobs_len çıkışı
+// terminatör DAHİL toplam uzunluk.
+static void _cerceve_yap(uint8_t tip, uint8_t id, const uint8_t* payload,
+                         uint16_t plen, uint8_t* cikis, uint16_t* cikis_len) {
+    uint8_t ham[64], cobs[80];
+    uint16_t clen = cobs_cerceve_olustur(tip, id, payload, plen, ham, cobs);
+    memcpy(cikis, cobs, clen);
+    *cikis_len = clen;   // cobs_cerceve_olustur zaten 0x00 terminatörünü ekliyor
+}
+
+void test_frame_parser_tek_cerceve_roundtrip(void) {
+    uart_frame_parser_t st; uart_frame_parser_sifirla(&st);
+    uint8_t payload[16]; for (int i = 0; i < 16; i++) payload[i] = (uint8_t)(i + 1);
+    uint8_t cerceve[80]; uint16_t clen;
+    _cerceve_yap(0x02 /*TIP_KOMUT*/, 7, payload, 16, cerceve, &clen);
+
+    uint8_t tip, id, pk[32]; uint16_t plen;
+    int n = _besle(&st, cerceve, clen, &tip, &id, pk, &plen);
+    TEST_ASSERT_EQUAL_INT(1, n);
+    TEST_ASSERT_EQUAL_UINT8(0x02, tip);
+    TEST_ASSERT_EQUAL_UINT8(7, id);
+    TEST_ASSERT_EQUAL_UINT16(16, plen);
+    TEST_ASSERT_EQUAL_UINT8_ARRAY(payload, pk, 16);
+}
+
+void test_frame_parser_arka_arkaya_iki_cerceve(void) {
+    uart_frame_parser_t st; uart_frame_parser_sifirla(&st);
+    uint8_t pa[4] = {1,2,3,4}, pb[4] = {9,8,7,6};
+    uint8_t ca[80], cb[80]; uint16_t la, lb;
+    _cerceve_yap(0x02, 1, pa, 4, ca, &la);
+    _cerceve_yap(0x05, 2, pb, 4, cb, &lb);
+
+    uint8_t tip, id, pk[32]; uint16_t plen;
+    TEST_ASSERT_EQUAL_INT(1, _besle(&st, ca, la, &tip, &id, pk, &plen));
+    TEST_ASSERT_EQUAL_UINT8(0x02, tip);
+    TEST_ASSERT_EQUAL_INT(1, _besle(&st, cb, lb, &tip, &id, pk, &plen));
+    TEST_ASSERT_EQUAL_UINT8(0x05, tip);
+    TEST_ASSERT_EQUAL_UINT8(2, id);
+    TEST_ASSERT_EQUAL_UINT8_ARRAY(pb, pk, 4);
+}
+
+// DESYNC REGRESYONU #1: bozuk-CRC bir çerçeve reddedilir, ARDINDAN gelen
+// geçerli çerçeve doğru parse edilmeli (idx doğru sıfırlandı).
+void test_frame_parser_bozuk_cerceve_sonrasi_gecerli_parse_edilir(void) {
+    uart_frame_parser_t st; uart_frame_parser_sifirla(&st);
+    uint8_t pg[4] = {1,2,3,4};
+    uint8_t cg[80]; uint16_t lg;
+    _cerceve_yap(0x02, 1, pg, 4, cg, &lg);
+
+    // Bozuk çerçeve: geçerliyi al, CRC'yi boz (COBS içinde bir baytı değiştir),
+    // yine 0x00 ile bitir.
+    uint8_t bozuk[80]; uint16_t lb;
+    _cerceve_yap(0x02, 1, pg, 4, bozuk, &lb);
+    bozuk[1] ^= 0xFF;   // ilk veri baytını boz -> CRC tutmaz
+
+    uint8_t tip, id, pk[32]; uint16_t plen;
+    // Bozuk çerçeve: 0 tamamlanmış çerçeve (CRC reddi)
+    TEST_ASSERT_EQUAL_INT(0, _besle(&st, bozuk, lb, &tip, &id, pk, &plen));
+    // Ardından geçerli çerçeve: idx sıfırlandığı için doğru parse edilmeli
+    TEST_ASSERT_EQUAL_INT(1, _besle(&st, cg, lg, &tip, &id, pk, &plen));
+    TEST_ASSERT_EQUAL_UINT8(0x02, tip);
+    TEST_ASSERT_EQUAL_UINT8_ARRAY(pg, pk, 4);
+}
+
+// DESYNC REGRESYONU #2: gerçek bug senaryosunun birebir modeli. Consumer
+// (whitelist) bir çerçeveyi "istenmeyen tip" diye reddedip HİÇBİR ŞEY yapmasa
+// bile, bir sonraki geçerli çerçeve etkilenmemeli. Framing whitelist'ten
+// bağımsız olduğu için bu yapısal olarak garanti — test bunu belgeler.
+void test_frame_parser_istenmeyen_tip_sonraki_komutu_bozmaz(void) {
+    uart_frame_parser_t st; uart_frame_parser_sifirla(&st);
+    // Whitelist-dışı bir tip taşıyan GEÇERLİ çerçeve (ör. TIP_VERSION=0x0B)
+    uint8_t pv[4] = {0xAA,0xBB,0xCC,0xDD};
+    uint8_t cv[80]; uint16_t lv;
+    _cerceve_yap(0x0B /*TIP_VERSION*/, 1, pv, 4, cv, &lv);
+    // Ardından gerçek joystick komutu (TIP_KOMUT)
+    uint8_t pk_in[16]; for (int i = 0; i < 16; i++) pk_in[i] = (uint8_t)(0x10 + i);
+    uint8_t ck[80]; uint16_t lk;
+    _cerceve_yap(0x02 /*TIP_KOMUT*/, 1, pk_in, 16, ck, &lk);
+
+    uint8_t tip, id, pk[32]; uint16_t plen;
+    // İstenmeyen tip: parser AÇISINDAN geçerli çerçeve (1 tamamlanır); consumer
+    // whitelist'te reddederdi ama bu parser durumunu etkilemez.
+    TEST_ASSERT_EQUAL_INT(1, _besle(&st, cv, lv, &tip, &id, pk, &plen));
+    TEST_ASSERT_EQUAL_UINT8(0x0B, tip);
+    // Sonraki KOMUT bozulmadan gelmeli
+    TEST_ASSERT_EQUAL_INT(1, _besle(&st, ck, lk, &tip, &id, pk, &plen));
+    TEST_ASSERT_EQUAL_UINT8(0x02, tip);
+    TEST_ASSERT_EQUAL_UINT16(16, plen);
+    TEST_ASSERT_EQUAL_UINT8_ARRAY(pk_in, pk, 16);
+}
+
+// DESYNC REGRESYONU #3: 0x00 içermeyen taşma-boyu gürültü + terminatör,
+// ardından geçerli çerçeve resync olmalı.
+void test_frame_parser_tasma_gurultu_sonrasi_resync(void) {
+    uart_frame_parser_t st; uart_frame_parser_sifirla(&st);
+    // UART_FRAME_BUF_SIZE'dan fazla, 0x00 içermeyen gürültü
+    uint8_t gurultu[UART_FRAME_BUF_SIZE * 2];
+    srand(31337);
+    for (uint16_t i = 0; i < sizeof(gurultu); i++) {
+        uint8_t b; do { b = (uint8_t)(rand() % 256); } while (b == 0x00);
+        gurultu[i] = b;
+    }
+    uint8_t tip, id, pk[32]; uint16_t plen;
+    _besle(&st, gurultu, sizeof(gurultu), &tip, &id, pk, &plen);  // çökmemeli
+    uint8_t term = 0x00;
+    _besle(&st, &term, 1, &tip, &id, pk, &plen);  // gürültü çerçevesini kapat/at
+
+    uint8_t pg[4] = {5,6,7,8};
+    uint8_t cg[80]; uint16_t lg;
+    _cerceve_yap(0x05, 3, pg, 4, cg, &lg);
+    TEST_ASSERT_EQUAL_INT(1, _besle(&st, cg, lg, &tip, &id, pk, &plen));
+    TEST_ASSERT_EQUAL_UINT8(0x05, tip);
+    TEST_ASSERT_EQUAL_UINT8_ARRAY(pg, pk, 4);
+}
+
+// Kısmi çerçeve loop()/paket sınırını geçebilmeli: aynı çerçeve iki ayrı
+// besleme çağrısına bölünse de doğru birleşmeli (static durum korunur).
+void test_frame_parser_bolunmus_cerceve_birlesir(void) {
+    uart_frame_parser_t st; uart_frame_parser_sifirla(&st);
+    uint8_t pg[16]; for (int i = 0; i < 16; i++) pg[i] = (uint8_t)(i * 3 + 1);
+    uint8_t cg[80]; uint16_t lg;
+    _cerceve_yap(0x02, 9, pg, 16, cg, &lg);
+
+    uint8_t tip, id, pk[32]; uint16_t plen;
+    uint16_t yari = lg / 2;
+    // İlk yarı: henüz çerçeve tamamlanmamalı
+    TEST_ASSERT_EQUAL_INT(0, _besle(&st, cg, yari, &tip, &id, pk, &plen));
+    // İkinci yarı (terminatör dahil): şimdi tamamlanmalı
+    TEST_ASSERT_EQUAL_INT(1, _besle(&st, cg + yari, lg - yari, &tip, &id, pk, &plen));
+    TEST_ASSERT_EQUAL_UINT8(0x02, tip);
+    TEST_ASSERT_EQUAL_UINT8(9, id);
+    TEST_ASSERT_EQUAL_UINT8_ARRAY(pg, pk, 16);
 }
 
 // ===== FRAGMANTASYON =====
@@ -283,6 +443,12 @@ int main(int argc, char** argv) {
     RUN_TEST(test_cerceve_coz_bozuk_crc_reddedilir);
     RUN_TEST(test_cobs_decode_gurultu_cikis_tamponunu_asmaz);
     RUN_TEST(test_cobs_decode_gurultu_coklu_boyut_tamponu_asmaz);
+    RUN_TEST(test_frame_parser_tek_cerceve_roundtrip);
+    RUN_TEST(test_frame_parser_arka_arkaya_iki_cerceve);
+    RUN_TEST(test_frame_parser_bozuk_cerceve_sonrasi_gecerli_parse_edilir);
+    RUN_TEST(test_frame_parser_istenmeyen_tip_sonraki_komutu_bozmaz);
+    RUN_TEST(test_frame_parser_tasma_gurultu_sonrasi_resync);
+    RUN_TEST(test_frame_parser_bolunmus_cerceve_birlesir);
     RUN_TEST(test_fragmantasyon_25B);
     RUN_TEST(test_fragmantasyon_180B);
     RUN_TEST(test_fragmantasyon_200B);

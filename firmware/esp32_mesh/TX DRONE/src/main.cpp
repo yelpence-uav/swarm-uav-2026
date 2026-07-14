@@ -7,6 +7,7 @@
 #include "fail_safe.h"
 #include "rtk_handler.h"
 #include "uart_cobs.h"   // REV B: ortak CRC16/COBS/cerceve kur-coz (RX BASE + TX DRONE)
+#include "uart_frame_parser.h"  // desync-güvenli ortak COBS çerçeve ayrıştırıcı (native testli)
 
 #define RPI_RX_PIN 18
 #define RPI_TX_PIN 19
@@ -212,8 +213,15 @@ void loop() {
 #endif
 
     {
-        static uint8_t  rpi_rx_buf[32];
-        static uint8_t  rpi_rx_idx      = 0;
+        // Ortak, desync-güvenli COBS çerçeve ayrıştırıcı (bkz uart_frame_parser.h).
+        // BUG FIX (satır satır inceleme) TASARIMLA KALICI: eski kodda whitelist
+        // dışı tip gelince "break" tüm okuma döngüsünü kırıp rpi_rx_idx=0'ı
+        // atlıyordu -> bir sonraki loop()'ta yeni baytlar reddedilmiş çerçevenin
+        // ortasından devam eden index'e yazılıyor, komut hattı bozuluyordu.
+        // Ayrıştırıcı artık çerçeve durumunu whitelist'ten tamamen ayırıyor:
+        // idx her 0x00'da koşulsuz sıfırlanır (uart_frame_parser_push), whitelist
+        // sadece DÖNEN çerçeveye uygulanır ve durumu etkileyemez.
+        static uart_frame_parser_t pi_parser;
         static uint32_t son_rpi_mesh_ms = 0;
         uint8_t okunan = 0;
 
@@ -221,68 +229,38 @@ void loop() {
             uint8_t b = (uint8_t)Serial1.read();
             okunan++;
 
-            if (b == 0x00) {
-                if (rpi_rx_idx >= 4) {
-                    uint8_t decoded[32] = {0};
-                    uint16_t dec_len = cobs_decode(rpi_rx_buf, rpi_rx_idx, decoded);
-                    uint8_t tip_byte, id_byte_unused;
-                    const uint8_t* cerceve_payload;
-                    uint16_t cerceve_payload_uzunluk;
-                    if (cobs_cerceve_coz(decoded, dec_len, &tip_byte, &id_byte_unused,
-                                          &cerceve_payload, &cerceve_payload_uzunluk)) {
-                            // ORTA-2 FIX: 16 -> 18. mesh_gonder() her zaman 18 byte
-                            // okuyor (memcpy(tam_veri+6, veri, 18)); 16 byte'lik
-                            // buffer'dan okumak 2 byte stack over-read'e (UB) yol
-                            // aciyordu. Gercek payload struct'lari 16B oldugundan
-                            // payload_uzunluk siniri (asagida) 16'da kaliyor;
-                            // fazladan 2 byte sadece zaten-sifirlanmis dolgu.
-                            uint8_t payload[18]     = {0};
-                            uint8_t payload_uzunluk = (uint8_t)min((int)cerceve_payload_uzunluk, 16);
-                            memcpy(payload, cerceve_payload, payload_uzunluk);
-                            // Whitelist: sadece Pi'den gelmesi beklenen tipler
-                            // FIX: TIP_LEADER_HB ve TIP_ELECTION eksikti. Bu ikisi
-                            // mesh->RPi yonunde (yukarida satir 140-141) taniniyordu
-                            // ama RPi->mesh yonunde reddediliyordu; yani her drone
-                            // KENDI leader-heartbeat/election mesajini hic gonderemiyor,
-                            // sadece BASKALARININKINI alabiliyordu. Sonuc: gercek
-                            // donanimda (ESP-NOW uzerinden) consensus hic yayilamiyor,
-                            // her ajan kendini yalniz saniyor -> split-brain. Sim'de
-                            // muhtemelen ROS2/DDS uzerinden dogrudan gorusuldugu icin
-                            // bu whitelist hic devreye girmiyor, bu yuzden fark edilmedi.
-                            const bool izinli = (tip_byte == TIP_KOMUT  ||
-                                                  tip_byte == TIP_GOREV  ||
-                                                  tip_byte == TIP_RENK   ||
-                                                  tip_byte == TIP_ORIGIN ||
-                                                  tip_byte == TIP_DURUM  ||
-                                                  tip_byte == TIP_SWARM_STATE ||
-                                                  tip_byte == TIP_QR_DATA ||
-                                                  tip_byte == TIP_LEADER_HB ||
-                                                  tip_byte == TIP_ELECTION);
-                            // BUG FIX (satır satır inceleme): burada "break" tüm
-                            // dış while(Serial1.available()) okuma döngüsünü
-                            // kırıyordu, bu yüzden aşağıdaki rpi_rx_idx=0 hiç
-                            // çalışmıyordu — bir sonraki loop() çağrısında yeni
-                            // baytlar STALE (eski, reddedilmiş çerçeveden kalma)
-                            // rpi_rx_idx'ten itibaren yazılıyor, joystick/pose
-                            // komut hattını bozuyordu. Whitelist dışı TEK bir
-                            // tip byte'ı (TIP_VERSION/TIP_HEARTBEAT gibi geçerli
-                            // ama Pi->mesh yönünde beklenmeyen) sonraki tüm
-                            // komutları etkileyebiliyordu.
-                            if (izinli) {
-                                uint32_t simdi = millis();
-                                if (simdi - son_rpi_mesh_ms >= MESH_GONDERIM_MIN_MS) {
-                                    son_rpi_mesh_ms = simdi;
-                                    mesh_gonder(payload, tip_byte);
-                                }
-                            }
-                    }
-                }
-                rpi_rx_idx = 0;
-            } else {
-                if (rpi_rx_idx < sizeof(rpi_rx_buf)) {
-                    rpi_rx_buf[rpi_rx_idx++] = b;
-                } else {
-                    rpi_rx_idx = 0;
+            uint8_t tip_byte, id_byte_unused;
+            const uint8_t* cerceve_payload;
+            uint16_t cerceve_payload_uzunluk;
+            if (!uart_frame_parser_push(&pi_parser, b, &tip_byte, &id_byte_unused,
+                                        &cerceve_payload, &cerceve_payload_uzunluk))
+                continue;
+
+            // ORTA-2 FIX: mesh_gonder() her zaman 18 byte okuyor (memcpy(
+            // tam_veri+6, veri, 18)); 16 byte'lik buffer'dan okumak 2 byte
+            // stack over-read'e (UB) yol aciyordu. payload_uzunluk siniri 16'da
+            // kaliyor; fazladan 2 byte sadece zaten-sifirlanmis dolgu.
+            uint8_t payload[18]     = {0};
+            uint8_t payload_uzunluk = (uint8_t)min((int)cerceve_payload_uzunluk, 16);
+            memcpy(payload, cerceve_payload, payload_uzunluk);
+
+            // Whitelist: sadece Pi'den gelmesi beklenen tipler. TIP_LEADER_HB
+            // ve TIP_ELECTION dahil (aksi halde her drone kendi consensus
+            // mesajini gonderemez -> split-brain).
+            const bool izinli = (tip_byte == TIP_KOMUT  ||
+                                  tip_byte == TIP_GOREV  ||
+                                  tip_byte == TIP_RENK   ||
+                                  tip_byte == TIP_ORIGIN ||
+                                  tip_byte == TIP_DURUM  ||
+                                  tip_byte == TIP_SWARM_STATE ||
+                                  tip_byte == TIP_QR_DATA ||
+                                  tip_byte == TIP_LEADER_HB ||
+                                  tip_byte == TIP_ELECTION);
+            if (izinli) {
+                uint32_t simdi = millis();
+                if (simdi - son_rpi_mesh_ms >= MESH_GONDERIM_MIN_MS) {
+                    son_rpi_mesh_ms = simdi;
+                    mesh_gonder(payload, tip_byte);
                 }
             }
         }
