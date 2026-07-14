@@ -8,6 +8,7 @@
 #include <unity.h>
 #include <cstdlib>
 #include <cstring>
+#include <vector>
 #include "rtk_pure.h"
 #include "uart_cobs.h"
 
@@ -85,6 +86,64 @@ void test_cerceve_coz_bozuk_crc_reddedilir(void) {
     uint8_t tip, id;
     const uint8_t* p; uint16_t plen;
     TEST_ASSERT_FALSE(cobs_cerceve_coz(decoded, dec_len, &tip, &id, &p, &plen));
+}
+
+// ===== COBS DECODE — TAMPON TASMASI REGRESYONU (REV B code review) =====
+// Gercek bug: rtk_sender.h::rtk_serial_isle() 0x00'a rastlamayan gurultu/
+// yanlis-baud girdisini tampon KAPASITESINE kadar biriktiriyor, cobs_decode
+// da bu durumda ciktiyi girdi-1'e kadar uretebiliyordu — cikis tamponu
+// girdiden kucuk secilmisti, ~3B static overflow olustu (bkz uart_cobs.h
+// basindaki KURAL yorumu, rtk_sender.h duzeltmesi).
+//
+// RTK_COBS_BUF_SIZE Arduino.h'ye bagli rtk_handler.h'de tanimli (native'de
+// derlenemez) — ayni formul burada mirrorlanir, gercek uretim tamponuyla
+// (_yki_rx_buf) boyutça eslesir.
+#define TEST_RTK_HAM_BUF_SIZE   (1 + 1 + RTK_REASSEMBLY_BUF_SIZE + 2)
+#define TEST_RTK_COBS_BUF_SIZE  (TEST_RTK_HAM_BUF_SIZE + (TEST_RTK_HAM_BUF_SIZE / 254) + 2)
+
+void test_cobs_decode_gurultu_cikis_tamponunu_asmaz(void) {
+    // 0x00 icermeyen, tampon KAPASITESI kadar (production'daki en kotu durum)
+    // rastgele "gurultu" girdisi — cokmemeli, ve cikis KURAL geregi (uart_cobs.h)
+    // girdiden kisa olmali, boylece cikis>=girdi boyutlu bir tampon guvenli olur.
+    srand(4242);
+    uint8_t giris[TEST_RTK_COBS_BUF_SIZE];
+    for (uint16_t i = 0; i < TEST_RTK_COBS_BUF_SIZE; i++) {
+        uint8_t b;
+        do { b = (uint8_t)(rand() % 256); } while (b == 0x00);
+        giris[i] = b;
+    }
+    // Kural geregi cikis tamponu >= girdi tamponu — sinirda test (ASan bu
+    // sinirin gercekten tutuldugunu dogrular, bkz platformio.ini native env).
+    uint8_t cikis[TEST_RTK_COBS_BUF_SIZE];
+    uint16_t dec_len = cobs_decode(giris, TEST_RTK_COBS_BUF_SIZE, cikis);
+    // NOT: gurultu icin cobs_decode 0 donebilir (grup sinirlari L'e tam
+    // oturmuyorsa "bozuk cerceve" olarak reddedilir) — bu GECERLI ve GUVENLI
+    // bir sonuctur. Asil kural: cikis HICBIR ZAMAN girdiyi asmaz.
+    TEST_ASSERT_TRUE(dec_len < TEST_RTK_COBS_BUF_SIZE);
+}
+
+// Ikinci savunma testi: tek bir maksimum boyutta degil, 0xFF kod-grubu
+// sinirlarini (254/255/508/509) da kapsayan COK sayida farkli uzunlukta
+// gurultu girdisiyle ayni kurali dogrular. std::vector KASITLI: heap
+// tamponu tam girdi boyutunda ayrilir, boylece ASan'in heap-redzone'u
+// TEK BYTE'lik bir tasmayi bile yakalar (bkz platformio.ini native env
+// -fsanitize=address,undefined).
+void test_cobs_decode_gurultu_coklu_boyut_tamponu_asmaz(void) {
+    srand(777);
+    const uint16_t boyutlar[] = {1, 2, 10, 63, 253, 254, 255, 256, 507, 508,
+                                  509, 510, 1000, 1527, 1528,
+                                  (uint16_t)TEST_RTK_COBS_BUF_SIZE};
+    for (uint16_t uzunluk : boyutlar) {
+        std::vector<uint8_t> giris(uzunluk);
+        for (uint16_t i = 0; i < uzunluk; i++) {
+            uint8_t b;
+            do { b = (uint8_t)(rand() % 256); } while (b == 0x00);
+            giris[i] = b;
+        }
+        std::vector<uint8_t> cikis(uzunluk);  // tam sinirda — kural: cikis>=girdi
+        uint16_t dec_len = cobs_decode(giris.data(), uzunluk, cikis.data());
+        TEST_ASSERT_TRUE(dec_len < uzunluk);
+    }
 }
 
 // ===== FRAGMANTASYON =====
@@ -222,6 +281,8 @@ int main(int argc, char** argv) {
     RUN_TEST(test_cobs_roundtrip_sifir_iceren);
     RUN_TEST(test_cerceve_kur_coz_roundtrip);
     RUN_TEST(test_cerceve_coz_bozuk_crc_reddedilir);
+    RUN_TEST(test_cobs_decode_gurultu_cikis_tamponunu_asmaz);
+    RUN_TEST(test_cobs_decode_gurultu_coklu_boyut_tamponu_asmaz);
     RUN_TEST(test_fragmantasyon_25B);
     RUN_TEST(test_fragmantasyon_180B);
     RUN_TEST(test_fragmantasyon_200B);

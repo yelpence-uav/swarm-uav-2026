@@ -51,6 +51,15 @@ static inline uint16_t cobs_encode(const uint8_t* giris, uint16_t uzunluk, uint8
     return yaz_idx;
 }
 
+// KURAL: cikis tamponu >= girdi tamponu boyutunda olmalı. cobs_decode'un
+// ciktisi matematiksel olarak girdiden en az 1 byte kisadir (her cagrida en
+// azindan son grup icin 0x00 dolgusu eklenmez) — AMA bu sadece "girdi==gercek
+// veri uzunlugu" ise gecerlidir. Cagiran taraf girdiyi kapasiteye kadar
+// (0x00 gorene kadar) biriktiriyorsa (bkz rtk_sender.h::rtk_serial_isle),
+// gurultu/yanlis-baud durumunda girdi UZUNLUGU tampon KAPASITESINE ulasabilir
+// ve cikis da o kapasiteye yakin (kapasite-1) olabilir. Cikis tamponu
+// girdi tamponundan KUCUK secilirse bu durumda tampon tasar (REV B code
+// review'da bulunan gercek bug, bkz rtk_sender.h duzeltmesi).
 static inline uint16_t cobs_decode(const uint8_t* giris, uint16_t uzunluk, uint8_t* cikis) {
     if (uzunluk == 0) return 0;
     uint16_t oku_idx = 0, yaz_idx = 0;

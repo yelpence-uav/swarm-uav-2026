@@ -144,7 +144,13 @@ static inline void rtk_serial_isle(HardwareSerial& seri) {
 
         if (_yki_rx_idx < 4) { _yki_rx_idx = 0; continue; }  // en az tip+id+crc16
 
-        static uint8_t decoded[RTCM_MAX_MSG_SIZE + 8];
+        // BUG FIX (REV B code review): decoded[] eskiden RTCM_MAX_MSG_SIZE+8
+        // (1608B) idi, ama _yki_rx_buf RTK_COBS_BUF_SIZE'a (1612B) kadar
+        // dolabiliyor ve cobs_decode cikisi girdi-1'e kadar (1611B) cikabilir
+        // — 0x00'a hic denk gelmeyen gurultu/yanlis-baud senaryosunda ~3B
+        // static buffer overflow olusuyordu. Kural (bkz uart_cobs.h):
+        // cikis tamponu >= girdi tamponu olmali.
+        static uint8_t decoded[RTK_COBS_BUF_SIZE];
         uint16_t decoded_uzunluk = cobs_decode(_yki_rx_buf, _yki_rx_idx, decoded);
         _yki_rx_idx = 0;
 

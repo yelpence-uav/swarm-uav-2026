@@ -10,20 +10,8 @@
 // RTK_FRAG_TIMEOUT_MS, rtk_mesh_frag_t — hepsi artik rtk_pure.h'de (ADIM 6,
 // tek kaynak, Arduino'dan bagimsiz, native testlerle dogrulanir). Byte
 // butcesi hesabinin tam dokumu rtk_pure.h basinda.
-#define RTK_MAX_PAYLOAD          220    // TX DRONE alim tarafı (eski ESP-NOW fragment boyutu, geriye uyumluluk)
-
 #define RTK_HAM_BUF_SIZE   (1 + 1 + RTK_REASSEMBLY_BUF_SIZE + 2)
 #define RTK_COBS_BUF_SIZE  (RTK_HAM_BUF_SIZE + (RTK_HAM_BUF_SIZE / 254) + 2)
-
-// ===== PAKET YAPISI (eski ESP-NOW tabanlı, geriye uyumluluk — DOKUNULMADI) =====
-typedef struct __attribute__((packed)) {
-    uint32_t paket_id;
-    uint8_t  frag_index;
-    uint8_t  frag_total;
-    uint8_t  payload[RTK_MAX_PAYLOAD];
-    uint16_t payload_uzunluk;
-    uint16_t crc;
-} rtk_paket_t;
 
 // ===== DURUM SAYAÇLARI =====
 static uint32_t rtk_alinan          = 0;
@@ -32,10 +20,6 @@ static uint32_t rtk_uart_gonderilen = 0;
 
 // ===== REASSEMBLY DURUMU — artik rtk_pure.h'deki saf tipte =====
 static rtk_asm_durum_t _rtk_asm = {};
-
-static uint16_t _rtk_crc16(const uint8_t* veri, uint16_t uzunluk) {
-    return cobs_crc16(veri, uzunluk);
-}
 
 // Ileri bildirim: rtk_loop() dosyanin sonunda tanimli, rtk_mesh_loop() ondan
 // once cagiriyor.
@@ -243,83 +227,6 @@ static inline void rtk_mesh_loop(void) {
         }
     }
     rtk_loop();
-}
-
-// ===== ESKİ ESP-NOW BAZLI PAKET İŞLEME (geriye uyumluluk, DOKUNULMADI) =====
-static inline void rtk_paket_isle(const uint8_t* ham_veri, uint16_t uzunluk) {
-    if (uzunluk < sizeof(rtk_paket_t)) {
-        Serial.printf("[RTK] HATA: kisa paket (%u byte)\n", uzunluk);
-        rtk_kayip++;
-        return;
-    }
-
-    const rtk_paket_t* p = (const rtk_paket_t*)ham_veri;
-
-    uint16_t hesap_crc = _rtk_crc16(ham_veri, uzunluk - sizeof(uint16_t));
-    if (hesap_crc != p->crc) {
-        Serial.printf("[RTK] CRC HATASI paket_id=%lu beklenen=%04X gelen=%04X\n",
-                      (unsigned long)p->paket_id, hesap_crc, p->crc);
-        rtk_kayip++;
-        return;
-    }
-
-    rtk_alinan++;
-
-    uint32_t simdi = millis();
-    if (_rtk_asm.toplam > 0 &&
-        (p->paket_id != _rtk_asm.paket_id ||
-         (simdi - _rtk_asm.son_parca_ms) > RTK_FRAG_TIMEOUT_MS)) {
-        Serial.printf("[RTK] TIMEOUT/ID DEGISIM — yeniden baslaniyor\n");
-        rtk_kayip++;
-        rtk_asm_sifirla(&_rtk_asm);
-    }
-
-    if (p->frag_total == 0 || p->frag_total > RTK_MAX_FRAGS ||
-        p->frag_index >= p->frag_total) {
-        Serial.printf("[RTK] HATA: gecersiz frag index=%u total=%u\n",
-                      p->frag_index, p->frag_total);
-        rtk_kayip++;
-        return;
-    }
-
-    if (_rtk_asm.toplam == 0) {
-        _rtk_asm.paket_id = p->paket_id;
-        _rtk_asm.toplam   = p->frag_total;
-    }
-
-    uint8_t idx = p->frag_index;
-
-    if (_rtk_asm.alinan_maske & (1u << idx)) {
-        Serial.printf("[RTK] Duplikat frag %u, atlaniyor\n", idx);
-        return;
-    }
-
-    uint16_t offset = (uint16_t)idx * RTK_MAX_PAYLOAD;
-    if (offset + RTK_MAX_PAYLOAD > RTK_REASSEMBLY_BUF_SIZE) {
-        Serial.printf("[RTK] HATA: buffer tasacak offset=%u\n", offset);
-        rtk_kayip++;
-        rtk_asm_sifirla(&_rtk_asm);
-        return;
-    }
-
-    uint16_t gercek_uzunluk = (p->payload_uzunluk > 0 && p->payload_uzunluk <= RTK_MAX_PAYLOAD)
-                             ? p->payload_uzunluk : RTK_MAX_PAYLOAD;
-    memcpy(_rtk_asm.buf + offset, p->payload, gercek_uzunluk);
-    _rtk_asm.parca_uzunluk[idx] = gercek_uzunluk;
-    _rtk_asm.alinan_maske |= (1u << idx);
-    _rtk_asm.son_parca_ms  = simdi;
-
-    Serial.printf("[RTK] Frag %u/%u alindi (paket_id=%lu)\n",
-                  idx + 1, _rtk_asm.toplam, (unsigned long)p->paket_id);
-
-    uint32_t tam_maske = (1u << _rtk_asm.toplam) - 1u;
-    if (_rtk_asm.alinan_maske == tam_maske) {
-        uint16_t toplam_uzunluk = 0;
-        for (uint8_t i = 0; i < _rtk_asm.toplam; i++) toplam_uzunluk += _rtk_asm.parca_uzunluk[i];
-        Serial.printf("[RTK] Birlestirildi: %u byte\n", toplam_uzunluk);
-        _rtk_uart_gonder(_rtk_asm.buf, toplam_uzunluk);
-        rtk_asm_sifirla(&_rtk_asm);
-    }
 }
 
 // ===== TIMEOUT KONTROL — rtk_mesh_loop()'tan çağrılır =====
