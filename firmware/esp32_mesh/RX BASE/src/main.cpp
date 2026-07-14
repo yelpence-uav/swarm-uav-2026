@@ -245,7 +245,12 @@ void loop() {
     // kalıcı ve sessizce doldurup tıkardı (hiç boşalmadığı için). rtk_mesh_loop()
     // zaten rtk_loop()'u kendi içinde çağırıyor, bu yüzden davranış üst
     // kümesi — güvenli.
-    rtk_mesh_loop();
+    //
+    // Serial2 AÇIKÇA verilir: RX BASE'te Serial1 YKİ/RTCM GİRİŞ hattıdır,
+    // Pi protokolü Serial2'de yürür. Varsayılan (Serial1) bırakılırsa
+    // reassemble edilen bir RTCM mesajı YKİ'nin yayın yaptığı hatta geri
+    // yazılırdı — failsafe_kontrol(Serial2) ile aynı gerekçe (bkz 50c84ef).
+    rtk_mesh_loop(Serial2);
     rtk_serial_isle(Serial1);
     esp_task_wdt_reset();
     mesh_loop();

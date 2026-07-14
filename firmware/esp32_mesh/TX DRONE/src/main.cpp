@@ -184,6 +184,8 @@ void setup() {
 void loop() {
     // REV B: rtk_loop() artik rtk_mesh_loop() icinden cagriliyor (RTK buyuk
     // zarfini _rtk_recv_buffer'dan bosaltip cozen fonksiyon).
+    // Port varsayilani (Serial1) burada DOGRU: TX DRONE'da Serial1 gercekten
+    // Pi hattidir. (RX BASE'te oyle degil, orada Serial2 acikca gecilir.)
     rtk_mesh_loop();
     esp_task_wdt_reset();
     mesh_loop();

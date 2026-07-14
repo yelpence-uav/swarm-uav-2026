@@ -25,6 +25,18 @@ static rtk_asm_durum_t _rtk_asm = {};
 // once cagiriyor.
 static inline void rtk_loop(void);
 
+// ===== HEDEF PI PORTU — CAGIRAN BELIRLER =====
+// fail_safe.h::failsafe_kontrol() ile AYNI desen: hedef port sabitlenmez,
+// varsayilan Serial1'dir ve Pi hatti baska bir portta olan firmware onu
+// acikca gecer. Gerekce: TX DRONE'da Serial1 gercekten Pi hattidir, ama
+// RX BASE'te Serial1 YKİ/RTCM GIRIS hattina ayrilmistir (Pi protokolu
+// Serial2'de yurur, bkz RX BASE main.cpp). Port burada hardcode edilirse
+// RX BASE reassemble ettigi bir RTCM mesajini YKİ'nin yayin yaptigi hatta
+// geri yazar. Tek-baz topolojisinde bu yol ulasilamaz (rtk_mesh_loop()
+// icindeki _benim_mac_mi() kendi yayinini eler), ama savunma topolojiye
+// emanet EDILMEZ: ikinci bir baz/test cihazi eklendigi gun latent bug
+// canlanirdi. Ayni sinif hata failsafe bildiriminde gerceklesmisti (50c84ef).
+
 // REV B ADIM 2: ortak cobs_cerceve_olustur() kullanir. DIKKAT (ADIM 2'de
 // istenen dogrulama): eski implementasyon CRC16'yi SADECE RTCM verisi
 // uzerinden hesapliyordu, TIP_RTK/BAZ_ID prefiksini CRC'ye KATMIYORDU —
@@ -32,11 +44,12 @@ static inline void rtk_loop(void);
 // UYUMSUZDU. Bu artik duzeltildi (cobs_cerceve_olustur genel uart_gonder()
 // ile ayni semayi kullaniyor). pi_bridge bunu bilmeli: RTK cercevesinin
 // CRC16'si de artik TIP(0x0C)+BAZ_ID(99) dahil hesaplaniyor.
-static inline void _rtk_uart_gonder(const uint8_t* veri, uint16_t uzunluk) {
+static inline void _rtk_uart_gonder(const uint8_t* veri, uint16_t uzunluk,
+                                     HardwareSerial& uart) {
     static uint8_t ham[RTK_HAM_BUF_SIZE];
     static uint8_t cobs_buf[RTK_COBS_BUF_SIZE];
     uint16_t cobs_len = cobs_cerceve_olustur(TIP_RTK, 99 /*BAZ_ID*/, veri, uzunluk, ham, cobs_buf);
-    Serial1.write(cobs_buf, cobs_len);
+    uart.write(cobs_buf, cobs_len);
     rtk_uart_gonderilen++;
     Serial.printf("[RTK] RPiye gonderildi: %u byte (toplam: %lu)\n",
                   uzunluk, rtk_uart_gonderilen);
@@ -51,7 +64,8 @@ static inline void _rtk_uart_gonder(const uint8_t* veri, uint16_t uzunluk) {
 // uzunluk SABIT DEGIL (eskiden hep sizeof(rtk_mesh_frag_t) -sabit 18B-
 // geliyordu, kucuk zarf dolgu ile sabit boyuttaydi). Simdi sadece gercekten
 // gonderilen kadar byte geliyor.
-static inline void rtk_mesh_frag_handle(const uint8_t* ham_veri, uint16_t uzunluk) {
+static inline void rtk_mesh_frag_handle(const uint8_t* ham_veri, uint16_t uzunluk,
+                                         HardwareSerial& uart) {
     if (uzunluk < RTK_FRAG_HEADER_BOYUTU) {
         Serial.printf("[RTK] HATA: fragment cok kisa (%u byte, beklenen en az %u)\n",
                       uzunluk, (unsigned)RTK_FRAG_HEADER_BOYUTU);
@@ -99,7 +113,7 @@ static inline void rtk_mesh_frag_handle(const uint8_t* ham_veri, uint16_t uzunlu
                           f->frag_index + 1, f->frag_total, (unsigned long)f->paket_id,
                           f->frag_uzunluk);
             Serial.printf("[RTK] Birlestirildi: %u byte\n", toplam_uzunluk);
-            _rtk_uart_gonder(_rtk_asm.buf, toplam_uzunluk);
+            _rtk_uart_gonder(_rtk_asm.buf, toplam_uzunluk, uart);
             rtk_asm_sifirla(&_rtk_asm);
             return;
     }
@@ -176,7 +190,11 @@ static inline void rtk_mesh_gonder(const rtk_mesh_frag_t* frag) {
 // bosaltir. mesh_loop()'tan BAGIMSIZ, ayri cagrilir (main.cpp'nin loop()'unda
 // mesh_loop() ile birlikte). Diger TIP'lerin _recv_isle() yolunu hic
 // etkilemez.
-static inline void rtk_mesh_loop(void) {
+//
+// uart: birlestirilen RTCM mesajinin yazilacagi Pi portu (bkz yukaridaki
+// "HEDEF PI PORTU" notu). Varsayilan Serial1 = TX DRONE'un Pi hatti;
+// RX BASE acikca Serial2 gecer.
+static inline void rtk_mesh_loop(HardwareSerial& uart = Serial1) {
     if (_rtk_recv_flag) {
         _rtk_recv_flag = false;
         while (_rtk_recv_oku != _rtk_recv_yaz) {
@@ -221,7 +239,8 @@ static inline void rtk_mesh_loop(void) {
             }
 
             rtk_mesh_frag_handle(acik + RTK_ANTI_REPLAY_BOYUTU,
-                                  (uint16_t)(sifreli_uzunluk - RTK_ANTI_REPLAY_BOYUTU));
+                                  (uint16_t)(sifreli_uzunluk - RTK_ANTI_REPLAY_BOYUTU),
+                                  uart);
 
             _rtk_recv_oku = (_rtk_recv_oku + 1) % RTK_RECV_BUFFER_SIZE;
         }
