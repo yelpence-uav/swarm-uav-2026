@@ -682,13 +682,45 @@ static inline void mesh_durum_yazdir() {
 }
 
 // ===== JOYSTICK KOMUT STRUCT (float32 encoding) =====
+// !!! BU STRUCT'IN LAYOUT'U pi_bridge ILE PAYLASILAN BIR SOZLESMEDIR.
+// Karsi taraf: feature/esp32-bridge, packet_parser.py::_KOMUT_FMT
+// '<BBhhhh6x' (alt_tip, flags, roll, pitch, yaw, throttle, 6 dolgu = 16B).
+// ESP payload'i OPAK tasir (yorumlamaz), ama alan sirasi/boyutu degisirse
+// bridge sessizce yanlis coz UNMAYA baslar — degistirmeden once iki tarafi
+// birlikte guncelleyin.
 struct __attribute__((packed)) komut_veri_t {
-    uint8_t  alt_tip;      // komut alt tipi
-    uint8_t  rezerv1;
+    uint8_t  alt_tip;      // KOMUT_MODE_SWARM_MOVEMENT=1 / KOMUT_MODE_MANEUVER=2
+    // #4 FIX: bu byte "rezerv1" degil — pi_bridge onu FLAGS olarak kullaniyor
+    // ve icinde GUVENLIK KRITIK deadman biti var (bkz KOMUT_FLAG_* asagida;
+    // packet_parser.py: "Bayrak biti olmadiginda her komut sessizce
+    // reddedilir"). "rezerv" adi birinin bu byte'i yeniden kullanmasina
+    // davetiyeydi; kurban deadman olurdu.
+    uint8_t  flags;        // KOMUT_FLAG_* bit alani
     int16_t  roll_x100;    // float * 100 → int16 (±327.67 derece/s)
     int16_t  pitch_x100;
     int16_t  yaw_x100;
     int16_t  throttle_x100;
     uint8_t  rezerv[6];    // toplam 16 byte
 };
-static_assert(sizeof(komut_veri_t) <= 16, "komut_veri_t 16 byte'i asiyor");
+
+// pi_bridge::packet_parser.py KOMUT_FLAG_* ile BIREBIR ayni degerler.
+#define KOMUT_FLAG_TAKEOFF           0x01
+#define KOMUT_FLAG_LAND              0x02
+#define KOMUT_FLAG_RTL               0x04
+#define KOMUT_FLAG_EMERGENCY         0x08
+#define KOMUT_FLAG_FORMATION_CHANGE  0x10
+#define KOMUT_FLAG_DEADMAN_PRESSED   0x20
+#define KOMUT_MODE_SWARM_MOVEMENT    1
+#define KOMUT_MODE_MANEUVER          2
+
+// Layout sozlesmesini derleme zamaninda kilitle: bridge cerceveden SABIT
+// 16 byte diliyor (packet_parser.py::cerceve_coz -> govde[2:18]), yani
+// boyut 16'dan sapamaz — kucukse bridge cop okur, buyukse sessizce kirpar.
+static_assert(sizeof(komut_veri_t) == 16,
+              "komut_veri_t 16 byte OLMALI — pi_bridge govde[2:18] ile sabit 16B diliyor");
+static_assert(offsetof(komut_veri_t, flags) == 1,
+              "flags offset 1 OLMALI — pi_bridge _KOMUT_FMT '<BBhhhh6x' bunu varsayiyor (deadman biti!)");
+static_assert(offsetof(komut_veri_t, roll_x100) == 2,
+              "roll_x100 offset 2 OLMALI — pi_bridge _KOMUT_FMT ile uyum");
+static_assert(offsetof(komut_veri_t, throttle_x100) == 8,
+              "throttle_x100 offset 8 OLMALI — pi_bridge _KOMUT_FMT ile uyum");
