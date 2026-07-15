@@ -565,6 +565,86 @@ Pi'ye ulaşan RTCM byte'ları YKİ'nin gönderdikleriyle birebir aynı.
 - ❌ Port yollarını hardcode etme (PC/Pi seri port yolları; ESP GPIO pinleri hariç).
 - ❌ Sadece test için var olan, üretimde çalışmayan kod yolları (bkz §4.5
   passthrough reddi).
+- ❌ **Node başına ayrı anahtar / anahtar değişimi (key exchange) / çalışma-zamanı
+  anahtar rotasyonu** eklemek. Tüm sürü (baz + her drone) **tek bir paylaşılan
+  AES-128-GCM anahtarını** kullanır: NVS `mesh_sec/aes_key`, KEY WRITER ile her
+  karta AYNI değer yazılır (§3.1, `encryption.h::aes_init()`).
+  - **⚠️ AÇIKÇA KABUL EDİLEN RİSK:** bir drone düşer ve ele geçirilirse, NVS'ten
+    çıkarılacak anahtar **tüm ağı** açar — hem trafiğin çözülmesi hem de geçerli
+    (GCM tag'i tutan) sahte paket üretilmesi mümkün hale gelir. Anti-replay bunu
+    **durdurmaz**: saldırgan meşru bir gönderici gibi yeni session/paket_id
+    üretebilir. Per-peer anahtar bu yarıçapı daraltırdı; bilinçli olarak alınmadı.
+  - **Gerekçe:** ESP-NOW'ın kendi peer şifrelemesi kullanılmadığı için
+    (`peer.encrypt=false`, app-layer GCM) peer-limiti argümanı geçersiz — ama
+    key exchange'in kendisi boot'a karmaşıklık, yeni fail-closed yolları ve yeni
+    bir saha prosedürü ekler. Aşağıdaki koşul geçerliyken kazanç marjinaldir.
+  - **KABULÜN DAYANDIĞI KOŞUL — asıl kırılma burada olur:** **tüm node'lar
+    fiziksel kontrol altındadır** (uçuş öncesi/sonrası sayılır, saha ekibinde
+    kalır, kaybedilen kart aranır). Kabul "tek anahtar yeterlidir"e DEĞİL, bu
+    koşula dayanır.
+  - **Koşul bugün NEDEN geçerli (TEKNOFEST 2026 şartnamesi):** yarışma ortamı
+    bu koşulu kendisi sağlıyor — **sinyal karıştırma diskalifiye sebebi**, uçuş
+    alanı **çevrili**, ve alanda **gizli hakemler** var. Yani anahtarı ele
+    geçirmek için gereken fiziksel erişim, yarışma kuralları tarafından zaten
+    dışlanmış durumda. Kabul bu ortama özgüdür.
+  - **Koşul değişirse madde YENİDEN AÇILMALI.** Somut kırılma senaryoları: kart
+    kaybı; üçüncü tarafa teslim; uzun süreli gözetimsiz depolama; dış ekiple
+    ortak uçuş; **ve en önemlisi — yarışma dışına çıkıp gerçek bir saha
+    görevine geçmek** (orada ne çevrili alan, ne hakem, ne de karıştırma yasağı
+    vardır). Koşulu kontrol etmeden bu maddeye dayanmayın.
+  - **Kompromis/şüphe hâlinde prosedür:** anahtar **tüm sürüde** döndürülür —
+    `python tools/nvs_key_gen.py` ile yeni anahtar üretilir, KEY WRITER ile baz
+    + her drone'a yazılır. Bu, "zarf formatı değişirse hepsini aynı gün flaşla"
+    ile aynı operasyonel pencere; ayrıca planlanacak bir iş değil.
+  - **Kısmi rotasyon YOKTUR:** eski anahtarlı bir node mesh'e katılamaz (GCM tag
+    tutmaz). Sahada bu, alıcının `[RTK] kayip (gcm=...)` sayacının artması olarak
+    görünür — anahtar uyumsuzluğunu RF kaybından ayıran işaret budur.
+- ❌ **Baz (YKİ) linki koptuğunda otonom görevi kesmek / RTL-LAND tetiklemek.**
+  ESP'de `son_paket_ms`, bilinen HERHANGİ bir node'dan gelen pakette tazelenir —
+  komşu drone trafiği dahil. Yani "baz öldü ama sürü yaşıyor" durumunda failsafe
+  merdiveni (3s/8s/15s) **bilerek ateşlemez**. Bu bir boşluk DEĞİL, Görev 1'in
+  gereğidir.
+  - **Gerekçe (TEKNOFEST 2026 şartnamesi):** Görev 1, s.14 — *"Hakemler görev
+    sırasında herhangi bir anda yer kontrol istasyonu bağlantısını **kesecektir**."*
+    ("kesebilir" değil.) Tablo 5 ceza kalemi: **Yer İstasyonu Bağlantısı
+    Kesilememesi → −50** — tablodaki en ağır kalem. Aynı yöne bakan s.17:
+    *"Dağıtık sürü algoritması kullanılması gerekmektedir; merkezi sürü
+    algoritmaları eksik puan."* Baz linkinin ölmesi bir arıza senaryosu değil,
+    **sınavın kendisidir**.
+  - **⚠️ BU MADDEYİ "EKSİK" SANIP KAPATMAYA KALKMA.** `son_paket_ms`'in yanına
+    `son_baz_paket_ms` koyup RTL/LAND kararını ona bağlamak teknik olarak ~5
+    satırdır, `mac_to_id()` ve `BAZ_MESH_ID` zaten hazırdır ve kod incelemesinde
+    "eksik emniyet" gibi görünür. Yapılırsa: hakem linki kestiği saniyede TÜM
+    sürü aynı anda RTL'e geçer → −50 + görev kaybı. Bug değil, spec.
+  - **Kapsam sınırı (pi_bridge):** `link_ok` DOĞRU raporlamalı (baz-özel liveness
+    `_komsu_son_goruldu` ile — bkz F3), ama **otonom görev devamını gate'lemesin**.
+    Aksi halde ESP'de yapmaktan kaçındığımız hata bridge'de tekrarlanır.
+
+### 5.1 Üç ayrı link — KARIŞTIRMA (emniyet katmanı bizde DEĞİL)
+
+Şartname üç ayrı bağlantıdan bahsediyor. Bunları tek torbaya koymak, yukarıdaki
+RTL kararının yanlış anlaşılmasının kök nedenidir:
+
+| Link | Kim taşıyor | Koptuğunda | Kaynak |
+|---|---|---|---|
+| **RC kumanda** (her İHA'ya ayrı, ayrı pilot, kill switch) | Pixhawk / RC radyosu | **5 sn → Land**, zorunlu, teknik kontrolde test edilir | s.18, s.24/9 |
+| **YKİ ↔ baz** | **bizim mesh (ESP32)** | Görev 1'de **kasten kesilir**, sürü devam etmeli | s.14, Tablo 5 |
+| **Droneler arası mesh** | **bizim mesh (ESP32)** | Sürü bütünlüğü — asıl bizim işimiz | s.17 |
+
+> **Kural cümlesi:** *"Kumanda bağlantısı koptuğunda 5 sn → Land"* şartname
+> maddesi **RC radyosunu** kastediyor (*"araç radyolarının sinyal kaybında
+> otomatik fail-safe"*), **bizim mesh'imizi değil**.
+>
+> **Bizim mesh bir GÖREV yolu, EMNİYET yolu değil.** Emniyet zaten zorunlu
+> (mandated) bir RC katmanındadır ve bizden tamamen bağımsız çalışır. Bu,
+> "ESP32 içeriği bilmez, sadece taşır" ilkesinin emniyet karşılığıdır:
+> mesh'e emniyet sorumluluğu yüklemek, hem katman ihlali hem de Görev 1
+> ihlalidir.
+
+**Bunun sonucu:** ESP'deki failsafe merdiveni (3s/8s/15s), TÜM mesh öldüğünde
+çalışan **ikincil ve gevşek** bir katmandır — birincil emniyet değildir. Onu
+birincil sanıp sıkılaştırmak (baz-özel liveness, daha kısa eşik) yukarıdaki
+−50 tuzağına yürümektir.
 
 ---
 
