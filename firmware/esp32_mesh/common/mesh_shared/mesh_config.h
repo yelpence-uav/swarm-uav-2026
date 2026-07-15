@@ -340,8 +340,18 @@ static inline bool _replay_kontrol(node_durum_t* node, const anti_replay_t* ar) 
         case REPLAY_KABUL:
             return true;
         case REPLAY_RED_ESKI_SESSION:
-            Serial.printf("[REPLAY] ESKI SESSION reddedildi: %02X:%02X sid=%u (kalici=%u)\n",
+            // Bu log SAHADAKI TEK IPUCU — eylem cagrisiyla birlikte basiliyor.
+            // sid cok dusukse (or. 1-2) muhtemelen saldiri degil, o peer'in
+            // NVS'i silinmistir (erase_flash) ve boot sayaci sifirlanmistir;
+            // bkz _session_id_uret() basindaki "NVS ERASE TUZAGI".
+            Serial.printf("[REPLAY] ESKI SESSION reddedildi: %02X:%02X sid=%u < kalici=%u\n",
                           node->mac[4], node->mac[5], ar->session_id, kalici);
+            if (ar->session_id <= 2) {
+                Serial.printf("[REPLAY] ^ sid cok dusuk: %02X:%02X NVS'i silinmis olabilir "
+                              "(erase_flash). Bu peer KALICI reddedilir. Kurtarma: "
+                              "bkz mesh_config.h::_session_id_uret NVS ERASE TUZAGI\n",
+                              node->mac[4], node->mac[5]);
+            }
             return false;
         case REPLAY_RED_DUPLIKAT:
         case REPLAY_RED_ESKI_PAKET:
@@ -745,6 +755,46 @@ static inline void mesh_kanal_tara(void) {
 // kirilirdi. Tanimli davranis: SARMA YOK, fail-closed dur. 65535 boot
 // gunde 10 boot'ta ~18 yil — pratikte erisilmez, ama sessizce guvenligi
 // kaybetmektense gurultuyle durmak yeglenir (aes_init/drone_tablo deseni).
+// ############################################################################
+// # NVS ERASE TUZAGI — SAHADA BILINMESI SART, OKUMADAN erase_flash YAPMA
+// ############################################################################
+// F1'in dogal bedeli. Senaryo:
+//   1. Drone A uzun sure calisti, boot_ctr=47. Peer'lerin NVS'inde
+//      _peer_sessions[A] = 47 yazili.
+//   2. Biri A'ya `esptool erase_flash` (ya da NVS partition sifirlamasi)
+//      yapar. A'nin NVS'i gider: aes_key DE gider, boot_ctr DE gider.
+//   3. KEY WRITER ile anahtar yeniden yazilir (aes_init aksi halde durur),
+//      firmware flaslanir. AMA boot_ctr 0'dan baslar -> A artik session_id=1
+//      gonderir.
+//   4. Peer'ler kurali dogru uygular: 1 < 47 -> A'yi KALICI REDDEDER.
+//
+// SEMPTOM (aldatici, ASIMETRIK):
+//   - A "duyar ama duyulmaz": peer'lerin heartbeat'lerini kabul eder,
+//     son_paket_ms tazelenir, FAILSAFE BILE ATMAZ. Kendi paketleri ise
+//     hicbir yerde kabul edilmez.
+//   - A'nin konsolunda hicbir hata yok. Red logu PEER'IN (baz'in)
+//     konsolunda basilir — yani flaslayan kisinin baktigi yerde degil.
+//   - Fail-closed oldugu icin KENDILIGINDEN DUZELMEZ. Beklemek cozmez.
+//
+// NEDEN OTOMATIK KURTARMA YOK: replay acisindan bu durum saldiriyla
+// AYIRT EDILEMEZ — saldirgan da tam olarak "dusuk session_id'li paket
+// kabul ettirmeye" calisir. Dusuk sid'i otomatik kabul etmek F1'i tamamen
+// geri alir. Bu yuzden kurtarma BILINCLI ve YETKILI bir islem olmak
+// zorunda.
+//
+// KURTARMA (desteklenen yol): peer'lerin _peer_sessions kaydi da
+// SIFIRLANMALI. Pratikte: bir node'un NVS'ini silersen, SURUNUN TAMAMINI
+// (baz + tum droneler) birlikte erase + yeniden provision + flasla.
+// Bu zaten "zarf formati degisirse hepsini ayni gun flasla" kuralıyla
+// ayni operasyonel pencere — ayrica yapilacak bir is degil.
+//   Sadece peer_sess'i silmek yeterlidir (aes_key'e dokunmadan):
+//   NVS namespace "mesh_sec", anahtar "peer_sess".
+//
+// ALTERNATIF (henuz YOK, gerekirse yazilir): bench'te kablolu/yetkili bir
+// "peer sifirla" bakim firmware'i (KEY WRITER deseninde). Sahada/telsizde
+// ASLA olmamali — uzaktan tetiklenebilir bir "replay korumasini sifirla"
+// komutu, korumanin kendisini anlamsiz kilar.
+// ############################################################################
 static inline void _session_id_uret(void) {
     Preferences prefs;
     if (!prefs.begin("mesh_sec", false)) {
@@ -767,6 +817,15 @@ static inline void _session_id_uret(void) {
     prefs.end();
     _session_id = (uint16_t)boot_sayaci;   // 1..65535 — 0 asla (sayac 1'den basliyor)
     Serial.printf("[MESH] session_id=%u (monoton boot sayaci, NVS)\n", _session_id);
+    if (boot_sayaci <= 2) {
+        // NVS ERASE TUZAGI erken uyarisi. Bu, tuzagi KENDI konsolunda gorunur
+        // kilan tek yer: red logu peer'in konsolunda basiliyor, bu cihazinkinde
+        // degil. Gercekten ilk boot ise zararsiz bir bilgi satiri.
+        Serial.println("[MESH] UYARI: boot sayaci ~sifirdan basladi (NVS yeni ya da silinmis).");
+        Serial.println("[MESH] Bu cihaz DAHA ONCE mesh'te calistiysa peer'ler onu KALICI");
+        Serial.println("[MESH] reddeder (eski session gorunur). 'Duyar ama duyulmaz' semptomu.");
+        Serial.println("[MESH] Kurtarma: bkz mesh_config.h::_session_id_uret NVS ERASE TUZAGI");
+    }
 }
 
 static inline void mesh_init(mesh_veri_callback_t callback) {
