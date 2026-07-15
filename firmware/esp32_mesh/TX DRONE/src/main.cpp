@@ -42,10 +42,14 @@ volatile uint32_t      manevra_bitis_ms     = 0;
 // BUG FIX (#1b): RX BASE'in MAC'i bu tabloda YOKTU. mesh_veri_al()
 // mac_to_id()==0 olan her paketi "Bilinmeyen MAC" diye reddettigi icin
 // BAZ'DAN GELEN HIC BIR PAKET (TIP_KOMUT/TIP_ORIGIN/TIP_GOREV) dispatch'e
-// ulasamiyordu — joystick komut yolu bu yuzden de kopuktu. Baz artik
-// BAZ_ID (99) ile tabloda. pi_bridge tarafi da uyumlu: agent_id 1-254
-// kabul ediyor ve iha_id==0/kendi agent_id'si disindakileri isliyor,
-// yani 99 gecerli bir kaynak kimligi.
+// ulasamiyordu — joystick komut yolu bu yuzden de kopuktu.
+//
+// Baz'in kimligi BAZ_MESH_ID (10) — BAZ_ID (99) DEGIL. 99, RTK UART
+// cercevesinin sentinel'idir; baz'a da 99 verilirse pi_bridge tarafinda
+// baz ile RTK ayirt edilemez ve RTK trafigi mesh-liveness'i tazeleyip
+// link kopmasini maskeler (bkz mesh_config.h'deki uzun aciklama).
+// pi_bridge uyumlu: agent_id 1-254 kabul ediyor, iha_id==0/kendi id'si
+// disindakileri isliyor -> 10 gecerli kaynak kimligi.
 static const struct { uint8_t mac[6]; uint8_t id; } drone_tablo[] = {
     {{0x00, 0x00, 0x00, 0x00, 0x00, 0xB4}, 1},
     {{0x00, 0x00, 0x00, 0x00, 0x00, 0x88}, 2},
@@ -53,7 +57,7 @@ static const struct { uint8_t mac[6]; uint8_t id; } drone_tablo[] = {
     {{0x00, 0x00, 0x00, 0x00, 0x00, 0xFF}, 4},
     // TODO: RX BASE'in GERCEK MAC'ini gir — bu satir doldurulmadan baz'dan
     // gelen komutlar reddedilmeye devam eder (mac_to_id -> 0).
-    {{0x00, 0x00, 0x00, 0x00, 0x00, 0x63}, BAZ_ID},
+    {{0x00, 0x00, 0x00, 0x00, 0x00, 0x63}, BAZ_MESH_ID},
 };
 static constexpr uint8_t DRONE_SAYISI = sizeof(drone_tablo) / sizeof(drone_tablo[0]);
 static uint8_t mac_to_id(const uint8_t* mac) {
@@ -70,11 +74,31 @@ static uint8_t mac_to_id(const uint8_t* mac) {
 static void _drone_tablo_dogrula() {
     bool hata = false;
     for (uint8_t i = 0; i < DRONE_SAYISI; i++) {
+        // ID SANITY: 0 = "bilinmeyen MAC" sentinel'i (mac_to_id donusu),
+        // BAZ_ID (99) = RTK UART sentinel'i. Ikisi de mesh kimligi olamaz —
+        // 99 verilirse pi_bridge baz ile RTK'yi ayirt edemez ve RTK trafigi
+        // mesh-liveness'i maskeler (bkz mesh_config.h). Gercek bir hatada
+        // yakalandi, o yuzden artik boot'ta zorlanıyor.
+        if (drone_tablo[i].id == 0 || drone_tablo[i].id == BAZ_ID) {
+            Serial.printf("[BOOT] HATA: drone_tablo[%u] gecersiz ID %u "
+                          "(0 ve BAZ_ID/%u yasak).\n",
+                          i, drone_tablo[i].id, BAZ_ID);
+            hata = true;
+        }
         for (uint8_t j = i + 1; j < DRONE_SAYISI; j++) {
             if (memcmp(drone_tablo[i].mac, drone_tablo[j].mac, 6) == 0) {
                 Serial.printf("[BOOT] HATA: drone_tablo[%u] ve [%u] AYNI MAC! "
                               "ID %u ve %u cakisiyor.\n",
                               i, j, drone_tablo[i].id, drone_tablo[j].id);
+                hata = true;
+            }
+            // ID BENZERSIZLIGI: eskiden SADECE MAC kontrol ediliyordu. Iki
+            // satira ayni ID verilirse (or. baz ile bir drone) iki node ayni
+            // kimlige eslenir ve pi_bridge kaynagi ayirt edemez — MAC
+            // cakismasiyla ayni siniftan sessiz bir kimlik hatasi.
+            if (drone_tablo[i].id == drone_tablo[j].id) {
+                Serial.printf("[BOOT] HATA: drone_tablo[%u] ve [%u] AYNI ID (%u)!\n",
+                              i, j, drone_tablo[i].id);
                 hata = true;
             }
         }

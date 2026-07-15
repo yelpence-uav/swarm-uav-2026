@@ -74,11 +74,26 @@ uint8_t mac_to_id(const uint8_t* mac) {
 static void _drone_tablo_dogrula() {
     bool hata = false;
     for (uint8_t i = 0; i < DRONE_SAYISI; i++) {
+        // ID SANITY: 0 = "bilinmeyen MAC" sentinel'i, BAZ_ID (99) = RTK UART
+        // sentinel'i. Ikisi de mesh kimligi olamaz (bkz mesh_config.h).
+        if (drone_tablo[i].id == 0 || drone_tablo[i].id == BAZ_ID) {
+            Serial.printf("[BOOT] HATA: drone_tablo[%u] gecersiz ID %u "
+                          "(0 ve BAZ_ID/%u yasak).\n",
+                          i, drone_tablo[i].id, BAZ_ID);
+            hata = true;
+        }
         for (uint8_t j = i + 1; j < DRONE_SAYISI; j++) {
             if (memcmp(drone_tablo[i].mac, drone_tablo[j].mac, 6) == 0) {
                 Serial.printf("[BOOT] HATA: drone_tablo[%u] ve [%u] AYNI MAC! "
                               "ID %u ve %u cakisiyor.\n",
                               i, j, drone_tablo[i].id, drone_tablo[j].id);
+                hata = true;
+            }
+            // ID BENZERSIZLIGI: eskiden SADECE MAC kontrol ediliyordu; iki
+            // satira ayni ID verilirse telemetri yanlis drone'a atfedilir.
+            if (drone_tablo[i].id == drone_tablo[j].id) {
+                Serial.printf("[BOOT] HATA: drone_tablo[%u] ve [%u] AYNI ID (%u)!\n",
+                              i, j, drone_tablo[i].id);
                 hata = true;
             }
         }

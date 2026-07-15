@@ -32,14 +32,33 @@
 #define TIP_SWARM_STATE 0x0D   // Sürü seviyesi FSM durumu
 #define TIP_QR_DATA     0x0E   // QR tespit ve çözümleme verisi
 
-// RTK çerçevelerinin kaynak/baz kimliği (spec §2.2). TIP tanımlarının yanında
-// çünkü TIP_RTK ile birlikte, ÇERÇEVE PREFİKSİNİN ikinci baytını oluşturur:
-//   COBS( TIP_RTK + BAZ_ID + rtcm + crc16_be ) + 0x00
-// Burada (paylaşılan header'da) tanımlı olması ŞART: hem RX BASE (çerçeveyi
-// çözüp ID'yi doğrular, rtk_sender.h) hem de rtk_handler.h (çerçeveyi kurar)
-// aynı değeri görmeli. Eskiden rtk_sender.h'de tanımlıydı ve rtk_handler.h
-// onu göremediği için 99'u hardcode ediyordu — iki taraf sessizce kayabilirdi.
-#define BAZ_ID          99
+// !!! DIKKAT — IKI AYRI ISIM UZAYI, KARISTIRMA:
+//
+// (1) BAZ_ID = RTK UART ÇERÇEVESİNİN SENTINEL'i. SADECE UART çerçeve
+//     prefiksinin ikinci baytıdır (spec §2.2):
+//         COBS( TIP_RTK + BAZ_ID + rtcm + crc16_be ) + 0x00
+//     Paylaşılan header'da olması ŞART: RX BASE (çerçeveyi çözüp ID'yi
+//     doğrular, rtk_sender.h) ve rtk_handler.h (çerçeveyi kurar) aynı değeri
+//     görmeli. Eskiden rtk_sender.h'deydi, rtk_handler.h 99'u hardcode
+//     ediyordu — iki taraf sessizce kayabilirdi.
+//     Bu bir MESH KİMLİĞİ DEĞİLDİR. drone_tablo'da KULLANMA.
+//
+// (2) BAZ_MESH_ID = baz istasyonunun mesh kaynak kimliği (drone_tablo'da,
+//     mac_to_id() bunu döndürür, pi_bridge'e iha_id olarak gider).
+//
+// NEDEN AYRILAR (gerçek bir hata sonucu): baz'a da 99 verilirse pi_bridge
+// tarafında baz ile RTK ayırt EDİLEMEZ hale gelir:
+//   - Bridge'in "bilinen peer" whitelist'i 99'u içerdiği anda RTK çerçeveleri
+//     yeniden mesh-liveness tazeler (_son_alim_ts) — RTK ~1Hz aktığı için
+//     tüm telemetri ölse bile link_ok kalıcı True olur. Yani kapatılan
+//     körleşme, bu sefer "meşru" görünerek geri açılır.
+//   - "99'dan paket geldi" artık "baz canlı" demez, "RTK akıyor" da olabilir;
+//     baz-özel liveness (F3) imkânsızlaşır.
+//   - _komsu_son_goruldu[99] hayalet komşusu meşru kayda dönüşür, filtrelenemez.
+// Kural: baz'ın mesh kimliği 0 ve 99 DIŞINDA olmalı; drone id aralığının
+// (1..MESH_MAX_NODES) üstünde bir değer seçilir.
+#define BAZ_ID          99   // (1) SADECE RTK UART sentinel'i — mesh kimliği DEĞİL
+#define BAZ_MESH_ID     10   // (2) baz'in mesh/drone_tablo kimligi
 
 #define FORMASYON_OKBASI  0x01
 #define FORMASYON_V       0x02
