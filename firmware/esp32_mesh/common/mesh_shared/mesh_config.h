@@ -615,6 +615,76 @@ static inline void mesh_gonder(const uint8_t* veri, uint8_t tip,
     _mesh_gonder(&p);
 }
 
+// ===== TIP BASINA GONDERIM HIZ LIMITI (Pi -> mesh yonu) =====
+// Eskiden RX BASE ve TX DRONE'da TEK bir zaman damgasi (son_mesh_gonderim_ms /
+// son_rpi_mesh_ms) TUM tipler arasinda PAYLASILIYORDU: bir cerceve, BASKA
+// herhangi bir tipin gonderiminden sonraki 50ms icinde gelirse sessizce
+// DUSUYORDU — kuyruk yok, retry yok, log yok, sayac yok.
+//
+// Neden kritik: TIP_QR_DATA tek atimlik bir OLAY ve sartname cezasi "QR
+// mesajinin gorev boyunca en az BIR (1) kez dahi goruntulenememesi" (s.13).
+// Periyodik telemetriyle (POSE ~10Hz, LEADER_HB) ayni kapiyi paylasmasi,
+// kurbanin sistematik olarak en pahali mesaj olmasi demekti. Ustelik hakem
+// kesintiyi istedigi an yapiyor -> tek savunma "ilk QR cozulur cozulmez it".
+//
+// Karar: tip BASINA ayri zaman damgasi. Kapinin varlik sebebi "hatali bir Pi
+// mesh'i bogmasin" ve bu KORUNUYOR — her tip hala kendi araligiyla sinirli,
+// kacak Pi hala yakalanir. Kalkan tek sey tiplerin BIRBIRINI yemesi; o zaten
+// kapinin amaci degildi, yan etkisiydi.
+//
+// Muafiyet (QR'i kapidan komple cikarmak) BILEREK secilmedi: korumadan feragat
+// eder ve bir tipin "tek atimlik" kaldigini garanti eden hicbir sey yoktur —
+// yalnizca bugunku Pi'nin oyle davranmasi vardir.
+//
+// KALAN SINIR (bilincli): ayni tipten art arda iki cerceve 50ms icinde gelirse
+// biri yine duser (or. iki QR). Sayac bunu GORUNUR kilar — sayac olmadan bu da
+// sessiz kalirdi ve hicbir sey kazanilmazdi.
+//
+// Dizi TIP byte'i ile DOGRUDAN indexlenir (paralel esleme tablosu YOK): yeni
+// TIP eklendiginde tabloyu guncellemeyi unutma riski olusmasin diye.
+#define MESH_TIP_TABLO_BOYU 16
+static_assert(TIP_QR_DATA < MESH_TIP_TABLO_BOYU,
+              "En buyuk TIP hiz-limiti tablosuna sigmiyor: MESH_TIP_TABLO_BOYU'nu buyut.");
+
+static uint32_t _son_tip_gonderim_ms[MESH_TIP_TABLO_BOYU] = {};
+static uint32_t _tip_dusen[MESH_TIP_TABLO_BOYU]           = {};
+
+// true donerse cagiran mesh_gonder() yapabilir. Dusen cerceve TIP BAZINDA
+// sayilir — "QR neden gitmedi" ile "Pi kacak yapiyor" taban tabana zit
+// teshisler ve tek sayac ikisini ayirt etmez (rtk_kayip'in bolunmesiyle ayni
+// gerekce).
+static inline bool mesh_tip_gecebilir(uint8_t tip, uint32_t simdi, uint32_t min_aralik_ms) {
+    if (tip >= MESH_TIP_TABLO_BOYU) {
+        // Yeni bir TIP eklenmis ama tablo buyutulmemis. Fail-closed + gurultulu
+        // log: sessizce GECIRMEK o tip icin hiz limitini komple kaldirirdi.
+        // (static_assert bunu derleme zamaninda yakalar; bu dal onun gevsetildigi
+        // ya da tip'in runtime'da geldigi senaryonun sigortasi.)
+        Serial.printf("[MESH] KRITIK: TIP 0x%02X hiz-limiti tablosuna sigmiyor "
+                      "(boyut %u) - REDDEDILDI. MESH_TIP_TABLO_BOYU'nu buyut.\n",
+                      tip, (unsigned)MESH_TIP_TABLO_BOYU);
+        return false;
+    }
+    if (simdi - _son_tip_gonderim_ms[tip] < min_aralik_ms) {
+        _tip_dusen[tip]++;
+        return false;
+    }
+    _son_tip_gonderim_ms[tip] = simdi;
+    return true;
+}
+
+static inline void mesh_tip_dusen_yazdir(void) {
+    Serial.print("[MESH] hiz-limitinde dusen cerceve:");
+    bool var = false;
+    for (uint8_t t = 0; t < MESH_TIP_TABLO_BOYU; t++) {
+        if (_tip_dusen[t]) {
+            Serial.printf(" tip0x%02X=%lu", t, (unsigned long)_tip_dusen[t]);
+            var = true;
+        }
+    }
+    if (!var) Serial.print(" yok");
+    Serial.println();
+}
+
 static inline uint8_t mesh_komsu_sayisi() {
     uint8_t count = 0;
     uint32_t now = millis();

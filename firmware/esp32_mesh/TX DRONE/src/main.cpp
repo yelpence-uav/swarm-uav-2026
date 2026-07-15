@@ -256,6 +256,9 @@ void loop() {
     if (millis() - son_rtk_istatistik_ms >= 10000) {
         son_rtk_istatistik_ms = millis();
         rtk_istatistik_yazdir();
+        // QR dahil hiz limitinde dusen cerceveler. TIP_QR_DATA burada gorunuyorsa
+        // sartname s.13 cezasi riske girmis demektir (bkz mesh_config.h notu).
+        mesh_tip_dusen_yazdir();
     }
 #endif
 
@@ -269,7 +272,6 @@ void loop() {
         // idx her 0x00'da koşulsuz sıfırlanır (uart_frame_parser_push), whitelist
         // sadece DÖNEN çerçeveye uygulanır ve durumu etkileyemez.
         static uart_frame_parser_t pi_parser;
-        static uint32_t son_rpi_mesh_ms = 0;
         uint8_t okunan = 0;
 
         while (Serial1.available() && okunan < 32) {
@@ -303,13 +305,12 @@ void loop() {
                                   tip_byte == TIP_QR_DATA ||
                                   tip_byte == TIP_LEADER_HB ||
                                   tip_byte == TIP_ELECTION);
-            if (izinli) {
-                uint32_t simdi = millis();
-                if (simdi - son_rpi_mesh_ms >= MESH_GONDERIM_MIN_MS) {
-                    son_rpi_mesh_ms = simdi;
-                    mesh_gonder(payload, tip_byte);
-                }
-            }
+            // Hiz limiti artik TIP BASINA (bkz mesh_config.h::mesh_tip_gecebilir).
+            // Eskiden tek paylasilan damga vardi ve TIP_QR_DATA, 50ms icinde
+            // cikan bir POSE/LEADER_HB yuzunden sessizce dusebiliyordu — QR tek
+            // atimlik ve cezali oldugu icin en pahali kurban oydu.
+            if (izinli && mesh_tip_gecebilir(tip_byte, millis(), MESH_GONDERIM_MIN_MS))
+                mesh_gonder(payload, tip_byte);
         }
     }
 }

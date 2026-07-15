@@ -113,10 +113,10 @@ static void _drone_tablo_dogrula() {
     }
 }
 
+// Hiz limiti zaman damgalari artik mesh_config.h'de, TIP BASINA
+// (_son_tip_gonderim_ms[]). Buradaki iki paylasilan damga kaldirildi.
 #define JOYSTICK_MIN_ARALIK_MS 200
-static uint32_t son_joystick_ms = 0;
 #define MESH_GONDERIM_MIN_MS 50
-static uint32_t son_mesh_gonderim_ms = 0;
 
 // REPLAY KONTROL HELPER — C2 fix: node disaridan alinir
 static inline bool mesh_replay_dogrula(node_durum_t* node, const uint8_t* decrypted_baslik) {
@@ -299,6 +299,7 @@ void loop() {
     if (millis() - son_rtk_tx_istatistik_ms >= 10000) {
         son_rtk_tx_istatistik_ms = millis();
         rtk_tx_istatistik_yazdir();
+        mesh_tip_dusen_yazdir();   // hiz limitinde dusen cerceveler (tip bazinda)
     }
 #endif
 
@@ -336,21 +337,19 @@ void loop() {
         // TX DRONE'daki acik whitelist+reddet yaklasimiyla tutarli: TIP_KOMUT
         // kendi (daha siki) joystick hiz sinirini korur, bilinen diger tipler
         // ait olduklari tiple gonderilir, taninmayan tip atilir.
+        // Hiz limiti artik TIP BASINA (bkz mesh_config.h::mesh_tip_gecebilir).
+        // TIP_KOMUT kendi DAHA SIKI joystick araligini (200ms) korur; eskiden
+        // ic ice iki kapi vardi (200ms joystick + 50ms paylasilan mesh) ama
+        // 200 > 50 oldugu icin ikincisi TIP_KOMUT icin zaten etkisizdi —
+        // tek yaptigi, KOMUT'un DIGER tiplerin 50ms'sini yemesiydi.
         if (tip_byte == TIP_KOMUT) {
-            if (simdi - son_joystick_ms >= JOYSTICK_MIN_ARALIK_MS) {
-                son_joystick_ms = simdi;
-                if (simdi - son_mesh_gonderim_ms >= MESH_GONDERIM_MIN_MS) {
-                    son_mesh_gonderim_ms = simdi;
-                    mesh_gonder(veri, TIP_KOMUT);
-                }
-            }
+            if (mesh_tip_gecebilir(TIP_KOMUT, simdi, JOYSTICK_MIN_ARALIK_MS))
+                mesh_gonder(veri, TIP_KOMUT);
         } else if (tip_byte == TIP_RENK  || tip_byte == TIP_DURUM ||
                    tip_byte == TIP_SWARM_STATE || tip_byte == TIP_QR_DATA ||
                    tip_byte == TIP_ORIGIN || tip_byte == TIP_GOREV) {
-            if (simdi - son_mesh_gonderim_ms >= MESH_GONDERIM_MIN_MS) {
-                son_mesh_gonderim_ms = simdi;
+            if (mesh_tip_gecebilir(tip_byte, simdi, MESH_GONDERIM_MIN_MS))
                 mesh_gonder(veri, tip_byte);
-            }
         }
         // else: taninmayan tip - sessizce atilir. TIP_LEADER_HB/TIP_ELECTION
         // bilerek dahil edilmedi: BASE, drone consensus'una taraf degil.
