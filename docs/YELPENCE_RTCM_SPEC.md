@@ -23,6 +23,7 @@ hale getirilmiştir.
 | 2 | Fragment payload **191 B** (243 değil) — GCM zarf ek yükü düşüldükten sonraki gerçek pay. `RTK_MAX_FRAGS = 8`. | §2.3, §3.2 |
 | 3 | Her iki UART hattı da **TIP+ID prefiksli**, CRC16 **big-endian** ve TIP+ID dahil hesaplanır. | §2.1, §2.2, §3.1, §3.3, §3.4 |
 | 4 | Fragment'lar arası sabit 2 ms bekleme YOK — **CSMA rastgele bekleme + 3 denemelik yerel radyo retry**. | §2.3, §3.2, §5 |
+| F1 | `session_id` **monoton** (NVS boot sayacı), alıcı küçük olanı reddeder → reboot-replay kapatıldı. Güvenlik state'i **kalıcı** — stateless kuralının bilinçli istisnası. | §1, §2.3, §2.4, §3.1, §4.8, §5 |
 
 **Bu doküman ile kod arasında çelişki görürsen kod kazanır ve spec bug'dır —
 lütfen bildir.** Aşağıdaki her sabit, koddaki tek kaynağına referansla
@@ -78,8 +79,25 @@ korunur.
 > (TX kuyruğu dolu) çalışır — havada kaybolan paketi kurtarmaz, ağ-seviyesi
 > ACK değildir. Broadcast'te donanım ACK'i zaten yoktur.
 
-**Durum (state) ilkesi:** Hiçbir katmanda kalıcı state yok. Herhangi bir modül
-yeniden başlarsa sistem müdahalesiz toparlanmalı.
+**Durum (state) ilkesi — İKİ FARKLI STATE, KARIŞTIRMA:**
+
+- **VERİ AKIŞI STATE'İ → kalıcı olması YASAK.** RTCM'de "kaldığı yerden devam"
+  yok: yarım mesaj, yarım reassembly, yarım çerçeve reboot'ta düşer ve
+  sistem müdahalesiz toparlanır. Stateless kuralı **bunun içindir**.
+- **GÜVENLİK STATE'İ → bilinçli İSTİSNA, kalıcı olmak ZORUNDA.** Anti-replay'in
+  NVS'te tuttukları (gönderici monoton boot sayacı + alıcının peer→session
+  kaydı) buraya girer. **Bunu kaldırmak bir güvenlik gerilemesidir**, sadeleştirme
+  değil: kalıcı olmazsa saldırgan "alıcıyı reboot ettir, eski session'ı oynat"
+  ile reboot-replay'i geri açar — yani koruma kâğıt üzerinde kalır (bkz §2.4).
+
+Ayrım şu soruyla yapılır: *"Bu state kaybolursa veri mi kaybolur, koruma mı?"*
+Veri kaybı kabul (taze RTCM zaten 1 sn sonra gelir); koruma kaybı kabul değil.
+
+**Toparlanma:** Herhangi bir modül yeniden başlarsa sistem müdahalesiz
+toparlanmalı — **güvenlik state'i tutarlıyken.** Tutarsızsa (NVS açılamıyor,
+boot sayacı 65535'i aştı, bir node'un NVS'i silinmiş) firmware **bilinçli
+olarak fail-closed durur veya o peer'i reddeder**; sessizce korumasız devam
+etmez. Bu durumlar ve saha prosedürü: §2.4 ve §3.1.
 
 ---
 
@@ -177,7 +195,7 @@ offset  boyut  alan                (şifresiz / açık)
 
 ```
 offset  boyut  alan                                                 kaynak
-0       2      session_id      (anti_replay_t.session_id)           reboot'ta değişir
+0       2      session_id      (anti_replay_t.session_id)           gönderici başına MONOTON ARTAR (NVS boot sayacı) — §2.4
 2       4      paket_id        (anti_replay_t.paket_id)             MESH sayacı — her FRAGMENT'ta +1
 6       4      msg_id          (rtk_mesh_frag_t.paket_id)           RTCM sayacı — her RTCM MESAJINDA +1
 10      1      frag_index      (0'dan başlar)
@@ -248,6 +266,39 @@ frag başlığı (msg_id4 + frag_index1 + frag_total1 + frag_uzunluk1)    =  7 B
 
 - **Zarfın bütünlüğü GCM auth tag ile doğrulanır** — tag tutmuyorsa zarf
   reddedilir. Ardından mesh anti-replay kontrolü (`_replay_kontrol`) uygulanır.
+
+  > **F1 — anti-replay kuralı (session_id MONOTON).** GCM `session_id`'yi
+  > authenticated yapar, yani saldırgan onu *uyduramaz* — ama yakaladığı eski
+  > bir session'ın paketlerini **aynen tekrar oynatabilir**. Bu yüzden kural
+  > "session farklı → reboot varsay, kabul et" DEĞİL:
+  >
+  > | Gelen | Karar |
+  > |---|---|
+  > | `session_id < bilinen` | **RED** — eski session = reboot-replay saldırısı |
+  > | `session_id == bilinen` | normal sliding-window (pencere 64) |
+  > | `session_id > bilinen` | gönderici reboot etti → kabul + pencere sıfırla + **persist** |
+  >
+  > Kuralın iki yarısı da **zorunlu** (biri eksikse koruma kâğıt üzerinde kalır):
+  > - **Gönderici:** `session_id` NVS'te monoton boot sayacı — rastgele DEĞİL,
+  >   çünkü rastgele değer "daha küçük" karşılaştırmasını anlamsız kılar.
+  > - **Alıcı:** peer→son_session_id kaydı NVS'te kalıcı ve **boot'ta geri
+  >   yüklenir**. Yüklenmezse saldırı "alıcıyı reboot ettir, eski session'ı
+  >   oynat"a kayar.
+  >
+  > **Fail-closed durumları** (sessizce korumasız devam etmek YASAK):
+  > NVS açılamıyor → firmware durur; boot sayacı 65535'i aştı (uint16 sarması)
+  > → firmware durur; bir peer'in session'ı persist edilemiyor → **o peer'in
+  > tüm paketleri reddedilir**.
+  >
+  > **Bilinen boşluk (belgeli):** node tablodan tamamen düşüp slotu başkasına
+  > verilirse aynı session içindeki pencere RAM'de sıfırlanır; NVS kaydı eski
+  > session'ı yine reddeder ama aynı session'ın eski paketlerini durduramaz.
+  > Tam çözüm GPS zaman damgası — session_id'nin *yerine* değil *yanına*
+  > (bootstrap sorunu var ve tek başına aynı saniye içindeki replay'i durdurmaz).
+  >
+  > ⚠️ **NVS erase tuzağı** — sahada bilinmesi şart: bir node'un NVS'ini
+  > silerseniz (`erase_flash`) boot sayacı 1'e döner ve diğer node'lar onu
+  > **kalıcı reddeder** ("duyar ama duyulmaz" semptomu). Prosedür §3.1'de.
   > **REV B düzeltmesi (karar #1):** İlk taslak burada "gelen chunk'ın CRC16'sı
   > tutmuyorsa at" diyordu. REV B'de hava linkinde **CRC16 YOKTUR**; bütünlüğü
   > ve kimliği GCM tag sağlar (CRC16 yalnızca §2.2'deki UART hatlarında
@@ -329,6 +380,31 @@ ile bağlı GPS'ler) bağlamında geçerlidir ve YKİ'yi ilgilendirmez.
    yapılandırılmıştır — MP'den MSM4'e düzeltilir.
 6. (Backlog / v2): YKİ'nin pyubx2 ile UBX-CFG göndererek Survey-In +
    MSM4 setini kendisinin yapılandırması — şimdilik UYGULANMAZ.
+
+#### ⚠️ NVS ERASE TUZAĞI — ESP flaşlamadan ÖNCE oku
+
+Bu kural bir C header'ının içinde yaşarsa sahada kimse bilmez; o yüzden saha
+prosedürünün parçası:
+
+**`esptool erase_flash` / "NVS'i temizleyelim" bir ESP'ye tek başına
+UYGULANMAZ.** Anti-replay (§2.4) gönderici tarafında NVS'teki monoton boot
+sayacına dayanır. Bir node'un NVS'ini silerseniz sayacı 1'e döner; diğer
+node'lar onun `session_id`'sini "eski session = replay" sayıp **kalıcı
+reddeder**. Semptom sinsi: cihaz açılır, mesh'i **duyar**, ama kimse onu
+**duymaz** — RF/anten arızası gibi görünür, saatler yakar.
+
+- **Teşhis:** diğer node'ların konsolunda `[REPLAY] ESKI SESSION reddedildi:
+  ... sid=1 < kalici=N` satırı. `sid` 1-2 ise neredeyse kesin budur, saldırı
+  değil. Silinen cihazın kendi konsolu da boot'ta uyarı basar.
+- **Kurtarma (desteklenen yol):** peer'lerin kaydı da sıfırlanmalı. Pratikte:
+  bir node'un NVS'ini silersen **sürünün tamamını** (baz + tüm droneler)
+  birlikte erase + yeniden provision + flaşla. Bu zaten "zarf formatı
+  değişirse hepsini aynı gün flaşla" kuralıyla aynı operasyonel pencere.
+  Sadece `peer_sess` silmek de yeterlidir (AES anahtarına dokunmadan):
+  NVS namespace `mesh_sec`, anahtar `peer_sess`.
+- **Neden kolay bir "sıfırla" komutu yok:** uzaktan tetiklenebilir bir
+  "replay korumasını sıfırla" komutu, korumanın kendisini anlamsız kılardı.
+  Kurtarma bilinçli ve yetkili bir işlem olmak zorunda.
 
 #### 3.1.1 `yki/` — PC tarafı yazılımı (Python 3.10+, pyserial, cobs)
 
@@ -428,6 +504,14 @@ Görev: İHA-ESP'den UART çerçevelerini çöz → §2.5 kurallarıyla Pixhawk'
 7. **Sistem — Pixhawk:** QGC/Mission Planner'da GPS durumu RTK Float(5) → Fixed(6);
    düzeltme yaşı < 2 sn.
 8. **Dayanıklılık:** her modülü tek tek kapat-aç; sistem müdahalesiz toparlanmalı.
+   - Bu, **güvenlik state'i tutarlıyken** geçerlidir (§1). Normal kapat-aç
+     müdahalesiz toparlanır: gönderici yeni (daha büyük) session_id ile gelir,
+     alıcı kabul edip persist eder.
+   - **Beklenen fail-closed davranışları** (bunlar hata değil, tasarım): bir
+     node'un NVS'i silinmişse diğerleri onu kalıcı reddeder; NVS açılamıyorsa
+     veya boot sayacı 65535'i aştıysa firmware başlamaz. Test bunları
+     "toparlanmadı" diye raporlamamalı — §2.4'e ve §3.1'deki kurtarma
+     prosedürüne bakın.
 
 > ESP tarafında 1, 2 ve 4 `pio test -e native` altında (ASan/UBSan açık, donanımsız)
 > koşuyor: `firmware/esp32_mesh/RX BASE/test/test_rtk_pure/`. 3 ve 5-8 sırasıyla
@@ -470,7 +554,14 @@ Pi'ye ulaşan RTCM byte'ları YKİ'nin gönderdikleriyle birebir aynı.
 - ❌ YKİ tarafında chunk'lama (çift parçalama olur).
 - ❌ MSM7 mesajları (720B MAVLink tavanını aşabilir) — Base yapılandırması MSM4
   olmalı. ESP uyarır ama düşürmez (§2.6); düşürme kararı `pi_bridge`'de (§2.5).
-- ❌ Kalıcı state / kaldığı yerden devam mantığı (stateless tasarım şart).
+- ❌ **VERİ AKIŞI'nda** kalıcı state / kaldığı yerden devam mantığı (stateless
+  tasarım şart) — yarım RTCM mesajı, yarım reassembly reboot'ta düşer.
+  - ✅ İstisna (F1, bilinçli): **GÜVENLİK STATE'İ** kalıcıdır ve kalıcı olmak
+    zorundadır — anti-replay'in NVS'te tuttukları (gönderici monoton boot
+    sayacı, alıcının peer→session kaydı). **Bunu "stateless kuralına aykırı"
+    diye sökmek bir güvenlik gerilemesidir**: kalıcı olmazsa saldırgan alıcıyı
+    reboot ettirip eski session'ı oynatarak reboot-replay'i geri açar.
+    Ayrım ve gerekçe §1'de ("Bu state kaybolursa veri mi kaybolur, koruma mı?").
 - ❌ Port yollarını hardcode etme (PC/Pi seri port yolları; ESP GPIO pinleri hariç).
 - ❌ Sadece test için var olan, üretimde çalışmayan kod yolları (bkz §4.5
   passthrough reddi).
