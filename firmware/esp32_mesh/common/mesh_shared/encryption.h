@@ -7,8 +7,11 @@
 
 // ===== AES-128 GCM — ANAHTAR NVS'DEN YÜKLENİR =====
 // Anahtar kaynak kodda YOKTUR.
-// Provision: python tools/nvs_provision.py --port /dev/ttyUSBx --key <hex>
 // Üretim:    python tools/nvs_key_gen.py
+// Provision: KEY WRITER firmware'i (KEY WRITER/src/main.cpp) — uretilen hex
+//            SAHA_ANAHTARI'na yapistirilir, karta flash'lanir, "PROVISION
+//            TAMAMLANDI" gorununce ana firmware (TX DRONE / RX BASE) yuklenir.
+//            KEY WRITER/src/main.cpp gitignore'da; anahtar repoya girmez.
 //
 // NVS namespace : "mesh_sec"
 // NVS key       : "aes_key"
@@ -35,7 +38,9 @@ static inline void aes_init() {
         // Provision yapılmamış — mesh'e katılma, dur
         Serial.println("[CRYPTO] KRITIK HATA: NVS'de AES anahtari bulunamadi!");
         Serial.println("[CRYPTO] Provision yapilmadan mesh'e katilinamaz.");
-        Serial.println("[CRYPTO] Calistir: python tools/nvs_provision.py --port <PORT> --key <HEX>");
+        Serial.println("[CRYPTO] Cozum: KEY WRITER firmware'ini bu karta flash'la");
+        Serial.println("[CRYPTO] (anahtar: python tools/nvs_key_gen.py), 'PROVISION TAMAMLANDI'");
+        Serial.println("[CRYPTO] gorununce bu firmwareyi tekrar yukle.");
         Serial.flush();
         while (true) {
             delay(1000);

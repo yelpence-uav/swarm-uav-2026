@@ -17,8 +17,11 @@
 //   RTK_ENV_ONSOZ_BOYUTU  = 30  (kaynak_mac6+hedef_mac6+paket_id4+atlama_sayisi1+tip1+iv12)
 //   RTK_ENV_TAG_BOYUTU    = 16  (GCM auth tag)
 //   RTK_ENV_SABIT_TOPLAM  = 46
-//   RTK_ENV_MAKS_TOPLAM   = 250 (ESP-NOW donanim siniri — mesh_config.h'deki
-//                                 ayni adli sabitle ESLESMELI)
+//   RTK_ENV_MAKS_TOPLAM   = 250 (ESP-NOW donanim siniri — TEK KAYNAK BURASI;
+//                                 mesh_config.h bu header'i include eder, orada
+//                                 duplike TANIMLAMA. Eskiden iki kopyaydi ve bu
+//                                 satir "eslesmeli" diyordu; ADIM 6 duplikasyonu
+//                                 kaldirdi, uyari da onunla birlikte dusmeliydi.)
 //   RTK_ENV_MAKS_SIFRELI  = 250 - 46 = 204
 //   RTK_ANTI_REPLAY_BOYUTU = 6  (anti_replay_t: session_id2+paket_id4)
 //   RTK_FRAG_HEADER_BOYUTU = 7  (msg_id4+idx1+total1+len1)
