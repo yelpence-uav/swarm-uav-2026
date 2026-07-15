@@ -599,6 +599,32 @@ Pi'ye ulaşan RTCM byte'ları YKİ'nin gönderdikleriyle birebir aynı.
   - **Kısmi rotasyon YOKTUR:** eski anahtarlı bir node mesh'e katılamaz (GCM tag
     tutmaz). Sahada bu, alıcının `[RTK] kayip (gcm=...)` sayacının artması olarak
     görünür — anahtar uyumsuzluğunu RF kaybından ayıran işaret budur.
+- ❌ **Pi→mesh yönünde GENEL (tipler-üstü) bir gönderim tavanı** — *şimdilik.*
+  Hız limiti **tip BAŞINADIR** (`mesh_config.h::mesh_tip_gecebilir()`; her tip
+  50 ms, `TIP_KOMUT` 200 ms). Tipler-üstü ikinci bir tavan YOKTUR.
+  - **Neden tip başına:** eskiden TEK paylaşılan damga vardı ve tipler
+    birbirinin bütçesini yiyordu — `TIP_QR_DATA` (tek atımlık, s.13 cezalı),
+    50 ms içinde çıkan bir POSE/LEADER_HB yüzünden **sessizce** düşebiliyordu.
+    Kapının amacı "hatalı Pi mesh'i boğmasın"dı; tiplerin birbirini yemesi
+    amaç değil, yan etkiydi.
+  - **⚠️ BİLİNEN BEDELİ — açıkça:** tip başına geçmek, en kötü durumdaki
+    **TOPLAM** tavanı ~20 msg/s'den (eski tek kapı) **~180 msg/s**'ye çıkardı
+    (9 tip × 20/s). **CSMA bunu KURTARMAZ:** `_mesh_gonder()`'in 0–10 ms
+    rastgele beklemesi ortalama 5 ms → ~200 msg/s fiziksel tavan; 180/s onun
+    hemen ALTINDA ve gerçekten ulaşılabilir. "CSMA geri basınç sağlar" argümanı
+    bu senaryoda **ısırmaz** — bağlayıcı kısıt CSMA değil, kapının kendisidir.
+  - **Gerçekleşirse ilk kurban RTK olur:** 180/s'te `loop()` saniyede ~900 ms'yi
+    `vTaskDelay`'de geçirir; `rtk_mesh_loop()`/`mesh_loop()` açlığa düşer ve
+    500 ms'lik reassembly timeout'u ilk patlayan yer olur. Yani kaçak bir Pi,
+    mesh'i yormaktan önce **RTK fix'ini öldürür**.
+  - **KABULÜN DAYANDIĞI KOŞUL:** gerçek Pi trafiği tavanın ~10 katı altında
+    (POSE ~10 Hz + DURUM ~2 Hz + seyrek olaylar ≈ 12 msg/s). Sorun **teoriktir**.
+  - **Koşulu izleyen şey ZATEN VAR:** `mesh_tip_dusen_yazdir()` düşen çerçeveyi
+    **tip bazında** sayar ve 10 sn'de bir basar. Kaçak Pi artık sessiz değil.
+  - **Yeniden aç:** sayaçlarda **beklenmedik bir tipte** düşme görülürse (gerçek
+    trafik tavana yaklaşıyor demektir), o gün ~10 ms'lik **gevşek bir genel
+    tavan** eklenir — tipler birbirini yemez ama toplam da sınırlanır. Karar
+    tasarıma değil, **sayaca** bağlıdır.
 - ❌ **Baz (YKİ) linki koptuğunda otonom görevi kesmek / RTL-LAND tetiklemek.**
   ESP'de `son_paket_ms`, bilinen HERHANGİ bir node'dan gelen pakette tazelenir —
   komşu drone trafiği dahil. Yani "baz öldü ama sürü yaşıyor" durumunda failsafe
@@ -645,6 +671,27 @@ RTL kararının yanlış anlaşılmasının kök nedenidir:
 çalışan **ikincil ve gevşek** bir katmandır — birincil emniyet değildir. Onu
 birincil sanıp sıkılaştırmak (baz-özel liveness, daha kısa eşik) yukarıdaki
 −50 tuzağına yürümektir.
+
+#### 5.1.1 Kör RTL'de çarpışma ayrımı — **ROS2/Pi sorumluluğudur, ESP'de DEĞİL**
+
+TÜM mesh öldüğünde ESP 8 sn sonra RTL bildirir. Ama tam o anda droneler
+birbirini duymuyordur — yani **çarpışma önleme verisi yoktur** ve eşzamanlı
+"kör RTL" tam olarak Tablo 5'teki **çarpışma cezası (−20)** senaryosudur.
+Çözüm (ör. `drone_id × 2 m` ile RTL irtifa ayrımı) gereklidir, **ama ESP'de
+değil**:
+
+- ESP, Pi'ye yalnızca `[0xFA][iha_id][failsafe_tip]` gönderir (`fail_safe.h::
+  _failsafe_rpi_bildir`). **RTL'i ArduPilot uçurur**; irtifa ESP'nin tanım
+  gereği bilmediği şeydir — "ESP içeriği bilmez, sadece taşır" ilkesinin ta
+  kendisi. İrtifayı buraya koymak, F3'te reddettiğimiz katman ihlalinin aynısı
+  olurdu (bkz yukarıdaki RTL maddesi).
+- Pi **zaten kendi drone_id'sini bilir**; ayrımı yapmak için mesh'ten hiçbir
+  bilgiye ihtiyacı yoktur — katman kayması bedava bile değildir.
+
+> **Bu satır bilerek buradadır:** iki katmanın birbirine bakıp hiçbirinin
+> yapmadığı boşluk (F3'te tam olarak bu yaşandı) tekrarlanmasın diye. ESP
+> tarafı **yapmayacak**; sorumluluk ROS2/Pi tarafındadır ve orada takip
+> edilmelidir.
 
 ---
 
