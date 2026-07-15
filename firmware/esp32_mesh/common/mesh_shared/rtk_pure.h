@@ -11,6 +11,7 @@
 
 #include <stdint.h>
 #include <string.h>
+#include <stddef.h>   // offsetof — asagidaki sozlesme static_assert'i icin
 
 // ===== BUYUK RTK ZARFI — BYTE BUTCESI (bkz rtk_handler.h basindaki yorum) =====
 //   RTK_ENV_ONSOZ_BOYUTU  = 30  (kaynak_mac6+hedef_mac6+paket_id4+atlama_sayisi1+tip1+iv12)
@@ -30,8 +31,25 @@
 #define RTK_ANTI_REPLAY_BOYUTU  6
 #define RTK_FRAG_HEADER_BOYUTU  7
 #define RTK_FRAG_PAYLOAD_MAKS   (RTK_ENV_MAKS_SIFRELI - RTK_ANTI_REPLAY_BOYUTU - RTK_FRAG_HEADER_BOYUTU) // 191
+
+// ===== IKI FARKLI ISTE CALISAN IKI ASSERT — IKISI DE KALMALI =====
+// (1) GUVENLIK TABANI: mutlak alt sinir. Payload bunun altina duserse
+//     tasarim MAVLink enjeksiyon uyumunu kaybeder.
 static_assert(RTK_FRAG_PAYLOAD_MAKS >= 180,
               "RTK_FRAG_PAYLOAD_MAKS 180'in altina dustu - zarf hesabini kontrol et");
+
+// (2) SOZLESME KILIDI: spec §2.3 byte butcesi (250-46-6-7=191).
+//     Bu assert patlarsa YAPILACAK SEY SAYIYI DUZELTMEK DEGILDIR:
+//     zarf yapisi degismis demektir -> docs/YELPENCE_RTCM_SPEC.md §2.3'u
+//     (layout tablosu + byte butcesi dokumu) GUNCELLE ve YKİ/pi_bridge
+//     ekibine haber ver; ancak ondan sonra bu sayiyi degistir.
+static_assert(RTK_FRAG_PAYLOAD_MAKS == 191,
+              "Zarf byte butcesi degisti: spec §2.3 senkronu gerekli! "
+              "Sayiyi duzeltmeden once docs/YELPENCE_RTCM_SPEC.md §2.3'u "
+              "guncelle ve YKİ/pi_bridge'e bildir.");
+
+// (3) numarali sozlesme kilidi rtk_mesh_frag_t tanimindan HEMEN SONRA
+//     (struct'in kendisi asagida tanimlaniyor, offsetof once cagrilmaz).
 
 // REV B: 8 fragment x 191B = 1528B, MSM4/720B MAVLink tavanina bol marj.
 #define RTK_MAX_FRAGS            8
@@ -53,6 +71,21 @@ __attribute__((packed))
     uint8_t  frag_uzunluk;           // gercek veri byte sayisi (1..RTK_FRAG_PAYLOAD_MAKS)
     uint8_t  payload[RTK_FRAG_PAYLOAD_MAKS];
 } rtk_mesh_frag_t;
+
+// (3) SOZLESME KILIDI — yukaridaki (2)'nin KOR NOKTASI:
+//     RTK_FRAG_HEADER_BOYUTU ciplak bir literal (7); rtk_handler.h ise
+//     memcpy(plaintext + RTK_ANTI_REPLAY_BOYUTU, frag, RTK_FRAG_HEADER_BOYUTU)
+//     ile frag basligini bu literale gore kopyaliyor. rtk_mesh_frag_t'ye alan
+//     eklenir/genisletilirse memcpy sessizce KIRPAR ve tel formati bozulur —
+//     ustelik RTK_FRAG_PAYLOAD_MAKS degismedigi icin (2) numarali assert
+//     PATLAMAZ. Yani ic alanlar kayarken toplam sabit kalabilir; bu assert
+//     tam o senaryo icin var.
+//     Patlarsa: sayiyi duzeltme — spec §2.3 layout tablosunu guncelle ve
+//     YKİ/pi_bridge'e bildir.
+static_assert(offsetof(rtk_mesh_frag_t, payload) == RTK_FRAG_HEADER_BOYUTU,
+              "rtk_mesh_frag_t basligi RTK_FRAG_HEADER_BOYUTU ile uyumsuz: "
+              "rtk_handler.h'deki memcpy sessizce kirpar. Spec §2.3 layout "
+              "tablosunu guncelle ve ekibe bildir.");
 #endif
 
 // ===== SAF FRAGMANTASYON HESABI =====

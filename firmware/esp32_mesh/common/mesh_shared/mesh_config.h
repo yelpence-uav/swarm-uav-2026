@@ -61,6 +61,19 @@
 #define BAZ_ID          99   // (1) SADECE RTK UART sentinel'i — mesh kimliği DEĞİL
 #define BAZ_MESH_ID     10   // (2) baz'in mesh/drone_tablo kimligi
 
+// SOZLESME KILIDI: baz'in mesh kimligi drone ID araliginin (1..MESH_MAX_NODES)
+// USTUNDE olmali — yoksa bir drone ile baz ayni ID'ye duser ve pi_bridge
+// kaynagi ayirt edemez. Bu kural yukarida yorumla anlatiliyordu ama sadece
+// bir sozlesmeydi; MESH_MAX_NODES buyuduğu gun sessizce cakisirdi.
+// Patlarsa: BAZ_MESH_ID'yi yeni MESH_MAX_NODES'un ustune tasi ve pi_bridge
+// ekibine yeni baz kimligini bildir (agent_id esleme tablolari degisir).
+static_assert(BAZ_MESH_ID > MESH_MAX_NODES,
+              "BAZ_MESH_ID drone ID araligina girdi: baz bir drone ile ayni "
+              "kimlige duser. BAZ_MESH_ID'yi yukselt ve pi_bridge'e bildir.");
+static_assert(BAZ_MESH_ID != BAZ_ID,
+              "BAZ_MESH_ID ile BAZ_ID ayni olamaz: 99 RTK UART sentinel'i, "
+              "mesh kimligi degil (bkz yukaridaki iki-isim-uzayi notu).");
+
 #define FORMASYON_OKBASI  0x01
 #define FORMASYON_V       0x02
 #define FORMASYON_CIZGI   0x03
@@ -191,6 +204,32 @@ struct __attribute__((packed)) mesh_paket_t {
 // replay_pure.h'de (Arduino'dan bagimsiz, native'de ASan ile test edilir).
 // Burasi sadece ince kabuk: loglama + NVS persist.
 //
+// ===== SOZLESME KILIDI — IKI PURE HEADER ARASINDAKI TEK BAG =====
+// anti_replay_t replay_pure.h'de yasiyor; onun KABLODAKI boyutu ise rtk_pure.h'de
+// RTK_ANTI_REPLAY_BOYUTU adli CIPLAK BIR LITERAL (6) olarak duruyor. Iki header
+// birbirini include etmiyor — bagi kuran tek yer burasi (ikisini de goren dosya).
+//
+// Neden kritik: rtk_handler.h::rtk_mesh_gonder() zarfi kurarken
+//     memcpy(plaintext, &ar, RTK_ANTI_REPLAY_BOYUTU)
+// yapiyor. anti_replay_t buyurse (GPS_TIMESTAMP TODO'su tam da bunu onermeye
+// aday) memcpy SESSIZCE 6 bayta KIRPAR: session_id/paket_id kismen kopyalanir,
+// alici tarafta anti-replay coker — ustelik RTK_FRAG_PAYLOAD_MAKS degismedigi
+// icin rtk_pure.h'deki "== 191" assert'i PATLAMAZ. Ic alan kayarken toplam sabit
+// kalir; bu assert tam o kor noktayi kapatir.
+//
+// Patlarsa YAPILACAK SEY SAYIYI DUZELTMEK DEGILDIR:
+//   1. docs/YELPENCE_RTCM_SPEC.md §2.3 layout tablosunu ve byte butcesi
+//      dokumunu yeni yapiya gore guncelle (191 de degisecektir),
+//   2. YKİ/pi_bridge ekibine bildir (zarf ic duzeni degisti),
+//   3. ancak ondan sonra RTK_ANTI_REPLAY_BOYUTU'nu yeni boyuta cek.
+static_assert(sizeof(anti_replay_t) == RTK_ANTI_REPLAY_BOYUTU,
+              "anti_replay_t kablo boyutu RTK_ANTI_REPLAY_BOYUTU ile uyumsuz: "
+              "rtk_handler.h'deki memcpy sessizce kirpar ve anti-replay coker. "
+              "Spec §2.3'u guncelle, YKİ/pi_bridge'e bildir, sonra sayiyi degistir.");
+static_assert(offsetof(anti_replay_t, paket_id) == 2,
+              "anti_replay_t alan sirasi degisti: tel formati (spec §2.3, "
+              "offset 0=session_id/2B, 2=paket_id/4B) bozulur.");
+//
 // TODO: GPS_TIMESTAMP — HAS_PIXHAWK + MAVLink GPS okumasi hazir oldugunda
 //   session_id'nin YERINE degil, YANINA konulacak: bootstrap sorunu var
 //   (boot'ta fix yokken fail-closed = GPS'siz hic ucamazsin, fail-open =
@@ -271,10 +310,27 @@ struct __attribute__((packed)) peer_session_kayit_t {
     uint8_t  mac[6];
     uint16_t session_id;   // 0 = kayit yok
 };   // 8 byte
-static peer_session_kayit_t _peer_sessions[MESH_MAX_NODES] = {};
+
+// Tablo boyutu MESH_MAX_NODES DEGIL, MESH_MAX_NODES+1: mesh'te en fazla
+// MESH_MAX_NODES drone VE ayrica baz istasyonu var — hepsi ayri birer peer.
+// Eskiden dizi MESH_MAX_NODES (8) idi; 8 drone + baz = 9 peer'de tablo dolar
+// ve son peer kalici replay korumasindan mahrum kalirdi. "Ulasilamaz" sanilan
+// bu yol aslinda tam sinirdaydi.
+#define PEER_SESS_TABLO_BOYU  (MESH_MAX_NODES + 1)
+
+// SOZLESME KILIDI: tablo her zaman "tum droneler + baz"i alabilmeli. Bu assert
+// gevsetilirse _peer_session_kaydet()'in fail-closed dali (peer'in paketlerini
+// REDDET) sahada gercekten tetiklenir — yani bu assert o davranisin sigortasi.
+// Patlarsa: PEER_SESS_TABLO_BOYU'nu buyut; tabloyu kucultme.
+static_assert(PEER_SESS_TABLO_BOYU >= MESH_MAX_NODES + 1,
+              "peer session tablosu tum droneleri + bazi alamiyor: son peer "
+              "reboot-replay korumasiz kalir (fail-closed'da ise REDDEDILIR). "
+              "PEER_SESS_TABLO_BOYU'nu buyut.");
+
+static peer_session_kayit_t _peer_sessions[PEER_SESS_TABLO_BOYU] = {};
 
 static inline uint16_t _peer_session_getir(const uint8_t* mac) {
-    for (uint8_t i = 0; i < MESH_MAX_NODES; i++)
+    for (uint8_t i = 0; i < PEER_SESS_TABLO_BOYU; i++)
         if (_peer_sessions[i].session_id != 0 && _mac_esit(_peer_sessions[i].mac, mac))
             return _peer_sessions[i].session_id;
     return 0;   // kayit yok
@@ -282,7 +338,7 @@ static inline uint16_t _peer_session_getir(const uint8_t* mac) {
 
 static inline void _peer_session_kaydet(const uint8_t* mac, uint16_t sid) {
     int8_t slot = -1;
-    for (uint8_t i = 0; i < MESH_MAX_NODES; i++) {
+    for (uint8_t i = 0; i < PEER_SESS_TABLO_BOYU; i++) {
         if (_peer_sessions[i].session_id != 0 && _mac_esit(_peer_sessions[i].mac, mac)) { slot = (int8_t)i; break; }
         if (_peer_sessions[i].session_id == 0 && slot < 0) slot = (int8_t)i;   // ilk bos
     }
