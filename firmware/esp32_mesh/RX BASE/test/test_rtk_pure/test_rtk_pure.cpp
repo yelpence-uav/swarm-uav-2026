@@ -534,6 +534,124 @@ void test_reassembly_gecersiz_fragment_reddedilir(void) {
         rtk_asm_fragment_isle(&a, 1, 0, 1, RTK_FRAG_PAYLOAD_MAKS + 1, payload, 1000, &toplam));
 }
 
+// ===== RTK ∩ F1 KESISIMI (FAZ 2 madde 3) =====
+// F1 denetiminde bu kesisim "analizle guvenli, testle degil" diye isaretlendi;
+// burasi o cumleyi kanita ceviriyor.
+//
+// GERCEK MIMARI (modellenen):
+//   - RTK zarfi da genel mesh de AYNI anti_replay'i tasiyor ve gonderici
+//     tarafta AYNI _paket_sayaci'ndan besleniyor (rtk_handler.h::
+//     rtk_mesh_gonder -> anti_replay_t{_session_id, ++_paket_sayaci};
+//     mesh_config.h::mesh_gonder -> ayni sayac). Yani tek artan dizi.
+//   - ISR (mesh_config.h::_esp_now_recv_cb) offset 17'deki tip'e bakip
+//     TIP_RTK'yi AYRI bir ring buffer'a (_rtk_recv_buffer, 8) yaziyor;
+//     digerleri _recv_buffer'a (16). Ikisini FARKLI donguler bosaltiyor
+//     (rtk_mesh_loop vs mesh_loop) -> iki kaynak arasinda SIRA KORUNMUYOR.
+//   - Alici tarafta ikisi de AYNI node->replay penceresini kullaniyor
+//     (_replay_kontrol). Yani sirasizlik dogrudan replay penceresine vuruyor.
+//
+// Azami kayma buffer derinlikleriyle sinirli: 8 + 16 = 24 << PENCERE_BOYU(64).
+// Testler bu siniri ve session degisimi anini zorluyor.
+
+// replay_karar'i "kalici kayit yok" kisayoluyla cagiran yardimci (kesisim
+// testlerinde ilgilenilen sey session/pencere etkilesimi, NVS degil).
+static bool _kabul(replay_state_t* rs, uint16_t sid, uint32_t pid) {
+    return replay_kabul_mu(replay_karar(rs, sid, pid, /*kalici=*/0));
+}
+
+// RTK burst'u + genel mesh trafigi TEK sayactan besleniyor; iki ring buffer
+// sirasiz bosaldigi icin alici bunlari karisik sirada goruyor. Hicbir mesru
+// paket kaybolmamali.
+void test_rtk_f1_iki_kaynak_sirasiz_hepsi_kabul(void) {
+    replay_state_t rs = _yeni_durum();
+    // paket_id 1..12: {1,3,5,7} RTK fragmentlari, {2,4,6,8..12} genel mesh.
+    // Gercek loop() sirasi: once TUM rtk buffer, sonra genel buffer.
+    const uint32_t rtk[]   = {1, 3, 5, 7};
+    const uint32_t genel[] = {2, 4, 6, 8, 9, 10, 11, 12};
+
+    for (uint32_t p : rtk)
+        TEST_ASSERT_TRUE_MESSAGE(_kabul(&rs, 1, p), "RTK fragmenti reddedildi");
+    // Genel mesh paketleri SONRA isleniyor -> paket_id'leri geriye gidiyor.
+    // Sliding window bunlari pencere icinde kabul etmeli.
+    for (uint32_t p : genel)
+        TEST_ASSERT_TRUE_MESSAGE(_kabul(&rs, 1, p), "Sirasiz genel mesh paketi reddedildi");
+}
+
+// Kayma tam sinirda (24 = 8+16 buffer derinligi): en kotu durumda bile
+// pencere (64) hepsini soğurmali. Bu test PENCERE_BOYU kucultulurse patlar.
+void test_rtk_f1_azami_kayma_penceresi_asmiyor(void) {
+    replay_state_t rs = _yeni_durum();
+    // Once ileri sicra (RTK buffer'i once bosaldi): 1, sonra 25.
+    TEST_ASSERT_TRUE(_kabul(&rs, 1, 1));
+    TEST_ASSERT_TRUE(_kabul(&rs, 1, 25));
+    // Simdi geride kalan 24 paket (genel buffer) sirasiz geliyor: 2..24
+    for (uint32_t p = 2; p <= 24; p++)
+        TEST_ASSERT_TRUE_MESSAGE(_kabul(&rs, 1, p), "Kayma<=24 pencerede kabul edilmeliydi");
+    // Sinirin otesi (65 geride) reddedilmeli — pencere hala calisiyor.
+    TEST_ASSERT_TRUE(_kabul(&rs, 1, 200));
+    TEST_ASSERT_FALSE_MESSAGE(_kabul(&rs, 1, 200 - PENCERE_BOYU),
+                              "Pencere disi paket kabul edildi");
+}
+
+// SESSION DEGISIMI ANI: gonderici reboot etti (session 1 -> 2) ve _paket_sayaci
+// 0'dan yeniden basladi. Alicinin iki buffer'i hala ESKI session'in paketlerini
+// tasiyor olabilir. Yeni session'in kucuk paket_id'leri kabul edilmeli; eski
+// session'in paketleri ise (buffer'da kalmis olsalar bile) REDDEDILMELI.
+void test_rtk_f1_session_degisimi_aninda_eski_session_paketleri_reddedilir(void) {
+    replay_state_t rs = _yeni_durum();
+    TEST_ASSERT_TRUE(_kabul(&rs, 1, 500));
+    TEST_ASSERT_TRUE(_kabul(&rs, 1, 501));
+
+    // Gonderici reboot: session 2, paket_id 1'den basliyor. Ilk gelen bir RTK
+    // fragmenti olsun -> yeni session kabul, pencere sifirlanir.
+    TEST_ASSERT_TRUE_MESSAGE(_kabul(&rs, 2, 1), "Reboot sonrasi yeni session reddedildi");
+    // Ardindan gecikmis genel mesh paketleri (yeni session, kucuk id) gelir.
+    TEST_ASSERT_TRUE(_kabul(&rs, 2, 2));
+    TEST_ASSERT_TRUE(_kabul(&rs, 2, 3));
+
+    // KRITIK: buffer'da kalmis ESKI session (1) paketleri — paket_id'leri
+    // BUYUK olsa bile reddedilmeli. Eski kural bunlari "farkli session"
+    // sayip KABUL ederdi (tam da F1'in kapattigi acik).
+    TEST_ASSERT_FALSE_MESSAGE(_kabul(&rs, 1, 502),
+                              "Eski session paketi kabul edildi - F1 kurali kesisimde calismiyor");
+    TEST_ASSERT_FALSE_MESSAGE(_kabul(&rs, 1, 9999),
+                              "Eski session'in buyuk paket_id'si kabul edildi");
+    // Yeni session normal akmaya devam etmeli (eski session reddi onu bozmadi).
+    TEST_ASSERT_TRUE(_kabul(&rs, 2, 4));
+}
+
+// RTK burst'u tam session degisimine denk gelirse: ayni RTCM mesajinin
+// fragmentlari reboot'a bolunemez (gonderici reboot ederse burst zaten olur),
+// ama alicinin buffer'inda eski session fragmentleri KALABILIR. Reassembly'nin
+// bunlari gormemesi replay katmaninda saglanmali.
+void test_rtk_f1_burst_ortasinda_reboot_eski_fragmentler_reddedilir(void) {
+    replay_state_t rs = _yeni_durum();
+    // Eski session'da 4 fragmentlik bir RTCM burst'unun ilk 2'si islendi.
+    TEST_ASSERT_TRUE(_kabul(&rs, 7, 100));
+    TEST_ASSERT_TRUE(_kabul(&rs, 7, 101));
+    // Gonderici reboot etti (session 8), yeni burst basladi.
+    TEST_ASSERT_TRUE(_kabul(&rs, 8, 1));
+    // Buffer'da kalan ESKI burst'un 3. ve 4. fragmentleri simdi isleniyor:
+    // reddedilmeli, yoksa reassembly iki session'in fragmentlerini karistirir.
+    TEST_ASSERT_FALSE_MESSAGE(_kabul(&rs, 7, 102),
+                              "Reboot oncesi fragment kabul edildi - reassembly karisirdi");
+    TEST_ASSERT_FALSE_MESSAGE(_kabul(&rs, 7, 103),
+                              "Reboot oncesi fragment kabul edildi - reassembly karisirdi");
+    // Yeni session'in burst'u temiz devam eder.
+    TEST_ASSERT_TRUE(_kabul(&rs, 8, 2));
+    TEST_ASSERT_TRUE(_kabul(&rs, 8, 3));
+}
+
+// Duplikat, kesisimde de tutmali: RTK fragmenti iki kez islenirse (ISR ring
+// buffer'i + retry) ikincisi reddedilmeli.
+void test_rtk_f1_duplikat_fragment_kesisimde_reddedilir(void) {
+    replay_state_t rs = _yeni_durum();
+    TEST_ASSERT_TRUE(_kabul(&rs, 3, 10));
+    TEST_ASSERT_TRUE(_kabul(&rs, 3, 11));
+    TEST_ASSERT_FALSE_MESSAGE(_kabul(&rs, 3, 10), "Duplikat RTK fragmenti kabul edildi");
+    TEST_ASSERT_FALSE_MESSAGE(_kabul(&rs, 3, 11), "Duplikat RTK fragmenti kabul edildi");
+}
+
 int main(int argc, char** argv) {
     (void)argc; (void)argv;
     UNITY_BEGIN();
@@ -575,5 +693,11 @@ int main(int argc, char** argv) {
     RUN_TEST(test_reassembly_duplicate_fragment_atlanir);
     RUN_TEST(test_reassembly_sira_disi_gelis_dogru_birlesir);
     RUN_TEST(test_reassembly_gecersiz_fragment_reddedilir);
+    // RTK ∩ F1 kesisimi (FAZ 2 madde 3)
+    RUN_TEST(test_rtk_f1_iki_kaynak_sirasiz_hepsi_kabul);
+    RUN_TEST(test_rtk_f1_azami_kayma_penceresi_asmiyor);
+    RUN_TEST(test_rtk_f1_session_degisimi_aninda_eski_session_paketleri_reddedilir);
+    RUN_TEST(test_rtk_f1_burst_ortasinda_reboot_eski_fragmentler_reddedilir);
+    RUN_TEST(test_rtk_f1_duplikat_fragment_kesisimde_reddedilir);
     return UNITY_END();
 }
