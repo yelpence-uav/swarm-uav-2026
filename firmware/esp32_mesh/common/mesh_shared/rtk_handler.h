@@ -13,10 +13,33 @@
 #define RTK_HAM_BUF_SIZE   (1 + 1 + RTK_REASSEMBLY_BUF_SIZE + 2)
 #define RTK_COBS_BUF_SIZE  (RTK_HAM_BUF_SIZE + (RTK_HAM_BUF_SIZE / 254) + 2)
 
-// ===== DURUM SAYAÇLARI =====
-static uint32_t rtk_alinan          = 0;
-static uint32_t rtk_kayip           = 0;
-static uint32_t rtk_uart_gonderilen = 0;
+// ===== DURUM SAYAÇLARI — ALICI (İHA) TARAFI =====
+// rtk_kayip eskiden TEK kovaydi: GCM hatasi, replay reddi, bozuk cerceve ve RF
+// timeout'u ayni sayaca yaziyordu. Ama sahadaki "RTK niye fix vermiyor"
+// sorusunun cevaplari taban tabana ZIT ve her biri BASKA bir mudahale ister:
+//   gcm      -> anahtar yanlis/eksik, provision uyumsuz  (KEY WRITER'a bak)
+//   replay   -> eski session; cogu zaman SALDIRI DEGIL, o peer'in NVS'i
+//               silinmistir (bkz mesh_config.h::_session_id_uret NVS ERASE TUZAGI)
+//   gecersiz -> bozuk/uyumsuz cerceve: tel formati kaymis, surumler uyumsuz
+//               (zarf duzeni degistiyse TUM node'lar ayni gun flaslanmali)
+//   timeout  -> fragment havada kayboldu = RF menzil/parazit  (anten/mesafe)
+// Tek sayacla bu dordu ayirt edilemiyordu; teshis tahmine kaliyordu. Ayrildi.
+static uint32_t rtk_alinan          = 0;   // kabul edilen FRAGMENT sayisi
+static uint32_t rtk_uart_gonderilen = 0;   // Pi'ye iletilen TAM RTCM mesaji
+static uint32_t rtk_kayip_gcm       = 0;
+static uint32_t rtk_kayip_replay    = 0;
+static uint32_t rtk_kayip_gecersiz  = 0;
+static uint32_t rtk_kayip_timeout   = 0;
+
+// ===== DURUM SAYAÇLARI — GONDERICI (BAZ) TARAFI =====
+// rtk_mesh_gonder() hem RX BASE'te (gercek kullanim) hem paylasilan kodda
+// yasadigi icin sayac burada. RX BASE'in YKİ-girisi sayaclari rtk_sender.h'de.
+static uint32_t rtk_tx_frag         = 0;   // mesh'e yayilan fragment
+static uint32_t rtk_tx_zarf_hatasi  = 0;   // 3 denemeden sonra da esp_now_send hatasi
+
+static inline uint32_t rtk_kayip_toplam(void) {
+    return rtk_kayip_gcm + rtk_kayip_replay + rtk_kayip_gecersiz + rtk_kayip_timeout;
+}
 
 // ===== REASSEMBLY DURUMU — artik rtk_pure.h'deki saf tipte =====
 static rtk_asm_durum_t _rtk_asm = {};
@@ -69,7 +92,7 @@ static inline void rtk_mesh_frag_handle(const uint8_t* ham_veri, uint16_t uzunlu
     if (uzunluk < RTK_FRAG_HEADER_BOYUTU) {
         Serial.printf("[RTK] HATA: fragment cok kisa (%u byte, beklenen en az %u)\n",
                       uzunluk, (unsigned)RTK_FRAG_HEADER_BOYUTU);
-        rtk_kayip++;
+        rtk_kayip_gecersiz++;
         return;
     }
 
@@ -78,7 +101,7 @@ static inline void rtk_mesh_frag_handle(const uint8_t* ham_veri, uint16_t uzunlu
     if (uzunluk != (uint16_t)(RTK_FRAG_HEADER_BOYUTU + f->frag_uzunluk)) {
         Serial.printf("[RTK] HATA: uzunluk tutarsiz (beklenen %u, gelen %u)\n",
                       (unsigned)(RTK_FRAG_HEADER_BOYUTU + f->frag_uzunluk), uzunluk);
-        rtk_kayip++;
+        rtk_kayip_gecersiz++;
         return;
     }
 
@@ -91,7 +114,7 @@ static inline void rtk_mesh_frag_handle(const uint8_t* ham_veri, uint16_t uzunlu
         case RTK_ASM_REDDEDILDI:
             Serial.printf("[RTK] HATA: gecersiz frag index=%u total=%u len=%u\n",
                           f->frag_index, f->frag_total, f->frag_uzunluk);
-            rtk_kayip++;
+            rtk_kayip_gecersiz++;
             return;
         case RTK_ASM_DUPLIKAT:
             Serial.printf("[RTK] Duplikat frag %u, atlaniyor\n", f->frag_index);
@@ -99,7 +122,7 @@ static inline void rtk_mesh_frag_handle(const uint8_t* ham_veri, uint16_t uzunlu
         case RTK_ASM_TASTI:
             Serial.printf("[RTK] HATA: reassembly buffer tasti (paket_id=%lu)\n",
                           (unsigned long)f->paket_id);
-            rtk_kayip++;
+            rtk_kayip_gecersiz++;
             return;
         case RTK_ASM_DEVAM:
             rtk_alinan++;
@@ -180,9 +203,12 @@ static inline void rtk_mesh_gonder(const rtk_mesh_frag_t* frag) {
         if (d < 2) vTaskDelay(pdMS_TO_TICKS(2 + (uint32_t)esp_random() % 6));
     }
     if (ret != ESP_OK) {
+        rtk_tx_zarf_hatasi++;
         Serial.printf("[RTK-TX] Zarf gonderimi basarisiz (frag %u/%u)\n",
                       frag->frag_index + 1, frag->frag_total);
+        return;
     }
+    rtk_tx_frag++;
 }
 
 // ===== REV B: BUYUK RTK ZARFI — ALIM =====
@@ -202,7 +228,7 @@ static inline void rtk_mesh_loop(HardwareSerial& uart = Serial1) {
             uint16_t       uzunluk = _rtk_recv_buffer[_rtk_recv_oku].uzunluk;
 
             if (uzunluk < RTK_ENV_SABIT_TOPLAM + RTK_ANTI_REPLAY_BOYUTU + RTK_FRAG_HEADER_BOYUTU) {
-                rtk_kayip++;
+                rtk_kayip_gecersiz++;
                 _rtk_recv_oku = (_rtk_recv_oku + 1) % RTK_RECV_BUFFER_SIZE;
                 continue;
             }
@@ -224,16 +250,17 @@ static inline void rtk_mesh_loop(HardwareSerial& uart = Serial1) {
 
             static uint8_t acik[RTK_ENV_MAKS_SIFRELI];
             if (!aes_coz_gcm(sifreli, sifreli_uzunluk, acik, iv, tag, aad, sizeof(aad))) {
-                Serial.println("[RTK] GCM hatasi - zarf reddedildi");
-                rtk_kayip++;
+                Serial.println("[RTK] GCM hatasi - zarf reddedildi (anahtar/provision uyumsuz olabilir)");
+                rtk_kayip_gcm++;
                 _rtk_recv_oku = (_rtk_recv_oku + 1) % RTK_RECV_BUFFER_SIZE;
                 continue;
             }
 
             node_durum_t* node = _node_bul_veya_ekle(kaynak_mac);
             if (!node || !_replay_kontrol(node, (const anti_replay_t*)acik)) {
-                Serial.println("[RTK] Replay/eski zarf reddedildi");
-                rtk_kayip++;
+                Serial.println("[RTK] Replay/eski zarf reddedildi (peer NVS'i silinmis olabilir "
+                               "- bkz NVS ERASE TUZAGI)");
+                rtk_kayip_replay++;
                 _rtk_recv_oku = (_rtk_recv_oku + 1) % RTK_RECV_BUFFER_SIZE;
                 continue;
             }
@@ -251,14 +278,21 @@ static inline void rtk_mesh_loop(HardwareSerial& uart = Serial1) {
 // ===== TIMEOUT KONTROL — rtk_mesh_loop()'tan çağrılır =====
 static inline void rtk_loop(void) {
     if (rtk_asm_timeout_kontrol(&_rtk_asm, millis())) {
-        Serial.println("[RTK] Assembly timeout — sifirlandi");
-        rtk_kayip++;
+        Serial.println("[RTK] Assembly timeout — sifirlandi (fragment havada kayboldu = RF)");
+        rtk_kayip_timeout++;
     }
 }
 
+// ALICI (İHA) istatistigi. Kovalarin teshis anlami icin sayac tanimlarinin
+// basindaki nota bak — "kayip" tek sayi olarak bakildiginda yaniltir.
 static inline void rtk_istatistik_yazdir(void) {
-    Serial.printf("[RTK] alinan=%lu kayip=%lu uart_gonderilen=%lu\n",
+    Serial.printf("[RTK] alinan=%lu uart_gonderilen=%lu kayip=%lu "
+                  "(gcm=%lu replay=%lu gecersiz=%lu timeout=%lu)\n",
                   (unsigned long)rtk_alinan,
-                  (unsigned long)rtk_kayip,
-                  (unsigned long)rtk_uart_gonderilen);
+                  (unsigned long)rtk_uart_gonderilen,
+                  (unsigned long)rtk_kayip_toplam(),
+                  (unsigned long)rtk_kayip_gcm,
+                  (unsigned long)rtk_kayip_replay,
+                  (unsigned long)rtk_kayip_gecersiz,
+                  (unsigned long)rtk_kayip_timeout);
 }

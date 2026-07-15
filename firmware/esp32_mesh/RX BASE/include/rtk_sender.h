@@ -29,6 +29,19 @@
 // Her yeni RTCM mesajında artar → TX DRONE'da ID değişimini tespit eder
 static uint32_t _rtk_paket_sayaci = 0;
 
+// ===== YKİ GIRIS SAYAÇLARI — BAZ TARAFI TESHISI =====
+// rtk_handler.h'deki alici sayaclarinin gonderici yakasi. Neden gerekli:
+// "RTK niye fix vermiyor" sorusunda ilk ayrim BAZ HIC YAYIN YAPIYOR MU
+// olmali. Bu sayaclar olmadan baz sessizce hicbir sey yayinlamiyorken
+// (or. YKİ'nin baud'u yanlis -> her cerceve CRC'den duser) İHA tarafinda
+// yalnizca "timeout" gorunur ve teshis RF'e yanlis yonlenir — oysa hava
+// tertemizdir, sorun kablodadir.
+static uint32_t rtk_tx_mesaj        = 0;   // YKİ'den gecerli RTCM alinip mesh'e yayilan
+static uint32_t rtk_yki_crc_hatasi  = 0;   // COBS cerceve CRC16 tutmadi (baud/kablo/gurultu)
+static uint32_t rtk_yki_tip_hatasi  = 0;   // CRC gecti ama tip/id beklenmedik (protokol uyumsuz)
+static uint32_t rtk_yki_rtcm_hatasi = 0;   // cerceve saglam ama payload gecerli RTCM3 degil
+static uint32_t rtk_tx_cok_buyuk    = 0;   // RTK_MAX_FRAGS'i asan mesaj (reddedildi)
+
 // ===== RTCM3 FRAGMENTASYON VE MESH'E GÖNDERME =====
 // rtcm_veri: tam RTCM3 mesajı (200-1000 byte tipik)
 // uzunluk:   mesajın toplam byte sayısı
@@ -49,12 +62,14 @@ static inline void rtk_rtcm_fragment_ve_gonder(const uint8_t* rtcm_veri, uint16_
     uint8_t frag_toplam = rtk_fragman_hesapla(uzunluk, frag_uzunluklari);
     if (frag_toplam == 0) return;
     if (frag_toplam == RTK_FRAGMAN_REDDEDILDI) {
+        rtk_tx_cok_buyuk++;
         Serial.printf("[RTK-TX] HATA: mesaj cok buyuk (%u byte, max %u)\n",
                       uzunluk, (unsigned)(RTK_MAX_FRAGS * RTK_FRAG_PAYLOAD_MAKS));
         return;
     }
 
     uint32_t paket_id = ++_rtk_paket_sayaci;
+    rtk_tx_mesaj++;
 
     Serial.printf("[RTK-TX] RTCM fragmentlaniyor: %u byte → %u fragment (paket_id=%lu)\n",
                   uzunluk, frag_toplam, (unsigned long)paket_id);
@@ -121,6 +136,26 @@ static bool _rtk_led_durum = false;
 static uint8_t  _yki_rx_buf[RTK_COBS_BUF_SIZE];  // ham COBS byte'lari (0x00'a kadar)
 static uint16_t _yki_rx_idx = 0;
 
+// ===== GONDERICI (BAZ) ISTATISTIGI =====
+// rtk_istatistik_yazdir() (alici/İHA) ile ayni desen, ama BAZ'in sorusu farkli:
+// "ben yayin yapiyor muyum, yapmiyorsam nerede tikandim?" Okuma kilavuzu:
+//   yki_crc yuksek + mesaj=0  -> YKİ hatti: baud/kablo/gurultu (hava temiz)
+//   yki_tip yuksek            -> YKİ protokolu uyumsuz (prefiks/spec surumu)
+//   yki_rtcm yuksek           -> Base yanlis yapilandirilmis (RTCM3 uretmiyor)
+//   mesaj artiyor + zarf_hata -> ESP-NOW TX kuyrugu doluyor (yerel, RF degil)
+//   mesaj artiyor + hata yok  -> baz saglam; sorun havada ya da İHA'da ara
+static inline void rtk_tx_istatistik_yazdir(void) {
+    Serial.printf("[RTK-TX] mesaj=%lu frag=%lu | yki_crc=%lu yki_tip=%lu "
+                  "yki_rtcm=%lu cok_buyuk=%lu zarf_hata=%lu\n",
+                  (unsigned long)rtk_tx_mesaj,
+                  (unsigned long)rtk_tx_frag,
+                  (unsigned long)rtk_yki_crc_hatasi,
+                  (unsigned long)rtk_yki_tip_hatasi,
+                  (unsigned long)rtk_yki_rtcm_hatasi,
+                  (unsigned long)rtk_tx_cok_buyuk,
+                  (unsigned long)rtk_tx_zarf_hatasi);
+}
+
 static inline void rtk_serial_isle(HardwareSerial& seri) {
     while (seri.available()) {
         uint8_t b = seri.read();
@@ -150,10 +185,13 @@ static inline void rtk_serial_isle(HardwareSerial& seri) {
         uint16_t rtcm_uzunluk;
         if (!cobs_cerceve_coz(decoded, decoded_uzunluk, &tip_byte, &id_byte,
                                &rtcm_mesaj, &rtcm_uzunluk)) {
-            Serial.println("[RTK-RX] HATA: CRC16 dogrulanamadi, cerceve atildi");
+            rtk_yki_crc_hatasi++;
+            Serial.println("[RTK-RX] HATA: CRC16 dogrulanamadi, cerceve atildi "
+                           "(surekli tekrarliyorsa YKİ baud/kablo kontrol et)");
             continue;
         }
         if (tip_byte != TIP_RTK || id_byte != BAZ_ID) {
+            rtk_yki_tip_hatasi++;
             Serial.printf("[RTK-RX] HATA: beklenmeyen tip/id (tip=0x%02X id=%u), atildi\n",
                           tip_byte, id_byte);
             continue;
@@ -161,6 +199,7 @@ static inline void rtk_serial_isle(HardwareSerial& seri) {
 
         // Savunma 1: RTCM3 preamble
         if (rtcm_uzunluk < 6 || rtcm_mesaj[0] != 0xD3) {
+            rtk_yki_rtcm_hatasi++;
             Serial.println("[RTK-RX] HATA: payload RTCM3 ile baslamiyor, dusuruldu");
             continue;
         }
@@ -168,6 +207,7 @@ static inline void rtk_serial_isle(HardwareSerial& seri) {
         uint16_t rtcm_payload_len = (uint16_t)(rtcm_mesaj[1] & 0x03) << 8 | (uint16_t)rtcm_mesaj[2];
         uint16_t beklenen_uzunluk = 3 + rtcm_payload_len + 3;  // header + payload + CRC24
         if (beklenen_uzunluk != rtcm_uzunluk) {
+            rtk_yki_rtcm_hatasi++;
             Serial.printf("[RTK-RX] HATA: RTCM uzunluk tutarsiz (beklenen %u, gelen %u), dusuruldu\n",
                           beklenen_uzunluk, rtcm_uzunluk);
             continue;

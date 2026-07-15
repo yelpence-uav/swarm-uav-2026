@@ -290,6 +290,18 @@ void loop() {
     // (UYARI/RTL/LAND) bildirim TX DRONE ile ayni formatta calisir.
     failsafe_kontrol(Serial2);
 
+#ifndef RTK_ISTATISTIK_LOGLAMA_KAPALI
+    // Gonderici tarafi RTK istatistigi (TX DRONE'daki alici karsiligiyla ayni
+    // periyot/flag). Baz'in kendi yayin sagligini gorunur kilar: bu satir
+    // olmadan "RTK yok" sikayetinde baz'in hic yayin yapmadigi ile havada
+    // kaybolmasi ayirt edilemiyordu (bkz rtk_sender.h okuma kilavuzu).
+    static uint32_t son_rtk_tx_istatistik_ms = 0;
+    if (millis() - son_rtk_tx_istatistik_ms >= 10000) {
+        son_rtk_tx_istatistik_ms = millis();
+        rtk_tx_istatistik_yazdir();
+    }
+#endif
+
     uart_mesaj_t gelen;
     while (xQueueReceive(uart_kuyruk, &gelen, 0) == pdPASS) {
         uart_gonder(gelen.tip, gelen.iha_id, gelen.payload, gelen.uzunluk);
