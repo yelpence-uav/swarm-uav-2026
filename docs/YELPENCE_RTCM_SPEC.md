@@ -306,13 +306,31 @@ frag başlığı (msg_id4 + frag_index1 + frag_total1 + frag_uzunluk1)    =  7 B
 
 ## 3. Modüller ve Sorumlulukları
 
-### 3.1 `yki/` — PC tarafı (Python 3.10+, pyserial, cobs)
+### 3.1 YKİ — Donanım Kararı ve Saha Prosedürü
 
-> ⚠️ **EKSİK İÇERİK:** Bu bölümün daha kapsamlı bir sürümü (CubePilot Here4 Base
-> donanım kararı ve adım adım Mission Planner Survey-In prosedürü) sohbete
-> yapıştırılmış, ancak elimizdeki dosya kopyasında yer almıyor. Aşağıdaki metin
-> mevcut kopyadan alınmıştır; **Here4/Mission Planner prosedürü YKİ sorumlusu
-> tarafından buraya eklenmelidir.**
+**Donanım kararı (KESİN): Base = CubePilot Here4 Base.**
+Kendi USB kablosuyla PC'ye doğrudan bağlanır ve standart COM/seri port
+olarak görünür (içi u-blox F9P). CAN adaptörü GEREKMEZ — CAN→USB
+adaptörü yalnızca Here4 ROVER'lar (drone üzerindeki, Pixhawk'a DroneCAN
+ile bağlı GPS'ler) bağlamında geçerlidir ve YKİ'yi ilgilendirmez.
+
+**Saha kurulum prosedürü (her kurulumda, operasyonel — kod değil):**
+1. Mission Planner → Initial Setup → Optional Hardware → RTK/GPS Inject.
+2. Here4 Base'in COM portunu seç, bağlan; SurveyIn Accuracy + Time gir,
+   Restart.
+3. Survey tamamlanıp RTCM göstergeleri yeşil olunca "Save Current Pos"
+   ile konumu kaydet — sonraki kurulumlarda "Use" ile Survey-In
+   beklemeden sabit modda başlar (yarışma günü zaman kazandırır).
+4. Mission Planner'ı KAPAT (COM portunu serbest bırak) → YKİ okuyucusunu
+   başlat. ⚠️ Aynı COM portu iki program aynı anda açamaz; MP açıkken
+   YKİ port hatası alır.
+5. YKİ mesaj setini logdan doğrular: 1005, 1074, 1084, 1094, 1230 @1Hz.
+   MSM7 tipi (1077/1087/1097/1127) görülürse Base yanlış
+   yapılandırılmıştır — MP'den MSM4'e düzeltilir.
+6. (Backlog / v2): YKİ'nin pyubx2 ile UBX-CFG göndererek Survey-In +
+   MSM4 setini kendisinin yapılandırması — şimdilik UYGULANMAZ.
+
+#### 3.1.1 `yki/` — PC tarafı yazılımı (Python 3.10+, pyserial, cobs)
 
 Görev: F9P seri akışından tam RTCM mesajları ayrıştır → CRC-24Q doğrula →
 §2.2 formatıyla Base-ESP'ye gönder.
