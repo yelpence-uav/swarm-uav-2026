@@ -8,6 +8,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "rtk_pure.h"      // ADIM 6: RTK_ENV_MAKS_TOPLAM vb. TEK yerden (portable)
+#include "replay_pure.h"   // F1: anti_replay_t/replay_state_t + saf replay karari (portable)
 
 #define MESH_KANAL           11   // Birincil — non-overlapping, TR ISM, sahada en az meşgul
 #define MESH_KANAL_YEDEK      6   // Yedek — uçuş öncesi spektrum analizi olumsuzsa buraya geç
@@ -185,23 +186,16 @@ struct __attribute__((packed)) mesh_paket_t {
     uint8_t  tag[16];          // GCM auth tag — sifre cozumunde dogrulanir
 };
 
-// ===== SLIDING WINDOW ANTI-REPLAY (Yontem 1) =====
+// ===== SLIDING WINDOW ANTI-REPLAY =====
+// F1: PENCERE_BOYU, anti_replay_t, replay_state_t ve KARAR mantigi artik
+// replay_pure.h'de (Arduino'dan bagimsiz, native'de ASan ile test edilir).
+// Burasi sadece ince kabuk: loglama + NVS persist.
+//
 // TODO: GPS_TIMESTAMP — HAS_PIXHAWK + MAVLink GPS okumasi hazir oldugunda
-//   stateless GPS zaman damgasina gec: |alici_gps_ms - paket_gps_ms| > 2000 ise at.
-//   session_id, pencere ve ilk_paket mekanizmasina gerek kalmaz.
-#define PENCERE_BOYU 64
-
-struct __attribute__((packed)) anti_replay_t {
-    uint16_t session_id; // boot basina rastgele — reboot sonrasi pencereyi sifirlar
-    uint32_t paket_id;   // sifrelenmis payload icinde — baslik manipulasyonu engellenir
-};
-
-struct replay_state_t {
-    uint16_t session_id;
-    uint32_t en_yuksek_id;
-    uint64_t pencere_bitmask; // son 64 paketin gelis durumu
-    bool     ilk_paket;       // true: ilk pakette pencereyi baslatir
-};
+//   session_id'nin YERINE degil, YANINA konulacak: bootstrap sorunu var
+//   (boot'ta fix yokken fail-closed = GPS'siz hic ucamazsin, fail-open =
+//   saldirganin istedigi pencere) ve tek basina ayni saniye icindeki
+//   replay'i durdurmaz — sayac yine gerekli.
 
 struct node_durum_t {
     uint8_t        mac[6];
@@ -263,35 +257,97 @@ static inline bool _broadcast_mi(const uint8_t* mac) {
     return _mac_esit(mac, BROADCAST_MAC);
 }
 
+// ===== F1: PEER SESSION KALICILIGI (ALICI YARISI) =====
+// session_id artik gonderici tarafinda MONOTON (bkz mesh_init: NVS boot
+// sayaci). Bu tek basina yetmez: alici da son gordugu session_id'yi
+// PERSIST etmezse, saldirgan "aliciyi reboot ettir, eski session'i oynat"
+// senaryosuna kayar ve fix kagit uzerinde kalir.
+//
+// Yazma sikligi: peer BASINA, peer'in BOOT'u basina bir kez (session
+// degisiminde). Paket basina yazma YOK — flash omru sorunu olmaz.
+// (Bu yuzden en_yuksek_id'yi persist ETMIYORUZ: o her pakette artiyor,
+// yazma amplifikasyonu flash'i yerdi.)
+struct __attribute__((packed)) peer_session_kayit_t {
+    uint8_t  mac[6];
+    uint16_t session_id;   // 0 = kayit yok
+};   // 8 byte
+static peer_session_kayit_t _peer_sessions[MESH_MAX_NODES] = {};
+
+static inline uint16_t _peer_session_getir(const uint8_t* mac) {
+    for (uint8_t i = 0; i < MESH_MAX_NODES; i++)
+        if (_peer_sessions[i].session_id != 0 && _mac_esit(_peer_sessions[i].mac, mac))
+            return _peer_sessions[i].session_id;
+    return 0;   // kayit yok
+}
+
+static inline void _peer_session_kaydet(const uint8_t* mac, uint16_t sid) {
+    int8_t slot = -1;
+    for (uint8_t i = 0; i < MESH_MAX_NODES; i++) {
+        if (_peer_sessions[i].session_id != 0 && _mac_esit(_peer_sessions[i].mac, mac)) { slot = (int8_t)i; break; }
+        if (_peer_sessions[i].session_id == 0 && slot < 0) slot = (int8_t)i;   // ilk bos
+    }
+    if (slot < 0) {
+        // MESH_MAX_NODES kadar peer zaten kayitli ve bu yeni bir MAC.
+        // Sessizce gecmek yerine gurultu cikar: bu peer icin reboot-replay
+        // korumasi YOK demektir.
+        Serial.printf("[REPLAY] UYARI: peer session tablosu dolu, %02X:%02X kalici korumasiz\n",
+                      mac[4], mac[5]);
+        return;
+    }
+    memcpy(_peer_sessions[slot].mac, mac, 6);
+    _peer_sessions[slot].session_id = sid;
+    Preferences prefs;
+    if (prefs.begin("mesh_sec", false)) {
+        prefs.putBytes("peer_sess", _peer_sessions, sizeof(_peer_sessions));
+        prefs.end();
+    } else {
+        Serial.println("[REPLAY] UYARI: NVS acilamadi, peer session persist EDILEMEDI");
+    }
+}
+
+static inline void _peer_session_yukle(void) {
+    Preferences prefs;
+    if (prefs.begin("mesh_sec", true)) {
+        // Kayit yoksa getBytes 0 doner; dizi sifir kalir (= kayit yok).
+        prefs.getBytes("peer_sess", _peer_sessions, sizeof(_peer_sessions));
+        prefs.end();
+    }
+}
+
+// F1: session_id kurali artik MONOTON — "farkli" degil, "daha buyuk" olmali.
+//   ar->session_id  < bilinen  -> ESKI session, REDDET (reboot-replay saldirisi)
+//   ar->session_id == bilinen  -> ayni session, normal pencere mantigi
+//   ar->session_id  > bilinen  -> gonderici reboot etti, kabul + persist
+//
+// KALAN BOSLUK (bilincli): ayni session icinde, node NODE_TIMEOUT_MS boyunca
+// susarsa replay penceresi RAM'de sifirlanir (en_yuksek_id persist edilmiyor
+// — flash omru). Bu pencereyi de kapatmak icin _node_bul_veya_ekle() artik
+// pasif ama TANIDIK MAC'i replay durumunu KORUYARAK canlandiriyor; yani
+// bosluk sadece node tablosundan tamamen dusurulup slot'u baskasina
+// verilirse acilir. Tam cozum GPS zaman damgasi TODO'sunda (bkz asagi).
+// Ince kabuk: karar replay_pure.h::replay_karar()'da (native'de test edilir),
+// burasi yalnizca NVS persist + loglama yapar.
 static inline bool _replay_kontrol(node_durum_t* node, const anti_replay_t* ar) {
-    replay_state_t* rs = &node->replay;
-    if (rs->ilk_paket) {
-        rs->session_id      = ar->session_id;
-        rs->en_yuksek_id    = ar->paket_id;
-        rs->pencere_bitmask = 1ULL;
-        rs->ilk_paket       = false;
-        return true;
+    uint16_t kalici = _peer_session_getir(node->mac);
+    replay_sonuc_t s = replay_karar(&node->replay, ar->session_id, ar->paket_id, kalici);
+
+    switch (s) {
+        case REPLAY_KABUL_YENI_SESSION:
+            // Yeni (daha buyuk) session kabul edildi — kalici kaydi guncelle.
+            // Peer basina, peer'in boot'u basina TEK yazma.
+            _peer_session_kaydet(node->mac, ar->session_id);
+            return true;
+        case REPLAY_KABUL:
+            return true;
+        case REPLAY_RED_ESKI_SESSION:
+            Serial.printf("[REPLAY] ESKI SESSION reddedildi: %02X:%02X sid=%u (kalici=%u)\n",
+                          node->mac[4], node->mac[5], ar->session_id, kalici);
+            return false;
+        case REPLAY_RED_DUPLIKAT:
+        case REPLAY_RED_ESKI_PAKET:
+        default:
+            return false;
     }
-    if (ar->session_id != rs->session_id) {
-        // Reboot algilandi — yeni session kabul et, pencereyi sifirla
-        rs->session_id      = ar->session_id;
-        rs->en_yuksek_id    = ar->paket_id;
-        rs->pencere_bitmask = 1ULL;
-        return true;
-    }
-    if (ar->paket_id > rs->en_yuksek_id) {
-        uint32_t ilerleme   = ar->paket_id - rs->en_yuksek_id;
-        rs->pencere_bitmask = (ilerleme >= PENCERE_BOYU)
-                              ? 0ULL : (rs->pencere_bitmask << ilerleme);
-        rs->pencere_bitmask |= 1ULL;
-        rs->en_yuksek_id    = ar->paket_id;
-        return true;
-    }
-    uint32_t fark = rs->en_yuksek_id - ar->paket_id;
-    if (fark >= PENCERE_BOYU)                 return false; // cok eski
-    if (rs->pencere_bitmask & (1ULL << fark)) return false; // replay!
-    rs->pencere_bitmask |= (1ULL << fark);
-    return true;
 }
 
 static inline uint32_t _paket_hash(const mesh_paket_t* p) {
@@ -326,12 +382,36 @@ static inline void _peer_ekle(const uint8_t* mac) {
 }
 
 static node_durum_t* _node_bul_veya_ekle(const uint8_t* mac) {
-    node_durum_t* bos = nullptr;
+    node_durum_t* bos    = nullptr;
+    node_durum_t* tanidik = nullptr;
     for (uint8_t i = 0; i < MESH_MAX_NODES; i++) {
-        if (_bilinen_nodlar[i].aktif && _mac_esit(_bilinen_nodlar[i].mac, mac))
-            return &_bilinen_nodlar[i];
-        if (!_bilinen_nodlar[i].aktif && bos == nullptr)
-            bos = &_bilinen_nodlar[i];
+        if (_mac_esit(_bilinen_nodlar[i].mac, mac)) {
+            if (_bilinen_nodlar[i].aktif) return &_bilinen_nodlar[i];
+            // F1: PASIF ama TANIDIK MAC. Eskiden buraya dusen node bir
+            // sonraki "bos slot" dalinda replay durumu SIFIRLANARAK yeniden
+            // ekleniyordu (ilk_paket=true -> pencere sifir). Yani saldirgan
+            // NODE_TIMEOUT_MS (12s) boyunca jam yapip node'u dusurdukten
+            // sonra AYNI session'in eski paketlerini tekrar oynatabiliyordu.
+            // Artik pasif tanidik node replay durumu KORUNARAK canlandirilir.
+            tanidik = &_bilinen_nodlar[i];
+            break;
+        }
+        if (!_bilinen_nodlar[i].aktif && _bilinen_nodlar[i].replay.session_id == 0 &&
+            bos == nullptr)
+            bos = &_bilinen_nodlar[i];   // hic kullanilmamis slot
+    }
+    if (tanidik) {
+        tanidik->aktif            = true;
+        tanidik->son_heartbeat_ms = millis();
+        // replay durumuna DOKUNULMAZ — pencere ve session_id korunur.
+        return tanidik;
+    }
+    if (bos == nullptr) {
+        // Hic bos slot yok: en eski pasif node'un yerini al (replay durumu
+        // kaybolur, ama NVS'teki peer_session kaydi eski session'i yine de
+        // reddeder — bkz _replay_kontrol ilk_paket dali).
+        for (uint8_t i = 0; i < MESH_MAX_NODES; i++)
+            if (!_bilinen_nodlar[i].aktif) { bos = &_bilinen_nodlar[i]; break; }
     }
     if (bos) {
         memcpy(bos->mac, mac, 6);
@@ -649,10 +729,50 @@ static inline void mesh_kanal_tara(void) {
     Serial.println("[KANAL-TARA] cihazlari (base + her drone) AYNI degerle yeniden flaslayin.");
 }
 
+// ===== F1: MONOTON SESSION ID (GONDERICI YARISI) =====
+// Eskiden: _session_id = esp_random() — RASTGELE ve kalici degil. Alici
+// "session_id farkli" gorunce reboot varsayip pencereyi sifirladigi icin,
+// saldirgan yakaladigi ESKI session'in paketlerini reboot sonrasi tekrar
+// oynatabiliyordu (session_id GCM ile authenticated oldugundan uyduramaz,
+// ama AYNEN tekrar oynatabilir).
+//
+// Simdi: NVS'te monoton artan boot sayaci. Kural netlesiyor — session_id
+// gonderici basina monoton artar, alici kucuk olani reddeder
+// (bkz _replay_kontrol). Boot basina TEK yazma; flash omru sorunu yok.
+//
+// 16-bit sarma: anti_replay_t.session_id uint16 (tel formati — degistirmek
+// zarf duzenini bozar). 65535 boot'ta sarardi ve "kucukse reddet" kurali
+// kirilirdi. Tanimli davranis: SARMA YOK, fail-closed dur. 65535 boot
+// gunde 10 boot'ta ~18 yil — pratikte erisilmez, ama sessizce guvenligi
+// kaybetmektense gurultuyle durmak yeglenir (aes_init/drone_tablo deseni).
+static inline void _session_id_uret(void) {
+    Preferences prefs;
+    if (!prefs.begin("mesh_sec", false)) {
+        Serial.println("[MESH] KRITIK: NVS acilamadi — session_id monoton olamaz.");
+        Serial.println("[MESH] Replay korumasi saglanamadigi icin durduruldu.");
+        Serial.flush();
+        while (true) delay(1000);
+    }
+    uint32_t boot_sayaci = prefs.getUInt("boot_ctr", 0) + 1;
+    if (boot_sayaci > 0xFFFF) {
+        prefs.end();
+        Serial.println("[MESH] KRITIK: boot sayaci 65535'i asti (session_id uint16).");
+        Serial.println("[MESH] Monoton session garantisi bitti — durduruldu.");
+        Serial.println("[MESH] Cozum: tum node'larda NVS boot_ctr sifirlanip AES anahtari");
+        Serial.println("[MESH] yenilenmeli (eski trafik ancak boylece replay edilemez).");
+        Serial.flush();
+        while (true) delay(1000);
+    }
+    prefs.putUInt("boot_ctr", boot_sayaci);
+    prefs.end();
+    _session_id = (uint16_t)boot_sayaci;   // 1..65535 — 0 asla (sayac 1'den basliyor)
+    Serial.printf("[MESH] session_id=%u (monoton boot sayaci, NVS)\n", _session_id);
+}
+
 static inline void mesh_init(mesh_veri_callback_t callback) {
     aes_init(); // Key expansion bir kez yapilir
-    _session_id = (uint16_t)(esp_random() & 0xFFFF);
-    if (_session_id == 0) _session_id = 1; // 0 deger rezerv
+    _session_id_uret();     // F1: monoton, NVS'te kalici (gonderici yarisi)
+    _peer_session_yukle();  // F1: peer_mac -> son session_id (alici yarisi)
     _veri_callback = callback;
     esp_read_mac(_benim_mac, ESP_MAC_WIFI_STA);
     Serial.printf("[MESH] MAC: %02X:%02X:%02X:%02X:%02X:%02X\n",

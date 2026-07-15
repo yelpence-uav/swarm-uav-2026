@@ -12,6 +12,7 @@
 #include "rtk_pure.h"
 #include "uart_cobs.h"
 #include "uart_frame_parser.h"   // desync regresyon testleri
+#include "replay_pure.h"         // F1: reboot-replay karar kurali
 
 // ===== CRC16 TEST VEKTORU (spec 2.1) =====
 void test_crc16_test_vektoru(void) {
@@ -306,6 +307,106 @@ void test_frame_parser_bolunmus_cerceve_birlesir(void) {
     TEST_ASSERT_EQUAL_UINT8_ARRAY(pg, pk, 16);
 }
 
+// ===== F1: REBOOT-REPLAY KARAR KURALI =====
+// Tehdit: saldirgan RF'i yakalar, gonderici reboot edene kadar bekler, sonra
+// ESKI session'in (authenticated ama eski) paketlerini tekrar oynatir.
+// Eski kod "session_id farkli -> reboot varsay, pencereyi sifirla, KABUL"
+// diyordu; yani saldiri isliyordu. Yeni kural: session_id MONOTON, kucuk
+// olan reddedilir. Alici yarisi (kalici_session) olmadan kural kagit
+// uzerinde kalir — bu yuzden ayrica test ediliyor.
+
+static replay_state_t _yeni_durum(void) {
+    replay_state_t rs;
+    memset(&rs, 0, sizeof(rs));
+    rs.ilk_paket = true;
+    return rs;
+}
+
+void test_replay_ilk_paket_kabul(void) {
+    replay_state_t rs = _yeni_durum();
+    // Kalici kayit yok (0) -> ilk paket kabul, cagirana "persist et" denir
+    TEST_ASSERT_EQUAL(REPLAY_KABUL_YENI_SESSION, replay_karar(&rs, 5, 100, 0));
+    TEST_ASSERT_EQUAL_UINT16(5, rs.session_id);
+    TEST_ASSERT_FALSE(rs.ilk_paket);
+}
+
+// ÇEKİRDEK REGRESYON: alici reboot etti (RAM durumu yok, ilk_paket=true) ama
+// NVS'te peer'in son session'i duruyor. Saldirgan eski session'i oynatiyor.
+void test_replay_alici_reboot_sonrasi_eski_session_reddedilir(void) {
+    replay_state_t rs = _yeni_durum();
+    // NVS: bu peer'i en son session 9'da gormustuk
+    TEST_ASSERT_EQUAL(REPLAY_RED_ESKI_SESSION, replay_karar(&rs, 7, 500, /*kalici=*/9));
+    // Reddedilen paket durumu KIRLETMEMELI (hala ilk_paket)
+    TEST_ASSERT_TRUE(rs.ilk_paket);
+}
+
+// Ayni senaryo ama kalici kayit YOKSA (alici yarisi atlanmis olsaydi):
+// saldiri gecerdi. Bu test, alici-persist yarisinin neden sart oldugunu
+// belgeliyor — kalici=0 iken ayni eski paket KABUL ediliyor.
+void test_replay_kalici_kayit_yoksa_eski_session_gecer(void) {
+    replay_state_t rs = _yeni_durum();
+    TEST_ASSERT_TRUE(replay_kabul_mu(replay_karar(&rs, 7, 500, /*kalici=*/0)));
+}
+
+void test_replay_ayni_session_devam_kabul(void) {
+    replay_state_t rs = _yeni_durum();
+    // NVS'teki session ile ayni -> normal kabul, persist gerekmez
+    TEST_ASSERT_EQUAL(REPLAY_KABUL, replay_karar(&rs, 9, 100, /*kalici=*/9));
+}
+
+void test_replay_calisirken_eski_session_reddedilir(void) {
+    replay_state_t rs = _yeni_durum();
+    replay_karar(&rs, 10, 100, 0);            // session 10'da calisiyoruz
+    // Saldirgan session 9'dan bir paket enjekte ediyor
+    TEST_ASSERT_EQUAL(REPLAY_RED_ESKI_SESSION, replay_karar(&rs, 9, 50, 10));
+    TEST_ASSERT_EQUAL_UINT16(10, rs.session_id);  // durum bozulmadi
+}
+
+void test_replay_yeni_session_kabul_ve_pencere_sifirlanir(void) {
+    replay_state_t rs = _yeni_durum();
+    replay_karar(&rs, 10, 5000, 0);
+    // Gonderici reboot etti: session 11, paket_id bastan (dusuk)
+    TEST_ASSERT_EQUAL(REPLAY_KABUL_YENI_SESSION, replay_karar(&rs, 11, 1, 10));
+    TEST_ASSERT_EQUAL_UINT16(11, rs.session_id);
+    TEST_ASSERT_EQUAL_UINT32(1, rs.en_yuksek_id);   // pencere sifirlandi
+}
+
+void test_replay_duplikat_reddedilir(void) {
+    replay_state_t rs = _yeni_durum();
+    replay_karar(&rs, 3, 100, 0);
+    TEST_ASSERT_EQUAL(REPLAY_KABUL, replay_karar(&rs, 3, 101, 3));
+    TEST_ASSERT_EQUAL(REPLAY_RED_DUPLIKAT, replay_karar(&rs, 3, 101, 3));  // ayni paket
+    TEST_ASSERT_EQUAL(REPLAY_RED_DUPLIKAT, replay_karar(&rs, 3, 100, 3));
+}
+
+void test_replay_pencere_disi_eski_paket_reddedilir(void) {
+    replay_state_t rs = _yeni_durum();
+    replay_karar(&rs, 3, 1000, 0);
+    // PENCERE_BOYU=64: 1000-64=936 ve altisi cok eski
+    TEST_ASSERT_EQUAL(REPLAY_RED_ESKI_PAKET, replay_karar(&rs, 3, 936, 3));
+    TEST_ASSERT_EQUAL(REPLAY_RED_ESKI_PAKET, replay_karar(&rs, 3, 1, 3));
+    // Pencere icindeki (henuz gorulmemis) eski paket KABUL edilmeli
+    TEST_ASSERT_EQUAL(REPLAY_KABUL, replay_karar(&rs, 3, 990, 3));
+}
+
+void test_replay_sira_disi_pencere_icinde_kabul(void) {
+    replay_state_t rs = _yeni_durum();
+    replay_karar(&rs, 3, 100, 0);
+    TEST_ASSERT_EQUAL(REPLAY_KABUL, replay_karar(&rs, 3, 105, 3));  // ileri sicrama
+    TEST_ASSERT_EQUAL(REPLAY_KABUL, replay_karar(&rs, 3, 102, 3));  // geride kalan
+    TEST_ASSERT_EQUAL(REPLAY_RED_DUPLIKAT, replay_karar(&rs, 3, 102, 3));  // tekrari
+}
+
+void test_replay_buyuk_ilerleme_pencereyi_temizler(void) {
+    replay_state_t rs = _yeni_durum();
+    replay_karar(&rs, 3, 100, 0);
+    // 64'ten buyuk ilerleme -> pencere tamamen temizlenir
+    TEST_ASSERT_EQUAL(REPLAY_KABUL, replay_karar(&rs, 3, 1000, 3));
+    TEST_ASSERT_EQUAL_UINT32(1000, rs.en_yuksek_id);
+    // Eski pencereden bir sey kalmamali: 999 (henuz gorulmedi) kabul
+    TEST_ASSERT_EQUAL(REPLAY_KABUL, replay_karar(&rs, 3, 999, 3));
+}
+
 // ===== FRAGMANTASYON =====
 // NOT: bu testler MESH-seviyesi fragmantasyonu (esp_tx->esp_rx, RTK_MAX_FRAGS=8,
 // RTK_FRAG_PAYLOAD_MAKS=191 -> ust sinir 1528B) dogruluyor. Spec'in "721B
@@ -449,6 +550,16 @@ int main(int argc, char** argv) {
     RUN_TEST(test_frame_parser_istenmeyen_tip_sonraki_komutu_bozmaz);
     RUN_TEST(test_frame_parser_tasma_gurultu_sonrasi_resync);
     RUN_TEST(test_frame_parser_bolunmus_cerceve_birlesir);
+    RUN_TEST(test_replay_ilk_paket_kabul);
+    RUN_TEST(test_replay_alici_reboot_sonrasi_eski_session_reddedilir);
+    RUN_TEST(test_replay_kalici_kayit_yoksa_eski_session_gecer);
+    RUN_TEST(test_replay_ayni_session_devam_kabul);
+    RUN_TEST(test_replay_calisirken_eski_session_reddedilir);
+    RUN_TEST(test_replay_yeni_session_kabul_ve_pencere_sifirlanir);
+    RUN_TEST(test_replay_duplikat_reddedilir);
+    RUN_TEST(test_replay_pencere_disi_eski_paket_reddedilir);
+    RUN_TEST(test_replay_sira_disi_pencere_icinde_kabul);
+    RUN_TEST(test_replay_buyuk_ilerleme_pencereyi_temizler);
     RUN_TEST(test_fragmantasyon_25B);
     RUN_TEST(test_fragmantasyon_180B);
     RUN_TEST(test_fragmantasyon_200B);
