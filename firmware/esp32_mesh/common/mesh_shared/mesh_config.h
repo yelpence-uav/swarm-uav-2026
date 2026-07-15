@@ -242,6 +242,13 @@ struct node_durum_t {
     bool           aktif;
     bool           peer_kayitli;
     replay_state_t replay;
+    // FAIL-CLOSED YAPISKANLIGI (madde 4): _peer_session_kaydet() basarisiz
+    // olursa TEK paketi reddetmek KOZMETIK olurdu — replay_karar() RAM
+    // durumunu (rs->session_id) persist denemesinden ONCE guncelliyor, bu
+    // yuzden peer'in bir sonraki paketi "ayni session" dalindan REPLAY_KABUL
+    // alip persist edilmeden iceri girerdi. Bayrak bir kez kalkinca bu
+    // node'un TUM paketleri, basarili bir persist olana kadar reddedilir.
+    bool           persist_hatasi;
 };
 
 // ===== ISR-SAFE PAKET BUFFER =====
@@ -336,29 +343,48 @@ static inline uint16_t _peer_session_getir(const uint8_t* mac) {
     return 0;   // kayit yok
 }
 
-static inline void _peer_session_kaydet(const uint8_t* mac, uint16_t sid) {
+// FAIL-CLOSED (madde 4): basarisizsa false doner ve cagiran taraf paketi
+// REDDEDER. Eskiden bu yol fail-OPEN'di (uyari basip sessizce devam) — repodaki
+// her yer fail-closed iken (aes_init provision-yok, drone_tablo ID cakismasi,
+// _session_id_uret NVS hatasi) guvenlik katmanindaki tek fail-open istisnaydi;
+// gelecekte kopyalanacak yanlis ornek olurdu.
+//
+// PEER_SESS_TABLO_BOYU assert'i sayesinde "tablo dolu" yolu normalde
+// ULASILAMAZ (tablo tum droneleri + bazi aliyor). Bu fail-closed dali, o
+// assert'i birinin bilincli gevsettigi senaryonun sigortasi.
+static inline bool _peer_session_kaydet(const uint8_t* mac, uint16_t sid) {
     int8_t slot = -1;
     for (uint8_t i = 0; i < PEER_SESS_TABLO_BOYU; i++) {
         if (_peer_sessions[i].session_id != 0 && _mac_esit(_peer_sessions[i].mac, mac)) { slot = (int8_t)i; break; }
         if (_peer_sessions[i].session_id == 0 && slot < 0) slot = (int8_t)i;   // ilk bos
     }
     if (slot < 0) {
-        // MESH_MAX_NODES kadar peer zaten kayitli ve bu yeni bir MAC.
-        // Sessizce gecmek yerine gurultu cikar: bu peer icin reboot-replay
-        // korumasi YOK demektir.
-        Serial.printf("[REPLAY] UYARI: peer session tablosu dolu, %02X:%02X kalici korumasiz\n",
+        Serial.printf("[REPLAY] KRITIK: peer_sess tablosu dolu, %02X:%02X REDDEDILIYOR "
+                      "(kalici replay korumasi verilemiyor). PEER_SESS_TABLO_BOYU'nu buyut.\n",
                       mac[4], mac[5]);
-        return;
+        return false;
     }
     memcpy(_peer_sessions[slot].mac, mac, 6);
     _peer_sessions[slot].session_id = sid;
     Preferences prefs;
-    if (prefs.begin("mesh_sec", false)) {
-        prefs.putBytes("peer_sess", _peer_sessions, sizeof(_peer_sessions));
-        prefs.end();
-    } else {
-        Serial.println("[REPLAY] UYARI: NVS acilamadi, peer session persist EDILEMEDI");
+    if (!prefs.begin("mesh_sec", false)) {
+        // RAM kaydi guncellendi ama NVS'e yazilamadi: bu oturum icinde koruma
+        // calisir, ama BIZ reboot edersek kayit kaybolur -> tam da F1'in
+        // kapattigi "aliciyi reboot ettir, eski session'i oynat" acigi.
+        // Kalici garanti veremiyoruz, o yuzden fail-closed.
+        Serial.printf("[REPLAY] KRITIK: NVS acilamadi, %02X:%02X icin peer session "
+                      "PERSIST EDILEMEDI -> REDDEDILIYOR\n", mac[4], mac[5]);
+        return false;
     }
+    size_t yazilan = prefs.putBytes("peer_sess", _peer_sessions, sizeof(_peer_sessions));
+    prefs.end();
+    if (yazilan != sizeof(_peer_sessions)) {
+        Serial.printf("[REPLAY] KRITIK: peer_sess yazilamadi (%u/%u byte), %02X:%02X "
+                      "REDDEDILIYOR\n", (unsigned)yazilan, (unsigned)sizeof(_peer_sessions),
+                      mac[4], mac[5]);
+        return false;
+    }
+    return true;
 }
 
 static inline void _peer_session_yukle(void) {
@@ -384,6 +410,15 @@ static inline void _peer_session_yukle(void) {
 // Ince kabuk: karar replay_pure.h::replay_karar()'da (native'de test edilir),
 // burasi yalnizca NVS persist + loglama yapar.
 static inline bool _replay_kontrol(node_durum_t* node, const anti_replay_t* ar) {
+    // FAIL-CLOSED YAPISKANLIGI: daha once bu node icin kalici kayit
+    // verilemediyse, duzelene kadar HICBIR paketini kabul etme. Aksi halde
+    // reddin kendisi kozmetik kalirdi (bkz node_durum_t::persist_hatasi).
+    if (node->persist_hatasi) {
+        Serial.printf("[REPLAY] %02X:%02X persist hatasi nedeniyle reddediliyor "
+                      "(kalici replay korumasi yok)\n", node->mac[4], node->mac[5]);
+        return false;
+    }
+
     uint16_t kalici = _peer_session_getir(node->mac);
     replay_sonuc_t s = replay_karar(&node->replay, ar->session_id, ar->paket_id, kalici);
 
@@ -391,7 +426,13 @@ static inline bool _replay_kontrol(node_durum_t* node, const anti_replay_t* ar) 
         case REPLAY_KABUL_YENI_SESSION:
             // Yeni (daha buyuk) session kabul edildi — kalici kaydi guncelle.
             // Peer basina, peer'in boot'u basina TEK yazma.
-            _peer_session_kaydet(node->mac, ar->session_id);
+            // FAIL-CLOSED: persist edemezsek bu paketi de, sonrakileri de
+            // reddet — kalici garanti veremedigimiz bir peer'i kabul etmek
+            // F1'in kapattigi acigi geri acar.
+            if (!_peer_session_kaydet(node->mac, ar->session_id)) {
+                node->persist_hatasi = true;
+                return false;
+            }
             return true;
         case REPLAY_KABUL:
             return true;
@@ -486,6 +527,11 @@ static node_durum_t* _node_bul_veya_ekle(const uint8_t* mac) {
         bos->son_heartbeat_ms = millis();
         bos->replay = {};
         bos->replay.ilk_paket = true;
+        // Slot BASKA bir MAC'e veriliyor: persist bayragi o eski MAC'e aitti,
+        // yeni sahibine miras kalmamali (yoksa yeni peer haksiz reddedilir).
+        // Tanidik MAC'in canlandirildigi yol yukarida ayri ve orada bayrak
+        // BILEREK korunuyor — fail-closed o MAC icin gecerliligini surdurur.
+        bos->persist_hatasi = false;
     }
     return bos;
 }
