@@ -72,6 +72,15 @@ _HEARTBEAT_QOS = QoSProfile(
     depth=5,
 )
 
+# BEST_EFFORT: agent status proxy'den (/public) BEST_EFFORT geliyor (kayıplı
+# kanal). RELIABLE abone best-effort yayıncıyla eşleşmez → status alınamaz.
+_STATUS_QOS = QoSProfile(
+    reliability=ReliabilityPolicy.BEST_EFFORT,
+    durability=DurabilityPolicy.VOLATILE,
+    history=HistoryPolicy.KEEP_LAST,
+    depth=10,
+)
+
 # --- Sağlık eşikleri ---
 _AGENT_STALE_TIMEOUT_S = 3.0
 _FORMATION_STABLE_THRESHOLD_M = 1.5
@@ -186,7 +195,7 @@ class SwarmFsmNode(Node):
                 AgentStatus,
                 f'/swarm/public/drone{aid}/status',
                 self._make_agent_cb(aid),
-                10,
+                _STATUS_QOS,
             )
 
         # SystemEvent — public (diğer İHA'lardan gelen olaylar)

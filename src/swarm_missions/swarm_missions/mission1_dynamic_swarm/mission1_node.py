@@ -40,11 +40,14 @@ from swarm_interfaces.msg import (
 
 from .orchestrator import (
     DetachCmd,
+    FormationReachedCmd,
     FormationTargetCmd,
     ManeuverCmd,
     Mission1Orchestrator,
     OrchestratorConfig,
     OrchestratorInput,
+    QrReachedCmd,
+    RotationCompletedCmd,
 )
 
 _RELIABLE_QOS = QoSProfile(
@@ -77,6 +80,7 @@ class Mission1Node(Node):
             default_spacing_m=self._default_spacing_m,
             wing_alpha_rad=math.radians(self._wing_alpha_deg),
             maneuver_duration_s=self._maneuver_duration_s,
+            full_agent_count=len(self._agent_ids),
         ))
 
         self._mission_state = 0
@@ -84,6 +88,9 @@ class Mission1Node(Node):
         self._qr_step = 0
         self._current_qr = None
         self._last_qr_seq = 0
+        # Son işlenen QR'ın NUMARASI (qr_id). Ayırt edici bu; qr_seq her vision
+        # node'unda bağımsız sayıldığından farklı QR'lar aynı seq'i taşıyabilir.
+        self._last_qr_id = 0
         self._leader_id = 0
         self._centroid = (0.0, 0.0, 0.0)
         self._agent_ids_live = list(self._agent_ids)
@@ -187,16 +194,27 @@ class Mission1Node(Node):
         self._qr_step = int(msg.data)
 
     def _on_qr_data(self, msg: QRMissionData) -> None:
-        """QR görev verisini mission_fsm ile aynı filtreyle saklar.
+        """QR görev verisini saklar; aynı QR tekrar tekrar işlenmez.
 
-        Takım ID uyuşmazlığı, decoded/valid False veya eski qr_seq → atla.
+        Ayırt edici QR NUMARASIDIR (qr_id), qr_seq DEĞİL: qr_seq her vision
+        node'unda BAĞIMSIZ sayılıyor, dolayısıyla farklı QR'lar farklı dronlar
+        tarafından okunduğunda aynı değeri taşıyabiliyor (QR1'i dron A okur →
+        seq=1; QR3'ü dron B okur → onun da ilk okuması → seq=1). "seq <= son"
+        filtresi bu yüzden YENİ QR'ı eski sanıp atıyordu: _current_qr QR1'de
+        donuyor, QR3'ün ayrılma görevi (target_agent_id) hiç görülmüyor ve
+        DETACH adımı komut üretemeden timeout'a düşüyordu (yaşanan bug).
+
+        qr_id QR'ın kendi numarasıdır (1, 3, 5…) → farklı QR = farklı kimlik;
+        aynı QR'ın tekrar okunan kareleri ise doğru şekilde yok sayılır.
         """
         if self._team_id and msg.team_id != self._team_id:
             return
         if not msg.decoded or not msg.valid:
             return
-        if msg.qr_seq <= self._last_qr_seq:
+        qr_id = int(msg.qr_id)
+        if qr_id and qr_id == self._last_qr_id:
             return
+        self._last_qr_id = qr_id
         self._last_qr_seq = int(msg.qr_seq)
         self._current_qr = msg
 
@@ -253,6 +271,24 @@ class Mission1Node(Node):
         for cmd in self._orch.decide(inp):
             self._execute(cmd)
 
+        # Teşhis: NAVIGATE'te en yakın dronun QR'a uzaklığı — kontrolün
+        # gerçekte kaç metreye yaklaştığını (yakınsama eğrisi) görmek için.
+        d = self._orch.qr_distance_m
+        if inp.is_leader and d >= 0.0:
+            self.get_logger().info(
+                f'QR mesafe: {d:.2f}m', throttle_duration_sec=2.0
+            )
+
+        # QR'ın istediği irtifa izinli bandın dışındaysa banda sığdırıldı: o
+        # irtifada uçmuyoruz, görünür olsun.
+        clamp = self._orch.altitude_clamped
+        if inp.is_leader and clamp is not None:
+            self.get_logger().warn(
+                f'QR {clamp[0]:.0f}m irtifa istedi; izinli bant dışı, '
+                f'{clamp[1]:.0f}m uygulandı.',
+                throttle_duration_sec=5.0,
+            )
+
     def _execute(self, cmd) -> None:
         """Orchestrator komutunu ilgili aktüatör kanalına yönlendirir."""
         if isinstance(cmd, FormationTargetCmd):
@@ -264,6 +300,12 @@ class Mission1Node(Node):
                 SystemEvent.EVENT_MEMBER_DETACH_STARTED,
                 cmd.target_agent_id, 'ayrılma', value=cmd.detach_wait_s,
             )
+        elif isinstance(cmd, QrReachedCmd):
+            self._publish_arrival_event(cmd.distance_m)
+        elif isinstance(cmd, FormationReachedCmd):
+            self._publish_formation_reached_event(cmd)
+        elif isinstance(cmd, RotationCompletedCmd):
+            self._publish_rotation_completed_event(cmd)
 
     # --- Komut icrası --------------------------------------------------------
 
@@ -287,6 +329,7 @@ class Mission1Node(Node):
         m.offset_x = [float(o[0]) for o in cmd.offsets]
         m.offset_y = [float(o[1]) for o in cmd.offsets]
         m.offset_z = [float(o[2]) for o in cmd.offsets]
+        m.max_speed_mps = float(getattr(cmd, 'max_speed', 0.0))
         m.source_module = 'mission1_dynamic_swarm'
         self._formation_pub.publish(m)
         self.get_logger().info(
@@ -355,6 +398,88 @@ class Mission1Node(Node):
         m.message = f'Sürüden {label} başlatıldı: ajan {target_agent_id}'
         self._event_pub.publish(m)
         self.get_logger().info(f'{label} event: ajan {target_agent_id}')
+
+    def _publish_rotation_completed_event(self, cmd) -> None:
+        """Formasyon rotasyonu tamamlandı → EVENT_ROTATION_COMPLETED.
+
+        mission_fsm bunu alıp NAVIGATE_TO_QR'a geçer. Sinyal olmadan dönüşün
+        bitip bitmediğine bakmadan 30 sn timeout'la ilerliyordu (sürü yarı dönük
+        uçabiliyordu); artık ilerlemeden önce dönüş fiilen doğrulanıyor.
+        """
+        m = SystemEvent()
+        m.stamp = self.get_clock().now().to_msg()
+        m.event_type = SystemEvent.EVENT_ROTATION_COMPLETED
+        m.severity = SystemEvent.SEVERITY_INFO
+        m.source_agent_id = self._agent_id
+        m.value = float(cmd.max_error_m)
+        m.source_module = 'mission1_dynamic_swarm'
+        m.message = f'Rotasyon tamamlandı (hata {cmd.max_error_m:.2f}m)'
+        self._event_pub.publish(m)
+
+        if cmd.timed_out:
+            self.get_logger().warn(
+                f'Rotasyon yakınsamadan süre aşımıyla geçildi; '
+                f'hata {cmd.max_error_m:.2f}m (sürü yarı dönük olabilir)'
+            )
+        elif not cmd.clean:
+            self.get_logger().warn(
+                f'Rotasyon tamamlandı ama slot hatası büyük: '
+                f'{cmd.max_error_m:.2f}m'
+            )
+        else:
+            self.get_logger().info(
+                f'Rotasyon tamamlandı (hata {cmd.max_error_m:.2f}m) '
+                f'-> navigasyona geçiliyor'
+            )
+
+    def _publish_formation_reached_event(self, cmd) -> None:
+        """QR alt-görevi (formasyon/irtifa) tamamlandı → EVENT_FORMATION_REACHED.
+
+        mission_fsm bunu alıp qr_step'i ilerletir (formasyon → manevra → irtifa).
+        Bu sinyal olmadan adım FORMASYON'da donar ve görev tıkanır.
+        """
+        m = SystemEvent()
+        m.stamp = self.get_clock().now().to_msg()
+        m.event_type = SystemEvent.EVENT_FORMATION_REACHED
+        m.severity = SystemEvent.SEVERITY_INFO
+        m.source_agent_id = self._agent_id
+        m.value = float(cmd.max_error_m)
+        m.source_module = 'mission1_dynamic_swarm'
+        m.message = f'Formasyon kuruldu (hata {cmd.max_error_m:.2f}m)'
+        self._event_pub.publish(m)
+
+        if cmd.timed_out:
+            self.get_logger().warn(
+                f'Formasyon yakınsamadan süre aşımıyla geçildi; '
+                f'hata {cmd.max_error_m:.2f}m'
+            )
+        elif not cmd.clean:
+            self.get_logger().warn(
+                f'Formasyon kuruldu ama slot hatası büyük: '
+                f'{cmd.max_error_m:.2f}m (bir dron takılmış olabilir)'
+            )
+        else:
+            self.get_logger().info(
+                f'Formasyon kuruldu (hata {cmd.max_error_m:.2f}m) '
+                f'-> sonraki QR adımı'
+            )
+
+    def _publish_arrival_event(self, distance_m: float) -> None:
+        """Okuyucu dron QR'a varınca EVENT_FORMATION_REACHED yayınlar.
+
+        mission_fsm bunu alıp NAVIGATE_TO_QR -> EXECUTE_QR_TASK geçişini yapar
+        (120s yedek timer'a düşmeden). Konum-tabanlı gerçek varış sinyali.
+        """
+        m = SystemEvent()
+        m.stamp = self.get_clock().now().to_msg()
+        m.event_type = SystemEvent.EVENT_FORMATION_REACHED
+        m.severity = SystemEvent.SEVERITY_INFO
+        m.source_agent_id = self._agent_id
+        m.value = float(distance_m)
+        m.source_module = 'mission1_dynamic_swarm'
+        m.message = f'QR varış: okuyucu dron {distance_m:.2f}m'
+        self._event_pub.publish(m)
+        self.get_logger().info(f'QR varış event: {distance_m:.2f}m')
 
 
 def main(args=None) -> None:

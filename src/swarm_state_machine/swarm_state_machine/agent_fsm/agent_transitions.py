@@ -7,9 +7,19 @@ from .preflight_checker import run_preflight_checks
 _ARMING_TIMEOUT_S = 15.0
 _ARMED_STABILIZE_S = 2.0  # offboard + EKF2 stabilizasyonu için bekle
 _TAKEOFF_TIMEOUT_S = 30.0
-_PRECISION_LANDING_TIMEOUT_S = 60.0
+# İniş süresi ayrılma noktası ile ped arasındaki mesafeye bağlıdır; bütçeyi
+# geometriden hesaplayan ve gerekirse inişi güvenle durduran taraf
+# precision_landing'dir. Buradaki sınır o modül tümden yanıt vermezse devreye
+# giren son emniyettir — hesaplanan bütçeden kısa olursa sağlıklı inişi yarıda
+# keser (dron pedin üstünde asılı kalır, sonra rastgele yere iner).
+_PRECISION_LANDING_TIMEOUT_S = 300.0
 _REJOIN_TIMEOUT_S = 60.0
 _WAITING_REJOIN_TIMEOUT_S = 120.0
+# LANDING'de disarm beklenir. Offboard kaybı artık LANDING'de failsafe TETİKLEMEZ
+# (iniş komutunu biz verdik, PX4 LAND moduna geçince offboard doğal olarak
+# düşer — bu beklenen bir kayıptır). O yüzden takılan iniş için AYRI bir zaman
+# aşımı gerekir: aksi halde PX4 hiç inemezse dron sonsuza dek LANDING'de kalır.
+_LANDING_TIMEOUT_S = 60.0
 
 _FAILSAFE_EXEMPT = frozenset({
     AgentState.UNKNOWN,
@@ -85,14 +95,21 @@ def evaluate_transitions(ctx: AgentContext) -> AgentState | None:
 
 
 def _from_unknown(ctx: AgentContext) -> AgentState | None:
-    """İlk tick'te her zaman IDLE'a geçer.
+    """PX4 linki kurulunca IDLE'a geçer; kurulana kadar UNKNOWN'da bekler.
+
+    Health monitor UNKNOWN'da PX4 link kontrolünü atlar. Link hazır olmadan
+    IDLE'a geçilirse, IDLE'da tetiklenen kontrol px4_link_ok=False görüp
+    hemen false FAILSAFE üretiyordu (başlatma yarışı). Bu yüzden linki
+    UNKNOWN'da bekleriz.
 
     Args:
         ctx (AgentContext): Drone'un anlık durum bilgisi.
 
     Returns:
-        AgentState: Her zaman AgentState.IDLE.
+        AgentState | None: Link hazırsa IDLE; değilse None (UNKNOWN'da kal).
     """
+    if not ctx.px4_link_ok:
+        return None
     return AgentState.IDLE
 
 
@@ -314,15 +331,18 @@ def _from_return_home(ctx: AgentContext) -> AgentState | None:
 def _from_landing(ctx: AgentContext) -> AgentState | None:
     """
     LANDING → LANDED: Disarm oldu, iniş tamamlandı.
+    LANDING → FAILSAFE: Süre içinde inemedi (PX4 LAND takıldı).
 
     Args:
         ctx: Drone durum bilgisi.
 
     Returns:
-        AgentState.LANDED veya None.
+        AgentState.LANDED, AgentState.FAILSAFE veya None.
     """
     if not ctx.armed:
         return AgentState.LANDED
+    if ctx.time_in_state() > _LANDING_TIMEOUT_S:
+        return AgentState.FAILSAFE
     return None
 
 

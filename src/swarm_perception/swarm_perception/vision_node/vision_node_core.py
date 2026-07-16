@@ -26,6 +26,7 @@ Görüntü verilerini dinler, qr_detector ve landing_zone_detector modüllerini
 çalıştırarak sonuçları swarm_interfaces formatında yayınlar.
 """
 
+import math
 import time
 from typing import Any
 
@@ -47,9 +48,9 @@ from swarm_interfaces.msg import (
     ZoneMap,
 )
 
-from .landing_zone_detector import LandingZoneDetector
+from .landing_zone_detector import LandingZoneDetector, ensure_bgr
 from .qr_detector import QRDetector
-from .zone_map_core import ZoneMapCore
+from .zone_map_core import ZoneMapCore, zone_offset_ned_m
 
 # QoS Profilleri
 _BEST_EFFORT_QOS = QoSProfile(
@@ -86,9 +87,14 @@ class VisionNode(Node):
         self._last_lz_time = 0.0
         self._lz_interval = 1.0 / self._lz_rate_hz
 
-        # Kamera Intrinsics (Pinhole) - CameraInfo'dan güncellenecek
-        self._fx = 1108.5
-        self._fy = 1108.5
+        # Kamera içsel parametreleri (pinhole). CameraInfo GELENE KADAR None:
+        # varsayılan bir odak uzaklığı uydurmak, kamera susarsa sessizce yanlış
+        # ölçekte hesap yapmak demektir (bölge metrelerce yanlış yere kaydedilir,
+        # dron yanlış pede iner). Kamera konuşmadan projeksiyon yapılmaz.
+        self._fx: float | None = None
+        self._fy: float | None = None
+        self._cx: float | None = None
+        self._cy: float | None = None
 
         # Kalıcı bölge haritası (hafıza). Anlık tespit unutulur; bu biriktirir.
         self._zone_map = ZoneMapCore(
@@ -150,6 +156,11 @@ class VisionNode(Node):
         """Saf Python tespit algoritmalarını başlatır."""
         qr_conf = self.get_parameter('qr_min_confidence').value
         self._qr_detector = QRDetector(min_confidence=qr_conf)
+        # QR içeriği her değiştiğinde artan sıra numarası. Aynı QR'ın ardışık
+        # kareleri aynı seq'i taşır; mission_fsm bu sayede her kareyi değil,
+        # yalnızca yeni okunan QR'ı işler.
+        self._qr_seq_counter = 0
+        self._last_qr_raw = None
 
         lz_config = {
             'min_zone_area_px': self.get_parameter('min_zone_area_px').value,
@@ -237,11 +248,18 @@ class VisionNode(Node):
         )
 
     def _camera_info_callback(self, msg: CameraInfo) -> None:
-        """Kamera fokal uzaklık (Pinhole) parametrelerini günceller."""
+        """Kamera içsel parametrelerini (pinhole) günceller.
+
+        Bölge konumu bu değerlerden hesaplanır; sabit bir görüş açısı
+        varsayılmaz. Kamera/lens değişirse sürücü yeni K matrisini bildirir ve
+        projeksiyon kendiliğinden uyar.
+        """
         if len(msg.k) == 9:
             # K matrisi: [fx, 0, cx, 0, fy, cy, 0, 0, 1]
             self._fx = msg.k[0]
             self._fy = msg.k[4]
+            self._cx = msg.k[2]
+            self._cy = msg.k[5]
 
     def _image_callback(self, msg: Image) -> None:
         """Gelen çerçeveyi işler ve frekanslarına göre böler."""
@@ -259,6 +277,17 @@ class VisionNode(Node):
             dtype=np.uint8,
             buffer=msg.data,
         )
+
+        # Dedektörler BGR bekler; kamera rgb8 yayınlarsa kırmızı/mavi kanalları
+        # yer değiştirir ve pedler birbirinin yerine etiketlenir.
+        enc = msg.encoding
+        if enc not in ('rgb8', 'bgr8'):
+            self.get_logger().warn(
+                f'beklenmeyen görüntü formatı: {enc} '
+                '(bgr8/rgb8 bekleniyor) — renk tespiti güvenilmez',
+                throttle_duration_sec=10.0,
+            )
+        frame = ensure_bgr(frame, enc)
 
         if run_qr:
             self._process_qr(frame, msg.header.stamp)
@@ -292,7 +321,11 @@ class VisionNode(Node):
             # Parsed Data
             msg.team_id = res.get('team_id', '')
             msg.qr_id = res.get('qr_id', 0)
-            msg.qr_seq = res.get('qr_seq', 0)
+            raw = res.get('raw_text', '')
+            if res.get('valid', False) and raw != self._last_qr_raw:
+                self._qr_seq_counter += 1
+                self._last_qr_raw = raw
+            msg.qr_seq = self._qr_seq_counter
             msg.next_qr = res.get('next_qr', 0)
             msg.formation_type = res.get('formation_type', 0)
             msg.spacing_m = res.get('spacing_m', 0.0)
@@ -316,7 +349,14 @@ class VisionNode(Node):
             self._qr_pub.publish(msg)
 
     def _process_lz(self, frame: np.ndarray, stamp: Any) -> None:
-        """İniş bölgesini işler ve sonuçları yayınlar."""
+        """İniş bölgesini işler ve sonuçları yayınlar.
+
+        Bölge konumları METRE olarak, drona göre NED'de yayınlanır (mesaj
+        sözleşmesi bunu söyler). Kamera geometrisi YALNIZ burada bilinir;
+        tüketiciler (zone_map, precision_landing) sadece dronun konumunu ekler.
+        Aynı hesabın üç ayrı düğümde tekrarlanması, aynı hatanın üç yerde birden
+        yaşamasına yol açıyordu.
+        """
         zones = self._lz_detector.detect(frame)
 
         msg = LandingZoneDetection()
@@ -324,34 +364,46 @@ class VisionNode(Node):
         msg.detector_agent_id = self._agent_id
         msg.zone_detected = len(zones) > 0
         msg.zone_count = len(zones)
-        msg.fov_deg = 60.0  # Varsayılan FOV
 
+        # Bölgenin metrik konumu için İKİ girdi de zorunludur:
+        #   - poz (irtifa/heading): aynı piksel sapması 5 m'de 1 m, 20 m'de 4 m eder
+        #   - kamera odak uzaklığı: piksel→metre kuru odak uzaklığından gelir
+        # Biri eksikken konum üretmek, uydurma bir kurla bölgeyi metrelerce yanlış
+        # yere kaydetmektir (dron yanlış pede iner). Tespit yine duyurulur; yalnız
+        # konum üretilmez ve eksiklik logda görünür.
         if not msg.zone_detected:
             self._lz_pub.publish(msg)
             return
+        if self._my_pose is None or self._fx is None:
+            self.get_logger().warn(
+                'bölge konumu üretilemiyor: '
+                f'poz={"VAR" if self._my_pose else "YOK"} '
+                f'kamera_odak={"VAR" if self._fx else "YOK (CameraInfo gelmedi)"}',
+                throttle_duration_sec=5.0,
+            )
+            self._lz_pub.publish(msg)
+            return
 
-        # Pinhole formülüyle yaklaşık metrik dönüşüm:
-        # X_m = (X_px - w/2) * Z_m / f_x
-        # İrtifa (Z_m) burada bilinmiyor, göreceli değer basıyoruz
-        # Ancak precision_landing.py gerçek irtifa ile çarparak kullanır.
-        # Burada sadece birim düzleme göre (Z=1m) yansıtıyoruz.
+        px, py, pz, heading_deg = self._my_pose
+        height_m = max(-pz, self._zone_min_height_m)
+        h_px, w_px = frame.shape[0], frame.shape[1]
+
         for z in zones:
+            ned_x, ned_y = zone_offset_ned_m(
+                float(z['image_x']) * w_px, float(z['image_y']) * h_px,
+                self._fx, self._fy, self._cx, self._cy,
+                height_m, heading_deg,
+            )
             msg.zone_colors.append(z['color'])
-            # Normalized [-0.5, 0.5] pixel coordinate
-            nx = z['image_x'] - 0.5
-            ny = z['image_y'] - 0.5
-
-            # NED frame'de x ileri, y sağdır.
-            # Görüntüde y aşağı doğrudur, NED x ekseniyle örtüşür.
-            msg.zone_x.append(float(ny))
-            msg.zone_y.append(float(nx))
-            msg.zone_z.append(1.0)
+            msg.zone_x.append(float(ned_x))
+            msg.zone_y.append(float(ned_y))
+            msg.zone_z.append(float(height_m))
             msg.zone_confidence.append(z['confidence'])
+            # Yarıçap da aynı pinhole ölçeğiyle metreye çevrilir.
+            msg.zone_radius_m.append(
+                float(height_m * z['radius_px'] / self._fx)
+            )
 
-            # Normalize edilmiş yarıçap
-            msg.zone_radius_m.append(z['radius_px'] / frame.shape[1])
-
-        # En iyi bölge seçimi (Şimdilik ilk bölge)
         msg.primary_valid = True
         msg.primary_color = msg.zone_colors[0]
         msg.primary_x = msg.zone_x[0]
@@ -362,19 +414,21 @@ class VisionNode(Node):
 
         msg.image_x = zones[0]['image_x']
         msg.image_y = zones[0]['image_y']
+        # Teşhis alanı: fiilen kullanılan yatay görüş açısı, odak uzaklığından
+        # türetilir (sabit bir varsayım değil).
+        msg.fov_deg = float(
+            math.degrees(2.0 * math.atan(w_px / (2.0 * self._fx)))
+        )
 
         self._lz_pub.publish(msg)
 
-        # Anlık tespiti kalıcı haritaya yaz (transit boyunca biriktirme).
-        # Pozumuz bilinmiyorsa projekte edemeyiz; bu kareyi atla.
-        if self._my_pose is not None:
-            for z in zones:
-                gx, gy, gz = self._zone_map.project(
-                    z['image_x'], z['image_y'], msg.fov_deg, self._my_pose
-                )
-                self._zone_map.add(
-                    int(z['color']), gx, gy, gz, z['confidence']
-                )
+        # Kalıcı haritaya yaz: göreli ofset + kendi konumumuz = global NED.
+        for color, dx, dy, conf in zip(
+            msg.zone_colors, msg.zone_x, msg.zone_y, msg.zone_confidence
+        ):
+            self._zone_map.add(
+                int(color), px + dx, py + dy, pz + height_m, conf
+            )
 
     def _publish_zone_map(self) -> None:
         """Biriktirilen bölge haritasını düşük frekansta yayınlar."""

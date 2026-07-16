@@ -10,6 +10,9 @@
   <depend>rclpy</depend>
   <depend>std_msgs</depend>
   <depend>swarm_interfaces</depend>
+  <!-- latlon_to_ned (saf matematik, ROS'suz): GPS -> paylaşılan NED çevrimi
+       tek kaynaktan gelsin; px4_bridge kendi kopyasını tutmasın. -->
+  <depend>swarm_core</depend>
   <depend>px4_msgs</depend>
   <depend>sensor_msgs</depend>
   <depend>python3-serial</depend>

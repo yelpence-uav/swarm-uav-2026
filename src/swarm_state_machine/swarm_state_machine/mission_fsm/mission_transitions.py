@@ -21,10 +21,21 @@ _CMD_LAND = 6
 
 _PREFLIGHT_TIMEOUT_S = 60.0
 _TAKEOFF_TIMEOUT_S = 90.0
-_NAVIGATE_TIMEOUT_S = 120.0
-_QR_TASK_TIMEOUT_S = 90.0
+_NAVIGATE_TIMEOUT_S = 300.0
+# Ayrılan ajanın sürüye dönmesi için QR'da beklenecek üst sınır (NAVIGATE'e
+# girişten itibaren). Ajan: renkli alana in → disarm → bekle → arm → sürüye
+# yetiş. Aşılırsa görev eksik sürüyle de olsa ilerler (tıkanma yerine kısmi
+# puan). _NAVIGATE_TIMEOUT_S'ten küçük olmalı ki RETURN_HOME yedeği yaşasın.
+_REJOIN_WAIT_S = 150.0
+# QR okunamazsa orchestrator ısrarcı arama yapar (alçal/yüksel/ileri/geri,
+# döngüsel). Eşik bu aramaya yetmeli; kısa eşik sürüyü tek denemede pes ettirip
+# eve gönderir. 240 s ≈ 10 tam arama turu.
+_QR_TASK_TIMEOUT_S = 240.0
 _ROTATE_TIMEOUT_S = 30.0
 _RETURN_HOME_TIMEOUT_S = 120.0
+# Restart bekleyen (QR okunamamış) dönüşte sürü eve varana kadar indirilmez;
+# bu sert sınır yalnız sonsuz takılmaya karşıdır (ev ulaşılamıyorsa iniş).
+_RETURN_HOME_HARD_TIMEOUT_S = 300.0
 _LANDING_TIMEOUT_S = 90.0
 
 _TERMINAL_STATES = frozenset({
@@ -147,11 +158,23 @@ def _from_navigate_to_qr(ctx: MissionContext) -> MissionState | None:
         ctx (MissionContext): Mevcut FSM çalışma zamanı durumu.
 
     Returns:
-        MissionState: formation_control varışı bildirince EXECUTE_QR_TASK.
+        MissionState: Varış bildirilince (ve sürü tamsa) EXECUTE_QR_TASK.
         MissionState: Timeout'ta RETURN_HOME.
-        None: Hâlâ navigasyon devam ediyor.
+        None: Hâlâ navigasyon ya da ayrılan ajanın dönüşü bekleniyor.
     """
     if ctx.event_formation_reached:
+        # REJOIN KAPISI: ayrılan ajan sürüye katılmadan QR görevlerini BAŞLATMA.
+        # Şartname, ayrılan elemanın "en geç bir sonraki QR kodunun GÖREVİNE
+        # katılarak" sürüyle hareket etmesini ister; ayrıca formasyon/manevra/
+        # rotasyon görevleri minimum 3 İHA gerektirir (Tablo 7) → eksik sürüyle
+        # icra edilirse o kalemlerden puan alınamaz. Ajan iner, disarm olur,
+        # bekler, tekrar arm olup sürüye yetişir; o dönene kadar burada beklenir.
+        #
+        # Sonsuz bekleme yok: ajan dönemezse (_REJOIN_WAIT_S aşılırsa) görev
+        # eksik sürüyle de olsa ilerler — tamamen tıkanmaktansa kısmi puan.
+        if (ctx.swarm_incomplete()
+                and ctx.time_in_state() <= _REJOIN_WAIT_S):
+            return None
         return MissionState.EXECUTE_QR_TASK
 
     if ctx.time_in_state() > _NAVIGATE_TIMEOUT_S:
@@ -180,6 +203,13 @@ def _from_execute_qr_task(ctx: MissionContext) -> MissionState | None:
         return MissionState.RETURN_HOME
 
     if ctx.qr_task_step == QrTaskStep.DONE:
+        # Ayrılan ajan (renkli alana inen) sürüye dönmeden QR'dan ayrılma:
+        # rotasyon ve sonraki QR'a geçiş sürünün TAMAMIYLA yapılır. Bu kapı
+        # olmadan kalan dronlar inen dronu geride bırakıp dönüyordu.
+        if ctx.swarm_incomplete():
+            if ctx.time_in_state() <= _QR_TASK_TIMEOUT_S + _REJOIN_WAIT_S:
+                return None
+            return MissionState.RETURN_HOME
         if qr.complete_mission:
             return MissionState.RETURN_HOME
         if qr.wait_s > 0.0:
@@ -265,17 +295,35 @@ def _from_return_home(ctx: MissionContext) -> MissionState | None:
         None: Hâlâ geri dönülüyor.
     """
     # Şartname madde 17: QR okunamadığı için eve dönüldüyse, eve varınca
-    # (formasyon home'a ulaşınca) rotayı baştan başlat. max_restarts ile
-    # sınırlı — aşılırsa normal inişe geçilir.
-    if (ctx.restart_pending
-            and ctx.event_formation_reached
-            and ctx.restart_count < ctx.max_restarts):
+    # (formasyon home'a ulaşınca) rotayı baştan başlat. Şartname sınır
+    # koymaz; max_restarts=0 → SINIRSIZ (batarya/hakem bitirir). >0 verilirse
+    # o kadar denenip aşılınca normal inişe geçilir.
+    restart_viable = (
+        ctx.restart_pending
+        and (ctx.max_restarts <= 0
+             or ctx.restart_count < ctx.max_restarts)
+    )
+
+    if restart_viable and ctx.event_formation_reached:
         return MissionState.ROTATE_TO_NEXT
 
-    if ctx.all_agents_landing() or ctx.all_agents_landed():
+    # Sürüyü EVE VARMADAN indirme — HEM restart HEM NORMAL bitişte. Şartname en
+    # son home'a dönüşü ister. Eskiden normal bitişte "ajanlar iniyor mu"
+    # (all_agents_landing) ya da kısa timeout iniş tetikliyordu; bir ajan
+    # FAILSAFE'e düşünce (örn. hassas iniş başarısız) bu koşul ANINDA doğru
+    # olup sürüyü home'a hiç uçurmadan bulunduğu rastgele yere indiriyordu
+    # (ölçüldü: RETURN_HOME yalnız 2 sn sürüp LANDING'e atladı). Artık sürü,
+    # formasyon HOME'DA oturana kadar (event_formation_reached) uçar; sonsuz
+    # takılmayı sert üst sınır (hard timeout) önler.
+    if ctx.time_in_state() > _RETURN_HOME_HARD_TIMEOUT_S:
         return MissionState.LANDING
 
-    if ctx.time_in_state() > _RETURN_HOME_TIMEOUT_S:
+    # Tüm ajanlar zaten indiyse görev fiilen bitti (kısa yol).
+    if ctx.all_agents_landed():
+        return MissionState.LANDING
+
+    # Normal bitiş: sürü eve varıp formasyon oturunca in.
+    if not restart_viable and ctx.event_formation_reached:
         return MissionState.LANDING
 
     return None

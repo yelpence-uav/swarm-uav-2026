@@ -100,7 +100,7 @@ class MissionFsmNode(Node):
         self.declare_parameter('team_id', '752825')
         self.declare_parameter('tick_hz', 5.0)
         self.declare_parameter('sitl_mode', False)
-        self.declare_parameter('max_restarts', 2)
+        self.declare_parameter('max_restarts', 0)  # 0 = sınırsız (şartname)
 
         self._agent_ids: list = list(
             self.get_parameter('agent_ids').value
@@ -291,6 +291,19 @@ class MissionFsmNode(Node):
                 'Görev FSM RTL tetikledi',
             )
 
+        elif state == MissionState.LANDING:
+            # Sürü formasyonla home'a vardı (RETURN_HOME→LANDING kapısı
+            # event_formation_reached). Ajanlar offboard'da RETURN_HOME'da
+            # bekliyor; inişi ancak bu sinyalle tetikleriz. Sinyal olmadan
+            # eskiden inişi yalnız native RTL'in AUTO_LAND'i başlatıyordu —
+            # o da sürüyü eve varmadan rastgele yere indiriyordu. Ajan bu
+            # olayı alınca RETURN_HOME→LANDING→'land' ile home slotuna iner.
+            self._pub_event(
+                SystemEvent.EVENT_EMERGENCY_LAND,
+                SystemEvent.SEVERITY_INFO,
+                'Sürü home\'da — iniş tetiklendi',
+            )
+
         elif state == MissionState.MISSION_COMPLETE:
             self._pub_event(
                 SystemEvent.EVENT_MISSION_COMPLETED,
@@ -324,7 +337,16 @@ class MissionFsmNode(Node):
         Sırasıyla uygulanan filtreler:
           1. team_id uyuşmazlığı  -> atla
           2. decoded veya valid False -> atla
-          3. eski qr_seq -> atla
+          3. hâlihazırda işlenen QR'ın tekrarı -> atla
+
+        Tekrarı ayırt eden QR NUMARASIDIR (qr_id), qr_seq DEĞİL: qr_seq her
+        vision_node'un KENDİ sayacıdır, sürüde ajan sayısı kadar bağımsız sayaç
+        vardır. Bunları tek bir "artan olmalı" çıtasıyla süzmek, bir dronun
+        okumasının çıtayı yükseltip BAŞKA bir dronun sonraki QR okumasını (kendi
+        sayacında henüz düşük) "eski" sanarak atmasına yol açıyordu; o QR'ın
+        görevi (ör. sürüden ayrılma) hiç çalışmıyordu. qr_id içerikten gelir,
+        yayıncıdan bağımsızdır; mission1 tarafı da aynı ölçütü kullanır, böylece
+        iki düğüm hangi QR'ın güncel olduğunda ayrışamaz.
 
         Args:
             msg (QRMissionData): Gelen QR görev verisi mesajı.
@@ -341,23 +363,23 @@ class MissionFsmNode(Node):
         if not msg.decoded or not msg.valid:
             return
 
-        if msg.qr_seq <= self._ctx.last_accepted_qr_seq:
+        qr_id = int(msg.qr_id)
+        if qr_id and qr_id == self._ctx.last_accepted_qr_id:
             self.get_logger().warn(
-                f'[mission_fsm] Eski QR reddedildi: seq={msg.qr_seq}'
-            )
-            self._pub_event(
-                SystemEvent.EVENT_QR_SEQUENCE_REJECTED,
-                SystemEvent.SEVERITY_WARNING,
-                f'Eski QR seq={msg.qr_seq}',
+                f'[mission_fsm] Aynı QR tekrar okundu, atlandı: qr={qr_id}',
+                throttle_duration_sec=5.0,
             )
             return
 
+        self._ctx.last_accepted_qr_id = qr_id
         self._ctx.last_accepted_qr_seq = msg.qr_seq
         self._ctx.current_qr = msg
         self.get_logger().info(
-            f'[mission_fsm] QR kabul edildi: seq={msg.qr_seq} '
+            f'[mission_fsm] QR kabul edildi: qr={qr_id} '
             f'formasyon={msg.formation_active} '
-            f'manevra={msg.maneuver_active}'
+            f'manevra={msg.maneuver_active} '
+            f'irtifa={msg.altitude_active} '
+            f'ayrilma={msg.detach_active}'
         )
 
         if (self._ctx.state == MissionState.EXECUTE_QR_TASK
@@ -376,6 +398,11 @@ class MissionFsmNode(Node):
         """
         eid = msg.event_type
         ctx = self._ctx
+        # TEŞHİS (geçici): hangi event, kimden, hangi state'te geldi.
+        self.get_logger().info(
+            f'[EVENT] id={eid} src={msg.source_agent_id} '
+            f'mod={msg.source_module} state={ctx.state.name}'
+        )
 
         if eid == SystemEvent.EVENT_FORMATION_REACHED:
             if ctx.state == MissionState.NAVIGATE_TO_QR:

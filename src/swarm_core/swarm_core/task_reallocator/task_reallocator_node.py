@@ -162,7 +162,7 @@ class TaskReallocatorNode(Node):
 
         self._role_clients: dict[int, rclpy.client.Client] = {}
         for agent_id in self._agent_ids:
-            srv = '/swarm/agent/%d/assign_role' % agent_id
+            srv = '/swarm/agent/drone%d/assign_role' % agent_id
             self._role_clients[agent_id] = self.create_client(
                 AssignRole, srv
             )

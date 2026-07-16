@@ -1,5 +1,6 @@
 """orchestrator birim testleri — faz → komut kararı."""
 
+import math
 from types import SimpleNamespace
 
 from swarm_missions.mission1_dynamic_swarm.orchestrator import (
@@ -11,6 +12,7 @@ from swarm_missions.mission1_dynamic_swarm.orchestrator import (
 )
 
 # MissionState
+S_TAKEOFF = 3
 S_NAVIGATE = 4
 S_EXECUTE = 5
 S_ROTATE = 7
@@ -24,7 +26,11 @@ STEP_DONE = 5
 
 _IDS = [1, 2, 3]
 _POS = [(0.0, 0.0, -10.0), (3.0, -3.0, -10.0), (3.0, 3.0, -10.0)]
-_CEN = (0.0, 0.0, -10.0)
+# _POS'un GERÇEK centroid'i. Fikstür centroid'i konumlarla tutarlı olmalıdır:
+# ofsetler centroid'e görelidir, dolayısıyla ortalamaları sıfırdır. Tutarsız bir
+# centroid, "sürüyü yerinde tut" hesabını kaydırır ve testi gerçek davranıştan
+# koparır.
+_CEN = (2.0, 0.0, -10.0)
 _HOME = (0.0, 0.0, 0.0)
 
 
@@ -65,21 +71,84 @@ def test_navigate_blocked_until_qr_ready():
 
 
 def test_first_rotate_targets_next_qr():
-    """İlk ROTATE, next_target yönüne döndürür; hedef kuzeyde → heading≈0."""
+    """İlk ROTATE önce dizilişi KORUR, sonra hedefe döndürür.
+
+    İlk komut heading=0 ile mevcut dizilişi yayınlar: path_planner heading
+    rampasını bu ilk komuttan başlatır. Bu komut olmadan rampa, rotasyon
+    komutunun heading'inden başlıyor ve kalkış dizilişi ilk tick'te hedefe
+    snap'leyip savruluyordu.
+    """
     o = _ready_orch()
     cmds = o.decide(_inp(S_ROTATE, 0))
+    assert len(cmds) == 2
+
+    koru = cmds[0]
+    assert isinstance(koru, FormationTargetCmd)
+    assert not koru.rotate_towards_target
+    assert koru.heading_deg == 0.0
+
+    doner = cmds[1]
+    assert isinstance(doner, FormationTargetCmd)
+    assert doner.rotate_towards_target
+    assert len(doner.offsets) == 3
+    # Hedef kuzeyde → heading ≈ 0.
+    assert abs(doner.heading_deg) < 1.0
+
+
+def test_takeoff_holds_initial_formation():
+    """SYNCHRONIZED_TAKEOFF başlangıç formasyonunu mevcut merkezde tutar."""
+    o = _ready_orch()
+    cmds = o.decide(_inp(S_TAKEOFF, 0))
     assert len(cmds) == 1
     c = cmds[0]
     assert isinstance(c, FormationTargetCmd)
-    assert c.rotate_towards_target
+    assert c.center == _CEN               # mevcut merkez, kaymaz
+    assert not c.rotate_towards_target    # kalkışta rotasyon yok
+    assert c.use_current_altitude         # irtifayı agent_fsm yönetir
     assert len(c.offsets) == 3
-    assert abs(c.heading_deg) < 1.0
+
+
+def test_takeoff_suppressed_on_follower():
+    """Kalkış formasyonu yalnız liderde üretilir (lider-guard)."""
+    o = _ready_orch()
+    assert o.decide(_inp(S_TAKEOFF, 0, leader=False)) == []
+
+
+def test_detach_holds_formation():
+    """Bir dron ayrılınca kalanlar slotlarını korur (re-form yok — şartname)."""
+    o = _ready_orch()
+    o._cfg.full_agent_count = 3
+    full = o.decide(_inp(S_TAKEOFF, 0))          # tam sürü → slotlar dondurulur
+    off = dict(zip(_IDS, full[0].offsets))
+    inp2 = OrchestratorInput(
+        mission_state=S_ROTATE, qr_step=0, is_leader=True,
+        agent_ids=[1, 2], positions=_POS[:2], centroid=_CEN, home=_HOME,
+    )
+    cmds = o.decide(inp2)                          # aktif=2 → dondurulmuş slot
+    assert cmds[0].offsets[0] == off[1]
+    assert cmds[0].offsets[1] == off[2]
+
+
+def test_navigate_anchors_nearest_drone_to_qr():
+    """NAVIGATE merkezi QR'a koymaz; en yakın dronu QR'ın üstüne çıpalar."""
+    o = _ready_orch()
+    ned = o._qr_geo.resolve_ned()
+    cmds = o.decide(_inp(S_NAVIGATE, 0))
+    assert len(cmds) == 1
+    c = cmds[0].center
+    # En yakın dron QR'ın üstüne gelmeli: merkez = centroid + (QR − okuyucu)
+    reader = min(_POS, key=lambda p: math.hypot(p[0] - ned[0], p[1] - ned[1]))
+    assert abs(c[0] - (_CEN[0] + ned[0] - reader[0])) < 1e-6
+    assert abs(c[1] - (_CEN[1] + ned[1] - reader[1])) < 1e-6
+    # Merkez QR'da DEĞİL (çıpalama farkı belirgin)
+    assert math.hypot(c[0] - ned[0], c[1] - ned[1]) > 1.0
 
 
 def test_emit_once_per_phase():
     """Aynı faz ikinci tick'te komut üretmez."""
     o = _ready_orch()
-    assert len(o.decide(_inp(S_ROTATE, 0))) == 1
+    # İlk ROTATE: dizilişi koru + hedefe dön (2 komut).
+    assert len(o.decide(_inp(S_ROTATE, 0))) == 2
     assert o.decide(_inp(S_ROTATE, 0)) == []
 
 
@@ -122,6 +191,35 @@ def test_model_b_tilt_baked_after_maneuver():
     ob.decide(_inp(S_EXECUTE, STEP_MANEUVER, qr=_qr(pitch_deg=-15.0)))
     cmds_b = ob.decide(_inp(S_EXECUTE, STEP_ALTITUDE, qr=_qr(pitch_deg=-15.0)))
     assert cmds_a[0].offsets != cmds_b[0].offsets
+
+
+def test_egim_donmus_dizilisin_ustunde_de_korunur():
+    """Eğim, RİJİT (dondurulmuş) diziliş üzerinde de uygulanmaya devam eder.
+
+    Şartname: manevradan sonra yeni bir formasyon/manevra komutu gelene kadar
+    sürü eğimini KORUR. Dondurulmuş ofsetler ham döndürülürse eğim ilk irtifa
+    komutunda kayboluyor, sürü düzleşiyordu (manevra kaleminden puan gider).
+    """
+    o = _ready_orch()
+    # Diziliş kalkışta dondurulur (jüri snapshot'ı).
+    o.decide(_inp(S_TAKEOFF, 0))
+    # Manevra: pitch -15 → eğim durumda saklanır.
+    o.decide(_inp(S_EXECUTE, STEP_MANEUVER, qr=_qr(pitch_deg=-15.0)))
+    # Sonraki irtifa görevi dondurulmuş dizilişi kullanır AMA eğik olmalı.
+    cmds = o.decide(_inp(S_EXECUTE, STEP_ALTITUDE, qr=_qr(pitch_deg=-15.0)))
+
+    z = [off[2] for off in cmds[0].offsets]
+    assert any(abs(v) > 1e-6 for v in z), 'egim kayboldu: ofsetler duz'
+
+
+def test_egimsizken_ofsetler_duz_kalir():
+    """Manevra yokken ofsetlerde dikey bileşen oluşmaz (eğim sızıntısı yok)."""
+    o = _ready_orch()
+    o.decide(_inp(S_TAKEOFF, 0))
+    cmds = o.decide(_inp(S_EXECUTE, STEP_ALTITUDE, qr=_qr()))
+
+    z = [off[2] for off in cmds[0].offsets]
+    assert all(abs(v) < 1e-6 for v in z)
 
 
 def test_formation_change_resets_tilt():

@@ -43,6 +43,50 @@ COLOR_RED = 1
 COLOR_BLUE = 2
 
 
+def zone_offset_ned_m(
+    u_px: float,
+    v_px: float,
+    fx: float,
+    fy: float,
+    cx: float,
+    cy: float,
+    height_m: float,
+    heading_deg: float,
+) -> Tuple[float, float]:
+    """Görüntüdeki bölge merkezinin drona göre NED ofseti (metre).
+
+    Nadir bakan pinhole kamera: zemindeki yatay ofset, piksel sapmasının odak
+    uzaklığına oranı ile irtifanın çarpımıdır. Odak uzaklıkları kameranın kendi
+    beyanından (CameraInfo) gelir; sabit bir görüş açısı varsayılmaz. fx ve fy
+    ayrı verildiğinden görüntünün en-boy oranı da kendiliğinden doğrudur.
+
+    İşaret: kamera gövdeye 90° pitch ile monte edilir (aşağı bakar); bu dönüşte
+    görüntünün ALT yönü gövdenin GERİSİNE düşer. Bu yüzden ileri bileşen
+    negatiflenir. Ters işaret öndeki pedi arkaya kaydedip hatayı gerçek ofsetin
+    iki katına çıkarıyor, dronu komşu pede indiriyordu.
+
+    Args:
+        u_px (float): Bölge merkezinin yatay piksel konumu.
+        v_px (float): Bölge merkezinin dikey piksel konumu.
+        fx (float): Yatay odak uzaklığı (piksel).
+        fy (float): Dikey odak uzaklığı (piksel).
+        cx (float): Görüntü merkezinin yatay piksel konumu.
+        cy (float): Görüntü merkezinin dikey piksel konumu.
+        height_m (float): Drone'un zeminden yüksekliği (AGL, metre).
+        heading_deg (float): Drone heading'i (derece, NED).
+
+    Returns:
+        Tuple[float, float]: Drona göre NED ofseti (kuzey, doğu), metre.
+    """
+    right_m = height_m * (u_px - cx) / fx
+    fwd_m = -height_m * (v_px - cy) / fy
+
+    hd = math.radians(heading_deg)
+    ned_x = fwd_m * math.cos(hd) - right_m * math.sin(hd)
+    ned_y = fwd_m * math.sin(hd) + right_m * math.cos(hd)
+    return ned_x, ned_y
+
+
 class ZoneMapCore:
     """Renkli bölgeleri global NED'de biriktiren hafıza + projeksiyon."""
 
@@ -71,59 +115,6 @@ class ZoneMapCore:
         self._zones: List[Dict[str, float]] = []
 
     # =================================================================
-    # PROJEKSIYON: anlık (dron-göreli, normalize piksel) -> GLOBAL NED
-    # =================================================================
-    def project(
-        self,
-        image_x: float,
-        image_y: float,
-        fov_deg: float,
-        pose: Tuple[float, float, float, float],
-    ) -> Tuple[float, float, float]:
-        """
-        Görüntüdeki bölge merkezini global NED zemin konumuna projekte eder.
-
-        Aşağı (nadir) bakan pinhole kamera varsayımı. Görüntü merkezinden
-        normalize sapma, FOV ile açıya çevrilir; AGL irtifa ile çarpılarak
-        zemindeki yatay ofset bulunur; drone heading'iyle döndürülüp drone
-        konumuna eklenerek global NED elde edilir.
-
-        Harita yalnızca "yaklaşık konum" gerektirir; son hassas ortalama
-        precision_landing'de canlı görüntüyle kapalı çevrim yapılır.
-
-        Args:
-            image_x (float): Bölge merkezinin yatay piksel oranı [0.0, 1.0].
-            image_y (float): Bölge merkezinin dikey piksel oranı [0.0, 1.0].
-            fov_deg (float): Kamera görüş açısı (derece); 0 ise 60 varsayılır.
-            pose (Tuple[float, float, float, float]): Drone'un global NED pozu
-                (pos_x, pos_y, pos_z, heading_deg). pos_z NED'de aşağı pozitif.
-
-        Returns:
-            Tuple[float, float, float]: Bölgenin global NED (x, y, z) konumu.
-        """
-        px, py, pz, heading_deg = pose
-        fov = fov_deg if fov_deg > 1.0 else 60.0
-
-        # AGL irtifa: NED'de z aşağı pozitif olduğundan yükseklik = -pz.
-        height = max(-pz, self._min_height_m)
-
-        # Görüntü merkezinden normalize sapma [-0.5, 0.5].
-        # vision_node_core ekseni: dikey (image_y) -> NED ileri (x),
-        # yatay (image_x) -> NED sağ (y).
-        fwd_frac = image_y - 0.5
-        right_frac = image_x - 0.5
-
-        # Açıya çevir (kenar = FOV/2) ve zemine yansıt.
-        off_fwd = height * math.tan(math.radians(fwd_frac * fov))
-        off_right = height * math.tan(math.radians(right_frac * fov))
-
-        # Gövde çerçevesindeki (ileri, sağ) ofseti heading ile NED'e döndür.
-        hd = math.radians(heading_deg)
-        gx = px + off_fwd * math.cos(hd) - off_right * math.sin(hd)
-        gy = py + off_fwd * math.sin(hd) + off_right * math.cos(hd)
-        gz = pz + height  # zemin düzlemi (~0.0 origin zeminde ise)
-        return gx, gy, gz
-
     # =================================================================
     # BIRIKTIRME / KUMELEME
     # =================================================================

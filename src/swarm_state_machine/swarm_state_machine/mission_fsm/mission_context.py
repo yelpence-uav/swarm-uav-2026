@@ -10,6 +10,11 @@ from .mission_states import MissionState, MissionType, QrTaskStep
 _AGENT_STATE_IN_SWARM = 5
 _AGENT_STATE_LANDING = 12
 _AGENT_STATE_LANDED = 13
+# Ajanın "sürüyle birlikte" sayıldığı durumlar: havada, formasyonda (IN_SWARM)
+# ya da QR görevini icra ediyor (EXECUTING_TASK). Bunların DIŞINDAKİ her durum
+# (ayrıldı, iniyor, yerde bekliyor, tekrar arm oluyor, kalkıyor, failsafe)
+# sürünün eksik olduğu anlamına gelir.
+_AGENT_STATES_WITH_SWARM = frozenset({5, 6})
 
 
 @dataclass
@@ -37,6 +42,10 @@ class MissionContext:
     agent_statuses: dict = field(default_factory=dict)
 
     last_accepted_qr_seq: int = 0
+    # İşlenmekte olan QR'ın numarası. Tekrar okumaları elemek içindir; ayırt
+    # edici ölçüt budur (qr_seq yayıncıya özeldir, sürüde her dronun kendi
+    # sayacı vardır).
+    last_accepted_qr_id: int = 0
     current_qr: Optional[Any] = None
     qr_task_step: QrTaskStep = QrTaskStep.NONE
 
@@ -51,10 +60,11 @@ class MissionContext:
 
     # Şartname madde 17: QR çözülemezse eve dönüp rotayı baştan başlat.
     # restart_pending, RETURN_HOME'un başarısızlık (QR okunamadı) kaynaklı
-    # olduğunu; max_restarts sonsuz döngüyü önler.
+    # olduğunu belirtir. max_restarts=0 → SINIRSIZ (şartname sınır koymaz);
+    # >0 verilirse deneme sayısını sınırlar.
     restart_pending: bool = False
     restart_count: int = 0
-    max_restarts: int = 2
+    max_restarts: int = 0
 
     pending_command: int = 0
     abort_reason: str = ''
@@ -100,6 +110,30 @@ class MissionContext:
     def all_agents_in_swarm(self) -> bool:
         """Tüm ajanlar STATE_IN_SWARM ise True (kalkış tamamlandı)."""
         return self.all_agents_in_state(_AGENT_STATE_IN_SWARM)
+
+    def swarm_incomplete(self) -> bool:
+        """Sürüyle birlikte olmayan bir ajan varsa True.
+
+        "Ayrılan dronu bekliyor muyuz" sorusunun ölçütü budur. Ayrılma
+        döngüsündeki durumlara (DETACHED/PRECISION_LANDING/...) bakmak yetmez:
+        dönmeye çalışan dron ARMING/ARMED/TAKEOFF'tan geçer, arm başarısız
+        olursa IDLE'a düşer. Bu durumların hiçbiri "ayrılma döngüsü" değildir ama
+        hiçbirinde de dron sürüde değildir — o kümeye bakan bir kapı tam da o
+        anda açılıp sürüyü yerdeki dronu bırakıp gitmeye bırakıyordu.
+
+        Ölçüt tersine kurulur: sürüyle birlikte sayılan durumlar (havada,
+        formasyonda ya da görev icra ediyor) dışındaki HER durum eksikliktir.
+
+        Telemetri henüz yoksa False döner: görevi kilitlemek, eksik sürüyle
+        ilerlemekten bile kötüdür. Sonsuz bekleme çağıran taraftaki süre
+        sınırıyla engellenir.
+        """
+        if not self.agent_statuses:
+            return False
+        return any(
+            s.state not in _AGENT_STATES_WITH_SWARM
+            for s in self.agent_statuses.values()
+        )
 
     def all_agents_landing(self) -> bool:
         """Tüm ajanlar STATE_LANDING ise True."""

@@ -114,13 +114,30 @@ def test_touchdown_da_disarm():
 
 
 def test_zaman_asimi_iptal():
-    """landing_timeout aşılınca güvenli bekleme (disarm yok)."""
-    core = PrecisionLandingCore(landing_timeout_s=10.0)
+    """Hesaplanan süre bütçesi aşılınca güvenli bekleme (disarm yok)."""
+    core = PrecisionLandingCore(
+        landing_timeout_s=1.0, landing_time_margin_s=0.0
+    )
     core.update(True, _pose(0, 0, 15), COLOR_RED, _MAP, None, 0.0)
-    cmd = core.update(True, _pose(0, 0, 15), COLOR_RED, _MAP, None, 20.0)
+    # Hedef bölge (20, 5) → 20.6 m yatay, 15 m irtifa.
+    # Bütçe ≈ 20.6/1.5 + 15/0.4 ≈ 51 s; 60 s'te aşılmış olur.
+    cmd = core.update(True, _pose(0, 0, 15), COLOR_RED, _MAP, None, 60.0)
     assert cmd.phase == PHASE_ABORT
     assert cmd.disarm is False
     assert cmd.velocity_valid is True
+
+
+def test_uzak_bolgede_erken_iptal_yok():
+    """Bütçe geometriden türetilir: uzak pede iniş sabit sınırla kesilmez.
+
+    Sabit bir süre sınırı (eskiden 45 s) ayrılma noktası pede uzak düştüğünde
+    inişi tam alçalma sırasında iptal ediyordu: dron pedin üstünde havada
+    kalıyor, ardından failsafe devralıp rastgele bir yere indiriyordu.
+    """
+    core = PrecisionLandingCore()
+    core.update(True, _pose(0, 0, 15), COLOR_RED, _MAP, None, 0.0)
+    cmd = core.update(True, _pose(0, 0, 15), COLOR_RED, _MAP, None, 50.0)
+    assert cmd.phase != PHASE_ABORT
 
 
 def test_canli_kamera_merkezde_hedef_dron_altinda():

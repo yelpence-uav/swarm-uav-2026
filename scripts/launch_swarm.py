@@ -213,16 +213,24 @@ def main():
         drone_id = i + 1
         drone_name = f"IHA_{drone_id}"
 
-        image_gz = (
+        cam_base = (
             f"/world/{world_name}/model/{drone_name}"
-            f"/link/camera_link/sensor/camera/image"
+            f"/link/camera_link/sensor/camera"
         )
+        image_gz = f"{cam_base}/image"
         image_ros = f"/drone_{drone_id}/camera/image_raw"
+        # camera_info AYNI köprüde görüntünün yanında taşınır. vision_node,
+        # kamera odak uzaklığını (fx/fy/cx/cy) BU topic'ten okur; köprülenmezse
+        # o değerler hiç ulaşmaz ve bölge (renkli ped) konumu üretilemez.
+        info_gz = f"{cam_base}/camera_info"
+        info_ros = f"/drone_{drone_id}/camera/camera_info"
 
         cmd = (
             f"ros2 run ros_gz_bridge parameter_bridge "
             f"'{image_gz}@sensor_msgs/msg/Image@gz.msgs.Image' "
-            f"--ros-args -r '{image_gz}:={image_ros}'"
+            f"'{info_gz}@sensor_msgs/msg/CameraInfo@gz.msgs.CameraInfo' "
+            f"--ros-args -r '{image_gz}:={image_ros}' "
+            f"-r '{info_gz}:={info_ros}'"
         )
         run_background(cmd, f"bridge_{drone_id}")
 

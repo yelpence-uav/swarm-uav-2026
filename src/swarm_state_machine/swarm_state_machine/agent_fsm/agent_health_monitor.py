@@ -8,7 +8,6 @@ from dataclasses import dataclass
 from swarm_interfaces.msg import SystemEvent
 
 from .agent_context import AgentContext
-from .agent_states import AgentState
 from .agent_states import AgentRole, AgentState
 
 _OFFBOARD_LOSS_TIMEOUT_S = 5.0
@@ -39,6 +38,13 @@ _AIRBORNE = frozenset({
     AgentState.RETURN_HOME,
     AgentState.LANDING,
 })
+
+# Offboard setpoint bastığımız (direksiyonun BİZDE olduğu) durumlar. LANDING
+# hariç _AIRBORNE ile aynıdır: LANDING'de "in" komutunu biz verdik, PX4 kendi
+# LAND moduna geçip offboard'dan çıkar — bu BEKLENEN bir kayıptır, arıza değil.
+# Offboard kaybı kontrolü bu kümeye bakar; EKF/geofence/RC kontrolleri LANDING'de
+# de geçerli olduğu için _AIRBORNE'a bakmaya devam eder.
+_OFFBOARD_CONTROLLED = _AIRBORNE - {AgentState.LANDING}
 
 
 @dataclass
@@ -204,7 +210,7 @@ def _check_critical_faults(ctx: AgentContext) -> HealthCheckResult:
             reason='EKF2 estimator hatalı',
         )
 
-    if (ctx.state in _AIRBORNE
+    if (ctx.state in _OFFBOARD_CONTROLLED
             and ctx.offboard_lost_since is not None
             and (time.monotonic() - ctx.offboard_lost_since)
             > _OFFBOARD_LOSS_TIMEOUT_S):

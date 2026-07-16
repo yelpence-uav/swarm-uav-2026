@@ -75,6 +75,15 @@ _RELIABLE_QOS = QoSProfile(
     depth=10,
 )
 
+# BEST_EFFORT: komşu status'leri proxy'den (/public) BEST_EFFORT geliyor
+# (kayıplı kanal). RELIABLE abone best-effort yayıncıyla eşleşmez.
+_STATUS_QOS = QoSProfile(
+    reliability=ReliabilityPolicy.BEST_EFFORT,
+    durability=DurabilityPolicy.VOLATILE,
+    history=HistoryPolicy.KEEP_LAST,
+    depth=10,
+)
+
 _U32 = 2 ** 32
 
 
@@ -158,7 +167,7 @@ class ConsensusNode(Node):
         for aid in range(1, self._agent_count + 1):
             self.create_subscription(
                 AgentStatus, f'/swarm/public/drone{aid}/status',
-                self._make_status_cb(aid), 10,
+                self._make_status_cb(aid), _STATUS_QOS,
             )
         self.create_subscription(
             AgentStatus, f'/swarm/internal/drone{self._agent_id}/status',

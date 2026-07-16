@@ -76,6 +76,11 @@ def _make_node(
     node._current_lat = 0.0
     node._current_lon = 0.0
 
+    # Dağıtık slot ataması: yerel hesap yoksa lider ofsetine düşülür.
+    node._local_offsets = None
+    node._local_offsets_type = None
+    node._wing_alpha_rad = math.radians(45.0)
+
     # A7 — göreli (komşu tabanlı) koruma alanları
     node._rel_enable = rel_enable
     node._rel_k = rel_k

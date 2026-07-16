@@ -49,6 +49,10 @@ from std_msgs.msg import String, UInt8MultiArray
 # Bizim mesaj formatımız
 from swarm_interfaces.msg import AgentSetpoint, AgentStatus, SwarmOrigin
 
+# GPS -> paylaşılan NED çevrimi (saf matematik, ROS'suz). qr_geo ve formasyon
+# geometrisi de aynı fonksiyonu kullanır → tek kaynak, ölçek tutarlılığı.
+from swarm_core.formation_control.formation_geometry import latlon_to_ned
+
 # Aynı paket içindeki yardımcılar
 from .telemetry_mapper import (
     map_attitude,
@@ -111,10 +115,15 @@ class Px4BridgeNode(Node):
         self.declare_parameter('agent_id', 1)
         self.declare_parameter('publish_rate_hz', 10.0)
         self.declare_parameter('sitl_mode', False)
-        # velocity_only (B mimarisi): True → PX4'e pozisyon GÖNDERİLMEZ
+        # velocity_only (B/C mimarisi): True → PX4'e pozisyon GÖNDERİLMEZ
         # (sadece hız). Pozisyon kontrolü ROS'taki SVT'ye ait. False → A
         # (pozisyon+hız feedforward, PX4 pozisyon kontrolcüsü sahibi).
-        self.declare_parameter('velocity_only', False)
+        #
+        # VARSAYILAN True: formation_node zaten position_valid=False gönderiyor
+        # ("konumu kullanma"). False iken PX4'ün konum kontrolcüsü SVT ile
+        # PARALEL çalışır (çakışma/salınım) ve paylaşılan koordinat PX4'e
+        # lokal sanılarak gidebilir. Güvenli olan varsayılan olmalı.
+        self.declare_parameter('velocity_only', True)
         self._agent_id: int = int(
             self.get_parameter('agent_id').value
         )
@@ -154,8 +163,23 @@ class Px4BridgeNode(Node):
         # SITL: offboard mod takibi için önceki durum
         self._was_offboard: bool = False
 
+        # PX4'ün HAM lokal konumu (kendi EKF origin'ine göre). PX4'e giden
+        # her şey (hold/anchor/konum setpoint'i) BU frame'de olmalı.
+        # AgentStatus.pos_* ise PAYLAŞILAN NED'dir — ikisi karıştırılmamalı.
+        self._local_x: float = 0.0
+        self._local_y: float = 0.0
+        self._local_z: float = 0.0
+        self._local_xy_valid: bool = False
+        self._local_z_valid: bool = False
+
+        # Lokal origin'in paylaşılan NED'deki yeri ("kayma").
+        # paylaşılan = lokal + kayma   |   lokal = paylaşılan - kayma
+        self._off_n: float = 0.0
+        self._off_e: float = 0.0
+        self._off_d: float = 0.0
+
         # Son geçerli konum cache'i — xy/z_valid false olsa bile
-        # setpoint akışını sürdür
+        # setpoint akışını sürdür. HAM LOKAL frame'de tutulur.
         self._cached_pos_x: float = 0.0
         self._cached_pos_y: float = 0.0
         self._cached_pos_z: float = 0.0
@@ -169,6 +193,10 @@ class Px4BridgeNode(Node):
 
         # SwarmOrigin — uygulanmış sequence takibi (tekrar göndermemek için)
         self._applied_origin_seq: int = -1
+        # Son alınan ortak origin. Paylaşılan frame'i BUNDAN kurarız; PX4'ün
+        # SET_GPS_GLOBAL_ORIGIN'i kabul etmesine GÜVENMEYİZ (EKF init sonrası
+        # yok sayıyor → her drone kendi sıfırında kalıyor).
+        self._origin: SwarmOrigin | None = None
 
         # SITL: sahte RC publisher — gerçek donanımda oluşturulmaz
         if self._sitl_mode:
@@ -428,7 +456,76 @@ class Px4BridgeNode(Node):
         )
 
     def _on_local_pos(self, msg: VehicleLocalPosition) -> None:
+        """PX4 lokal konumunu alır; sürüye PAYLAŞILAN NED olarak yayınlar.
+
+        PX4 her zaman KENDİ EKF origin'ine göre konum verir (ref_lat/ref_lon).
+        Drone'lar farklı noktalarda açıldığı için bu sayılar kıyaslanamaz.
+        Burada ham lokali PX4 komutları için saklarız ve AgentStatus.pos_*'a
+        ortak origin'e taşınmış (paylaşılan) konumu yazarız.
+        """
+        # PX4 komut yolu için ham lokal (frame çevrimi YOK)
+        self._local_x = float(msg.x)
+        self._local_y = float(msg.y)
+        self._local_z = float(msg.z)
+        self._local_xy_valid = bool(msg.xy_valid)
+        self._local_z_valid = bool(msg.z_valid)
+
+        # vel_*, valid bayrakları vb. (pos_* geçici olarak lokalle dolar)
         map_local_position(msg, self._status)
+
+        # pos_* -> PAYLAŞILAN NED (kuramıyorsak güvenli şekilde geçersizle)
+        self._apply_shared_frame(msg)
+
+    def _apply_shared_frame(self, msg: VehicleLocalPosition) -> None:
+        """AgentStatus.pos_*'ı ortak origin'e taşır; kayma'yı günceller.
+
+        Kayma HER mesajda yeniden hesaplanır (cache'lenmez): PX4 uçuş sırasında
+        EKF reset yapıp lokal origin'ini kaydırabilir; böylece paylaşılan konum
+        kesintisiz kalır.
+
+        Kuramıyorsak (origin yok / PX4'ün global referansı yok) pos sıfırlanır
+        ve xy/z_valid düşürülür → formation_node setpoint üretmez, sürü güvenle
+        durur. 'origin_synced' ARTIK "komut gönderdim" değil, gerçekten ortak
+        frame'i kurabildik mi demektir.
+        """
+        o = self._origin
+        frame_ok = (
+            o is not None
+            and o.valid
+            and o.gps_fix_type >= 3
+            and bool(msg.xy_global)      # PX4: ref_lat/ref_lon geçerli mi
+            and msg.ref_timestamp != 0
+        )
+        if not frame_ok:
+            self._off_n = self._off_e = self._off_d = 0.0
+            self._status.pos_x = 0.0
+            self._status.pos_y = 0.0
+            self._status.pos_z = 0.0
+            self._status.origin_synced = False
+            self._status.xy_valid = False
+            self._status.z_valid = False
+            return
+
+        self._off_n, self._off_e = latlon_to_ned(
+            float(msg.ref_lat), float(msg.ref_lon),
+            float(o.origin_lat_deg), float(o.origin_lon_deg),
+        )
+        # DİKEY BİLEREK ÇEVRİLMEZ (off_d = 0).
+        # Matematiksel karşılığı shared_z = local_z + (origin_alt - ref_alt)
+        # olurdu; ancak ref_alt (EKF origin'inin AMSL'i) barometre init bias'ı
+        # taşır: düz zeminde ölçülen ref_alt yayılımı ~1.1 m (drone başına
+        # -0.09 / +1.02 / +0.38 m). Bu çevrim o bias'ı formasyona SAHTE irtifa
+        # farkı olarak enjekte eder. PX4'ün lokal z'si "kendi kalkış düzlemine
+        # göre yükseklik"tir ve düz sahada dronlar arasında zaten tutarlıdır.
+        # Yatayda (lat/lon) ise gerçek kayma vardır → yalnız o çevrilir.
+        # (Aynı gerekçe 'takeoff' yolunda da yazılı: AMSL düzeltmesi gerçek
+        # yüksekliği bozuyor.)
+        self._off_d = 0.0
+
+        self._status.pos_x = self._local_x + self._off_n
+        self._status.pos_y = self._local_y + self._off_e
+        self._status.pos_z = self._local_z
+        self._status.origin_synced = True
 
     def _on_estimator(self, msg: EstimatorStatusFlags) -> None:
         map_estimator(msg, self._status)
@@ -477,11 +574,15 @@ class Px4BridgeNode(Node):
         TrajectorySetpoint sadece offboard aktifken ve konum geçerliyken
         gönderilir; bu sayede drone mevcut konumda bekler (hold).
         """
-        # Konum geçerliyken cache'i güncelle
-        if self._status.xy_valid and self._status.z_valid:
-            self._cached_pos_x = self._status.pos_x
-            self._cached_pos_y = self._status.pos_y
-            self._cached_pos_z = self._status.pos_z
+        # Konum geçerliyken cache'i güncelle.
+        # DİKKAT: cache PX4'e "olduğun yerde bekle" konumu olarak gider →
+        # PX4'ün KENDİ lokal frame'inde olmalı. status.pos_* PAYLAŞILAN'dır;
+        # ondan beslenirse PX4 ortak koordinatı kendi koordinatı sanar ve
+        # drone kayma kadar (metrelerce) fırlar.
+        if self._local_xy_valid and self._local_z_valid:
+            self._cached_pos_x = self._local_x
+            self._cached_pos_y = self._local_y
+            self._cached_pos_z = self._local_z
             _yaw = math.radians(self._status.heading_deg)
             self._cached_yaw_rad = (_yaw + math.pi) % (2 * math.pi) - math.pi
 
@@ -537,9 +638,12 @@ class Px4BridgeNode(Node):
 
         if setpoint_fresh:
             sp = self._latest_setpoint
-            target_x = float(sp.x)
-            target_y = float(sp.y)
-            target_z = float(sp.z)
+            # formation_node PAYLAŞILAN frame'de üretir; PX4 KENDİ lokalini
+            # bekler → kaymayı çıkar. (velocity_only=True iken bu konum
+            # gönderilmez, ama mod A açılırsa doğru olsun.)
+            target_x = float(sp.x) - self._off_n
+            target_y = float(sp.y) - self._off_e
+            target_z = float(sp.z) - self._off_d
             _yaw = math.radians(float(sp.heading_deg))
             target_yaw = (_yaw + math.pi) % (2 * math.pi) - math.pi
         elif self._target_altitude_ned is not None:
@@ -595,18 +699,21 @@ class Px4BridgeNode(Node):
         """
         if not msg.valid or msg.gps_fix_type < 3:
             return
+        # Paylaşılan frame'i BİZ kurarız (_apply_shared_frame); origin'i sakla.
+        self._origin = msg
         if msg.sequence == self._applied_origin_seq:
             return
         self._applied_origin_seq = msg.sequence
+        # Komut yine de gönderilir: PX4 henüz EKF origin'ini seçmediyse kabul
+        # eder ve kayma ~0 olur (çevrim no-op'a döner). Ama SİSTEM BUNA
+        # BAĞIMLI DEĞİL — EKF init sonrası PX4 bunu yok sayar.
         self._cmd_sender.set_gps_global_origin(
             msg.origin_lat_deg,
             msg.origin_lon_deg,
             msg.origin_alt_amsl_m,
         )
-        # Ortak origin PX4'e uygulandı: telemetride bildir ki formation_node
-        # (ve diğer tüketiciler) shared→local dönüşümünü güvenle yapabilsin.
-        # Bu flag true olmadan formation_node setpoint üretmez.
-        self._status.origin_synced = True
+        # origin_synced BURADA set EDİLMEZ. "Komut gönderdim" senkron demek
+        # değildir; gerçekten çevirebildiysek _apply_shared_frame true yapar.
         self._status.origin_sequence = msg.sequence
         self.get_logger().info(
             f'GPS origin set: lat={msg.origin_lat_deg:.6f}, '
@@ -646,6 +753,14 @@ class Px4BridgeNode(Node):
         cmd = msg.data.strip().lower()
 
         if cmd == 'arm':
+            # Setpoint akışını (yeniden) aç: "arm" uçma niyetidir, PX4'ün arm
+            # ön koşulu da canlı bir offboard sinyalidir. İniş sonrası disarm
+            # akışı kapatır ve araç OFFBOARD nav_state'inde kalır; akış geri
+            # açılmazsa PX4 bu modda arm'ı reddeder ve sürüye dönmek üzere inen
+            # dron bir daha havalanamaz (ARMING zaman aşımı → yerde kalır).
+            # Yerdeyken yayınlanan setpoint zararsızdır: araç disarm'dır ve mod
+            # DO_SET_MODE gelene kadar değişmez.
+            self._offboard_streaming = True
             self._cmd_sender.arm()
         elif cmd == 'disarm':
             self._offboard_streaming = False

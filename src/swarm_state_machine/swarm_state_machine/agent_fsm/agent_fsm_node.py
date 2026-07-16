@@ -245,7 +245,10 @@ class AgentFsmNode(Node):
             ARMED        -> 'offboard'                  (offboard streaming + mod)
             TAKEOFF      -> 'takeoff:{target_altitude}' (PX4 AUTO_TAKEOFF)
             LANDING      -> 'land'                      (PX4 AUTO_LAND)
-            RETURN_HOME  -> 'rtl'                       (PX4 AUTO_RTL)
+            RETURN_HOME  -> 'offboard'                  (formasyonla eve; native
+                                                        RTL DEĞİL — orchestrator
+                                                        home setpoint'lerini
+                                                        offboard'da sürer)
 
         Komut gerektirmeyen state'ler (IDLE, IN_SWARM, EXECUTING_TASK,
         FAILSAFE, ...) sessizdir; setpoint akışları formation_control
@@ -263,7 +266,11 @@ class AgentFsmNode(Node):
         elif state == AgentState.LANDING:
             cmd = 'land'
         elif state == AgentState.RETURN_HOME:
-            cmd = 'rtl'
+            # Nominal eve dönüş formasyonla, offboard'da yapılır: orchestrator
+            # sürüyü home'a uçuran setpoint'leri yayınlar, çarpışma kaçınması
+            # aktif kalır. Native RTL (return_home) yalnız gerçek offboard/link
+            # kaybı failsafe'ine bırakıldı — burada offboard akışını sürdürürüz.
+            cmd = 'offboard'
         else:
             return
 
@@ -384,7 +391,10 @@ class AgentFsmNode(Node):
                 ctx.pending_state = AgentState.IDLE
 
         elif eid == SystemEvent.EVENT_ORIGIN_SYNCED:
-            ctx.origin_synced = True
+            # Bilgi amaçlı olay; bayrağı BURADAN set etme. origin_synced'in
+            # tek kaynağı px4_bridge telemetrisidir (frame gerçekten kuruldu
+            # mu). Olayla set edersek, kurulmamışken 'senkronum' deriz.
+            pass
 
         elif eid == SystemEvent.EVENT_GEOFENCE_VIOLATION:
             ctx.geofence_violated = True
@@ -418,7 +428,10 @@ class AgentFsmNode(Node):
             msg (SwarmOrigin): Gelen SwarmOrigin mesajı.
         """
         if msg.valid and msg.gps_fix_type >= 3:
-            self._ctx.origin_synced = True
+            # origin_synced BURADA set EDİLMEZ: "ortak origin mesajını aldım"
+            # ile "paylaşılan frame'i kurabildim" aynı şey değildir. PX4, EKF
+            # init sonrası SET_GPS_GLOBAL_ORIGIN'i yok sayar; frame'i kurup
+            # kuramadığımızı yalnız px4_bridge bilir ve telemetride bildirir.
             self._ctx.origin_sequence = msg.sequence
 
     def _handle_assign_role(
@@ -498,6 +511,10 @@ class AgentFsmNode(Node):
         ctx.vel_x = msg.vel_x
         ctx.vel_y = msg.vel_y
         ctx.vel_z = msg.vel_z
+        # origin_synced'in TEK doğru kaynağı px4_bridge telemetrisidir:
+        # paylaşılan frame gerçekten kurulabildi mi (ortak origin VE PX4'ün
+        # geçerli global referansı). Burada üretilmez, aynen taşınır.
+        ctx.origin_synced = bool(msg.origin_synced)
 
         ctx.roll_deg = msg.roll_deg
         ctx.pitch_deg = msg.pitch_deg
