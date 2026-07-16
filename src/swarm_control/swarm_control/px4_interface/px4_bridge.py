@@ -517,9 +517,12 @@ class Px4BridgeNode(Node):
         self.create_subscription(
             State, f'{ns}/mavros/state', self._on_mav_state, 10
         )
+        # battery: mavros sys plugin'i BEST_EFFORT yayinlar (sim'de 'topic
+        # info -v' ile dogrulandi, 2026-07-16). Reliable abonelik QoS
+        # uyusmazligindan HIC veri almiyordu (batarya 0.0 gorunuyordu).
         self.create_subscription(
             BatteryState, f'{ns}/mavros/battery',
-            self._on_mav_battery, 10
+            self._on_mav_battery, qos_profile_sensor_data
         )
         self.create_subscription(
             MavHomePosition, f'{ns}/mavros/home_position/home',
