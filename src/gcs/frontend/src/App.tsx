@@ -6,8 +6,11 @@ import { JoystickPanel } from "./components/JoystickPanel/JoystickPanel";
 import { MapView } from "./components/Map/Map";
 import { MissionControl } from "./components/MissionControl/MissionControl";
 import { MissionPanel } from "./components/MissionPanel/MissionPanel";
+import { QRPanel } from "./components/QRPanel/QRPanel";
+import { QRPositionForm } from "./components/QRPositionForm/QRPositionForm";
 import { SwarmStatePanel } from "./components/SwarmStatePanel/SwarmStatePanel";
 import { TelemetryPanel } from "./components/TelemetryPanel/TelemetryPanel";
+import { useQRPositions } from "./hooks/useQRPositions";
 import { useTheme } from "./hooks/useTheme";
 import { MISSION_ID } from "./services/api";
 import { TelemetryWS } from "./services/websocket";
@@ -27,11 +30,15 @@ const EMPTY_PAYLOAD: TelemetryPayload = {
   drones: [],
   alerts: [],
   swarm_state: null,
+  qr: null,
 };
 
 export default function App() {
   // Tema hook'unu burada bir kez çağırıp data-theme'i set etmesini garantile.
   useTheme();
+
+  // QR konumları — operatör girer, haritada gösterilir, localStorage'da saklanır.
+  const qr = useQRPositions();
 
   const [payload, setPayload] = useState<TelemetryPayload>(EMPTY_PAYLOAD);
   const [status, setStatus] = useState<ConnectionStatus>("connecting");
@@ -84,7 +91,11 @@ export default function App() {
       />
 
       <main className="app__map-area">
-        <MapView snapshot={payload.drones} />
+        <MapView
+          snapshot={payload.drones}
+          qrPositions={qr.positions}
+          activeQrId={payload.swarm_state?.current_qr_id ?? 0}
+        />
         <AlertList alerts={payload.alerts} />
       </main>
 
@@ -101,6 +112,13 @@ export default function App() {
           onMissionIdChange={setSelectedMissionId}
         />
         <SwarmStatePanel swarmState={payload.swarm_state} />
+        <QRPanel qr={payload.qr ?? null} />
+        <QRPositionForm
+          positions={qr.positions}
+          update={qr.update}
+          add={qr.add}
+          remove={qr.remove}
+        />
         {isSimMode && (
           <MissionControl
             anyConnected={anyConnected}

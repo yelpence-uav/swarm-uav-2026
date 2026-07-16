@@ -25,10 +25,31 @@ from typing import Callable, Optional
 import rclpy
 from rclpy.executors import SingleThreadedExecutor
 from rclpy.node import Node
-from rclpy.qos import QoSPresetProfiles, QoSProfile, QoSReliabilityPolicy
+from rclpy.qos import (
+    QoSDurabilityPolicy,
+    QoSPresetProfiles,
+    QoSProfile,
+    QoSReliabilityPolicy,
+)
 
-from swarm_interfaces.msg import AgentStatus, SwarmControlCommand, SwarmState, SystemEvent
+from swarm_interfaces.msg import (
+    AgentStatus,
+    QRMissionData,
+    SwarmControlCommand,
+    SwarmState,
+    SystemEvent,
+)
 from swarm_interfaces.srv import TriggerMission
+
+# QRCoordinates (operatörün girdiği QR konum tablosu) feature/qr-coordinates
+# branch'inde tanımlı; henüz main'de/derli olmayabilir. Guarded import — yoksa
+# backend yine de normal çalışır, sadece QR konum yayını devre dışı kalır.
+try:
+    from swarm_interfaces.msg import QRCoordinates
+    _HAS_QR_COORDS = True
+except ImportError:  # pragma: no cover - mesaj tipi henüz derlenmemiş
+    QRCoordinates = None  # type: ignore
+    _HAS_QR_COORDS = False
 
 from backend.core.alert_manager import (
     AlertManager,
@@ -156,6 +177,51 @@ def swarm_state_to_dict(msg: SwarmState) -> dict:
     }
 
 
+def qr_mission_data_to_dict(msg: QRMissionData) -> dict:
+    """QRMissionData mesajını JSON-serialize edilebilir dict'e çevir.
+
+    Şartname V2 kuralı: çözümlenen QR içeriği görev boyunca en az 1 kez GCS'te
+    gösterilmeli (aksi halde -20 ceza). Bu dict frontend QRPanel'i besler.
+    Üretici: qr_detector; proxy /swarm/public/perception/qr_data'ya relay eder.
+    """
+    return {
+        "detector_agent_id": msg.detector_agent_id,
+        "qr_id": msg.qr_id,
+        "qr_seq": msg.qr_seq,
+        "next_qr": msg.next_qr,
+        "team_id": msg.team_id,
+        "command_type": msg.command_type,
+        # Ham algılama durumu
+        "detected": msg.detected,
+        "decoded": msg.decoded,
+        "valid": msg.valid,
+        "raw_text": msg.raw_text,
+        "error_message": msg.error_message,
+        "confidence": msg.confidence,
+        # Aktif görev bölümü bayrakları (bir QR birden fazla iş isteyebilir)
+        "formation_active": msg.formation_active,
+        "target_active": msg.target_active,
+        "maneuver_active": msg.maneuver_active,
+        "altitude_active": msg.altitude_active,
+        "detach_active": msg.detach_active,
+        "complete_mission": msg.complete_mission,
+        # Formasyon
+        "formation_type": msg.formation_type,
+        "spacing_m": msg.spacing_m,
+        # Manevra (derece, işaretli)
+        "pitch_deg": msg.pitch_deg,
+        "roll_deg": msg.roll_deg,
+        "yaw_deg": msg.yaw_deg,
+        # İrtifa (pozitif = yukarı, m)
+        "altitude_agl_m": msg.altitude_agl_m,
+        "wait_s": msg.wait_s,
+        # Sürüden ayrılma / ekleme
+        "target_agent_id": msg.target_agent_id,
+        "detach_color": msg.detach_color,
+        "detach_wait_s": msg.detach_wait_s,
+    }
+
+
 def agent_status_to_state_fields(msg: AgentStatus) -> dict:
     """AgentStatus mesajından StateStore.update() için kwargs dict'i çıkar."""
     return {
@@ -248,6 +314,11 @@ class RosBridge:
         self.latest_swarm_state: Optional[dict] = None
         self._swarm_state_lock = threading.Lock()
 
+        # QRMissionData son snapshot'ı — çözülmüş QR içeriği (şartname V2:
+        # görev boyunca en az 1 kez GCS'te gösterilmeli). WebSocket buradan okur.
+        self.latest_qr: Optional[dict] = None
+        self._qr_lock = threading.Lock()
+
         self._node: Optional[Node] = None
         self._executor: Optional[SingleThreadedExecutor] = None
         self._thread: Optional[threading.Thread] = None
@@ -256,10 +327,17 @@ class RosBridge:
         # Service client + publisher (Aşama 3)
         self._trigger_mission_client = None
         self._control_pub = None
+        # QR konum tablosu yayıncısı (operatör → drone, latched). QRCoordinates
+        # mesajı derli değilse None kalır.
+        self._qr_coords_pub = None
 
     def get_swarm_state(self) -> Optional[dict]:
         with self._swarm_state_lock:
             return self.latest_swarm_state
+
+    def get_qr_data(self) -> Optional[dict]:
+        with self._qr_lock:
+            return self.latest_qr
 
     def trigger_mission(
         self,
@@ -355,6 +433,45 @@ class RosBridge:
         m.source_module = str(payload.get("source_module", "gcs"))
         self._control_pub.publish(m)
 
+    def publish_qr_coords(
+        self,
+        qr_ids: list,
+        lat_deg: list,
+        lon_deg: list,
+        alt_m: Optional[list] = None,
+    ) -> None:
+        """QRCoordinates.msg yayınla — operatörün girdiği QR konum tablosu.
+
+        Paralel diziler EŞİT uzunlukta olmalı (çağıran doğrular). Latched
+        topic'e yayınlanır; tek sefer basmak yeterli, sonradan başlayan
+        drone'lar son tabloyu otomatik alır.
+
+        alt_m opsiyonel: form yalnızca enlem/boylam topluyor (irtifa QR
+        görev komutundan gelir). Mevcut mesajda alt_m alanı varsa sıfırla
+        (ya da verilen) doldurulur; Şeyda alt_m'i çıkarırsa hasattr guard'ı
+        sayesinde kod kırılmaz.
+        """
+        if self._qr_coords_pub is None:
+            raise RuntimeError(
+                "QRCoordinates yayıncısı yok — swarm_interfaces'te QRCoordinates "
+                "mesajı derli değil (feature/qr-coordinates merge edilmeli)."
+            )
+        n = len(qr_ids)
+        if not (len(lat_deg) == n and len(lon_deg) == n):
+            raise ValueError("qr_ids/lat_deg/lon_deg eşit uzunlukta olmalı")
+
+        m = QRCoordinates()
+        m.stamp = self._node.get_clock().now().to_msg()
+        m.qr_ids = [int(x) for x in qr_ids]
+        m.lat_deg = [float(x) for x in lat_deg]
+        m.lon_deg = [float(x) for x in lon_deg]
+        # alt_m alanı mesajda hâlâ varsa doldur (yoksa Şeyda çıkarmıştır — atla).
+        if hasattr(m, "alt_m"):
+            alts = alt_m if (alt_m is not None and len(alt_m) == n) else [0.0] * n
+            m.alt_m = [float(x) for x in alts]
+        self._qr_coords_pub.publish(m)
+        logger.info("QRCoordinates yayınlandı: %d QR konumu (latched)", n)
+
     def start(self) -> None:
         """rclpy init + node + subscriber'lar + executor thread başlat."""
         if not rclpy.ok():
@@ -365,13 +482,14 @@ class RosBridge:
 
         # Drone başına AgentStatus subscriber.
         # QoS: kontrata göre BEST_EFFORT, 5-20 Hz.
+        # TOPIC ADLANDIRMA — network_proxy kontratı (INTERFACE_CONTRACT.md):
+        #   yayıncı (drone) → /swarm/internal/...  (proxy ESP-NOW süzgecinden geçirir)
+        #   abone  (tüketici) → /swarm/public/...  (proxy çıktısı)
+        # GCS bir TÜKETİCİDİR → daima /swarm/public/... dinler.
+        # GCS joystick komutu AĞA GİRER → /swarm/internal/control/command'a yayınlar.
         sensor_qos = QoSPresetProfiles.SENSOR_DATA.value
         for drone_id in self.drone_ids:
-            # Topic adı kuralı: ROS 2 token sayıyla başlayamaz, bu yüzden
-            # `drone{id}` prefix'i kullanılır. Ekip kontratı `{id}` placeholder
-            # gösterse de gerçek implementasyon `drone1`/`drone2`/... şeklindedir
-            # (bkz. agent_fsm_node.py).
-            topic = f"/swarm/agent/drone{drone_id}/status"
+            topic = f"/swarm/public/drone{drone_id}/status"
             self._node.create_subscription(
                 AgentStatus,
                 topic,
@@ -380,33 +498,68 @@ class RosBridge:
             )
             logger.info("subscribe → %s (drone_id=%d)", topic, drone_id)
 
-        # SwarmState — kontrata göre RELIABLE, 1-10 Hz. swarm_fsm henüz yazılmamış,
-        # mesaj gelmezse latest_swarm_state None kalır (frontend bunu handle eder).
+        # SwarmState — kontrata göre RELIABLE, 1-10 Hz. swarm_fsm yayıncı.
+        # Mesaj gelmezse latest_swarm_state None kalır (frontend bunu handle eder).
         reliable_qos = QoSProfile(depth=10, reliability=QoSReliabilityPolicy.RELIABLE)
         self._node.create_subscription(
-            SwarmState, "/swarm/state", self._on_swarm_state, reliable_qos
+            SwarmState, "/swarm/public/state", self._on_swarm_state, reliable_qos
         )
-        logger.info("subscribe → /swarm/state")
+        logger.info("subscribe → /swarm/public/state")
 
-        # SystemEvent — RELIABLE event akışı. agent_fsm + diğerleri publisher.
+        # SystemEvent — RELIABLE event akışı. agent_fsm + diğerleri yayıncı.
         self._node.create_subscription(
-            SystemEvent, "/swarm/events/system", self._on_system_event, reliable_qos
+            SystemEvent, "/swarm/public/events/system", self._on_system_event, reliable_qos
         )
-        logger.info("subscribe → /swarm/events/system")
+        logger.info("subscribe → /swarm/public/events/system")
+
+        # QRMissionData — çözülmüş QR görev içeriği. qr_detector yayıncı,
+        # proxy /swarm/public/perception/qr_data'ya relay eder. RELIABLE:
+        # QR mesajı GCS'te en az 1 kez görünmeli (şartname V2, -20 ceza).
+        self._node.create_subscription(
+            QRMissionData,
+            "/swarm/public/perception/qr_data",
+            self._on_qr_data,
+            reliable_qos,
+        )
+        logger.info("subscribe → /swarm/public/perception/qr_data")
 
         # TriggerMission service client — GCS'in tek müdahale noktası.
-        # mission_fsm karşı tarafta server kuracak.
+        # mission_fsm_node karşı tarafta server (doğrulandı: /swarm/mission/trigger).
         self._trigger_mission_client = self._node.create_client(
             TriggerMission, "/swarm/mission/trigger"
         )
         logger.info("service client → /swarm/mission/trigger")
 
         # SwarmControlCommand publisher — Görev 2 joystick mesajı.
+        # GCS ağa komut enjekte ettiği için /swarm/internal/... (proxy public'e iletir).
         # Kontrata göre BEST_EFFORT, 20-50 Hz; deadman switch ile guard.
         self._control_pub = self._node.create_publisher(
-            SwarmControlCommand, "/swarm/control/command", sensor_qos
+            SwarmControlCommand, "/swarm/internal/control/command", sensor_qos
         )
-        logger.info("publisher → /swarm/control/command")
+        logger.info("publisher → /swarm/internal/control/command")
+
+        # QRCoordinates publisher — operatörün girdiği QR konum tablosu.
+        # Kontrat: GCS /swarm/internal/mission/qr_coords'a yayınlar, proxy
+        # /swarm/public/mission/qr_coords'a iletir, mission_fsm tabloyu saklar.
+        # QoS LATCHED (RELIABLE + TRANSIENT_LOCAL, depth=1) — SwarmOrigin gibi:
+        # sonradan başlayan/katılan drone son tabloyu otomatik alır. Proxy
+        # aboneliği (_ORIGIN_QOS) ile eşleşmeli, yoksa hiç bağlanmaz.
+        if _HAS_QR_COORDS:
+            latched_qos = QoSProfile(
+                depth=1,
+                reliability=QoSReliabilityPolicy.RELIABLE,
+                durability=QoSDurabilityPolicy.TRANSIENT_LOCAL,
+            )
+            self._qr_coords_pub = self._node.create_publisher(
+                QRCoordinates, "/swarm/internal/mission/qr_coords", latched_qos
+            )
+            logger.info("publisher → /swarm/internal/mission/qr_coords (latched)")
+        else:
+            self._qr_coords_pub = None
+            logger.warning(
+                "QRCoordinates mesajı derli değil — QR konum yayını devre dışı "
+                "(feature/qr-coordinates merge edilmeli)"
+            )
 
         self._executor = SingleThreadedExecutor()
         self._executor.add_node(self._node)
@@ -451,6 +604,26 @@ class RosBridge:
             "SwarmState swarm=%d leader=%d active=%d formation=%d mission_active=%s",
             msg.swarm_state, msg.leader_id, msg.active_agent_count,
             msg.active_formation, msg.mission_active,
+        )
+
+    def _on_qr_data(self, msg: QRMissionData) -> None:
+        # SADECE çözülmüş QR'ları sakla. qr_detector sürekli yayın yapıp
+        # QR görüş alanında değilken decoded=false frame gönderebilir; bunlar
+        # son geçerli QR'ı EZMEMELİ (şartname V2: çözülen QR görev boyunca
+        # ekranda kalmalı, yoksa -20). Böylece "en son çözülen QR" kalıcı olur.
+        if not msg.decoded:
+            logger.debug(
+                "QRMissionData çözülmemiş frame atlandı (detected=%s)", msg.detected
+            )
+            return
+        snapshot = qr_mission_data_to_dict(msg)
+        with self._qr_lock:
+            self.latest_qr = snapshot
+        logger.debug(
+            "QRMissionData qr_id=%d seq=%d decoded=%s valid=%s next=%d "
+            "form=%d alt=%.1f detach=%s",
+            msg.qr_id, msg.qr_seq, msg.decoded, msg.valid, msg.next_qr,
+            msg.formation_type, msg.altitude_agl_m, msg.detach_active,
         )
 
     def _on_system_event(self, msg: SystemEvent) -> None:

@@ -72,17 +72,19 @@ class MockAgentPublisher(Node):
         sensor_qos = QoSPresetProfiles.SENSOR_DATA.value
         reliable_qos = QoSProfile(depth=10, reliability=QoSReliabilityPolicy.RELIABLE)
 
+        # Mock, tüm drone + network_proxy zincirinin yerine geçtiği için
+        # doğrudan /swarm/public/... (proxy çıktısı) yayınlar — GCS bunları dinler.
         self._pubs = {
             drone_id: self.create_publisher(
-                AgentStatus, f"/swarm/agent/drone{drone_id}/status", sensor_qos
+                AgentStatus, f"/swarm/public/drone{drone_id}/status", sensor_qos
             )
             for drone_id in self.DRONE_IDS
         }
         self._swarm_state_pub = self.create_publisher(
-            SwarmState, "/swarm/state", reliable_qos
+            SwarmState, "/swarm/public/state", reliable_qos
         )
         self._event_pub = self.create_publisher(
-            SystemEvent, "/swarm/events/system", reliable_qos
+            SystemEvent, "/swarm/public/events/system", reliable_qos
         )
         self._trigger_srv = self.create_service(
             TriggerMission, "/swarm/mission/trigger", self._on_trigger_mission

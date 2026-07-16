@@ -17,7 +17,7 @@ from rclpy.qos import (
     ReliabilityPolicy,
 )
 from rclpy.serialization import serialize_message
-from std_msgs.msg import String
+from std_msgs.msg import String, UInt8
 
 # Fiziksel Radyo Modelimiz
 from network_proxy.rf_model import ESPNowRFModel
@@ -28,6 +28,7 @@ from swarm_interfaces.msg import (
     ElectionResult,
     FormationCommand,
     LeaderHeartbeat,
+    MissionTarget,
     QRCoordinates,
     QRMissionData,
     SwarmControlCommand,
@@ -108,6 +109,13 @@ _STATUS_QOS = QoSProfile(
 # altında kalmalı; aşan mesaj gerçek meshte tek çerçevede gönderilemez.
 _ESPNOW_MTU_BYTES = 250
 
+# Bir komşunun konumu bu süreden eskiyse "ölü" sayılır ve mesafe hesabına
+# katılmaz. Gerçek mesh'teki düğüm zaman aşımıyla (mesh_config.h NODE_TIMEOUT_MS
+# = 12000 ms) hizalı: bir düğüm 12 sn heartbeat göndermezse komşu listesinden
+# düşürülür. Susan/çöken bir drone'un bayat konumu, canlı komşu gibi sayılıp
+# yanlış mesafe/kayıp kararı üretmesin diye.
+_STALE_LIMIT_S = 12.0
+
 
 class NetworkProxyNode(Node):
     def __init__(self):
@@ -141,6 +149,19 @@ class NetworkProxyNode(Node):
             )
         self.positions = {"gcs": (gcs_lat, gcs_lon, gcs_alt)}
 
+        # Her drone'un konumunun en son NE ZAMAN güncellendiği (node saati, s).
+        # _min_neighbor_distance bunu okuyup _STALE_LIMIT_S'ten eski konumları
+        # atar. GCS bu sözlükte YOK — sabit parametre, asla bayatlamaz.
+        self._pos_stamp: dict[str, float] = {}
+
+        # Güncel lider ID'si — heartbeat (leader_id) ve election (new_leader_id)
+        # handler'larında, drop kararından ÖNCE yakalanır (proxy gerçek lideri
+        # /internal'dan her zaman bilir, ilettiği /public düşse bile). Gönderen
+        # kimliği taşımayan ama LİDERDEN çıkan kanallar (formation, mission fazı)
+        # bunu kullanıp mesafe kaybını liderin konumuna göre uygular. Lider henüz
+        # bilinmiyorsa None → fail-open. Bkz. _leader_drop.
+        self._current_leader_id: int | None = None
+
         # Sistemdeki İHA listesi — diğer TÜM node'lar gibi 'drone{id}'
         # adlandırması. Sayı parametreyle ayarlanır (launch'taki drone
         # sayısıyla uyumlu olmalı; varsayılan 3).
@@ -151,9 +172,10 @@ class NetworkProxyNode(Node):
         # Fault-injection: menzil dışı sayılan düğümler. Kesme düğüm
         # seviyesindedir; public topic paylaşımlı olduğundan link-seviyesi
         # (asimetrik) kesme yapılamaz. Bir drone burada listelenirse GÖNDERDİĞİ
-        # mesajlar (status/heartbeat/state/qr — net gönderenli kanallar) relay
-        # edilmez — failover/rejoin testinin aracı. Test: `ros2 topic pub
-        # /swarm/proxy/unreachable std_msgs/msg/String "{data: 'drone1'}"`.
+        # mesajlar (gönderen kimliği olan tüm kanallar: status/heartbeat/state/
+        # qr/events/election) relay edilmez — failover/rejoin testinin aracı.
+        # Test: `ros2 topic pub /swarm/proxy/unreachable std_msgs/msg/String
+        # "{data: 'drone1'}"`.
         self.unreachable_agents: set[str] = set()
         self.create_subscription(
             String, "/swarm/proxy/unreachable", self._on_unreachable_set, 10
@@ -220,9 +242,10 @@ class NetworkProxyNode(Node):
             _STATE_QOS,
         )
 
-        # --- SwarmControlCommand (YKİ->İHA) — mesh'te KOMUT kritik/retry'li
-        # (efektif kayıp ≈0) → olasılık zarı YOK; yalnız jitter + (gcs konumu
-        # verildiyse) GCS izolasyon kontrolü. Bkz. _on_internal_control.
+        # --- SwarmControlCommand (YKİ->İHA) — havadan gider, kaybolabilir:
+        # (gcs konumu verildiyse) GCS'in en yakın drone'una göre mesafe kaybı
+        # zarı + jitter. Kritik olması havada koruma sağlamaz (ACK yok).
+        # Bkz. _on_internal_control.
         self._control_pub = self.create_publisher(
             SwarmControlCommand, "/swarm/public/control/command", _CONTROL_QOS
         )
@@ -231,11 +254,11 @@ class NetworkProxyNode(Node):
             self._on_internal_control, _CONTROL_QOS,
         )
 
-        # --- SystemEvent, ElectionResult, SwarmOrigin: mesh'te kritik/retry'li
-        # (efektif kayıp ≈0) → olasılık zarı YOK. election/events gönderen
-        # izole ise düşer (_sender_isolated); origin'de gönderen-ID olmadığından
-        # kontrol uygulanamaz (bkz. ilgili handler'lar). QRMissionData ise
-        # non-kritik (QR_DATA, retry YOK) → en yakın komşuya göre tek-zar.
+        # --- SystemEvent, ElectionResult, SwarmOrigin: havadan giden yayınlar,
+        # kaybolabilir. events/election gönderen kimliğine sahip → gönderenin
+        # en yakın komşusuna göre mesafe kaybı zarı (bkz. ilgili handler'lar).
+        # origin'de gönderen-ID yok → mesafe uygulanamaz (yalnız jitter).
+        # QRMissionData da havadan gider → algılayan drona göre tek-zar.
         self._event_pub = self.create_publisher(
             SystemEvent, "/swarm/public/events/system", _EVENT_QOS
         )
@@ -272,10 +295,11 @@ class NetworkProxyNode(Node):
             self._on_internal_origin, _ORIGIN_QOS,
         )
 
-        # --- FormationCommand (lider→followers) — mesh'te GOREV üzerinden
-        # kritik/retry'li → kayıpsız (yalnız jitter). Lider slot atamasını
-        # (agent_ids + offset_x/y/z) yayınlar; formation_node/collision_avoidance
-        # /public'ten okur (merkezi formasyon).
+        # --- FormationCommand (lider→followers) — havadan gider, kaybolabilir.
+        # Mesajda gönderen drone kimliği yok ama fiziksel gönderen = güncel lider
+        # (heartbeat/election'dan izlenir) → mesafe kaybı liderin konumuna göre
+        # (_leader_drop). Lider slot atamasını (agent_ids + offset_x/y/z) yayınlar;
+        # formation_node/collision_avoidance /public'ten okur.
         self._formation_pub = self.create_publisher(
             FormationCommand, "/swarm/public/formation/target", _FORMATION_QOS
         )
@@ -285,14 +309,45 @@ class NetworkProxyNode(Node):
         )
 
         # --- QRCoordinates (yarışma öncesi paylaşılan QR konum tablosu) —
-        # latched (origin ile aynı QoS). GCS/operatör yayınlar; statik ve nadir
-        # veri, mesh'te kritik/latched sınıf → mesafe zarı yok, yalnız jitter.
+        # latched (origin ile aynı QoS). GCS/operatör yayınlar; fiziksel dron
+        # kimliği yok → mesafe uygulanamaz, yalnız jitter (origin ile aynı sınır).
         self._qr_coords_pub = self.create_publisher(
             QRCoordinates, "/swarm/public/mission/qr_coords", _ORIGIN_QOS
         )
         self.create_subscription(
             QRCoordinates, "/swarm/internal/mission/qr_coords",
             self._on_internal_qr_coords, _ORIGIN_QOS,
+        )
+
+        # --- Görev fazı (mission_fsm liderde→tüm dronlar) — MissionState ve
+        # QrTaskStep (UInt8). Her drone'un mission1'i ve formation_control gate'i
+        # bu fazı /public'ten okur. Havadan gider, kaybolabilir; düz UInt8 kimlik
+        # taşımasa da fiziksel gönderen = güncel lider → mesafe kaybı liderin
+        # konumuna göre (_leader_drop).
+        self._mission_state_pub = self.create_publisher(
+            UInt8, "/swarm/public/mission/state", _FORMATION_QOS
+        )
+        self.create_subscription(
+            UInt8, "/swarm/internal/mission/state",
+            self._on_internal_mission_state, _FORMATION_QOS,
+        )
+        self._mission_qr_step_pub = self.create_publisher(
+            UInt8, "/swarm/public/mission/qr_step", _FORMATION_QOS
+        )
+        self.create_subscription(
+            UInt8, "/swarm/internal/mission/qr_step",
+            self._on_internal_mission_qr_step, _FORMATION_QOS,
+        )
+
+        # --- Sonraki QR hedefi (mission_fsm liderde→tüm dronlar) — MissionTarget
+        # (qr_id + lat/lon). mission1 bunu /public'ten okuyup navige eder. Liderin
+        # mission_fsm'inden çıkar → mesafe kaybı liderin konumuna göre (_leader_drop).
+        self._mission_next_target_pub = self.create_publisher(
+            MissionTarget, "/swarm/public/mission/next_target", _FORMATION_QOS
+        )
+        self.create_subscription(
+            MissionTarget, "/swarm/internal/mission/next_target",
+            self._on_internal_mission_next_target, _FORMATION_QOS,
         )
 
         self.get_logger().info("Network Proxy Node (ESP-NOW Simulator) Başlatıldı.")
@@ -355,9 +410,11 @@ class NetworkProxyNode(Node):
 
     def _min_neighbor_distance_m(self, sender_pos, exclude_key=None):
         """sender_pos'a en yakın canlı komşunun mesafesi (metre). Menzil-dışı
-        işaretli veya konumu bilinmeyen alıcılar sayılmaz. Hiç aday yoksa
-        None (fail-open — henüz karar verilemez).
+        işaretli, konumu bilinmeyen VEYA konumu bayat (bkz. _STALE_LIMIT_S)
+        alıcılar sayılmaz. Hiç aday yoksa None (fail-open — henüz karar
+        verilemez).
         """
+        now = self.get_clock().now().nanoseconds / 1e9
         min_dist = None
         for receiver_id in self.agent_ids:
             if receiver_id == exclude_key:
@@ -367,6 +424,9 @@ class NetworkProxyNode(Node):
             receiver_pos = self.positions.get(receiver_id)
             if receiver_pos is None:
                 continue  # henüz konum bildirmedi → hesaba katma (fail-open)
+            stamp = self._pos_stamp.get(receiver_id)
+            if stamp is not None and now - stamp > _STALE_LIMIT_S:
+                continue  # bayat konum → ölü/susmuş komşu, canlı sayma
             d = self.rf_model.distance_m(sender_pos, receiver_pos)
             min_dist = d if min_dist is None else min(min_dist, d)
         return min_dist
@@ -374,18 +434,20 @@ class NetworkProxyNode(Node):
     def _broadcast_drop(self, sender_key: str) -> bool:
         """En yakın komşuya göre tek-zar: yayın düşecekse True.
 
-        Non-kritik (retry'siz) yayınlar radyo kaybına tabidir. Firmware'de
-        bunlar da flooding ile aktarılır (ATLAMA_MAKS=3): paket, en yakın
-        komşusuna ulaşabildiğinde mesh'e girer ve geri kalana yayılır. Bu
-        yüzden karar EN YAKIN komşuya göredir (en uzak değil) — yakın bir
-        komşu, uzaktaki başka bir alıcı yüzünden cezalandırılmamalı. Retry
-        olmadığından, en yakın link bile tek atışta düşebilir → hard-cutoff
-        değil OLASILIK zarı (cutoff ötesinde zar zaten %100 verir).
-
-        Kritik/retry'li kanallar bu zarı KULLANMAZ, bkz. _sender_isolated.
+        TÜM mesh yayınları radyo kaybına tabidir. Havadan geçen bir paket,
+        kritik olsun olmasın, aynı fizikle kaybolur: ESP-NOW broadcast'te
+        donanım ACK'i yoktur (mesh_config.h _mesh_gonder), dolayısıyla paket
+        havaya TEK ATIŞ çıkar; kritik kanalların 3-retry'ı yalnız YEREL
+        gönderim hatasını (TX kuyruğu) kurtarır, havadaki kaybı değil.
+        Flooding (ATLAMA_MAKS=3) her iki sınıfta da vardır ve paket en yakın
+        komşusuna ulaşabildiğinde mesh'e girip geri kalana yayılır. Bu yüzden
+        karar EN YAKIN komşuya göredir (en uzak değil) — yakın bir komşu,
+        uzaktaki başka bir alıcı yüzünden cezalandırılmamalı. En yakın link
+        bile tek atışta düşebilir → hard-cutoff değil OLASILIK zarı (cutoff
+        ötesinde zar zaten %100 verir, izolasyonu da kapsar).
 
         Fault-injection: gönderen menzil dışı işaretlenmişse tüm yayını
-        düşürür (düğüm-seviyesi kesme; status/heartbeat/state/qr tutarlı).
+        düşürür (düğüm-seviyesi kesme; tüm kanallarda tutarlı).
         """
         if sender_key in self.unreachable_agents:
             return True
@@ -397,49 +459,16 @@ class NetworkProxyNode(Node):
             return False
         return self.rf_model.should_drop_packet(min_dist)
 
-    def _sender_isolated(self, sender_key: str) -> bool:
-        """Kritik/retry'li kanallar için: gönderen mesh'e paketi hiç
-        sokamıyor mu?
-
-        Firmware'de bu kanallar (mesh_config.h _mesh_gonder: TIP_KOMUT,
-        TIP_ORIGIN, TIP_GOREV, TIP_ELECTION) hem 3 kez retry edilir hem de
-        flooding ile ATLAMA_MAKS=3 hop yeniden yayılır. Bu yüzden paket bağlı
-        mesh'e bir kez girdiğinde tüm bağlı düğümlere ulaşır — efektif kayıp
-        ≈0. Tek başarısızlık modu: gönderen fiziksel olarak İZOLE; en yakın
-        canlı komşusu bile cutoff_m ötesindeyse paketi alıp aktaracak kimse
-        yoktur. Gönderen tek bir komşuya ulaşabiliyorsa o komşu geri kalana
-        yayar, dolayısıyla mesafe zarı UYGULANMAZ (yalnız izolasyon).
-
-        Fault-injection: gönderen menzil dışı işaretlenmişse düşer
-        (düğüm-seviyesi kesme; non-kritik kanallarla tutarlı).
+    def _leader_drop(self) -> bool:
+        """Liderden çıkan (formation/mission fazı) kanallar için mesafe kaybı
+        zarı. Bu mesajlarda gönderen kimliği yok ama fiziksel olarak liderin
+        radyosundan çıkarlar; gönderen = izlenen güncel lider (_current_leader_id,
+        heartbeat/election'dan). Lider henüz bilinmiyorsa fail-open (kayıpsız).
+        Split-brain'de tek lider takibi yaklaşıktır (bkz. _current_leader_id).
         """
-        if sender_key in self.unreachable_agents:
-            return True
-        sender_pos = self.positions.get(sender_key)
-        if sender_pos is None:
+        if self._current_leader_id is None:
             return False
-        min_dist = self._min_neighbor_distance_m(sender_pos, exclude_key=sender_key)
-        if min_dist is None:
-            return False
-        return min_dist > self.rf_model.cutoff_m
-
-    def _gcs_isolated(self) -> bool:
-        """Control kanalı YKİ'den (GCS) yayınlanır; GCS hiçbir drone'a
-        ulaşamıyorsa (en yakın drone bile cutoff_m ötesinde) komut mesh'e
-        hiç giremez → düşer. GCS bir drone'a ulaşıyorsa mesh geri kalana
-        yayar (KOMUT kritik/retry+multi-hop, bkz. _sender_isolated).
-
-        gcs_lat/gcs_lon parametreyle verilmediyse (_gcs_configured=False)
-        GCS konumu (0,0,0) anlamsızdır; çağıran taraf bu fonksiyonu HİÇ
-        çağırmamalı (kontrol muaf kalır, mevcut davranış).
-        """
-        gcs_pos = self.positions.get("gcs")
-        if gcs_pos is None:
-            return False
-        min_dist = self._min_neighbor_distance_m(gcs_pos)
-        if min_dist is None:
-            return False
-        return min_dist > self.rf_model.cutoff_m
+        return self._broadcast_drop(f"drone{self._current_leader_id}")
 
     def internal_status_callback(self, msg: AgentStatus, sender_id: str):
         """
@@ -453,7 +482,20 @@ class NetworkProxyNode(Node):
         # 1. Göndericinin GPS konumunu güncelle. pos_x/y/z KULLANILMAZ —
         # her drone kendi yerel origin'ini kurar, aralarında ortak referans
         # yoktur. Ortak referans yalnızca GPS'tir.
-        self.positions[sender_id] = (msg.lat_deg, msg.lon_deg, msg.alt_amsl_m)
+        #
+        # GEÇERLİLİK: yalnız 3D fix (gps_fix_type >= 3) VE (0,0) olmayan
+        # koordinat saklanır. GPS kilidi yokken drone lat/lon=0.0 yayınlar;
+        # ham (0,0)'ı saklarsak haversine bunu Gine Körfezi (~5500 km) sanır
+        # ve gerçek GPS'li dronlara sahte "izole/çok uzak" kararı üretir.
+        # Geçersizse konumu GÜNCELLEMEYİZ — son geçerli konum korunur (bayatsa
+        # _min_neighbor_distance zaten atar). Hiç geçerli fix gelmediyse konum
+        # None kalır → _broadcast_drop fail-open (hesaba katmaz).
+        now = self.get_clock().now().nanoseconds / 1e9
+        if msg.gps_fix_type >= 3 and not (
+            msg.lat_deg == 0.0 and msg.lon_deg == 0.0
+        ):
+            self.positions[sender_id] = (msg.lat_deg, msg.lon_deg, msg.alt_amsl_m)
+            self._pos_stamp[sender_id] = now
 
         # 2. ESP-NOW 250 byte bütçe kontrolü (gerçek serileştirme boyutu).
         if not self._within_budget(msg, sender_id):
@@ -463,9 +505,10 @@ class NetworkProxyNode(Node):
         sender_pos = self.positions[sender_id]
 
         # GCS de bir ağ ucudur; menzil dışına çıkarsa bağlantı kopar. Yalnız
-        # gcs konumu gerçekten verildiyse anlamlı — aksi halde (0,0,0) her
-        # drona ~5500 km uzaktır ve her mesajda sahte "koptu" uyarısı basardı.
-        if self._gcs_configured:
+        # gcs konumu gerçekten verildiyse VE gönderenin geçerli bir konumu
+        # varsa anlamlı — aksi halde (0,0,0) her drona ~5500 km uzaktır ve
+        # her mesajda sahte "koptu" uyarısı basardı.
+        if self._gcs_configured and sender_pos is not None:
             gcs_dist = self.rf_model.distance_m(sender_pos, self.positions["gcs"])
             if gcs_dist > self.rf_model.cutoff_m:
                 self.get_logger().warn(
@@ -489,6 +532,11 @@ class NetworkProxyNode(Node):
         Gönderici = msg.leader_id. En yakın komşuya göre radyo kaybı zarı
         (tek-zar); geçerse jitter ile yayınlanır.
         """
+        # Güncel lideri DROP'TAN ÖNCE yakala: bu heartbeat /public'e düşse bile
+        # proxy gerçek lideri bilmeli (formation/mission fazı bunun konumunu
+        # kullanır). Fault-injection'da bile lider odur, yalnız iletim kesilir.
+        self._current_leader_id = msg.leader_id
+
         leader_key = f"drone{msg.leader_id}"
 
         # Fault-injection: lider elle menzil dışı işaretlenmişse heartbeat
@@ -509,14 +557,12 @@ class NetworkProxyNode(Node):
     def _simple_relay(self, msg, publisher, channel_key: str):
         """Yalnızca jitter uygulayıp yayınlayan ortak yol.
 
-        Kendisi hiçbir kayıp kararı vermez — olasılık eğrisi VEYA izolasyon
-        kontrolü, çağıran handler'da (varsa) bu fonksiyondan ÖNCE yapılır.
-        Mesh'te retry+multi-hop'lu kritik kanallar (events/GOREV, election,
-        origin, formation) olasılık eğrisine hiç girmez; election/events
-        ayrıca _sender_isolated ile "gönderen mesh'e bağlı mı" kontrolüne
-        tabidir (origin/formation'da gönderen tanımlı olmadığından bu kontrol
-        uygulanamaz). state/qr non-kritik olduğundan buraya gelmeden ÖNCE
-        _broadcast_drop (olasılık eğrisi + menzil) çağrılır.
+        Kendisi hiçbir kayıp kararı vermez — mesafeye bağlı kayıp zarı, çağıran
+        handler'da bu fonksiyondan ÖNCE atılır. Gönderen kimliği taşıyan kanallar
+        (events, election, control, state, qr) _broadcast_drop; gönderen kimliği
+        taşımayan ama LİDERDEN çıkan kanallar (formation, mission_state/qr_step/
+        next_target) _leader_drop kullanır. Yalnız origin (baz istasyonu) ve qr_coords
+        (GCS/operatör) bir drondan çıkmadığından mesafe uygulanamaz → yalnız jitter.
         """
         self._schedule(channel_key, publisher, msg)
 
@@ -533,11 +579,11 @@ class NetworkProxyNode(Node):
         if not self._within_budget(msg, "event"):
             return
         # source_agent_id==0 sistem/GCS kaynaklı demek — fiziksel bir verici
-        # yok, izolasyon kontrolü uygulanamaz. >0 ise gönderen dron izole
-        # (veya kesilmiş) ise düşer (SystemEvent hem GOREV hem RENK gibi
-        # farklı kritiklikte olayları taşıdığından ortak payda budur).
+        # yok, mesafe kontrolü uygulanamaz (her zaman geçer). >0 ise gönderen
+        # dronun konumuna göre mesafe kaybı zarı: havada giden event de kritik
+        # olsun olmasın kaybolabilir (ACK yok), en yakın komşuya göre tek-zar.
         if msg.source_agent_id != 0:
-            if self._sender_isolated(f"drone{msg.source_agent_id}"):
+            if self._broadcast_drop(f"drone{msg.source_agent_id}"):
                 return
         self._simple_relay(msg, self._event_pub, "events")
 
@@ -556,10 +602,16 @@ class NetworkProxyNode(Node):
         self._simple_relay(msg, self._qr_pub, "qr_data")
 
     def _on_internal_election(self, msg: ElectionResult):
+        # Güncel lideri DROP'TAN ÖNCE yakala (heartbeat ile aynı ilke): election
+        # /public'e düşse bile proxy yeni lideri bilmeli — formation/mission fazı
+        # bunun konumunu kullanır.
+        self._current_leader_id = msg.new_leader_id
         if not self._within_budget(msg, "election"):
             return
         # Gönderen = yeni seçilen lider (consensus_fsm'i bu mesajı yayınlar).
-        if self._sender_isolated(f"drone{msg.new_leader_id}"):
+        # Havada giden election de kaybolabilir (ACK yok, tek atış) — gönderen
+        # liderin konumuna göre en yakın komşuya tek-zar.
+        if self._broadcast_drop(f"drone{msg.new_leader_id}"):
             return
         # Mesh'te election_veri_t.confirmed_ids sabit 4 slot (mesh_config.h);
         # ROS mesajı dinamik dizi olsa da gerçek paket ilk 4'ten fazlasını
@@ -601,30 +653,62 @@ class NetworkProxyNode(Node):
         self._simple_relay(msg, self._qr_coords_pub, "qr_coords")
 
     def _on_internal_formation(self, msg: FormationCommand):
-        # Formation mesh'te GOREV üzerinden kritik/retry'li → kayıpsız, yalnız
-        # jitter. offset dizileri dron sayısıyla büyür; 250 bütçe kontrolü
-        # taşmayı yakalar.
-        # NOT: FormationCommand'de gönderen drone kimliği yok (yalnız
-        # source_module string'i var) — origin ile aynı sebepten menzil
-        # kontrolü uygulanamaz (bilinen sınır).
+        # Formation liderden çıkar (merkezi atama). Mesajda gönderen kimliği yok
+        # ama fiziksel gönderen = güncel lider → mesafe kaybını liderin konumuna
+        # göre uygula (_leader_drop; lider bilinmiyorsa kayıpsız). offset dizileri
+        # dron sayısıyla büyür; 250 bütçe kontrolü taşmayı yakalar.
         if not self._within_budget(msg, "formation"):
+            return
+        if self._leader_drop():
             return
         self._simple_relay(msg, self._formation_pub, "formation")
 
-    def _on_internal_control(self, msg: SwarmControlCommand):
-        """YKİ->İHA komutunu taşır. Mesh'te KOMUT KRİTİK paket (firmware'de
-        3 retry) → olasılık eğrisine girmez (origin/election ile aynı
-        sınıf), yalnızca jitter. Fault-injection burada UYGULANMAZ
-        (gönderen GCS, düğüm-kesme drone'lara özgü).
+    def _on_internal_mission_state(self, msg: UInt8):
+        # Görev fazı UInt8; mission_fsm liderde tek yayıncı → fiziksel gönderen
+        # = güncel lider, mesafe kaybını liderin konumuna göre uygula
+        # (_leader_drop; lider bilinmiyorsa kayıpsız).
+        if not self._within_budget(msg, "mission_state"):
+            return
+        if self._leader_drop():
+            return
+        self._simple_relay(msg, self._mission_state_pub, "mission_state")
 
-        Fiziksel menzil kontrolü YALNIZCA gcs_lat/gcs_lon parametreyle
-        gerçekten verildiyse uygulanır (_gcs_configured); aksi halde GCS
-        konumu (0,0,0) anlamsızdır ve kontrol her zaman "çok uzak" derdi —
-        bu da komutu (deadman/emergency dahil) sessizce keserdi.
+    def _on_internal_mission_qr_step(self, msg: UInt8):
+        # QR alt-adımı UInt8; formation_control gate ve mission1 manevra tetiği
+        # bunu okur. mission_fsm liderde yayıncı → fiziksel gönderen = güncel
+        # lider, mesafe kaybı liderin konumuna göre (_leader_drop).
+        if not self._within_budget(msg, "mission_qr_step"):
+            return
+        if self._leader_drop():
+            return
+        self._simple_relay(msg, self._mission_qr_step_pub, "mission_qr_step")
+
+    def _on_internal_mission_next_target(self, msg: MissionTarget):
+        # Sonraki hedef MissionTarget; mission_fsm liderde tek yayıncı → fiziksel
+        # gönderen = güncel lider, mesafe kaybı liderin konumuna göre (_leader_drop).
+        if not self._within_budget(msg, "mission_next_target"):
+            return
+        if self._leader_drop():
+            return
+        self._simple_relay(
+            msg, self._mission_next_target_pub, "mission_next_target"
+        )
+
+    def _on_internal_control(self, msg: SwarmControlCommand):
+        """YKİ->İHA komutunu taşır. Komut da havadan (GCS→mesh) gider ve
+        kaybolabilir: KOMUT kritik olsa da broadcast'te ACK yoktur, 3-retry
+        yalnız yerel TX hatasını kurtarır (mesh_config.h). Bu yüzden GCS'in
+        en yakın drone'una göre mesafe kaybı zarına tabidir — cutoff ötesinde
+        zar %100 verir (GCS izolasyonu bu zarın içinde).
+
+        Zar YALNIZCA gcs_lat/gcs_lon parametreyle gerçekten verildiyse
+        (_gcs_configured) uygulanır; aksi halde GCS konumu (0,0,0) anlamsızdır
+        ve kontrol her zaman "çok uzak" der, komutu (deadman/emergency dahil)
+        sessizce keserdi — o durumda kanal zardan muaf kalır.
         """
         if not self._within_budget(msg, "control command"):
             return
-        if self._gcs_configured and self._gcs_isolated():
+        if self._gcs_configured and self._broadcast_drop("gcs"):
             return
         self._schedule("control", self._control_pub, msg)
 
