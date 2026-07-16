@@ -10,7 +10,6 @@
   <depend>rclpy</depend>
   <depend>std_msgs</depend>
   <depend>swarm_interfaces</depend>
-  <depend>px4_msgs</depend>
   <depend>mavros_msgs</depend>
   <depend>geographic_msgs</depend>
   <depend>nav_msgs</depend>
