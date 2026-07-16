@@ -450,8 +450,8 @@ class Px4BridgeNode(Node):
             # A: pozisyon + hız feedforward (PX4 pozisyon sahibi)
             self._cmd_sender.publish_offboard_position_velocity_mode()
         else:
-            # Setpoint stale/yok → pozisyon-hold (velocity_only'de bile GÜVENLİ:
-            # flyaway yerine konum tutar → failsafe).
+            # Setpoint stale/yok → pozisyon-hold (velocity_only'de bile
+            # GÜVENLİ: flyaway yerine konum tutar → failsafe).
             self._cmd_sender.publish_offboard_position_mode()
 
         # SITL: offboard kaybi kurtarmasi — gerçek donanımda çalışmaz
