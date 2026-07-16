@@ -502,20 +502,37 @@ void test_reassembly_duplicate_fragment_atlanir(void) {
 
 void test_reassembly_sira_disi_gelis_dogru_birlesir(void) {
     rtk_asm_durum_t a; rtk_asm_sifirla(&a);
-    uint8_t p0[5] = {1,2,3,4,5};
-    uint8_t p1[5] = {6,7,8,9,10};
     uint16_t toplam;
 
-    // Once frag 1, SONRA frag 0 gelir
-    rtk_asm_sonuc_t s1 = rtk_asm_fragment_isle(&a, 1, 1, 2, 5, p1, 1000, &toplam);
-    TEST_ASSERT_EQUAL(RTK_ASM_DEVAM, s1);
-    rtk_asm_sonuc_t s2 = rtk_asm_fragment_isle(&a, 1, 0, 2, 5, p0, 1001, &toplam);
-    TEST_ASSERT_EQUAL(RTK_ASM_TAMAMLANDI, s2);
-    TEST_ASSERT_EQUAL_UINT16(10, toplam);
+    // URETIM SEKILLI veri: gonderici son HARICI hep TAM parca uretir
+    // (rtk_fragman_hesapla), yani 248B -> 191 + 57. Bu test eskiden 5+5B
+    // parcalarla yaziliydi; o sekil telde ASLA olusmaz ve testi sessizce
+    // anlamsizlastiriyordu: toplam=10 iddia edilirken ikinci parca offset
+    // 191'de oksuz kaliyordu, yani Pi'ye giden "birlesmis" mesaj p0 + 5 sifir
+    // -- BOZUK. Test bunu goremiyordu cunku TESLIM EDILEN byte'lara hic
+    // bakmiyor, sadece buffer yerlesimini kontrol ediyordu.
+    const uint16_t MESAJ_UZUNLUK = 248;
+    uint8_t mesaj[MESAJ_UZUNLUK];
+    for (uint16_t i = 0; i < MESAJ_UZUNLUK; i++) mesaj[i] = (uint8_t)(i * 7 + 1);
 
-    // Buf'ta offset'e gore DOGRU sirada olmali (varis sirasina gore degil)
-    TEST_ASSERT_EQUAL_UINT8_ARRAY(p0, a.buf + 0 * RTK_FRAG_PAYLOAD_MAKS, 5);
-    TEST_ASSERT_EQUAL_UINT8_ARRAY(p1, a.buf + 1 * RTK_FRAG_PAYLOAD_MAKS, 5);
+    uint8_t lens[RTK_MAX_FRAGS];
+    TEST_ASSERT_EQUAL_UINT8(2, rtk_fragman_hesapla(MESAJ_UZUNLUK, lens));
+    TEST_ASSERT_EQUAL_UINT8(RTK_FRAG_PAYLOAD_MAKS, lens[0]);  // ara parca TAM
+    TEST_ASSERT_EQUAL_UINT8(57, lens[1]);                     // son parca kisa
+
+    // Once frag 1, SONRA frag 0 gelir
+    rtk_asm_sonuc_t s1 = rtk_asm_fragment_isle(&a, 1, 1, 2, lens[1],
+                             mesaj + RTK_FRAG_PAYLOAD_MAKS, 1000, &toplam);
+    TEST_ASSERT_EQUAL(RTK_ASM_DEVAM, s1);
+    rtk_asm_sonuc_t s2 = rtk_asm_fragment_isle(&a, 1, 0, 2, lens[0],
+                             mesaj, 1001, &toplam);
+    TEST_ASSERT_EQUAL(RTK_ASM_TAMAMLANDI, s2);
+    TEST_ASSERT_EQUAL_UINT16(MESAJ_UZUNLUK, toplam);
+
+    // ASIL IDDIA: _rtk_uart_gonder(buf, toplam) ile Pi'ye TESLIM EDILEN dilim
+    // orijinal mesajin AYNISI olmali -- varis sirasindan bagimsiz. Yerlesimi
+    // kontrol etmek yetmez; teslim edilen sey dogru olmali.
+    TEST_ASSERT_EQUAL_UINT8_ARRAY(mesaj, a.buf, toplam);
 }
 
 void test_reassembly_gecersiz_fragment_reddedilir(void) {
