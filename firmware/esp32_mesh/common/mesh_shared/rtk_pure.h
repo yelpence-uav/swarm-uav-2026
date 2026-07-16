@@ -98,8 +98,16 @@ static_assert(offsetof(rtk_mesh_frag_t, payload) == RTK_FRAG_HEADER_BOYUTU,
 #define RTK_FRAGMAN_REDDEDILDI 0xFF
 static inline uint8_t rtk_fragman_hesapla(uint16_t uzunluk, uint8_t* frag_uzunluklari_out) {
     if (uzunluk == 0) return 0;
-    uint8_t frag_toplam = (uint8_t)((uzunluk + (RTK_FRAG_PAYLOAD_MAKS - 1)) / RTK_FRAG_PAYLOAD_MAKS);
-    if (frag_toplam == 0 || frag_toplam > RTK_MAX_FRAGS) return RTK_FRAGMAN_REDDEDILDI;
+    // Parca sayisi uint16'da tutulup OYLE sinanir. (uint8_t) cast'i sinamadan
+    // ONCE yapilirsa 256'nin katlarinda taban kaybolur: 257 parca -> (uint8_t)257
+    // == 1, yani asagidaki "> RTK_MAX_FRAGS" kapisi SESSIZCE gecilir ve ~49KB'lik
+    // bir mesaj tek parcaya kirpilir. Bugun cagiran taraf uzunlugu <=1029'a
+    // sabitledigi icin erisilemiyor (bkz rtk_sender.h'deki ispat), ama kapi
+    // "buyuk girdiyi reddet" diye YAZILMIS durumda ve o isi tum uint16 araliginda
+    // yapmiyordu -- olu kod degil, hatali kod.
+    uint16_t frag_toplam16 = (uint16_t)((uzunluk + (RTK_FRAG_PAYLOAD_MAKS - 1)) / RTK_FRAG_PAYLOAD_MAKS);
+    if (frag_toplam16 == 0 || frag_toplam16 > RTK_MAX_FRAGS) return RTK_FRAGMAN_REDDEDILDI;
+    uint8_t frag_toplam = (uint8_t)frag_toplam16;
     for (uint8_t i = 0; i < frag_toplam; i++) {
         uint16_t offset = (uint16_t)i * RTK_FRAG_PAYLOAD_MAKS;
         uint16_t kalan  = uzunluk - offset;
