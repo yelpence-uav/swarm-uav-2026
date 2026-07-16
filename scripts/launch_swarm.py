@@ -22,8 +22,9 @@ TMP_WORLD = os.path.join(tempfile.gettempdir(), "swarm_tmp_world.sdf")
 DRONE_COUNT = 3
 # USE_MAVROS: True → MAVROS yolu (her drone için mavros_node + px4_bridge
 # use_mavros:=True). False → eski uXRCE-DDS yolu (MicroXRCEAgent).
-# Strangler-fig: MAVROS kanıtlanana kadar varsayılan False (eski yol yedek).
-USE_MAVROS = False
+# SITL'de kanıtlandı (connected + NED/ENU + telemetri, 2026-07): varsayılan
+# artık MAVROS. Eski yol strangler-fig gereği geri dönüş yedeği olarak durur.
+USE_MAVROS = True
 TMUX_SESSION = "yelpence_swarm"
 
 

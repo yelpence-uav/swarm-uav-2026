@@ -791,12 +791,13 @@ class Px4BridgeNode(Node):
                     self.get_logger().warning(
                         f'Geçersiz takeoff irtifası: {cmd}'
                     )
-            # NED: yukarı = negatif Z. Local z her drone'un kendi
-            # kalkış noktasına göredir; aynı zeminden başlayanlar
-            # local z=-altitude ile aynı GERÇEK yüksekliğe çıkar.
-            # (alt_amsl tahminleri bias'lı → AMSL düzeltmesi gerçek
-            # yüksekliği bozar — kullanmıyoruz.)
-            self._target_altitude_ned = -altitude
+            # NED: yukarı = negatif Z. Hedef, MEVCUT konuma görelidir:
+            # origin SET_GPS_GLOBAL_ORIGIN ile dünya orijinine senkron
+            # olduğunda yer seviyesi z=0 DEĞİLDİR (örn. z=-37). Mutlak
+            # -altitude vermek "aşağı in" komutuna dönüşür (SITL'de
+            # yakalandı: drone arm oldu, kalkmadı). Bu yüzden mevcut
+            # z'den altitude kadar TIRMAN.
+            self._target_altitude_ned = self._cached_pos_z - altitude
             # Yatay çapayı şimdi dondur — tırmanış boyunca sabit kalsın.
             self._takeoff_anchor_x = self._cached_pos_x
             self._takeoff_anchor_y = self._cached_pos_y
