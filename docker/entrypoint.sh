@@ -100,7 +100,7 @@ if [ ! -f "install/setup.bash" ]; then
     sudo chown -R yelpence:yelpence src/px4_autopilot/build
 
     # PX4 yamalarını uygula (build'den ÖNCE, derlemeye girsin diye).
-    # gps_inject_data_dds: /fmu/in/gps_inject_data'yı uXRCE-DDS köprüsüne ekler (RTK ŞARTI).
+    # ornek: sim_rtk_fix6 (SITL GPS'ini RTK kalitesine ceker).
     # KURŞUN-GEÇİRMEZ: --check önce "uygulanabilir mi?" diye sorar; zaten uygulanmışsa
     # 'else'e düşüp SESSİZCE atlar. Tüm git komutları 'if' içinde -> hata fırlatsa bile
     # set -e tetiklenmez, container DURMAZ. En kötü ihtimalle "atlandı" yazar.

@@ -15,11 +15,8 @@ RUN apt-get update && apt-get install -y \
   git \
   && rm -rf /var/lib/apt/lists/*
 
-# Micro-XRCE-DDS-Agent Derlemesi
-COPY src/Micro-XRCE-DDS-Agent /tmp/Micro-XRCE-DDS-Agent
-RUN cd /tmp/Micro-XRCE-DDS-Agent && mkdir build && cd build \
-  && cmake -DCMAKE_BUILD_TYPE=Release -DUAGENT_BUILD_EXECUTABLE=ON .. \
-  && make -j4 && make install
+# NOT: Micro-XRCE-DDS-Agent derlemesi kaldirildi (DDS yolu sokuldu,
+# 2026-07-17). PX4 arayuzu artik MAVROS (runtime asamasinda apt'ten).
 
 # Yelpençe Workspace Derlemesi (Buraya kendi kodlarınızı kopyalayın)
 RUN mkdir -p /ros2_ws/src
@@ -69,11 +66,8 @@ RUN groupadd --gid $USER_GID $USERNAME \
   && echo "$USERNAME ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/$USERNAME \
   && chmod 0440 /etc/sudoers.d/$USERNAME
 
-# Builder aşamasından derlenmiş dosyaları ve DDS Agent'ı transfer et
-COPY --from=builder /usr/local/bin/MicroXRCEAgent /usr/local/bin/
-COPY --from=builder /usr/local/lib/libmicroxrcedds_agent* /usr/local/lib/
-RUN ldconfig /usr/local/lib/
-
+# Builder aşamasından derlenmiş workspace'i transfer et
+# (XRCE Agent transferi kaldirildi — DDS yolu sokuldu, MAVROS apt'ten geliyor)
 RUN mkdir -p /home/yelpence/ros2_ws
 COPY --from=builder --chown=$USERNAME:$USERNAME /home/yelpence/ros2_ws/install /home/yelpence/ros2_ws/install
 
