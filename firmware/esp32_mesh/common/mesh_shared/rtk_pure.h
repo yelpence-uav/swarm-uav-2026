@@ -118,6 +118,35 @@ static inline uint8_t rtk_fragman_hesapla(uint16_t uzunluk, uint8_t* frag_uzunlu
 }
 
 // ===== SAF REASSEMBLY DURUM MAKINESI =====
+//
+// ON KOSUL — BU DOSYA TEK BASINA DOGRU DEGIL, GOREMEDIGI GARANTILERE YASLANIR.
+// Asagidaki makine TEK yuva tutar (rtk_handler.h'de tek global _rtk_asm) ve
+// farkli paket_id gordugu an devam eden birlestirmeyi SILER. Bu ancak su uc
+// on kosul dogruyken guvenli:
+//
+//   (a) TEK RTK kaynagi. Yuva kaynaga gore anahtarlanmiyor. Anti-replay
+//       penceresi node BASINA ayri oldugu icin ikinci bir baz/RTK kaynaginin
+//       fragmentleri de kapidan GECER ve ayni yuvada birbirini surekli siler.
+//       Bunu saglayan sey kod degil, sahada tek baz olmasi.
+//   (b) TEK HOP. RTK bugun iletilmiyor: _paketi_ilet() kucuk mesh_paket_t
+//       zarfiyla calisir, RTK ise buyuk zarfi kullanir ve _mesh_gonder()
+//       TIP_RTK'yi hic islemez (rtk_handler.h'de atlama_sayisi 0 yazilir ve
+//       bir daha artmaz).
+//   (c) Mesajlar arasi YENIDEN SIRALAMA yok. Kopyalari replay_pure.h'deki
+//       64'luk pencere eler; broadcast ESP-NOW'da MAC seviyesi retry/ACK
+//       olmadigi icin siralama korunur.
+//
+// (b) veya (c) bozulursa onceki mesajin GECIKMIS bir kopyasi, devam eden yeni
+// mesajin ilerlemesini siler; ARQ olmadigi icin o RTCM bir daha gelmez. Daha
+// kotusu kayip rtk_kayip_timeout'a duser ve rtk_handler.h'deki okuma kilavuzu
+// onu "RF menzil/parazit (anten/mesafe)" diye teshis eder — yani sayaci dorde
+// bolmenin onlemek istedigi YANLIS TESHISIN ta kendisi uretilir.
+//
+// Su iki degisiklikten biri yapilirsa BURASI DA elden gecmeli: RTK'ya relay
+// eklenmesi (atlama_sayisi alani zarfta hazir bekliyor) ya da ikinci bir baz.
+// Cozum: kaynak+paket_id'ye gore anahtarlanan cok yuvali asm, ya da en azindan
+// geriye giden paket_id'yi reddeden bir monotonluk kapisi. Bugun ikisi de
+// BILEREK yok — (a)(b)(c) gecerliyken erisilemez kod olurlardi.
 typedef struct {
     uint32_t paket_id;
     uint8_t  toplam;
