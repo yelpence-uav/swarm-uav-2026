@@ -75,7 +75,7 @@ def _quat_to_roll_pitch_deg(qx: float, qy: float, qz: float,
     """Quaternion'dan roll ve pitch (derece) cikarir (ZYX Euler).
 
     ENU-FLU ile NED-FRD govde cerceveleri arasindaki isaret farki
-    gercek donanimda kontrol edilmeli.
+    gercek donanimda mutlaka bir kez daha kontrol edilmeli.
 
     Args:
         qx, qy, qz, qw (float): quaternion bilesenleri.
