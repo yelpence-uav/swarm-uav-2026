@@ -31,7 +31,7 @@ from mavros_msgs.msg import ManualControl
 from swarm_interfaces.msg import SwarmControlCommand
 
 # MAVROS ManualControl -> normalize alanlar (cevirici tek tip gorsun diye).
-# Araliklar SITL'de dogrulanmali.
+# Araliklar gercek kumandayla kontrol edilmeli.
 _MavrosManual = namedtuple('_MavrosManual', [
     'pitch', 'roll', 'yaw', 'throttle',
     'aux1', 'aux2', 'aux3', 'aux4', 'aux5', 'aux6',
@@ -202,7 +202,7 @@ class JoystickInterpreterNode(Node):
 
         MAVLink MANUAL_CONTROL aralığı [-1000, 1000]; sürü [-1, 1].
         x=pitch, y=roll, r=yaw, z=throttle(0..1000). aux1..aux6 doğrudan.
-        NOT: aralıklar (özellikle aux) SITL'de doğrulanmalıdır.
+        Aux aralıkları gerçek kumandayla kontrol edilmeli.
         """
         norm = _MavrosManual(
             pitch=self._clamp(msg.x / 1000.0),

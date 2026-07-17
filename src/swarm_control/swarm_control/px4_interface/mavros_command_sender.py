@@ -49,10 +49,10 @@ _MASK_POS_VEL = (
 
 
 def _ned_to_enu(x_ned: float, y_ned: float, z_ned: float) -> tuple:
-    """NED (Kuzey, Dogu, Asagi) konumu ENU (Dogu, Kuzey, Yukari)'ya cevirir.
+    """NED konumu ENU'ya cevirir.
 
-    Donusum: x_enu = y_ned, y_enu = x_ned, z_enu = -z_ned. Involutif'tir
-    (ayni formul ters yonde de gecerli).
+    x/y yer degistirir, z isaret degistirir; ayni formul ters yonde de
+    calisir.
 
     Args:
         x_ned (float): NED X (Kuzey), metre.
@@ -66,9 +66,7 @@ def _ned_to_enu(x_ned: float, y_ned: float, z_ned: float) -> tuple:
 
 
 def _yaw_ned_to_enu(yaw_ned: float) -> float:
-    """NED yaw'i (Kuzeyden, CW) ENU yaw'ina (Dogudan, CCW) cevirir.
-
-    yaw_enu = pi/2 - yaw_ned, ardindan [-pi, pi] araligina sarilir.
+    """NED yaw'i ENU yaw'ina cevirir (pi/2 - yaw, [-pi, pi] araliginda).
 
     Args:
         yaw_ned (float): NED yaw acisi, radyan.

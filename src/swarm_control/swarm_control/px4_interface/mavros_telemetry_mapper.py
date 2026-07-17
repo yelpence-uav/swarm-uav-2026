@@ -29,15 +29,16 @@ MODE_STR_TO_FLIGHT_MODE: dict[str, int] = {
 PILOT_FLIGHT_MODES: frozenset[int] = frozenset({1, 2, 3, 9, 10})
 
 # Failsafe proxy: MAV_STATE (system_status) değerleri.
-# CRITICAL/EMERGENCY -> failsafe aktif kabul (conservative default).
+# CRITICAL/EMERGENCY gelirse failsafe aktif kabul ediyoruz (temkinli).
 _MAV_STATE_CRITICAL = 5
 _MAV_STATE_EMERGENCY = 6
 
 
 def _enu_to_ned(x: float, y: float, z: float) -> tuple:
-    """ENU (Doğu, Kuzey, Yukarı) -> NED (Kuzey, Doğu, Aşağı) çevirir.
+    """ENU konumu NED'e çevirir.
 
-    x_ned = y_enu, y_ned = x_enu, z_ned = -z_enu. Involutif.
+    x/y yer değiştirir, z işaret değiştirir; aynı formül ters yönde de
+    çalışır.
 
     Args:
         x (float): ENU X (Doğu).
@@ -52,10 +53,9 @@ def _enu_to_ned(x: float, y: float, z: float) -> tuple:
 
 def _quat_to_heading_ned_deg(qx: float, qy: float, qz: float,
                              qw: float) -> float:
-    """ENU quaternion'dan NED heading (derece, Kuzeyden saat yönü) çıkarır.
+    """ENU quaternion'dan NED heading (derece) çıkarır.
 
-    Önce ENU yaw (Doğudan, saat tersi) hesaplanır, sonra NED başlığa
-    çevrilir: heading = (90 - yaw_enu) mod 360.
+    Önce ENU yaw hesaplanır, sonra heading = (90 - yaw_enu) mod 360.
 
     Args:
         qx, qy, qz, qw (float): ENU quaternion bileşenleri.
@@ -74,9 +74,8 @@ def _quat_to_roll_pitch_deg(qx: float, qy: float, qz: float,
                             qw: float) -> tuple:
     """Quaternion'dan roll ve pitch (derece) cikarir (ZYX Euler).
 
-    NOT: ENU-FLU (ROS) ile NED-FRD (PX4) govde cerceveleri arasindaki
-    isaret farki SITL'de dogrulanmalidir; heading ile ayni ucus-kritik
-    uyari gecerlidir.
+    ENU-FLU ile NED-FRD govde cerceveleri arasindaki isaret farki
+    gercek donanimda kontrol edilmeli.
 
     Args:
         qx, qy, qz, qw (float): quaternion bilesenleri.
