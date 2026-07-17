@@ -3,15 +3,15 @@
 #include <Arduino.h>
 #include <esp_now.h>
 #include <WiFi.h>
-#include "esp_wifi.h"      // DUSUK-2: promiscuous mod kanal taramasi icin
+#include "esp_wifi.h"      // promiscuous mod kanal taramasi icin
 #include "encryption.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-#include "rtk_pure.h"      // ADIM 6: RTK_ENV_MAKS_TOPLAM vb. TEK yerden (portable)
-#include "replay_pure.h"   // F1: anti_replay_t/replay_state_t + saf replay karari (portable)
+#include "rtk_pure.h"      // RTK_ENV_MAKS_TOPLAM vb. tek yerden
+#include "replay_pure.h"   // anti_replay_t/replay_state_t + saf replay karari
 
-#define MESH_KANAL           11   // Birincil — non-overlapping, TR ISM, sahada en az meşgul
-#define MESH_KANAL_YEDEK      6   // Yedek — uçuş öncesi spektrum analizi olumsuzsa buraya geç
+#define MESH_KANAL           11   // Birincil: non-overlapping, TR ISM, sahada en az mesgul
+#define MESH_KANAL_YEDEK      6   // Yedek: ucus oncesi spektrum analizi olumsuzsa buraya gec
 #define MESH_MAX_NODES        8
 #define ATLAMA_MAKS           3
 #define HEARTBEAT_ARALIK_MS   500UL
@@ -26,47 +26,42 @@
 #define TIP_RENK        0x06
 #define TIP_RTK         0x0C
 #define TIP_DURUM       0x07
-#define TIP_ORIGIN      0x08   // RPi → Mesh origin broadcast
-#define TIP_LEADER_HB   0x09   // LeaderHeartbeat — lider secimi
-#define TIP_ELECTION    0x0A   // ElectionResult  — lider degisimi
-#define TIP_VERSION     0x0B   // VersionInfo     — boot'ta 1 kez, debug
+#define TIP_ORIGIN      0x08   // RPi -> Mesh origin broadcast
+#define TIP_LEADER_HB   0x09   // LeaderHeartbeat: lider secimi
+#define TIP_ELECTION    0x0A   // ElectionResult: lider degisimi
+#define TIP_VERSION     0x0B   // VersionInfo: boot'ta 1 kez, debug
 #define TIP_SWARM_STATE 0x0D   // Sürü seviyesi FSM durumu
 #define TIP_QR_DATA     0x0E   // QR tespit ve çözümleme verisi
 
-// !!! DIKKAT — IKI AYRI ISIM UZAYI, KARISTIRMA:
+// Dikkat: iki ayri isim uzayi, karistirma:
 //
-// (1) BAZ_ID = RTK UART ÇERÇEVESİNİN SENTINEL'i. SADECE UART çerçeve
-//     prefiksinin ikinci baytıdır (spec §2.2):
+// (1) BAZ_ID = RTK UART cercevesinin sentinel'i. Sadece UART cerceve
+//     prefiksinin ikinci baytidir (spec §2.2):
 //         COBS( TIP_RTK + BAZ_ID + rtcm + crc16_be ) + 0x00
-//     Paylaşılan header'da olması ŞART: RX BASE (çerçeveyi çözüp ID'yi
-//     doğrular, rtk_sender.h) ve rtk_handler.h (çerçeveyi kurar) aynı değeri
-//     görmeli. Eskiden rtk_sender.h'deydi, rtk_handler.h 99'u hardcode
-//     ediyordu — iki taraf sessizce kayabilirdi.
-//     Bu bir MESH KİMLİĞİ DEĞİLDİR. drone_tablo'da KULLANMA.
+//     Paylasilan header'da olmasi sart: RX BASE (cerceveyi cozup ID'yi
+//     dogrular) ve rtk_handler.h (cerceveyi kurar) ayni degeri gormeli.
+//     Bu bir mesh kimligi degildir; drone_tablo'da kullanma.
 //
-// (2) BAZ_MESH_ID = baz istasyonunun mesh kaynak kimliği (drone_tablo'da,
-//     mac_to_id() bunu döndürür, pi_bridge'e iha_id olarak gider).
+// (2) BAZ_MESH_ID = baz istasyonunun mesh kaynak kimligi (drone_tablo'da,
+//     mac_to_id() bunu dondurur, pi_bridge'e iha_id olarak gider).
 //
-// NEDEN AYRILAR (gerçek bir hata sonucu): baz'a da 99 verilirse pi_bridge
-// tarafında baz ile RTK ayırt EDİLEMEZ hale gelir:
-//   - Bridge'in "bilinen peer" whitelist'i 99'u içerdiği anda RTK çerçeveleri
-//     yeniden mesh-liveness tazeler (_son_alim_ts) — RTK ~1Hz aktığı için
-//     tüm telemetri ölse bile link_ok kalıcı True olur. Yani kapatılan
-//     körleşme, bu sefer "meşru" görünerek geri açılır.
-//   - "99'dan paket geldi" artık "baz canlı" demez, "RTK akıyor" da olabilir;
-//     baz-özel liveness (F3) imkânsızlaşır.
-//   - _komsu_son_goruldu[99] hayalet komşusu meşru kayda dönüşür, filtrelenemez.
-// Kural: baz'ın mesh kimliği 0 ve 99 DIŞINDA olmalı; drone id aralığının
-// (1..MESH_MAX_NODES) üstünde bir değer seçilir.
-#define BAZ_ID          99   // (1) SADECE RTK UART sentinel'i — mesh kimliği DEĞİL
+// Neden ayrilar: baz'a da 99 verilirse pi_bridge tarafinda baz ile RTK ayirt
+// edilemez hale gelir:
+//   - Bridge'in whitelist'i 99'u icerdigi anda RTK cerceveleri mesh-liveness'i
+//     tazeler; RTK ~1Hz aktigi icin tum telemetri olse bile link_ok kalici
+//     True olur.
+//   - "99'dan paket geldi" artik "baz canli" demez, "RTK akiyor" da olabilir;
+//     baz-ozel liveness imkansizlasir.
+//   - _komsu_son_goruldu[99] hayalet komsu mesru kayda donusur.
+// Kural: baz'in mesh kimligi 0 ve 99 disinda, drone id araliginin
+// (1..MESH_MAX_NODES) ustunde bir deger olmali.
+#define BAZ_ID          99   // (1) sadece RTK UART sentinel'i, mesh kimligi degil
 #define BAZ_MESH_ID     10   // (2) baz'in mesh/drone_tablo kimligi
 
-// SOZLESME KILIDI: baz'in mesh kimligi drone ID araliginin (1..MESH_MAX_NODES)
-// USTUNDE olmali — yoksa bir drone ile baz ayni ID'ye duser ve pi_bridge
-// kaynagi ayirt edemez. Bu kural yukarida yorumla anlatiliyordu ama sadece
-// bir sozlesmeydi; MESH_MAX_NODES buyuduğu gun sessizce cakisirdi.
-// Patlarsa: BAZ_MESH_ID'yi yeni MESH_MAX_NODES'un ustune tasi ve pi_bridge
-// ekibine yeni baz kimligini bildir (agent_id esleme tablolari degisir).
+// Sozlesme kilidi: baz'in mesh kimligi drone ID araliginin (1..MESH_MAX_NODES)
+// ustunde olmali, yoksa bir drone ile baz ayni ID'ye duser ve pi_bridge kaynagi
+// ayirt edemez. Patlarsa BAZ_MESH_ID'yi yeni MESH_MAX_NODES'un ustune tasi ve
+// pi_bridge ekibine bildir (agent_id esleme tablolari degisir).
 static_assert(BAZ_MESH_ID > MESH_MAX_NODES,
               "BAZ_MESH_ID drone ID araligina girdi: baz bir drone ile ayni "
               "kimlige duser. BAZ_MESH_ID'yi yukselt ve pi_bridge'e bildir.");
@@ -167,9 +162,9 @@ struct __attribute__((packed)) version_veri_t {
     uint8_t  rezerv[8];
 };   // 16 byte
 
-// TODO: HAS_PIXHAWK=1 oldugunda durum_veri_t doldur ve loop() icinde TIP_DURUM gonder (500ms).
-// Bagimliliklar: mesh_komsu_sayisi(), MAVLink SYS_STATUS/GPS_RAW_INT/EKF_STATUS_REPORT okuma fonksiyonlari.
-// Stub implementasyonu hazir — Pixhawk fiziksel baglantiginda aktif edilecek.
+// TODO: HAS_PIXHAWK=1 oldugunda durum_veri_t doldur ve loop() icinde TIP_DURUM
+// gonder (500ms). Bagimliliklar: mesh_komsu_sayisi(), MAVLink SYS_STATUS/
+// GPS_RAW_INT/EKF_STATUS_REPORT okuma fonksiyonlari.
 struct __attribute__((packed)) durum_veri_t {
     uint8_t  drone_id;
     uint8_t  durum;
@@ -183,7 +178,7 @@ struct __attribute__((packed)) durum_veri_t {
     uint8_t  baro_ok;       // 0/1
     int8_t   rssi;          // dBm (-120..0)
     uint8_t  mesh_link_ok;  // 0/1
-    uint8_t  mesh_komsu_sayisi; // aktif mesh node sayisi — failsafe + lider secimi + ground izleme
+    uint8_t  mesh_komsu_sayisi; // aktif mesh node sayisi: failsafe + lider secimi + ground izleme
 };
 
 static const uint8_t BROADCAST_MAC[6] = {0xFF,0xFF,0xFF,0xFF,0xFF,0xFF};
@@ -196,32 +191,21 @@ struct __attribute__((packed)) mesh_paket_t {
     uint8_t  tip;
     uint8_t  iv[12];           // GCM nonce (12 byte, NIST onerisi)
     uint8_t  sifreli_veri[24]; // anti_replay(6) + payload(18)
-    uint8_t  tag[16];          // GCM auth tag — sifre cozumunde dogrulanir
+    uint8_t  tag[16];          // GCM auth tag: sifre cozumunde dogrulanir
 };
 
-// ===== SLIDING WINDOW ANTI-REPLAY =====
-// F1: PENCERE_BOYU, anti_replay_t, replay_state_t ve KARAR mantigi artik
-// replay_pure.h'de (Arduino'dan bagimsiz, native'de ASan ile test edilir).
+// Sliding window anti-replay.
+// PENCERE_BOYU, anti_replay_t, replay_state_t ve karar mantigi replay_pure.h'de.
 // Burasi sadece ince kabuk: loglama + NVS persist.
 //
-// ===== SOZLESME KILIDI — IKI PURE HEADER ARASINDAKI TEK BAG =====
-// anti_replay_t replay_pure.h'de yasiyor; onun KABLODAKI boyutu ise rtk_pure.h'de
-// RTK_ANTI_REPLAY_BOYUTU adli CIPLAK BIR LITERAL (6) olarak duruyor. Iki header
-// birbirini include etmiyor — bagi kuran tek yer burasi (ikisini de goren dosya).
-//
-// Neden kritik: rtk_handler.h::rtk_mesh_gonder() zarfi kurarken
-//     memcpy(plaintext, &ar, RTK_ANTI_REPLAY_BOYUTU)
-// yapiyor. anti_replay_t buyurse (GPS_TIMESTAMP TODO'su tam da bunu onermeye
-// aday) memcpy SESSIZCE 6 bayta KIRPAR: session_id/paket_id kismen kopyalanir,
-// alici tarafta anti-replay coker — ustelik RTK_FRAG_PAYLOAD_MAKS degismedigi
-// icin rtk_pure.h'deki "== 191" assert'i PATLAMAZ. Ic alan kayarken toplam sabit
-// kalir; bu assert tam o kor noktayi kapatir.
-//
-// Patlarsa YAPILACAK SEY SAYIYI DUZELTMEK DEGILDIR:
-//   1. docs/YELPENCE_RTCM_SPEC.md §2.3 layout tablosunu ve byte butcesi
-//      dokumunu yeni yapiya gore guncelle (191 de degisecektir),
-//   2. YKİ/pi_bridge ekibine bildir (zarf ic duzeni degisti),
-//   3. ancak ondan sonra RTK_ANTI_REPLAY_BOYUTU'nu yeni boyuta cek.
+// Sozlesme kilidi (iki pure header arasindaki tek bag): anti_replay_t
+// replay_pure.h'de, kablodaki boyutu ise rtk_pure.h'de RTK_ANTI_REPLAY_BOYUTU
+// literali (6). Iki header birbirini include etmiyor, bagi kuran tek yer burasi.
+// rtk_mesh_gonder() zarfi kurarken memcpy(plaintext, &ar, RTK_ANTI_REPLAY_BOYUTU)
+// yapiyor; anti_replay_t buyurse memcpy 6 bayta kirpar ve alicida anti-replay
+// coker. RTK_FRAG_PAYLOAD_MAKS degismedigi icin rtk_pure.h'deki "== 191" assert'i
+// patlamaz, bu assert o kor noktayi kapatir. Patlarsa once spec §2.3 layout ve
+// byte butcesini guncelle, YKİ/pi_bridge'e bildir, sonra sayiyi degistir.
 static_assert(sizeof(anti_replay_t) == RTK_ANTI_REPLAY_BOYUTU,
               "anti_replay_t kablo boyutu RTK_ANTI_REPLAY_BOYUTU ile uyumsuz: "
               "rtk_handler.h'deki memcpy sessizce kirpar ve anti-replay coker. "
@@ -230,11 +214,11 @@ static_assert(offsetof(anti_replay_t, paket_id) == 2,
               "anti_replay_t alan sirasi degisti: tel formati (spec §2.3, "
               "offset 0=session_id/2B, 2=paket_id/4B) bozulur.");
 //
-// TODO: GPS_TIMESTAMP — HAS_PIXHAWK + MAVLink GPS okumasi hazir oldugunda
-//   session_id'nin YERINE degil, YANINA konulacak: bootstrap sorunu var
-//   (boot'ta fix yokken fail-closed = GPS'siz hic ucamazsin, fail-open =
+// TODO: GPS_TIMESTAMP: HAS_PIXHAWK + MAVLink GPS okumasi hazir oldugunda
+//   session_id'nin yerine degil yanina konulacak. Bootstrap sorunu var
+//   (boot'ta fix yokken fail-closed = GPS'siz ucamazsin, fail-open =
 //   saldirganin istedigi pencere) ve tek basina ayni saniye icindeki
-//   replay'i durdurmaz — sayac yine gerekli.
+//   replay'i durdurmaz, sayac yine gerekli.
 
 struct node_durum_t {
     uint8_t        mac[6];
@@ -242,17 +226,15 @@ struct node_durum_t {
     bool           aktif;
     bool           peer_kayitli;
     replay_state_t replay;
-    // FAIL-CLOSED YAPISKANLIGI (madde 4): _peer_session_kaydet() basarisiz
-    // olursa TEK paketi reddetmek KOZMETIK olurdu — replay_karar() RAM
-    // durumunu (rs->session_id) persist denemesinden ONCE guncelliyor, bu
-    // yuzden peer'in bir sonraki paketi "ayni session" dalindan REPLAY_KABUL
-    // alip persist edilmeden iceri girerdi. Bayrak bir kez kalkinca bu
-    // node'un TUM paketleri, basarili bir persist olana kadar reddedilir.
+    // Fail-closed yapiskanligi: _peer_session_kaydet() basarisiz olursa tek
+    // paketi reddetmek yetmezdi; replay_karar() RAM durumunu persist
+    // denemesinden once guncelledigi icin peer'in sonraki paketi "ayni session"
+    // dalindan kabul alip persist edilmeden iceri girerdi. Bayrak bir kez
+    // kalkinca bu node'un tum paketleri basarili persist olana kadar reddedilir.
     bool           persist_hatasi;
 };
 
-// ===== ISR-SAFE PAKET BUFFER =====
-// Callback sadece buraya yazar, mesh_loop() okur
+// ISR-safe paket buffer: callback sadece buraya yazar, mesh_loop() okur.
 #define RECV_BUFFER_SIZE 16
 static struct {
     mesh_paket_t paket;
@@ -261,15 +243,12 @@ static volatile uint8_t _recv_yaz  = 0;
 static volatile uint8_t _recv_oku  = 0;
 static volatile bool    _recv_flag = false;
 
-// ===== TIP_RTK — AYRI, DEGISKEN BOYUTLU ISR-SAFE BUFFER =====
-// REV B: RTK artik sabit boyutlu mesh_paket_t zarfini degil, degisken
-// uzunlukta buyuk bir zarfi kullaniyor (bkz rtk_handler.h). Diger TIP'lerin
-// _recv_buffer/mesh_paket_t yolunu HIC degistirmemek icin RTK'ye tamamen
-// ayri, kendi ring buffer'i ayrildi. Zarf onsozu (kaynak_mac..tip) her iki
-// zarf tipinde de ayni bayt duzeninde oldugundan (offset 17'de tip byte'i),
-// ISR tam parse etmeden bu offset'e bakip hangi buffer'a yazacagina karar
-// verebiliyor.
-// RTK_ENV_MAKS_TOPLAM artik rtk_pure.h'den geliyor (ADIM 6, tek kaynak)
+// TIP_RTK: ayri, degisken boyutlu ISR-safe buffer.
+// RTK sabit mesh_paket_t zarfini degil, degisken uzunlukta buyuk zarfi
+// kullaniyor. Diger TIP'lerin _recv_buffer/mesh_paket_t yolunu degistirmemek
+// icin RTK'ye ayri ring buffer ayrildi. Zarf onsozu her iki zarf tipinde de
+// ayni bayt duzeninde oldugundan (offset 17'de tip byte'i) ISR tam parse
+// etmeden bu offset'e bakip hangi buffer'a yazacagina karar verebiliyor.
 #define RTK_RECV_BUFFER_SIZE  8
 static struct {
     uint8_t  veri[RTK_ENV_MAKS_TOPLAM];
@@ -279,7 +258,7 @@ static volatile uint8_t _rtk_recv_yaz  = 0;
 static volatile uint8_t _rtk_recv_oku  = 0;
 static volatile bool    _rtk_recv_flag = false;
 
-// son_paket_ms volatile — callback ve loop arasında paylaşılıyor
+// son_paket_ms volatile: callback ve loop arasinda paylasiliyor
 extern volatile unsigned long son_paket_ms;
 
 static uint8_t  _benim_mac[6];
@@ -303,32 +282,26 @@ static inline bool _broadcast_mi(const uint8_t* mac) {
     return _mac_esit(mac, BROADCAST_MAC);
 }
 
-// ===== F1: PEER SESSION KALICILIGI (ALICI YARISI) =====
-// session_id artik gonderici tarafinda MONOTON (bkz mesh_init: NVS boot
-// sayaci). Bu tek basina yetmez: alici da son gordugu session_id'yi
-// PERSIST etmezse, saldirgan "aliciyi reboot ettir, eski session'i oynat"
-// senaryosuna kayar ve fix kagit uzerinde kalir.
-//
-// Yazma sikligi: peer BASINA, peer'in BOOT'u basina bir kez (session
-// degisiminde). Paket basina yazma YOK — flash omru sorunu olmaz.
-// (Bu yuzden en_yuksek_id'yi persist ETMIYORUZ: o her pakette artiyor,
-// yazma amplifikasyonu flash'i yerdi.)
+// Peer session kaliciligi (alici yarisi).
+// session_id gonderici tarafinda monoton (bkz mesh_init: NVS boot sayaci). Bu
+// tek basina yetmez: alici da son gordugu session_id'yi persist etmezse
+// saldirgan "aliciyi reboot ettir, eski session'i oynat" senaryosuna kayar.
+// Yazma sikligi: peer basina, peer'in boot'u basina bir kez (session
+// degisiminde). Paket basina yazma yok, flash omru sorunu olmaz.
 struct __attribute__((packed)) peer_session_kayit_t {
     uint8_t  mac[6];
     uint16_t session_id;   // 0 = kayit yok
 };   // 8 byte
 
-// Tablo boyutu MESH_MAX_NODES DEGIL, MESH_MAX_NODES+1: mesh'te en fazla
-// MESH_MAX_NODES drone VE ayrica baz istasyonu var — hepsi ayri birer peer.
-// Eskiden dizi MESH_MAX_NODES (8) idi; 8 drone + baz = 9 peer'de tablo dolar
-// ve son peer kalici replay korumasindan mahrum kalirdi. "Ulasilamaz" sanilan
-// bu yol aslinda tam sinirdaydi.
+// Tablo boyutu MESH_MAX_NODES degil, MESH_MAX_NODES+1: mesh'te en fazla
+// MESH_MAX_NODES drone ve ayrica baz istasyonu var, hepsi ayri birer peer.
+// MESH_MAX_NODES (8) olsaydi 8 drone + baz = 9 peer'de tablo dolar ve son peer
+// kalici replay korumasindan mahrum kalirdi.
 #define PEER_SESS_TABLO_BOYU  (MESH_MAX_NODES + 1)
 
-// SOZLESME KILIDI: tablo her zaman "tum droneler + baz"i alabilmeli. Bu assert
-// gevsetilirse _peer_session_kaydet()'in fail-closed dali (peer'in paketlerini
-// REDDET) sahada gercekten tetiklenir — yani bu assert o davranisin sigortasi.
-// Patlarsa: PEER_SESS_TABLO_BOYU'nu buyut; tabloyu kucultme.
+// Sozlesme kilidi: tablo her zaman tum droneler + baz'i alabilmeli. Gevsetilirse
+// _peer_session_kaydet()'in fail-closed dali (peer'in paketlerini reddet) sahada
+// tetiklenir. Patlarsa PEER_SESS_TABLO_BOYU'nu buyut, tabloyu kucultme.
 static_assert(PEER_SESS_TABLO_BOYU >= MESH_MAX_NODES + 1,
               "peer session tablosu tum droneleri + bazi alamiyor: son peer "
               "reboot-replay korumasiz kalir (fail-closed'da ise REDDEDILIR). "
@@ -343,15 +316,11 @@ static inline uint16_t _peer_session_getir(const uint8_t* mac) {
     return 0;   // kayit yok
 }
 
-// FAIL-CLOSED (madde 4): basarisizsa false doner ve cagiran taraf paketi
-// REDDEDER. Eskiden bu yol fail-OPEN'di (uyari basip sessizce devam) — repodaki
-// her yer fail-closed iken (aes_init provision-yok, drone_tablo ID cakismasi,
-// _session_id_uret NVS hatasi) guvenlik katmanindaki tek fail-open istisnaydi;
-// gelecekte kopyalanacak yanlis ornek olurdu.
-//
-// PEER_SESS_TABLO_BOYU assert'i sayesinde "tablo dolu" yolu normalde
-// ULASILAMAZ (tablo tum droneleri + bazi aliyor). Bu fail-closed dali, o
-// assert'i birinin bilincli gevsettigi senaryonun sigortasi.
+// Fail-closed: basarisizsa false doner ve cagiran taraf paketi reddeder.
+// Repodaki diger guvenlik yollari (aes_init provision-yok, drone_tablo ID
+// cakismasi, _session_id_uret NVS hatasi) da fail-closed. "Tablo dolu" yolu
+// PEER_SESS_TABLO_BOYU assert'i sayesinde normalde ulasilamaz; bu dal o assert'in
+// gevsetildigi senaryonun sigortasi.
 static inline bool _peer_session_kaydet(const uint8_t* mac, uint16_t sid) {
     int8_t slot = -1;
     for (uint8_t i = 0; i < PEER_SESS_TABLO_BOYU; i++) {
@@ -368,10 +337,10 @@ static inline bool _peer_session_kaydet(const uint8_t* mac, uint16_t sid) {
     _peer_sessions[slot].session_id = sid;
     Preferences prefs;
     if (!prefs.begin("mesh_sec", false)) {
-        // RAM kaydi guncellendi ama NVS'e yazilamadi: bu oturum icinde koruma
-        // calisir, ama BIZ reboot edersek kayit kaybolur -> tam da F1'in
-        // kapattigi "aliciyi reboot ettir, eski session'i oynat" acigi.
-        // Kalici garanti veremiyoruz, o yuzden fail-closed.
+        // RAM kaydi guncellendi ama NVS'e yazilamadi: bu oturumda koruma calisir
+        // ama biz reboot edersek kayit kaybolur, "aliciyi reboot ettir, eski
+        // session'i oynat" acigi geri acilir. Kalici garanti veremiyoruz,
+        // o yuzden fail-closed.
         Serial.printf("[REPLAY] KRITIK: NVS acilamadi, %02X:%02X icin peer session "
                       "PERSIST EDILEMEDI -> REDDEDILIYOR\n", mac[4], mac[5]);
         return false;
@@ -396,23 +365,21 @@ static inline void _peer_session_yukle(void) {
     }
 }
 
-// F1: session_id kurali artik MONOTON — "farkli" degil, "daha buyuk" olmali.
-//   ar->session_id  < bilinen  -> ESKI session, REDDET (reboot-replay saldirisi)
+// session_id kurali monoton: "farkli" degil, "daha buyuk" olmali.
+//   ar->session_id  < bilinen  -> eski session, reddet (reboot-replay saldirisi)
 //   ar->session_id == bilinen  -> ayni session, normal pencere mantigi
 //   ar->session_id  > bilinen  -> gonderici reboot etti, kabul + persist
 //
-// KALAN BOSLUK (bilincli): ayni session icinde, node NODE_TIMEOUT_MS boyunca
-// susarsa replay penceresi RAM'de sifirlanir (en_yuksek_id persist edilmiyor
-// — flash omru). Bu pencereyi de kapatmak icin _node_bul_veya_ekle() artik
-// pasif ama TANIDIK MAC'i replay durumunu KORUYARAK canlandiriyor; yani
-// bosluk sadece node tablosundan tamamen dusurulup slot'u baskasina
-// verilirse acilir. Tam cozum GPS zaman damgasi TODO'sunda (bkz asagi).
-// Ince kabuk: karar replay_pure.h::replay_karar()'da (native'de test edilir),
-// burasi yalnizca NVS persist + loglama yapar.
+// Kalan bosluk (bilincli): ayni session icinde node NODE_TIMEOUT_MS boyunca
+// susarsa replay penceresi RAM'de sifirlanir (en_yuksek_id persist edilmiyor,
+// flash omru). Bunu daraltmak icin _node_bul_veya_ekle() pasif ama tanidik
+// MAC'i replay durumunu koruyarak canlandiriyor; bosluk sadece node tablodan
+// tamamen dusurulup slot'u baskasina verilirse acilir. Tam cozum GPS zaman
+// damgasi TODO'sunda. Karar replay_pure.h::replay_karar()'da, burasi yalnizca
+// NVS persist + loglama yapar.
 static inline bool _replay_kontrol(node_durum_t* node, const anti_replay_t* ar) {
-    // FAIL-CLOSED YAPISKANLIGI: daha once bu node icin kalici kayit
-    // verilemediyse, duzelene kadar HICBIR paketini kabul etme. Aksi halde
-    // reddin kendisi kozmetik kalirdi (bkz node_durum_t::persist_hatasi).
+    // Fail-closed yapiskanligi: bu node icin kalici kayit verilemediyse duzelene
+    // kadar hicbir paketini kabul etme (bkz node_durum_t::persist_hatasi).
     if (node->persist_hatasi) {
         Serial.printf("[REPLAY] %02X:%02X persist hatasi nedeniyle reddediliyor "
                       "(kalici replay korumasi yok)\n", node->mac[4], node->mac[5]);
@@ -424,11 +391,10 @@ static inline bool _replay_kontrol(node_durum_t* node, const anti_replay_t* ar) 
 
     switch (s) {
         case REPLAY_KABUL_YENI_SESSION:
-            // Yeni (daha buyuk) session kabul edildi — kalici kaydi guncelle.
-            // Peer basina, peer'in boot'u basina TEK yazma.
-            // FAIL-CLOSED: persist edemezsek bu paketi de, sonrakileri de
-            // reddet — kalici garanti veremedigimiz bir peer'i kabul etmek
-            // F1'in kapattigi acigi geri acar.
+            // Yeni (daha buyuk) session kabul edildi, kalici kaydi guncelle.
+            // Peer basina, peer'in boot'u basina tek yazma. Fail-closed:
+            // persist edemezsek bu paketi de sonrakileri de reddet, cunku kalici
+            // garanti veremedigimiz peer'i kabul etmek reboot-replay acigini acar.
             if (!_peer_session_kaydet(node->mac, ar->session_id)) {
                 node->persist_hatasi = true;
                 return false;
@@ -437,10 +403,9 @@ static inline bool _replay_kontrol(node_durum_t* node, const anti_replay_t* ar) 
         case REPLAY_KABUL:
             return true;
         case REPLAY_RED_ESKI_SESSION:
-            // Bu log SAHADAKI TEK IPUCU — eylem cagrisiyla birlikte basiliyor.
-            // sid cok dusukse (or. 1-2) muhtemelen saldiri degil, o peer'in
-            // NVS'i silinmistir (erase_flash) ve boot sayaci sifirlanmistir;
-            // bkz _session_id_uret() basindaki "NVS ERASE TUZAGI".
+            // Bu log sahadaki tek ipucu. sid cok dusukse (or. 1-2) muhtemelen
+            // saldiri degil, o peer'in NVS'i silinmistir (erase_flash) ve boot
+            // sayaci sifirlanmistir; bkz _session_id_uret() basindaki NVS erase tuzagi.
             Serial.printf("[REPLAY] ESKI SESSION reddedildi: %02X:%02X sid=%u < kalici=%u\n",
                           node->mac[4], node->mac[5], ar->session_id, kalici);
             if (ar->session_id <= 2) {
@@ -458,7 +423,7 @@ static inline bool _replay_kontrol(node_durum_t* node, const anti_replay_t* ar) 
 }
 
 static inline uint32_t _paket_hash(const mesh_paket_t* p) {
-    // FIX: paket_id tam 32 bit kullaniliyor, XOR ile MAC ile karistirildi
+    // paket_id tam 32 bit; MAC'in alt baytlariyla XOR'lanip karistiriliyor.
     uint32_t mac_part = ((uint32_t)p->kaynak_mac[5] << 24)
                       | ((uint32_t)p->kaynak_mac[4] << 16)
                       | ((uint32_t)p->kaynak_mac[3] << 8)
@@ -494,12 +459,11 @@ static node_durum_t* _node_bul_veya_ekle(const uint8_t* mac) {
     for (uint8_t i = 0; i < MESH_MAX_NODES; i++) {
         if (_mac_esit(_bilinen_nodlar[i].mac, mac)) {
             if (_bilinen_nodlar[i].aktif) return &_bilinen_nodlar[i];
-            // F1: PASIF ama TANIDIK MAC. Eskiden buraya dusen node bir
-            // sonraki "bos slot" dalinda replay durumu SIFIRLANARAK yeniden
-            // ekleniyordu (ilk_paket=true -> pencere sifir). Yani saldirgan
-            // NODE_TIMEOUT_MS (12s) boyunca jam yapip node'u dusurdukten
-            // sonra AYNI session'in eski paketlerini tekrar oynatabiliyordu.
-            // Artik pasif tanidik node replay durumu KORUNARAK canlandirilir.
+            // Pasif ama tanidik MAC. Replay durumu sifirlanarak yeniden
+            // eklenirse (ilk_paket=true -> pencere sifir) saldirgan
+            // NODE_TIMEOUT_MS (12s) boyunca jam yapip node'u dusurdukten sonra
+            // ayni session'in eski paketlerini tekrar oynatabilir. O yuzden
+            // pasif tanidik node replay durumu korunarak canlandirilir.
             tanidik = &_bilinen_nodlar[i];
             break;
         }
@@ -510,13 +474,12 @@ static node_durum_t* _node_bul_veya_ekle(const uint8_t* mac) {
     if (tanidik) {
         tanidik->aktif            = true;
         tanidik->son_heartbeat_ms = millis();
-        // replay durumuna DOKUNULMAZ — pencere ve session_id korunur.
+        // replay durumuna dokunulmaz: pencere ve session_id korunur.
         return tanidik;
     }
     if (bos == nullptr) {
-        // Hic bos slot yok: en eski pasif node'un yerini al (replay durumu
-        // kaybolur, ama NVS'teki peer_session kaydi eski session'i yine de
-        // reddeder — bkz _replay_kontrol ilk_paket dali).
+        // Hic bos slot yok: en eski pasif node'un yerini al. Replay durumu
+        // kaybolur ama NVS'teki peer_session kaydi eski session'i yine reddeder.
         for (uint8_t i = 0; i < MESH_MAX_NODES; i++)
             if (!_bilinen_nodlar[i].aktif) { bos = &_bilinen_nodlar[i]; break; }
     }
@@ -527,10 +490,9 @@ static node_durum_t* _node_bul_veya_ekle(const uint8_t* mac) {
         bos->son_heartbeat_ms = millis();
         bos->replay = {};
         bos->replay.ilk_paket = true;
-        // Slot BASKA bir MAC'e veriliyor: persist bayragi o eski MAC'e aitti,
+        // Slot baska bir MAC'e veriliyor: persist bayragi eski MAC'e aitti,
         // yeni sahibine miras kalmamali (yoksa yeni peer haksiz reddedilir).
-        // Tanidik MAC'in canlandirildigi yol yukarida ayri ve orada bayrak
-        // BILEREK korunuyor — fail-closed o MAC icin gecerliligini surdurur.
+        // Tanidik MAC'in canlandirildigi yolda bayrak korunur, burada sifirlanir.
         bos->persist_hatasi = false;
     }
     return bos;
@@ -556,13 +518,12 @@ static inline esp_err_t _mesh_gonder(mesh_paket_t* p) {
 
     const uint8_t* hedef = _broadcast_mi(p->hedef_mac) ? BROADCAST_MAC : p->hedef_mac;
 
-    // Kritik paketler icin retry (3 deneme, aralikli)
-    // NOT: hedef broadcast oldugu icin ESP-NOW donanim ACK'i YOKTUR — bu retry
-    // sadece YEREL gonderim hatasini (TX kuyrugu dolu, esp_now_send() basarisiz)
-    // kurtarir; havada/menzil disinda kaybolan paketi retry ile kurtaramaz.
-    // REV B: TIP_RTK bu listeden cikarildi — artik mesh_paket_t/_mesh_gonder()
-    // yolundan hic gecmiyor (bkz rtk_handler.h: rtk_mesh_gonder(), kendi ayni
-    // CSMA+3-deneme retry mantigini ayri uyguluyor, REV B karari #4).
+    // Kritik paketler icin retry (3 deneme, aralikli).
+    // Hedef broadcast oldugu icin ESP-NOW donanim ACK'i yoktur; bu retry sadece
+    // yerel gonderim hatasini (TX kuyrugu dolu, esp_now_send() basarisiz)
+    // kurtarir, havada/menzil disinda kaybolan paketi kurtaramaz.
+    // TIP_RTK bu listede yok: artik _mesh_gonder() yolundan gecmiyor,
+    // rtk_mesh_gonder() kendi CSMA+3-deneme mantigini ayri uyguluyor.
     const bool kritik = (p->tip == TIP_KOMUT || p->tip == TIP_ORIGIN ||
                          p->tip == TIP_GOREV || p->tip == TIP_ELECTION);
     const int deneme_maks = kritik ? 3 : 1;
@@ -581,12 +542,11 @@ static inline esp_err_t _mesh_gonder(mesh_paket_t* p) {
     return ret;
 }
 
-// ===== ORTA-1 FIX: GCM AAD (Ek Dogrulanmis Veri) =====
-// tip + kaynak_mac + hedef_mac AAD olarak verilir; boylece bu 3 alan artik
-// sifreli payload'i hic bozmadan degistirilemez (ornegin TIP_POSE -> TIP_GOREV).
-// atlama_sayisi kasitli olarak DISARIDA tutulur: _paketi_ilet() her hop'ta onu
-// artirir, ayni iv/tag ile iletir — AAD'e girseydi relay ilk hop'ta tag'i
-// gecersiz kilardi.
+// GCM AAD (ek dogrulanmis veri).
+// tip + kaynak_mac + hedef_mac AAD olarak verilir; boylece bu 3 alan sifreli
+// payload'i bozmadan degistirilemez (or. TIP_POSE -> TIP_GOREV). atlama_sayisi
+// kasitli olarak disarida: _paketi_ilet() her hop'ta onu artirip ayni iv/tag
+// ile iletir, AAD'e girseydi relay ilk hop'ta tag'i gecersiz kilardi.
 static inline void _mesh_aad_olustur(uint8_t tip, const uint8_t* kaynak_mac,
                                       const uint8_t* hedef_mac, uint8_t aad[13]) {
     aad[0] = tip;
@@ -603,7 +563,7 @@ static inline void mesh_gonder(const uint8_t* veri, uint8_t tip,
     p.atlama_sayisi = 0;
     p.tip           = tip;
     iv_uret_rastgele(p.iv);
-    // Anti-replay basligini (session_id + paket_id) sifrelenmis payload icine gom
+    // Anti-replay basligini (session_id + paket_id) sifreli payload icine gom.
     uint8_t tam_veri[24];
     anti_replay_t ar_out = { _session_id, p.paket_id };
     memcpy(tam_veri, &ar_out, sizeof(anti_replay_t));
@@ -615,33 +575,25 @@ static inline void mesh_gonder(const uint8_t* veri, uint8_t tip,
     _mesh_gonder(&p);
 }
 
-// ===== TIP BASINA GONDERIM HIZ LIMITI (Pi -> mesh yonu) =====
-// Eskiden RX BASE ve TX DRONE'da TEK bir zaman damgasi (son_mesh_gonderim_ms /
-// son_rpi_mesh_ms) TUM tipler arasinda PAYLASILIYORDU: bir cerceve, BASKA
-// herhangi bir tipin gonderiminden sonraki 50ms icinde gelirse sessizce
-// DUSUYORDU — kuyruk yok, retry yok, log yok, sayac yok.
+// TIP basina gonderim hiz limiti (Pi -> mesh yonu).
+// Tek bir zaman damgasi tum tipler arasinda paylasilsaydi bir cerceve, baska
+// bir tipin gonderiminden sonraki 50ms icinde gelince sessizce duserdi
+// (kuyruk/retry/log/sayac yok).
 //
-// Neden kritik: TIP_QR_DATA tek atimlik bir OLAY ve sartname cezasi "QR
-// mesajinin gorev boyunca en az BIR (1) kez dahi goruntulenememesi" (s.13).
-// Periyodik telemetriyle (POSE ~10Hz, LEADER_HB) ayni kapiyi paylasmasi,
-// kurbanin sistematik olarak en pahali mesaj olmasi demekti. Ustelik hakem
-// kesintiyi istedigi an yapiyor -> tek savunma "ilk QR cozulur cozulmez it".
+// Neden kritik: TIP_QR_DATA tek atimlik bir olay ve sartname cezasi "QR
+// mesajinin gorev boyunca en az bir kez dahi goruntulenememesi" (s.13).
+// Periyodik telemetriyle (POSE ~10Hz, LEADER_HB) ayni kapiyi paylasinca QR
+// sistematik olarak en pahali mesaj oluyordu.
 //
-// Karar: tip BASINA ayri zaman damgasi. Kapinin varlik sebebi "hatali bir Pi
-// mesh'i bogmasin" ve bu KORUNUYOR — her tip hala kendi araligiyla sinirli,
-// kacak Pi hala yakalanir. Kalkan tek sey tiplerin BIRBIRINI yemesi; o zaten
-// kapinin amaci degildi, yan etkisiydi.
+// Karar: tip basina ayri zaman damgasi. Kapinin amaci "hatali bir Pi mesh'i
+// bogmasin" ve bu korunuyor; her tip hala kendi araligiyla sinirli. Kalkan tek
+// sey tiplerin birbirini yemesi.
 //
-// Muafiyet (QR'i kapidan komple cikarmak) BILEREK secilmedi: korumadan feragat
-// eder ve bir tipin "tek atimlik" kaldigini garanti eden hicbir sey yoktur —
-// yalnizca bugunku Pi'nin oyle davranmasi vardir.
+// Kalan sinir (bilincli): ayni tipten art arda iki cerceve 50ms icinde gelirse
+// biri yine duser (or. iki QR). Sayac bunu gorunur kilar.
 //
-// KALAN SINIR (bilincli): ayni tipten art arda iki cerceve 50ms icinde gelirse
-// biri yine duser (or. iki QR). Sayac bunu GORUNUR kilar — sayac olmadan bu da
-// sessiz kalirdi ve hicbir sey kazanilmazdi.
-//
-// Dizi TIP byte'i ile DOGRUDAN indexlenir (paralel esleme tablosu YOK): yeni
-// TIP eklendiginde tabloyu guncellemeyi unutma riski olusmasin diye.
+// Dizi TIP byte'i ile dogrudan indexlenir (paralel esleme tablosu yok): yeni
+// TIP eklendiginde tabloyu guncellemeyi unutma riski olmasin diye.
 #define MESH_TIP_TABLO_BOYU 16
 static_assert(TIP_QR_DATA < MESH_TIP_TABLO_BOYU,
               "En buyuk TIP hiz-limiti tablosuna sigmiyor: MESH_TIP_TABLO_BOYU'nu buyut.");
@@ -649,16 +601,15 @@ static_assert(TIP_QR_DATA < MESH_TIP_TABLO_BOYU,
 static uint32_t _son_tip_gonderim_ms[MESH_TIP_TABLO_BOYU] = {};
 static uint32_t _tip_dusen[MESH_TIP_TABLO_BOYU]           = {};
 
-// true donerse cagiran mesh_gonder() yapabilir. Dusen cerceve TIP BAZINDA
-// sayilir — "QR neden gitmedi" ile "Pi kacak yapiyor" taban tabana zit
-// teshisler ve tek sayac ikisini ayirt etmez (rtk_kayip'in bolunmesiyle ayni
-// gerekce).
+// true donerse cagiran mesh_gonder() yapabilir. Dusen cerceve tip bazinda
+// sayilir: "QR neden gitmedi" ile "Pi kacak yapiyor" zit teshisler ve tek sayac
+// ikisini ayirt etmez.
 static inline bool mesh_tip_gecebilir(uint8_t tip, uint32_t simdi, uint32_t min_aralik_ms) {
     if (tip >= MESH_TIP_TABLO_BOYU) {
         // Yeni bir TIP eklenmis ama tablo buyutulmemis. Fail-closed + gurultulu
-        // log: sessizce GECIRMEK o tip icin hiz limitini komple kaldirirdi.
-        // (static_assert bunu derleme zamaninda yakalar; bu dal onun gevsetildigi
-        // ya da tip'in runtime'da geldigi senaryonun sigortasi.)
+        // log: sessizce gecirmek o tip icin hiz limitini komple kaldirirdi.
+        // (static_assert bunu derlemede yakalar; bu dal o assert'in gevsetildigi
+        // senaryonun sigortasi.)
         Serial.printf("[MESH] KRITIK: TIP 0x%02X hiz-limiti tablosuna sigmiyor "
                       "(boyut %u) - REDDEDILDI. MESH_TIP_TABLO_BOYU'nu buyut.\n",
                       tip, (unsigned)MESH_TIP_TABLO_BOYU);
@@ -705,7 +656,7 @@ static inline void _paketi_ilet(const mesh_paket_t* gelen) {
 }
 
 static inline void _heartbeat_gonder() {
-    // GCM ile sifrele — sahte HB ile MAC listesine girilmesini engeller
+    // GCM ile sifrele: sahte HB ile MAC listesine girilmesini engeller
     uint8_t bos[18] = {};
     mesh_gonder(bos, TIP_HEARTBEAT);
 }
@@ -726,7 +677,7 @@ static inline void mesh_node_timeout_kontrol() {
     }
 }
 
-// ===== ISR CALLBACK — sadece buffer'a yazar =====
+// ISR callback: sadece buffer'a yazar.
 #define ISR_DUPLIKAT_TAMPON 4
 static DRAM_ATTR uint32_t _isr_hashler[ISR_DUPLIKAT_TAMPON] = {};
 static DRAM_ATTR uint8_t  _isr_hash_idx = 0;
@@ -744,10 +695,10 @@ static portMUX_TYPE _recv_mux = portMUX_INITIALIZER_UNLOCKED;
 
 static void IRAM_ATTR _esp_now_recv_cb(const uint8_t* mac_addr,
                                         const uint8_t* data, int len) {
-    // REV B: TIP_RTK buyuk zarfi ayri yoldan isle. Zarf onsozu ortak
-    // oldugundan (kaynak_mac[6]+hedef_mac[6]+paket_id[4]+atlama_sayisi[1]
-    // = 17 byte sonrasi tip), tam parse etmeden offset 17'ye bakmak
-    // guvenli — mesh_paket_t'de de tip ayni offsette.
+    // TIP_RTK buyuk zarfi ayri yoldan isle. Zarf onsozu ortak oldugundan
+    // (kaynak_mac[6]+hedef_mac[6]+paket_id[4]+atlama_sayisi[1] = 17 byte sonrasi
+    // tip) tam parse etmeden offset 17'ye bakmak guvenli; mesh_paket_t'de de tip
+    // ayni offsette.
     if (len >= 18 && data[17] == TIP_RTK) {
         if (len > RTK_ENV_MAKS_TOPLAM) return;
         portENTER_CRITICAL_ISR(&_recv_mux);
@@ -767,7 +718,7 @@ static void IRAM_ATTR _esp_now_recv_cb(const uint8_t* mac_addr,
     const mesh_paket_t* p = reinterpret_cast<const mesh_paket_t*>(data);
     if (_benim_mac_mi(p->kaynak_mac)) return;
     if (_isr_duplikat_mi(p))          return;
-    // Kritik bolge — dual-core race condition onleme
+    // Kritik bolge: dual-core race condition onleme
     portENTER_CRITICAL_ISR(&_recv_mux);
     uint8_t sonraki = (_recv_yaz + 1) % RECV_BUFFER_SIZE;
     if (sonraki == _recv_oku) {
@@ -789,9 +740,9 @@ static void _esp_now_send_cb(const uint8_t* mac, esp_now_send_status_t status) {
     }
 }
 
-// ===== BUFFER'DAN PAKET İŞLE — mesh_loop() içinde çağrılır =====
+// Buffer'dan paket isle, mesh_loop() icinde cagrilir.
 static inline void _recv_isle() {
-    _recv_flag = false; // Once sifirla — sonraki ISR yazimini kaybetme
+    _recv_flag = false; // Once sifirla: sonraki ISR yazimini kaybetme
     while (_recv_oku != _recv_yaz) {
         mesh_paket_t* p = &_recv_buffer[_recv_oku].paket;
 
@@ -799,37 +750,37 @@ static inline void _recv_isle() {
             _duplikat_kaydet(p);
 
             node_durum_t* node = _node_bul_veya_ekle(p->kaynak_mac);
-            // peer kaydı GCM dogrulamasindan sonra yapilir (Bug2 fix)
+            // peer kaydi GCM dogrulamasindan sonra yapilir
 
             if (p->tip != TIP_HEARTBEAT) {
                 bool benim_icin = _broadcast_mi(p->hedef_mac) ||
                                   _benim_mac_mi(p->hedef_mac);
                 if (benim_icin) {
-                    // Bug1+Bug3 fix: GCM burda dogrulanir; gecerse node guncellenir
+                    // GCM burada dogrulanir; gecerse node guncellenir
                     uint8_t _acik_cb[24] = {0};
                     uint8_t _aad_cb[13];
                     _mesh_aad_olustur(p->tip, p->kaynak_mac, p->hedef_mac, _aad_cb);
                     if (!aes_coz_gcm(p->sifreli_veri, 24, _acik_cb, p->iv, p->tag, _aad_cb, sizeof(_aad_cb))) {
                         Serial.printf("[MESH] GCM hatasi tip:%d %02X:%02X\n",
                             p->tip, p->kaynak_mac[4], p->kaynak_mac[5]);
-                        // Bug2 fix: sahte MAC peer listesinden cikar
+                        // sahte MAC peer listesinden cikar
                         if (node) { node->aktif = false; node->peer_kayitli = false;
                                     esp_now_del_peer(node->mac); }
                         _recv_oku = (_recv_oku + 1) % RECV_BUFFER_SIZE;
                         continue;
                     }
-                    // GCM gecti — peer kaydet (Bug2 fix: sadece dogrulanmis MAC)
+                    // GCM gecti: sadece dogrulanmis MAC'i peer olarak kaydet
                     if (node && !node->peer_kayitli) {
                         _peer_ekle(p->kaynak_mac);
                         node->peer_kayitli = true;
                     }
-                    // Bug1 fix: son_heartbeat_ms sadece GCM sonrasi guncellenir
+                    // son_heartbeat_ms sadece GCM sonrasi guncellenir
                     if (node) { node->son_heartbeat_ms = millis(); node->aktif = true; }
                     if (_veri_callback) _veri_callback(p);
                 }
                 if (_broadcast_mi(p->hedef_mac)) _paketi_ilet(p);
             } else {
-                // Heartbeat — GCM dogrulama zorunlu (MAC spoofing onleme)
+                // Heartbeat: GCM dogrulama zorunlu (MAC spoofing onleme)
                 uint8_t acik[24];
                 uint8_t aad_hb[13];
                 _mesh_aad_olustur(p->tip, p->kaynak_mac, p->hedef_mac, aad_hb);
@@ -844,11 +795,10 @@ static inline void _recv_isle() {
                     Serial.printf("[MESH] Sahte HEARTBEAT! %02X:%02X:%02X:%02X:%02X:%02X\n",
                         p->kaynak_mac[0], p->kaynak_mac[1], p->kaynak_mac[2],
                         p->kaynak_mac[3], p->kaynak_mac[4], p->kaynak_mac[5]);
-                    // ORTA-3 FIX: heartbeat GCM basarisiz olursa node'u da
-                    // Bug2 fix'teki gibi temizle (non-heartbeat dalinda zaten
-                    // yapiliyordu, heartbeat dalinda unutulmustu). Aksi halde
-                    // sahte kaynak MAC'li heartbeat NODE_TIMEOUT_MS (12sn)
-                    // boyunca "aktif" sayilmaya devam ediyordu.
+                    // Heartbeat GCM basarisiz olursa node'u temizle (non-heartbeat
+                    // dalinda yapiliyordu, burada da gerekli). Aksi halde sahte
+                    // kaynak MAC'li heartbeat NODE_TIMEOUT_MS (12sn) boyunca
+                    // "aktif" sayilmaya devam ediyordu.
                     if (node) { node->aktif = false; node->peer_kayitli = false;
                                 esp_now_del_peer(node->mac); }
                 }
@@ -859,18 +809,14 @@ static inline void _recv_isle() {
     }
 }
 
-// ===== DUSUK-2 FIX: Ucus-oncesi MANUEL spektrum taramasi =====
-// BILINCLI TASARIM KARARI: otomatik kanal degisimi YOK. Dagitik bir mesh'te
-// haberlesme kesildiginde cihazlarin "hangi kanala gecelim" diye anlasmasi
-// zaten mumkun degil (tavuk-yumurta problemi) — bu yuzden calisma zamaninda
-// reaktif kanal degisimi denemek, calismayan bir kanalda senkron kalmaktan
-// daha kotu bir arizaya (kalici desync) yol acabilir.
-// Bunun yerine: operator ucustan once bu fonksiyonu calistirir, MESH_KANAL
-// (11) ve MESH_KANAL_YEDEK (6) uzerindeki trafik/gurultuyu Serial'e raporlar.
-// Rapora gore MESH_KANAL define'i gerekirse degistirilip TUM cihazlar
-// (base + her drone) AYNI degerle yeniden flaslanir — senkronizasyon boylece
-// "ayni kaynak kod, ayni derleme" ile saglanir, calisma-zamaninda haberlesme
-// gerektirmez.
+// Ucus oncesi manuel spektrum taramasi.
+// Otomatik kanal degisimi bilincli olarak yok: dagitik mesh'te haberlesme
+// kesilince cihazlarin "hangi kanala gecelim" diye anlasmasi mumkun degil
+// (tavuk-yumurta), reaktif kanal degisimi kalici desync'e yol acabilir.
+// Bunun yerine operator ucustan once bu fonksiyonu calistirir, MESH_KANAL (11)
+// ve MESH_KANAL_YEDEK (6) uzerindeki trafik/gurultuyu Serial'e raporlar. Rapora
+// gore gerekirse MESH_KANAL define'i degistirilip tum cihazlar ayni degerle
+// yeniden flaslanir; senkron boylece ayni kaynak kod ile saglanir.
 static volatile uint32_t _kanal_tara_paket_sayaci = 0;
 static volatile int64_t  _kanal_tara_rssi_toplam  = 0;
 
@@ -911,62 +857,31 @@ static inline void mesh_kanal_tara(void) {
     Serial.println("[KANAL-TARA] cihazlari (base + her drone) AYNI degerle yeniden flaslayin.");
 }
 
-// ===== F1: MONOTON SESSION ID (GONDERICI YARISI) =====
-// Eskiden: _session_id = esp_random() — RASTGELE ve kalici degil. Alici
-// "session_id farkli" gorunce reboot varsayip pencereyi sifirladigi icin,
-// saldirgan yakaladigi ESKI session'in paketlerini reboot sonrasi tekrar
-// oynatabiliyordu (session_id GCM ile authenticated oldugundan uyduramaz,
-// ama AYNEN tekrar oynatabilir).
+// Monoton session id (gonderici yarisi).
+// _session_id = esp_random() olsaydi rastgele ve kalici olmaz; alici
+// "session_id farkli" gorunce reboot varsayip pencereyi sifirladigi icin
+// saldirgan yakaladigi eski session paketlerini reboot sonrasi tekrar
+// oynatabilirdi (session_id authenticated, uyduramaz ama aynen oynatabilir).
+// Bu yuzden NVS'te monoton artan boot sayaci kullaniliyor; alici kucuk olani
+// reddeder (bkz _replay_kontrol). Boot basina tek yazma, flash omru sorunu yok.
 //
-// Simdi: NVS'te monoton artan boot sayaci. Kural netlesiyor — session_id
-// gonderici basina monoton artar, alici kucuk olani reddeder
-// (bkz _replay_kontrol). Boot basina TEK yazma; flash omru sorunu yok.
+// 16-bit sarma: session_id uint16 (tel formati). 65535 boot'ta sararsa "kucukse
+// reddet" kurali kirilirdi, o yuzden sarma yok, fail-closed durulur. 65535 boot
+// gunde 10 boot'ta ~18 yil, pratikte erisilmez.
 //
-// 16-bit sarma: anti_replay_t.session_id uint16 (tel formati — degistirmek
-// zarf duzenini bozar). 65535 boot'ta sarardi ve "kucukse reddet" kurali
-// kirilirdi. Tanimli davranis: SARMA YOK, fail-closed dur. 65535 boot
-// gunde 10 boot'ta ~18 yil — pratikte erisilmez, ama sessizce guvenligi
-// kaybetmektense gurultuyle durmak yeglenir (aes_init/drone_tablo deseni).
-// ############################################################################
-// # NVS ERASE TUZAGI — SAHADA BILINMESI SART, OKUMADAN erase_flash YAPMA
-// ############################################################################
-// F1'in dogal bedeli. Senaryo:
-//   1. Drone A uzun sure calisti, boot_ctr=47. Peer'lerin NVS'inde
-//      _peer_sessions[A] = 47 yazili.
-//   2. Biri A'ya `esptool erase_flash` (ya da NVS partition sifirlamasi)
-//      yapar. A'nin NVS'i gider: aes_key DE gider, boot_ctr DE gider.
-//   3. KEY WRITER ile anahtar yeniden yazilir (aes_init aksi halde durur),
-//      firmware flaslanir. AMA boot_ctr 0'dan baslar -> A artik session_id=1
-//      gonderir.
-//   4. Peer'ler kurali dogru uygular: 1 < 47 -> A'yi KALICI REDDEDER.
-//
-// SEMPTOM (aldatici, ASIMETRIK):
-//   - A "duyar ama duyulmaz": peer'lerin heartbeat'lerini kabul eder,
-//     son_paket_ms tazelenir, FAILSAFE BILE ATMAZ. Kendi paketleri ise
-//     hicbir yerde kabul edilmez.
-//   - A'nin konsolunda hicbir hata yok. Red logu PEER'IN (baz'in)
-//     konsolunda basilir — yani flaslayan kisinin baktigi yerde degil.
-//   - Fail-closed oldugu icin KENDILIGINDEN DUZELMEZ. Beklemek cozmez.
-//
-// NEDEN OTOMATIK KURTARMA YOK: replay acisindan bu durum saldiriyla
-// AYIRT EDILEMEZ — saldirgan da tam olarak "dusuk session_id'li paket
-// kabul ettirmeye" calisir. Dusuk sid'i otomatik kabul etmek F1'i tamamen
-// geri alir. Bu yuzden kurtarma BILINCLI ve YETKILI bir islem olmak
-// zorunda.
-//
-// KURTARMA (desteklenen yol): peer'lerin _peer_sessions kaydi da
-// SIFIRLANMALI. Pratikte: bir node'un NVS'ini silersen, SURUNUN TAMAMINI
-// (baz + tum droneler) birlikte erase + yeniden provision + flasla.
-// Bu zaten "zarf formati degisirse hepsini ayni gun flasla" kuralıyla
-// ayni operasyonel pencere — ayrica yapilacak bir is degil.
-//   Sadece peer_sess'i silmek yeterlidir (aes_key'e dokunmadan):
-//   NVS namespace "mesh_sec", anahtar "peer_sess".
-//
-// ALTERNATIF (henuz YOK, gerekirse yazilir): bench'te kablolu/yetkili bir
-// "peer sifirla" bakim firmware'i (KEY WRITER deseninde). Sahada/telsizde
-// ASLA olmamali — uzaktan tetiklenebilir bir "replay korumasini sifirla"
-// komutu, korumanin kendisini anlamsiz kilar.
-// ############################################################################
+// NVS erase tuzagi (sahada bilinmesi sart, okumadan erase_flash yapma):
+//   1. Drone A calisti, boot_ctr=47. Peer'lerin NVS'inde _peer_sessions[A]=47.
+//   2. Biri A'ya erase_flash yapar: aes_key de boot_ctr de gider.
+//   3. Anahtar yeniden yazilip firmware flaslanir ama boot_ctr 0'dan baslar,
+//      A artik session_id=1 gonderir.
+//   4. Peer'ler kurali dogru uygular: 1 < 47 -> A'yi kalici reddeder.
+// Semptom aldatici: A peer'lerin heartbeat'lerini kabul eder (failsafe atmaz)
+// ama kendi paketleri hicbir yerde kabul edilmez; red logu A'da degil peer'in
+// konsolunda basilir ve durum kendiliginden duzelmez. Otomatik kurtarma yok,
+// cunku bu durum saldiriyla ayirt edilemez; dusuk sid'i otomatik kabul etmek
+// korumayi geri alir. Kurtarma: bir node'un NVS'ini silersen surunun tamamini
+// (baz + tum droneler) birlikte erase + yeniden provision + flasla. Sadece
+// peer_sess'i silmek de yeterli (NVS namespace "mesh_sec", anahtar "peer_sess").
 static inline void _session_id_uret(void) {
     Preferences prefs;
     if (!prefs.begin("mesh_sec", false)) {
@@ -987,12 +902,12 @@ static inline void _session_id_uret(void) {
     }
     prefs.putUInt("boot_ctr", boot_sayaci);
     prefs.end();
-    _session_id = (uint16_t)boot_sayaci;   // 1..65535 — 0 asla (sayac 1'den basliyor)
+    _session_id = (uint16_t)boot_sayaci;   // 1..65535, 0 asla (sayac 1'den basliyor)
     Serial.printf("[MESH] session_id=%u (monoton boot sayaci, NVS)\n", _session_id);
     if (boot_sayaci <= 2) {
-        // NVS ERASE TUZAGI erken uyarisi. Bu, tuzagi KENDI konsolunda gorunur
-        // kilan tek yer: red logu peer'in konsolunda basiliyor, bu cihazinkinde
-        // degil. Gercekten ilk boot ise zararsiz bir bilgi satiri.
+        // NVS erase tuzagi icin erken uyari. Tuzagi bu cihazin kendi konsolunda
+        // gorunur kilan tek yer; red logu peer'in konsolunda basiliyor. Gercekten
+        // ilk boot ise zararsiz bir bilgi satiri.
         Serial.println("[MESH] UYARI: boot sayaci ~sifirdan basladi (NVS yeni ya da silinmis).");
         Serial.println("[MESH] Bu cihaz DAHA ONCE mesh'te calistiysa peer'ler onu KALICI");
         Serial.println("[MESH] reddeder (eski session gorunur). 'Duyar ama duyulmaz' semptomu.");
@@ -1002,8 +917,8 @@ static inline void _session_id_uret(void) {
 
 static inline void mesh_init(mesh_veri_callback_t callback) {
     aes_init(); // Key expansion bir kez yapilir
-    _session_id_uret();     // F1: monoton, NVS'te kalici (gonderici yarisi)
-    _peer_session_yukle();  // F1: peer_mac -> son session_id (alici yarisi)
+    _session_id_uret();     // monoton, NVS'te kalici (gonderici yarisi)
+    _peer_session_yukle();  // peer_mac -> son session_id (alici yarisi)
     _veri_callback = callback;
     esp_read_mac(_benim_mac, ESP_MAC_WIFI_STA);
     Serial.printf("[MESH] MAC: %02X:%02X:%02X:%02X:%02X:%02X\n",
@@ -1051,22 +966,20 @@ static inline void mesh_durum_yazdir() {
     Serial.println("==================");
 }
 
-// ===== JOYSTICK KOMUT STRUCT (float32 encoding) =====
-// !!! BU STRUCT'IN LAYOUT'U pi_bridge ILE PAYLASILAN BIR SOZLESMEDIR.
-// Karsi taraf: feature/esp32-bridge, packet_parser.py::_KOMUT_FMT
-// '<BBhhhh6x' (alt_tip, flags, roll, pitch, yaw, throttle, 6 dolgu = 16B).
-// ESP payload'i OPAK tasir (yorumlamaz), ama alan sirasi/boyutu degisirse
-// bridge sessizce yanlis coz UNMAYA baslar — degistirmeden once iki tarafi
-// birlikte guncelleyin.
+// Joystick komut struct (float32 encoding).
+// Bu struct'in layout'u pi_bridge ile paylasilan bir sozlesmedir. Karsi taraf:
+// feature/esp32-bridge, packet_parser.py::_KOMUT_FMT '<BBhhhh6x' (alt_tip, flags,
+// roll, pitch, yaw, throttle, 6 dolgu = 16B). ESP payload'i opak tasir ama alan
+// sirasi/boyutu degisirse bridge sessizce yanlis cozer; degistirmeden once iki
+// tarafi birlikte guncelleyin.
 struct __attribute__((packed)) komut_veri_t {
     uint8_t  alt_tip;      // KOMUT_MODE_SWARM_MOVEMENT=1 / KOMUT_MODE_MANEUVER=2
-    // #4 FIX: bu byte "rezerv1" degil — pi_bridge onu FLAGS olarak kullaniyor
-    // ve icinde GUVENLIK KRITIK deadman biti var (bkz KOMUT_FLAG_* asagida;
-    // packet_parser.py: "Bayrak biti olmadiginda her komut sessizce
-    // reddedilir"). "rezerv" adi birinin bu byte'i yeniden kullanmasina
-    // davetiyeydi; kurban deadman olurdu.
+    // Bu byte "rezerv1" degil: pi_bridge onu flags olarak kullaniyor ve icinde
+    // guvenlik kritik deadman biti var (bkz KOMUT_FLAG_* asagida; bayrak biti
+    // yoksa her komut sessizce reddedilir). "rezerv" adi bu byte'in yeniden
+    // kullanilmasina davetiye olurdu, kurban deadman olurdu.
     uint8_t  flags;        // KOMUT_FLAG_* bit alani
-    int16_t  roll_x100;    // float * 100 → int16 (±327.67 derece/s)
+    int16_t  roll_x100;    // float * 100 -> int16 (+-327.67 derece/s)
     int16_t  pitch_x100;
     int16_t  yaw_x100;
     int16_t  throttle_x100;
@@ -1083,9 +996,9 @@ struct __attribute__((packed)) komut_veri_t {
 #define KOMUT_MODE_SWARM_MOVEMENT    1
 #define KOMUT_MODE_MANEUVER          2
 
-// Layout sozlesmesini derleme zamaninda kilitle: bridge cerceveden SABIT
-// 16 byte diliyor (packet_parser.py::cerceve_coz -> govde[2:18]), yani
-// boyut 16'dan sapamaz — kucukse bridge cop okur, buyukse sessizce kirpar.
+// Layout sozlesmesini derleme zamaninda kilitle: bridge cerceveden sabit 16 byte
+// diliyor (packet_parser.py::cerceve_coz -> govde[2:18]), boyut 16'dan sapamaz;
+// kucukse bridge cop okur, buyukse sessizce kirpar.
 static_assert(sizeof(komut_veri_t) == 16,
               "komut_veri_t 16 byte OLMALI — pi_bridge govde[2:18] ile sabit 16B diliyor");
 static_assert(offsetof(komut_veri_t, flags) == 1,

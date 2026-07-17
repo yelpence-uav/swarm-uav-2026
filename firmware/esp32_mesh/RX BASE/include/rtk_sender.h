@@ -1,63 +1,55 @@
 #pragma once
-// ===== RX BASE — RTK SENDER (REV B) =====
+// RX BASE - RTK sender.
 // YKİ'den (PC) gelen COBS cerceveli tam RTCM3 mesajini RTK_FRAG_PAYLOAD_MAKS
 // byte'lik mesh fragmentlarina boler ve rtk_mesh_gonder() ile buyuk AES-GCM
 // zarfinda mesh'e yayar.
 //
-// AKIŞ (REV B):
-//   YKİ (PC) → COBS(TIP_RTK+BAZ_ID+rtcm+crc16_be)+0x00 → Serial1 (460800)
-//   → rtk_serial_isle() (loop'ta okunur, cerceve coz+dogrula)
-//   → tam RTCM mesaji → rtk_rtcm_fragment_ve_gonder()
-//   → rtk_mesh_gonder() × N fragment (buyuk AES-GCM zarfi, CSMA+3-retry)
-//   → TX DRONE'da rtk_mesh_loop()/rtk_mesh_frag_handle → reassembly
-//   → Serial1 (460800, COBS+CRC16) → Pi
+// Akis:
+//   YKİ (PC) -> COBS(TIP_RTK+BAZ_ID+rtcm+crc16_be)+0x00 -> Serial1 (460800)
+//   -> rtk_serial_isle() (loop'ta okunur, cerceve coz+dogrula)
+//   -> tam RTCM mesaji -> rtk_rtcm_fragment_ve_gonder()
+//   -> rtk_mesh_gonder() x N fragment (buyuk AES-GCM zarfi, CSMA+3-retry)
+//   -> TX DRONE'da rtk_mesh_loop()/rtk_mesh_frag_handle -> reassembly
+//   -> Serial1 (460800, COBS+CRC16) -> Pi
 
 #include <Arduino.h>
 #include <string.h>
 #include "mesh_config.h"   // TIP_RTK, BAZ_ID
 #include "rtk_handler.h"   // RTK_MAX_FRAGS, RTK_FRAG_PAYLOAD_MAKS, rtk_mesh_gonder
-                           // (pragma once sayesinde main.cpp'de cift include zararsiz)
 #include "uart_cobs.h"     // cobs_decode, cobs_cerceve_coz
 
-// rtk_mesh_frag_t'nin KANONIK tanimi rtk_pure.h'de (yukarida include edilen
-// rtk_handler.h uzerinden gelir). Burada eskiden bir #ifndef fallback kopyasi
-// vardi; guard rtk_pure.h'de zaten tanimlandigi icin o blok HIC derlenmiyordu
-// ve icindeki REV A degerleri (payload 11B, toplam 18B) REV B'den sonra
-// yaniltici hale gelmisti — kaldirildi.
+// rtk_mesh_frag_t'nin kanonik tanimi rtk_pure.h'de (rtk_handler.h uzerinden gelir).
 
-// ===== GLOBAL PAKET SAYACI =====
-// Her yeni RTCM mesajında artar → TX DRONE'da ID değişimini tespit eder
+// Global paket sayaci: her yeni RTCM mesajinda artar, TX DRONE ID degisimini
+// buradan tespit eder.
 static uint32_t _rtk_paket_sayaci = 0;
 
-// ===== YKİ GIRIS SAYAÇLARI — BAZ TARAFI TESHISI =====
-// rtk_handler.h'deki alici sayaclarinin gonderici yakasi. Neden gerekli:
-// "RTK niye fix vermiyor" sorusunda ilk ayrim BAZ HIC YAYIN YAPIYOR MU
-// olmali. Bu sayaclar olmadan baz sessizce hicbir sey yayinlamiyorken
-// (or. YKİ'nin baud'u yanlis -> her cerceve CRC'den duser) İHA tarafinda
-// yalnizca "timeout" gorunur ve teshis RF'e yanlis yonlenir — oysa hava
-// tertemizdir, sorun kablodadir.
+// YKİ giris sayaclari - baz tarafi teshisi.
+// rtk_handler.h'deki alici sayaclarinin gonderici yakasi. "RTK niye fix vermiyor"
+// sorusunda ilk ayrim baz hic yayin yapiyor mu olmali. Bu sayaclar olmadan baz
+// sessizce yayinlamiyorken (or. YKİ baud'u yanlis -> her cerceve CRC'den duser)
+// İHA tarafinda yalnizca "timeout" gorunur ve teshis RF'e yanlis yonlenir, oysa
+// sorun kablodadir.
 static uint32_t rtk_tx_mesaj        = 0;   // YKİ'den gecerli RTCM alinip mesh'e yayilan
 static uint32_t rtk_yki_crc_hatasi  = 0;   // COBS cerceve CRC16 tutmadi (baud/kablo/gurultu)
 static uint32_t rtk_yki_tip_hatasi  = 0;   // CRC gecti ama tip/id beklenmedik (protokol uyumsuz)
 static uint32_t rtk_yki_rtcm_hatasi = 0;   // cerceve saglam ama payload gecerli RTCM3 degil
 static uint32_t rtk_tx_cok_buyuk    = 0;   // RTK_MAX_FRAGS'i asan mesaj (reddedildi)
 
-// ===== RTCM3 FRAGMENTASYON VE MESH'E GÖNDERME =====
-// rtcm_veri: tam RTCM3 mesajı (200-1000 byte tipik)
-// uzunluk:   mesajın toplam byte sayısı
+// RTCM3 fragmentasyon ve mesh'e gonderme.
+// rtcm_veri: tam RTCM3 mesaji (200-1000 byte tipik)
+// uzunluk:   mesajin toplam byte sayisi
 //
-// Her çağrıda yeni bir paket_id atanır.
-// Fragment sayısı = ceil(uzunluk / RTK_FRAG_PAYLOAD_MAKS)
-// DUSUK-1 FIX: son fragment RTK_FRAG_PAYLOAD_MAKS'tan kısa olabilir — artık
-// frag.frag_uzunluk alanına gerçek byte sayısı yazılıyor, TX DRONE tarafı
-// bunu okuyup reassembly toplam_uzunluğunu doğru hesaplıyor (eskiden her
-// parça sabit 12 sayılıyor, dolgu sıfırları toplam uzunluğa dahil oluyordu).
+// Her cagrida yeni bir paket_id atanir.
+// Fragment sayisi = ceil(uzunluk / RTK_FRAG_PAYLOAD_MAKS)
+// Son fragment RTK_FRAG_PAYLOAD_MAKS'tan kisa olabilir; frag.frag_uzunluk alanina
+// gercek byte sayisi yazilir, TX DRONE bunu okuyup reassembly toplam uzunlugunu
+// dogru hesaplar (aksi halde dolgu sifirlari toplam uzunluga dahil olurdu).
 static inline void rtk_rtcm_fragment_ve_gonder(const uint8_t* rtcm_veri, uint16_t uzunluk) {
     if (!rtcm_veri || uzunluk == 0) return;
 
-    // ADIM 6: fragment sayisi ve her parcanin uzunlugu artik rtk_pure.h'deki
-    // saf (Arduino'dan bagimsiz, native'de test edilen) hesaplayicidan
-    // geliyor — mantik burada tekrarlanmiyor.
+    // Fragment sayisi ve her parcanin uzunlugu rtk_pure.h'deki saf hesaplayicidan
+    // geliyor, mantik burada tekrarlanmiyor.
     uint8_t frag_uzunluklari[RTK_MAX_FRAGS];
     uint8_t frag_toplam = rtk_fragman_hesapla(uzunluk, frag_uzunluklari);
     if (frag_toplam == 0) return;
@@ -71,18 +63,14 @@ static inline void rtk_rtcm_fragment_ve_gonder(const uint8_t* rtcm_veri, uint16_
     uint32_t paket_id = ++_rtk_paket_sayaci;
     rtk_tx_mesaj++;
 
-    Serial.printf("[RTK-TX] RTCM fragmentlaniyor: %u byte → %u fragment (paket_id=%lu)\n",
+    Serial.printf("[RTK-TX] RTCM fragmentlaniyor: %u byte -> %u fragment (paket_id=%lu)\n",
                   uzunluk, frag_toplam, (unsigned long)paket_id);
 
-    // ADIM 5: fragment'lar arasina EK bir sabit bekleme (spec 3.2'nin eski
-    // "2 ms bekle" onerisi) BILEREK KONULMADI. Yeni tasarimda RTK_FRAG_PAYLOAD_MAKS
-    // buyudugu (191B) icin mesaj basina fragment sayisi cok azaldi (tipik
-    // MSM4 ~100-300B icin 1-2 fragment, en kotu 720B/191≈4 fragment) — eski
-    // 2ms onerisi ~23 fragment/mesaj varsayimina gore yazilmisti. Her
-    // rtk_mesh_gonder() cagrisi zaten kendi CSMA rastgele beklemesini
-    // (mesh_config.h, CSMA_GECIKME_MAKS_MS) uyguluyor; 1-4 fragment icin bu
-    // yeterli — ayrica sabit gecikme eklemek RTCM'in 1sn'lik tazelik
-    // butcesini gereksiz yere tuketirdi.
+    // Fragment'lar arasina ek sabit bekleme konulmadi. RTK_FRAG_PAYLOAD_MAKS
+    // 191B oldugundan mesaj basina fragment sayisi az (tipik MSM4 icin 1-2, en
+    // kotu ~4). Her rtk_mesh_gonder() zaten kendi CSMA rastgele beklemesini
+    // (CSMA_GECIKME_MAKS_MS) uyguluyor; sabit gecikme eklemek RTCM'in 1sn'lik
+    // tazelik butcesini gereksiz yere tuketirdi.
     uint16_t offset = 0;
     for (uint8_t i = 0; i < frag_toplam; i++) {
         rtk_mesh_frag_t frag;
@@ -94,8 +82,7 @@ static inline void rtk_rtcm_fragment_ve_gonder(const uint8_t* rtcm_veri, uint16_
         frag.frag_uzunluk = frag_uzunluklari[i];
         memcpy(frag.payload, rtcm_veri + offset, frag_uzunluklari[i]);
 
-        // REV B: eski mesh_gonder(TIP_RTK) (kucuk 18B zarf) yerine buyuk
-        // AES-GCM zarfini kendi CSMA+retry'iyle gonderen rtk_mesh_gonder()
+        // Buyuk AES-GCM zarfini kendi CSMA+retry'iyle gonderen rtk_mesh_gonder()
         // kullaniliyor (bkz rtk_handler.h).
         rtk_mesh_gonder(&frag);
 
@@ -105,39 +92,33 @@ static inline void rtk_rtcm_fragment_ve_gonder(const uint8_t* rtcm_veri, uint16_
     }
 }
 
-// ===== YKİ COBS ÇERÇEVE OKUMA — RX BASE loop()'ta çağrılır (REV B ADIM 3) =====
-// Eski hali (0xD3-senkronlu ham RTCM ayrıştırıcı, YKİ'den GELMEDEN önceki
-// mimaride "GNSS modulu/Pi ham RTCM yolluyor" varsayımıyla yazılmıştı)
-// KALDIRILDI. Artık YKİ, ADIM 2'deki ortak çerçeveyle gönderiyor:
+// YKİ COBS cerceve okuma, RX BASE loop()'ta cagrilir.
+// YKİ ortak cerceveyle gonderiyor:
 //   COBS( TIP_RTK + BAZ_ID(99) + tam_rtcm_mesaji + crc16_be ) + 0x00
-// (Pi/esp_rx hattıyla AYNI şema — REV B karar #3'ün "UART hattı çoklanmış
-// sayılıyor" ilkesi YKİ hattına da uygulandı. NOT: bu, YKİ ekibine daha önce
-// söylenen "prefiks yok, little-endian" cevabından FARKLI — pi_bridge/YKİ'ye
-// bu değişiklik raporda ayrıca bildirilecek.)
+// (Pi/esp_rx hattiyla ayni sema; "UART hatti coklanmis sayilir" ilkesi YKİ
+// hattina da uygulandi. Not: bu, YKİ ekibine daha once soylenen "prefiks yok,
+// little-endian" cevabindan farkli, raporda ayrica bildirilecek.)
 //
-// Akış: 0x00'a kadar biriktir → cobs_decode → cobs_cerceve_coz (CRC16 TIP+ID
-// dahil doğrular) → TIP_RTK && BAZ_ID kontrolü → payload = tam RTCM mesajı.
-// Ardından iki ucuz savunma kontrolü: payload[0]==0xD3, ve RTCM'in kendi
-// uzunluk alanının (spec 2.6) payload boyutuyla tutarlılığı. Son olarak
-// mesaj tipi (spec 2.6 formülü) loglanır; MSM7 görülürse UYARI basılır
-// (Base yanlış yapılandırılmış demektir — spec Bölüm 5 MSM7'yi yasaklıyor).
+// Akis: 0x00'a kadar biriktir -> cobs_decode -> cobs_cerceve_coz (CRC16 TIP+ID
+// dahil dogrular) -> TIP_RTK && BAZ_ID kontrolu -> payload = tam RTCM mesaji.
+// Ardindan iki ucuz savunma: payload[0]==0xD3 ve RTCM'in kendi uzunluk alaninin
+// (spec 2.6) payload boyutuyla tutarliligi. Son olarak mesaj tipi loglanir; MSM7
+// gorulurse uyari basilir (Base yanlis yapilandirilmis, spec Bolum 5 yasagi).
 //
-// KULLANIM:
+// Kullanim:
 //   void loop() { rtk_serial_isle(Serial2); ... }
-// BAZ_ID artik mesh_config.h'de (TIP tanimlarinin yaninda) — rtk_handler.h de
-// ayni degeri gormek zorunda oldugu icin paylasilan header'a tasindi.
 
-// ADIM 5: durum LED'i — RTCM basariyla ayristirilip fragmentlere gonderilen
-// her mesajda toggle edilir (spec 3.2, saha teshisi). Pin PLACEHOLDER,
-// main.cpp::setup() icinde pinMode(RTK_LED_PIN, OUTPUT) cagrilir.
+// Durum LED'i: RTCM basariyla ayristirilip fragmentlere gonderilen her mesajda
+// toggle edilir (saha teshisi). Pin placeholder, main.cpp::setup() icinde
+// pinMode(RTK_LED_PIN, OUTPUT) cagrilir.
 #define RTK_LED_PIN 2   // TODO: gercek donanimda dogrula
 static bool _rtk_led_durum = false;
 
 static uint8_t  _yki_rx_buf[RTK_COBS_BUF_SIZE];  // ham COBS byte'lari (0x00'a kadar)
 static uint16_t _yki_rx_idx = 0;
 
-// ===== GONDERICI (BAZ) ISTATISTIGI =====
-// rtk_istatistik_yazdir() (alici/İHA) ile ayni desen, ama BAZ'in sorusu farkli:
+// Gonderici (baz) istatistigi.
+// rtk_istatistik_yazdir() (alici/İHA) ile ayni desen, ama baz'in sorusu farkli:
 // "ben yayin yapiyor muyum, yapmiyorsam nerede tikandim?" Okuma kilavuzu:
 //   yki_crc yuksek + mesaj=0  -> YKİ hatti: baud/kablo/gurultu (hava temiz)
 //   yki_tip yuksek            -> YKİ protokolu uyumsuz (prefiks/spec surumu)
@@ -164,18 +145,16 @@ static inline void rtk_serial_isle(HardwareSerial& seri) {
             if (_yki_rx_idx < sizeof(_yki_rx_buf))
                 _yki_rx_buf[_yki_rx_idx++] = b;
             else
-                _yki_rx_idx = 0;   // tasma — cerceveyi at, yeniden senkronize ol
+                _yki_rx_idx = 0;   // tasma: cerceveyi at, yeniden senkronize ol
             continue;
         }
 
         if (_yki_rx_idx < 4) { _yki_rx_idx = 0; continue; }  // en az tip+id+crc16
 
-        // BUG FIX (REV B code review): decoded[] eskiden daha kucuk (1608B)
-        // sabitlenmisti, ama _yki_rx_buf RTK_COBS_BUF_SIZE'a (1612B) kadar
-        // dolabiliyor ve cobs_decode cikisi girdi-1'e kadar (1611B) cikabilir
-        // — 0x00'a hic denk gelmeyen gurultu/yanlis-baud senaryosunda ~3B
-        // static buffer overflow olusuyordu. Kural (bkz uart_cobs.h):
-        // cikis tamponu >= girdi tamponu olmali.
+        // decoded[] RTK_COBS_BUF_SIZE olmali: _yki_rx_buf o boyuta kadar dolabilir
+        // ve cobs_decode cikisi girdi-1'e kadar cikabilir. Daha kucuk sabitlenirse
+        // 0x00'a hic denk gelmeyen gurultu/yanlis-baud senaryosunda static buffer
+        // overflow olur. Kural (bkz uart_cobs.h): cikis tamponu >= girdi tamponu.
         static uint8_t decoded[RTK_COBS_BUF_SIZE];
         uint16_t decoded_uzunluk = cobs_decode(_yki_rx_buf, _yki_rx_idx, decoded);
         _yki_rx_idx = 0;
@@ -212,19 +191,14 @@ static inline void rtk_serial_isle(HardwareSerial& seri) {
                           beklenen_uzunluk, rtcm_uzunluk);
             continue;
         }
-        // BOYUT SINIRI KONTROLU BILEREK YOK — gereksiz oldugu KANITLANABILIR:
-        // RTCM3'un uzunluk alani 10 bit (spec 2.6), yani rtcm_payload_len <= 1023
-        // ve yukaridaki tutarlilik kontrolunden sonra rtcm_uzunluk == 3+payload+3
-        // <= 1029B'a SABITLENIR. Bu ust sinir hem reassembly buffer'in (1600B)
-        // hem de fragmantasyonun (RTK_MAX_FRAGS*RTK_FRAG_PAYLOAD_MAKS = 8*191 =
-        // 1528B) altinda kalir — yani 8 fragment her gecerli RTCM3 mesaji icin
-        // yeterlidir (en kotu 1029B -> ceil(1029/191) = 6 fragment, 2 fragment
-        // marj). Eskiden burada bir "rtcm_uzunluk > 1600" kontrolu vardi; bu
-        // kanit geregi hicbir zaman tetiklenemiyordu (olu kod), kaldirildi.
-        // Yine de savunma kaybolmadi: rtk_fragman_hesapla() sinirin asilmasi
-        // halinde RTK_FRAGMAN_REDDEDILDI donuyor ve mesaj loglanip dusuruluyor.
+        // Ayri bir boyut siniri kontrolu yok: RTCM3'un uzunluk alani 10 bit (spec
+        // 2.6), yani rtcm_payload_len <= 1023 ve tutarlilik kontrolunden sonra
+        // rtcm_uzunluk <= 1029B. Bu hem reassembly buffer'in (1600B) hem de
+        // fragmantasyonun (8*191 = 1528B) altinda; en kotu 1029B -> 6 fragment.
+        // Yine de rtk_fragman_hesapla() sinir asilirsa RTK_FRAGMAN_REDDEDILDI
+        // donuyor ve mesaj loglanip dusuruluyor.
 
-        // Mesaj tipi (spec 2.6) — MSM7 sizarsa erken uyari (Bolum 5 yasagi)
+        // Mesaj tipi (spec 2.6): MSM7 sizarsa erken uyari (Bolum 5 yasagi)
         uint16_t rtcm_tip = ((uint16_t)rtcm_mesaj[3] << 4) | (rtcm_mesaj[4] >> 4);
         if (rtcm_tip == 1077 || rtcm_tip == 1087 || rtcm_tip == 1097 || rtcm_tip == 1127) {
             Serial.printf("[RTK-RX] UYARI: MSM7 mesaji goruldu (tip %u) — Base MSM4'e "
@@ -235,7 +209,7 @@ static inline void rtk_serial_isle(HardwareSerial& seri) {
 
         rtk_rtcm_fragment_ve_gonder(rtcm_mesaj, rtcm_uzunluk);
 
-        // ADIM 5: durum LED'i toggle — RTCM akarken yanip soner
+        // durum LED'i toggle: RTCM akarken yanip soner
         _rtk_led_durum = !_rtk_led_durum;
         digitalWrite(RTK_LED_PIN, _rtk_led_durum ? HIGH : LOW);
     }

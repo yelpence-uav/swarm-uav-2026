@@ -1,13 +1,13 @@
 #include "esp_task_wdt.h"
 #include <Arduino.h>
 #include <WiFi.h>
-#include <string.h>   // ORTA-2 FIX: memcmp icin
+#include <string.h>   // memcmp icin
 #include "esp_wifi.h"
 #include "mesh_config.h"
 #include "fail_safe.h"
 #include "rtk_handler.h"
-#include "uart_cobs.h"   // REV B: ortak CRC16/COBS/cerceve kur-coz (RX BASE + TX DRONE)
-#include "uart_frame_parser.h"  // desync-güvenli ortak COBS çerçeve ayrıştırıcı (native testli)
+#include "uart_cobs.h"   // ortak CRC16/COBS/cerceve kur-coz (RX BASE + TX DRONE)
+#include "uart_frame_parser.h"  // desync-guvenli ortak COBS cerceve ayristirici
 
 #define RPI_RX_PIN 18
 #define RPI_TX_PIN 19
@@ -29,34 +29,27 @@ uint8_t                failsafe_active_mode = APM_MODE_RTL;
 volatile bool          manevra_aktif        = false;
 volatile uint32_t      manevra_bitis_ms     = 0;
 
-// ===== DRONE ID ESLESTIRME =====
-// ORTA-2 FIX: eskiden yalnizca MAC'in son byte'i karsilastiriliyordu; iki
-// ESP32'nin son byte'i ayni olursa (Espressif atamasinda mumkun) iki drone
-// ayni ID'ye eslenip sessizce kimlik cakismasi olusuyordu. Simdi tam 6 byte
-// karsilastiriliyor.
-// !!! DIKKAT: asagidaki ilk 5 byte SIFIR PLACEHOLDER'dir. Gercek MAC
-// adreslerini (esptool.py chip_id ile veya WiFi.macAddress() ile okunan
-// tam adresi) buraya girmeden derleyip yuklemeyin — aksi halde tum
-// dronelarin ilk 5 byte'i esit sayilir ve son byte'a geri donmus oluruz.
+// Drone ID eslestirme.
+// Tam 6 byte MAC karsilastiriliyor; sadece son byte'a bakilsaydi iki ESP32'nin
+// son byte'i ayni oldugunda iki drone ayni ID'ye eslenip sessizce kimlik
+// cakismasi olurdu.
+// Dikkat: asagidaki ilk 5 byte sifir placeholder'dir. Gercek MAC adreslerini
+// (esptool.py chip_id veya WiFi.macAddress() ile) buraya girmeden derleyip
+// yuklemeyin, yoksa tum dronelarin ilk 5 byte'i esit sayilir.
 //
-// BUG FIX (#1b): RX BASE'in MAC'i bu tabloda YOKTU. mesh_veri_al()
-// mac_to_id()==0 olan her paketi "Bilinmeyen MAC" diye reddettigi icin
-// BAZ'DAN GELEN HIC BIR PAKET (TIP_KOMUT/TIP_ORIGIN/TIP_GOREV) dispatch'e
-// ulasamiyordu — joystick komut yolu bu yuzden de kopuktu.
-//
-// Baz'in kimligi BAZ_MESH_ID (10) — BAZ_ID (99) DEGIL. 99, RTK UART
-// cercevesinin sentinel'idir; baz'a da 99 verilirse pi_bridge tarafinda
-// baz ile RTK ayirt edilemez ve RTK trafigi mesh-liveness'i tazeleyip
-// link kopmasini maskeler (bkz mesh_config.h'deki uzun aciklama).
-// pi_bridge uyumlu: agent_id 1-254 kabul ediyor, iha_id==0/kendi id'si
-// disindakileri isliyor -> 10 gecerli kaynak kimligi.
+// RX BASE'in MAC'i de bu tabloda olmali: mesh_veri_al() mac_to_id()==0 olan
+// paketleri "bilinmeyen MAC" diye reddettigi icin baz'dan gelen komutlar aksi
+// halde dispatch'e ulasamaz.
+// Baz'in kimligi BAZ_MESH_ID (10), BAZ_ID (99) degil. 99 RTK UART cercevesinin
+// sentinel'idir; baz'a da 99 verilirse pi_bridge baz ile RTK'yi ayirt edemez ve
+// RTK trafigi mesh-liveness'i tazeleyip link kopmasini maskeler (bkz mesh_config.h).
 static const struct { uint8_t mac[6]; uint8_t id; } drone_tablo[] = {
     {{0x00, 0x00, 0x00, 0x00, 0x00, 0xB4}, 1},
     {{0x00, 0x00, 0x00, 0x00, 0x00, 0x88}, 2},
     {{0x00, 0x00, 0x00, 0x00, 0x00, 0x00}, 3},
     {{0x00, 0x00, 0x00, 0x00, 0x00, 0xFF}, 4},
-    // TODO: RX BASE'in GERCEK MAC'ini gir — bu satir doldurulmadan baz'dan
-    // gelen komutlar reddedilmeye devam eder (mac_to_id -> 0).
+    // TODO: RX BASE'in gercek MAC'ini gir; bu satir doldurulmadan baz'dan gelen
+    // komutlar reddedilmeye devam eder (mac_to_id -> 0).
     {{0x00, 0x00, 0x00, 0x00, 0x00, 0x63}, BAZ_MESH_ID},
 };
 static constexpr uint8_t DRONE_SAYISI = sizeof(drone_tablo) / sizeof(drone_tablo[0]);
@@ -67,18 +60,16 @@ static uint8_t mac_to_id(const uint8_t* mac) {
     return 0;
 }
 
-// ORTA-2 FIX: boot'ta provision tablosunun benzersizligini dogrula.
-// Iki satir ayni MAC'e sahipse (kopyala-yapistir hatasi, doldurulmamis
-// placeholder vb.) sistemi acikca uyar — sessiz kimlik cakismasindansa
-// gurultulu bir boot hatasi tercih edilir.
+// Boot'ta provision tablosunun benzersizligini dogrula. Iki satir ayni MAC'e
+// sahipse (kopyala-yapistir hatasi, doldurulmamis placeholder vb.) sistemi
+// acikca uyar; sessiz kimlik cakismasindansa gurultulu boot hatasi yeglenir.
 static void _drone_tablo_dogrula() {
     bool hata = false;
     for (uint8_t i = 0; i < DRONE_SAYISI; i++) {
-        // ID SANITY: 0 = "bilinmeyen MAC" sentinel'i (mac_to_id donusu),
-        // BAZ_ID (99) = RTK UART sentinel'i. Ikisi de mesh kimligi olamaz —
-        // 99 verilirse pi_bridge baz ile RTK'yi ayirt edemez ve RTK trafigi
-        // mesh-liveness'i maskeler (bkz mesh_config.h). Gercek bir hatada
-        // yakalandi, o yuzden artik boot'ta zorlanıyor.
+        // 0 = "bilinmeyen MAC" sentinel'i (mac_to_id donusu), BAZ_ID (99) = RTK
+        // UART sentinel'i. Ikisi de mesh kimligi olamaz: 99 verilirse pi_bridge
+        // baz ile RTK'yi ayirt edemez ve RTK trafigi mesh-liveness'i maskeler
+        // (bkz mesh_config.h).
         if (drone_tablo[i].id == 0 || drone_tablo[i].id == BAZ_ID) {
             Serial.printf("[BOOT] HATA: drone_tablo[%u] gecersiz ID %u "
                           "(0 ve BAZ_ID/%u yasak).\n",
@@ -92,10 +83,9 @@ static void _drone_tablo_dogrula() {
                               i, j, drone_tablo[i].id, drone_tablo[j].id);
                 hata = true;
             }
-            // ID BENZERSIZLIGI: eskiden SADECE MAC kontrol ediliyordu. Iki
-            // satira ayni ID verilirse (or. baz ile bir drone) iki node ayni
-            // kimlige eslenir ve pi_bridge kaynagi ayirt edemez — MAC
-            // cakismasiyla ayni siniftan sessiz bir kimlik hatasi.
+            // ID benzersizligi: iki satira ayni ID verilirse (or. baz ile bir
+            // drone) iki node ayni kimlige eslenir ve pi_bridge kaynagi ayirt
+            // edemez.
             if (drone_tablo[i].id == drone_tablo[j].id) {
                 Serial.printf("[BOOT] HATA: drone_tablo[%u] ve [%u] AYNI ID (%u)!\n",
                               i, j, drone_tablo[i].id);
@@ -104,12 +94,9 @@ static void _drone_tablo_dogrula() {
         }
     }
     if (hata) {
-        // BUG FIX (satır satır inceleme): eskiden sadece loglayip devam
-        // ediyordu — yorum "gurultulu bir boot hatasi tercih edilir" diyordu
-        // ama kod sessizce ucusa izin veriyordu. ID cakismasi iki drone'un
-        // AYNI joystick komutuna cevap vermesi demek (guvenlik kritik) —
-        // encryption.h::aes_init()'teki provision-yok durumuyla ayni fail-
-        // closed desenine getirildi: duzeltilmeden mesh'e/ucusa katilamaz.
+        // ID cakismasi iki drone'un ayni joystick komutuna cevap vermesi demek
+        // (guvenlik kritik). aes_init()'teki provision-yok durumuyla ayni
+        // fail-closed desen: duzeltilmeden mesh'e/ucusa katilamaz.
         Serial.println("[BOOT] drone_tablo duzeltilmeden ucusa cikilmamali!");
         Serial.println("[BOOT] KRITIK: ID cakismasi - baslatma durduruldu.");
         Serial.flush();
@@ -117,8 +104,8 @@ static void _drone_tablo_dogrula() {
     }
 }
 void mesh_veri_al(const mesh_paket_t* p) {
-    // C1 fix: GCM + replay gecerse peer kaydet ve heartbeat guncelle
-    // ORTA-1 fix: AAD (tip+kaynak_mac+hedef_mac) de dogrulanir
+    // GCM + replay gecerse peer kaydet ve heartbeat guncelle.
+    // AAD (tip+kaynak_mac+hedef_mac) da dogrulanir.
     uint8_t acik[24] = {0};
     uint8_t aad[13];
     _mesh_aad_olustur(p->tip, p->kaynak_mac, p->hedef_mac, aad);
@@ -150,26 +137,19 @@ void mesh_veri_al(const mesh_paket_t* p) {
     son_paket_ms = millis();
     portEXIT_CRITICAL(&_recv_mux);
     failsafe_reset();
-    // HEARTBEAT sadece node aktivasyonu icin — RPi'ya gonderilmez
+    // HEARTBEAT sadece node aktivasyonu icin, RPi'ya gonderilmez
     if (p->tip == TIP_HEARTBEAT) return;
-    // REV B: TIP_RTK artik bu genel mesh_paket_t/mesh_veri_al yolundan hic
-    // gecmiyor — kendi buyuk zarfiyla ayri geliyor (bkz rtk_handler.h::
-    // rtk_mesh_loop(), loop()'ta mesh_loop() ile birlikte cagriliyor).
-    // Buraya TIP_RTK asla ulasmamali (ISR'da ayristiriliyor); yine de
-    // savunma amacli birakiyoruz.
+    // TIP_RTK bu genel yoldan gecmez, kendi buyuk zarfiyla ayri gelir (ISR'da
+    // ayristirilir). Buraya ulasmamali; yine de savunma amacli reddediyoruz.
     if (p->tip == TIP_RTK) return;
 
     uint8_t* payload = acik + sizeof(anti_replay_t);
     uint8_t uzunluk = 0;
-    // BUG FIX (#1a): TIP_KOMUT bu listede YOKTU -> joystick/surus komutu
-    // GCM+replay'i gecip son_paket_ms'i tazeledikten sonra "else return" ile
-    // SESSIZCE DUSUYORDU. Yani yer istasyonundan gelen komutlar drone'un
-    // Pi'sine hic ulasmiyordu (ESP mesh uzerinden ucus komut yolu kopuk).
-    // pi_bridge (feature/esp32-bridge) tarafi bunu BEKLIYOR:
-    // esp32_bridge_node.py::_cerceve_isle -> TIP_KOMUT -> _isle_komut() ->
-    // /swarm/public/control/command (SwarmControlCommand: takeoff/land/rtl/
-    // emergency_stop/deadman). Sim'de ROS2/DDS dogrudan kullanildigi icin
-    // bu yol hic egzersiz edilmemis, o yuzden fark edilmemis.
+    // TIP_KOMUT bu listede olmali: yer istasyonundan gelen joystick/surus
+    // komutu aksi halde GCM+replay'i gecip son_paket_ms'i tazeledikten sonra
+    // "else return" ile sessizce duser ve drone'un Pi'sine hic ulasmaz.
+    // pi_bridge tarafi bunu bekliyor (esp32_bridge_node.py::_cerceve_isle ->
+    // TIP_KOMUT -> _isle_komut -> SwarmControlCommand).
     if      (p->tip == TIP_KOMUT)       uzunluk = sizeof(komut_veri_t);
     else if (p->tip == TIP_POSE)        uzunluk = sizeof(pose_veri_t);
     else if (p->tip == TIP_GOREV)       uzunluk = sizeof(gorev_veri_t);
@@ -180,7 +160,7 @@ void mesh_veri_al(const mesh_paket_t* p) {
     else if (p->tip == TIP_VERSION)     uzunluk = sizeof(version_veri_t);
     else if (p->tip == TIP_SWARM_STATE) uzunluk = sizeof(swarm_state_veri_t);
     else if (p->tip == TIP_QR_DATA)     uzunluk = sizeof(qr_veri_t);
-    else return; // bilinmeyen tip — gonderme
+    else return; // bilinmeyen tip, gonderme
     uart_gonder(p->tip, kaynak_id, payload, uzunluk);
 }
 
@@ -188,21 +168,20 @@ void setup() {
     Serial.begin(115200);
     delay(1000);
     Serial.println("[ESP32] Basliyor...");
-    _drone_tablo_dogrula();  // ORTA-2 FIX: MAC benzersizligini boot'ta dogrula
+    _drone_tablo_dogrula();  // MAC benzersizligini boot'ta dogrula
 
-    // REV B: baud 460800 kesinlesti (spec + ekip karari). Bu Serial1 hatti
-    // RTK'nin yani sira joystick/pose/vb TUM Pi<->mesh protokolunu de tasiyor
-    // (rtk_handler.h::_rtk_uart_gonder ayni porta yazar) — Pi tarafi da ayni
-    // baud'a gecmeli. setRxBufferSize() begin()'DEN ONCE cagrilmali; sonra
-    // cagrilirsa ESP32 Arduino corede SESSIZCE etkisiz kalir.
+    // baud 460800 (spec + ekip karari). Bu Serial1 hatti RTK'nin yani sira
+    // joystick/pose/vb tum Pi<->mesh protokolunu de tasiyor (_rtk_uart_gonder
+    // ayni porta yazar), Pi tarafi da ayni baud'a gecmeli. setRxBufferSize()
+    // begin()'den once cagrilmali; sonra cagrilirsa sessizce etkisiz kalir.
     Serial1.setRxBufferSize(2048);  // spec 3.2: UART RX buffer >= 2048B
     Serial1.begin(460800, SERIAL_8N1, RPI_RX_PIN, RPI_TX_PIN);
     Serial.println("[UART] RPi (Serial1, 460800) bagli");
 
     WiFi.mode(WIFI_STA);
 
-    // DUSUK-2 FIX: ucus oncesi opsiyonel manuel kanal taramasi.
-    // Otomatik degisim YOK — sadece operator isterse rapor alir.
+    // Ucus oncesi opsiyonel manuel kanal taramasi.
+    // Otomatik degisim yok, sadece operator isterse rapor alir.
     Serial.println("[BOOT] Kanal taramasi icin 3 sn icinde 'T' gonderin (opsiyonel)...");
     uint32_t _tara_bekleme_baslangic = millis();
     while (millis() - _tara_bekleme_baslangic < 3000) {
@@ -227,10 +206,9 @@ void setup() {
 
 
 void loop() {
-    // REV B: rtk_loop() artik rtk_mesh_loop() icinden cagriliyor (RTK buyuk
-    // zarfini _rtk_recv_buffer'dan bosaltip cozen fonksiyon).
-    // Port varsayilani (Serial1) burada DOGRU: TX DRONE'da Serial1 gercekten
-    // Pi hattidir. (RX BASE'te oyle degil, orada Serial2 acikca gecilir.)
+    // rtk_loop() rtk_mesh_loop() icinden cagriliyor (RTK buyuk zarfini
+    // _rtk_recv_buffer'dan bosaltip cozer). Port varsayilani (Serial1) burada
+    // dogru: TX DRONE'da Serial1 Pi hattidir. (RX BASE'te Serial2 acikca gecilir.)
     rtk_mesh_loop();
     esp_task_wdt_reset();
     mesh_loop();
@@ -249,9 +227,8 @@ void loop() {
     failsafe_kontrol();
 
 #ifndef RTK_ISTATISTIK_LOGLAMA_KAPALI
-    // ADIM 5: periyodik RTK istatistik logu (spec 3.3 "periyodik debug
-    // satiri"). build_flags'a -D RTK_ISTATISTIK_LOGLAMA_KAPALI eklenerek
-    // kapatilabilir.
+    // Periyodik RTK istatistik logu (spec 3.3). build_flags'a
+    // -D RTK_ISTATISTIK_LOGLAMA_KAPALI eklenerek kapatilabilir.
     static uint32_t son_rtk_istatistik_ms = 0;
     if (millis() - son_rtk_istatistik_ms >= 10000) {
         son_rtk_istatistik_ms = millis();
@@ -263,14 +240,11 @@ void loop() {
 #endif
 
     {
-        // Ortak, desync-güvenli COBS çerçeve ayrıştırıcı (bkz uart_frame_parser.h).
-        // BUG FIX (satır satır inceleme) TASARIMLA KALICI: eski kodda whitelist
-        // dışı tip gelince "break" tüm okuma döngüsünü kırıp rpi_rx_idx=0'ı
-        // atlıyordu -> bir sonraki loop()'ta yeni baytlar reddedilmiş çerçevenin
-        // ortasından devam eden index'e yazılıyor, komut hattı bozuluyordu.
-        // Ayrıştırıcı artık çerçeve durumunu whitelist'ten tamamen ayırıyor:
-        // idx her 0x00'da koşulsuz sıfırlanır (uart_frame_parser_push), whitelist
-        // sadece DÖNEN çerçeveye uygulanır ve durumu etkileyemez.
+        // Ortak, desync-guvenli COBS cerceve ayristirici (bkz uart_frame_parser.h).
+        // Cerceve durumu whitelist'ten ayri: idx her 0x00'da kosulsuz sifirlanir
+        // (uart_frame_parser_push), whitelist sadece donen cerceveye uygulanir ve
+        // durumu etkileyemez. Aksi halde whitelist-disi bir tipte "break" okuma
+        // dongusunu kirip index'i bozar ve komut hatti desync olurdu.
         static uart_frame_parser_t pi_parser;
         uint8_t okunan = 0;
 
@@ -285,10 +259,10 @@ void loop() {
                                         &cerceve_payload, &cerceve_payload_uzunluk))
                 continue;
 
-            // ORTA-2 FIX: mesh_gonder() her zaman 18 byte okuyor (memcpy(
-            // tam_veri+6, veri, 18)); 16 byte'lik buffer'dan okumak 2 byte
-            // stack over-read'e (UB) yol aciyordu. payload_uzunluk siniri 16'da
-            // kaliyor; fazladan 2 byte sadece zaten-sifirlanmis dolgu.
+            // mesh_gonder() her zaman 18 byte okuyor (memcpy(tam_veri+6, veri,
+            // 18)), o yuzden buffer 18B. 16B olsaydi 2 byte stack over-read (UB)
+            // olurdu. payload_uzunluk siniri 16'da kaliyor, fazladan 2 byte zaten
+            // sifirlanmis dolgu.
             uint8_t payload[18]     = {0};
             uint8_t payload_uzunluk = (uint8_t)min((int)cerceve_payload_uzunluk, 16);
             memcpy(payload, cerceve_payload, payload_uzunluk);
@@ -305,10 +279,9 @@ void loop() {
                                   tip_byte == TIP_QR_DATA ||
                                   tip_byte == TIP_LEADER_HB ||
                                   tip_byte == TIP_ELECTION);
-            // Hiz limiti artik TIP BASINA (bkz mesh_config.h::mesh_tip_gecebilir).
-            // Eskiden tek paylasilan damga vardi ve TIP_QR_DATA, 50ms icinde
-            // cikan bir POSE/LEADER_HB yuzunden sessizce dusebiliyordu — QR tek
-            // atimlik ve cezali oldugu icin en pahali kurban oydu.
+            // Hiz limiti tip basina (bkz mesh_config.h::mesh_tip_gecebilir). Tek
+            // paylasilan damga olsaydi TIP_QR_DATA, 50ms icinde cikan bir POSE/
+            // LEADER_HB yuzunden sessizce dusebilirdi; QR tek atimlik ve cezali.
             if (izinli && mesh_tip_gecebilir(tip_byte, millis(), MESH_GONDERIM_MIN_MS))
                 mesh_gonder(payload, tip_byte);
         }

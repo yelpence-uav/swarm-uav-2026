@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """
-ADIM 6 — Firmware smoke-test: RX BASE'e (esp_tx) REV B formatinda ornek
-RTCM3 mesaji basar: COBS(TIP_RTK + BAZ_ID + rtcm + crc16_be) + 0x00.
+Firmware smoke-test: RX BASE'e (esp_tx) ornek RTCM3 mesaji basar:
+COBS(TIP_RTK + BAZ_ID + rtcm + crc16_be) + 0x00.
 
-KANONIK implementasyon common/ paketindedir (YKI sorumlusu: crc.py +
-cobs_framing.py) — bu script SADECE firmware smoke testi icindir, uretim
-kodu DEGILDIR ve YKI'nin gercek RTCM parser'inin yerini tutmaz.
+Kanonik implementasyon common/ paketindedir (YKI sorumlusu: crc.py +
+cobs_framing.py). Bu script sadece firmware smoke testi icindir, uretim kodu
+degildir ve YKI'nin gercek RTCM parser'inin yerini tutmaz.
 
 Kullanim:
     python3 test_sender.py --port /dev/ttyUSB0 --baud 460800
@@ -28,19 +28,12 @@ def crc16_ccitt_false(data: bytes) -> int:
 
 
 def cobs_encode(data: bytes) -> bytes:
-    """COBS encode — 254 bayt blok kuralı dahil.
+    """COBS encode, 254 bayt blok kurali dahil.
 
-    Kod baytı 1..255 aralığına sığmak zorunda, yani bir blok en fazla 254
-    sıfırsız bayt taşıyabilir. Blok dolduğunda 0xFF ("254 bayt izliyor, sonuna
-    örtük 0x00 EKLEME") yazılıp yeni bloğa geçilir.
-
-    Onceki hali bu kurali uygulamiyor, tum sifirsiz diziyi tek blok sayip
-    out.append(len(chunk) + 1) yapiyordu: >=254 ardisik sifirsiz baytta
-    ValueError ("byte must be in range(0, 256)") ile COKUYORDU. Gonderdigi
-    sentetik ornek (25B, cogunlukla sifir) tetiklemedigi icin fark edilmemisti,
-    ama gercek bir MSM4 yakalamasi (~100-300B, cogunlukla sifirsiz) beslendigi
-    anda patlardi — kablolu koprü testinde bu arac elimizdeki tek bagimsiz
-    dogrulayici oldugu icin duzeltildi.
+    Kod bayti 1..255 araligina sigmak zorunda, yani bir blok en fazla 254 sifirsiz
+    bayt tasiyabilir. Blok dolunca 0xFF ("254 bayt izliyor, sonuna ortuk 0x00
+    ekleme") yazilip yeni bloga gecilir. Bu kural uygulanmazsa >=254 ardisik
+    sifirsiz baytta ValueError ile cokulur.
 
     Firmware tarafindaki karsiligi: common/mesh_shared/uart_cobs.h::cobs_encode.
     """
@@ -54,11 +47,11 @@ def cobs_encode(data: bytes) -> bytes:
 
     for b in data:
         if b == 0x00:
-            blogu_yaz(len(blok) + 1)  # blok + örtük sıfır
+            blogu_yaz(len(blok) + 1)  # blok + ortuk sifir
             continue
         blok.append(b)
         if len(blok) == 254:
-            blogu_yaz(0xFF)           # dolu blok — örtük sıfır YOK
+            blogu_yaz(0xFF)           # dolu blok, ortuk sifir yok
     blogu_yaz(len(blok) + 1)          # son blok
     return bytes(out)
 
@@ -66,22 +59,21 @@ def cobs_encode(data: bytes) -> bytes:
 def cerceve_olustur(tip: int, id_: int, payload: bytes) -> bytes:
     ham = bytes([tip, id_]) + payload
     crc = crc16_ccitt_false(ham)
-    ham += bytes([(crc >> 8) & 0xFF, crc & 0xFF])  # buyuk-endian (REV B)
+    ham += bytes([(crc >> 8) & 0xFF, crc & 0xFF])  # buyuk-endian
     return cobs_encode(ham) + b"\x00"
 
 
 def ornek_rtcm3() -> bytes:
-    # Synthetic RTCM3 tip 1005 iskeleti (0xD3 + uzunluk + 19B payload +
-    # CRC24Q). CRC24Q gercek hesaplanmadi — esp_tx bu smoke testte zaten
-    # savunma kontrolu (0xD3 + uzunluk tutarliligi) uyguluyor, gercek
-    # CRC24Q dogrulamasi YKI'nin isi.
+    # Sentetik RTCM3 tip 1005 iskeleti (0xD3 + uzunluk + 19B payload + CRC24Q).
+    # CRC24Q gercek hesaplanmadi; esp_tx bu smoke testte savunma kontrolu (0xD3 +
+    # uzunluk tutarliligi) uyguluyor, gercek CRC24Q dogrulamasi YKI'nin isi.
     payload = bytes(19)
     uzunluk = len(payload)
     return bytes([0xD3, (uzunluk >> 8) & 0x03, uzunluk & 0xFF]) + payload + bytes(3)
 
 
 def main():
-    ap = argparse.ArgumentParser(description="esp_tx (RX BASE) icin REV B COBS/CRC16 smoke-test gonderici")
+    ap = argparse.ArgumentParser(description="esp_tx (RX BASE) icin COBS/CRC16 smoke-test gonderici")
     ap.add_argument("--port", required=True)
     ap.add_argument("--baud", type=int, default=460800)
     ap.add_argument("--tekrar", type=int, default=1, help="kac kez gonderilsin")

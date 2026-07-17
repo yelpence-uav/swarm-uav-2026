@@ -1,29 +1,22 @@
 #pragma once
-// ===== RTK — ARDUINO'DAN BAGIMSIZ SAF MANTIK (ADIM 6) =====
-// Bu dosya HICBIR Arduino/ESP-IDF sembolune (Serial, millis, HardwareSerial,
-// esp_now_*, mbedtls_*) bagli DEGILDIR — sadece <stdint.h>/<string.h>
-// kullanir. Boylece PlatformIO'nun "native" ortaminda (host makinede,
-// donanimsiz) derlenip test edilebilir (bkz test/native/).
+// RTK saf mantik katmani: Arduino/ESP-IDF sembolu (Serial, millis, esp_now_*,
+// mbedtls_*) kullanmaz, sadece <stdint.h>/<string.h>. Boylece PlatformIO
+// native ortaminda donanimsiz derlenip test edilebilir.
 //
-// rtk_handler.h ve rtk_sender.h (Arduino tarafi) bu dosyadaki sabitleri VE
-// fonksiyonlari kullanir — mantik burada TEK YERDE yasar, Arduino tarafi
-// sadece ince bir kabuk (GCM sifreleme, ESP-NOW gonderim, Serial loglama).
+// Sabitler ve fragmantasyon/reassembly mantigi burada tek yerde yasar;
+// rtk_handler.h ve rtk_sender.h ince bir kabuk (GCM, ESP-NOW, loglama).
 
 #include <stdint.h>
 #include <string.h>
-#include <stddef.h>   // offsetof — asagidaki sozlesme static_assert'i icin
+#include <stddef.h>   // offsetof (asagidaki static_assert icin)
 
-// ===== BUYUK RTK ZARFI — BYTE BUTCESI (bkz rtk_handler.h basindaki yorum) =====
+// Buyuk RTK zarfi - byte butcesi:
 //   RTK_ENV_ONSOZ_BOYUTU  = 30  (kaynak_mac6+hedef_mac6+paket_id4+atlama_sayisi1+tip1+iv12)
 //   RTK_ENV_TAG_BOYUTU    = 16  (GCM auth tag)
 //   RTK_ENV_SABIT_TOPLAM  = 46
-//   RTK_ENV_MAKS_TOPLAM   = 250 (ESP-NOW donanim siniri — TEK KAYNAK BURASI;
-//                                 mesh_config.h bu header'i include eder, orada
-//                                 duplike TANIMLAMA. Eskiden iki kopyaydi ve bu
-//                                 satir "eslesmeli" diyordu; ADIM 6 duplikasyonu
-//                                 kaldirdi, uyari da onunla birlikte dusmeliydi.)
+//   RTK_ENV_MAKS_TOPLAM   = 250 (ESP-NOW donanim siniri, tek kaynak burasi)
 //   RTK_ENV_MAKS_SIFRELI  = 250 - 46 = 204
-//   RTK_ANTI_REPLAY_BOYUTU = 6  (anti_replay_t: session_id2+paket_id4)
+//   RTK_ANTI_REPLAY_BOYUTU = 6  (session_id2+paket_id4)
 //   RTK_FRAG_HEADER_BOYUTU = 7  (msg_id4+idx1+total1+len1)
 //   RTK_FRAG_PAYLOAD_MAKS  = 204 - 6 - 7 = 191
 #define RTK_ENV_MAKS_TOPLAM     250
@@ -35,32 +28,30 @@
 #define RTK_FRAG_HEADER_BOYUTU  7
 #define RTK_FRAG_PAYLOAD_MAKS   (RTK_ENV_MAKS_SIFRELI - RTK_ANTI_REPLAY_BOYUTU - RTK_FRAG_HEADER_BOYUTU) // 191
 
-// ===== IKI FARKLI ISTE CALISAN IKI ASSERT — IKISI DE KALMALI =====
-// (1) GUVENLIK TABANI: mutlak alt sinir. Payload bunun altina duserse
-//     tasarim MAVLink enjeksiyon uyumunu kaybeder.
+// Iki ayri assert, ikisi de gerekli:
+// (1) Guvenlik tabani: payload bu alt sinirin altina duserse MAVLink
+//     enjeksiyon uyumu kaybolur.
 static_assert(RTK_FRAG_PAYLOAD_MAKS >= 180,
               "RTK_FRAG_PAYLOAD_MAKS 180'in altina dustu - zarf hesabini kontrol et");
 
-// (2) SOZLESME KILIDI: spec §2.3 byte butcesi (250-46-6-7=191).
-//     Bu assert patlarsa YAPILACAK SEY SAYIYI DUZELTMEK DEGILDIR:
-//     zarf yapisi degismis demektir -> docs/YELPENCE_RTCM_SPEC.md §2.3'u
-//     (layout tablosu + byte butcesi dokumu) GUNCELLE ve YKİ/pi_bridge
-//     ekibine haber ver; ancak ondan sonra bu sayiyi degistir.
+// (2) Sozlesme kilidi: spec §2.3 byte butcesi (250-46-6-7=191). Bu assert
+//     patlarsa zarf yapisi degismis demektir; sayiyi degistirmeden once
+//     docs/YELPENCE_RTCM_SPEC.md §2.3'u guncelle ve YKİ/pi_bridge'e bildir.
 static_assert(RTK_FRAG_PAYLOAD_MAKS == 191,
               "Zarf byte butcesi degisti: spec §2.3 senkronu gerekli! "
               "Sayiyi duzeltmeden once docs/YELPENCE_RTCM_SPEC.md §2.3'u "
               "guncelle ve YKİ/pi_bridge'e bildir.");
 
-// (3) numarali sozlesme kilidi rtk_mesh_frag_t tanimindan HEMEN SONRA
-//     (struct'in kendisi asagida tanimlaniyor, offsetof once cagrilmaz).
+// (3) numarali kilit rtk_mesh_frag_t tanimindan sonra gelir (offsetof struct
+//     tanimlanmadan cagrilamaz).
 
-// REV B: 8 fragment x 191B = 1528B, MSM4/720B MAVLink tavanina bol marj.
+// 8 fragment x 191B = 1528B, MSM4/720B MAVLink tavanina bol marj.
 #define RTK_MAX_FRAGS            8
-// 8 x 191B = 1528B en kotu durumu karsilayacak sekilde 1600'e yuvarlandi.
+// En kotu durum 1528B, 1600'e yuvarlandi.
 #define RTK_REASSEMBLY_BUF_SIZE  1600
 #define RTK_FRAG_TIMEOUT_MS      500UL
 
-// ===== MESH FRAGMENT YAPISI (Arduino'dan bagimsiz, saf POD struct) =====
+// Mesh fragment yapisi (saf POD struct).
 #ifndef RTK_MESH_FRAG_DEFINED
 #define RTK_MESH_FRAG_DEFINED
 typedef struct
@@ -75,36 +66,29 @@ __attribute__((packed))
     uint8_t  payload[RTK_FRAG_PAYLOAD_MAKS];
 } rtk_mesh_frag_t;
 
-// (3) SOZLESME KILIDI — yukaridaki (2)'nin KOR NOKTASI:
-//     RTK_FRAG_HEADER_BOYUTU ciplak bir literal (7); rtk_handler.h ise
-//     memcpy(plaintext + RTK_ANTI_REPLAY_BOYUTU, frag, RTK_FRAG_HEADER_BOYUTU)
-//     ile frag basligini bu literale gore kopyaliyor. rtk_mesh_frag_t'ye alan
-//     eklenir/genisletilirse memcpy sessizce KIRPAR ve tel formati bozulur —
-//     ustelik RTK_FRAG_PAYLOAD_MAKS degismedigi icin (2) numarali assert
-//     PATLAMAZ. Yani ic alanlar kayarken toplam sabit kalabilir; bu assert
-//     tam o senaryo icin var.
-//     Patlarsa: sayiyi duzeltme — spec §2.3 layout tablosunu guncelle ve
-//     YKİ/pi_bridge'e bildir.
+// (3) Sozlesme kilidi, (2)'nin kor noktasi: rtk_handler.h frag basligini
+//     RTK_FRAG_HEADER_BOYUTU (7) literaline gore memcpy ediyor. Struct'a alan
+//     eklenirse memcpy sessizce kirpar, ama RTK_FRAG_PAYLOAD_MAKS degismedigi
+//     icin (2) patlamaz. Bu assert tam o senaryoyu yakalar. Patlarsa spec
+//     §2.3 layout tablosunu guncelle ve ekibe bildir.
 static_assert(offsetof(rtk_mesh_frag_t, payload) == RTK_FRAG_HEADER_BOYUTU,
               "rtk_mesh_frag_t basligi RTK_FRAG_HEADER_BOYUTU ile uyumsuz: "
               "rtk_handler.h'deki memcpy sessizce kirpar. Spec §2.3 layout "
               "tablosunu guncelle ve ekibe bildir.");
 #endif
 
-// ===== SAF FRAGMANTASYON HESABI =====
+// Saf fragmantasyon hesabi.
 // uzunluk byte'lik bir mesaji RTK_FRAG_PAYLOAD_MAKS'lik parcalara boler.
 // frag_uzunluklari_out en az RTK_MAX_FRAGS eleman almali. Donus degeri
 // fragment sayisi (0 = bos girdi, 0xFF = RTK_MAX_FRAGS'i asiyor, reddedildi).
 #define RTK_FRAGMAN_REDDEDILDI 0xFF
 static inline uint8_t rtk_fragman_hesapla(uint16_t uzunluk, uint8_t* frag_uzunluklari_out) {
     if (uzunluk == 0) return 0;
-    // Parca sayisi uint16'da tutulup OYLE sinanir. (uint8_t) cast'i sinamadan
-    // ONCE yapilirsa 256'nin katlarinda taban kaybolur: 257 parca -> (uint8_t)257
-    // == 1, yani asagidaki "> RTK_MAX_FRAGS" kapisi SESSIZCE gecilir ve ~49KB'lik
-    // bir mesaj tek parcaya kirpilir. Bugun cagiran taraf uzunlugu <=1029'a
-    // sabitledigi icin erisilemiyor (bkz rtk_sender.h'deki ispat), ama kapi
-    // "buyuk girdiyi reddet" diye YAZILMIS durumda ve o isi tum uint16 araliginda
-    // yapmiyordu -- olu kod degil, hatali kod.
+    // Parca sayisi uint16'da tutulup oyle sinanir. Cast sinamadan once
+    // yapilirsa 256'nin katlarinda taban kaybolur (257 -> (uint8_t)257 == 1)
+    // ve asagidaki "> RTK_MAX_FRAGS" kapisi sessizce gecilir. Cagiran taraf
+    // uzunlugu bugun <=1029'a sabitlese de kapi tum uint16 araligini
+    // reddedecek sekilde yaziliyor.
     uint16_t frag_toplam16 = (uint16_t)((uzunluk + (RTK_FRAG_PAYLOAD_MAKS - 1)) / RTK_FRAG_PAYLOAD_MAKS);
     if (frag_toplam16 == 0 || frag_toplam16 > RTK_MAX_FRAGS) return RTK_FRAGMAN_REDDEDILDI;
     uint8_t frag_toplam = (uint8_t)frag_toplam16;
@@ -117,36 +101,26 @@ static inline uint8_t rtk_fragman_hesapla(uint16_t uzunluk, uint8_t* frag_uzunlu
     return frag_toplam;
 }
 
-// ===== SAF REASSEMBLY DURUM MAKINESI =====
+// Saf reassembly durum makinesi.
 //
-// ON KOSUL — BU DOSYA TEK BASINA DOGRU DEGIL, GOREMEDIGI GARANTILERE YASLANIR.
-// Asagidaki makine TEK yuva tutar (rtk_handler.h'de tek global _rtk_asm) ve
-// farkli paket_id gordugu an devam eden birlestirmeyi SILER. Bu ancak su uc
-// on kosul dogruyken guvenli:
+// On kosul: bu makine tek yuva tutar (rtk_handler.h'de tek global _rtk_asm)
+// ve farkli paket_id gorunce devam eden birlestirmeyi siler. Bu ancak su uc
+// kosul dogruyken guvenli:
+//   (a) Tek RTK kaynagi. Yuva kaynaga gore anahtarlanmiyor; anti-replay
+//       penceresi node basina ayri oldugu icin ikinci bir bazin fragmentleri
+//       de kapidan gecer ve ayni yuvada birbirini siler. Sahada tek baz
+//       olmasi gerekiyor.
+//   (b) Tek hop. RTK iletilmiyor: _paketi_ilet() kucuk zarfla calisir, RTK
+//       buyuk zarfi kullanir ve TIP_RTK relay edilmez (atlama_sayisi 0).
+//   (c) Mesajlar arasi yeniden siralama yok. Kopyalari replay_pure.h penceresi
+//       eler; broadcast ESP-NOW'da MAC seviyesi retry/ACK olmadigi icin
+//       siralama korunur.
 //
-//   (a) TEK RTK kaynagi. Yuva kaynaga gore anahtarlanmiyor. Anti-replay
-//       penceresi node BASINA ayri oldugu icin ikinci bir baz/RTK kaynaginin
-//       fragmentleri de kapidan GECER ve ayni yuvada birbirini surekli siler.
-//       Bunu saglayan sey kod degil, sahada tek baz olmasi.
-//   (b) TEK HOP. RTK bugun iletilmiyor: _paketi_ilet() kucuk mesh_paket_t
-//       zarfiyla calisir, RTK ise buyuk zarfi kullanir ve _mesh_gonder()
-//       TIP_RTK'yi hic islemez (rtk_handler.h'de atlama_sayisi 0 yazilir ve
-//       bir daha artmaz).
-//   (c) Mesajlar arasi YENIDEN SIRALAMA yok. Kopyalari replay_pure.h'deki
-//       64'luk pencere eler; broadcast ESP-NOW'da MAC seviyesi retry/ACK
-//       olmadigi icin siralama korunur.
-//
-// (b) veya (c) bozulursa onceki mesajin GECIKMIS bir kopyasi, devam eden yeni
-// mesajin ilerlemesini siler; ARQ olmadigi icin o RTCM bir daha gelmez. Daha
-// kotusu kayip rtk_kayip_timeout'a duser ve rtk_handler.h'deki okuma kilavuzu
-// onu "RF menzil/parazit (anten/mesafe)" diye teshis eder — yani sayaci dorde
-// bolmenin onlemek istedigi YANLIS TESHISIN ta kendisi uretilir.
-//
-// Su iki degisiklikten biri yapilirsa BURASI DA elden gecmeli: RTK'ya relay
-// eklenmesi (atlama_sayisi alani zarfta hazir bekliyor) ya da ikinci bir baz.
-// Cozum: kaynak+paket_id'ye gore anahtarlanan cok yuvali asm, ya da en azindan
-// geriye giden paket_id'yi reddeden bir monotonluk kapisi. Bugun ikisi de
-// BILEREK yok — (a)(b)(c) gecerliyken erisilemez kod olurlardi.
+// (b) veya (c) bozulursa gecikmis bir kopya yeni mesajin ilerlemesini siler
+// ve ARQ olmadigi icin o RTCM bir daha gelmez; kayip timeout'a duser ve RF
+// parazit gibi gorunur. RTK'ya relay eklenirse ya da ikinci bir baz gelirse
+// burasi da elden gecmeli: kaynak+paket_id'ye gore anahtarlanan cok yuvali
+// asm, ya da geriye giden paket_id'yi reddeden bir monotonluk kapisi.
 typedef struct {
     uint32_t paket_id;
     uint8_t  toplam;
@@ -179,7 +153,7 @@ static inline rtk_asm_sonuc_t rtk_asm_fragment_isle(
     if (frag_uzunluk == 0 || frag_uzunluk > RTK_FRAG_PAYLOAD_MAKS)
         return RTK_ASM_REDDEDILDI;
 
-    // Farkli paket_id ya da timeout → sifirla, yeni mesaja basla
+    // Farkli paket_id ya da timeout: sifirla, yeni mesaja basla
     if (a->toplam > 0 &&
         (paket_id != a->paket_id || (simdi_ms - a->son_parca_ms) > RTK_FRAG_TIMEOUT_MS)) {
         rtk_asm_sifirla(a);

@@ -1,22 +1,19 @@
 #pragma once
-// ADIM 6: Arduino.h'ye ihtiyaci yok (Serial/millis/HardwareSerial hic
-// kullanilmiyor) — <stdint.h> yeterli, boylece PlatformIO native ortaminda
-// da (donanimsiz unit test) derlenebiliyor.
+// Arduino.h gerekmez (Serial/millis/HardwareSerial kullanilmiyor); <stdint.h>
+// yeterli, boylece native ortamda donanimsiz test edilebiliyor.
 #include <stdint.h>
 #include <string.h>
 
-// ===== ORTAK UART COBS KATMANI (REV B karar #3) =====
-// RX BASE (YKİ hattı) ve TX DRONE (Pi hattı) AYNI çerçeve formatını kullanır:
+// Ortak UART COBS katmani.
+// RX BASE (YKİ hatti) ve TX DRONE (Pi hatti) ayni cerceve formatini kullanir:
 //
 //   frame_on_wire = COBS_encode( TIP + ID + payload + crc16_be(TIP+ID+payload) ) + 0x00
 //
 // CRC16 = CCITT-FALSE (poly 0x1021, init 0xFFFF, refin/refout false),
-// test vektörü crc16("123456789")==0x29B1 (ESP tarafinda dogrulandi).
-// CRC, TIP+ID dahil COBS icindeki HER SEYI kapsar (CRC'nin kendisi haric)
-// ve BUYUK-ENDIAN (MSB once) yazilir — REV B karari, eski genel
-// uart_gonder() zaten bu sekilde davraniyordu, RTK tarafi buna uydurulacak.
+// test vektoru crc16("123456789")==0x29B1. CRC, TIP+ID dahil COBS icindeki
+// her seyi kapsar (CRC'nin kendisi haric) ve buyuk-endian (MSB once) yazilir.
 
-// ===== CRC16-CCITT-FALSE =====
+// CRC16-CCITT-FALSE
 static inline uint16_t cobs_crc16(const uint8_t* veri, uint16_t uzunluk) {
     uint16_t crc = 0xFFFF;
     for (uint16_t i = 0; i < uzunluk; i++) {
@@ -27,10 +24,8 @@ static inline uint16_t cobs_crc16(const uint8_t* veri, uint16_t uzunluk) {
     return crc;
 }
 
-// ===== COBS ENCODE/DECODE =====
-// (RX BASE/TX DRONE main.cpp'lerindeki eski birebir ayni fonksiyonlar,
-// tek yere tasindi; uzunluk tipi uint16_t'ye genisletildi cunku RTK
-// tarafinda cerceve 1600B'a kadar cikabiliyor.)
+// COBS encode/decode.
+// Uzunluk tipi uint16_t; RTK tarafinda cerceve 1600B'a kadar cikabiliyor.
 static inline uint16_t cobs_encode(const uint8_t* giris, uint16_t uzunluk, uint8_t* cikis) {
     uint16_t kod_idx = 0, yaz_idx = 1;
     uint8_t kod = 1;
@@ -51,15 +46,13 @@ static inline uint16_t cobs_encode(const uint8_t* giris, uint16_t uzunluk, uint8
     return yaz_idx;
 }
 
-// KURAL: cikis tamponu >= girdi tamponu boyutunda olmalı. cobs_decode'un
-// ciktisi matematiksel olarak girdiden en az 1 byte kisadir (her cagrida en
-// azindan son grup icin 0x00 dolgusu eklenmez) — AMA bu sadece "girdi==gercek
-// veri uzunlugu" ise gecerlidir. Cagiran taraf girdiyi kapasiteye kadar
+// Kural: cikis tamponu >= girdi tamponu boyutunda olmali. cobs_decode ciktisi
+// normalde girdiden en az 1 byte kisadir, ama bu sadece girdi gercek veri
+// uzunluguna esitse gecerli. Cagiran taraf girdiyi kapasiteye kadar
 // (0x00 gorene kadar) biriktiriyorsa (bkz rtk_sender.h::rtk_serial_isle),
-// gurultu/yanlis-baud durumunda girdi UZUNLUGU tampon KAPASITESINE ulasabilir
-// ve cikis da o kapasiteye yakin (kapasite-1) olabilir. Cikis tamponu
-// girdi tamponundan KUCUK secilirse bu durumda tampon tasar (REV B code
-// review'da bulunan gercek bug, bkz rtk_sender.h duzeltmesi).
+// gurultu/yanlis-baud durumunda girdi uzunlugu tampon kapasitesine ulasabilir
+// ve cikis da kapasiteye yakin (kapasite-1) olabilir. Cikis tamponu girdiden
+// kucuk secilirse tampon tasar.
 static inline uint16_t cobs_decode(const uint8_t* giris, uint16_t uzunluk, uint8_t* cikis) {
     if (uzunluk == 0) return 0;
     uint16_t oku_idx = 0, yaz_idx = 0;
@@ -76,11 +69,11 @@ static inline uint16_t cobs_decode(const uint8_t* giris, uint16_t uzunluk, uint8
     return yaz_idx;
 }
 
-// ===== REV B ÇERÇEVE — KUR =====
+// Cerceve kur.
 // tip+id+payload+crc16(BE)'yi ham_scratch'e yazip COBS ile cobs_cikis'e
 // kodlar, toplam COBS+0x00 uzunlugunu doner. ham_scratch en az
 // (2+payload_uzunluk+2), cobs_cikis en az onun COBS worst-case genisleme
-// formuluyle (n + n/254 + 2) kadar buyuk olmali — cagiran taraf saglar.
+// formuluyle (n + n/254 + 2) kadar buyuk olmali; cagiran taraf saglar.
 static inline uint16_t cobs_cerceve_olustur(uint8_t tip, uint8_t id,
                                              const uint8_t* payload, uint16_t payload_uzunluk,
                                              uint8_t* ham_scratch, uint8_t* cobs_cikis) {
@@ -94,8 +87,8 @@ static inline uint16_t cobs_cerceve_olustur(uint8_t tip, uint8_t id,
     return cobs_encode(ham_scratch, (uint16_t)(ham_uzunluk + 2), cobs_cikis);
 }
 
-// ===== REV B ÇERÇEVE — ÇÖZ =====
-// COBS-decode EDİLMİŞ (0x00 sinirlayicisi zaten ayiklanmis) bir tampon
+// Cerceve coz.
+// COBS-decode edilmis (0x00 sinirlayicisi zaten ayiklanmis) bir tampon
 // alir; TIP+ID dahil CRC16'yi dogrular, basariliysa true doner ve
 // tip/id/payload/payload_uzunluk cikislarini doldurur. payload_out,
 // decoded tamponu ICINE isaret eder (kopyalamaz).

@@ -2,28 +2,25 @@
 #include <Arduino.h>
 #include <string.h>
 #include "mesh_config.h"   // TIP_RTK, BAZ_ID, BROADCAST_MAC, MESH_KANAL, GCM/AAD/replay yardimcilari
-#include "uart_cobs.h"     // REV B ADIM 2: ortak cobs_cerceve_olustur (CRC artik TIP+BAZ_ID dahil)
-#include "rtk_pure.h"      // ADIM 6: sabitler + saf fragmantasyon/reassembly mantigi (Arduino'dan bagimsiz)
+#include "uart_cobs.h"     // ortak cobs_cerceve_olustur (CRC TIP+BAZ_ID dahil)
+#include "rtk_pure.h"      // sabitler + saf fragmantasyon/reassembly mantigi
 
-// ===== SABITLER =====
+// Sabitler.
 // RTK_FRAG_PAYLOAD_MAKS, RTK_MAX_FRAGS, RTK_REASSEMBLY_BUF_SIZE,
-// RTK_FRAG_TIMEOUT_MS, rtk_mesh_frag_t — hepsi artik rtk_pure.h'de (ADIM 6,
-// tek kaynak, Arduino'dan bagimsiz, native testlerle dogrulanir). Byte
-// butcesi hesabinin tam dokumu rtk_pure.h basinda.
+// RTK_FRAG_TIMEOUT_MS, rtk_mesh_frag_t artik rtk_pure.h'de. Byte butcesi
+// hesabinin dokumu rtk_pure.h basinda.
 #define RTK_HAM_BUF_SIZE   (1 + 1 + RTK_REASSEMBLY_BUF_SIZE + 2)
 #define RTK_COBS_BUF_SIZE  (RTK_HAM_BUF_SIZE + (RTK_HAM_BUF_SIZE / 254) + 2)
 
-// ===== DURUM SAYAÇLARI — ALICI (İHA) TARAFI =====
-// rtk_kayip eskiden TEK kovaydi: GCM hatasi, replay reddi, bozuk cerceve ve RF
-// timeout'u ayni sayaca yaziyordu. Ama sahadaki "RTK niye fix vermiyor"
-// sorusunun cevaplari taban tabana ZIT ve her biri BASKA bir mudahale ister:
-//   gcm      -> anahtar yanlis/eksik, provision uyumsuz  (KEY WRITER'a bak)
-//   replay   -> eski session; cogu zaman SALDIRI DEGIL, o peer'in NVS'i
-//               silinmistir (bkz mesh_config.h::_session_id_uret NVS ERASE TUZAGI)
-//   gecersiz -> bozuk/uyumsuz cerceve: tel formati kaymis, surumler uyumsuz
-//               (zarf duzeni degistiyse TUM node'lar ayni gun flaslanmali)
-//   timeout  -> fragment havada kayboldu = RF menzil/parazit  (anten/mesafe)
-// Tek sayacla bu dordu ayirt edilemiyordu; teshis tahmine kaliyordu. Ayrildi.
+// Durum sayaclari - alici (İHA) tarafi.
+// Kayip nedenleri ayri tutuluyor; her biri farkli bir mudahale gerektiriyor:
+//   gcm      -> anahtar yanlis/eksik, provision uyumsuz (KEY WRITER'a bak)
+//   replay   -> eski session; cogu zaman saldiri degil, o peer'in NVS'i
+//               silinmistir (bkz mesh_config.h::_session_id_uret NVS erase tuzagi)
+//   gecersiz -> bozuk/uyumsuz cerceve; zarf duzeni degistiyse tum node'lar
+//               ayni gun flaslanmali
+//   timeout  -> fragment havada kayboldu, RF menzil/parazit (anten/mesafe)
+// Tek sayacta toplaninca bu dordu ayirt edilemiyordu, ayrildi.
 static uint32_t rtk_alinan          = 0;   // kabul edilen FRAGMENT sayisi
 static uint32_t rtk_uart_gonderilen = 0;   // Pi'ye iletilen TAM RTCM mesaji
 static uint32_t rtk_kayip_gcm       = 0;
@@ -31,9 +28,9 @@ static uint32_t rtk_kayip_replay    = 0;
 static uint32_t rtk_kayip_gecersiz  = 0;
 static uint32_t rtk_kayip_timeout   = 0;
 
-// ===== DURUM SAYAÇLARI — GONDERICI (BAZ) TARAFI =====
-// rtk_mesh_gonder() hem RX BASE'te (gercek kullanim) hem paylasilan kodda
-// yasadigi icin sayac burada. RX BASE'in YKİ-girisi sayaclari rtk_sender.h'de.
+// Durum sayaclari - gonderici (baz) tarafi.
+// rtk_mesh_gonder() hem RX BASE'te hem paylasilan kodda yasadigi icin sayac
+// burada. RX BASE'in YKİ-girisi sayaclari rtk_sender.h'de.
 static uint32_t rtk_tx_frag         = 0;   // mesh'e yayilan fragment
 static uint32_t rtk_tx_zarf_hatasi  = 0;   // 3 denemeden sonra da esp_now_send hatasi
 
@@ -41,32 +38,24 @@ static inline uint32_t rtk_kayip_toplam(void) {
     return rtk_kayip_gcm + rtk_kayip_replay + rtk_kayip_gecersiz + rtk_kayip_timeout;
 }
 
-// ===== REASSEMBLY DURUMU — artik rtk_pure.h'deki saf tipte =====
+// Reassembly durumu (rtk_pure.h'deki saf tip).
 static rtk_asm_durum_t _rtk_asm = {};
 
 // Ileri bildirim: rtk_loop() dosyanin sonunda tanimli, rtk_mesh_loop() ondan
 // once cagiriyor.
 static inline void rtk_loop(void);
 
-// ===== HEDEF PI PORTU — CAGIRAN BELIRLER =====
-// fail_safe.h::failsafe_kontrol() ile AYNI desen: hedef port sabitlenmez,
-// varsayilan Serial1'dir ve Pi hatti baska bir portta olan firmware onu
-// acikca gecer. Gerekce: TX DRONE'da Serial1 gercekten Pi hattidir, ama
-// RX BASE'te Serial1 YKİ/RTCM GIRIS hattina ayrilmistir (Pi protokolu
-// Serial2'de yurur, bkz RX BASE main.cpp). Port burada hardcode edilirse
-// RX BASE reassemble ettigi bir RTCM mesajini YKİ'nin yayin yaptigi hatta
-// geri yazar. Tek-baz topolojisinde bu yol ulasilamaz (rtk_mesh_loop()
-// icindeki _benim_mac_mi() kendi yayinini eler), ama savunma topolojiye
-// emanet EDILMEZ: ikinci bir baz/test cihazi eklendigi gun latent bug
-// canlanirdi. Ayni sinif hata failsafe bildiriminde gerceklesmisti (50c84ef).
+// Hedef Pi portu cagiran tarafindan belirlenir.
+// Varsayilan Serial1; Pi hatti baska portta olan firmware onu acikca gecer.
+// TX DRONE'da Serial1 Pi hattidir, ama RX BASE'te Serial1 YKİ/RTCM giris
+// hattina ayrilmistir (Pi protokolu Serial2'de yurur). Port hardcode edilirse
+// RX BASE reassemble ettigi RTCM'i YKİ'nin yayin yaptigi hatta geri yazar.
+// Tek-baz topolojisinde bu yol ulasilamaz (_benim_mac_mi kendi yayinini eler)
+// ama savunma topolojiye emanet edilmez.
 
-// REV B ADIM 2: ortak cobs_cerceve_olustur() kullanir. DIKKAT (ADIM 2'de
-// istenen dogrulama): eski implementasyon CRC16'yi SADECE RTCM verisi
-// uzerinden hesapliyordu, TIP_RTK/BAZ_ID prefiksini CRC'ye KATMIYORDU —
-// REV B karari #3 "CRC, TIP+ID dahil COBS icindeki her seyi kapsar" ile
-// UYUMSUZDU. Bu artik duzeltildi (cobs_cerceve_olustur genel uart_gonder()
-// ile ayni semayi kullaniyor). pi_bridge bunu bilmeli: RTK cercevesinin
-// CRC16'si de artik TIP(0x0C)+BAZ_ID(99) dahil hesaplaniyor.
+// Ortak cobs_cerceve_olustur() kullanir; CRC16 artik TIP_RTK/BAZ_ID prefiksini
+// de kapsiyor (eskiden sadece RTCM verisi uzerinden hesaplaniyordu). pi_bridge
+// bunu bilmeli: RTK cercevesinin CRC16'si TIP(0x0C)+BAZ_ID(99) dahil.
 static inline void _rtk_uart_gonder(const uint8_t* veri, uint16_t uzunluk,
                                      HardwareSerial& uart) {
     static uint8_t ham[RTK_HAM_BUF_SIZE];
@@ -78,15 +67,11 @@ static inline void _rtk_uart_gonder(const uint8_t* veri, uint16_t uzunluk,
                   uzunluk, rtk_uart_gonderilen);
 }
 
-// ===== FRAGMENT REASSEMBLY — buyuk zarftan cozulmus icerikle cagrilir =====
-// ADIM 6: gercek durum-makinesi mantigi artik rtk_pure.h::rtk_asm_fragment_isle()
-// icinde (Arduino'dan bagimsiz, native'de test edildi). Burasi sadece:
-// rtk_mesh_frag_t basligini ayristirir, pure fonksiyonu cagirir, sonucu
-// Serial'e loglar ve TAMAMLANDI ise _rtk_uart_gonder ile Pi'ye yollar.
-//
-// uzunluk SABIT DEGIL (eskiden hep sizeof(rtk_mesh_frag_t) -sabit 18B-
-// geliyordu, kucuk zarf dolgu ile sabit boyuttaydi). Simdi sadece gercekten
-// gonderilen kadar byte geliyor.
+// Fragment reassembly - buyuk zarftan cozulmus icerikle cagrilir.
+// Durum-makinesi mantigi rtk_pure.h::rtk_asm_fragment_isle() icinde. Burasi
+// sadece rtk_mesh_frag_t basligini ayristirir, pure fonksiyonu cagirir, sonucu
+// loglar ve tamamlaninca _rtk_uart_gonder ile Pi'ye yollar. uzunluk sabit
+// degil, sadece gercekten gonderilen kadar byte geliyor.
 static inline void rtk_mesh_frag_handle(const uint8_t* ham_veri, uint16_t uzunluk,
                                          HardwareSerial& uart) {
     if (uzunluk < RTK_FRAG_HEADER_BOYUTU) {
@@ -142,20 +127,14 @@ static inline void rtk_mesh_frag_handle(const uint8_t* ham_veri, uint16_t uzunlu
     }
 }
 
-// ===== REV B: BUYUK RTK ZARFI — GONDERIM =====
-// mesh_paket_t ailesinin degisken boyutlu buyuk kardesi. Onsoz duzeni
-// (kaynak_mac..iv) mesh_paket_t ile AYNI (ISR'daki tip-offset kontrolu bu
-// yuzden ortak calisir, bkz mesh_config.h::_esp_now_recv_cb). sifreli_veri
-// ve tag, GERCEK kullanilan uzunluga gore ard arda yaziliyor — sabit
-// sizeof() VARSAYILMIYOR, esp_now_send'e de gercek toplam uzunluk veriliyor.
-//
-// Ayni mesh_paket_t/_mesh_gonder() anti-replay altyapisini (paylasilan
-// _paket_sayaci/_session_id) ve AAD semasini (_mesh_aad_olustur) yeniden
-// kullanir — "mesh_paket_t ailesi" tutarliligi boylece korunuyor.
-//
-// REV B karar #4: TIP_RTK icin CSMA + 3 denemelik yerel retry AYNEN
-// korunuyor (mesh_config.h::_mesh_gonder() artik TIP_RTK'yi hic islemiyor,
-// bu yuzden ayni mantik burada tekrarlaniyor).
+// Buyuk RTK zarfi - gonderim.
+// mesh_paket_t'nin degisken boyutlu buyuk kardesi. Onsoz duzeni (kaynak_mac..iv)
+// mesh_paket_t ile ayni oldugu icin ISR'daki tip-offset kontrolu ortak calisir.
+// sifreli_veri ve tag gercek uzunluga gore ard arda yaziliyor, esp_now_send'e
+// de gercek toplam uzunluk veriliyor. Anti-replay altyapisini (_paket_sayaci/
+// _session_id) ve AAD semasini (_mesh_aad_olustur) mesh_paket_t ile paylasir.
+// TIP_RTK icin CSMA + 3 denemelik yerel retry burada tekrarlaniyor, cunku
+// _mesh_gonder() TIP_RTK'yi islemiyor.
 static inline void rtk_mesh_gonder(const rtk_mesh_frag_t* frag) {
     // --- Plaintext: anti_replay(6) + frag basligi(7) + gercek payload ---
     uint8_t plaintext[RTK_ANTI_REPLAY_BOYUTU + RTK_FRAG_HEADER_BOYUTU + RTK_FRAG_PAYLOAD_MAKS];
@@ -173,7 +152,7 @@ static inline void rtk_mesh_gonder(const rtk_mesh_frag_t* frag) {
     memcpy(ham + 6, BROADCAST_MAC, 6);
     memcpy(ham + 12, &mesh_paket_id, 4);
     ham[16] = 0;            // atlama_sayisi
-    ham[17] = TIP_RTK;      // tip — ISR bu offset'e bakiyor
+    ham[17] = TIP_RTK;      // tip: ISR bu offset'e bakiyor
     iv_uret_rastgele(ham + 18);   // iv[12] -> offset 18..29
 
     uint8_t aad[13];
@@ -211,15 +190,11 @@ static inline void rtk_mesh_gonder(const rtk_mesh_frag_t* frag) {
     rtk_tx_frag++;
 }
 
-// ===== REV B: BUYUK RTK ZARFI — ALIM =====
-// mesh_config.h::_esp_now_recv_cb ISR'inin ayirdigi _rtk_recv_buffer'i
-// bosaltir. mesh_loop()'tan BAGIMSIZ, ayri cagrilir (main.cpp'nin loop()'unda
-// mesh_loop() ile birlikte). Diger TIP'lerin _recv_isle() yolunu hic
-// etkilemez.
-//
-// uart: birlestirilen RTCM mesajinin yazilacagi Pi portu (bkz yukaridaki
-// "HEDEF PI PORTU" notu). Varsayilan Serial1 = TX DRONE'un Pi hatti;
-// RX BASE acikca Serial2 gecer.
+// Buyuk RTK zarfi - alim.
+// ISR'in ayirdigi _rtk_recv_buffer'i bosaltir. mesh_loop()'tan bagimsiz, ayri
+// cagrilir; diger TIP'lerin _recv_isle() yolunu etkilemez.
+// uart: birlestirilen RTCM mesajinin yazilacagi Pi portu (yukaridaki port
+// notuna bak). Varsayilan Serial1 (TX DRONE Pi hatti), RX BASE Serial2 gecer.
 static inline void rtk_mesh_loop(HardwareSerial& uart = Serial1) {
     if (_rtk_recv_flag) {
         _rtk_recv_flag = false;
@@ -275,7 +250,7 @@ static inline void rtk_mesh_loop(HardwareSerial& uart = Serial1) {
     rtk_loop();
 }
 
-// ===== TIMEOUT KONTROL — rtk_mesh_loop()'tan çağrılır =====
+// Timeout kontrol, rtk_mesh_loop()'tan cagrilir.
 static inline void rtk_loop(void) {
     if (rtk_asm_timeout_kontrol(&_rtk_asm, millis())) {
         Serial.println("[RTK] Assembly timeout — sifirlandi (fragment havada kayboldu = RF)");
@@ -283,8 +258,8 @@ static inline void rtk_loop(void) {
     }
 }
 
-// ALICI (İHA) istatistigi. Kovalarin teshis anlami icin sayac tanimlarinin
-// basindaki nota bak — "kayip" tek sayi olarak bakildiginda yaniltir.
+// Alici (İHA) istatistigi. Kayip kovalarinin anlami icin sayac tanimlarinin
+// basindaki nota bak; "kayip" tek sayi olarak bakildiginda yaniltir.
 static inline void rtk_istatistik_yazdir(void) {
     Serial.printf("[RTK] alinan=%lu uart_gonderilen=%lu kayip=%lu "
                   "(gcm=%lu replay=%lu gecersiz=%lu timeout=%lu)\n",

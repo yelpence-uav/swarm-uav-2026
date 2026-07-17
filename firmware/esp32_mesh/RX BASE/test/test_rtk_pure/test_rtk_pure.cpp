@@ -1,9 +1,9 @@
-// ADIM 6 — RTK saf mantigi (rtk_pure.h + uart_cobs.h) native unit testleri.
-// Arduino/ESP-IDF donanimi GEREKTIRMEZ (pio test -e native).
+// RTK saf mantigi (rtk_pure.h + uart_cobs.h) native unit testleri.
+// Arduino/ESP-IDF donanimi gerektirmez (pio test -e native).
 //
-// NOT: bu dosya SADECE rtk_pure.h ve uart_cobs.h'yi include eder — ikisi de
-// Arduino.h'ye bagli degil. mesh_config.h/rtk_handler.h/rtk_sender.h (GCM,
-// ESP-NOW, Serial) buraya DAHIL EDILMEZ, cunku onlar native'de derlenemez.
+// Bu dosya sadece rtk_pure.h ve uart_cobs.h'yi include eder (ikisi de Arduino.h'ye
+// bagli degil). mesh_config.h/rtk_handler.h/rtk_sender.h (GCM, ESP-NOW, Serial)
+// native'de derlenemedigi icin dahil edilmez.
 
 #include <unity.h>
 #include <cstdlib>
@@ -12,15 +12,15 @@
 #include "rtk_pure.h"
 #include "uart_cobs.h"
 #include "uart_frame_parser.h"   // desync regresyon testleri
-#include "replay_pure.h"         // F1: reboot-replay karar kurali
+#include "replay_pure.h"         // reboot-replay karar kurali
 
-// ===== CRC16 TEST VEKTORU (spec 2.1) =====
+// CRC16 test vektoru (spec 2.1).
 void test_crc16_test_vektoru(void) {
     const uint8_t veri[] = "123456789";
     TEST_ASSERT_EQUAL_HEX16(0x29B1, cobs_crc16(veri, 9));
 }
 
-// ===== COBS ROUND-TRIP (0x00 iceren veriler dahil, 1-1200B rastgele) =====
+// COBS round-trip (0x00 iceren veriler dahil, 1-1200B rastgele).
 void test_cobs_roundtrip_rastgele(void) {
     srand(1234);
     for (int deneme = 0; deneme < 300; deneme++) {
@@ -34,9 +34,9 @@ void test_cobs_roundtrip_rastgele(void) {
         TEST_ASSERT_EQUAL_UINT8(0x00, encoded[enc_len - 1]);  // terminator
 
         uint8_t decoded[1200];
-        // cobs_decode terminator HARIC uzunluk bekler (main.cpp'lerdeki
-        // kullanimla ayni: byte'lar 0x00'a KADAR biriktirilir, 0x00'in
-        // kendisi decode'a verilmez).
+        // cobs_decode terminator haric uzunluk bekler (main.cpp'lerdeki
+        // kullanimla ayni: byte'lar 0x00'a kadar biriktirilir, 0x00'in kendisi
+        // decode'a verilmez).
         uint16_t dec_len = cobs_decode(encoded, (uint16_t)(enc_len - 1), decoded);
         TEST_ASSERT_EQUAL_UINT16(uzunluk, dec_len);
         TEST_ASSERT_EQUAL_UINT8_ARRAY(giris, decoded, uzunluk);
@@ -55,7 +55,7 @@ void test_cobs_roundtrip_sifir_iceren(void) {
     TEST_ASSERT_EQUAL_UINT8_ARRAY(giris, decoded, uzunluk);
 }
 
-// ===== CERCEVE KUR/COZ (TIP+ID+payload+crc16_be) =====
+// Cerceve kur/coz (TIP+ID+payload+crc16_be).
 void test_cerceve_kur_coz_roundtrip(void) {
     uint8_t payload[18];
     for (int i = 0; i < 18; i++) payload[i] = (uint8_t)(i * 7 + 3);
@@ -90,23 +90,22 @@ void test_cerceve_coz_bozuk_crc_reddedilir(void) {
     TEST_ASSERT_FALSE(cobs_cerceve_coz(decoded, dec_len, &tip, &id, &p, &plen));
 }
 
-// ===== COBS DECODE — TAMPON TASMASI REGRESYONU (REV B code review) =====
-// Gercek bug: rtk_sender.h::rtk_serial_isle() 0x00'a rastlamayan gurultu/
-// yanlis-baud girdisini tampon KAPASITESINE kadar biriktiriyor, cobs_decode
-// da bu durumda ciktiyi girdi-1'e kadar uretebiliyordu — cikis tamponu
-// girdiden kucuk secilmisti, ~3B static overflow olustu (bkz uart_cobs.h
-// basindaki KURAL yorumu, rtk_sender.h duzeltmesi).
+// COBS decode: tampon tasmasi regresyonu.
+// rtk_serial_isle() 0x00'a rastlamayan gurultu/yanlis-baud girdisini tampon
+// kapasitesine kadar biriktirebilir; cobs_decode bu durumda ciktiyi girdi-1'e
+// kadar uretebilir. Cikis tamponu girdiden kucuk secilirse static overflow olur
+// (bkz uart_cobs.h basindaki kural).
 //
 // RTK_COBS_BUF_SIZE Arduino.h'ye bagli rtk_handler.h'de tanimli (native'de
-// derlenemez) — ayni formul burada mirrorlanir, gercek uretim tamponuyla
-// (_yki_rx_buf) boyutça eslesir.
+// derlenemez), ayni formul burada mirrorlanir ve gercek uretim tamponuyla
+// (_yki_rx_buf) boyutca eslesir.
 #define TEST_RTK_HAM_BUF_SIZE   (1 + 1 + RTK_REASSEMBLY_BUF_SIZE + 2)
 #define TEST_RTK_COBS_BUF_SIZE  (TEST_RTK_HAM_BUF_SIZE + (TEST_RTK_HAM_BUF_SIZE / 254) + 2)
 
 void test_cobs_decode_gurultu_cikis_tamponunu_asmaz(void) {
-    // 0x00 icermeyen, tampon KAPASITESI kadar (production'daki en kotu durum)
-    // rastgele "gurultu" girdisi — cokmemeli, ve cikis KURAL geregi (uart_cobs.h)
-    // girdiden kisa olmali, boylece cikis>=girdi boyutlu bir tampon guvenli olur.
+    // 0x00 icermeyen, tampon kapasitesi kadar (en kotu durum) rastgele gurultu
+    // girdisi: cokmemeli ve cikis kural geregi (uart_cobs.h) girdiden kisa olmali,
+    // boylece cikis>=girdi boyutlu bir tampon guvenli olur.
     srand(4242);
     uint8_t giris[TEST_RTK_COBS_BUF_SIZE];
     for (uint16_t i = 0; i < TEST_RTK_COBS_BUF_SIZE; i++) {
@@ -114,22 +113,20 @@ void test_cobs_decode_gurultu_cikis_tamponunu_asmaz(void) {
         do { b = (uint8_t)(rand() % 256); } while (b == 0x00);
         giris[i] = b;
     }
-    // Kural geregi cikis tamponu >= girdi tamponu — sinirda test (ASan bu
-    // sinirin gercekten tutuldugunu dogrular, bkz platformio.ini native env).
+    // Kural geregi cikis tamponu >= girdi tamponu; sinirda test (ASan bu sinirin
+    // gercekten tutuldugunu dogrular).
     uint8_t cikis[TEST_RTK_COBS_BUF_SIZE];
     uint16_t dec_len = cobs_decode(giris, TEST_RTK_COBS_BUF_SIZE, cikis);
-    // NOT: gurultu icin cobs_decode 0 donebilir (grup sinirlari L'e tam
-    // oturmuyorsa "bozuk cerceve" olarak reddedilir) — bu GECERLI ve GUVENLI
-    // bir sonuctur. Asil kural: cikis HICBIR ZAMAN girdiyi asmaz.
+    // Gurultu icin cobs_decode 0 donebilir (grup sinirlari tam oturmuyorsa bozuk
+    // cerceve olarak reddedilir); bu gecerli ve guvenli. Asil kural: cikis hicbir
+    // zaman girdiyi asmaz.
     TEST_ASSERT_TRUE(dec_len < TEST_RTK_COBS_BUF_SIZE);
 }
 
-// Ikinci savunma testi: tek bir maksimum boyutta degil, 0xFF kod-grubu
-// sinirlarini (254/255/508/509) da kapsayan COK sayida farkli uzunlukta
-// gurultu girdisiyle ayni kurali dogrular. std::vector KASITLI: heap
-// tamponu tam girdi boyutunda ayrilir, boylece ASan'in heap-redzone'u
-// TEK BYTE'lik bir tasmayi bile yakalar (bkz platformio.ini native env
-// -fsanitize=address,undefined).
+// Ikinci savunma testi: tek boyut degil, 0xFF kod-grubu sinirlarini
+// (254/255/508/509) da kapsayan cok sayida farkli uzunlukta gurultu girdisiyle
+// ayni kurali dogrular. std::vector kasitli: heap tamponu tam girdi boyutunda
+// ayrilir, boylece ASan'in heap-redzone'u tek byte'lik bir tasmayi bile yakalar.
 void test_cobs_decode_gurultu_coklu_boyut_tamponu_asmaz(void) {
     srand(777);
     const uint16_t boyutlar[] = {1, 2, 10, 63, 253, 254, 255, 256, 507, 508,
@@ -142,20 +139,20 @@ void test_cobs_decode_gurultu_coklu_boyut_tamponu_asmaz(void) {
             do { b = (uint8_t)(rand() % 256); } while (b == 0x00);
             giris[i] = b;
         }
-        std::vector<uint8_t> cikis(uzunluk);  // tam sinirda — kural: cikis>=girdi
+        std::vector<uint8_t> cikis(uzunluk);  // tam sinirda, kural: cikis>=girdi
         uint16_t dec_len = cobs_decode(giris.data(), uzunluk, cikis.data());
         TEST_ASSERT_TRUE(dec_len < uzunluk);
     }
 }
 
-// ===== UART ÇERÇEVE AYRIŞTIRICI — DESYNC REGRESYONU (satır satır inceleme) =====
-// Gerçek bug: TX DRONE main.cpp'de whitelist-dışı bir tip gelince "break" tüm
-// okuma döngüsünü kırıp idx=0'ı atlıyordu; reddedilen çerçeve bir sonrakini
-// index kaydırarak bozuyordu. Framing artık uart_frame_parser.h'de saf/testli
-// ve "break"siz — bu testler o garantiyi doğrular.
+// UART cerceve ayristirici: desync regresyonu.
+// whitelist-disi bir tip gelince "break" ile okuma dongusunu kirip idx=0'i
+// atlamak, reddedilen bir cerceveyi bir sonrakini index kaydirarak bozardi.
+// Framing artik uart_frame_parser.h'de saf/testli ve "break"siz; bu testler o
+// garantiyi dogrular.
 
-// Bir çerçeveyi (COBS + 0x00 terminatörü dahil) bayt bayt besler; tamamlanan
-// SON çerçeveyi çıkışlara yazar, kaç çerçeve tamamlandığını döner.
+// Bir cerceveyi (COBS + 0x00 terminatoru dahil) bayt bayt besler; tamamlanan son
+// cerceveyi cikislara yazar, kac cerceve tamamlandigini doner.
 static int _besle(uart_frame_parser_t* st, const uint8_t* cerceve, uint16_t n,
                   uint8_t* tip_out, uint8_t* id_out,
                   uint8_t* payload_kopya, uint16_t* plen_out) {
@@ -173,14 +170,14 @@ static int _besle(uart_frame_parser_t* st, const uint8_t* cerceve, uint16_t n,
     return tamamlanan;
 }
 
-// Bir çerçeve inşa et: COBS(tip+id+payload+crc16_be) + 0x00. cobs_len çıkışı
-// terminatör DAHİL toplam uzunluk.
+// Bir cerceve insa et: COBS(tip+id+payload+crc16_be) + 0x00. cobs_len cikisi
+// terminator dahil toplam uzunluk.
 static void _cerceve_yap(uint8_t tip, uint8_t id, const uint8_t* payload,
                          uint16_t plen, uint8_t* cikis, uint16_t* cikis_len) {
     uint8_t ham[64], cobs[80];
     uint16_t clen = cobs_cerceve_olustur(tip, id, payload, plen, ham, cobs);
     memcpy(cikis, cobs, clen);
-    *cikis_len = clen;   // cobs_cerceve_olustur zaten 0x00 terminatörünü ekliyor
+    *cikis_len = clen;   // cobs_cerceve_olustur zaten 0x00 terminatorunu ekliyor
 }
 
 void test_frame_parser_tek_cerceve_roundtrip(void) {
@@ -214,46 +211,45 @@ void test_frame_parser_arka_arkaya_iki_cerceve(void) {
     TEST_ASSERT_EQUAL_UINT8_ARRAY(pb, pk, 4);
 }
 
-// DESYNC REGRESYONU #1: bozuk-CRC bir çerçeve reddedilir, ARDINDAN gelen
-// geçerli çerçeve doğru parse edilmeli (idx doğru sıfırlandı).
+// Desync regresyonu 1: bozuk-CRC bir cerceve reddedilir, ardindan gelen gecerli
+// cerceve dogru parse edilmeli (idx dogru sifirlandi).
 void test_frame_parser_bozuk_cerceve_sonrasi_gecerli_parse_edilir(void) {
     uart_frame_parser_t st; uart_frame_parser_sifirla(&st);
     uint8_t pg[4] = {1,2,3,4};
     uint8_t cg[80]; uint16_t lg;
     _cerceve_yap(0x02, 1, pg, 4, cg, &lg);
 
-    // Bozuk çerçeve: geçerliyi al, CRC'yi boz (COBS içinde bir baytı değiştir),
+    // Bozuk cerceve: gecerliyi al, CRC'yi boz (COBS icinde bir bayti degistir),
     // yine 0x00 ile bitir.
     uint8_t bozuk[80]; uint16_t lb;
     _cerceve_yap(0x02, 1, pg, 4, bozuk, &lb);
-    bozuk[1] ^= 0xFF;   // ilk veri baytını boz -> CRC tutmaz
+    bozuk[1] ^= 0xFF;   // ilk veri baytini boz -> CRC tutmaz
 
     uint8_t tip, id, pk[32]; uint16_t plen;
-    // Bozuk çerçeve: 0 tamamlanmış çerçeve (CRC reddi)
+    // Bozuk cerceve: 0 tamamlanmis cerceve (CRC reddi)
     TEST_ASSERT_EQUAL_INT(0, _besle(&st, bozuk, lb, &tip, &id, pk, &plen));
-    // Ardından geçerli çerçeve: idx sıfırlandığı için doğru parse edilmeli
+    // Ardindan gecerli cerceve: idx sifirlandigi icin dogru parse edilmeli
     TEST_ASSERT_EQUAL_INT(1, _besle(&st, cg, lg, &tip, &id, pk, &plen));
     TEST_ASSERT_EQUAL_UINT8(0x02, tip);
     TEST_ASSERT_EQUAL_UINT8_ARRAY(pg, pk, 4);
 }
 
-// DESYNC REGRESYONU #2: gerçek bug senaryosunun birebir modeli. Consumer
-// (whitelist) bir çerçeveyi "istenmeyen tip" diye reddedip HİÇBİR ŞEY yapmasa
-// bile, bir sonraki geçerli çerçeve etkilenmemeli. Framing whitelist'ten
-// bağımsız olduğu için bu yapısal olarak garanti — test bunu belgeler.
+// Desync regresyonu 2: consumer (whitelist) bir cerceveyi "istenmeyen tip" diye
+// reddedip hicbir sey yapmasa bile, bir sonraki gecerli cerceve etkilenmemeli.
+// Framing whitelist'ten bagimsiz oldugu icin bu yapisal garanti; test belgeler.
 void test_frame_parser_istenmeyen_tip_sonraki_komutu_bozmaz(void) {
     uart_frame_parser_t st; uart_frame_parser_sifirla(&st);
-    // Whitelist-dışı bir tip taşıyan GEÇERLİ çerçeve (ör. TIP_VERSION=0x0B)
+    // Whitelist-disi bir tip tasiyan gecerli cerceve (or. TIP_VERSION=0x0B)
     uint8_t pv[4] = {0xAA,0xBB,0xCC,0xDD};
     uint8_t cv[80]; uint16_t lv;
     _cerceve_yap(0x0B /*TIP_VERSION*/, 1, pv, 4, cv, &lv);
-    // Ardından gerçek joystick komutu (TIP_KOMUT)
+    // Ardindan gercek joystick komutu (TIP_KOMUT)
     uint8_t pk_in[16]; for (int i = 0; i < 16; i++) pk_in[i] = (uint8_t)(0x10 + i);
     uint8_t ck[80]; uint16_t lk;
     _cerceve_yap(0x02 /*TIP_KOMUT*/, 1, pk_in, 16, ck, &lk);
 
     uint8_t tip, id, pk[32]; uint16_t plen;
-    // İstenmeyen tip: parser AÇISINDAN geçerli çerçeve (1 tamamlanır); consumer
+    // Istenmeyen tip: parser acisindan gecerli cerceve (1 tamamlanir); consumer
     // whitelist'te reddederdi ama bu parser durumunu etkilemez.
     TEST_ASSERT_EQUAL_INT(1, _besle(&st, cv, lv, &tip, &id, pk, &plen));
     TEST_ASSERT_EQUAL_UINT8(0x0B, tip);
@@ -264,11 +260,11 @@ void test_frame_parser_istenmeyen_tip_sonraki_komutu_bozmaz(void) {
     TEST_ASSERT_EQUAL_UINT8_ARRAY(pk_in, pk, 16);
 }
 
-// DESYNC REGRESYONU #3: 0x00 içermeyen taşma-boyu gürültü + terminatör,
-// ardından geçerli çerçeve resync olmalı.
+// Desync regresyonu 3: 0x00 icermeyen tasma-boyu gurultu + terminator, ardindan
+// gecerli cerceve resync olmali.
 void test_frame_parser_tasma_gurultu_sonrasi_resync(void) {
     uart_frame_parser_t st; uart_frame_parser_sifirla(&st);
-    // UART_FRAME_BUF_SIZE'dan fazla, 0x00 içermeyen gürültü
+    // UART_FRAME_BUF_SIZE'dan fazla, 0x00 icermeyen gurultu
     uint8_t gurultu[UART_FRAME_BUF_SIZE * 2];
     srand(31337);
     for (uint16_t i = 0; i < sizeof(gurultu); i++) {
@@ -276,9 +272,9 @@ void test_frame_parser_tasma_gurultu_sonrasi_resync(void) {
         gurultu[i] = b;
     }
     uint8_t tip, id, pk[32]; uint16_t plen;
-    _besle(&st, gurultu, sizeof(gurultu), &tip, &id, pk, &plen);  // çökmemeli
+    _besle(&st, gurultu, sizeof(gurultu), &tip, &id, pk, &plen);  // cokmemeli
     uint8_t term = 0x00;
-    _besle(&st, &term, 1, &tip, &id, pk, &plen);  // gürültü çerçevesini kapat/at
+    _besle(&st, &term, 1, &tip, &id, pk, &plen);  // gurultu cercevesini kapat/at
 
     uint8_t pg[4] = {5,6,7,8};
     uint8_t cg[80]; uint16_t lg;
@@ -288,8 +284,8 @@ void test_frame_parser_tasma_gurultu_sonrasi_resync(void) {
     TEST_ASSERT_EQUAL_UINT8_ARRAY(pg, pk, 4);
 }
 
-// Kısmi çerçeve loop()/paket sınırını geçebilmeli: aynı çerçeve iki ayrı
-// besleme çağrısına bölünse de doğru birleşmeli (static durum korunur).
+// Kismi cerceve loop()/paket sinirini gecebilmeli: ayni cerceve iki ayri besleme
+// cagrisina bolunse de dogru birlesmeli (static durum korunur).
 void test_frame_parser_bolunmus_cerceve_birlesir(void) {
     uart_frame_parser_t st; uart_frame_parser_sifirla(&st);
     uint8_t pg[16]; for (int i = 0; i < 16; i++) pg[i] = (uint8_t)(i * 3 + 1);
@@ -298,22 +294,21 @@ void test_frame_parser_bolunmus_cerceve_birlesir(void) {
 
     uint8_t tip, id, pk[32]; uint16_t plen;
     uint16_t yari = lg / 2;
-    // İlk yarı: henüz çerçeve tamamlanmamalı
+    // Ilk yari: henuz cerceve tamamlanmamali
     TEST_ASSERT_EQUAL_INT(0, _besle(&st, cg, yari, &tip, &id, pk, &plen));
-    // İkinci yarı (terminatör dahil): şimdi tamamlanmalı
+    // Ikinci yari (terminator dahil): simdi tamamlanmali
     TEST_ASSERT_EQUAL_INT(1, _besle(&st, cg + yari, lg - yari, &tip, &id, pk, &plen));
     TEST_ASSERT_EQUAL_UINT8(0x02, tip);
     TEST_ASSERT_EQUAL_UINT8(9, id);
     TEST_ASSERT_EQUAL_UINT8_ARRAY(pg, pk, 16);
 }
 
-// ===== F1: REBOOT-REPLAY KARAR KURALI =====
+// Reboot-replay karar kurali.
 // Tehdit: saldirgan RF'i yakalar, gonderici reboot edene kadar bekler, sonra
-// ESKI session'in (authenticated ama eski) paketlerini tekrar oynatir.
-// Eski kod "session_id farkli -> reboot varsay, pencereyi sifirla, KABUL"
-// diyordu; yani saldiri isliyordu. Yeni kural: session_id MONOTON, kucuk
-// olan reddedilir. Alici yarisi (kalici_session) olmadan kural kagit
-// uzerinde kalir — bu yuzden ayrica test ediliyor.
+// eski session'in (authenticated ama eski) paketlerini tekrar oynatir.
+// "session_id farkli -> reboot varsay, pencereyi sifirla, kabul" deseydik saldiri
+// islerdi. Kural: session_id monoton, kucuk olan reddedilir. Alici yarisi
+// (kalici_session) olmadan kural kagit uzerinde kalir, o yuzden ayrica test edilir.
 
 static replay_state_t _yeni_durum(void) {
     replay_state_t rs;
@@ -330,7 +325,7 @@ void test_replay_ilk_paket_kabul(void) {
     TEST_ASSERT_FALSE(rs.ilk_paket);
 }
 
-// ÇEKİRDEK REGRESYON: alici reboot etti (RAM durumu yok, ilk_paket=true) ama
+// Cekirdek regresyon: alici reboot etti (RAM durumu yok, ilk_paket=true) ama
 // NVS'te peer'in son session'i duruyor. Saldirgan eski session'i oynatiyor.
 void test_replay_alici_reboot_sonrasi_eski_session_reddedilir(void) {
     replay_state_t rs = _yeni_durum();
@@ -340,9 +335,9 @@ void test_replay_alici_reboot_sonrasi_eski_session_reddedilir(void) {
     TEST_ASSERT_TRUE(rs.ilk_paket);
 }
 
-// Ayni senaryo ama kalici kayit YOKSA (alici yarisi atlanmis olsaydi):
-// saldiri gecerdi. Bu test, alici-persist yarisinin neden sart oldugunu
-// belgeliyor — kalici=0 iken ayni eski paket KABUL ediliyor.
+// Ayni senaryo ama kalici kayit yoksa (alici yarisi atlanmis olsaydi) saldiri
+// gecerdi. Bu test alici-persist yarisinin neden sart oldugunu belgeliyor:
+// kalici=0 iken ayni eski paket kabul ediliyor.
 void test_replay_kalici_kayit_yoksa_eski_session_gecer(void) {
     replay_state_t rs = _yeni_durum();
     TEST_ASSERT_TRUE(replay_kabul_mu(replay_karar(&rs, 7, 500, /*kalici=*/0)));
@@ -407,14 +402,11 @@ void test_replay_buyuk_ilerleme_pencereyi_temizler(void) {
     TEST_ASSERT_EQUAL(REPLAY_KABUL, replay_karar(&rs, 3, 999, 3));
 }
 
-// ===== FRAGMANTASYON =====
-// NOT: bu testler MESH-seviyesi fragmantasyonu (esp_tx->esp_rx, RTK_MAX_FRAGS=8,
-// RTK_FRAG_PAYLOAD_MAKS=191 -> ust sinir 1528B) dogruluyor. Spec'in "721B
-// ustu dusur" kurali (Bolum 2.5) PI_BRIDGE'in MAVLink 180B/4-fragment
-// enjeksiyon katmanina ait, AYRI bir sinirdir — mesh fragmantasyonuyla
-// karistirilmamali (HABERLESME gorev talimatindaki "mevcut ust sinir
-// mantigiyla tutarli uygula" notu bu yuzden burada RTK_MAX_FRAGS'e gore
-// yorumlandi, sabit 720B'e gore degil).
+// Fragmantasyon.
+// Bu testler mesh-seviyesi fragmantasyonu (RTK_MAX_FRAGS=8,
+// RTK_FRAG_PAYLOAD_MAKS=191 -> ust sinir 1528B) dogruluyor. Spec'in "721B ustu
+// dusur" kurali (Bolum 2.5) pi_bridge'in MAVLink enjeksiyon katmanina ait ayri
+// bir sinirdir, mesh fragmantasyonuyla karistirilmamali.
 void _frag_test_yardimci(uint16_t uzunluk, uint8_t beklenen_frag_sayisi) {
     uint8_t frag_uzunluklari[RTK_MAX_FRAGS];
     uint8_t toplam = rtk_fragman_hesapla(uzunluk, frag_uzunluklari);
@@ -437,7 +429,7 @@ void test_fragmantasyon_720B(void) { _frag_test_yardimci(720, 4); }
 void test_fragmantasyon_721B(void) { _frag_test_yardimci(721, 4); }
 
 void test_fragmantasyon_ust_sinir_kabul(void) {
-    // RTK_MAX_FRAGS * RTK_FRAG_PAYLOAD_MAKS = 8*191 = 1528B — tam sinirda kabul edilmeli
+    // RTK_MAX_FRAGS * RTK_FRAG_PAYLOAD_MAKS = 8*191 = 1528B, tam sinirda kabul edilmeli
     _frag_test_yardimci(RTK_MAX_FRAGS * RTK_FRAG_PAYLOAD_MAKS, RTK_MAX_FRAGS);
 }
 
@@ -453,7 +445,7 @@ void test_fragmantasyon_bos_girdi(void) {
     TEST_ASSERT_EQUAL_UINT8(0, rtk_fragman_hesapla(0, frag_uzunluklari));
 }
 
-// ===== REASSEMBLY DURUM MAKINESI =====
+// Reassembly durum makinesi.
 void test_reassembly_eksik_fragment_timeout(void) {
     rtk_asm_durum_t a; rtk_asm_sifirla(&a);
     uint8_t payload[10] = {1,2,3,4,5,6,7,8,9,10};
@@ -504,23 +496,20 @@ void test_reassembly_sira_disi_gelis_dogru_birlesir(void) {
     rtk_asm_durum_t a; rtk_asm_sifirla(&a);
     uint16_t toplam;
 
-    // URETIM SEKILLI veri: gonderici son HARICI hep TAM parca uretir
-    // (rtk_fragman_hesapla), yani 248B -> 191 + 57. Bu test eskiden 5+5B
-    // parcalarla yaziliydi; o sekil telde ASLA olusmaz ve testi sessizce
-    // anlamsizlastiriyordu: toplam=10 iddia edilirken ikinci parca offset
-    // 191'de oksuz kaliyordu, yani Pi'ye giden "birlesmis" mesaj p0 + 5 sifir
-    // -- BOZUK. Test bunu goremiyordu cunku TESLIM EDILEN byte'lara hic
-    // bakmiyor, sadece buffer yerlesimini kontrol ediyordu.
+    // Uretim sekilli veri: gonderici son parca haric hep tam parca uretir
+    // (rtk_fragman_hesapla), yani 248B -> 191 + 57. 5+5B parcalarla yazilan
+    // eski sekil telde asla olusmuyor ve testi anlamsizlastiriyordu; bu test
+    // teslim edilen byte'lara da bakiyor.
     const uint16_t MESAJ_UZUNLUK = 248;
     uint8_t mesaj[MESAJ_UZUNLUK];
     for (uint16_t i = 0; i < MESAJ_UZUNLUK; i++) mesaj[i] = (uint8_t)(i * 7 + 1);
 
     uint8_t lens[RTK_MAX_FRAGS];
     TEST_ASSERT_EQUAL_UINT8(2, rtk_fragman_hesapla(MESAJ_UZUNLUK, lens));
-    TEST_ASSERT_EQUAL_UINT8(RTK_FRAG_PAYLOAD_MAKS, lens[0]);  // ara parca TAM
+    TEST_ASSERT_EQUAL_UINT8(RTK_FRAG_PAYLOAD_MAKS, lens[0]);  // ara parca tam
     TEST_ASSERT_EQUAL_UINT8(57, lens[1]);                     // son parca kisa
 
-    // Once frag 1, SONRA frag 0 gelir
+    // Once frag 1, sonra frag 0 gelir
     rtk_asm_sonuc_t s1 = rtk_asm_fragment_isle(&a, 1, 1, 2, lens[1],
                              mesaj + RTK_FRAG_PAYLOAD_MAKS, 1000, &toplam);
     TEST_ASSERT_EQUAL(RTK_ASM_DEVAM, s1);
@@ -529,9 +518,8 @@ void test_reassembly_sira_disi_gelis_dogru_birlesir(void) {
     TEST_ASSERT_EQUAL(RTK_ASM_TAMAMLANDI, s2);
     TEST_ASSERT_EQUAL_UINT16(MESAJ_UZUNLUK, toplam);
 
-    // ASIL IDDIA: _rtk_uart_gonder(buf, toplam) ile Pi'ye TESLIM EDILEN dilim
-    // orijinal mesajin AYNISI olmali -- varis sirasindan bagimsiz. Yerlesimi
-    // kontrol etmek yetmez; teslim edilen sey dogru olmali.
+    // Asil iddia: Pi'ye teslim edilen dilim, varis sirasindan bagimsiz olarak
+    // orijinal mesajin aynisi olmali. Yerlesimi kontrol etmek yetmez.
     TEST_ASSERT_EQUAL_UINT8_ARRAY(mesaj, a.buf, toplam);
 }
 
@@ -551,21 +539,18 @@ void test_reassembly_gecersiz_fragment_reddedilir(void) {
         rtk_asm_fragment_isle(&a, 1, 0, 1, RTK_FRAG_PAYLOAD_MAKS + 1, payload, 1000, &toplam));
 }
 
-// ===== RTK ∩ F1 KESISIMI (FAZ 2 madde 3) =====
-// F1 denetiminde bu kesisim "analizle guvenli, testle degil" diye isaretlendi;
+// RTK ile reboot-replay kesisimi.
+// Bu kesisim daha once "analizle guvenli, testle degil" diye isaretlenmisti;
 // burasi o cumleyi kanita ceviriyor.
 //
-// GERCEK MIMARI (modellenen):
-//   - RTK zarfi da genel mesh de AYNI anti_replay'i tasiyor ve gonderici
-//     tarafta AYNI _paket_sayaci'ndan besleniyor (rtk_handler.h::
-//     rtk_mesh_gonder -> anti_replay_t{_session_id, ++_paket_sayaci};
-//     mesh_config.h::mesh_gonder -> ayni sayac). Yani tek artan dizi.
-//   - ISR (mesh_config.h::_esp_now_recv_cb) offset 17'deki tip'e bakip
-//     TIP_RTK'yi AYRI bir ring buffer'a (_rtk_recv_buffer, 8) yaziyor;
-//     digerleri _recv_buffer'a (16). Ikisini FARKLI donguler bosaltiyor
-//     (rtk_mesh_loop vs mesh_loop) -> iki kaynak arasinda SIRA KORUNMUYOR.
-//   - Alici tarafta ikisi de AYNI node->replay penceresini kullaniyor
-//     (_replay_kontrol). Yani sirasizlik dogrudan replay penceresine vuruyor.
+// Modellenen mimari:
+//   - RTK zarfi da genel mesh de ayni anti_replay'i tasiyor ve gonderici tarafta
+//     ayni _paket_sayaci'ndan besleniyor (tek artan dizi).
+//   - ISR offset 17'deki tip'e bakip TIP_RTK'yi ayri bir ring buffer'a
+//     (_rtk_recv_buffer, 8) yaziyor, digerleri _recv_buffer'a (16). Ikisini
+//     farkli donguler bosaltiyor, iki kaynak arasinda sira korunmuyor.
+//   - Alici tarafta ikisi de ayni node->replay penceresini kullaniyor, yani
+//     sirasizlik dogrudan replay penceresine vuruyor.
 //
 // Azami kayma buffer derinlikleriyle sinirli: 8 + 16 = 24 << PENCERE_BOYU(64).
 // Testler bu siniri ve session degisimi anini zorluyor.
@@ -604,7 +589,7 @@ void test_rtk_f1_azami_kayma_penceresi_asmiyor(void) {
     // Simdi geride kalan 24 paket (genel buffer) sirasiz geliyor: 2..24
     for (uint32_t p = 2; p <= 24; p++)
         TEST_ASSERT_TRUE_MESSAGE(_kabul(&rs, 1, p), "Kayma<=24 pencerede kabul edilmeliydi");
-    // Sinirin otesi (65 geride) reddedilmeli — pencere hala calisiyor.
+    // Sinirin otesi (65 geride) reddedilmeli, pencere hala calisiyor.
     TEST_ASSERT_TRUE(_kabul(&rs, 1, 200));
     TEST_ASSERT_FALSE_MESSAGE(_kabul(&rs, 1, 200 - PENCERE_BOYU),
                               "Pencere disi paket kabul edildi");
@@ -626,9 +611,9 @@ void test_rtk_f1_session_degisimi_aninda_eski_session_paketleri_reddedilir(void)
     TEST_ASSERT_TRUE(_kabul(&rs, 2, 2));
     TEST_ASSERT_TRUE(_kabul(&rs, 2, 3));
 
-    // KRITIK: buffer'da kalmis ESKI session (1) paketleri — paket_id'leri
-    // BUYUK olsa bile reddedilmeli. Eski kural bunlari "farkli session"
-    // sayip KABUL ederdi (tam da F1'in kapattigi acik).
+    // Kritik: buffer'da kalmis eski session (1) paketleri, paket_id'leri buyuk
+    // olsa bile reddedilmeli. "farkli session -> kabul" deseydik bu paketler
+    // gecerdi (tam da kapatilan acik).
     TEST_ASSERT_FALSE_MESSAGE(_kabul(&rs, 1, 502),
                               "Eski session paketi kabul edildi - F1 kurali kesisimde calismiyor");
     TEST_ASSERT_FALSE_MESSAGE(_kabul(&rs, 1, 9999),
@@ -710,7 +695,7 @@ int main(int argc, char** argv) {
     RUN_TEST(test_reassembly_duplicate_fragment_atlanir);
     RUN_TEST(test_reassembly_sira_disi_gelis_dogru_birlesir);
     RUN_TEST(test_reassembly_gecersiz_fragment_reddedilir);
-    // RTK ∩ F1 kesisimi (FAZ 2 madde 3)
+    // RTK ile reboot-replay kesisimi
     RUN_TEST(test_rtk_f1_iki_kaynak_sirasiz_hepsi_kabul);
     RUN_TEST(test_rtk_f1_azami_kayma_penceresi_asmiyor);
     RUN_TEST(test_rtk_f1_session_degisimi_aninda_eski_session_paketleri_reddedilir);

@@ -1,25 +1,24 @@
 #pragma once
-// ===== ANTI-REPLAY — ARDUINO'DAN BAGIMSIZ SAF KARAR MANTIGI (F1) =====
-// rtk_pure.h ile ayni felsefe: guvenlik kritik KARAR burada, tek yerde,
-// Arduino/NVS/Serial'den bagimsiz yasar ve native'de (ASan/UBSan ile) test
-// edilir. mesh_config.h yalnizca ince bir kabuk: loglar ve NVS'e yazar.
+// Anti-replay saf karar mantigi (Arduino'dan bagimsiz).
+// rtk_pure.h ile ayni felsefe: guvenlik kritik karar burada, tek yerde, native'de
+// test edilir. mesh_config.h yalnizca ince kabuk: loglar ve NVS'e yazar.
 //
-// F1 KURALI (session_id artik gonderici basina MONOTON — bkz mesh_config.h::
+// Kural (session_id gonderici basina monoton, bkz mesh_config.h::
 // _session_id_uret(), NVS boot sayaci):
-//   gelen_session  <  bilinen  -> RED (eski session = reboot-replay saldirisi)
+//   gelen_session  <  bilinen  -> red (eski session = reboot-replay saldirisi)
 //   gelen_session  == bilinen  -> normal sliding-window mantigi
 //   gelen_session  >  bilinen  -> gonderici reboot etti, kabul + pencere sifirla
 //
-// "bilinen": once RAM (replay_state_t), RAM yoksa (ilk paket) NVS'teki
-// kalici peer kaydi. Alici yarisinin persist edilmesi SART — aksi halde
-// saldiri "aliciyi reboot ettir, eski session'i oynat"a kayar.
+// "bilinen": once RAM (replay_state_t), RAM yoksa (ilk paket) NVS'teki kalici
+// peer kaydi. Alici yarisinin persist edilmesi sart, aksi halde saldiri
+// "aliciyi reboot ettir, eski session'i oynat"a kayar.
 
 #include <stdint.h>
 #include <string.h>
 
 #define PENCERE_BOYU 64
 
-// Sifreli payload'in ilk 6 byte'i — tel formati, DEGISTIRME (zarf butcesi
+// Sifreli payload'in ilk 6 byte'i: tel formati, degistirme (zarf butcesi
 // mesh_paket_t.sifreli_veri[24] = anti_replay(6) + payload(18)).
 struct
 #if defined(__GNUC__)
@@ -27,7 +26,7 @@ __attribute__((packed))
 #endif
 anti_replay_t {
     uint16_t session_id; // gonderici basina monoton (NVS boot sayaci)
-    uint32_t paket_id;   // sifrelenmis payload icinde — baslik manipulasyonu engellenir
+    uint32_t paket_id;   // sifreli payload icinde: baslik manipulasyonu engellenir
 };
 
 struct replay_state_t {
@@ -74,7 +73,7 @@ static inline replay_sonuc_t replay_karar(replay_state_t* rs,
         return REPLAY_KABUL_YENI_SESSION;
     }
 
-    // Ayni session — klasik sliding window
+    // Ayni session: klasik sliding window
     if (paket_id > rs->en_yuksek_id) {
         uint32_t ilerleme   = paket_id - rs->en_yuksek_id;
         rs->pencere_bitmask = (ilerleme >= PENCERE_BOYU)
