@@ -96,7 +96,7 @@ static void _drone_tablo_dogrula() {
         }
     }
     if (hata) {
-        // ID cakismasi iki drone'un telemetrisinin Pi'ye ayni iha_id ile
+        // ID cakismasi iki drone'un telemetrisinin YKİ'ye ayni iha_id ile
         // karismasi demek (yer istasyonu yanlis drone'u gosterir). aes_init()
         // 'teki provision-yok durumuyla ayni fail-closed desen: duzeltilmeden
         // calismaya devam etmez.
@@ -198,14 +198,15 @@ void setup() {
     // GPIO2 yerlesik LED'e bagli).
     pinMode(RTK_LED_PIN, OUTPUT);
 
-    // Pi ile COBS binary protokolu USB Serial yerine Serial2'de, boylece debug
-    // printf'leriyle carpismaz.
-    // Dikkat: asagidaki pin numaralari placeholder'dir, Pi UART kablolamasina
+    // YKİ komut/telemetri COBS binary protokolu USB Serial yerine Serial2'de,
+    // boylece debug printf'leriyle carpismaz. (Yerde RPi YOK: Serial2'nin karsisi
+    // YKİ laptobudur, "Pi" degil. Isim drone tarafindan miras kalmisti.)
+    // Dikkat: asagidaki pin numaralari placeholder'dir, YKİ UART kablolamasina
     // gore dogrulayin.
-    #define PI_RX_PIN 25    // TODO: gercek Pi TX -> ESP32 RX pinini dogrula
-    #define PI_TX_PIN 26    // TODO: gercek Pi RX -> ESP32 TX pinini dogrula
-    Serial2.begin(115200, SERIAL_8N1, PI_RX_PIN, PI_TX_PIN);
-    Serial.println("[UART] Pi protokolu (Serial2) baslatildi - PIN DOGRULAMASI GEREKLI");
+    #define YKI_RX_PIN 25    // TODO: gercek YKİ TX -> ESP32 RX pinini dogrula
+    #define YKI_TX_PIN 26    // TODO: gercek YKİ RX -> ESP32 TX pinini dogrula
+    Serial2.begin(115200, SERIAL_8N1, YKI_RX_PIN, YKI_TX_PIN);
+    Serial.println("[UART] YKİ komut/telemetri (Serial2, 115200) baslatildi - PIN DOGRULAMASI GEREKLI");
 
 
     uart_kuyruk = xQueueCreate(20, sizeof(uart_mesaj_t));
@@ -245,9 +246,9 @@ void loop() {
     // olmadan bu 8 girislik ring buffer'i tikayabilir. rtk_mesh_loop() zaten
     // rtk_loop()'u kendi icinde cagirir.
     //
-    // Serial2 acikca verilir: RX BASE'te Serial1 YKİ/RTCM giris hattidir, Pi
-    // protokolu Serial2'de yurur. Varsayilan (Serial1) birakilirsa reassemble
-    // edilen RTCM mesaji YKİ'nin yayin yaptigi hatta geri yazilirdi.
+    // Serial2 acikca verilir: RX BASE'te Serial1 YKİ/RTCM giris hattidir, YKİ
+    // komut/telemetri protokolu Serial2'de yurur. Varsayilan (Serial1) birakilirsa
+    // reassemble edilen RTCM mesaji YKİ'nin yayin yaptigi hatta geri yazilirdi.
     rtk_mesh_loop(Serial2);
     rtk_serial_isle(Serial1);
     esp_task_wdt_reset();
@@ -265,9 +266,9 @@ void loop() {
     }
 
 
-    // RX BASE'in Pi hatti Serial2'dir (Serial1 RTCM'e ayrildi), o yuzden acikca
+    // RX BASE'in YKİ hatti Serial2'dir (Serial1 RTCM'e ayrildi), o yuzden acikca
     // Serial2 verilir; aksi halde bildirim varsayilan Serial1'e (RTCM giris
-    // hattina) gider ve Pi'ye hic ulasmaz. Kademeli (UYARI/RTL/LAND) bildirim
+    // hattina) gider ve YKİ'ye hic ulasmaz. Kademeli (UYARI/RTL/LAND) bildirim
     // TX DRONE ile ayni formatta calisir.
     failsafe_kontrol(Serial2);
 
@@ -294,7 +295,7 @@ void loop() {
     // dali ayristirici durumunu (idx) etkilemez.
     static uart_frame_parser_t pi_parser;
     uint8_t okunan = 0;
-    while (Serial2.available() && okunan < 32) {  // Pi hatti Serial2'de
+    while (Serial2.available() && okunan < 32) {  // YKİ hatti Serial2'de
         uint8_t b = Serial2.read();
         okunan++;
         uint8_t tip_byte, id_byte_unused;
