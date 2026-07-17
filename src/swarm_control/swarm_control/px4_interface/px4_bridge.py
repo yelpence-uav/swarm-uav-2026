@@ -3,7 +3,7 @@ px4_bridge.py
 
 PX4 ↔ FSM köprüsü — ana ROS2 node.
 
-İŞLEYİŞ (PX4 arayüzü: MAVROS; uXRCE-DDS yolu 2026-07-17'de söküldü):
+İŞLEYİŞ:
 1. MAVROS topic'lerini dinler (/{drone_ns}/mavros/...)
    → mavros_telemetry_mapper ile (ENU→NED) AgentStatus'a çevirir
    → /swarm/agent/drone{id}/telemetry'ye yayınlar (FSM okuyacak)
@@ -158,11 +158,6 @@ class Px4BridgeNode(Node):
         # SwarmOrigin — uygulanmış sequence takibi (tekrar göndermemek için)
         self._applied_origin_seq: int = -1
 
-        # NOT: Eski DDS yolundaki "sahte RC publisher" (fmu/in/manual_
-        # control_input) sokuldu: MAVROS'ta karsiligi yok ve SITL ucus
-        # kanitlari onsuz alindi (RC failsafe launch parametreleriyle
-        # devre disi: COM_RCL_EXCEPT/NAV_RCL_ACT).
-
         # PX4'e komut gönderen yardımcı — MAVROS servis/topic'lerine yazar.
         self._cmd_sender = MavrosCommandSender(
             self,
@@ -232,9 +227,7 @@ class Px4BridgeNode(Node):
     # =================================================================
     def _setup_rtk(self) -> None:
         """RTCM aboneliği + MAVROS send_rtcm publisher + tanı timer kurar."""
-        # RTK parametresi — sahada yeniden derlemeden ayarlanabilsin diye
-        # declare_parameter ile dışa açık. (GpsInjectData fragman ayarları
-        # DDS yoluyla birlikte söküldü; parçalamayı artık MAVROS yapar.)
+        # Sahada yeniden derlemeden ayarlanabilsin diye parametre.
         self.declare_parameter('rtk_makul_payload', _RTK_MAKUL_PAYLOAD)
         self._rtk_makul_payload = int(
             self.get_parameter('rtk_makul_payload').value
@@ -335,17 +328,13 @@ class Px4BridgeNode(Node):
 
         Topic'ler mavros_node namespace'i altinda: /drone_{id}/mavros/...
         Durum/olay topic'leri reliable; sensor-tipi topic'ler best_effort.
-        NOT: Kesin QoS profilleri sim'de 'ros2 topic info --verbose' ile
-        dogrulanmalidir.
         """
         ns = self._fmu_ns
         # Durum/olay topic'leri — reliable (varsayilan depth=10)
         self.create_subscription(
             State, f'{ns}/mavros/state', self._on_mav_state, 10
         )
-        # battery: mavros sys plugin'i BEST_EFFORT yayinlar (sim'de 'topic
-        # info -v' ile dogrulandi, 2026-07-16). Reliable abonelik QoS
-        # uyusmazligindan HIC veri almiyordu (batarya 0.0 gorunuyordu).
+        # battery BEST_EFFORT yayinlanir; reliable abonelik veri alamaz.
         self.create_subscription(
             BatteryState, f'{ns}/mavros/battery',
             self._on_mav_battery, qos_profile_sensor_data
@@ -600,12 +589,9 @@ class Px4BridgeNode(Node):
                     self.get_logger().warning(
                         f'Geçersiz takeoff irtifası: {cmd}'
                     )
-            # NED: yukarı = negatif Z. Hedef, MEVCUT konuma görelidir:
-            # origin SET_GPS_GLOBAL_ORIGIN ile dünya orijinine senkron
-            # olduğunda yer seviyesi z=0 DEĞİLDİR (örn. z=-37). Mutlak
-            # -altitude vermek "aşağı in" komutuna dönüşür (SITL'de
-            # yakalandı: drone arm oldu, kalkmadı). Bu yüzden mevcut
-            # z'den altitude kadar TIRMAN.
+            # Hedef mevcut konuma göreli: origin dünya orijinine
+            # senkronken yer z=0 değildir; mutlak -altitude vermek
+            # alçalma komutuna dönüşür.
             self._target_altitude_ned = self._cached_pos_z - altitude
             # Yatay çapayı şimdi dondur — tırmanış boyunca sabit kalsın.
             self._takeoff_anchor_x = self._cached_pos_x

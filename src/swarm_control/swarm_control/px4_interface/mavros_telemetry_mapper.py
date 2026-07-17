@@ -1,23 +1,16 @@
 """
 mavros_telemetry_mapper.py
 
-MAVROS mesajlarını AgentStatus formatına çevirir (telemetry_mapper.py'nin
-MAVROS karşılığı). "Çevirmen 2": MAVROS'un yayınladığı ROS-standart
-mesajları alıp bizim iç defterimize (AgentStatus) yazar.
+MAVROS mesajlarını AgentStatus'a çeviren saf fonksiyonlar (ROS2 node'u
+değil; her fonksiyon AgentStatus'u yerinde günceller).
 
-Bu modül SAF — ROS2 node'u değil, sadece veri dönüştürme fonksiyonları
-(test edilmesi kolay). Her fonksiyon AgentStatus'u yerinde (in-place)
-günceller.
-
-!!! NED <-> ENU !!!  MAVROS ENU (Doğu-Kuzey-Yukarı) yayınlar; AgentStatus
-NED (Kuzey-Doğu-Aşağı) saklar. _enu_to_ned ile TEK NOKTADA çevrilir. Bu
-dönüşüm SITL'de doğrulanmadan gerçek donanımda kullanılamaz.
+MAVROS ENU yayınlar, AgentStatus NED saklar; dönüşüm _enu_to_ned ile
+tek noktada yapılır.
 """
 
 import math
 
 # PX4 uçuş modu metni (State.mode) -> AgentStatus flight_mode kodu.
-# Enum->string zorluğu: eski sayısal tablo, metin anahtarlı hale getirildi.
 MODE_STR_TO_FLIGHT_MODE: dict[str, int] = {
     'MANUAL': 1,
     'ALTCTL': 2,

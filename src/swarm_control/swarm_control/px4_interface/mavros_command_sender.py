@@ -1,25 +1,16 @@
 """
 mavros_command_sender.py
 
-FSM kararlarini MAVROS (MAVLink) uzerinden PX4'e ileten komut gondericisi.
+FSM kararlarini MAVROS uzerinden PX4'e ileten komut gondericisi.
 
-command_sender.py'nin (uXRCE-DDS) MAVROS karsiligidir ve AYNI genel
-arayuzu sunar; boylece px4_bridge tek bir parametreyle ikisi arasinda
-gecebilir (strangler-fig gecis deseni). Eski sinif silinmez; MAVROS
-yolu SITL'de kanitlanana kadar yan yana yasar.
-
-Yayinlanan MAVROS arayuzleri:
+Kullanilan MAVROS arayuzleri:
 - {ns}/mavros/cmd/arming            (servis) -> arm/disarm
 - {ns}/mavros/set_mode              (servis) -> OFFBOARD/AUTO.LAND/RTL
 - {ns}/mavros/setpoint_raw/local    (topic)  -> pozisyon/hiz + yaw
 - {ns}/mavros/global_position/set_gp_origin (topic) -> ortak NED origin
 
-!!! UCUS-KRITIK UYARI (NED <-> ENU) !!!
-Tum ic hesap NED'dir (PX4: Kuzey-Dogu-Asagi, z asagi pozitif). MAVROS
-ROS tarafinda ENU (Dogu-Kuzey-Yukari) bekler. Bu yuzden setpoint'ler
-_ned_to_enu / _yaw_ned_to_enu ile TEK NOKTADA cevrilir. Bu donusumun
-yonu SITL'de UCARAK dogrulanmadan gercek donanimda KULLANILAMAZ; bir
-isaret/eksen hatasi dronu ters ucurur.
+Ic hesap NED'dir; MAVROS ROS tarafinda ENU bekler. Setpoint'ler
+_ned_to_enu / _yaw_ned_to_enu ile tek noktada cevrilir.
 """
 
 import math

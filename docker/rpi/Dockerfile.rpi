@@ -15,9 +15,6 @@ RUN apt-get update && apt-get install -y \
   git \
   && rm -rf /var/lib/apt/lists/*
 
-# NOT: Micro-XRCE-DDS-Agent derlemesi kaldirildi (DDS yolu sokuldu,
-# 2026-07-17). PX4 arayuzu artik MAVROS (runtime asamasinda apt'ten).
-
 # Yelpençe Workspace Derlemesi (Buraya kendi kodlarınızı kopyalayın)
 RUN mkdir -p /ros2_ws/src
 WORKDIR /home/yelpence/ros2_ws
@@ -67,7 +64,6 @@ RUN groupadd --gid $USER_GID $USERNAME \
   && chmod 0440 /etc/sudoers.d/$USERNAME
 
 # Builder aşamasından derlenmiş workspace'i transfer et
-# (XRCE Agent transferi kaldirildi — DDS yolu sokuldu, MAVROS apt'ten geliyor)
 RUN mkdir -p /home/yelpence/ros2_ws
 COPY --from=builder --chown=$USERNAME:$USERNAME /home/yelpence/ros2_ws/install /home/yelpence/ros2_ws/install
 

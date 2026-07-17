@@ -20,8 +20,7 @@ DEFAULT_WORLD = os.path.join(WORKSPACE, "sim/worlds/task1_dynamic_swarm.sdf")
 
 TMP_WORLD = os.path.join(tempfile.gettempdir(), "swarm_tmp_world.sdf")
 DRONE_COUNT = 3
-# PX4 arayüzü: MAVROS (uXRCE-DDS yolu SITL ucus kanitindan sonra
-# kaptan onayiyla SOKULDU, 2026-07-17; strangler-fig 3. adim tamam).
+# PX4 arayüzü: MAVROS.
 TMUX_SESSION = "yelpence_swarm"
 
 

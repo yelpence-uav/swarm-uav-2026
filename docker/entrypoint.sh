@@ -12,9 +12,8 @@ sudo chown -R yelpence:yelpence \
   /home/yelpence/ros2_ws/install \
   /home/yelpence/ros2_ws/src/PX4-Autopilot/build \
   /home/yelpence/ros2_ws/src/px4_autopilot/build 2>/dev/null || true
-# NOT: kucuk harfli px4_autopilot AKTIF klasordur (launch bunu kullanir).
-# Eskiden yalniz buyuk harfli chown'laniyordu -> anonim volume root kaliyor,
-# 'make px4_sitl' Permission denied veriyordu (2026-07-16'da yakalandi).
+# kucuk harfli px4_autopilot aktif klasordur; chown edilmezse anonim
+# volume root kalir ve make Permission denied verir.
 
 # Parmak izlerinin saklanacağı gizli klasör
 HASH_DIR="/home/yelpence/.config/yelpence_hashes"

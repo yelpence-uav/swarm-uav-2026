@@ -3,7 +3,6 @@
 MAVROS'un /mavros/manual_control/control mesajını okur, normalize
 ederek SwarmControlCommand mesajına dönüştürür ve
 /swarm/internal/control/command'a yayınlar.
-(uXRCE-DDS yolu SITL kanıtı sonrası söküldü, 2026-07-17.)
 
 Contract (§4.2):
   joystick_interpreter_node.py → /swarm/internal/control/command
