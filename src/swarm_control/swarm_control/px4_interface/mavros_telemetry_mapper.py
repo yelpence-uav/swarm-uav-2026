@@ -189,7 +189,11 @@ def map_global_position(msg, status) -> None:
 
 
 def map_gps_raw(msg, status) -> None:
-    """mavros_msgs/GPSRAW -> gps_fix_type, gps_satellites.
+    """mavros_msgs/GPSRAW -> gps_fix_type, gps_satellites, gps_hdop.
+
+    eph, HDOP*100 taşır (MAVLink GPS_RAW_INT); bilinmiyorsa UINT16_MAX.
+    Bilinmiyorsa gps_hdop temkinli olarak yüksek (kötü) bırakılır ki
+    ön-uçuş GPS kontrolü açık kalsın.
 
     Args:
         msg: mavros_msgs/GPSRAW.
@@ -197,6 +201,8 @@ def map_gps_raw(msg, status) -> None:
     """
     status.gps_fix_type = int(msg.fix_type)
     status.gps_satellites = int(msg.satellites_visible)
+    eph = int(msg.eph)
+    status.gps_hdop = 99.9 if eph == 65535 else eph / 100.0
 
 
 def map_home(msg, status) -> None:

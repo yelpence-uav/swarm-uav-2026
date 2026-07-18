@@ -9,6 +9,7 @@ from swarm_control.px4_interface.mavros_telemetry_mapper import (
     _quat_to_roll_pitch_deg,
     map_battery,
     map_estimator_status,
+    map_gps_raw,
     map_odometry,
     map_rc_in,
     map_state,
@@ -27,7 +28,31 @@ def _status():
         imu_healthy=False, estimator_ok=False, mag_healthy=False,
         baro_healthy=False, heading_deg=0.0, roll_deg=0.0, pitch_deg=0.0,
         rc_link_ok=False,
+        gps_fix_type=0, gps_satellites=0, gps_hdop=0.0,
     )
+
+
+class TestGpsRaw(unittest.TestCase):
+
+    def test_hdop_scaled_from_eph(self):
+        # eph = HDOP*100 -> hdop = 1.20
+        st = _status()
+        map_gps_raw(
+            SimpleNamespace(fix_type=3, satellites_visible=10, eph=120),
+            st,
+        )
+        self.assertAlmostEqual(st.gps_hdop, 1.2)
+        self.assertEqual(st.gps_fix_type, 3)
+        self.assertEqual(st.gps_satellites, 10)
+
+    def test_hdop_unknown_is_conservative(self):
+        # eph=UINT16_MAX (bilinmiyor) -> yuksek/kotu hdop (kapi acik kalir)
+        st = _status()
+        map_gps_raw(
+            SimpleNamespace(fix_type=0, satellites_visible=0, eph=65535),
+            st,
+        )
+        self.assertGreaterEqual(st.gps_hdop, 1.5)
 
 
 class TestEnuToNed(unittest.TestCase):
