@@ -86,22 +86,6 @@ RUN sed -i 's/#PermitRootLogin prohibit-password/PermitRootLogin yes/' /etc/ssh/
 EXPOSE 22
 # --------------------------------------
 
-# Micro Xrce-DDS Agent Uyumluluk--------
-COPY src/Micro-XRCE-DDS-Agent /tmp/Micro-XRCE-DDS-Agent
-RUN cd /tmp/Micro-XRCE-DDS-Agent \
-    && mkdir build && cd build \
-    && cmake -DCMAKE_BUILD_TYPE=Release \
-    -DUAGENT_FASTMETRICS=OFF \
-    -DUAGENT_BUILD_EXECUTABLE=ON .. \
-    && make -j$(nproc) \
-    && make install \
-    && ldconfig /usr/local/lib/ \
-    && cd / \
-    && rm -rf /tmp/Micro-XRCE-DDS-Agent \
-    && apt-get purge -y --auto-remove \
-    && rm -rf /var/lib/apt/lists/*
-# --------------------------------------
-
 # Başlangıç Betiği----------------------
 COPY --chown=$USERNAME:$USERNAME docker/entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh
