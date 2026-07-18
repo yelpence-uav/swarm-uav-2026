@@ -49,7 +49,7 @@ jobs:
         run: |
           source /opt/ros/jazzy/setup.bash
           [ -f install/setup.bash ] && source install/setup.bash
-          colcon test --executor sequential --parallel-workers 1 --event-handlers console_direct+ --packages-skip px4_msgs
+          colcon test --executor sequential --parallel-workers 1 --event-handlers console_direct+
 
       - name: Check Test Results
         run: |

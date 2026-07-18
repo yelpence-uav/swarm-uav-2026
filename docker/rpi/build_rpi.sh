@@ -22,7 +22,7 @@ echo " Alt modüller (submodules) ayarlanıyor..."
 # DİKKAT: px4_autopilot modülünün çekilmesini/güncellenmesini tamamen engelle
 git config submodule."src/px4_autopilot".update none
 
-# Kalan tüm alt modülleri (Micro-XRCE-DDS-Agent vb.) minimal derinlikte çek
+# Kalan alt modülleri minimal derinlikte çek
 git submodule update --init --recursive --depth 1
 
 echo " Kod tabanı en hafif haliyle hazırlandı."
