@@ -81,9 +81,29 @@ static_assert(BAZ_MESH_ID != BAZ_ID,
 #define RENK_KIRMIZI      0x01
 #define RENK_MAVI         0x02
 
-#define DURUM_AKTIF       0x01
-#define DURUM_AYRILDI     0x02
-#define DURUM_INDI        0x03
+// durum_veri_t.durum kodlari (14 degerli enum).
+// KAYNAK-DOGRU: pi_bridge esp32_bridge_node.py::_DURUM_STATE_MAP / _STATE_DURUM_MAP
+// ve swarm_interfaces AgentStatus.STATE_*. Su an DURUM'u pi_bridge uretip
+// pi_bridge tuketiyor (firmware opak tasir, HAS_PIXHAWK=0). HAS_PIXHAWK=1 olup
+// durum_veri_t'yi firmware DOLDURMAYA baslarsa BU degerler kullanilmali; aksi
+// halde bridge yanlis esler (or. eski DURUM_AYRILDI=2 -> bridge'te "KALKIS").
+// Eski 3-degerli DURUM_AKTIF/AYRILDI/INDI (1/2/3) kaldirildi: hic kullanilmiyordu
+// ve bridge'in 14-degerli semasiyla celisiyordu. Degistirmeden once swarm_interfaces
+// ile birlikte guncelle.
+#define DURUM_BILINMIYOR   0
+#define DURUM_BOSTA        1
+#define DURUM_KALKIS       2
+#define DURUM_SURUDE       3
+#define DURUM_GOREV        4
+#define DURUM_AYRILDI      5
+#define DURUM_HASSAS_INIS  6
+#define DURUM_KATILMA      7
+#define DURUM_BEKLIYOR     8
+#define DURUM_RTL          9
+#define DURUM_INIS         10
+#define DURUM_INDI         11
+#define DURUM_FAILSAFE     12
+#define DURUM_STANDBY      13
 
 struct __attribute__((packed)) pose_veri_t {
     int32_t  lat;
