@@ -1,21 +1,5 @@
-"""mode_manager_node.py — Görev 2 yarı otonom sürü kontrol koordinatörü.
-
-Şartname §5.2 — Yarı Otonom Sürü Kontrolü Görevi:
-  Sürüyü tek bir joystick/kumandadan yönlendirme; sürüdeki tüm
-  İHA'lar kumandadan gelen girdilere senkronize cevap verir.
-
-Bu node:
-  1. mission_fsm'den SEMI_AUTONOMOUS state'ini takip eder.
-  2. SwarmControlCommand (joystick) mesajlarını alır.
-  3. Deadman safety kontrolü yapar.
-  4. Aktif moda göre movement_mode veya maneuver_mode'u çağırır.
-  5. FormationCommand veya AgentSetpoint yayınlar.
-  6. SystemEvent yaşam döngüsü olayları yayınlar.
-
-Proxy kuralı:
-  Publisher  -> /swarm/internal/...
-  Subscriber <- /swarm/public/...
-"""
+# Copyright 2026 Yelpence
+"""Semi-autonomous suru kontrol koordinator dugumu."""
 
 import time
 
@@ -60,11 +44,7 @@ _BEST_EFFORT_QOS = QoSProfile(
 
 
 class ModeManagerNode(Node):
-    """Görev 2 yarı otonom sürü kontrol koordinatörü.
-
-    Lider drone üzerinde çalışır. mission_fsm SEMI_AUTONOMOUS
-    state'ine geçtiğinde aktifleşir.
-    """
+    """Gorev 2 yari otonom suru kontrol koordinatoru."""
 
     def __init__(self) -> None:
         super().__init__('mode_manager_node')
@@ -77,13 +57,10 @@ class ModeManagerNode(Node):
         )
 
         self._last_tick_time = time.monotonic()
-
-        # Formasyon ofsetleri — formation_geometry'den veya config'den
-        # yüklenecek. Şimdilik varsayılan Ok Başı (3 drone).
         self._formation_offsets: dict[int, tuple[float, float, float]] = {}
         self._init_default_offsets()
 
-        self._setpoint_sequence: int = 0
+        self._setpoint_sequence = 0
 
         self._setup_publishers()
         self._setup_subscribers()
@@ -93,16 +70,11 @@ class ModeManagerNode(Node):
         )
 
         self.get_logger().info(
-            f'ModeManagerNode başladı: ajanlar={self._agent_ids} '
-            f'tick={self._tick_hz}Hz sitl={self._sitl_mode}'
+            f'ModeManagerNode baslatildi: {self._agent_ids}'
         )
 
-    # ═════════════════════════════════════════════════════════════════
-    # BAŞLATMA
-    # ═════════════════════════════════════════════════════════════════
-
     def _declare_params(self) -> None:
-        """ROS2 parametrelerini tanımlar ve okur."""
+        """ROS2 parametrelerini tanimlar ve okur."""
         self.declare_parameter('agent_ids', [1, 2, 3])
         self.declare_parameter('tick_hz', 20.0)
         self.declare_parameter('sitl_mode', False)
@@ -122,19 +94,13 @@ class ModeManagerNode(Node):
         )
 
     def _init_default_offsets(self) -> None:
-        """Varsayılan formasyon ofsetlerini başlatır.
-
-        Ok Başı formasyonu, 3 drone:
-          Drone 1 (lider): ileri (forward)
-          Drone 2: sol arka
-          Drone 3: sağ arka
-        """
+        """Varsayilan formasyon ofsetlerini olusturur."""
         s = self._default_spacing_m
         if len(self._agent_ids) >= 3:
             self._formation_offsets = {
-                self._agent_ids[0]: (s, 0.0, 0.0),       # ileri
-                self._agent_ids[1]: (-s / 2, -s, 0.0),   # sol arka
-                self._agent_ids[2]: (-s / 2, s, 0.0),    # sağ arka
+                self._agent_ids[0]: (s, 0.0, 0.0),
+                self._agent_ids[1]: (-s / 2, -s, 0.0),
+                self._agent_ids[2]: (-s / 2, s, 0.0),
             }
         elif len(self._agent_ids) == 2:
             self._formation_offsets = {
@@ -146,7 +112,7 @@ class ModeManagerNode(Node):
                 self._formation_offsets[aid] = (0.0, 0.0, 0.0)
 
     def _setup_publishers(self) -> None:
-        """Yayıncı kanallarını oluşturur."""
+        """Yayinci kanallarini olusturur."""
         self._formation_pub = self.create_publisher(
             FormationCommand,
             '/swarm/internal/formation/target',
@@ -159,7 +125,6 @@ class ModeManagerNode(Node):
             _RELIABLE_QOS,
         )
 
-        # Per-drone AgentSetpoint publisher'ları (manevra modu için)
         self._setpoint_pubs: dict[int, rclpy.publisher.Publisher] = {}
         for aid in self._agent_ids:
             pub = self.create_publisher(
@@ -170,8 +135,7 @@ class ModeManagerNode(Node):
             self._setpoint_pubs[aid] = pub
 
     def _setup_subscribers(self) -> None:
-        """Abone kanallarını oluşturur."""
-        # Her drone'un durumu
+        """Abone kanallarini olusturur."""
         for aid in self._agent_ids:
             self.create_subscription(
                 AgentStatus,
@@ -180,7 +144,6 @@ class ModeManagerNode(Node):
                 _BEST_EFFORT_QOS,
             )
 
-        # Joystick komutu
         self.create_subscription(
             SwarmControlCommand,
             '/swarm/public/control/command',
@@ -188,7 +151,6 @@ class ModeManagerNode(Node):
             _BEST_EFFORT_QOS,
         )
 
-        # mission_fsm durumu
         self.create_subscription(
             UInt8,
             '/swarm/internal/mission/state',
@@ -196,7 +158,6 @@ class ModeManagerNode(Node):
             _RELIABLE_QOS,
         )
 
-        # Sürü durumu (centroid, formasyon)
         self.create_subscription(
             SwarmState,
             '/swarm/public/state',
@@ -204,7 +165,6 @@ class ModeManagerNode(Node):
             _RELIABLE_QOS,
         )
 
-        # Sistem olayları
         self.create_subscription(
             SystemEvent,
             '/swarm/public/events/system',
@@ -212,26 +172,17 @@ class ModeManagerNode(Node):
             _RELIABLE_QOS,
         )
 
-    # ═════════════════════════════════════════════════════════════════
-    # FSM ANA DÖNGÜSÜ
-    # ═════════════════════════════════════════════════════════════════
-
     def _tick(self) -> None:
-        """Tick döngüsü — FSM geçişleri ve aktif mod dispatch.
-
-        20 Hz varsayılan hızda çalışır.
-        """
+        """Tick dongusu."""
         now = time.monotonic()
         dt = now - self._last_tick_time
         self._last_tick_time = now
         ctx = self._ctx
 
-        # 1. FSM geçişlerini değerlendir
         next_state = evaluate_transitions(ctx)
         if next_state is not None and next_state != ctx.state:
             self._transition(next_state)
 
-        # 2. Aktif moda göre komut üret
         if ctx.state == ModeState.MOVEMENT:
             self._dispatch_movement(dt)
         elif ctx.state == ModeState.MANEUVER:
@@ -241,13 +192,11 @@ class ModeManagerNode(Node):
         elif ctx.state == ModeState.READY:
             self._dispatch_hold()
 
-        # 3. Formasyon değişikliği talebi
         if ctx.formation_change_requested and (
             ctx.state in ACTIVE_CONTROL_STATES
         ):
             self._handle_formation_change()
 
-        # 4. Geçici bayrakları temizle
         ctx.takeoff_requested = False
         ctx.land_requested = False
         ctx.rtl_requested = False
@@ -255,11 +204,7 @@ class ModeManagerNode(Node):
         ctx.formation_change_requested = False
 
     def _transition(self, new_state: ModeState) -> None:
-        """Durum geçişini uygular.
-
-        Args:
-            new_state: Geçilecek hedef durum.
-        """
+        """Durum gecisini uygular."""
         old = self._ctx.state
         self._ctx.set_state(new_state)
 
@@ -272,39 +217,34 @@ class ModeManagerNode(Node):
     def _on_state_entry(
         self, state: ModeState, old_state: ModeState
     ) -> None:
-        """Yeni state giriş eylemlerini çalıştırır.
-
-        Args:
-            state: Yeni girilen state.
-            old_state: Önceki state.
-        """
+        """Yeni durum giris eylemlerini calistirir."""
         if state == ModeState.TAKEOFF:
             self._pub_event(
                 SystemEvent.EVENT_MISSION_STARTED,
                 SystemEvent.SEVERITY_INFO,
-                'Görev 2 (Yarı Otonom) kalkış başlıyor',
+                'Görev 2 kalkış başlıyor',
             )
 
         elif state == ModeState.READY:
             self._pub_event(
                 SystemEvent.EVENT_FORMATION_REACHED,
                 SystemEvent.SEVERITY_INFO,
-                'Sürü hazır, joystick komutu bekleniyor',
+                'Sürü hazır, kumanda bekleniyor',
             )
 
         elif state == ModeState.MOVEMENT:
             self.get_logger().info(
-                '[mode_manager] Sürü Hareket Modu aktif'
+                '[mode_manager] Hareket modu aktif'
             )
 
         elif state == ModeState.MANEUVER:
             self.get_logger().info(
-                '[mode_manager] Manevra Modu aktif'
+                '[mode_manager] Manevra modu aktif'
             )
 
         elif state == ModeState.HOLD:
             self.get_logger().info(
-                '[mode_manager] HOLD — deadman bırakıldı'
+                '[mode_manager] HOLD modu'
             )
 
         elif state == ModeState.LANDING:
@@ -325,7 +265,7 @@ class ModeManagerNode(Node):
             self._pub_event(
                 SystemEvent.EVENT_EMERGENCY_LAND,
                 SystemEvent.SEVERITY_EMERGENCY,
-                'Görev 2 ACIL DURUM',
+                'Görev 2 acil durum',
             )
 
         elif state == ModeState.COMPLETED:
@@ -335,35 +275,18 @@ class ModeManagerNode(Node):
                 'Görev 2 tamamlandı',
             )
 
-    # ═════════════════════════════════════════════════════════════════
-    # MOD DISPATCH
-    # ═════════════════════════════════════════════════════════════════
-
     def _dispatch_movement(self, dt: float) -> None:
-        """Sürü Hareket Modu: centroid translasyonu.
-
-        FormationCommand yayınlar.
-
-        Args:
-            dt: Zaman adımı (saniye).
-        """
+        """Sürü hareket modunu yurutur."""
         params = compute_formation_command(self._ctx, dt)
         self._publish_formation_command(params)
 
-        # Centroid'i güncelle (sonraki tick'te referans olarak kullan)
         self._ctx.centroid_x = params['center_x']
         self._ctx.centroid_y = params['center_y']
         self._ctx.centroid_z = params['center_z']
         self._ctx.formation_heading_deg = params['heading_deg']
 
     def _dispatch_maneuver(self, dt: float) -> None:
-        """Manevra Modu: formasyon eğme/döndürme.
-
-        Her drone için AgentSetpoint yayınlar.
-
-        Args:
-            dt: Zaman adımı (saniye).
-        """
+        """Manevra modunu yurutur."""
         result = compute_agent_setpoints(
             self._ctx, dt, self._formation_offsets,
         )
@@ -372,18 +295,12 @@ class ModeManagerNode(Node):
         for sp in setpoints:
             self._publish_agent_setpoint(sp)
 
-        # Context güncelle
         self._ctx.formation_heading_deg = new_heading
         self._ctx.maneuver_pitch_deg = pitch_deg
         self._ctx.maneuver_roll_deg = roll_deg
 
     def _dispatch_hold(self) -> None:
-        """HOLD/READY: mevcut konumu koruma.
-
-        Önceki mod MANEUVER idiyse son eğim açılarını korur.
-        MOVEMENT idiyse mevcut centroid'i korur.
-        """
-        # Manevra eğim açıları varsa onları koru
+        """HOLD durumunu yurutur."""
         if (self._ctx.maneuver_pitch_deg != 0.0
                 or self._ctx.maneuver_roll_deg != 0.0):
             setpoints = compute_hold_setpoints(
@@ -396,17 +313,14 @@ class ModeManagerNode(Node):
             self._publish_formation_command(params)
 
     def _handle_formation_change(self) -> None:
-        """Formasyon değişikliği talebini işler."""
+        """Formasyon degisikligi talebini isler."""
         ctx = self._ctx
         self.get_logger().info(
-            f'[mode_manager] Formasyon değişikliği: '
-            f'tip={ctx.requested_formation} '
-            f'mesafe={ctx.requested_spacing_m}m'
+            f'Formasyon degisikligi: {ctx.requested_formation}'
         )
         ctx.active_formation = ctx.requested_formation
         ctx.requested_spacing_m = ctx.requested_spacing_m
 
-        # FormationCommand ile formasyon değişikliğini bildir
         params = {
             'center_x': ctx.centroid_x,
             'center_y': ctx.centroid_y,
@@ -420,30 +334,10 @@ class ModeManagerNode(Node):
         }
         self._publish_formation_command(params)
 
-    # ═════════════════════════════════════════════════════════════════
-    # ABONELİK CALLBACK'LERİ
-    # ═════════════════════════════════════════════════════════════════
-
-    def _on_agent_status(
-        self, msg: AgentStatus, agent_id: int
-    ) -> None:
-        """Ajan durum mesajını depolar.
-
-        Args:
-            msg: AgentStatus mesajı.
-            agent_id: Bildiren ajanın ID'si.
-        """
+    def _on_agent_status(self, msg: AgentStatus, agent_id: int) -> None:
         self._ctx.agent_statuses[agent_id] = msg
 
     def _on_control_command(self, msg: SwarmControlCommand) -> None:
-        """SwarmControlCommand (joystick) mesajını ctx'e yazar.
-
-        Deadman ve komut geçerliliğini burada depolar; transition
-        mantığı _tick'te çalışır.
-
-        Args:
-            msg: Gelen joystick komutu.
-        """
         ctx = self._ctx
 
         ctx.command_valid = msg.command_valid
@@ -487,26 +381,11 @@ class ModeManagerNode(Node):
             ctx.last_valid_command_time = time.monotonic()
 
     def _on_mission_state(self, msg: UInt8) -> None:
-        """mission_fsm durumunu depolar.
-
-        Args:
-            msg: MissionState UInt8 mesajı.
-        """
         self._ctx.mission_state = msg.data
 
     def _on_swarm_state(self, msg: SwarmState) -> None:
-        """Sürü durumunu (centroid, formasyon) depolar.
-
-        Yalnızca IDLE veya PREFLIGHT'ta centroid'i SwarmState'ten alır.
-        Aktif kontrol sırasında centroid mode_manager tarafından
-        hesaplanır.
-
-        Args:
-            msg: SwarmState mesajı.
-        """
         ctx = self._ctx
 
-        # Centroid'i sadece pasif state'lerde SwarmState'ten al
         if ctx.state in (
             ModeState.IDLE, ModeState.PREFLIGHT,
             ModeState.TAKEOFF, ModeState.READY,
@@ -521,11 +400,6 @@ class ModeManagerNode(Node):
         ctx.formation_stable = msg.formation_stable
 
     def _on_event(self, msg: SystemEvent) -> None:
-        """Sistem olaylarını işler.
-
-        Args:
-            msg: SystemEvent mesajı.
-        """
         eid = msg.event_type
 
         if eid == SystemEvent.EVENT_EMERGENCY_LAND:
@@ -534,16 +408,7 @@ class ModeManagerNode(Node):
         elif eid == SystemEvent.EVENT_RTL_TRIGGERED:
             self._ctx.rtl_requested = True
 
-    # ═════════════════════════════════════════════════════════════════
-    # YAYIN YARDIMCILARI
-    # ═════════════════════════════════════════════════════════════════
-
     def _publish_formation_command(self, params: dict) -> None:
-        """FormationCommand mesajı oluşturup yayınlar.
-
-        Args:
-            params: FormationCommand alanları dict'i.
-        """
         msg = FormationCommand()
         msg.stamp = self.get_clock().now().to_msg()
         msg.sequence_num = self._ctx.command_sequence_num
@@ -567,11 +432,6 @@ class ModeManagerNode(Node):
         self._formation_pub.publish(msg)
 
     def _publish_agent_setpoint(self, sp: dict) -> None:
-        """Per-drone AgentSetpoint mesajı oluşturup yayınlar.
-
-        Args:
-            sp: AgentSetpoint alanları dict'i.
-        """
         agent_id = sp['agent_id']
         pub = self._setpoint_pubs.get(agent_id)
         if pub is None:
@@ -607,13 +467,6 @@ class ModeManagerNode(Node):
         severity: int,
         message: str = '',
     ) -> None:
-        """SystemEvent mesajı oluşturur ve yayınlar.
-
-        Args:
-            event_type: SystemEvent.EVENT_* sabiti.
-            severity: SystemEvent.SEVERITY_* seviyesi.
-            message: İsteğe bağlı açıklama metni.
-        """
         m = SystemEvent()
         m.stamp = self.get_clock().now().to_msg()
         m.event_type = event_type
@@ -624,12 +477,7 @@ class ModeManagerNode(Node):
         self._event_pub.publish(m)
 
 
-# ═════════════════════════════════════════════════════════════════════
-# GİRİŞ NOKTASI
-# ═════════════════════════════════════════════════════════════════════
-
 def main(args=None) -> None:
-    """ros2 run tarafından çağrılan giriş noktası."""
     rclpy.init(args=args)
     node = ModeManagerNode()
     try:

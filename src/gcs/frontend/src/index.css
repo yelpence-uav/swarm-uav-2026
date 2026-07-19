@@ -1,5 +1,5 @@
 /* ============================================================
-   Yelpence GCS — Tasarım Sistemi
+   Yelpence GCS - Tasarım Sistemi
    ============================================================
    Renkler, gölgeler, gradyanlar, tipografi, spacing token'ları.
    Koyu tema default; html[data-theme="light"] overrides aşağıda.
@@ -23,7 +23,7 @@
   --color-text-muted:     #5b6677;
   --color-text-inverse:   #0a0e1a;
 
-  /* Accent renkleri — tema değişse de korunur (parlaklık ayarlanır) */
+  /* Accent renkleri - tema değişse de korunur (parlaklık ayarlanır) */
   --color-accent:         #38bdf8;
   --color-accent-strong:  #0ea5e9;
   --color-accent-glow:    rgba(56, 189, 248, 0.45);
@@ -40,7 +40,7 @@
   --color-danger-glow:    rgba(239, 68, 68, 0.5);
   --color-critical:       #dc2626;
 
-  /* Drone renkleri (3 drone — tematik aksent farklı) */
+  /* Drone renkleri (3 drone - tematik aksent farklı) */
   --color-drone-1:       #38bdf8;  /* cyan */
   --color-drone-2:       #a78bfa;  /* violet */
   --color-drone-3:       #fb923c;  /* orange */

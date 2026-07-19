@@ -1,54 +1,14 @@
-# Copyright 2026 Yelpence TEKNOFEST 2026
-#
-# Permission is hereby granted, free of charge, to any person obtaining a copy
-# of this software and associated documentation files (the "Software"), to deal
-# in the Software without restriction, including without limitation the rights
-# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-# copies of the Software, and to permit persons to whom the Software is
-# furnished to do so, subject to the following conditions:
-#
-# The above copyright notice and this permission notice shall be included in
-# all copies or substantial portions of the Software.
-#
-# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
-# THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
-# THE SOFTWARE.
-
-"""
-precision_landing_core.py.
-
-Renkli iniş bölgesine hassas iniş mantığı (saf mantık, ROS yok).
-
-Sorumluluk: kendi dronu STATE_PRECISION_LANDING'e girince, hedef rengin
-bölgesine gidip kamera ile ortalanarak alçalır ve touchdown'da disarm ister.
-Bu sınıf SADECE inişi hesaplar; ayrılma kararı (mission_fsm/QR), bölge tespiti
-(vision_node), bölge hafızası (zone_map) ve rejoin (agent_fsm) BAŞKA modüllerin
-işidir. agent_fsm PRECISION_LANDING state'inde PX4 komutu basmaz; bu boşluk
-bilerek bu modüle bırakılmıştır.
-
-Çıktı bir AgentSetpoint'e çevrilir: SADECE hız (velocity_valid=True,
-position_valid=False) — C modu saf-hız mimarisine uygun. Touchdown'da disarm
-bayrağı, node tarafından px4_bridge'e 'disarm' komutu olarak iletilir.
-
-precision_landing_node bu sınıfı import edip besler; sınıfın kendisi node
-değildir. PEP 8 ve PEP 257 standartlarına uygundur.
-"""
+# Copyright 2026 Yelpence
+"""Renkli inis bolgesine hassas inis mantigi (saf Python)."""
 
 import math
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple
 
-# Renk sabitleri — swarm_interfaces ZoneMap.msg / LandingZoneDetection.msg ile
-# birebir aynı.
 COLOR_UNKNOWN = 0
 COLOR_RED = 1
 COLOR_BLUE = 2
 
-# İniş fazları.
 PHASE_IDLE = 0
 PHASE_SELECT_ZONE = 1
 PHASE_APPROACH = 2
@@ -60,26 +20,26 @@ PHASE_ABORT = 6
 
 @dataclass
 class LandingCommand:
-    """precision_landing_core çıktısı — node bunu AgentSetpoint'e çevirir."""
+    """Hassas inis kontrol ciktisi."""
 
-    publish: bool = False          # node bu döngüde setpoint yayınlamalı mı
+    publish: bool = False
     phase: int = PHASE_IDLE
-    vx: float = 0.0                # NED hız setpoint, m/s
+    vx: float = 0.0
     vy: float = 0.0
-    vz: float = 0.0                # NED'de pozitif = aşağı
+    vz: float = 0.0
     heading_deg: float = 0.0
     velocity_valid: bool = False
-    disarm: bool = False           # touchdown: px4_bridge'e 'disarm' iste
+    disarm: bool = False
     done: bool = False
-    target_x: float = 0.0          # seçilen bölge global NED (log/teşhis)
+    target_x: float = 0.0
     target_y: float = 0.0
-    in_view: bool = False          # canlı kamerada bölge görünüyor mu
+    in_view: bool = False
     message: str = ''
 
 
 @dataclass
 class PrecisionLandingCore:
-    """Renkli bölgeye hassas iniş durum makinesi + hız kontrolcüsü."""
+    """Hassas inis durum makinesi ve hiz kontrolcusu."""
 
     approach_speed_mps: float = 1.5
     descend_speed_mps: float = 0.4
@@ -96,14 +56,14 @@ class PrecisionLandingCore:
     _start_time: Optional[float] = field(default=None, init=False)
 
     def reset(self) -> None:
-        """İç durumu başa alır (state PRECISION_LANDING'den çıkınca)."""
+        """Ic durumu sifirlar."""
         self._phase = PHASE_IDLE
         self._target = None
         self._start_time = None
 
     @property
     def phase(self) -> int:
-        """Mevcut iniş fazı (PHASE_* sabiti)."""
+        """Mevcut iniş fazı."""
         return self._phase
 
     def update(
@@ -115,24 +75,7 @@ class PrecisionLandingCore:
         live_zone: Optional[Dict[str, float]],
         now: float,
     ) -> LandingCommand:
-        """
-        Bir kontrol döngüsü hesaplar.
-
-        Args:
-            active (bool): Kendi state'imiz STATE_PRECISION_LANDING mı.
-            pose (Optional[Tuple]): Global NED (x, y, z, heading_deg); z aşağı
-                pozitif. None ise poz bilinmiyor.
-            target_color (int): İnilecek renk (COLOR_RED/COLOR_BLUE).
-            zone_map (List[Dict]): Biriktirilen bölgeler
-                [{'color','x','y','count'}, ...] (global NED).
-            live_zone (Optional[Dict]): Canlı kamera tespiti
-                {'valid','color','frac_fwd','frac_right','fov_deg'} veya None.
-                frac_* görüntü merkezinden normalize sapma [-0.5, 0.5].
-            now (float): Şimdiki zaman, saniye (monotonik).
-
-        Returns:
-            LandingCommand: Bu döngünün hız/disarm kararı.
-        """
+        """Kontrol dongusunu calistirir."""
         if not active or pose is None:
             self.reset()
             return LandingCommand(publish=False, phase=PHASE_IDLE)
@@ -144,7 +87,6 @@ class PrecisionLandingCore:
         if self._phase == PHASE_SELECT_ZONE:
             self._select_zone(target_color, zone_map)
 
-        # Zaman aşımı (FSM'in 60 s failsafe'inden önce güvenli durdur).
         if (self._phase not in (PHASE_DONE, PHASE_ABORT)
                 and self._start_time is not None
                 and (now - self._start_time) > self.landing_timeout_s):
@@ -154,7 +96,6 @@ class PrecisionLandingCore:
         alt_agl = -z
 
         if self._phase == PHASE_ABORT:
-            # Havada güvenli bekleme (disarm YOK); FSM failsafe devralır.
             return LandingCommand(
                 publish=True, phase=PHASE_ABORT, velocity_valid=True,
                 heading_deg=heading, message='iniş iptal/bekleme',
@@ -163,8 +104,6 @@ class PrecisionLandingCore:
         if self._phase == PHASE_DONE:
             return LandingCommand(publish=False, phase=PHASE_DONE, done=True)
 
-        # Hedef nokta: bölge kamerada görünüyorsa canlı projeksiyon (yakında
-        # daha doğru), yoksa hafızadaki kayıt.
         in_view = (
             live_zone is not None
             and live_zone.get('valid', False)
@@ -175,7 +114,6 @@ class PrecisionLandingCore:
         elif self._target is not None:
             tx, ty = self._target
         else:
-            # Ne harita ne canlı: inilecek yer yok → iptal/bekle.
             self._phase = PHASE_ABORT
             return LandingCommand(
                 publish=True, phase=PHASE_ABORT, velocity_valid=True,
@@ -224,13 +162,10 @@ class PrecisionLandingCore:
 
         return LandingCommand(publish=False, phase=self._phase)
 
-    # =================================================================
-    # YARDIMCILAR
-    # =================================================================
     def _select_zone(
         self, target_color: int, zone_map: List[Dict[str, float]]
     ) -> None:
-        """Hedef renkten EN ÇOK GÖRÜLEN bölgeyi seçer (false positive eler)."""
+        """Hedef renkten en cok gorulen bolgeyi secer."""
         if target_color not in (COLOR_RED, COLOR_BLUE):
             self._phase = PHASE_ABORT
             return
@@ -252,7 +187,7 @@ class PrecisionLandingCore:
     def _horizontal_velocity(
         self, err_x: float, err_y: float, cap: float
     ) -> Tuple[float, float]:
-        """Konum hatasını cap'li hız vektörüne çevirir (P-kontrol)."""
+        """Konum hatasini cap'li hiz vektorune cevirir."""
         vx = self.kp * err_x
         vy = self.kp * err_y
         speed = math.hypot(vx, vy)
@@ -268,7 +203,7 @@ class PrecisionLandingCore:
         pose: Tuple[float, float, float, float],
         alt_agl: float,
     ) -> Tuple[float, float]:
-        """Canlı kamera bearing'ini global NED hedef konumuna projekte eder."""
+        """Kamera olcumunu global NED koordinatlarina yansitir."""
         x, y, _z, heading_deg = pose
         h = max(alt_agl, self.min_height_m)
         fov = live_zone.get('fov_deg', 60.0)

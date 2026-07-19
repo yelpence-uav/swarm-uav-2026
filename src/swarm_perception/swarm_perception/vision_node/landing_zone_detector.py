@@ -1,29 +1,5 @@
-# Copyright 2026 Yelpence TEKNOFEST 2026
-#
-# Permission is hereby granted, free of charge, to any person obtaining a copy
-# of this software and associated documentation files (the "Software"), to deal
-# in the Software without restriction, including without limitation the rights
-# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-# copies of the Software, and to permit persons to whom the Software is
-# furnished to do so, subject to the following conditions:
-#
-# The above copyright notice and this permission notice shall be included in
-# all copies or substantial portions of the Software.
-#
-# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
-# THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
-# THE SOFTWARE.
-
-"""
-landing_zone_detector.py.
-
-OpenCV kullanarak HSV uzayında kırmızı/mavi bölgeleri bulur.
-PEP 8 ve PEP 257 standartlarına uygundur.
-"""
+# Copyright 2026 Yelpence
+"""OpenCV kullanarak HSV uzayinda kirmizi/mavi bolgeleri bulur."""
 
 from typing import Any, Dict, List, Tuple
 
@@ -32,47 +8,53 @@ import numpy as np
 
 
 class LandingZoneDetector:
-    """Kırmızı/mavi iniş bölgelerini HSV uzayında tespit eder."""
+    """Kirmizi/mavi inis bolgelerini HSV uzayinda tespit eder."""
 
     def __init__(self, config: Dict[str, Any]) -> None:
         """
-        Landingzonedetector sınıfını ilklendirir.
+        LandingZoneDetector sinifini ilklendirir.
 
         Args:
-            config (Dict[str, Any]): vision_params.yaml dosyasından gelen
-                konfigürasyon sözlüğü. 'color_ranges', 'min_zone_area_px',
-                'gaussian_blur_kernel' anahtarlarını içermelidir.
+            config: Konfigurasyon sozlugu.
         """
         self._config = config
         self._min_area = config.get('min_zone_area_px', 500.0)
         self._blur_k = config.get('gaussian_blur_kernel', 5)
 
-        # HSV Eşikleri
         ranges = config.get('color_ranges', {})
-        self._red_lower1 = np.array(ranges.get('red_lower_1', [0, 100, 100]))
-        self._red_upper1 = np.array(ranges.get('red_upper_1', [10, 255, 255]))
-        self._red_lower2 = np.array(ranges.get('red_lower_2', [160, 100, 100]))
-        self._red_upper2 = np.array(ranges.get('red_upper_2', [180, 255, 255]))
+        self._red_lower1 = np.array(
+            ranges.get('red_lower_1', [0, 100, 100])
+        )
+        self._red_upper1 = np.array(
+            ranges.get('red_upper_1', [10, 255, 255])
+        )
+        self._red_lower2 = np.array(
+            ranges.get('red_lower_2', [160, 100, 100])
+        )
+        self._red_upper2 = np.array(
+            ranges.get('red_upper_2', [180, 255, 255])
+        )
 
-        self._blue_lower = np.array(ranges.get('blue_lower', [100, 150, 50]))
-        self._blue_upper = np.array(ranges.get('blue_upper', [140, 255, 255]))
+        self._blue_lower = np.array(
+            ranges.get('blue_lower', [100, 150, 50])
+        )
+        self._blue_upper = np.array(
+            ranges.get('blue_upper', [140, 255, 255])
+        )
 
     def detect(self, image: np.ndarray) -> List[Dict[str, Any]]:
         """
-        Verilen BGR görüntü üzerinde kırmızı ve mavi bölgeleri arar.
+        Verilen BGR goruntu uzerinde kirmizi ve mavi bolgeleri arar.
 
         Args:
-            image (np.ndarray): cv2 formatında BGR görüntü matrisi.
+            image: cv2 formatinda BGR goruntu matrisi.
 
         Returns:
-            List[Dict[str, Any]]: Tespit edilen bölgelerin listesi. Her bölge
-            renk tipini (1=Kırmızı, 2=Mavi), merkez x-y oranını ve
-            güven skorunu içerir.
+            List[Dict[str, Any]]: Tespit edilen bolgelerin listesi.
         """
         if image is None or image.size == 0:
             return []
 
-        # Gürültü azaltma
         if self._blur_k > 0:
             image = cv2.GaussianBlur(
                 image, (self._blur_k, self._blur_k), 0
@@ -81,7 +63,6 @@ class LandingZoneDetector:
         hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
         results = []
 
-        # Kırmızı tespiti (İki parçalı HSV aralığı)
         mask_red1 = cv2.inRange(hsv, self._red_lower1, self._red_upper1)
         mask_red2 = cv2.inRange(hsv, self._red_lower2, self._red_upper2)
         mask_red = cv2.bitwise_or(mask_red1, mask_red2)
@@ -90,7 +71,6 @@ class LandingZoneDetector:
         )
         results.extend(red_zones)
 
-        # Mavi tespiti
         mask_blue = cv2.inRange(hsv, self._blue_lower, self._blue_upper)
         blue_zones = self._find_zones(
             mask_blue, color_id=2, image_shape=image.shape
@@ -100,20 +80,10 @@ class LandingZoneDetector:
         return results
 
     def _find_zones(
-        self, mask: np.ndarray, color_id: int, image_shape: Tuple[int, ...]
+        self, mask: np.ndarray, color_id: int,
+        image_shape: Tuple[int, ...]
     ) -> List[Dict[str, Any]]:
-        """
-        Maske üzerinde konturları bularak geçerli bölgeleri seçer.
-
-        Args:
-            mask (np.ndarray): İlgili renge ait 2D binary maske.
-            color_id (int): Tespit edilen renk kimliği (1: Kırmızı).
-            image_shape (Tuple[int, ...]): Orijinal görüntünün boyutları
-                (height, width, channels).
-
-        Returns:
-            List[Dict[str, Any]]: Geçerli bölgelerin sözlük listesi.
-        """
+        """Maske uzerinde konturlari bularak gecerli bolgeleri secer."""
         zones = []
         contours, _ = cv2.findContours(
             mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
@@ -126,14 +96,13 @@ class LandingZoneDetector:
             if area < self._min_area:
                 continue
 
-            # Minimum kapsayan çember
             (x, y), radius = cv2.minEnclosingCircle(cnt)
 
-            # Güven skoru: Çember alanı ile gerçek kontur alanı oranı
             circle_area = np.pi * (radius ** 2)
-            confidence = float(area / circle_area) if circle_area > 0 else 0.0
+            confidence = (
+                float(area / circle_area) if circle_area > 0 else 0.0
+            )
 
-            # Filtre: Şekil çok bozuksa (çemberden uzaksa) reddet
             if confidence < 0.4:
                 continue
 

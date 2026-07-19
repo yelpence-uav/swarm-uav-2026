@@ -3,7 +3,7 @@
  *
  * DroneState alanları backend/core/state_store.py ile birebir uyumlu olmalı.
  * SwarmState alanları backend/connections/ros_bridge.py:swarm_state_to_dict ile.
- * Enum sabitleri swarm_interfaces .msg dosyalarından kopyalanır — kontrat
+ * Enum sabitleri swarm_interfaces .msg dosyalarından kopyalanır - kontrat
  * değişirse buradaki sabitler de güncellenmeli.
  */
 
@@ -233,6 +233,6 @@ export interface TelemetryPayload {
   drones: DroneState[];
   alerts: Alert[];
   swarm_state: SwarmState | null;   // mavlink-sim modunda veya henüz mesaj gelmediyse null
-  qr?: QRMissionData | null;        // çözülmüş son QR — henüz okunmadıysa null
-  connection_mode?: ConnectionMode; // backend hangi yolda — UI yarışma-dışı butonları gizler
+  qr?: QRMissionData | null;        // çözülmüş son QR - henüz okunmadıysa null
+  connection_mode?: ConnectionMode; // backend hangi yolda - UI yarışma-dışı butonları gizler
 }

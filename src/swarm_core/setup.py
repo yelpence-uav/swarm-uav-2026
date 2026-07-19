@@ -15,7 +15,7 @@ setup(
     zip_safe=True,
     maintainer='Yelpence TEKNOFEST 2026',
     maintainer_email='kocakseydagul@gmail.com',
-    description='Swarm UAV control core: formation control, consensus, collision avoidance, path planning',
+    description='Swarm UAV control core modules',
     license='MIT',
     tests_require=['pytest'],
     entry_points={

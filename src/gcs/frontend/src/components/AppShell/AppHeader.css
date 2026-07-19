@@ -39,7 +39,7 @@
   flex-shrink: 0;
 }
 
-/* Logo arkasında subtle accent glow — koyu temada şahin parlasın */
+/* Logo arkasında subtle accent glow - koyu temada şahin parlasın */
 .app-header__logo::before {
   content: "";
   position: absolute;

@@ -1,4 +1,4 @@
-"""test_esp32_parser.py — UART çerçeve çözümleme birim testleri."""
+"""test_esp32_parser.py - UART çerçeve çözümleme birim testleri."""
 
 import struct
 
@@ -101,10 +101,10 @@ def test_komut_deadman_flag():
 def test_pose_paketle_int16_kirpma():
     """pose_paketle alt_cm/heading/vx/vy int16 dışı verince crash etmez.
 
-    Beyza inceleme #3: alt_cm int16 → 327.67 m üstünde struct.error.
+    Beyza inceleme #3: alt_cm int16 -> 327.67 m üstünde struct.error.
     Kırpma savunması yeni eklendi.
     """
-    # 500 m irtifa = 50000 cm — int16 üstü
+    # 500 m irtifa = 50000 cm - int16 üstü
     payload = pp.pose_paketle(
         lat=411234567, lon=291234567,
         alt_cm=50000,    # >32767, kırpılmalı

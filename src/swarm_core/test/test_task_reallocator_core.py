@@ -3,7 +3,7 @@
 Geometrisiz sürüm: yalnızca ÜYELİK ve ROL doğrulanır (slot/Hungarian yok;
 onu formation_control dağıtık yapar).
   - Uygunluk filtresi (origin+taze) üye/lider seçimini engeller.
-  - detach → DETACHED, rejoin → FOLLOWER (şartname 'leav').
+  - detach -> DETACHED, rejoin -> FOLLOWER
   - apply_leader consensus'u işler; elect_leader yedek (en küçük id).
   - Kademeli bozulma: şartname minimum-İHA kuralı.
 """
@@ -75,7 +75,7 @@ def test_detach_sets_detached_role():
 
 
 def test_detach_unknown_agent_safe():
-    """Bilinmeyen ajan detach → patlamaz, not döner."""
+    """Bilinmeyen ajan detach - patlamaz, not döner."""
     tr = _make3()
     r = tr.detach(99)
     assert any(n.startswith('unknown_agent') for n in r.notes)
@@ -94,7 +94,7 @@ def test_detached_agent_not_member():
     """DETACHED ajan, IN_SWARM state'te olsa bile üye listesinden düşer."""
     tr = _make3()
     tr.detach(2)  # rol DETACHED
-    # State hâlâ IN_SWARM ama rol DETACHED — üye listesi state'e bakar,
+    # Rol DETACHED - üye listesi state'e bakar
     # detach sonrası node telemetriden DETACHED state'i alacak; burada
     # rolün DETACHED olduğunu doğruluyoruz.
     assert tr.get_entry(2).role == ROLE_DETACHED
@@ -113,7 +113,7 @@ def test_apply_leader_consumes_consensus():
 
 
 def test_apply_leader_non_member_safe():
-    """Üye olmayan lider → patlamaz, not döner."""
+    """Üye olmayan lider - patlamaz, not döner."""
     tr = _make3()
     r = tr.apply_leader(99)
     assert any(n.startswith('leader_not_member') for n in r.notes)

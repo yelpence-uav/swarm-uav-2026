@@ -1,4 +1,4 @@
-"""test_rtcm_fragmenter.py — fragment_for_inject birim testleri."""
+"""test_rtcm_fragmenter.py - fragment_for_inject birim testleri."""
 
 import pytest
 
@@ -29,7 +29,7 @@ def test_buyuk_mesaj_birden_fazla_parca():
     """> max_payload mesaj fragmanlara bölünür, hepsi fragmented=True."""
     mesaj = bytes(range(256)) * 3  # 768 bayt
     parcalar = fragment_for_inject(mesaj, max_payload=300)
-    # 768 / 300 = 2.56 → 3 parça
+    # 768 / 300 = 2.56 -> 3 parça
     assert len(parcalar) == 3
     for _, fragmented in parcalar:
         assert fragmented is True

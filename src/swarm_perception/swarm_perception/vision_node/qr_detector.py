@@ -1,29 +1,5 @@
-# Copyright 2026 Yelpence TEKNOFEST 2026
-#
-# Permission is hereby granted, free of charge, to any person obtaining a copy
-# of this software and associated documentation files (the "Software"), to deal
-# in the Software without restriction, including without limitation the rights
-# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-# copies of the Software, and to permit persons to whom the Software is
-# furnished to do so, subject to the following conditions:
-#
-# The above copyright notice and this permission notice shall be included in
-# all copies or substantial portions of the Software.
-#
-# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
-# THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
-# THE SOFTWARE.
-
-"""
-qr_detector.py.
-
-Pyzbar kullanarak BGR görüntülerde QR kod tespiti yapan saf modül.
-ROS 2 bağımlılığı taşımaz, yalnızca numpy ve pyzbar kullanır.
-"""
+# Copyright 2026 Yelpence
+"""Pyzbar kullanarak BGR goruntulerde QR kod tespiti yapan modul."""
 
 from typing import Any, Dict, List
 
@@ -32,34 +8,31 @@ from pyzbar.pyzbar import decode
 
 
 class QRDetector:
-    """Görüntüdeki QR kodlarını bulup ayrıştıran sınıf."""
+    """Goruntudeki QR kodlarini bulup ayristiran sinif."""
 
     def __init__(self, min_confidence: float = 0.5) -> None:
         """
-        Qrdetector sınıfını ilklendirir.
+        QRDetector sinifini ilklendirir.
 
         Args:
-            min_confidence (float): Asgari güven eşiği (pyzbar desteklemez,
-                ancak mimari uyumu için korunmuştur).
+            min_confidence (float): Asgari guven esigi.
         """
         self._min_confidence = min_confidence
 
     def detect(self, image: np.ndarray) -> List[Dict[str, Any]]:
         """
-        Verilen BGR görüntü üzerindeki QR kodları bulur ve ayrıştırır.
+        BGR goruntu uzerindeki QR kodlari bulur ve ayristirir.
 
         Args:
-            image (np.ndarray): cv2 formatında BGR görüntü matrisi.
+            image: cv2 formatinda BGR goruntu matrisi.
 
         Returns:
-            List[Dict[str, Any]]: Ayrıştırılmış QR veri sözlüğü listesi.
+            List[Dict[str, Any]]: Ayristirilmis QR veri sozluk listesi.
         """
         if image is None or image.size == 0:
             return []
 
-        # Pyzbar decode işlemi (RGB veya BGR fark etmez)
         decoded_objects = decode(image)
-
         results = []
         for obj in decoded_objects:
             try:
@@ -67,11 +40,9 @@ class QRDetector:
             except UnicodeDecodeError:
                 continue
 
-            # Sınırlayıcı kutu (Bounding Box) koordinatları
             rect = obj.rect
             img_h, img_w = image.shape[:2]
 
-            # QRMissionData formatına uygun veri yapısı
             qr_data = {
                 'raw_text': raw_text,
                 'image_x': float(rect.left + rect.width / 2) / img_w,
@@ -82,24 +53,12 @@ class QRDetector:
 
             parsed_fields = self._parse_qr_text(raw_text)
             qr_data.update(parsed_fields)
-
             results.append(qr_data)
 
         return results
 
     def _parse_qr_text(self, text: str) -> Dict[str, Any]:
-        """
-        QR kod metnini noktalı virgül (;) ile ayrıştırır.
-
-        Örnek metin:
-        team_id=YELPENCE; qr_id=1; next_qr=4; formation=OKBASI; spacing_m=6
-
-        Args:
-            text (str): QR kod içerisinden okunan ham metin.
-
-        Returns:
-            Dict[str, Any]: Anahtar-değer çiftlerinden oluşan sözlük.
-        """
+        """QR kod metnini noktalı virgül (;) ile ayristirir."""
         parsed = {
             'team_id': '',
             'qr_id': 0,
@@ -125,7 +84,6 @@ class QRDetector:
             'error_message': '',
         }
 
-        # Takım eşleştirmesi
         parts = [p.strip() for p in text.split(';') if p.strip()]
 
         for part in parts:
@@ -142,7 +100,6 @@ class QRDetector:
                 parsed['error_message'] = str(e)
                 return parsed
 
-        # Temel doğrulama: team_id YELPENCE olmalı
         if parsed['team_id'] == 'YELPENCE':
             parsed['valid'] = True
         else:
@@ -153,14 +110,7 @@ class QRDetector:
     def _assign_field(
         self, parsed: Dict[str, Any], key: str, val: str
     ) -> None:
-        """
-        Ayrıştırılan alanı veri sözlüğüne atar.
-
-        Args:
-            parsed (Dict[str, Any]): Verilerin saklandığı sözlük.
-            key (str): İşlenecek alanın anahtarı.
-            val (str): Alana atanacak değer.
-        """
+        """Ayristirilan alani veri sozlugune atar."""
         if key == 'team_id':
             parsed['team_id'] = val
         elif key == 'qr_id':

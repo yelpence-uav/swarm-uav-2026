@@ -4,7 +4,6 @@ import math
 import unittest
 
 from swarm_core.formation_control.formation_geometry import (
-    DEFAULT_MIN_DRONE_DISTANCE_M,
     FORMATION_CIZGI,
     FORMATION_OKBASI,
     FORMATION_V,

@@ -1,12 +1,12 @@
-"""Komut otoritesi — drone başına sıralı kuyruk.
+"""Komut otoritesi - drone başına sıralı kuyruk.
 
-Aynı drone'a iki yerden komut gelirse race olmasın diye buradan tek tek geçer.
-Worker thread'i `CommandWorker` (ayrı dosya) bu kuyruktan çekip CommandSender'a iletir.
+Aynı drone'a iki yerden komut gelirse race olmasın diye tek tek geçer.
+Worker thread'i bu kuyruktan çekip CommandSender'a iletir.
 """
 
 import logging
-import threading
 import queue
+import threading
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class Command:
     drone_id: int
-    action: str           # "takeoff" | "land" | "rtl" | "arm" | "disarm" | "loiter"
+    action: str  # "takeoff" | "land" | "rtl" | "arm" | "disarm" | "loiter"
     params: dict[str, Any] = field(default_factory=dict)
 
 
@@ -32,21 +32,29 @@ class CommandGate:
     def register_drone(self, drone_id: int) -> None:
         with self._lock:
             if drone_id not in self._queues:
-                self._queues[drone_id] = queue.Queue(maxsize=self.QUEUE_MAXSIZE)
+                self._queues[drone_id] = queue.Queue(
+                    maxsize=self.QUEUE_MAXSIZE
+                )
 
     def submit(self, cmd: Command) -> bool:
-        """Komutu kuyruğa al. Drone tanımlı değilse veya kuyruk doluysa False."""
+        """Komutu kuyruğa al. Tanımlı değilse veya doluysa False döner."""
         q = self._queues.get(cmd.drone_id)
         if q is None:
             logger.warning("submit: bilinmeyen drone_id=%d", cmd.drone_id)
             return False
         try:
             q.put_nowait(cmd)
-            logger.info("submit OK: drone=%d action=%s params=%s",
-                        cmd.drone_id, cmd.action, cmd.params)
+            logger.info(
+                "submit OK: drone=%d action=%s params=%s",
+                cmd.drone_id,
+                cmd.action,
+                cmd.params,
+            )
             return True
         except queue.Full:
-            logger.warning("submit FULL: drone=%d action=%s", cmd.drone_id, cmd.action)
+            logger.warning(
+                "submit FULL: drone=%d action=%s", cmd.drone_id, cmd.action
+            )
             return False
 
     def drone_ids(self) -> list[int]:

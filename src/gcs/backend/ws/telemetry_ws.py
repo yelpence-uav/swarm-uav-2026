@@ -1,8 +1,4 @@
-"""WebSocket endpoint — 10 Hz drone snapshot + alert push.
-
-Frontend bağlanır, biz periyodik olarak {drones, alerts} JSON'unu basarız.
-Bağlantı koparsa sessizce çıkar; reconnect'i frontend yapar.
-"""
+"""WebSocket endpoint - 10 Hz telemetry push."""
 
 import asyncio
 import dataclasses
@@ -25,13 +21,7 @@ async def telemetry_ws(
     bridge=None,
     connection_mode: str = "ros2",
 ) -> None:
-    """drones + alerts + swarm_state üçlüsünü periyodik push.
-
-    bridge None ise (mavlink-sim modu) swarm_state alanı da None gider —
-    frontend bunu graceful handle eder. connection_mode payload'a girer ki
-    frontend yarışma-dışı butonları (MAVLink bireysel komutlar) sadece
-    mavlink-sim modunda göstersin.
-    """
+    """Telemetri ve alarm verilerini periyodik gönderir."""
     await ws.accept()
     interval = 1.0 / hz
     client = f"{ws.client.host}:{ws.client.port}" if ws.client else "?"
@@ -41,7 +31,9 @@ async def telemetry_ws(
         while True:
             snap = store.snapshot()
             active_alerts = alerts.evaluate(snap)
-            swarm_state = bridge.get_swarm_state() if bridge is not None else None
+            swarm_state = (
+                bridge.get_swarm_state() if bridge is not None else None
+            )
             qr = bridge.get_qr_data() if bridge is not None else None
             payload = {
                 "drones": [dataclasses.asdict(d) for d in snap],

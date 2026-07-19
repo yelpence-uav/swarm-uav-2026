@@ -19,8 +19,10 @@ setup(
     license='MIT',
     entry_points={
         'console_scripts': [
-            'px4_bridge = swarm_control.px4_interface.px4_bridge:main',
-            'swarm_origin_publisher = swarm_control.swarm_origin_publisher:main',
+            'px4_bridge = '
+            'swarm_control.px4_interface.px4_bridge:main',
+            'swarm_origin_publisher = '
+            'swarm_control.swarm_origin_publisher:main',
             'esp32_bridge = '
             'swarm_control.esp32_bridge.esp32_bridge_node:main',
         ],

@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useState } from "react";
 
 /**
- * QR nokta konumları — operatör yarışma öncesi hakemlerin verdiği lat/lon'ları
+ * QR nokta konumları - operatör yarışma öncesi hakemlerin verdiği lat/lon'ları
  * arayüzden girer (şartname V2 s.14: konumlar önceden paylaşılır, sahada
  * doğrulanıp yeniden kaydedilebilir).
  *
- * Şeyda kararı: QR sayısı SABİT değil — soru-cevapta "6-7 olabilir" dendi,
+ * Şeyda kararı: QR sayısı SABİT değil - soru-cevapta "6-7 olabilir" dendi,
  * şartname örneğinde 5 var. Dinamik ekle/çıkar tasarlandı. localStorage'da
  * saklanır ki yarışma stresinde config dosyası açmaya gerek kalmasın.
  */
@@ -41,7 +41,7 @@ function load(): QRPosition[] {
         }));
     }
   } catch {
-    /* bozuk kayıt — varsayılana dön */
+    /* bozuk kayıt - varsayılana dön */
   }
   return defaultPositions();
 }
@@ -54,7 +54,7 @@ export function useQRPositions() {
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(positions));
     } catch {
-      /* localStorage dolu/engelli — sessiz geç */
+      /* localStorage dolu/engelli - sessiz geç */
     }
   }, [positions]);
 

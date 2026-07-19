@@ -10,11 +10,11 @@ import { readGamepad, type GamepadFrame } from "../../services/gamepad";
 import "./JoystickPanel.css";
 
 /**
- * Görev 2 — Yarı Otonom Sürü Kontrolü için joystick paneli.
+ * Görev 2 - Yarı Otonom Sürü Kontrolü için joystick paneli.
  *
  * Gamepad API'den okur (Xbox/PS), 30 Hz hızında SwarmControlCommand POST'lar.
  * Deadman switch (R1 default) basılı değilken backend'e command_valid=false
- * gönderilir → drone HOLD'a geçer (kontrat kuralı).
+ * gönderilir -> drone HOLD'a geçer (kontrat kuralı).
  */
 
 const PUBLISH_HZ = 30;
@@ -45,7 +45,7 @@ export function JoystickPanel({ enabled }: JoystickPanelProps) {
   const seqRef = useRef<number>(0);
   const formationRequestedRef = useRef<boolean>(false);
 
-  // Frame okuma — animasyon frame'inde sürekli çek (UI rendering için).
+  // Frame okuma - animasyon frame'inde sürekli çek (UI rendering için).
   useEffect(() => {
     let raf = 0;
     const loop = () => {
@@ -56,7 +56,7 @@ export function JoystickPanel({ enabled }: JoystickPanelProps) {
     return () => cancelAnimationFrame(raf);
   }, []);
 
-  // Publish loop — sabit hız (30 Hz). enabled + publishing toggle'ına bakar.
+  // Publish loop - sabit hız (30 Hz). enabled + publishing toggle'ına bakar.
   useEffect(() => {
     if (!enabled || !publishing) return;
     let alive = true;
@@ -69,7 +69,7 @@ export function JoystickPanel({ enabled }: JoystickPanelProps) {
         sequence_num: seqRef.current,
         // Kontrat (SwarmControlCommand.msg §6-9): command_valid AND deadman_pressed
         // ikisi de true olmadan drone'lar HOLD'a düşmeli. Sadece pad bağlantısı
-        // yetmez — pilot R1'i bıraktığında hareket komutu iptal edilmeli.
+        // yetmez - pilot R1'i bıraktığında hareket komutu iptal edilmeli.
         command_valid: live.connected && live.deadman_pressed,
         deadman_pressed: live.deadman_pressed,
         deadman_timeout_s: 0.5,
@@ -119,7 +119,7 @@ export function JoystickPanel({ enabled }: JoystickPanelProps) {
         <span className="joystick-panel__title">JOYSTICK (Görev 2)</span>
         {!enabled && (
           <span className="joystick-panel__hint">
-            Görev 2 — Yarı Otonom modunu seç
+            Görev 2 - Yarı Otonom modunu seç
           </span>
         )}
         {enabled && !frame.connected && (
@@ -192,7 +192,7 @@ export function JoystickPanel({ enabled }: JoystickPanelProps) {
 }
 
 function Stick({ label, x, y }: { label: string; x: number; y: number }) {
-  // x,y ∈ [-1,+1] — SVG'de ortadan offset.
+  // x,y ∈ [-1,+1] - SVG'de ortadan offset.
   const cx = 50 + x * 40;
   const cy = 50 + y * 40;
   return (

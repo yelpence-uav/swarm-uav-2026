@@ -1,4 +1,5 @@
-"""Kalkış öncesi güvenlik kontrol listesi."""
+# Copyright 2026 Yelpence
+"""Kalkis oncesi guvenlik kontrol listesi."""
 
 from .agent_context import AgentContext
 
@@ -7,17 +8,7 @@ def run_preflight_checks(
     ctx: AgentContext,
     battery_min_voltage: float = 15.2,
 ) -> tuple[bool, list[str]]:
-    """
-    Arming'e izin verilip verilmeyeceğini kontrol eder.
-
-    Args:
-        ctx: Drone'un anlık durum bilgisi.
-        battery_min_voltage: Kalkış için minimum güvenli voltaj (V).
-
-    Returns:
-        (passed, failures): passed=True ise tüm kontroller geçti;
-        failures listesi başarısız kontrollerin açıklamalarını içerir.
-    """
+    """Arming'e izin verilip verilmeyecegini kontrol eder."""
     failures: list[str] = []
 
     if not ctx.px4_link_ok:
@@ -55,7 +46,11 @@ def run_preflight_checks(
     if not ctx.sitl_mode and not ctx.origin_synced:
         failures.append("Swarm origin senkronize değil")
 
-    if ctx.battery_voltage_v > 0.0 and ctx.battery_voltage_v < battery_min_voltage:
+    is_low_battery = (
+        ctx.battery_voltage_v > 0.0
+        and ctx.battery_voltage_v < battery_min_voltage
+    )
+    if is_low_battery:
         failures.append(
             f"Batarya voltajı düşük: {ctx.battery_voltage_v:.1f}V"
             f" (min {battery_min_voltage}V)"

@@ -8,7 +8,7 @@ import { droneIcon } from "./droneIcon";
 import { qrIcon } from "./qrIcon";
 import "./Map.css";
 
-// PX4 SITL default home (Zürich Hönggerberg) — test publisher burayı kullanıyor.
+// PX4 SITL default home (Zürich Hönggerberg) - test publisher burayı kullanıyor.
 // Saha'da ilk gerçek pozisyon gelince auto-fit zaten doğru yere alır.
 const ZURICH: L.LatLngTuple = [47.397742, 8.545594];
 const DEFAULT_ZOOM = 19;
@@ -17,9 +17,9 @@ const TRAIL_MAX_POINTS = 80;       // drone başına iz çizgisi uzunluğu
 
 // DroneCard'taki --color-drone-* ile eşleşmeli (cyan/violet/orange tematik aksent).
 const COLORS: Record<number, string> = {
-  1: "#38bdf8",  // cyan — Drone 1
-  2: "#a78bfa",  // violet — Drone 2
-  3: "#fb923c",  // orange — Drone 3
+  1: "#38bdf8",  // cyan - Drone 1
+  2: "#a78bfa",  // violet - Drone 2
+  3: "#fb923c",  // orange - Drone 3
 };
 
 interface DroneVisuals {
@@ -33,7 +33,7 @@ interface DroneVisuals {
 export interface MapProps {
   snapshot: DroneState[];
   qrPositions?: QRPosition[];
-  activeQrId?: number; // swarm_state.current_qr_id — aktif QR'ı vurgula
+  activeQrId?: number; // swarm_state.current_qr_id - aktif QR'ı vurgula
 }
 
 export function MapView({ snapshot, qrPositions = [], activeQrId = 0 }: MapProps) {
@@ -87,7 +87,7 @@ export function MapView({ snapshot, qrPositions = [], activeQrId = 0 }: MapProps
       updateDroneVisuals(map, visualsRef.current, drone);
     }
 
-    // Formation çizgisi — 2+ drone varsa aralarına bağlantı
+    // Formation çizgisi - 2+ drone varsa aralarına bağlantı
     updateFormationLine(map, formationLineRef, validDrones);
 
     // Auto-follow: drone'ların etrafına otomatik zoom
@@ -108,7 +108,7 @@ export function MapView({ snapshot, qrPositions = [], activeQrId = 0 }: MapProps
     }
   }, [snapshot]);
 
-  // QR nokta işaretçileri — operatörün girdiği sabit konumlar. qrPositions
+  // QR nokta işaretçileri - operatörün girdiği sabit konumlar. qrPositions
   // veya aktif QR değişince güncellenir. Sadece lat/lon girilmiş olanlar çizilir.
   useEffect(() => {
     const map = mapRef.current;
@@ -298,7 +298,7 @@ function buildPopup(d: DroneState): string {
   return `
     <div style="font-family: ui-monospace, monospace; font-size: 12px;">
       <div style="font-weight: 600; margin-bottom: 4px;">${d.name}</div>
-      <div>${status} — ${d.mode}</div>
+      <div>${status} - ${d.mode}</div>
       <div>alt: ${d.alt_m.toFixed(1)} m</div>
       <div>hız: ${d.groundspeed_mps.toFixed(1)} m/s</div>
       <div>yaw: ${d.yaw_deg.toFixed(1)}°</div>

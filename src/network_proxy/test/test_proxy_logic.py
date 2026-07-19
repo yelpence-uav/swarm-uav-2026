@@ -1,7 +1,7 @@
-"""test_proxy_logic.py — proxy karar mantığı testleri (rclpy, spin YOK).
+"""test_proxy_logic.py - proxy karar mantığı testleri (rclpy, spin YOK).
 
-Deterministik: konumlar ya aynı (0 m → drop olasılığı 0, asla düşmez) ya da
-1° uzak (~111 km → cutoff ötesi, hep düşer). Böylece rastgeleliğe gerek yok.
+Deterministik: konumlar ya aynı (0 m -> drop olasılığı 0, asla düşmez) ya da
+1° uzak (~111 km -> cutoff ötesi, hep düşer). Böylece rastgeleliğe gerek yok.
 Relay olup olmadığı, gecikme kuyruğuna (_pending) mesaj eklendi mi ile ölçülür.
 """
 
@@ -25,8 +25,8 @@ from swarm_interfaces.msg import (
 
 from network_proxy.network_proxy_node import NetworkProxyNode
 
-_YAKIN = (41.0, 29.0, 0.0)          # 0 m → asla düşmez
-_UZAK = (42.0, 29.0, 0.0)           # ~111 km → cutoff ötesi, hep düşer
+_YAKIN = (41.0, 29.0, 0.0)          # 0 m -> asla düşmez
+_UZAK = (42.0, 29.0, 0.0)           # ~111 km -> cutoff ötesi, hep düşer
 
 
 @pytest.fixture(scope="module")
@@ -41,7 +41,7 @@ def node():
 def _reset(n):
     """Her testten önce: kuyruğu boşalt, fault temizle, herkesi yakına al.
 
-    _pos_stamp temizlenir → damgası olmayan konum "taze" sayılır (tazelik
+    _pos_stamp temizlenir -> damgası olmayan konum "taze" sayılır (tazelik
     denetimi yalnız açıkça eski damga konanları atar).
     """
     n._pending.clear()
@@ -73,14 +73,14 @@ def test_broadcast_yakin_dusmez(node):
 
 def test_broadcast_gonderen_izole_duser(node):
     """Gönderen TÜM komşularından menzil dışıysa (en yakın komşu bile
-    cutoff ötesi) non-kritik yayın düşer — mesh'e hiç giremez."""
+    cutoff ötesi) non-kritik yayın düşer - mesh'e hiç giremez."""
     _reset(node)  # drone2, drone3 _YAKIN kalır
     node.positions["drone1"] = _UZAK  # gönderen komşularından izole
     assert node._broadcast_drop("drone1") is True
 
 
 def test_broadcast_bir_komsu_uzak_digeri_yakin_gecer(node):
-    """Bir alıcı uzak, bir alıcı yakınsa yayın GEÇER — en yakın komşu
+    """Bir alıcı uzak, bir alıcı yakınsa yayın GEÇER - en yakın komşu
     paketi mesh'e sokar (multi-hop). Eski 'en uzak alıcı' modeli bunu
     yanlışlıkla düşürürdü."""
     _reset(node)
@@ -109,9 +109,10 @@ def test_broadcast_uzak_alici_unreachable_sayilmaz(node):
 
 # ---------------- reliability sınıfları (mesh retry hizası) ----------------
 def test_control_gcs_konumsuzken_uzakta_bile_iletilir(node):
-    """gcs konumu verilmediğinde (test node varsayılanı) KOMUT mesafe zarından
-    muaftır — deadman/emergency sessizce kesilmesin diye. Droneler uzak olsa
-    bile geçer. (gcs verilince zar uygulanır: bkz. test_control_gcs_mesafe_zari.)"""
+    """GCS konumu verilmediginde kontrol menzil disi olsa bile gecer.
+
+    (gcs verilince zar uygulanir: bkz. test_control_gcs_mesafe_zari.)
+    """
     _reset(node)
     for a in node.agent_ids:
         node.positions[a] = _UZAK
@@ -120,7 +121,7 @@ def test_control_gcs_konumsuzken_uzakta_bile_iletilir(node):
 
 
 def test_state_gonderen_izole_dusurulur(node):
-    """SWARM_STATE non-kritik → mesafe zarı VAR; lider komşularından
+    """SWARM_STATE non-kritik -> mesafe zarı VAR; lider komşularından
     izole ise (en yakın komşu bile cutoff ötesi) düşer."""
     _reset(node)  # drone2, drone3 _YAKIN kalır
     node.positions["drone1"] = _UZAK  # lider komşularından izole
@@ -172,7 +173,7 @@ def test_faultinjection_status_kesilir(node):
 
 
 def test_faultinjection_state_de_kesilir(node):
-    """Lider menzil dışı → SwarmState de kesilmeli (tutarlılık düzeltmesi)."""
+    """Lider menzil dışı -> SwarmState de kesilmeli (tutarlılık düzeltmesi)."""
     _reset(node)
     node.unreachable_agents = {"drone1"}
     m = SwarmState()
@@ -190,7 +191,7 @@ def test_status_yakinda_iletilir(node):
 
 
 # ---------------- kritik kanallarda fiziksel menzil (retry menzil dışını
-# kurtarmaz — mesh_config.h _mesh_gonder: retry yalnız esp_now_send
+# kurtarmaz - mesh_config.h _mesh_gonder: retry yalnız esp_now_send
 # başarısızlığını dener, fiziksel olarak ulaşmayan sinyali kurtaramaz) -----
 def test_election_yakinda_iletilir(node):
     _reset(node)
@@ -225,7 +226,7 @@ def test_election_confirmed_ids_dortten_azsa_dokunulmaz(node):
 
 def test_election_gonderen_izole_dusurulur(node):
     """Yeni lider (new_leader_id) TÜM komşularından menzil dışıysa (izole)
-    election düşer — mesh'e paketi sokacak komşu yok. Gönderen uzakta,
+    election düşer - mesh'e paketi sokacak komşu yok. Gönderen uzakta,
     komşular birbirine yakın (başka bir kümede)."""
     _reset(node)  # drone2, drone3 _YAKIN kalır
     node.positions["drone1"] = _UZAK  # gönderen komşularından ~111 km uzak
@@ -237,7 +238,7 @@ def test_election_gonderen_izole_dusurulur(node):
 
 def test_election_bir_komsuya_yakinsa_iletilir(node):
     """Multi-hop: lider bir komşuyla menzilde, diğeri uzak olsa bile
-    election iletilir — yakın komşu paketi mesh'e sokup geri kalana yayar.
+    election iletilir - yakın komşu paketi mesh'e sokup geri kalana yayar.
     (Eski 'en uzak alıcı' modeli bunu yanlışlıkla düşürürdü.)"""
     _reset(node)
     # drone1 (gönderen/lider) drone2 ile _YAKIN, drone3 uzak
@@ -258,7 +259,7 @@ def test_election_gonderen_unreachable_keser(node):
 
 
 def test_event_kaynaksiz_menzil_kontrolsuz_iletilir(node):
-    """source_agent_id==0 (sistem/GCS) → fiziksel verici yok, menzil
+    """source_agent_id==0 (sistem/GCS) -> fiziksel verici yok, menzil
     kontrolü uygulanmaz, her zaman geçer."""
     _reset(node)
     for a in node.agent_ids:
@@ -280,7 +281,7 @@ def test_event_kaynak_izole_dusurulur(node):
 
 # ---------------- QRCoordinates (latched, origin sınıfı) ----------------
 def test_qr_coords_uzakta_bile_iletilir(node):
-    """QR tablosu latched/statik (origin sınıfı) → mesafe zarı yok, hep geçer."""
+    """QR tablosu latched/statik -> mesafe zari yok, hep gecer."""
     _reset(node)
     for a in node.agent_ids:
         node.positions[a] = _UZAK
@@ -296,7 +297,7 @@ def test_qr_coords_asiri_buyuk_dusurulur(node):
     """Çok fazla QR (250 byte'ı aşan tablo) bütçe kontrolünde düşer."""
     _reset(node)
     m = QRCoordinates()
-    n = 300  # 300 QR → 250 byte'ı kesin aşar
+    n = 300  # 300 QR -> 250 byte'ı kesin aşar
     m.qr_ids = [1] * n
     m.lat_deg = [41.0] * n
     m.lon_deg = [29.0] * n
@@ -305,8 +306,10 @@ def test_qr_coords_asiri_buyuk_dusurulur(node):
 
 
 def test_control_gcs_konumsuzken_muaf(node):
-    """gcs_lat/gcs_lon verilmediyse (varsayılan) control menzil kontrolünden
-    muaf kalır — mevcut davranış korunur (bkz. test_control_uzakta_bile_iletilir)."""
+    """GCS konumu verilmediyse control menzilden muaf kalir.
+
+    Mevcut davranis korunur.
+    """
     _reset(node)
     assert node._gcs_configured is False
     for a in node.agent_ids:
@@ -326,7 +329,7 @@ def test_control_gcs_mesafe_zari(node):
     # GCS bir drone'a ulaşabildiği sürece geçer (en yakın komşu mesh'e sokar)
     node.positions["drone1"] = _UZAK
     assert node._broadcast_drop("gcs") is False
-    # Ancak TÜM droneler cutoff ötesindeyse → eğri %100 → düşer
+    # Ancak TÜM droneler cutoff ötesindeyse -> eğri %100 -> düşer
     node.positions["drone2"] = _UZAK
     node.positions["drone3"] = _UZAK
     assert node._broadcast_drop("gcs") is True
@@ -334,7 +337,7 @@ def test_control_gcs_mesafe_zari(node):
 
 # ---------------- A: GPS geçerlilik denetimi (çöp konum sokulmaz) ----------
 def test_gps_gecersiz_fix_saklanmaz(node):
-    """gps_fix_type < 3 (kilit yok) → konum güncellenmez; ham koordinat
+    """gps_fix_type < 3 (kilit yok) -> konum güncellenmez; ham koordinat
     mesafe matematiğine sokulmaz."""
     _reset(node)
     node.positions["drone1"] = None
@@ -347,7 +350,7 @@ def test_gps_gecersiz_fix_saklanmaz(node):
 
 
 def test_gps_sifir_koordinat_saklanmaz(node):
-    """3D fix olsa bile (0,0) koordinat saklanmaz — Gine Körfezi sahte
+    """3D fix olsa bile (0,0) koordinat saklanmaz - Gine Körfezi sahte
     mesafesini önler."""
     _reset(node)
     node.positions["drone1"] = None
@@ -359,7 +362,7 @@ def test_gps_sifir_koordinat_saklanmaz(node):
 
 
 def test_gps_gecerli_saklanir(node):
-    """3D fix + geçerli koordinat → konum ve zaman damgası güncellenir."""
+    """3D fix + geçerli koordinat -> konum ve zaman damgası güncellenir."""
     _reset(node)
     node.positions["drone1"] = None
     msg = AgentStatus()
@@ -371,7 +374,7 @@ def test_gps_gecerli_saklanir(node):
 
 
 def test_gps_gecersizde_son_gecerli_korunur(node):
-    """Kilit kaybolunca (fix<3) son GEÇERLİ konum korunur, (0,0) ile ezilmez."""
+    """Kilit kaybolunca son konum korunur."""
     _reset(node)
     node.positions["drone1"] = (41.0, 29.0, 5.0)
     node._pos_stamp["drone1"] = node.get_clock().now().nanoseconds / 1e9
@@ -385,23 +388,23 @@ def test_gps_gecersizde_son_gecerli_korunur(node):
 # ---------------- B: bayat konum denetimi (ölü komşu sayılmaz) -------------
 def test_bayat_komsu_atlanir(node):
     """Konumu _STALE_LIMIT_S'ten eski komşu ölü sayılır: yakın ama bayat
-    drone2 sayılmazsa, gönderenin tek canlı komşusu uzak drone3 kalır →
-    gönderen izole → düşer. (Bayat atlanmasaydı drone2 yakın olduğu için
+    drone2 sayılmazsa, gönderenin tek canlı komşusu uzak drone3 kalır ->
+    gönderen izole -> düşer. (Bayat atlanmasaydı drone2 yakın olduğu için
     geçerdi.)"""
     _reset(node)
     now = node.get_clock().now().nanoseconds / 1e9
     node.positions["drone2"] = _YAKIN
-    node._pos_stamp["drone2"] = now - 20.0  # 20 s eski → bayat (>12 s)
+    node._pos_stamp["drone2"] = now - 20.0  # 20 s eski -> bayat (>12 s)
     node.positions["drone3"] = _UZAK
     assert node._broadcast_drop("drone1") is True
 
 
 def test_taze_komsu_sayilir(node):
-    """Aynı kurulum ama drone2 damgası TAZE → yakın komşu geçerli, geçer."""
+    """Aynı kurulum ama drone2 damgası TAZE -> yakın komşu geçerli, geçer."""
     _reset(node)
     now = node.get_clock().now().nanoseconds / 1e9
     node.positions["drone2"] = _YAKIN
-    node._pos_stamp["drone2"] = now - 1.0  # 1 s → taze
+    node._pos_stamp["drone2"] = now - 1.0  # 1 s -> taze
     node.positions["drone3"] = _UZAK
     assert node._broadcast_drop("drone1") is False
 
@@ -409,7 +412,7 @@ def test_taze_komsu_sayilir(node):
 # ---------------- C: kritik kanal artık kademeli mesafe zarına giriyor -----
 def test_kritik_election_mesafe_zarina_girer(node, monkeypatch):
     """C düzeltmesinin çekirdeği: election (kritik) artık should_drop_packet'i
-    çağırıyor — eski ikili model bu olasılık eğrisine HİÇ girmezdi."""
+    çağırıyor - eski ikili model bu olasılık eğrisine HİÇ girmezdi."""
     _reset(node)
     cagrildi = {}
 
@@ -422,7 +425,7 @@ def test_kritik_election_mesafe_zarina_girer(node, monkeypatch):
     m.new_leader_id = 1
     node._on_internal_election(m)
     assert "dist" in cagrildi          # mesafe zarı gerçekten atıldı
-    assert len(node._pending) == 0     # zar düşür dedi → düşürüldü
+    assert len(node._pending) == 0     # zar düşür dedi -> düşürüldü
 
 
 def test_kritik_event_mesafe_zarina_girer(node, monkeypatch):
@@ -453,8 +456,7 @@ def test_lider_heartbeat_ile_yakalanir(node):
 
 
 def test_lider_heartbeat_dusse_bile_yakalanir(node):
-    """Heartbeat /public'e DÜŞSE bile lider yakalanır — proxy gerçek lideri
-    /internal'dan drop'tan önce okur (formation/mission bunun konumunu kullanır)."""
+    """Lider heartbeat public'e dusse bile yakalanir."""
     _reset(node)
     node.positions["drone2"] = _UZAK  # lider drone2 komşularından izole
     m = LeaderHeartbeat()
@@ -473,7 +475,7 @@ def test_lider_election_ile_yakalanir(node):
     assert node._current_leader_id == 3
 
 
-# ---------------- Formasyon/görev fazı: liderden çıkar → mesafe kaybı ------
+# ---------------- Formasyon/görev fazı: liderden çıkar -> mesafe kaybı ------
 def test_formation_lider_yakinken_iletilir(node):
     _reset(node)
     node._current_leader_id = 1
@@ -482,7 +484,7 @@ def test_formation_lider_yakinken_iletilir(node):
 
 
 def test_formation_lider_izole_dusurulur(node):
-    """Lider komşularından izole (en yakın komşu cutoff ötesi) → formasyon düşer."""
+    """Lider izole ise formasyon duser."""
     _reset(node)
     node._current_leader_id = 1
     node.positions["drone1"] = _UZAK  # lider komşularından ~111 km
@@ -491,7 +493,7 @@ def test_formation_lider_izole_dusurulur(node):
 
 
 def test_formation_lider_bilinmiyorsa_iletilir(node):
-    """Lider henüz bilinmiyorsa (None) fail-open: droneler uzak olsa bile geçer."""
+    """Lider henuz bilinmiyorsa fail-open ile iletilir."""
     _reset(node)
     node._current_leader_id = None
     for a in node.agent_ids:

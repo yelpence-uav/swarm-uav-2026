@@ -1,4 +1,4 @@
-"""test_ema.py — _EmaDurum sınıfı birim testleri.
+"""test_ema.py - _EmaDurum sınıfı birim testleri.
 
 EMA matematiği basit; testin amacı:
 - İlk ölçümde "warm start" yaparak ham değeri kullanmak

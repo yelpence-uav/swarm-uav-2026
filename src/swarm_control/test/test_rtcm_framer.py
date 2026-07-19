@@ -1,4 +1,4 @@
-"""test_rtcm_framer.py — RTCM3 ayıklayıcı (iter_rtcm_messages) testleri.
+"""test_rtcm_framer.py - RTCM3 ayıklayıcı (iter_rtcm_messages) testleri.
 
 Birim test deseni `test_esp32_cobs.py` ile aynıdır: pytest function-style,
 docstring'li, edge case'leri kapsar. Saf Python (ROS importu yok).
@@ -93,7 +93,7 @@ def test_bos_akis_sonuc_bos():
 
 
 def test_iki_mesaj_arada_kuyruk():
-    """1 tam mesaj + yarım mesaj → 1 mesaj alınır, yarım remainder."""
+    """1 tam mesaj + yarım mesaj -> 1 mesaj alınır, yarım remainder."""
     f1 = _cerceve_uret(b'\x01')
     f2 = _cerceve_uret(b'\x02\x03')
     akis = f1 + f2[:5]  # f2'nin sadece ilk 5 baytı
