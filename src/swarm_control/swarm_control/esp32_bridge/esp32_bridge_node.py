@@ -461,7 +461,7 @@ class Esp32BridgeNode(Node):
                 self._seri_ac()
                 continue
             try:
-                veri = self._ser.read(64)
+                veri = self._ser.read(2048)
             except serial.SerialException as exc:
                 self.get_logger().warning(
                     f'Seri okuma hatası, yeniden bağlanılacak: {exc}'
@@ -598,8 +598,8 @@ class Esp32BridgeNode(Node):
                 status.xy_valid = True
                 status.z_valid = True
                 status.v_xy_valid = True
-                # v_z_valid YOK çünkü vz mesh'te taşınmıyor;
-                # AgentStatus.msg'de v_z_valid alanı varsa false kalır
+                if hasattr(status, 'v_z_valid'):
+                    status.v_z_valid = True
             else:
                 # Origin yok → NED hesaplanamaz, downstream skipler
                 status.pos_x = 0.0
@@ -609,6 +609,8 @@ class Esp32BridgeNode(Node):
                 status.xy_valid = False
                 status.z_valid = False
                 status.v_xy_valid = False
+                if hasattr(status, 'v_z_valid'):
+                    status.v_z_valid = False
             self._yayinla_status(drone_id, status)
 
     def _gps_ned_cevir(
