@@ -24,9 +24,20 @@ TIP_DURUM = 0x07
 TIP_ORIGIN = 0x08
 TIP_LEADER_HB = 0x09
 TIP_ELECTION = 0x0A
+TIP_HEARTBEAT = 0x03
+TIP_VERSION = 0x0B
+TIP_RTK = 0x0C
+TIP_SWARM_STATE = 0x0D
+TIP_QR_DATA = 0x0E
 
-# ===== Payload struct formatları (little-endian, packed, 16 byte) =====
-_POSE_FMT = '<iihhhh'        # lat, lon, alt_cm, heading, vx, vy
+# Mesh kimlik sabitleri (mesh_config.h)
+BAZ_ID = 99          # RTK UART sentinel'i, mesh kimliği DEĞİL
+BAZ_MESH_ID = 10     # baz istasyonu mesh kimliği
+MESH_MAX_NODES = 8
+
+# ===== Payload struct formatları (little-endian, packed) =====
+# POSE 18B (vz), diğer tipler 16B.
+_POSE_FMT = '<iihhhhh'       # lat, lon, alt_dm, heading, vx, vy, vz
 _DURUM_FMT = '<BBBBBfBBBBbBB'  # bkz. DurumVeri alanları
 _RENK_FMT = '<Bii7x'         # renk, lat, lon, rezerv[7]
 _GOREV_FMT = '<BBbB12x'      # tip, param1, param2, bekleme, rezerv[12]
@@ -34,6 +45,8 @@ _ORIGIN_FMT = '<iiiI'        # lat_1e7, lon_1e7, alt_mm, sequence
 _KOMUT_FMT = '<BBhhhh6x'     # alt_tip, flags, roll/pitch/yaw/throttle x100
 _LEADER_HB_FMT = '<BIBBB8x'  # leader_id, seq, round, agent_count, mission
 _ELECTION_FMT = '<BBBBIBBBB4x'  # leader, round, reason, trigger, seq, ids
+_QR_FMT = '<BIii3x'          # drone_id, action_id, lat, lon, rezerv[3]
+_SWARM_STATE_FMT = '<BBBBI8x'  # mission_id, fsm, leader, formation, timestamp
 
 # Joystick komutu bayrak bitleri (komut_veri_t.flags için).
 # DEADMAN_PRESSED: SwarmControlCommand.deadman_pressed mesh üzerinden
@@ -50,7 +63,24 @@ KOMUT_FLAG_DEADMAN_PRESSED = 0x20
 KOMUT_MODE_SWARM_MOVEMENT = 1
 KOMUT_MODE_MANEUVER = 2
 
-_FRAME_MIN = 20  # 1 + 1 + 16 + 2
+_FRAME_MIN = 4  # tip + iha_id + crc16 (payload değişken)
+
+# F3: mesh-liveness yalnızca bilinen peer'dan bilinen telemetri tipiyle
+# tazelenir. RTK (0x0C) ve VERSION dışarıda; RTK ayrı izlenir.
+_LIVENESS_TIPLERI = frozenset({
+    TIP_KOMUT, TIP_POSE, TIP_GOREV, TIP_RENK, TIP_DURUM, TIP_ORIGIN,
+    TIP_LEADER_HB, TIP_ELECTION, TIP_HEARTBEAT, TIP_SWARM_STATE, TIP_QR_DATA,
+})
+
+
+def liveness_tazeler(iha_id: int, tip: int) -> bool:
+    """Bu (iha_id, tip) mesh-liveness zaman damgasını tazelemeli mi (F3).
+
+    Bilinen peer (1..MESH_MAX_NODES veya BAZ_MESH_ID) VE bilinen telemetri
+    tipi gerekir. RTK sentinel'i (99) ve bilinmeyen tipler tazelemez.
+    """
+    peer_ok = 1 <= iha_id <= MESH_MAX_NODES or iha_id == BAZ_MESH_ID
+    return peer_ok and tip in _LIVENESS_TIPLERI
 
 
 @dataclass
@@ -59,10 +89,11 @@ class PoseVeri:
 
     lat: int       # 1e-7 derece
     lon: int       # 1e-7 derece
-    alt_cm: int    # santimetre
+    alt_dm: int    # desimetre
     heading: int   # 0.1 derece
     vx: int        # cm/s
     vy: int        # cm/s
+    vz: int        # cm/s
 
 
 @dataclass
@@ -162,12 +193,33 @@ class ElectionVeri:
 
 
 @dataclass
+class QrVeri:
+    """TIP_QR_DATA payload — komşunun çözümlediği QR."""
+
+    drone_id: int
+    action_id: int   # çözümlenen QR eylemi
+    lat: int         # 1e-7 derece
+    lon: int         # 1e-7 derece
+
+
+@dataclass
+class SwarmStateVeri:
+    """TIP_SWARM_STATE payload — sürü seviyesi FSM görünümü."""
+
+    mission_id: int
+    swarm_fsm_state: int
+    active_leader: int
+    formation: int
+    timestamp: int
+
+
+@dataclass
 class Cerceve:
     """COBS+CRC doğrulanmış UART çerçevesi."""
 
     tip: int
     iha_id: int
-    payload: bytes  # 16 byte
+    payload: bytes  # değişken uzunluk
 
 
 def cerceve_coz(decoded: bytes) -> Cerceve | None:
@@ -188,13 +240,13 @@ def cerceve_coz(decoded: bytes) -> Cerceve | None:
     if crc16(govde) != crc_gelen:
         return None
 
-    return Cerceve(tip=decoded[0], iha_id=decoded[1], payload=govde[2:18])
+    return Cerceve(tip=decoded[0], iha_id=decoded[1], payload=govde[2:])
 
 
 def pose_coz(payload: bytes) -> PoseVeri:
     """TIP_POSE payload'ını PoseVeri'ye çözer."""
-    lat, lon, alt_cm, heading, vx, vy = struct.unpack(_POSE_FMT, payload)
-    return PoseVeri(lat, lon, alt_cm, heading, vx, vy)
+    lat, lon, alt_dm, heading, vx, vy, vz = struct.unpack(_POSE_FMT, payload)
+    return PoseVeri(lat, lon, alt_dm, heading, vx, vy, vz)
 
 
 def durum_coz(payload: bytes) -> DurumVeri:
@@ -319,25 +371,20 @@ def origin_paketle(lat_1e7: int, lon_1e7: int, alt_mm: int,
     return struct.pack(_ORIGIN_FMT, lat_1e7, lon_1e7, alt_mm, sequence)
 
 
-def pose_paketle(lat: int, lon: int, alt_cm: int, heading: int,
-                 vx: int, vy: int) -> bytes:
-    """Pose verisi alanlarını 16 baytlık mesh payload'ına paketler.
+def pose_paketle(lat: int, lon: int, alt_dm: int, heading: int,
+                 vx: int, vy: int, vz: int) -> bytes:
+    """Pose verisi alanlarını 18 baytlık mesh payload'ına paketler.
 
-    RPi kendi RTK konumunu ESP32'ye gönderirken kullanır.
-
-    alt_cm/heading/vx/vy int16 (±327.67 m / 3276.7°/cm·s) aralığında
-    kırpılır; sınır dışı değerler struct.error fırlatmak yerine sessizce
-    kırpılır. Yarışma sahası 10 m × 10 m, ~30 m irtifa için aralık
-    fazlasıyla yeterli; bu kırpma sadece sensör glitch korumasıdır.
+    int16 alanlar ±327.67 aralığına kırpılır (sensör glitch koruması).
 
     Returns:
-        bytes: 16 baytlık payload.
+        bytes: 18 baytlık payload.
     """
     def _kirp(v: int) -> int:
         return max(-32768, min(32767, int(v)))
     return struct.pack(
         _POSE_FMT, int(lat), int(lon),
-        _kirp(alt_cm), _kirp(heading), _kirp(vx), _kirp(vy),
+        _kirp(alt_dm), _kirp(heading), _kirp(vx), _kirp(vy), _kirp(vz),
     )
 
 
@@ -427,3 +474,17 @@ def election_paketle(new_leader_id: int, election_round: int,
         new_leader_id, election_round, reason, triggered_by,
         sequence_num, ids[0], ids[1], ids[2], ids[3],
     )
+
+
+def qr_coz(payload: bytes) -> QrVeri:
+    """TIP_QR_DATA payload'ını QrVeri'ye çözer."""
+    drone_id, action_id, lat, lon = struct.unpack(_QR_FMT, payload)
+    return QrVeri(drone_id, action_id, lat, lon)
+
+
+def swarm_state_coz(payload: bytes) -> SwarmStateVeri:
+    """TIP_SWARM_STATE payload'ını SwarmStateVeri'ye çözer."""
+    mission_id, fsm, leader, formation, ts = struct.unpack(
+        _SWARM_STATE_FMT, payload
+    )
+    return SwarmStateVeri(mission_id, fsm, leader, formation, ts)

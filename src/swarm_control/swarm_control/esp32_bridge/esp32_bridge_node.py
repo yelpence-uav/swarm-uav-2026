@@ -40,6 +40,7 @@ from rclpy.qos import (
 )
 import serial
 
+from std_msgs.msg import UInt8MultiArray
 from swarm_interfaces.msg import (
     AgentStatus,
     ElectionResult,
@@ -173,7 +174,8 @@ class Esp32BridgeNode(Node):
 
         self.declare_parameter('agent_id', 1)
         self.declare_parameter('serial_port', '/dev/ttyUSB0')
-        self.declare_parameter('baud', 115200)
+        self.declare_parameter('baud', 460800)
+        self.declare_parameter('rtcm_out_topic', '/rtcm/in')
         self._agent_id = int(self.get_parameter('agent_id').value)
         port = str(self.get_parameter('serial_port').value)
         baud = int(self.get_parameter('baud').value)
@@ -204,6 +206,8 @@ class Esp32BridgeNode(Node):
         self._crc_fail = 0         # CRC eşleşmemiş paket sayısı
         self._gonderim_ok = 0      # UART'a başarılı yazılan paket sayısı
         self._gonderim_drop = 0    # port kapalı/hata ile düşürülen
+        self._rtk_alindi = 0       # alınan RTK/RTCM çerçevesi (liveness değil)
+        self._bilinmeyen_tip = 0   # dispatch'te eşleşmeyen tip sayısı
         # Mesh'ten gelen KOMUT için bridge-tarafı sequence sayacı;
         # firmware payload'ında seq alanı eklenene kadar 0 yerine monoton
         # değer üretir, downstream dedup yapabilir.
@@ -263,6 +267,12 @@ class Esp32BridgeNode(Node):
             SystemEvent,
             '/swarm/public/events/system',
             _EVENT_QOS,
+        )
+        # RTK: mesh'ten gelen RTCM'i px4_interface'e ilet (rtcm/in)
+        self._rtcm_pub = self.create_publisher(
+            UInt8MultiArray,
+            str(self.get_parameter('rtcm_out_topic').value),
+            10,
         )
 
         # Seri port ayarlarını sakla — kopma sonrası reconnect için
@@ -378,6 +388,7 @@ class Esp32BridgeNode(Node):
             f'gonderim_ok={self._gonderim_ok} '
             f'gonderim_drop={self._gonderim_drop} '
             f'id_uyumsuz={self._id_uyumsuz} '
+            f'rtk={self._rtk_alindi} bilinmeyen={self._bilinmeyen_tip} '
             f'son_alim_yas_s={son_alim_yas:.2f}'
         )
         # Mesh diag: bu drone'un kendi gözleminden çıkıyor → /internal/
@@ -476,7 +487,7 @@ class Esp32BridgeNode(Node):
                         tampon.clear()
                 else:
                     tampon.append(byte)
-                    if len(tampon) > 64:  # taşma koruması
+                    if len(tampon) > 2048:  # taşma koruması (RTK ~1.6KB)
                         tampon.clear()
 
     def _cerceve_isle(self, ham: bytes) -> None:
@@ -492,16 +503,22 @@ class Esp32BridgeNode(Node):
             self._crc_fail += 1
             return
         self._alim_ok += 1
-        self._son_alim_ts = time.monotonic()
-        # _cache_lock: bu metod seri okuma thread'inden cagrilir; ayni
-        # dict'i _diag_yayinla (ROS timer thread'i) itere eder. Kilitsiz
-        # yazma, iterasyon sirasinda "dict changed size" cokmesine yol acar.
-        with self._cache_lock:
-            self._komsu_son_goruldu[cerceve.iha_id] = self._son_alim_ts
+        # F3: mesh-liveness yalnızca bilinen peer + bilinen telemetri tipiyle
+        # tazelenir; RTK (99) ve bilinmeyen tip tazelemez.
+        if pp.liveness_tazeler(cerceve.iha_id, cerceve.tip):
+            now = time.monotonic()
+            self._son_alim_ts = now
+            # _cache_lock: bu metod seri okuma thread'inden çağrılır; aynı
+            # dict'i _diag_yayinla (ROS timer thread'i) itere eder.
+            with self._cache_lock:
+                self._komsu_son_goruldu[cerceve.iha_id] = now
 
-        # Defansif: firmware kendi paketlerini ISR'da filtreler ama
-        # bir hata olur da kendi paketimiz geri gelirse komşu yayını
-        # yapmayalım (kendi pose'umuz px4_bridge'den geliyor).
+        # RTK baz sentinel'inden (99) gelir, komşu telemetrisi değil.
+        if cerceve.tip == pp.TIP_RTK:
+            self._isle_rtk(cerceve.payload)
+            return
+
+        # Defansif: kendi/broadcast paketini komşu olarak işleme.
         if cerceve.iha_id == 0 or cerceve.iha_id == self._agent_id:
             return
 
@@ -521,6 +538,17 @@ class Esp32BridgeNode(Node):
             self._isle_renk(cerceve.iha_id, cerceve.payload)
         elif cerceve.tip == pp.TIP_GOREV:
             self._isle_gorev(cerceve.iha_id, cerceve.payload)
+        elif cerceve.tip == pp.TIP_QR_DATA:
+            self._isle_qr(cerceve.iha_id, cerceve.payload)
+        elif cerceve.tip == pp.TIP_SWARM_STATE:
+            self._isle_swarm_state(cerceve.iha_id, cerceve.payload)
+        elif cerceve.tip in (pp.TIP_HEARTBEAT, pp.TIP_VERSION):
+            pass  # bilinen tip, downstream aksiyonu yok
+        else:
+            self._bilinmeyen_tip += 1
+            self.get_logger().warning(
+                f'bilinmeyen tip 0x{cerceve.tip:02X} iha_id={cerceve.iha_id}'
+            )
 
     # =================================================================
     # MESH -> ROS2 İŞLEYİCİLERİ
@@ -544,15 +572,11 @@ class Esp32BridgeNode(Node):
 
         Beyza inceleme #1, #2, #3: NED + validity + origin_synced
         eskiden hiç set edilmiyordu, hepsi burada düzelir.
-
-        vel_z mesh protokolünde yok (POSE 16 byte dolu). Bu kısıt
-        Büşra ile koordine edilecek; şimdilik vel_z=0.0 (v_xy_valid
-        sadece yatay hızı kapsar, contract ile uyumlu).
         """
         pose = pp.pose_coz(payload)
         lat_deg = pose.lat / 1e7
         lon_deg = pose.lon / 1e7
-        alt_amsl_m = pose.alt_cm / 100.0
+        alt_amsl_m = pose.alt_dm / 10.0
         vel_x_ned, vel_y_ned = pose.vx / 100.0, pose.vy / 100.0
         with self._cache_lock:
             status = self._komsu_status_al(drone_id)
@@ -563,7 +587,7 @@ class Esp32BridgeNode(Node):
             status.heading_deg = pose.heading / 10.0
             status.vel_x = vel_x_ned
             status.vel_y = vel_y_ned
-            status.vel_z = 0.0  # mesh protokolünde vz yok (Büşra TODO)
+            status.vel_z = pose.vz / 100.0
             # GPS→NED dönüşümü ve validity bayrakları
             ned = self._gps_ned_cevir(lat_deg, lon_deg, alt_amsl_m)
             if ned is not None:
@@ -811,6 +835,53 @@ class Esp32BridgeNode(Node):
         )
         self._event_pub_public.publish(msg)
 
+    def _isle_qr(self, source_id: int, payload: bytes) -> None:
+        """TIP_QR_DATA -> SystemEvent.EVENT_QR_PARSED (YKİ görüntülesin).
+
+        Şartname s.13: QR'ın YKİ'de en az bir kez görüntülenmesi zorunlu.
+        """
+        q = pp.qr_coz(payload)
+        msg = SystemEvent()
+        msg.stamp = self.get_clock().now().to_msg()
+        msg.event_type = SystemEvent.EVENT_QR_PARSED
+        msg.severity = SystemEvent.SEVERITY_INFO
+        msg.source_agent_id = source_id
+        msg.value = float(q.action_id)
+        msg.has_position = False
+        msg.source_module = 'esp32_bridge'
+        msg.message = (
+            f'qr drone={q.drone_id} action={q.action_id} '
+            f'lat_1e7={q.lat} lon_1e7={q.lon}'
+        )
+        self._event_pub_public.publish(msg)
+
+    def _isle_swarm_state(self, source_id: int, payload: bytes) -> None:
+        """TIP_SWARM_STATE -> SystemEvent (komşunun sürü FSM görünümü)."""
+        s = pp.swarm_state_coz(payload)
+        msg = SystemEvent()
+        msg.stamp = self.get_clock().now().to_msg()
+        msg.event_type = SystemEvent.EVENT_UNKNOWN
+        msg.severity = SystemEvent.SEVERITY_INFO
+        msg.source_agent_id = source_id
+        msg.value = float(s.swarm_fsm_state)
+        msg.has_position = False
+        msg.source_module = 'esp32_bridge'
+        msg.message = (
+            f'swarm_state mission={s.mission_id} fsm={s.swarm_fsm_state} '
+            f'leader={s.active_leader} formation={s.formation}'
+        )
+        self._event_pub_public.publish(msg)
+
+    def _isle_rtk(self, payload: bytes) -> None:
+        """TIP_RTK -> RTCM baytlarını px4_interface'e (rtcm/in) iletir.
+
+        Zincir: baz -> mesh -> ESP -> burası -> px4_bridge -> MAVROS -> PX4.
+        """
+        self._rtk_alindi += 1
+        msg = UInt8MultiArray()
+        msg.data = list(payload)
+        self._rtcm_pub.publish(msg)
+
     # =================================================================
     # ROS2 -> MESH İŞLEYİCİLERİ (UART'a yaz)
     # =================================================================
@@ -822,8 +893,10 @@ class Esp32BridgeNode(Node):
             iha_id (int): Kaynak drone kimliği.
             payload (bytes): 16 baytlık payload.
         """
-        if len(payload) != 16:
-            self.get_logger().warning('UART payload 16 byte değil, atlandı')
+        if not 1 <= len(payload) <= 18:
+            self.get_logger().warning(
+                f'UART payload 1-18 byte olmalı ({len(payload)}), atlandı'
+            )
             return
         govde = bytes([tip, iha_id]) + payload
         crc = crc16(govde)
@@ -864,10 +937,11 @@ class Esp32BridgeNode(Node):
             payload = pp.pose_paketle(
                 lat=int(msg.lat_deg * 1e7),
                 lon=int(msg.lon_deg * 1e7),
-                alt_cm=int(msg.alt_amsl_m * 100.0),
+                alt_dm=int(msg.alt_amsl_m * 10.0),
                 heading=int(msg.heading_deg * 10.0),
                 vx=int(msg.vel_x * 100.0),
                 vy=int(msg.vel_y * 100.0),
+                vz=int(msg.vel_z * 100.0),
             )
             self._uart_yaz(pp.TIP_POSE, self._agent_id, payload)
 
