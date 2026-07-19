@@ -160,6 +160,10 @@ void mesh_veri_al(const mesh_paket_t* p) {
     else if (p->tip == TIP_VERSION)     uzunluk = sizeof(version_veri_t);
     else if (p->tip == TIP_SWARM_STATE) uzunluk = sizeof(swarm_state_veri_t);
     else if (p->tip == TIP_QR_DATA)     uzunluk = sizeof(qr_veri_t);
+    // TIP_ORIGIN follower'a iletilmeli: bridge _isle_origin -> _son_origin dolar,
+    // komsu POSE -> NED donusumu buna bagli. Iletilmezse follower'da _son_origin
+    // None kalir ve tum komsu konumlari pos=0/valid=false olur.
+    else if (p->tip == TIP_ORIGIN)      uzunluk = sizeof(origin_veri_t);
     else return; // bilinmeyen tip, gonderme
     uart_gonder(p->tip, kaynak_id, payload, uzunluk);
 }
@@ -260,17 +264,22 @@ void loop() {
                 continue;
 
             // mesh_gonder() her zaman 18 byte okuyor (memcpy(tam_veri+6, veri,
-            // 18)), o yuzden buffer 18B. 16B olsaydi 2 byte stack over-read (UB)
-            // olurdu. payload_uzunluk siniri 16'da kaliyor, fazladan 2 byte zaten
-            // sifirlanmis dolgu.
+            // 18)), o yuzden buffer 18B. Cap 18: POSE 18B'dir (vz dahil, REV B)
+            // ve tam kopyalanmali; 16'da kalirsa 16-17. bayt (vz) sifirlanip
+            // mesh'e sifir gitmesine yol acardi. 16B tipler (DURUM vb.) icin
+            // fazladan baytlar zaten sifir dolgu.
             uint8_t payload[18]     = {0};
-            uint8_t payload_uzunluk = (uint8_t)min((int)cerceve_payload_uzunluk, 16);
+            uint8_t payload_uzunluk = (uint8_t)min((int)cerceve_payload_uzunluk, 18);
             memcpy(payload, cerceve_payload, payload_uzunluk);
 
-            // Whitelist: sadece Pi'den gelmesi beklenen tipler. TIP_LEADER_HB
-            // ve TIP_ELECTION dahil (aksi halde her drone kendi consensus
-            // mesajini gonderemez -> split-brain).
+            // Whitelist: sadece Pi'den gelmesi beklenen tipler. TIP_POSE dahil:
+            // bridge _on_own_status kendi konumunu 10Hz TIP_POSE olarak yolluyor;
+            // bu whitelist'te olmazsa POSE mesh'e hic girmez ve komsu konum
+            // paylasimi (carpisma onleme) korlesir. TIP_LEADER_HB ve TIP_ELECTION
+            // dahil (aksi halde her drone kendi consensus mesajini gonderemez ->
+            // split-brain).
             const bool izinli = (tip_byte == TIP_KOMUT  ||
+                                  tip_byte == TIP_POSE   ||
                                   tip_byte == TIP_GOREV  ||
                                   tip_byte == TIP_RENK   ||
                                   tip_byte == TIP_ORIGIN ||
