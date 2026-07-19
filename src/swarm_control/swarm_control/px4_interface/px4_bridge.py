@@ -4,12 +4,12 @@ px4_bridge.py
 PX4 ↔ FSM köprüsü — ana ROS2 node.
 
 İŞLEYİŞ:
-1. PX4 topic'lerini dinler (/{drone_ns}/fmu/out/...)
-   → telemetry_mapper ile AgentStatus'a çevirir
+1. MAVROS topic'lerini dinler (/{drone_ns}/mavros/...)
+   → mavros_telemetry_mapper ile (ENU→NED) AgentStatus'a çevirir
    → /swarm/agent/drone{id}/telemetry'ye yayınlar (FSM okuyacak)
 
 2. FSM komut topic'ini dinler (/swarm/agent/drone{id}/commands)
-   → command_sender ile PX4'e iletir (/{drone_ns}/fmu/in/...)
+   → mavros_command_sender ile (NED→ENU) MAVROS'a iletir
 
 3. OFFBOARD heartbeat (50 Hz) — PX4 offboard modda sürekli sinyal bekler.
    xy_valid + z_valid varsa mevcut konum hold setpoint'i olarak gönderilir.
@@ -27,20 +27,7 @@ from rclpy.qos import (
     QoSHistoryPolicy,
     QoSProfile,
     QoSReliabilityPolicy,
-)
-
-# PX4 mesaj tipleri
-from px4_msgs.msg import (
-    BatteryStatus,
-    EstimatorStatusFlags,
-    GpsInjectData,
-    HomePosition,
-    ManualControlSetpoint,
-    SensorGps,
-    VehicleAttitude,
-    VehicleGlobalPosition,
-    VehicleLocalPosition,
-    VehicleStatus,
+    qos_profile_sensor_data,
 )
 
 # Komut için basit string (FSM) ve RTCM bayt akışı (mesh -> RTK)
@@ -49,30 +36,30 @@ from std_msgs.msg import String, UInt8MultiArray
 # Bizim mesaj formatımız
 from swarm_interfaces.msg import AgentSetpoint, AgentStatus, SwarmOrigin
 
-# GPS -> paylaşılan NED çevrimi (saf matematik, ROS'suz). qr_geo ve formasyon
-# geometrisi de aynı fonksiyonu kullanır → tek kaynak, ölçek tutarlılığı.
-from swarm_core.formation_control.formation_geometry import latlon_to_ned
+# MAVROS telemetri mesaj tipleri
+from mavros_msgs.msg import EstimatorStatus, GPSRAW, RCIn, RTCM, State
+from mavros_msgs.msg import HomePosition as MavHomePosition
+from nav_msgs.msg import Odometry
+from sensor_msgs.msg import BatteryState, NavSatFix
 
-# Aynı paket içindeki yardımcılar
-from .telemetry_mapper import (
-    map_attitude,
-    map_battery,
-    map_estimator,
-    map_global_position,
-    map_gps,
-    map_home_position,
-    map_local_position,
-    map_manual_control,
-    map_vehicle_status,
+# Aynı paket içindeki yardımcılar (MAVROS yolu)
+from .mavros_command_sender import MavrosCommandSender
+from .mavros_telemetry_mapper import (
+    map_battery as mav_map_battery,
+    map_estimator_status as mav_map_estimator,
+    map_global_position as mav_map_global,
+    map_gps_raw as mav_map_gps,
+    map_home as mav_map_home,
+    map_odometry as mav_map_odom,
+    map_rc_in as mav_map_rc,
+    map_state as mav_map_state,
 )
-from .command_sender import CommandSender
 
-# RTK: RTCM3 framer + GpsInjectData fragmenter (saf modül, ROS bağımsız).
-# Ayrı node yerine bu köprünün içine alındı — ayrı process/DDS/px4_msgs
-# yükünü (~66 MB) ikinci kez ödememek için. Parse mantığı yine ayrı
-# modülde (test edilebilir kalsın); RTK callback'i hızlı (~38 µs) olduğu
+# RTK: RTCM3 framer (saf modül, ROS bağımsız). Ayrı node yerine bu
+# köprünün içinde — ayrı process yükünü ödememek için. Parse mantığı
+# ayrı modülde (test edilebilir); RTK callback'i hızlı (~38 µs) olduğu
 # için tek thread'de offboard heartbeat'i etkilemez.
-from .rtcm_packing import fragment_for_inject, iter_rtcm_messages
+from .rtcm_packing import iter_rtcm_messages
 
 
 # PX4 BEST_EFFORT QoS — PX4 telemetri bu profili kullanır
@@ -84,9 +71,6 @@ _PX4_QOS = QoSProfile(
 )
 
 # --- RTK / RTCM sabitleri (eski rtk_bridge'den taşındı) ---
-_GPS_INJECT_DATA_SIZE = 300      # px4_msgs/GpsInjectData.data uzunluğu
-_RTK_DEFAULT_MAX_PAYLOAD = 300   # tek GpsInjectData fragmanı
-_RTK_GPS_DEVICE_ID = 0           # ground injector standardı
 # RTCM3 tek frame en fazla: header(3) + payload(<=1023) + crc(3) = 1029 B.
 _RTCM_MAX_FRAME = 1029
 # Tampon iki frame'i aşarsa sync kaybı/bozuk akış kabul edilir; biriken
@@ -115,15 +99,10 @@ class Px4BridgeNode(Node):
         self.declare_parameter('agent_id', 1)
         self.declare_parameter('publish_rate_hz', 10.0)
         self.declare_parameter('sitl_mode', False)
-        # velocity_only (B/C mimarisi): True → PX4'e pozisyon GÖNDERİLMEZ
+        # velocity_only (B mimarisi): True → PX4'e pozisyon GÖNDERİLMEZ
         # (sadece hız). Pozisyon kontrolü ROS'taki SVT'ye ait. False → A
         # (pozisyon+hız feedforward, PX4 pozisyon kontrolcüsü sahibi).
-        #
-        # VARSAYILAN True: formation_node zaten position_valid=False gönderiyor
-        # ("konumu kullanma"). False iken PX4'ün konum kontrolcüsü SVT ile
-        # PARALEL çalışır (çakışma/salınım) ve paylaşılan koordinat PX4'e
-        # lokal sanılarak gidebilir. Güvenli olan varsayılan olmalı.
-        self.declare_parameter('velocity_only', True)
+        self.declare_parameter('velocity_only', False)
         self._agent_id: int = int(
             self.get_parameter('agent_id').value
         )
@@ -137,7 +116,7 @@ class Px4BridgeNode(Node):
             self.get_parameter('velocity_only').value
         )
 
-        # Micro-XRCE-DDS-Agent'ın PX4 namespace'i — /fmu/... topic'leri
+        # Drone namespace'i — mavros topic'leri /drone_{id}/mavros/...
         self._fmu_ns = f'/drone_{self._agent_id}'
 
         # Drone'un anlık durumu — callback'ler bunu doldurur
@@ -163,23 +142,8 @@ class Px4BridgeNode(Node):
         # SITL: offboard mod takibi için önceki durum
         self._was_offboard: bool = False
 
-        # PX4'ün HAM lokal konumu (kendi EKF origin'ine göre). PX4'e giden
-        # her şey (hold/anchor/konum setpoint'i) BU frame'de olmalı.
-        # AgentStatus.pos_* ise PAYLAŞILAN NED'dir — ikisi karıştırılmamalı.
-        self._local_x: float = 0.0
-        self._local_y: float = 0.0
-        self._local_z: float = 0.0
-        self._local_xy_valid: bool = False
-        self._local_z_valid: bool = False
-
-        # Lokal origin'in paylaşılan NED'deki yeri ("kayma").
-        # paylaşılan = lokal + kayma   |   lokal = paylaşılan - kayma
-        self._off_n: float = 0.0
-        self._off_e: float = 0.0
-        self._off_d: float = 0.0
-
         # Son geçerli konum cache'i — xy/z_valid false olsa bile
-        # setpoint akışını sürdür. HAM LOKAL frame'de tutulur.
+        # setpoint akışını sürdür
         self._cached_pos_x: float = 0.0
         self._cached_pos_y: float = 0.0
         self._cached_pos_z: float = 0.0
@@ -193,28 +157,15 @@ class Px4BridgeNode(Node):
 
         # SwarmOrigin — uygulanmış sequence takibi (tekrar göndermemek için)
         self._applied_origin_seq: int = -1
-        # Son alınan ortak origin. Paylaşılan frame'i BUNDAN kurarız; PX4'ün
-        # SET_GPS_GLOBAL_ORIGIN'i kabul etmesine GÜVENMEYİZ (EKF init sonrası
-        # yok sayıyor → her drone kendi sıfırında kalıyor).
-        self._origin: SwarmOrigin | None = None
 
-        # SITL: sahte RC publisher — gerçek donanımda oluşturulmaz
-        if self._sitl_mode:
-            self._fake_rc_pub = self.create_publisher(
-                ManualControlSetpoint,
-                f'{self._fmu_ns}/fmu/in/manual_control_input',
-                10,
-            )
-
-        # PX4'e komut gönderen yardımcı — namespace ile doğru topic'lere yazar
-        self._cmd_sender = CommandSender(
+        # PX4'e komut gönderen yardımcı — MAVROS servis/topic'lerine yazar.
+        self._cmd_sender = MavrosCommandSender(
             self,
-            system_id=self._agent_id,
             namespace=self._fmu_ns,
         )
 
-        # PX4 telemetri abonelikleri kur
-        self._setup_px4_subscriptions()
+        # Telemetri abonelikleri (MAVROS)
+        self._setup_mavros_subscriptions()
 
         # AgentStatus yayıncısı (FSM bunu okur)
         self._status_pub = self.create_publisher(
@@ -275,29 +226,12 @@ class Px4BridgeNode(Node):
     # mantığı rtcm_packing modülünde (ROS bağımsız, test edilebilir).
     # =================================================================
     def _setup_rtk(self) -> None:
-        """RTCM aboneliği + GpsInjectData publisher + tanı timer kurar."""
-        # RTK parametreleri — sahada yeniden derlemeden ayarlanabilsin diye
-        # declare_parameter ile dışa açık (eski rtk_bridge node'unda da
-        # parametreydi; gömülürken korunması için geri eklendi).
-        self.declare_parameter('rtk_max_payload', _RTK_DEFAULT_MAX_PAYLOAD)
-        self.declare_parameter('rtk_gps_device_id', _RTK_GPS_DEVICE_ID)
+        """RTCM aboneliği + MAVROS send_rtcm publisher + tanı timer kurar."""
+        # Sahada yeniden derlemeden ayarlanabilsin diye parametre.
         self.declare_parameter('rtk_makul_payload', _RTK_MAKUL_PAYLOAD)
-        self._rtk_max_payload = int(
-            self.get_parameter('rtk_max_payload').value
-        )
-        self._rtk_device_id = int(
-            self.get_parameter('rtk_gps_device_id').value
-        )
         self._rtk_makul_payload = int(
             self.get_parameter('rtk_makul_payload').value
         )
-        # Güvenlik: tek fragman GpsInjectData.data (300 B) sınırını aşamaz.
-        if not 1 <= self._rtk_max_payload <= _GPS_INJECT_DATA_SIZE:
-            self.get_logger().warning(
-                f'rtk_max_payload={self._rtk_max_payload} gecersiz '
-                f'(1..{_GPS_INJECT_DATA_SIZE}); varsayilan kullanilacak'
-            )
-            self._rtk_max_payload = _RTK_DEFAULT_MAX_PAYLOAD
 
         # iter_rtcm_messages yarım kuyruğu (bytearray: extend ile O(1)).
         self._rtk_tampon = bytearray()
@@ -314,9 +248,11 @@ class Px4BridgeNode(Node):
             self._on_rtcm,
             10,
         )
-        self._gps_inject_pub = self.create_publisher(
-            GpsInjectData,
-            f'{ns}/fmu/in/gps_inject_data',
+        # RTK çıkışı: /mavros/gps_rtk/send_rtcm — parçalamayı MAVROS yapar
+        # (GPS_RTCM_DATA, ~720B/mesaj = 4 fragman x 180B).
+        self._rtcm_pub = self.create_publisher(
+            RTCM,
+            f'{ns}/mavros/gps_rtk/send_rtcm',
             _GPS_INJECT_QOS_DEPTH,
         )
         self.create_timer(_RTK_DIAG_PERIOD_S, self._rtk_tani_yayinla)
@@ -360,23 +296,16 @@ class Px4BridgeNode(Node):
             self._rtk_yayinla_fragmenler(rtcm_msg)
 
     def _rtk_yayinla_fragmenler(self, rtcm_msg: bytes) -> None:
-        """RTCM mesajını fragmenter'a verip her parçayı PX4'e yayınlar."""
-        parcalar = fragment_for_inject(
-            rtcm_msg, max_payload=self._rtk_max_payload
-        )
-        for chunk, fragmented in parcalar:
-            inject = GpsInjectData()
-            inject.timestamp = int(
-                self.get_clock().now().nanoseconds / 1000
-            )
-            inject.device_id = self._rtk_device_id
-            inject.len = len(chunk)
-            inject.flags = 1 if fragmented else 0
-            # data alanı uint8[300] sabit; chunk'u 0 ile padle
-            dolgu = _GPS_INJECT_DATA_SIZE - len(chunk)
-            inject.data = list(chunk) + [0] * dolgu
-            self._gps_inject_pub.publish(inject)
-            self._rtk_yayinlanan_frag += 1
+        """RTCM mesajını MAVROS'a bütün olarak yayınlar.
+
+        MAVROS, GPS_RTCM_DATA MAVLink mesajına kendisi parçalar
+        (max ~720B/mesaj); bizim parçalamamıza gerek yok.
+        """
+        out = RTCM()
+        out.header.stamp = self.get_clock().now().to_msg()
+        out.data = list(rtcm_msg)
+        self._rtcm_pub.publish(out)
+        self._rtk_yayinlanan_frag += 1
 
     def _rtk_tani_yayinla(self) -> None:
         """1 Hz RTK tanı log'u; köprü sağlığını dışarıya bildirir."""
@@ -392,179 +321,85 @@ class Px4BridgeNode(Node):
             self.get_logger().error(f'rtk tani log hata: {e}')
 
     # =================================================================
-    # PX4 ABONELİKLERİ
+    # MAVROS ABONELİKLERİ + CALLBACKS
     # =================================================================
-    def _setup_px4_subscriptions(self) -> None:
-        """PX4 telemetri topic'lerine abone ol.
+    def _setup_mavros_subscriptions(self) -> None:
+        """MAVROS telemetri topic'lerine abone ol.
 
-        Tüm topic'ler Micro-XRCE-DDS-Agent'ın namespace'i altında gelir:
-        /drone_{id}/fmu/out/...
+        Topic'ler mavros_node namespace'i altinda: /drone_{id}/mavros/...
+        Durum/olay topic'leri reliable; sensor-tipi topic'ler best_effort.
         """
         ns = self._fmu_ns
-        subs = [
-            (BatteryStatus,
-             f'{ns}/fmu/out/battery_status', self._on_battery),
-            (VehicleStatus,
-             f'{ns}/fmu/out/vehicle_status_v1', self._on_vehicle_status),
-            (VehicleLocalPosition,
-             f'{ns}/fmu/out/vehicle_local_position', self._on_local_pos),
-            (EstimatorStatusFlags,
-             f'{ns}/fmu/out/estimator_status_flags', self._on_estimator),
-            (SensorGps,
-             f'{ns}/fmu/out/vehicle_gps_position', self._on_gps),
-            (VehicleGlobalPosition,
-             f'{ns}/fmu/out/vehicle_global_position',
-             self._on_global_pos),
-            (HomePosition,
-             f'{ns}/fmu/out/home_position', self._on_home),
-            (VehicleAttitude,
-             f'{ns}/fmu/out/vehicle_attitude', self._on_attitude),
-            (ManualControlSetpoint,
-             f'{ns}/fmu/out/manual_control_setpoint',
-             self._on_manual_control),
-        ]
-        for msg_type, topic, cb in subs:
-            self.create_subscription(msg_type, topic, cb, _PX4_QOS)
-
-    # =================================================================
-    # PX4 CALLBACKS — sadece mapper'ı çağırırlar
-    # =================================================================
-    def _on_battery(self, msg: BatteryStatus) -> None:
-        """Batarya telemetrisini AgentStatus'a işler."""
-        map_battery(msg, self._status)
-
-    def _on_vehicle_status(self, msg: VehicleStatus) -> None:
-        """Araç durumunu işler; SITL'de offboard kaybını yakalar."""
-        prev_offboard = self._status.offboard_active
-        map_vehicle_status(msg, self._status)
-
-        # SITL: RC kaybı nedeniyle PX4 offboard'dan çıkarsa hemen yeniden iste.
-        # Gerçek uçuşta bu blok hiç çalışmaz (sitl_mode=False).
-        if (self._sitl_mode
-                and prev_offboard
-                and not self._status.offboard_active
-                and self._status.armed):
-            self.get_logger().warn(
-                'SITL: Offboard kayboldu, yeniden isteniyor...'
-            )
-            self._cmd_sender.set_offboard_mode()
-
-        self.get_logger().info(
-            f'[DBG] nav_state={msg.nav_state} armed={self._status.armed} '
-            f'offboard_active={self._status.offboard_active}',
-            throttle_duration_sec=1.0,
+        # Durum/olay topic'leri — reliable (varsayilan depth=10)
+        self.create_subscription(
+            State, f'{ns}/mavros/state', self._on_mav_state, 10
+        )
+        # battery BEST_EFFORT yayinlanir; reliable abonelik veri alamaz.
+        self.create_subscription(
+            BatteryState, f'{ns}/mavros/battery',
+            self._on_mav_battery, qos_profile_sensor_data
+        )
+        self.create_subscription(
+            MavHomePosition, f'{ns}/mavros/home_position/home',
+            self._on_mav_home, 10
+        )
+        # Sensor-tipi yuksek hizli topic'ler — best_effort
+        self.create_subscription(
+            Odometry, f'{ns}/mavros/local_position/odom',
+            self._on_mav_odom, qos_profile_sensor_data
+        )
+        self.create_subscription(
+            NavSatFix, f'{ns}/mavros/global_position/global',
+            self._on_mav_global, qos_profile_sensor_data
+        )
+        self.create_subscription(
+            GPSRAW, f'{ns}/mavros/gpsstatus/gps1/raw',
+            self._on_mav_gps, qos_profile_sensor_data
+        )
+        self.create_subscription(
+            EstimatorStatus, f'{ns}/mavros/estimator_status',
+            self._on_mav_estimator, 10
+        )
+        self.create_subscription(
+            RCIn, f'{ns}/mavros/rc/in',
+            self._on_mav_rc, qos_profile_sensor_data
         )
 
-    def _on_local_pos(self, msg: VehicleLocalPosition) -> None:
-        """PX4 lokal konumunu alır; sürüye PAYLAŞILAN NED olarak yayınlar.
+    def _on_mav_state(self, msg: State) -> None:
+        """MAVROS State -> AgentStatus (armed, mode, failsafe proxy)."""
+        mav_map_state(msg, self._status)
 
-        PX4 her zaman KENDİ EKF origin'ine göre konum verir (ref_lat/ref_lon).
-        Drone'lar farklı noktalarda açıldığı için bu sayılar kıyaslanamaz.
-        Burada ham lokali PX4 komutları için saklarız ve AgentStatus.pos_*'a
-        ortak origin'e taşınmış (paylaşılan) konumu yazarız.
-        """
-        # PX4 komut yolu için ham lokal (frame çevrimi YOK)
-        self._local_x = float(msg.x)
-        self._local_y = float(msg.y)
-        self._local_z = float(msg.z)
-        self._local_xy_valid = bool(msg.xy_valid)
-        self._local_z_valid = bool(msg.z_valid)
+    def _on_mav_battery(self, msg: BatteryState) -> None:
+        """MAVROS BatteryState -> AgentStatus batarya."""
+        mav_map_battery(msg, self._status)
 
-        # vel_*, valid bayrakları vb. (pos_* geçici olarak lokalle dolar)
-        map_local_position(msg, self._status)
+    def _on_mav_odom(self, msg: Odometry) -> None:
+        """MAVROS Odometry -> AgentStatus konum/hiz/heading (ENU->NED)."""
+        mav_map_odom(msg, self._status)
 
-        # pos_* -> PAYLAŞILAN NED (kuramıyorsak güvenli şekilde geçersizle)
-        self._apply_shared_frame(msg)
+    def _on_mav_global(self, msg: NavSatFix) -> None:
+        """MAVROS NavSatFix -> AgentStatus lat/lon/alt."""
+        mav_map_global(msg, self._status)
 
-    def _apply_shared_frame(self, msg: VehicleLocalPosition) -> None:
-        """AgentStatus.pos_*'ı ortak origin'e taşır; kayma'yı günceller.
+    def _on_mav_gps(self, msg: GPSRAW) -> None:
+        """MAVROS GPSRAW -> AgentStatus fix_type/satellites."""
+        mav_map_gps(msg, self._status)
 
-        Kayma HER mesajda yeniden hesaplanır (cache'lenmez): PX4 uçuş sırasında
-        EKF reset yapıp lokal origin'ini kaydırabilir; böylece paylaşılan konum
-        kesintisiz kalır.
+    def _on_mav_home(self, msg: MavHomePosition) -> None:
+        """MAVROS HomePosition -> AgentStatus home."""
+        mav_map_home(msg, self._status)
 
-        Kuramıyorsak (origin yok / PX4'ün global referansı yok) pos sıfırlanır
-        ve xy/z_valid düşürülür → formation_node setpoint üretmez, sürü güvenle
-        durur. 'origin_synced' ARTIK "komut gönderdim" değil, gerçekten ortak
-        frame'i kurabildik mi demektir.
-        """
-        o = self._origin
-        frame_ok = (
-            o is not None
-            and o.valid
-            and o.gps_fix_type >= 3
-            and bool(msg.xy_global)      # PX4: ref_lat/ref_lon geçerli mi
-            and msg.ref_timestamp != 0
-        )
-        if not frame_ok:
-            self._off_n = self._off_e = self._off_d = 0.0
-            self._status.pos_x = 0.0
-            self._status.pos_y = 0.0
-            self._status.pos_z = 0.0
-            self._status.origin_synced = False
-            self._status.xy_valid = False
-            self._status.z_valid = False
-            return
+    def _on_mav_estimator(self, msg: EstimatorStatus) -> None:
+        """MAVROS EstimatorStatus -> AgentStatus kestirici saglik."""
+        mav_map_estimator(msg, self._status)
 
-        self._off_n, self._off_e = latlon_to_ned(
-            float(msg.ref_lat), float(msg.ref_lon),
-            float(o.origin_lat_deg), float(o.origin_lon_deg),
-        )
-        # DİKEY BİLEREK ÇEVRİLMEZ (off_d = 0).
-        # Matematiksel karşılığı shared_z = local_z + (origin_alt - ref_alt)
-        # olurdu; ancak ref_alt (EKF origin'inin AMSL'i) barometre init bias'ı
-        # taşır: düz zeminde ölçülen ref_alt yayılımı ~1.1 m (drone başına
-        # -0.09 / +1.02 / +0.38 m). Bu çevrim o bias'ı formasyona SAHTE irtifa
-        # farkı olarak enjekte eder. PX4'ün lokal z'si "kendi kalkış düzlemine
-        # göre yükseklik"tir ve düz sahada dronlar arasında zaten tutarlıdır.
-        # Yatayda (lat/lon) ise gerçek kayma vardır → yalnız o çevrilir.
-        # (Aynı gerekçe 'takeoff' yolunda da yazılı: AMSL düzeltmesi gerçek
-        # yüksekliği bozuyor.)
-        self._off_d = 0.0
-
-        self._status.pos_x = self._local_x + self._off_n
-        self._status.pos_y = self._local_y + self._off_e
-        self._status.pos_z = self._local_z
-        self._status.origin_synced = True
-
-    def _on_estimator(self, msg: EstimatorStatusFlags) -> None:
-        map_estimator(msg, self._status)
-
-    def _on_gps(self, msg: SensorGps) -> None:
-        map_gps(msg, self._status)
-
-    def _on_global_pos(self, msg: VehicleGlobalPosition) -> None:
-        map_global_position(msg, self._status)
-
-    def _on_home(self, msg: HomePosition) -> None:
-        map_home_position(msg, self._status)
-
-    def _on_attitude(self, msg: VehicleAttitude) -> None:
-        map_attitude(msg, self._status)
-
-    def _on_manual_control(self, msg: ManualControlSetpoint) -> None:
-        map_manual_control(msg, self._status)
+    def _on_mav_rc(self, msg: RCIn) -> None:
+        """MAVROS RCIn -> AgentStatus rc_link_ok."""
+        mav_map_rc(msg, self._status)
 
     # =================================================================
     # OFFBOARD HEARTBEAT (50 Hz)
     # =================================================================
-    def _publish_fake_rc(self) -> None:
-        """SITL modunda PX4'e sahte RC sinyali gönderir.
-
-        Gerçek donanımda bu metot hiç çağrılmaz (_fake_rc_pub oluşturulmaz).
-        PX4'ün RC kaybı failsafe'ini tetiklememesi için neutral stick pozisyonu
-        ile valid=True gönderilir. Offboard modda stick değerleri
-        PX4 tarafından yok sayılır; sadece 'RC bağlı' bilgisi önemli.
-        """
-        msg = ManualControlSetpoint()
-        msg.timestamp = int(self.get_clock().now().nanoseconds / 1000)
-        msg.roll = 0.0
-        msg.pitch = 0.0
-        msg.throttle = 0.0
-        msg.yaw = 0.0
-        msg.valid = True
-        self._fake_rc_pub.publish(msg)
-
     def _offboard_tick(self) -> None:
         """50 Hz'de çalışır.
 
@@ -574,15 +409,11 @@ class Px4BridgeNode(Node):
         TrajectorySetpoint sadece offboard aktifken ve konum geçerliyken
         gönderilir; bu sayede drone mevcut konumda bekler (hold).
         """
-        # Konum geçerliyken cache'i güncelle.
-        # DİKKAT: cache PX4'e "olduğun yerde bekle" konumu olarak gider →
-        # PX4'ün KENDİ lokal frame'inde olmalı. status.pos_* PAYLAŞILAN'dır;
-        # ondan beslenirse PX4 ortak koordinatı kendi koordinatı sanar ve
-        # drone kayma kadar (metrelerce) fırlar.
-        if self._local_xy_valid and self._local_z_valid:
-            self._cached_pos_x = self._local_x
-            self._cached_pos_y = self._local_y
-            self._cached_pos_z = self._local_z
+        # Konum geçerliyken cache'i güncelle
+        if self._status.xy_valid and self._status.z_valid:
+            self._cached_pos_x = self._status.pos_x
+            self._cached_pos_y = self._status.pos_y
+            self._cached_pos_z = self._status.pos_z
             _yaw = math.radians(self._status.heading_deg)
             self._cached_yaw_rad = (_yaw + math.pi) % (2 * math.pi) - math.pi
 
@@ -597,8 +428,6 @@ class Px4BridgeNode(Node):
         # offboard mode ve setpoint yayınlama — yoksa PX4 sürekli
         # offboard'a geri zorlanır ve land/rtl modu tutmaz.
         if not self._offboard_streaming:
-            if self._sitl_mode:
-                self._publish_fake_rc()
             return
 
         use_velocity = setpoint_fresh and self._latest_setpoint.velocity_valid
@@ -610,13 +439,12 @@ class Px4BridgeNode(Node):
             # A: pozisyon + hız feedforward (PX4 pozisyon sahibi)
             self._cmd_sender.publish_offboard_position_velocity_mode()
         else:
-            # Setpoint stale/yok → pozisyon-hold (velocity_only'de bile GÜVENLİ:
-            # flyaway yerine konum tutar → failsafe).
+            # Setpoint stale/yok → pozisyon-hold (velocity_only'de bile
+            # GÜVENLİ: flyaway yerine konum tutar → failsafe).
             self._cmd_sender.publish_offboard_position_mode()
 
-        # SITL: sahte RC sinyali — gerçek donanımda çalışmaz
+        # SITL: offboard kaybi kurtarmasi — gerçek donanımda çalışmaz
         if self._sitl_mode:
-            self._publish_fake_rc()
             # Offboard isteniyorsa ama aktif değilse 2Hz'de yeniden talep et.
             # NOT: 10Hz denendi ama mode komutunu (DO_SET_MODE) flood'lamak arm
             # geçişinde çakışma yaratıp bir drone'un disarm olmasına yol açtı.
@@ -638,12 +466,9 @@ class Px4BridgeNode(Node):
 
         if setpoint_fresh:
             sp = self._latest_setpoint
-            # formation_node PAYLAŞILAN frame'de üretir; PX4 KENDİ lokalini
-            # bekler → kaymayı çıkar. (velocity_only=True iken bu konum
-            # gönderilmez, ama mod A açılırsa doğru olsun.)
-            target_x = float(sp.x) - self._off_n
-            target_y = float(sp.y) - self._off_e
-            target_z = float(sp.z) - self._off_d
+            target_x = float(sp.x)
+            target_y = float(sp.y)
+            target_z = float(sp.z)
             _yaw = math.radians(float(sp.heading_deg))
             target_yaw = (_yaw + math.pi) % (2 * math.pi) - math.pi
         elif self._target_altitude_ned is not None:
@@ -699,21 +524,18 @@ class Px4BridgeNode(Node):
         """
         if not msg.valid or msg.gps_fix_type < 3:
             return
-        # Paylaşılan frame'i BİZ kurarız (_apply_shared_frame); origin'i sakla.
-        self._origin = msg
         if msg.sequence == self._applied_origin_seq:
             return
         self._applied_origin_seq = msg.sequence
-        # Komut yine de gönderilir: PX4 henüz EKF origin'ini seçmediyse kabul
-        # eder ve kayma ~0 olur (çevrim no-op'a döner). Ama SİSTEM BUNA
-        # BAĞIMLI DEĞİL — EKF init sonrası PX4 bunu yok sayar.
         self._cmd_sender.set_gps_global_origin(
             msg.origin_lat_deg,
             msg.origin_lon_deg,
             msg.origin_alt_amsl_m,
         )
-        # origin_synced BURADA set EDİLMEZ. "Komut gönderdim" senkron demek
-        # değildir; gerçekten çevirebildiysek _apply_shared_frame true yapar.
+        # Ortak origin PX4'e uygulandı: telemetride bildir ki formation_node
+        # (ve diğer tüketiciler) shared→local dönüşümünü güvenle yapabilsin.
+        # Bu flag true olmadan formation_node setpoint üretmez.
+        self._status.origin_synced = True
         self._status.origin_sequence = msg.sequence
         self.get_logger().info(
             f'GPS origin set: lat={msg.origin_lat_deg:.6f}, '
@@ -753,14 +575,6 @@ class Px4BridgeNode(Node):
         cmd = msg.data.strip().lower()
 
         if cmd == 'arm':
-            # Setpoint akışını (yeniden) aç: "arm" uçma niyetidir, PX4'ün arm
-            # ön koşulu da canlı bir offboard sinyalidir. İniş sonrası disarm
-            # akışı kapatır ve araç OFFBOARD nav_state'inde kalır; akış geri
-            # açılmazsa PX4 bu modda arm'ı reddeder ve sürüye dönmek üzere inen
-            # dron bir daha havalanamaz (ARMING zaman aşımı → yerde kalır).
-            # Yerdeyken yayınlanan setpoint zararsızdır: araç disarm'dır ve mod
-            # DO_SET_MODE gelene kadar değişmez.
-            self._offboard_streaming = True
             self._cmd_sender.arm()
         elif cmd == 'disarm':
             self._offboard_streaming = False
@@ -775,12 +589,10 @@ class Px4BridgeNode(Node):
                     self.get_logger().warning(
                         f'Geçersiz takeoff irtifası: {cmd}'
                     )
-            # NED: yukarı = negatif Z. Local z her drone'un kendi
-            # kalkış noktasına göredir; aynı zeminden başlayanlar
-            # local z=-altitude ile aynı GERÇEK yüksekliğe çıkar.
-            # (alt_amsl tahminleri bias'lı → AMSL düzeltmesi gerçek
-            # yüksekliği bozar — kullanmıyoruz.)
-            self._target_altitude_ned = -altitude
+            # Hedef mevcut konuma göreli: origin dünya orijinine
+            # senkronken yer z=0 değildir; mutlak -altitude vermek
+            # alçalma komutuna dönüşür.
+            self._target_altitude_ned = self._cached_pos_z - altitude
             # Yatay çapayı şimdi dondur — tırmanış boyunca sabit kalsın.
             self._takeoff_anchor_x = self._cached_pos_x
             self._takeoff_anchor_y = self._cached_pos_y

@@ -46,6 +46,9 @@ services:
       - ../sim:/home/yelpence/ros2_ws/sim
       - ../src:/home/yelpence/ros2_ws/src
       - ../.git:/home/yelpence/ros2_ws/.git:ro
+      # entrypoint yama dongusu ros2_ws/docker/patches'e bakar; mount
+      # olmadan yamalar uygulanmaz.
+      - ../docker:/home/yelpence/ros2_ws/docker:ro
 
       # ROS 2 Derleme izolasyonu
       - /home/yelpence/ros2_ws/build

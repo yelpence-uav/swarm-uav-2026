@@ -10,7 +10,10 @@ fi
 sudo chown -R yelpence:yelpence \
   /home/yelpence/ros2_ws/build \
   /home/yelpence/ros2_ws/install \
-  /home/yelpence/ros2_ws/src/PX4-Autopilot/build 2>/dev/null || true
+  /home/yelpence/ros2_ws/src/PX4-Autopilot/build \
+  /home/yelpence/ros2_ws/src/px4_autopilot/build 2>/dev/null || true
+# kucuk harfli px4_autopilot aktif klasordur; chown edilmezse anonim
+# volume root kalir ve make Permission denied verir.
 
 # Parmak izlerinin saklanacağı gizli klasör
 HASH_DIR="/home/yelpence/.config/yelpence_hashes"
@@ -96,7 +99,7 @@ if [ ! -f "install/setup.bash" ]; then
     sudo chown -R yelpence:yelpence src/px4_autopilot/build
 
     # PX4 yamalarını uygula (build'den ÖNCE, derlemeye girsin diye).
-    # gps_inject_data_dds: /fmu/in/gps_inject_data'yı uXRCE-DDS köprüsüne ekler (RTK ŞARTI).
+    # ornek: sim_rtk_fix6 (SITL GPS'ini RTK kalitesine ceker).
     # KURŞUN-GEÇİRMEZ: --check önce "uygulanabilir mi?" diye sorar; zaten uygulanmışsa
     # 'else'e düşüp SESSİZCE atlar. Tüm git komutları 'if' içinde -> hata fırlatsa bile
     # set -e tetiklenmez, container DURMAZ. En kötü ihtimalle "atlandı" yazar.

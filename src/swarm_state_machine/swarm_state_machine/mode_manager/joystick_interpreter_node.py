@@ -1,8 +1,8 @@
-"""joystick_interpreter_node.py — PX4 uORB to SwarmControlCommand.
+"""joystick_interpreter_node.py — MAVROS RC girdisi to SwarmControlCommand.
 
-PX4'ün /fmu/out/manual_control_setpoint uORB mesajını XRCE-DDS
-üzerinden okur, normalize ederek SwarmControlCommand mesajına
-dönüştürür ve /swarm/internal/control/command'a yayınlar.
+MAVROS'un /mavros/manual_control/control mesajını okur, normalize
+ederek SwarmControlCommand mesajına dönüştürür ve
+/swarm/internal/control/command'a yayınlar.
 
 Contract (§4.2):
   joystick_interpreter_node.py → /swarm/internal/control/command
@@ -16,6 +16,8 @@ GCS arayüzünden gelen mod değişimleri ve formasyon komutları bu
 node tarafından SwarmControlCommand'a gömülür.
 """
 
+from collections import namedtuple
+
 import rclpy
 from rclpy.node import Node
 from rclpy.qos import (
@@ -25,10 +27,17 @@ from rclpy.qos import (
     ReliabilityPolicy,
 )
 
-from px4_msgs.msg import ManualControlSetpoint
+from mavros_msgs.msg import ManualControl
 from swarm_interfaces.msg import SwarmControlCommand
 
-# PX4 uORB topic'i BEST_EFFORT, VOLATILE QoS kullanır.
+# MAVROS ManualControl -> normalize alanlar (cevirici tek tip gorsun diye).
+# Araliklar gercek kumandayla kontrol edilmeli.
+_MavrosManual = namedtuple('_MavrosManual', [
+    'pitch', 'roll', 'yaw', 'throttle',
+    'aux1', 'aux2', 'aux3', 'aux4', 'aux5', 'aux6',
+])
+
+# Sensor-tipi girdi: BEST_EFFORT, VOLATILE QoS.
 _PX4_QOS = QoSProfile(
     reliability=ReliabilityPolicy.BEST_EFFORT,
     durability=DurabilityPolicy.VOLATILE,
@@ -38,10 +47,10 @@ _PX4_QOS = QoSProfile(
 
 
 class JoystickInterpreterNode(Node):
-    """PX4 ManualControlSetpoint → SwarmControlCommand dönüştürücü.
+    """MAVROS ManualControl → SwarmControlCommand dönüştürücü.
 
-    RC kumanda (FLYSKY FS-i6X) sinyalleri PX4 tarafından
-    ManualControlSetpoint olarak yayınlanır. Bu node:
+    RC kumanda (FLYSKY FS-i6X) sinyalleri PX4→MAVROS üzerinden
+    ManualControl olarak yayınlanır. Bu node:
     1. Girdileri normalize eder [-1.0, +1.0].
     2. Deadman switch durumunu okur.
     3. SwarmControlCommand mesajı oluşturur.
@@ -115,18 +124,22 @@ class JoystickInterpreterNode(Node):
         )
 
     def _setup_subscribers(self) -> None:
-        """PX4 ManualControlSetpoint aboneliğini oluşturur."""
+        """MAVROS joystick girdi aboneliğini oluşturur.
+
+        Topic namespace'i launch'ta netleşecek (Faz 6); şimdilik
+        global /mavros/manual_control/control.
+        """
         self.create_subscription(
-            ManualControlSetpoint,
-            '/fmu/out/manual_control_setpoint',
-            self._on_manual_control,
+            ManualControl,
+            '/mavros/manual_control/control',
+            self._on_mavros_manual_control,
             _PX4_QOS,
         )
 
-    def _on_manual_control(self, msg: ManualControlSetpoint) -> None:
-        """PX4 ManualControlSetpoint mesajını SwarmControlCommand'a çevirir.
+    def _on_manual_control(self, msg: '_MavrosManual') -> None:
+        """Normalize girdiyi SwarmControlCommand'a çevirir.
 
-        PX4 ManualControlSetpoint alanları:
+        _MavrosManual alanları (PX4 konvansiyonuyla ayni):
           pitch: -1.0 (geri) → +1.0 (ileri)
           roll:  -1.0 (sol)  → +1.0 (sağ)
           yaw:   -1.0 (sol)  → +1.0 (sağ)
@@ -134,7 +147,7 @@ class JoystickInterpreterNode(Node):
           aux1..aux6: -1.0 → +1.0 (switch/dial kanalları)
 
         Args:
-            msg: Gelen PX4 ManualControlSetpoint mesajı.
+            msg: Normalize girdi (_MavrosManual).
         """
         cmd = SwarmControlCommand()
         cmd.stamp = self.get_clock().now().to_msg()
@@ -184,11 +197,28 @@ class JoystickInterpreterNode(Node):
 
         self._cmd_pub.publish(cmd)
 
-    def _read_aux_channel(self, msg: ManualControlSetpoint) -> float:
+    def _on_mavros_manual_control(self, msg: ManualControl) -> None:
+        """MAVROS ManualControl'u normalize edip _on_manual_control'a verir.
+
+        MAVLink MANUAL_CONTROL aralığı [-1000, 1000]; sürü [-1, 1].
+        x=pitch, y=roll, r=yaw, z=throttle(0..1000). aux1..aux6 doğrudan.
+        Aux aralıkları gerçek kumandayla kontrol edilmeli.
+        """
+        norm = _MavrosManual(
+            pitch=self._clamp(msg.x / 1000.0),
+            roll=self._clamp(msg.y / 1000.0),
+            yaw=self._clamp(msg.r / 1000.0),
+            throttle=self._clamp(msg.z / 1000.0, 0.0, 1.0),
+            aux1=msg.aux1, aux2=msg.aux2, aux3=msg.aux3,
+            aux4=msg.aux4, aux5=msg.aux5, aux6=msg.aux6,
+        )
+        self._on_manual_control(norm)
+
+    def _read_aux_channel(self, msg: '_MavrosManual') -> float:
         """Yapılandırılmış deadman kanalını okur.
 
         Args:
-            msg: PX4 ManualControlSetpoint mesajı.
+            msg: Normalize girdi (_MavrosManual).
 
         Returns:
             Kanal değeri [-1.0, +1.0] aralığında.
