@@ -8,7 +8,7 @@ import math
 import time
 from dataclasses import dataclass, field
 
-from ..agent_fsm.agent_states import AgentState
+from ..agent_fsm.agent_states import FORMATION_ACTIVE_STATES
 from .swarm_states import FormationType, SwarmState
 
 
@@ -161,13 +161,12 @@ class SwarmContext:
     def compute_centroid(self) -> None:
         """Aktif ajanların ağırlık merkezini hesaplar.
 
-        Yalnızca IN_SWARM ve EXECUTING_TASK state'indeki
-        ajanlar hesaba katılır.
+        Kapsam FORMATION_ACTIVE_STATES ile belirlenir; konum dizileriyle AYNI
+        küme olmalıdır, aksi halde ofsetler (konum - centroid) tutarsız çıkar.
         """
-        in_swarm_states = {AgentState.IN_SWARM, AgentState.EXECUTING_TASK}
         active = [
             a for a in self.agents.values()
-            if a.state in in_swarm_states and not a.is_stale()
+            if a.state in FORMATION_ACTIVE_STATES and not a.is_stale()
         ]
         if not active:
             return
@@ -188,10 +187,9 @@ class SwarmContext:
         Args:
             target_offsets: agent_id → (dx, dy, dz) hedef offset'ler.
         """
-        in_swarm_states = {AgentState.IN_SWARM, AgentState.EXECUTING_TASK}
         active = [
             a for a in self.agents.values()
-            if a.state in in_swarm_states and not a.is_stale()
+            if a.state in FORMATION_ACTIVE_STATES and not a.is_stale()
         ]
         if not active:
             self.formation_max_error_m = 0.0

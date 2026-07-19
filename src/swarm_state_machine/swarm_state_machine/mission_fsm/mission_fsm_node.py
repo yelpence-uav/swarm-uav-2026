@@ -229,11 +229,13 @@ class MissionFsmNode(Node):
 
         self._publish_state()
 
+        # Terminal durumda pending_command KORUNUR (komut kaybolmasın), ama
+        # timer DURDURULMAZ: _from_terminal, sürü yere inince ABORTED/
+        # MISSION_COMPLETE'ten IDLE'a döndürebilsin diye FSM tick'lemeye devam
+        # etmeli. (Eskiden timer iptal ediliyordu → terminalden çıkış
+        # imkânsızdı, yeni görev için node restart gerekiyordu.)
         terminal = (MissionState.ABORTED, MissionState.MISSION_COMPLETE)
-        if ctx.state in terminal:
-            if hasattr(self, '_timer'):
-                self._timer.cancel()
-        else:
+        if ctx.state not in terminal:
             ctx.pending_command = 0
 
     def _transition(self, new_state: MissionState) -> None:
@@ -289,6 +291,17 @@ class MissionFsmNode(Node):
                 SystemEvent.SEVERITY_INFO,
                 f'Görev {ctx.mission_type.name} başlıyor',
             )
+            # İlk hedefi (start_qr) ROTASYONDAN ÖNCE çöz. Eskiden yalnız
+            # NAVIGATE_TO_QR'a girerken çözülüyordu; ama akış ROTATE→NAVIGATE
+            # olduğundan ilk ROTASYON hedefsiz kalıyordu: orchestrator dönüş
+            # bearing'ini hesaplayamıyor, heading rampası tamamlanmadan rotasyon
+            # bitiyor, sonra navigasyon boyunca heading slew'lenip formasyonu
+            # DÖNERKEN İLERLETİYOR → eğri yol (ölçüldü: ilk bacak düz hattan
+            # 7.6 m sapma). Hedef start_qr'dan; QR okumaya bağlı değil, konum
+            # tablosu geldiği an (görev başından) çözülebilir → erken çözülür,
+            # ilk rotasyon hedefli olur, heading tam oturur, navigasyon düz gider.
+            if ctx.next_qr_target is None:
+                self._resolve_initial_target()
 
         elif state == MissionState.EXECUTE_QR_TASK:
             if ctx.current_qr is not None:
@@ -339,7 +352,7 @@ class MissionFsmNode(Node):
             self._pub_event(
                 SystemEvent.EVENT_EMERGENCY_LAND,
                 SystemEvent.SEVERITY_INFO,
-                'Sürü home\'da — iniş tetiklendi',
+                "Sürü home'da — iniş tetiklendi",
             )
 
         elif state == MissionState.MISSION_COMPLETE:

@@ -30,7 +30,7 @@ from swarm_interfaces.msg import (
     SystemEvent,
 )
 
-from ..agent_fsm.agent_states import AgentState
+from ..agent_fsm.agent_states import FORMATION_ACTIVE_STATES, AgentState
 from .swarm_context import AgentStatusCache, SwarmContext
 from .swarm_states import (
     AIRBORNE_SWARM_STATES,
@@ -684,16 +684,13 @@ class SwarmFsmNode(Node):
 
         # active_agent_ids + paralel pozisyon dizileri.
         # Decision B: a.healthy tek bayrak (agent_fsm aggregate'i).
-        _active_states = frozenset({
-            AgentState.IN_SWARM, AgentState.EXECUTING_TASK,
-        })
         active_agents = [
             a
             for a in sorted(ctx.agents.values(), key=lambda x: x.agent_id)
             if a.healthy
             and a.origin_synced
             and not a.is_stale()
-            and a.state in _active_states
+            and a.state in FORMATION_ACTIVE_STATES
         ]
         m.active_agent_ids = [a.agent_id for a in active_agents]
         # Pozisyonlar shared NED'de olmalı (formation_node Macar maliyet matrisi için).

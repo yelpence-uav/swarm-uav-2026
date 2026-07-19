@@ -104,6 +104,17 @@ class OrchestratorConfig:
     settle_improve_eps_m: float = 0.05      # pencerede bu kadar iyileşme yoksa plato
     settle_move_eps_m: float = 0.05         # tick başına hareket ~0 → durdu
     settle_timeout_s: float = 30.0          # yakınsama gelmezse kilitlenme koruması
+    # ROTASYONA ÖZEL: dönüşün gerçekten ilerlediğini doğrulayan pay. Kalkıştan
+    # hemen sonra sürü çapada kıpırdamadan asılı durur; heading komutu çıksa da
+    # dronlar ilk ~1 sn hareket etmez. O anda hata SABİT (kimse kıpırdamıyor) ve
+    # hareket SIFIR olduğu için plato+durdu ölçütü sağlanır ve dönüş daha
+    # BAŞLAMADAN "tamamlandı" sayılırdı: sürü yarı dönük halde navigasyona geçip
+    # aynı anda hem döner hem ilerler, formasyon çökerdi (ölçüldü: ilk rotasyon
+    # 1 sn sürüyor, ardından açıklık 12 m'den 3.5 m'ye iniyordu; sonraki
+    # rotasyonlar 12-15 sn sürüp şekli koruyor). Hatanın bu kadar DÜŞMÜŞ olmasını
+    # şart koşmak sahte yakınsamayı keser; zaten yerinde olan küçük dönüşler
+    # formation_settle_tol_m ile ayrıca kabul edilir.
+    rotation_improve_margin_m: float = 0.5
     # NAVIGATE_TO_QR varış tespiti: okuyucu (QR'a en yakın) dron QR'a bu
     # mesafeden (m) yakınsa ve birkaç tick stabil kalırsa "vardım" sayılır;
     # mission_fsm 120s yedek timer yerine bu sinyalle EXECUTE_QR_TASK'a geçer.
@@ -258,6 +269,10 @@ class _State:
     settle_key: tuple = field(default=None)
     settle_key_t0: float = 0.0
     settle_done_key: tuple = field(default=None)
+    # Adımın İLK ölçülen şekil hatası. Rotasyonun gerçekten ilerleyip
+    # ilerlemediğini anlamak için referans: hata bu değerden düşmediyse sürü
+    # daha kıpırdamamış demektir (bkz. _settle_signal).
+    settle_first_err: float = field(default=None)
     # Son tam-sürü slot ataması (agent_id → ofset). Bir dron ayrıldığında
     # kalanlar bu dondurulmuş slotlarda tutulur; formasyon yeniden dizilmez.
     frozen_offsets: dict = field(default_factory=dict)
@@ -495,6 +510,7 @@ class Mission1Orchestrator:
             self._st.settle_key = None
             self._st.settle_hist = []
             self._st.settle_prev_pos = None
+            self._st.settle_first_err = None
             return None
 
         key = self._phase_key(inp)
@@ -510,6 +526,7 @@ class Mission1Orchestrator:
             self._st.settle_key_t0 = inp.time_in_state
             self._st.settle_hist = []
             self._st.settle_prev_pos = None
+            self._st.settle_first_err = None
 
         offsets = self._assign(
             self._st.formation_type, self._st.spacing_m, inp.centroid,
@@ -551,6 +568,9 @@ class Mission1Orchestrator:
             (float(p[0]), float(p[1])) for p in inp.positions
         ]
 
+        if self._st.settle_first_err is None:
+            self._st.settle_first_err = max_err
+
         hist = self._st.settle_hist
         hist.append(max_err)
         win = max(2, int(self._cfg.settle_window_ticks))
@@ -565,12 +585,29 @@ class Mission1Orchestrator:
         elapsed = inp.time_in_state - self._st.settle_key_t0
         timed_out = elapsed >= self._cfg.settle_timeout_s
 
-        if not ((plateau and stopped) or timed_out):
+        # ROTASYONDA EK ŞART: dönüşün gerçekten ilerlemiş olması.
+        # plato+durdu tek başına, sürü henüz KIPIRDAMADIĞI için de sağlanır
+        # (kalkış çapasında asılı dururken hata sabittir) → dönüş başlamadan
+        # "tamamlandı" denirdi. Hatanın düşmüş olmasını ya da zaten tolerans
+        # içinde olmasını (dönecek bir şey yoktu) şart koşuyoruz. Diğer fazlar
+        # (QR görevi, eve dönüş) bu ek şarttan etkilenmez.
+        progressed = True
+        if rotating:
+            first_err = self._st.settle_first_err
+            improved = (
+                first_err is not None
+                and max_err <= first_err - self._cfg.rotation_improve_margin_m
+            )
+            already_good = max_err <= self._cfg.formation_settle_tol_m
+            progressed = improved or already_good
+
+        if not ((plateau and stopped and progressed) or timed_out):
             return None
 
         self._st.settle_done_key = key
         self._st.settle_hist = []
         self._st.settle_prev_pos = None
+        self._st.settle_first_err = None
         if rotating:
             return RotationCompletedCmd(
                 max_error_m=max_err,
@@ -908,9 +945,19 @@ class Mission1Orchestrator:
             ))
 
         self._st.heading_deg = heading
+        # ROTASYONDA SABİT MERKEZ: _hold_center (QR çıpası) yerine _hold_centroid.
+        # _anchor_nearest_to_qr merkezi "QR - döndür(okuyucu_ofset, heading)"
+        # ile kurar; heading slew'lenirken bu vektör döndüğü için merkez QR
+        # etrafında YAY çizer (ölçüldü: 159° dönüşte centroid 8.6 m KAYDI —
+        # şartname sabit-merkez rotasyon ister). _hold_centroid merkezi mevcut
+        # centroid'e göre tutar → centroid sabit kalır, sürü yerinde döner.
+        # Geçiş lurch'suz: centroid mevcut konumlardan hesaplandığından ilk
+        # tick hedefleri dronların bulunduğu yere birebir denk gelir.
+        # QR görevlerinde (formasyon/irtifa) _hold_center AYNEN kalır — orada
+        # sürünün QR'ın üstünde durması gerekir; yalnız rotasyon değişti.
         cmds.append(FormationTargetCmd(
             formation_type=self._st.formation_type,
-            center=self._hold_center(inp, offsets, heading),
+            center=self._hold_centroid(inp, offsets, heading),
             heading_deg=heading,
             spacing_m=self._st.spacing_m,
             agent_ids=list(inp.agent_ids),

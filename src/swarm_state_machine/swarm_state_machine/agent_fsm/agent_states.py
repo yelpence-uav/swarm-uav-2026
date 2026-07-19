@@ -25,6 +25,25 @@ class AgentState(IntEnum):
     STANDBY = 15
 
 
+FORMATION_ACTIVE_STATES = frozenset({
+    AgentState.IN_SWARM,
+    AgentState.EXECUTING_TASK,
+})
+"""Formasyon hesaplarına (centroid, konum dizileri, kalite) dahil edilen durumlar.
+
+İnmiş/düşmüş/ayrılmış ajanlar (LANDED, FAILSAFE, DETACHED ...) dışarıda kalır —
+onlara slot atanırsa formasyonda ölü boşluk oluşur.
+
+ARMED/TAKEOFF bilerek DIŞARIDA: bu durumlar eklendiğinde yerdeki dronlar centroid'e
+girip merkez irtifasını yer seviyesine çekiyor, formasyon sürüyü aşağıda tutmaya
+çalışıyor ve kalkış tırmanışı engelleniyor (denendi, dronlar yükselemeyip indi).
+Kalkış dizilişini korumak için önce irtifa referansının konumdan ayrılması gerekir.
+
+Tek tanım: centroid, konum dizileri ve kalite metriği AYNI kümeyi kullanmalıdır.
+Biri değişip diğeri unutulursa ofsetler (konum - centroid) tutarsız çıkar.
+"""
+
+
 class AgentRole(IntEnum):
     """Ajan rol sabitleri. AgentStatus.msg ROLE_* ile birebir eşleşir."""
 

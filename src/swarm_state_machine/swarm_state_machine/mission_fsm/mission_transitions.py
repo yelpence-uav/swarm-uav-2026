@@ -37,6 +37,11 @@ _RETURN_HOME_TIMEOUT_S = 120.0
 # bu sert sınır yalnız sonsuz takılmaya karşıdır (ev ulaşılamıyorsa iniş).
 _RETURN_HOME_HARD_TIMEOUT_S = 300.0
 _LANDING_TIMEOUT_S = 90.0
+# AgentStatus.STATE_IDLE — terminal durumdan güvenli toparlanma kontrolü için.
+_AGENT_STATE_IDLE = 1
+# Terminal durumdan (ABORTED / MISSION_COMPLETE) IDLE'a dönmeden önce beklenen
+# süre: terminal durumun YKİ'de görülebilmesi + durum yerleşimi içindir.
+_TERMINAL_RESET_DWELL_S = 3.0
 
 # Rota bilinemez (gidilecek QR'ın konumu tabloda yok) → RETURN_HOME'a geçmeden
 # önce tanınan süre. Geç gelen konum tablosuna / QR yeniden okumaya şans tanır;
@@ -375,6 +380,32 @@ def _from_paused(ctx: MissionContext) -> MissionState | None:
     return None
 
 
+def _from_terminal(ctx: MissionContext) -> MissionState | None:
+    """ABORTED / MISSION_COMPLETE: sürü YERDE ve güvendeyken IDLE'a döner.
+
+    Terminal durumlar eskiden çıkışsızdı → görev bir kez bitince/abort olunca
+    yeni START yalnızca node yeniden başlatılarak kabul ediliyordu (yarışmada 3
+    hak → her hak arası restart). Sürü tamamen yerdeyken (hepsi LANDED ya da
+    IDLE) IDLE'a dönmek, node'u restart etmeden yeni bir göreve hazır olmayı
+    sağlar. Havadayken ASLA resetlenmez (güvenlik). Kısa bekleme, terminal
+    durumun YKİ'de görülmesine izin verir.
+
+    Args:
+        ctx (MissionContext): Mevcut FSM çalışma zamanı durumu.
+
+    Returns:
+        MissionState.IDLE: Sürü yerde ve bekleme dolduysa.
+        None: Sürü havada ya da bekleme dolmadıysa (terminalde kal).
+    """
+    on_ground = (
+        ctx.all_agents_landed()
+        or ctx.all_agents_in_state(_AGENT_STATE_IDLE)
+    )
+    if on_ground and ctx.time_in_state() > _TERMINAL_RESET_DWELL_S:
+        return MissionState.IDLE
+    return None
+
+
 _HANDLERS = {
     MissionState.UNKNOWN: _from_unknown,
     MissionState.IDLE: _from_idle,
@@ -388,6 +419,8 @@ _HANDLERS = {
     MissionState.RETURN_HOME: _from_return_home,
     MissionState.LANDING: _from_landing,
     MissionState.PAUSED: _from_paused,
+    MissionState.ABORTED: _from_terminal,
+    MissionState.MISSION_COMPLETE: _from_terminal,
 }
 
 

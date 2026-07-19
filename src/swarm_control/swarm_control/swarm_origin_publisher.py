@@ -26,6 +26,15 @@ noktadır. Böylece:
     RTK baz istasyonunun konumunu (RTK sürücüsünün yayınladığı NavSatFix
     topic'inden) origin olarak kilitler. Gerçek harici sabit çapa.
 
+  first_fix (gerçek donanım — RTK yoksa):
+    Seçilen bir drone'un (varsayılan drone 1) İLK gerçek GPS değerini origin
+    olarak dondurur. Elle koordinat girme derdini ve "sim değerini sahada
+    unutup bırakma" riskini kaldırır. Yalnız BU tek düğüm yakalar ve
+    /swarm/origin'e basar; 3 drone + director hep bu tek yayından okur →
+    herkes aynı sıfır (kayma imkânsız). Kilitlendikten sonra DEĞİŞMEZ.
+    Mutlak doğruluk GPS kadardır (~1-3 m); formasyon (relatif) etkilenmez,
+    ama mutlak hedef isabeti (QR/renkli ped) için RTK daha güvenlidir.
+
 Origin'in DEĞERİ formasyon şeklini etkilemez (relatif hesapta sadeleşir);
 önemli olan tüm drone'ların AYNI değeri kullanmasıdır.
 Tüketiciler (formation_node,
@@ -37,9 +46,13 @@ Kullanım (SITL):
     -p origin_source:=fixed \
     -p fixed_lat:=41.0441269 -p fixed_lon:=29.0016997 -p fixed_alt:=0.48
 
-Kullanım (donanım):
+Kullanım (donanım — RTK):
   ros2 run swarm_control swarm_origin_publisher --ros-args \
     -p origin_source:=rtk_base -p rtk_base_topic:=/rtk/base/fix
+
+Kullanım (donanım — RTK yoksa, ilk iyi fix'i dondur):
+  ros2 run swarm_control swarm_origin_publisher --ros-args \
+    -p origin_source:=first_fix -p first_fix_agent_id:=1
 """
 
 import rclpy
@@ -53,7 +66,7 @@ from rclpy.qos import (
 )
 
 from sensor_msgs.msg import NavSatFix, NavSatStatus
-from swarm_interfaces.msg import SwarmOrigin
+from swarm_interfaces.msg import AgentStatus, SwarmOrigin
 
 _RELIABLE_TRANSIENT = QoSProfile(
     reliability=ReliabilityPolicy.RELIABLE,
@@ -70,7 +83,8 @@ class SwarmOriginPublisher(Node):
         """Node'u başlatır, modu okur ve origin kilit mantığını kurar."""
         super().__init__('swarm_origin_publisher')
 
-        self.declare_parameter('origin_source', 'fixed')  # fixed | rtk_base
+        # fixed | rtk_base | first_fix
+        self.declare_parameter('origin_source', 'fixed')
         self.declare_parameter('rate_hz', 1.0)
         # fixed mod referans noktası (SITL — dronların spawn bölgesi):
         self.declare_parameter('fixed_lat', 0.0)
@@ -78,6 +92,8 @@ class SwarmOriginPublisher(Node):
         self.declare_parameter('fixed_alt', 0.0)
         # rtk_base mod RTK sürücü topic'i:
         self.declare_parameter('rtk_base_topic', '/rtk/base/fix')
+        # first_fix mod: hangi dronun GPS'i yakalanır.
+        self.declare_parameter('first_fix_agent_id', 1)
 
         _src_param = self.get_parameter('origin_source')
         self._origin_source = (
@@ -104,6 +120,8 @@ class SwarmOriginPublisher(Node):
 
         if self._origin_source == 'rtk_base':
             self._setup_rtk_base()
+        elif self._origin_source == 'first_fix':
+            self._setup_first_fix()
         else:
             self._setup_fixed()
 
@@ -166,6 +184,41 @@ class SwarmOriginPublisher(Node):
         self._locked = True
         self.get_logger().info(
             f'Origin kilitlendi (RTK baz): '
+            f'lat={self._lat:.7f} lon={self._lon:.7f} alt={self._alt:.1f}m'
+        )
+
+    # ------------------------------------------------------------------ #
+    # first_fix modu (donanım, RTK yoksa) — seçilen dronun ilk iyi fix'i
+    # ------------------------------------------------------------------ #
+    def _setup_first_fix(self) -> None:
+        self._ff_agent_id = int(
+            self.get_parameter('first_fix_agent_id').value
+        )
+        topic = f'/swarm/public/drone{self._ff_agent_id}/status'
+        self.create_subscription(
+            AgentStatus, topic, self._on_agent_status,
+            QoSPresetProfiles.SENSOR_DATA.value,
+        )
+        self.get_logger().info(
+            f'SwarmOriginPublisher (mod=first_fix): drone{self._ff_agent_id} '
+            f'ilk GPS değeri bekleniyor'
+        )
+
+    def _on_agent_status(self, msg: AgentStatus) -> None:
+        if self._locked:
+            return
+        # GPS henüz gelmemişken lat/lon 0 gelir; ilk GERÇEK değeri bekle.
+        if msg.lat_deg == 0.0 and msg.lon_deg == 0.0:
+            return
+        # İlk gerçek GPS değerini origin olarak dondur — bir daha değişmez.
+        self._lat = float(msg.lat_deg)
+        self._lon = float(msg.lon_deg)
+        self._alt = float(msg.alt_amsl_m)
+        self._gps_fix = int(msg.gps_fix_type)
+        self._gps_hdop = float(msg.gps_hdop)
+        self._locked = True
+        self.get_logger().info(
+            f'Origin kilitlendi (first_fix, drone{self._ff_agent_id}): '
             f'lat={self._lat:.7f} lon={self._lon:.7f} alt={self._alt:.1f}m'
         )
 

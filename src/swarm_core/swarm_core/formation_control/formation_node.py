@@ -174,8 +174,15 @@ class FormationControlNode(Node):
         # b_s 0.2→0.35 (k artınca rezonansı bastırmak için sönüm de artar).
         self.declare_parameter('svt_damp', 0.35)
         self.declare_parameter('target_ramp_mps', 1.0)
-        # A7 — göreli (komşu tabanlı) formasyon koruma
-        self.declare_parameter('rel_enable', True)
+        # A7 — göreli (komşu tabanlı) formasyon koruma. VARSAYILAN KAPALI:
+        # komşu konumu NeighborInfo'dan gelir ve 0.5 sn'ye kadar bayat olabilir;
+        # bayat veriyle düzeltme yalpalatıp dronları birbirine sokuyordu
+        # (ölçüldü: relative açıkken en yakın mesafe 0.28 m — near-collision;
+        # kapatınca 0 ihlal, min 2.68 m). SITL'de GPS temiz olduğu için mutlak
+        # SVT tek başına yeterli. Gerçek sahada GPS gürültüsünde relative'e
+        # ihtiyaç olursa: -p rel_enable:=true ile açılır (ama bayatlık sorunu
+        # da giderilmeli).
+        self.declare_parameter('rel_enable', False)
         self.declare_parameter('rel_k', 0.2)
         self.declare_parameter('rel_threshold_m', 0.2)
         self.declare_parameter('rel_stale_s', 0.5)

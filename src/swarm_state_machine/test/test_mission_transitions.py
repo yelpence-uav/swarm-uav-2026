@@ -894,5 +894,37 @@ class TestReturnHomeRestart(unittest.TestCase):
         self.assertEqual(evaluate_transitions(ctx), MissionState.LANDING)
 
 
+class TestTerminalRecovery(unittest.TestCase):
+    """ABORTED / MISSION_COMPLETE → yere inince IDLE'a toparlanma."""
+
+    def test_aborted_yerde_idle_doner(self):
+        """ABORTED + ajanlar IDLE + bekleme dolmuş → IDLE (restart gerekmez)."""
+        ctx = _ctx(MissionState.ABORTED)
+        _all_agents(ctx, 1)  # STATE_IDLE (kalkmadılar)
+        _geç(ctx, 5.0)       # dwell (3s) doldu
+        self.assertEqual(evaluate_transitions(ctx), MissionState.IDLE)
+
+    def test_mission_complete_landed_idle_doner(self):
+        """MISSION_COMPLETE + ajanlar LANDED + bekleme dolmuş → IDLE."""
+        ctx = _ctx(MissionState.MISSION_COMPLETE)
+        _all_agents(ctx, 13)  # STATE_LANDED
+        _geç(ctx, 5.0)
+        self.assertEqual(evaluate_transitions(ctx), MissionState.IDLE)
+
+    def test_terminal_havada_reset_olmaz(self):
+        """Sürü havadayken (IN_SWARM) terminalden çıkılmaz (güvenlik)."""
+        ctx = _ctx(MissionState.ABORTED)
+        _all_agents(ctx, 5)  # STATE_IN_SWARM
+        _geç(ctx, 10.0)
+        self.assertIsNone(evaluate_transitions(ctx))
+
+    def test_terminal_bekleme_dolmadan_reset_olmaz(self):
+        """Yerde ama bekleme (dwell) dolmadan IDLE'a dönülmez."""
+        ctx = _ctx(MissionState.MISSION_COMPLETE)
+        _all_agents(ctx, 13)  # yerde
+        _geç(ctx, 1.0)        # dwell 3s dolmadı
+        self.assertIsNone(evaluate_transitions(ctx))
+
+
 if __name__ == '__main__':
     unittest.main()
