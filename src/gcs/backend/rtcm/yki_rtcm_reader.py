@@ -33,6 +33,7 @@ Kullanım:
 """
 
 import argparse
+import sys
 import time
 
 try:
@@ -41,6 +42,16 @@ try:
 except ImportError:  # doğrudan script olarak çalıştırılınca
     from crc import crc24q
     from cobs_framing import frame_rtcm
+
+# Çıktı boruya/dosyaya gidince (örn. sahada `| tee rtcm.log`) Python stdout'u
+# BLOK tamponlar: sağlık satırları ~dakika gecikir — "sessizlik = başarı"
+# açığı arka kapıdan geri gelirdi (Büşra'nın tee ölçümü: -u'suz 5 sn'de 0
+# satır). Satır tamponlamaya zorla: her '\n'ta flush, tee/log altında da
+# saniyelik satırlar anında düşer.
+try:
+    sys.stdout.reconfigure(line_buffering=True)
+except (AttributeError, ValueError):
+    pass  # stdout değiştirilmişse (test harness vb.) sessizce geç
 
 # RTCM mesaj tipleri
 EXPECTED = {1005, 1074, 1084, 1094, 1230}          # MSM4 seti (beklenen)
