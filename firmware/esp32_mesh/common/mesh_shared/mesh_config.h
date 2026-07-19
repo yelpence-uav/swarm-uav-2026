@@ -472,8 +472,15 @@ static node_durum_t* _node_bul_veya_ekle(const uint8_t* mac) {
             bos = &_bilinen_nodlar[i];   // hic kullanilmamis slot
     }
     if (tanidik) {
-        tanidik->aktif            = true;
-        tanidik->son_heartbeat_ms = millis();
+        // aktif=true: slot rezerve kalir (asagidaki "en eski pasif node'u geri
+        // don" reuse yolu bu node'u kapmasin, replay durumu korunsun).
+        tanidik->aktif = true;
+        // son_heartbeat_ms BILEREK tazelenmez: node canliligi (mesh_komsu_sayisi
+        // + node timeout, ikisi de son_heartbeat_ms tazeligine bakar) ancak paket
+        // replay'i GECTIKTEN sonra ilerlemeli. Aksi halde replay'de dusecek bir
+        // tekrar-oynatma, olu komsuyu burada "taze" yapip mesh_komsu_sayisi'ni
+        // sisirir ve timeout'u baskilardi (ORTA-1/O1). Tazeleme replay sonrasi
+        // yapilir: veri -> callback (mesh_veri_al), heartbeat -> _recv_isle.
         // replay durumuna dokunulmaz: pencere ve session_id korunur.
         return tanidik;
     }
@@ -774,8 +781,13 @@ static inline void _recv_isle() {
                         _peer_ekle(p->kaynak_mac);
                         node->peer_kayitli = true;
                     }
-                    // son_heartbeat_ms sadece GCM sonrasi guncellenir
-                    if (node) { node->son_heartbeat_ms = millis(); node->aktif = true; }
+                    // Node canliligi (son_heartbeat_ms/aktif) BURADA tazelenmez:
+                    // veri paketinin replay kontrolu callback icinde yapiliyor ve
+                    // canlilik ancak replay GECTIKTEN sonra ilerlemeli (ORTA-1/O1).
+                    // GCM'i gecmis ama replay'de dusecek bir tekrar-oynatma aksi
+                    // halde olu komsuyu "taze" tutup mesh_komsu_sayisi'ni sisirirdi.
+                    // Tazeleme callback'te (mesh_veri_al) replay dogrulandiktan
+                    // sonra yapilir. Heartbeat yolu (asagida) ayni sirayi izler.
                     if (_veri_callback) _veri_callback(p);
                 }
                 if (_broadcast_mi(p->hedef_mac)) _paketi_ilet(p);

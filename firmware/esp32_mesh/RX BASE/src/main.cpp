@@ -142,6 +142,13 @@ void mesh_veri_al(const mesh_paket_t* p) {
         return;
     }
 
+    // Node canliligi replay GECTIKTEN sonra tazelenir (ORTA-1/O1). Eskiden
+    // _recv_isle GCM sonrasi, replay'den ONCE tazeliyordu; replay'de dusen bir
+    // tekrar-oynatma olu komsuyu aktif tutup mesh_komsu_sayisi'ni sisiriyordu.
+    // TX DRONE::mesh_veri_al ile ayni sira.
+    node->son_heartbeat_ms = millis();
+    node->aktif            = true;
+
     portENTER_CRITICAL(&_recv_mux);
     ardisik_kayip_sayisi = 0;
     son_paket_ms = millis();
@@ -205,6 +212,13 @@ void setup() {
     // gore dogrulayin.
     #define YKI_RX_PIN 25    // TODO: gercek YKİ TX -> ESP32 RX pinini dogrula
     #define YKI_TX_PIN 26    // TODO: gercek YKİ RX -> ESP32 TX pinini dogrula
+    // ORTA-3/O3: YKİ komut hatti da >=2048B RX buffer'a cikarildi. Varsayilan
+    // 256B ring buffer @115200 ~22ms veri tutar; RTCM burst'u loop()'u tek turda
+    // ~60ms+ bloke edebildiginden (rtk_mesh_gonder fragment basina CSMA+retry)
+    // varsayilan buffer tasip YKİ komut baytlari sessizce dusebiliyordu. Serial1
+    // (RTCM) zaten 2048'e cikarilmisti; bu hat asimetrik kalmisti.
+    // setRxBufferSize() begin()'den ONCE cagrilmali (sonra etkisiz).
+    Serial2.setRxBufferSize(2048);
     Serial2.begin(115200, SERIAL_8N1, YKI_RX_PIN, YKI_TX_PIN);
     Serial.println("[UART] YKİ komut/telemetri (Serial2, 115200) baslatildi - PIN DOGRULAMASI GEREKLI");
 
