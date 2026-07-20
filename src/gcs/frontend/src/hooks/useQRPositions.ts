@@ -5,7 +5,7 @@ import { useCallback, useEffect, useState } from "react";
  * arayüzden girer (şartname V2 s.14: konumlar önceden paylaşılır, sahada
  * doğrulanıp yeniden kaydedilebilir).
  *
- * Şeyda kararı: QR sayısı SABİT değil - soru-cevapta "6-7 olabilir" dendi,
+ * QR sayısı SABİT değil - soru-cevapta "6-7 olabilir" dendi,
  * şartname örneğinde 5 var. Dinamik ekle/çıkar tasarlandı. localStorage'da
  * saklanır ki yarışma stresinde config dosyası açmaya gerek kalmasın.
  */

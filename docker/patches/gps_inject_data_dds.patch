@@ -21,8 +21,8 @@ UYGULAMA:
 
 KAYNAKLAR:
 - px4_msgs/msg/GpsInjectData.msg (timestamp, device_id, len, flags, data[300])
-- src/drivers/gps/gps.cpp:210 — gps_inject_data subscription
-- src/modules/mavlink/mavlink_receiver.cpp:2576 — referans enjeksiyon
+- src/drivers/gps/gps.cpp:210 - gps_inject_data subscription
+- src/modules/mavlink/mavlink_receiver.cpp:2576 - referans enjeksiyon
 
 DOGRULAMA:
   cd src/px4_autopilot

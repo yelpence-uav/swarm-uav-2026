@@ -13,8 +13,8 @@ setup(
     ],
     install_requires=['setuptools'],
     zip_safe=True,
-    maintainer='Yelpence TEKNOFEST 2026',
-    maintainer_email='kocakseydagul@gmail.com',
+    maintainer='Yelpençe Takımı',
+    maintainer_email='osmancevik@pm.me',
     description='PX4 interface bridge',
     license='MIT',
     entry_points={

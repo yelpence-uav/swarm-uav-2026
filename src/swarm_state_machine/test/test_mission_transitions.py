@@ -25,9 +25,7 @@ _RTL = 5
 _LAND = 6
 
 
-# =================================================================
 # TEST YARDICILARI
-# =================================================================
 
 def _status(
     state: int = 5,
@@ -146,9 +144,7 @@ def _geç(ctx: MissionContext, saniye: float) -> None:
     ctx.state_entry_time = time.monotonic() - saniye
 
 
-# =================================================================
 # UNKNOWN -> IDLE
-# =================================================================
 
 class TestUnknownIdle(unittest.TestCase):
     """UNKNOWN -> IDLE geçiş testi."""
@@ -159,9 +155,7 @@ class TestUnknownIdle(unittest.TestCase):
         self.assertEqual(evaluate_transitions(ctx), MissionState.IDLE)
 
 
-# =================================================================
 # IDLE
-# =================================================================
 
 class TestIdle(unittest.TestCase):
     """IDLE state geçiş testleri."""
@@ -188,9 +182,7 @@ class TestIdle(unittest.TestCase):
         )
 
 
-# =================================================================
 # PREFLIGHT
-# =================================================================
 
 class TestPreflight(unittest.TestCase):
     """PREFLIGHT state geçiş testleri."""
@@ -244,9 +236,7 @@ class TestPreflight(unittest.TestCase):
         self.assertIsNone(evaluate_transitions(ctx))
 
 
-# =================================================================
 # SYNCHRONIZED_TAKEOFF
-# =================================================================
 
 class TestSynchronizedTakeoff(unittest.TestCase):
     """SYNCHRONIZED_TAKEOFF state geçiş testleri."""
@@ -299,9 +289,7 @@ class TestSynchronizedTakeoff(unittest.TestCase):
         self.assertEqual(result, MissionState.ABORTED)
 
 
-# =================================================================
 # NAVIGATE_TO_QR
-# =================================================================
 
 class TestNavigateToQr(unittest.TestCase):
     """NAVIGATE_TO_QR state geçiş testleri."""
@@ -338,9 +326,7 @@ class TestNavigateToQr(unittest.TestCase):
         self.assertEqual(result, MissionState.RETURN_HOME)
 
 
-# =================================================================
 # EXECUTE_QR_TASK
-# =================================================================
 
 class TestExecuteQrTask(unittest.TestCase):
     """EXECUTE_QR_TASK state geçiş testleri."""
@@ -421,9 +407,7 @@ class TestExecuteQrTask(unittest.TestCase):
         self.assertEqual(result, MissionState.RETURN_HOME)
 
 
-# =================================================================
 # WAIT_AT_QR
-# =================================================================
 
 class TestWaitAtQr(unittest.TestCase):
     """WAIT_AT_QR state geçiş testleri."""
@@ -467,9 +451,7 @@ class TestWaitAtQr(unittest.TestCase):
         self.assertEqual(result, MissionState.RETURN_HOME)
 
 
-# =================================================================
 # ROTATE_TO_NEXT
-# =================================================================
 
 class TestRotateToNext(unittest.TestCase):
     """ROTATE_TO_NEXT state geçiş testleri."""
@@ -506,9 +488,7 @@ class TestRotateToNext(unittest.TestCase):
         self.assertEqual(result, MissionState.NAVIGATE_TO_QR)
 
 
-# =================================================================
 # SEMI_AUTONOMOUS (Görev 2)
-# =================================================================
 
 class TestSemiAutonomous(unittest.TestCase):
     """SEMI_AUTONOMOUS state geçiş testleri."""
@@ -542,9 +522,7 @@ class TestSemiAutonomous(unittest.TestCase):
         self.assertIsNone(evaluate_transitions(ctx))
 
 
-# =================================================================
 # RETURN_HOME
-# =================================================================
 
 class TestReturnHome(unittest.TestCase):
     """RETURN_HOME state geçiş testleri."""
@@ -570,9 +548,7 @@ class TestReturnHome(unittest.TestCase):
         self.assertIsNone(evaluate_transitions(ctx))
 
 
-# =================================================================
 # LANDING
-# =================================================================
 
 class TestLanding(unittest.TestCase):
     """LANDING state geçiş testleri."""
@@ -598,9 +574,7 @@ class TestLanding(unittest.TestCase):
         self.assertIsNone(evaluate_transitions(ctx))
 
 
-# =================================================================
 # PAUSED
-# =================================================================
 
 class TestPaused(unittest.TestCase):
     """PAUSED state geçiş testleri."""
@@ -618,9 +592,7 @@ class TestPaused(unittest.TestCase):
         self.assertIsNone(evaluate_transitions(ctx))
 
 
-# =================================================================
 # GLOBAL KOMUTLAR (her state'ten tetiklenir)
-# =================================================================
 
 class TestGlobalAbort(unittest.TestCase):
     """ABORT komutu tüm aktif state'lerden ABORTED'a götürmeli."""
@@ -715,9 +687,7 @@ class TestGlobalPause(unittest.TestCase):
         self.assertNotEqual(result, MissionState.PAUSED)
 
 
-# =================================================================
 # FIND_FIRST_QR_STEP
-# =================================================================
 
 class TestFindFirstQrStep(unittest.TestCase):
     """find_first_qr_step fonksiyon testleri."""
@@ -765,9 +735,7 @@ class TestFindFirstQrStep(unittest.TestCase):
         self.assertEqual(find_first_qr_step(None), QrTaskStep.DONE)
 
 
-# =================================================================
 # FIND_NEXT_QR_STEP
-# =================================================================
 
 class TestFindNextQrStep(unittest.TestCase):
     """find_next_qr_step fonksiyon testleri."""

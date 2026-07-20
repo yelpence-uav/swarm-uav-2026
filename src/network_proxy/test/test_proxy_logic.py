@@ -52,7 +52,7 @@ def _reset(n):
         n.positions[a] = _YAKIN
 
 
-# ---------------- _within_budget (250 byte) ----------------
+# _within_budget (250 byte)
 def test_within_budget_normal_gecer(node):
     _reset(node)
     assert node._within_budget(AgentStatus(), "test") is True
@@ -65,7 +65,7 @@ def test_within_budget_asan_dusurulur(node):
     assert node._within_budget(msg, "test") is False
 
 
-# ---------------- _broadcast_drop (mesafe + fault) ----------------
+# _broadcast_drop (mesafe + fault)
 def test_broadcast_yakin_dusmez(node):
     _reset(node)
     assert node._broadcast_drop("drone1") is False
@@ -107,7 +107,7 @@ def test_broadcast_uzak_alici_unreachable_sayilmaz(node):
     assert node._broadcast_drop("drone1") is False
 
 
-# ---------------- reliability sınıfları (mesh retry hizası) ----------------
+# reliability sınıfları (mesh retry hizası)
 def test_control_gcs_konumsuzken_uzakta_bile_iletilir(node):
     """GCS konumu verilmediginde kontrol menzil disi olsa bile gecer.
 
@@ -139,7 +139,7 @@ def test_state_yakinda_iletilir(node):
     assert len(node._pending) == 1
 
 
-# ---------------- QR: raw_text temizleme + mesafe ----------------
+# QR: raw_text temizleme + mesafe
 def test_qr_raw_text_temizlenir(node):
     _reset(node)
     m = QRMissionData()
@@ -162,7 +162,7 @@ def test_qr_gonderen_izole_dusurulur(node):
     assert len(node._pending) == 0
 
 
-# ---------------- fault-injection tutarlılığı ----------------
+# fault-injection tutarlılığı
 def test_faultinjection_status_kesilir(node):
     _reset(node)
     node.unreachable_agents = {"drone1"}
@@ -190,9 +190,8 @@ def test_status_yakinda_iletilir(node):
     assert len(node._pending) == 1
 
 
-# ---------------- kritik kanallarda fiziksel menzil (retry menzil dışını
-# kurtarmaz - mesh_config.h _mesh_gonder: retry yalnız esp_now_send
-# başarısızlığını dener, fiziksel olarak ulaşmayan sinyali kurtaramaz) -----
+# Kritik kanallarda fiziksel menzil denetimi
+# (esp_now_send başarısızlığı hariç kapsama dışındaki sinyali kurtarmaz)
 def test_election_yakinda_iletilir(node):
     _reset(node)
     m = ElectionResult()
@@ -279,7 +278,7 @@ def test_event_kaynak_izole_dusurulur(node):
     assert len(node._pending) == 0
 
 
-# ---------------- QRCoordinates (latched, origin sınıfı) ----------------
+# QRCoordinates (latched, origin sınıfı)
 def test_qr_coords_uzakta_bile_iletilir(node):
     """QR tablosu latched/statik -> mesafe zari yok, hep gecer."""
     _reset(node)
@@ -335,7 +334,7 @@ def test_control_gcs_mesafe_zari(node):
     assert node._broadcast_drop("gcs") is True
 
 
-# ---------------- A: GPS geçerlilik denetimi (çöp konum sokulmaz) ----------
+# A: GPS geçerlilik denetimi (çöp konum sokulmaz)
 def test_gps_gecersiz_fix_saklanmaz(node):
     """gps_fix_type < 3 (kilit yok) -> konum güncellenmez; ham koordinat
     mesafe matematiğine sokulmaz."""
@@ -385,7 +384,7 @@ def test_gps_gecersizde_son_gecerli_korunur(node):
     assert node.positions["drone1"] == (41.0, 29.0, 5.0)
 
 
-# ---------------- B: bayat konum denetimi (ölü komşu sayılmaz) -------------
+# B: bayat konum denetimi (ölü komşu sayılmaz)
 def test_bayat_komsu_atlanir(node):
     """Konumu _STALE_LIMIT_S'ten eski komşu ölü sayılır: yakın ama bayat
     drone2 sayılmazsa, gönderenin tek canlı komşusu uzak drone3 kalır ->
@@ -409,7 +408,7 @@ def test_taze_komsu_sayilir(node):
     assert node._broadcast_drop("drone1") is False
 
 
-# ---------------- C: kritik kanal artık kademeli mesafe zarına giriyor -----
+# C: kritik kanal artık kademeli mesafe zarına giriyor --
 def test_kritik_election_mesafe_zarina_girer(node, monkeypatch):
     """C düzeltmesinin çekirdeği: election (kritik) artık should_drop_packet'i
     çağırıyor - eski ikili model bu olasılık eğrisine HİÇ girmezdi."""
@@ -445,7 +444,7 @@ def test_kritik_event_mesafe_zarina_girer(node, monkeypatch):
     assert len(node._pending) == 0
 
 
-# ---------------- Lider takibi (drop'tan ÖNCE yakala) ----------------------
+# Lider takibi (drop'tan ÖNCE yakala)
 def test_lider_heartbeat_ile_yakalanir(node):
     """Heartbeat işlenince güncel lider ID'si güncellenir."""
     _reset(node)
@@ -475,7 +474,7 @@ def test_lider_election_ile_yakalanir(node):
     assert node._current_leader_id == 3
 
 
-# ---------------- Formasyon/görev fazı: liderden çıkar -> mesafe kaybı ------
+# Formasyon/görev fazı: liderden çıkar -> mesafe kaybı ---
 def test_formation_lider_yakinken_iletilir(node):
     _reset(node)
     node._current_leader_id = 1

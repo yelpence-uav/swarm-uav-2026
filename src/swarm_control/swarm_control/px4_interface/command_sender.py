@@ -65,7 +65,7 @@ class CommandSender:
             10,
         )
 
-    # --- VehicleCommand yardimcisi ---
+# VehicleCommand yardimcisi
 
     def _send_vehicle_command(
         self,
@@ -97,7 +97,7 @@ class CommandSender:
         msg.from_external = True
         self._cmd_pub.publish(msg)
 
-    # --- Arm / Disarm ---
+# Arm / Disarm
 
     def arm(self) -> None:
         """Motorlari arm eder."""
@@ -111,7 +111,7 @@ class CommandSender:
             _CMD_ARM_DISARM, param1=0.0
         )
 
-    # --- Mod degistirme ---
+# Mod degistirme
 
     def set_offboard_mode(self) -> None:
         """OFFBOARD moduna gecer."""
@@ -130,7 +130,7 @@ class CommandSender:
             param3=float(_SUB_AUTO_LOITER),
         )
 
-    # --- Kalkis / inis / eve donus ---
+# Kalkis / inis / eve donus
 
     def takeoff(self, altitude_m: float = 10.0) -> None:
         """Belirtilen irtifaya kalkar.
@@ -150,7 +150,7 @@ class CommandSender:
         """Home konumuna doner (RTL)."""
         self._send_vehicle_command(_CMD_NAV_RTL)
 
-    # --- Offboard streaming ---
+# Offboard streaming
 
     def publish_offboard_position_mode(self) -> None:
         """Pozisyon kontrol modunu PX4'e bildirir."""

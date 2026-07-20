@@ -68,7 +68,7 @@ class MockAgentPublisher(Node):
             TriggerMission, "/swarm/mission/trigger", self._on_trigger_mission
         )
 
-        # --- State machine ---
+# State machine
         self._mode = MockMode.ACTIVE  # default: hemen hareket görsün
         self._last_tick = time.time()
         # Her drone için durum verisi
@@ -97,7 +97,7 @@ class MockAgentPublisher(Node):
             f"TriggerMission server hazır"
         )
 
-    # --- Helper metodları --------------------------------------------------
+# Helper metodları
 
     def _all_landed(self) -> bool:
         return all(s["alt"] < 0.3 for s in self._drone_state.values())
@@ -163,7 +163,7 @@ class MockAgentPublisher(Node):
                 s["alt"] = 0.0
             self._set_mode(MockMode.IDLE, "abort sonrası reset")
 
-    # --- Callback fonksiyonları --------------------------------------------
+# Callback fonksiyonları
 
     def _tick_status(self) -> None:
         now = time.time()
@@ -373,7 +373,7 @@ class MockAgentPublisher(Node):
         m.message = text
         self._event_pub.publish(m)
 
-    # --- AgentStatus oluşturma --------------------------------------------
+# AgentStatus oluşturma
 
     def _build_status(self, drone_id: int) -> AgentStatus:
         s = self._drone_state[drone_id]

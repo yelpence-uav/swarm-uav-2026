@@ -121,7 +121,7 @@ html[data-theme="dark"] .leaflet-tile {
   border-color: var(--color-border-accent);
 }
 
-/* === QR nokta işaretçileri ================================= */
+/* QR nokta işaretçileri */
 .qr-marker-wrapper {
   background: transparent;
   border: none;

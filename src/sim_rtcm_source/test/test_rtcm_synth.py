@@ -154,7 +154,7 @@ def test_sample_data_dosyasi_var_ve_gecerli():
         assert _crc_dogrula(m)
 
 
-# --- pyrtcm round-trip (sadece 1005, 1077 stub bos) ---
+# pyrtcm round-trip (sadece 1005, 1077 stub bos)
 
 def test_pyrtcm_1005_referans_round_trip_decode():
     """Referans 1005 pyrtcm ile identity 1005 donmeli."""
@@ -190,7 +190,7 @@ def test_pyrtcm_1005_sentetik_round_trip_decode():
     assert mesajlar[0].identity == '1005'
 
 
-# --- Negatif testler: bozuk veri reddedilmeli ---
+# Negatif testler: bozuk veri reddedilmeli
 
 def test_bozuk_payload_byte_reddedilmeli():
     """Payload byte bozulunca CRC uyusmaz, framer reddetmeli."""

@@ -4,7 +4,7 @@
   <name>swarm_perception</name>
   <version>0.1.0</version>
   <description>Sürü algılama: kinematik füzyon ve görüntü işleme</description>
-  <maintainer email="kocakseydagul@gmail.com">Yelpence TEKNOFEST 2026</maintainer>
+  <maintainer email="osmancevik@pm.me">Yelpençe Takımı</maintainer>
   <license>MIT</license>
 
   <depend>rclpy</depend>

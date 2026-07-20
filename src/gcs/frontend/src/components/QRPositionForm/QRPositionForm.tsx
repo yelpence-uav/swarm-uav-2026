@@ -16,7 +16,7 @@ interface QRPositionFormProps {
  *
  * Şartname V2 s.14: QR lat/lon'ları yarışma öncesi hakemlerce paylaşılır,
  * sahada doğrulanabilir. Operatör buradan girer - config dosyası açmaya
- * gerek kalmaz (Şeyda kararı). Dinamik: QR sayısı 5/6/7 olabilir, ekle/çıkar.
+ * gerek kalmaz. Dinamik: QR sayısı 5/6/7 olabilir, ekle/çıkar.
  *
  * "Drone'lara Gönder" -> backend POST /api/mission/qr_coords -> QRCoordinates
  * mesajı /swarm/internal/mission/qr_coords'a (latched) -> proxy/mesh ->

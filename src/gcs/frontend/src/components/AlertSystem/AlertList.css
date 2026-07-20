@@ -69,7 +69,7 @@
   box-shadow: 0 0 16px var(--color-danger-glow);
 }
 
-/* === Head ================================================== */
+/* Head */
 .alert-item__head {
   display: flex;
   align-items: center;
@@ -119,7 +119,7 @@
   color: var(--color-text-primary);
 }
 
-/* === Body =================================================== */
+/* Body */
 .alert-item__msg {
   font-size: var(--text-sm);
   color: var(--color-text-primary);

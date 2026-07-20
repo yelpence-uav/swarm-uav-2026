@@ -492,7 +492,7 @@ class RosBridge:
             self._node.destroy_node()
         logger.info("ROS 2 bridge durdu")
 
-    # --- Internals ----------------------------------------------------------
+# Internals
 
     def _spin(self) -> None:
         try:

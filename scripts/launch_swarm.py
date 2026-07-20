@@ -1,22 +1,19 @@
 #!/usr/bin/env python3
-"""
-Yelpençe Takımı Sürü İHA Simülasyon Başlatıcısı (Tmux & Gazebo GUI)
-Bu script ROS 2, Gazebo Harmonic ve PX4 kullanarak
-3 adet İHA'yı belirlenen geçici dünyada başlatır.
-Gazebo 3D arayüzü açılır ve süreçler Tmux sekmelerinden yönetilir.
-"""
+"""Yelpençe Takımı Sürü İHA Simülasyon Başlatıcısı."""
 
-import os
-import subprocess
-import time
-import tempfile
 import glob
+import os
 import shutil
+import subprocess
+import tempfile
+import time
 
 WORKSPACE = "/home/yelpence/ros2_ws"
 PX4_PATH = os.path.join(WORKSPACE, "src/px4_autopilot")
 MODELS_PATH = os.path.join(WORKSPACE, "sim/models")
-DEFAULT_WORLD = os.path.join(WORKSPACE, "sim/worlds/task1_dynamic_swarm.sdf")
+DEFAULT_WORLD = os.path.join(
+    WORKSPACE, "sim/worlds/task1_dynamic_swarm.sdf"
+)
 
 TMP_WORLD = os.path.join(tempfile.gettempdir(), "swarm_tmp_world.sdf")
 DRONE_COUNT = 3
@@ -24,7 +21,7 @@ TMUX_SESSION = "yelpence_swarm"
 
 
 def cleanup():
-    """Arka planda kalmış eski süreçleri ve tmux oturumlarını temizler."""
+    """Eski süreçleri ve tmux oturumlarını temizler."""
     print("\n--- Eski süreçler temizleniyor... ---")
 
     subprocess.run(
@@ -40,32 +37,38 @@ def cleanup():
         "parameter_bridge",
         "px4",
         "network_proxy_node",
-        # ROS 2 sürü düğümleri (YKİ entegrasyonu için eklendi)
         "px4_bridge",
         "agent_fsm_node",
         "swarm_fsm_node",
         "mode_manager_node",
         "joystick_interpreter_node",
         "mission_fsm_node",
-        # swarm_core icra dugumleri (Faz 2: sim'de gorev icrasi icin eklendi)
         "swarm_origin_publisher",
         "formation_node",
         "collision_avoidance",
     ]
 
-    subprocess.run(["pkill", "-9", "-f", "gz sim"], stderr=subprocess.DEVNULL)
+    subprocess.run(
+        ["pkill", "-9", "-f", "gz sim"], stderr=subprocess.DEVNULL
+    )
     subprocess.run(["pkill", "-9", "-f", "ruby"], stderr=subprocess.DEVNULL)
 
     for proc in processes_to_kill:
-        subprocess.run(["pkill", "-9", "-f", proc], stderr=subprocess.DEVNULL)
+        subprocess.run(
+            ["pkill", "-9", "-f", proc], stderr=subprocess.DEVNULL
+        )
 
-    subprocess.run(["pkill", "-9", "-f", "parameter_bridge"], stderr=subprocess.DEVNULL)
-    subprocess.run(["pkill", "-9", "-f", "ros_gz_bridge"], stderr=subprocess.DEVNULL)
+    subprocess.run(
+        ["pkill", "-9", "-f", "parameter_bridge"], stderr=subprocess.DEVNULL
+    )
+    subprocess.run(
+        ["pkill", "-9", "-f", "ros_gz_bridge"], stderr=subprocess.DEVNULL
+    )
 
     tmp_dir = tempfile.gettempdir()
-    px4_files = glob.glob(os.path.join(tmp_dir, "px4-sock-*")) + glob.glob(
-        os.path.join(tmp_dir, "px4_lock-*")
-    )
+    px4_files = glob.glob(
+        os.path.join(tmp_dir, "px4-sock-*")
+    ) + glob.glob(os.path.join(tmp_dir, "px4_lock-*"))
     for f in px4_files:
         try:
             os.remove(f)
@@ -88,7 +91,7 @@ def cleanup():
 
 
 def init_tmux_session():
-    """Tmux oturumunu arka planda başlatır ve fare/scroll desteğini açar."""
+    """Tmux oturumunu başlatır."""
     subprocess.run(
         ["tmux", "new-session", "-d", "-s", TMUX_SESSION, "-n", "Main", "bash"]
     )
@@ -96,12 +99,11 @@ def init_tmux_session():
 
 
 def run_in_tmux(command, title, log_name=None):
-    """
-    Verilen komutu tmux oturumunda yeni bir sekme (window) açarak çalıştırır.
-    """
+    """Komutu tmux oturumunda çalıştırır."""
     os.makedirs(os.path.join(WORKSPACE, "logs"), exist_ok=True)
     setup_cmd = (
-        f"source /opt/ros/jazzy/setup.bash && " f"source {WORKSPACE}/install/setup.bash"
+        "source /opt/ros/jazzy/setup.bash && "
+        f"source {WORKSPACE}/install/setup.bash"
     )
 
     if log_name:
@@ -123,12 +125,12 @@ def run_in_tmux(command, title, log_name=None):
 
 
 def run_background(command, log_name):
-    """Verilen komutu doğrudan arka planda çalıştırır ve loglar."""
+    """Komutu arka planda çalıştırır."""
     os.makedirs(os.path.join(WORKSPACE, "logs"), exist_ok=True)
     log_path = os.path.join(WORKSPACE, f"logs/{log_name}.log")
 
     full_cmd = (
-        f"source /opt/ros/jazzy/setup.bash && "
+        "source /opt/ros/jazzy/setup.bash && "
         f"source {WORKSPACE}/install/setup.bash && "
         f"{command} >> {log_path} 2>&1"
     )
@@ -136,7 +138,7 @@ def run_background(command, log_name):
 
 
 def generate_spawn_sdf(world_path, drone_count):
-    """SDF dosyasını güncelleyerek ajanları dinamik olarak yerleştirir."""
+    """SDF dosyasını güncelleyerek ajanları yerleştirir."""
     if not os.path.exists(world_path):
         print(f"HATA: {world_path} bulunamadı!")
         return None
@@ -163,7 +165,9 @@ def generate_spawn_sdf(world_path, drone_count):
         return None
 
     final_content = (
-        content[:insertion_point] + spawn_elements + content[insertion_point:]
+        content[:insertion_point]
+        + spawn_elements
+        + content[insertion_point:]
     )
 
     with open(TMP_WORLD, "w") as f:
@@ -173,13 +177,15 @@ def generate_spawn_sdf(world_path, drone_count):
 
 
 def setup_gazebo_env():
-    """Gazebo için model ve dünya dizinlerini bağlar."""
+    """Gazebo model ve dünya dizinlerini ayarlar."""
     ros_share = "/opt/ros/jazzy/share"
     px4_models = os.path.join(PX4_PATH, "Tools/simulation/gz/models")
     px4_worlds = os.path.join(PX4_PATH, "Tools/simulation/gz/worlds")
 
     current_path = os.environ.get("GZ_SIM_RESOURCE_PATH", "")
-    new_path = f"{MODELS_PATH}:{px4_models}:{px4_worlds}:{ros_share}:{current_path}"
+    new_path = (
+        f"{MODELS_PATH}:{px4_models}:{px4_worlds}:{ros_share}:{current_path}"
+    )
     os.environ["GZ_SIM_RESOURCE_PATH"] = new_path
 
     return new_path
@@ -192,7 +198,6 @@ def main():
     print("\n--- YELPENÇE SÜRÜ SİMÜLASYONU BAŞLATICI ---")
     gazebo_env_path = setup_gazebo_env()
 
-    # 1. SDF Dosyasının Üretilmesi
     generated_world = generate_spawn_sdf(DEFAULT_WORLD, DRONE_COUNT)
     if not generated_world:
         print("Geçici dosya oluşturulamadı. İşlem sonlandırılıyor.")
@@ -200,24 +205,22 @@ def main():
 
     world_name = "task1_dynamic_swarm"
 
-    # 2. Gazebo Simülasyonunu Geçici Dünya İle Başlatma
-    # -s parametresi kaldırılarak [3] Gazebo'nun 3D arayüzünün görsel olarak açılması sağlandı.
-    print(f">> Gazebo '{world_name}' dünyası görsel arayüz (GUI) ile başlatılıyor...")
+    print(
+        f">> Gazebo '{world_name}' dünyası görsel arayüz ile başlatılıyor..."
+    )
     gz_cmd = f"source /opt/ros/jazzy/setup.bash && gz sim -r {generated_world}"
 
     gz_env = os.environ.copy()
     gz_env["GZ_SIM_RESOURCE_PATH"] = gazebo_env_path
     gz_proc = subprocess.Popen(["bash", "-c", gz_cmd], env=gz_env)
 
-    time.sleep(10)  # Gazebonun ayağa kalkmasını bekle
+    time.sleep(10)
 
-    # 3. MicroXRCEAgent Haberleşme Köprüsü
-    print(">> DDS Agent Tmux üzerinde başlatılıyor...")
+    print(">> DDS Agent başlatılıyor...")
     run_in_tmux("MicroXRCEAgent udp4 -p 8888 -v 4", "DDS_Agent", "dds_agent")
     time.sleep(2)
 
-    # 4. Kamera Sensör Köprüleri
-    print(f">> {DRONE_COUNT} adet Kamera Köprüsü (Arkaplan) başlatılıyor...")
+    print(f">> {DRONE_COUNT} adet Kamera Köprüsü başlatılıyor...")
     for i in range(DRONE_COUNT):
         drone_id = i + 1
         drone_name = f"IHA_{drone_id}"
@@ -229,27 +232,26 @@ def main():
         image_ros = f"/drone_{drone_id}/camera/image_raw"
 
         cmd = (
-            f"ros2 run ros_gz_bridge parameter_bridge "
+            "ros2 run ros_gz_bridge parameter_bridge "
             f"'{image_gz}@sensor_msgs/msg/Image@gz.msgs.Image' "
             f"--ros-args -r '{image_gz}:={image_ros}'"
         )
         run_background(cmd, f"bridge_{drone_id}")
 
-    # 5. PX4 SITL Örnekleri
-    print(f">> {DRONE_COUNT} adet PX4 SITL Tmux sekmelerine ekleniyor...")
+    print(f">> {DRONE_COUNT} adet PX4 SITL başlatılıyor...")
     for i in range(DRONE_COUNT):
         drone_id = i + 1
         drone_name = f"IHA_{drone_id}"
 
         inner_cmd = (
             f"cd {PX4_PATH} && "
-            f"export PX4_SYS_AUTOSTART=4001 && "
-            f"export PX4_SIM_MODEL=gz_x500 && "
+            "export PX4_SYS_AUTOSTART=4001 && "
+            "export PX4_SIM_MODEL=gz_x500 && "
             f"export PX4_UXRCE_DDS_NS=drone_{drone_id} && "
             f"export PX4_GZ_MODEL_NAME={drone_name} && "
-            f"export PX4_GZ_STANDALONE=1 && "
+            "export PX4_GZ_STANDALONE=1 && "
             f"export PX4_GZ_WORLD={world_name} && "
-            f"export PX4_SIM_SYNC=0 && "
+            "export PX4_SIM_SYNC=0 && "
             f"./build/px4_sitl_default/bin/px4 -i {drone_id}"
         )
 
@@ -262,7 +264,6 @@ def main():
             f"px4-param --instance {drone_id} set COM_RCL_EXCEPT 4",
             f"px4-param --instance {drone_id} set NAV_RCL_ACT 0",
             f"px4-param --instance {drone_id} set NAV_DLL_ACT 0",
-            # Batarya simülasyonu AÇIK — YKİ'de batarya değeri görünsün.
             f"px4-param --instance {drone_id} set SIM_BAT_ENABLE 1",
             f"px4-param --instance {drone_id} set CBRK_SUPPLY_CHK 894281",
             f"px4-param --instance {drone_id} set COM_RC_IN_MODE 4",
@@ -270,20 +271,13 @@ def main():
             f"px4-param --instance {drone_id} set COM_ARM_CHK_ESCS 0",
             f"px4-param --instance {drone_id} set CBRK_IO_SAFETY 22027",
             f"px4-param --instance {drone_id} set MIS_TAKEOFF_ALT 2.5",
-            # === SADECE SİMÜLASYON — EKF ön-uçuş gevşetmeleri ===
-            # Sim GPS/mag'ı çoklu-drone standalone Gazebo'da EKF kalite eşiğini
-            # tutturamıyor ("GPS speed drift" + "magnetic interference") → EKF
-            # global konum üretmiyor → lat/lon 0. Param reboot'tan ÖNCE set
-            # edildiği için EKF sıfırdan bunlarla başlar (runtime set çalışmıyordu).
-            # ⚠️ GERÇEK DONANIMDA ASLA — orada gerçek RTK GPS + kalibre pusula
-            # kontrolleri doğal geçer; kapatmak gerçek arızayı gizler.
             f"px4-param --instance {drone_id} set EKF2_GPS_CHECK 0",
             f"px4-param --instance {drone_id} set COM_ARM_MAG_STR 0",
         ]
 
         for cmd in param_cmds:
             full_param_cmd = (
-                f"source /opt/ros/jazzy/setup.bash && "
+                "source /opt/ros/jazzy/setup.bash && "
                 f"{PX4_PATH}/build/px4_sitl_default/bin/{cmd}"
             )
             subprocess.run(
@@ -293,7 +287,7 @@ def main():
             )
 
         reboot_cmd = (
-            f"source /opt/ros/jazzy/setup.bash && "
+            "source /opt/ros/jazzy/setup.bash && "
             f"{PX4_PATH}/build/px4_sitl_default/bin/px4-commander "
             f"--instance {drone_id} reboot"
         )
@@ -304,55 +298,33 @@ def main():
         )
         time.sleep(3)
 
-    # 6. Kamera Relay Yazılımı
     print(">> Kamera Relay Düğümü başlatılıyor...")
-    run_background(f"ros2 run swarm camera_relay {DRONE_COUNT}", "camera_relay")
-
-    # 7. RTK Yönetimi (Dahili C++ kodunda halledildiği için iptal edildi)
-    # print(">> RTK Baz İstasyonu Köprüsü ve Manager başlatılıyor...")
-    # rtk_gz_topic = f"/world/{world_name}/model/rtk_base_station/link/base_link/sensor/navsat_sensor/navsat"
-    # rtk_ros_topic = "/rtk_base/navsat"
-    # rtk_bridge_cmd = (
-    #     f"ros2 run ros_gz_bridge parameter_bridge "
-    #     f"'{rtk_gz_topic}@sensor_msgs/msg/NavSatFix[gz.msgs.NavSat' "
-    #     f"--ros-args -r '{rtk_gz_topic}:={rtk_ros_topic}'"
-    # )
-    # run_background(rtk_bridge_cmd, "rtk_bridge")
-    # run_background("python3 scripts/rtk_manager.py", "rtk_manager")
-
-    # 8. ESP-NOW Ağ Simülatörü (Network Proxy)
-    print(">> ESP-NOW Ağ Köprüsü Tmux üzerinde başlatılıyor...")
-    run_in_tmux(
-        "ros2 run network_proxy network_proxy_node", "Network_Proxy", "network_proxy"
+    run_background(
+        f"ros2 run swarm camera_relay {DRONE_COUNT}", "camera_relay"
     )
 
-    # 9. Sim RTCM Kaynağı (her drone için)
-    # YALNIZCA-SIM: sim_rtcm_source /drone_{id}/rtcm/in girişini besler.
-    # RTK köprüsü artık px4_bridge içine alındı; o bu topic'i dinleyip
-    # PX4'e GpsInjectData enjekte eder. Ayrı rtk_bridge başlatılmaz.
-    # Sahada esp32_bridge bu topic'i besleyecek; bu launch'a EKLENMEZ.
+    print(">> ESP-NOW Ağ Köprüsü başlatılıyor...")
+    run_in_tmux(
+        "ros2 run network_proxy network_proxy_node",
+        "Network_Proxy",
+        "network_proxy",
+    )
+
     for drone_id in range(1, DRONE_COUNT + 1):
         print(f">> Sim RTCM Source (drone_{drone_id}) başlatılıyor...")
         run_in_tmux(
-            f"ros2 run sim_rtcm_source sim_rtcm_source "
+            "ros2 run sim_rtcm_source sim_rtcm_source "
             f"--ros-args -p agent_id:={drone_id} -p mode:=synthetic "
-            f"-p publish_hz:=1.0",
+            "-p publish_hz:=1.0",
             f"SimRTCM_{drone_id}",
             f"sim_rtcm_source_{drone_id}",
         )
 
-    # =====================================================================
-    #  ROS 2 SÜRÜ DÜĞÜMLERİ — YKİ (GCS) bunların yayınladığı topic'leri okur.
-    #  Zincir:  px4_bridge → agent_fsm → (proxy) → /swarm/public/... → GCS
-    #  Bu düğümler olmadan proxy boş yönlendirir, arayüz kartları boş kalır.
-    # =====================================================================
-
-    # 10. PX4 Bridge (her drone) — PX4 telemetriyi AgentStatus'a çevirir,
-    #     /swarm/agent/drone{id}/telemetry yayınlar (agent_fsm bunu okur).
+    # ROS 2 sürü düğümleri
     print(f">> {DRONE_COUNT} adet PX4 Bridge başlatılıyor...")
     for drone_id in range(1, DRONE_COUNT + 1):
         run_in_tmux(
-            f"ros2 run swarm_control px4_bridge --ros-args "
+            "ros2 run swarm_control px4_bridge --ros-args "
             f"-p agent_id:={drone_id} -p sitl_mode:=True "
             f"-r __node:=px4_bridge_{drone_id}",
             f"PX4Bridge_{drone_id}",
@@ -360,12 +332,10 @@ def main():
         )
         time.sleep(1)
 
-    # 11. Agent FSM (her drone) — telemetriyi /swarm/internal/drone{id}/status'a
-    #     çevirir; proxy public'e iletir → GCS drone kartları buradan dolar.
     print(f">> {DRONE_COUNT} adet Agent FSM başlatılıyor...")
     for drone_id in range(1, DRONE_COUNT + 1):
         run_in_tmux(
-            f"ros2 run swarm_state_machine agent_fsm_node --ros-args "
+            "ros2 run swarm_state_machine agent_fsm_node --ros-args "
             f"-p agent_id:={drone_id} -p sitl_mode:=True "
             f"-r __node:=agent_fsm_{drone_id}",
             f"AgentFSM_{drone_id}",
@@ -373,9 +343,7 @@ def main():
         )
         time.sleep(1)
 
-    # 12. Sürü seviyesi FSM'ler (tekil). agent_ids/team_id varsayılanları
-    #     [1,2,3] / '752825' — DRONE_COUNT=3 ile uyumlu, ekstra parametre gerekmez.
-    print(">> Sürü seviyesi FSM'ler (swarm/mode/joystick/mission) başlatılıyor...")
+    print(">> Sürü FSM düğümleri başlatılıyor...")
     run_in_tmux(
         "ros2 run swarm_state_machine swarm_fsm_node --ros-args "
         f"-p agent_count:={DRONE_COUNT} -p sitl_mode:=True",
@@ -404,21 +372,8 @@ def main():
     )
     time.sleep(1)
 
-    # =====================================================================
-    #  SÜRÜ İCRA BEYNİ (swarm_core) — FSM'ler KARAR verir, bu düğümler İCRA eder.
-    #  Zincir:  swarm_origin_publisher → /swarm/public/origin (ortak NED referansı)
-    #           formation_node → AgentSetpoint → px4_bridge → PX4
-    #           collision_avoidance → itki/standoff düzeltmeleri (çarpışma önleme)
-    #  ⚠️ formation_node origin gelmeden setpoint ÜRETMEZ → origin ÖNCE başlar.
-    # =====================================================================
-
-    # 13. SwarmOrigin yayıncısı (TEKİL) — GPS↔NED ortak referansı.
-    # GERİ AÇILDI: Asıl "her şey 0" sebebi swarm_origin DEĞİL, gz_bridge'miş
-    # (PX4 hiç çalışmıyordu). PX4 artık ayakta + GPS var ama lat/lon 0 →
-    # EKF global origin'i kurmuyor. swarm_origin'in SET_GPS_GLOBAL_ORIGIN'i tam
-    # bu origin'i verir → lat/lon dolmalı. fixed_lat/lon Gazebo dünya origin'iyle
-    # (base_world.sdf) eşleşir. formation_node da origin_synced'i bundan alır.
-    print(">> SwarmOrigin yayıncısı (ortak NED referansı) başlatılıyor...")
+    # Sürü icra düğümleri (swarm_core)
+    print(">> SwarmOrigin yayıncısı başlatılıyor...")
     run_in_tmux(
         "ros2 run swarm_control swarm_origin_publisher --ros-args "
         "-p origin_source:=fixed "
@@ -427,29 +382,24 @@ def main():
         "SwarmOrigin",
         "swarm_origin",
     )
-    time.sleep(2)  # origin akmaya başlasın; formation ilk komutta hazır bulsun
+    time.sleep(2)
 
-    # 14. Formation Control (HER DRONE — per-drone). Kendi slotunu SwarmOrigin +
-    #     lider FormationCommand'ına göre hesaplar, AgentSetpoint yayınlar.
-    #     Dağıtık: her drone kendi kararını kendi verir (merkezî node yok).
     print(f">> {DRONE_COUNT} adet Formation Control başlatılıyor...")
     for drone_id in range(1, DRONE_COUNT + 1):
         run_in_tmux(
-            f"ros2 run swarm_core formation_node --ros-args "
+            "ros2 run swarm_core formation_node --ros-args "
             f"-p agent_id:={drone_id} -r __node:=formation_node_{drone_id}",
             f"Formation_{drone_id}",
             f"formation_{drone_id}",
         )
         time.sleep(1)
 
-    # 15. Collision Avoidance (HER DRONE — per-drone). Komşulara karşı itki/standoff.
-    #     neighbor_ids = kendisi HARİÇ diğer tüm drone'lar. Şartname: çarpışma -20×N.
     print(f">> {DRONE_COUNT} adet Collision Avoidance başlatılıyor...")
     for drone_id in range(1, DRONE_COUNT + 1):
         neighbor_ids = [j for j in range(1, DRONE_COUNT + 1) if j != drone_id]
         nb = "[" + ",".join(str(j) for j in neighbor_ids) + "]"
         run_in_tmux(
-            f"ros2 run swarm_core collision_avoidance --ros-args "
+            "ros2 run swarm_core collision_avoidance --ros-args "
             f"-p agent_id:={drone_id} -p neighbor_ids:={nb} "
             f"-r __node:=collision_avoidance_{drone_id}",
             f"CollAvoid_{drone_id}",
@@ -457,19 +407,10 @@ def main():
         )
         time.sleep(1)
 
-    # =====================================================================
-    # 16. YKİ (GCS) BACKEND — ROS2 ↔ WebSocket köprüsü (FastAPI / uvicorn).
-    #     /swarm/public/... topic'lerini dinler (RosBridge node'u), tarayıcıdaki
-    #     arayüze WebSocket ile iter. Sürü bir TÜKETİCİDİR; en son başlar.
-    #     ⚠️ config.yaml → connection_mode ROS2/DDS olmalı (MAVLink yan-yolu değil).
-    #     ⚠️ Bağımlılık: fastapi, uvicorn (src/gcs/backend/requirements.txt).
-    #        Kurulu değilse: pip install -r src/gcs/backend/requirements.txt
-    #     Not: GCS kaynağı Emirhan'ın gcs-ros2-topics branch'i olmalı (QR gösterimi
-    #     + doğru topic'ler onda). Frontend ayrı çalışır: cd src/gcs/frontend && npm run dev
-    print(">> YKİ (GCS) backend başlatılıyor → http://localhost:8000 ...")
+    print(">> YKİ (GCS) backend başlatılıyor -> http://localhost:8000 ...")
     run_in_tmux(
         f"cd {WORKSPACE}/src/gcs && "
-        f"uvicorn backend.main:app --host 0.0.0.0 --port 8000",
+        "uvicorn backend.main:app --host 0.0.0.0 --port 8000",
         "GCS_Backend",
         "gcs_backend",
     )

@@ -38,9 +38,7 @@ def _make3():
     return tr
 
 
-# --------------------------------------------------------------------- #
 #  Üyelik + uygunluk filtresi                                           #
-# --------------------------------------------------------------------- #
 def test_active_members_lists_eligible():
     """Uygun ve IN_SWARM ajanlar üye listesine girer."""
     tr = _make3()
@@ -62,9 +60,7 @@ def test_stale_agent_excluded():
     assert 4 not in tr.active_member_ids()
 
 
-# --------------------------------------------------------------------- #
 #  detach / rejoin (QR 'leav')                                          #
-# --------------------------------------------------------------------- #
 def test_detach_sets_detached_role():
     """Ayrılan ajan DETACHED olur ve üye listesinden çıkar."""
     tr = _make3()
@@ -100,9 +96,7 @@ def test_detached_agent_not_member():
     assert tr.get_entry(2).role == ROLE_DETACHED
 
 
-# --------------------------------------------------------------------- #
 #  Liderlik (consensus uygula / yedek seç)                              #
-# --------------------------------------------------------------------- #
 def test_apply_leader_consumes_consensus():
     """apply_leader consensus liderini işler; diğerleri FOLLOWER olur."""
     tr = _make3()
@@ -149,9 +143,7 @@ def test_no_eligible_leader_safe():
     assert 'no_eligible_leader' in r.notes
 
 
-# --------------------------------------------------------------------- #
 #  Yedek (STANDBY) rolü                                                 #
-# --------------------------------------------------------------------- #
 def test_standby_role_synced():
     """STANDBY state'indeki ajan STANDBY rolü alır, üye sayılmaz."""
     tr = _make3()
@@ -161,9 +153,7 @@ def test_standby_role_synced():
     assert 4 not in tr.active_member_ids()
 
 
-# --------------------------------------------------------------------- #
 #  Kademeli bozulma (şartname min-İHA)                                  #
-# --------------------------------------------------------------------- #
 def test_degradation_thresholds():
     """Üye sayısı düştükçe bozulma seviyesi doğru raporlanır."""
     tr = _make3()
