@@ -15,6 +15,7 @@ from rclpy.qos import (
     ReliabilityPolicy,
 )
 
+from swarm_core.formation_control.formation_geometry import latlon_to_ned
 from swarm_interfaces.action import ExecuteManeuver
 from swarm_interfaces.msg import (
     AgentSetpoint,
@@ -23,8 +24,6 @@ from swarm_interfaces.msg import (
     SwarmControlCommand,
     SwarmOrigin,
 )
-
-from swarm_core.formation_control.formation_geometry import latlon_to_ned
 
 _RELIABLE_QOS = QoSProfile(
     reliability=ReliabilityPolicy.RELIABLE,
@@ -264,7 +263,7 @@ class ManeuverExecutorNode(Node):
 
         res = ExecuteManeuver.Result()
         res.success = True
-        res.result_message = "Basarili."
+        res.result_message = 'Basarili.'
         res.final_pitch_error_deg = 0.0
         res.final_roll_error_deg = 0.0
         res.final_yaw_error_deg = 0.0

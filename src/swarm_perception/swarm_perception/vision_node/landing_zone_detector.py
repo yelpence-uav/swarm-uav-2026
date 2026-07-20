@@ -11,12 +11,7 @@ class LandingZoneDetector:
     """Kirmizi/mavi inis bolgelerini HSV uzayinda tespit eder."""
 
     def __init__(self, config: Dict[str, Any]) -> None:
-        """
-        LandingZoneDetector sinifini ilklendirir.
-
-        Args:
-            config: Konfigurasyon sozlugu.
-        """
+        """LandingZoneDetector sinifini ilklendirir."""
         self._config = config
         self._min_area = config.get('min_zone_area_px', 500.0)
         self._blur_k = config.get('gaussian_blur_kernel', 5)
@@ -43,15 +38,7 @@ class LandingZoneDetector:
         )
 
     def detect(self, image: np.ndarray) -> List[Dict[str, Any]]:
-        """
-        Verilen BGR goruntu uzerinde kirmizi ve mavi bolgeleri arar.
-
-        Args:
-            image: cv2 formatinda BGR goruntu matrisi.
-
-        Returns:
-            List[Dict[str, Any]]: Tespit edilen bolgelerin listesi.
-        """
+        """Verilen BGR goruntu uzerinde kirmizi ve mavi bolgeleri arar."""
         if image is None or image.size == 0:
             return []
 

@@ -1,11 +1,6 @@
 # Copyright 2026 Yelpence
 
-"""
-test_landing_zone_detector.py
-
-LandingZoneDetector birim testleri.
-OpenCV fonksiyonları üzerinde renk filtrelemesi simüle edilir.
-"""
+"""LandingZoneDetector birim testleri."""
 
 import unittest
 

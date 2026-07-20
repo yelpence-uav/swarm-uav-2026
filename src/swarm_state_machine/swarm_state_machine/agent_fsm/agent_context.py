@@ -1,8 +1,8 @@
 # Copyright 2026 Yelpence
 """Tek bir drone'un tum anlik durumunu tutan veri yapisi."""
 
-import time
 from dataclasses import dataclass, field
+import time
 
 from .agent_states import AgentState, AgentRole, FlightMode
 
