@@ -1,43 +1,64 @@
-"""MissionContext sınıfı için birim testleri."""
+"""MissionContext yardımcı metodları için birim testleri."""
 
 import unittest
+from types import SimpleNamespace
 
 from swarm_state_machine.mission_fsm.mission_context import MissionContext
 from swarm_state_machine.mission_fsm.mission_states import MissionState
-
-from swarm_interfaces.msg import AgentStatus
 
 
 def _status(
     state: int = 5,
     healthy: bool = True,
     origin_synced: bool = True,
+    home_set: bool = True,
     gps_fix_type: int = 3,
     gps_hdop: float = 0.9,
-) -> AgentStatus:
-    s = AgentStatus()
-    s.state = state
-    s.healthy = healthy
-    s.origin_synced = origin_synced
-    s.gps_fix_type = gps_fix_type
-    s.gps_hdop = gps_hdop
-    return s
+    pos_z: float = -15.0,
+) -> SimpleNamespace:
+    """Sahte AgentStatus nesnesi döner.
+
+    Args:
+        state: AgentStatus.STATE_* değeri (varsayılan IN_SWARM=5).
+        healthy: Ajan sağlık durumu.
+        origin_synced: NED origin senkronize mi.
+        home_set: RTL hedefi set mi.
+        gps_fix_type: GPS fix tipi (3=3D fix).
+        gps_hdop: GPS HDOP değeri.
+        pos_z: NED z pozisyonu (metre).
+
+    Returns:
+        SimpleNamespace ile AgentStatus alanları.
+    """
+    return SimpleNamespace(
+        state=state,
+        healthy=healthy,
+        origin_synced=origin_synced,
+        home_set=home_set,
+        gps_fix_type=gps_fix_type,
+        gps_hdop=gps_hdop,
+        pos_z=pos_z,
+    )
 
 
-def _ctx() -> MissionContext:
+def _ctx(agent_ids=None) -> MissionContext:
+    """Test için varsayılan MissionContext döner.
+
+    Args:
+        agent_ids: Ajan ID listesi; None ise [1, 2, 3].
+
+    Returns:
+        Yapılandırılmış MissionContext.
+    """
     return MissionContext(
-        agent_ids=[1, 2, 3],
-        target_qr_list=[
-            {"id": 1, "x": 10.0, "y": 0.0},
-            {"id": 2, "x": 20.0, "y": 0.0},
-        ],
-        team_id="YELPENCE",
+        agent_ids=agent_ids or [1, 2, 3],
+        team_id='YELPENCE',
         sitl_mode=True,
     )
 
 
 class TestAllAgentsSeen(unittest.TestCase):
-    """All_agents_seen property testleri."""
+    """all_agents_seen property testleri."""
 
     def test_hic_ajan_yokken_false(self):
         """Hiç mesaj gelmemişse all_agents_seen False olmalı."""
@@ -59,7 +80,7 @@ class TestAllAgentsSeen(unittest.TestCase):
 
 
 class TestAllAgentsInSwarm(unittest.TestCase):
-    """All_agents_in_swarm / all_agents_in_state testleri."""
+    """all_agents_in_swarm / all_agents_in_state testleri."""
 
     def test_hepsinin_in_swarm_olmasi(self):
         """Tüm ajanlar IN_SWARM(5) ise True olmalı."""
@@ -97,7 +118,7 @@ class TestAllAgentsInSwarm(unittest.TestCase):
 
 
 class TestAllAgentsHealthy(unittest.TestCase):
-    """All_agents_healthy testleri."""
+    """all_agents_healthy testleri."""
 
     def test_hepsi_saglikli(self):
         """Tüm ajanlar healthy=True ise True olmalı."""
@@ -121,7 +142,7 @@ class TestAllAgentsHealthy(unittest.TestCase):
 
 
 class TestAllAgentsOriginSynced(unittest.TestCase):
-    """All_agents_origin_synced testleri."""
+    """all_agents_origin_synced testleri."""
 
     def test_hepsi_synced(self):
         """Tüm ajanlar origin_synced=True ise True olmalı."""
@@ -140,24 +161,24 @@ class TestAllAgentsOriginSynced(unittest.TestCase):
 
 
 class TestAllAgentsGpsOk(unittest.TestCase):
-    """All_agents_gps_ok testleri."""
+    """all_agents_gps_ok testleri."""
 
     def test_iyi_gps(self):
-        """Fix_type>=3 ve hdop<1.5 olunca True olmalı."""
+        """fix_type>=3 ve hdop<1.5 olunca True olmalı."""
         ctx = _ctx()
         for aid in [1, 2, 3]:
             ctx.agent_statuses[aid] = _status(gps_fix_type=3, gps_hdop=0.9)
         self.assertTrue(ctx.all_agents_gps_ok())
 
     def test_dusuk_fix(self):
-        """Fix_type<3 olunca False olmalı."""
+        """fix_type<3 olunca False olmalı."""
         ctx = _ctx()
         for aid in [1, 2, 3]:
             ctx.agent_statuses[aid] = _status(gps_fix_type=2, gps_hdop=0.9)
         self.assertFalse(ctx.all_agents_gps_ok())
 
     def test_yuksek_hdop(self):
-        """Hdop>=1.5 olunca False olmalı."""
+        """hdop>=1.5 olunca False olmalı."""
         ctx = _ctx()
         for aid in [1, 2, 3]:
             ctx.agent_statuses[aid] = _status(gps_fix_type=3, gps_hdop=2.0)
@@ -165,16 +186,16 @@ class TestAllAgentsGpsOk(unittest.TestCase):
 
 
 class TestSetState(unittest.TestCase):
-    """Set_state metodu testleri."""
+    """set_state metodu testleri."""
 
     def test_state_degisir(self):
-        """Set_state doğru state'i atamalı."""
+        """set_state doğru state'i atamalı."""
         ctx = _ctx()
         ctx.set_state(MissionState.PREFLIGHT)
         self.assertEqual(ctx.state, MissionState.PREFLIGHT)
 
     def test_bayraklar_sifirlanir(self):
-        """Set_state çağrısında event ve action bayrakları sıfırlanmalı."""
+        """set_state çağrısında event ve action bayrakları sıfırlanmalı."""
         ctx = _ctx()
         ctx.action_done = True
         ctx.action_success = True
@@ -189,11 +210,11 @@ class TestSetState(unittest.TestCase):
         self.assertFalse(ctx.event_rotation_completed)
 
     def test_zaman_sayaci_sifirlanir(self):
-        """Set_state sonrası time_in_state küçük bir değer olmalı."""
+        """set_state sonrası time_in_state küçük bir değer olmalı."""
         ctx = _ctx()
         ctx.set_state(MissionState.IDLE)
         self.assertAlmostEqual(ctx.time_in_state(), 0.0, delta=0.1)
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     unittest.main()
