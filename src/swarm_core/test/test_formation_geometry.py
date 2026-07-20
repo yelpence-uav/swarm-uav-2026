@@ -141,9 +141,11 @@ class TestSlotOffsetsHatalar(unittest.TestCase):
 
 
 class TestOlcekJenerikN(unittest.TestCase):
-    """Algoritmanin N'den bagimsiz oldugunu (sartname jenerik
-    gereksinimi) ve birey ayrilma sonrasi N degisikliklerinde dogru
-    calistigini dogrular."""
+    """Algoritmanin N'den bagimsiz oldugunu dogrular.
+
+    Sartname jenerik gereksinimi ve birey ayrilma sonrasi
+    N degisikliklerinde dogru calistigini dogrular.
+    """
 
     def test_tek_drone_N1(self):
         """N=1: tek drone (lider) merkezde, tum formasyonlar."""
@@ -220,16 +222,20 @@ class TestMinDroneDistance(unittest.TestCase):
         self.assertAlmostEqual(d, 5.0)
 
     def test_okbasi_alpha_30_spacing_dogru(self):
-        """Ok Basi alpha=30°, spacing=5: min mesafe = 5m
-        (lider-kanat veya sag-sol = 2*5*0.5 = 5)."""
+        """Ok Basi alpha=30, spacing=5: min mesafe = 5m.
+
+        Lider-kanat veya sag-sol = 2*5*0.5 = 5.
+        """
         d = compute_min_drone_distance(
             FORMATION_OKBASI, 5.0, math.radians(30)
         )
         self.assertAlmostEqual(d, 5.0, places=5)
 
     def test_okbasi_dusuk_alpha_dar(self):
-        """Ok Basi alpha=10°: sag-sol kanat dar olur.
-        2*5*sin(10°) = 1.74m < spacing 5m."""
+        """Ok Basi alpha=10: sag-sol kanat dar olur.
+
+        2*5*sin(10) = 1.74m < spacing 5m.
+        """
         d = compute_min_drone_distance(
             FORMATION_OKBASI, 5.0, math.radians(10)
         )
@@ -333,8 +339,10 @@ class TestComputeSetpoint(unittest.TestCase):
             )
 
     def test_heading_donmesi(self):
-        """heading=90 icin Ok Basi rank=1 offsetinin NED'de
-        beklenen yerde olmasi."""
+        """Heading=90 icin Ok Basi rank=1 offseti dogrulamasi.
+
+        NED'de beklenen yerde olmasi.
+        """
         # Body frame'de rank 1: (-4.33, +2.50). heading=90 donmesi:
         # rx = -4.33*cos(90) - 2.50*sin(90) = 0 - 2.50 = -2.50
         # ry = -4.33*sin(90) + 2.50*cos(90) = -4.33 + 0 = -4.33

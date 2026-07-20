@@ -5,8 +5,8 @@ import math
 import time
 from dataclasses import dataclass, field
 
-from ..agent_fsm.agent_states import AgentState
 from .swarm_states import FormationType, SwarmState
+from ..agent_fsm.agent_states import AgentState
 
 
 @dataclass

@@ -11,6 +11,7 @@ from rclpy.qos import (
     QoSProfile,
     ReliabilityPolicy,
 )
+
 from std_msgs.msg import UInt8
 
 from swarm_interfaces.msg import (
@@ -22,11 +23,11 @@ from swarm_interfaces.msg import (
     SystemEvent,
 )
 
+from .maneuver_mode import compute_agent_setpoints, compute_hold_setpoints
 from .mode_context import ModeContext
 from .mode_states import ACTIVE_CONTROL_STATES, ControlMode, ModeState
 from .mode_transitions import evaluate_transitions
 from .movement_mode import compute_formation_command, compute_hold_command
-from .maneuver_mode import compute_agent_setpoints, compute_hold_setpoints
 
 _RELIABLE_QOS = QoSProfile(
     reliability=ReliabilityPolicy.RELIABLE,

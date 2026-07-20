@@ -1,11 +1,4 @@
-"""PX4 ile FSM arasinda haberlesme koprusu kuran dugum.
-
-<<<<<<< HEAD
-PX4 telemetri verilerini dinler ve AgentStatus olarak yayinlar.
-FSM'den gelen komutlari ise CommandSender ile PX4'e iletir.
-Ayni zamanda RTCM verilerini de fragmenter ile bolup enjekte eder.
-=======
-PX4 ↔ FSM köprüsü — ana ROS2 node.
+"""PX4 ↔ FSM köprüsü — ana ROS2 node.
 
 İŞLEYİŞ:
 1. MAVROS topic'lerini dinler (/{drone_ns}/mavros/...)
@@ -20,10 +13,14 @@ PX4 ↔ FSM köprüsü — ana ROS2 node.
 
 KULLANIM:
     ros2 run swarm_control px4_bridge --ros-args -p agent_id:=1
->>>>>>> origin/main
 """
 
 import math
+
+from mavros_msgs.msg import EstimatorStatus, GPSRAW, RCIn, RTCM, State
+from mavros_msgs.msg import HomePosition as MavHomePosition
+
+from nav_msgs.msg import Odometry
 
 import rclpy
 from rclpy.node import Node
@@ -35,13 +32,11 @@ from rclpy.qos import (
     qos_profile_sensor_data,
 )
 
-from std_msgs.msg import String, UInt8MultiArray
-from swarm_interfaces.msg import AgentSetpoint, AgentStatus, SwarmOrigin
-
-from mavros_msgs.msg import EstimatorStatus, GPSRAW, RCIn, RTCM, State
-from mavros_msgs.msg import HomePosition as MavHomePosition
-from nav_msgs.msg import Odometry
 from sensor_msgs.msg import BatteryState, NavSatFix
+
+from std_msgs.msg import String, UInt8MultiArray
+
+from swarm_interfaces.msg import AgentSetpoint, AgentStatus, SwarmOrigin
 
 from .mavros_command_sender import MavrosCommandSender
 from .mavros_telemetry_mapper import (
@@ -54,7 +49,6 @@ from .mavros_telemetry_mapper import (
     map_rc_in as mav_map_rc,
     map_state as mav_map_state,
 )
-
 from .rtcm_packing import iter_rtcm_messages
 
 _PX4_QOS = QoSProfile(

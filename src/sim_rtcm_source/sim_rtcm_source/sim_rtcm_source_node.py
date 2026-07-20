@@ -28,6 +28,7 @@ class SimRtcmSourceNode(Node):
     """Sentetik veya replay RTCM3 yayincisi."""
 
     def __init__(self) -> None:
+        """Initialize the SimRtcmSourceNode."""
         super().__init__('sim_rtcm_source')
 
         self.declare_parameter('agent_id', _DEFAULT_AGENT_ID)

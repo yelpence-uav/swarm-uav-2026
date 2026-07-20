@@ -18,6 +18,8 @@ node tarafından SwarmControlCommand'a gömülür.
 
 from collections import namedtuple
 
+from mavros_msgs.msg import ManualControl
+
 import rclpy
 from rclpy.node import Node
 from rclpy.qos import (
@@ -27,7 +29,6 @@ from rclpy.qos import (
     ReliabilityPolicy,
 )
 
-from mavros_msgs.msg import ManualControl
 from swarm_interfaces.msg import SwarmControlCommand
 
 _MavrosManual = namedtuple('_MavrosManual', [

@@ -1,9 +1,9 @@
 # Copyright 2026 Yelpence
 """Sürü seviyesi FSM durum geçiş kuralları."""
 
-from ..agent_fsm.agent_states import AgentState
 from .swarm_context import SwarmContext
 from .swarm_states import SwarmState
+from ..agent_fsm.agent_states import AgentState
 
 _FORMING_READY_RATIO = 0.8
 

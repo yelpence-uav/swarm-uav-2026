@@ -1,4 +1,6 @@
+"""Setup file for sim_rtcm_source package."""
 from setuptools import find_packages, setup
+
 
 package_name = 'sim_rtcm_source'
 

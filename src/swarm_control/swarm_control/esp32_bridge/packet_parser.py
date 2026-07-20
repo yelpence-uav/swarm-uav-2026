@@ -3,8 +3,8 @@
 UART cerceve yapisi ve mesh payload struct'larini cozer ve paketler.
 """
 
-from dataclasses import dataclass
 import struct
+from dataclasses import dataclass
 
 from .crc16 import crc16
 

@@ -1,10 +1,10 @@
 # Copyright 2026 Yelpence
 """Tek bir drone'un tum anlik durumunu tutan veri yapisi."""
 
-from dataclasses import dataclass, field
 import time
+from dataclasses import dataclass, field
 
-from .agent_states import AgentState, AgentRole, FlightMode
+from .agent_states import AgentRole, AgentState, FlightMode
 
 
 @dataclass
@@ -78,7 +78,7 @@ class AgentContext:
     wants_to_join: bool = False
     ready_to_arm: bool = False
 
-    status_text: str = ""
+    status_text: str = ''
 
     sitl_mode: bool = False
 

@@ -13,6 +13,7 @@ from rclpy.qos import (
 )
 
 from std_msgs.msg import String
+
 from swarm_interfaces.msg import AgentStatus, SwarmOrigin, SystemEvent
 from swarm_interfaces.srv import AssignRole
 
@@ -36,7 +37,7 @@ class AgentFsmNode(Node):
     """Tek bir drone'un FSM node'u."""
 
     def __init__(self) -> None:
-        super().__init__("agent_fsm_node")
+        super().__init__('agent_fsm_node')
 
         self._declare_params()
 
@@ -85,17 +86,17 @@ class AgentFsmNode(Node):
         aid = self._agent_id
         self._status_pub = self.create_publisher(
             AgentStatus,
-            f"/swarm/internal/drone{aid}/status",
+            f'/swarm/internal/drone{aid}/status',
             10,
         )
         self._event_pub = self.create_publisher(
             SystemEvent,
-            "/swarm/internal/events/system",
+            '/swarm/internal/events/system',
             10,
         )
         self._command_pub = self.create_publisher(
             String,
-            f"/swarm/agent/drone{aid}/commands",
+            f'/swarm/agent/drone{aid}/commands',
             10,
         )
 
@@ -105,19 +106,19 @@ class AgentFsmNode(Node):
 
         self.create_subscription(
             AgentStatus,
-            f"/swarm/agent/drone{aid}/telemetry",
+            f'/swarm/agent/drone{aid}/telemetry',
             self._on_telemetry,
             10,
         )
         self.create_subscription(
             SystemEvent,
-            "/swarm/public/events/system",
+            '/swarm/public/events/system',
             self._on_event,
             10,
         )
         self.create_subscription(
             SwarmOrigin,
-            "/swarm/public/origin",
+            '/swarm/public/origin',
             self._on_origin,
             _ORIGIN_QOS,
         )
@@ -127,7 +128,7 @@ class AgentFsmNode(Node):
         aid = self._agent_id
         self.create_service(
             AssignRole,
-            f"/swarm/agent/drone{aid}/assign_role",
+            f'/swarm/agent/drone{aid}/assign_role',
             self._handle_assign_role,
         )
 

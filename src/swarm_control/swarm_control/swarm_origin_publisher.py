@@ -15,6 +15,7 @@ from rclpy.qos import (
 )
 
 from sensor_msgs.msg import NavSatFix, NavSatStatus
+
 from swarm_interfaces.msg import SwarmOrigin
 
 _RELIABLE_TRANSIENT = QoSProfile(

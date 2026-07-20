@@ -5,6 +5,7 @@
 import unittest
 
 import cv2
+
 import numpy as np
 
 from swarm_perception.vision_node.landing_zone_detector import (

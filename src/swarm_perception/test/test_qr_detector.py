@@ -7,8 +7,8 @@ QRDetector birim testleri.
 Pyzbar mocklanarak saf test edilir.
 """
 
-import unittest
 import sys
+import unittest
 from unittest.mock import MagicMock, patch
 
 import numpy as np
