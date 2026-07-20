@@ -1,0 +1,330 @@
+"""
+mavros_command_sender.py
+
+FSM kararlarini MAVROS uzerinden PX4'e ileten komut gondericisi.
+
+Kullanilan MAVROS arayuzleri:
+- {ns}/mavros/cmd/arming            (servis) -> arm/disarm
+- {ns}/mavros/set_mode              (servis) -> OFFBOARD/AUTO.LAND/RTL
+- {ns}/mavros/setpoint_raw/local    (topic)  -> pozisyon/hiz + yaw
+- {ns}/mavros/global_position/set_gp_origin (topic) -> ortak NED origin
+
+Ic hesap NED'dir; MAVROS ROS tarafinda ENU bekler. Setpoint'ler
+_ned_to_enu / _yaw_ned_to_enu ile tek noktada cevrilir.
+"""
+
+import math
+
+from geographic_msgs.msg import GeoPointStamped
+
+from mavros_msgs.msg import PositionTarget
+from mavros_msgs.srv import CommandBool, SetMode
+
+# PX4 ucus modu string'leri (SetMode.custom_mode)
+_MODE_OFFBOARD = 'OFFBOARD'
+_MODE_AUTO_LOITER = 'AUTO.LOITER'
+_MODE_AUTO_LAND = 'AUTO.LAND'
+_MODE_AUTO_RTL = 'AUTO.RTL'
+
+# type_mask hazir kombinasyonlari (PositionTarget IGNORE_* sabitlerinden).
+# "Yok say" bitleri OR'lanir; kalan alanlar aktif olur.
+_PT = PositionTarget
+# Sadece pozisyon + yaw (hiz, ivme, yaw_rate yok):
+_MASK_POSITION = (
+    _PT.IGNORE_VX | _PT.IGNORE_VY | _PT.IGNORE_VZ
+    | _PT.IGNORE_AFX | _PT.IGNORE_AFY | _PT.IGNORE_AFZ
+    | _PT.IGNORE_YAW_RATE
+)
+# Sadece hiz + yaw (pozisyon, ivme, yaw_rate yok):
+_MASK_VELOCITY = (
+    _PT.IGNORE_PX | _PT.IGNORE_PY | _PT.IGNORE_PZ
+    | _PT.IGNORE_AFX | _PT.IGNORE_AFY | _PT.IGNORE_AFZ
+    | _PT.IGNORE_YAW_RATE
+)
+# Pozisyon + hiz feedforward + yaw (yalniz ivme ve yaw_rate yok):
+_MASK_POS_VEL = (
+    _PT.IGNORE_AFX | _PT.IGNORE_AFY | _PT.IGNORE_AFZ
+    | _PT.IGNORE_YAW_RATE
+)
+
+
+def _ned_to_enu(x_ned: float, y_ned: float, z_ned: float) -> tuple:
+    """NED konumu ENU'ya cevirir.
+
+    x/y yer degistirir, z isaret degistirir; ayni formul ters yonde de
+    calisir.
+
+    Args:
+        x_ned (float): NED X (Kuzey), metre.
+        y_ned (float): NED Y (Dogu), metre.
+        z_ned (float): NED Z (Asagi pozitif), metre.
+
+    Returns:
+        tuple: (x_enu, y_enu, z_enu) metre.
+    """
+    return y_ned, x_ned, -z_ned
+
+
+def _yaw_ned_to_enu(yaw_ned: float) -> float:
+    """NED yaw'i ENU yaw'ina cevirir (pi/2 - yaw, [-pi, pi] araliginda).
+
+    Args:
+        yaw_ned (float): NED yaw acisi, radyan.
+
+    Returns:
+        float: ENU yaw acisi, radyan, [-pi, pi].
+    """
+    yaw = math.pi / 2.0 - yaw_ned
+    return (yaw + math.pi) % (2.0 * math.pi) - math.pi
+
+
+class MavrosCommandSender:
+    """FSM -> PX4 komut koprusu (MAVROS surumu).
+
+    CommandSender ile ayni public arayuzu sunar; px4_bridge ayni cagrilari
+    kullanabilir. Servis cagrilari call_async ile yapilir (executor'i
+    bloklamamak icin).
+
+    Kullanim:
+        sender = MavrosCommandSender(node, namespace='/drone_1')
+        sender.arm()
+        sender.publish_position_setpoint(x, y, z, yaw_rad)
+    """
+
+    def __init__(self, node, namespace: str = '') -> None:
+        """MAVROS servis istemcilerini ve publisher'lari olusturur.
+
+        Args:
+            node: ROS2 node (istemci/publisher olusturmak icin).
+            namespace (str): mavros_node namespace'i, orn. '/drone_1'.
+        """
+        self._node = node
+        ns = namespace
+
+        # Servis istemcileri (arming + mod)
+        self._arm_client = node.create_client(
+            CommandBool, f'{ns}/mavros/cmd/arming'
+        )
+        self._mode_client = node.create_client(
+            SetMode, f'{ns}/mavros/set_mode'
+        )
+
+        # Setpoint publisher (offboard akisi bu topic uzerinden gider)
+        self._setpoint_pub = node.create_publisher(
+            PositionTarget, f'{ns}/mavros/setpoint_raw/local', 10
+        )
+
+        # Ortak NED origin publisher
+        self._origin_pub = node.create_publisher(
+            GeoPointStamped, f'{ns}/mavros/global_position/set_gp_origin', 1
+        )
+
+    # =================================================================
+    # ARM / DISARM  (CommandBool servisi)
+    # =================================================================
+    def arm(self) -> None:
+        """Motorlari arm eder (CommandBool value=True)."""
+        self._call_arming(True)
+
+    def disarm(self) -> None:
+        """Motorlari disarm eder (CommandBool value=False)."""
+        self._call_arming(False)
+
+    def _call_arming(self, value: bool) -> None:
+        """Arming servisini bloklamadan cagirir.
+
+        Args:
+            value (bool): True=arm, False=disarm.
+        """
+        if not self._arm_client.service_is_ready():
+            self._node.get_logger().warning(
+                'arming servisi henuz hazir degil (mavros baglandi mi?)'
+            )
+            return
+        req = CommandBool.Request()
+        req.value = value
+        self._arm_client.call_async(req)
+
+    # =================================================================
+    # MOD DEGISTIRME  (SetMode servisi)
+    # =================================================================
+    def set_offboard_mode(self) -> None:
+        """OFFBOARD moduna gecer (bizim setpoint akisimizi takip et)."""
+        self._call_set_mode(_MODE_OFFBOARD)
+
+    def set_auto_loiter_mode(self) -> None:
+        """AUTO.LOITER moduna gecer (havada sabit bekle)."""
+        self._call_set_mode(_MODE_AUTO_LOITER)
+
+    def _call_set_mode(self, custom_mode: str) -> None:
+        """set_mode servisini bloklamadan cagirir.
+
+        Args:
+            custom_mode (str): PX4 mod string'i, orn. 'OFFBOARD'.
+        """
+        if not self._mode_client.service_is_ready():
+            self._node.get_logger().warning(
+                f'set_mode servisi hazir degil (mod: {custom_mode})'
+            )
+            return
+        req = SetMode.Request()
+        req.base_mode = 0
+        req.custom_mode = custom_mode
+        self._mode_client.call_async(req)
+
+    # =================================================================
+    # INIS / EVE DONUS  (PX4 AUTO modlari uzerinden)
+    # =================================================================
+    def takeoff(self, altitude_m: float = 10.0) -> None:
+        """Kalkis. Offboard akisinda kalkis, irtifa setpoint'i ile yapilir;
+        bu metot arayuz butunlugu icin durur (px4_bridge offboard tirmanis
+        kullanir). AUTO.TAKEOFF gerekirse ileride eklenecek.
+
+        Args:
+            altitude_m (float): Hedef irtifa, metre (su an kullanilmiyor).
+        """
+        self._node.get_logger().info(
+            'takeoff: offboard irtifa setpoint yolu kullaniliyor '
+            f'(hedef {altitude_m:.1f} m)'
+        )
+
+    def land(self) -> None:
+        """AUTO.LAND moduna gecer (bulundugu konumda in)."""
+        self._call_set_mode(_MODE_AUTO_LAND)
+
+    def return_home(self) -> None:
+        """AUTO.RTL moduna gecer (home'a don)."""
+        self._call_set_mode(_MODE_AUTO_RTL)
+
+    # =================================================================
+    # OFFBOARD MOD BILDIRIMLERI
+    # MAVROS'ta ayri bir OffboardControlMode mesaji YOKTUR; kontrol turu
+    # (pozisyon/hiz) dogrudan PositionTarget.type_mask ile belirlenir.
+    # Bu yuzden asagidaki metotlar NO-OP'tur (px4_bridge arayuz uyumu icin
+    # cagirir); gercek maske publish_*_setpoint icinde secilir. Offboard
+    # "heartbeat", setpoint'i >2 Hz yayinlamanin kendisidir.
+    # =================================================================
+    def publish_offboard_position_mode(self) -> None:
+        """No-op (maske publish_position_setpoint icinde secilir)."""
+        return
+
+    def publish_offboard_velocity_mode(self) -> None:
+        """No-op (maske publish_velocity_setpoint icinde secilir)."""
+        return
+
+    def publish_offboard_position_velocity_mode(self) -> None:
+        """No-op (maske publish_position_velocity_setpoint icinde secilir)."""
+        return
+
+    # =================================================================
+    # SETPOINT YAYINI  (PositionTarget, NED -> ENU cevirisi burada)
+    # =================================================================
+    def _make_target(self, mask: int) -> PositionTarget:
+        """Ortak PositionTarget iskeleti (zaman damgasi + cerceve + maske).
+
+        Args:
+            mask (int): type_mask (IGNORE_* bitleri).
+
+        Returns:
+            PositionTarget: doldurulmaya hazir mesaj.
+        """
+        msg = PositionTarget()
+        msg.header.stamp = self._node.get_clock().now().to_msg()
+        # FRAME_LOCAL_NED: MAVROS ENU girdiyi PX4 NED'ine cevirir.
+        msg.coordinate_frame = PositionTarget.FRAME_LOCAL_NED
+        msg.type_mask = mask
+        return msg
+
+    def publish_position_setpoint(
+        self, x: float, y: float, z: float, yaw_rad: float = 0.0
+    ) -> None:
+        """Hedef pozisyon (NED girdi) + yaw yayinlar.
+
+        Args:
+            x (float): NED X (Kuzey), metre.
+            y (float): NED Y (Dogu), metre.
+            z (float): NED Z (Asagi pozitif), metre.
+            yaw_rad (float): NED yaw, radyan.
+        """
+        e_x, e_y, e_z = _ned_to_enu(x, y, z)
+        msg = self._make_target(_MASK_POSITION)
+        msg.position.x = e_x
+        msg.position.y = e_y
+        msg.position.z = e_z
+        msg.yaw = _yaw_ned_to_enu(yaw_rad)
+        self._setpoint_pub.publish(msg)
+
+    def publish_velocity_setpoint(
+        self, vx: float, vy: float, vz: float, yaw_rad: float = 0.0
+    ) -> None:
+        """Saf hiz setpoint'i (NED girdi) + yaw yayinlar.
+
+        Args:
+            vx (float): NED X hizi (Kuzey), m/s.
+            vy (float): NED Y hizi (Dogu), m/s.
+            vz (float): NED Z hizi (Asagi pozitif), m/s.
+            yaw_rad (float): NED yaw, radyan.
+        """
+        e_vx, e_vy, e_vz = _ned_to_enu(vx, vy, vz)
+        msg = self._make_target(_MASK_VELOCITY)
+        msg.velocity.x = e_vx
+        msg.velocity.y = e_vy
+        msg.velocity.z = e_vz
+        msg.yaw = _yaw_ned_to_enu(yaw_rad)
+        self._setpoint_pub.publish(msg)
+
+    def publish_position_velocity_setpoint(
+        self,
+        x: float,
+        y: float,
+        z: float,
+        vx: float,
+        vy: float,
+        vz: float,
+        yaw_rad: float = 0.0,
+    ) -> None:
+        """Pozisyon + hiz feedforward (NED girdi) + yaw yayinlar.
+
+        Args:
+            x (float): NED X (Kuzey), metre.
+            y (float): NED Y (Dogu), metre.
+            z (float): NED Z (Asagi pozitif), metre.
+            vx (float): NED X hizi, m/s.
+            vy (float): NED Y hizi, m/s.
+            vz (float): NED Z hizi, m/s.
+            yaw_rad (float): NED yaw, radyan.
+        """
+        e_x, e_y, e_z = _ned_to_enu(x, y, z)
+        e_vx, e_vy, e_vz = _ned_to_enu(vx, vy, vz)
+        msg = self._make_target(_MASK_POS_VEL)
+        msg.position.x = e_x
+        msg.position.y = e_y
+        msg.position.z = e_z
+        msg.velocity.x = e_vx
+        msg.velocity.y = e_vy
+        msg.velocity.z = e_vz
+        msg.yaw = _yaw_ned_to_enu(yaw_rad)
+        self._setpoint_pub.publish(msg)
+
+    # =================================================================
+    # ORTAK NED ORIGIN
+    # =================================================================
+    def set_gps_global_origin(
+        self, lat_deg: float, lon_deg: float, alt_amsl_m: float
+    ) -> None:
+        """Tum suru icin ortak NED origin'i MAVROS uzerinden bildirir.
+
+        GeoPointStamped, /mavros/global_position/set_gp_origin'e yayinlanir;
+        MAVROS bunu SET_GPS_GLOBAL_ORIGIN MAVLink mesajina cevirir.
+
+        Args:
+            lat_deg (float): Enlem, derece.
+            lon_deg (float): Boylam, derece.
+            alt_amsl_m (float): AMSL irtifa, metre.
+        """
+        msg = GeoPointStamped()
+        msg.header.stamp = self._node.get_clock().now().to_msg()
+        msg.position.latitude = lat_deg
+        msg.position.longitude = lon_deg
+        msg.position.altitude = alt_amsl_m
+        self._origin_pub.publish(msg)

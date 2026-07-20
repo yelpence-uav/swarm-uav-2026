@@ -15,6 +15,9 @@ RUN apt-get update && apt-get install -y \
     ros-jazzy-xacro \
     ros-jazzy-rqt* \
     ros-jazzy-rmw-cyclonedds-cpp \
+    ros-jazzy-mavros \
+    ros-jazzy-mavros-extras \
+    ros-jazzy-mavros-msgs \
     python3-pip \
     python3-rosdep \
     python3-venv \
@@ -36,6 +39,9 @@ RUN apt-get update && apt-get install -y \
     tmux \
     build-essential \
     && rm -rf /var/lib/apt/lists/*
+
+# MAVROS GeographicLib Veri Setleri
+RUN /opt/ros/jazzy/lib/mavros/install_geographiclib_datasets.sh
 
 # Kullanıcı Ayarları
 ARG USERNAME=yelpence
@@ -59,21 +65,6 @@ RUN sed -i 's/#PermitRootLogin prohibit-password/PermitRootLogin yes/' /etc/ssh/
     && sed -i 's/#PasswordAuthentication yes/PasswordAuthentication yes/' /etc/ssh/sshd_config
 
 EXPOSE 22
-
-# Micro XRCE-DDS Agent
-COPY src/Micro-XRCE-DDS-Agent /tmp/Micro-XRCE-DDS-Agent
-RUN cd /tmp/Micro-XRCE-DDS-Agent \
-    && mkdir build && cd build \
-    && cmake -DCMAKE_BUILD_TYPE=Release \
-    -DUAGENT_FASTMETRICS=OFF \
-    -DUAGENT_BUILD_EXECUTABLE=ON .. \
-    && make -j$(nproc) \
-    && make install \
-    && ldconfig /usr/local/lib/ \
-    && cd / \
-    && rm -rf /tmp/Micro-XRCE-DDS-Agent \
-    && apt-get purge -y --auto-remove \
-    && rm -rf /var/lib/apt/lists/*
 
 # Başlangıç Betiği
 COPY --chown=$USERNAME:$USERNAME docker/entrypoint.sh /usr/local/bin/entrypoint.sh

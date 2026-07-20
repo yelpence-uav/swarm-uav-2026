@@ -1,5 +1,22 @@
-# Copyright 2026 Yelpence
-"""PX4 uORB to SwarmControlCommand interpreter."""
+"""MAVROS RC girdisini SwarmControlCommand mesajına dönüştüren düğüm.
+
+MAVROS'un /mavros/manual_control/control mesajını okur, normalize
+ederek SwarmControlCommand mesajına dönüştürür ve
+/swarm/internal/control/command'a yayınlar.
+
+Contract (§4.2):
+  joystick_interpreter_node.py → /swarm/internal/control/command
+    [SwarmControlCommand.msg]
+  → proxy → /swarm/public/control/command
+  → mode_manager/movement_mode.py / mode_manager/maneuver_mode.py
+
+Yayın frekansı: 20-50 Hz (contract'ta belirtilmiş).
+
+GCS arayüzünden gelen mod değişimleri ve formasyon komutları bu
+node tarafından SwarmControlCommand'a gömülür.
+"""
+
+from collections import namedtuple
 
 import rclpy
 from rclpy.node import Node
@@ -10,8 +27,13 @@ from rclpy.qos import (
     ReliabilityPolicy,
 )
 
-from px4_msgs.msg import ManualControlSetpoint
+from mavros_msgs.msg import ManualControl
 from swarm_interfaces.msg import SwarmControlCommand
+
+_MavrosManual = namedtuple('_MavrosManual', [
+    'pitch', 'roll', 'yaw', 'throttle',
+    'aux1', 'aux2', 'aux3', 'aux4', 'aux5', 'aux6',
+])
 
 _PX4_QOS = QoSProfile(
     reliability=ReliabilityPolicy.BEST_EFFORT,
@@ -22,7 +44,7 @@ _PX4_QOS = QoSProfile(
 
 
 class JoystickInterpreterNode(Node):
-    """PX4 ManualControlSetpoint to SwarmControlCommand converter."""
+    """MAVROS ManualControl - SwarmControlCommand dönüştürücü."""
 
     def __init__(self) -> None:
         super().__init__('joystick_interpreter_node')
@@ -43,7 +65,7 @@ class JoystickInterpreterNode(Node):
         )
 
     def _declare_params(self) -> None:
-        """ROS2 parametrelerini tanimlar ve okur."""
+        """ROS2 parametrelerini tanımlar ve okur."""
         self.declare_parameter('publish_hz', 30.0)
         self.declare_parameter('deadman_channel', 'aux1')
         self.declare_parameter('deadman_threshold', 0.5)
@@ -75,7 +97,7 @@ class JoystickInterpreterNode(Node):
         )
 
     def _setup_publishers(self) -> None:
-        """SwarmControlCommand publisher'ini olusturur."""
+        """SwarmControlCommand publisher'ını oluşturur."""
         self._cmd_pub = self.create_publisher(
             SwarmControlCommand,
             '/swarm/internal/control/command',
@@ -83,16 +105,16 @@ class JoystickInterpreterNode(Node):
         )
 
     def _setup_subscribers(self) -> None:
-        """PX4 ManualControlSetpoint aboneligini kurur."""
+        """MAVROS joystick girdi aboneliğini oluşturur."""
         self.create_subscription(
-            ManualControlSetpoint,
-            '/fmu/out/manual_control_setpoint',
-            self._on_manual_control,
+            ManualControl,
+            '/mavros/manual_control/control',
+            self._on_mavros_manual_control,
             _PX4_QOS,
         )
 
-    def _on_manual_control(self, msg: ManualControlSetpoint) -> None:
-        """PX4 ManualControlSetpoint mesajini SwarmControlCommand'a cevirir."""
+    def _on_manual_control(self, msg: '_MavrosManual') -> None:
+        """Normalize girdiyi SwarmControlCommand'a cevirir."""
         cmd = SwarmControlCommand()
         cmd.stamp = self.get_clock().now().to_msg()
         self._sequence_num += 1
@@ -130,8 +152,25 @@ class JoystickInterpreterNode(Node):
 
         self._cmd_pub.publish(cmd)
 
-    def _read_aux_channel(self, msg: ManualControlSetpoint) -> float:
-        """Deadman aux kanalini okur."""
+    def _on_mavros_manual_control(self, msg: ManualControl) -> None:
+        """MAVROS ManualControl'u normalize edip _on_manual_control'a verir.
+
+        MAVLink MANUAL_CONTROL aralığı [-1000, 1000]; sürü [-1, 1].
+        x=pitch, y=roll, r=yaw, z=throttle(0..1000). aux1..aux6 doğrudan.
+        Aux aralıkları gerçek kumandayla kontrol edilmeli.
+        """
+        norm = _MavrosManual(
+            pitch=self._clamp(msg.x / 1000.0),
+            roll=self._clamp(msg.y / 1000.0),
+            yaw=self._clamp(msg.r / 1000.0),
+            throttle=self._clamp(msg.z / 1000.0, 0.0, 1.0),
+            aux1=msg.aux1, aux2=msg.aux2, aux3=msg.aux3,
+            aux4=msg.aux4, aux5=msg.aux5, aux6=msg.aux6,
+        )
+        self._on_manual_control(norm)
+
+    def _read_aux_channel(self, msg: '_MavrosManual') -> float:
+        """Yapılandırılmış deadman kanalını okur."""
         channel_map = {
             'aux1': getattr(msg, 'aux1', 0.0),
             'aux2': getattr(msg, 'aux2', 0.0),
@@ -148,7 +187,7 @@ class JoystickInterpreterNode(Node):
         return max(lo, min(hi, value))
 
     def set_control_mode(self, mode: int) -> None:
-        """GCS mod degisimi."""
+        """GCS mod değişimi."""
         self._active_mode = mode
         self.get_logger().info(
             f'Mod degisti: {mode}'
@@ -157,7 +196,7 @@ class JoystickInterpreterNode(Node):
     def set_formation(
         self, formation_type: int, spacing_m: float = 5.0
     ) -> None:
-        """GCS formasyon degisimi."""
+        """GCS formasyon değişimi."""
         self._formation_change_requested = True
         self._requested_formation = formation_type
         self._requested_spacing_m = spacing_m

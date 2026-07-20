@@ -1,8 +1,26 @@
 """PX4 ile FSM arasinda haberlesme koprusu kuran dugum.
 
+<<<<<<< HEAD
 PX4 telemetri verilerini dinler ve AgentStatus olarak yayinlar.
 FSM'den gelen komutlari ise CommandSender ile PX4'e iletir.
 Ayni zamanda RTCM verilerini de fragmenter ile bolup enjekte eder.
+=======
+PX4 ↔ FSM köprüsü — ana ROS2 node.
+
+İŞLEYİŞ:
+1. MAVROS topic'lerini dinler (/{drone_ns}/mavros/...)
+   → mavros_telemetry_mapper ile (ENU→NED) AgentStatus'a çevirir
+   → /swarm/agent/drone{id}/telemetry'ye yayınlar (FSM okuyacak)
+
+2. FSM komut topic'ini dinler (/swarm/agent/drone{id}/commands)
+   → mavros_command_sender ile (NED→ENU) MAVROS'a iletir
+
+3. OFFBOARD heartbeat (50 Hz) — PX4 offboard modda sürekli sinyal bekler.
+   xy_valid + z_valid varsa mevcut konum hold setpoint'i olarak gönderilir.
+
+KULLANIM:
+    ros2 run swarm_control px4_bridge --ros-args -p agent_id:=1
+>>>>>>> origin/main
 """
 
 import math
@@ -14,37 +32,30 @@ from rclpy.qos import (
     QoSHistoryPolicy,
     QoSProfile,
     QoSReliabilityPolicy,
-)
-
-from px4_msgs.msg import (
-    BatteryStatus,
-    EstimatorStatusFlags,
-    GpsInjectData,
-    HomePosition,
-    ManualControlSetpoint,
-    SensorGps,
-    VehicleAttitude,
-    VehicleGlobalPosition,
-    VehicleLocalPosition,
-    VehicleStatus,
+    qos_profile_sensor_data,
 )
 
 from std_msgs.msg import String, UInt8MultiArray
 from swarm_interfaces.msg import AgentSetpoint, AgentStatus, SwarmOrigin
 
-from .telemetry_mapper import (
-    map_attitude,
-    map_battery,
-    map_estimator,
-    map_global_position,
-    map_gps,
-    map_home_position,
-    map_local_position,
-    map_manual_control,
-    map_vehicle_status,
+from mavros_msgs.msg import EstimatorStatus, GPSRAW, RCIn, RTCM, State
+from mavros_msgs.msg import HomePosition as MavHomePosition
+from nav_msgs.msg import Odometry
+from sensor_msgs.msg import BatteryState, NavSatFix
+
+from .mavros_command_sender import MavrosCommandSender
+from .mavros_telemetry_mapper import (
+    map_battery as mav_map_battery,
+    map_estimator_status as mav_map_estimator,
+    map_global_position as mav_map_global,
+    map_gps_raw as mav_map_gps,
+    map_home as mav_map_home,
+    map_odometry as mav_map_odom,
+    map_rc_in as mav_map_rc,
+    map_state as mav_map_state,
 )
-from .command_sender import CommandSender
-from .rtcm_packing import fragment_for_inject, iter_rtcm_messages
+
+from .rtcm_packing import iter_rtcm_messages
 
 _PX4_QOS = QoSProfile(
     reliability=QoSReliabilityPolicy.BEST_EFFORT,
@@ -53,9 +64,6 @@ _PX4_QOS = QoSProfile(
     depth=5,
 )
 
-_GPS_INJECT_DATA_SIZE = 300
-_RTK_DEFAULT_MAX_PAYLOAD = 300
-_RTK_GPS_DEVICE_ID = 0
 _RTCM_MAX_FRAME = 1029
 _RTK_MAX_TAMPON_BYTE = 2 * _RTCM_MAX_FRAME
 _RTK_MAKUL_PAYLOAD = 768
@@ -64,7 +72,7 @@ _RTK_DIAG_PERIOD_S = 1.0
 
 
 class Px4BridgeNode(Node):
-    """PX4 ve FSM arasindaki kopru dugumu."""
+    """PX4 ve FSM arasındaki köprü düğümü."""
 
     def __init__(self) -> None:
         super().__init__('px4_bridge')
@@ -94,34 +102,26 @@ class Px4BridgeNode(Node):
         self._offboard_streaming = False
         self._offboard_rearm_counter = 0
         self._target_altitude_ned = None
-        self._takeoff_anchor_x = None
-        self._takeoff_anchor_y = None
-        self._was_offboard = False
+        self._takeoff_anchor_x: float | None = None
+        self._takeoff_anchor_y: float | None = None
+        self._was_offboard: bool = False
 
-        self._cached_pos_x = 0.0
-        self._cached_pos_y = 0.0
-        self._cached_pos_z = 0.0
-        self._cached_yaw_rad = 0.0
+        self._cached_pos_x: float = 0.0
+        self._cached_pos_y: float = 0.0
+        self._cached_pos_z: float = 0.0
+        self._cached_yaw_rad: float = 0.0
 
-        self._latest_setpoint = None
-        self._setpoint_stamp = 0.0
-        self._setpoint_timeout_s = 0.5
-        self._applied_origin_seq = -1
+        self._latest_setpoint: AgentSetpoint | None = None
+        self._setpoint_stamp: float = 0.0
+        self._setpoint_timeout_s: float = 0.5
+        self._applied_origin_seq: int = -1
 
-        if self._sitl_mode:
-            self._fake_rc_pub = self.create_publisher(
-                ManualControlSetpoint,
-                f'{self._fmu_ns}/fmu/in/manual_control_input',
-                10,
-            )
-
-        self._cmd_sender = CommandSender(
+        self._cmd_sender = MavrosCommandSender(
             self,
-            system_id=self._agent_id,
             namespace=self._fmu_ns,
         )
 
-        self._setup_px4_subscriptions()
+        self._setup_mavros_subscriptions()
 
         self._status_pub = self.create_publisher(
             AgentStatus,
@@ -167,29 +167,11 @@ class Px4BridgeNode(Node):
         )
 
     def _setup_rtk(self) -> None:
-        """RTK baglantilarini ve parametrelerini kurar."""
-        self.declare_parameter(
-            'rtk_max_payload', _RTK_DEFAULT_MAX_PAYLOAD
-        )
-        self.declare_parameter(
-            'rtk_gps_device_id', _RTK_GPS_DEVICE_ID
-        )
-        self.declare_parameter(
-            'rtk_makul_payload', _RTK_MAKUL_PAYLOAD
-        )
-
-        self._rtk_max_payload = int(
-            self.get_parameter('rtk_max_payload').value
-        )
-        self._rtk_device_id = int(
-            self.get_parameter('rtk_gps_device_id').value
-        )
+        """RTCM aboneliği ve MAVROS RTCM yayıncısı kurar."""
+        self.declare_parameter('rtk_makul_payload', _RTK_MAKUL_PAYLOAD)
         self._rtk_makul_payload = int(
             self.get_parameter('rtk_makul_payload').value
         )
-
-        if not 1 <= self._rtk_max_payload <= _GPS_INJECT_DATA_SIZE:
-            self._rtk_max_payload = _RTK_DEFAULT_MAX_PAYLOAD
 
         self._rtk_tampon = bytearray()
         self._rtk_alinan_msg = 0
@@ -204,9 +186,9 @@ class Px4BridgeNode(Node):
             self._on_rtcm,
             10,
         )
-        self._gps_inject_pub = self.create_publisher(
-            GpsInjectData,
-            f'{ns}/fmu/in/gps_inject_data',
+        self._rtcm_pub = self.create_publisher(
+            RTCM,
+            f'{ns}/mavros/gps_rtk/send_rtcm',
             _GPS_INJECT_QOS_DEPTH,
         )
         self.create_timer(
@@ -214,7 +196,7 @@ class Px4BridgeNode(Node):
         )
 
     def _on_rtcm(self, msg: UInt8MultiArray) -> None:
-        """Gelen RTCM mesajini isler."""
+        """Gelen RTCM mesajını işler."""
         try:
             self._on_rtcm_inner(msg)
         except Exception as e:  # noqa: BLE001
@@ -224,7 +206,7 @@ class Px4BridgeNode(Node):
             )
 
     def _on_rtcm_inner(self, msg: UInt8MultiArray) -> None:
-        """RTCM tamponundaki verileri ayiklar ve fragmentler."""
+        """RTCM tamponundaki verileri ayıklar ve fragmentler."""
         if not msg.data:
             return
         self._rtk_tampon.extend(msg.data)
@@ -245,27 +227,16 @@ class Px4BridgeNode(Node):
             self._rtk_alinan_msg += 1
             self._rtk_yayinla_fragmenler(rtcm_msg)
 
-    def _rtk_yayinla_fragmenler(
-        self, rtcm_msg: bytes
-    ) -> None:
-        """Cercevelenmis RTCM fragmanlarini PX4'e yayinlar."""
-        parcalar = fragment_for_inject(
-            rtcm_msg, max_payload=self._rtk_max_payload
-        )
-        for chunk, fragmented in parcalar:
-            inject = GpsInjectData()
-            ts = self.get_clock().now().nanoseconds
-            inject.timestamp = int(ts / 1000)
-            inject.device_id = self._rtk_device_id
-            inject.len = len(chunk)
-            inject.flags = 1 if fragmented else 0
-            dolgu = _GPS_INJECT_DATA_SIZE - len(chunk)
-            inject.data = list(chunk) + [0] * dolgu
-            self._gps_inject_pub.publish(inject)
-            self._rtk_yayinlanan_frag += 1
+    def _rtk_yayinla_fragmenler(self, rtcm_msg: bytes) -> None:
+        """RTCM mesajını MAVROS'a bütün olarak yayınlar."""
+        out = RTCM()
+        out.header.stamp = self.get_clock().now().to_msg()
+        out.data = list(rtcm_msg)
+        self._rtcm_pub.publish(out)
+        self._rtk_yayinlanan_frag += 1
 
     def _rtk_tani_yayinla(self) -> None:
-        """RTK saglik tanı verilerini loglar."""
+        """RTK sağlık verilerini loglar."""
         try:
             self.get_logger().info(
                 f'rtk: msg={self._rtk_alinan_msg} '
@@ -279,102 +250,75 @@ class Px4BridgeNode(Node):
                 f'rtk tani log hata: {e}'
             )
 
-    def _setup_px4_subscriptions(self) -> None:
-        """PX4 telemetri aboneliklerini kurar."""
+    def _setup_mavros_subscriptions(self) -> None:
+        """MAVROS telemetri topic'lerine abone olur."""
         ns = self._fmu_ns
-        subs = [
-            (BatteryStatus,
-             f'{ns}/fmu/out/battery_status',
-             self._on_battery),
-            (VehicleStatus,
-             f'{ns}/fmu/out/vehicle_status_v1',
-             self._on_vehicle_status),
-            (VehicleLocalPosition,
-             f'{ns}/fmu/out/vehicle_local_position',
-             self._on_local_pos),
-            (EstimatorStatusFlags,
-             f'{ns}/fmu/out/estimator_status_flags',
-             self._on_estimator),
-            (SensorGps,
-             f'{ns}/fmu/out/vehicle_gps_position',
-             self._on_gps),
-            (VehicleGlobalPosition,
-             f'{ns}/fmu/out/vehicle_global_position',
-             self._on_global_pos),
-            (HomePosition,
-             f'{ns}/fmu/out/home_position',
-             self._on_home),
-            (VehicleAttitude,
-             f'{ns}/fmu/out/vehicle_attitude',
-             self._on_attitude),
-            (ManualControlSetpoint,
-             f'{ns}/fmu/out/manual_control_setpoint',
-             self._on_manual_control),
-        ]
-        for msg_type, topic, cb in subs:
-            self.create_subscription(
-                msg_type, topic, cb, _PX4_QOS
-            )
+        self.create_subscription(
+            State, f'{ns}/mavros/state', self._on_mav_state, 10
+        )
+        self.create_subscription(
+            BatteryState, f'{ns}/mavros/battery',
+            self._on_mav_battery, qos_profile_sensor_data
+        )
+        self.create_subscription(
+            MavHomePosition, f'{ns}/mavros/home_position/home',
+            self._on_mav_home, 10
+        )
+        self.create_subscription(
+            Odometry, f'{ns}/mavros/local_position/odom',
+            self._on_mav_odom, qos_profile_sensor_data
+        )
+        self.create_subscription(
+            NavSatFix, f'{ns}/mavros/global_position/global',
+            self._on_mav_global, qos_profile_sensor_data
+        )
+        self.create_subscription(
+            GPSRAW, f'{ns}/mavros/gpsstatus/gps1/raw',
+            self._on_mav_gps, qos_profile_sensor_data
+        )
+        self.create_subscription(
+            EstimatorStatus, f'{ns}/mavros/estimator_status',
+            self._on_mav_estimator, 10
+        )
+        self.create_subscription(
+            RCIn, f'{ns}/mavros/rc/in',
+            self._on_mav_rc, qos_profile_sensor_data
+        )
 
-    def _on_battery(self, msg: BatteryStatus) -> None:
-        map_battery(msg, self._status)
+    def _on_mav_state(self, msg: State) -> None:
+        """MAVROS State -> AgentStatus."""
+        mav_map_state(msg, self._status)
 
-    def _on_vehicle_status(self, msg: VehicleStatus) -> None:
-        prev_offboard = self._status.offboard_active
-        map_vehicle_status(msg, self._status)
+    def _on_mav_battery(self, msg: BatteryState) -> None:
+        """MAVROS BatteryState -> AgentStatus batarya."""
+        mav_map_battery(msg, self._status)
 
-        if (self._sitl_mode and
-                prev_offboard and
-                not self._status.offboard_active and
-                self._status.armed):
-            self.get_logger().warn(
-                'SITL: Offboard kayboldu, yeniden isteniyor'
-            )
-            self._cmd_sender.set_offboard_mode()
+    def _on_mav_odom(self, msg: Odometry) -> None:
+        """MAVROS Odometry -> AgentStatus konum/hız (ENU->NED)."""
+        mav_map_odom(msg, self._status)
 
-    def _on_local_pos(
-        self, msg: VehicleLocalPosition
-    ) -> None:
-        map_local_position(msg, self._status)
+    def _on_mav_global(self, msg: NavSatFix) -> None:
+        """MAVROS NavSatFix -> AgentStatus lat/lon/alt."""
+        mav_map_global(msg, self._status)
 
-    def _on_estimator(
-        self, msg: EstimatorStatusFlags
-    ) -> None:
-        map_estimator(msg, self._status)
+    def _on_mav_gps(self, msg: GPSRAW) -> None:
+        """MAVROS GPSRAW -> AgentStatus fix_type/satellites."""
+        mav_map_gps(msg, self._status)
 
-    def _on_gps(self, msg: SensorGps) -> None:
-        map_gps(msg, self._status)
+    def _on_mav_home(self, msg: MavHomePosition) -> None:
+        """MAVROS HomePosition -> AgentStatus home."""
+        mav_map_home(msg, self._status)
 
-    def _on_global_pos(
-        self, msg: VehicleGlobalPosition
-    ) -> None:
-        map_global_position(msg, self._status)
+    def _on_mav_estimator(self, msg: EstimatorStatus) -> None:
+        """MAVROS EstimatorStatus -> AgentStatus kestirici sağlık."""
+        mav_map_estimator(msg, self._status)
 
-    def _on_home(self, msg: HomePosition) -> None:
-        map_home_position(msg, self._status)
-
-    def _on_attitude(self, msg: VehicleAttitude) -> None:
-        map_attitude(msg, self._status)
-
-    def _on_manual_control(
-        self, msg: ManualControlSetpoint
-    ) -> None:
-        map_manual_control(msg, self._status)
-
-    def _publish_fake_rc(self) -> None:
-        """SITL icin sahte RC sinyali yayinlar."""
-        msg = ManualControlSetpoint()
-        ts = self.get_clock().now().nanoseconds
-        msg.timestamp = int(ts / 1000)
-        msg.roll = 0.0
-        msg.pitch = 0.0
-        msg.throttle = 0.0
-        msg.yaw = 0.0
-        msg.valid = True
-        self._fake_rc_pub.publish(msg)
+    def _on_mav_rc(self, msg: RCIn) -> None:
+        """MAVROS RCIn -> AgentStatus rc_link_ok."""
+        mav_map_rc(msg, self._status)
 
     def _offboard_tick(self) -> None:
-        """50 Hz tick: Offboard heartbeat ve setpoint gonderimi."""
+        """50 Hz tick: Offboard heartbeat ve setpoint gönderimi."""
         if self._status.xy_valid and self._status.z_valid:
             self._cached_pos_x = self._status.pos_x
             self._cached_pos_y = self._status.pos_y
@@ -393,8 +337,6 @@ class Px4BridgeNode(Node):
         )
 
         if not self._offboard_streaming:
-            if self._sitl_mode:
-                self._publish_fake_rc()
             return
 
         use_velocity = (
@@ -410,10 +352,9 @@ class Px4BridgeNode(Node):
             self._cmd_sender.publish_offboard_position_mode()
 
         if self._sitl_mode:
-            self._publish_fake_rc()
-            if (self._offboard_streaming and
-                    not self._status.offboard_active and
-                    self._status.armed):
+            if (self._offboard_streaming
+                    and not self._status.offboard_active
+                    and self._status.armed):
                 self._offboard_rearm_counter += 1
                 if self._offboard_rearm_counter >= 25:
                     self._offboard_rearm_counter = 0
@@ -499,7 +440,7 @@ class Px4BridgeNode(Node):
         )
 
     def _on_fsm_command(self, msg: String) -> None:
-        """FSM komutunu cevirip PX4'e iletir."""
+        """FSM komutunu çevirip MAVROS'a iletir."""
         cmd = msg.data.strip().lower()
 
         if cmd == 'arm':
@@ -516,7 +457,7 @@ class Px4BridgeNode(Node):
                     self.get_logger().warning(
                         f'Gecersiz takeoff irtifasi: {cmd}'
                     )
-            self._target_altitude_ned = -altitude
+            self._target_altitude_ned = self._cached_pos_z - altitude
             self._takeoff_anchor_x = self._cached_pos_x
             self._takeoff_anchor_y = self._cached_pos_y
             self.get_logger().info(
@@ -543,7 +484,7 @@ class Px4BridgeNode(Node):
             )
 
     def _publish_status(self) -> None:
-        """Status durumunu yayinlar."""
+        """Status durumunu yayınlar."""
         self._status.stamp = self.get_clock().now().to_msg()
         self._status_pub.publish(self._status)
 

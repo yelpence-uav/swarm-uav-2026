@@ -40,6 +40,8 @@ services:
       - ../sim:/home/yelpence/ros2_ws/sim
       - ../src:/home/yelpence/ros2_ws/src
       - ../.git:/home/yelpence/ros2_ws/.git:ro
+      # entrypoint yama dongusu icin gerekli (bkz ana compose)
+      - ../docker:/home/yelpence/ros2_ws/docker:ro
 
       # ROS 2 Derleme izolasyonu
       # - /home/yelpence/ros2_ws/build

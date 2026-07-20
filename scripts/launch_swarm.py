@@ -216,10 +216,6 @@ def main():
 
     time.sleep(10)
 
-    print(">> DDS Agent başlatılıyor...")
-    run_in_tmux("MicroXRCEAgent udp4 -p 8888 -v 4", "DDS_Agent", "dds_agent")
-    time.sleep(2)
-
     print(f">> {DRONE_COUNT} adet Kamera Köprüsü başlatılıyor...")
     for i in range(DRONE_COUNT):
         drone_id = i + 1
@@ -247,7 +243,6 @@ def main():
             f"cd {PX4_PATH} && "
             "export PX4_SYS_AUTOSTART=4001 && "
             "export PX4_SIM_MODEL=gz_x500 && "
-            f"export PX4_UXRCE_DDS_NS=drone_{drone_id} && "
             f"export PX4_GZ_MODEL_NAME={drone_name} && "
             "export PX4_GZ_STANDALONE=1 && "
             f"export PX4_GZ_WORLD={world_name} && "
@@ -321,6 +316,18 @@ def main():
         )
 
     # ROS 2 sürü düğümleri
+    print(f">> {DRONE_COUNT} adet mavros_node başlatılıyor...")
+    for drone_id in range(1, DRONE_COUNT + 1):
+        fcu = f"udp://:{14540 + drone_id}@127.0.0.1:{14580 + drone_id}"
+        run_in_tmux(
+            "ros2 run mavros mavros_node --ros-args "
+            f"-p fcu_url:={fcu} "
+            f"-r __ns:=/drone_{drone_id}/mavros",
+            f"Mavros_{drone_id}",
+            f"mavros_{drone_id}",
+        )
+        time.sleep(1)
+
     print(f">> {DRONE_COUNT} adet PX4 Bridge başlatılıyor...")
     for drone_id in range(1, DRONE_COUNT + 1):
         run_in_tmux(

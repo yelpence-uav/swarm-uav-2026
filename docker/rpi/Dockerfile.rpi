@@ -11,11 +11,6 @@ RUN apt-get update && apt-get install -y \
   git \
   && rm -rf /var/lib/apt/lists/*
 
-COPY src/Micro-XRCE-DDS-Agent /tmp/Micro-XRCE-DDS-Agent
-RUN cd /tmp/Micro-XRCE-DDS-Agent && mkdir build && cd build \
-  && cmake -DCMAKE_BUILD_TYPE=Release -DUAGENT_BUILD_EXECUTABLE=ON .. \
-  && make -j4 && make install
-
 RUN mkdir -p /ros2_ws/src
 WORKDIR /home/yelpence/ros2_ws
 COPY src/ /home/yelpence/ros2_ws/src/
@@ -33,11 +28,16 @@ ENV PYTHONDONTWRITEBYTECODE=1
 
 RUN apt-get update && apt-get install -y \
   ros-jazzy-rmw-cyclonedds-cpp \
+  ros-jazzy-mavros \
+  ros-jazzy-mavros-extras \
+  ros-jazzy-mavros-msgs \
   python3-pip \
   python3-venv \
   nano \
   sudo \
   && rm -rf /var/lib/apt/lists/*
+
+RUN /opt/ros/jazzy/lib/mavros/install_geographiclib_datasets.sh
 
 ARG USERNAME=yelpence
 ARG USER_UID=1000
@@ -50,10 +50,6 @@ RUN groupadd --gid $USER_GID $USERNAME \
   && useradd --uid $USER_UID --gid $USER_GID -m -G dialout,video $USERNAME \
   && echo "$USERNAME ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/$USERNAME \
   && chmod 0440 /etc/sudoers.d/$USERNAME
-
-COPY --from=builder /usr/local/bin/MicroXRCEAgent /usr/local/bin/
-COPY --from=builder /usr/local/lib/libmicroxrcedds_agent* /usr/local/lib/
-RUN ldconfig /usr/local/lib/
 
 RUN mkdir -p /home/yelpence/ros2_ws
 COPY --from=builder --chown=$USERNAME:$USERNAME /home/yelpence/ros2_ws/install /home/yelpence/ros2_ws/install
