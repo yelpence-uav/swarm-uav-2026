@@ -77,7 +77,7 @@ class TestQRDetector(unittest.TestCase):
 
     def test_parse_formation(self) -> None:
         """Formasyon verilerinin doğru parse edilmesi."""
-        text = "team_id=YELPENCE; formation=V; spacing_m=5.0"
+        text = 'team_id=YELPENCE; formation=V; spacing_m=5.0'
         parsed = self.detector._parse_qr_text(text)
 
         self.assertTrue(parsed['valid'])
@@ -87,7 +87,7 @@ class TestQRDetector(unittest.TestCase):
 
     def test_parse_maneuver(self) -> None:
         """Manevra verilerinin doğru parse edilmesi."""
-        text = "team_id=YELPENCE; pitch_deg=-15.5"
+        text = 'team_id=YELPENCE; pitch_deg=-15.5'
         parsed = self.detector._parse_qr_text(text)
 
         self.assertTrue(parsed['maneuver_active'])
@@ -95,7 +95,7 @@ class TestQRDetector(unittest.TestCase):
 
     def test_parse_detach(self) -> None:
         """Ayrılma ve renk verilerinin doğru parse edilmesi."""
-        text = "team_id=YELPENCE; detach_color=RED"
+        text = 'team_id=YELPENCE; detach_color=RED'
         parsed = self.detector._parse_qr_text(text)
 
         self.assertTrue(parsed['detach_active'])

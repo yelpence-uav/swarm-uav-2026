@@ -1,4 +1,4 @@
-"""evaluate_transitions ve QR yardımcı fonksiyonları için birim testleri."""
+"""Evaluate_transitions ve QR yardımcı fonksiyonları için birim testleri."""
 
 import time
 from types import SimpleNamespace
@@ -690,7 +690,7 @@ class TestGlobalPause(unittest.TestCase):
 # FIND_FIRST_QR_STEP
 
 class TestFindFirstQrStep(unittest.TestCase):
-    """find_first_qr_step fonksiyon testleri."""
+    """Find_first_qr_step fonksiyon testleri."""
 
     def test_hic_aktif_yok_done(self):
         """Aktif bölüm yoksa DONE dönmeli."""
@@ -718,7 +718,7 @@ class TestFindFirstQrStep(unittest.TestCase):
         self.assertEqual(find_first_qr_step(qr), QrTaskStep.DETACH)
 
     def test_formation_ve_maneuver_formation_once(self):
-        """formation ve maneuver aktifse önce FORMATION gelmeli."""
+        """Formation ve maneuver aktifse önce FORMATION gelmeli."""
         qr = _qr(formation_active=True, maneuver_active=True)
         self.assertEqual(find_first_qr_step(qr), QrTaskStep.FORMATION)
 
@@ -731,14 +731,14 @@ class TestFindFirstQrStep(unittest.TestCase):
         self.assertEqual(find_first_qr_step(qr), QrTaskStep.MANEUVER)
 
     def test_none_qr_done(self):
-        """qr=None ise DONE dönmeli."""
+        """Qr=None ise DONE dönmeli."""
         self.assertEqual(find_first_qr_step(None), QrTaskStep.DONE)
 
 
 # FIND_NEXT_QR_STEP
 
 class TestFindNextQrStep(unittest.TestCase):
-    """find_next_qr_step fonksiyon testleri."""
+    """Find_next_qr_step fonksiyon testleri."""
 
     def test_formation_sonrasi_altitude(self):
         """FORMATION tamamlandı, altitude aktif -> ALTITUDE."""
@@ -765,7 +765,7 @@ class TestFindNextQrStep(unittest.TestCase):
         self.assertEqual(result, QrTaskStep.DETACH)
 
     def test_none_qr_done(self):
-        """qr=None ise DONE dönmeli."""
+        """Qr=None ise DONE dönmeli."""
         result = find_next_qr_step(None, QrTaskStep.FORMATION)
         self.assertEqual(result, QrTaskStep.DONE)
 

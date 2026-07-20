@@ -72,7 +72,7 @@ class FrameGrabber:
             self._cap = None
 
     def is_opened(self) -> bool:
-        """Kamera acik ve erisilebilir mi?"""
+        """Kamera acik ve erisilebilirlik durumu."""
         return self._cap is not None and self._cap.isOpened()
 
     @property
@@ -152,7 +152,7 @@ class SimFrameGrabber:
         self._opened = False
 
     def is_opened(self) -> bool:
-        """Kaynak acik mi?"""
+        """Kaynak acik olma durumu."""
         return self._opened
 
     @property

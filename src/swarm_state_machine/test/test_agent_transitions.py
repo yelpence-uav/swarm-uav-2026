@@ -1,4 +1,4 @@
-"""evaluate_transitions fonksiyonu için birim testleri."""
+"""Evaluate_transitions fonksiyonu için birim testleri."""
 
 import unittest
 
