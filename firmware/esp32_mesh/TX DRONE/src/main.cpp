@@ -35,7 +35,7 @@ volatile uint32_t      manevra_bitis_ms     = 0;
 // cakismasi olurdu.
 // Dikkat: asagidaki ilk 5 byte sifir placeholder'dir. Gercek MAC adreslerini
 // (esptool.py chip_id veya WiFi.macAddress() ile) buraya girmeden derleyip
-// yuklemeyin, yoksa tum dronelarin ilk 5 byte'i esit sayilir.
+// MAC'ler saha donanimindan tools/mac_reader ile okundu.
 //
 // RX BASE'in MAC'i de bu tabloda olmali: mesh_veri_al() mac_to_id()==0 olan
 // paketleri "bilinmeyen MAC" diye reddettigi icin baz'dan gelen komutlar aksi
@@ -44,13 +44,13 @@ volatile uint32_t      manevra_bitis_ms     = 0;
 // sentinel'idir; baz'a da 99 verilirse pi_bridge baz ile RTK'yi ayirt edemez ve
 // RTK trafigi mesh-liveness'i tazeleyip link kopmasini maskeler (bkz mesh_config.h).
 static const struct { uint8_t mac[6]; uint8_t id; } drone_tablo[] = {
-    {{0x00, 0x00, 0x00, 0x00, 0x00, 0xB4}, 1},
-    {{0x00, 0x00, 0x00, 0x00, 0x00, 0x88}, 2},
-    {{0x00, 0x00, 0x00, 0x00, 0x00, 0x00}, 3},
-    {{0x00, 0x00, 0x00, 0x00, 0x00, 0xFF}, 4},
-    // TODO: RX BASE'in gercek MAC'ini gir; bu satir doldurulmadan baz'dan gelen
-    // komutlar reddedilmeye devam eder (mac_to_id -> 0).
-    {{0x00, 0x00, 0x00, 0x00, 0x00, 0x63}, BAZ_MESH_ID},
+    {{0xB0, 0xCB, 0xD8, 0xC8, 0xA8, 0x30}, 1},   // drone ESP32 (bu kart)
+    // Drone 2-4 henuz temin edilmedi; placeholder MAC birakmak yanlis eslesme
+    // riski dogurur (bkz RX BASE'teki ayni tablo). Donanim gelince ac.
+    // {{0x00, 0x00, 0x00, 0x00, 0x00, 0x00}, 2},
+    // {{0x00, 0x00, 0x00, 0x00, 0x00, 0x00}, 3},
+    // {{0x00, 0x00, 0x00, 0x00, 0x00, 0x00}, 4},
+    {{0xA4, 0xF0, 0x0F, 0x64, 0xB5, 0x34}, BAZ_MESH_ID},   // RX BASE (yer)
 };
 static constexpr uint8_t DRONE_SAYISI = sizeof(drone_tablo) / sizeof(drone_tablo[0]);
 static uint8_t mac_to_id(const uint8_t* mac) {

@@ -76,14 +76,18 @@ uint8_t                  failsafe_active_mode = APM_MODE_RTL;
 // Tam 6 byte MAC karsilastiriliyor; sadece son byte'a bakilsaydi iki ESP32'nin
 // son byte'i ayni oldugunda (Espressif atamasinda mumkun) iki drone ayni ID'ye
 // eslenip sessizce kimlik cakismasi olurdu.
-// Dikkat: asagidaki ilk 5 byte sifir placeholder'dir. Gercek MAC adreslerini
-// (esptool.py chip_id veya WiFi.macAddress() ile okunan) buraya girmeden derleyip
-// yuklemeyin, yoksa tum dronelarin ilk 5 byte'i esit sayilir.
+// Saha donanimi: elde tek drone ESP32 var, MAC'i tools/mac_reader ile okundu.
+// Baz'in kendi MAC'i buraya girmez (kendi yayinini _benim_mac_mi eler); baz
+// kimligi TX DRONE tarafindaki tabloda BAZ_MESH_ID olarak duruyor.
 static const struct { uint8_t mac[6]; uint8_t id; } drone_tablo[] = {
-    {{0x00, 0x00, 0x00, 0x00, 0x00, 0xB4}, 1},
-    {{0x00, 0x00, 0x00, 0x00, 0x00, 0x88}, 2},
-    {{0x00, 0x00, 0x00, 0x00, 0x00, 0x00}, 3},
-    {{0x00, 0x00, 0x00, 0x00, 0x00, 0xFF}, 4},
+    {{0xB0, 0xCB, 0xD8, 0xC8, 0xA8, 0x30}, 1},   // drone ESP32
+    // Drone 2-4 henuz temin edilmedi. Placeholder MAC ile acik birakmak
+    // yanlis eslesme riski dogurur: mac_to_id() sahte bir MAC'e ID verirse
+    // olmayan bir drone mesh'te "aktif" gorunur ve komsu sayisini sisirir.
+    // Donanim gelince MAC'i tools/mac_reader ile okuyup satiri ac.
+    // {{0x00, 0x00, 0x00, 0x00, 0x00, 0x00}, 2},
+    // {{0x00, 0x00, 0x00, 0x00, 0x00, 0x00}, 3},
+    // {{0x00, 0x00, 0x00, 0x00, 0x00, 0x00}, 4},
 };
 static constexpr uint8_t DRONE_SAYISI = sizeof(drone_tablo) / sizeof(drone_tablo[0]);
 
