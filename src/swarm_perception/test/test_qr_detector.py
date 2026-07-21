@@ -1,7 +1,7 @@
 # Copyright 2026 Yelpence
 
-."""
-test_qr_detector.py
+"""
+test_qr_detector.py.
 
 QRDetector birim testleri.
 Pyzbar mocklanarak saf test edilir.
