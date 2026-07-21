@@ -378,6 +378,11 @@ void loop() {
         son_rtk_tx_istatistik_ms = millis();
         rtk_tx_istatistik_yazdir();
         mesh_tip_dusen_yazdir();   // hiz limitinde dusen cerceveler (tip bazinda)
+        // Mesh sagligi: aktif komsular + crc_hatasi. crc_hatasi PARAZIT
+        // gostergesidir — sifirdan buyukse ve artiyorsa RF ortami bozuluyor
+        // demektir (sartname §5.4 "frekans gurultusu" sarti). Bu satir olmadan
+        // sayac hicbir yerde gorunmuyordu.
+        mesh_durum_yazdir();
     }
 #endif
 
