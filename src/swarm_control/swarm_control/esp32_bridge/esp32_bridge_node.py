@@ -1,4 +1,4 @@
-"""ESP32 mesh ile ROS2 arasinda UART koprusu kuran dugum.
+r"""ESP32 mesh ile ROS2 arasinda UART koprusu kuran dugum.
 
 Gerçek donanımda network_proxy'nin yerini alır: komşu drone'lardan
 ESP-NOW mesh üzerinden gelip ESP32'nin UART'a yazdığı paketleri çözer,
@@ -40,6 +40,7 @@ from rclpy.qos import (
 import serial
 
 from std_msgs.msg import UInt8MultiArray
+
 from swarm_interfaces.msg import (
     AgentStatus,
     ElectionResult,
@@ -307,10 +308,8 @@ class Esp32BridgeNode(Node):
             f'Esp32BridgeNode başlatıldı: agent_id={self._agent_id}'
         )
 
-        self.get_logger().info(
-            f'Esp32BridgeNode baslatildi: '
-            f'agent_id={self._agent_id}'
-        )
+    def _diag_yayinla(self) -> None:
+        """Mesh link durumu için SystemEvent yayınlar (operatör görür).
 
         GPS/mesh güvenilir olmayabilir, failsafe kritik.
         swarm_fsm bu mesajı dinler ve son alım zamanına bakarak mesh
