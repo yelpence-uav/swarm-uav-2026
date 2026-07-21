@@ -17,16 +17,37 @@ TIP_DURUM = 0x07
 TIP_ORIGIN = 0x08
 TIP_LEADER_HB = 0x09
 TIP_ELECTION = 0x0A
+TIP_HEARTBEAT = 0x03
+TIP_VERSION = 0x0B
+TIP_RTK = 0x0C
+TIP_SWARM_STATE = 0x0D
+TIP_QR_DATA = 0x0E
+TIP_FAILSAFE = 0xFA  # mesh kopunca gelen failsafe (fail_safe.h)
+TIP_QR_COORDS = 0x0F  # YKİ'den gelen QR konumları (her nokta ayrı çerçeve)
 
-# Struct formatlari
-_POSE_FMT = '<iihhhh'
-_DURUM_FMT = '<BBBBBfBBBBbBB'
-_RENK_FMT = '<Bii7x'
-_GOREV_FMT = '<BBbB12x'
-_ORIGIN_FMT = '<iiiI'
-_KOMUT_FMT = '<BBhhhh6x'
-_LEADER_HB_FMT = '<BIBBB8x'
-_ELECTION_FMT = '<BBBBIBBBB4x'
+# Failsafe türleri (fail_safe.h)
+FAILSAFE_TIP_UYARI = 0x01
+FAILSAFE_TIP_RTL = 0x02
+FAILSAFE_TIP_LAND = 0x03
+
+# Mesh kimlik sabitleri (mesh_config.h)
+BAZ_ID = 99          # RTK UART sentinel'i, mesh kimliği DEĞİL
+BAZ_MESH_ID = 10     # baz istasyonu mesh kimliği
+MESH_MAX_NODES = 8
+
+# ===== Payload struct formatları (little-endian, packed) =====
+# POSE 18B (vz), diğer tipler 16B.
+_POSE_FMT = '<iihhhhh'       # lat, lon, alt_dm, heading, vx, vy, vz
+_DURUM_FMT = '<BBBBBfBBBBbBB'  # bkz. DurumVeri alanları
+_RENK_FMT = '<Bii7x'         # renk, lat, lon, rezerv[7]
+_GOREV_FMT = '<BBbB12x'      # tip, param1, param2, bekleme, rezerv[12]
+_ORIGIN_FMT = '<iiiI'        # lat_1e7, lon_1e7, alt_mm, sequence
+_KOMUT_FMT = '<BBhhhh6x'     # alt_tip, flags, roll/pitch/yaw/throttle x100
+_LEADER_HB_FMT = '<BIBBB8x'  # leader_id, seq, round, agent_count, mission
+_ELECTION_FMT = '<BBBBIBBBB4x'  # leader, round, reason, trigger, seq, ids
+_QR_FMT = '<BIii3x'          # drone_id, action_id, lat, lon, rezerv[3]
+_SWARM_STATE_FMT = '<BBBBI8x'  # mission_id, fsm, leader, formation, timestamp
+_QR_COORD_FMT = '<BBii6x'    # qr_id, toplam, lat_1e7, lon_1e7, rezerv[6]
 
 # Joystick komutu bayrak bitleri
 KOMUT_FLAG_TAKEOFF = 0x01
@@ -39,24 +60,46 @@ KOMUT_FLAG_DEADMAN_PRESSED = 0x20
 KOMUT_MODE_SWARM_MOVEMENT = 1
 KOMUT_MODE_MANEUVER = 2
 
-_FRAME_MIN = 20
+_FRAME_MIN = 4  # tip + iha_id + crc16 (payload değişken)
+
+# F3: mesh-liveness yalnızca bilinen peer'dan bilinen telemetri tipiyle
+# tazelenir. RTK (0x0C) ve VERSION dışarıda; RTK ayrı izlenir.
+_LIVENESS_TIPLERI = frozenset({
+    TIP_KOMUT, TIP_POSE, TIP_GOREV, TIP_RENK, TIP_DURUM, TIP_ORIGIN,
+    TIP_LEADER_HB, TIP_ELECTION, TIP_HEARTBEAT, TIP_SWARM_STATE, TIP_QR_DATA,
+})
+
+
+def liveness_tazeler(iha_id: int, tip: int) -> bool:
+    """Bu (iha_id, tip) mesh-liveness zaman damgasını tazelemeli mi (F3).
+
+    Bilinen peer (1..MESH_MAX_NODES veya BAZ_MESH_ID) VE bilinen telemetri
+    tipi gerekir. RTK sentinel'i (99) ve bilinmeyen tipler tazelemez.
+    """
+    peer_ok = 1 <= iha_id <= MESH_MAX_NODES or iha_id == BAZ_MESH_ID
+    return peer_ok and tip in _LIVENESS_TIPLERI
 
 
 @dataclass
 class PoseVeri:
     """Konum/hiz verisi (TIP_POSE)."""
 
-    lat: int
-    lon: int
-    alt_cm: int
-    heading: int
-    vx: int
-    vy: int
+    lat: int       # 1e-7 derece
+    lon: int       # 1e-7 derece
+    alt_dm: int    # desimetre
+    heading: int   # 0.1 derece
+    vx: int        # cm/s
+    vy: int        # cm/s
+    vz: int        # cm/s
 
 
 @dataclass
 class DurumVeri:
-    """Durum ve saglik verisi (TIP_DURUM)."""
+    """TIP_DURUM payload — komşu drone'un durum/sağlık verisi.
+
+    Firmware'in durum kodu 14 değerli enum'dur (AgentStatus.STATE_*
+    ile eşleşir). Bkz. esp32_bridge_node._DURUM_STATE_MAP.
+    """
 
     drone_id: int
     durum: int
@@ -68,9 +111,9 @@ class DurumVeri:
     imu_ok: int
     mag_ok: int
     baro_ok: int
-    rssi: int
-    mesh_link_ok: int
-    mesh_komsu_sayisi: int
+    rssi: int           # dBm
+    mesh_link_ok: int   # 0/1
+    mesh_komsu_sayisi: int  # firmware: aktif mesh node sayısı
 
 
 @dataclass
@@ -138,12 +181,43 @@ class ElectionVeri:
 
 
 @dataclass
+class QrVeri:
+    """TIP_QR_DATA payload — komşunun çözümlediği QR."""
+
+    drone_id: int
+    action_id: int   # çözümlenen QR eylemi
+    lat: int         # 1e-7 derece
+    lon: int         # 1e-7 derece
+
+
+@dataclass
+class SwarmStateVeri:
+    """TIP_SWARM_STATE payload — sürü seviyesi FSM görünümü."""
+
+    mission_id: int
+    swarm_fsm_state: int
+    active_leader: int
+    formation: int
+    timestamp: int
+
+
+@dataclass
+class QrKoordVeri:
+    """TIP_QR_COORDS payload — YKİ'den gelen tek QR konumu."""
+
+    qr_id: int
+    toplam: int      # tablodaki toplam QR sayısı
+    lat: int         # 1e-7 derece
+    lon: int         # 1e-7 derece
+
+
+@dataclass
 class Cerceve:
     """Cozulmus ve dogrulanmis cerceve yapisi."""
 
     tip: int
     iha_id: int
-    payload: bytes
+    payload: bytes  # değişken uzunluk
 
 
 def cerceve_coz(decoded: bytes) -> Cerceve | None:
@@ -164,27 +238,13 @@ def cerceve_coz(decoded: bytes) -> Cerceve | None:
     if crc16(govde) != crc_gelen:
         return None
 
-    return Cerceve(
-        tip=decoded[0],
-        iha_id=decoded[1],
-        payload=govde[2:18]
-    )
+    return Cerceve(tip=decoded[0], iha_id=decoded[1], payload=govde[2:])
 
 
 def pose_coz(payload: bytes) -> PoseVeri:
-    """
-    Pose verisi payload'ini cozer.
-
-    Args:
-        payload (bytes): 16 baytlik ham veri.
-
-    Returns:
-        PoseVeri: Cozulmus pose nesnesi.
-    """
-    lat, lon, alt_cm, heading, vx, vy = struct.unpack(
-        _POSE_FMT, payload
-    )
-    return PoseVeri(lat, lon, alt_cm, heading, vx, vy)
+    """TIP_POSE payload'ını PoseVeri'ye çözer."""
+    lat, lon, alt_dm, heading, vx, vy, vz = struct.unpack(_POSE_FMT, payload)
+    return PoseVeri(lat, lon, alt_dm, heading, vx, vy, vz)
 
 
 def durum_coz(payload: bytes) -> DurumVeri:
@@ -215,30 +275,32 @@ def durum_coz(payload: bytes) -> DurumVeri:
     )
 
 
-def durum_paketle(
-    drone_id: int, durum: int, armed: int,
-    gps_fix_type: int, battery_pct: int,
-    battery_volt: float, ekf_ok: int, imu_ok: int,
-    mag_ok: int, baro_ok: int, rssi: int,
-    mesh_link_ok: int, mesh_komsu_sayisi: int = 0
-) -> bytes:
-    """
-    Durum verisi alanlarini paketler.
+def durum_paketle(drone_id: int, durum: int, armed: int,
+                  gps_fix_type: int, battery_pct: int,
+                  battery_volt: float, ekf_ok: int, imu_ok: int,
+                  mag_ok: int, baro_ok: int, rssi: int,
+                  mesh_link_ok: int,
+                  mesh_komsu_sayisi: int = 0) -> bytes:
+    """Durum verisi alanlarını 16 baytlık mesh payload'ına paketler.
+
+    RPi kendi durumunu (agent_fsm çıktısı) ESP32'ye gönderirken
+    kullanır. Sürüden ayrılma akışı için kritik.
 
     Args:
-        drone_id (int): Ajan kimligi.
-        durum (int): Durum kodu.
-        armed (int): Motor durumu.
-        gps_fix_type (int): GPS fix seviyesi.
-        battery_pct (int): Pil yuzdesi.
-        battery_volt (float): Pil gerilimi.
-        ekf_ok (int): EKF saglik durumu.
-        imu_ok (int): IMU saglik durumu.
-        mag_ok (int): Pusula saglik durumu.
-        baro_ok (int): Barometre saglik durumu.
-        rssi (int): Sinyal gucu.
-        mesh_link_ok (int): Mesh baglanti durumu.
-        mesh_komsu_sayisi (int): Komsu sayisi.
+        drone_id (int): Kendi ID.
+        durum (int): _DURUM_* enum kodu (firmware ile aynı).
+        armed (int): 0/1.
+        gps_fix_type (int): 0-6 (RTK FIX = 6).
+        battery_pct (int): 0-100.
+        battery_volt (float): Pak voltajı.
+        ekf_ok (int): 0/1.
+        imu_ok (int): 0/1.
+        mag_ok (int): 0/1.
+        baro_ok (int): 0/1.
+        rssi (int): dBm, -128..127.
+        mesh_link_ok (int): 0/1.
+        mesh_komsu_sayisi (int): aktif mesh node sayısı (firmware
+            tarafı sayıyor). Default 0 — RPi tarafı bilmeyebilir.
 
     Returns:
         bytes: 16 baytlik paketlenmis veri.
@@ -270,9 +332,9 @@ def renk_paketle(renk: int, lat: int, lon: int) -> bytes:
     Renk verilerini paketler.
 
     Args:
-        renk (int): Tespit edilen renk kodu.
-        lat (int): Enlem koordinati.
-        lon (int): Boylam koordinati.
+        renk (int): 1=KIRMIZI, 2=MAVI.
+        lat (int): Enlem, 1e-7 derece.
+        lon (int): Boylam, 1e-7 derece.
 
     Returns:
         bytes: 16 baytlik paketlenmis veri.
@@ -352,30 +414,21 @@ def origin_paketle(
     )
 
 
-def pose_paketle(
-    lat: int, lon: int, alt_cm: int, heading: int,
-    vx: int, vy: int
-) -> bytes:
-    """
-    Pose verilerini paketler.
+def pose_paketle(lat: int, lon: int, alt_dm: int, heading: int,
+                 vx: int, vy: int, vz: int) -> bytes:
+    """Pose verisi alanlarını 18 baytlık mesh payload'ına paketler.
 
-    Args:
-        lat (int): Enlem.
-        lon (int): Boylam.
-        alt_cm (int): Irtifa (cm).
-        heading (int): Yonelim.
-        vx (int): X ekseni hizi.
-        vy (int): Y ekseni hizi.
+    int16 alanlar ±327.67 aralığına kırpılır (sensör glitch koruması).
 
     Returns:
-        bytes: 16 baytlik paketlenmis veri.
+        bytes: 18 baytlık payload.
     """
     def _kirp(v: int) -> int:
         return max(-32768, min(32767, int(v)))
 
     return struct.pack(
         _POSE_FMT, int(lat), int(lon),
-        _kirp(alt_cm), _kirp(heading), _kirp(vx), _kirp(vy),
+        _kirp(alt_dm), _kirp(heading), _kirp(vx), _kirp(vy), _kirp(vz),
     )
 
 
@@ -514,3 +567,23 @@ def election_paketle(
         new_leader_id, election_round, reason, triggered_by,
         sequence_num, ids[0], ids[1], ids[2], ids[3],
     )
+
+
+def qr_coz(payload: bytes) -> QrVeri:
+    """TIP_QR_DATA payload'ını QrVeri'ye çözer."""
+    drone_id, action_id, lat, lon = struct.unpack(_QR_FMT, payload)
+    return QrVeri(drone_id, action_id, lat, lon)
+
+
+def swarm_state_coz(payload: bytes) -> SwarmStateVeri:
+    """TIP_SWARM_STATE payload'ını SwarmStateVeri'ye çözer."""
+    mission_id, fsm, leader, formation, ts = struct.unpack(
+        _SWARM_STATE_FMT, payload
+    )
+    return SwarmStateVeri(mission_id, fsm, leader, formation, ts)
+
+
+def qr_koord_coz(payload: bytes) -> QrKoordVeri:
+    """TIP_QR_COORDS payload'ını QrKoordVeri'ye çözer."""
+    qr_id, toplam, lat, lon = struct.unpack(_QR_COORD_FMT, payload)
+    return QrKoordVeri(qr_id, toplam, lat, lon)

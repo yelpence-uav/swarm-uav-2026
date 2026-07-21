@@ -139,10 +139,10 @@ def map_battery(msg, status) -> None:
 
 
 def map_odometry(msg, status) -> None:
-    """nav_msgs/Odometry -> pos (NED), vel (NED), heading.
+    """nav_msgs/Odometry -> pos (NED), heading.
 
-    Odometry pose (konum) VE twist (hız) taşır, böylece tek callback
-    ile ikisi de doldurulur (şema uyuşmazlığı çözümü). Konum/hız ENU
+    Hız buradan OKUNMAZ: odom.twist gövde (base_link) çerçevesinde
+    gelir; hız map_velocity_local'dan (dünya-ENU) okunur. Konum ENU
     gelir, NED'e çevrilir.
 
     Args:
@@ -154,12 +154,6 @@ def map_odometry(msg, status) -> None:
     status.pos_x = nx
     status.pos_y = ny
     status.pos_z = nz
-
-    v = msg.twist.twist.linear
-    vnx, vny, vnz = _enu_to_ned(float(v.x), float(v.y), float(v.z))
-    status.vel_x = vnx
-    status.vel_y = vny
-    status.vel_z = vnz
 
     q = msg.pose.pose.orientation
     status.heading_deg = _quat_to_heading_ned_deg(
@@ -174,6 +168,23 @@ def map_odometry(msg, status) -> None:
     status.xy_valid = True
     status.z_valid = True
     status.v_xy_valid = True
+
+
+def map_velocity_local(msg, status) -> None:
+    """geometry_msgs/TwistStamped -> vel (NED).
+
+    velocity_local dünya-ENU hız verir; odom.twist gövde (base_link)
+    çerçevesinde olduğu için hız buradan okunur.
+
+    Args:
+        msg: geometry_msgs/TwistStamped.
+        status: AgentStatus.
+    """
+    v = msg.twist.linear
+    vnx, vny, vnz = _enu_to_ned(float(v.x), float(v.y), float(v.z))
+    status.vel_x = vnx
+    status.vel_y = vny
+    status.vel_z = vnz
 
 
 def map_global_position(msg, status) -> None:

@@ -1,4 +1,4 @@
-"""CRC16-CCITT (XModem) hesaplama.
+"""crc16.py — CRC16-CCITT-FALSE hesaplama.
 
 ESP32 firmware'indeki crc16() ile ayni parametreler:
 Polinom=0x1021, Baslangic=0xFFFF, yansitma yok.
