@@ -216,14 +216,21 @@ void mesh_veri_al(const mesh_paket_t* p) {
 }
 
 void setup() {
-#if TEK_USB_MODU
-    // USB hatti binary COBS tasiyacak. setRxBufferSize() begin()'den ONCE
-    // cagrilmali (sonra sessizce etkisiz kalir) - Serial2'deki O3 gerekcesinin
-    // aynisi: varsayilan 256B ring buffer @115200 ~22ms veri tutar, loop bir
-    // turda daha uzun bloke olursa YKİ komut baytlari sessizce duser.
-    Serial.setRxBufferSize(2048);
-#endif
     Serial.begin(115200);
+#if TEK_USB_MODU
+    // UART0'in RX tamponu buyutuluyor: tek-USB modunda YKİ komut/telemetri
+    // hatti da bu porttan geciyor ve varsayilan 256B @115200 yalnizca ~22ms
+    // veri tutar (Serial2'deki O3 gerekcesinin aynisi).
+    //
+    // begin()'den ONCE cagirmak UART0'da ise yaramiyor - kart boot dongusune
+    // giriyor (olcumle bulundu: orijinal iki-UART yolu ayni kartta sorunsuz
+    // acilirken tek-USB derlemesi 'entry 0x400805e4' sonrasi surekli
+    // SW_RESET veriyordu). UART0 Arduino core tarafindan erken kuruluyor;
+    // begin()'den sonra end()+yeniden begin() ile tampon guvenle degisiyor.
+    Serial.end();
+    Serial.setRxBufferSize(2048);
+    Serial.begin(115200);
+#endif
     delay(1000);
     _drone_tablo_dogrula();  // MAC benzersizligini boot'ta dogrula
 
@@ -236,9 +243,18 @@ void setup() {
     // baud 460800 (spec + ekip karari). setRxBufferSize() begin()'den once
     // cagrilmali; sonra cagrilirsa sessizce etkisiz kalir (varsayilan 256B ring
     // buffer kullanilmaya devam eder).
+#if TEK_USB_MODU
+    // Tek-USB modunda RTCM yolu yok (YKİ tek kabloyla telemetri/komut tasiyor),
+    // o yuzden Serial1 HIC acilmiyor. Acilirsa GPIO16 bosta/floating kalir,
+    // gurultuyu cerceve saniriz ve rtk_serial_isle() her hatali cerceve icin
+    // Serial'e "[RTK-RX] HATA: ..." basar; tek-USB'de Serial = YKİ hatti
+    // oldugundan bu hat %100 doluyordu (olculdu: 11.6 kB/s, 115200 tavani).
+    Serial.println("[UART] RTCM yolu TEK-USB modunda kapali (Serial1 acilmadi)");
+#else
     Serial1.setRxBufferSize(2048);  // spec 3.2: UART RX buffer >= 2048B
     Serial1.begin(460800, SERIAL_8N1, RTK_RX_PIN, RTK_TX_PIN);
     Serial.println("[UART] YKİ/RTCM (Serial1, 460800) baslatildi - PIN DOGRULAMASI GEREKLI");
+#endif
 
     // RTCM durum LED'i (saha teshisi icin yanip soner).
     // TODO: pin placeholder, gercek donanimda dogrulanmali (cogu ESP32 kartinda
@@ -314,7 +330,10 @@ void loop() {
     // komut/telemetri protokolu Serial2'de yurur. Varsayilan (Serial1) birakilirsa
     // reassemble edilen RTCM mesaji YKİ'nin yayin yaptigi hatta geri yazilirdi.
     rtk_mesh_loop(YKI_SERIAL);
+#if !TEK_USB_MODU
+    // Serial1 bu modda hic acilmadi; cagrilirsa acilmamis UART'tan okunur.
     rtk_serial_isle(Serial1);
+#endif
     esp_task_wdt_reset();
     mesh_loop();
 
@@ -383,6 +402,11 @@ void loop() {
         // taninmayan tip atilir. Bilinmeyen bir tip TIP_KOMUT'a donusturulup
         // joystick sanilmaz. Hiz limiti tip basina (mesh_tip_gecebilir);
         // TIP_KOMUT kendi 200ms araligini korur.
+        // Bu blokta Serial'e YAZMA: tek-USB modunda Serial, YKİ'nin binary COBS
+        // hattidir. Duz metin akisin ortasina girer, bir sonraki 0x00'a kadar
+        // mevcut cerceveye yapisir ve o telemetri paketi CRC'de duser (olculdu:
+        // her komut bir telemetri cercevesi oldururdu). Teshis gerekirse
+        // DBG_PRINTF kullan - tek-USB'de bilerek susturulmustur.
         if (tip_byte == TIP_KOMUT) {
             if (mesh_tip_gecebilir(TIP_KOMUT, simdi, JOYSTICK_MIN_ARALIK_MS))
                 mesh_gonder(veri, TIP_KOMUT);
