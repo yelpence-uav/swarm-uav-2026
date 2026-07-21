@@ -1,9 +1,9 @@
 # Copyright 2026 Yelpence
 """mode_manager calisma zamani durum kabi."""
 
+from dataclasses import dataclass, field
 import math
 import time
-from dataclasses import dataclass, field
 
 from .mode_states import ControlMode, ModeState
 
@@ -83,7 +83,7 @@ class ModeContext:
         return time.monotonic() - self.state_entry_time
 
     def deadman_timed_out(self) -> bool:
-        """Deadman timeout asildi mi?"""
+        """Deadman timeout asildi mi?."""
         if self.last_valid_command_time <= 0.0:
             return True
         elapsed = time.monotonic() - self.last_valid_command_time
@@ -91,7 +91,7 @@ class ModeContext:
 
     @property
     def command_active(self) -> bool:
-        """Gecerli bir joystick komutu aktif mi?"""
+        """Gecerli bir joystick komutu aktif mi?."""
         return (
             self.command_valid
             and self.deadman_pressed
@@ -99,7 +99,7 @@ class ModeContext:
         )
 
     def has_nonzero_input(self) -> bool:
-        """Joystick'te sifir olmayan girdi var mi?"""
+        """Joystick'te sifir olmayan girdi var mi?."""
         threshold = 0.05
         return (
             abs(self.pitch_cmd) > threshold
@@ -137,7 +137,7 @@ class ModeContext:
         return all(s.healthy for s in self.agent_statuses.values())
 
     def is_mission_semi_autonomous(self) -> bool:
-        """mission_fsm SEMI_AUTONOMOUS state'inde mi?"""
+        """mission_fsm SEMI_AUTONOMOUS state'inde mi?."""
         return self.mission_state == _MISSION_STATE_SEMI_AUTONOMOUS
 
     def compute_heading_rotation(

@@ -1,6 +1,6 @@
 # Copyright 2026 Yelpence
 
-"""
+."""
 test_frame_grabber.py
 
 FrameGrabber ve SimFrameGrabber birim testleri.

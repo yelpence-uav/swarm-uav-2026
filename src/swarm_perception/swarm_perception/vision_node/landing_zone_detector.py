@@ -12,7 +12,7 @@ class LandingZoneDetector:
     """Kirmizi/mavi inis bolgelerini HSV uzayinda tespit eder."""
 
     def __init__(self, config: Dict[str, Any]) -> None:
-        """LandingZoneDetector sinifini ilklendirir."""
+        """Aciklama: LandingZoneDetector sinifini ilklendirir."""
         self._config = config
         self._min_area = config.get('min_zone_area_px', 500.0)
         self._blur_k = config.get('gaussian_blur_kernel', 5)

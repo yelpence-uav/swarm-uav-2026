@@ -204,7 +204,7 @@ class PrecisionLandingNode(Node):
         self._sp_pub.publish(sp)
 
     def _emit_event(self, event_type: int, message: str) -> None:
-        """SystemEvent yayinlar."""
+        """Aciklama: SystemEvent yayinlar."""
         ev = SystemEvent()
         ev.stamp = self.get_clock().now().to_msg()
         ev.event_type = event_type

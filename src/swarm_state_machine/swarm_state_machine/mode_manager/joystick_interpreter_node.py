@@ -98,7 +98,7 @@ class JoystickInterpreterNode(Node):
         )
 
     def _setup_publishers(self) -> None:
-        """SwarmControlCommand publisher'ını oluşturur."""
+        """Aciklama: SwarmControlCommand publisher'ını oluşturur."""
         self._cmd_pub = self.create_publisher(
             SwarmControlCommand,
             '/swarm/internal/control/command',

@@ -110,7 +110,7 @@ class _EmaDurum:
         self.son_olcum_gecerli = False
 
     def hazir(self) -> bool:
-        """Filtrenin baslangic tahminleri hazir mi?"""
+        """Filtrenin baslangic tahminleri hazir mi?."""
         return None not in (self.x, self.y, self.z,
                             self.vx, self.vy, self.vz)
 

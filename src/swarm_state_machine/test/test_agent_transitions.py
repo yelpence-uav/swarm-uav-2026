@@ -161,7 +161,7 @@ class TestLandedGecisleri(unittest.TestCase):
         self.assertEqual(result, AgentState.STANDBY)
 
     def test_landed_talep_yok(self):
-        """LANDED'da talep yoksa geçiş olmamalı."""
+        """Aciklama: LANDED'da talep yoksa geçiş olmamalı."""
         ctx = _sitl_ctx()
         ctx.state = AgentState.LANDED
         result = evaluate_transitions(ctx)

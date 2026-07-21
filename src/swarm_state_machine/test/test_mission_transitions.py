@@ -1,8 +1,8 @@
 """Evaluate_transitions ve QR yardımcı fonksiyonları için birim testleri."""
 
+from types import SimpleNamespace
 import time
 import unittest
-from types import SimpleNamespace
 
 from swarm_state_machine.mission_fsm.mission_context import MissionContext
 from swarm_state_machine.mission_fsm.mission_states import (
@@ -150,7 +150,7 @@ class TestUnknownIdle(unittest.TestCase):
     """UNKNOWN -> IDLE geçiş testi."""
 
     def test_unknown_her_zaman_idle(self):
-        """UNKNOWN'dan ilk tick'te IDLE'a geçmeli."""
+        """Aciklama: UNKNOWN'dan ilk tick'te IDLE'a geçmeli."""
         ctx = _ctx(MissionState.UNKNOWN)
         self.assertEqual(evaluate_transitions(ctx), MissionState.IDLE)
 
@@ -679,7 +679,7 @@ class TestGlobalPause(unittest.TestCase):
         self.assertEqual(result, MissionState.PAUSED)
 
     def test_pause_idle_etkisiz(self):
-        """IDLE'da PAUSE etkisiz olmalı."""
+        """Aciklama: IDLE'da PAUSE etkisiz olmalı."""
         ctx = _ctx(MissionState.IDLE)
         ctx.pending_command = _PAUSE
         # IDLE'dan PAUSE tanımsız; START olmadan PREFLIGHT'a da geçmemeli

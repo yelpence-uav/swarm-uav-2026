@@ -1,10 +1,10 @@
 # Copyright 2026 Yelpence
 """Drone ucus saglik kontrollerini calistirir."""
 
-import statistics
-import time
 from collections import deque
 from dataclasses import dataclass
+import statistics
+import time
 
 from swarm_interfaces.msg import SystemEvent
 
@@ -71,7 +71,7 @@ class _StabilityWindow:
         self.pitch.append(ctx.pitch_deg)
 
     def is_full(self) -> bool:
-        """Pencere dolu mu?"""
+        """Pencere dolu mu?."""
         return len(self.pos_z) == self.MAXLEN
 
 

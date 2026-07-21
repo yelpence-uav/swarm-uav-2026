@@ -1,8 +1,8 @@
 # Copyright 2026 Yelpence
 """Tek bir drone'un tum anlik durumunu tutan veri yapisi."""
 
-import time
 from dataclasses import dataclass, field
+import time
 
 from .agent_states import AgentRole, AgentState, FlightMode
 
@@ -108,7 +108,7 @@ class AgentContext:
 
     @property
     def healthy(self) -> bool:
-        """Drone ucus icin guvenli mi?"""
+        """Drone ucus icin guvenli mi?."""
         is_sim_bat = self.battery_voltage_v <= 0.0
         battery_ok = (
             is_sim_bat

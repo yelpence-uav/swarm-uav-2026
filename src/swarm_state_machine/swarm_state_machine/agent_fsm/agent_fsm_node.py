@@ -124,7 +124,7 @@ class AgentFsmNode(Node):
         )
 
     def _setup_services(self) -> None:
-        """AssignRole servisini kurar."""
+        """Aciklama: AssignRole servisini kurar."""
         aid = self._agent_id
         self.create_service(
             AssignRole,
@@ -463,7 +463,7 @@ class AgentFsmNode(Node):
         self._prev_pilot_override = ctx.pilot_override_active
 
     def _publish_status(self) -> None:
-        """AgentContext'i AgentStatus mesajina donusturup yayinlar."""
+        """Aciklama: AgentContext'i AgentStatus mesajina donusturup yayinlar."""
         ctx = self._ctx
         m = AgentStatus()
         m.stamp = self.get_clock().now().to_msg()
@@ -544,7 +544,7 @@ class AgentFsmNode(Node):
         severity: int,
         message: str = '',
     ) -> None:
-        """SystemEvent yayinlar."""
+        """Aciklama: SystemEvent yayinlar."""
         m = SystemEvent()
         m.stamp = self.get_clock().now().to_msg()
         m.event_type = event_type

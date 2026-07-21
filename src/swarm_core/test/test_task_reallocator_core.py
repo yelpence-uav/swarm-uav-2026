@@ -12,11 +12,11 @@ from swarm_core.task_reallocator.task_reallocator_core import (
     DEGRADATION_FORMATION,
     DEGRADATION_NAV,
     DEGRADATION_OK,
+    ReallocatorParams,
     ROLE_DETACHED,
     ROLE_FOLLOWER,
     ROLE_LEADER,
     ROLE_STANDBY,
-    ReallocatorParams,
     RoleReallocation,
     STATE_IN_SWARM,
     STATE_STANDBY,
@@ -173,7 +173,7 @@ def test_generic_n_five_members():
 
 
 def test_role_reallocation_defaults():
-    """RoleReallocation boş başlatılabilir (alan varsayılanları sağlam)."""
+    """Aciklama: RoleReallocation boş başlatılabilir (alan varsayılanları sağlam)."""
     r = RoleReallocation()
     assert r.role_map == {}
     assert r.changed_ids == []

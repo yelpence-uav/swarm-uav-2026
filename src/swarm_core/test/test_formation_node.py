@@ -9,8 +9,8 @@ object.__new__ ile __init__ atlanarak saf mantık metodlarını sınar:
 """
 
 import math
-import unittest
 from types import SimpleNamespace
+import unittest
 from unittest.mock import MagicMock
 
 from swarm_core.formation_control.formation_node import (

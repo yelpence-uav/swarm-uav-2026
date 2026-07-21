@@ -22,7 +22,7 @@ _MAP = [
 
 
 def _pose(x, y, alt, heading=0.0):
-    """alt = AGL irtifa (m). NED z = -alt."""
+    """Alt = AGL irtifa (m). NED z = -alt."""
     return (x, y, -alt, heading)
 
 

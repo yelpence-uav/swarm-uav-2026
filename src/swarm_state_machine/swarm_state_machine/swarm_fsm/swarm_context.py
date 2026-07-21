@@ -1,9 +1,9 @@
 # Copyright 2026 Yelpence
 """Surunun tum anlik durumunu tutan veri yapisi."""
 
+from dataclasses import dataclass, field
 import math
 import time
-from dataclasses import dataclass, field
 
 from .swarm_states import FormationType, SwarmState
 from ..agent_fsm.agent_states import AgentState
@@ -47,7 +47,7 @@ class AgentStatusCache:
     last_update: float = 0.0
 
     def is_stale(self, timeout_s: float = 3.0) -> bool:
-        """Son guncelleme cok eski mi?"""
+        """Son guncelleme cok eski mi?."""
         if self.last_update <= 0.0:
             return True
         return (time.monotonic() - self.last_update) > timeout_s
@@ -187,7 +187,7 @@ class SwarmContext:
         )
 
     def all_agents_in_states(self, states: set[int]) -> bool:
-        """Tüm aktif ajanlar belirtilen state'lerden birinde mi?"""
+        """Tüm aktif ajanlar belirtilen state'lerden birinde mi?."""
         active = [
             a for a in self.agents.values()
             if not a.is_stale()

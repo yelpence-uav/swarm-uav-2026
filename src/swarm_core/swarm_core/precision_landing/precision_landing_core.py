@@ -1,8 +1,8 @@
 # Copyright 2026 Yelpence
 """Renkli inis bolgesine hassas inis mantigi (saf Python)."""
 
-import math
 from dataclasses import dataclass, field
+import math
 from typing import Dict, List, Optional, Tuple
 
 COLOR_UNKNOWN = 0

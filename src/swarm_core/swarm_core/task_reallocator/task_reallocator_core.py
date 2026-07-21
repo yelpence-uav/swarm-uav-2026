@@ -51,7 +51,7 @@ class ReallocatorParams:
 
 
 def _eligible(entry: RosterEntry) -> bool:
-    """Ajan lider adayi olmaya uygun mu?"""
+    """Ajan lider adayi olmaya uygun mu?."""
     return entry.origin_synced and entry.fresh
 
 
@@ -101,7 +101,7 @@ class TaskReallocator:
         return len(self.active_member_ids())
 
     def has_leader(self) -> bool:
-        """Aktif uyeler icinde lider var mi?"""
+        """Aktif uyeler icinde lider var mi?."""
         members = set(self.active_member_ids())
         return any(
             e.agent_id in members and e.role == ROLE_LEADER

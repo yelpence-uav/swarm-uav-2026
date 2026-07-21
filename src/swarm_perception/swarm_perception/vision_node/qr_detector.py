@@ -13,7 +13,7 @@ class QRDetector:
 
     def __init__(self, min_confidence: float = 0.5) -> None:
         """
-        QRDetector sinifini ilklendirir.
+        Aciklama: QRDetector sinifini ilklendirir.
 
         Args:
             min_confidence (float): Asgari guven esigi.

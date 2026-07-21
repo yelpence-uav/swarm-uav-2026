@@ -4,12 +4,12 @@ import math
 import unittest
 
 from swarm_core.formation_control.formation_geometry import (
-    FORMATION_CIZGI,
-    FORMATION_OKBASI,
-    FORMATION_V,
     compute_min_drone_distance,
     compute_setpoint,
     compute_slot_offsets,
+    FORMATION_CIZGI,
+    FORMATION_OKBASI,
+    FORMATION_V,
     rotate_offset,
     validate_formation_safety,
 )
@@ -31,7 +31,7 @@ class TestSlotOffsetsCizgi(unittest.TestCase):
         self.assertAlmostEqual(offsets[2][1], -5.0)
 
     def test_lider_merkezde(self):
-        """rank 0 her N icin daima (0, 0, 0) olmali."""
+        """Rank 0 her N icin daima (0, 0, 0) olmali."""
         for n in (1, 2, 3, 4, 5, 8):
             offsets = compute_slot_offsets(FORMATION_CIZGI, n, 5.0, 0.0)
             self.assertEqual(offsets[0], (0.0, 0.0, 0.0))
@@ -54,7 +54,7 @@ class TestSlotOffsetsOkBasi(unittest.TestCase):
     """Ok Basi formasyonu slot offsetlerini dogrular."""
 
     def test_lider_merkezde(self):
-        """rank 0 daima (0, 0, 0) olmalı."""
+        """Rank 0 daima (0, 0, 0) olmalı."""
         offsets = compute_slot_offsets(
             FORMATION_OKBASI, 3, 5.0, math.radians(30)
         )
@@ -81,7 +81,7 @@ class TestSlotOffsetsV(unittest.TestCase):
     """V formasyonu slot offsetlerini dogrular."""
 
     def test_lider_merkezde(self):
-        """rank 0 daima (0, 0, 0) olmalı."""
+        """Rank 0 daima (0, 0, 0) olmalı."""
         offsets = compute_slot_offsets(
             FORMATION_V, 3, 5.0, math.radians(30)
         )
@@ -108,12 +108,12 @@ class TestSlotOffsetsHatalar(unittest.TestCase):
     """compute_slot_offsets hata durumlarini dogrular."""
 
     def test_negatif_total(self):
-        """total <= 0 icin ValueError."""
+        """Total <= 0 icin ValueError."""
         with self.assertRaises(ValueError):
             compute_slot_offsets(FORMATION_OKBASI, 0, 5.0, 0.0)
 
     def test_negatif_spacing(self):
-        """spacing <= 0 icin ValueError."""
+        """Spacing <= 0 icin ValueError."""
         with self.assertRaises(ValueError):
             compute_slot_offsets(FORMATION_OKBASI, 3, -1.0, 0.0)
 
@@ -329,7 +329,7 @@ class TestComputeSetpoint(unittest.TestCase):
         self.assertAlmostEqual(z, -20.0)
 
     def test_rank_arali_disinda(self):
-        """rank >= total icin ValueError."""
+        """Rank >= total icin ValueError."""
         with self.assertRaises(ValueError):
             compute_setpoint(
                 center_x=0.0, center_y=0.0, center_z=0.0,

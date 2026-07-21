@@ -1,6 +1,6 @@
 # Copyright 2026 Yelpence
 
-"""
+."""
 test_camera_info_builder.py
 
 camera_info_builder modülü birim testleri.

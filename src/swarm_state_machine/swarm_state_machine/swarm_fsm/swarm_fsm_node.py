@@ -115,7 +115,7 @@ class SwarmFsmNode(Node):
         )
 
     def _setup_publishers(self) -> None:
-        """SwarmState ve SystemEvent publisher'larını oluşturur."""
+        """Aciklama: SwarmState ve SystemEvent publisher'larını oluşturur."""
         self._state_pub = self.create_publisher(
             SwarmStateMsg,
             '/swarm/internal/state',
@@ -346,7 +346,7 @@ class SwarmFsmNode(Node):
         agent_id: int,
         msg: AgentStatus,
     ) -> None:
-        """AgentStatus telemetrisini context'e yazar."""
+        """Aciklama: AgentStatus telemetrisini context'e yazar."""
         cache = self._ctx.agents.get(agent_id)
         if cache is None:
             cache = AgentStatusCache(agent_id=agent_id)
@@ -384,7 +384,7 @@ class SwarmFsmNode(Node):
         cache.last_update = time.monotonic()
 
     def _on_event(self, msg: SystemEvent) -> None:
-        """SystemEvent olaylarini isler."""
+        """Aciklama: SystemEvent olaylarini isler."""
         ctx = self._ctx
         eid = msg.event_type
 
@@ -571,7 +571,7 @@ class SwarmFsmNode(Node):
         severity: int,
         message: str = '',
     ) -> None:
-        """SystemEvent yayinlar."""
+        """Aciklama: SystemEvent yayinlar."""
         m = SystemEvent()
         m.stamp = self.get_clock().now().to_msg()
         m.event_type = event_type

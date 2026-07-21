@@ -366,7 +366,7 @@ class MissionFsmNode(Node):
         self._next_target_pub.publish(m)
 
     def _on_event(self, msg: SystemEvent) -> None:
-        """SystemEvent mesajlarini isler."""
+        """Aciklama: SystemEvent mesajlarini isler."""
         eid = msg.event_type
         ctx = self._ctx
 
@@ -427,7 +427,7 @@ class MissionFsmNode(Node):
         request: TriggerMission.Request,
         response: TriggerMission.Response,
     ) -> TriggerMission.Response:
-        """TriggerMission servis isteklerini isler."""
+        """Aciklama: TriggerMission servis isteklerini isler."""
         ctx = self._ctx
         cmd = request.command
 
@@ -487,7 +487,7 @@ class MissionFsmNode(Node):
         message: str = '',
         target_agent_id: int = 0,
     ) -> None:
-        """SystemEvent yayinlar."""
+        """Aciklama: SystemEvent yayinlar."""
         m = SystemEvent()
         m.stamp = self.get_clock().now().to_msg()
         m.event_type = event_type
