@@ -1,4 +1,4 @@
-"""crc16.py — CRC16-CCITT (XModem) hesaplama.
+"""crc16.py — CRC16-CCITT-FALSE hesaplama.
 
 ESP32 firmware'indeki crc16() fonksiyonunun birebir Python karşılığı.
 UART paketlerinin bütünlük doğrulaması için kullanılır.
