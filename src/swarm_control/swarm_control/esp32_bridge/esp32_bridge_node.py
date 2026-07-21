@@ -5,9 +5,7 @@ ESP-NOW mesh üzerinden gelip ESP32'nin UART'a yazdığı paketleri çözer,
 ROS2 topic'lerine yayınlar. Ters yönde, bu drone'dan çıkması gereken
 mesajları (origin, kendi pozisyonu) ESP32'ye UART üzerinden gönderir.
 
-SÜRÜ BOYUTU: Şartname §5/§6.1 en az 3 İHA istiyor; üst sınır
-belirtilmemiş. Yelpençe takımı 3 drone (1 lider + 2 follower) ile
-yarışacak. Kod 1-254 ID aralığında esnek (test/yedek için).
+Şartname en az 3 İHA istiyor; kod 1-254 ID aralığında çalışır.
 
 UART protokolü (firmware ile AYNI):
     [tip][iha_id][payload 16B][crc16 2B] -> COBS encode -> 0x00 ayraç
@@ -71,7 +69,7 @@ _ORIGIN_QOS = QoSProfile(
     depth=1,
 )
 
-# LeaderHeartbeat: RELIABLE + VOLATILE, depth=5 (contract madde 3.1)
+# LeaderHeartbeat: RELIABLE + VOLATILE, depth=5
 _HEARTBEAT_QOS = QoSProfile(
     reliability=QoSReliabilityPolicy.RELIABLE,
     durability=QoSDurabilityPolicy.VOLATILE,
@@ -97,29 +95,23 @@ _EVENT_QOS = QoSProfile(
 
 _FRAME_DELIM = 0x00
 
-# Firmware durum_veri_t.durum -> AgentStatus.state eşleşmesi.
-# ORCA/APF, state 7/8/13/14 olan komşuları avoidance hesabından çıkarır
-# (INTERFACE_CONTRACT madde 8). Şartname §8.4: çarpışma cezası -20*N.
-#
-# ŞARTNAME BAĞLAMI: 2026 Sürü İHA Şartnamesi §5.1 (Dinamik Görev) ve
-# §5.2 (Yarı Otonom) tüm senaryoları kapsar. AgentStatus enum'ı zaten
-# §5.1 madde 15-16-18'i tam destekliyor. Aşağıdaki firmware durum
-# kodları Büşra ile koordine edilmek üzere ÖNERİDİR; nihai değerler
-# mesh_config.h ile birebir tutulmalıdır.
+# Firmware durum kodunu AgentStatus.state'e eşler. Ayrılmış/inmiş
+# komşular (7/8/13/14) çarpışma önlemeden çıkarılır. Kodlar
+# mesh_config.h ile birebir aynı olmalı.
 _DURUM_BILINMIYOR = 0
-_DURUM_BOSTA = 1         # yerde, arm değil (§5.1 başlangıç, §5.1 yedek)
-_DURUM_KALKIS = 2        # §5.1 m.3 kalkış (TAKEOFF)
-_DURUM_SURUDE = 3        # §5.1 m.4 sürüde uçuş (IN_SWARM)
-_DURUM_GOREV = 4         # §5.1 m.6-9 formasyon/manevra/irtifa
-_DURUM_AYRILDI = 5       # §5.1 m.15 sürüden ayrıldı
-_DURUM_HASSAS_INIS = 6   # §5.1 m.15 renkli alana iniyor
-_DURUM_KATILMA = 7       # §5.1 m.15 yeniden katılma (kalkış sonrası)
-_DURUM_BEKLIYOR = 8      # §5.1 m.15-16 yerde disarm, bekleme süresi
-_DURUM_RTL = 9           # §5.4 RTL failsafe / §5.1 m.17 home dönüş
-_DURUM_INIS = 10         # §5.1 m.18 home iniş (LANDING)
-_DURUM_INDI = 11         # §5.1 m.19 disarm, görev tamam
-_DURUM_FAILSAFE = 12     # §5.4 failsafe (kumanda kaybı, vs.)
-_DURUM_STANDBY = 13      # §5.1 m.16 yedek ajan (yerde, katılmaya hazır)
+_DURUM_BOSTA = 1         # yerde, arm değil
+_DURUM_KALKIS = 2        # kalkış
+_DURUM_SURUDE = 3        # sürüde uçuş
+_DURUM_GOREV = 4         # formasyon/manevra/irtifa görevi
+_DURUM_AYRILDI = 5       # sürüden ayrıldı
+_DURUM_HASSAS_INIS = 6   # renkli alana iniyor
+_DURUM_KATILMA = 7       # yeniden katılıyor
+_DURUM_BEKLIYOR = 8      # yerde disarm, bekleme süresi
+_DURUM_RTL = 9           # RTL failsafe / home dönüş
+_DURUM_INIS = 10         # home iniş
+_DURUM_INDI = 11         # disarm, görev tamam
+_DURUM_FAILSAFE = 12     # failsafe (kumanda kaybı)
+_DURUM_STANDBY = 13      # yedek ajan, katılmaya hazır
 _DURUM_STATE_MAP = {
     _DURUM_BILINMIYOR:  AgentStatus.STATE_UNKNOWN,            # 0
     _DURUM_BOSTA:       AgentStatus.STATE_IDLE,               # 1
@@ -137,11 +129,8 @@ _DURUM_STATE_MAP = {
     _DURUM_STANDBY:     AgentStatus.STATE_STANDBY,            # 15
 }
 
-# Ters yön: AgentStatus.state -> firmware durum kodu.
-# DURUM mesh paketi gönderirken agent_fsm'in atadığı state'i
-# 14 firmware koduna eşliyoruz. AgentStatus'ın ARMING(2)/ARMED(3)
-# state'leri firmware'de ayrı kod taşımıyor → DURUM_KALKIS'a eşlenir
-# (kalkış öncesi/sırası birleşik).
+# Ters yön: AgentStatus.state -> firmware durum kodu. ARMING ve ARMED
+# firmware'de ayrı kod taşımaz, ikisi de KALKIS'a eşlenir.
 _STATE_DURUM_MAP = {
     AgentStatus.STATE_UNKNOWN:           _DURUM_BILINMIYOR,
     AgentStatus.STATE_IDLE:              _DURUM_BOSTA,
@@ -200,7 +189,7 @@ class Esp32BridgeNode(Node):
         # Komşu status yayıncıları drone_id'ye göre tembel oluşturulur
         self._status_pubs: dict[int, object] = {}
 
-        # Mesh sağlık sayaçları (şartname §5.4 failsafe gözlemi için).
+        # Mesh sağlık sayaçları (failsafe gözlemi için).
         # swarm_fsm, bridge bu sayaçları durdurursa mesh kopuk sanar ve
         # RTL/Land tetikleyebilir.
         self._alim_ok = 0          # COBS+CRC doğrulanmış paket sayısı
@@ -209,17 +198,15 @@ class Esp32BridgeNode(Node):
         self._gonderim_drop = 0    # port kapalı/hata ile düşürülen
         self._rtk_alindi = 0       # alınan RTK/RTCM çerçevesi (liveness değil)
         self._bilinmeyen_tip = 0   # dispatch'te eşleşmeyen tip sayısı
-        # Mesh'ten gelen KOMUT için bridge-tarafı sequence sayacı;
-        # firmware payload'ında seq alanı eklenene kadar 0 yerine monoton
-        # değer üretir, downstream dedup yapabilir.
+        # KOMUT için bridge-tarafı seq sayacı; firmware payload'a seq
+        # eklenene kadar monoton değer üretir. mesh_config.h ile teyit
+        # edilmesi gerekir.
         self._komut_rx_seq = 0
         # Header iha_id ile payload drone_id uyumsuzluk sayacı
         self._id_uyumsuz = 0
         # En son bilinen SwarmOrigin (GPS→NED dönüşümü için gerekli).
-        # Origin liderden /swarm/internal/origin'a veya mesh'ten
-        # _isle_origin yoluyla gelir; iki yolda da kaydedilir.
-        # Beyza inceleme #1: bridge mesh GPS'i NED'e çevirmezse
-        # kinematic_fusion ve swarm_fsm pos_x/y/z=0.0 görür.
+        # Lider /swarm/internal/origin'a veya mesh _isle_origin yoluyla
+        # gelir. Bridge GPS'i NED'e çevirmezse komşu pos_x/y/z=0.0 kalır.
         self._son_origin: SwarmOrigin | None = None
         # NED dönüşüm için: 1 derece enlem ≈ 111.32 km. Saha 10m × 10m
         # için düz-dünya yaklaşımı yeterince doğru (<10 km'de hata
@@ -344,7 +331,7 @@ class Esp32BridgeNode(Node):
         self._okuma_thread.start()
 
         # Mesh sağlık raporu: her 1 sn'de bir SystemEvent ile yayın.
-        # Şartname §5.4 failsafe: mesh kopuksa swarm_fsm görür.
+        # Failsafe: mesh kopuksa swarm_fsm görür.
         self._diag_timer = self.create_timer(1.0, self._diag_yayinla)
 
         self.get_logger().info(
@@ -357,7 +344,7 @@ class Esp32BridgeNode(Node):
     def _diag_yayinla(self) -> None:
         """Her saniye mesh diagnostik sayaçlarını SystemEvent yayar.
 
-        Şartname §5.4: GPS/mesh güvenilir olmayabilir, failsafe kritik.
+        GPS/mesh güvenilir olmayabilir, failsafe kritik.
         swarm_fsm bu mesajı dinler ve son alım zamanına bakarak mesh
         kopukluğunu (>= 2 sn yok ise) algılayabilir.
         """
@@ -435,10 +422,8 @@ class Esp32BridgeNode(Node):
     def _mesh_olay_yayinla(self, severity: int, mesaj: str) -> None:
         """Mesh link durumu için SystemEvent yayınlar (operatör görür).
 
-        NOT: swarm_interfaces'te EVENT_MESH_LINK_LOST/RESTORED yok.
-        EVENT_UNKNOWN ile gönderilir, mesaj string'i ayırt edici.
-        TODO: Beyza'nın branch'ine EVENT_MESH_LINK_LOST=60,
-        EVENT_MESH_LINK_RESTORED=61 sabitleri eklenebilir.
+        EVENT_MESH_LINK_LOST/RESTORED henüz yok; EVENT_UNKNOWN + string
+        kullanılıyor. SystemEvent.msg ile teyit edilmesi gerekir.
         """
         msg = SystemEvent()
         msg.stamp = self.get_clock().now().to_msg()
@@ -587,8 +572,7 @@ class Esp32BridgeNode(Node):
         burada yapılır. Origin henüz yoksa NED alanları doldurulamaz;
         bu durumda xy/z_valid=false bırakılır → downstream kullanmaz.
 
-        Beyza inceleme #1, #2, #3: NED + validity + origin_synced
-        eskiden hiç set edilmiyordu, hepsi burada düzelir.
+        NED + validity + origin_synced burada set edilir.
         """
         pose = pp.pose_coz(payload)
         lat_deg = pose.lat / 1e7
@@ -663,8 +647,8 @@ class Esp32BridgeNode(Node):
         """TIP_DURUM -> komşu AgentStatus sağlık alanlarını günceller.
 
         Firmware'in 3 seviyeli durum'u (AKTIF/AYRILDI/INDI) AgentStatus
-        FSM state'ine eşleştirilir. ORCA/APF için kritik: AYRILDI/INDI
-        olan komşulara avoidance hesabı yapılmamalı.
+        FSM state'ine eşleştirilir. APF için kritik: AYRILDI/INDI olan
+        komşulara avoidance hesabı yapılmamalı.
         """
         durum = pp.durum_coz(payload)
         # Header iha_id ile payload drone_id eşleşmeli; aksi halde
@@ -692,9 +676,9 @@ class Esp32BridgeNode(Node):
             status.imu_healthy = bool(durum.imu_ok)
             status.mag_healthy = bool(durum.mag_ok)
             status.baro_healthy = bool(durum.baro_ok)
-            # mesh_link_ok ve mesh_komsu_sayisi henüz AgentStatus.msg'ye
-            # eklenmedi (Beyza listesinde). Eklenince hasattr otomatik
-            # set eder; o zamana kadar status_text üzerinden taşınır.
+            # mesh_link_ok ve mesh_node_count henüz AgentStatus.msg'de yok;
+            # eklenince hasattr otomatik doldurur, o zamana kadar
+            # status_text taşır. AgentStatus.msg ile teyit edilmesi gerekir.
             if hasattr(status, 'mesh_link_ok'):
                 status.mesh_link_ok = bool(durum.mesh_link_ok)
             if hasattr(status, 'mesh_node_count'):
@@ -742,7 +726,7 @@ class Esp32BridgeNode(Node):
         msg.gps_fix_type = 3
         msg.sequence = origin.sequence
         # NED dönüşümü için yerel kopya — komşu POSE paketlerini ortak
-        # NED frame'e çevirebilelim (Beyza inceleme #1).
+        # NED frame'e çevirebilelim.
         self._son_origin = msg
         self._origin_pub.publish(msg)
 
@@ -752,8 +736,8 @@ class Esp32BridgeNode(Node):
         Joystick float32 değerleri int16*100 ile taşındığı için 100'e
         bölünerek geri çevrilir. deadman_pressed mesh'te bayrak biti
         olarak taşınır; aksi halde downstream motion'u sessizce reddeder.
-        sequence_num bridge tarafında üretilir (firmware payload'da
-        sequence yok henüz; Büşra ile koordine edilecek).
+        sequence_num bridge tarafında üretilir; firmware payload'da
+        sequence yok, mesh_config.h ile teyit edilmesi gerekir.
         """
         k = pp.komut_coz(payload)
         msg = SwarmControlCommand()
@@ -1005,9 +989,8 @@ class Esp32BridgeNode(Node):
             self._uart_yaz(pp.TIP_POSE, self._agent_id, payload)
 
         # --- DURUM 1Hz ---
-        # Şartname §5.1 m.15 ayrılma akışı için kritik: komşular bizim
-        # state'imizi bilmeli. ORCA da DETACHED/LANDED komşulara
-        # avoidance hesaplamaz (şartname §8.4 -20*N).
+        # Ayrılma akışı için kritik: komşular bizim state'imizi bilmeli.
+        # APF de DETACHED/LANDED komşulara avoidance hesaplamaz.
         if now - self._son_durum_gonderim_ts >= self._durum_periyot_s:
             self._son_durum_gonderim_ts = now
             # AgentStatus.state -> firmware DURUM kodu çevir
@@ -1042,7 +1025,7 @@ class Esp32BridgeNode(Node):
         olana kadar origin uygulanmamalı').
 
         Yan etki: Origin yerel olarak da kaydedilir → komşu POSE
-        paketleri NED'e çevrilebilsin (Beyza inceleme #1).
+        paketleri NED'e çevrilebilsin.
         """
         # Bu drone lider ise origin'i kendi GPS'imizden alıyoruz;
         # NED dönüşümü için sakla (mesh'e yayın koşullarından önce,

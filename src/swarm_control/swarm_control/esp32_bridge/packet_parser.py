@@ -109,8 +109,7 @@ class DurumVeri:
     """TIP_DURUM payload — komşu drone'un durum/sağlık verisi.
 
     Firmware'in durum kodu 14 değerli enum'dur (AgentStatus.STATE_*
-    ile eşleşir). Bkz. esp32_bridge_node._DURUM_STATE_MAP. Şartname
-    §5.1 m.15 ayrılma akışı 14 state üzerinden işler.
+    ile eşleşir). Bkz. esp32_bridge_node._DURUM_STATE_MAP.
     """
 
     drone_id: int
@@ -125,7 +124,7 @@ class DurumVeri:
     baro_ok: int
     rssi: int           # dBm
     mesh_link_ok: int   # 0/1
-    mesh_komsu_sayisi: int  # firmware: aktif mesh node sayısı (Büşra)
+    mesh_komsu_sayisi: int  # firmware: aktif mesh node sayısı
 
 
 @dataclass
@@ -296,7 +295,7 @@ def durum_paketle(drone_id: int, durum: int, armed: int,
     """Durum verisi alanlarını 16 baytlık mesh payload'ına paketler.
 
     RPi kendi durumunu (agent_fsm çıktısı) ESP32'ye gönderirken
-    kullanır. Sürünün §5.1 m.15 ayrılma akışı için kritik.
+    kullanır. Sürüden ayrılma akışı için kritik.
 
     Args:
         drone_id (int): Kendi ID.
@@ -311,8 +310,8 @@ def durum_paketle(drone_id: int, durum: int, armed: int,
         baro_ok (int): 0/1.
         rssi (int): dBm, -128..127.
         mesh_link_ok (int): 0/1.
-        mesh_komsu_sayisi (int): aktif mesh node sayısı (Büşra,
-            firmware tarafı sayıyor). Default 0 — RPi tarafı bilmeyebilir.
+        mesh_komsu_sayisi (int): aktif mesh node sayısı (firmware
+            tarafı sayıyor). Default 0 — RPi tarafı bilmeyebilir.
 
     Returns:
         bytes: 16 baytlık payload.
@@ -335,7 +334,7 @@ def renk_paketle(renk: int, lat: int, lon: int) -> bytes:
     """Renk bölgesi tespitini 16 baytlık mesh payload'a paketler.
 
     Args:
-        renk (int): 1=KIRMIZI, 2=MAVI (şartname §5.1 m.15).
+        renk (int): 1=KIRMIZI, 2=MAVI.
         lat (int): Enlem, 1e-7 derece.
         lon (int): Boylam, 1e-7 derece.
 
