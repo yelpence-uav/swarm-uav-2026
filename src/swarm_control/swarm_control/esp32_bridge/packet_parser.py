@@ -29,6 +29,13 @@ TIP_VERSION = 0x0B
 TIP_RTK = 0x0C
 TIP_SWARM_STATE = 0x0D
 TIP_QR_DATA = 0x0E
+TIP_FAILSAFE = 0xFA  # mesh kopunca gelen failsafe (fail_safe.h)
+TIP_QR_COORDS = 0x0F  # YKİ'den gelen QR konumları (her nokta ayrı çerçeve)
+
+# Failsafe türleri (fail_safe.h)
+FAILSAFE_TIP_UYARI = 0x01
+FAILSAFE_TIP_RTL = 0x02
+FAILSAFE_TIP_LAND = 0x03
 
 # Mesh kimlik sabitleri (mesh_config.h)
 BAZ_ID = 99          # RTK UART sentinel'i, mesh kimliği DEĞİL
@@ -47,6 +54,7 @@ _LEADER_HB_FMT = '<BIBBB8x'  # leader_id, seq, round, agent_count, mission
 _ELECTION_FMT = '<BBBBIBBBB4x'  # leader, round, reason, trigger, seq, ids
 _QR_FMT = '<BIii3x'          # drone_id, action_id, lat, lon, rezerv[3]
 _SWARM_STATE_FMT = '<BBBBI8x'  # mission_id, fsm, leader, formation, timestamp
+_QR_COORD_FMT = '<BBii6x'    # qr_id, toplam, lat_1e7, lon_1e7, rezerv[6]
 
 # Joystick komutu bayrak bitleri (komut_veri_t.flags için).
 # DEADMAN_PRESSED: SwarmControlCommand.deadman_pressed mesh üzerinden
@@ -211,6 +219,16 @@ class SwarmStateVeri:
     active_leader: int
     formation: int
     timestamp: int
+
+
+@dataclass
+class QrKoordVeri:
+    """TIP_QR_COORDS payload — YKİ'den gelen tek QR konumu."""
+
+    qr_id: int
+    toplam: int      # tablodaki toplam QR sayısı
+    lat: int         # 1e-7 derece
+    lon: int         # 1e-7 derece
 
 
 @dataclass
@@ -488,3 +506,9 @@ def swarm_state_coz(payload: bytes) -> SwarmStateVeri:
         _SWARM_STATE_FMT, payload
     )
     return SwarmStateVeri(mission_id, fsm, leader, formation, ts)
+
+
+def qr_koord_coz(payload: bytes) -> QrKoordVeri:
+    """TIP_QR_COORDS payload'ını QrKoordVeri'ye çözer."""
+    qr_id, toplam, lat, lon = struct.unpack(_QR_COORD_FMT, payload)
+    return QrKoordVeri(qr_id, toplam, lat, lon)

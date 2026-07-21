@@ -45,6 +45,7 @@ from swarm_interfaces.msg import (
     AgentStatus,
     ElectionResult,
     LeaderHeartbeat,
+    QRCoordinates,
     SwarmControlCommand,
     SwarmOrigin,
     SystemEvent,
@@ -274,6 +275,12 @@ class Esp32BridgeNode(Node):
             str(self.get_parameter('rtcm_out_topic').value),
             10,
         )
+        # YKİ'den gelen QR tablosu; son değeri saklarız (latched).
+        self._qr_coords_pub = self.create_publisher(
+            QRCoordinates, '/swarm/public/mission/qr_coords', _ORIGIN_QOS
+        )
+        self._qr_koord_toplayici: dict[int, tuple] = {}
+        self._qr_koord_toplam = 0
 
         # Seri port ayarlarını sakla — kopma sonrası reconnect için
         self._port = port
@@ -516,6 +523,16 @@ class Esp32BridgeNode(Node):
         # RTK baz sentinel'inden (99) gelir, komşu telemetrisi değil.
         if cerceve.tip == pp.TIP_RTK:
             self._isle_rtk(cerceve.payload)
+            return
+
+        # Failsafe herkese yayın (iha_id=0), komşu filtresinden önce al.
+        if cerceve.tip == pp.TIP_FAILSAFE:
+            self._isle_failsafe(cerceve.payload)
+            return
+
+        # QR tablosu baz istasyonundan gelir, komşu drone'dan değil.
+        if cerceve.tip == pp.TIP_QR_COORDS:
+            self._isle_qr_coords(cerceve.payload)
             return
 
         # Defansif: kendi/broadcast paketini komşu olarak işleme.
@@ -883,6 +900,46 @@ class Esp32BridgeNode(Node):
         msg = UInt8MultiArray()
         msg.data = list(payload)
         self._rtcm_pub.publish(msg)
+
+    def _isle_failsafe(self, payload: bytes) -> None:
+        """Mesh kopunca gelen 0xFA'yı agent_fsm'e RTL/Land olayına çevirir."""
+        if not payload:
+            return
+        ftip = payload[0]
+        if ftip == pp.FAILSAFE_TIP_RTL:
+            etype = SystemEvent.EVENT_RTL_TRIGGERED
+        elif ftip == pp.FAILSAFE_TIP_LAND:
+            etype = SystemEvent.EVENT_EMERGENCY_LAND
+        else:
+            etype = SystemEvent.EVENT_UNKNOWN
+
+        msg = SystemEvent()
+        msg.stamp = self.get_clock().now().to_msg()
+        msg.event_type = etype
+        msg.severity = SystemEvent.SEVERITY_WARNING
+        msg.source_agent_id = self._agent_id
+        msg.target_agent_id = self._agent_id
+        msg.source_module = 'esp32_bridge'
+        msg.message = f'mesh failsafe tip={ftip}'
+        self._event_pub_public.publish(msg)
+
+    def _isle_qr_coords(self, payload: bytes) -> None:
+        """QR konumlarını tek tek toplar, tablo dolunca yayınlar."""
+        q = pp.qr_koord_coz(payload)
+        self._qr_koord_toplam = q.toplam
+        self._qr_koord_toplayici[q.qr_id] = (q.lat, q.lon)
+        if q.toplam > 0 and len(self._qr_koord_toplayici) >= q.toplam:
+            self._qr_coords_yayinla()
+
+    def _qr_coords_yayinla(self) -> None:
+        """Toplanan QR tablosunu QRCoordinates olarak yayınlar."""
+        ids = sorted(self._qr_koord_toplayici.keys())
+        msg = QRCoordinates()
+        msg.stamp = self.get_clock().now().to_msg()
+        msg.qr_ids = ids
+        msg.lat_deg = [self._qr_koord_toplayici[i][0] / 1e7 for i in ids]
+        msg.lon_deg = [self._qr_koord_toplayici[i][1] / 1e7 for i in ids]
+        self._qr_coords_pub.publish(msg)
 
     # =================================================================
     # ROS2 -> MESH İŞLEYİCİLERİ (UART'a yaz)
