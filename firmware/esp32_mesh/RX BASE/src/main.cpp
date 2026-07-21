@@ -39,6 +39,36 @@
   #define DBG_PRINTF(...)  Serial.printf(__VA_ARGS__)
 #endif
 
+// RTCM_GIRISI_VAR: Serial1'in (GPIO16/17) adanmis RTCM giris hatti olarak
+// acilip acilmayacagi. TEK_USB_MODU'dan AYRI tutuluyor, cunku bunlar bagimsiz
+// iki soru: "YKİ verisi hangi porttan geliyor?" ve "ayri bir RTCM hatti var mi?"
+// Eskiden ikisi tek bayraga bagliydi ve TEK_USB_MODU=0 secmek Serial1'i de
+// acmak zorunda birakiyordu.
+//
+// Varsayilan 0. RTCM kaynagi fiziksel olarak bagli degilken Serial1 acilirsa
+// GPIO16 bosta (floating) kalir, gurultu cerceve sanilir ve rtk_serial_isle()
+// her hatali cerceve icin Serial'e "[RTK-RX] HATA" basar. Tek-USB modunda bu
+// YKİ hattini %100 dolduruyordu (olculdu: 11.6 kB/s -> 4.3 B/s); TTL modunda
+// ise debug konsolunu kullanilamaz hale getirir.
+//
+// Hedef mimaride bu bayrak 0 KALIR: RTCM, YKİ veri hattindan TIP_RTK cercevesi
+// olarak gelecek (yki_rtcm_reader -> COBS -> Serial2), adanmis UART'a gerek yok.
+#ifndef RTCM_GIRISI_VAR
+#define RTCM_GIRISI_VAR 0
+#endif
+
+// YKİ veri hattinin baud'u — TEK KAYNAK. Iki modda da ayni deger kullanilir,
+// yoksa mod degistirince Python tarafindaki -p baud:= parametresini de
+// degistirmeyi unutmak cok kolay olurdu (semptomu: hat sessiz, hata yok).
+//
+// 460800 secildi cunku:
+//   - Drone tarafi (RPI_SERIAL0_MODU) zaten 460800'de konusuyor,
+//   - yki_rtcm_reader varsayilani --esp-baud 460800,
+//   - RTCM (~1 kB/s) telemetriyle ayni hatti paylasacak; 115200'de toplam
+//     yuk ~%16 iken 460800'de ~%4 kaliyor ve RTCM burst'u komut baytlarini
+//     bekletmiyor.
+#define YKI_BAUD  460800
+
 // FreeRTOS queue.
 struct uart_mesaj_t {
     uint8_t tip;
@@ -130,9 +160,8 @@ static void _drone_tablo_dogrula() {
     }
     if (hata) {
         // ID cakismasi iki drone'un telemetrisinin YKİ'ye ayni iha_id ile
-        // karismasi demek (yer istasyonu yanlis drone'u gosterir). aes_init()
-        // 'teki provision-yok durumuyla ayni fail-closed desen: duzeltilmeden
-        // calismaya devam etmez.
+        // karismasi demek (yer istasyonu yanlis drone'u gosterir).
+        // Fail-closed: duzeltilmeden calismaya devam etmez.
         Serial.println("[BOOT] drone_tablo duzeltilmeden ucusa cikilmamali!");
         Serial.println("[BOOT] KRITIK: ID cakismasi - baslatma durduruldu.");
         Serial.flush();
@@ -144,41 +173,23 @@ static void _drone_tablo_dogrula() {
 #define JOYSTICK_MIN_ARALIK_MS 200
 #define MESH_GONDERIM_MIN_MS 50
 
-// Replay kontrol helper: node disaridan alinir.
-static inline bool mesh_replay_dogrula(node_durum_t* node, const uint8_t* decrypted_baslik) {
-    if (!node) return false;
-    return _replay_kontrol(node, (const anti_replay_t*)decrypted_baslik);
-}
 
 
 // Mesh callback.
-void mesh_veri_al(const mesh_paket_t* p) {
-    uint8_t acik[24] = {0};
-
-    // AAD (tip+kaynak_mac+hedef_mac) da dogrulanir
-    uint8_t aad[13];
-    _mesh_aad_olustur(p->tip, p->kaynak_mac, p->hedef_mac, aad);
-    if (!aes_coz_gcm(p->sifreli_veri, 24, acik, p->iv, p->tag, aad, sizeof(aad))) {
-        return; 
-    }
-
-    // mac_to_id whitelist once: bilinmeyen MAC state'e hic girmiyor
-    uint8_t iha_id = mac_to_id(p->kaynak_mac);
+// kaynak_mac ESP-NOW alim callback'inden gelir; pakette tasinmiyor.
+// Sihir, CRC16 ve duplikat kapilari _recv_isle()'de gecildi. Burada kalan tek
+// kapi KIMLIK: drone_tablo'da olmayan MAC reddedilir.
+void mesh_veri_al(const uint8_t* kaynak_mac, const mesh_paket_t* p) {
+    uint8_t iha_id = mac_to_id(kaynak_mac);
     if (iha_id == 0) {
         DBG_PRINTLN("[MESH] Bilinmeyen MAC, paket reddedildi");
         return;
     }
-    node_durum_t* node = _node_bul_veya_ekle(p->kaynak_mac);
+    node_durum_t* node = _node_bul_veya_ekle(kaynak_mac);
     if (!node) return;
-    if (!mesh_replay_dogrula(node, acik)) {
-        DBG_PRINTLN("[MESH] Replay/Eski Paket reddedildi!");
-        return;
-    }
 
-    // Node canliligi replay GECTIKTEN sonra tazelenir (ORTA-1/O1). Eskiden
-    // _recv_isle GCM sonrasi, replay'den ONCE tazeliyordu; replay'de dusen bir
-    // tekrar-oynatma olu komsuyu aktif tutup mesh_komsu_sayisi'ni sisiriyordu.
-    // TX DRONE::mesh_veri_al ile ayni sira.
+    // Canlilik kimlik dogrulandiktan SONRA tazelenir: tanimadigimiz bir MAC
+    // mesh_komsu_sayisi'ni sisirmemeli. TX DRONE::mesh_veri_al ile ayni sira.
     node->son_heartbeat_ms = millis();
     node->aktif            = true;
 
@@ -188,6 +199,11 @@ void mesh_veri_al(const mesh_paket_t* p) {
     portEXIT_CRITICAL(&_recv_mux);
 
     failsafe_reset();
+
+    // HEARTBEAT failsafe zamanlayicisini tazelemek icin buraya kadar geldi;
+    // veri tasimadigi icin YKİ'ye iletilmez.
+    if (p->tip == TIP_HEARTBEAT) return;
+    if (p->tip == TIP_RTK)       return;   // kendi buyuk zarfiyla ayri gelir
 
     uart_mesaj_t msg = {};
     msg.tip    = p->tip;
@@ -204,8 +220,7 @@ void mesh_veri_al(const mesh_paket_t* p) {
     else if (p->tip == TIP_QR_DATA)    msg.uzunluk = sizeof(qr_veri_t);
     else return; 
 
-    // Ilk 6 byte'i atla (anti-replay basligi)
-    memcpy(msg.payload, acik + sizeof(anti_replay_t), msg.uzunluk);
+    memcpy(msg.payload, p->veri, msg.uzunluk);
 
     if (uart_kuyruk) {
         if (xQueueSend(uart_kuyruk, &msg, pdMS_TO_TICKS(5)) != pdPASS) { // 5ms timeout
@@ -229,7 +244,7 @@ void setup() {
     // begin()'den sonra end()+yeniden begin() ile tampon guvenle degisiyor.
     Serial.end();
     Serial.setRxBufferSize(2048);
-    Serial.begin(115200);
+    Serial.begin(YKI_BAUD);   // tek-USB modunda USB hatti = YKİ veri hatti
 #endif
     delay(1000);
     _drone_tablo_dogrula();  // MAC benzersizligini boot'ta dogrula
@@ -243,17 +258,14 @@ void setup() {
     // baud 460800 (spec + ekip karari). setRxBufferSize() begin()'den once
     // cagrilmali; sonra cagrilirsa sessizce etkisiz kalir (varsayilan 256B ring
     // buffer kullanilmaya devam eder).
-#if TEK_USB_MODU
-    // Tek-USB modunda RTCM yolu yok (YKİ tek kabloyla telemetri/komut tasiyor),
-    // o yuzden Serial1 HIC acilmiyor. Acilirsa GPIO16 bosta/floating kalir,
-    // gurultuyu cerceve saniriz ve rtk_serial_isle() her hatali cerceve icin
-    // Serial'e "[RTK-RX] HATA: ..." basar; tek-USB'de Serial = YKİ hatti
-    // oldugundan bu hat %100 doluyordu (olculdu: 11.6 kB/s, 115200 tavani).
-    Serial.println("[UART] RTCM yolu TEK-USB modunda kapali (Serial1 acilmadi)");
-#else
+#if RTCM_GIRISI_VAR
     Serial1.setRxBufferSize(2048);  // spec 3.2: UART RX buffer >= 2048B
     Serial1.begin(460800, SERIAL_8N1, RTK_RX_PIN, RTK_TX_PIN);
-    Serial.println("[UART] YKİ/RTCM (Serial1, 460800) baslatildi - PIN DOGRULAMASI GEREKLI");
+    Serial.println("[UART] RTCM girisi (Serial1, 460800) acildi - PIN DOGRULAMASI GEREKLI");
+#else
+    // Bilerek acilmiyor: bkz RTCM_GIRISI_VAR notu (floating GPIO16 -> sahte
+    // cerceve -> rtk_serial_isle() hata spam'i -> hat doygunlugu).
+    Serial.println("[UART] RTCM girisi kapali (Serial1 acilmadi)");
 #endif
 
     // RTCM durum LED'i (saha teshisi icin yanip soner).
@@ -276,11 +288,11 @@ void setup() {
     // setRxBufferSize() begin()'den ONCE cagrilmali (sonra etkisiz).
 #if TEK_USB_MODU
     // Serial2 hic acilmiyor: YKİ hatti USB'ye (Serial0) tasindi, GPIO25/26 bosta.
-    Serial.println("[UART] YKİ komut/telemetri TEK-USB modunda (Serial0, 115200)");
+    Serial.printf("[UART] YKİ komut/telemetri TEK-USB modunda (Serial0, %d)\n", YKI_BAUD);
 #else
     Serial2.setRxBufferSize(2048);
-    Serial2.begin(115200, SERIAL_8N1, YKI_RX_PIN, YKI_TX_PIN);
-    Serial.println("[UART] YKİ komut/telemetri (Serial2, 115200) baslatildi - PIN DOGRULAMASI GEREKLI");
+    Serial2.begin(YKI_BAUD, SERIAL_8N1, YKI_RX_PIN, YKI_TX_PIN);
+    Serial.printf("[UART] YKİ komut/telemetri (Serial2, %d) baslatildi\n", YKI_BAUD);
 #endif
 
 
@@ -330,10 +342,11 @@ void loop() {
     // komut/telemetri protokolu Serial2'de yurur. Varsayilan (Serial1) birakilirsa
     // reassemble edilen RTCM mesaji YKİ'nin yayin yaptigi hatta geri yazilirdi.
     rtk_mesh_loop(YKI_SERIAL);
-#if !TEK_USB_MODU
-    // Serial1 bu modda hic acilmadi; cagrilirsa acilmamis UART'tan okunur.
+#if RTCM_GIRISI_VAR
     rtk_serial_isle(Serial1);
 #endif
+    // RTCM_GIRISI_VAR=0 iken Serial1 hic acilmadi; cagirmak acilmamis UART'tan
+    // okumak olurdu.
     esp_task_wdt_reset();
     mesh_loop();
 

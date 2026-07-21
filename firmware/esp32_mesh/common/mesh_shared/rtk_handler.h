@@ -14,17 +14,14 @@
 
 // Durum sayaclari - alici (İHA) tarafi.
 // Kayip nedenleri ayri tutuluyor; her biri farkli bir mudahale gerektiriyor:
-//   gcm      -> anahtar yanlis/eksik, provision uyumsuz (KEY WRITER'a bak)
-//   replay   -> eski session; cogu zaman saldiri degil, o peer'in NVS'i
-//               silinmistir (bkz mesh_config.h::_session_id_uret NVS erase tuzagi)
-//   gecersiz -> bozuk/uyumsuz cerceve; zarf duzeni degistiyse tum node'lar
-//               ayni gun flaslanmali
+//   crc      -> zarf havada bozuldu; parazit/menzil gostergesi
+//   gecersiz -> bozuk/uyumsuz cerceve duzeni; zarf formati degistiyse tum
+//               node'lar ayni gun flaslanmali
 //   timeout  -> fragment havada kayboldu, RF menzil/parazit (anten/mesafe)
-// Tek sayacta toplaninca bu dordu ayirt edilemiyordu, ayrildi.
+// Tek sayacta toplaninca bu ucu ayirt edilemiyordu, ayrildi.
 static uint32_t rtk_alinan          = 0;   // kabul edilen FRAGMENT sayisi
 static uint32_t rtk_uart_gonderilen = 0;   // Pi'ye iletilen TAM RTCM mesaji
-static uint32_t rtk_kayip_gcm       = 0;
-static uint32_t rtk_kayip_replay    = 0;
+static uint32_t rtk_kayip_crc       = 0;   // CRC16 tutmadi (parazit/bozulma)
 static uint32_t rtk_kayip_gecersiz  = 0;
 static uint32_t rtk_kayip_timeout   = 0;
 
@@ -35,7 +32,7 @@ static uint32_t rtk_tx_frag         = 0;   // mesh'e yayilan fragment
 static uint32_t rtk_tx_zarf_hatasi  = 0;   // 3 denemeden sonra da esp_now_send hatasi
 
 static inline uint32_t rtk_kayip_toplam(void) {
-    return rtk_kayip_gcm + rtk_kayip_replay + rtk_kayip_gecersiz + rtk_kayip_timeout;
+    return rtk_kayip_crc + rtk_kayip_gecersiz + rtk_kayip_timeout;
 }
 
 // Reassembly durumu (rtk_pure.h'deki saf tip).
@@ -128,45 +125,37 @@ static inline void rtk_mesh_frag_handle(const uint8_t* ham_veri, uint16_t uzunlu
 }
 
 // Buyuk RTK zarfi - gonderim.
-// mesh_paket_t'nin degisken boyutlu buyuk kardesi. Onsoz duzeni (kaynak_mac..iv)
-// mesh_paket_t ile ayni oldugu icin ISR'daki tip-offset kontrolu ortak calisir.
-// sifreli_veri ve tag gercek uzunluga gore ard arda yaziliyor, esp_now_send'e
-// de gercek toplam uzunluk veriliyor. Anti-replay altyapisini (_paket_sayaci/
-// _session_id) ve AAD semasini (_mesh_aad_olustur) mesh_paket_t ile paylasir.
-// TIP_RTK icin CSMA + 3 denemelik yerel retry burada tekrarlaniyor, cunku
-// _mesh_gonder() TIP_RTK'yi islemiyor.
-static inline void rtk_mesh_gonder(const rtk_mesh_frag_t* frag) {
-    // --- Plaintext: anti_replay(6) + frag basligi(7) + gercek payload ---
-    uint8_t plaintext[RTK_ANTI_REPLAY_BOYUTU + RTK_FRAG_HEADER_BOYUTU + RTK_FRAG_PAYLOAD_MAKS];
-    uint32_t mesh_paket_id = ++_paket_sayaci;
-    anti_replay_t ar = { _session_id, mesh_paket_id };
-    memcpy(plaintext, &ar, RTK_ANTI_REPLAY_BOYUTU);
-    memcpy(plaintext + RTK_ANTI_REPLAY_BOYUTU, frag, RTK_FRAG_HEADER_BOYUTU);
-    memcpy(plaintext + RTK_ANTI_REPLAY_BOYUTU + RTK_FRAG_HEADER_BOYUTU,
-           frag->payload, frag->frag_uzunluk);
-    uint16_t plaintext_uzunluk = RTK_ANTI_REPLAY_BOYUTU + RTK_FRAG_HEADER_BOYUTU + frag->frag_uzunluk;
-
-    // --- Zarf onsozu (mesh_paket_t ile ayni alan duzeni) ---
+//
+// Tel formati (toplam <= 250, ESP-NOW siniri):
+//   [sihir 2][tip=TIP_RTK 1][msg_id 4][idx 1][toplam 1][uzunluk 1][veri N][crc16 2]
+//    \____ mesh_paket_t ile ayni onsoz ____/
+//
+// Onsozun ilk 3 bayti kucuk paketle ayni: ISR offset 0'da sihiri, offset 2'de
+// tipi okuyup hangi ring buffer'a yazacagina tam parse etmeden karar verebiliyor.
+//
+// hedef: nullptr -> broadcast. RTCM icin cagiran taraf unicast hedefi vermeli;
+// parca kaybi TUM mesaji oldurdugu icin 802.11 ACK+retry burada cok kiymetli
+// (bkz mesh_config.h::_mesh_gonder UNICAST vs BROADCAST notu).
+static inline void rtk_mesh_gonder(const rtk_mesh_frag_t* frag,
+                                    const uint8_t* hedef = nullptr) {
     uint8_t ham[RTK_ENV_MAKS_TOPLAM];
-    memcpy(ham, _benim_mac, 6);
-    memcpy(ham + 6, BROADCAST_MAC, 6);
-    memcpy(ham + 12, &mesh_paket_id, 4);
-    ham[16] = 0;            // atlama_sayisi
-    ham[17] = TIP_RTK;      // tip: ISR bu offset'e bakiyor
-    iv_uret_rastgele(ham + 18);   // iv[12] -> offset 18..29
+    uint16_t sihir = MESH_SIHIR;
+    memcpy(ham, &sihir, 2);
+    ham[2] = TIP_RTK;
+    // frag basligi: msg_id(4) + idx(1) + toplam(1) + uzunluk(1)
+    memcpy(ham + RTK_ENV_ONSOZ_BOYUTU, frag, RTK_FRAG_HEADER_BOYUTU);
+    memcpy(ham + RTK_ENV_ONSOZ_BOYUTU + RTK_FRAG_HEADER_BOYUTU,
+           frag->payload, frag->frag_uzunluk);
 
-    uint8_t aad[13];
-    _mesh_aad_olustur(TIP_RTK, ham /*kaynak_mac*/, ham + 6 /*hedef_mac*/, aad);
+    uint16_t crc_oncesi = RTK_ENV_ONSOZ_BOYUTU + RTK_FRAG_HEADER_BOYUTU + frag->frag_uzunluk;
+    uint16_t crc = cobs_crc16(ham, crc_oncesi);
+    memcpy(ham + crc_oncesi, &crc, RTK_CRC_BOYUTU);
+    uint16_t toplam_uzunluk = crc_oncesi + RTK_CRC_BOYUTU;
 
-    uint8_t tag[RTK_ENV_TAG_BOYUTU];
-    aes_sifrele_gcm(plaintext, plaintext_uzunluk, ham + 30, ham + 18, tag, aad, sizeof(aad));
-    memcpy(ham + 30 + plaintext_uzunluk, tag, RTK_ENV_TAG_BOYUTU);
-
-    uint16_t toplam_uzunluk = 30 + plaintext_uzunluk + RTK_ENV_TAG_BOYUTU;
-
-    if (!esp_now_is_peer_exist(BROADCAST_MAC)) {
+    if (hedef == nullptr) hedef = BROADCAST_MAC;
+    if (!esp_now_is_peer_exist(hedef)) {
         esp_now_peer_info_t bp = {};
-        memcpy(bp.peer_addr, BROADCAST_MAC, 6);
+        memcpy(bp.peer_addr, hedef, 6);
         bp.channel = MESH_KANAL;
         bp.encrypt = false;
         esp_now_add_peer(&bp);
@@ -177,7 +166,7 @@ static inline void rtk_mesh_gonder(const rtk_mesh_frag_t* frag) {
 
     esp_err_t ret = ESP_FAIL;
     for (int d = 0; d < 3; d++) {
-        ret = esp_now_send(BROADCAST_MAC, ham, toplam_uzunluk);
+        ret = esp_now_send(hedef, ham, toplam_uzunluk);
         if (ret == ESP_OK) break;
         if (d < 2) vTaskDelay(pdMS_TO_TICKS(2 + (uint32_t)esp_random() % 6));
     }
@@ -202,46 +191,24 @@ static inline void rtk_mesh_loop(HardwareSerial& uart = Serial1) {
             const uint8_t* veri    = _rtk_recv_buffer[_rtk_recv_oku].veri;
             uint16_t       uzunluk = _rtk_recv_buffer[_rtk_recv_oku].uzunluk;
 
-            if (uzunluk < RTK_ENV_SABIT_TOPLAM + RTK_ANTI_REPLAY_BOYUTU + RTK_FRAG_HEADER_BOYUTU) {
+            // En kisa gecerli zarf: onsoz + frag basligi + en az 1 bayt veri + crc
+            if (uzunluk < RTK_ENV_ONSOZ_BOYUTU + RTK_FRAG_HEADER_BOYUTU + 1 + RTK_CRC_BOYUTU) {
                 rtk_kayip_gecersiz++;
                 _rtk_recv_oku = (_rtk_recv_oku + 1) % RTK_RECV_BUFFER_SIZE;
                 continue;
             }
 
-            const uint8_t* kaynak_mac = veri;
-            const uint8_t* hedef_mac  = veri + 6;
-            const uint8_t* iv         = veri + 18;
-            const uint8_t* sifreli    = veri + 30;
-            uint16_t sifreli_uzunluk  = uzunluk - RTK_ENV_SABIT_TOPLAM;
-            const uint8_t* tag        = veri + 30 + sifreli_uzunluk;
-
-            if (_benim_mac_mi(kaynak_mac)) {
+            // CRC: sihir kapisi ISR'da gecildi, burada butunluk dogrulaniyor.
+            uint16_t crc_oncesi = uzunluk - RTK_CRC_BOYUTU;
+            uint16_t crc_gelen; memcpy(&crc_gelen, veri + crc_oncesi, RTK_CRC_BOYUTU);
+            if (crc_gelen != cobs_crc16(veri, crc_oncesi)) {
+                rtk_kayip_crc++;
                 _rtk_recv_oku = (_rtk_recv_oku + 1) % RTK_RECV_BUFFER_SIZE;
                 continue;
             }
 
-            uint8_t aad[13];
-            _mesh_aad_olustur(TIP_RTK, kaynak_mac, hedef_mac, aad);
-
-            static uint8_t acik[RTK_ENV_MAKS_SIFRELI];
-            if (!aes_coz_gcm(sifreli, sifreli_uzunluk, acik, iv, tag, aad, sizeof(aad))) {
-                Serial.println("[RTK] GCM hatasi - zarf reddedildi (anahtar/provision uyumsuz olabilir)");
-                rtk_kayip_gcm++;
-                _rtk_recv_oku = (_rtk_recv_oku + 1) % RTK_RECV_BUFFER_SIZE;
-                continue;
-            }
-
-            node_durum_t* node = _node_bul_veya_ekle(kaynak_mac);
-            if (!node || !_replay_kontrol(node, (const anti_replay_t*)acik)) {
-                Serial.println("[RTK] Replay/eski zarf reddedildi (peer NVS'i silinmis olabilir "
-                               "- bkz NVS ERASE TUZAGI)");
-                rtk_kayip_replay++;
-                _rtk_recv_oku = (_rtk_recv_oku + 1) % RTK_RECV_BUFFER_SIZE;
-                continue;
-            }
-
-            rtk_mesh_frag_handle(acik + RTK_ANTI_REPLAY_BOYUTU,
-                                  (uint16_t)(sifreli_uzunluk - RTK_ANTI_REPLAY_BOYUTU),
+            rtk_mesh_frag_handle(veri + RTK_ENV_ONSOZ_BOYUTU,
+                                  (uint16_t)(crc_oncesi - RTK_ENV_ONSOZ_BOYUTU),
                                   uart);
 
             _rtk_recv_oku = (_rtk_recv_oku + 1) % RTK_RECV_BUFFER_SIZE;
@@ -262,12 +229,11 @@ static inline void rtk_loop(void) {
 // basindaki nota bak; "kayip" tek sayi olarak bakildiginda yaniltir.
 static inline void rtk_istatistik_yazdir(void) {
     Serial.printf("[RTK] alinan=%lu uart_gonderilen=%lu kayip=%lu "
-                  "(gcm=%lu replay=%lu gecersiz=%lu timeout=%lu)\n",
+                  "(crc=%lu gecersiz=%lu timeout=%lu)\n",
                   (unsigned long)rtk_alinan,
                   (unsigned long)rtk_uart_gonderilen,
                   (unsigned long)rtk_kayip_toplam(),
-                  (unsigned long)rtk_kayip_gcm,
-                  (unsigned long)rtk_kayip_replay,
+                  (unsigned long)rtk_kayip_crc,
                   (unsigned long)rtk_kayip_gecersiz,
                   (unsigned long)rtk_kayip_timeout);
 }

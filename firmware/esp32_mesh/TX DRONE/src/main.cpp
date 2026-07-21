@@ -120,40 +120,28 @@ static void _drone_tablo_dogrula() {
     }
     if (hata) {
         // ID cakismasi iki drone'un ayni joystick komutuna cevap vermesi demek
-        // (guvenlik kritik). aes_init()'teki provision-yok durumuyla ayni
-        // fail-closed desen: duzeltilmeden mesh'e/ucusa katilamaz.
+        // (guvenlik kritik). Fail-closed: duzeltilmeden mesh'e/ucusa katilamaz.
         Serial.println("[BOOT] drone_tablo duzeltilmeden ucusa cikilmamali!");
         Serial.println("[BOOT] KRITIK: ID cakismasi - baslatma durduruldu.");
         Serial.flush();
         while (true) delay(1000);
     }
 }
-void mesh_veri_al(const mesh_paket_t* p) {
-    // GCM + replay gecerse peer kaydet ve heartbeat guncelle.
-    // AAD (tip+kaynak_mac+hedef_mac) da dogrulanir.
-    uint8_t acik[24] = {0};
-    uint8_t aad[13];
-    _mesh_aad_olustur(p->tip, p->kaynak_mac, p->hedef_mac, aad);
-    if (!aes_coz_gcm(p->sifreli_veri, 24, acik, p->iv, p->tag, aad, sizeof(aad))) return;
-
-    uint8_t kaynak_id = mac_to_id(p->kaynak_mac);
+// kaynak_mac ESP-NOW alim callback'inden gelir; pakette tasinmiyor.
+// Sihir, CRC16 ve duplikat kapilari _recv_isle()'de gecildi. Burada kalan tek
+// kapi KIMLIK: drone_tablo'da olmayan MAC reddedilir.
+void mesh_veri_al(const uint8_t* kaynak_mac, const mesh_paket_t* p) {
+    uint8_t kaynak_id = mac_to_id(kaynak_mac);
     if (kaynak_id == 0) {
         DBG_PRINTLN("[MESH] Bilinmeyen MAC, paket reddedildi");
         return;
     }
 
-    node_durum_t* node = _node_bul_veya_ekle(p->kaynak_mac);
+    node_durum_t* node = _node_bul_veya_ekle(kaynak_mac);
     if (!node) return;
-    if (!_replay_kontrol(node, (const anti_replay_t*)acik)) {
-        DBG_PRINTLN("[MESH] Replay reddedildi");
-        return;
-    }
 
-    // GCM + replay gecti: peer kaydet, heartbeat guncelle
-    if (!node->peer_kayitli) {
-        _peer_ekle(p->kaynak_mac);
-        node->peer_kayitli = true;
-    }
+    // Canlilik kimlik dogrulandiktan SONRA tazelenir: tanimadigimiz bir MAC
+    // mesh_komsu_sayisi'ni sisirmemeli.
     node->son_heartbeat_ms = millis();
     node->aktif = true;
 
@@ -162,13 +150,15 @@ void mesh_veri_al(const mesh_paket_t* p) {
     son_paket_ms = millis();
     portEXIT_CRITICAL(&_recv_mux);
     failsafe_reset();
-    // HEARTBEAT sadece node aktivasyonu icin, RPi'ya gonderilmez
+
+    // HEARTBEAT buraya kadar geldi cunku failsafe zamanlayicisini tazelemesi
+    // gerekiyordu (link ayakta demek). Veri tasimadigi icin RPi'ya gitmez.
     if (p->tip == TIP_HEARTBEAT) return;
     // TIP_RTK bu genel yoldan gecmez, kendi buyuk zarfiyla ayri gelir (ISR'da
     // ayristirilir). Buraya ulasmamali; yine de savunma amacli reddediyoruz.
     if (p->tip == TIP_RTK) return;
 
-    uint8_t* payload = acik + sizeof(anti_replay_t);
+    const uint8_t* payload = p->veri;
     uint8_t uzunluk = 0;
     // TIP_KOMUT bu listede olmali: yer istasyonundan gelen joystick/surus
     // komutu aksi halde GCM+replay'i gecip son_paket_ms'i tazeledikten sonra
