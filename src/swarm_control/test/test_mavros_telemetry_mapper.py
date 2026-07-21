@@ -142,8 +142,7 @@ class TestOdometry(unittest.TestCase):
         )
         map_odometry(msg, st)
         self.assertEqual((st.pos_x, st.pos_y, st.pos_z), (2.0, 1.0, -3.0))
-        self.assertEqual((st.vel_x, st.vel_y, st.vel_z), (-0.5, 0.5, -1.0))
-        self.assertTrue(st.xy_valid and st.z_valid and st.v_xy_valid)
+        self.assertTrue(st.xy_valid and st.z_valid)
 
 
 class TestEstimator(unittest.TestCase):

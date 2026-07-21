@@ -39,6 +39,7 @@ from swarm_interfaces.msg import AgentSetpoint, AgentStatus, SwarmOrigin
 # MAVROS telemetri mesaj tipleri
 from mavros_msgs.msg import EstimatorStatus, GPSRAW, RCIn, RTCM, State
 from mavros_msgs.msg import HomePosition as MavHomePosition
+from geometry_msgs.msg import TwistStamped
 from nav_msgs.msg import Odometry
 from sensor_msgs.msg import BatteryState, NavSatFix
 
@@ -53,6 +54,7 @@ from .mavros_telemetry_mapper import (
     map_odometry as mav_map_odom,
     map_rc_in as mav_map_rc,
     map_state as mav_map_state,
+    map_velocity_local as mav_map_velocity,
 )
 
 # RTK: RTCM3 framer (saf modül, ROS bağımsız). Ayrı node yerine bu
@@ -349,6 +351,10 @@ class Px4BridgeNode(Node):
             self._on_mav_odom, qos_profile_sensor_data
         )
         self.create_subscription(
+            TwistStamped, f'{ns}/mavros/local_position/velocity_local',
+            self._on_mav_vel, qos_profile_sensor_data
+        )
+        self.create_subscription(
             NavSatFix, f'{ns}/mavros/global_position/global',
             self._on_mav_global, qos_profile_sensor_data
         )
@@ -374,8 +380,12 @@ class Px4BridgeNode(Node):
         mav_map_battery(msg, self._status)
 
     def _on_mav_odom(self, msg: Odometry) -> None:
-        """MAVROS Odometry -> AgentStatus konum/hiz/heading (ENU->NED)."""
+        """MAVROS Odometry -> AgentStatus konum/heading (ENU->NED)."""
         mav_map_odom(msg, self._status)
+
+    def _on_mav_vel(self, msg: TwistStamped) -> None:
+        """MAVROS velocity_local -> AgentStatus hiz (dunya-ENU->NED)."""
+        mav_map_velocity(msg, self._status)
 
     def _on_mav_global(self, msg: NavSatFix) -> None:
         """MAVROS NavSatFix -> AgentStatus lat/lon/alt."""
