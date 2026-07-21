@@ -1,4 +1,4 @@
-"""evaluate_transitions ve QR yardımcı fonksiyonları için birim testleri."""
+"""Evaluate_transitions ve QR yardımcı fonksiyonları için birim testleri."""
 
 import time
 from types import SimpleNamespace
@@ -25,9 +25,7 @@ _RTL = 5
 _LAND = 6
 
 
-# =================================================================
 # TEST YARDICILARI
-# =================================================================
 
 def _status(
     state: int = 5,
@@ -146,28 +144,24 @@ def _geç(ctx: MissionContext, saniye: float) -> None:
     ctx.state_entry_time = time.monotonic() - saniye
 
 
-# =================================================================
-# UNKNOWN → IDLE
-# =================================================================
+# UNKNOWN -> IDLE
 
 class TestUnknownIdle(unittest.TestCase):
-    """UNKNOWN → IDLE geçiş testi."""
+    """UNKNOWN -> IDLE geçiş testi."""
 
     def test_unknown_her_zaman_idle(self):
-        """UNKNOWN'dan ilk tick'te IDLE'a geçmeli."""
+        """Aciklama: UNKNOWN'dan ilk tick'te IDLE'a geçmeli."""
         ctx = _ctx(MissionState.UNKNOWN)
         self.assertEqual(evaluate_transitions(ctx), MissionState.IDLE)
 
 
-# =================================================================
 # IDLE
-# =================================================================
 
 class TestIdle(unittest.TestCase):
     """IDLE state geçiş testleri."""
 
     def test_start_komutu_preflight(self):
-        """START komutu gelince IDLE → PREFLIGHT geçmeli."""
+        """START komutu gelince IDLE -> PREFLIGHT geçmeli."""
         ctx = _ctx(MissionState.IDLE)
         ctx.pending_command = _START
         self.assertEqual(
@@ -180,7 +174,7 @@ class TestIdle(unittest.TestCase):
         self.assertIsNone(evaluate_transitions(ctx))
 
     def test_abort_idle_aborted(self):
-        """ABORT komutu gelince IDLE → ABORTED geçmeli."""
+        """ABORT komutu gelince IDLE -> ABORTED geçmeli."""
         ctx = _ctx(MissionState.IDLE)
         ctx.pending_command = _ABORT
         self.assertEqual(
@@ -188,15 +182,13 @@ class TestIdle(unittest.TestCase):
         )
 
 
-# =================================================================
 # PREFLIGHT
-# =================================================================
 
 class TestPreflight(unittest.TestCase):
     """PREFLIGHT state geçiş testleri."""
 
     def test_ajanlar_hazirsa_takeoff(self):
-        """Tüm ajanlar sağlıklı ve SITL modunda → SYNCHRONIZED_TAKEOFF."""
+        """Tüm ajanlar sağlıklı ve SITL modunda -> SYNCHRONIZED_TAKEOFF."""
         ctx = _ctx(MissionState.PREFLIGHT)
         _all_agents(ctx, state=1)  # IDLE=1, sağlıklı
         result = evaluate_transitions(ctx)
@@ -244,9 +236,7 @@ class TestPreflight(unittest.TestCase):
         self.assertIsNone(evaluate_transitions(ctx))
 
 
-# =================================================================
 # SYNCHRONIZED_TAKEOFF
-# =================================================================
 
 class TestSynchronizedTakeoff(unittest.TestCase):
     """SYNCHRONIZED_TAKEOFF state geçiş testleri."""
@@ -270,7 +260,7 @@ class TestSynchronizedTakeoff(unittest.TestCase):
         """
         ctx = _ctx(MissionState.SYNCHRONIZED_TAKEOFF)
         _all_agents(ctx, state=5)
-        ctx.current_qr = None   # QR henüz okunmadı — yine de geçiş olmalı
+        ctx.current_qr = None   # QR henüz okunmadı - yine de geçiş olmalı
         self.assertEqual(
             evaluate_transitions(ctx), MissionState.ROTATE_TO_NEXT
         )
@@ -299,15 +289,13 @@ class TestSynchronizedTakeoff(unittest.TestCase):
         self.assertEqual(result, MissionState.ABORTED)
 
 
-# =================================================================
 # NAVIGATE_TO_QR
-# =================================================================
 
 class TestNavigateToQr(unittest.TestCase):
     """NAVIGATE_TO_QR state geçiş testleri."""
 
     def test_formasyon_ulasinca_execute(self):
-        """EVENT_FORMATION_REACHED → EXECUTE_QR_TASK."""
+        """EVENT_FORMATION_REACHED -> EXECUTE_QR_TASK."""
         ctx = _ctx(MissionState.NAVIGATE_TO_QR)
         ctx.event_formation_reached = True
         result = evaluate_transitions(ctx)
@@ -319,7 +307,7 @@ class TestNavigateToQr(unittest.TestCase):
         ctx.event_formation_reached = True
         result = evaluate_transitions(ctx)
         self.assertEqual(result, MissionState.EXECUTE_QR_TASK)
-        # transitions.py okur, yazmaz — flag hâlâ set
+        # transitions.py okur, yazmaz - flag hâlâ set
         self.assertTrue(ctx.event_formation_reached)
         # node set_state() çağırdığında temizlenir
         ctx.set_state(MissionState.EXECUTE_QR_TASK)
@@ -338,9 +326,7 @@ class TestNavigateToQr(unittest.TestCase):
         self.assertEqual(result, MissionState.RETURN_HOME)
 
 
-# =================================================================
 # EXECUTE_QR_TASK
-# =================================================================
 
 class TestExecuteQrTask(unittest.TestCase):
     """EXECUTE_QR_TASK state geçiş testleri."""
@@ -356,7 +342,7 @@ class TestExecuteQrTask(unittest.TestCase):
         self.assertEqual(result, MissionState.RETURN_HOME)
 
     def test_done_wait_s_varsa_wait(self):
-        """DONE ve wait_s > 0 → WAIT_AT_QR."""
+        """DONE ve wait_s > 0 -> WAIT_AT_QR."""
         ctx = _ctx(MissionState.EXECUTE_QR_TASK)
         ctx.current_qr = _qr(wait_s=3.0, next_qr=2)
         ctx.qr_task_step = QrTaskStep.DONE
@@ -364,7 +350,7 @@ class TestExecuteQrTask(unittest.TestCase):
         self.assertEqual(result, MissionState.WAIT_AT_QR)
 
     def test_done_next_qr_varsa_rotate(self):
-        """DONE, wait_s=0, next_qr > 0 → ROTATE_TO_NEXT."""
+        """DONE, wait_s=0, next_qr > 0 -> ROTATE_TO_NEXT."""
         ctx = _ctx(MissionState.EXECUTE_QR_TASK)
         ctx.current_qr = _qr(wait_s=0.0, next_qr=2)
         ctx.qr_task_step = QrTaskStep.DONE
@@ -372,7 +358,7 @@ class TestExecuteQrTask(unittest.TestCase):
         self.assertEqual(result, MissionState.ROTATE_TO_NEXT)
 
     def test_done_complete_mission_return_home(self):
-        """DONE ve complete_mission=True → RETURN_HOME."""
+        """DONE ve complete_mission=True -> RETURN_HOME."""
         ctx = _ctx(MissionState.EXECUTE_QR_TASK)
         ctx.current_qr = _qr(complete_mission=True)
         ctx.qr_task_step = QrTaskStep.DONE
@@ -380,7 +366,7 @@ class TestExecuteQrTask(unittest.TestCase):
         self.assertEqual(result, MissionState.RETURN_HOME)
 
     def test_done_son_qr_return_home(self):
-        """DONE, wait_s=0, next_qr=0 → RETURN_HOME (son QR)."""
+        """DONE, wait_s=0, next_qr=0 -> RETURN_HOME (son QR)."""
         ctx = _ctx(MissionState.EXECUTE_QR_TASK)
         ctx.current_qr = _qr(wait_s=0.0, next_qr=0)
         ctx.qr_task_step = QrTaskStep.DONE
@@ -388,16 +374,16 @@ class TestExecuteQrTask(unittest.TestCase):
         self.assertEqual(result, MissionState.RETURN_HOME)
 
     def test_qr_henuz_okunmadi_bekle(self):
-        """current_qr=None → kamera gecikmiş olabilir, timeout bekle.
+        """current_qr=None -> kamera gecikmiş olabilir, timeout bekle.
 
         Eski davranış (hemen RETURN_HOME) yanlış eve dönüşe yol açardı.
         """
         ctx = _ctx(MissionState.EXECUTE_QR_TASK)
         ctx.current_qr = None
-        self.assertIsNone(evaluate_transitions(ctx))  # timeout dolmadı → bekle
+        self.assertIsNone(evaluate_transitions(ctx))  # timeout dolmadı
 
     def test_qr_yoksa_timeout_sonrasi_return_home(self):
-        """current_qr=None + timeout doldu → RETURN_HOME."""
+        """current_qr=None + timeout doldu -> RETURN_HOME."""
         ctx = _ctx(MissionState.EXECUTE_QR_TASK)
         ctx.current_qr = None
         ctx.state_entry_time -= 91.0   # 91s geçmiş gibi simüle et
@@ -421,15 +407,13 @@ class TestExecuteQrTask(unittest.TestCase):
         self.assertEqual(result, MissionState.RETURN_HOME)
 
 
-# =================================================================
 # WAIT_AT_QR
-# =================================================================
 
 class TestWaitAtQr(unittest.TestCase):
     """WAIT_AT_QR state geçiş testleri."""
 
     def test_deadline_gecti_next_qr_var_rotate(self):
-        """Deadline doldu ve next_qr > 0 → ROTATE_TO_NEXT."""
+        """Deadline doldu ve next_qr > 0 -> ROTATE_TO_NEXT."""
         ctx = _ctx(MissionState.WAIT_AT_QR)
         ctx.current_qr = _qr(next_qr=2)
         ctx.wait_deadline = time.monotonic() - 1.0  # geçmiş deadline
@@ -437,7 +421,7 @@ class TestWaitAtQr(unittest.TestCase):
         self.assertEqual(result, MissionState.ROTATE_TO_NEXT)
 
     def test_deadline_gecti_next_qr_yok_return(self):
-        """Deadline doldu ve next_qr=0 → RETURN_HOME."""
+        """Deadline doldu ve next_qr=0 -> RETURN_HOME."""
         ctx = _ctx(MissionState.WAIT_AT_QR)
         ctx.current_qr = _qr(next_qr=0)
         ctx.wait_deadline = time.monotonic() - 1.0
@@ -459,7 +443,7 @@ class TestWaitAtQr(unittest.TestCase):
         self.assertIsNone(evaluate_transitions(ctx))
 
     def test_complete_mission_return_home(self):
-        """Deadline doldu ve complete_mission=True → RETURN_HOME."""
+        """Deadline doldu ve complete_mission=True -> RETURN_HOME."""
         ctx = _ctx(MissionState.WAIT_AT_QR)
         ctx.current_qr = _qr(next_qr=2, complete_mission=True)
         ctx.wait_deadline = time.monotonic() - 1.0
@@ -467,15 +451,13 @@ class TestWaitAtQr(unittest.TestCase):
         self.assertEqual(result, MissionState.RETURN_HOME)
 
 
-# =================================================================
 # ROTATE_TO_NEXT
-# =================================================================
 
 class TestRotateToNext(unittest.TestCase):
     """ROTATE_TO_NEXT state geçiş testleri."""
 
     def test_rotasyon_tamamlandi_navigate(self):
-        """EVENT_ROTATION_COMPLETED → NAVIGATE_TO_QR."""
+        """EVENT_ROTATION_COMPLETED -> NAVIGATE_TO_QR."""
         ctx = _ctx(MissionState.ROTATE_TO_NEXT)
         ctx.event_rotation_completed = True
         result = evaluate_transitions(ctx)
@@ -487,7 +469,7 @@ class TestRotateToNext(unittest.TestCase):
         ctx.event_rotation_completed = True
         result = evaluate_transitions(ctx)
         self.assertEqual(result, MissionState.NAVIGATE_TO_QR)
-        # transitions.py okur, yazmaz — flag hâlâ set
+        # transitions.py okur, yazmaz - flag hâlâ set
         self.assertTrue(ctx.event_rotation_completed)
         # node set_state() çağırdığında temizlenir
         ctx.set_state(MissionState.NAVIGATE_TO_QR)
@@ -506,15 +488,13 @@ class TestRotateToNext(unittest.TestCase):
         self.assertEqual(result, MissionState.NAVIGATE_TO_QR)
 
 
-# =================================================================
 # SEMI_AUTONOMOUS (Görev 2)
-# =================================================================
 
 class TestSemiAutonomous(unittest.TestCase):
     """SEMI_AUTONOMOUS state geçiş testleri."""
 
     def test_rtl_komutu_return_home(self):
-        """RTL komutu → RETURN_HOME."""
+        """RTL komutu -> RETURN_HOME."""
         ctx = _ctx(
             MissionState.SEMI_AUTONOMOUS,
             mission_type=MissionType.SEMI_AUTONOMOUS,
@@ -524,7 +504,7 @@ class TestSemiAutonomous(unittest.TestCase):
         self.assertEqual(result, MissionState.RETURN_HOME)
 
     def test_land_komutu_return_home(self):
-        """LAND komutu → RETURN_HOME."""
+        """LAND komutu -> RETURN_HOME."""
         ctx = _ctx(
             MissionState.SEMI_AUTONOMOUS,
             mission_type=MissionType.SEMI_AUTONOMOUS,
@@ -542,9 +522,7 @@ class TestSemiAutonomous(unittest.TestCase):
         self.assertIsNone(evaluate_transitions(ctx))
 
 
-# =================================================================
 # RETURN_HOME
-# =================================================================
 
 class TestReturnHome(unittest.TestCase):
     """RETURN_HOME state geçiş testleri."""
@@ -570,15 +548,13 @@ class TestReturnHome(unittest.TestCase):
         self.assertIsNone(evaluate_transitions(ctx))
 
 
-# =================================================================
 # LANDING
-# =================================================================
 
 class TestLanding(unittest.TestCase):
     """LANDING state geçiş testleri."""
 
     def test_hepsi_landed_complete(self):
-        """Tüm ajanlar LANDED → MISSION_COMPLETE."""
+        """Tüm ajanlar LANDED -> MISSION_COMPLETE."""
         ctx = _ctx(MissionState.LANDING)
         _all_agents(ctx, state=13)
         result = evaluate_transitions(ctx)
@@ -598,15 +574,13 @@ class TestLanding(unittest.TestCase):
         self.assertIsNone(evaluate_transitions(ctx))
 
 
-# =================================================================
 # PAUSED
-# =================================================================
 
 class TestPaused(unittest.TestCase):
     """PAUSED state geçiş testleri."""
 
     def test_resume_navigate(self):
-        """RESUME komutu → NAVIGATE_TO_QR."""
+        """RESUME komutu -> NAVIGATE_TO_QR."""
         ctx = _ctx(MissionState.PAUSED)
         ctx.pending_command = _RESUME
         result = evaluate_transitions(ctx)
@@ -618,9 +592,7 @@ class TestPaused(unittest.TestCase):
         self.assertIsNone(evaluate_transitions(ctx))
 
 
-# =================================================================
 # GLOBAL KOMUTLAR (her state'ten tetiklenir)
-# =================================================================
 
 class TestGlobalAbort(unittest.TestCase):
     """ABORT komutu tüm aktif state'lerden ABORTED'a götürmeli."""
@@ -693,21 +665,21 @@ class TestGlobalPause(unittest.TestCase):
     """PAUSE komutu uçuş state'lerinden PAUSED'a götürmeli."""
 
     def test_pause_navigate(self):
-        """NAVIGATE_TO_QR → PAUSED."""
+        """NAVIGATE_TO_QR -> PAUSED."""
         ctx = _ctx(MissionState.NAVIGATE_TO_QR)
         ctx.pending_command = _PAUSE
         result = evaluate_transitions(ctx)
         self.assertEqual(result, MissionState.PAUSED)
 
     def test_pause_execute_qr(self):
-        """EXECUTE_QR_TASK → PAUSED."""
+        """EXECUTE_QR_TASK -> PAUSED."""
         ctx = _ctx(MissionState.EXECUTE_QR_TASK)
         ctx.pending_command = _PAUSE
         result = evaluate_transitions(ctx)
         self.assertEqual(result, MissionState.PAUSED)
 
     def test_pause_idle_etkisiz(self):
-        """IDLE'da PAUSE etkisiz olmalı."""
+        """Aciklama: IDLE'da PAUSE etkisiz olmalı."""
         ctx = _ctx(MissionState.IDLE)
         ctx.pending_command = _PAUSE
         # IDLE'dan PAUSE tanımsız; START olmadan PREFLIGHT'a da geçmemeli
@@ -715,12 +687,10 @@ class TestGlobalPause(unittest.TestCase):
         self.assertNotEqual(result, MissionState.PAUSED)
 
 
-# =================================================================
 # FIND_FIRST_QR_STEP
-# =================================================================
 
 class TestFindFirstQrStep(unittest.TestCase):
-    """find_first_qr_step fonksiyon testleri."""
+    """Find_first_qr_step fonksiyon testleri."""
 
     def test_hic_aktif_yok_done(self):
         """Aktif bölüm yoksa DONE dönmeli."""
@@ -728,81 +698,79 @@ class TestFindFirstQrStep(unittest.TestCase):
         self.assertEqual(find_first_qr_step(qr), QrTaskStep.DONE)
 
     def test_sadece_formation(self):
-        """Yalnızca formation_active=True → FORMATION."""
+        """Yalnızca formation_active=True -> FORMATION."""
         qr = _qr(formation_active=True)
         self.assertEqual(find_first_qr_step(qr), QrTaskStep.FORMATION)
 
     def test_sadece_altitude(self):
-        """Yalnızca altitude_active=True → ALTITUDE."""
+        """Yalnızca altitude_active=True -> ALTITUDE."""
         qr = _qr(altitude_active=True)
         self.assertEqual(find_first_qr_step(qr), QrTaskStep.ALTITUDE)
 
     def test_sadece_maneuver(self):
-        """Yalnızca maneuver_active=True → MANEUVER."""
+        """Yalnızca maneuver_active=True -> MANEUVER."""
         qr = _qr(maneuver_active=True)
         self.assertEqual(find_first_qr_step(qr), QrTaskStep.MANEUVER)
 
     def test_sadece_detach(self):
-        """Yalnızca detach_active=True → DETACH."""
+        """Yalnızca detach_active=True -> DETACH."""
         qr = _qr(detach_active=True)
         self.assertEqual(find_first_qr_step(qr), QrTaskStep.DETACH)
 
     def test_formation_ve_maneuver_formation_once(self):
-        """formation ve maneuver aktifse önce FORMATION gelmeli."""
+        """Formation ve maneuver aktifse önce FORMATION gelmeli."""
         qr = _qr(formation_active=True, maneuver_active=True)
         self.assertEqual(find_first_qr_step(qr), QrTaskStep.FORMATION)
 
     def test_maneuver_ve_altitude_maneuver_once(self):
         """Maneuver ve altitude aktifse şartnameye göre MANEUVER önce gelmeli.
 
-        Şartname sırası: FORMATION → MANEUVER → ALTITUDE → DETACH.
+        Şartname sırası: FORMATION -> MANEUVER -> ALTITUDE -> DETACH.
         """
         qr = _qr(maneuver_active=True, altitude_active=True)
         self.assertEqual(find_first_qr_step(qr), QrTaskStep.MANEUVER)
 
     def test_none_qr_done(self):
-        """qr=None ise DONE dönmeli."""
+        """Qr=None ise DONE dönmeli."""
         self.assertEqual(find_first_qr_step(None), QrTaskStep.DONE)
 
 
-# =================================================================
 # FIND_NEXT_QR_STEP
-# =================================================================
 
 class TestFindNextQrStep(unittest.TestCase):
-    """find_next_qr_step fonksiyon testleri."""
+    """Find_next_qr_step fonksiyon testleri."""
 
     def test_formation_sonrasi_altitude(self):
-        """FORMATION tamamlandı, altitude aktif → ALTITUDE."""
+        """FORMATION tamamlandı, altitude aktif -> ALTITUDE."""
         qr = _qr(formation_active=True, altitude_active=True)
         result = find_next_qr_step(qr, QrTaskStep.FORMATION)
         self.assertEqual(result, QrTaskStep.ALTITUDE)
 
     def test_formation_sonrasi_sadece_maneuver(self):
-        """FORMATION tamamlandı, altitude yok, maneuver aktif → MANEUVER."""
+        """FORMATION tamamlandı, altitude yok, maneuver aktif -> MANEUVER."""
         qr = _qr(formation_active=True, maneuver_active=True)
         result = find_next_qr_step(qr, QrTaskStep.FORMATION)
         self.assertEqual(result, QrTaskStep.MANEUVER)
 
     def test_son_adim_done(self):
-        """Son aktif adım tamamlandı → DONE."""
+        """Son aktif adım tamamlandı -> DONE."""
         qr = _qr(formation_active=True)
         result = find_next_qr_step(qr, QrTaskStep.FORMATION)
         self.assertEqual(result, QrTaskStep.DONE)
 
     def test_altitude_sonrasi_detach(self):
-        """ALTITUDE tamamlandı, detach aktif → DETACH."""
+        """ALTITUDE tamamlandı, detach aktif -> DETACH."""
         qr = _qr(altitude_active=True, detach_active=True)
         result = find_next_qr_step(qr, QrTaskStep.ALTITUDE)
         self.assertEqual(result, QrTaskStep.DETACH)
 
     def test_none_qr_done(self):
-        """qr=None ise DONE dönmeli."""
+        """Qr=None ise DONE dönmeli."""
         result = find_next_qr_step(None, QrTaskStep.FORMATION)
         self.assertEqual(result, QrTaskStep.DONE)
 
     def test_tum_adimlar_aktif_sira(self):
-        """Tüm adımlar aktifken sıra: FORMATION→MANEUVER→ALTITUDE→DETACH."""
+        """Tüm adımlar aktifken sıra: FORMATION->MANEUVER->ALTITUDE->DETACH."""
         qr = _qr(
             formation_active=True,
             altitude_active=True,

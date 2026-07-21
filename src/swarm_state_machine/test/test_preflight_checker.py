@@ -1,4 +1,4 @@
-"""run_preflight_checks fonksiyonu için birim testleri."""
+"""Run_preflight_checks fonksiyonu için birim testleri."""
 
 import unittest
 

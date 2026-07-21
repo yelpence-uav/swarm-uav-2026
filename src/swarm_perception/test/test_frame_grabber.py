@@ -1,25 +1,7 @@
-# Copyright 2026 Yelpence TEKNOFEST 2026
-#
-# Permission is hereby granted, free of charge, to any person obtaining a copy
-# of this software and associated documentation files (the "Software"), to deal
-# in the Software without restriction, including without limitation the rights
-# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-# copies of the Software, and to permit persons to whom the Software is
-# furnished to do so, subject to the following conditions:
-#
-# The above copyright notice and this permission notice shall be included in
-# all copies or substantial portions of the Software.
-#
-# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
-# THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
-# THE SOFTWARE.
+# Copyright 2026 Yelpence
 
 """
-test_frame_grabber.py
+test_frame_grabber.py.
 
 FrameGrabber ve SimFrameGrabber birim testleri.
 
@@ -40,11 +22,11 @@ import numpy as np
 
 
 class TestSimFrameGrabber(unittest.TestCase):
-    """SimFrameGrabber testleri — mock gerektirmez, sentetik frame üretir."""
+    """SimFrameGrabber testleri - mock gerektirmez, sentetik frame üretir."""
 
     def setUp(self):
         # cv2 mock'landığı için SimFrameGrabber'ı burada import
-        # ediyoruz — putText mock olarak çalışacak.
+        # ediyoruz - putText mock olarak çalışacak.
         from swarm_perception.camera_driver.frame_grabber import (
             SimFrameGrabber,
         )
@@ -118,7 +100,7 @@ class TestSimFrameGrabber(unittest.TestCase):
 
 
 class TestFrameGrabberMock(unittest.TestCase):
-    """FrameGrabber testleri — cv2.VideoCapture mock'lanır."""
+    """FrameGrabber testleri - cv2.VideoCapture mock'lanır."""
 
     def setUp(self):
         from swarm_perception.camera_driver.frame_grabber import (
@@ -197,7 +179,7 @@ class TestFrameGrabberMock(unittest.TestCase):
         g.grab()
 
         mock_cv2.flip.assert_called_once()
-        # flip(frame, 0) — dikey çevirme
+        # flip(frame, 0) - dikey çevirme
         call_args = mock_cv2.flip.call_args
         self.assertEqual(call_args[0][1], 0)
 
@@ -217,7 +199,7 @@ class TestFrameGrabberMock(unittest.TestCase):
         g.open_camera()
         g.grab()
 
-        # flip(frame, -1) — her iki eksen
+        # flip(frame, -1) - her iki eksen
         call_args = mock_cv2.flip.call_args
         self.assertEqual(call_args[0][1], -1)
 

@@ -1,18 +1,6 @@
-#!/usr/bin/env python3
-"""Mock QR yayıncısı — GCS QRPanel'i qr_detector olmadan test etmek için.
+"""Mock QR yayıncısı - GCS QRPanel testi için.
 
-Şartname V2 örnek QR'larını (QR1..QR5, Şekil 2) `/swarm/public/perception/qr_data`
-topic'ine basar. Gerçekte bu topic'i network_proxy besler (qr_detector →
-/swarm/internal/... → proxy → /swarm/public/...). Test için doğrudan public'e
-yayınlıyoruz, tıpkı mock_agent_publisher gibi.
-
-Çalıştırma:
-  source /opt/ros/jazzy/setup.bash
-  source /home/yelpence/ros2_ws/install/setup.bash   # swarm_interfaces
-  python3 mock_qr_publisher.py                # 5 sn'de bir sıradaki QR
-  python3 mock_qr_publisher.py --team 2       # takım 2 senaryosu (ayrılma içerir)
-
-GCS'te (sağ panel) "QR GÖREV" kartının dolmasını izle.
+Şartname V2 örnek QR verilerini public topic'e basar.
 """
 
 import argparse
@@ -24,13 +12,25 @@ from rclpy.qos import QoSProfile, QoSReliabilityPolicy
 from swarm_interfaces.msg import QRMissionData
 
 
-def _qr(qr_id, next_qr, *, formation=0, spacing=0.0, alt=0.0,
-        pitch=0.0, roll=0.0, detach_id=0, detach_color=0, wait=4.0,
-        team_id="2", raw=""):
+def _qr(
+    qr_id,
+    next_qr,
+    *,
+    formation=0,
+    spacing=0.0,
+    alt=0.0,
+    pitch=0.0,
+    roll=0.0,
+    detach_id=0,
+    detach_color=0,
+    wait=4.0,
+    team_id="2",
+    raw="",
+):
     """Tek bir QRMissionData mesajı kur (şartname alan kurallarına göre)."""
     m = QRMissionData()
     m.qr_id = qr_id
-    m.qr_seq = qr_id            # örnek: seq = qr_id
+    m.qr_seq = qr_id  # örnek: seq = qr_id
     m.next_qr = next_qr
     m.team_id = team_id
     m.detected = True
@@ -60,13 +60,50 @@ def _qr(qr_id, next_qr, *, formation=0, spacing=0.0, alt=0.0,
     return m
 
 
-# Şekil 2 QR1 + QR2 örnekleri (FORMATION: 1=ok,2=v,3=çizgi; COLOR:1=kırmızı,2=mavi)
+# FORMATION: 1=ok, 2=v, 3=çizgi | COLOR: 1=kırmızı, 2=mavi
 SCENARIO = [
-    _qr(1, 4, formation=1, spacing=6, alt=20, pitch=-10, raw='QR1 · ok başı 6m · pitch -10 · alt 20'),
-    _qr(4, 2, formation=3, spacing=7, alt=26, roll=-5, raw='QR4 · çizgi 7m · roll -5 · alt 26'),
-    _qr(2, 3, detach_id=3, detach_color=2, raw='QR2 · Drone 3 mavi bölgeye ayrılır'),
-    _qr(3, 5, formation=2, spacing=7, alt=28, pitch=-15, raw='QR3 · V 7m · pitch -15 · alt 28'),
-    _qr(5, 0, formation=3, spacing=5, alt=3, raw='QR5 · çizgi 5m · alt 3 · GÖREV SONU'),
+    _qr(
+        1,
+        4,
+        formation=1,
+        spacing=6,
+        alt=20,
+        pitch=-10,
+        raw="QR1 · ok başı 6m · pitch -10 · alt 20",
+    ),
+    _qr(
+        4,
+        2,
+        formation=3,
+        spacing=7,
+        alt=26,
+        roll=-5,
+        raw="QR4 · çizgi 7m · roll -5 · alt 26",
+    ),
+    _qr(
+        2,
+        3,
+        detach_id=3,
+        detach_color=2,
+        raw="QR2 · Drone 3 mavi bölgeye ayrılır",
+    ),
+    _qr(
+        3,
+        5,
+        formation=2,
+        spacing=7,
+        alt=28,
+        pitch=-15,
+        raw="QR3 · V 7m · pitch -15 · alt 28",
+    ),
+    _qr(
+        5,
+        0,
+        formation=3,
+        spacing=5,
+        alt=3,
+        raw="QR5 · çizgi 5m · alt 3 · GÖREV SONU",
+    ),
 ]
 
 
@@ -81,7 +118,7 @@ class MockQRPublisher(Node):
         self.idx = 0
         self.timer = self.create_timer(period, self.tick)
         self.get_logger().info(
-            f"Mock QR yayıncısı başladı → /swarm/public/perception/qr_data "
+            f"Mock QR yayıncısı başladı - /swarm/public/perception/qr_data "
             f"({period:.0f}s aralık, takım={team_id})"
         )
 
@@ -90,7 +127,7 @@ class MockQRPublisher(Node):
         msg.team_id = self.team_id
         self.pub.publish(msg)
         self.get_logger().info(
-            f"QR yayınlandı: #{msg.qr_id} → sonraki #{msg.next_qr} "
+            f"QR yayınlandı: #{msg.qr_id} -> sonraki #{msg.next_qr} "
             f"(form={msg.formation_type} alt={msg.altitude_agl_m:.0f} "
             f"ayrılma={msg.detach_active})"
         )
@@ -99,7 +136,9 @@ class MockQRPublisher(Node):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--period", type=float, default=5.0, help="QR aralığı (sn)")
+    ap.add_argument(
+        "--period", type=float, default=5.0, help="QR aralığı (sn)"
+    )
     ap.add_argument("--team", default="2", help="team_id")
     args = ap.parse_args()
 

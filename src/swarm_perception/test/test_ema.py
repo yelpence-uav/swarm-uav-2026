@@ -1,4 +1,4 @@
-"""test_ema.py — _EmaDurum sınıfı birim testleri.
+"""test_ema.py - _EmaDurum sınıfı birim testleri.
 
 EMA matematiği basit; testin amacı:
 - İlk ölçümde "warm start" yaparak ham değeri kullanmak
@@ -77,7 +77,7 @@ def test_yakinsama_sabit_olcume():
 
 
 def test_nan_olcum_reddedilir():
-    """NaN içeren ölçüm filtreyi kirletmemeli (geçmiş korunmalı)."""
+    """Aciklama: NaN içeren ölçüm filtreyi kirletmemeli (geçmiş korunmalı)."""
     f = _EmaDurum(alpha_pos=0.3, alpha_vel=0.5)
     f.guncelle(_yapay_status(pos_x=10.0, vel_x=1.0))
     onceki_x = f.x

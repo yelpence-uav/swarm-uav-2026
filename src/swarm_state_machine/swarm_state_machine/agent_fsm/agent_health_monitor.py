@@ -1,9 +1,10 @@
-"""Drone uçuş sağlık kontrollerini her FSM tick'inde çalıştırır."""
+# Copyright 2026 Yelpence
+"""Drone ucus saglik kontrollerini calistirir."""
 
-import statistics
-import time
 from collections import deque
 from dataclasses import dataclass
+import statistics
+import time
 
 from swarm_interfaces.msg import SystemEvent
 
@@ -42,16 +43,8 @@ _AIRBORNE = frozenset({
 
 @dataclass
 class HealthCheckResult:
-    """
-    check() fonksiyonunun döndürdüğü sonuç.
+    """check() fonksiyonunun dondurdugu sonuc."""
 
-    Attributes:
-        critical_fault: True ise node FAILSAFE geçişi uygular.
-        safety_hold: True ise node hold_active'i aktif eder.
-        warning: Sadece log/status_text; state değişmez.
-        event_type: Yayınlanacak SystemEvent.event_type değeri.
-        reason: status_text ve log için açıklama.
-    """
     critical_fault: bool = False
     safety_hold: bool = False
     warning: bool = False
@@ -60,39 +53,30 @@ class HealthCheckResult:
 
 
 class _StabilityWindow:
-    """Son 2 saniyelik telemetri penceresi (10 Hz × 2 s = 20 örnek)."""
+    """Son 2 saniyelik telemetri penceresi."""
 
     MAXLEN = 20
 
     def __init__(self) -> None:
-        self.pos_z: deque[float] = deque(maxlen=self.MAXLEN)
-        self.vel_z: deque[float] = deque(maxlen=self.MAXLEN)
-        self.roll: deque[float] = deque(maxlen=self.MAXLEN)
-        self.pitch: deque[float] = deque(maxlen=self.MAXLEN)
+        self.pos_z = deque(maxlen=self.MAXLEN)
+        self.vel_z = deque(maxlen=self.MAXLEN)
+        self.roll = deque(maxlen=self.MAXLEN)
+        self.pitch = deque(maxlen=self.MAXLEN)
 
     def update(self, ctx: AgentContext) -> None:
-        """Her tick'te anlık sensör verisini kuyruğa ekler.
-
-        Args:
-            ctx (AgentContext): Drone'un anlık durum bilgisi.
-        """
+        """Sensor verisini kuyruga ekler."""
         self.pos_z.append(ctx.pos_z)
         self.vel_z.append(ctx.vel_z)
         self.roll.append(ctx.roll_deg)
         self.pitch.append(ctx.pitch_deg)
 
     def is_full(self) -> bool:
-        """İstatistik hesabı için yeterli veri olup olmadığını döner.
-
-        Returns:
-            bool: Pencere doluysa True.
-        """
+        """Pencere dolu mu?."""
         return len(self.pos_z) == self.MAXLEN
 
 
 _windows: dict[int, _StabilityWindow] = {}
 
-# Yerde veya başlangıçta stabilite penceresi sıfırlanmalı
 _GROUND_STATES = frozenset({
     AgentState.UNKNOWN,
     AgentState.IDLE,
@@ -102,30 +86,12 @@ _GROUND_STATES = frozenset({
 
 
 def clear_window(agent_id: int) -> None:
-    """Belirtilen ajan için stabilite penceresini temizler.
-
-    Node yeniden başlatıldığında veya ajan yere indiğinde
-    eski verilerin kalmaması için çağrılmalıdır.
-
-    Args:
-        agent_id: Temizlenecek ajanın ID'si.
-    """
+    """Belirtilen ajan icin stabilite penceresini temizler."""
     _windows.pop(agent_id, None)
 
 
 def _get_window(ctx: AgentContext) -> _StabilityWindow:
-    """Bu drone'un stabilite penceresini döner, yoksa yeni oluşturur.
-
-    Drone yerdeyse (IDLE, LANDED, STANDBY) eski pencere temizlenir
-    ve yeni boş pencere oluşturulur — eski uçuş verileri
-    yeni kalkışı kirletmez.
-
-    Args:
-        ctx (AgentContext): Drone'un anlık durum bilgisi.
-
-    Returns:
-        _StabilityWindow: Drone'a ait stabilite penceresi.
-    """
+    """Bu drone'un stabilite penceresini doner."""
     aid = ctx.agent_id
     if ctx.state in _GROUND_STATES:
         _windows.pop(aid, None)
@@ -135,17 +101,7 @@ def _get_window(ctx: AgentContext) -> _StabilityWindow:
 
 
 def check(ctx: AgentContext) -> HealthCheckResult:
-    """
-    Tüm uçuş sağlık kontrollerini sırayla çalıştırır.
-
-    Kritik hatalar önce kontrol edilir; bulununca erken döner.
-
-    Args:
-        ctx: Drone'un anlık durum bilgisi (bazı alanlar burada güncellenir).
-
-    Returns:
-        HealthCheckResult: node'un karar vereceği sonuç.
-    """
+    """Tüm uçuş sağlık kontrollerini sırayla çalıştırır."""
     result = _check_critical_faults(ctx)
     if result.critical_fault:
         return result
@@ -174,15 +130,7 @@ def check(ctx: AgentContext) -> HealthCheckResult:
 
 
 def _check_critical_faults(ctx: AgentContext) -> HealthCheckResult:
-    """
-    En kritik donanım hatalarını kontrol eder.
-
-    Args:
-        ctx: Drone durum bilgisi.
-
-    Returns:
-        HealthCheckResult: critical_fault veya warning.
-    """
+    """Kritik donanim hatalarini kontrol eder."""
     if not ctx.px4_link_ok:
         return HealthCheckResult(
             critical_fault=True,
@@ -190,18 +138,25 @@ def _check_critical_faults(ctx: AgentContext) -> HealthCheckResult:
             reason='PX4 link koptu',
         )
 
-    # SITL'de yaw hizalaması başlangıçta salınım yapar; real flight'ta her zaman kontrol et
-    if ctx.state in _AIRBORNE and not ctx.estimator_ok and not ctx.sitl_mode:
+    is_airborne_est_err = (
+        ctx.state in _AIRBORNE
+        and not ctx.estimator_ok
+        and not ctx.sitl_mode
+    )
+    if is_airborne_est_err:
         return HealthCheckResult(
             critical_fault=True,
             event_type=SystemEvent.EVENT_AGENT_FAULT,
             reason='EKF2 estimator hatalı',
         )
 
-    if (ctx.state in _AIRBORNE
-            and ctx.offboard_lost_since is not None
-            and (time.monotonic() - ctx.offboard_lost_since)
-            > _OFFBOARD_LOSS_TIMEOUT_S):
+    is_offboard_lost = (
+        ctx.state in _AIRBORNE
+        and ctx.offboard_lost_since is not None
+        and (time.monotonic() - ctx.offboard_lost_since)
+        > _OFFBOARD_LOSS_TIMEOUT_S
+    )
+    if is_offboard_lost:
         return HealthCheckResult(
             critical_fault=True,
             event_type=SystemEvent.EVENT_OFFBOARD_LOST,
@@ -237,17 +192,7 @@ def _check_critical_faults(ctx: AgentContext) -> HealthCheckResult:
 
 
 def _check_rc_safety(ctx: AgentContext) -> HealthCheckResult:
-    """
-    RC güvenlik kontrollerini yapar (kill switch, bağlantı, sinyal failsafe).
-
-    SITL modunda RC kontrolü atlanır.
-
-    Args:
-        ctx: Drone durum bilgisi.
-
-    Returns:
-        HealthCheckResult: critical_fault veya warning.
-    """
+    """RC guvenlik kontrollerini yapar."""
     if ctx.kill_switch_active:
         return HealthCheckResult(
             critical_fault=True,
@@ -270,7 +215,12 @@ def _check_rc_safety(ctx: AgentContext) -> HealthCheckResult:
             reason=reason,
         )
 
-    if ctx.rc_signal_failsafe_active and ctx.state in _AIRBORNE and not ctx.sitl_mode:
+    is_rc_failsafe = (
+        ctx.rc_signal_failsafe_active
+        and ctx.state in _AIRBORNE
+        and not ctx.sitl_mode
+    )
+    if is_rc_failsafe:
         return HealthCheckResult(
             critical_fault=True,
             event_type=SystemEvent.EVENT_AGENT_FAULT,
@@ -281,20 +231,9 @@ def _check_rc_safety(ctx: AgentContext) -> HealthCheckResult:
 
 
 def _check_geofence(ctx: AgentContext) -> HealthCheckResult:
-    """
-    Jeofen ihlalini kontrol eder.
-
-    Şartname kural 31: ihlalde RTL zorunlu. critical_fault=True ile
-    FAILSAFE → RTL zinciri tetiklenir.
-
-    Args:
-        ctx: Drone durum bilgisi.
-
-    Returns:
-        HealthCheckResult: critical_fault veya boş sonuç.
-    """
+    """Geofence ihlalini kontrol eder."""
     if ctx.geofence_violated and ctx.state in _AIRBORNE:
-        reason = 'Jeofen ihlali tespit edildi — RTL başlatılıyor'
+        reason = 'Jeofen ihlali tespit edildi - RTL başlatılıyor'
         ctx.status_text = reason
         return HealthCheckResult(
             critical_fault=True,
@@ -305,15 +244,7 @@ def _check_geofence(ctx: AgentContext) -> HealthCheckResult:
 
 
 def _check_state_timeout(ctx: AgentContext) -> HealthCheckResult:
-    """
-    Bir state'te çok uzun kalındı mı kontrol eder.
-
-    Args:
-        ctx: Drone durum bilgisi.
-
-    Returns:
-        HealthCheckResult: critical_fault veya safety_hold.
-    """
+    """Bir state'te cok uzun kalindi mi kontrol eder."""
     elapsed = ctx.time_in_state()
 
     if ctx.state == AgentState.TAKEOFF and elapsed > _TAKEOFF_TIMEOUT_S:
@@ -344,18 +275,10 @@ def _check_state_timeout(ctx: AgentContext) -> HealthCheckResult:
 
 
 def _check_flight_stability(ctx: AgentContext) -> None:
-    """
-    Son 2 saniyelik veriden stabilite bayraklarını hesaplar.
-
-    ctx alanlarını in-place günceller; sonuç döndürmez.
-
-    Args:
-        ctx: Drone durum bilgisi.
-    """
+    """Son 2 saniyelik veriden stabilite bayraklarini hesaplar."""
     win = _get_window(ctx)
     win.update(ctx)
 
-    # NED'de yukarı = negatif z; 0.5m toleransla hedef irtifaya ulaşıldı mı?
     ctx.target_altitude_reached = (
         ctx.pos_z <= -(ctx.target_altitude_m - _ALT_REACH_THR)
     )
@@ -385,19 +308,11 @@ def _check_flight_stability(ctx: AgentContext) -> None:
 
 
 def _check_altitude_limits(ctx: AgentContext) -> HealthCheckResult:
-    """
-    Maksimum irtifa sınırını kontrol eder.
-
-    Args:
-        ctx: Drone durum bilgisi.
-
-    Returns:
-        HealthCheckResult: safety_hold veya boş sonuç.
-    """
+    """Maksimum irtifa sinirini kontrol eder."""
     if ctx.state not in _AIRBORNE:
         return HealthCheckResult()
 
-    altitude_m = -ctx.pos_z  # NED → pozitif yukarı
+    altitude_m = -ctx.pos_z
     if altitude_m > _MAX_ALTITUDE_M:
         reason = (
             f'Irtifa limiti asildi: {altitude_m:.1f}m '
@@ -414,14 +329,7 @@ def _check_altitude_limits(ctx: AgentContext) -> HealthCheckResult:
 
 
 def _check_role_state_consistency(ctx: AgentContext) -> None:
-    """
-    Role ve state arasında mantıksal çelişki var mı kontrol eder.
-
-    Çelişki varsa status_text güncellenir; state değişmez.
-
-    Args:
-        ctx: Drone durum bilgisi (status_text güncellenir).
-    """
+    """Role ve state tutarliligini kontrol eder."""
     if (
         ctx.role == AgentRole.STANDBY
         and ctx.state == AgentState.IN_SWARM

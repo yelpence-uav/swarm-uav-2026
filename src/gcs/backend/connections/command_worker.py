@@ -1,6 +1,6 @@
-"""CommandGate kuyruklarını drain eden worker — drone başına ayrı thread.
+"""CommandGate kuyruklarini isleyen worker thread'i.
 
-Her drone için bir thread:
+Her drone icin bir thread:
   while not stopped:
       cmd = gate.get(drone_id, timeout=0.5)
       if cmd: dispatch(sender, sysid, cmd)
@@ -69,10 +69,20 @@ class CommandWorker:
             elif action == "loiter":
                 self.sender.loiter(sysid)
             elif action == "arm":
-                self.sender.arm(sysid, force=bool(cmd.params.get("force", False)))
+                self.sender.arm(
+                    sysid, force=bool(cmd.params.get("force", False))
+                )
             elif action == "disarm":
-                self.sender.disarm(sysid, force=bool(cmd.params.get("force", False)))
+                self.sender.disarm(
+                    sysid, force=bool(cmd.params.get("force", False))
+                )
             else:
-                logger.warning("bilinmeyen action: %s (drone=%d)", action, cmd.drone_id)
+                logger.warning(
+                    "bilinmeyen action: %s (drone=%d)", action, cmd.drone_id
+                )
         except Exception:
-            logger.exception("worker dispatch hata: drone=%d action=%s", cmd.drone_id, cmd.action)
+            logger.exception(
+                "worker dispatch hata: drone=%d action=%s",
+                cmd.drone_id,
+                cmd.action,
+            )

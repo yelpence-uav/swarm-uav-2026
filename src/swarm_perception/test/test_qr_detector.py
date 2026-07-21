@@ -1,32 +1,14 @@
-# Copyright 2026 Yelpence TEKNOFEST 2026
-#
-# Permission is hereby granted, free of charge, to any person obtaining a copy
-# of this software and associated documentation files (the "Software"), to deal
-# in the Software without restriction, including without limitation the rights
-# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-# copies of the Software, and to permit persons to whom the Software is
-# furnished to do so, subject to the following conditions:
-#
-# The above copyright notice and this permission notice shall be included in
-# all copies or substantial portions of the Software.
-#
-# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
-# THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
-# THE SOFTWARE.
+# Copyright 2026 Yelpence
 
 """
-test_qr_detector.py
+test_qr_detector.py.
 
 QRDetector birim testleri.
 Pyzbar mocklanarak saf test edilir.
 """
 
-import unittest
 import sys
+import unittest
 from unittest.mock import MagicMock, patch
 
 import numpy as np
@@ -95,7 +77,7 @@ class TestQRDetector(unittest.TestCase):
 
     def test_parse_formation(self) -> None:
         """Formasyon verilerinin doğru parse edilmesi."""
-        text = "team_id=YELPENCE; formation=V; spacing_m=5.0"
+        text = 'team_id=YELPENCE; formation=V; spacing_m=5.0'
         parsed = self.detector._parse_qr_text(text)
 
         self.assertTrue(parsed['valid'])
@@ -105,7 +87,7 @@ class TestQRDetector(unittest.TestCase):
 
     def test_parse_maneuver(self) -> None:
         """Manevra verilerinin doğru parse edilmesi."""
-        text = "team_id=YELPENCE; pitch_deg=-15.5"
+        text = 'team_id=YELPENCE; pitch_deg=-15.5'
         parsed = self.detector._parse_qr_text(text)
 
         self.assertTrue(parsed['maneuver_active'])
@@ -113,7 +95,7 @@ class TestQRDetector(unittest.TestCase):
 
     def test_parse_detach(self) -> None:
         """Ayrılma ve renk verilerinin doğru parse edilmesi."""
-        text = "team_id=YELPENCE; detach_color=RED"
+        text = 'team_id=YELPENCE; detach_color=RED'
         parsed = self.detector._parse_qr_text(text)
 
         self.assertTrue(parsed['detach_active'])

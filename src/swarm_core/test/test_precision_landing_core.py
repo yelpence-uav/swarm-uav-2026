@@ -1,24 +1,6 @@
-# Copyright 2026 Yelpence TEKNOFEST 2026
-#
-# Permission is hereby granted, free of charge, to any person obtaining a copy
-# of this software and associated documentation files (the "Software"), to deal
-# in the Software without restriction, including without limitation the rights
-# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-# copies of the Software, and to permit persons to whom the Software is
-# furnished to do so, subject to the following conditions:
-#
-# The above copyright notice and this permission notice shall be included in
-# all copies or substantial portions of the Software.
-#
-# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
-# THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
-# THE SOFTWARE.
+# Copyright 2026 Yelpence
 
-"""test_precision_landing_core.py — hassas iniş durum makinesi testleri."""
+"""test_precision_landing_core.py - hassas iniş durum makinesi testleri."""
 
 from swarm_core.precision_landing.precision_landing_core import (
     COLOR_BLUE,
@@ -40,7 +22,7 @@ _MAP = [
 
 
 def _pose(x, y, alt, heading=0.0):
-    """alt = AGL irtifa (m). NED z = -alt."""
+    """Alt = AGL irtifa (m). NED z = -alt."""
     return (x, y, -alt, heading)
 
 
@@ -124,13 +106,13 @@ def test_zaman_asimi_iptal():
 
 
 def test_canli_kamera_merkezde_hedef_dron_altinda():
-    """Kamera merkezinde bölge → projekte hedef dronun altına düşer."""
+    """Kamera merkezinde bölge - projekte hedef dronun altına düşer."""
     core = PrecisionLandingCore()
     core.update(True, _pose(0, 0, 15), COLOR_RED, _MAP, None, 0.0)
     live = {'valid': True, 'color': COLOR_RED, 'frac_fwd': 0.0,
             'frac_right': 0.0, 'fov_deg': 60.0}
     cmd = core.update(True, _pose(3.0, 4.0, 15.0), COLOR_RED, _MAP, live, 0.1)
     assert cmd.in_view is True
-    # Merkez tespit → hedef ~dron konumu → çok küçük hız.
+    # Merkez tespit - hedef ~dron konumu - çok küçük hız.
     speed = (cmd.vx ** 2 + cmd.vy ** 2) ** 0.5
     assert speed < 0.1

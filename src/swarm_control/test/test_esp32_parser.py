@@ -1,4 +1,4 @@
-"""test_esp32_parser.py — UART çerçeve çözümleme birim testleri."""
+"""test_esp32_parser.py - UART çerçeve çözümleme birim testleri."""
 
 import struct
 

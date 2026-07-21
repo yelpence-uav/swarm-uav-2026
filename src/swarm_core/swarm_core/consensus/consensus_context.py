@@ -1,14 +1,10 @@
-"""Consensus durumu — ajan cache ve lider state (saf veri).
-
-swarm_context.py muadili: yalnızca durum + minimal yardımcılar tutar.
-Karar mantığı election.py'de, ROS bağlantısı consensus_node.py'de.
-"""
+"""Consensus durumu: ajan cache ve lider state."""
 
 from swarm_interfaces.msg import AgentStatus
 
 
 class AgentRec:
-    """Bir ajanın consensus için gereken minimal durumu."""
+    """Bir ajanin consensus icin gereken durumu."""
 
     __slots__ = (
         'agent_id', 'state', 'role', 'healthy',
@@ -24,7 +20,10 @@ class AgentRec:
         self.battery_v = 0.0
         self.last_update = 0.0
 
-    def is_stale(self, now: float, timeout_s: float) -> bool:
+    def is_stale(
+        self, now: float, timeout_s: float
+    ) -> bool:
+        """Timeout suresi gecmisse True doner."""
         if self.last_update <= 0.0:
             return True
         return (now - self.last_update) > timeout_s
@@ -42,38 +41,35 @@ class ConsensusContext:
         battery_min_v: float,
         grace_s: float,
     ) -> None:
-        # Parametreler
         self.agent_id = agent_id
         self.agent_count = agent_count
         self.stale_s = stale_s
         self.hb_timeout_s = hb_timeout_s
         self.battery_min_v = battery_min_v
-        self.grace_s = grace_s        # bootstrap grace süresi
+        self.grace_s = grace_s
 
-        # Ajan cache
         self.agents: dict[int, AgentRec] = {}
 
-        # Lider durumu (non-preemptive: lider düşene kadar değişmez)
+        # Lider durumu
         self.leader_id = 0
         self.is_leader = False
         self.election_round = 0
-        self.last_hb_time = 0.0       # liderden son heartbeat (follower)
-        self.bootstrap_since = 0.0    # lider yokken ilk uygun görülme anı
+        self.last_hb_time = 0.0
+        self.bootstrap_since = 0.0
 
-        # Mesaj sayaçları / stale filtresi
-        self.max_seen_seq = 0         # gelen ElectionResult stale filtresi
-        self.out_seq = 0              # giden ElectionResult sayacı
-        self.hb_seq = 0               # giden heartbeat sayacı
+        # Mesaj sayaclari
+        self.max_seen_seq = 0
+        self.out_seq = 0
+        self.hb_seq = 0
 
-        # Uygulanan rol (tekrar AssignRole çağrısını önlemek için)
         self.applied_role = AgentStatus.ROLE_UNKNOWN
-
-        # Heartbeat bağlamı (placeholder — kritik değil; ileride SwarmState'ten).
         self.mission_active = False
 
     def update_status(
-        self, agent_id: int, msg: AgentStatus, now: float,
+        self, agent_id: int, msg: AgentStatus,
+        now: float,
     ) -> None:
+        """Ajan durumunu gunceller."""
         rec = self.agents.get(agent_id)
         if rec is None:
             rec = AgentRec(agent_id)
@@ -86,4 +82,5 @@ class ConsensusContext:
         rec.last_update = now
 
     def own(self) -> AgentRec | None:
+        """Kendi ajan kaydimizi doner."""
         return self.agents.get(self.agent_id)

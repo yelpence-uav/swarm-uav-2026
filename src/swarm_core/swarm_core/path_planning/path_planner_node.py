@@ -1,4 +1,5 @@
-"""ROS 2 doğrusal rota planlama düğümü (Path Planner Node)."""
+# Copyright 2026 Yelpence
+"""ROS 2 dogrusal rota planlama dugumu."""
 
 import rclpy
 from rclpy.node import Node
@@ -10,6 +11,7 @@ from rclpy.qos import (
 )
 
 from swarm_interfaces.msg import FormationCommand
+
 from .linear_trajectory import LinearTrajectoryPlanner
 
 _RELIABLE_QOS = QoSProfile(
@@ -21,19 +23,18 @@ _RELIABLE_QOS = QoSProfile(
 
 
 class PathPlannerNode(Node):
-    """Doğrusal yörünge üreterek FormationCommand yayınlayan düğüm."""
+    """Dogrusal yoringe ureterek FormationCommand yayinlayan dugum."""
 
     def __init__(self) -> None:
-        """Düğümü başlatır ve parametreleri okur."""
         super().__init__('path_planner_node')
 
         self.declare_parameter('max_speed_mps', 3.0)
         self.declare_parameter('control_rate_hz', 5.0)
 
-        self._max_speed_mps: float = float(
+        self._max_speed_mps = float(
             self.get_parameter('max_speed_mps').value
         )
-        self._control_rate_hz: float = float(
+        self._control_rate_hz = float(
             self.get_parameter('control_rate_hz').value
         )
 
@@ -43,10 +44,9 @@ class PathPlannerNode(Node):
         )
 
         self._waypoints: list[tuple[float, float, float]] = []
-        self._current_cmd: FormationCommand | None = None
-        self._last_pos: tuple[float, float, float] | None = None
+        self._current_cmd = None
+        self._last_pos = None
 
-        # Hedef koordinatı dinler (Örn: mission_fsm'den)
         self.create_subscription(
             FormationCommand,
             '/swarm/path_planning/target',
@@ -54,7 +54,6 @@ class PathPlannerNode(Node):
             _RELIABLE_QOS
         )
 
-        # Interpolasyon yapılmış ara noktaları formation_control'e gönderir
         self._cmd_pub = self.create_publisher(
             FormationCommand,
             '/swarm/internal/formation/target',
@@ -69,11 +68,7 @@ class PathPlannerNode(Node):
         self.get_logger().info('Path Planner Node baslatildi.')
 
     def _on_target_received(self, msg: FormationCommand) -> None:
-        """Yeni bir hedef rota komutu alındığında tetiklenir.
-
-        Args:
-            msg (FormationCommand): Hedef konum ve konfigürasyon verisi.
-        """
+        """Yeni bir hedef rota komutu alindiginda tetiklenir."""
         if self._last_pos is None:
             self._last_pos = (msg.center_x, msg.center_y, msg.center_z)
 
@@ -84,18 +79,17 @@ class PathPlannerNode(Node):
         )
         self._current_cmd = msg
         self.get_logger().info(
-            f'Yeni rota olusturuldu. Toplam {len(self._waypoints)} adim.'
+            f'Yeni rota olusturuldu: {len(self._waypoints)} adim.'
         )
 
     def _timer_callback(self) -> None:
-        """Düzenli aralıklarla sonraki ara noktayı yayınlar."""
+        """Duzenli araliklarla sonraki ara noktayi yayinlar."""
         if not self._waypoints or self._current_cmd is None:
             return
 
         next_pos = self._waypoints.pop(0)
         self._last_pos = next_pos
 
-        # Komutu kopyala ve merkez koordinatını güncelle
         out_msg = FormationCommand()
         out_msg.stamp = self.get_clock().now().to_msg()
         out_msg.sequence_num = self._current_cmd.sequence_num
@@ -132,7 +126,6 @@ class PathPlannerNode(Node):
 
 
 def main(args=None) -> None:
-    """ROS 2 giriş noktası."""
     rclpy.init(args=args)
     node = PathPlannerNode()
     try:
@@ -141,7 +134,11 @@ def main(args=None) -> None:
         pass
     finally:
         node.destroy_node()
-        rclpy.try_shutdown()
+        try:
+            if rclpy.ok():
+                rclpy.shutdown()
+        except Exception:  # noqa: BLE001
+            pass
 
 
 if __name__ == '__main__':

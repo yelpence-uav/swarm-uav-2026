@@ -16,7 +16,7 @@ export function SwarmStatePanel({ swarmState }: SwarmStatePanelProps) {
       <section className="swarm-state-panel swarm-state-panel--empty">
         <span className="swarm-state-panel__title">SÜRÜ DURUMU</span>
         <span className="swarm-state-panel__placeholder">
-          (henüz SwarmState mesajı yok — swarm_fsm bekleniyor)
+          (henüz SwarmState mesajı yok - swarm_fsm bekleniyor)
         </span>
       </section>
     );
@@ -63,12 +63,12 @@ export function SwarmStatePanel({ swarmState }: SwarmStatePanelProps) {
           value={
             swarmState.current_qr_id > 0
               ? `#${swarmState.current_qr_id} (${swarmState.current_qr_seq})`
-              : "—"
+              : "-"
           }
         />
         <Stat
           label="Görev"
-          value={swarmState.active_mission || "—"}
+          value={swarmState.active_mission || "-"}
         />
       </div>
       {swarmState.status_text && (

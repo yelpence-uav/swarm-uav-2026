@@ -6,7 +6,7 @@ interface QRIconOptions {
 }
 
 /**
- * QR nokta işaretçisi — haritada sabit QR konumlarını gösterir (şartname
+ * QR nokta işaretçisi - haritada sabit QR konumlarını gösterir (şartname
  * V2: QR kodları sabit konumlarda, 150×150cm). Aktif QR (mission_fsm'in
  * icra ettiği) nabız atan halka ile vurgulanır.
  */

@@ -1,27 +1,18 @@
-"""cobs.py — Consistent Overhead Byte Stuffing (COBS) çöz/kodla.
+"""COBS (Consistent Overhead Byte Stuffing) kodlama/cozme.
 
-ESP32 firmware UART paketlerini COBS ile kodlayıp 0x00 ayracı ile
-çerçeveler. Bu modül o çerçeveleri çözer (decode) ve gerektiğinde
-RPi -> ESP32 yönü için kodlar (encode).
-
-Çerçeve formatı (firmware ile AYNI):
-    [COBS kodlu veri ...][0x00]
-0x00 baytı yalnızca çerçeve sonunda bulunur; COBS kodlu veri içinde
-hiç 0x00 yoktur.
+ESP32 UART paketleri COBS ile kodlanip 0x00 ayirici
+ile cercevelenir. Bu modul o cerceveleri cozer/kodlar.
 """
 
 
 def cobs_decode(giris: bytes) -> bytes:
-    """COBS kodlu bir baytı (0x00 ayracı HARİÇ) çözer.
-
-    Firmware'deki cobs_decode() ile aynı mantık. Girdi, çerçeve sonundaki
-    0x00 ayracı atıldıktan sonraki ham COBS verisidir.
+    """COBS kodlu veriyi cozer (sondaki 0x00 haric).
 
     Args:
-        giris (bytes): COBS kodlu veri (sondaki 0x00 dahil DEĞİL).
+        giris (bytes): COBS kodlu veri.
 
     Returns:
-        bytes: Çözülmüş orijinal veri. Bozuk girdide boş bytes döner.
+        bytes: Cozulmus veri. Bozuk girdide bos doner.
     """
     if not giris:
         return b''
@@ -34,11 +25,11 @@ def cobs_decode(giris: bytes) -> bytes:
         kod = giris[oku_idx]
         oku_idx += 1
         if kod == 0:
-            return b''  # geçersiz: kodlu veride 0x00 olamaz
+            return b''
 
         for _ in range(1, kod):
             if oku_idx >= uzunluk:
-                return b''  # eksik veri
+                return b''
             cikis.append(giris[oku_idx])
             oku_idx += 1
 
@@ -49,19 +40,17 @@ def cobs_decode(giris: bytes) -> bytes:
 
 
 def cobs_encode(giris: bytes) -> bytes:
-    """Ham baytları COBS ile kodlar (sondaki 0x00 ayracı dahil).
-
-    RPi -> ESP32 yönünde paket gönderirken kullanılır.
+    """Ham veriyi COBS ile kodlar (sonda 0x00 dahil).
 
     Args:
         giris (bytes): Kodlanacak ham veri.
 
     Returns:
-        bytes: COBS kodlu veri + sonda 0x00 ayracı.
+        bytes: COBS kodlu veri + 0x00 ayirici.
     """
     cikis = bytearray()
     kod_idx = 0
-    cikis.append(0)  # ilk kod baytı için yer tut
+    cikis.append(0)
     kod = 1
 
     for byte in giris:
@@ -80,5 +69,5 @@ def cobs_encode(giris: bytes) -> bytes:
             kod = 1
 
     cikis[kod_idx] = kod
-    cikis.append(0x00)  # çerçeve sonu ayracı
+    cikis.append(0x00)
     return bytes(cikis)

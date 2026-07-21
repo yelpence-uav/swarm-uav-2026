@@ -26,7 +26,7 @@ Projede yazılan kodların herkes tarafından okunabilir ve standartlara uygun o
 * **İsimlendirme:** Fonksiyon ve değişken isimlerinde `snake_case`, Sınıf (Class) isimlerinde `CamelCase` formatı kullanılmalıdır.
 * **Belgelendirme (Docstrings):** Yazdığınız sınıfların ve fonksiyonların ne iş yaptığını anlatan yorum satırları (PEP 257) eklenmelidir.
 * **Yerel Test:** Kodunuzu GitHub'a göndermeden önce kendi bilgisayarınızda `colcon test` komutu ile test etmeniz beklenmektedir.
-* **Referans:** Tüm kuralları öğrenmek ve uygulamak için şu kaynakları baz alınız: [PEP 8 -- Style Guide for Python Code](https://peps.python.org/pep-0008/)
+* **Referans:** Tüm kuralları öğrenmek ve uygulamak için PEP 8 ve PEP 257 standartlarını baz alınız.
 
 **Yorum Satırları ve Docstring Formatı**
 Kodun mantığı sadece kodun kendisinden değil, docstring yapısından da anlaşılmalıdır. Fonksiyonlarda aşağıdaki formatı kullanın:

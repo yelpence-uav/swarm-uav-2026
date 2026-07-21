@@ -1,7 +1,6 @@
-/* ============================================================
-   App shell — dashboard grid layout
+   App shell - dashboard grid layout
    ============================================================
-   Layout: header (full) → main grid (map + sidebar) → drone strip (full)
+   Layout: header (full) -> main grid (map + sidebar) -> drone strip (full)
    Görev 2 aktifken: map alanı yarıya bölünür, joystick panel yan tarafa gelir.
    ============================================================ */
 
@@ -35,7 +34,7 @@
     "strip    strip    strip";
 }
 
-/* === Areas ================================================== */
+/* Areas */
 .app-header {
   /* AppHeader.css'te detaylı tanımlandı */
   border-radius: var(--radius-lg);
@@ -89,11 +88,11 @@
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(0, 1fr));
   gap: var(--space-3);
-  /* max-height yok → content kadar yer alır, kartlar tam görünür.
+  /* max-height yok -> content kadar yer alır, kartlar tam görünür.
      Üst alandaki harita (1fr) buna göre kısılır, esnek davranır. */
 }
 
-/* === Responsive ============================================ */
+/* Responsive */
 @media (max-width: 1280px) {
   .app {
     grid-template-columns: minmax(0, 1fr) 320px;

@@ -1,22 +1,19 @@
-"""Doğrusal yörünge oluşturucu (Linear Trajectory Planner) modülü.
-
-Bu modül, yarışma sahasındaki QR noktaları veya hedefler arasında
-doğrusal bir yol (waypoint listesi) oluşturmaktan sorumludur.
-"""
+# Copyright 2026 Yelpence
+"""Dogrusal yoringe olusturucu modul."""
 
 import math
 
 
 class LinearTrajectoryPlanner:
-    """Başlangıç ve hedef noktaları arasında doğrusal yörünge oluşturur."""
+    """Baslangic ve hedef noktalari arasinda dogrusal yoringe olusturur."""
 
     def __init__(self, max_speed_mps: float, control_rate_hz: float) -> None:
         """
-        Yörünge planlayıcıyı başlatır.
+        Yoringe planlayiciyi baslatir.
 
         Args:
-            max_speed_mps (float): İzin verilen maksimum hız (m/s).
-            control_rate_hz (float): Döngü frekansı (Hz).
+            max_speed_mps: Izin verilen maksimum hiz (m/s).
+            control_rate_hz: Dongu frekansi (Hz).
         """
         self.max_speed_mps = max_speed_mps
         self.control_rate_hz = control_rate_hz
@@ -28,15 +25,11 @@ class LinearTrajectoryPlanner:
         target_pos: tuple[float, float, float]
     ) -> list[tuple[float, float, float]]:
         """
-        İki nokta arasında adım adım waypoint listesi üretir.
-
-        Adım mesafesi `max_speed_mps / control_rate_hz` formülüne göre
-        belirlenir. Böylece hedef noktaya hız limitlerini aşmadan,
-        belirtilen frekansta doğrusal olarak ulaşılır.
+        Iki nokta arasinda adim adim waypoint listesi uretir.
 
         Args:
-            start_pos (tuple): Başlangıç [x, y, z] koordinatları.
-            target_pos (tuple): Hedef [x, y, z] koordinatları.
+            start_pos: Baslangic [x, y, z] koordinatlari.
+            target_pos: Hedef [x, y, z] koordinatlari.
 
         Returns:
             list: Waypoint'lerin [(x, y, z), ...] listesi.

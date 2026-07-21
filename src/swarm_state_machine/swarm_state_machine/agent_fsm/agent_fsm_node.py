@@ -1,4 +1,5 @@
-"""Tek bir drone'un FSM'ini çalıştıran ROS2 node."""
+# Copyright 2026 Yelpence
+"""ROS2 node that runs FSM for a single drone."""
 
 import time
 
@@ -12,15 +13,15 @@ from rclpy.qos import (
 )
 
 from std_msgs.msg import String
+
 from swarm_interfaces.msg import AgentStatus, SwarmOrigin, SystemEvent
 from swarm_interfaces.srv import AssignRole
 
 from .agent_context import AgentContext
-from .agent_health_monitor import HealthCheckResult, check as health_check
+from .agent_health_monitor import check as health_check
 from .agent_states import AgentRole, AgentState, FlightMode
 from .agent_transitions import evaluate_transitions
 from .preflight_checker import run_preflight_checks
-
 
 _ORIGIN_QOS = QoSProfile(
     reliability=ReliabilityPolicy.RELIABLE,
@@ -29,20 +30,14 @@ _ORIGIN_QOS = QoSProfile(
     depth=1,
 )
 
-# Yere değme tespiti için dikey hız eşiği (m/s)
 _GROUND_VEL_THR = 0.3
 
 
 class AgentFsmNode(Node):
-    """
-    Tek bir drone'un FSM node'u.
-
-    PX4 telemetrisini ve swarm event'lerini dinler, FSM geçişlerini
-    değerlendirir ve AgentStatus yayınlar.
-    """
+    """Tek bir drone'un FSM node'u."""
 
     def __init__(self) -> None:
-        super().__init__("agent_fsm_node")
+        super().__init__('agent_fsm_node')
 
         self._declare_params()
 
@@ -53,8 +48,8 @@ class AgentFsmNode(Node):
             target_altitude_m=self._target_altitude_m,
         )
 
-        self._px4_landed: bool = False
-        self._prev_pilot_override: bool = False
+        self._px4_landed = False
+        self._prev_pilot_override = False
 
         self._setup_publishers()
         self._setup_subscribers()
@@ -65,88 +60,87 @@ class AgentFsmNode(Node):
         )
 
         self.get_logger().info(
-            f'AgentFsmNode başlatıldı: agent_id={self._agent_id}'
+            f'AgentFsmNode baslatildi: agent_id={self._agent_id}'
         )
 
     def _declare_params(self) -> None:
-        """ROS2 parametrelerini tanımlar ve okur."""
+        """ROS2 parametrelerini tanimlar ve okur."""
         self.declare_parameter('agent_id', 1)
         self.declare_parameter('sitl_mode', False)
         self.declare_parameter('battery_critical_voltage_v', 13.6)
         self.declare_parameter('tick_hz', 10.0)
         self.declare_parameter('target_altitude_m', 10.0)
 
-        self._agent_id: int = self.get_parameter('agent_id').value
-        self._sitl_mode: bool = self.get_parameter('sitl_mode').value
-        self._batt_crit_v: float = (
+        self._agent_id = self.get_parameter('agent_id').value
+        self._sitl_mode = self.get_parameter('sitl_mode').value
+        self._batt_crit_v = (
             self.get_parameter('battery_critical_voltage_v').value
         )
-        self._tick_hz: float = self.get_parameter('tick_hz').value
-        self._target_altitude_m: float = (
+        self._tick_hz = self.get_parameter('tick_hz').value
+        self._target_altitude_m = (
             self.get_parameter('target_altitude_m').value
         )
 
     def _setup_publishers(self) -> None:
-        """AgentStatus, SystemEvent ve komut publisher'larını oluşturur."""
+        """Publisher'lari olusturur."""
         aid = self._agent_id
         self._status_pub = self.create_publisher(
             AgentStatus,
-            f"/swarm/internal/drone{aid}/status",
+            f'/swarm/internal/drone{aid}/status',
             10,
         )
         self._event_pub = self.create_publisher(
             SystemEvent,
-            "/swarm/internal/events/system",
+            '/swarm/internal/events/system',
             10,
         )
         self._command_pub = self.create_publisher(
             String,
-            f"/swarm/agent/drone{aid}/commands",
+            f'/swarm/agent/drone{aid}/commands',
             10,
         )
 
     def _setup_subscribers(self) -> None:
-        """Telemetri, event ve origin aboneliklerini oluşturur."""
+        """Abonelikleri olusturur."""
         aid = self._agent_id
 
         self.create_subscription(
             AgentStatus,
-            f"/swarm/agent/drone{aid}/telemetry",
+            f'/swarm/agent/drone{aid}/telemetry',
             self._on_telemetry,
             10,
         )
         self.create_subscription(
             SystemEvent,
-            "/swarm/public/events/system",
+            '/swarm/public/events/system',
             self._on_event,
             10,
         )
         self.create_subscription(
             SwarmOrigin,
-            "/swarm/public/origin",
+            '/swarm/public/origin',
             self._on_origin,
             _ORIGIN_QOS,
         )
 
     def _setup_services(self) -> None:
-        """AssignRole servisini oluşturur."""
+        """Aciklama: AssignRole servisini kurar."""
         aid = self._agent_id
         self.create_service(
             AssignRole,
-            f"/swarm/agent/drone{aid}/assign_role",
+            f'/swarm/agent/drone{aid}/assign_role',
             self._handle_assign_role,
         )
 
     def _tick(self) -> None:
-        """FSM ana döngüsü — sağlık kontrolü ve geçiş değerlendirmesi."""
+        """FSM ana dongusu."""
         ctx = self._ctx
 
-        result: HealthCheckResult = health_check(ctx)
+        result = health_check(ctx)
 
         if result.critical_fault and ctx.state != AgentState.FAILSAFE:
             self.get_logger().error(
-                f'[FAILSAFE] {result.reason} | '
-                f'offboard={ctx.offboard_active} t={ctx.time_in_state():.1f}s'
+                f'[FAILSAFE] {result.reason}'
             )
             self._transition(AgentState.FAILSAFE)
             self._pub_event(
@@ -168,45 +162,27 @@ class AgentFsmNode(Node):
 
         next_s = evaluate_transitions(ctx)
         if next_s is not None and next_s != ctx.state:
-            if next_s == AgentState.FAILSAFE and not ctx.healthy:
-                self.get_logger().error(
-                    f'[FAILSAFE] px4={ctx.px4_link_ok} rc={ctx.rc_link_ok} '
-                    f'rc_fs={ctx.rc_signal_failsafe_active} '
-                    f'px4_fs={ctx.failsafe_active} '
-                    f'xy={ctx.xy_valid} z={ctx.z_valid} vxy={ctx.v_xy_valid} '
-                    f'imu={ctx.imu_healthy} mag={ctx.mag_healthy} '
-                    f'baro={ctx.baro_healthy} est={ctx.estimator_ok} '
-                    f'kill={ctx.kill_switch_active} '
-                    f'batt={ctx.battery_voltage_v:.1f}V'
-                )
             self._transition(next_s)
 
-        if (
+        is_failsafe_land = (
             ctx.state == AgentState.FAILSAFE
             and ctx.kill_switch_active
             and self._px4_landed
             and ctx.attitude_stable
-        ):
+        )
+        if is_failsafe_land:
             self._transition(AgentState.LANDED)
             self._pub_event(
                 SystemEvent.EVENT_AGENT_LANDED,
                 SystemEvent.SEVERITY_INFO,
-                'Kill switch: landed+disarmed+stable doğrulandı',
+                'Kill switch: landed',
             )
 
-        # NOT: pending_state tek tick içinde tüketilir. Bu güvenlidir çünkü
-        # rclpy.spin() single-threaded executor kullanır. MultiThreadedExecutor
-        # kullanılacaksa pending_state erişimi lock ile korunmalıdır.
         ctx.pending_state = None
         self._publish_status()
 
     def _transition(self, new_state: AgentState) -> None:
-        """
-        State geçişini uygular, px4_bridge'e komut yayınlar ve loglar.
-
-        Args:
-            new_state (AgentState): Geçilecek hedef state.
-        """
+        """State gecisini uygular."""
         old = self._ctx.state
         self._ctx.set_state(new_state)
 
@@ -221,23 +197,7 @@ class AgentFsmNode(Node):
         )
 
     def _dispatch_px4_command(self, state: AgentState) -> None:
-        """
-        State entry'sine karşılık gelen PX4 komutunu px4_bridge'e yayınlar.
-
-        Komut zinciri:
-            ARMING       -> 'arm'                       (motorları arm et)
-            ARMED        -> 'offboard'                  (offboard streaming + mod)
-            TAKEOFF      -> 'takeoff:{target_altitude}' (PX4 AUTO_TAKEOFF)
-            LANDING      -> 'land'                      (PX4 AUTO_LAND)
-            RETURN_HOME  -> 'rtl'                       (PX4 AUTO_RTL)
-
-        Komut gerektirmeyen state'ler (IDLE, IN_SWARM, EXECUTING_TASK,
-        FAILSAFE, ...) sessizdir; setpoint akışları formation_control
-        gibi üst modüllerin sorumluluğundadır.
-
-        Args:
-            state: Yeni girilen state.
-        """
+        """State entry'sine karsilik gelen PX4 komutunu yayinlar."""
         if state == AgentState.ARMING:
             cmd = 'arm'
         elif state == AgentState.ARMED:
@@ -259,12 +219,7 @@ class AgentFsmNode(Node):
         )
 
     def _on_event(self, msg: SystemEvent) -> None:
-        """
-        Swarm event bus'tan gelen olayları işler.
-
-        Args:
-            msg (SystemEvent): Gelen SystemEvent mesajı.
-        """
+        """Swarm event bus'tan gelen olaylari isler."""
         ctx = self._ctx
         aid = ctx.agent_id
         eid = msg.event_type
@@ -321,8 +276,7 @@ class AgentFsmNode(Node):
                         + '; '.join(failures[:2])
                     )
                     self.get_logger().warn(
-                        f'[agent {aid}] Rejoin preflight başarısız: '
-                        + ', '.join(failures)
+                        f'[agent {aid}] Rejoin preflight basarisiz'
                     )
 
         elif eid in (
@@ -371,13 +325,7 @@ class AgentFsmNode(Node):
             ctx.geofence_violated = True
 
     def _handle_failsafe_cleared(self) -> None:
-        """
-        EVENT_FAILSAFE_CLEARED alındığında drone'un fiziksel durumuna
-        göre hedef state belirler.
-
-        Yalnızca FAILSAFE state'indeyken işlem yapar; normal uçuş
-        sırasında broadcast olarak gelen event'i yok sayar.
-        """
+        """FAILSAFE durumunu temizler."""
         ctx = self._ctx
         ctx.geofence_violated = False
 
@@ -392,12 +340,7 @@ class AgentFsmNode(Node):
             ctx.pending_state = AgentState.RETURN_HOME
 
     def _on_origin(self, msg: SwarmOrigin) -> None:
-        """
-        Lider drone'un yayınladığı referans koordinat sistemini işler.
-
-        Args:
-            msg (SwarmOrigin): Gelen SwarmOrigin mesajı.
-        """
+        """Referans koordinat sistemini isler."""
         if msg.valid and msg.gps_fix_type >= 3:
             self._ctx.origin_synced = True
             self._ctx.origin_sequence = msg.sequence
@@ -407,16 +350,7 @@ class AgentFsmNode(Node):
         request: AssignRole.Request,
         response: AssignRole.Response,
     ) -> AssignRole.Response:
-        """
-        Swarm manager'dan gelen rol atama isteğini işler.
-
-        Args:
-            request: Rol atama isteği.
-            response: Servis yanıtı.
-
-        Returns:
-            AssignRole.Response: İşlem sonucu.
-        """
+        """Swarm manager'dan gelen rol atama istegini isler."""
         ctx = self._ctx
 
         role_map = {
@@ -445,12 +379,7 @@ class AgentFsmNode(Node):
         return response
 
     def _on_telemetry(self, msg: AgentStatus) -> None:
-        """
-        px4_bridge'den gelen AgentStatus'u AgentContext'e kopyalar.
-
-        Args:
-            msg: px4_bridge'in yayınladığı AgentStatus mesajı.
-        """
+        """Telemetry mesajini context'e yazar."""
         ctx = self._ctx
         prev_pilot = ctx.pilot_override_active
 
@@ -521,7 +450,7 @@ class AgentFsmNode(Node):
         if ctx.pilot_override_active and not prev_pilot:
             ctx.autonomous_control_paused = True
             ctx.status_text = (
-                'Pilot override active, autonomous control paused'
+                'Pilot override active'
             )
             self._pub_event(
                 SystemEvent.EVENT_AGENT_PILOT_OVERRIDE,
@@ -534,7 +463,7 @@ class AgentFsmNode(Node):
         self._prev_pilot_override = ctx.pilot_override_active
 
     def _publish_status(self) -> None:
-        """AgentContext'i AgentStatus mesajına dönüştürüp yayınlar."""
+        """Aciklama: AgentContext'i AgentStatus mesajina donusturup yayinlar."""
         ctx = self._ctx
         m = AgentStatus()
         m.stamp = self.get_clock().now().to_msg()
@@ -615,14 +544,7 @@ class AgentFsmNode(Node):
         severity: int,
         message: str = '',
     ) -> None:
-        """
-        SystemEvent yayınlar.
-
-        Args:
-            event_type: SystemEvent.EVENT_* sabiti.
-            severity: SystemEvent.SEVERITY_* seviyesi.
-            message: İsteğe bağlı açıklama metni.
-        """
+        """Aciklama: SystemEvent yayinlar."""
         m = SystemEvent()
         m.stamp = self.get_clock().now().to_msg()
         m.event_type = event_type
