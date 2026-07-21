@@ -1,7 +1,7 @@
 """Evaluate_transitions ve QR yardımcı fonksiyonları için birim testleri."""
 
-from types import SimpleNamespace
 import time
+from types import SimpleNamespace
 import unittest
 
 from swarm_state_machine.mission_fsm.mission_context import MissionContext
