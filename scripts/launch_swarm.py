@@ -301,6 +301,26 @@ def main():
         )
         time.sleep(3)
 
+        # SADECE SİMÜLASYON — gerçek donanımda ASLA başlatma.
+        # Sim'deki x500 modeli pusula (mag) verisi yayınlamadığı için EKF
+        # yön (yaw) üretemiyor ve ön-uçuş kontrolü fail veriyor. Sahte mag
+        # bunu sim'de gideriyor; sahada pusulayı Here4 zaten sağlıyor.
+        # Güvenlik: sahte mag programı yalnızca SITL derlemesinde bulunur.
+        # Sahada (gerçek Pixhawk) bu program olmadığı için hiç başlatılmaz.
+        fake_mag_bin = (
+            f"{PX4_PATH}/build/px4_sitl_default/bin/px4-fake_magnetometer"
+        )
+        if os.path.exists(fake_mag_bin):
+            fake_mag_cmd = (
+                f"source /opt/ros/jazzy/setup.bash && "
+                f"{fake_mag_bin} --instance {drone_id} start"
+            )
+            subprocess.run(
+                ["bash", "-c", fake_mag_cmd],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+
     # 6. Kamera Relay Yazılımı
     print(">> Kamera Relay Düğümü başlatılıyor...")
     run_background(f"ros2 run swarm camera_relay {DRONE_COUNT}", "camera_relay")
@@ -354,6 +374,7 @@ def main():
         run_in_tmux(
             f"ros2 run mavros mavros_node --ros-args "
             f"-p fcu_url:={fcu} "
+            f"-p tgt_system:={drone_id} "
             f"-r __ns:=/drone_{drone_id}/mavros",
             f"Mavros_{drone_id}",
             f"mavros_{drone_id}",
