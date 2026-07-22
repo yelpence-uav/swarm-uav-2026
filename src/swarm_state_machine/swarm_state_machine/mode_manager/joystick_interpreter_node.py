@@ -47,6 +47,25 @@ _PX4_QOS = QoSProfile(
 class JoystickInterpreterNode(Node):
     """MAVROS ManualControl - SwarmControlCommand dönüştürücü."""
 
+    # =========================================================================
+    # FLYSKY FS-I6X KUMANDA KANAL VE EŞİK DEĞERİ AYARLARI
+    # Kumanda switch kanallarını değiştirmek istediğinizde
+    # buradaki sabitleri güncelleyebilirsiniz:
+    # =========================================================================
+    AUX_MODE_CHANNEL = 'aux2'          # Mod Seçimi (SwB)
+    AUX_FORMATION_CHANNEL = 'aux3'     # Formasyon Seçimi (SwC)
+    AUX_TAKEOFF_LAND_CHANNEL = 'aux4'  # Kalkış / İniş (SwD)
+
+    # AUX 3 Formasyon Seçimi Eşik Değerleri (-1000..+1000 MAVROS aralığı)
+    AUX_FORMATION_THRESH_LOW = -300    # <-300 -> Ok Başı (1)
+    AUX_FORMATION_THRESH_HIGH = 300    # >300  -> Çizgi (3)
+    # -300..+300 arası -> V Formasyonu (2)
+
+    # AUX 4 Kalkış / İniş Eşik Değerleri
+    AUX_TAKEOFF_THRESH = 300           # >300  -> Takeoff
+    AUX_LAND_THRESH = -300             # <-300 -> Land
+    # =========================================================================
+
     def __init__(self) -> None:
         super().__init__('joystick_interpreter_node')
 
@@ -129,15 +148,19 @@ class JoystickInterpreterNode(Node):
         cmd.deadman_pressed = deadman_pressed
         cmd.deadman_timeout_s = self._deadman_timeout_s
 
-        if msg.aux2 > 0:
+        # Mod Seçimi (AUX 2 - SwB: 0 -> Movement, 1 -> Maneuver)
+        aux2_val = getattr(msg, self.AUX_MODE_CHANNEL, 0)
+        if aux2_val > 0:
             self._active_mode = SwarmControlCommand.MODE_MANEUVER
         else:
             self._active_mode = SwarmControlCommand.MODE_SWARM_MOVEMENT
         cmd.mode = self._active_mode
 
-        if msg.aux3 < -300:
+        # Formasyon Seçimi (AUX 3 - SwC: Ok Başı / V / Çizgi)
+        aux3_val = getattr(msg, self.AUX_FORMATION_CHANNEL, 0)
+        if aux3_val < self.AUX_FORMATION_THRESH_LOW:
             current_aux3_formation = SwarmControlCommand.FORMATION_OKBASI
-        elif msg.aux3 > 300:
+        elif aux3_val > self.AUX_FORMATION_THRESH_HIGH:
             current_aux3_formation = SwarmControlCommand.FORMATION_CIZGI
         else:
             current_aux3_formation = SwarmControlCommand.FORMATION_V
@@ -157,11 +180,17 @@ class JoystickInterpreterNode(Node):
         cmd.rtl = False
         cmd.emergency_stop = False
 
-        if msg.aux4 > 300 and self._last_aux4 <= 300:
+        # Kalkış / İniş Tetikleme (AUX 4 - SwD)
+        aux4_val = getattr(msg, self.AUX_TAKEOFF_LAND_CHANNEL, 0)
+        if aux4_val > self.AUX_TAKEOFF_THRESH and (
+            self._last_aux4 <= self.AUX_TAKEOFF_THRESH
+        ):
             cmd.takeoff = True
-        elif msg.aux4 < -300 and self._last_aux4 >= -300:
+        elif aux4_val < self.AUX_LAND_THRESH and (
+            self._last_aux4 >= self.AUX_LAND_THRESH
+        ):
             cmd.land = True
-        self._last_aux4 = msg.aux4
+        self._last_aux4 = aux4_val
 
         cmd.formation_change_requested = self._formation_change_requested
         cmd.requested_formation = self._requested_formation

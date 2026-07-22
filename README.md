@@ -69,3 +69,35 @@ Bu noktada sanal ortam kullanmak için hazırdır. Aşağıdaki yönergelere uya
 * Yeni bir bağımlılık eklediğinize sanal ortamı durdurmanıza gerek yoktur. ```yelpence_gir``` komutu ile girdiğinizde yeni eklenen bağımlılık otomatik olarak kurulur.
 * Sanal ortama bir sistem bağımlılığı eklemeniz gerekiyorsa Dockerfile üzerinde değişiklik yapmanız gerekir. Burada yapılan değişikliklerin uygulanması için ```create-docker.sh``` betiği tekrar çalıştırılmalıdır. 
 
+
+# 🎮 FlySky FS-i6X Kumanda Yapılandırması (Görev 2 - Yarı Otonom Sürü Kontrolü)
+
+TEKNOFEST 2026 Görev 2 kapsamındaki Yarı Otonom Sürü Kontrolü için **FlySky FS-i6X** kumanda kanal ve switch yapılandırması aşağıda belirtilmiştir:
+
+## 1. Kanal ve AUX Eşleştirme Tablosu
+
+| Kanal | Kumanda Elemanı | İşlevi | Değer / Konum Mantığı |
+| :--- | :--- | :--- | :--- |
+| **Kanal 1** | **Right Stick (X)** | **Roll** (Sağ/Sol Hareket) | Normalize `[-1.0, +1.0]` |
+| **Kanal 2** | **Right Stick (Y)** | **Pitch** (İleri/Geri Hareket) | Normalize `[-1.0, +1.0]` |
+| **Kanal 3** | **Left Stick (Y)** | **Throttle** (Yükselme/Alçalma) | Normalize `[-1.0, +1.0]` |
+| **Kanal 4** | **Left Stick (X)** | **Yaw** (Yönelim / Rotasyon) | Normalize `[-1.0, +1.0]` |
+| **Kanal 5 (AUX 1)** | **SwA** (2 Konumlu) | **Deadman Switch (Emniyet Mandalı)** | **Çekili / OFF (0):** Pasif (`command_valid=False` -> `HOLD`)<br>**Basılı / ON (1):** Aktif (`command_valid=True`) |
+| **Kanal 6 (AUX 2)** | **SwB** (2 Konumlu) | **Mod Seçimi** | **Konum 0 (OFF):** Sürü Hareket Modu (`MODE_SWARM_MOVEMENT`)<br>**Konum 1 (ON):** Manevra Modu (`MODE_MANEUVER`) |
+| **Kanal 7 (AUX 3)** | **SwC** (3 Konumlu) | **Formasyon Seçimi** | **Yukarı (`<-300`):** Ok Başı Formasyonu (`FORMATION_OKBASI`)<br>**Orta (`-300..300`):** V Formasyonu (`FORMATION_V`)<br>**Aşağı (`>300`):** Çizgi Formasyonu (`FORMATION_CIZGI`) |
+| **Kanal 8 (AUX 4)** | **SwD** (2 Konumlu) | **Kalkış / İniş Tetikleyici** | **Yukarı Kaldırma (`>300`):** Otonom Kalkış (`Takeoff`)<br>**Aşağı İndirme (`<-300`):** Otonom İniş (`Land`) |
+
+## 2. Kumanda Üzerinden Menü Ayarları
+
+1. **Functions Setup -> Aux. Channels**:
+   - `Channel 5`: `SwA`
+   - `Channel 6`: `SwB`
+   - `Channel 7`: `SwC`
+   - `Channel 8`: `SwD`
+   - (`OK` tuşuna basılı tutarak kaydedin).
+2. **System Setup -> RX Setup -> Output Mode**:
+   - Kanal modunu `10 CH` ve `i-BUS` / `PPM` seçin.
+
+> **Kod İçi Değişiklik Konumu**: Kanal ve eşik değerlerini değiştirmek için `src/swarm_state_machine/swarm_state_machine/mode_manager/joystick_interpreter_node.py` içerisindeki `AUX_MODE_CHANNEL`, `AUX_FORMATION_CHANNEL`, `AUX_TAKEOFF_LAND_CHANNEL` sabitlerini güncelleyebilirsiniz.
+
+
