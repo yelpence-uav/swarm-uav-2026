@@ -1,5 +1,5 @@
 # Copyright 2026 Yelpence
-"""Suru manevra modu."""
+"""Sürü manevra modu hesaplama modülü."""
 
 import math
 
@@ -8,8 +8,18 @@ def compute_agent_setpoints(
     ctx,
     dt: float,
     formation_offsets: dict[int, tuple[float, float, float]],
-) -> list[dict]:
-    """Her drone icin manevra setpoint'i hesaplar."""
+) -> tuple[list[dict], float, float, float]:
+    """Her İHA için manevra konum setpoint'lerini hesaplar.
+
+    Args:
+        ctx (ModeContext): Sürü modu çalışma zamanı bağlamı.
+        dt (float): Zaman adımı farkı (saniye).
+        formation_offsets (dict): İHA ID bazlı (ox, oy, oz) ofsetleri.
+
+    Returns:
+        tuple[list[dict], float, float, float]: İHA setpoint listesi,
+            yeni heading (derece), hedef pitch (derece), hedef roll (derece).
+    """
     new_heading = ctx.compute_heading_rotation(ctx.yaw_cmd, dt)
 
     dz_throttle = -ctx.throttle_cmd * ctx.max_speed_mps * dt
@@ -57,7 +67,15 @@ def compute_hold_setpoints(
     ctx,
     formation_offsets: dict[int, tuple[float, float, float]],
 ) -> list[dict]:
-    """HOLD durumunda her drone'un konumunu koruyan setpoint uretir."""
+    """HOLD durumunda her İHA'nın mevcut eğimli konumunu korur.
+
+    Args:
+        ctx (ModeContext): Sürü modu çalışma zamanı bağlamı.
+        formation_offsets (dict): İHA ID bazlı (ox, oy, oz) ofsetleri.
+
+    Returns:
+        list[dict]: Sabit konum İHA setpoint listesi.
+    """
     pitch_rad = math.radians(ctx.maneuver_pitch_deg)
     roll_rad = math.radians(ctx.maneuver_roll_deg)
     heading_rad = math.radians(ctx.formation_heading_deg)

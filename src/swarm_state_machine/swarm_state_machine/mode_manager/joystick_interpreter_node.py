@@ -57,6 +57,8 @@ class JoystickInterpreterNode(Node):
         self._formation_change_requested = False
         self._requested_formation = 0
         self._requested_spacing_m = 5.0
+        self._last_aux3_formation = None
+        self._last_aux4 = 0
 
         self._setup_publishers()
         self._setup_subscribers()
@@ -123,11 +125,27 @@ class JoystickInterpreterNode(Node):
 
         deadman_value = self._read_aux_channel(msg)
         deadman_pressed = deadman_value > self._deadman_threshold
-        cmd.command_valid = True
+        cmd.command_valid = deadman_pressed
         cmd.deadman_pressed = deadman_pressed
         cmd.deadman_timeout_s = self._deadman_timeout_s
 
+        if msg.aux2 > 0:
+            self._active_mode = SwarmControlCommand.MODE_MANEUVER
+        else:
+            self._active_mode = SwarmControlCommand.MODE_SWARM_MOVEMENT
         cmd.mode = self._active_mode
+
+        if msg.aux3 < -300:
+            current_aux3_formation = SwarmControlCommand.FORMATION_OKBASI
+        elif msg.aux3 > 300:
+            current_aux3_formation = SwarmControlCommand.FORMATION_CIZGI
+        else:
+            current_aux3_formation = SwarmControlCommand.FORMATION_V
+
+        if self._last_aux3_formation != current_aux3_formation:
+            self._last_aux3_formation = current_aux3_formation
+            self._requested_formation = current_aux3_formation
+            self._formation_change_requested = True
 
         cmd.pitch_cmd = self._clamp(msg.pitch)
         cmd.roll_cmd = self._clamp(msg.roll)
@@ -138,6 +156,12 @@ class JoystickInterpreterNode(Node):
         cmd.land = False
         cmd.rtl = False
         cmd.emergency_stop = False
+
+        if msg.aux4 > 300 and self._last_aux4 <= 300:
+            cmd.takeoff = True
+        elif msg.aux4 < -300 and self._last_aux4 >= -300:
+            cmd.land = True
+        self._last_aux4 = msg.aux4
 
         cmd.formation_change_requested = self._formation_change_requested
         cmd.requested_formation = self._requested_formation
