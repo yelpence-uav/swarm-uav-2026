@@ -24,12 +24,14 @@ interface DroneCardProps {
   drone: DroneState;
   commandsDisabled?: boolean;
   showCommands?: boolean;
+  guidedMode?: boolean;
 }
 
 export function DroneCard({
   drone,
   commandsDisabled = false,
   showCommands = false,
+  guidedMode = false,
 }: DroneCardProps) {
   const accent = ACCENT_VARS[drone.drone_id] ?? "var(--color-accent)";
   const stateLabel = AGENT_STATE_LABELS[drone.state] ?? drone.mode;
@@ -54,6 +56,7 @@ export function DroneCard({
             droneId={drone.drone_id}
             connected={false}
             disabled={commandsDisabled}
+            guidedMode={guidedMode}
           />
         )}
       </article>
@@ -118,6 +121,7 @@ export function DroneCard({
           droneId={drone.drone_id}
           connected={true}
           disabled={commandsDisabled}
+          guidedMode={guidedMode}
         />
       )}
     </article>

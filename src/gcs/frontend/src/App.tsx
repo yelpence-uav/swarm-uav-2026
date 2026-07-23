@@ -131,7 +131,8 @@ export default function App() {
         <TelemetryPanel
           drones={payload.drones}
           commandsDisabled={missionActive}
-          showCommands={isSimMode}
+          showCommands={true}
+          guidedMode={!isSimMode}
         />
       </footer>
     </div>

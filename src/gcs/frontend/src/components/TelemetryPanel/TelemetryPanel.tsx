@@ -6,14 +6,17 @@ interface TelemetryPanelProps {
   drones: DroneState[];
   /** Görev aktif iken kart üzerindeki bireysel komut butonları yasak. */
   commandsDisabled?: boolean;
-  /** Bireysel MAVLink komut butonları sadece sim modunda gösterilir. */
+  /** Komut butonlarını göster (ros2 guided veya mavlink-sim). */
   showCommands?: boolean;
+  /** true: ESP mesh guided komutları (ros2). false: mavlink-sim. */
+  guidedMode?: boolean;
 }
 
 export function TelemetryPanel({
   drones,
   commandsDisabled = false,
   showCommands = false,
+  guidedMode = false,
 }: TelemetryPanelProps) {
   return (
     <aside className="telemetry-panel">
@@ -23,6 +26,7 @@ export function TelemetryPanel({
           drone={d}
           commandsDisabled={commandsDisabled}
           showCommands={showCommands}
+          guidedMode={guidedMode}
         />
       ))}
       {drones.length === 0 && (

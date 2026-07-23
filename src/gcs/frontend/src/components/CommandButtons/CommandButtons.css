@@ -1,9 +1,15 @@
 .cmd-buttons {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
+  display: flex;
+  flex-direction: column;
   gap: var(--space-2);
   padding-top: var(--space-2);
   border-top: 1px solid var(--color-border);
+}
+
+.cmd-buttons__row {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: var(--space-2);
 }
 
 .cmd-btn {
@@ -60,8 +66,69 @@
 }
 
 .cmd-buttons__error {
-  grid-column: 1 / -1;
   font-size: 10px;
   color: var(--color-danger);
   font-family: var(--font-mono);
+}
+
+/* === Nokta-git (guided) ==================================== */
+.cmd-goto {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.cmd-goto__toggle {
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  font-family: var(--font-ui);
+  background: var(--color-bg-glass);
+  border: 1px solid var(--color-border);
+  color: var(--color-text-secondary);
+  transition: all var(--transition-fast);
+}
+.cmd-goto__toggle:hover:not(:disabled) {
+  color: var(--color-accent);
+  border-color: var(--color-border-accent);
+}
+.cmd-goto__toggle:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.cmd-goto__form {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: var(--space-1) var(--space-2);
+}
+
+.cmd-goto__form label {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+}
+
+.cmd-goto__form input {
+  padding: var(--space-1);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-glass);
+  border: 1px solid var(--color-border);
+  color: var(--color-text-primary);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  width: 100%;
+}
+.cmd-goto__form input:focus {
+  outline: none;
+  border-color: var(--color-border-accent);
+}
+
+.cmd-goto__go {
+  grid-column: 1 / -1;
 }

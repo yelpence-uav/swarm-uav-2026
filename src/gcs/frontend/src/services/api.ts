@@ -55,6 +55,32 @@ export class CommandFailure extends Error {
   }
 }
 
+/** Nokta-git hedefi: manuel NED (x/y/z, z=irtifa↑) VEYA harita/GPS (lat/lon/alt). */
+export interface GotoTarget {
+  x?: number;
+  y?: number;
+  z?: number;
+  lat?: number;
+  lon?: number;
+  alt?: number;
+  heading_deg?: number;
+}
+
+/**
+ * Guided (tekil drone) uçuş komutları — ESP mesh üzerinden (connection_mode=ros2).
+ * arm/takeoff/goto/rtl/land. Otonom görevden bağımsız operatör kontrolü.
+ */
+export const guided = {
+  arm: (droneId: number) => postCommand(`/guided/${droneId}/arm`),
+  disarm: (droneId: number) => postCommand(`/guided/${droneId}/disarm`),
+  takeoff: (droneId: number, altitude: number) =>
+    postCommand(`/guided/${droneId}/takeoff`, { altitude }),
+  rtl: (droneId: number) => postCommand(`/guided/${droneId}/rtl`),
+  land: (droneId: number) => postCommand(`/guided/${droneId}/land`),
+  goto: (droneId: number, target: GotoTarget) =>
+    postJson<CommandResult>(`/guided/${droneId}/goto`, target),
+};
+
 export const api = {
   takeoff: (droneId: number, altitude?: number) =>
     postCommand(
