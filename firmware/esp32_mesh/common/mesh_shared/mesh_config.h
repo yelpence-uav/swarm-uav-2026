@@ -67,6 +67,10 @@
 #define TIP_VERSION     0x0B   // VersionInfo: boot'ta 1 kez, debug
 #define TIP_SWARM_STATE 0x0D   // Sürü seviyesi FSM durumu
 #define TIP_QR_DATA     0x0E   // QR tespit ve çözümleme verisi
+// 0x0F: packet_parser.py::TIP_QR_COORDS'a rezerve (YKİ->drone QR konumlari).
+// GOTO ona carpmasin diye 0x10'dan devam; 0x10 rate tablosunun (16) disina
+// dustugu icin MESH_TIP_TABLO_BOYU 24'e buyutuldu (asagi).
+#define TIP_GOTO        0x10   // YKİ->drone tekil nokta-git (guided, goto_veri_t)
 
 // Dikkat: iki ayri isim uzayi, karistirma:
 //
@@ -539,8 +543,10 @@ static inline void mesh_gonder(const uint8_t* veri, uint8_t tip,
 //
 // Dizi TIP byte'i ile dogrudan indexlenir (paralel esleme tablosu yok): yeni
 // TIP eklendiginde tabloyu guncellemeyi unutma riski olmasin diye.
-#define MESH_TIP_TABLO_BOYU 16
-static_assert(TIP_QR_DATA < MESH_TIP_TABLO_BOYU,
+// 24: TIP_GOTO=0x10 tablonun 16'lik eski sinirinin ustunde kaliyordu; index=TIP
+// oldugundan boyut en buyuk TIP'ten buyuk olmali. +8 slot x 2 dizi x 4B = +64B RAM.
+#define MESH_TIP_TABLO_BOYU 24
+static_assert(TIP_GOTO < MESH_TIP_TABLO_BOYU,
               "En buyuk TIP hiz-limiti tablosuna sigmiyor: MESH_TIP_TABLO_BOYU'nu buyut.");
 
 static uint32_t _son_tip_gonderim_ms[MESH_TIP_TABLO_BOYU] = {};
@@ -878,8 +884,15 @@ struct __attribute__((packed)) komut_veri_t {
 #define KOMUT_FLAG_EMERGENCY         0x08
 #define KOMUT_FLAG_FORMATION_CHANGE  0x10
 #define KOMUT_FLAG_DEADMAN_PRESSED   0x20
+// Guided (YKİ tekil komut) ek bayraklari. takeoff/land/rtl yukaridakiyle ortak;
+// arm/disarm bos iki bit. flags uint8, 0x40/0x80 bosta.
+#define KOMUT_FLAG_ARM               0x40
+#define KOMUT_FLAG_DISARM            0x80
 #define KOMUT_MODE_SWARM_MOVEMENT    1
 #define KOMUT_MODE_MANEUVER          2
+// Guided nokta-git alt_tip'i: joystick modlarindan (1/2) ayri; drone tarafi
+// bunu gorunce komutu guided yolla (FSM baypas) px4_bridge'e cevirir.
+#define KOMUT_MODE_GUIDED            3
 
 // Layout sozlesmesini derleme zamaninda kilitle: bridge cerceveden sabit 16 byte
 // diliyor (packet_parser.py::cerceve_coz -> govde[2:18]), boyut 16'dan sapamaz;
@@ -892,3 +905,24 @@ static_assert(offsetof(komut_veri_t, roll_x100) == 2,
               "roll_x100 offset 2 OLMALI — pi_bridge _KOMUT_FMT ile uyum");
 static_assert(offsetof(komut_veri_t, throttle_x100) == 8,
               "throttle_x100 offset 8 OLMALI — pi_bridge _KOMUT_FMT ile uyum");
+
+// GOTO bayrak bitleri (goto_veri_t.bayraklar).
+#define GOTO_BAYRAK_YAW_GECERLI  0x01   // yaw_ddeg gecerli; yoksa drone yaw'u serbest birakir
+
+// YKİ -> drone tekil nokta-git komutu (guided). Hedef, paylasilan SwarmOrigin'e
+// gore NED (desimetre) tasinir; drone tarafi dogrudan AgentSetpoint'e cevirir.
+// Bir KEZ gonderilir — PX4'un istedigi 50Hz OFFBOARD akisi drone'da LOKAL uretilir
+// (mesh'e cikmaz), bu yuzden mesh yuku ihmal edilebilir. Layout packet_parser.py
+// ::_GOTO_FMT '<hhhhB7x' ile BIREBIR; degistirmeden once iki tarafi guncelle.
+struct __attribute__((packed)) goto_veri_t {
+    int16_t  kuzey_dm;   // NED kuzey, desimetre (+-3276.7 m)
+    int16_t  dogu_dm;    // NED dogu,  desimetre
+    int16_t  asagi_dm;   // NED asagi, desimetre (pozitif = asagi; irtifa = -asagi_dm)
+    int16_t  yaw_ddeg;   // hedef yaw, desi-derece (0.1 deg); bayrak yoksa yok sayilir
+    uint8_t  bayraklar;  // GOTO_BAYRAK_*
+    uint8_t  rezerv[7];  // toplam 16 byte
+};
+static_assert(sizeof(goto_veri_t) == 16,
+              "goto_veri_t 16 byte OLMALI — bridge govde[2:18] ile sabit 16B diliyor");
+static_assert(offsetof(goto_veri_t, bayraklar) == 8,
+              "bayraklar offset 8 OLMALI — packet_parser.py _GOTO_FMT ile uyum");

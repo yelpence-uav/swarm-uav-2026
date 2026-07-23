@@ -325,3 +325,67 @@ def test_komut_fmt_layout_sozlesmesi():
     p = pp.komut_paketle(alt_tip=0, flags=0, roll_x100=0,
                          pitch_x100=0, yaw_x100=0, throttle_x100=0x0304)
     assert p[8:10] == b'\x04\x03'       # throttle offset 8
+
+
+def test_komut_arm_disarm_flag():
+    """Guided arm/disarm bitleri (0x40/0x80) ayrı set/test edilebilmeli."""
+    payload = pp.komut_paketle(
+        alt_tip=pp.KOMUT_MODE_GUIDED,
+        flags=pp.KOMUT_FLAG_ARM | pp.KOMUT_FLAG_DEADMAN_PRESSED,
+        roll_x100=0, pitch_x100=0, yaw_x100=0, throttle_x100=0,
+    )
+    k = pp.komut_coz(payload)
+    assert k.alt_tip == pp.KOMUT_MODE_GUIDED
+    assert k.flags & pp.KOMUT_FLAG_ARM
+    assert not k.flags & pp.KOMUT_FLAG_DISARM
+    assert k.flags & pp.KOMUT_FLAG_DEADMAN_PRESSED
+
+
+def test_goto_round_trip():
+    """TIP_GOTO nokta-git hedefi tüm alanları korumalı + metre dönüşümü."""
+    payload = pp.goto_paketle(
+        kuzey_dm=1250, dogu_dm=-800, asagi_dm=-150,   # 125m K, 80m B, 15m irtifa
+        yaw_ddeg=900, bayraklar=pp.GOTO_BAYRAK_YAW_GECERLI,
+    )
+    assert len(payload) == 16
+    g = pp.goto_coz(payload)
+    assert g.kuzey_dm == 1250
+    assert g.dogu_dm == -800
+    assert g.asagi_dm == -150
+    assert g.kuzey_m == 125.0
+    assert g.dogu_m == -80.0
+    assert g.asagi_m == -15.0
+    assert g.yaw_deg == 90.0
+    assert g.yaw_gecerli is True
+
+
+def test_goto_yaw_gecersiz():
+    """GOTO_BAYRAK_YAW_GECERLI yoksa yaw_gecerli False dönmeli."""
+    g = pp.goto_coz(pp.goto_paketle(kuzey_dm=0, dogu_dm=0, asagi_dm=-100))
+    assert g.yaw_gecerli is False
+
+
+def test_goto_cerceve_uctan_uca():
+    """goto_paketle -> firmware çerçevesi -> cerceve_coz -> goto_coz."""
+    payload = pp.goto_paketle(kuzey_dm=300, dogu_dm=300, asagi_dm=-200)
+    ham = _cerceve_uret(pp.TIP_GOTO, 1, payload)
+    c = pp.cerceve_coz(cobs_decode(ham))
+    assert c is not None
+    assert c.tip == pp.TIP_GOTO
+    g = pp.goto_coz(c.payload)
+    assert g.kuzey_dm == 300
+    assert g.asagi_m == -20.0
+
+
+def test_goto_fmt_layout_sozlesmesi():
+    """mesh_config.h goto_veri_t static_assert'lerinin Python yakası."""
+    assert struct.calcsize(pp._GOTO_FMT) == 16
+
+    p = pp.goto_paketle(kuzey_dm=0x0102, dogu_dm=0, asagi_dm=0)
+    assert p[0:2] == b'\x02\x01'        # kuzey offset 0, little-endian
+
+    p = pp.goto_paketle(kuzey_dm=0, dogu_dm=0, asagi_dm=0x0304)
+    assert p[4:6] == b'\x04\x03'        # asagi offset 4
+
+    p = pp.goto_paketle(kuzey_dm=0, dogu_dm=0, asagi_dm=0, bayraklar=0xAB)
+    assert p[8] == 0xAB                 # bayraklar offset 8

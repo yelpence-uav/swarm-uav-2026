@@ -31,6 +31,7 @@ TIP_SWARM_STATE = 0x0D
 TIP_QR_DATA = 0x0E
 TIP_FAILSAFE = 0xFA  # mesh kopunca gelen failsafe (fail_safe.h)
 TIP_QR_COORDS = 0x0F  # YKİ'den gelen QR konumları (her nokta ayrı çerçeve)
+TIP_GOTO = 0x10  # YKİ'den gelen guided tekil nokta-git (goto_veri_t)
 
 # Failsafe türleri (fail_safe.h)
 FAILSAFE_TIP_UYARI = 0x01
@@ -65,12 +66,16 @@ DURUM2_BAYRAK_READY_TO_ARM = 0x01
 _RENK_FMT = '<Bii7x'         # renk, lat, lon, rezerv[7]
 _GOREV_FMT = '<BBbB12x'      # tip, param1, param2, bekleme, rezerv[12]
 _ORIGIN_FMT = '<iiiI'        # lat_1e7, lon_1e7, alt_mm, sequence
-_KOMUT_FMT = '<BBhhhh6x'     # alt_tip, flags, roll/pitch/yaw/throttle x100
+# target_id (offset 10, rezerv[0]): guided komutun HEDEF drone'u. Mesh çerçevesi
+# id taşımaz (base düşürür, drone MAC'ten kaynak id üretir), o yüzden hedef
+# payload'da gider. Firmware bunu opak rezerv görür — flash gerekmez.
+_KOMUT_FMT = '<BBhhhhB5x'    # alt_tip, flags, roll/pitch/yaw/throttle x100, target_id
 _LEADER_HB_FMT = '<BIBBB8x'  # leader_id, seq, round, agent_count, mission
 _ELECTION_FMT = '<BBBBIBBBB4x'  # leader, round, reason, trigger, seq, ids
 _QR_FMT = '<BIii3x'          # drone_id, action_id, lat, lon, rezerv[3]
 _SWARM_STATE_FMT = '<BBBBI8x'  # mission_id, fsm, leader, formation, timestamp
 _QR_COORD_FMT = '<BBii6x'    # qr_id, toplam, lat_1e7, lon_1e7, rezerv[6]
+_GOTO_FMT = '<hhhhBB6x'      # kuzey_dm, dogu_dm, asagi_dm, yaw_ddeg, bayraklar, target_id, rezerv[6]
 
 # Joystick komutu bayrak bitleri (komut_veri_t.flags için).
 # DEADMAN_PRESSED: SwarmControlCommand.deadman_pressed mesh üzerinden
@@ -82,10 +87,17 @@ KOMUT_FLAG_RTL = 0x04
 KOMUT_FLAG_EMERGENCY = 0x08
 KOMUT_FLAG_FORMATION_CHANGE = 0x10
 KOMUT_FLAG_DEADMAN_PRESSED = 0x20
+# Guided (YKİ tekil komut) ek bayrakları — takeoff/land/rtl yukarıdakiyle ortak.
+KOMUT_FLAG_ARM = 0x40
+KOMUT_FLAG_DISARM = 0x80
 
 # SwarmControlCommand.mode değerleri
 KOMUT_MODE_SWARM_MOVEMENT = 1
 KOMUT_MODE_MANEUVER = 2
+KOMUT_MODE_GUIDED = 3  # YKİ tekil guided komut; drone FSM'i baypas edip px4_bridge'e çevirir
+
+# goto_veri_t.bayraklar bit maskeleri (firmware GOTO_BAYRAK_* ile aynı).
+GOTO_BAYRAK_YAW_GECERLI = 0x01
 
 _FRAME_MIN = 4  # tip + iha_id + crc16 (payload değişken)
 
@@ -94,6 +106,7 @@ _FRAME_MIN = 4  # tip + iha_id + crc16 (payload değişken)
 _LIVENESS_TIPLERI = frozenset({
     TIP_KOMUT, TIP_POSE, TIP_GOREV, TIP_RENK, TIP_DURUM, TIP_ORIGIN,
     TIP_LEADER_HB, TIP_ELECTION, TIP_HEARTBEAT, TIP_SWARM_STATE, TIP_QR_DATA,
+    TIP_GOTO,
 })
 
 
@@ -231,12 +244,49 @@ class KomutVeri:
     Float32 komutlar int16 * 100 (×0.01 ölçek) ile taşınır.
     """
 
-    alt_tip: int        # MODE_SWARM_MOVEMENT=1 / MODE_MANEUVER=2
+    alt_tip: int        # MODE_SWARM_MOVEMENT=1 / MODE_MANEUVER=2 / MODE_GUIDED=3
     flags: int          # bit alanı, KOMUT_FLAG_* bitleri
     roll_x100: int      # roll_cmd * 100  ([-32767, 32767])
     pitch_x100: int
     yaw_x100: int
     throttle_x100: int
+    target_id: int = 0  # guided hedef drone (0 = tümü). Joystick modunda kullanılmaz.
+
+
+@dataclass
+class GotoVeri:
+    """TIP_GOTO payload — YKİ'den gelen guided tekil nokta-git komutu.
+
+    Hedef, paylaşılan SwarmOrigin'e göre NED (desimetre) taşınır. Yön (yaw)
+    yalnızca GOTO_BAYRAK_YAW_GECERLI set ise geçerlidir.
+    """
+
+    kuzey_dm: int       # NED kuzey, desimetre
+    dogu_dm: int        # NED doğu, desimetre
+    asagi_dm: int       # NED aşağı, desimetre (pozitif = aşağı; irtifa = -asagi_dm)
+    yaw_ddeg: int       # hedef yaw, desi-derece (0.1°)
+    bayraklar: int      # GOTO_BAYRAK_* bitleri
+    target_id: int = 0  # hedef drone (0 = tümü). Mesh id taşımadığı için payload'da.
+
+    @property
+    def kuzey_m(self) -> float:
+        return self.kuzey_dm / 10.0
+
+    @property
+    def dogu_m(self) -> float:
+        return self.dogu_dm / 10.0
+
+    @property
+    def asagi_m(self) -> float:
+        return self.asagi_dm / 10.0
+
+    @property
+    def yaw_deg(self) -> float:
+        return self.yaw_ddeg / 10.0
+
+    @property
+    def yaw_gecerli(self) -> bool:
+        return bool(self.bayraklar & GOTO_BAYRAK_YAW_GECERLI)
 
 
 @dataclass
@@ -504,15 +554,15 @@ def pose_paketle(lat: int, lon: int, alt_dm: int, heading: int,
 
 def komut_coz(payload: bytes) -> KomutVeri:
     """TIP_KOMUT payload'ını KomutVeri'ye çözer."""
-    alt_tip, flags, roll, pitch, yaw, throttle = struct.unpack(
+    alt_tip, flags, roll, pitch, yaw, throttle, target_id = struct.unpack(
         _KOMUT_FMT, payload
     )
-    return KomutVeri(alt_tip, flags, roll, pitch, yaw, throttle)
+    return KomutVeri(alt_tip, flags, roll, pitch, yaw, throttle, target_id)
 
 
 def komut_paketle(alt_tip: int, flags: int, roll_x100: int,
                   pitch_x100: int, yaw_x100: int,
-                  throttle_x100: int) -> bytes:
+                  throttle_x100: int, target_id: int = 0) -> bytes:
     """Joystick komutunu 16 baytlık mesh payload'ına paketler.
 
     Args:
@@ -528,7 +578,33 @@ def komut_paketle(alt_tip: int, flags: int, roll_x100: int,
     """
     return struct.pack(
         _KOMUT_FMT, alt_tip, flags,
-        roll_x100, pitch_x100, yaw_x100, throttle_x100,
+        roll_x100, pitch_x100, yaw_x100, throttle_x100, target_id,
+    )
+
+
+def goto_coz(payload: bytes) -> GotoVeri:
+    """TIP_GOTO payload'ını GotoVeri'ye çözer."""
+    kuzey, dogu, asagi, yaw, bayraklar, target_id = struct.unpack(_GOTO_FMT, payload)
+    return GotoVeri(kuzey, dogu, asagi, yaw, bayraklar, target_id)
+
+
+def goto_paketle(kuzey_dm: int, dogu_dm: int, asagi_dm: int,
+                 yaw_ddeg: int = 0, bayraklar: int = 0,
+                 target_id: int = 0) -> bytes:
+    """Guided nokta-git hedefini 16 baytlık mesh payload'ına paketler.
+
+    Args:
+        kuzey_dm (int): NED kuzey, desimetre (int16).
+        dogu_dm (int): NED doğu, desimetre (int16).
+        asagi_dm (int): NED aşağı, desimetre (int16; irtifa = -asagi_dm).
+        yaw_ddeg (int): Hedef yaw, desi-derece (0.1°). bayrak yoksa yok sayılır.
+        bayraklar (int): GOTO_BAYRAK_* bitleri.
+
+    Returns:
+        bytes: 16 baytlık payload.
+    """
+    return struct.pack(
+        _GOTO_FMT, kuzey_dm, dogu_dm, asagi_dm, yaw_ddeg, bayraklar, target_id,
     )
 
 

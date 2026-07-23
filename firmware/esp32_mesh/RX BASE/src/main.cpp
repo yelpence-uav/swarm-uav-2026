@@ -430,7 +430,10 @@ void loop() {
                 mesh_gonder(veri, TIP_KOMUT);
         } else if (tip_byte == TIP_RENK  || tip_byte == TIP_DURUM ||
                    tip_byte == TIP_SWARM_STATE || tip_byte == TIP_QR_DATA ||
-                   tip_byte == TIP_ORIGIN || tip_byte == TIP_GOREV) {
+                   tip_byte == TIP_ORIGIN || tip_byte == TIP_GOREV ||
+                   tip_byte == TIP_GOTO) {
+            // TIP_GOTO: YKİ'den tekil nokta-git; tip basina hiz limitiyle mesh'e.
+            // Nadir gonderilir (hedef basina 1), 50Hz OFFBOARD akisi drone'da lokal.
             if (mesh_tip_gecebilir(tip_byte, simdi, MESH_GONDERIM_MIN_MS))
                 mesh_gonder(veri, tip_byte);
         }

@@ -166,6 +166,9 @@ void mesh_veri_al(const uint8_t* kaynak_mac, const mesh_paket_t* p) {
     // pi_bridge tarafi bunu bekliyor (esp32_bridge_node.py::_cerceve_isle ->
     // TIP_KOMUT -> _isle_komut -> SwarmControlCommand).
     if      (p->tip == TIP_KOMUT)       uzunluk = sizeof(komut_veri_t);
+    // TIP_GOTO: YKİ'den gelen guided nokta-git; TIP_KOMUT gibi Pi'ye iletilmeli
+    // (esp32_bridge_node.py::_isle_goto -> AgentSetpoint). Iletilmezse guided ucus olmaz.
+    else if (p->tip == TIP_GOTO)        uzunluk = sizeof(goto_veri_t);
     else if (p->tip == TIP_POSE)        uzunluk = sizeof(pose_veri_t);
     else if (p->tip == TIP_GOREV)       uzunluk = sizeof(gorev_veri_t);
     else if (p->tip == TIP_RENK)        uzunluk = sizeof(renk_veri_t);
