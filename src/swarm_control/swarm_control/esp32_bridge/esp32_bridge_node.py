@@ -38,10 +38,12 @@ from rclpy.qos import (
 )
 import serial
 
-from std_msgs.msg import UInt8MultiArray
+from std_msgs.msg import String, UInt8MultiArray
 from swarm_interfaces.msg import (
+    AgentSetpoint,
     AgentStatus,
     ElectionResult,
+    GuidedCommand,
     LeaderHeartbeat,
     QRCoordinates,
     SwarmControlCommand,
@@ -269,6 +271,24 @@ class Esp32BridgeNode(Node):
         self._qr_koord_toplayici: dict[int, tuple] = {}
         self._qr_koord_toplam = 0
 
+        # === Guided (YKİ tekil komut) ===
+        # Drone tarafı: mesh'ten gelen TIP_GOTO / guided TIP_KOMUT'u px4_bridge'in
+        # anladığı arayüze çevirir — String komut + AgentSetpoint. Base tarafında
+        # bu publisher'lar boşta kalır (guided mesh komutu drone'a iner, base'e değil).
+        self._guided_cmd_pub = self.create_publisher(
+            String, f'/swarm/agent/drone{self._agent_id}/commands', 10
+        )
+        self._guided_sp_pub = self.create_publisher(
+            AgentSetpoint, f'/drone_{self._agent_id}/control/setpoint', 10
+        )
+        # Aktif guided hedef; 10 Hz LOKAL tekrar yayınlanır ki px4_bridge OFFBOARD
+        # akışı ve FSM offboard-canlılığı bayatlamasın (mesh'e ÇIKMAZ).
+        self._guided_hedef: AgentSetpoint | None = None
+        self._guided_sp_timer = self.create_timer(0.1, self._guided_hedef_tekrar)
+        # Guided komutu güvenilir teslim için birkaç kez aralıklı gönderilir
+        # (broadcast'te OTA ACK yok). Aktif tekrar timer'ları burada tutulur.
+        self._guided_gonder_timerlar: set = set()
+
         # Seri port ayarlarını sakla — kopma sonrası reconnect için
         self._port = port
         self._baud = baud
@@ -304,6 +324,16 @@ class Esp32BridgeNode(Node):
             SwarmControlCommand,
             '/swarm/internal/control/command',
             self._on_control_out,
+            _MESH_QOS,
+        )
+
+        # YKİ -> drone: guided tekil komut (arm/takeoff/goto/rtl/land).
+        # Base istasyonunda backend yayınlar; bu handler mesh'e iletir
+        # (TIP_KOMUT[guided] veya TIP_GOTO). Drone tarafında yayıncı yok → boşta.
+        self.create_subscription(
+            GuidedCommand,
+            '/swarm/internal/guided/command',
+            self._on_guided_out,
             _MESH_QOS,
         )
 
@@ -532,6 +562,8 @@ class Esp32BridgeNode(Node):
             self._isle_origin(cerceve.iha_id, cerceve.payload)
         elif cerceve.tip == pp.TIP_KOMUT:
             self._isle_komut(cerceve.iha_id, cerceve.payload)
+        elif cerceve.tip == pp.TIP_GOTO:
+            self._isle_goto(cerceve.iha_id, cerceve.payload)
         elif cerceve.tip == pp.TIP_LEADER_HB:
             self._isle_leader_hb(cerceve.iha_id, cerceve.payload)
         elif cerceve.tip == pp.TIP_ELECTION:
@@ -748,6 +780,20 @@ class Esp32BridgeNode(Node):
         sequence yok, mesh_config.h ile teyit edilmesi gerekir.
         """
         k = pp.komut_coz(payload)
+        # Guided (YKİ tekil komut): FSM/mode_manager'ı baypas edip doğrudan
+        # px4_bridge'e String komuta çevir. source_id burada HEDEF drone'dur
+        # (base gönderirken iha_id'ye hedefi yazar); bize veya broadcast'e
+        # yönelikse uygula. Joystick sürü komutu eskisi gibi akar.
+        if k.alt_tip == pp.KOMUT_MODE_GUIDED:
+            # Hedef payload'da (k.target_id) — mesh çerçeve id'si kaynak MAC'ten
+            # üretildiği için base'in id'sini taşır, hedefi DEĞİL.
+            self.get_logger().info(
+                f'[GUIDED] KOMUT geldi: hedef={k.target_id} bayraklar=0x{k.flags:02X} '
+                f'(benim id={self._agent_id}, cerceve_kaynak={source_id})'
+            )
+            if k.target_id in (self._agent_id, 0):
+                self._guided_discrete_uygula(k)
+            return
         msg = SwarmControlCommand()
         msg.stamp = self.get_clock().now().to_msg()
         msg.mode = k.alt_tip
@@ -772,6 +818,84 @@ class Esp32BridgeNode(Node):
         msg.sequence_num = self._komut_rx_seq
         msg.source_module = f'esp32_bridge_from_agent_{source_id}'
         self._control_pub.publish(msg)
+
+    # =================================================================
+    # GUIDED (YKİ tekil komut) — mesh -> px4_bridge çevirisi
+    # =================================================================
+    def _guided_discrete_uygula(self, k: pp.KomutVeri) -> None:
+        """Guided TIP_KOMUT bayraklarını px4_bridge String komutuna çevirir.
+
+        arm/disarm/takeoff/land/rtl. Takeoff irtifası throttle alanında
+        (metre*100) taşınır. FSM'i baypas eder — guided modda operatör otoritesi.
+        """
+        if k.flags & pp.KOMUT_FLAG_ARM:
+            self._guided_string('arm')
+        elif k.flags & pp.KOMUT_FLAG_DISARM:
+            self._guided_hedef = None
+            self._guided_string('disarm')
+        elif k.flags & pp.KOMUT_FLAG_TAKEOFF:
+            irtifa = k.throttle_x100 / 100.0
+            if irtifa <= 0.0:
+                irtifa = 10.0
+            self._guided_string('offboard')
+            self._guided_string(f'takeoff:{irtifa:.1f}')
+        elif k.flags & pp.KOMUT_FLAG_LAND:
+            self._guided_hedef = None
+            self._guided_string('land')
+        elif k.flags & pp.KOMUT_FLAG_RTL:
+            self._guided_hedef = None
+            self._guided_string('rtl')
+
+    def _guided_string(self, komut: str) -> None:
+        """px4_bridge FSM komut topic'ine String yayınlar (arm/land/takeoff...)."""
+        m = String()
+        m.data = komut
+        self._guided_cmd_pub.publish(m)
+        self.get_logger().info(f'[GUIDED] px4 komut: {komut}')
+
+    def _isle_goto(self, source_id: int, payload: bytes) -> None:
+        """TIP_GOTO -> hedef bizsek AgentSetpoint (NED) olarak px4_bridge'e.
+
+        Hedef mesh'ten bir KEZ gelir; 10 Hz LOKAL tekrar (_guided_hedef_tekrar)
+        OFFBOARD akışını canlı tutar (mesh'e çıkmaz). 'offboard' idempotent gönderilir.
+        Hedef drone payload'da (g.target_id) — çerçeve id'si kaynağı taşır.
+        """
+        g = pp.goto_coz(payload)
+        self.get_logger().info(
+            f'[GUIDED] GOTO geldi: hedef={g.target_id} '
+            f'(benim id={self._agent_id}, cerceve_kaynak={source_id})'
+        )
+        if g.target_id not in (self._agent_id, 0):
+            return
+        sp = AgentSetpoint()
+        sp.agent_id = self._agent_id
+        sp.source = AgentSetpoint.SOURCE_POSITION_CONTROLLER
+        sp.priority = AgentSetpoint.PRIORITY_POSITION
+        sp.x = g.kuzey_m
+        sp.y = g.dogu_m
+        sp.z = g.asagi_m
+        sp.position_valid = True
+        if g.yaw_gecerli:
+            sp.heading_deg = g.yaw_deg
+            sp.heading_valid = True
+        sp.source_module = 'esp32_bridge_guided'
+        self._guided_hedef = sp
+        self._guided_string('offboard')
+        self._guided_hedef_yayinla()
+        self.get_logger().info(
+            f'[GUIDED] goto NED=({sp.x:.1f},{sp.y:.1f},{sp.z:.1f}) '
+            f'yaw={("%.0f" % sp.heading_deg) if g.yaw_gecerli else "serbest"}'
+        )
+
+    def _guided_hedef_yayinla(self) -> None:
+        """Aktif guided hedefi güncel zaman damgasıyla px4_bridge'e yayınlar."""
+        if self._guided_hedef is not None:
+            self._guided_hedef.stamp = self.get_clock().now().to_msg()
+            self._guided_sp_pub.publish(self._guided_hedef)
+
+    def _guided_hedef_tekrar(self) -> None:
+        """10 Hz timer: aktif guided hedefi LOKAL tekrar yayınla (mesh'e çıkmaz)."""
+        self._guided_hedef_yayinla()
 
     def _isle_leader_hb(self, source_id: int, payload: bytes) -> None:
         """TIP_LEADER_HB -> /swarm/public/leader/heartbeat'e yayın."""
@@ -1102,6 +1226,72 @@ class Esp32BridgeNode(Node):
             throttle_x100=_kirp_int16(msg.throttle_cmd * 100.0),
         )
         self._uart_yaz(pp.TIP_KOMUT, self._agent_id, payload)
+
+    def _guided_gonder(self, tip: int, hedef: int, payload: bytes) -> None:
+        """Guided komutu güvenilir teslim için 250ms aralıkla 4 kez gönderir.
+
+        Broadcast'te OTA ACK/retry yok; tek çerçeve havada kaybolabilir. Base
+        ESP JOYSTICK rate limiti 200ms olduğundan 250ms aralık hepsinin geçmesini
+        sağlar. Non-blocking (ROS timer); operatör tek tık yapınca komut oturur.
+        """
+        self._uart_yaz(tip, hedef, payload)  # ilki hemen
+        durum = {'kalan': 3, 'timer': None}
+
+        def _tekrar():
+            self._uart_yaz(tip, hedef, payload)
+            durum['kalan'] -= 1
+            if durum['kalan'] <= 0 and durum['timer'] is not None:
+                durum['timer'].cancel()
+                self._guided_gonder_timerlar.discard(durum['timer'])
+
+        durum['timer'] = self.create_timer(0.25, _tekrar)
+        self._guided_gonder_timerlar.add(durum['timer'])
+
+    def _on_guided_out(self, msg: GuidedCommand) -> None:
+        """GuidedCommand'ı mesh'e iletir: TIP_GOTO veya guided TIP_KOMUT.
+
+        Çerçeve iha_id'sine HEDEF drone yazılır ama mesh id taşımadığı için
+        hedef asıl olarak payload'da (target_id) gider; drone buna göre süzer.
+        Base istasyonunda çalışır — drone'da bu topic'e yayın olmadığı için dormant.
+        """
+        hedef = int(msg.agent_id)
+        if msg.action == GuidedCommand.ACTION_GOTO:
+            bayraklar = pp.GOTO_BAYRAK_YAW_GECERLI if msg.heading_valid else 0
+            payload = pp.goto_paketle(
+                kuzey_dm=_kirp_int16(msg.x * 10.0),
+                dogu_dm=_kirp_int16(msg.y * 10.0),
+                asagi_dm=_kirp_int16(msg.z * 10.0),
+                yaw_ddeg=_kirp_int16(msg.heading_deg * 10.0),
+                bayraklar=bayraklar,
+                target_id=hedef,
+            )
+            self._guided_gonder(pp.TIP_GOTO, hedef, payload)
+            return
+
+        aksiyon_bayrak = {
+            GuidedCommand.ACTION_ARM: pp.KOMUT_FLAG_ARM,
+            GuidedCommand.ACTION_DISARM: pp.KOMUT_FLAG_DISARM,
+            GuidedCommand.ACTION_TAKEOFF: pp.KOMUT_FLAG_TAKEOFF,
+            GuidedCommand.ACTION_LAND: pp.KOMUT_FLAG_LAND,
+            GuidedCommand.ACTION_RTL: pp.KOMUT_FLAG_RTL,
+        }
+        flag = aksiyon_bayrak.get(msg.action)
+        if flag is None:
+            self.get_logger().warning(f'guided: bilinmeyen action {msg.action}')
+            return
+        # Takeoff hedef irtifası throttle alanında (metre*100) taşınır.
+        throttle = (
+            _kirp_int16(msg.altitude_m * 100.0)
+            if msg.action == GuidedCommand.ACTION_TAKEOFF else 0
+        )
+        payload = pp.komut_paketle(
+            alt_tip=pp.KOMUT_MODE_GUIDED,
+            flags=flag,
+            roll_x100=0, pitch_x100=0, yaw_x100=0,
+            throttle_x100=throttle,
+            target_id=hedef,
+        )
+        self._guided_gonder(pp.TIP_KOMUT, hedef, payload)
 
     def _on_leader_hb_out(self, msg: LeaderHeartbeat) -> None:
         """Lider kalp atışını TIP_LEADER_HB olarak ESP32'ye gönderir."""
