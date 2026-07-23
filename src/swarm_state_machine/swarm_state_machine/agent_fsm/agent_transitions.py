@@ -85,14 +85,20 @@ def evaluate_transitions(ctx: AgentContext) -> AgentState | None:
 
 
 def _from_unknown(ctx: AgentContext) -> AgentState | None:
-    """İlk tick'te her zaman IDLE'a geçer.
+    """İlk telemetri geldikten sonra IDLE'a geçer.
+
+    Telemetri gelmeden IDLE demek "hazırım" demektir; oysa o anda drone'un
+    durumu hakkında hiçbir bilgimiz yok. UNKNOWN'da beklemek dürüst davranış:
+    arm edilemez ve YKİ'de gerçek durum (bilinmiyor) görünür.
 
     Args:
         ctx (AgentContext): Drone'un anlık durum bilgisi.
 
     Returns:
-        AgentState: Her zaman AgentState.IDLE.
+        AgentState | None: Telemetri geldiyse IDLE, gelmediyse None (bekle).
     """
+    if not ctx.telemetri_alindi:
+        return None
     return AgentState.IDLE
 
 
@@ -344,6 +350,21 @@ def _from_failsafe(ctx: AgentContext) -> AgentState | None:
     """
     if not ctx.armed and ctx.pending_state == AgentState.IDLE:
         return AgentState.IDLE
+
+    # Yerde kendiliginden toparlanma. YALNIZCA disarm + PX4 linki geri gelmis +
+    # 3 sn stabil kalmissa. Havada BILEREK yok: ucus sirasinda failsafe'ten
+    # sessizce cikip gorevi surdurmek tehlikelidir, orada operator/manager
+    # karari (pending_state) beklenir.
+    #
+    # Neden gerekli: gecici bir link kesintisi (or. MAVROS yeniden baslatma,
+    # baud degisimi) node'u yerde kalici FAILSAFE'te birakiyordu ve tek cikis
+    # yolu sureci yeniden baslatmakti.
+    if (not ctx.armed
+            and ctx.px4_link_ok
+            and ctx.telemetri_alindi
+            and ctx.time_in_state() > 3.0):
+        return AgentState.IDLE
+
     if ctx.healthy and ctx.pending_state == AgentState.RETURN_HOME:
         return AgentState.RETURN_HOME
     if ctx.pending_state == AgentState.LANDING:

@@ -183,7 +183,14 @@ def _check_critical_faults(ctx: AgentContext) -> HealthCheckResult:
     Returns:
         HealthCheckResult: critical_fault veya warning.
     """
-    if not ctx.px4_link_ok:
+    # telemetri_alindi kapisi: veri gelmeden link hakkinda hukum verme.
+    # px4_link_ok varsayilan False oldugu icin bu kapi olmadan node, DDS kesfi
+    # bitmeden calisan ilk tick'te (t~0.1 sn) "link koptu" deyip FAILSAFE'e
+    # dusuyordu ve _from_failsafe disaridan pending_state bekledigi icin bir
+    # daha cikamiyordu. Fail-open degil: telemetri bir kez geldikten sonra
+    # gercek link kaybi aynen failsafe tetikler; sadece "henuz bilmiyorum"
+    # durumu "koptu" sayilmiyor.
+    if ctx.telemetri_alindi and not ctx.px4_link_ok:
         return HealthCheckResult(
             critical_fault=True,
             event_type=SystemEvent.EVENT_PX4_LINK_LOST,
@@ -249,10 +256,26 @@ def _check_rc_safety(ctx: AgentContext) -> HealthCheckResult:
         HealthCheckResult: critical_fault veya warning.
     """
     if ctx.kill_switch_active:
+        # Kill switch HAVADA acil durumdur; YERDE disarm haldeyken beklenen ve
+        # kararli bir durumdur (operator drone'u guvenli konuma almistir).
+        #
+        # Ayrim sart: aksi halde iki kural birbiriyle savasiyor ve FSM saniyede
+        # birkac kez FAILSAFE <-> LANDED zipliyordu (sahada goruldu, 2026-07-22):
+        #   bu kontrol      -> kill aktif, her durumda kritik ariza -> FAILSAFE
+        #   _tick():184     -> FAILSAFE + kill + yerde + stabil     -> LANDED
+        # Yerde kill'i ariza saymayinca dongu kirilir, ucusta koruma aynen kalir.
+        #
+        # kill_switch_active telemetride tasinmaya devam eder; YKİ durumu
+        # gorur, sadece FSM bunu "ariza" diye islemez.
+        if ctx.state in _AIRBORNE or ctx.armed:
+            return HealthCheckResult(
+                critical_fault=True,
+                event_type=SystemEvent.EVENT_KILL_SWITCH_ACTIVATED,
+                reason='Kill switch aktif',
+            )
         return HealthCheckResult(
-            critical_fault=True,
-            event_type=SystemEvent.EVENT_KILL_SWITCH_ACTIVATED,
-            reason='Kill switch aktif',
+            warning=True,
+            reason='Kill switch aktif (yerde, disarm)',
         )
 
     if not ctx.sitl_mode and not ctx.rc_link_ok:

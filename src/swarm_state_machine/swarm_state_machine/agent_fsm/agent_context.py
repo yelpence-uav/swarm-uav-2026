@@ -24,6 +24,16 @@ class AgentContext:
     px4_link_ok: bool = False
     gcs_link_ok: bool = False
 
+    # Ilk AgentStatus ulasti mi. "Henuz bilmiyorum" ile "koptu" ayrimini kurar.
+    #
+    # Neden gerekli: px4_link_ok varsayilan False ve yalnizca _on_telemetry
+    # icinde set ediliyor. Bu bayrak olmadan, node acildiktan ~0.1 sn sonra
+    # calisan ilk tick, DDS kesfi daha bitmemisken px4_link_ok=False goruyor ve
+    # "PX4 link koptu" diye FAILSAFE'e dusuyordu. _from_failsafe disaridan
+    # pending_state bekledigi icin de bir daha cikamiyordu — yani node yaklasik
+    # yarim olasilikla aciliste kalici kilitleniyordu (sahada olculdu).
+    telemetri_alindi: bool = False
+
     armed: bool = False
     offboard_enabled: bool = False
     offboard_active: bool = False
