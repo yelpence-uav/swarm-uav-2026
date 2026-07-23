@@ -1177,3 +1177,14 @@ qr/
 .dockerignore.backup
 
 scripts/docs/
+scripts/test/
+src/_mesh_view/
+scripts/launch_swarm.py
+scripts/set_px4_params.sh
+src/swarm_core/swarm_core/formation_control/rmse_paper.py
+src/swarm_core/swarm_core/formation_control/rmse_analiz.py
+src/swarm_core/swarm_core/formation_control/formation_test_publisher.py
+src/swarm_core/swarm_core/formation_control/manual_command_node.py
+*_bak
+*.bak
+*.diff

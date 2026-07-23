@@ -34,6 +34,7 @@ from .qr_geo import QrGeoResolver
 _S_SYNCHRONIZED_TAKEOFF = 3
 _S_NAVIGATE_TO_QR = 4
 _S_EXECUTE_QR_TASK = 5
+_S_WAIT_AT_QR = 6
 _S_ROTATE_TO_NEXT = 7
 _S_RETURN_HOME = 9
 
@@ -139,6 +140,10 @@ class OrchestratorInput:
     home: tuple              # (x, y, z) shared NED
     qr: object = None        # QRMissionData benzeri; None = QR yok
     time_in_state: float = 0.0  # mevcut MissionState'e girişten beri saniye
+    # Sürünün o anki yaw'ı (derece, kuzeyden saat yönü). None = bilinmiyor.
+    # YALNIZ kalkış heading'i ve snapshot referansı için; rotasyon/navigasyon
+    # heading'i her zaman hedefe göre hesaplanır.
+    swarm_yaw_deg: float = None
 
 
 @dataclass
@@ -721,9 +726,51 @@ class Mission1Orchestrator:
             return self._on_navigate(inp)
         if s == _S_EXECUTE_QR_TASK:
             return self._on_execute(inp)
+        if s == _S_WAIT_AT_QR:
+            # BEKLEME sırasında EĞİK POZU KORU. Şartname md.8: manevradan
+            # sonra yeni formasyon/manevra gelene dek eğik poz korunmalı.
+            # Bu faz eskiden hiç işlenmiyordu (return []): manevra QR'ında
+            # wait_s > 0 ise EXECUTE'tan WAIT_AT_QR'a geçiliyor ve orchestrator
+            # burada komut ÜRETMİYORDU. Sonuç: maneuver_executor hareketi
+            # bırakır (hold_after_complete=False), formation eğik pozu ise bu
+            # fazda gelmediği için dron BEKLEME BOYUNCA DÜZLEŞİYORDU; eğik poz
+            # ancak bekleme bitip ROTATE'e geçince geri geliyordu (ölçüldü:
+            # manevra sonrası ~20 sn düz kalıp sonra tekrar eğiliyordu —
+            # "pitch → düz → pitch"). _exec_hold_tilt eğik ofsetli formasyon
+            # komutu üretir; eğim yoksa zaten [] döner, manevrasız QR'da etkisi
+            # olmaz. Emit-once mimarisi komutu bir kez üretir (spam yok).
+            return self._exec_hold_tilt(inp)
         if s == _S_RETURN_HOME:
             return self._on_return_home(inp)
         return []
+
+    def _kalkis_heading(self, inp: OrchestratorInput) -> float:
+        """Sürünün o anki yaw'ı (derece); bilinmiyorsa 0 (eski davranış).
+
+        Kalkış komutunun heading'i ve snapshot ofsetlerinin referansı budur.
+        Sabit bir yön varsayımı yoktur: değer telemetriden gelir, diziliş
+        rastgele olsa da geçerlidir.
+        """
+        if inp.swarm_yaw_deg is None:
+            return 0.0
+        return float(inp.swarm_yaw_deg)
+
+    @staticmethod
+    def _ters_dondur(offsets, heading_deg: float):
+        """Ofsetleri -heading kadar döndürür (heading uygulanınca sadeleşir).
+
+        formation_node hedefi `merkez + döndür(ofset, heading)` diye kurar.
+        Ofsetler burada -heading döndürülürse iki döndürme birbirini götürür:
+        hedef konumlar `merkez + ofset` olarak kalır, yani diziliş bire bir
+        korunur; değişen tek şey komutun heading'i (dolayısıyla burun yönü ve
+        sonraki rotasyonların başlangıç referansı) olur.
+        """
+        if not heading_deg:
+            return offsets
+        th = math.radians(-heading_deg)
+        return [
+            (*rotate_offset(o[0], o[1], th), o[2]) for o in offsets
+        ]
 
     def _bearing_deg(self, frm, to) -> float:
         """frm'den to'ya yön açısı (kuzeyden saat yönüne, derece)."""
@@ -782,6 +829,19 @@ class Mission1Orchestrator:
             flat = self._snapshot_offsets(inp)
             if flat is None:
                 return None
+            # SNAPSHOT REFERANSI: kuzey değil, sürünün KENDİ yönü.
+            # _snapshot_offsets ofsetleri dünya çerçevesinde verir. Bunlar
+            # heading=0 (kuzey) referansı sayılarak saklanırsa, ilk rotasyonda
+            # heading hedefe (örn. 87°) çevrildiğinde diziliş SIFIRDAN o açıya
+            # döner — ölçüldü: yerde kuzey-güney duran çizgi (eksen 1.1°)
+            # kalkışta 87°'ye dönüp dikleşiyordu. Oysa sürü zaten 79°'ye
+            # bakıyordu; dönmesi gereken yalnızca aradaki 8°.
+            # Ofsetler -yaw döndürülüp saklanınca referans sürünün kendi yönü
+            # olur: kalkışta heading=yaw verilir (iki döndürme sadeleşir,
+            # diziliş aynen korunur), rotasyonda ise yalnız hedefle arasındaki
+            # FARK kadar döner. Diziliş rastgele olsa da çalışır — hiçbir
+            # sabit yön/konum varsayımı yok, yaw telemetriden okunur.
+            flat = self._ters_dondur(flat, self._kalkis_heading(inp))
         else:
             # Taban DÜZ üretilir (tilt=0); eğim aşağıda uygulanır. Atama maliyeti
             # de düz slotlarla hesaplanır — eğim dronların hangi slota gideceğini
@@ -892,11 +952,14 @@ class Mission1Orchestrator:
         )
         if offsets is None:
             return None
-        self._st.heading_deg = 0.0
+        # Ofsetler _assign'da sürünün yaw'ına göre saklandı; komutun heading'i
+        # de aynı olmalı ki iki döndürme sadeleşsin ve diziliş korunsun.
+        heading = self._kalkis_heading(inp)
+        self._st.heading_deg = heading
         return [FormationTargetCmd(
             formation_type=self._st.formation_type,
-            center=self._hold_center(inp, offsets, 0.0),
-            heading_deg=0.0,
+            center=self._hold_center(inp, offsets, heading),
+            heading_deg=heading,
             spacing_m=self._st.spacing_m,
             agent_ids=list(inp.agent_ids),
             offsets=offsets,
@@ -923,6 +986,7 @@ class Mission1Orchestrator:
         if ned is None:
             return None
         heading = self._bearing_deg(inp.centroid, ned)
+
         offsets = self._assign(
             self._st.formation_type, self._st.spacing_m, inp.centroid,
             heading, inp,
@@ -932,10 +996,12 @@ class Mission1Orchestrator:
 
         cmds = []
         if not self._st.formation_published:
+            # Snapshot çerçevesi: referans sürünün yaw'ı (bkz. _assign).
+            ilk_h = self._kalkis_heading(inp)
             cmds.append(FormationTargetCmd(
                 formation_type=self._st.formation_type,
-                center=self._hold_center(inp, offsets, 0.0),
-                heading_deg=0.0,          # snapshot çerçevesi → diziliş korunur
+                center=self._hold_center(inp, offsets, ilk_h),
+                heading_deg=ilk_h,        # snapshot çerçevesi → diziliş korunur
                 spacing_m=self._st.spacing_m,
                 agent_ids=list(inp.agent_ids),
                 offsets=offsets,
@@ -1054,6 +1120,9 @@ class Mission1Orchestrator:
             use_current_altitude=True,
             # Reshape morph'unu yavaşlat: dronlar yeni slota YAVAŞ gitsin →
             # düşük kapanma hızı → CA sönüm terimi (c_damp·c) küçük → savrulma az.
+            # DENENDİ, GERİ ALINDI: seyir hızına (2.0) çıkarmak geçişin ilk
+            # 5 saniyesini iki katı kötüleştirdi (slot hatası 2.42 → 10.19 m).
+            # Dronlar slota fırlayıp savruluyor; bu 1.0 değeri bilinçli.
             max_speed=1.0,
         )]
 

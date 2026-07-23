@@ -252,7 +252,23 @@ def apply_tilt(
     """
     tp = math.tan(math.radians(tilt_pitch_deg))
     tr = math.tan(math.radians(tilt_roll_deg))
+    if not offsets:
+        return offsets
+
+    # Ham z değişimi: eğim düzlemine göre her slotun yükselip alçalması.
+    dz_delta = [-dx * tp + dy * tr for (dx, dy, _dz) in offsets]
+
+    # MERKEZ SABİT KALMALI (şartname 5.1.2: "sürü merkezinin konumunu SABİT
+    # tutarak eğilme"). Ham değişimin ortalaması genelde SIFIR DEĞİLDİR:
+    # örn. okbaşında iki kanat geride (dx<0), pitch>0 ikisini de aşağı iter,
+    # ortalama ≈ +1.44 m → tüm sürü aşağı KAYAR (ölçüldü: irtifa 14→10.5 m).
+    # Çizgi formasyonunda simetri yüzünden ortalama 0 olduğu için fark
+    # edilmiyordu; okbaşı/V gibi asimetrik formasyonlarda kayma çıkıyor.
+    # Ortalamayı çıkarınca eğim korunur ama merkez sabitlenir: bazı slot
+    # yukarı, bazı aşağı, net kayma 0.
+    ort = sum(dz_delta) / len(dz_delta)
+
     out: list[tuple[float, float, float]] = []
-    for dx, dy, dz in offsets:
-        out.append((dx, dy, dz - dx * tp + dy * tr))
+    for (dx, dy, dz), delta in zip(offsets, dz_delta):
+        out.append((dx, dy, dz + delta - ort))
     return out

@@ -450,9 +450,29 @@ class ManeuverExecutorNode(Node):
         dy_rot = rmat[1][0] * ox + rmat[1][1] * oy + rmat[1][2] * oz
         dz_rot = rmat[2][0] * ox + rmat[2][1] * oy + rmat[2][2] * oz
 
+        # MERKEZ SABİT KALMALI (şartname 5.1.2: "sürü merkezinin konumunu
+        # SABİT tutarak eğilme"). Rotasyon sonrası TÜM slotların z değişim
+        # ortalaması genelde sıfır DEĞİLDİR (asimetrik formasyonda; örn.
+        # okbaşında iki kanat geride, pitch ikisini de aşağı iter) → sürü
+        # topluca AŞAĞI kayar. Formasyon tarafındaki eğik poz (apply_tilt)
+        # bu ortalamayı çıkarıyor ama maneuver_executor çıkarmıyordu; ikisi
+        # devir tesliminde farklı z verince sürü SALINIYORDU (ölçüldü: pitch
+        # geçişinde ~0.65 m'lik iki dipli salınım, sonra oturuyor). Buradaki
+        # ortalama çıkarma iki tarafı hizalar: geçiş salınımı biter.
+        oz_ort = 0.0
+        n_slot = min(len(msg.offset_x), len(msg.offset_y), len(msg.offset_z))
+        if n_slot > 0:
+            for k in range(n_slot):
+                zx = float(msg.offset_x[k])
+                zy = float(msg.offset_y[k])
+                zz = float(msg.offset_z[k])
+                oz_ort += (rmat[2][0] * zx + rmat[2][1] * zy
+                           + rmat[2][2] * zz)
+            oz_ort /= n_slot
+
         shared_x = cx + dx_rot
         shared_y = cy + dy_rot
-        shared_z = cz + dz_rot
+        shared_z = cz + (dz_rot - oz_ort)
 
         local_x, local_y = self._shared_to_local(shared_x, shared_y)
 

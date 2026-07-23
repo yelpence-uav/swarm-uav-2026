@@ -13,6 +13,7 @@ from rclpy.qos import (
 
 from swarm_interfaces.msg import FormationCommand
 from .linear_trajectory import LinearTrajectoryPlanner
+from ..formation_control.formation_geometry import rotate_offset
 
 _RELIABLE_QOS = QoSProfile(
     reliability=ReliabilityPolicy.RELIABLE,
@@ -52,6 +53,14 @@ class PathPlannerNode(Node):
         # başlar ve biter; dron hiç geride kalmaz. İvme de hız gibi kanat dronun
         # tangansiyel ivmesinden türetilir → her formasyon boyutunda güvenli.
         self.declare_parameter('rot_tangential_accel_mps2', 0.8)
+        # Yay kipi eşiği: komutun SAF ROTASYON mu yoksa rotasyon+yer değiştirme
+        # mi olduğunu ayırır (bkz. _yay_kur). Dönüşün başından ve sonundan
+        # hesaplanan çıpalar bu kadar yakınsa "saf rotasyon" sayılır. Sürü
+        # komutlar arasında bir miktar sürüklendiği için sıfır olamaz; slot
+        # takip hatası mertebesinde (ölçüldü: durakta ort. 0.2 m, en kötü 0.6 m)
+        # tutuldu. Büyütmek gerçek navigasyonu yanlışlıkla yay sanmaya, çok
+        # küçültmek dönüşlerde yay kipinin hiç açılmamasına yol açar.
+        self.declare_parameter('yay_capa_tolerans_m', 1.0)
 
         self._max_speed_mps: float = float(
             self.get_parameter('max_speed_mps').value
@@ -85,6 +94,13 @@ class PathPlannerNode(Node):
         # ki formasyon kurulurken yerinde dönme olmasın; sonraki komutlarda
         # bu değerden hedefe doğru sınırlı hızla ilerler.
         self._current_heading_deg: float | None = None
+        # Yay kipi durumu: çıpa (dönüşün etrafında yapıldığı sabit nokta) ve
+        # slot ofsetlerinin ortalaması. None ise kip kapalıdır.
+        self._yay_capa: tuple[float, float, float] | None = None
+        self._yay_ortalama: tuple[float, float] = (0.0, 0.0)
+        self._yay_capa_tolerans_m: float = float(
+            self.get_parameter('yay_capa_tolerans_m').value
+        )
 
         # Hedef koordinatı dinler (Örn: mission_fsm'den)
         self.create_subscription(
@@ -126,9 +142,14 @@ class PathPlannerNode(Node):
 
         target_pos = (msg.center_x, msg.center_y, msg.center_z)
 
-        self._waypoints = self._planner.generate_waypoints(
-            self._last_pos, target_pos
-        )
+        # Saf rotasyonda merkez düz çizgide yürütülmez; her tick'te heading'den
+        # türetilir (bkz. _yay_kur). O yüzden yörünge listesi boş bırakılır.
+        if self._yay_kur(msg, target_pos):
+            self._waypoints = []
+        else:
+            self._waypoints = self._planner.generate_waypoints(
+                self._last_pos, target_pos
+            )
         self._current_cmd = msg
         self.get_logger().info(
             f'Yeni rota olusturuldu. Toplam {len(self._waypoints)} adim.'
@@ -138,6 +159,91 @@ class PathPlannerNode(Node):
     def _shortest_delta_deg(current: float, target: float) -> float:
         """İki açı arasındaki en kısa yönlü farkı (-180, 180] verir."""
         return (target - current + 180.0) % 360.0 - 180.0
+
+    def _yay_kur(self, msg, target_pos) -> bool:
+        """Saf rotasyon mu? Öyleyse merkezin YAY çıpasını kurar.
+
+        Şartname (Görev Kuralları): "Formasyon rotasyonu ... sürünün SABİT BİR
+        MERKEZ etrafında rotasyon gerçekleştirmesidir." Yani dönüş boyunca
+        sürünün ağırlık merkezi (centroid) yerinden kıpırdamamalıdır.
+
+        Slot konumu `merkez + döndür(ofset, heading)` olduğundan ve slot
+        ofsetlerinin ORTALAMASI sıfır değil (Ok Başı'nda ~2.8 m geride),
+        centroid şuna eşittir:
+
+            centroid = merkez + döndür(ortalama_ofset, heading)
+
+        heading dönerken centroid'in sabit kalması için MERKEZ bir yay çizmek
+        ZORUNDADIR. İkisi birden sabit kalamaz. Orchestrator bunu bildiği için
+        merkezi zaten `centroid − döndür(ortalama, hedef_heading)` olarak
+        gönderir — ama yalnızca BİTİŞ değerini. Arayı bu düğüm dolduruyordu ve
+        düz çizgi olarak dolduruyordu:
+
+          · eskiden : düz çizgi + seyir hızı (1.60 m/s) → merkez dönüşten çok
+            önce varıyor, centroid savruluyordu. Ölçüldü: dönüşün ilk ~4 sn'sinde
+            slot hatası 2.55 m; merkez durunca 0.5 m'ye iniyordu.
+          · düz çizgi + dönüşe yayılmış hız → savrulma azalır ama kiriş ile yay
+            arasındaki sehim kalır: r·(1−cos(Δθ/2)), 2.8 m ve 169° için 2.5 m.
+            Şartmanın istediği "sabit merkez" bu değil.
+
+        Doğrusu merkezi her tick'te o anki heading'den TÜRETMEK:
+
+            merkez(t) = çıpa − döndür(ortalama_ofset, heading(t))
+
+        Bu, centroid'i yaklaşık değil TAM olarak sabit tutar. heading hedefe
+        vardığında merkez de komutun gönderdiği değere birebir oturur, yani
+        mevcut mimariyle çelişmez.
+
+        Sabit yok: ortalama ofset komuttan, heading rampanın kendisinden gelir →
+        formasyon tipi, spacing, dron sayısı ve seyir hızı ne olursa olsun uyar.
+
+        Yay kipi YALNIZCA saf rotasyonda açılır. Komut hem döndürüp hem gerçek
+        bir yer değiştirme istiyorsa (navigasyon) normal yörünge üretimi sürer.
+        Ayrım, iki uçtan hesaplanan çıpanın tutarlılığına bakılarak yapılır:
+        saf rotasyonda başlangıç ve bitiş aynı çıpayı verir.
+        """
+        self._yay_capa = None
+        if self._current_heading_deg is None:
+            return False
+        hedef_h = float(msg.heading_deg)
+        if abs(self._shortest_delta_deg(
+                self._current_heading_deg, hedef_h)) < 1.0:
+            return False                      # dönüş yok → normal seyir
+
+        n = len(msg.offset_x)
+        if n == 0:
+            return False
+        mx = sum(float(o) for o in msg.offset_x) / n
+        my = sum(float(o) for o in msg.offset_y) / n
+        if math.hypot(mx, my) < 1e-6:
+            # Ofsetler zaten sıfır ortalamalı → merkez = centroid, dönüşte
+            # merkezin kayması gerekmiyor; yay kipine de gerek yok.
+            return False
+
+        # Çıpa (dönüşün etrafında yapılacağı sabit nokta) iki uçtan hesaplanır:
+        #   bitişten  : hedef merkez + döndür(ortalama, hedef heading)
+        #   başlangıçtan: mevcut merkez + döndür(ortalama, mevcut heading)
+        # Saf rotasyonda ikisi aynı noktadır. Farklıysa komut ayrıca yer
+        # değiştirme istiyor demektir → yay kipi uygulanmaz.
+        bx, by = rotate_offset(mx, my, math.radians(hedef_h))
+        capa_bitis = (target_pos[0] + bx, target_pos[1] + by)
+        sx, sy = rotate_offset(
+            mx, my, math.radians(self._current_heading_deg))
+        capa_bas = (self._last_pos[0] + sx, self._last_pos[1] + sy)
+        if math.dist(capa_bitis, capa_bas) > self._yay_capa_tolerans_m:
+            return False
+
+        self._yay_capa = (capa_bitis[0], capa_bitis[1], float(target_pos[2]))
+        self._yay_ortalama = (mx, my)
+        return True
+
+    def _yay_merkezi(self, heading_deg: float):
+        """Yay kipinde o anki heading'e karşılık gelen merkez konumu."""
+        mx, my = self._yay_ortalama
+        dx, dy = rotate_offset(mx, my, math.radians(heading_deg))
+        return (self._yay_capa[0] - dx,
+                self._yay_capa[1] - dy,
+                self._yay_capa[2])
 
     def _slew_limit_deg_s(self) -> float:
         """Formasyon boyutuna uyarlanmış güvenli dönüş hızı (derece/sn).
@@ -246,6 +352,17 @@ class PathPlannerNode(Node):
         self._current_heading_deg = self._step_heading_deg(
             self._current_heading_deg, target_heading
         )
+
+        # YAY KİPİ: merkez, heading ile AYNI tick'te türetilir. Böylece ikisi
+        # asla desenkron olmaz ve centroid dönüş boyunca sabit kalır (şartname:
+        # "sürünün sabit bir merkez etrafında rotasyon gerçekleştirmesi").
+        if self._yay_capa is not None:
+            next_pos = self._yay_merkezi(self._current_heading_deg)
+            self._last_pos = next_pos
+            if abs(self._shortest_delta_deg(
+                    self._current_heading_deg, target_heading)) < 1e-3:
+                route_just_completed = True
+                self._yay_capa = None
 
         # Komutu kopyala ve merkez koordinatını güncelle
         out_msg = FormationCommand()

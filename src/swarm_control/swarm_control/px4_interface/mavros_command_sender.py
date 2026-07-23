@@ -143,7 +143,43 @@ class MavrosCommandSender:
             return
         req = CommandBool.Request()
         req.value = value
-        self._arm_client.call_async(req)
+        etiket = 'ARM' if value else 'DISARM'
+        future = self._arm_client.call_async(req)
+        future.add_done_callback(
+            lambda f: self._servis_sonucu(f, etiket)
+        )
+
+    def _servis_sonucu(self, future, etiket: str) -> None:
+        """Arm/set_mode servis cevabini loglar.
+
+        call_async sonucu okunmazsa PX4'un RET cevabi sessizce kaybolur:
+        FSM iyimser sekilde ARMED'a gecer, arac aslinda arm olmamistir ve
+        hata ancak 30 sn sonra "TAKEOFF timeout" olarak yuzeye cikar
+        (olculdu: dron 2/3 boyle sessizce yerde kaldi). Burada cevabi
+        acikca logluyoruz ki ret ANINDA ve sebebiyle gorunur olsun.
+
+        Args:
+            future: call_async'in dondurdugu Future.
+            etiket (str): Log'da gorunecek komut adi, orn. 'ARM'.
+        """
+        log = self._node.get_logger()
+        try:
+            cevap = future.result()
+        except Exception as exc:                     # noqa: BLE001
+            log.error(f'{etiket} servis cagrisi HATA: {exc}')
+            return
+
+        basarili = getattr(cevap, 'success', None)
+        if basarili is None:
+            basarili = getattr(cevap, 'mode_sent', False)
+
+        if basarili:
+            log.info(f'{etiket} KABUL edildi')
+        else:
+            # MAV_RESULT: 1=TEMPORARILY_REJECTED, 2=DENIED, 3=UNSUPPORTED,
+            # 4=FAILED. Ozellikle 1/2 preflight veya mod kaynakli rettir.
+            kod = getattr(cevap, 'result', '?')
+            log.error(f'{etiket} REDDEDILDI (MAV_RESULT={kod})')
 
     # =================================================================
     # MOD DEGISTIRME  (SetMode servisi)
@@ -170,7 +206,10 @@ class MavrosCommandSender:
         req = SetMode.Request()
         req.base_mode = 0
         req.custom_mode = custom_mode
-        self._mode_client.call_async(req)
+        future = self._mode_client.call_async(req)
+        future.add_done_callback(
+            lambda f: self._servis_sonucu(f, f'MOD({custom_mode})')
+        )
 
     # =================================================================
     # INIS / EVE DONUS  (PX4 AUTO modlari uzerinden)

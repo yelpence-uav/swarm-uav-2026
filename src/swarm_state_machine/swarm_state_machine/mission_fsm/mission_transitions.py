@@ -71,7 +71,10 @@ def evaluate_transitions(ctx: MissionContext) -> MissionState | None:
         if ctx.state not in _TERMINAL_STATES:
             return MissionState.ABORTED
 
-    if (ctx.pending_command in (_CMD_RTL, _CMD_LAND)
+    # RTL = eve dön, sonra in. Görev bitişinin normal yolu budur ve şartname
+    # 5.1.2 madde 17-18 bunu zorunlu kılar ("sürü home konumuna dönüş yapar",
+    # "home konumuna ulaşıldığında ... güvenli bir iniş").
+    if (ctx.pending_command == _CMD_RTL
             and ctx.state not in _TERMINAL_STATES
             and ctx.state not in (
                 MissionState.RETURN_HOME,
@@ -79,6 +82,24 @@ def evaluate_transitions(ctx: MissionContext) -> MissionState | None:
                 MissionState.IDLE,
             )):
         return MissionState.RETURN_HOME
+
+    # LAND = OLDUĞUN YERDE İN. Eskiden RTL ile aynı daldaydı ve ikisi de
+    # RETURN_HOME'a gidiyordu; yani "LAND" adı davranışını anlatmıyordu.
+    # TriggerMission.srv bu komutu "test/safety/emergency use" diye tanımlar;
+    # acil durumda beklenen davranış eve uçmak değil derhal inmektir.
+    # RETURN_HOME'dan da kabul edilir: eve dönüş sürerken "burada in" demek
+    # anlamlı olmalıdır (RTL'de gerekmez, o zaten eve gidiyor).
+    #
+    # GÖREV AKIŞI ETKİLENMEZ: bu komut kendiliğinden hiç gönderilmez. Görev
+    # normal bitince FSM yine RETURN_HOME'a gider ve sürü eve dönüp home'da
+    # iner. Yalnızca dışarıdan (YKİ/operatör) bilinçli gönderilirse çalışır.
+    if (ctx.pending_command == _CMD_LAND
+            and ctx.state not in _TERMINAL_STATES
+            and ctx.state not in (
+                MissionState.LANDING,
+                MissionState.IDLE,
+            )):
+        return MissionState.LANDING
 
     # PAUSE, kalkış sırasında güvensiz kesintileri önlemek için engellenir.
     if (ctx.pending_command == _CMD_PAUSE
@@ -356,10 +377,7 @@ def _from_landing(ctx: MissionContext) -> MissionState | None:
         MissionState: Tüm ajanlar indi ya da timeout'ta MISSION_COMPLETE.
         None: Hâlâ iniş devam ediyor.
     """
-    if ctx.all_agents_landed():
-        return MissionState.MISSION_COMPLETE
-
-    if ctx.time_in_state() > _LANDING_TIMEOUT_S:
+    if ctx.all_agents_landed() or ctx.time_in_state() > _LANDING_TIMEOUT_S:
         return MissionState.MISSION_COMPLETE
 
     return None

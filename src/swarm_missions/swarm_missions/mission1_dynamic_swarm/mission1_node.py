@@ -30,6 +30,7 @@ from std_msgs.msg import UInt8
 
 from swarm_interfaces.action import ExecuteManeuver
 from swarm_interfaces.msg import (
+    AgentStatus,
     FormationCommand,
     MissionTarget,
     QRMissionData,
@@ -50,6 +51,10 @@ from .orchestrator import (
     RotationCompletedCmd,
 )
 
+# MissionState.RETURN_HOME sayisal degeri (orchestrator._S_RETURN_HOME ile
+# birebir). Yalnizca teshis logunu bu fazla sinirlamak icin kullanilir.
+_RETURN_HOME_STATE = 9
+
 _RELIABLE_QOS = QoSProfile(
     reliability=ReliabilityPolicy.RELIABLE,
     durability=DurabilityPolicy.VOLATILE,
@@ -63,6 +68,16 @@ _LATCHED_QOS = QoSProfile(
     durability=DurabilityPolicy.TRANSIENT_LOCAL,
     history=HistoryPolicy.KEEP_LAST,
     depth=1,
+)
+
+
+# Ajan telemetrisi BEST_EFFORT yayınlanır; RELIABLE ile abone olunursa QoS
+# uyuşmazlığı yüzünden hiç veri gelmez.
+_BEST_EFFORT_QOS = QoSProfile(
+    reliability=ReliabilityPolicy.BEST_EFFORT,
+    durability=DurabilityPolicy.VOLATILE,
+    history=HistoryPolicy.KEEP_LAST,
+    depth=5,
 )
 
 
@@ -97,6 +112,7 @@ class Mission1Node(Node):
         self._positions = []
         self._home_xy = None
         self._have_swarm_state = False
+        self._yaw_deg = None   # kalkış heading'i / snapshot referansı
         self._seq = 0
 
         self._setup_io()
@@ -169,6 +185,12 @@ class Mission1Node(Node):
             self._on_origin, _LATCHED_QOS,
         )
 
+        # Kendi telemetrimiz — YALNIZ yaw için (kalkış referansı).
+        self.create_subscription(
+            AgentStatus, f'/swarm/agent/drone{self._agent_id}/telemetry',
+            self._on_telemetry, _BEST_EFFORT_QOS,
+        )
+
         self._formation_pub = self.create_publisher(
             FormationCommand, '/swarm/path_planning/target', _RELIABLE_QOS,
         )
@@ -234,6 +256,10 @@ class Mission1Node(Node):
         if self._home_xy is None and msg.active_agent_count > 0:
             self._home_xy = (float(msg.centroid_x), float(msg.centroid_y))
 
+    def _on_telemetry(self, msg: AgentStatus) -> None:
+        """Kendi yaw'ımızı saklar; kalkış referansı buradan gelir."""
+        self._yaw_deg = float(msg.heading_deg)
+
     def _on_next_target(self, msg: MissionTarget) -> None:
         """mission_fsm'in çözdüğü sıradaki hedefi orchestrator'a iletir."""
         self._orch.set_next_target(msg.valid, msg.lat_deg, msg.lon_deg)
@@ -256,6 +282,24 @@ class Mission1Node(Node):
         home_xy = self._home_xy or (self._centroid[0], self._centroid[1])
         home = (home_xy[0], home_xy[1], self._centroid[2])
 
+        # RETURN_HOME teshisi: sartname madde 18 sürünün formasyonu bozmadan
+        # home'a inmesini ister, ama olculdu ki suru RETURN_HOME'da hic hareket
+        # etmiyor (komut edilen hiz ~0.01 m/s, ev 22.8 m uzakta). Iki ihtimal:
+        #   (1) _home_xy hic set edilmemis -> yukaridaki yedek "su anki centroid"i
+        #       ev sayar; hedef = mevcut konum -> mesafe 0 -> hiz 0 (SESSIZ hata),
+        #   (2) ev dogru ama komut iletilmiyor.
+        # Bu satir ikisini ayirir: home ile centroid AYNI ise (1), degilse (2).
+        if self._mission_state == _RETURN_HOME_STATE:
+            dn = home[0] - self._centroid[0]
+            de = home[1] - self._centroid[1]
+            self.get_logger().warn(
+                f'RETURN_HOME: home=({home[0]:.1f}, {home[1]:.1f}) '
+                f'centroid=({self._centroid[0]:.1f}, {self._centroid[1]:.1f}) '
+                f'mesafe={math.hypot(dn, de):.1f}m '
+                f'home_xy_set={self._home_xy is not None}',
+                throttle_duration_sec=3.0,
+            )
+
         inp = OrchestratorInput(
             mission_state=self._mission_state,
             qr_step=self._qr_step,
@@ -266,6 +310,7 @@ class Mission1Node(Node):
             home=home,
             qr=self._current_qr,
             time_in_state=self._now_s() - self._state_entry_time,
+            swarm_yaw_deg=self._yaw_deg,
         )
 
         for cmd in self._orch.decide(inp):

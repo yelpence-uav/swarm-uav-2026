@@ -167,6 +167,23 @@ class AgentFsmNode(Node):
             self.get_logger().warn(result.reason)
 
         next_s = evaluate_transitions(ctx)
+
+        # ARMED'da takilma teshisi: _from_armed uc sarti birden ister
+        # (mission_start_sequence_active + offboard_active + 2 sn). Sartlardan
+        # biri tutmazsa dron sessizce ARMED'da kalir, kalkis hic baslamaz ve
+        # gorev SYNC_TAKEOFF'ta timeout'a duser. Hangi sartin tuttugunu disaridan
+        # gormek mumkun degildi; bu satir onu gorunur kilar. (Olculdu: her
+        # denemede FARKLI bir ajan takiliyor -> yaris durumu suphesi.)
+        if ctx.state == AgentState.ARMED and next_s is None:
+            self.get_logger().warn(
+                f'[agent {ctx.agent_id}] ARMED bekliyor: '
+                f'mission_start={ctx.mission_start_sequence_active} '
+                f'offboard={ctx.offboard_active} '
+                f'sure={ctx.time_in_state():.1f}s '
+                f'armed={ctx.armed} healthy={ctx.healthy}',
+                throttle_duration_sec=3.0,
+            )
+
         if next_s is not None and next_s != ctx.state:
             if next_s == AgentState.FAILSAFE and not ctx.healthy:
                 self.get_logger().error(

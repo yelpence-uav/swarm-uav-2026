@@ -54,7 +54,23 @@ def evaluate_transitions(ctx: AgentContext) -> AgentState | None:
     Returns:
         Geçilecek AgentState veya geçiş yoksa None.
     """
+    # Hold/pilot-override OTONOM ILERLEYISI durdurur (gorev adimlari, formasyon
+    # degisimi vb.) ama INISE gecisi ENGELLEMEMELIDIR.
+    #
+    # Eskiden burasi kosulsuz "return None" idi: hold_active acilinca arac
+    # HICBIR komuta tepki veremiyordu ve kilit yalnizca EVENT_FAILSAFE_CLEARED
+    # ile acildigi (o olay da hic gelmedigi) icin ucus boyunca kalici oluyordu.
+    # Olculdu: RETURN_HOME'da 120 sn timeout -> safety_hold -> FSM dondu; gorev
+    # saniyede bir "in" komutu yollamasina ragmen 3 dron da 10 m'de armed asili
+    # kaldi (396 sn). Havadaki bir arac icin beklemek guvenli degil.
+    #
+    # SADECE komut kaynakli inis/failsafe gecisine izin verilir (pending_state).
+    # Timeout davranisi ve saglik kontrolleri DEGISMEZ — bir denemede
+    # RETURN_HOME timeout'u kritik arizaya cevrilmisti, sürü eve varmadan
+    # failsafe'e dusup erken indi ve navigasyon bozuldu; o yaklasim geri alindi.
     if ctx.autonomous_control_paused or ctx.hold_active:
+        if ctx.pending_state in (AgentState.LANDING, AgentState.FAILSAFE):
+            return ctx.pending_state
         return None
 
     if ctx.state not in _FAILSAFE_EXEMPT and not ctx.healthy:

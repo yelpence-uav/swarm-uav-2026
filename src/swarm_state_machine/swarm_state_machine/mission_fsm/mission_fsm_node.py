@@ -88,6 +88,9 @@ class MissionFsmNode(Node):
         self._setup_subscribers()
         self._setup_service()
 
+        # LANDING'de inis komutunun son yayin zamani (saniyede bir tekrar).
+        self._last_land_cmd_s = 0.0
+
         self._timer = self.create_timer(
             1.0 / self._tick_hz, self._tick
         )
@@ -226,6 +229,27 @@ class MissionFsmNode(Node):
 
         if next_state is not None and next_state != ctx.state:
             self._transition(next_state)
+
+        # LANDING'de inis komutunu TEKRARLA.
+        # _on_state_entry olayi yalnizca BIR KEZ yayinlar. Bu olay
+        # /swarm/internal/... -> network_proxy -> /swarm/public/... yolundan
+        # gecer ve proxy ESP-NOW telsizini PAKET KAYBIYLA simule eder
+        # (_broadcast_drop). Tek paket duserse ajanlar inis komutunu HIC
+        # almaz: gorev MISSION_COMPLETE'e ilerler ama ajanlar RETURN_HOME'da
+        # asili kalir (olculdu: 3 dron da 9.3 m'de armed bekledi, mission_fsm
+        # "indim" sandi). Kritik tek-seferlik komutu kayipli kanalda yollamak
+        # yeterli degil; ajanlar LANDING'e gecene kadar tekrarliyoruz.
+        # Saniyede bir yeter: LANDING timeout'u 90 sn, yani ~90 deneme. Tick
+        # hizinda (5 Hz) yollamak proxy'yi ve tum aboneleri bosuna mesgul eder.
+        if ctx.state == MissionState.LANDING:
+            simdi = time.monotonic()
+            if simdi - self._last_land_cmd_s >= 1.0:
+                self._last_land_cmd_s = simdi
+                self._pub_event(
+                    SystemEvent.EVENT_EMERGENCY_LAND,
+                    SystemEvent.SEVERITY_INFO,
+                    "Sürü home'da — iniş tetiklendi (tekrar)",
+                )
 
         self._publish_state()
 

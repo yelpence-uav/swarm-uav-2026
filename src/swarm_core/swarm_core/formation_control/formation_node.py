@@ -173,7 +173,22 @@ class FormationControlNode(Node):
         # SVT hız sönümü (overdamped): güçlü SVT yayının overshoot'unu söndürür.
         # b_s 0.2→0.35 (k artınca rezonansı bastırmak için sönüm de artar).
         self.declare_parameter('svt_damp', 0.35)
-        self.declare_parameter('target_ramp_mps', 1.0)
+        # Slot rampasi: hedef slotun saniyede kac metre kayabilecegi.
+        # 0.0 => ramp_rate = max_speed, yani rampa SEYIR HIZINDAN TURETILIR.
+        #
+        # Eskiden sabit 1.0 idi. max_speed 3.0 olmasina ragmen slot 1.0 m/s'den
+        # hizli kayamiyordu ve v_ff de rampanin hizindan turedigi icin drona
+        # giden komut 1.0'da tavan yapiyordu. Merkez ise (path_planner, ayri
+        # dosya, ayri parametre) 3.0 ile kosuyordu; iki sayi birbirinden
+        # habersizdi. Olculdu: merkez 3.00 m/s iken komut 1.05, dron 1.07 m/s
+        # -> aradaki ~2 m/s her saniye acige eklenip suru merkezin gerisinde
+        # kaliyordu (bacak basina 5 -> 12.5 -> 20.4 m).
+        #
+        # Turetme sayesinde max_speed 2/3/4 ne verilirse verilsin merkez ile
+        # dron ayni tavani paylasir, aralarinda kalici fark olusmaz.
+        # Ani slot sicramalarinin yumusatilmasi artik path_planner'daki ivme
+        # rampasi (linear_trajectory.accel_time_s) tarafindan saglaniyor.
+        self.declare_parameter('target_ramp_mps', 0.0)
         # A7 — göreli (komşu tabanlı) formasyon koruma. VARSAYILAN KAPALI:
         # komşu konumu NeighborInfo'dan gelir ve 0.5 sn'ye kadar bayat olabilir;
         # bayat veriyle düzeltme yalpalatıp dronları birbirine sokuyordu
