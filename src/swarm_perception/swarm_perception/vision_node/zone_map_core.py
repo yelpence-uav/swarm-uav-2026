@@ -19,31 +19,7 @@ def zone_offset_ned_m(
     height_m: float,
     heading_deg: float,
 ) -> Tuple[float, float]:
-    """Görüntüdeki bölge merkezinin drona göre NED ofseti (metre).
-
-    Nadir bakan pinhole kamera: zemindeki yatay ofset, piksel sapmasının odak
-    uzaklığına oranı ile irtifanın çarpımıdır. Odak uzaklıkları kameranın kendi
-    beyanından (CameraInfo) gelir; sabit bir görüş açısı varsayılmaz. fx ve fy
-    ayrı verildiğinden görüntünün en-boy oranı da kendiliğinden doğrudur.
-
-    İşaret: kamera gövdeye 90° pitch ile monte edilir (aşağı bakar); bu dönüşte
-    görüntünün ALT yönü gövdenin GERİSİNE düşer. Bu yüzden ileri bileşen
-    negatiflenir. Ters işaret öndeki pedi arkaya kaydedip hatayı gerçek ofsetin
-    iki katına çıkarıyor, dronu komşu pede indiriyordu.
-
-    Args:
-        u_px (float): Bölge merkezinin yatay piksel konumu.
-        v_px (float): Bölge merkezinin dikey piksel konumu.
-        fx (float): Yatay odak uzaklığı (piksel).
-        fy (float): Dikey odak uzaklığı (piksel).
-        cx (float): Görüntü merkezinin yatay piksel konumu.
-        cy (float): Görüntü merkezinin dikey piksel konumu.
-        height_m (float): Drone'un zeminden yüksekliği (AGL, metre).
-        heading_deg (float): Drone heading'i (derece, NED).
-
-    Returns:
-        Tuple[float, float]: Drona göre NED ofseti (kuzey, doğu), metre.
-    """
+    """Görüntüdeki bölge merkezinin drona göre NED ofseti (metre)."""
     right_m = height_m * (u_px - cx) / fx
     fwd_m = -height_m * (v_px - cy) / fy
 
@@ -62,14 +38,7 @@ class ZoneMapCore:
         min_height_m: float = 0.5,
         confidence_obs_full: int = 5,
     ) -> None:
-        """
-        Bolge haritasini ilklendirir.
-
-        Args:
-            merge_dist_m: Birlestirme mesafe esigi.
-            min_height_m: Projeksiyon icin asgari yukseklik.
-            confidence_obs_full: Tam guven icin gereken gozlem sayisi.
-        """
+        """Bolge haritasini ilklendirir."""
         self._merge_dist_m = float(merge_dist_m)
         self._min_height_m = float(min_height_m)
         self._obs_full = max(1, int(confidence_obs_full))
@@ -82,18 +51,7 @@ class ZoneMapCore:
         fov_deg: float,
         pose: Tuple[float, float, float, float],
     ) -> Tuple[float, float, float]:
-        """
-        Goruntudeki bolge merkezini global NED konumuna projekte eder.
-
-        Args:
-            image_x: Bolge merkezinin yatay piksel orani.
-            image_y: Bolge merkezinin dikey piksel orani.
-            fov_deg: Kamera gorus acisi.
-            pose: Drone'un global NED pozu.
-
-        Returns:
-            Tuple[float, float, float]: Global NED konumu.
-        """
+        """Goruntudeki bolge merkezini global NED konumuna projekte eder."""
         px, py, pz, heading_deg = pose
         fov = fov_deg if fov_deg > 1.0 else 60.0
 
@@ -119,16 +77,7 @@ class ZoneMapCore:
         gz: float = 0.0,
         detection_confidence: float = 1.0,
     ) -> None:
-        """
-        Gozlemi haritaya ekler veya birlestirir.
-
-        Args:
-            color: Renk kimligi.
-            gx: Global NED x.
-            gy: Global NED y.
-            gz: Global NED z.
-            detection_confidence: Tespit guveni.
-        """
+        """Gozlemi haritaya ekler veya birlestirir."""
         if color not in (COLOR_RED, COLOR_BLUE):
             return
 
@@ -172,17 +121,7 @@ class ZoneMapCore:
     def nearest(
         self, color: int, x: float, y: float
     ) -> Optional[Dict[str, float]]:
-        """
-        Verilen konuma en yakin bolgeyi bulur.
-
-        Args:
-            color: Renk kimligi.
-            x: Global NED x.
-            y: Global NED y.
-
-        Returns:
-            Optional[Dict[str, float]]: En yakin bolge kaydi kopyasi.
-        """
+        """Verilen konuma en yakin bolgeyi bulur."""
         best = None
         best_d = float('inf')
         for z in self._zones:

@@ -38,19 +38,7 @@ def _status(
     gps_fix_type: int = 3,
     gps_hdop: float = 0.9,
 ) -> SimpleNamespace:
-    """Sahte AgentStatus nesnesi döner.
-
-    Args:
-        state: AgentStatus.STATE_* değeri (varsayılan IN_SWARM=5).
-        healthy: Ajan sağlık durumu.
-        origin_synced: NED origin senkronize mi.
-        home_set: RTL hedefi set mi.
-        gps_fix_type: GPS fix tipi.
-        gps_hdop: HDOP değeri.
-
-    Returns:
-        Gerekli alanları taşıyan SimpleNamespace.
-    """
+    """Sahte AgentStatus nesnesi döner."""
     return SimpleNamespace(
         state=state,
         healthy=healthy,
@@ -72,21 +60,7 @@ def _qr(
     wait_s: float = 0.0,
     next_qr: int = 0,
 ) -> SimpleNamespace:
-    """Sahte QRMissionData nesnesi döner.
-
-    Args:
-        qr_seq: QR sıra numarası.
-        formation_active: Formasyon değişikliği aktif mi.
-        altitude_active: İrtifa değişikliği aktif mi.
-        maneuver_active: Manevra aktif mi.
-        detach_active: Ajan ayrımı aktif mi.
-        complete_mission: Görevi tamamla bayrağı.
-        wait_s: QR noktasında bekleme süresi.
-        next_qr: Sonraki QR ID'si (0 = son QR).
-
-    Returns:
-        Gerekli alanları taşıyan SimpleNamespace.
-    """
+    """Sahte QRMissionData nesnesi döner."""
     return SimpleNamespace(
         qr_seq=qr_seq,
         formation_active=formation_active,
@@ -104,18 +78,7 @@ def _ctx(
     mission_type: MissionType = MissionType.DYNAMIC_SWARM,
     sitl_mode: bool = True,
 ) -> MissionContext:
-    """Test için yapılandırılmış MissionContext döner.
-
-    SITL modunda GPS/origin/home kontrolleri atlanır.
-
-    Args:
-        state: Başlangıç state'i.
-        mission_type: Görev tipi.
-        sitl_mode: True ise saha kontrolleri atlanır.
-
-    Returns:
-        Hazırlanmış MissionContext.
-    """
+    """Test için yapılandırılmış MissionContext döner."""
     ctx = MissionContext(
         agent_ids=[1, 2, 3],
         team_id='YELPENCE',
@@ -127,23 +90,13 @@ def _ctx(
 
 
 def _all_agents(ctx: MissionContext, state: int = 5) -> None:
-    """Tüm ajanları verilen state'te sağlıklı olarak ekler.
-
-    Args:
-        ctx: Güncellenecek MissionContext.
-        state: AgentStatus.STATE_* değeri.
-    """
+    """Tüm ajanları verilen state'te sağlıklı olarak ekler."""
     for aid in ctx.agent_ids:
         ctx.agent_statuses[aid] = _status(state=state)
 
 
 def _geç(ctx: MissionContext, saniye: float) -> None:
-    """State giriş zamanını geriye alarak timeout simüle eder.
-
-    Args:
-        ctx: Güncellenecek MissionContext.
-        saniye: Geriye alınacak süre.
-    """
+    """State giriş zamanını geriye alarak timeout simüle eder."""
     ctx.state_entry_time = time.monotonic() - saniye
 
 
@@ -245,10 +198,7 @@ class TestSynchronizedTakeoff(unittest.TestCase):
     """SYNCHRONIZED_TAKEOFF state geçiş testleri."""
 
     def test_gorev1_qr_varsa_rotate(self):
-        """Görev 1: tüm ajanlar IN_SWARM ise önce ROTATE_TO_NEXT.
-
-        Şartname: kalkış sonrası sürü ilk QR'a dönerek yaklaşmaya başlar.
-        """
+        """Görev 1: tüm ajanlar IN_SWARM ise önce ROTATE_TO_NEXT."""
         ctx = _ctx(MissionState.SYNCHRONIZED_TAKEOFF)
         _all_agents(ctx, state=5)   # IN_SWARM=5
         ctx.current_qr = _qr()
@@ -256,11 +206,7 @@ class TestSynchronizedTakeoff(unittest.TestCase):
         self.assertEqual(result, MissionState.ROTATE_TO_NEXT)
 
     def test_gorev1_qr_yok_yine_rotate(self):
-        """Görev 1: ajanlar IN_SWARM ise QR olsa da olmasa da ROTATE_TO_NEXT.
-
-        Şartname: QR koordinatı yarışma öncesi paylaşılır; dönerek yaklaş.
-        Eski davranış (current_qr=None ise bekle) kilitlenmeye yol açardı.
-        """
+        """Görev 1: ajanlar IN_SWARM ise QR olsa da olmasa da ROTATE_TO_NEXT."""
         ctx = _ctx(MissionState.SYNCHRONIZED_TAKEOFF)
         _all_agents(ctx, state=5)
         ctx.current_qr = None   # QR henüz okunmadı - yine de geçiş olmalı
@@ -377,10 +323,7 @@ class TestExecuteQrTask(unittest.TestCase):
         self.assertEqual(result, MissionState.RETURN_HOME)
 
     def test_qr_henuz_okunmadi_bekle(self):
-        """current_qr=None -> kamera gecikmiş olabilir, timeout bekle.
-
-        Eski davranış (hemen RETURN_HOME) yanlış eve dönüşe yol açardı.
-        """
+        """current_qr=None -> kamera gecikmiş olabilir, timeout bekle."""
         ctx = _ctx(MissionState.EXECUTE_QR_TASK)
         ctx.current_qr = None
         self.assertIsNone(evaluate_transitions(ctx))  # timeout dolmadı
@@ -531,13 +474,7 @@ class TestReturnHome(unittest.TestCase):
     """RETURN_HOME state geçiş testleri."""
 
     def test_ajanlar_landing_ise_EVE_VARMADAN_inme(self):
-        """Ajanlar LANDING(12) durumunda ama EVE VARMADAN → inme, uçmaya devam.
-
-        Eskiden all_agents_landing tek başına LANDING tetikliyordu; bir ajan
-        FAILSAFE'ten LANDING'e düşünce sürü home'a hiç uçmadan rastgele yere
-        iniyordu. Artık eve varış (event_formation_reached) ya da hepsi LANDED
-        ya da sert timeout gerekir.
-        """
+        """Ajanlar LANDING(12) durumunda ama EVE VARMADAN → inme, uçmaya devam."""
         ctx = _ctx(MissionState.RETURN_HOME)
         _all_agents(ctx, state=12)
         ctx.event_formation_reached = False
@@ -748,10 +685,7 @@ class TestFindFirstQrStep(unittest.TestCase):
         self.assertEqual(find_first_qr_step(qr), QrTaskStep.FORMATION)
 
     def test_maneuver_ve_altitude_maneuver_once(self):
-        """Maneuver ve altitude aktifse şartnameye göre MANEUVER önce gelmeli.
-
-        Şartname sırası: FORMATION -> MANEUVER -> ALTITUDE -> DETACH.
-        """
+        """Maneuver ve altitude aktifse şartnameye göre MANEUVER önce gelmeli."""
         qr = _qr(maneuver_active=True, altitude_active=True)
         self.assertEqual(find_first_qr_step(qr), QrTaskStep.MANEUVER)
 

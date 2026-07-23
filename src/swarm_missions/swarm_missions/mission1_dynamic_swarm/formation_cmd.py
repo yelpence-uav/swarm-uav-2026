@@ -1,18 +1,4 @@
-"""formation_cmd.py — Lider slot ataması (Görev 1 otonom akış).
-
-Lider, FormationCommand'ın ``agent_ids + offset_x/y/z`` alanlarını üretir;
-her drone yalnızca kendi slotunu okur (formation_control böyle çalışır).
-Bu modül o atamayı verir:
-
-  1. compute_slot_offsets → formasyon geometrisi (heading=0 çerçevesi).
-  2. hungarian_assignment → ajanları mevcut konumlarına EN YAKIN slotlara
-     atar (toplam hareket minimize; sürü savrulmaz).
-  3. apply_tilt (opsiyonel) → manevra sonrası açılı pozu ofsete gömer
-     (model B): formation_control düz uygulasa bile eğik poz korunur.
-
-Kontrol/geometri matematiği swarm_core.formation_geometry'de; burada yalnızca
-liderin atama kararı var. ROS bağımlılığı yoktur → birim test edilebilir.
-"""
+"""formation_cmd.py — Lider slot ataması (Görev 1 otonom akış)."""
 
 import math
 
@@ -35,29 +21,7 @@ def build_slot_assignment(
     tilt_pitch_deg=0.0,
     tilt_roll_deg=0.0,
 ):
-    """Ajanları en yakın slotlara atar; agent_ids sırasında baz ofset döner.
-
-    Slotlar heading=0 çerçevesinde üretilir çünkü formation_control ofseti
-    kendi merkez+heading'i ile döndürür. Bu yüzden ATAMA maliyeti dünya
-    çerçevesinde (heading uygulanmış slot konumları) hesaplanır, ama DÖNEN
-    ofsetler bazdır (döndürülmemiş).
-
-    Args:
-        formation_type: FORMATION_* sabiti.
-        agent_ids: Aktif ajan ID listesi (örn. [1, 2, 3]).
-        positions: agent_ids ile aynı sırada (x, y, z) shared-NED konumları.
-            Uzunluk agent_ids ile eşleşmezse konum-bağımsız kimlik ataması
-            yapılır (index = rank).
-        center: (cx, cy, cz) formasyon merkezi, shared NED.
-        spacing: Ajanlar arası mesafe (metre).
-        alpha_rad: Ok Başı/V kanat açısı (radyan); Çizgi'de kullanılmaz.
-        heading_rad: Formasyon yönü (radyan).
-        tilt_pitch_deg: Korunacak pitch eğimi (derece); 0 = eğim yok.
-        tilt_roll_deg: Korunacak roll eğimi (derece); 0 = eğim yok.
-
-    Returns:
-        agent_ids sırasında (dx, dy, dz) baz ofset listesi.
-    """
+    """Ajanları en yakın slotlara atar; agent_ids sırasında baz ofset döner."""
     n = len(agent_ids)
     slots = compute_slot_offsets(formation_type, n, spacing, alpha_rad)
     if tilt_pitch_deg != 0.0 or tilt_roll_deg != 0.0:

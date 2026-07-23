@@ -1,17 +1,4 @@
-"""test_ca_core.py — Hız-tabanlı çarpışma önleme çekirdeği birim testleri.
-
-ca_core saf matematik olduğu için ROS runtime'ı olmadan koşar. Test
-kapsamı (Model B: kapanma-kapılı Khatib):
-
-  1. Risk yok → tam pass-through (formasyon hızı dokunulmaz).
-  2. Z her zaman pass-through (CA yatay; irtifa formasyonun).
-  3. Yaklaşan komşu → itki var; kaçış komşudan UZAĞA.
-  4. KAPI: uzaklaşan komşu → itki YOK (anti-osilasyon çekirdek özelliği).
-  5. Hard yarıçap altında kapı zorla açık → yaklaşma olmasa bile itki.
-  6. r_min projeksiyonu → komşuya doğru kapanma hızı sıfırlanır (garanti).
-  7. Teğet → kafa-kafaya senaryoda yanal bileşen üretir (deadlock kırıcı).
-  8. v_max clamp ve slew limit.
-"""
+"""test_ca_core.py — Hız-tabanlı çarpışma önleme çekirdeği birim testleri."""
 
 import math
 

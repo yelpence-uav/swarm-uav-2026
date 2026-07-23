@@ -234,16 +234,7 @@ def _from_semi_autonomous(ctx: MissionContext) -> MissionState | None:
 
 
 def _from_return_home(ctx: MissionContext) -> MissionState | None:
-    """RETURN_HOME: sürü kalkış noktasına geri dönüyor.
-
-    Args:
-        ctx (MissionContext): Mevcut FSM çalışma zamanı durumu.
-
-    Returns:
-        MissionState: QR başarısızlığında eve varınca ROTATE_TO_NEXT (restart);
-            ajanlar inişe geçince veya timeout'ta LANDING.
-        None: Hâlâ geri dönülüyor.
-    """
+    """RETURN_HOME: sürü kalkış noktasına geri dönüyor."""
     # Şartname madde 17: QR okunamadığı için eve dönüldüyse, eve varınca
     # (formasyon home'a ulaşınca) rotayı baştan başlat. Şartname sınır
     # koymaz; max_restarts=0 → SINIRSIZ (batarya/hakem bitirir). >0 verilirse
@@ -280,15 +271,7 @@ def _from_return_home(ctx: MissionContext) -> MissionState | None:
 
 
 def _from_landing(ctx: MissionContext) -> MissionState | None:
-    """LANDING: tüm ajanlar yere inene kadar izleniyor.
-
-    Args:
-        ctx (MissionContext): Mevcut FSM çalışma zamanı durumu.
-
-    Returns:
-        MissionState: Tüm ajanlar indi ya da timeout'ta MISSION_COMPLETE.
-        None: Hâlâ iniş devam ediyor.
-    """
+    """LANDING: tüm ajanlar yere inene kadar izleniyor."""
     if ctx.all_agents_landed() or ctx.time_in_state() > _LANDING_TIMEOUT_S:
         return MissionState.MISSION_COMPLETE
 
@@ -303,22 +286,7 @@ def _from_paused(ctx: MissionContext) -> MissionState | None:
 
 
 def _from_terminal(ctx: MissionContext) -> MissionState | None:
-    """ABORTED / MISSION_COMPLETE: sürü YERDE ve güvendeyken IDLE'a döner.
-
-    Terminal durumlar eskiden çıkışsızdı → görev bir kez bitince/abort olunca
-    yeni START yalnızca node yeniden başlatılarak kabul ediliyordu (yarışmada 3
-    hak → her hak arası restart). Sürü tamamen yerdeyken (hepsi LANDED ya da
-    IDLE) IDLE'a dönmek, node'u restart etmeden yeni bir göreve hazır olmayı
-    sağlar. Havadayken ASLA resetlenmez (güvenlik). Kısa bekleme, terminal
-    durumun YKİ'de görülmesine izin verir.
-
-    Args:
-        ctx (MissionContext): Mevcut FSM çalışma zamanı durumu.
-
-    Returns:
-        MissionState.IDLE: Sürü yerde ve bekleme dolduysa.
-        None: Sürü havada ya da bekleme dolmadıysa (terminalde kal).
-    """
+    """ABORTED / MISSION_COMPLETE: sürü YERDE ve güvendeyken IDLE'a döner."""
     on_ground = (
         ctx.all_agents_landed()
         or ctx.all_agents_in_state(_AGENT_STATE_IDLE)

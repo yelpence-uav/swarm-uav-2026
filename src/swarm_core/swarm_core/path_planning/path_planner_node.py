@@ -156,47 +156,7 @@ class PathPlannerNode(Node):
         return (target - current + 180.0) % 360.0 - 180.0
 
     def _yay_kur(self, msg, target_pos) -> bool:
-        """Saf rotasyon mu? Öyleyse merkezin YAY çıpasını kurar.
-
-        Şartname (Görev Kuralları): "Formasyon rotasyonu ... sürünün SABİT BİR
-        MERKEZ etrafında rotasyon gerçekleştirmesidir." Yani dönüş boyunca
-        sürünün ağırlık merkezi (centroid) yerinden kıpırdamamalıdır.
-
-        Slot konumu `merkez + döndür(ofset, heading)` olduğundan ve slot
-        ofsetlerinin ORTALAMASI sıfır değil (Ok Başı'nda ~2.8 m geride),
-        centroid şuna eşittir:
-
-            centroid = merkez + döndür(ortalama_ofset, heading)
-
-        heading dönerken centroid'in sabit kalması için MERKEZ bir yay çizmek
-        ZORUNDADIR. İkisi birden sabit kalamaz. Orchestrator bunu bildiği için
-        merkezi zaten `centroid − döndür(ortalama, hedef_heading)` olarak
-        gönderir — ama yalnızca BİTİŞ değerini. Arayı bu düğüm dolduruyordu ve
-        düz çizgi olarak dolduruyordu:
-
-          · eskiden : düz çizgi + seyir hızı (1.60 m/s) → merkez dönüşten çok
-            önce varıyor, centroid savruluyordu. Ölçüldü: dönüşün ilk ~4 sn'sinde
-            slot hatası 2.55 m; merkez durunca 0.5 m'ye iniyordu.
-          · düz çizgi + dönüşe yayılmış hız → savrulma azalır ama kiriş ile yay
-            arasındaki sehim kalır: r·(1−cos(Δθ/2)), 2.8 m ve 169° için 2.5 m.
-            Şartmanın istediği "sabit merkez" bu değil.
-
-        Doğrusu merkezi her tick'te o anki heading'den TÜRETMEK:
-
-            merkez(t) = çıpa − döndür(ortalama_ofset, heading(t))
-
-        Bu, centroid'i yaklaşık değil TAM olarak sabit tutar. heading hedefe
-        vardığında merkez de komutun gönderdiği değere birebir oturur, yani
-        mevcut mimariyle çelişmez.
-
-        Sabit yok: ortalama ofset komuttan, heading rampanın kendisinden gelir →
-        formasyon tipi, spacing, dron sayısı ve seyir hızı ne olursa olsun uyar.
-
-        Yay kipi YALNIZCA saf rotasyonda açılır. Komut hem döndürüp hem gerçek
-        bir yer değiştirme istiyorsa (navigasyon) normal yörünge üretimi sürer.
-        Ayrım, iki uçtan hesaplanan çıpanın tutarlılığına bakılarak yapılır:
-        saf rotasyonda başlangıç ve bitiş aynı çıpayı verir.
-        """
+        """Saf rotasyon mu? Öyleyse merkezin YAY çıpasını kurar."""
         self._yay_capa = None
         if self._current_heading_deg is None:
             return False
@@ -241,22 +201,7 @@ class PathPlannerNode(Node):
                 self._yay_capa[2])
 
     def _slew_limit_deg_s(self) -> float:
-        """Formasyon boyutuna uyarlanmış güvenli dönüş hızı (derece/sn).
-
-        Rijit rotasyonda merkeze r uzaklıktaki dron v = ω·r ile yay çizer. En
-        dıştaki dronun hızı rot_tangential_speed_mps'i aşmasın diye açısal hız
-        ω_max = v_safe / r_max ile sınırlanır. r_max, komuttaki slot
-        ofsetlerinden gelir (ofsetler zaten formasyon MERKEZİNE göredir; dönüş
-        de o merkez etrafındadır) → yeni veri/abonelik gerekmez.
-
-        Böylece spacing QR'dan ne gelirse gelsin (5 m, 8 m, 15 m…) dönüş hızı
-        kendiliğinden ölçeklenir: formasyon büyüdükçe yavaşlar, kanat dronlar
-        her zaman yetişebilir. Sabit bir açısal hız büyük formasyonda dronu
-        max_speed'in üstüne zorlayıp savrulmaya yol açıyordu.
-
-        Ofset yoksa/çok küçükse (tek dron, dejenere formasyon) yapılandırılmış
-        tavan kullanılır. Sonuç asla max_heading_slew_deg_s'i aşmaz.
-        """
+        """Formasyon boyutuna uyarlanmış güvenli dönüş hızı (derece/sn)."""
         cmd = self._current_cmd
         if cmd is None:
             return self._max_heading_slew_deg_s
@@ -269,12 +214,7 @@ class PathPlannerNode(Node):
         return min(self._max_heading_slew_deg_s, w_deg_s)
 
     def _slew_accel_deg_s2(self) -> float:
-        """Ease-in/out açısal ivmesi (deg/s²), formasyon boyutuna uyarlı.
-
-        Kanat dronun tangansiyel ivmesi rot_tangential_accel'i aşmasın diye
-        a_ang = a_tan / r_max. Böylece dron sıfırdan tangansiyel hıza YUMUŞAK
-        çıkar; ani başlangıç savrulmayı tetikliyordu. Ofset yoksa sınır konmaz.
-        """
+        """Ease-in/out açısal ivmesi (deg/s²), formasyon boyutuna uyarlı."""
         cmd = self._current_cmd
         if cmd is None or self._rot_tangential_accel_mps2 <= 0.0:
             return 1e9
@@ -286,16 +226,7 @@ class PathPlannerNode(Node):
         return math.degrees(self._rot_tangential_accel_mps2 / r_max)
 
     def _step_heading_deg(self, current: float, target: float) -> float:
-        """Heading'i hedefe doğru YAMUK hız profiliyle yaklaştırır.
-
-        Sabit adım yerine açısal hız (_current_slew_rate) bir ivme sınırıyla
-        rampalanır:
-          · ease-in : hız her tick a·dt kadar artar → yumuşak başlangıç
-          · seyir   : hız tavana (slew_limit) oturur
-          · ease-out: hedefe yaklaşınca hız √(2·a·Δ) ile sınırlanır → hedefte
-                      tam durur, aşmaz
-        Böylece dron dönüş başında da sonunda da fırlamaz (rijit rotasyon).
-        """
+        """Heading'i hedefe doğru YAMUK hız profiliyle yaklaştırır."""
         delta = self._shortest_delta_deg(current, target)
         if abs(delta) <= 1e-3:
             self._current_slew_rate = 0.0

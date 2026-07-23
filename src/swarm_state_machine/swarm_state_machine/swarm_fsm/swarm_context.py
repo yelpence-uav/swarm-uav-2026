@@ -122,11 +122,7 @@ class SwarmContext:
         return time.monotonic() - self.state_entry_time
 
     def compute_centroid(self) -> None:
-        """Aktif ajanların ağırlık merkezini hesaplar.
-
-        Kapsam FORMATION_ACTIVE_STATES ile belirlenir; konum dizileriyle AYNI
-        küme olmalıdır, aksi halde ofsetler (konum - centroid) tutarsız çıkar.
-        """
+        """Aktif ajanların ağırlık merkezini hesaplar."""
         active = [
             a for a in self.agents.values()
             if a.state in FORMATION_ACTIVE_STATES and not a.is_stale()
@@ -143,13 +139,7 @@ class SwarmContext:
         self,
         target_offsets: dict[int, tuple[float, float, float]] | None = None,
     ) -> None:
-        """Formasyon kalite metriklerini hesaplar.
-
-        Hedef offset'ler verilmezse sadece centroid uzaklığı hesaplanır.
-
-        Args:
-            target_offsets: agent_id → (dx, dy, dz) hedef offset'ler.
-        """
+        """Formasyon kalite metriklerini hesaplar."""
         active = [
             a for a in self.agents.values()
             if a.state in FORMATION_ACTIVE_STATES and not a.is_stale()

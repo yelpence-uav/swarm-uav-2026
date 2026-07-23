@@ -1,32 +1,4 @@
-"""Yarı-otonom (Görev 2) manuel komut kinematiği — saf matematik, ROS yok.
-
-Operatörün analog joystick eksenlerini ([-1, +1] normalize) sürü-seviyesi
-hareketine çevirir. İki mod:
-
-  * SÜRÜ HAREKET MODU (MODE_SWARM_MOVEMENT):
-        Formasyon ŞEKLİ korunur, kütle merkezi (centroid) ötelenir.
-        pitch -> +North hız, roll -> +East hız, throttle -> tırmanış,
-        yaw -> tüm formasyonun heading dönüşü.
-        Bireysel İHA hızı:  v_i = v_merkez + (ψ̇ × r_i)
-
-  * MANEVRA MODU (MODE_MANEUVER):
-        Centroid SABİT; formasyon merkez etrafında döner/eğilir.
-        Öteleme yok (v_merkez -> 0, a_max ile sönümlenerek),
-        yaw -> centroid etrafında saf dönme (v_i = ψ̇ × r_i, teğetsel),
-        pitch/roll -> formasyon düzlemi eğimi (offset_z modülasyonu),
-        throttle -> ortak irtifa değişimi.
-
-İŞARET KONVANSİYONU (SwarmControlCommand.msg ile aynı, NED frame):
-    pitch_cmd    > 0 : ileri (+North, +X)
-    roll_cmd     > 0 : sağ   (+East,  +Y)
-    yaw_cmd      > 0 : yukarıdan bakışta saat yönü (heading artar)
-    throttle_cmd > 0 : tırmanış (irtifa artar -> NED Down/Z azalır)
-
-İVME: analog girdi anlık hız HEDEFİ üretir; gerçek centroid hızı a_max·dt
-adımıyla bu hedefe doğru "slew" (eğim-limit) edilir. Böylece |a| <= a_max
-garanti edilir ve çıkışta hem hız hem ivme komutu sınırlı kalır. İvme,
-hızdaki bu sınırlı değişimin dt'ye bölümüdür (StepResult.a*).
-"""
+"""Yarı-otonom (Görev 2) manuel komut kinematiği — saf matematik, ROS yok."""
 
 from __future__ import annotations
 
@@ -74,10 +46,7 @@ class StepResult:
 
 
 def _slew(current: float, target: float, max_delta: float) -> float:
-    """current'i target'e doğru en fazla |max_delta| adımıyla yaklaştırır.
-
-    İvme sınırlamasının çekirdeği: hız bir adımda en çok a_max·dt değişebilir.
-    """
+    """current'i target'e doğru en fazla |max_delta| adımıyla yaklaştırır."""
     if max_delta <= 0.0:
         return current
     diff = target - current
@@ -109,20 +78,7 @@ def swarm_movement_step(
     dt: float,
     limits: MotionLimits,
 ) -> StepResult:
-    """SÜRÜ HAREKET MODU: centroid'i öteler, şekil korunur.
-
-    Analog girdiler hız HEDEFİ üretir; gerçek hız a_max·dt ile slew edilir
-    (ivme sınırı). Konum yeni hızla integre edilir, heading yaw ile döner.
-
-    Args:
-        state: Mevcut centroid durumu.
-        pitch, roll, yaw, throttle: [-1, +1] normalize analog eksenler.
-        dt: Adım süresi (s). <= 0 ise durum değişmeden döner.
-        limits: Hız/ivme/açısal hız tavanları.
-
-    Returns:
-        StepResult: yeni durum + uygulanan ivme ve yaw hızı.
-    """
+    """SÜRÜ HAREKET MODU: centroid'i öteler, şekil korunur."""
     if dt <= 0.0:
         return StepResult(state=replace(state))
 
@@ -174,17 +130,7 @@ def maneuver_step(
     dt: float,
     limits: MotionLimits,
 ) -> StepResult:
-    """MANEVRA MODU: centroid sabit; formasyon döner/eğilir.
-
-    Yatay öteleme yasak -> v_merkez a_max ile 0'a sönümlenir (artık atalet
-    güvenli durur). yaw centroid etrafında saf dönme verir (formation_node
-    R(heading)·offset uygular). pitch/roll formasyon düzlemini eğer
-    (tilt_* dereceleri; offset_z modülasyonu çağıran tarafça uygulanır).
-    throttle ortak irtifa değişimine izin verir.
-
-    Returns:
-        StepResult: yeni durum (x,y sabit) + tilt_pitch/roll dereceleri.
-    """
+    """MANEVRA MODU: centroid sabit; formasyon döner/eğilir."""
     if dt <= 0.0:
         return StepResult(state=replace(state))
 
@@ -232,24 +178,7 @@ def apply_tilt(
     tilt_pitch_deg: float,
     tilt_roll_deg: float,
 ) -> list[tuple[float, float, float]]:
-    """Formasyon düzlemini eğerek slot offset_z'lerini modüle eder (manevra).
-
-    Eğim, body frame'de bir düzlem dönüşüdür (heading uygulanmadan ÖNCE,
-    çünkü offset'ler body frame'dedir; formation_node sonra R(heading)
-    uygular). NED Z aşağı pozitif olduğundan:
-
-        pitch>0 (burun yukarı): ÖN slotlar (+x) YÜKSELİR -> dz azalır.
-        roll>0  (sağ kanat aşağı): SAĞ slotlar (+y) ALÇALIR -> dz artar.
-
-    dz_yeni = dz - x·tan(pitch) + y·tan(roll)
-
-    Args:
-        offsets: body frame (dx, dy, dz) listesi.
-        tilt_pitch_deg, tilt_roll_deg: eğim açıları (derece).
-
-    Returns:
-        offset_z'si modüle edilmiş yeni (dx, dy, dz) listesi.
-    """
+    """Formasyon düzlemini eğerek slot offset_z'lerini modüle eder (manevra)."""
     tp = math.tan(math.radians(tilt_pitch_deg))
     tr = math.tan(math.radians(tilt_roll_deg))
     if not offsets:

@@ -89,19 +89,7 @@ def evaluate_transitions(ctx: AgentContext) -> AgentState | None:
 
 
 def _from_unknown(ctx: AgentContext) -> AgentState | None:
-    """PX4 linki kurulunca IDLE'a geçer; kurulana kadar UNKNOWN'da bekler.
-
-    Health monitor UNKNOWN'da PX4 link kontrolünü atlar. Link hazır olmadan
-    IDLE'a geçilirse, IDLE'da tetiklenen kontrol px4_link_ok=False görüp
-    hemen false FAILSAFE üretiyordu (başlatma yarışı). Bu yüzden linki
-    UNKNOWN'da bekleriz.
-
-    Args:
-        ctx (AgentContext): Drone'un anlık durum bilgisi.
-
-    Returns:
-        AgentState | None: Link hazırsa IDLE; değilse None (UNKNOWN'da kal).
-    """
+    """PX4 linki kurulunca IDLE'a geçer; kurulana kadar UNKNOWN'da bekler."""
     if not ctx.px4_link_ok:
         return None
     return AgentState.IDLE
@@ -188,23 +176,7 @@ def _from_precision_landing(ctx: AgentContext) -> AgentState | None:
 
 
 def _from_waiting_rejoin(ctx: AgentContext) -> AgentState | None:
-    """
-    WAITING_REJOIN → ARMING: Bekleme süresi doldu (ya da manuel rejoin
-        izni geldi); ajan tekrar arm olur.
-    WAITING_REJOIN → FAILSAFE: 120s içinde toparlanamadı.
-
-    Şartname: ayrılan ajan renkli pedde bekleme süresi (detach_wait_s) kadar
-    disarm bekler, ardından KENDİ KENDİNE tekrar arm olup sürüye yetişir
-    (en geç sonraki QR'da katılır). Zamanlama dronun kendisindedir. Tekrar
-    kalkış ARMING→ARMED→TAKEOFF→IN_SWARM yolunu yeniden kullanır;
-    IN_SWARM'da formation_control ajanı hareketli sürüye götürür.
-
-    Args:
-        ctx: Drone durum bilgisi.
-
-    Returns:
-        Hedef AgentState veya None.
-    """
+    """WAITING_REJOIN → ARMING: Bekleme süresi doldu (ya da manuel rejoin"""
     ready = (
         ctx.time_in_state() >= ctx.detach_wait_s
         or ctx.pending_state == AgentState.REJOINING

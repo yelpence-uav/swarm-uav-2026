@@ -110,12 +110,7 @@ def test_zaman_asimi_iptal():
 
 
 def test_uzak_bolgede_erken_iptal_yok():
-    """Bütçe geometriden türetilir: uzak pede iniş sabit sınırla kesilmez.
-
-    Sabit bir süre sınırı (eskiden 45 s) ayrılma noktası pede uzak düştüğünde
-    inişi tam alçalma sırasında iptal ediyordu: dron pedin üstünde havada
-    kalıyor, ardından failsafe devralıp rastgele bir yere indiriyordu.
-    """
+    """Bütçe geometriden türetilir: uzak pede iniş sabit sınırla kesilmez."""
     core = PrecisionLandingCore()
     core.update(True, _pose(0, 0, 15), COLOR_RED, _MAP, None, 0.0)
     cmd = core.update(True, _pose(0, 0, 15), COLOR_RED, _MAP, None, 50.0)

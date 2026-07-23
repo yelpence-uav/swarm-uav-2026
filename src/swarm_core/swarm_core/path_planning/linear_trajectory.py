@@ -13,15 +13,7 @@ class LinearTrajectoryPlanner:
         control_rate_hz: float,
         accel_time_s: float = 2.0,
     ) -> None:
-        """
-        Yoringe planlayiciyi baslatir.
-
-        Args:
-            max_speed_mps: Izin verilen maksimum hiz (m/s).
-            control_rate_hz: Dongu frekansi (Hz).
-            accel_time_s: Merkezin 0'dan tam hiza cikma suresi (sn); ivme
-                buradan turetilir (max_speed / accel_time).
-        """
+        """Yoringe planlayiciyi baslatir."""
         self.max_speed_mps = max_speed_mps
         self.control_rate_hz = control_rate_hz
         self.step_distance = max_speed_mps / control_rate_hz
@@ -33,19 +25,7 @@ class LinearTrajectoryPlanner:
         target_pos: tuple[float, float, float],
         max_speed_mps: float | None = None,
     ) -> list[tuple[float, float, float]]:
-        """
-        Iki nokta arasinda adim adim waypoint listesi uretir.
-
-        Args:
-            start_pos: Baslangic [x, y, z] koordinatlari.
-            target_pos: Hedef [x, y, z] koordinatlari.
-            max_speed_mps: Bu rotaya ozel hiz tavani. None ise planlayicinin
-                seyir hizi kullanilir; seyir hizinin ustune cikamaz, yalnizca
-                yavaslatmak icin.
-
-        Returns:
-            list: Waypoint'lerin [(x, y, z), ...] listesi.
-        """
+        """Iki nokta arasinda adim adim waypoint listesi uretir."""
         x0, y0, z0 = start_pos
         x1, y1, z1 = target_pos
 

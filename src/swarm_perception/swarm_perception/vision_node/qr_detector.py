@@ -18,28 +18,7 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 # THE SOFTWARE.
 
-"""
-qr_detector.py.
-
-Pyzbar kullanarak BGR görüntülerde QR kod tespiti yapan saf modül.
-ROS 2 bağımlılığı taşımaz, yalnızca numpy ve pyzbar kullanır.
-
-QR içeriği yarışma şartnamesindeki JSON şemasıdır:
-
-    {"qr": 1, "w": 4,
-     "mis": [ [["frm","ok",6], ["mnv",-10,0], ["alt",20]],
-              [["frm","v",8],  ["mnv",0,10],  ["alt",25]] ],
-     "team": {"1":[1,3], "2":[2,2], ...}}
-
-qr    : mevcut QR numarası
-w     : her görev arası bekleme (saniye)
-mis   : görev paketleri (1-tabanlı numaralanır)
-team  : "takım_slotu": [paket_numarası, sonraki_qr]
-
-Her takım kendi slotuna bakıp yalnız ilgili paketi uygular. Paket, sırayla
-formasyon/manevra/irtifa ya da tek başına ayrılma komutları içerir; bunlar
-tek bir QRMissionData'ya düzleştirilir (mission_fsm alt-adımlara böler).
-"""
+"""qr_detector.py."""
 
 import json
 from typing import Any, Dict, List
@@ -59,29 +38,12 @@ class QRDetector:
     def __init__(
         self, min_confidence: float = 0.5, team_slot: int = 1
     ) -> None:
-        """
-        Aciklama: QRDetector sinifini ilklendirir.
-
-        Args:
-            min_confidence (float): Asgari güven eşiği (pyzbar desteklemez,
-                ancak mimari uyumu için korunmuştur).
-            team_slot (int): Bu takımın QR "team" tablosundaki slot numarası
-                (1-5). Yarışma günü jüri tarafından bildirilir. Yanlış slot
-                yanlış görev paketi ve yanlış rota demektir.
-        """
+        """Aciklama: QRDetector sinifini ilklendirir."""
         self._min_confidence = min_confidence
         self._team_slot = int(team_slot)
 
     def detect(self, image: np.ndarray) -> List[Dict[str, Any]]:
-        """
-        BGR goruntu uzerindeki QR kodlari bulur ve ayristirir.
-
-        Args:
-            image: cv2 formatinda BGR goruntu matrisi.
-
-        Returns:
-            List[Dict[str, Any]]: Ayristirilmis QR veri sozluk listesi.
-        """
+        """BGR goruntu uzerindeki QR kodlari bulur ve ayristirir."""
         if image is None or image.size == 0:
             return []
 
@@ -138,19 +100,7 @@ class QRDetector:
         }
 
     def _parse_qr_text(self, text: str) -> Dict[str, Any]:
-        """
-        Şartname JSON'ını ayrıştırıp bu takımın görev paketini düzleştirir.
-
-        Takım tablosundan (team[slot] = [paket_no, sonraki_qr]) kendi
-        paketimizi seçer, paketteki frm/mnv/alt/leav komutlarını tek bir
-        QRMissionData sözlüğüne çevirir.
-
-        Args:
-            text (str): QR kodundan okunan ham JSON metni.
-
-        Returns:
-            Dict[str, Any]: QRMissionData alanlarıyla eşleşen sözlük.
-        """
+        """Şartname JSON'ını ayrıştırıp bu takımın görev paketini düzleştirir."""
         parsed = self._blank_result()
 
         try:
@@ -204,18 +154,7 @@ class QRDetector:
     def _apply_command(
         self, parsed: Dict[str, Any], command: List[Any]
     ) -> None:
-        """
-        Tek bir görev komutunu ([op, ...]) sonuç sözlüğüne uygular.
-
-        frm  -> formasyon (tip, aralik_m)
-        mnv  -> manevra (pitch_deg, roll_deg)
-        alt  -> irtifa (metre)
-        leav -> suruden ayrilma (drone_id, renk)
-
-        Args:
-            parsed (Dict[str, Any]): Verilerin saklandığı sözlük.
-            command (List[Any]): [operatör, argümanlar...] biçiminde komut.
-        """
+        """Tek bir görev komutunu ([op, ...]) sonuç sözlüğüne uygular."""
         op = command[0]
 
         if op == 'frm':

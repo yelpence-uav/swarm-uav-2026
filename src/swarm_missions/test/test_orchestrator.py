@@ -71,13 +71,7 @@ def test_navigate_blocked_until_qr_ready():
 
 
 def test_first_rotate_targets_next_qr():
-    """İlk ROTATE önce dizilişi KORUR, sonra hedefe döndürür.
-
-    İlk komut heading=0 ile mevcut dizilişi yayınlar: path_planner heading
-    rampasını bu ilk komuttan başlatır. Bu komut olmadan rampa, rotasyon
-    komutunun heading'inden başlıyor ve kalkış dizilişi ilk tick'te hedefe
-    snap'leyip savruluyordu.
-    """
+    """İlk ROTATE önce dizilişi KORUR, sonra hedefe döndürür."""
     o = _ready_orch()
     cmds = o.decide(_inp(S_ROTATE, 0))
     assert len(cmds) == 2
@@ -194,12 +188,7 @@ def test_model_b_tilt_baked_after_maneuver():
 
 
 def test_egim_donmus_dizilisin_ustunde_de_korunur():
-    """Eğim, RİJİT (dondurulmuş) diziliş üzerinde de uygulanmaya devam eder.
-
-    Şartname: manevradan sonra yeni bir formasyon/manevra komutu gelene kadar
-    sürü eğimini KORUR. Dondurulmuş ofsetler ham döndürülürse eğim ilk irtifa
-    komutunda kayboluyor, sürü düzleşiyordu (manevra kaleminden puan gider).
-    """
+    """Eğim, RİJİT (dondurulmuş) diziliş üzerinde de uygulanmaya devam eder."""
     o = _ready_orch()
     # Diziliş kalkışta dondurulur (jüri snapshot'ı).
     o.decide(_inp(S_TAKEOFF, 0))

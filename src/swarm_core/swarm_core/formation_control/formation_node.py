@@ -322,16 +322,7 @@ class FormationControlNode(Node):
             )
 
     def _on_formation_command(self, msg: FormationCommand) -> None:
-        """Gelen FormationCommand'ı saklar.
-
-        Atama (agent_ids + offset_x/y/z) komutun içindedir. Lider sussa bile
-        son komut elde kalır → drone formasyonu korumaya devam eder.
-
-        Komut yayındır, herkese ulaşır; ama ATAMADA OLMAYAN dron onu uygulamaz.
-        Sürüden ayrılan dron (renkli alana inen) liderin ajan listesinden düşer:
-        kendi slotu yoktur, formasyonu takip etmemelidir — inişi
-        precision_landing yürütür.
-        """
+        """Gelen FormationCommand'ı saklar."""
         if int(self._agent_id) not in [int(a) for a in msg.agent_ids]:
             return
 
@@ -596,14 +587,7 @@ class FormationControlNode(Node):
         agent_ids: list[int],
         now: float,
     ) -> dict[int, tuple[float, float, float]] | None:
-        """Tüm sürünün shared-NED konumunu SADECE peer veriden kurar.
-
-        Kendi konumu GPS+origin ile shared NED'e çevrilir; komşular
-        NeighborInfo.relative (komşu − ben, shared NED) ile eklenir. Merkezi
-        SwarmState kullanılmaz → tek-nokta-arıza ilkesi korunur. Bir komşu
-        eksik/bayat ya da GPS/origin yoksa None döner (çağıran lider-ofsete
-        düşer). Atama XY-tabanlı olduğu için Z önemsiz (0 verilir).
-        """
+        """Tüm sürünün shared-NED konumunu SADECE peer veriden kurar."""
         origin_lat = getattr(self, '_origin_lat', None)
         origin_lon = getattr(self, '_origin_lon', None)
         if (not getattr(self, '_gps_valid', False)
@@ -635,10 +619,7 @@ class FormationControlNode(Node):
         msg: FormationCommand,
         positions: dict[int, tuple[float, float, float]],
     ) -> dict[int, tuple[float, float, float]] | None:
-        """Slot atamasını YEREL hesaplar (dağıtık): aynı geometri + aynı Öklid
-        maliyet + aynı Macar → lider ile aynı sonuç. CUSTOM/bilinmeyen tip veya
-        boş ajan listesinde None (lider-ofset fallback).
-        """
+        """Slot atamasını YEREL hesaplar (dağıtık): aynı geometri + aynı Öklid"""
         ftype = int(msg.formation_type)
         if ftype not in (FORMATION_OKBASI, FORMATION_V, FORMATION_CIZGI):
             return None
@@ -711,8 +692,7 @@ class FormationControlNode(Node):
         msg: FormationCommand,
         agent_id: int,
     ) -> tuple[float, float, float] | None:
-        """Bir ajanın efektif slot ofseti: freeze'li yerel atama varsa ondan,
-        yoksa liderin komut ofsetinden (fallback)."""
+        """Bir ajanın efektif slot ofseti: freeze'li yerel atama varsa ondan,"""
         agent_id = int(agent_id)
         if self._local_offsets is not None and agent_id in self._local_offsets:
             return self._local_offsets[agent_id]
@@ -733,11 +713,7 @@ class FormationControlNode(Node):
         self._qr_step = int(msg.data)
 
     def _publish_setpoint(self) -> None:
-        """Periyodik setpoint hesaplar ve AgentSetpoint yayınlar.
-
-        Slot ataması lider'in komutundadır; bu node kendi slotunu uygular
-        ve komşulara göre (NeighborInfo) formasyonu sıkı tutar.
-        """
+        """Periyodik setpoint hesaplar ve AgentSetpoint yayınlar."""
         # MANEUVER adımında formasyon susar → /raw'a yalnız maneuver_executor
         # yazar, iki yazıcı çakışması önlenir. Eğik poz sonradan eğik ofsetle
         # korunduğu için bu susma yalnızca aktif manevra hareketi süresincedir.

@@ -1,25 +1,4 @@
-"""orchestrator.py — Görev 1 dinamik sürü orkestrasyon çekirdeği (ROS'suz).
-
-mission_fsm hangi FAZ'da olduğumuza karar verip yayınlar (gözlemci); bu modül
-o fazı okuyup DOĞRU komutu üretir (orkestratör). Kapalı döngü:
-
-    mission_fsm faz → orchestrator komut → mevcut modül icra →
-    swarm_fsm/task_reallocator event → mission_fsm adım ilerletir → tekrar
-
-Bu çekirdek yalnızca KARARI verir; komutları ROS'a yazmak mission1_node'un
-işidir. ROS bağımlılığı yoktur → birim test edilebilir.
-
-TASARIM KURALLARI:
-  - Emit-once: komut faz/adım/qr_seq değişince BİR KEZ üretilir (spam yok).
-  - Lider-guard: FormationTargetCmd ve DetachCmd yalnız lider'de üretilir;
-    ManeuverCmd her drone'da (her drone kendi lokal maneuver_executor'ını
-    çağırır — mesh üzerinden action gitmez).
-  - Model B: manevra sonrası açılı poz, sonraki FormationTargetCmd'lerin
-    ofsetlerine gömülür (build_slot_assignment tilt argümanları). Yeni
-    formasyon değişimi eğimi sıfırlar.
-  - Durum güncellemesi lider olsun olmasın yapılır; böylece lider düşünce
-    devralan drone'un orchestrator'ı tutarlı bağlama sahiptir.
-"""
+"""orchestrator.py — Görev 1 dinamik sürü orkestrasyon çekirdeği (ROS'suz)."""
 
 import math
 from dataclasses import dataclass, field
@@ -178,13 +157,7 @@ class ManeuverCmd:
 
 @dataclass
 class DetachCmd:
-    """EVENT_MEMBER_DETACH_STARTED olarak yayınlanacak ayrılma (lider).
-
-    detach_wait_s ayrılan ajanın renkli pedde disarm bekleyeceği süredir;
-    event value alanıyla ajana taşınır. Ajan bu süre dolunca KENDİ KENDİNE
-    tekrar arm olup sürüye yetişir — rejoin zamanlaması dronun kendisindedir
-    (şartname: bekleme süresi kadar bekler, en geç sonraki QR'da katılır).
-    """
+    """EVENT_MEMBER_DETACH_STARTED olarak yayınlanacak ayrılma (lider)."""
 
     target_agent_id: int
     detach_wait_s: float = 0.0
@@ -192,17 +165,7 @@ class DetachCmd:
 
 @dataclass
 class FormationReachedCmd:
-    """QR alt-görevi (FORMASYON / İRTİFA) tamamlandı sinyali.
-
-    mission1_node bunu SystemEvent.EVENT_FORMATION_REACHED olarak yayınlar;
-    mission_fsm alıp qr_step'i ilerletir (formasyon → manevra → irtifa). Bu
-    sinyali üreten başka kimse yoktur: gelmezse qr_step FORMASYON'da donar,
-    manevra hiç başlamaz ve görev tıkanır.
-
-    max_error_m: yakınsamadaki en büyük slot hatası (teşhis/kalite).
-    clean: hata toleransın içinde mi (değilse uyarı basılır, görev yine akar).
-    timed_out: yakınsama beklenmeden süre aşımıyla mı geçildi.
-    """
+    """QR alt-görevi (FORMASYON / İRTİFA) tamamlandı sinyali."""
 
     max_error_m: float = 0.0
     clean: bool = True
@@ -211,18 +174,7 @@ class FormationReachedCmd:
 
 @dataclass
 class RotationCompletedCmd:
-    """Formasyon rotasyonu tamamlandı sinyali (ROTATE_TO_NEXT).
-
-    mission1_node bunu SystemEvent.EVENT_ROTATION_COMPLETED olarak yayınlar;
-    mission_fsm alıp NAVIGATE_TO_QR'a geçer. Bu sinyal olmadan mission_fsm
-    dönüşün bitip bitmediğini BİLEMEZ (hiçbir ölçüm yapmaz, yalnız event dinler)
-    ve 30 sn'lik timeout'la körü körüne ilerler → dönüş tamamlanmamışsa sürü
-    yarı dönük halde QR'a uçar (şartname rotasyonu puanlıyor).
-
-    max_error_m: yakınsamadaki en büyük slot hatası (teşhis/kalite).
-    clean: hata toleransın içinde mi (değilse uyarı basılır, görev yine akar).
-    timed_out: yakınsama beklenmeden süre aşımıyla mı geçildi.
-    """
+    """Formasyon rotasyonu tamamlandı sinyali (ROTATE_TO_NEXT)."""
 
     max_error_m: float = 0.0
     clean: bool = True
@@ -231,12 +183,7 @@ class RotationCompletedCmd:
 
 @dataclass
 class QrReachedCmd:
-    """Okuyucu dron QR'ın üstüne vardığında lider tarafından üretilen sinyal.
-
-    mission1_node bunu SystemEvent.EVENT_FORMATION_REACHED olarak yayınlar;
-    mission_fsm alıp NAVIGATE_TO_QR -> EXECUTE_QR_TASK geçişini yapar (120s
-    yedek timer'a düşmeden). distance_m yalnızca teşhis/log içindir.
-    """
+    """Okuyucu dron QR'ın üstüne vardığında lider tarafından üretilen sinyal."""
 
     distance_m: float = 0.0
 
@@ -313,11 +260,7 @@ class Mission1Orchestrator:
     # --- Dışarıdan besleme (node topic callback'lerinden) --------------------
 
     def set_next_target(self, valid, lat_deg, lon_deg) -> None:
-        """mission_fsm'in çözdüğü sıradaki hedefin konumunu yükler.
-
-        "Hangi QR" kararı mission_fsm'dedir; mission1 yalnız konuma gider.
-        valid=False → konum tabloda yok, navigasyon yapılmaz.
-        """
+        """mission_fsm'in çözdüğü sıradaki hedefin konumunu yükler."""
         self._qr_geo.set_target(valid, lat_deg, lon_deg)
 
     def set_origin(self, lat_deg, lon_deg) -> None:
@@ -336,12 +279,7 @@ class Mission1Orchestrator:
 
     @property
     def altitude_clamped(self) -> tuple | None:
-        """QR'ın istediği irtifa banda sığdırıldıysa (istenen, uygulanan).
-
-        Sığdırma İKİ YÖNLÜ olabilir (0 → 5 m, 200 → 30 m); ikisi de "QR'ın dediği
-        irtifada uçmuyoruz" demektir ve teşhis edilebilir olmalıdır. Sığdırma
-        yoksa None döner.
-        """
+        """QR'ın istediği irtifa banda sığdırıldıysa (istenen, uygulanan)."""
         req = self._st.last_alt_request_m
         app = self._st.last_alt_applied_m
         if req >= 0.0 and abs(app - req) > 1e-6:
@@ -351,15 +289,7 @@ class Mission1Orchestrator:
     # --- Ana karar -----------------------------------------------------------
 
     def decide(self, inp: OrchestratorInput) -> list:
-        """Bu tick'te icra edilecek komut listesini döner (çoğu tick boş).
-
-        Args:
-            inp: Anlık faz/QR/konum bağlamı.
-
-        Returns:
-            FormationTargetCmd / ManeuverCmd / DetachCmd örnekleri listesi.
-            Lider değilse yalnız ManeuverCmd taşınır.
-        """
+        """Bu tick'te icra edilecek komut listesini döner (çoğu tick boş)."""
         cmds = []
 
         # Sürü durumu henüz gelmediyse (aktif ajan listesi boş) komut üretme.
@@ -406,12 +336,7 @@ class Mission1Orchestrator:
         return cmds
 
     def _update_qr_distance(self, inp: OrchestratorInput) -> None:
-        """En yakın dronun ilgili QR'a mesafesini her tick günceller (teşhis).
-
-        Referans QR: NAVIGATE'te gidilen hedef, diğer fazlarda ÜZERİNDE
-        durduğumuz QR (qr_anchor). Böylece görev ve rotasyon boyunca sürünün
-        QR'da kalıp kalmadığı gerçekten ölçülür.
-        """
+        """En yakın dronun ilgili QR'a mesafesini her tick günceller (teşhis)."""
         if not inp.positions:
             return
         if inp.mission_state == _S_NAVIGATE_TO_QR:
@@ -426,16 +351,7 @@ class Mission1Orchestrator:
         )
 
     def _maybe_qr_arrival(self, inp: OrchestratorInput):
-        """NAVIGATE'te okuyucu dron QR'a varınca bir kez QrReachedCmd üretir.
-
-        Okuyucu = QR'a en yakın dron (mesafeyi doğrudan ölçer, formasyon
-        sıkılığını değil). QR'a qr_arrival_threshold_m'den yakın olup
-        qr_arrival_stable_ticks kadar stabil kalırsa varış bildirilir. Yalnız
-        lider üretir; her QR (faz anahtarı) için tek kez.
-
-        Returns:
-            QrReachedCmd (varış) veya None.
-        """
+        """NAVIGATE'te okuyucu dron QR'a varınca bir kez QrReachedCmd üretir."""
         # NAVIGATE dışındayken varış defteri SIFIRLANIR: her yeni navigasyon
         # bacağı temiz sayfayla başlar. Böylece kaç QR olursa olsun (ve aynı
         # QR'a tekrar gelinse bile) her varış yeniden bildirilebilir.
@@ -475,20 +391,7 @@ class Mission1Orchestrator:
         return None
 
     def _maybe_formation_settled(self, inp: OrchestratorInput):
-        """QR alt-görevi (FORMASYON/İRTİFA) tamamlanınca bir kez sinyal üretir.
-
-        mission_fsm bu adımları EVENT_FORMATION_REACHED ile ilerletir; sinyali
-        üreten başka kimse yoktur (varış event'i yalnız NAVIGATE'te yayınlanır).
-        Gelmezse qr_step FORMASYON'da donar, manevra hiç başlamaz, görev tıkanır.
-
-        ÖLÇÜT MESAFE DEĞİL, YAKINSAMA: "dronlar slotlarına gitmeyi bitirdi mi?"
-        → hata artık azalmıyor (plato) VE dronlar durdu. Yakınsama her koşulda
-        gerçekleştiğinden sinyal daima gelir → görev kilitlenmez. Sıkı bir mesafe
-        eşiği rüzgâr/gürültüde hiç tetiklenmeyip görevi öldürebilirdi.
-
-        Mesafe yalnızca KALİTE kontrolü: yakınsanan hata toleransı aşarsa (bir
-        dron takılmış/itilmiş) clean=False ile uyarı basılır, görev yine ilerler.
-        """
+        """QR alt-görevi (FORMASYON/İRTİFA) tamamlanınca bir kez sinyal üretir."""
         step = int(inp.qr_step)
         # Aynı yakınsama ölçütü İKİ fazda kullanılır — ikisinde de soru aynı:
         # "dronlar komut edilen heading'deki slotlarına gitmeyi bitirdi mi?"
@@ -626,25 +529,7 @@ class Mission1Orchestrator:
         )
 
     def _maybe_qr_recovery(self, inp: OrchestratorInput):
-        """QR çözülemiyorsa İRTİFA MERDİVENİ ile tekrar tekrar dener.
-
-        EXECUTE_QR_TASK'ta qr_step hâlâ NONE (QR okunmadı) ise sürü, okuyucu
-        dron QR'ın üstünde ÇIPALI kalacak şekilde farklı yüksekliklerde okumayı
-        dener:
-
-            12 m (varsayılan)  →  10 m (taban; QR kadrajda en büyük)
-                               →  18 m (geniş açı; QR kadraja girsin)  →  tekrar
-
-        YATAY HAREKET YOK. İleri/geri kaydırma denendi ve okumayı BOZDU: sürü
-        sürekli oynadıkça kamera net kare alamıyor, üstelik okuyucu QR'ın
-        üstünden kayıyordu. Burada XY sabit; yalnız yükseklik değişir ve her
-        basamakta sürü qr_search_step_s boyunca HAREKETSİZ durur — kamera
-        (düşük fps'te bile) yeterince kare biriktirsin.
-
-        İrtifa hiçbir basamakta 10 m altına inmez (şartname yasağı). Okuma
-        gerçekleşmezse mission_fsm timeout ile RETURN_HOME'a geçer; eve varınca
-        görev baştan başlar.
-        """
+        """QR çözülemiyorsa İRTİFA MERDİVENİ ile tekrar tekrar dener."""
         stuck = (
             inp.mission_state == _S_EXECUTE_QR_TASK and inp.qr_step == 0
         )
@@ -745,26 +630,14 @@ class Mission1Orchestrator:
         return []
 
     def _kalkis_heading(self, inp: OrchestratorInput) -> float:
-        """Sürünün o anki yaw'ı (derece); bilinmiyorsa 0 (eski davranış).
-
-        Kalkış komutunun heading'i ve snapshot ofsetlerinin referansı budur.
-        Sabit bir yön varsayımı yoktur: değer telemetriden gelir, diziliş
-        rastgele olsa da geçerlidir.
-        """
+        """Sürünün o anki yaw'ı (derece); bilinmiyorsa 0 (eski davranış)."""
         if inp.swarm_yaw_deg is None:
             return 0.0
         return float(inp.swarm_yaw_deg)
 
     @staticmethod
     def _ters_dondur(offsets, heading_deg: float):
-        """Ofsetleri -heading kadar döndürür (heading uygulanınca sadeleşir).
-
-        formation_node hedefi `merkez + döndür(ofset, heading)` diye kurar.
-        Ofsetler burada -heading döndürülürse iki döndürme birbirini götürür:
-        hedef konumlar `merkez + ofset` olarak kalır, yani diziliş bire bir
-        korunur; değişen tek şey komutun heading'i (dolayısıyla burun yönü ve
-        sonraki rotasyonların başlangıç referansı) olur.
-        """
+        """Ofsetleri -heading kadar döndürür (heading uygulanınca sadeleşir)."""
         if not heading_deg:
             return offsets
         th = math.radians(-heading_deg)
@@ -779,17 +652,7 @@ class Mission1Orchestrator:
         return math.degrees(math.atan2(de, dn))
 
     def _anchor_nearest_to_qr(self, inp, ned, offsets, heading_rad):
-        """Formasyonu, QR'a en yakın dron QR'ın üstüne gelecek şekilde kaydırır.
-
-        Reader'ın hedefi = merkez + döndür(reader_ofset, heading). Reader'ı
-        QR'a oturtmak için: merkez = QR - döndür(reader_ofset, heading). Böylece
-        formasyon rijit döner (heading) ve reader tam QR'ın üstünde olur.
-        En yakın dron (konuma göre) okuyucu olur. Konum/ofset yoksa merkezi
-        QR'a koyar (yedek). İrtifa korunur.
-
-        Returns:
-            (north, east, down) yeni formasyon merkezi.
-        """
+        """Formasyonu, QR'a en yakın dron QR'ın üstüne gelecek şekilde kaydırır."""
         if not inp.positions or not offsets:
             return (ned[0], ned[1], inp.centroid[2])
         ridx = min(
@@ -803,21 +666,7 @@ class Mission1Orchestrator:
 
     def _assign(self, formation_type, spacing, center, heading_deg,
                 inp: OrchestratorInput):
-        """Slot ofsetlerini üretir; ATAMA rijit, EĞİM üstüne uygulanır.
-
-        Dondurulan şey ATAMA'dır (hangi dron hangi slotta), eğim değil. Sürü
-        kalkıştaki/son formasyondaki dizilişi korur — yeniden atama yapılmaz;
-        yalnız merkez (öteleme) ve heading (formasyon rotasyonu) değişir. Yeni
-        atama yalnız formasyon değişiminde (_exec_formation frozen'ı temizler)
-        ya da ilk kurulumda hesaplanır. Ayrılma: kalan dronlar dondurulmuş
-        slotta kalır, ayrılanın yeri boş (şartname: ayrılınca düzeltme yok).
-
-        Eğim (manevra sonrası açılı poz) dondurulmuş TABANIN üstüne her komutta
-        yeniden uygulanır. Taban eğimli saklanırsa eğim ikinci kez üst üste
-        binerdi; eğim hiç uygulanmazsa manevradan sonraki ilk formasyon/irtifa
-        komutu sürüyü düzleştirirdi. Şartname, yeni bir formasyon ya da manevra
-        komutu gelene kadar eğimin KORUNMASINI ister.
-        """
+        """Slot ofsetlerini üretir; ATAMA rijit, EĞİM üstüne uygulanır."""
         if self._st.frozen_offsets:
             flat = [
                 self._st.frozen_offsets.get(int(a), (0.0, 0.0, 0.0))
@@ -869,21 +718,7 @@ class Mission1Orchestrator:
         return apply_tilt(flat_offsets, pitch, roll)
 
     def _hold_center(self, inp: OrchestratorInput, offsets, heading_deg):
-        """Sürüyü yerinde tutan formasyon merkezini döndürür.
-
-        Bir QR'ın ÜZERİNDEYSEK (qr_anchor dolu) formasyon, QR'a en yakın dron
-        QR'ın tam üstünde kalacak şekilde çıpalanır — navigasyondaki okuyucu
-        çıpasının aynısı. Böylece:
-          · QR görevleri (formasyon değişimi, manevra, irtifa) QR'ın ÜZERİNDE,
-          · rotasyon da QR etrafında SABİT bir merkezde (yerinde) icra edilir.
-
-        Merkez doğrudan QR'a konulamaz: jüri dizilişi rastgele olduğunda merkez
-        slotu boş kalır, hiçbir kamera QR'ı görmez. Centroid'i korumak da yetmez:
-        merkez QR'dan slot ofseti kadar uzakta kaldığı için formasyon değişimi ve
-        rotasyonda dronlar o uzak merkez etrafında dönüp QR'ı terk ediyordu
-        (yaşanan bug: sürü QR'dan uzaklaşıp orada dönüyordu).
-
-        QR üzerinde değilsek (kalkış) centroid korunur:"""
+        """Sürüyü yerinde tutan formasyon merkezini döndürür."""
         if self._st.qr_anchor is not None and inp.positions and offsets:
             ned = (self._st.qr_anchor[0], self._st.qr_anchor[1])
             return self._anchor_nearest_to_qr(
@@ -892,19 +727,7 @@ class Mission1Orchestrator:
         return self._hold_centroid(inp, offsets, heading_deg)
 
     def _hold_centroid(self, inp: OrchestratorInput, offsets, heading_deg):
-        """Sürünün CENTROID'i yerinde kalacak formasyon merkezini döndürür.
-
-        Slot ofsetlerinin ortalaması genelde SIFIR DEĞİLDİR (Ok Başı'nda uç
-        önde, kanatlar geride → ortalama ≈ 2.8 m geride). Merkezi doğrudan
-        centroid'e koyarsak dronlar merkez+ofset'e gider ve ortaya çıkan yeni
-        centroid, ortalama kadar KAYAR. Üstelik bir sonraki komut o kaymış
-        centroid'i merkez alır → kayma her formasyon/irtifa komutunda BİRİKİR:
-        sürü QR'ın üstünden kayar ve görevleri QR'ın yanında icra eder
-        (şartname görevlerin QR'ın üzerinde yapılmasını ister; ölçüldü: OKBAŞI'na
-        geçişte 2.83 m kayma).
-
-        Merkezi ortalama kadar geri iterek centroid'i sabitler.
-        """
+        """Sürünün CENTROID'i yerinde kalacak formasyon merkezini döndürür."""
         if not offsets:
             return inp.centroid
         n = len(offsets)
@@ -914,12 +737,7 @@ class Mission1Orchestrator:
         return (inp.centroid[0] - dx, inp.centroid[1] - dy, inp.centroid[2])
 
     def _snapshot_offsets(self, inp: OrchestratorInput):
-        """Mevcut dizilişi baz ofset olarak alır (heading=0 çerçevesi).
-
-        ofset = konum - centroid. Tam sürü ve tüm konumlar yoksa None döner;
-        eksik listeyle dondurmak sonradan katılan dronlara (0,0,0) verip
-        dizilişi merkeze çökertir (yaşanan bug).
-        """
+        """Mevcut dizilişi baz ofset olarak alır (heading=0 çerçevesi)."""
         n_full = self._cfg.full_agent_count or len(inp.agent_ids)
         if (not inp.positions
                 or len(inp.positions) != len(inp.agent_ids)
@@ -934,15 +752,7 @@ class Mission1Orchestrator:
     # --- Faz işleyicileri ----------------------------------------------------
 
     def _on_takeoff(self, inp: OrchestratorInput):
-        """SYNCHRONIZED_TAKEOFF: yerdeki dizilişi snapshot'lar (jüri koyduğu gibi).
-
-        Formasyon DAYATILMAZ: her dronun merkeze göre dünya ofseti alınıp
-        dondurulur (heading=0 → formation_node döndürmeden uygular). Böylece
-        sürü kalkıştaki dizilişi (çizgi/ok/ne konulduysa) aynen koruyarak
-        yükselir. Ofsetler gerçek konumlarla birebir uyuştuğu için form-up
-        hareketi/savrulma olmaz. Diziliş QR 'frm' komutuna dek değişmez; yön
-        rotasyonu ROTATE_TO_NEXT/NAVIGATE'te. İrtifayı agent_fsm yönetir.
-        """
+        """SYNCHRONIZED_TAKEOFF: yerdeki dizilişi snapshot'lar (jüri koyduğu gibi)."""
         # _assign, tip CUSTOM olduğu için jüri dizilişini snapshot'lar.
         # Tam sürü/konum yoksa None → emit-once tetiklenmez, sonraki tick
         # tekrar denenir (eksik listeyle dondurmak dizilişi çökertirdi).
@@ -969,19 +779,7 @@ class Mission1Orchestrator:
         )]
 
     def _on_rotate(self, inp: OrchestratorInput):
-        """ROTATE_TO_NEXT: formasyonu bir sonraki QR'a döndürür (merkez sabit).
-
-        Diziliş HENÜZ yayınlanmadıysa (kalkışta konumlar SwarmState'e geç
-        düştüğü için snapshot orada alınamamış olabilir) önce onu KORUYAN komut
-        (heading=0, snapshot çerçevesi) çıkar, rotasyon komutu peşinden gelir.
-        Böylece aşağıdaki rampa 0'dan hedefe yumuşak ilerler.
-
-        Aksi halde sürünün gördüğü İLK heading doğrudan hedef açı olur; slotlar
-        tek karede döner, dronlar bir anda metrelerce uzakta kalıp peşinden
-        koşar ve kalkış dizilişi çarpılır (ölçüldü: 39°'lik ilk dönüşte 3.9 m
-        şekil hatası; çizgi 12 m'den 10.3 m'ye sıkışıyordu). Şartname kalkışta
-        dizilişin KORUNMASINI, rotasyonun ayrı yapılmasını ister.
-        """
+        """ROTATE_TO_NEXT: formasyonu bir sonraki QR'a döndürür (merkez sabit)."""
         ned = self._qr_geo.resolve_ned()
         if ned is None:
             return None
@@ -1035,17 +833,7 @@ class Mission1Orchestrator:
         return cmds
 
     def _on_navigate(self, inp: OrchestratorInput):
-        """NAVIGATE_TO_QR: OKUYUCU dronu QR'ın üstüne çıpalar (irtifayı korur).
-
-        Merkez QR'a KONULMAZ: jüri dizilişi (CUSTOM) snapshot'ında ofsetler
-        centroid'e göre alınır ve sürü rastgele dizildiğinde merkezde hiç dron
-        olmaz → hiçbir kamera QR'ı görmez, QR okunamaz. Bu yüzden QR'a en yakın
-        dron okuyucu seçilir ve formasyon onun slotuna göre kaydırılır; o dron
-        QR'ın tam üstüne oturur.
-
-        Aynı çıpa QR görevleri ve rotasyon boyunca da korunur (bkz.
-        _hold_center) → sürü QR'ın üzerinde kalır, orada yerinde döner.
-        """
+        """NAVIGATE_TO_QR: OKUYUCU dronu QR'ın üstüne çıpalar (irtifayı korur)."""
         ned = self._qr_geo.resolve_ned()
         if ned is None:
             return None
@@ -1127,14 +915,7 @@ class Mission1Orchestrator:
         )]
 
     def _exec_maneuver(self, inp, qr):
-        """Pitch/roll/yaw manevrası: geçici eğilme, sonra formasyon devralır.
-
-        maneuver_executor yalnızca geçici eğilme hareketini yapar
-        (hold_after_complete=False → bitince bırakır, drone eğik pozda kalır;
-        px4_interface pozisyonu tutar). Eğik pozu SONRAKI adımlarda ve DONE'da
-        formation_control eğik ofsetlerle korur (model B). Böylece /raw'a hep
-        tek yazıcı olur; iki yazıcı çakışması olmaz.
-        """
+        """Pitch/roll/yaw manevrası: geçici eğilme, sonra formasyon devralır."""
         pitch = float(getattr(qr, 'pitch_deg', 0.0))
         roll = float(getattr(qr, 'roll_deg', 0.0))
         yaw = float(getattr(qr, 'yaw_deg', 0.0))
@@ -1151,12 +932,7 @@ class Mission1Orchestrator:
         )]
 
     def _exec_hold_tilt(self, inp: OrchestratorInput):
-        """Adımlar bitince eğik pozu formasyon ofsetiyle korur (model B).
-
-        Eğim yoksa komut üretmez. Eğim varsa mevcut centroid'de eğik
-        formasyonu yayınlar → manevra bıraktıktan sonra formation_control
-        pozu tutar (DONE/wait sırasında düzleşmez).
-        """
+        """Adımlar bitince eğik pozu formasyon ofsetiyle korur (model B)."""
         if (self._st.tilt_pitch_deg == 0.0
                 and self._st.tilt_roll_deg == 0.0):
             return []
@@ -1177,16 +953,7 @@ class Mission1Orchestrator:
         )]
 
     def _exec_altitude(self, inp, qr):
-        """İrtifa değişimi: XY korunur, Z hedefe (eğik poz korunur).
-
-        QR ne irtifa isterse O uygulanır (5–30 m bandında). 10 m tabanı bu göreve
-        DEĞİL, yalnız QR okunamadığında yapılan arama manevralarına aittir; her
-        komutu 10 m'ye yuvarlamak, QR "5 m" dediğinde yanlış irtifada uçmak ve o
-        görev kaleminden puan alamamak demekti.
-
-        XY, görevin QR'ın ÜZERİNDE icra edilmesi için çıpada tutulur; yalnız Z
-        değişir.
-        """
+        """İrtifa değişimi: XY korunur, Z hedefe (eğik poz korunur)."""
         requested_alt = float(getattr(qr, 'altitude_agl_m', 0.0))
         alt_agl = min(max(requested_alt, _ALT_CMD_MIN_M), _ALT_CMD_MAX_M)
         self._st.last_alt_request_m = requested_alt
@@ -1211,11 +978,7 @@ class Mission1Orchestrator:
         )]
 
     def _exec_detach(self, qr):
-        """Sürüden birey ayırma: hedef ID + bekleme süresiyle DetachCmd.
-
-        Rejoin zamanlaması ayrılan dronun kendisindedir; burada yalnız
-        detach_wait_s taşınır (event value ile ajana gider).
-        """
+        """Sürüden birey ayırma: hedef ID + bekleme süresiyle DetachCmd."""
         target = int(getattr(qr, 'target_agent_id', 0))
         if target <= 0:
             return []
@@ -1223,11 +986,7 @@ class Mission1Orchestrator:
         return [DetachCmd(target_agent_id=target, detach_wait_s=wait_s)]
 
     def _on_return_home(self, inp: OrchestratorInput):
-        """RETURN_HOME: eve doğru düz formasyonla ilerler (eğim sıfırlanır).
-
-        Hedef zincirini mission_fsm yönetir: madde 17 restart'ında sürü eve
-        varıp rota yeniden başlarsa, mission_fsm yeni next_target'ı yayınlar.
-        """
+        """RETURN_HOME: eve doğru düz formasyonla ilerler (eğim sıfırlanır)."""
         self._st.tilt_pitch_deg = 0.0
         self._st.tilt_roll_deg = 0.0
         heading = self._bearing_deg(inp.centroid, inp.home)

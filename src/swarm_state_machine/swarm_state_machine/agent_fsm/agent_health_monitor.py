@@ -137,15 +137,7 @@ def check(ctx: AgentContext) -> HealthCheckResult:
 
 
 def _check_critical_faults(ctx: AgentContext) -> HealthCheckResult:
-    """
-    En kritik donanım hatalarını kontrol eder.
-
-    Args:
-        ctx: Drone durum bilgisi.
-
-    Returns:
-        HealthCheckResult: critical_fault veya warning.
-    """
+    """En kritik donanım hatalarını kontrol eder."""
     # UNKNOWN state'de ilk telemetri henüz gelmemiş olabilir; başlatma
     # yarış koşulunu önlemek için PX4 link kontrolü UNKNOWN'da atlanır.
     if ctx.state == AgentState.UNKNOWN:

@@ -84,15 +84,7 @@ class _EmaDurum:
         self.son_olcum_gecerli = False
 
     def guncelle(self, msg: AgentStatus) -> bool:
-        """
-        Gelen telemetri verisine gore EMA durumunu gunceller.
-
-        Args:
-            msg (AgentStatus): Gelen telemetri verisi.
-
-        Returns:
-            bool: Guncelleme basarili ise True.
-        """
+        """Gelen telemetri verisine gore EMA durumunu gunceller."""
         if not _sayisal_gecerli(
             msg.pos_x, msg.pos_y, msg.pos_z,
             msg.vel_x, msg.vel_y, msg.vel_z,
@@ -373,16 +365,7 @@ class KinematicFusionNode(Node):
                 )
 
     def _neighbor_info_olustur(self, nid: int, now: Time) -> NeighborInfo:
-        """
-        Komsu verisini hazirlar ve link durumunu test eder.
-
-        Args:
-            nid (int): Komsu IHA kimligi.
-            now (Time): Mevcut ROS zamani.
-
-        Returns:
-            NeighborInfo: Doldurulmus komsuluk bilgi mesaji.
-        """
+        """Komsu verisini hazirlar ve link durumunu test eder."""
         ham = self._son_ham[nid]
         filtre = self._filtreler[nid]
         son_alim = self._son_alim[nid]

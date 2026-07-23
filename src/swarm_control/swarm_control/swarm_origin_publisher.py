@@ -1,8 +1,4 @@
-"""Suru ortak referans noktasini (SwarmOrigin) yayinlayan dugum.
-
-Drone konumlarinin ayni NED cercevesine donusturulmesi icin gereklidir.
-Sabit konum (fixed) veya RTK baz istasyonu konumu (rtk_base) kullanir.
-"""
+"""Suru ortak referans noktasini (SwarmOrigin) yayinlayan dugum."""
 
 import rclpy
 from rclpy.node import Node

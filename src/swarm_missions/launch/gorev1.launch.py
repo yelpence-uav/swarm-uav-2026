@@ -1,22 +1,4 @@
-"""gorev1.launch.py — Görev 1 dinamik sürü tam yığın başlatıcı.
-
-Altyapı (Gazebo/PX4/network_proxy/kamera) scripts/launch_swarm.py ile AYRICA
-başlatılır. Bu launch sürü BEYNİNİ + görev düğümlerini başlatır:
-
-  Per-drone (×N):
-    px4_bridge, kinematic_fusion, consensus, agent_fsm, formation,
-    collision_avoidance, maneuver_executor, precision_landing, vision,
-    mission1_dynamic_swarm
-  Sürü-geneli (×1):
-    swarm_fsm, mission_fsm, task_reallocator, path_planner,
-    swarm_origin_publisher
-
-Her node kendi topic'lerini agent_id'den kurar; ekstra remap gerekmez.
-network_proxy BURADA başlatılmaz (altyapı launch'ında var) — çift olmasın.
-
-Kullanım (altyapı ayakta olduktan SONRA):
-  ros2 launch swarm_missions gorev1.launch.py num_drones:=3 team_id:=752825
-"""
+"""gorev1.launch.py — Görev 1 dinamik sürü tam yığın başlatıcı."""
 
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, OpaqueFunction

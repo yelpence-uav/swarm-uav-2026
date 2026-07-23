@@ -100,22 +100,7 @@ class MissionContext:
         return self.all_agents_in_state(_AGENT_STATE_IN_SWARM)
 
     def swarm_incomplete(self) -> bool:
-        """Sürüyle birlikte olmayan bir ajan varsa True.
-
-        "Ayrılan dronu bekliyor muyuz" sorusunun ölçütü budur. Ayrılma
-        döngüsündeki durumlara (DETACHED/PRECISION_LANDING/...) bakmak yetmez:
-        dönmeye çalışan dron ARMING/ARMED/TAKEOFF'tan geçer, arm başarısız
-        olursa IDLE'a düşer. Bu durumların hiçbiri "ayrılma döngüsü" değildir ama
-        hiçbirinde de dron sürüde değildir — o kümeye bakan bir kapı tam da o
-        anda açılıp sürüyü yerdeki dronu bırakıp gitmeye bırakıyordu.
-
-        Ölçüt tersine kurulur: sürüyle birlikte sayılan durumlar (havada,
-        formasyonda ya da görev icra ediyor) dışındaki HER durum eksikliktir.
-
-        Telemetri henüz yoksa False döner: görevi kilitlemek, eksik sürüyle
-        ilerlemekten bile kötüdür. Sonsuz bekleme çağıran taraftaki süre
-        sınırıyla engellenir.
-        """
+        """Sürüyle birlikte olmayan bir ajan varsa True."""
         if not self.agent_statuses:
             return False
         return any(

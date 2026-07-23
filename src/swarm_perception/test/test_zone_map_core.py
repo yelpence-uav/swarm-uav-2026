@@ -29,13 +29,7 @@ def test_merkez_tespit_dronun_tam_altina_duser():
 
 
 def test_goruntunun_ALTI_gerideki_bolgedir():
-    """Görüntüde AŞAĞI = gövdede GERİ.
-
-    Kamera 90° pitch ile monte edilir; bu dönüşte görüntünün alt yönü gövdenin
-    gerisine düşer. Ters işaret öndeki pedi arkaya kaydediyor (hata = 2 × ofset)
-    ve dronu 8 m ötedeki komşu pede indiriyordu. Bu test o işareti çivileyerek
-    hatanın geri dönmesini engeller.
-    """
+    """Görüntüde AŞAĞI = gövdede GERİ."""
     height = 10.0
     v_alt = _CY + 100.0  # merkezin 100 px ALTINDA
     dx, dy = zone_offset_ned_m(
@@ -47,11 +41,7 @@ def test_goruntunun_ALTI_gerideki_bolgedir():
 
 
 def test_olcek_odak_uzakligindan_gelir():
-    """Ofset, sabit bir görüş açısından değil fx/fy'den ölçeklenir.
-
-    Sabit 60° varsayımı gerçek kamerayla (dar açılı) uyuşmuyor ve mesafeyi
-    ~4 kat şişirip bölgeyi metrelerce yanlış yere kaydediyordu.
-    """
+    """Ofset, sabit bir görüş açısından değil fx/fy'den ölçeklenir."""
     height = 20.0
     u_sag = _CX + 80.0
     dx, dy = zone_offset_ned_m(

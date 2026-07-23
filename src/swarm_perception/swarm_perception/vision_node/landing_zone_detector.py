@@ -9,23 +9,7 @@ import numpy as np
 
 
 def ensure_bgr(image: np.ndarray, encoding: str) -> np.ndarray:
-    """Görüntüyü dedektörlerin beklediği BGR düzenine getirir.
-
-    Bu modül (OpenCV sözleşmesi gereği) BGR bekler. Kamera sürücüleri sık sık
-    rgb8 yayınlar; ham tamponu doğrudan vermek kırmızı ile mavi kanalını YER
-    DEĞİŞTİRİR. Sonuç sessizdir ve yıkıcıdır: kırmızı ped "mavi", mavi ped
-    "kırmızı" etiketlenir; "kırmızıya in" emri alan dron mavi pede iner.
-
-    Format varsayılmaz — sensor_msgs/Image içinde yazar, oradan okunur.
-
-    Args:
-        image (np.ndarray): HxWx3 uint8 görüntü.
-        encoding (str): sensor_msgs/Image encoding alanı ('rgb8' | 'bgr8').
-
-    Returns:
-        np.ndarray: BGR düzenli görüntü. Bilinmeyen formatta girdi olduğu gibi
-        döner (çağıran uyarır); sessizce dönüştürmek yeni bir yalan olurdu.
-    """
+    """Görüntüyü dedektörlerin beklediği BGR düzenine getirir."""
     if encoding == 'rgb8':
         return cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
     return image

@@ -210,12 +210,7 @@ class VisionNode(Node):
         )
 
     def _camera_info_callback(self, msg: CameraInfo) -> None:
-        """Kamera içsel parametrelerini (pinhole) günceller.
-
-        Bölge konumu bu değerlerden hesaplanır; sabit bir görüş açısı
-        varsayılmaz. Kamera/lens değişirse sürücü yeni K matrisini bildirir ve
-        projeksiyon kendiliğinden uyar.
-        """
+        """Kamera içsel parametrelerini (pinhole) günceller."""
         if len(msg.k) == 9:
             self._fx = msg.k[0]
             self._fy = msg.k[4]
@@ -305,14 +300,7 @@ class VisionNode(Node):
             self._qr_pub.publish(msg)
 
     def _process_lz(self, frame: np.ndarray, stamp: Any) -> None:
-        """İniş bölgesini işler ve sonuçları yayınlar.
-
-        Bölge konumları METRE olarak, drona göre NED'de yayınlanır (mesaj
-        sözleşmesi bunu söyler). Kamera geometrisi YALNIZ burada bilinir;
-        tüketiciler (zone_map, precision_landing) sadece dronun konumunu ekler.
-        Aynı hesabın üç ayrı düğümde tekrarlanması, aynı hatanın üç yerde birden
-        yaşamasına yol açıyordu.
-        """
+        """İniş bölgesini işler ve sonuçları yayınlar."""
         zones = self._lz_detector.detect(frame)
 
         msg = LandingZoneDetection()

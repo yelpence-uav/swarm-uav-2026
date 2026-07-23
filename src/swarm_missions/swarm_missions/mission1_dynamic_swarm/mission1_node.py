@@ -1,19 +1,4 @@
-"""mission1_node.py — Görev 1 dinamik sürü orkestratör ROS2 node'u.
-
-Her drone'da çalışır. mission_fsm'in yayınladığı fazı (/mission/state,
-/mission/qr_step) okur, orchestrator saf mantığıyla komut üretir ve mevcut
-modüllere iletir:
-
-  FormationTargetCmd → /swarm/path_planning/target   (lider; path_planner akıtır)
-  ManeuverCmd        → /drone_{id}/maneuver/execute   (her drone, lokal action)
-  DetachCmd          → EVENT_MEMBER_DETACH_STARTED     (lider; proxy taşır)
-
-Girdiler: SwarmState (lider_id, centroid, aktif ajan konumları), QRMissionData
-(görev içeriği), MissionTarget (mission_fsm'in çözdüğü sıradaki hedef),
-SwarmOrigin (ortak NED çapası).
-
-Karar mantığı ROS'suz orchestrator'dadır; bu node yalnızca I/O ve icra yapar.
-"""
+"""mission1_node.py — Görev 1 dinamik sürü orkestratör ROS2 node'u."""
 
 import math
 
@@ -216,19 +201,7 @@ class Mission1Node(Node):
         self._qr_step = int(msg.data)
 
     def _on_qr_data(self, msg: QRMissionData) -> None:
-        """QR görev verisini saklar; aynı QR tekrar tekrar işlenmez.
-
-        Ayırt edici QR NUMARASIDIR (qr_id), qr_seq DEĞİL: qr_seq her vision
-        node'unda BAĞIMSIZ sayılıyor, dolayısıyla farklı QR'lar farklı dronlar
-        tarafından okunduğunda aynı değeri taşıyabiliyor (QR1'i dron A okur →
-        seq=1; QR3'ü dron B okur → onun da ilk okuması → seq=1). "seq <= son"
-        filtresi bu yüzden YENİ QR'ı eski sanıp atıyordu: _current_qr QR1'de
-        donuyor, QR3'ün ayrılma görevi (target_agent_id) hiç görülmüyor ve
-        DETACH adımı komut üretemeden timeout'a düşüyordu (yaşanan bug).
-
-        qr_id QR'ın kendi numarasıdır (1, 3, 5…) → farklı QR = farklı kimlik;
-        aynı QR'ın tekrar okunan kareleri ise doğru şekilde yok sayılır.
-        """
+        """QR görev verisini saklar; aynı QR tekrar tekrar işlenmez."""
         if self._team_id and msg.team_id != self._team_id:
             return
         if not msg.decoded or not msg.valid:
@@ -426,12 +399,7 @@ class Mission1Node(Node):
         self, event_type: int, target_agent_id: int, label: str,
         value: float = 0.0,
     ) -> None:
-        """Üye yönetim olayını (detach) SystemEvent olarak yayınlar.
-
-        target_agent_id hedef ajandır; agent_fsm 'bu bana' deyip DETACHED'e
-        geçer, proxy event'i tüm dronlara taşır. value=detach_wait_s ile
-        ajan bekleme süresini öğrenir (rejoin'i kendisi zamanlar).
-        """
+        """Üye yönetim olayını (detach) SystemEvent olarak yayınlar."""
         m = SystemEvent()
         m.stamp = self.get_clock().now().to_msg()
         m.event_type = event_type
@@ -445,12 +413,7 @@ class Mission1Node(Node):
         self.get_logger().info(f'{label} event: ajan {target_agent_id}')
 
     def _publish_rotation_completed_event(self, cmd) -> None:
-        """Formasyon rotasyonu tamamlandı → EVENT_ROTATION_COMPLETED.
-
-        mission_fsm bunu alıp NAVIGATE_TO_QR'a geçer. Sinyal olmadan dönüşün
-        bitip bitmediğine bakmadan 30 sn timeout'la ilerliyordu (sürü yarı dönük
-        uçabiliyordu); artık ilerlemeden önce dönüş fiilen doğrulanıyor.
-        """
+        """Formasyon rotasyonu tamamlandı → EVENT_ROTATION_COMPLETED."""
         m = SystemEvent()
         m.stamp = self.get_clock().now().to_msg()
         m.event_type = SystemEvent.EVENT_ROTATION_COMPLETED
@@ -478,11 +441,7 @@ class Mission1Node(Node):
             )
 
     def _publish_formation_reached_event(self, cmd) -> None:
-        """QR alt-görevi (formasyon/irtifa) tamamlandı → EVENT_FORMATION_REACHED.
-
-        mission_fsm bunu alıp qr_step'i ilerletir (formasyon → manevra → irtifa).
-        Bu sinyal olmadan adım FORMASYON'da donar ve görev tıkanır.
-        """
+        """QR alt-görevi (formasyon/irtifa) tamamlandı → EVENT_FORMATION_REACHED."""
         m = SystemEvent()
         m.stamp = self.get_clock().now().to_msg()
         m.event_type = SystemEvent.EVENT_FORMATION_REACHED
@@ -510,11 +469,7 @@ class Mission1Node(Node):
             )
 
     def _publish_arrival_event(self, distance_m: float) -> None:
-        """Okuyucu dron QR'a varınca EVENT_FORMATION_REACHED yayınlar.
-
-        mission_fsm bunu alıp NAVIGATE_TO_QR -> EXECUTE_QR_TASK geçişini yapar
-        (120s yedek timer'a düşmeden). Konum-tabanlı gerçek varış sinyali.
-        """
+        """Okuyucu dron QR'a varınca EVENT_FORMATION_REACHED yayınlar."""
         m = SystemEvent()
         m.stamp = self.get_clock().now().to_msg()
         m.event_type = SystemEvent.EVENT_FORMATION_REACHED

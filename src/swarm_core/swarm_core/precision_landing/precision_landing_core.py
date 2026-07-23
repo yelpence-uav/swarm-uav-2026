@@ -67,14 +67,7 @@ class PrecisionLandingCore:
     def _time_budget_s(
         self, pose: Tuple[float, float, float, float]
     ) -> float:
-        """Seçilen bölgeye inmek için gereken süreyi hesaplar (saniye).
-
-        Ayrılma noktası ile iniş pedi arasındaki mesafe göreve göre değişir
-        (QR'lar ve pedler yarışma sabahı belli olur) — sabit bir süre sınırı bir
-        senaryoda bol, diğerinde yetersiz kalır. Bütçe fiilî geometriden
-        türetilir: yatay yol / yaklaşma hızı + irtifa / alçalma hızı, üstüne
-        hizalanma ve rüzgâr payı. Sonuç yapılandırılmış tabanın altına inmez.
-        """
+        """Seçilen bölgeye inmek için gereken süreyi hesaplar (saniye)."""
         if self._target is None:
             return self.landing_timeout_s
         x, y, z, _heading = pose
@@ -239,16 +232,7 @@ class PrecisionLandingCore:
         pose: Tuple[float, float, float, float],
         alt_agl: float,
     ) -> Tuple[float, float]:
-        """Canlı kamera tespitini global NED hedef konumuna çevirir.
-
-        Kamera geometrisi burada BİLİNMEZ: vision_node bölgeyi zaten metre
-        cinsinden, drona göre NED ofseti olarak yayınlar (kamerayı bilen tek
-        düğüm odur). Burada yapılan tek şey kendi konumumuzu eklemektir.
-
-        Aynı projeksiyonun üç ayrı düğümde tekrarlanması, tek bir işaret/ölçek
-        hatasının üç yerde birden yaşamasına ve dronun komşu pede inmesine yol
-        açıyordu.
-        """
+        """Canlı kamera tespitini global NED hedef konumuna çevirir."""
         x, y, _z, _heading_deg = pose
         ned_dx = float(live_zone.get('ned_dx', 0.0))
         ned_dy = float(live_zone.get('ned_dy', 0.0))
