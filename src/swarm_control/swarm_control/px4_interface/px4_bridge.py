@@ -37,6 +37,7 @@ from std_msgs.msg import String, UInt8MultiArray
 from swarm_interfaces.msg import AgentSetpoint, AgentStatus, SwarmOrigin
 
 # MAVROS telemetri mesaj tipleri
+from diagnostic_msgs.msg import DiagnosticArray
 from mavros_msgs.msg import EstimatorStatus, GPSRAW, RCIn, RTCM, State
 from mavros_msgs.msg import HomePosition as MavHomePosition
 from geometry_msgs.msg import TwistStamped
@@ -52,6 +53,7 @@ from .mavros_telemetry_mapper import (
     map_gps_raw as mav_map_gps,
     map_home as mav_map_home,
     map_odometry as mav_map_odom,
+    map_diagnostics as mav_map_diag,
     map_rc_in as mav_map_rc,
     map_state as mav_map_state,
     map_velocity_local as mav_map_velocity,
@@ -105,6 +107,16 @@ class Px4BridgeNode(Node):
         # (sadece hız). Pozisyon kontrolü ROS'taki SVT'ye ait. False → A
         # (pozisyon+hız feedforward, PX4 pozisyon kontrolcüsü sahibi).
         self.declare_parameter('velocity_only', False)
+        # RC anahtar haritasi. Kumanda degisirse veya polarite ters cikarsa
+        # yeniden derleme degil, baslat.sh'de tek satir degisir.
+        # Saha olcumu (2026-07-22, FLYSKY): ch5 kill (2000 = AKTIF),
+        # ch8 arm (1000 = disarm / 2000 = arm, PX4 armed bayragiyla dogrulandi).
+        self.declare_parameter('kill_switch_kanal', 5)
+        self.declare_parameter('kill_switch_esik', 1500)
+        self.declare_parameter('kill_switch_ters', False)
+        self.declare_parameter('arm_switch_kanal', 8)
+        self.declare_parameter('arm_switch_esik', 1500)
+        self.declare_parameter('arm_switch_ters', False)
         self._agent_id: int = int(
             self.get_parameter('agent_id').value
         )
@@ -117,6 +129,12 @@ class Px4BridgeNode(Node):
         self._velocity_only: bool = bool(
             self.get_parameter('velocity_only').value
         )
+        self._kill_kanal = int(self.get_parameter('kill_switch_kanal').value)
+        self._kill_esik = int(self.get_parameter('kill_switch_esik').value)
+        self._kill_ters = bool(self.get_parameter('kill_switch_ters').value)
+        self._arm_kanal = int(self.get_parameter('arm_switch_kanal').value)
+        self._arm_esik = int(self.get_parameter('arm_switch_esik').value)
+        self._arm_ters = bool(self.get_parameter('arm_switch_ters').value)
 
         # Drone namespace'i — mavros topic'leri /drone_{id}/mavros/...
         self._fmu_ns = f'/drone_{self._agent_id}'
@@ -370,6 +388,13 @@ class Px4BridgeNode(Node):
             RCIn, f'{ns}/mavros/rc/in',
             self._on_mav_rc, qos_profile_sensor_data
         )
+        # /diagnostics namespace ALTINDA DEGIL, kokte yayinlanir (ROS
+        # yakinsamasi). PREARM_CHECK biti buradan okunuyor — PX4 emniyet
+        # anahtarini ayri bir alanda bildirmedigi icin tek gozlenebilir kaynak.
+        self.create_subscription(
+            DiagnosticArray, '/diagnostics',
+            self._on_diagnostics, qos_profile_sensor_data
+        )
 
     def _on_mav_state(self, msg: State) -> None:
         """MAVROS State -> AgentStatus (armed, mode, failsafe proxy)."""
@@ -403,9 +428,36 @@ class Px4BridgeNode(Node):
         """MAVROS EstimatorStatus -> AgentStatus kestirici saglik."""
         mav_map_estimator(msg, self._status)
 
+    def _on_diagnostics(self, msg: DiagnosticArray) -> None:
+        """MAVROS diagnostics -> ready_to_arm (PREARM_CHECK biti)."""
+        onceki = self._status.ready_to_arm
+        if not mav_map_diag(msg, self._status):
+            return
+        if self._status.ready_to_arm != onceki:
+            if self._status.ready_to_arm:
+                self.get_logger().info('[PREARM] arm edilebilir')
+            else:
+                self.get_logger().warning(
+                    '[PREARM] arm ENGELLI (emniyet anahtari / on-kontrol)'
+                )
+
     def _on_mav_rc(self, msg: RCIn) -> None:
-        """MAVROS RCIn -> AgentStatus rc_link_ok."""
-        mav_map_rc(msg, self._status)
+        """MAVROS RCIn -> rc_link_ok + kill_switch_active."""
+        onceki_kill = self._status.kill_switch_active
+        mav_map_rc(
+            msg, self._status,
+            kill_kanal=self._kill_kanal, kill_esik=self._kill_esik,
+            kill_ters=self._kill_ters,
+            arm_kanal=self._arm_kanal, arm_esik=self._arm_esik,
+            arm_ters=self._arm_ters,
+        )
+        # Durum degisimini bir kez logla: sahada "kill acik miydi" sorusunun
+        # cevabi log'da kalsin. Her mesajda basmak akisi bogar (RC ~20 Hz).
+        if self._status.kill_switch_active != onceki_kill:
+            if self._status.kill_switch_active:
+                self.get_logger().warning('[RC] KILL SWITCH AKTIF')
+            else:
+                self.get_logger().info('[RC] kill switch birakildi')
 
     # =================================================================
     # OFFBOARD HEARTBEAT (50 Hz)
