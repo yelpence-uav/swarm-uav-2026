@@ -19,6 +19,7 @@ Aşama 2'de StateStore beslemesi, Aşama 3'te service client + publisher eklenir
 """
 
 import logging
+import math
 import threading
 from typing import Callable, Optional
 
@@ -34,11 +35,16 @@ from rclpy.qos import (
 
 from swarm_interfaces.msg import (
     AgentStatus,
+    GuidedCommand,
     QRMissionData,
     SwarmControlCommand,
+    SwarmOrigin,
     SwarmState,
     SystemEvent,
 )
+
+# WGS84 ekvatoral yarıçap (m) — harita lat/lon → yerel NED çevirisi için.
+_R_EARTH = 6378137.0
 from swarm_interfaces.srv import TriggerMission
 
 # QRCoordinates (operatörün girdiği QR konum tablosu) feature/qr-coordinates
@@ -328,6 +334,9 @@ class RosBridge:
         # Service client + publisher (Aşama 3)
         self._trigger_mission_client = None
         self._control_pub = None
+        # Guided (YKİ tekil komut) yayıncısı + harita→NED için son origin.
+        self._guided_pub = None
+        self._son_origin: Optional[SwarmOrigin] = None
         # QR konum tablosu yayıncısı (operatör → drone, latched). QRCoordinates
         # mesajı derli değilse None kalır.
         self._qr_coords_pub = None
@@ -434,6 +443,61 @@ class RosBridge:
         m.source_module = str(payload.get("source_module", "gcs"))
         self._control_pub.publish(m)
 
+    def publish_guided(
+        self,
+        agent_id: int,
+        action: int,
+        *,
+        altitude_m: float = 0.0,
+        x: float = 0.0,
+        y: float = 0.0,
+        z: float = 0.0,
+        heading_deg: float = 0.0,
+        heading_valid: bool = False,
+    ) -> None:
+        """GuidedCommand.msg yayınla — YKİ tekil komut (arm/takeoff/goto/rtl/land).
+
+        agent_id hedef drone (0 = tümü). GOTO için x/y/z yerel NED (metre);
+        z aşağı-pozitif (irtifa = -z). Base esp32_bridge mesh'e iletir.
+        """
+        if self._guided_pub is None:
+            raise RuntimeError("GuidedCommand publisher hazır değil")
+        m = GuidedCommand()
+        m.stamp = self._node.get_clock().now().to_msg()
+        m.agent_id = int(agent_id)
+        m.action = int(action)
+        m.altitude_m = float(altitude_m)
+        m.x = float(x)
+        m.y = float(y)
+        m.z = float(z)
+        m.heading_deg = float(heading_deg)
+        m.heading_valid = bool(heading_valid)
+        self._guided_pub.publish(m)
+
+    def has_origin(self) -> bool:
+        """Harita→NED çevirisi için origin hazır mı."""
+        return self._son_origin is not None
+
+    def latlon_to_ned(self, lat_deg: float, lon_deg: float):
+        """Hedef lat/lon'u son SwarmOrigin'e göre yerel NED (kuzey, doğu) metreye çevirir.
+
+        Küçük saha için equirectangular yaklaşımı (birkaç km'de <1 m hata).
+        Origin yoksa None döner.
+        """
+        o = self._son_origin
+        if o is None:
+            return None
+        dlat = math.radians(lat_deg - o.origin_lat_deg)
+        dlon = math.radians(lon_deg - o.origin_lon_deg)
+        north = dlat * _R_EARTH
+        east = dlon * _R_EARTH * math.cos(math.radians(o.origin_lat_deg))
+        return (north, east)
+
+    def _on_origin(self, msg: SwarmOrigin) -> None:
+        """SwarmOrigin'i sakla (harita→NED çevirisi için). Kalitesiz olanı atla."""
+        if msg.valid and msg.gps_fix_type >= 3:
+            self._son_origin = msg
+
     def publish_qr_coords(
         self,
         qr_ids: list,
@@ -538,6 +602,32 @@ class RosBridge:
             SwarmControlCommand, "/swarm/internal/control/command", sensor_qos
         )
         logger.info("publisher → /swarm/internal/control/command")
+
+        # GuidedCommand publisher — YKİ tekil komut (arm/takeoff/goto/rtl/land).
+        # RELIABLE, depth 10: komut kaybolmamalı, geç katılan re-execute etmesin
+        # (VOLATILE). Base esp32_bridge bunu mesh'e iletir.
+        guided_qos = QoSProfile(
+            depth=10,
+            reliability=QoSReliabilityPolicy.RELIABLE,
+            durability=QoSDurabilityPolicy.VOLATILE,
+        )
+        self._guided_pub = self._node.create_publisher(
+            GuidedCommand, "/swarm/internal/guided/command", guided_qos
+        )
+        logger.info("publisher → /swarm/internal/guided/command")
+
+        # SwarmOrigin aboneliği — harita tıklaması (lat/lon) → yerel NED çevirisi
+        # için gerekli. Latched (TRANSIENT_LOCAL) ki sonradan başlasak da son
+        # origin'i alalım.
+        origin_qos = QoSProfile(
+            depth=1,
+            reliability=QoSReliabilityPolicy.RELIABLE,
+            durability=QoSDurabilityPolicy.TRANSIENT_LOCAL,
+        )
+        self._node.create_subscription(
+            SwarmOrigin, "/swarm/public/origin", self._on_origin, origin_qos
+        )
+        logger.info("subscribe → /swarm/public/origin (harita→NED)")
 
         # QRCoordinates publisher — operatörün girdiği QR konum tablosu.
         # Kontrat: GCS /swarm/internal/mission/qr_coords'a yayınlar, proxy

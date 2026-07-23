@@ -34,6 +34,7 @@ from fastapi.middleware.cors import CORSMiddleware
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from backend.api.commands import router as commands_router
+from backend.api.guided import router as guided_router
 from backend.api.mission import router as mission_router
 from backend.api.telemetry import router as telemetry_router
 from backend.connections.command_sender import CommandSender
@@ -228,6 +229,7 @@ def create_app() -> FastAPI:
     app.include_router(telemetry_router)
     app.include_router(commands_router)
     app.include_router(mission_router)
+    app.include_router(guided_router)
 
     @app.websocket("/ws/telemetry")
     async def ws_telemetry(websocket: WebSocket):
