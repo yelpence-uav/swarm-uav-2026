@@ -107,6 +107,55 @@
   border: 1px solid var(--color-border);
 }
 
+/* === Uçuş hazırlığı ========================================= */
+/* Kill switch, ön-kontrol ve kumanda bağlantısının hepsi tek "uçamaz"
+   göstergesinde toplanır — operatörün tek sorusu "şu an uçabilir mi". */
+.drone-card__fly {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-1);
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-sm);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+}
+
+.drone-card__fly-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: var(--radius-full);
+  flex-shrink: 0;
+}
+
+.drone-card__fly--ok {
+  background: rgba(34, 197, 94, 0.14);
+  border: 1px solid rgba(34, 197, 94, 0.4);
+  color: #22c55e;
+}
+.drone-card__fly--ok .drone-card__fly-dot {
+  background: #22c55e;
+  box-shadow: 0 0 8px #22c55e;
+}
+
+.drone-card__fly--no {
+  background: rgba(239, 68, 68, 0.16);
+  border: 1px solid var(--color-danger);
+  color: var(--color-danger);
+}
+.drone-card__fly--no .drone-card__fly-dot {
+  background: var(--color-danger);
+  box-shadow: 0 0 8px var(--color-danger);
+  animation: fly-uyari 1.4s ease-in-out infinite;
+}
+
+/* Uçamaz nokta yanıp söner: göz otomatik yakalar. */
+@keyframes fly-uyari {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.35; }
+}
+
 /* === State =================================================== */
 .drone-card__state {
   display: flex;

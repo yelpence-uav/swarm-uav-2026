@@ -269,6 +269,7 @@ def agent_status_to_state_fields(msg: AgentStatus) -> dict:
         "origin_synced": msg.origin_synced,
         "rc_link_ok": msg.rc_link_ok,
         "kill_switch_active": msg.kill_switch_active,
+        "ready_to_arm": msg.ready_to_arm,
         "rc_signal_failsafe_active": msg.rc_signal_failsafe_active,
         "oscillation_detected": msg.oscillation_detected,
         "unstable_flight": msg.unstable_flight,

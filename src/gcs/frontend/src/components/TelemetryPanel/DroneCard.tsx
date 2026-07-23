@@ -63,6 +63,12 @@ export function DroneCard({
   const armed = drone.armed;
   const gpsLabel = GPS_LABEL[drone.gps_fix_type] ?? "?";
 
+  // Operatorun sordugu tek soru "su an ucabilir mi". Kill switch'i, on-kontrolu
+  // (PREARM_CHECK / emniyet anahtari) ve kumanda baglantisini AYRI isaretler
+  // olarak gostermiyoruz — hepsi tek bir "ucamaz" sebebi; hangisi olursa olsun
+  // cevap ayni. Sebep kirilimi gerekince telemetriden bakilir, kartta yer tutmaz.
+  const canFly = drone.ready_to_arm && !drone.kill_switch_active && drone.rc_link_ok;
+
   return (
     <article
       className="drone-card"
@@ -77,6 +83,15 @@ export function DroneCard({
           {armed ? "ARMED" : "YERDE"}
         </span>
       </header>
+
+      {/* Ucus hazirligi: tek bakista ucabilir/ucamaz. Ucamazken nokta yanip
+          soner ki gozden kacmasin. */}
+      <div
+        className={`drone-card__fly ${canFly ? "drone-card__fly--ok" : "drone-card__fly--no"}`}
+      >
+        <span className="drone-card__fly-dot" />
+        {canFly ? "UÇABİLİR" : "UÇAMAZ"}
+      </div>
 
       <div className="drone-card__state">
         <span className="drone-card__state-label">{stateLabel}</span>
