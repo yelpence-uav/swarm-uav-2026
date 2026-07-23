@@ -676,6 +676,13 @@ class Esp32BridgeNode(Node):
             status.imu_healthy = bool(durum.imu_ok)
             status.mag_healthy = bool(durum.mag_ok)
             status.baro_healthy = bool(durum.baro_ok)
+            # REV C: mesh'ten yeni gelen alanlar.
+            status.flight_mode = durum.ucus_modu
+            status.gps_satellites = durum.gps_uydu
+            status.gps_hdop = durum.gps_hdop
+            status.kill_switch_active = durum.kill_switch_active
+            status.rc_link_ok = durum.rc_link_ok
+            status.ready_to_arm = durum.ready_to_arm
             # mesh_link_ok ve mesh_node_count henüz AgentStatus.msg'de yok;
             # eklenince hasattr otomatik doldurur, o zamana kadar
             # status_text taşır. AgentStatus.msg ile teyit edilmesi gerekir.
@@ -686,6 +693,7 @@ class Esp32BridgeNode(Node):
             status.status_text = (
                 f'mesh durum={durum.durum} rssi={durum.rssi} '
                 f'link={durum.mesh_link_ok} komsu={durum.mesh_komsu_sayisi}'
+                + (' KILL' if durum.kill_switch_active else '')
             )
             self._yayinla_status(drone_id, status)
 
@@ -1011,6 +1019,17 @@ class Esp32BridgeNode(Node):
                 rssi=0,        # bizim kendi RSSI yok; firmware doldurur
                 mesh_link_ok=1,  # gönderebiliyorsak link kuruluyor
                 mesh_komsu_sayisi=len(self._komsu_son_goruldu),
+                # REV C alanları — mesh'te yeni açılan yere giriyorlar.
+                # ucus_modu: PX4'ün BİLDİRDİĞİ mod (switch pozisyonu değil).
+                ucus_modu=int(msg.flight_mode),
+                gps_uydu=int(msg.gps_satellites),
+                gps_hdop=float(msg.gps_hdop),
+                # Güvenlik kritik: kill switch açıkken operatör drone'u
+                # "boşta" görüyordu; artık mesh'ten geçiyor.
+                kill_switch_active=1 if msg.kill_switch_active else 0,
+                rc_link_ok=1 if msg.rc_link_ok else 0,
+                # PX4 PREARM_CHECK: emniyet anahtarı dahil tüm ön-kontroller.
+                ready_to_arm=1 if msg.ready_to_arm else 0,
             )
             self._uart_yaz(pp.TIP_DURUM, self._agent_id, payload)
 

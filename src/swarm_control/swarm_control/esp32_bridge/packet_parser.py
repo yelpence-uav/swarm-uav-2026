@@ -45,7 +45,23 @@ MESH_MAX_NODES = 8
 # ===== Payload struct formatları (little-endian, packed) =====
 # POSE 18B (vz), diğer tipler 16B.
 _POSE_FMT = '<iihhhhh'       # lat, lon, alt_dm, heading, vx, vy, vz
-_DURUM_FMT = '<BBBBBfBBBBbBB'  # bkz. DurumVeri alanları
+# REV C: firmware mesh_config.h::durum_veri_t ile BİREBİR.
+# 16 bayt sabit; float voltaj ve altı ayrı bool bayt sıkıştırılarak
+# kill switch / RC link / uçuş modu / uydu / HDOP'a yer açıldı.
+_DURUM_FMT = '<BBBBBBBBBbBB4x'  # bkz. DurumVeri alanları
+
+# durum_veri_t.bayraklar bit maskeleri (firmware DURUM_BAYRAK_* ile aynı).
+DURUM_BAYRAK_ARMED = 0x01
+DURUM_BAYRAK_EKF_OK = 0x02
+DURUM_BAYRAK_IMU_OK = 0x04
+DURUM_BAYRAK_MAG_OK = 0x08
+DURUM_BAYRAK_BARO_OK = 0x10
+DURUM_BAYRAK_MESH_LINK = 0x20
+DURUM_BAYRAK_KILL = 0x40
+DURUM_BAYRAK_RC_LINK = 0x80
+
+# İkinci bayrak baytı (bayraklar2) — ilk bayt 8 bitle doldu.
+DURUM2_BAYRAK_READY_TO_ARM = 0x01
 _RENK_FMT = '<Bii7x'         # renk, lat, lon, rezerv[7]
 _GOREV_FMT = '<BBbB12x'      # tip, param1, param2, bekleme, rezerv[12]
 _ORIGIN_FMT = '<iiiI'        # lat_1e7, lon_1e7, alt_mm, sequence
@@ -113,18 +129,65 @@ class DurumVeri:
     """
 
     drone_id: int
-    durum: int          # 0=BILINMIYOR..13=STANDBY (14 değerli enum)
-    armed: int          # 0/1
-    gps_fix_type: int   # 0-6
-    battery_pct: int    # 0-100
-    battery_volt: float
-    ekf_ok: int
-    imu_ok: int
-    mag_ok: int
-    baro_ok: int
-    rssi: int           # dBm
-    mesh_link_ok: int   # 0/1
-    mesh_komsu_sayisi: int  # firmware: aktif mesh node sayısı
+    durum: int              # 0=BILINMIYOR..13=STANDBY (14 değerli enum)
+    bayraklar: int          # DURUM_BAYRAK_* bit alanı
+    ucus_modu: int          # AgentStatus.FLIGHT_MODE_* (PX4'ün bildirdiği)
+    gps_fix_type: int       # 0-6 (4=DGPS, 5=RTK float, 6=RTK fixed)
+    gps_uydu: int           # görünen uydu sayısı
+    gps_hdop_x10: int       # HDOP*10, 255 = bilinmiyor
+    battery_pct: int        # 0-100
+    battery_volt_x10: int   # volt*10
+    rssi: int               # dBm
+    mesh_komsu_sayisi: int  # aktif mesh node sayısı
+    bayraklar2: int         # DURUM2_BAYRAK_* bit alanı
+
+    # --- bit alanı okuyucuları: çağıran taraf maskeyle uğraşmasın ---
+    @property
+    def armed(self) -> bool:
+        return bool(self.bayraklar & DURUM_BAYRAK_ARMED)
+
+    @property
+    def ekf_ok(self) -> bool:
+        return bool(self.bayraklar & DURUM_BAYRAK_EKF_OK)
+
+    @property
+    def imu_ok(self) -> bool:
+        return bool(self.bayraklar & DURUM_BAYRAK_IMU_OK)
+
+    @property
+    def mag_ok(self) -> bool:
+        return bool(self.bayraklar & DURUM_BAYRAK_MAG_OK)
+
+    @property
+    def baro_ok(self) -> bool:
+        return bool(self.bayraklar & DURUM_BAYRAK_BARO_OK)
+
+    @property
+    def mesh_link_ok(self) -> bool:
+        return bool(self.bayraklar & DURUM_BAYRAK_MESH_LINK)
+
+    @property
+    def kill_switch_active(self) -> bool:
+        return bool(self.bayraklar & DURUM_BAYRAK_KILL)
+
+    @property
+    def rc_link_ok(self) -> bool:
+        return bool(self.bayraklar & DURUM_BAYRAK_RC_LINK)
+
+    @property
+    def ready_to_arm(self) -> bool:
+        """PX4 PREARM_CHECK: emniyet anahtarı dahil tüm ön-kontroller geçti mi."""
+        return bool(self.bayraklar2 & DURUM2_BAYRAK_READY_TO_ARM)
+
+    @property
+    def battery_volt(self) -> float:
+        """Voltaj, 0.1 V çözünürlükte."""
+        return self.battery_volt_x10 / 10.0
+
+    @property
+    def gps_hdop(self) -> float:
+        """HDOP; 255 sentineli 99.9 (kötü) olarak döner."""
+        return 99.9 if self.gps_hdop_x10 == 255 else self.gps_hdop_x10 / 10.0
 
 
 @dataclass
@@ -267,22 +330,21 @@ def pose_coz(payload: bytes) -> PoseVeri:
 
 
 def durum_coz(payload: bytes) -> DurumVeri:
-    """TIP_DURUM payload'ını DurumVeri'ye çözer."""
+    """TIP_DURUM payload'ını DurumVeri'ye çözer (REV C, 16 bayt)."""
     alanlar = struct.unpack(_DURUM_FMT, payload)
     return DurumVeri(
         drone_id=alanlar[0],
         durum=alanlar[1],
-        armed=alanlar[2],
-        gps_fix_type=alanlar[3],
-        battery_pct=alanlar[4],
-        battery_volt=alanlar[5],
-        ekf_ok=alanlar[6],
-        imu_ok=alanlar[7],
-        mag_ok=alanlar[8],
-        baro_ok=alanlar[9],
-        rssi=alanlar[10],
-        mesh_link_ok=alanlar[11],
-        mesh_komsu_sayisi=alanlar[12],
+        bayraklar=alanlar[2],
+        ucus_modu=alanlar[3],
+        gps_fix_type=alanlar[4],
+        gps_uydu=alanlar[5],
+        gps_hdop_x10=alanlar[6],
+        battery_pct=alanlar[7],
+        battery_volt_x10=alanlar[8],
+        rssi=alanlar[9],
+        mesh_komsu_sayisi=alanlar[10],
+        bayraklar2=alanlar[11],
     )
 
 
@@ -291,36 +353,71 @@ def durum_paketle(drone_id: int, durum: int, armed: int,
                   battery_volt: float, ekf_ok: int, imu_ok: int,
                   mag_ok: int, baro_ok: int, rssi: int,
                   mesh_link_ok: int,
-                  mesh_komsu_sayisi: int = 0) -> bytes:
-    """Durum verisi alanlarını 16 baytlık mesh payload'ına paketler.
+                  mesh_komsu_sayisi: int = 0,
+                  ucus_modu: int = 0,
+                  gps_uydu: int = 0,
+                  gps_hdop: float = 99.9,
+                  kill_switch_active: int = 0,
+                  rc_link_ok: int = 0,
+                  ready_to_arm: int = 0) -> bytes:
+    """Durum verisi alanlarını 16 baytlık mesh payload'ına paketler (REV C).
 
-    RPi kendi durumunu (agent_fsm çıktısı) ESP32'ye gönderirken
-    kullanır. Sürüden ayrılma akışı için kritik.
+    RPi kendi durumunu (agent_fsm çıktısı) ESP32'ye gönderirken kullanır.
+
+    Bool alanlar tek bayta paketlenir; çağıran taraf yine 0/1 verir, bit
+    işini bu fonksiyon yapar. Böylece çağrı yerleri REV B ile aynı kalır ve
+    yeni alanlar isteğe bağlı parametre olarak eklenir.
 
     Args:
         drone_id (int): Kendi ID.
         durum (int): _DURUM_* enum kodu (firmware ile aynı).
         armed (int): 0/1.
-        gps_fix_type (int): 0-6 (RTK FIX = 6).
+        gps_fix_type (int): 0-6 (4=DGPS, 5=RTK float, 6=RTK fixed).
         battery_pct (int): 0-100.
-        battery_volt (float): Pak voltajı.
-        ekf_ok (int): 0/1.
-        imu_ok (int): 0/1.
-        mag_ok (int): 0/1.
-        baro_ok (int): 0/1.
+        battery_volt (float): Paket voltajı; 0.1 V çözünürlükte taşınır.
+        ekf_ok, imu_ok, mag_ok, baro_ok (int): 0/1 sağlık bayrakları.
         rssi (int): dBm, -128..127.
         mesh_link_ok (int): 0/1.
-        mesh_komsu_sayisi (int): aktif mesh node sayısı (firmware
-            tarafı sayıyor). Default 0 — RPi tarafı bilmeyebilir.
+        mesh_komsu_sayisi (int): aktif mesh node sayısı.
+        ucus_modu (int): AgentStatus.FLIGHT_MODE_* — PX4'ün BİLDİRDİĞİ mod.
+        gps_uydu (int): görünen uydu sayısı.
+        gps_hdop (float): HDOP; bilinmiyorsa 99.9 → 255 sentineli gider.
+        kill_switch_active (int): 0/1 — RC kill switch aktif mi.
+        rc_link_ok (int): 0/1 — kumanda bağlantısı var mı.
 
     Returns:
         bytes: 16 baytlık payload.
     """
+    bayraklar = 0
+    if armed:
+        bayraklar |= DURUM_BAYRAK_ARMED
+    if ekf_ok:
+        bayraklar |= DURUM_BAYRAK_EKF_OK
+    if imu_ok:
+        bayraklar |= DURUM_BAYRAK_IMU_OK
+    if mag_ok:
+        bayraklar |= DURUM_BAYRAK_MAG_OK
+    if baro_ok:
+        bayraklar |= DURUM_BAYRAK_BARO_OK
+    if mesh_link_ok:
+        bayraklar |= DURUM_BAYRAK_MESH_LINK
+    if kill_switch_active:
+        bayraklar |= DURUM_BAYRAK_KILL
+    if rc_link_ok:
+        bayraklar |= DURUM_BAYRAK_RC_LINK
+
+    bayraklar2 = DURUM2_BAYRAK_READY_TO_ARM if ready_to_arm else 0
+
+    # 255 = "bilinmiyor/kötü" sentineli. 25.4'ten büyük HDOP zaten kullanılamaz
+    # kalitededir, sentinele kırpmak bilgi kaybetmez.
+    hdop_x10 = 255 if gps_hdop >= 25.5 else max(0, int(round(gps_hdop * 10)))
+    volt_x10 = max(0, min(255, int(round(battery_volt * 10))))
+
     return struct.pack(
         _DURUM_FMT,
-        drone_id, durum, armed, gps_fix_type, battery_pct,
-        float(battery_volt), ekf_ok, imu_ok, mag_ok, baro_ok,
-        rssi, mesh_link_ok, mesh_komsu_sayisi,
+        drone_id, durum, bayraklar, ucus_modu, gps_fix_type,
+        min(255, gps_uydu), hdop_x10, battery_pct, volt_x10,
+        rssi, mesh_komsu_sayisi, bayraklar2,
     )
 
 

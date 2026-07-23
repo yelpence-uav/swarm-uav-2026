@@ -217,24 +217,62 @@ struct __attribute__((packed)) version_veri_t {
     uint8_t  rezerv[8];
 };   // 16 byte
 
+// durum_veri_t bayrak bitleri. Alti ayri bool bayt yerine tek bayt: acilan
+// 5 bayt kill switch, RC link, ucus modu, uydu sayisi ve HDOP'a verildi.
+#define DURUM_BAYRAK_ARMED      0x01
+#define DURUM_BAYRAK_EKF_OK     0x02
+#define DURUM_BAYRAK_IMU_OK     0x04
+#define DURUM_BAYRAK_MAG_OK     0x08
+#define DURUM_BAYRAK_BARO_OK    0x10
+#define DURUM_BAYRAK_MESH_LINK  0x20
+#define DURUM_BAYRAK_KILL       0x40   // RC kill switch aktif — motorlar kesik
+#define DURUM_BAYRAK_RC_LINK    0x80   // kumanda baglantisi var
+
+// Ikinci bayrak bayti (bayraklar2). Ilk bayt 8 bitiyle doldu.
+// READY_TO_ARM: PX4'un PREARM_CHECK biti — emniyet anahtari (SWITCH portundaki
+// kirmizi LED'li buton) dahil TUM arm on-kontrolleri gectiyse 1.
+// Ayrik "emniyet anahtari" sinyali yok: PX4 onu MAVLink'te ayri bildirmiyor
+// (saha olcumu 2026-07-22, butona basinca 0x0321C83F -> 0x1321C83F).
+#define DURUM2_BAYRAK_READY_TO_ARM  0x01
+
 // TODO: HAS_PIXHAWK=1 oldugunda durum_veri_t doldur ve loop() icinde TIP_DURUM
 // gonder (500ms). Bagimliliklar: mesh_komsu_sayisi(), MAVLink SYS_STATUS/
 // GPS_RAW_INT/EKF_STATUS_REPORT okuma fonksiyonlari.
+//
+// REV C (2026-07-22): boyut 16 bayt AYNI kaldi, icerik sikistirildi.
+//   battery_volt  float(4) -> uint8 x10  (0-25.5 V, 0.1 V cozunurluk)
+//   armed/ekf/imu/mag/baro/mesh_link  6 bayt -> 1 bayt bit alani
+//   = 9 bayt acildi
+// Acilan yere girenler: ucus_modu, gps_uydu, gps_hdop_x10, ve bayraklara
+// KILL + RC_LINK. Geriye 5 bayt rezerv kaldi.
+//
+// Neden gerekliydi: kill switch ve GPS hassasiyeti drone tarafinda dogru
+// hesaplaniyordu ama pakette yer olmadigi icin YKİ'ye hic ulasmiyordu —
+// operator kill switch acikken drone'u "bosta" goruyordu (saha, 2026-07-22).
 struct __attribute__((packed)) durum_veri_t {
     uint8_t  drone_id;
-    uint8_t  durum;
-    uint8_t  armed;         // 0/1
-    uint8_t  gps_fix_type;  // 0-6
-    uint8_t  battery_pct;   // 0-100
-    float    battery_volt;  // 4 byte
-    uint8_t  ekf_ok;        // 0/1
-    uint8_t  imu_ok;        // 0/1
-    uint8_t  mag_ok;        // 0/1
-    uint8_t  baro_ok;       // 0/1
-    int8_t   rssi;          // dBm (-120..0)
-    uint8_t  mesh_link_ok;  // 0/1
-    uint8_t  mesh_komsu_sayisi; // aktif mesh node sayisi: failsafe + lider secimi + ground izleme
+    uint8_t  durum;             // FSM state (DURUM_* enum)
+    uint8_t  bayraklar;         // DURUM_BAYRAK_* bit alani
+    uint8_t  ucus_modu;         // PX4'un BILDIRDIGI mod (AgentStatus.FLIGHT_MODE_*).
+                                // Switch pozisyonu degil: mod degisimi reddedilirse
+                                // (on-ucus hatasi, GPS yok) ikisi ayrisir ve
+                                // operatorun gormesi gereken gercek olandir.
+    uint8_t  gps_fix_type;      // 0-6  (4=DGPS, 5=RTK float, 6=RTK fixed)
+    uint8_t  gps_uydu;          // gorunen uydu sayisi
+    uint8_t  gps_hdop_x10;      // HDOP * 10 (255 = bilinmiyor/kotu)
+    uint8_t  battery_pct;       // 0-100
+    uint8_t  battery_volt_x10;  // volt * 10 (0-25.5 V)
+    int8_t   rssi;              // dBm (-120..0)
+    uint8_t  mesh_komsu_sayisi; // aktif mesh node sayisi: failsafe + lider secimi
+    uint8_t  bayraklar2;        // DURUM2_BAYRAK_* bit alani
+    uint8_t  rezerv[4];         // toplam 16 byte
 };
+
+// Sozlesme kilidi: pi_bridge (packet_parser.py::_DURUM_FMT) bu duzeni birebir
+// varsayiyor. Boyut degisirse cerceve dilimi kayar ve alanlar sessizce yanlis
+// cozulur — patlamadan once iki tarafi birlikte guncelle.
+static_assert(sizeof(durum_veri_t) == 16,
+              "durum_veri_t 16 byte OLMALI — packet_parser.py _DURUM_FMT ile uyum");
 
 static const uint8_t BROADCAST_MAC[6] = {0xFF,0xFF,0xFF,0xFF,0xFF,0xFF};
 
