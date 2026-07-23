@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  YKİ (yer istasyonu) CycloneDDS yapılandırması — loopback / WiFi'siz.
+
+  NEDEN: Sahada YKİ ile drone arasında WiFi YOK — tek bağ ESP mesh (base ESP
+  seri portundan base_bridge okur). base_bridge, backend, frontend hepsi AYNI
+  laptopta çalışır ve aralarında ROS 2 (DDS) ile konuşur. Varsayılan CycloneDDS
+  ilk non-loopback arayüzü (WiFi) seçer; WiFi kapanınca o arayüz kaybolur ve
+  laptop-içi DDS bağı bile kopar → mesh'ten veri gelse de arayüze ulaşmaz.
+
+  ÇÖZÜM: loopback (lo) + UNICAST peer discovery (127.0.0.1). lo'da MULTICAST
+  flag'i olmadığından multicast keşfi çalışmaz; bu yüzden AllowMulticast=false
+  ve localhost'a unicast peer. lo her zaman UP → laptop-içi DDS WiFi'den BAĞIMSIZ.
+  Drone verisi mesh'ten (seri) gelir; DDS sadece laptop-içi taşımadır.
+
+  Kullanım (base_bridge, backend, ve laptop-içi tüm ROS düğümleri):
+    export CYCLONEDDS_URI=file:///home/yentur/yelpence-2026-swarm/src/gcs/cyclonedds_yki.xml
+
+  NOT: Bu config WiFi üzerinden RPi'nin DDS düğümlerini GÖRMEZ (sahada zaten
+  görmemeli, tek bağ mesh). Tezgahta RPi'yi DDS'ten izlemek istersen KULLANMA.
+-->
+<CycloneDDS xmlns="https://cdds.io/config"
+            xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+            xsi:schemaLocation="https://cdds.io/config https://raw.githubusercontent.com/eclipse-cyclonedds/cyclonedds/master/etc/cyclonedds.xsd">
+  <Domain id="any">
+    <General>
+      <Interfaces>
+        <NetworkInterface name="lo" priority="default" multicast="false"/>
+      </Interfaces>
+      <AllowMulticast>false</AllowMulticast>
+      <EnableMulticastLoopback>false</EnableMulticastLoopback>
+    </General>
+    <Discovery>
+      <ParticipantIndex>auto</ParticipantIndex>
+      <MaxAutoParticipantIndex>60</MaxAutoParticipantIndex>
+      <Peers>
+        <Peer address="127.0.0.1"/>
+      </Peers>
+    </Discovery>
+  </Domain>
+</CycloneDDS>
