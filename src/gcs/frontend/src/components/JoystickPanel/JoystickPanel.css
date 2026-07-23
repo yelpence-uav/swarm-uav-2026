@@ -24,7 +24,7 @@
   pointer-events: none;
 }
 
-/* === Header ================================================ */
+/* Header */
 .joystick-panel__header {
   display: flex;
   align-items: center;
@@ -62,7 +62,7 @@
   max-width: 180px;
 }
 
-/* === Sticks ================================================ */
+/* Sticks */
 .joystick-panel__sticks {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -106,7 +106,7 @@
   color: var(--color-text-secondary);
 }
 
-/* === Rows ================================================== */
+/* Rows */
 .joystick-panel__row {
   display: flex;
   flex-wrap: wrap;
@@ -161,7 +161,7 @@
   cursor: not-allowed;
 }
 
-/* === Publish ============================================== */
+/* Publish */
 .joystick-panel__publish {
   flex: 1;
   min-width: 140px;
@@ -182,7 +182,7 @@
   box-shadow: var(--shadow-glow-success);
 }
 
-/* === Deadman / counter ==================================== */
+/* Deadman / counter */
 .joystick-panel__deadman {
   font-size: var(--text-xs);
   color: var(--color-text-muted);

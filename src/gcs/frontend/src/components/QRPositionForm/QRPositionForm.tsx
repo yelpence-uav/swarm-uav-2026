@@ -15,12 +15,12 @@ interface QRPositionFormProps {
  * QR konum giriş formu.
  *
  * Şartname V2 s.14: QR lat/lon'ları yarışma öncesi hakemlerce paylaşılır,
- * sahada doğrulanabilir. Operatör buradan girer — config dosyası açmaya
- * gerek kalmaz (Şeyda kararı). Dinamik: QR sayısı 5/6/7 olabilir, ekle/çıkar.
+ * sahada doğrulanabilir. Operatör buradan girer - config dosyası açmaya
+ * gerek kalmaz. Dinamik: QR sayısı 5/6/7 olabilir, ekle/çıkar.
  *
- * "Drone'lara Gönder" → backend POST /api/mission/qr_coords → QRCoordinates
- * mesajı /swarm/internal/mission/qr_coords'a (latched) → proxy/mesh →
- * mission_fsm tabloyu saklar (next_qr → konum çözümü).
+ * "Drone'lara Gönder" -> backend POST /api/mission/qr_coords -> QRCoordinates
+ * mesajı /swarm/internal/mission/qr_coords'a (latched) -> proxy/mesh ->
+ * mission_fsm tabloyu saklar (next_qr -> konum çözümü).
  */
 export function QRPositionForm({
   positions,

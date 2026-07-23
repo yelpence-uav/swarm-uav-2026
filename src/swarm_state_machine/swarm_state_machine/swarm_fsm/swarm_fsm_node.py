@@ -1,13 +1,5 @@
-"""Sürü seviyesi FSM'i çalıştıran ROS 2 node.
-
-Tüm ajanların AgentStatus mesajlarını toplar, sürü genelinde
-sağlık kontrolü ve durum geçişlerini yönetir, SwarmState yayınlar.
-
-Topic adlandırma kuralları (network_proxy uyumlu):
-    - Publisher (ağa çıkan): /swarm/internal/...
-    - Subscriber (ağdan gelen): /swarm/public/...
-    - Lokal iç haberleşme: /swarm/agent/drone{id}/...
-"""
+# Copyright 2026 Yelpence
+"""ROS2 node that runs the FSM for the swarm."""
 
 import math
 import time
@@ -38,9 +30,9 @@ from .swarm_states import (
     SwarmState,
 )
 from .swarm_transitions import evaluate_transitions
+from ..agent_fsm.agent_states import AgentState
 
 _M_PER_DEG_LAT = 111_320.0
-
 
 _RELIABLE_QOS = QoSProfile(
     reliability=ReliabilityPolicy.RELIABLE,
@@ -63,8 +55,6 @@ _ORIGIN_QOS = QoSProfile(
     depth=1,
 )
 
-# BEST_EFFORT: consensus heartbeat'i BEST_EFFORT yayınlıyor; RELIABLE abone
-# BEST_EFFORT yayıncıyla EŞLEŞMEZ (bağlantı kurulmaz) → leader_id alınamaz.
 _HEARTBEAT_QOS = QoSProfile(
     reliability=ReliabilityPolicy.BEST_EFFORT,
     durability=DurabilityPolicy.VOLATILE,
@@ -88,22 +78,9 @@ _FORMATION_REACHED_THRESHOLD_M = 1.0
 
 
 class SwarmFsmNode(Node):
-    """Sürü seviyesi FSM node'u.
-
-    Tüm ajanların AgentStatus'unu toplar, sürü geneli sağlık
-    kontrolü yapar, durum geçişlerini yönetir ve SwarmState yayınlar.
-
-    Sağlık toplulaştırma mantığı bu node'un içinde yer alır.
-    Mimarideki paylaşılan events/ ve health_monitor/ modülleri
-    ayrı paketler olarak tüm FSM'lere (agent, mission, swarm)
-    hizmet verecektir; buradaki kontroller yalnızca swarm_fsm'in
-    kendi iç karar mekanizmasıdır.
-    """
+    """Sürü seviyesi FSM node'u."""
 
     def __init__(self) -> None:
-        """
-        Sürü FSM node'unu başlatır, publisher ve subscriber'ları kurar.
-        """
         super().__init__('swarm_fsm_node')
 
         self._declare_params()
@@ -115,9 +92,9 @@ class SwarmFsmNode(Node):
             min_healthy_ratio=self._min_healthy_ratio,
         )
 
-        self._max_election_seq: int = 0
-        self._origin_lat: float | None = None
-        self._origin_lon: float | None = None
+        self._max_election_seq = 0
+        self._origin_lat = None
+        self._origin_lon = None
 
         self._setup_publishers()
         self._setup_subscribers()
@@ -127,14 +104,8 @@ class SwarmFsmNode(Node):
         )
 
         self.get_logger().info(
-            f'SwarmFsmNode başlatıldı: '
-            f'agent_count={self._agent_count} '
-            f'tick_hz={self._tick_hz}'
+            f'SwarmFsmNode baslatildi: {self._agent_count}'
         )
-
-    # ==================================================================
-    # Parametreler
-    # ==================================================================
 
     def _declare_params(self) -> None:
         """ROS 2 parametrelerini tanımlar ve okur."""
@@ -144,33 +115,18 @@ class SwarmFsmNode(Node):
         self.declare_parameter('heartbeat_timeout_ms', 300.0)
         self.declare_parameter('min_healthy_ratio', 0.5)
 
-        self._agent_count: int = (
-            self.get_parameter('agent_count').value
-        )
-        self._tick_hz: float = (
-            self.get_parameter('tick_hz').value
-        )
-        self._sitl_mode: bool = (
-            self.get_parameter('sitl_mode').value
-        )
-        self._heartbeat_timeout_ms: float = (
+        self._agent_count = self.get_parameter('agent_count').value
+        self._tick_hz = self.get_parameter('tick_hz').value
+        self._sitl_mode = self.get_parameter('sitl_mode').value
+        self._heartbeat_timeout_ms = (
             self.get_parameter('heartbeat_timeout_ms').value
         )
-        self._min_healthy_ratio: float = (
+        self._min_healthy_ratio = (
             self.get_parameter('min_healthy_ratio').value
         )
 
-    # ==================================================================
-    # Publisher / Subscriber Kurulumu
-    # ==================================================================
-
     def _setup_publishers(self) -> None:
-        """SwarmState ve SystemEvent publisher'larını oluşturur.
-
-        Kural 1: Ağa çıkan veriler /swarm/internal/... ile yayınlanır.
-        Network proxy bunları alır, gecikme/kayıp uygulayıp
-        /swarm/public/... olarak diğer İHA'lara iletir.
-        """
+        """Aciklama: SwarmState ve SystemEvent publisher'larını oluşturur."""
         self._state_pub = self.create_publisher(
             SwarmStateMsg,
             '/swarm/internal/state',
@@ -183,13 +139,7 @@ class SwarmFsmNode(Node):
         )
 
     def _setup_subscribers(self) -> None:
-        """Ajan, event, heartbeat ve election aboneliklerini oluşturur.
-
-        Kural 2: Ağdan gelen veriler /swarm/public/... üzerinden
-        dinlenir. Bu veriler network proxy'den geçmiş, gecikme ve
-        kayıp uygulanmış gerçekçi verilerdir.
-        """
-        # Her ajan için AgentStatus — public (proxy'den geçmiş)
+        """Abonelikleri oluşturur."""
         for aid in range(1, self._agent_count + 1):
             self.create_subscription(
                 AgentStatus,
@@ -198,7 +148,6 @@ class SwarmFsmNode(Node):
                 _STATUS_QOS,
             )
 
-        # SystemEvent — public (diğer İHA'lardan gelen olaylar)
         self.create_subscription(
             SystemEvent,
             '/swarm/public/events/system',
@@ -206,7 +155,6 @@ class SwarmFsmNode(Node):
             _RELIABLE_QOS,
         )
 
-        # LeaderHeartbeat — public (liderden gelen sağlık sinyali)
         self.create_subscription(
             LeaderHeartbeat,
             '/swarm/public/leader/heartbeat',
@@ -214,7 +162,6 @@ class SwarmFsmNode(Node):
             _HEARTBEAT_QOS,
         )
 
-        # ElectionResult — public (lider seçim sonucu)
         self.create_subscription(
             ElectionResult,
             '/swarm/public/election/result',
@@ -222,7 +169,6 @@ class SwarmFsmNode(Node):
             _ELECTION_QOS,
         )
 
-        # SwarmOrigin — shared NED frame referansı (transient: geç başlansa da alır)
         self.create_subscription(
             SwarmOrigin,
             '/swarm/public/origin',
@@ -230,64 +176,39 @@ class SwarmFsmNode(Node):
             _ORIGIN_QOS,
         )
 
-    # ==================================================================
-    # Ana Döngü (Tick)
-    # ==================================================================
-
     def _tick(self) -> None:
-        """FSM ana döngüsü — sağlık kontrolü, geçiş ve yayın."""
+        """FSM ana dongusu."""
         ctx = self._ctx
 
-        # 1. Sürü sağlık kontrolleri (gömülü)
         self._check_health()
 
-        # 2. Geçiş değerlendirme
         next_s = evaluate_transitions(ctx)
         if next_s is not None and next_s != ctx.swarm_state:
             self._transition(next_s)
 
-        # 3. SwarmState yayınla
         self._publish_state()
 
-    # ==================================================================
-    # Sağlık Kontrolleri (gömülü — ayrı modül değil)
-    # ==================================================================
-
     def _check_health(self) -> None:
-        """Sürü geneli sağlık kontrollerini sırayla çalıştırır.
-
-        Kritik hata bulunursa FAILSAFE tetiklenir ve erken döner.
-        Formasyon metrikleri her tick'te güncellenir.
-        """
+        """Sürü geneli sağlık kontrollerini çalıştırır."""
         if self._check_agent_health():
             return
-
-        # Lider kaybı tespiti + yeniden seçim artık consensus_node'un işidir.
-        # swarm_fsm yalnızca gelen heartbeat/election'dan leader_id'yi
-        # yansıtır (tüketici-only); kendi karar/olay üretmez.
 
         self._update_formation_metrics()
 
     def _check_agent_health(self) -> bool:
-        """Tüm ajanların sağlık durumunu kontrol eder.
-
-        Returns:
-            True ise kritik hata bulundu ve işlendi.
-        """
+        """Ajanlarin saglik durumunu kontrol eder."""
         ctx = self._ctx
         if not ctx.agents:
             return False
 
         total = len(ctx.agents)
 
-        # Stale ajan tespiti
         stale = [
             aid for aid, a in ctx.agents.items()
             if a.is_stale(_AGENT_STALE_TIMEOUT_S)
         ]
         ctx.active_agent_count = total - len(stale)
 
-        # Tüm ajanlarla iletişim koptu
         if ctx.active_agent_count == 0 and total > 0:
             if ctx.swarm_state != SwarmState.FAILSAFE:
                 reason = 'Tüm ajanlarla iletişim kesildi'
@@ -302,7 +223,6 @@ class SwarmFsmNode(Node):
                 )
             return True
 
-        # Sağlıklı ajan oranı — havadayken kontrol
         if (ctx.swarm_state in AIRBORNE_SWARM_STATES
                 and ctx.active_agent_count > 0):
             healthy = ctx.count_healthy_agents()
@@ -311,9 +231,7 @@ class SwarmFsmNode(Node):
                 if ctx.swarm_state != SwarmState.FAILSAFE:
                     reason = (
                         f'Sağlıklı ajan oranı düşük: '
-                        f'{healthy}/{ctx.expected_agent_count} '
-                        f'({ratio:.0%} < '
-                        f'{ctx.min_healthy_ratio:.0%})'
+                        f'{healthy}/{ctx.expected_agent_count}'
                     )
                     self.get_logger().error(
                         f'[SWARM FAILSAFE] {reason}'
@@ -326,7 +244,6 @@ class SwarmFsmNode(Node):
                     )
                 return True
 
-        # Kill switch — herhangi bir ajanda aktifse
         kill_agents = [
             aid for aid, a in ctx.agents.items()
             if a.kill_switch_active and not a.is_stale()
@@ -335,7 +252,7 @@ class SwarmFsmNode(Node):
                 and ctx.swarm_state in AIRBORNE_SWARM_STATES):
             if ctx.swarm_state != SwarmState.FAILSAFE:
                 reason = (
-                    f'Kill switch aktif: ajan(lar) {kill_agents}'
+                    f'Kill switch aktif: {kill_agents}'
                 )
                 self.get_logger().error(
                     f'[SWARM FAILSAFE] {reason}'
@@ -348,11 +265,9 @@ class SwarmFsmNode(Node):
                 )
             return True
 
-        # Emergency güncelle
         failsafe_count = ctx.count_agents_in_state(AgentState.FAILSAFE)
         ctx.emergency_active = failsafe_count > 0
 
-        # Stale ajan uyarısı (kritik değil)
         if stale:
             self.get_logger().warn(
                 f'[SWARM] Stale ajanlar: {stale}'
@@ -360,19 +275,11 @@ class SwarmFsmNode(Node):
 
         return False
 
-    # _check_leader_heartbeat KALDIRILDI (tüketici-only geçişi).
-    # Lider kaybı tespiti + yeniden seçim + EVENT_LEADER_CHANGED üretimi
-    # artık consensus_node'un sorumluluğudur. swarm_fsm liderlik bilgisini
-    # yalnızca _on_heartbeat / _on_election callback'lerinden TÜKETİR ve
-    # SwarmState içinde yansıtır.
-
     def _update_formation_metrics(self) -> None:
-        """Centroid ve formasyon kalite metriklerini günceller."""
+        """Centroid ve formasyon kalite metriklerini gunceller."""
         ctx = self._ctx
         ctx.compute_centroid()
 
-        # Formasyon tipine göre hedef offsetler (placeholder değerler)
-        # Gerçek değerler formation_control modülünden gelmelidir.
         offsets = None
         if ctx.active_formation == FormationType.OKBASI:
             offsets = {
@@ -409,20 +316,11 @@ class SwarmFsmNode(Node):
                 >= ctx.expected_agent_count
             )
 
-    # ==================================================================
-    # State Geçişleri
-    # ==================================================================
-
     def _transition(self, new_state: SwarmState) -> None:
-        """State geçişini uygular ve loglar.
-
-        Args:
-            new_state: Geçilecek hedef state.
-        """
+        """Durum gecisini uygular."""
         old = self._ctx.swarm_state
         self._ctx.set_state(new_state)
 
-        # State'e giriş yan etkileri
         if new_state == SwarmState.IDLE:
             self._ctx.mission_active = False
             self._ctx.formation_reached = False
@@ -448,19 +346,8 @@ class SwarmFsmNode(Node):
             f'[SWARM] {old.name} -> {new_state.name}'
         )
 
-    # ==================================================================
-    # Subscriber Callback'leri
-    # ==================================================================
-
     def _make_agent_cb(self, agent_id: int):
-        """Her ajan için kapatma (closure) ile callback oluşturur.
-
-        Args:
-            agent_id: Ajanın numarası.
-
-        Returns:
-            Callback fonksiyonu.
-        """
+        """Kapatma ile callback olusturur."""
         def _cb(msg: AgentStatus) -> None:
             self._on_agent_status(agent_id, msg)
         return _cb
@@ -470,12 +357,7 @@ class SwarmFsmNode(Node):
         agent_id: int,
         msg: AgentStatus,
     ) -> None:
-        """AgentStatus mesajını cache'e kopyalar.
-
-        Args:
-            agent_id: Ajanın numarası.
-            msg: Gelen AgentStatus mesajı.
-        """
+        """Aciklama: AgentStatus telemetrisini context'e yazar."""
         cache = self._ctx.agents.get(agent_id)
         if cache is None:
             cache = AgentStatusCache(agent_id=agent_id)
@@ -513,15 +395,10 @@ class SwarmFsmNode(Node):
         cache.last_update = time.monotonic()
 
     def _on_event(self, msg: SystemEvent) -> None:
-        """SystemEvent bus'tan gelen olayları işler.
-
-        Args:
-            msg: Gelen SystemEvent mesajı.
-        """
+        """Aciklama: SystemEvent olaylarini isler."""
         ctx = self._ctx
         eid = msg.event_type
 
-        # Son olay bilgisini güncelle
         ctx.last_event_type = eid
         ctx.last_event_severity = msg.severity
         ctx.last_event_source = msg.source_agent_id
@@ -533,7 +410,6 @@ class SwarmFsmNode(Node):
             ctx.last_event_pos_z = msg.pos_z
         ctx.last_event_message = msg.message
 
-        # Formasyon olayları
         if eid == SystemEvent.EVENT_FORMATION_REACHED:
             ctx.formation_reached = True
 
@@ -541,14 +417,12 @@ class SwarmFsmNode(Node):
             ctx.formation_reached = False
             ctx.status_text = 'Formasyon başarısız'
 
-        # Rotasyon — INTERFACE_CONTRACT Kural 21
         elif eid == SystemEvent.EVENT_ROTATION_STARTED:
             ctx.rotation_active = True
 
         elif eid == SystemEvent.EVENT_ROTATION_COMPLETED:
             ctx.rotation_active = False
 
-        # Görev olayları
         elif eid == SystemEvent.EVENT_MISSION_STARTED:
             ctx.mission_active = True
             ctx.active_mission = msg.message or 'active'
@@ -556,13 +430,11 @@ class SwarmFsmNode(Node):
         elif eid == SystemEvent.EVENT_MISSION_COMPLETED:
             ctx.mission_active = False
 
-        # QR olayları
         elif eid == SystemEvent.EVENT_QR_PARSED:
             ctx.current_qr_seq = (
                 int(msg.value) if msg.value > 0 else 0
             )
 
-        # Güvenlik olayları
         elif eid == SystemEvent.EVENT_RTL_TRIGGERED:
             if msg.target_agent_id == 0:
                 ctx.pending_rtl = True
@@ -579,26 +451,24 @@ class SwarmFsmNode(Node):
             ctx.status_text = msg.message or 'Lider değişti'
 
     def _on_swarm_origin(self, msg: SwarmOrigin) -> None:
+        """Swarm origin referansini kaydeder."""
         if msg.valid:
             self._origin_lat = float(msg.origin_lat_deg)
             self._origin_lon = float(msg.origin_lon_deg)
 
     def _to_shared_ned(self, lat: float, lon: float) -> tuple[float, float]:
-        """GPS lat/lon → shared NED (north, east) metre."""
+        """GPS lat/lon to shared NED."""
         if self._origin_lat is None:
             return 0.0, 0.0
         d_lat = lat - self._origin_lat
         d_lon = lon - self._origin_lon
         north = d_lat * _M_PER_DEG_LAT
-        east = d_lon * _M_PER_DEG_LAT * math.cos(math.radians(self._origin_lat))
+        cos_o = math.cos(math.radians(self._origin_lat))
+        east = d_lon * _M_PER_DEG_LAT * cos_o
         return north, east
 
     def _on_heartbeat(self, msg: LeaderHeartbeat) -> None:
-        """Lider heartbeat mesajını işler.
-
-        Args:
-            msg: Gelen LeaderHeartbeat mesajı.
-        """
+        """Heartbeat sinyalini isler."""
         ctx = self._ctx
         ctx.leader_id = msg.leader_id
         ctx.last_heartbeat_time = time.monotonic()
@@ -607,20 +477,12 @@ class SwarmFsmNode(Node):
             ctx.election_round = msg.election_round
 
     def _on_election(self, msg: ElectionResult) -> None:
-        """Lider seçimi sonucunu işler.
-
-        Stale mesaj koruması: sequence_num kontrol edilir.
-
-        Args:
-            msg: Gelen ElectionResult mesajı.
-        """
+        """Secim sonucunu isler."""
         ctx = self._ctx
 
         if msg.sequence_num <= self._max_election_seq:
             self.get_logger().warn(
-                f'[SWARM] Stale election mesajı: '
-                f'seq={msg.sequence_num} '
-                f'<= {self._max_election_seq}'
+                f'[SWARM] Stale election mesajı: {msg.sequence_num}'
             )
             return
 
@@ -634,27 +496,16 @@ class SwarmFsmNode(Node):
         if old_leader != msg.new_leader_id:
             self.get_logger().info(
                 f'[SWARM] Lider değişti: {old_leader} -> '
-                f'{msg.new_leader_id} '
-                f'(round={msg.election_round})'
+                f'{msg.new_leader_id}'
             )
             self._pub_event(
                 SystemEvent.EVENT_LEADER_CHANGED,
                 SystemEvent.SEVERITY_INFO,
-                f'Yeni lider: {msg.new_leader_id} '
-                f'(round: {msg.election_round})',
+                f'Yeni lider: {msg.new_leader_id}',
             )
 
-    # ==================================================================
-    # Yayıncılar
-    # ==================================================================
-
     def _publish_state(self) -> None:
-        """SwarmContext'i SwarmState mesajına dönüştürüp yayınlar.
-
-        NOT: SwarmState.agents[] dizisi ESP-NOW 250 byte limitini
-        aşacağı için boş bırakılır. GCS ve diğer dinleyiciler
-        ajan detaylarını /swarm/public/drone{id}/status'tan okur.
-        """
+        """Durumu yayinlar."""
         ctx = self._ctx
         m = SwarmStateMsg()
         m.stamp = self.get_clock().now().to_msg()
@@ -693,15 +544,17 @@ class SwarmFsmNode(Node):
             and a.state in FORMATION_ACTIVE_STATES
         ]
         m.active_agent_ids = [a.agent_id for a in active_agents]
-        # Pozisyonlar shared NED'de olmalı (formation_node Macar maliyet matrisi için).
-        # Origin geldiyse GPS→shared NED; gelmemişse local NED ile devam (fallback).
+
         shared_positions = []
         for a in active_agents:
-            if self._origin_lat is not None and (a.lat_deg != 0.0 or a.lon_deg != 0.0):
+            has_coords = a.lat_deg != 0.0 or a.lon_deg != 0.0
+            if self._origin_lat is not None and has_coords:
                 n, e = self._to_shared_ned(a.lat_deg, a.lon_deg)
                 shared_positions.append((n, e, float(a.pos_z)))
             else:
-                shared_positions.append((float(a.pos_x), float(a.pos_y), float(a.pos_z)))
+                shared_positions.append(
+                    (float(a.pos_x), float(a.pos_y), float(a.pos_z))
+                )
         m.agent_pos_x = [p[0] for p in shared_positions]
         m.agent_pos_y = [p[1] for p in shared_positions]
         m.agent_pos_z = [p[2] for p in shared_positions]
@@ -730,18 +583,12 @@ class SwarmFsmNode(Node):
         severity: int,
         message: str = '',
     ) -> None:
-        """SystemEvent yayınlar.
-
-        Args:
-            event_type: SystemEvent.EVENT_* sabiti.
-            severity: SystemEvent.SEVERITY_* seviyesi.
-            message: İsteğe bağlı açıklama metni.
-        """
+        """Aciklama: SystemEvent yayinlar."""
         m = SystemEvent()
         m.stamp = self.get_clock().now().to_msg()
         m.event_type = event_type
         m.severity = severity
-        m.source_agent_id = 0  # sürü geneli
+        m.source_agent_id = 0
         m.source_module = 'swarm_fsm'
         m.message = message
         self._event_pub.publish(m)

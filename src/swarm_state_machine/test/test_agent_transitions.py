@@ -1,4 +1,4 @@
-"""evaluate_transitions fonksiyonu için birim testleri."""
+"""Evaluate_transitions fonksiyonu için birim testleri."""
 
 import unittest
 
@@ -39,7 +39,7 @@ def _preflight_ready(ctx: AgentContext) -> AgentContext:
 
 
 class TestUnknownIdleGecis(unittest.TestCase):
-    """UNKNOWN → IDLE geçiş testleri."""
+    """UNKNOWN -> IDLE geçiş testleri."""
 
     def test_unknown_her_zaman_idle(self):
         """UNKNOWN durumundan her zaman IDLE'a geçilmeli."""
@@ -50,10 +50,10 @@ class TestUnknownIdleGecis(unittest.TestCase):
 
 
 class TestIdleArmingGecis(unittest.TestCase):
-    """IDLE → ARMING geçiş testleri."""
+    """IDLE -> ARMING geçiş testleri."""
 
     def test_arming_talebi_preflight_gecis(self):
-        """Preflight başarılıysa IDLE → ARMING geçmeli."""
+        """Preflight başarılıysa IDLE -> ARMING geçmeli."""
         ctx = _sitl_ctx()
         ctx.state = AgentState.IDLE
         ctx.pending_state = AgentState.ARMING
@@ -69,7 +69,7 @@ class TestIdleArmingGecis(unittest.TestCase):
         self.assertIsNone(result)
 
     def test_arming_talebi_preflight_basarisiz(self):
-        """GPS fix yetersizse IDLE → ARMING geçmemeli."""
+        """GPS fix yetersizse IDLE -> ARMING geçmemeli."""
         ctx = _sitl_ctx()
         ctx.state = AgentState.IDLE
         ctx.pending_state = AgentState.ARMING
@@ -82,7 +82,7 @@ class TestArmingGecisleri(unittest.TestCase):
     """ARMING durumundan geçiş testleri."""
 
     def test_arm_onayinda_armed(self):
-        """PX4 arm onayı gelince ARMING → ARMED geçmeli."""
+        """PX4 arm onayı gelince ARMING -> ARMED geçmeli."""
         ctx = _sitl_ctx()
         ctx.state = AgentState.ARMING
         ctx.armed = True
@@ -90,7 +90,7 @@ class TestArmingGecisleri(unittest.TestCase):
         self.assertEqual(result, AgentState.ARMED)
 
     def test_saglik_kaybinda_idle(self):
-        """Sağlık kaybında ARMING → IDLE geçmeli."""
+        """Sağlık kaybında ARMING -> IDLE geçmeli."""
         ctx = _sitl_ctx()
         ctx.state = AgentState.ARMING
         ctx.px4_link_ok = False
@@ -129,7 +129,7 @@ class TestFailsafeGecisi(unittest.TestCase):
 
 
 class TestRtlHomeSetDegil(unittest.TestCase):
-    """Şartname kural 13: home set değilken RTL → acil iniş."""
+    """Şartname kural 13: home set değilken RTL -> acil iniş."""
 
     def test_home_set_degil_rtl_landing_olur(self):
         """Home set değilken RTL talebi LANDING'e yönlenmeli."""
@@ -145,7 +145,7 @@ class TestLandedGecisleri(unittest.TestCase):
     """LANDED durumundan geçiş testleri."""
 
     def test_landed_idle_talebi(self):
-        """LANDED → IDLE geçmeli."""
+        """LANDED -> IDLE geçmeli."""
         ctx = _sitl_ctx()
         ctx.state = AgentState.LANDED
         ctx.pending_state = AgentState.IDLE
@@ -153,7 +153,7 @@ class TestLandedGecisleri(unittest.TestCase):
         self.assertEqual(result, AgentState.IDLE)
 
     def test_landed_standby_talebi(self):
-        """LANDED → STANDBY geçmeli."""
+        """LANDED -> STANDBY geçmeli."""
         ctx = _sitl_ctx()
         ctx.state = AgentState.LANDED
         ctx.pending_state = AgentState.STANDBY
@@ -161,7 +161,7 @@ class TestLandedGecisleri(unittest.TestCase):
         self.assertEqual(result, AgentState.STANDBY)
 
     def test_landed_talep_yok(self):
-        """LANDED'da talep yoksa geçiş olmamalı."""
+        """Aciklama: LANDED'da talep yoksa geçiş olmamalı."""
         ctx = _sitl_ctx()
         ctx.state = AgentState.LANDED
         result = evaluate_transitions(ctx)
@@ -172,7 +172,7 @@ class TestReturnHomeGecisi(unittest.TestCase):
     """RETURN_HOME durumundan geçiş testleri."""
 
     def test_auto_land_modu_landing(self):
-        """AUTO_LAND moduna geçince RETURN_HOME → LANDING olmalı."""
+        """AUTO_LAND moduna geçince RETURN_HOME -> LANDING olmalı."""
         ctx = _sitl_ctx()
         ctx.state = AgentState.RETURN_HOME
         ctx.flight_mode = FlightMode.AUTO_LAND

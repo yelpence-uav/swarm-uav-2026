@@ -1,13 +1,14 @@
-"""esp32_bridge paketi için flake8 PEP 8 uyumluluk testi."""
-import pytest
+"""Test flake8 compliance."""
 from ament_flake8.main import main_with_errors
+
+import pytest
 
 
 @pytest.mark.flake8
 @pytest.mark.linter
 def test_flake8():
-    """swarm_control/esp32_bridge altındaki Python kodu PEP 8'e uymalı."""
-    rc, errors = main_with_errors(argv=['swarm_control/esp32_bridge'])
+    """Check PEP 8 compliance with flake8."""
+    rc, errors = main_with_errors(argv=[])
     assert rc == 0, (
         'Found {} code style errors / warnings:\n'.format(len(errors))
         + '\n'.join(errors)

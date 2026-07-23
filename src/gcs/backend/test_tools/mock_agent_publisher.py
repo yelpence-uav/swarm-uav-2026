@@ -1,31 +1,6 @@
-"""Sahte AgentStatus + SwarmState + SystemEvent yayıncısı + TriggerMission server.
+"""Sahte AgentStatus, SwarmState ve TriggerMission yayıncısı.
 
-Ekibin agent_fsm + mission_fsm node'ları main'e merge olmadan GCS'i uçtan uca
-test edebilelim diye. Basit bir state machine ile butonlara anlamlı tepki verir:
-
-  IDLE     → drone'lar yerde, armed=False
-  ACTIVE   → drone'lar 5m daire çiziyor, 10m irtifa, mission_active=True
-  PAUSED   → drone'lar olduğu yerde havada, hareketsiz, mission_active=True
-  RTL      → drone'lar (0,0)'a doğru gidiyor, sonra otomatik LANDING
-  LANDING  → irtifa azalıyor (10m → 0m), bitince IDLE
-  ABORTED  → anında IDLE (acil dur)
-
-TriggerMission komutları → state geçişleri:
-  START   → ACTIVE
-  PAUSE   → PAUSED   (sadece ACTIVE'den)
-  RESUME  → ACTIVE   (sadece PAUSED'dan)
-  RTL     → RTL
-  LAND    → LANDING
-  ABORT   → ABORTED → IDLE (anında)
-
-Çalıştırma (container içinde):
-  source /opt/ros/jazzy/setup.bash
-  source /home/yelpence/ros2_ws/install/setup.bash
-  source /home/yelpence/venv/bin/activate
-  python3 -m backend.test_tools.mock_agent_publisher
-
-Default başlangıç: ACTIVE (geliştirme rahat olsun diye). IDLE'da başlatmak
-istersen başlangıç state'ini değiştir (constructor sonu).
+GCS arayüzünü uçtan uca test etmek için veri üretir.
 """
 
 import math
@@ -38,21 +13,20 @@ from rclpy.qos import QoSPresetProfiles, QoSProfile, QoSReliabilityPolicy
 from swarm_interfaces.msg import AgentStatus, SwarmState, SystemEvent
 from swarm_interfaces.srv import TriggerMission
 
-
-# PX4 SITL default home (Zürich Hönggerberg) — ekipte değişebilir.
+# SITL referans konumu
 HOME_LAT = 47.397742
 HOME_LON = 8.545594
 HOME_ALT_M = 488.0  # AMSL
 
 
-# Mock state machine — basitlik için string enum.
+# Mock durumlar
 class MockMode:
-    IDLE = "idle"          # yerde, armed=False
-    ACTIVE = "active"      # daire çiziyor
-    PAUSED = "paused"      # havada hareketsiz
-    RTL = "rtl"            # home'a dönüyor
-    LANDING = "landing"    # iniyor
-    ABORTED = "aborted"    # transitive — anında IDLE'a düşer
+    IDLE = "idle"  # yerde, armed=False
+    ACTIVE = "active"  # daire çiziyor
+    PAUSED = "paused"  # havada hareketsiz
+    RTL = "rtl"  # home'a dönüyor
+    LANDING = "landing"  # iniyor
+    ABORTED = "aborted"  # anında IDLE'a düşer
 
 
 CRUISE_ALT_M = 10.0
@@ -70,13 +44,17 @@ class MockAgentPublisher(Node):
     def __init__(self):
         super().__init__("mock_agent_publisher")
         sensor_qos = QoSPresetProfiles.SENSOR_DATA.value
-        reliable_qos = QoSProfile(depth=10, reliability=QoSReliabilityPolicy.RELIABLE)
+        reliable_qos = QoSProfile(
+            depth=10, reliability=QoSReliabilityPolicy.RELIABLE
+        )
 
-        # Mock, tüm drone + network_proxy zincirinin yerine geçtiği için
-        # doğrudan /swarm/public/... (proxy çıktısı) yayınlar — GCS bunları dinler.
+        # Tüm drone ve network_proxy zincirinin yerine geçtiği için
+        # doğrudan /swarm/public/... (proxy çıktısı) yayınlar.
         self._pubs = {
             drone_id: self.create_publisher(
-                AgentStatus, f"/swarm/public/drone{drone_id}/status", sensor_qos
+                AgentStatus,
+                f"/swarm/public/drone{drone_id}/status",
+                sensor_qos,
             )
             for drone_id in self.DRONE_IDS
         }
@@ -90,13 +68,14 @@ class MockAgentPublisher(Node):
             TriggerMission, "/swarm/mission/trigger", self._on_trigger_mission
         )
 
-        # --- State machine ---
-        self._mode = MockMode.ACTIVE   # default: hemen hareket görsün
+# State machine
+        self._mode = MockMode.ACTIVE  # default: hemen hareket görsün
         self._last_tick = time.time()
-        # Per-drone runtime state — pozisyon ve irtifa state'i
+        # Her drone için durum verisi
         self._drone_state = {
             drone_id: {
-                "phase": i * (2 * math.pi / 3),  # daire üzerindeki başlangıç açısı
+                # daire üzerindeki başlangıç açısı
+                "phase": i * (2 * math.pi / 3),
                 "x": 5.0 * math.cos(i * (2 * math.pi / 3)),
                 "y": 5.0 * math.sin(i * (2 * math.pi / 3)),
                 "alt": CRUISE_ALT_M,
@@ -112,34 +91,41 @@ class MockAgentPublisher(Node):
         self.create_timer(1.0 / self.SWARM_STATE_HZ, self._tick_swarm_state)
         self.create_timer(0.5, self._tick_event)
         self.get_logger().info(
-            f"test publisher başladı [mode={self._mode}] — "
+            f"test publisher başladı [mode={self._mode}]"
             f"AgentStatus@{self.PUBLISH_HZ}Hz × {len(self.DRONE_IDS)} drone, "
             f"SwarmState@{self.SWARM_STATE_HZ}Hz, "
             f"TriggerMission server hazır"
         )
 
-    # --- State machine helpers --------------------------------------------------
+# Helper metodları
 
     def _all_landed(self) -> bool:
         return all(s["alt"] < 0.3 for s in self._drone_state.values())
 
     def _all_at_home(self) -> bool:
-        return all(math.hypot(s["x"], s["y"]) < 0.5 for s in self._drone_state.values())
+        return all(
+            math.hypot(s["x"], s["y"]) < 0.5
+            for s in self._drone_state.values()
+        )
 
     def _set_mode(self, new_mode: str, reason: str = "") -> None:
         if self._mode == new_mode:
             return
         old = self._mode
         self._mode = new_mode
-        self.get_logger().info(f"state: {old} → {new_mode} ({reason})")
+        self.get_logger().info(f"state: {old} -> {new_mode} ({reason})")
 
     def _advance_drones(self, dt: float) -> None:
         """Mod'a göre per-drone pozisyon güncelle."""
         elapsed = time.time() - self._t0
 
         for drone_id, s in self._drone_state.items():
-            # Batarya: ACTIVE/PAUSED'da yavaş tüket, IDLE/LANDING/RTL'de daha az
-            drain = 0.05 if self._mode in (MockMode.ACTIVE, MockMode.PAUSED) else 0.02
+            # Batarya: ACTIVE/PAUSED'da yavaş tüket, diğerlerinde az tüket
+            drain = (
+                0.05
+                if self._mode in (MockMode.ACTIVE, MockMode.PAUSED)
+                else 0.02
+            )
             s["battery"] = max(15.0, s["battery"] - drain * dt)
 
             if self._mode == MockMode.ACTIVE:
@@ -152,7 +138,7 @@ class MockAgentPublisher(Node):
                 # Olduğu yerde dur
                 s["alt"] = CRUISE_ALT_M
             elif self._mode == MockMode.RTL:
-                # (0,0)'a doğru hareket — sabit hızla
+                # (0,0)'a doğru hareket
                 dist = math.hypot(s["x"], s["y"])
                 if dist > 0.05:
                     step = min(RTL_HORIZ_RATE_MPS * dt, dist)
@@ -177,7 +163,7 @@ class MockAgentPublisher(Node):
                 s["alt"] = 0.0
             self._set_mode(MockMode.IDLE, "abort sonrası reset")
 
-    # --- Tick callbacks ---------------------------------------------------------
+# Callback fonksiyonları
 
     def _tick_status(self) -> None:
         now = time.time()
@@ -194,13 +180,15 @@ class MockAgentPublisher(Node):
         m = SwarmState()
         m.stamp = self.get_clock().now().to_msg()
 
-        # Mode → SwarmState enum
+        # Mode vs SwarmState eşlemesi
         if self._mode == MockMode.IDLE:
             m.swarm_state = SwarmState.SWARM_IDLE
         elif self._mode == MockMode.ACTIVE:
             m.swarm_state = SwarmState.SWARM_NAVIGATING
         elif self._mode == MockMode.PAUSED:
-            m.swarm_state = SwarmState.SWARM_FORMING  # "duraklatıldı" yerine en yakın
+            m.swarm_state = (
+                SwarmState.SWARM_FORMING
+            )  # "duraklatıldı" yerine en yakın
         elif self._mode == MockMode.RTL:
             m.swarm_state = SwarmState.SWARM_RTL
         elif self._mode == MockMode.LANDING:
@@ -209,7 +197,9 @@ class MockAgentPublisher(Node):
             m.swarm_state = SwarmState.SWARM_FAILSAFE
 
         m.leader_id = 1
-        m.active_agent_count = sum(1 for s in self._drone_state.values() if s["alt"] > 0.3)
+        m.active_agent_count = sum(
+            1 for s in self._drone_state.values() if s["alt"] > 0.3
+        )
         m.active_formation = SwarmState.FORMATION_V
         m.mission_active = self._mode in (MockMode.ACTIVE, MockMode.PAUSED)
         m.formation_reached = self._mode == MockMode.ACTIVE
@@ -218,19 +208,31 @@ class MockAgentPublisher(Node):
 
         # Centroid (ortalama pozisyon)
         if self._drone_state:
-            cx = sum(s["x"] for s in self._drone_state.values()) / len(self._drone_state)
-            cy = sum(s["y"] for s in self._drone_state.values()) / len(self._drone_state)
-            cz = -sum(s["alt"] for s in self._drone_state.values()) / len(self._drone_state)
+            cx = sum(s["x"] for s in self._drone_state.values()) / len(
+                self._drone_state
+            )
+            cy = sum(s["y"] for s in self._drone_state.values()) / len(
+                self._drone_state
+            )
+            cz = -sum(s["alt"] for s in self._drone_state.values()) / len(
+                self._drone_state
+            )
         else:
             cx = cy = cz = 0.0
         m.centroid_x = cx
         m.centroid_y = cy
         m.centroid_z = cz
 
-        m.formation_heading_deg = (math.degrees(elapsed * 0.1)) % 360 if self._mode == MockMode.ACTIVE else 0.0
+        m.formation_heading_deg = (
+            (math.degrees(elapsed * 0.1)) % 360
+            if self._mode == MockMode.ACTIVE
+            else 0.0
+        )
         m.formation_max_error_m = 0.4 if self._mode == MockMode.ACTIVE else 0.0
         m.formation_avg_error_m = 0.2 if self._mode == MockMode.ACTIVE else 0.0
-        m.formation_heading_error_deg = 1.5 if self._mode == MockMode.ACTIVE else 0.0
+        m.formation_heading_error_deg = (
+            1.5 if self._mode == MockMode.ACTIVE else 0.0
+        )
         m.active_mission = "qr_chain" if m.mission_active else ""
         m.status_text = ""
         m.current_qr_id = 1 if m.mission_active else 0
@@ -244,23 +246,32 @@ class MockAgentPublisher(Node):
 
     def _on_trigger_mission(self, request, response):
         """TriggerMission alınca state machine'i değiştir."""
-        cmd_names = {1: "START", 2: "ABORT", 3: "PAUSE", 4: "RESUME", 5: "RTL", 6: "LAND"}
+        cmd_names = {
+            1: "START",
+            2: "ABORT",
+            3: "PAUSE",
+            4: "RESUME",
+            5: "RTL",
+            6: "LAND",
+        }
         mission_names = {1: "DYNAMIC_SWARM", 2: "SEMI_AUTONOMOUS"}
         cmd = cmd_names.get(request.command, f"cmd={request.command}")
-        mid = mission_names.get(request.mission_id, f"mid={request.mission_id}")
+        mid = mission_names.get(
+            request.mission_id, f"mid={request.mission_id}"
+        )
         team = request.team_id or "(takım belirtilmedi)"
 
         # State geçişleri
         prev_mode = self._mode
-        if request.command == 1:    # START
+        if request.command == 1:  # START
             if self._mode == MockMode.IDLE:
-                # Yerden başla → ACTIVE
+                # Yerden başla -> ACTIVE
                 for s in self._drone_state.values():
                     s["alt"] = CRUISE_ALT_M
                     s["battery"] = max(s["battery"], 80.0)
                 self._set_mode(MockMode.ACTIVE, "START: yerden kalkış")
                 response.success = True
-                response.message = f"{mid}/START — kalktı (team={team})"
+                response.message = f"{mid}/START - kalktı (team={team})"
             else:
                 response.success = False
                 response.message = f"zaten aktif (mode={self._mode})"
@@ -275,7 +286,9 @@ class MockAgentPublisher(Node):
                 response.message = "duraklatıldı, drone'lar havada bekliyor"
             else:
                 response.success = False
-                response.message = f"PAUSE sadece ACTIVE'den (mode={self._mode})"
+                response.message = (
+                    f"PAUSE sadece ACTIVE'den (mode={self._mode})"
+                )
         elif request.command == 4:  # RESUME
             if self._mode == MockMode.PAUSED:
                 self._set_mode(MockMode.ACTIVE, "RESUME komutu")
@@ -283,7 +296,9 @@ class MockAgentPublisher(Node):
                 response.message = "göreve devam"
             else:
                 response.success = False
-                response.message = f"RESUME sadece PAUSED'dan (mode={self._mode})"
+                response.message = (
+                    f"RESUME sadece PAUSED'dan (mode={self._mode})"
+                )
         elif request.command == 5:  # RTL
             self._set_mode(MockMode.RTL, "RTL komutu")
             response.success = True
@@ -298,7 +313,7 @@ class MockAgentPublisher(Node):
 
         self.get_logger().info(
             f"TriggerMission: mission={mid} command={cmd} team={team} "
-            f"→ {prev_mode}→{self._mode} ({response.message})"
+            f"-> {prev_mode}->{self._mode} ({response.message})"
         )
         return response
 
@@ -308,17 +323,39 @@ class MockAgentPublisher(Node):
             return
         self._next_event = elapsed + self.EVENT_INTERVAL_SEC
 
-        # ACTIVE değilse event yayını da yavaşla — daha az gürültü
+        # ACTIVE değilse event yayınını yavaşlat
         if self._mode != MockMode.ACTIVE:
             return
 
         events = [
-            (SystemEvent.EVENT_QR_DETECTED, SystemEvent.SEVERITY_INFO, 1, "QR1 algılandı"),
-            (SystemEvent.EVENT_FORMATION_REACHED, SystemEvent.SEVERITY_INFO, 0, "V formasyonu kuruldu"),
-            (SystemEvent.EVENT_BATTERY_LOW, SystemEvent.SEVERITY_WARNING, 2, "Drone 2 batarya %20"),
-            (SystemEvent.EVENT_LEADER_CHANGED, SystemEvent.SEVERITY_INFO, 0, "Lider Drone 1 → Drone 2"),
+            (
+                SystemEvent.EVENT_QR_DETECTED,
+                SystemEvent.SEVERITY_INFO,
+                1,
+                "QR1 algılandı",
+            ),
+            (
+                SystemEvent.EVENT_FORMATION_REACHED,
+                SystemEvent.SEVERITY_INFO,
+                0,
+                "V formasyonu kuruldu",
+            ),
+            (
+                SystemEvent.EVENT_BATTERY_LOW,
+                SystemEvent.SEVERITY_WARNING,
+                2,
+                "Drone 2 batarya %20",
+            ),
+            (
+                SystemEvent.EVENT_LEADER_CHANGED,
+                SystemEvent.SEVERITY_INFO,
+                0,
+                "Lider Drone 1 -> Drone 2",
+            ),
         ]
-        evt_type, severity, source, text = events[self._event_idx % len(events)]
+        evt_type, severity, source, text = events[
+            self._event_idx % len(events)
+        ]
         self._event_idx += 1
 
         m = SystemEvent()
@@ -336,7 +373,7 @@ class MockAgentPublisher(Node):
         m.message = text
         self._event_pub.publish(m)
 
-    # --- AgentStatus inşa --------------------------------------------------------
+# AgentStatus oluşturma
 
     def _build_status(self, drone_id: int) -> AgentStatus:
         s = self._drone_state[drone_id]
@@ -356,9 +393,13 @@ class MockAgentPublisher(Node):
             flight_mode = AgentStatus.FLIGHT_MODE_AUTO_RTL
             agent_state = AgentStatus.STATE_RETURN_HOME
         elif self._mode == MockMode.LANDING:
-            armed = s["alt"] > 0.3   # yere değince disarm
+            armed = s["alt"] > 0.3  # yere değince disarm
             flight_mode = AgentStatus.FLIGHT_MODE_AUTO_LAND
-            agent_state = AgentStatus.STATE_LANDING if s["alt"] > 0.3 else AgentStatus.STATE_LANDED
+            agent_state = (
+                AgentStatus.STATE_LANDING
+                if s["alt"] > 0.3
+                else AgentStatus.STATE_LANDED
+            )
         else:  # IDLE / ABORTED
             armed = False
             flight_mode = AgentStatus.FLIGHT_MODE_MANUAL
@@ -367,7 +408,11 @@ class MockAgentPublisher(Node):
         m = AgentStatus()
         m.stamp = self.get_clock().now().to_msg()
         m.agent_id = drone_id
-        m.role = AgentStatus.ROLE_LEADER if drone_id == 1 else AgentStatus.ROLE_FOLLOWER
+        m.role = (
+            AgentStatus.ROLE_LEADER
+            if drone_id == 1
+            else AgentStatus.ROLE_FOLLOWER
+        )
         m.state = agent_state
         m.flight_mode = flight_mode
         m.px4_link_ok = True
@@ -386,7 +431,7 @@ class MockAgentPublisher(Node):
         # Local NED pos
         m.pos_x = s["x"]
         m.pos_y = s["y"]
-        m.pos_z = -s["alt"]    # NED z negatif yukarı
+        m.pos_z = -s["alt"]  # NED z negatif yukarı
 
         if self._mode == MockMode.ACTIVE:
             m.vel_x = -5.0 * 0.1 * math.sin(s["phase"])
@@ -416,7 +461,9 @@ class MockAgentPublisher(Node):
         m.gps_hdop = 0.6
         m.gps_satellites = 18
         m.lat_deg = HOME_LAT + (s["x"] / 111111.0)
-        m.lon_deg = HOME_LON + (s["y"] / (111111.0 * math.cos(math.radians(HOME_LAT))))
+        m.lon_deg = HOME_LON + (
+            s["y"] / (111111.0 * math.cos(math.radians(HOME_LAT)))
+        )
         m.alt_amsl_m = HOME_ALT_M + s["alt"]
 
         m.home_set = True
@@ -443,7 +490,7 @@ class MockAgentPublisher(Node):
         m.unstable_flight = False
 
         m.wants_to_join = False
-        m.ready_to_arm = (self._mode == MockMode.IDLE)
+        m.ready_to_arm = self._mode == MockMode.IDLE
 
         m.status_text = ""
         return m

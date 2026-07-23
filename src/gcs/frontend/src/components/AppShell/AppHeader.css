@@ -23,7 +23,7 @@
   opacity: 0.4;
 }
 
-/* === Brand ================================================== */
+/* Brand */
 .app-header__brand {
   display: flex;
   align-items: center;
@@ -39,7 +39,7 @@
   flex-shrink: 0;
 }
 
-/* Logo arkasında subtle accent glow — koyu temada şahin parlasın */
+/* Logo arkasında subtle accent glow - koyu temada şahin parlasın */
 .app-header__logo::before {
   content: "";
   position: absolute;
@@ -88,7 +88,7 @@ html[data-theme="light"] .app-header__logo::before {
   letter-spacing: 0.04em;
 }
 
-/* === Metrics ================================================ */
+/* Metrics */
 .app-header__metrics {
   display: flex;
   align-items: stretch;
@@ -167,7 +167,7 @@ html[data-theme="light"] .app-header__logo::before {
   50%      { box-shadow: 0 0 0 6px transparent; }
 }
 
-/* === Actions =============================================== */
+/* Actions */
 .app-header__actions {
   display: flex;
   align-items: center;
@@ -195,7 +195,7 @@ html[data-theme="light"] .app-header__logo::before {
   transform: translateY(-1px);
 }
 
-/* === Responsive ============================================ */
+/* Responsive */
 @media (max-width: 1024px) {
   .app-header__metrics { gap: var(--space-1); }
   .metric { min-width: 80px; padding: var(--space-2) var(--space-3); }

@@ -9,18 +9,18 @@ import {
 import "./MissionPanel.css";
 
 /**
- * Faz 5 — şartname uyumlu görev tetikleyici.
+ * Faz 5 - şartname uyumlu görev tetikleyici.
  *
  * Görev 1 sırasında şartname "GCS'ten görev başlatma DIŞINDA müdahale yasak"
  * der. Bu panel o tek müdahale noktasıdır.
  *
- * Test/güvenlik butonları (ABORT/RTL/LAND) ayrıdır — yarışmada basılırsa
+ * Test/güvenlik butonları (ABORT/RTL/LAND) ayrıdır - yarışmada basılırsa
  * görev başarısız sayılır, sadece kaza/acil durumda kullanılır.
  */
 
 const MISSION_LABELS: Record<number, string> = {
-  [MISSION_ID.DYNAMIC_SWARM]: "Görev 1 — Dinamik Sürü",
-  [MISSION_ID.SEMI_AUTONOMOUS]: "Görev 2 — Yarı Otonom",
+  [MISSION_ID.DYNAMIC_SWARM]: "Görev 1 - Dinamik Sürü",
+  [MISSION_ID.SEMI_AUTONOMOUS]: "Görev 2 - Yarı Otonom",
 };
 
 interface MissionPanelProps {
@@ -45,7 +45,7 @@ export function MissionPanel({
     confirmLevel: "none" | "single" | "double" = "none",
   ) {
     // Geri dönüşü olmayan komutlar (görev iptali) için kazara basmayı önleyen
-    // onay zinciri. "double" → ardışık iki ayrı onay diyaloğu.
+    // onay zinciri. "double" -> ardışık iki ayrı onay diyaloğu.
     if (confirmLevel !== "none") {
       if (!window.confirm(`${commandLabel} komutu gönderilecek. Emin misin?`)) {
         return;
@@ -54,7 +54,7 @@ export function MissionPanel({
     if (confirmLevel === "double") {
       if (
         !window.confirm(
-          `SON UYARI — ${commandLabel}\n\n` +
+          `SON UYARI - ${commandLabel}\n\n` +
             "Bu işlem görevi sonlandırır ve görev BAŞARISIZ sayılır. " +
             "Tüm sürü görevi durdurulacak.\n\nOnaylıyor musun?",
         )
@@ -139,7 +139,7 @@ export function MissionPanel({
       </div>
 
       {/* Şartname §5.1: görev başladıktan sonra GCS müdahalesi yasak. Tek
-          istisna operatörün görevi sonlandırması — acil senaryoda kullanılır,
+          istisna operatörün görevi sonlandırması - acil senaryoda kullanılır,
           basıldığında görev başarısız sayılır. */}
       <div className="mission-panel__row mission-panel__row--safety">
         <span className="mission-panel__safety-label">

@@ -84,7 +84,7 @@ export const api = {
     postCommand(`/command/all/disarm`, force ? { force: true } : undefined),
 };
 
-// --- Faz 5: Mission + Swarm Control endpoint'leri ----------------------------
+// Mission + Swarm Control endpoint'leri
 
 export const MISSION_ID = {
   DYNAMIC_SWARM: 1,         // Görev 1

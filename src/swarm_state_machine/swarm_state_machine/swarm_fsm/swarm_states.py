@@ -1,16 +1,11 @@
-"""Sürü seviyesi FSM durum sabitleri.
-
-SwarmState.msg SWARM_* sabitleri ile birebir eşleşir.
-"""
+# Copyright 2026 Yelpence
+"""Sürü seviyesi FSM durum sabitleri."""
 
 from enum import IntEnum
 
 
 class SwarmState(IntEnum):
-    """Sürü FSM durum sabitleri.
-
-    SwarmState.msg SWARM_* ile birebir eşleşir.
-    """
+    """Sürü FSM durum sabitleri."""
 
     UNKNOWN = 0
     IDLE = 1
@@ -25,10 +20,7 @@ class SwarmState(IntEnum):
 
 
 class FormationType(IntEnum):
-    """Formasyon tipi sabitleri.
-
-    SwarmState.msg / FormationCommand.msg FORMATION_* ile eşleşir.
-    """
+    """Formasyon tipi sabitleri."""
 
     UNKNOWN = 0
     OKBASI = 1
@@ -37,7 +29,6 @@ class FormationType(IntEnum):
     CUSTOM = 99
 
 
-# Sürünün havada olduğu state'ler — iniş/RTL kararlarında kullanılır.
 AIRBORNE_SWARM_STATES = frozenset({
     SwarmState.FORMING,
     SwarmState.NAVIGATING,
@@ -45,7 +36,6 @@ AIRBORNE_SWARM_STATES = frozenset({
     SwarmState.ROTATING,
 })
 
-# Görev icrası sırasında olunabilecek state'ler.
 ACTIVE_MISSION_STATES = frozenset({
     SwarmState.FORMING,
     SwarmState.NAVIGATING,

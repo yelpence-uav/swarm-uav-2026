@@ -1,36 +1,12 @@
-# Copyright 2026 Yelpence TEKNOFEST 2026
-#
-# Permission is hereby granted, free of charge, to any person obtaining a copy
-# of this software and associated documentation files (the "Software"), to deal
-# in the Software without restriction, including without limitation the rights
-# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-# copies of the Software, and to permit persons to whom the Software is
-# furnished to do so, subject to the following conditions:
-#
-# The above copyright notice and this permission notice shall be included in
-# all copies or substantial portions of the Software.
-#
-# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
-# THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
-# THE SOFTWARE.
-
-"""
-vision_node_core.py.
-
-Ana Vision ROS 2 Düğümü.
-Görüntü verilerini dinler, qr_detector ve landing_zone_detector modüllerini
-çalıştırarak sonuçları swarm_interfaces formatında yayınlar.
-"""
+# Copyright 2026 Yelpence
+"""Goruntu verilerini dinler ve QR/Inis bolgelerini tespit eder."""
 
 import math
 import time
 from typing import Any
 
 import numpy as np
+
 import rclpy
 from rclpy.node import Node
 from rclpy.qos import (
@@ -41,6 +17,7 @@ from rclpy.qos import (
 )
 
 from sensor_msgs.msg import CameraInfo, Image
+
 from swarm_interfaces.msg import (
     AgentStatus,
     LandingZoneDetection,
@@ -52,7 +29,6 @@ from .landing_zone_detector import LandingZoneDetector, ensure_bgr
 from .qr_detector import QRDetector
 from .zone_map_core import ZoneMapCore, zone_offset_ned_m
 
-# QoS Profilleri
 _BEST_EFFORT_QOS = QoSProfile(
     reliability=QoSReliabilityPolicy.BEST_EFFORT,
     durability=QoSDurabilityPolicy.VOLATILE,
@@ -69,10 +45,9 @@ _RELIABLE_QOS = QoSProfile(
 
 
 class VisionNode(Node):
-    """Görüntüleri işleyip tespit sonuçları yayınlayan düğüm."""
+    """Goruntuleri isleyip tespit sonuclari yayinlayan dugum."""
 
     def __init__(self) -> None:
-        """Initialize."""
         super().__init__('vision_node')
 
         self._declare_params()
@@ -80,7 +55,6 @@ class VisionNode(Node):
         self._setup_publishers()
         self._setup_subscriptions()
 
-        # Performans Throttling
         self._last_qr_time = 0.0
         self._qr_interval = 1.0 / self._qr_rate_hz
 
@@ -96,27 +70,22 @@ class VisionNode(Node):
         self._cx: float | None = None
         self._cy: float | None = None
 
-        # Kalıcı bölge haritası (hafıza). Anlık tespit unutulur; bu biriktirir.
         self._zone_map = ZoneMapCore(
             merge_dist_m=self._zone_merge_dist_m,
             min_height_m=self._zone_min_height_m,
         )
-        # Projeksiyon için en son bilinen kendi pozumuz (global NED).
-        # (pos_x, pos_y, pos_z, heading_deg) veya None.
         self._my_pose = None
 
-        # Harita yavaş değişir; her karede değil düşük frekansta yayınla (CPU).
         self.create_timer(
             1.0 / self._zonemap_pub_rate_hz, self._publish_zone_map
         )
 
         self.get_logger().info(
-            f'VisionNode başlatıldı: agent_id={self._agent_id}, '
-            f'QR Rate: {self._qr_rate_hz}Hz, LZ Rate: {self._lz_rate_hz}Hz'
+            f'VisionNode baslatildi: agent_id={self._agent_id}'
         )
 
     def _declare_params(self) -> None:
-        """ROS 2 parametrelerini tanımlar ve okur."""
+        """ROS 2 parametrelerini tanimlar ve okur."""
         self.declare_parameter('agent_id', 1)
         self.declare_parameter('qr_processing_rate_hz', 5.0)
         self.declare_parameter('qr_min_confidence', 0.5)
@@ -125,12 +94,10 @@ class VisionNode(Node):
         self.declare_parameter('gaussian_blur_kernel', 5)
         self.declare_parameter('sitl_mode', False)
 
-        # Bölge haritası (hafıza) parametreleri
         self.declare_parameter('zone_merge_dist_m', 2.0)
         self.declare_parameter('zone_min_height_m', 0.5)
         self.declare_parameter('zonemap_publish_rate_hz', 2.0)
 
-        # Renk Eşikleri
         self.declare_parameter('color_ranges.red_lower_1', [0, 100, 100])
         self.declare_parameter('color_ranges.red_upper_1', [10, 255, 255])
         self.declare_parameter('color_ranges.red_lower_2', [160, 100, 100])
@@ -153,7 +120,7 @@ class VisionNode(Node):
         ).value
 
     def _setup_detectors(self) -> None:
-        """Saf Python tespit algoritmalarını başlatır."""
+        """Tespit algoritmalarini baslatir."""
         qr_conf = self.get_parameter('qr_min_confidence').value
         self._qr_detector = QRDetector(min_confidence=qr_conf)
         # QR içeriği her değiştiğinde artan sıra numarası. Aynı QR'ın ardışık
@@ -191,22 +158,19 @@ class VisionNode(Node):
         self._lz_detector = LandingZoneDetector(config=lz_config)
 
     def _setup_publishers(self) -> None:
-        """Dışa aktarılacak tespit kanallarını ayarlar."""
-        # QR Mission Data -> Sürü geneli, GCS ve Görev FSM'sine
+        """Publisher'lari olusturur."""
         self._qr_pub = self.create_publisher(
             QRMissionData,
             '/swarm/internal/perception/qr_data',
             _RELIABLE_QOS,
         )
 
-        # Landing Zone Data -> Lokal hassas iniş algoritmasına
         self._lz_pub = self.create_publisher(
             LandingZoneDetection,
             f'/drone_{self._agent_id}/perception/landing_zone',
             _BEST_EFFORT_QOS,
         )
 
-        # Kalıcı bölge haritası -> precision_landing, GCS/log
         self._zonemap_pub = self.create_publisher(
             ZoneMap,
             '/swarm/perception/zone_map',
@@ -214,7 +178,7 @@ class VisionNode(Node):
         )
 
     def _setup_subscriptions(self) -> None:
-        """Kamera kanallarını dinlemeye başlar."""
+        """Abonelikleri kurar."""
         self.create_subscription(
             Image,
             f'/drone_{self._agent_id}/camera/image_raw',
@@ -229,8 +193,6 @@ class VisionNode(Node):
             _BEST_EFFORT_QOS,
         )
 
-        # Kendi durumumuz -> projeksiyon için poz/irtifa/heading.
-        # kinematic_fusion ile aynı kanonik topic.
         self.create_subscription(
             AgentStatus,
             f'/swarm/internal/drone{self._agent_id}/status',
@@ -239,7 +201,7 @@ class VisionNode(Node):
         )
 
     def _on_status(self, msg: AgentStatus) -> None:
-        """Kendi pozumuzu projeksiyon için saklar (global NED)."""
+        """Kendi konum verimizi saklar."""
         self._my_pose = (
             float(msg.pos_x),
             float(msg.pos_y),
@@ -255,14 +217,13 @@ class VisionNode(Node):
         projeksiyon kendiliğinden uyar.
         """
         if len(msg.k) == 9:
-            # K matrisi: [fx, 0, cx, 0, fy, cy, 0, 0, 1]
             self._fx = msg.k[0]
             self._fy = msg.k[4]
             self._cx = msg.k[2]
             self._cy = msg.k[5]
 
     def _image_callback(self, msg: Image) -> None:
-        """Gelen çerçeveyi işler ve frekanslarına göre böler."""
+        """Görüntü karesini isler."""
         now = time.monotonic()
         run_qr = (now - self._last_qr_time) >= self._qr_interval
         run_lz = (now - self._last_lz_time) >= self._lz_interval
@@ -270,8 +231,6 @@ class VisionNode(Node):
         if not run_qr and not run_lz:
             return
 
-        # sensor_msgs/Image -> numpy matrisi
-        # cv_bridge kullanmadan sıfır kopya dönüşüm.
         frame = np.ndarray(
             shape=(msg.height, msg.width, 3),
             dtype=np.uint8,
@@ -298,7 +257,7 @@ class VisionNode(Node):
             self._last_lz_time = now
 
     def _process_qr(self, frame: np.ndarray, stamp: Any) -> None:
-        """QR kodunu işler ve sonuçları yayınlar."""
+        """QR kodlarini bulup yayinlar."""
         results = self._qr_detector.detect(frame)
 
         for res in results:
@@ -310,15 +269,13 @@ class VisionNode(Node):
             msg.valid = res.get('valid', False)
             msg.raw_text = res.get('raw_text', '')
             msg.error_message = res.get('error_message', '')
-            msg.confidence = 1.0  # pyzbar güven skoru vermez
+            msg.confidence = 1.0
 
-            # Bounding box
             msg.image_x = res.get('image_x', 0.0)
             msg.image_y = res.get('image_y', 0.0)
             msg.image_width = res.get('image_width', 0.0)
             msg.image_height = res.get('image_height', 0.0)
 
-            # Parsed Data
             msg.team_id = res.get('team_id', '')
             msg.qr_id = res.get('qr_id', 0)
             raw = res.get('raw_text', '')
@@ -338,7 +295,6 @@ class VisionNode(Node):
             msg.detach_color = res.get('detach_color', 0)
             msg.detach_wait_s = res.get('detach_wait_s', 0.0)
 
-            # Active Flags
             msg.formation_active = res.get('formation_active', False)
             msg.target_active = res.get('target_active', False)
             msg.maneuver_active = res.get('maneuver_active', False)
@@ -431,7 +387,7 @@ class VisionNode(Node):
             )
 
     def _publish_zone_map(self) -> None:
-        """Biriktirilen bölge haritasını düşük frekansta yayınlar."""
+        """Birlestirilmis bolge haritasini yayinlar."""
         zones = self._zone_map.zones
         msg = ZoneMap()
         msg.stamp = self.get_clock().now().to_msg()
@@ -448,7 +404,6 @@ class VisionNode(Node):
 
 
 def main(args=None) -> None:
-    """Entry point."""
     rclpy.init(args=args)
     node = VisionNode()
     try:

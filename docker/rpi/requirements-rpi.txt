@@ -1,8 +1,7 @@
 # YELPENÇE SÜRÜ İHA - RPi 4 GÖREV BİLGİSAYARI
 # Görev bilgisayarında gereken bağımlılıklar burada takip edilir.
 # Listelenen tüm paketlerin sürümleri "[PAKET]==[SÜRÜM]" şeklinde belirtilmelidir. Aksi belirtilmediği sürece en son sürümler tercih edilmelidir.
-# Bir bağımlılığın spesifik bir sürümü gerekiyorsa yorum satırı ekleyerek belirtiniz.
-# Tüm python paketlerini https://pypi.org/ adresinde bulabilirsiniz.
+# Tüm python paketleri aşağıda tanımlıdır.
 
 pymavlink==2.4.49
 pyserial==3.5

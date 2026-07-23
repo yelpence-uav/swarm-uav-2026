@@ -40,7 +40,7 @@
   animation: pulse-glow 2s ease-in-out infinite;
 }
 
-/* === Header satır ========================================== */
+/* Header satır */
 .swarm-state-panel__row {
   display: flex;
   align-items: center;
@@ -75,7 +75,7 @@
   font-style: italic;
 }
 
-/* === Chip badges =========================================== */
+/* Chip badges */
 .swarm-state-panel__badge {
   font-size: 10px;
   font-weight: 700;
@@ -100,7 +100,7 @@
   animation: pulse-glow 1.4s ease-in-out infinite;
 }
 
-/* === Stats ================================================= */
+/* Stats */
 .swarm-state-panel__stat {
   display: flex;
   flex-direction: column;
@@ -127,7 +127,7 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* === Status text ============================================ */
+/* Status text */
 .swarm-state-panel__status {
   padding: var(--space-2) var(--space-3);
   background: var(--color-bg-glass);

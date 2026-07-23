@@ -56,7 +56,7 @@ check_and_build_interfaces() {
         echo "$current_hash" >"$old_hash_file"
         echo -e "\e[32m[TAMAM] swarm_interfaces GÜNCEL.\e[0m\n"
       else
-        echo -e "\e[31m[UYARI] swarm_interfaces derlenemedi — elle: colcon build --packages-select swarm_interfaces\e[0m"
+        echo -e "\e[31m[UYARI] swarm_interfaces derlenemedi - elle: colcon build --packages-select swarm_interfaces\e[0m"
       fi
     fi
   fi

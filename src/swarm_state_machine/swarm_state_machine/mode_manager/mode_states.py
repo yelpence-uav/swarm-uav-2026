@@ -1,27 +1,11 @@
-"""mode_states.py — Görev 2 yarı otonom kontrol FSM durum sabitleri.
-
-mode_manager_node bu enum'ları kullanarak mevcut durumu izler.
-Şartname §5.2 — Yarı Otonom Sürü Kontrolü Görevi.
-"""
+# Copyright 2026 Yelpence
+"""Semi-autonomous kontrol FSM durum sabitleri."""
 
 from enum import IntEnum
 
 
 class ModeState(IntEnum):
-    """mode_manager FSM durum sabitleri.
-
-    IDLE      — Görev 2 henüz başlamadı, mode_manager pasif.
-    PREFLIGHT — mission_fsm SEMI_AUTONOMOUS'a geçti, drone kontrolleri.
-    TAKEOFF   — Kumandadan kalkış komutu alındı, sürü kalkıyor.
-    READY     — Sürü havada, formasyon kuruldu, joystick komutu bekleniyor.
-    MOVEMENT  — Sürü Hareket Modu: formasyon korunur, centroid hareket eder.
-    MANEUVER  — Manevra Modu: centroid sabit, formasyon eğilir/döndürülür.
-    HOLD      — Deadman bırakıldı / timeout, sürü yerinde duruyor.
-    LANDING   — Kumandadan iniş komutu geldi.
-    RTL       — Eve dönüş tetiklendi.
-    EMERGENCY — Acil durum / emergency_stop.
-    COMPLETED — Tüm drone'lar indi, görev tamamlandı.
-    """
+    """mode_manager FSM durum sabitleri."""
 
     IDLE = 0
     PREFLIGHT = 1
@@ -37,14 +21,13 @@ class ModeState(IntEnum):
 
 
 class ControlMode(IntEnum):
-    """SwarmControlCommand.mode ile eşleşen kontrol modu sabitleri."""
+    """Kontrol modu sabitleri."""
 
     UNKNOWN = 0
     SWARM_MOVEMENT = 1
     MANEUVER = 2
 
 
-# Havada olunabilecek state'ler — iniş kararlarında kullanılır.
 AIRBORNE_MODE_STATES = frozenset({
     ModeState.READY,
     ModeState.MOVEMENT,
@@ -53,7 +36,6 @@ AIRBORNE_MODE_STATES = frozenset({
     ModeState.RTL,
 })
 
-# Joystick komutlarının işlendiği aktif state'ler.
 ACTIVE_CONTROL_STATES = frozenset({
     ModeState.READY,
     ModeState.MOVEMENT,

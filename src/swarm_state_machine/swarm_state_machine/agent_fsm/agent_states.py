@@ -1,11 +1,11 @@
+# Copyright 2026 Yelpence
+"""Ajan FSM durum ve rol sabitleri."""
+
 from enum import IntEnum
 
 
 class AgentState(IntEnum):
-    """Ajan FSM durum sabitleri.
-
-    AgentStatus.msg STATE_* ile birebir eşleşir.
-    """
+    """Ajan FSM durum sabitleri."""
 
     UNKNOWN = 0
     IDLE = 1
@@ -45,7 +45,7 @@ Biri değişip diğeri unutulursa ofsetler (konum - centroid) tutarsız çıkar.
 
 
 class AgentRole(IntEnum):
-    """Ajan rol sabitleri. AgentStatus.msg ROLE_* ile birebir eşleşir."""
+    """Ajan rol sabitleri."""
 
     UNKNOWN = 0
     LEADER = 1
@@ -55,7 +55,7 @@ class AgentRole(IntEnum):
 
 
 class FlightMode(IntEnum):
-    """PX4 uçuş modu sabitleri. AgentStatus.msg FLIGHT_MODE_* ile eşleşir."""
+    """PX4 ucus modu sabitleri."""
 
     UNKNOWN = 0
     MANUAL = 1
@@ -70,8 +70,6 @@ class FlightMode(IntEnum):
     STABILIZED = 10
 
 
-# Yerde veya bağımsız hareket eden state'ler çarpışma önleme hesabına dahil
-# edilmez (ORCA/APF).
 AVOIDANCE_EXCLUDE_STATES = frozenset({
     AgentState.DETACHED,
     AgentState.PRECISION_LANDING,

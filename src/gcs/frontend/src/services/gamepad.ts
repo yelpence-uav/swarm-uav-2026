@@ -1,5 +1,5 @@
 /**
- * Browser Gamepad API'den joystick okuma — Görev 2 için.
+ * Browser Gamepad API'den joystick okuma - Görev 2 için.
  *
  * Standart gamepad layout (Xbox/PS):
  *   axes[0] = sol stick LR  (-1 sol, +1 sağ)

@@ -1,4 +1,4 @@
-"""Setup configuration for swarm_perception."""
+"""swarm_perception paketi icin kurulum ayari."""
 
 from setuptools import find_packages, setup
 
@@ -15,9 +15,9 @@ setup(
     ],
     install_requires=['setuptools'],
     zip_safe=True,
-    maintainer='Yelpence TEKNOFEST 2026',
-    maintainer_email='kocakseydagul@gmail.com',
-    description='Sürü algılama: kinematik füzyon ve görüntü işleme',
+    maintainer='Yelpençe Takımı',
+    maintainer_email='osmancevik@pm.me',
+    description='Suru algilama paketi',
     license='MIT',
     tests_require=['pytest'],
     entry_points={

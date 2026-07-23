@@ -1,13 +1,8 @@
-"""GCS heartbeat — saniyede 1 kere "ben hayattayım" mesajı.
-
-PX4 datalink loss failsafe'i tetiklememesi için. NAV_DLL_ACT param'ı LAND
-ya da RTL ayarlıysa, GCS heartbeat almazsa drone otomatik iner. QGroundControl
-gibi tüm GCS'ler bunu yapar.
-"""
+# Copyright 2026 Yelpence
+"""GCS heartbeat gonderici."""
 
 import logging
 import threading
-import time
 
 from pymavlink import mavutil
 
@@ -15,7 +10,7 @@ logger = logging.getLogger(__name__)
 
 
 class HeartbeatSender:
-    """Listener'ın MAVLink connection'ını paylaşarak 1Hz GCS heartbeat atar."""
+    """1Hz GCS heartbeat gönderir."""
 
     INTERVAL_SEC = 1.0
 
@@ -23,7 +18,7 @@ class HeartbeatSender:
         self.link = link
         self.send_lock = send_lock
         self._stop = threading.Event()
-        self._thread: threading.Thread | None = None
+        self._thread = None
 
     def start(self) -> None:
         self._thread = threading.Thread(
@@ -42,8 +37,8 @@ class HeartbeatSender:
                     self.link.mav.heartbeat_send(
                         mavutil.mavlink.MAV_TYPE_GCS,
                         mavutil.mavlink.MAV_AUTOPILOT_INVALID,
-                        0,  # base_mode
-                        0,  # custom_mode
+                        0,
+                        0,
                         mavutil.mavlink.MAV_STATE_ACTIVE,
                     )
             except Exception:

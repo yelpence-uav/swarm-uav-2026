@@ -1,6 +1,4 @@
-# ==========================================================================
 # Yelpençe Sürü İHA — Kamera Parametreleri
-# ==========================================================================
 # Bu dosya camera_driver düğümünün varsayılan parametrelerini içerir.
 # Varsayılan değerler Gazebo Harmonic simülasyonundaki kamera sensörü
 # (sim/models/x500_base/model.sdf) ile tutarlı olacak şekilde ayarlanmıştır.
@@ -9,7 +7,6 @@
 # Sahaya çıkıldığında bu dosyadaki değerleri Arducam HQ kameranızın
 # gerçek kalibrasyon sonuçlarıyla güncelleyin. Özellikle fx, fy, cx, cy
 # değerleri OpenCV kalibrasyon (checkerboard) ile elde edilmelidir.
-# ==========================================================================
 
 camera_driver:
   ros__parameters:
@@ -35,9 +32,7 @@ camera_driver:
     flip_vertical: false
     flip_horizontal: false
 
-    # ---------------------------------------------------------------
     # Kamera intrinsic parametreleri
-    # ---------------------------------------------------------------
     # Gazebo model.sdf horizontal_fov: 1.047 rad (~60°)
     # Aşağıdaki fx/fy değerleri 1280x720 çözünürlük + 60° FOV için
     # hesaplanmış yaklaşık değerlerdir:
@@ -52,7 +47,6 @@ camera_driver:
     #   ros2 run camera_calibration cameracalibrator \
     #     --size 9x6 --square 0.025 \
     #     image:=/drone_1/camera/image_raw
-    # ---------------------------------------------------------------
     fx: 1108.5
     fy: 1108.5
     cx: 640.0

@@ -1,4 +1,4 @@
-"""test_esp32_parser.py — UART çerçeve çözümleme birim testleri."""
+"""test_esp32_parser.py - UART çerçeve çözümleme birim testleri."""
 
 import struct
 
@@ -16,8 +16,10 @@ def _cerceve_uret(tip: int, iha_id: int, payload: bytes) -> bytes:
 
 
 def test_pose_round_trip():
-    """TIP_POSE çerçevesi doğru çözülmeli."""
-    payload = struct.pack('<iihhhh', 411234567, 291234567, 1500, 900, 5, -5)
+    """TIP_POSE (18B, vz dahil) çerçevesi doğru çözülmeli."""
+    payload = struct.pack(
+        '<iihhhhh', 411234567, 291234567, 1500, 900, 5, -5, 12
+    )
     decoded = cobs_decode(_cerceve_uret(pp.TIP_POSE, 2, payload))
     cerceve = pp.cerceve_coz(decoded)
     assert cerceve is not None
@@ -25,7 +27,9 @@ def test_pose_round_trip():
     assert cerceve.iha_id == 2
     pose = pp.pose_coz(cerceve.payload)
     assert pose.lat == 411234567
+    assert pose.alt_dm == 1500
     assert pose.vy == -5
+    assert pose.vz == 12
 
 
 def test_durum_round_trip():
@@ -60,7 +64,7 @@ def test_bozuk_crc_reddedilir():
 
 
 def test_kisa_cerceve_reddedilir():
-    """20 bayttan kısa çerçeve None döner."""
+    """4 bayttan kısa çerçeve None döner (tip+id+crc16)."""
     assert pp.cerceve_coz(b'\x04\x02\x00') is None
 
 
@@ -99,22 +103,17 @@ def test_komut_deadman_flag():
 
 
 def test_pose_paketle_int16_kirpma():
-    """pose_paketle alt_cm/heading/vx/vy int16 dışı verince crash etmez.
-
-    Beyza inceleme #3: alt_cm int16 → 327.67 m üstünde struct.error.
-    Kırpma savunması yeni eklendi.
-    """
-    # 500 m irtifa = 50000 cm — int16 üstü
+    """pose_paketle int16 dışı değer verince crash etmez, kırpar."""
     payload = pp.pose_paketle(
         lat=411234567, lon=291234567,
-        alt_cm=50000,    # >32767, kırpılmalı
+        alt_dm=50000,    # >32767, kırpılmalı
         heading=99999,   # >32767
         vx=-99999,       # <-32768
-        vy=0,
+        vy=0, vz=0,
     )
-    assert len(payload) == 16
+    assert len(payload) == 18
     pose = pp.pose_coz(payload)
-    assert pose.alt_cm == 32767      # üst sınıra kırpıldı
+    assert pose.alt_dm == 32767      # üst sınıra kırpıldı
     assert pose.heading == 32767
     assert pose.vx == -32768          # alt sınıra kırpıldı
 
@@ -212,3 +211,57 @@ def test_gorev_round_trip():
     assert g.param1 == 180
     assert g.param2 == -15
     assert g.bekleme_suresi_s == 3
+
+
+def test_qr_round_trip():
+    """TIP_QR_DATA payload'ı çözülmeli (şartname s.13 puanı)."""
+    payload = struct.pack('<BIii3x', 2, 42, 411234567, 291234567)
+    q = pp.qr_coz(payload)
+    assert q.drone_id == 2
+    assert q.action_id == 42
+    assert q.lat == 411234567
+    assert q.lon == 291234567
+
+
+def test_swarm_state_round_trip():
+    """TIP_SWARM_STATE payload'ı çözülmeli."""
+    payload = struct.pack('<BBBBI8x', 1, 3, 2, 1, 123456)
+    s = pp.swarm_state_coz(payload)
+    assert s.mission_id == 1
+    assert s.swarm_fsm_state == 3
+    assert s.active_leader == 2
+    assert s.formation == 1
+    assert s.timestamp == 123456
+
+
+def test_liveness_whitelist():
+    """F3: sadece bilinen peer + bilinen telemetri tipi liveness tazeler."""
+    assert pp.liveness_tazeler(2, pp.TIP_POSE) is True
+    assert pp.liveness_tazeler(pp.BAZ_MESH_ID, pp.TIP_DURUM) is True
+    # RTK sentinel (99) tazelemez — merge günü failsafe körleşmesi buradan
+    assert pp.liveness_tazeler(pp.BAZ_ID, pp.TIP_RTK) is False
+    # Bilinen tip ama bilinmeyen peer tazelemez
+    assert pp.liveness_tazeler(99, pp.TIP_POSE) is False
+    # Bilinen peer ama RTK tipi tazelemez
+    assert pp.liveness_tazeler(2, pp.TIP_RTK) is False
+
+
+def test_komut_fmt_layout_sozlesmesi():
+    """mesh_config.h static_assert'lerinin Python yakası (offset sözleşmesi).
+
+    Round-trip yakalayamaz: pack/unpack aynı _KOMUT_FMT'i kullandığı için
+    alan sırası değişse bile kendi içinde tutarlı kalır.
+    """
+    assert struct.calcsize(pp._KOMUT_FMT) == 16
+
+    p = pp.komut_paketle(alt_tip=0, flags=0xFF, roll_x100=0,
+                         pitch_x100=0, yaw_x100=0, throttle_x100=0)
+    assert p[1] == 0xFF                 # flags offset 1 (DEADMAN biti)
+
+    p = pp.komut_paketle(alt_tip=0, flags=0, roll_x100=0x0102,
+                         pitch_x100=0, yaw_x100=0, throttle_x100=0)
+    assert p[2:4] == b'\x02\x01'        # roll offset 2, little-endian
+
+    p = pp.komut_paketle(alt_tip=0, flags=0, roll_x100=0,
+                         pitch_x100=0, yaw_x100=0, throttle_x100=0x0304)
+    assert p[8:10] == b'\x04\x03'       # throttle offset 8

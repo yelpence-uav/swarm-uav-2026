@@ -1,4 +1,6 @@
+"""Setup file for sim_rtcm_source package."""
 from setuptools import find_packages, setup
+
 
 package_name = 'sim_rtcm_source'
 
@@ -19,8 +21,8 @@ setup(
     ],
     install_requires=['setuptools'],
     zip_safe=True,
-    maintainer='Yelpence TEKNOFEST 2026',
-    maintainer_email='kocakseydagul@gmail.com',
+    maintainer='Yelpençe Takımı',
+    maintainer_email='osmancevik@pm.me',
     description=(
         'Yalniz-sim RTCM3 uretici (px4_bridge RTK pipeline testi icin)'
     ),

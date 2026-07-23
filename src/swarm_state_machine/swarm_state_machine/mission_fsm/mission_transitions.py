@@ -1,11 +1,5 @@
-"""mission_transitions.py — Görev FSM geçiş kuralları.
-
-Tek giriş noktası: evaluate_transitions(ctx), ctx'i okur ve
-bir sonraki MissionState'i ya da geçiş olmaması için None döner.
-
-ROS2 import'u yoktur; ROS2 kurulumu olmadan birim test yapılabilir.
-Kural: Bu modüldeki fonksiyonlar ctx'i okur ama yazmaz.
-"""
+# Copyright 2026 Yelpence
+"""Gorev FSM gecis kurallari."""
 
 import time
 
@@ -43,9 +37,6 @@ _AGENT_STATE_IDLE = 1
 # süre: terminal durumun YKİ'de görülebilmesi + durum yerleşimi içindir.
 _TERMINAL_RESET_DWELL_S = 3.0
 
-# Rota bilinemez (gidilecek QR'ın konumu tabloda yok) → RETURN_HOME'a geçmeden
-# önce tanınan süre. Geç gelen konum tablosuna / QR yeniden okumaya şans tanır;
-# NAVIGATE_TIMEOUT'u (120 s) beklemeden daha hızlı, kontrollü failsafe.
 _ROUTE_UNKNOWN_GRACE_S = 30.0
 
 _TERMINAL_STATES = frozenset({
@@ -55,18 +46,7 @@ _TERMINAL_STATES = frozenset({
 
 
 def evaluate_transitions(ctx: MissionContext) -> MissionState | None:
-    """Bir sonraki MissionState'i ya da geçiş için None döner.
-
-    Önce genel komutları kontrol eder (terminal olmayan herhangi
-    bir durumdan geçerli), ardından duruma özgü işleyiciye delege eder.
-
-    Args:
-        ctx (MissionContext): Mevcut FSM çalışma zamanı durumu.
-
-    Returns:
-        MissionState: Geçilecek hedef durum.
-        None: Geçiş yok; FSM mevcut durumda kalır.
-    """
+    """Bir sonraki MissionState'i ya da gecis yoksa None doner."""
     if ctx.pending_command == _CMD_ABORT:
         if ctx.state not in _TERMINAL_STATES:
             return MissionState.ABORTED
@@ -119,28 +99,19 @@ def evaluate_transitions(ctx: MissionContext) -> MissionState | None:
 
 
 def _from_unknown(ctx: MissionContext) -> MissionState | None:
-    """UNKNOWN -> ilk tick'te IDLE."""
+    """UNKNOWN durumundan gecisleri degerlendirir."""
     return MissionState.IDLE
 
 
 def _from_idle(ctx: MissionContext) -> MissionState | None:
-    """IDLE -> GCS'den START gelince PREFLIGHT."""
+    """IDLE durumundan gecisleri degerlendirir."""
     if ctx.pending_command == _CMD_START:
         return MissionState.PREFLIGHT
     return None
 
 
 def _from_preflight(ctx: MissionContext) -> MissionState | None:
-    """PREFLIGHT: tüm ajanların hazırlık kontrollerini geçmesini bekler.
-
-    Args:
-        ctx (MissionContext): Mevcut FSM çalışma zamanı durumu.
-
-    Returns:
-        MissionState: Tüm kontroller geçilince SYNCHRONIZED_TAKEOFF.
-        MissionState: Timeout'ta ABORTED.
-        None: Hâlâ bekleniyor.
-    """
+    """PREFLIGHT durumundan gecisleri degerlendirir."""
     if not ctx.all_agents_seen:
         if ctx.time_in_state() > _PREFLIGHT_TIMEOUT_S:
             return MissionState.ABORTED
@@ -160,20 +131,10 @@ def _from_preflight(ctx: MissionContext) -> MissionState | None:
 
 
 def _from_synchronized_takeoff(ctx: MissionContext) -> MissionState | None:
-    """SYNCHRONIZED_TAKEOFF: tüm ajanların IN_SWARM olmasını bekler.
-
-    Args:
-        ctx (MissionContext): Mevcut FSM çalışma zamanı durumu.
-
-    Returns:
-        MissionState: Hazır olunca ROTATE_TO_NEXT veya SEMI_AUTONOMOUS.
-        MissionState: Timeout'ta ABORTED.
-        None: Hâlâ bekleniyor.
-    """
+    """SYNCHRONIZED_TAKEOFF durumundan gecisleri degerlendirir."""
     if ctx.all_agents_in_swarm():
         if ctx.mission_type == MissionType.SEMI_AUTONOMOUS:
             return MissionState.SEMI_AUTONOMOUS
-        # Şartname: navigate öncesi ilk QR'a doğru dön.
         return MissionState.ROTATE_TO_NEXT
 
     if ctx.time_in_state() > _TAKEOFF_TIMEOUT_S:
@@ -183,16 +144,7 @@ def _from_synchronized_takeoff(ctx: MissionContext) -> MissionState | None:
 
 
 def _from_navigate_to_qr(ctx: MissionContext) -> MissionState | None:
-    """NAVIGATE_TO_QR: sürü QR noktasına doğru hareket ediyor.
-
-    Args:
-        ctx (MissionContext): Mevcut FSM çalışma zamanı durumu.
-
-    Returns:
-        MissionState: Varış bildirilince (ve sürü tamsa) EXECUTE_QR_TASK.
-        MissionState: Timeout'ta RETURN_HOME.
-        None: Hâlâ navigasyon ya da ayrılan ajanın dönüşü bekleniyor.
-    """
+    """NAVIGATE_TO_QR durumundan gecisleri degerlendirir."""
     if ctx.event_formation_reached:
         # REJOIN KAPISI: ayrılan ajan sürüye katılmadan QR görevlerini BAŞLATMA.
         # Şartname, ayrılan elemanın "en geç bir sonraki QR kodunun GÖREVİNE
@@ -208,10 +160,6 @@ def _from_navigate_to_qr(ctx: MissionContext) -> MissionState | None:
             return None
         return MissionState.EXECUTE_QR_TASK
 
-    # Failsafe: gidilecek QR'ın konumu tabloda yok (route_unknown). Şartname:
-    # rota bilinemezse ev konumuna dön. Grace süresi, geç gelen konum tablosuna
-    # veya QR'ın yeniden okunmasına şans tanır; dolunca NAVIGATE_TIMEOUT'u
-    # beklemeden RETURN_HOME'a geçilir.
     if ctx.route_unknown and ctx.time_in_state() > _ROUTE_UNKNOWN_GRACE_S:
         return MissionState.RETURN_HOME
 
@@ -222,15 +170,7 @@ def _from_navigate_to_qr(ctx: MissionContext) -> MissionState | None:
 
 
 def _from_execute_qr_task(ctx: MissionContext) -> MissionState | None:
-    """EXECUTE_QR_TASK: QR alt-adımları sırayla çalışıyor.
-
-    Args:
-        ctx (MissionContext): Mevcut FSM çalışma zamanı durumu.
-
-    Returns:
-        MissionState: Adımlar bitince ya da hata durumunda sonraki durum.
-        None: Görev hâlâ devam ediyor.
-    """
+    """EXECUTE_QR_TASK durumundan gecisleri degerlendirir."""
     qr = ctx.current_qr
     if qr is None:
         if ctx.time_in_state() > _QR_TASK_TIMEOUT_S:
@@ -263,15 +203,7 @@ def _from_execute_qr_task(ctx: MissionContext) -> MissionState | None:
 
 
 def _from_wait_at_qr(ctx: MissionContext) -> MissionState | None:
-    """WAIT_AT_QR: wait_deadline dolana kadar sabit irtifada bekler.
-
-    Args:
-        ctx (MissionContext): Mevcut FSM çalışma zamanı durumu.
-
-    Returns:
-        MissionState: Deadline dolunca ROTATE_TO_NEXT veya RETURN_HOME.
-        None: Deadline henüz dolmadı.
-    """
+    """WAIT_AT_QR durumundan gecisleri degerlendirir."""
     deadline_passed = (
         ctx.wait_deadline is not None
         and time.monotonic() >= ctx.wait_deadline
@@ -286,18 +218,7 @@ def _from_wait_at_qr(ctx: MissionContext) -> MissionState | None:
 
 
 def _from_rotate_to_next(ctx: MissionContext) -> MissionState | None:
-    """ROTATE_TO_NEXT: formasyon bir sonraki QR noktasına döndürülüyor.
-
-    EVENT_ROTATION_COMPLETED beklenir ya da timeout'ta navigasyona geçilir
-    (navigasyon başlık düzeltmesini zaten yapar).
-
-    Args:
-        ctx (MissionContext): Mevcut FSM çalışma zamanı durumu.
-
-    Returns:
-        MissionState: Rotasyon tamamlanınca veya timeout'ta NAVIGATE_TO_QR.
-        None: Hâlâ dönülüyor.
-    """
+    """ROTATE_TO_NEXT durumundan gecisleri degerlendirir."""
     if ctx.event_rotation_completed:
         return MissionState.NAVIGATE_TO_QR
 
@@ -308,16 +229,7 @@ def _from_rotate_to_next(ctx: MissionContext) -> MissionState | None:
 
 
 def _from_semi_autonomous(ctx: MissionContext) -> MissionState | None:
-    """SEMI_AUTONOMOUS: joystick güdümlü sürü modu (Görev 2).
-
-    Çıkış yalnızca genel RTL/ABORT komutlarıyla yapılır.
-
-    Args:
-        ctx (MissionContext): Mevcut FSM çalışma zamanı durumu.
-
-    Returns:
-        None: Her zaman; çıkış global kurallarıyla yapılır.
-    """
+    """SEMI_AUTONOMOUS durumundan gecisleri degerlendirir."""
     return None
 
 
@@ -384,15 +296,7 @@ def _from_landing(ctx: MissionContext) -> MissionState | None:
 
 
 def _from_paused(ctx: MissionContext) -> MissionState | None:
-    """PAUSED: GCS'den RESUME komutu bekleniyor.
-
-    Args:
-        ctx (MissionContext): Mevcut FSM çalışma zamanı durumu.
-
-    Returns:
-        MissionState: pause_return_state'te saklanan önceki durum.
-        None: Hâlâ duraklatılmış.
-    """
+    """PAUSED durumundan gecisleri degerlendirir."""
     if ctx.pending_command == _CMD_RESUME:
         return ctx.pause_return_state
     return None
@@ -443,15 +347,7 @@ _HANDLERS = {
 
 
 def find_first_qr_step(qr) -> QrTaskStep:
-    """Mesajdaki (QRMissionData) ilk aktif QrTaskStep'i döner.
-
-    Args:
-        qr: QRMissionData mesaj örneği ya da None.
-
-    Returns:
-        QrTaskStep: Yarışma sırasına göre ilk aktif adım.
-        QrTaskStep.DONE: Hiç aktif adım yoksa ya da qr None ise.
-    """
+    """Mesajdaki ilk aktif QrTaskStep'i doner."""
     if qr is None:
         return QrTaskStep.DONE
 
@@ -467,16 +363,7 @@ def find_first_qr_step(qr) -> QrTaskStep:
 
 
 def find_next_qr_step(qr, current: QrTaskStep) -> QrTaskStep:
-    """Tamamlanan adımdan sonraki aktif adımı döner.
-
-    Args:
-        qr: QRMissionData mesaj örneği ya da None.
-        current (QrTaskStep): Az önce tamamlanan adım.
-
-    Returns:
-        QrTaskStep: Yarışma sırasına göre sonraki aktif adım.
-        QrTaskStep.DONE: Başka aktif adım kalmadıysa.
-    """
+    """Tamamlanan adimdan sonraki aktif adimi doner."""
     if qr is None:
         return QrTaskStep.DONE
 

@@ -22,7 +22,7 @@
   color: var(--color-text-muted);
 }
 
-/* === Row =================================================== */
+/* Row */
 .mission-panel__row {
   display: flex;
   flex-direction: column;
@@ -35,7 +35,7 @@
   margin-top: var(--space-1);
 }
 
-/* === Field ================================================== */
+/* Field */
 .mission-panel__field {
   display: flex;
   flex-direction: column;
@@ -78,7 +78,7 @@
   color: var(--color-text-muted);
 }
 
-/* === Start CTA ============================================= */
+/* Start CTA */
 .mission-panel__start {
   width: 100%;
   padding: var(--space-4) var(--space-5);
@@ -132,7 +132,7 @@
   display: none;
 }
 
-/* === Hint =================================================== */
+/* Hint */
 .mission-panel__hint {
   padding: var(--space-2) var(--space-3);
   background: rgba(56, 189, 248, 0.08);
@@ -144,7 +144,7 @@
   animation: fade-in var(--transition-base);
 }
 
-/* === Safety label ========================================== */
+/* Safety label */
 .mission-panel__safety-label {
   font-size: var(--text-xs);
   color: var(--color-warning);
@@ -179,7 +179,7 @@
   color: var(--color-text-muted);
 }
 
-/* === Result / error ======================================== */
+/* Result / error */
 .mission-panel__result {
   padding: var(--space-2) var(--space-3);
   border-radius: var(--radius-md);

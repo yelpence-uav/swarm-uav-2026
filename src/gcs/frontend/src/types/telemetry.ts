@@ -3,11 +3,11 @@
  *
  * DroneState alanları backend/core/state_store.py ile birebir uyumlu olmalı.
  * SwarmState alanları backend/connections/ros_bridge.py:swarm_state_to_dict ile.
- * Enum sabitleri swarm_interfaces .msg dosyalarından kopyalanır — kontrat
+ * Enum sabitleri swarm_interfaces .msg dosyalarından kopyalanır - kontrat
  * değişirse buradaki sabitler de güncellenmeli.
  */
 
-// --- DroneState ---------------------------------------------------------------
+// DroneState
 
 export interface DroneState {
   drone_id: number;
@@ -82,7 +82,7 @@ export interface DroneState {
   status_text: string;
 }
 
-// --- AgentStatus.STATE_* enum ------------------------------------------------
+// AgentStatus.STATE_* enum
 
 export const AGENT_STATE_LABELS: Record<number, string> = {
   0: "Bilinmiyor",
@@ -111,7 +111,7 @@ export const AGENT_ROLE_LABELS: Record<number, string> = {
   4: "Ayrılmış",
 };
 
-// --- SwarmState (global sürü durumu) -----------------------------------------
+// SwarmState (global sürü durumu)
 
 export interface SwarmState {
   swarm_state: number;         // SWARM_* enum
@@ -166,7 +166,7 @@ export const FORMATION_LABELS: Record<number, string> = {
   99: "Özel",
 };
 
-// --- QRMissionData (çözülmüş QR görev içeriği) -------------------------------
+// QRMissionData (çözülmüş QR görev içeriği)
 // Şartname V2: görev boyunca en az 1 kez GCS'te gösterilmeli (yoksa -20 ceza).
 // Backend ros_bridge.py:qr_mission_data_to_dict ile birebir uyumlu.
 
@@ -213,7 +213,7 @@ export const QR_COLOR_LABELS: Record<number, string> = {
   2: "Mavi",
 };
 
-// --- Alert (mevcut AlertManager + SystemEvent köprüsü) -----------------------
+// Alert (mevcut AlertManager + SystemEvent köprüsü)
 
 export type AlertSeverity = "info" | "warning" | "critical";
 
@@ -225,7 +225,7 @@ export interface Alert {
   timestamp: number;
 }
 
-// --- WebSocket payload --------------------------------------------------------
+// WebSocket payload
 
 export type ConnectionMode = "ros2" | "mavlink-sim";
 
@@ -233,6 +233,6 @@ export interface TelemetryPayload {
   drones: DroneState[];
   alerts: Alert[];
   swarm_state: SwarmState | null;   // mavlink-sim modunda veya henüz mesaj gelmediyse null
-  qr?: QRMissionData | null;        // çözülmüş son QR — henüz okunmadıysa null
-  connection_mode?: ConnectionMode; // backend hangi yolda — UI yarışma-dışı butonları gizler
+  qr?: QRMissionData | null;        // çözülmüş son QR - henüz okunmadıysa null
+  connection_mode?: ConnectionMode; // backend hangi yolda - UI yarışma-dışı butonları gizler
 }

@@ -1,4 +1,4 @@
-/* Drone strip — yatay 3 kart, app__drone-strip içinde grid'i devralır */
+/* Drone strip - yatay 3 kart, app__drone-strip içinde grid'i devralır */
 .telemetry-panel {
   display: contents; /* parent (.app__drone-strip) zaten grid; biz wrapper olmayalım */
 }

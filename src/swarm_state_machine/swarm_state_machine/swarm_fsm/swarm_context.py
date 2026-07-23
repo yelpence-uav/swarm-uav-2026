@@ -1,23 +1,18 @@
-"""Sürünün tüm anlık durumunu tutan veri yapısı.
+# Copyright 2026 Yelpence
+"""Surunun tum anlik durumunu tutan veri yapisi."""
 
-Her ajan için önbelleğe alınan telemetri, sürü centroid'i,
-formasyon kalite metrikleri ve son olay bilgisini barındırır.
-"""
-
+from dataclasses import dataclass, field
 import math
 import time
-from dataclasses import dataclass, field
 
 from ..agent_fsm.agent_states import FORMATION_ACTIVE_STATES
 from .swarm_states import FormationType, SwarmState
+from ..agent_fsm.agent_states import AgentState
 
 
 @dataclass
 class AgentStatusCache:
-    """Tek bir ajandan gelen son AgentStatus bilgisinin özeti.
-
-    swarm_fsm_node, AgentStatus mesajını bu yapıya dönüştürür.
-    """
+    """Tek bir ajandan gelen son AgentStatus bilgisinin ozeti."""
 
     agent_id: int = 0
     state: int = 0
@@ -50,17 +45,10 @@ class AgentStatusCache:
     kill_switch_active: bool = False
     rc_link_ok: bool = False
 
-    last_update: float = 0.0  # time.monotonic()
+    last_update: float = 0.0
 
     def is_stale(self, timeout_s: float = 3.0) -> bool:
-        """Son güncelleme çok eski mi?
-
-        Args:
-            timeout_s: Zaman aşımı eşiği (saniye).
-
-        Returns:
-            True ise ajan verisi bayat.
-        """
+        """Son guncelleme cok eski mi?."""
         if self.last_update <= 0.0:
             return True
         return (time.monotonic() - self.last_update) > timeout_s
@@ -68,11 +56,7 @@ class AgentStatusCache:
 
 @dataclass
 class SwarmContext:
-    """Sürünün tüm anlık durumunu tutar.
-
-    swarm_fsm_node bu sınıfı günceller ve SwarmState.msg olarak yayınlar.
-    swarm_transitions bu sınıfı okuyarak geçiş kararı verir.
-    """
+    """Sürünün tüm anlık durumunu tutar."""
 
     swarm_state: SwarmState = SwarmState.UNKNOWN
     leader_id: int = 0
@@ -84,32 +68,25 @@ class SwarmContext:
     formation_stable: bool = False
     emergency_active: bool = False
 
-    # Sürü ağırlık merkezi — NED frame
     centroid_x: float = 0.0
     centroid_y: float = 0.0
     centroid_z: float = 0.0
     formation_heading_deg: float = 0.0
 
-    # Formasyon kalite metrikleri
     formation_max_error_m: float = 0.0
     formation_avg_error_m: float = 0.0
     formation_heading_error_deg: float = 0.0
 
-    # Ajan cache — agent_id → AgentStatusCache
     agents: dict[int, AgentStatusCache] = field(default_factory=dict)
 
-    # Beklenen ajan sayısı (parametre ile belirlenir)
     expected_agent_count: int = 3
 
-    # QR görev takibi (mission_fsm tarafından event ile güncellenir)
     current_qr_id: int = 0
     current_qr_seq: int = 0
 
-    # Aktif görev adı
     active_mission: str = ''
     status_text: str = ''
 
-    # Son olay bilgisi (SwarmState.msg last_event_* alanları)
     last_event_type: int = 0
     last_event_severity: int = 0
     last_event_source: int = 0
@@ -120,42 +97,28 @@ class SwarmContext:
     last_event_has_position: bool = False
     last_event_message: str = ''
 
-    # Lider heartbeat takibi
     last_heartbeat_time: float = 0.0
     election_round: int = 0
-    heartbeat_timeout_s: float = 0.3  # 300ms
+    heartbeat_timeout_s: float = 0.3
 
-    # Rotasyon takibi
     rotation_active: bool = False
 
-    # GCS komut takibi
     pending_rtl: bool = False
     pending_land: bool = False
 
-    # State zamanlayıcı
     state_entry_time: float = field(default_factory=time.monotonic)
 
-    # SITL modu
     sitl_mode: bool = False
 
-    # Failsafe eşikleri
-    min_healthy_ratio: float = 0.5  # %50'den az sağlıklı ajan → failsafe
+    min_healthy_ratio: float = 0.5
 
     def set_state(self, new_state: SwarmState) -> None:
-        """Sürünün durumunu değiştirir ve zamanlayıcıyı sıfırlar.
-
-        Args:
-            new_state: Geçilecek hedef state.
-        """
+        """Sürünün durumunu degistirir."""
         self.swarm_state = new_state
         self.state_entry_time = time.monotonic()
 
     def time_in_state(self) -> float:
-        """Bu state'te geçen süre (saniye).
-
-        Returns:
-            Geçen süre.
-        """
+        """Bu durumda gecen sure."""
         return time.monotonic() - self.state_entry_time
 
     def compute_centroid(self) -> None:
@@ -219,39 +182,21 @@ class SwarmContext:
         )
 
     def count_agents_in_state(self, state: int) -> int:
-        """Belirtilen state'teki ajan sayısını döner.
-
-        Args:
-            state: AgentState enum değeri (int).
-
-        Returns:
-            O state'teki aktif ajan sayısı.
-        """
+        """Belirtilen state'teki aktif ajan sayisini doner."""
         return sum(
             1 for a in self.agents.values()
             if a.state == state and not a.is_stale()
         )
 
     def count_healthy_agents(self) -> int:
-        """Sağlıklı ve güncel ajan sayısını döner.
-
-        Returns:
-            Sağlıklı ajan sayısı.
-        """
+        """Saglikli ve guncel ajan sayisini doner."""
         return sum(
             1 for a in self.agents.values()
             if a.healthy and not a.is_stale()
         )
 
     def all_agents_in_states(self, states: set[int]) -> bool:
-        """Tüm aktif ajanlar belirtilen state'lerden birinde mi?
-
-        Args:
-            states: İzin verilen state değerleri seti.
-
-        Returns:
-            True ise tüm ajanlar verilen state'lerden birinde.
-        """
+        """Tüm aktif ajanlar belirtilen state'lerden birinde mi?."""
         active = [
             a for a in self.agents.values()
             if not a.is_stale()

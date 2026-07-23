@@ -45,6 +45,7 @@ import json
 from typing import Any, Dict, List
 
 import numpy as np
+
 from pyzbar.pyzbar import decode
 
 # QR komut kısaltmaları -> QRMissionData enum değerleri.
@@ -53,13 +54,13 @@ _COLOR_CODES = {'r': 1, 'b': 2}                   # RED / BLUE
 
 
 class QRDetector:
-    """Görüntüdeki QR kodlarını bulup ayrıştıran sınıf."""
+    """Goruntudeki QR kodlarini bulup ayristiran sinif."""
 
     def __init__(
         self, min_confidence: float = 0.5, team_slot: int = 1
     ) -> None:
         """
-        Qrdetector sınıfını ilklendirir.
+        Aciklama: QRDetector sinifini ilklendirir.
 
         Args:
             min_confidence (float): Asgari güven eşiği (pyzbar desteklemez,
@@ -73,20 +74,18 @@ class QRDetector:
 
     def detect(self, image: np.ndarray) -> List[Dict[str, Any]]:
         """
-        Verilen BGR görüntü üzerindeki QR kodları bulur ve ayrıştırır.
+        BGR goruntu uzerindeki QR kodlari bulur ve ayristirir.
 
         Args:
-            image (np.ndarray): cv2 formatında BGR görüntü matrisi.
+            image: cv2 formatinda BGR goruntu matrisi.
 
         Returns:
-            List[Dict[str, Any]]: Ayrıştırılmış QR veri sözlüğü listesi.
+            List[Dict[str, Any]]: Ayristirilmis QR veri sozluk listesi.
         """
         if image is None or image.size == 0:
             return []
 
-        # Pyzbar decode işlemi (RGB veya BGR fark etmez)
         decoded_objects = decode(image)
-
         results = []
         for obj in decoded_objects:
             try:
@@ -94,11 +93,9 @@ class QRDetector:
             except UnicodeDecodeError:
                 continue
 
-            # Sınırlayıcı kutu (Bounding Box) koordinatları
             rect = obj.rect
             img_h, img_w = image.shape[:2]
 
-            # QRMissionData formatına uygun veri yapısı
             qr_data = {
                 'raw_text': raw_text,
                 'image_x': float(rect.left + rect.width / 2) / img_w,
@@ -109,7 +106,6 @@ class QRDetector:
 
             parsed_fields = self._parse_qr_text(raw_text)
             qr_data.update(parsed_fields)
-
             results.append(qr_data)
 
         return results

@@ -1,4 +1,4 @@
-"""test_esp32_cobs.py — COBS encode/decode birim testleri."""
+"""test_esp32_cobs.py - COBS encode/decode birim testleri."""
 
 from swarm_control.esp32_bridge.cobs import cobs_decode, cobs_encode
 

@@ -1,13 +1,7 @@
-"""crc16.py — CRC16-CCITT (XModem) hesaplama.
+"""crc16.py — CRC16-CCITT-FALSE hesaplama.
 
-ESP32 firmware'indeki crc16() fonksiyonunun birebir Python karşılığı.
-UART paketlerinin bütünlük doğrulaması için kullanılır.
-
-Parametreler (firmware ile AYNI olmalı):
-    Polinom    : 0x1021
-    Başlangıç  : 0xFFFF
-    Yansıtma   : yok (reflect in/out = false)
-    Son XOR    : yok
+ESP32 firmware'indeki crc16() ile ayni parametreler:
+Polinom=0x1021, Baslangic=0xFFFF, yansitma yok.
 """
 
 _POLY = 0x1021
@@ -16,13 +10,13 @@ _MASK = 0xFFFF
 
 
 def crc16(veri: bytes) -> int:
-    """Verilen byte dizisinin CRC16-CCITT değerini hesaplar.
+    """CRC16-CCITT degerini hesaplar.
 
     Args:
-        veri (bytes): CRC'si hesaplanacak ham byte dizisi.
+        veri (bytes): Ham byte dizisi.
 
     Returns:
-        int: 16 bitlik CRC değeri (0-65535).
+        int: 16 bitlik CRC degeri.
     """
     crc = _INIT
     for byte in veri:
@@ -36,13 +30,13 @@ def crc16(veri: bytes) -> int:
 
 
 def crc16_dogrula(veri: bytes, beklenen: int) -> bool:
-    """Hesaplanan CRC'nin beklenen değerle eşleşip eşleşmediğini döner.
+    """Hesaplanan CRC beklenen degerle eslesir mi?
 
     Args:
-        veri (bytes): CRC'si hesaplanacak ham byte dizisi.
-        beklenen (int): Karşılaştırılacak 16 bitlik CRC değeri.
+        veri (bytes): Ham byte dizisi.
+        beklenen (int): Beklenen 16-bit CRC.
 
     Returns:
-        bool: Eşleşiyorsa True, aksi halde False.
+        bool: Eslesme durumu.
     """
     return crc16(veri) == (beklenen & _MASK)
