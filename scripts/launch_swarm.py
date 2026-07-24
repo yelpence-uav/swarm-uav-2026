@@ -32,6 +32,7 @@ def cleanup():
 
     processes_to_kill = [
         'camera_relay',
+        'mavros_node',
         'MicroXRCEAgent',
         'ros_gz_bridge',
         'parameter_bridge',
@@ -150,7 +151,7 @@ def generate_spawn_sdf(world_path, drone_count):
     for i in range(drone_count):
         drone_name = f'IHA_{i+1}'
         x = 0.0
-        y = i * 3.0
+        y = i * 6.0
 
         spawn_elements += f"""
     <include>
