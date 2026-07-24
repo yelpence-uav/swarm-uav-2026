@@ -328,7 +328,7 @@ class Mission1Node(Node):
     # --- Komut icrası --------------------------------------------------------
 
     def _publish_formation(self, cmd: FormationTargetCmd) -> None:
-        """FormationTargetCmd'i FormationCommand olarak path_planner'a yayınlar."""
+        """Formasyon hedefini path_planner'a FormationCommand olarak yayınlar."""
         m = FormationCommand()
         m.stamp = self.get_clock().now().to_msg()
         m.sequence_num = self._seq

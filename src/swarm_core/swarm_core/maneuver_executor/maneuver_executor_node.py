@@ -290,7 +290,7 @@ class ManeuverExecutorNode(Node):
         return res
 
     def _pub_event(self, event_type, message):
-        """SystemEvent yayınlar (manevra tamamlanma/başarısızlık bildirimi)."""
+        """Manevra tamamlanma/başarısızlık olayını yayınlar."""
         m = SystemEvent()
         m.stamp = self.get_clock().now().to_msg()
         m.event_type = int(event_type)

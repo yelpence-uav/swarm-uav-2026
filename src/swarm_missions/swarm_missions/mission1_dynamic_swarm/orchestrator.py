@@ -274,7 +274,7 @@ class Mission1Orchestrator:
 
     @property
     def qr_distance_m(self) -> float:
-        """NAVIGATE'te en yakın dronun QR'a son ölçülen uzaklığı (-1 = yok)."""
+        """Navigasyonda en yakın dronun QR'a son uzaklığı (-1 = yok)."""
         return self._st.last_qr_distance_m
 
     @property
@@ -351,7 +351,7 @@ class Mission1Orchestrator:
         )
 
     def _maybe_qr_arrival(self, inp: OrchestratorInput):
-        """NAVIGATE'te okuyucu dron QR'a varınca bir kez QrReachedCmd üretir."""
+        """Navigasyonda okuyucu dron QR'a varınca QrReachedCmd üretir."""
         # NAVIGATE dışındayken varış defteri SIFIRLANIR: her yeni navigasyon
         # bacağı temiz sayfayla başlar. Böylece kaç QR olursa olsun (ve aynı
         # QR'a tekrar gelinse bile) her varış yeniden bildirilebilir.
@@ -646,7 +646,7 @@ class Mission1Orchestrator:
         ]
 
     def _bearing_deg(self, frm, to) -> float:
-        """frm'den to'ya yön açısı (kuzeyden saat yönüne, derece)."""
+        """İki nokta arası yön açısı (kuzeyden saat yönüne, derece)."""
         dn = to[0] - frm[0]
         de = to[1] - frm[1]
         return math.degrees(math.atan2(de, dn))

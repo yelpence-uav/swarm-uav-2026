@@ -264,7 +264,7 @@ class KinematicFusionNode(Node):
 
     # ---------- Callback'ler ----------
     def _on_origin(self, msg: SwarmOrigin) -> None:
-        """SwarmOrigin'i saklar; shared NED göreli hesabı için."""
+        """Ortak referans noktasını saklar (shared NED göreli hesabı)."""
         if msg.valid:
             self._origin_lat = float(msg.origin_lat_deg)
             self._origin_lon = float(msg.origin_lon_deg)

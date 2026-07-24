@@ -46,7 +46,7 @@ class StepResult:
 
 
 def _slew(current: float, target: float, max_delta: float) -> float:
-    """current'i target'e doğru en fazla |max_delta| adımıyla yaklaştırır."""
+    """Mevcut değeri hedefe en fazla |max_delta| adımıyla yaklaştırır."""
     if max_delta <= 0.0:
         return current
     diff = target - current
@@ -58,7 +58,7 @@ def _slew(current: float, target: float, max_delta: float) -> float:
 
 
 def _clamp(value: float, lo: float, hi: float) -> float:
-    """value'yu [lo, hi] aralığına kırpar."""
+    """Değeri [lo, hi] aralığına kırpar."""
     return max(lo, min(hi, value))
 
 
