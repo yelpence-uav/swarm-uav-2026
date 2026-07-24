@@ -176,7 +176,7 @@ def _from_precision_landing(ctx: AgentContext) -> AgentState | None:
 
 
 def _from_waiting_rejoin(ctx: AgentContext) -> AgentState | None:
-    """WAITING_REJOIN → ARMING: Bekleme süresi doldu (ya da manuel rejoin"""
+    """WAITING_REJOIN durumundan gecisleri degerlendirir."""
     ready = (
         ctx.time_in_state() >= ctx.detach_wait_s
         or ctx.pending_state == AgentState.REJOINING

@@ -619,7 +619,7 @@ class FormationControlNode(Node):
         msg: FormationCommand,
         positions: dict[int, tuple[float, float, float]],
     ) -> dict[int, tuple[float, float, float]] | None:
-        """Slot atamasını YEREL hesaplar (dağıtık): aynı geometri + aynı Öklid"""
+        """Slot atamasını yerel olarak hesaplar (dağıtık atama)."""
         ftype = int(msg.formation_type)
         if ftype not in (FORMATION_OKBASI, FORMATION_V, FORMATION_CIZGI):
             return None
@@ -692,7 +692,7 @@ class FormationControlNode(Node):
         msg: FormationCommand,
         agent_id: int,
     ) -> tuple[float, float, float] | None:
-        """Bir ajanın efektif slot ofseti: freeze'li yerel atama varsa ondan,"""
+        """Ajanın efektif slot ofsetini verir (yerel atama varsa ondan)."""
         agent_id = int(agent_id)
         if self._local_offsets is not None and agent_id in self._local_offsets:
             return self._local_offsets[agent_id]
