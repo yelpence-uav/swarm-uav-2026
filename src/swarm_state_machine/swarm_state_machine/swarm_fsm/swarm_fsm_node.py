@@ -22,7 +22,6 @@ from swarm_interfaces.msg import (
     SystemEvent,
 )
 
-from ..agent_fsm.agent_states import FORMATION_ACTIVE_STATES, AgentState
 from .swarm_context import AgentStatusCache, SwarmContext
 from .swarm_states import (
     AIRBORNE_SWARM_STATES,
@@ -30,6 +29,7 @@ from .swarm_states import (
     SwarmState,
 )
 from .swarm_transitions import evaluate_transitions
+from ..agent_fsm.agent_states import AgentState, FORMATION_ACTIVE_STATES
 
 _M_PER_DEG_LAT = 111_320.0
 

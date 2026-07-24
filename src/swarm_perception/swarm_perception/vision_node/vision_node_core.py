@@ -25,9 +25,9 @@ from swarm_interfaces.msg import (
     ZoneMap,
 )
 
-from .landing_zone_detector import LandingZoneDetector, ensure_bgr
+from .landing_zone_detector import ensure_bgr, LandingZoneDetector
 from .qr_detector import QRDetector
-from .zone_map_core import ZoneMapCore, zone_offset_ned_m
+from .zone_map_core import zone_offset_ned_m, ZoneMapCore
 
 _BEST_EFFORT_QOS = QoSProfile(
     reliability=QoSReliabilityPolicy.BEST_EFFORT,

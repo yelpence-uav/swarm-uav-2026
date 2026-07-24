@@ -23,10 +23,10 @@ from swarm_interfaces.msg import (
 )
 
 from .formation_geometry import (
+    compute_slot_offsets,
     FORMATION_CIZGI,
     FORMATION_OKBASI,
     FORMATION_V,
-    compute_slot_offsets,
     hungarian_assignment,
     latlon_to_ned,
     rotate_offset,
