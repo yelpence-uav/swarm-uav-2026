@@ -116,3 +116,5 @@ tools/aes_key.txt
 id_ed25519*
 *.patch
 mesh-firmware.zip
+src/network_proxy/DESIGN.md
+src/swarm_core/test/test_ca_core.py

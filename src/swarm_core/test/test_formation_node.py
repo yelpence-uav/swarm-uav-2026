@@ -157,13 +157,19 @@ class TestComputeVelocity(unittest.TestCase):
         self.assertAlmostEqual(vy, 0.0)
         self.assertAlmostEqual(vz, 0.0)
 
-    def test_esik_altinda_svt_uygulanmaz(self):
-        """XY hatası < threshold ise SVT katkısı sıfırdır."""
+    def test_esik_altinda_svt_zayiflar(self):
+        """XY hatası < threshold ise SVT smoothstep ile zayıflar.
+
+        Sert deadband (eşik altında tam sıfır) limit-cycle üretiyordu; yerine
+        C1 sürekli zarf kullanılır: merkeze yaklaştıkça çekme pürüzsüzce
+        sıfıra iner ama eşik altında tam sıfır değildir.
+        """
         self.node._pos_valid = True
         self.node._current_pos_x = 9.5
-        # Hata = 0.5 < threshold=2.0
+        # Hata = 0.5 < threshold=2.0 -> zayiflatilmis (kucuk) cekme
         vx, vy, vz = self.node._compute_velocity(10.0, 0.0, 0.0, 5.0)
-        self.assertAlmostEqual(vx, 0.0)
+        self.assertGreater(vx, 0.0)   # hedefe dogru cekme var
+        self.assertLess(vx, 0.2)      # ama zayiflatilmis
         self.assertAlmostEqual(vy, 0.0)
         self.assertAlmostEqual(vz, 0.0)
 
