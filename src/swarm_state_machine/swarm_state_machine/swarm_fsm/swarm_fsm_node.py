@@ -30,7 +30,6 @@ from .swarm_states import (
     SwarmState,
 )
 from .swarm_transitions import evaluate_transitions
-from ..agent_fsm.agent_states import AgentState
 
 _M_PER_DEG_LAT = 111_320.0
 
