@@ -9,7 +9,7 @@ import time
 from swarm_interfaces.msg import SystemEvent
 
 from .agent_context import AgentContext
-from .agent_states import AgentRole, AgentState
+from .agent_states import AgentState
 
 _OFFBOARD_LOSS_TIMEOUT_S = 5.0
 
@@ -112,8 +112,6 @@ def check(ctx: AgentContext) -> HealthCheckResult:
     result = _check_altitude_limits(ctx)
     if result.safety_hold:
         return result
-
-    _check_role_state_consistency(ctx)
 
     return HealthCheckResult()
 
@@ -276,19 +274,3 @@ def _check_altitude_limits(ctx: AgentContext) -> HealthCheckResult:
         )
 
     return HealthCheckResult()
-
-
-def _check_role_state_consistency(ctx: AgentContext) -> None:
-    """Role ve state tutarliligini kontrol eder."""
-    if (
-        ctx.role == AgentRole.STANDBY
-        and ctx.state == AgentState.IN_SWARM
-    ):
-        ctx.status_text = 'Role/state tutarsizlik: STANDBY + IN_SWARM'
-    elif (
-        ctx.state == AgentState.IN_SWARM
-        and ctx.role not in (AgentRole.LEADER, AgentRole.FOLLOWER)
-    ):
-        ctx.status_text = (
-            f'Role/state tutarsizlik: IN_SWARM + {ctx.role.name}'
-        )
