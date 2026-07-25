@@ -151,10 +151,18 @@ class AgentFsmNode(Node):
         elif result.safety_hold and not ctx.hold_active:
             ctx.hold_active = True
             ctx.status_text = 'Safety hold active'
+            self.get_logger().warn(
+                f'[agent {ctx.agent_id}] SAFETY HOLD tetiklendi: '
+                f'{result.reason}'
+            )
+            # Kilit yalnız bu ajanı bağlasın diye target_agent_id veriyoruz.
+            # Hedefsiz yayınlanınca bir ajanın güvenlik sorunu tüm sürüyü
+            # kilitliyordu (alıcı tarafta is_mine kontrolü de eklendi).
             self._pub_event(
                 SystemEvent.EVENT_SAFETY_HOLD,
                 SystemEvent.SEVERITY_WARNING,
                 result.reason,
+                target_agent_id=ctx.agent_id,
             )
         elif result.warning:
             ctx.status_text = result.reason
@@ -162,19 +170,19 @@ class AgentFsmNode(Node):
 
         next_s = evaluate_transitions(ctx)
 
-        # ARMED'da takilma teshisi: _from_armed uc sarti birden ister
-        # (mission_start_sequence_active + offboard_active + 2 sn). Sartlardan
-        # biri tutmazsa dron sessizce ARMED'da kalir, kalkis hic baslamaz ve
-        # gorev SYNC_TAKEOFF'ta timeout'a duser. Hangi sartin tuttugunu disaridan
-        # gormek mumkun degildi; bu satir onu gorunur kilar. (Olculdu: her
-        # denemede FARKLI bir ajan takiliyor -> yaris durumu suphesi.)
+        # ARMED'da takılma teşhisi: dron sessizce ARMED'da kalıp kalkamazsa
+        # hangi şartın tutmadığını burada loglayıp görünür kılıyoruz.
+        # hold_active/autonomous_paused da yazılıyor: bu ikisi kalkışı bloke
+        # ediyordu ama eskiden hiçbir yere loglanmadığı için görünmezdi.
         if ctx.state == AgentState.ARMED and next_s is None:
             self.get_logger().warn(
                 f'[agent {ctx.agent_id}] ARMED bekliyor: '
                 f'mission_start={ctx.mission_start_sequence_active} '
                 f'offboard={ctx.offboard_active} '
                 f'sure={ctx.time_in_state():.1f}s '
-                f'armed={ctx.armed} healthy={ctx.healthy}',
+                f'armed={ctx.armed} healthy={ctx.healthy} '
+                f'hold_active={ctx.hold_active} '
+                f'autonomous_paused={ctx.autonomous_control_paused}',
                 throttle_duration_sec=3.0,
             )
 
@@ -276,7 +284,9 @@ class AgentFsmNode(Node):
         elif eid == SystemEvent.EVENT_EMERGENCY_LAND and is_mine:
             ctx.pending_state = AgentState.LANDING
 
-        elif eid == SystemEvent.EVENT_SAFETY_HOLD:
+        elif eid == SystemEvent.EVENT_SAFETY_HOLD and is_mine:
+            # is_mine şart: filtre olmadan bir ajanın hold'u tüm sürüye
+            # yayılıp hepsini kilitliyordu.
             ctx.hold_active = True
             ctx.status_text = 'Safety hold active'
 

@@ -302,25 +302,10 @@ def main():
         )
         time.sleep(3)
 
-        # SADECE SİMÜLASYON — gerçek donanımda ASLA başlatma.
-        # Sim'deki x500 modeli pusula (mag) verisi yayınlamadığı için EKF
-        # yön (yaw) üretemiyor ve ön-uçuş kontrolü fail veriyor. Sahte mag
-        # bunu sim'de gideriyor; sahada pusulayı Here4 zaten sağlıyor.
-        # Güvenlik: sahte mag programı yalnızca SITL derlemesinde bulunur.
-        # Sahada (gerçek Pixhawk) bu program olmadığı için hiç başlatılmaz.
-        fake_mag_bin = (
-            f'{PX4_PATH}/build/px4_sitl_default/bin/px4-fake_magnetometer'
-        )
-        if os.path.exists(fake_mag_bin):
-            fake_mag_cmd = (
-                f'source /opt/ros/jazzy/setup.bash && '
-                f'{fake_mag_bin} --instance {drone_id} start'
-            )
-            subprocess.run(
-                ['bash', '-c', fake_mag_cmd],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-            )
+        # Sahte mag kaldırıldı; x500 modelinde gerçek manyetometre zaten var.
+        # Sahte mag mutlak kuzey vermediği için dronlar kalkışta yaw'da
+        # savruluyordu. EKF mag kalite kontrolü set_px4_params.sh'de gevşetildi.
+        pass
 
     # 6. Kamera Relay Yazılımı
     print('>> Kamera Relay Düğümü başlatılıyor...')
@@ -412,10 +397,12 @@ def main():
 
     # Sürü icra düğümleri (swarm_core)
     print('>> SwarmOrigin yayıncısı başlatılıyor...')
+    # fixed_alt = zeminin AMSL irtifası (GPS ile eşleşmeli). Yanlış değer
+    # dronu havada sanıp kalkışı bozar, sıfıra çekilmez.
     run_in_tmux(
         'ros2 run swarm_control swarm_origin_publisher --ros-args '
         '-p origin_source:=fixed '
-        '-p fixed_lat:=41.0441269 -p fixed_lon:=29.0016997 -p fixed_alt:=0.48 '
+        '-p fixed_lat:=41.0441269 -p fixed_lon:=29.0016997 -p fixed_alt:=37.53 '
         '-p rate_hz:=1.0',
         'SwarmOrigin',
         'swarm_origin',

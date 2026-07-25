@@ -252,7 +252,12 @@ class PathPlannerNode(Node):
 
     def _timer_callback(self) -> None:
         """Duzenli araliklarla sonraki ara noktayi yayinlar."""
-        if not self._waypoints or self._current_cmd is None:
+        # _waypoints boş olabilir (yay kipi yerinde rotasyonda listeyi bilerek
+        # boş bırakır) — o yüzden burada sadece komut var mı diye bakıyoruz.
+        # Eskiden "not self._waypoints" guard'ı yay kipini bloke ediyor, sürü
+        # yerinde dönemeyip navigasyonda takılıyordu. Boş liste durumu aşağıda
+        # heading kontrolüyle zaten doğru yönetiliyor.
+        if self._current_cmd is None:
             return
 
         target_heading = float(self._current_cmd.heading_deg)
