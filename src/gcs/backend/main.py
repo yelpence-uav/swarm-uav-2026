@@ -36,6 +36,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from backend.api.commands import router as commands_router
 from backend.api.guided import router as guided_router
 from backend.api.mission import router as mission_router
+from backend.api.params import router as params_router
 from backend.api.telemetry import router as telemetry_router
 from backend.connections.command_sender import CommandSender
 from backend.connections.command_worker import CommandWorker
@@ -43,6 +44,7 @@ from backend.connections.heartbeat_sender import HeartbeatSender
 from backend.connections.mavlink_listener import MavlinkListener
 from backend.core.alert_manager import AlertManager, SEVERITY_INFO, SEVERITY_WARNING
 from backend.core.command_gate import CommandGate
+from backend.core.params import ParamStore
 from backend.core.state_store import StateStore
 from backend.ws.telemetry_ws import telemetry_ws
 
@@ -133,6 +135,7 @@ async def lifespan(app: FastAPI):
 
     # app.state ortak alanlar (her iki mod da yazar)
     app.state.store = store
+    app.state.params = ParamStore()
     app.state.alerts = alerts
     app.state.config = cfg
     app.state.connection_mode = mode
@@ -230,6 +233,7 @@ def create_app() -> FastAPI:
     app.include_router(commands_router)
     app.include_router(mission_router)
     app.include_router(guided_router)
+    app.include_router(params_router)
 
     @app.websocket("/ws/telemetry")
     async def ws_telemetry(websocket: WebSocket):
