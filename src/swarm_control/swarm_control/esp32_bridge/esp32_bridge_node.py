@@ -609,38 +609,39 @@ class Esp32BridgeNode(Node):
         pose = pp.pose_coz(payload)
         lat_deg = pose.lat / 1e7
         lon_deg = pose.lon / 1e7
-        alt_amsl_m = pose.alt_dm / 10.0
+        # NOT: alt_dm artik GORELI irtifa (m, yukari; dm) tasiyor — AMSL DEGIL.
+        # Drone kendi EKF goreli irtifasini (-pos_z) POSE'a koyuyor; boylece
+        # dikey irtifa origin'den BAGIMSIZ, pürüzsüz ve QGC ile ayni gelir.
+        rel_alt_m = pose.alt_dm / 10.0
         vel_x_ned, vel_y_ned = pose.vx / 100.0, pose.vy / 100.0
         with self._cache_lock:
             status = self._komsu_status_al(drone_id)
             # GPS alanları (her durumda doldur)
             status.lat_deg = lat_deg
             status.lon_deg = lon_deg
-            status.alt_amsl_m = alt_amsl_m
             status.heading_deg = pose.heading / 10.0
             status.vel_x = vel_x_ned
             status.vel_y = vel_y_ned
             status.vel_z = pose.vz / 100.0
-            # GPS→NED dönüşümü ve validity bayrakları
-            ned = self._gps_ned_cevir(lat_deg, lon_deg, alt_amsl_m)
+            # DİKEY: goreli irtifadan dogrudan — origin gerekmez, her zaman gecerli.
+            status.pos_z = -rel_alt_m
+            status.z_valid = True
+            # YATAY (pos_x/pos_y): hala origin-tabanli GPS→NED (harita/formasyon).
+            ned = self._gps_ned_cevir(lat_deg, lon_deg, 0.0)
             if ned is not None:
                 status.pos_x = ned[0]
                 status.pos_y = ned[1]
-                status.pos_z = ned[2]
                 status.origin_synced = True
                 status.xy_valid = True
-                status.z_valid = True
                 status.v_xy_valid = True
                 if hasattr(status, 'v_z_valid'):
                     status.v_z_valid = True
             else:
-                # Origin yok → NED hesaplanamaz, downstream skipler
+                # Origin yok → yatay NED yok (dikey irtifa yine de gecerli)
                 status.pos_x = 0.0
                 status.pos_y = 0.0
-                status.pos_z = 0.0
                 status.origin_synced = False
                 status.xy_valid = False
-                status.z_valid = False
                 status.v_xy_valid = False
                 if hasattr(status, 'v_z_valid'):
                     status.v_z_valid = False
@@ -1112,7 +1113,10 @@ class Esp32BridgeNode(Node):
             payload = pp.pose_paketle(
                 lat=int(msg.lat_deg * 1e7),
                 lon=int(msg.lon_deg * 1e7),
-                alt_dm=int(msg.alt_amsl_m * 10.0),
+                # alt_dm artik GORELI irtifa (m, yukari; dm) — AMSL DEGIL.
+                # Drone'un EKF goreli irtifasi (-pos_z, NED down negatif=yukari).
+                # Boylece YKI'de irtifa origin'den bagimsiz, pürüzsüz, QGC ile ayni.
+                alt_dm=int(-msg.pos_z * 10.0),
                 heading=int(msg.heading_deg * 10.0),
                 vx=int(msg.vel_x * 100.0),
                 vy=int(msg.vel_y * 100.0),

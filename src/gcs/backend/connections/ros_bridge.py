@@ -740,6 +740,8 @@ class RosBridge:
         def cb(msg: AgentStatus) -> None:
             if self.store is not None:
                 try:
+                    # alt_m = -pos_z; pos_z artik drone'un EKF goreli irtifasini
+                    # tasiyor (mesh POSE alt_dm), origin gerekmez.
                     self.store.update(drone_id, **agent_status_to_state_fields(msg))
                 except Exception:
                     logger.exception(
