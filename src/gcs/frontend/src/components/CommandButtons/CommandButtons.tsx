@@ -1,6 +1,6 @@
 import { useState } from "react";
 
-import { CommandFailure, GotoTarget, api, guided } from "../../services/api";
+import { CommandFailure, FlightParams, GotoTarget, api, guided } from "../../services/api";
 import "./CommandButtons.css";
 
 interface CommandButtonsProps {
@@ -13,7 +13,12 @@ interface CommandButtonsProps {
    * false: mavlink-sim doğrudan MAVLink komutları.
    */
   guidedMode?: boolean;
+  /** Uçuş parametreleri — takeoff/goto varsayılanları buradan ön-doldurulur. */
+  params?: FlightParams;
 }
+
+const VARSAYILAN_IRTIFA = 5;
+const VARSAYILAN_HIZ = 3;
 
 type ActionKey = "arm" | "takeoff" | "land" | "rtl" | "disarm";
 
@@ -65,14 +70,18 @@ export function CommandButtons({
   connected,
   disabled = false,
   guidedMode = false,
+  params,
 }: CommandButtonsProps) {
+  const varAlt = params?.default_altitude_m ?? VARSAYILAN_IRTIFA;
+  const varHiz = params?.default_speed_ms ?? VARSAYILAN_HIZ;
   const [busy, setBusy] = useState<ActionKey | "goto" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [gotoOpen, setGotoOpen] = useState(false);
-  // Nokta-git formu — x=Kuzey, y=Doğu (m), z=İrtifa (m, yukarı), yön opsiyonel.
+  // Nokta-git formu — x=Kuzey, y=Doğu (m), z=İrtifa (m, yukarı), hız, yön opsiyonel.
   const [gx, setGx] = useState("");
   const [gy, setGy] = useState("");
-  const [gz, setGz] = useState("5");
+  const [gz, setGz] = useState(String(varAlt));
+  const [gs, setGs] = useState(String(varHiz));
   const [gh, setGh] = useState("");
 
   const order = guidedMode ? ORDER_GUIDED : ORDER_SIM;
@@ -103,7 +112,7 @@ export function CommandButtons({
     // Guided kalkış: irtifa sor (iptal edilebilir).
     let takeoffAlt = 0;
     if (action === "takeoff" && guidedMode) {
-      const s = window.prompt("Kalkış irtifası (metre):", "5");
+      const s = window.prompt("Kalkış irtifası (metre):", String(varAlt));
       if (s === null) return;
       takeoffAlt = parseFloat(s);
       if (!(takeoffAlt > 0)) {
@@ -153,7 +162,9 @@ export function CommandButtons({
       return;
     }
     const z = parseFloat(gz);
-    const target: GotoTarget = { x, y, z: Number.isNaN(z) ? 5 : z };
+    const sp = parseFloat(gs);
+    const target: GotoTarget = { x, y, z: Number.isNaN(z) ? varAlt : z };
+    if (!Number.isNaN(sp) && sp > 0) target.speed = sp;
     if (gh.trim() !== "") {
       const h = parseFloat(gh);
       if (!Number.isNaN(h)) target.heading_deg = h;
@@ -230,7 +241,16 @@ export function CommandButtons({
                   value={gz}
                   onChange={(e) => setGz(e.target.value)}
                   inputMode="decimal"
-                  placeholder="5"
+                  placeholder={String(varAlt)}
+                />
+              </label>
+              <label>
+                Hız (m/s)
+                <input
+                  value={gs}
+                  onChange={(e) => setGs(e.target.value)}
+                  inputMode="decimal"
+                  placeholder={String(varHiz)}
                 />
               </label>
               <label>

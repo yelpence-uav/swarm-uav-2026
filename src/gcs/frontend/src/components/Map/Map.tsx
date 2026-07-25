@@ -3,7 +3,7 @@ import L from "leaflet";
 
 import type { QRPosition } from "../../hooks/useQRPositions";
 import { isQRPositionSet } from "../../hooks/useQRPositions";
-import type { GotoTarget } from "../../services/api";
+import type { FlightParams, GotoTarget } from "../../services/api";
 import type { DroneState } from "../../types/telemetry";
 import { droneIcon } from "./droneIcon";
 import { qrIcon } from "./qrIcon";
@@ -37,8 +37,10 @@ export interface MapProps {
   activeQrId?: number; // swarm_state.current_qr_id — aktif QR'ı vurgula
   /** true iken haritaya tıklayınca QGC tarzı "buraya git" onay çubuğu açılır. */
   guidedEnabled?: boolean;
-  /** Nokta-git komutu — Map, tıklanan lat/lon + irtifayı buradan gönderir. */
+  /** Nokta-git komutu — Map, tıklanan lat/lon + irtifa + hızı buradan gönderir. */
   onGoto?: (droneId: number, target: GotoTarget) => Promise<unknown>;
+  /** Uçuş parametreleri — pop-up'ta irtifa/hız varsayılanları buradan gelir. */
+  params?: FlightParams;
 }
 
 export function MapView({
@@ -47,6 +49,7 @@ export function MapView({
   activeQrId = 0,
   guidedEnabled = false,
   onGoto,
+  params,
 }: MapProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<L.Map | null>(null);
@@ -64,6 +67,7 @@ export function MapView({
   const [pending, setPending] = useState<{ lat: number; lon: number } | null>(null);
   const [gotoDrone, setGotoDrone] = useState<number | null>(null);
   const [gotoAlt, setGotoAlt] = useState("5");
+  const [gotoSpeed, setGotoSpeed] = useState("3");
   const [gotoSending, setGotoSending] = useState(false);
   const [gotoError, setGotoError] = useState<string | null>(null);
 
@@ -247,9 +251,10 @@ export function MapView({
       gotoDrone != null && connectedDrones.some((d) => d.drone_id === gotoDrone)
         ? gotoDrone
         : connectedDrones[0].drone_id;
-    const d = connectedDrones.find((x) => x.drone_id === chosen);
     setGotoDrone(chosen);
-    setGotoAlt(d && d.alt_m > 0.5 ? d.alt_m.toFixed(1) : "5");
+    // Varsayılan irtifa/hız = Ayarlar parametreleri (operatör pop-up'ta değiştirebilir).
+    setGotoAlt(String(params?.default_altitude_m ?? 5));
+    setGotoSpeed(String(params?.default_speed_ms ?? 3));
     setGotoError(null);
     setPending({ lat: e.latlng.lat, lon: e.latlng.lng });
   };
@@ -261,10 +266,13 @@ export function MapView({
       setGotoError("İrtifa > 0 olmalı");
       return;
     }
+    const speed = parseFloat(gotoSpeed);
     setGotoSending(true);
     setGotoError(null);
     try {
-      await onGoto(gotoDrone, { lat: pending.lat, lon: pending.lon, alt });
+      const target: GotoTarget = { lat: pending.lat, lon: pending.lon, alt };
+      if (!Number.isNaN(speed) && speed > 0) target.speed = speed;
+      await onGoto(gotoDrone, target);
       setPending(null);
     } catch (err) {
       setGotoError(err instanceof Error ? err.message : "Komut gönderilemedi");
@@ -312,6 +320,15 @@ export function MapView({
               inputMode="decimal"
             />
             m
+          </label>
+          <label className="map-goto-bar__field">
+            Hız
+            <input
+              value={gotoSpeed}
+              onChange={(e) => setGotoSpeed(e.target.value)}
+              inputMode="decimal"
+            />
+            m/s
           </label>
           {connectedDrones.length > 1 && (
             <label className="map-goto-bar__field">

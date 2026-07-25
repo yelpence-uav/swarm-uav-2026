@@ -4,19 +4,16 @@ import "./TelemetryPanel.css";
 
 interface TelemetryPanelProps {
   drones: DroneState[];
-  /** Görev aktif iken kart üzerindeki bireysel komut butonları yasak. */
-  commandsDisabled?: boolean;
-  /** Komut butonlarını göster (ros2 guided veya mavlink-sim). */
-  showCommands?: boolean;
-  /** true: ESP mesh guided komutları (ros2). false: mavlink-sim. */
-  guidedMode?: boolean;
+  /** Seçili drone (kontrol paneli açık olan). */
+  selectedDroneId?: number | null;
+  /** Kart "Kontrol" butonu — seçili drone'u değiştirir. */
+  onSelectDrone?: (droneId: number) => void;
 }
 
 export function TelemetryPanel({
   drones,
-  commandsDisabled = false,
-  showCommands = false,
-  guidedMode = false,
+  selectedDroneId = null,
+  onSelectDrone,
 }: TelemetryPanelProps) {
   return (
     <aside className="telemetry-panel">
@@ -24,9 +21,8 @@ export function TelemetryPanel({
         <DroneCard
           key={d.drone_id}
           drone={d}
-          commandsDisabled={commandsDisabled}
-          showCommands={showCommands}
-          guidedMode={guidedMode}
+          onSelect={onSelectDrone}
+          selected={d.drone_id === selectedDroneId}
         />
       ))}
       {drones.length === 0 && (

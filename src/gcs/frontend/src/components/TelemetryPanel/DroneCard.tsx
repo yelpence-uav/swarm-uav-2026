@@ -1,6 +1,5 @@
 import type { DroneState } from "../../types/telemetry";
 import { AGENT_STATE_LABELS } from "../../types/telemetry";
-import { CommandButtons } from "../CommandButtons/CommandButtons";
 import { BatteryGauge } from "./BatteryGauge";
 import "./DroneCard.css";
 
@@ -22,43 +21,66 @@ const GPS_LABEL: Record<number, string> = {
 
 interface DroneCardProps {
   drone: DroneState;
-  commandsDisabled?: boolean;
-  showCommands?: boolean;
-  guidedMode?: boolean;
+  /** Kart sağ üstündeki tek buton — seçili drone kontrol panelini açar. */
+  onSelect?: (droneId: number) => void;
+  selected?: boolean;
 }
 
-export function DroneCard({
+/** Kart başlığı — sadece telemetri kartlarında ortak; tek aksiyon: Kontrol. */
+function CardHead({
   drone,
-  commandsDisabled = false,
-  showCommands = false,
-  guidedMode = false,
-}: DroneCardProps) {
+  badge,
+  onSelect,
+  selected,
+}: {
+  drone: DroneState;
+  badge: React.ReactNode;
+  onSelect?: (id: number) => void;
+  selected?: boolean;
+}) {
+  return (
+    <header className="drone-card__head">
+      <span
+        className={`drone-card__dot ${drone.connected ? "drone-card__dot--live" : ""}`}
+      />
+      <h3 className="drone-card__title">{drone.name}</h3>
+      {badge}
+      {onSelect && (
+        <button
+          type="button"
+          className={`drone-card__ctrl ${selected ? "drone-card__ctrl--active" : ""}`}
+          onClick={() => onSelect(drone.drone_id)}
+          title="Kontrol panelini aç (arm, kalkış, nokta-git…)"
+        >
+          ⚙ Kontrol
+        </button>
+      )}
+    </header>
+  );
+}
+
+export function DroneCard({ drone, onSelect, selected = false }: DroneCardProps) {
   const accent = ACCENT_VARS[drone.drone_id] ?? "var(--color-accent)";
   const stateLabel = AGENT_STATE_LABELS[drone.state] ?? drone.mode;
 
   if (!drone.connected) {
     return (
       <article
-        className="drone-card drone-card--offline"
+        className={`drone-card drone-card--offline ${selected ? "drone-card--selected" : ""}`}
         style={{ "--accent": accent } as React.CSSProperties}
       >
-        <header className="drone-card__head">
-          <span className="drone-card__dot" />
-          <h3 className="drone-card__title">{drone.name}</h3>
-          <span className="drone-card__badge drone-card__badge--offline">OFFLINE</span>
-        </header>
+        <CardHead
+          drone={drone}
+          onSelect={onSelect}
+          selected={selected}
+          badge={
+            <span className="drone-card__badge drone-card__badge--offline">OFFLINE</span>
+          }
+        />
         <div className="drone-card__offline-body">
           <span className="drone-card__offline-icon">⚠</span>
           <span className="drone-card__offline-text">Son paket gelmiyor</span>
         </div>
-        {showCommands && (
-          <CommandButtons
-            droneId={drone.drone_id}
-            connected={false}
-            disabled={commandsDisabled}
-            guidedMode={guidedMode}
-          />
-        )}
       </article>
     );
   }
@@ -67,28 +89,27 @@ export function DroneCard({
   const gpsLabel = GPS_LABEL[drone.gps_fix_type] ?? "?";
 
   // Operatorun sordugu tek soru "su an ucabilir mi". Kill switch'i, on-kontrolu
-  // (PREARM_CHECK / emniyet anahtari) ve kumanda baglantisini AYRI isaretler
-  // olarak gostermiyoruz — hepsi tek bir "ucamaz" sebebi; hangisi olursa olsun
-  // cevap ayni. Sebep kirilimi gerekince telemetriden bakilir, kartta yer tutmaz.
+  // ve kumanda baglantisini tek "ucamaz" sebebi olarak birlestiriyoruz.
   const canFly = drone.ready_to_arm && !drone.kill_switch_active && drone.rc_link_ok;
 
   return (
     <article
-      className="drone-card"
+      className={`drone-card ${selected ? "drone-card--selected" : ""}`}
       style={{ "--accent": accent } as React.CSSProperties}
     >
-      <header className="drone-card__head">
-        <span className="drone-card__dot drone-card__dot--live" />
-        <h3 className="drone-card__title">{drone.name}</h3>
-        <span
-          className={`drone-card__badge drone-card__badge--${armed ? "armed" : "ground"}`}
-        >
-          {armed ? "ARMED" : "YERDE"}
-        </span>
-      </header>
+      <CardHead
+        drone={drone}
+        onSelect={onSelect}
+        selected={selected}
+        badge={
+          <span
+            className={`drone-card__badge drone-card__badge--${armed ? "armed" : "ground"}`}
+          >
+            {armed ? "ARMED" : "YERDE"}
+          </span>
+        }
+      />
 
-      {/* Ucus hazirligi: tek bakista ucabilir/ucamaz. Ucamazken nokta yanip
-          soner ki gozden kacmasin. */}
       <div
         className={`drone-card__fly ${canFly ? "drone-card__fly--ok" : "drone-card__fly--no"}`}
       >
@@ -100,10 +121,7 @@ export function DroneCard({
         <span className="drone-card__state-label">{stateLabel}</span>
       </div>
 
-      <BatteryGauge
-        percent={drone.battery_percent}
-        voltage={drone.battery_voltage}
-      />
+      <BatteryGauge percent={drone.battery_percent} voltage={drone.battery_voltage} />
 
       <dl className="drone-card__stats">
         <Stat label="ALT" value={`${drone.alt_m.toFixed(1)} m`} />
@@ -115,15 +133,6 @@ export function DroneCard({
       <footer className="drone-card__footer mono">
         {drone.lat.toFixed(5)}, {drone.lon.toFixed(5)}
       </footer>
-
-      {showCommands && (
-        <CommandButtons
-          droneId={drone.drone_id}
-          connected={true}
-          disabled={commandsDisabled}
-          guidedMode={guidedMode}
-        />
-      )}
     </article>
   );
 }

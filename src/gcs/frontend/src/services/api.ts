@@ -64,6 +64,7 @@ export interface GotoTarget {
   lon?: number;
   alt?: number;
   heading_deg?: number;
+  speed?: number;
 }
 
 /**
@@ -79,6 +80,30 @@ export const guided = {
   land: (droneId: number) => postCommand(`/guided/${droneId}/land`),
   goto: (droneId: number, target: GotoTarget) =>
     postJson<CommandResult>(`/guided/${droneId}/goto`, target),
+};
+
+/** Uçuş parametreleri — Ayarlar sekmesi + takeoff/goto varsayılanları. */
+export interface FlightParams {
+  default_altitude_m: number;
+  default_speed_ms: number;
+  min_nav_altitude_m: number;
+}
+
+async function reqJson<T>(path: string, method: string, body?: unknown): Promise<T> {
+  const res = await fetch(`${API_BASE}${path}`, {
+    method,
+    headers: body !== undefined ? { "Content-Type": "application/json" } : undefined,
+    body: body !== undefined ? JSON.stringify(body) : undefined,
+  });
+  if (!res.ok) {
+    throw new CommandFailure(await res.text().catch(() => res.statusText), res.status);
+  }
+  return res.json();
+}
+
+export const params = {
+  get: () => reqJson<FlightParams>("/params", "GET"),
+  update: (patch: Partial<FlightParams>) => reqJson<FlightParams>("/params", "PUT", patch),
 };
 
 export const api = {
