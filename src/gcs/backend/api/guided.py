@@ -15,6 +15,8 @@ Yollar:
   POST /api/guided/{drone_id}/goto   (gövde: NED x/y/z VEYA GPS lat/lon + alt)
 """
 
+import asyncio
+import logging
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Request
@@ -22,6 +24,8 @@ from pydantic import BaseModel, Field
 from swarm_interfaces.msg import GuidedCommand
 
 router = APIRouter(prefix="/api/guided", tags=["guided"])
+
+logger = logging.getLogger("backend.guided")
 
 _VARSAYILAN_IRTIFA_M = 5.0
 
@@ -64,14 +68,15 @@ def cmd_disarm(drone_id: int, request: Request):
 
 
 @router.post("/{drone_id}/takeoff")
-def cmd_takeoff(drone_id: int, request: Request, altitude: float = _VARSAYILAN_IRTIFA_M):
+def cmd_takeoff(drone_id: int, request: Request, altitude: Optional[float] = None):
     _check_drone(request, drone_id)
-    if altitude <= 0.0:
+    alt = altitude if altitude is not None else request.app.state.params.get()["default_altitude_m"]
+    if alt <= 0.0:
         raise HTTPException(400, "takeoff irtifası > 0 olmalı")
     _bridge(request).publish_guided(
-        drone_id, GuidedCommand.ACTION_TAKEOFF, altitude_m=altitude
+        drone_id, GuidedCommand.ACTION_TAKEOFF, altitude_m=alt
     )
-    return _ok(drone_id, "takeoff", altitude_m=altitude)
+    return _ok(drone_id, "takeoff", altitude_m=alt)
 
 
 @router.post("/{drone_id}/rtl")
@@ -102,13 +107,64 @@ class GotoBody(BaseModel):
     lat: Optional[float] = Field(None, description="hedef enlem (derece)")
     lon: Optional[float] = Field(None, description="hedef boylam (derece)")
     alt: Optional[float] = Field(None, description="irtifa (m, yukarı)")
+    speed: Optional[float] = Field(None, description="seyir hızı (m/s); boşsa parametre varsayılanı")
     heading_deg: Optional[float] = Field(None, description="hedef yön (derece); boşsa serbest")
 
 
+def _drone_state(request: Request, drone_id: int):
+    """StateStore'dan drone'un güncel telemetri durumunu döner (yoksa None)."""
+    for d in request.app.state.store.snapshot():
+        if d.drone_id == drone_id:
+            return d
+    return None
+
+
+def _publish_goto(bridge, drone_id, north, east, irtifa, heading_deg, heading_valid):
+    bridge.publish_guided(
+        drone_id,
+        GuidedCommand.ACTION_GOTO,
+        x=float(north),
+        y=float(east),
+        z=-float(irtifa),  # irtifa (yukarı) → NED aşağı-pozitif
+        heading_deg=heading_deg or 0.0,
+        heading_valid=heading_valid,
+    )
+
+
+async def _oto_kalkis_sonra_git(
+    bridge, store, drone_id, irtifa, north, east, heading_deg, heading_valid
+):
+    """Yerde/alçaktayken: önce hedef irtifaya oto-kalkış, ulaşınca navigasyon.
+
+    KAZA ÖNLEME: irtifaya çıkmadan yatay hareket YOK. Önce dikey tırmanış
+    (takeoff), telemetriden irtifa teyidi, sonra goto. İrtifaya ulaşılamazsa
+    (timeout) goto GÖNDERİLMEZ — drone tırmanışta güvende kalır.
+    """
+    bridge.publish_guided(drone_id, GuidedCommand.ACTION_TAKEOFF, altitude_m=float(irtifa))
+    hedef = float(irtifa) * 0.9
+    ulasti = False
+    for _ in range(60):  # ~30 sn (0.5 sn adım)
+        await asyncio.sleep(0.5)
+        d = next((x for x in store.snapshot() if x.drone_id == drone_id), None)
+        if d is not None and d.alt_m >= hedef:
+            ulasti = True
+            break
+    if not ulasti:
+        logger.warning(
+            "goto oto-kalkış: drone=%d irtifaya (%.1fm) ulaşamadı, goto iptal",
+            drone_id, irtifa,
+        )
+        return
+    _publish_goto(bridge, drone_id, north, east, irtifa, heading_deg, heading_valid)
+    logger.info("goto oto-kalkış tamam: drone=%d irtifa=%.1fm → navigasyon", drone_id, irtifa)
+
+
 @router.post("/{drone_id}/goto")
-def cmd_goto(drone_id: int, body: GotoBody, request: Request):
+async def cmd_goto(drone_id: int, body: GotoBody, request: Request):
     _check_drone(request, drone_id)
     bridge = _bridge(request)
+    prm = request.app.state.params.get()
+    varsayilan_irtifa = prm["default_altitude_m"]
 
     if body.lat is not None and body.lon is not None:
         ned = bridge.latlon_to_ned(body.lat, body.lon)
@@ -121,29 +177,51 @@ def cmd_goto(drone_id: int, body: GotoBody, request: Request):
                 ),
             )
         north, east = ned
-        irtifa = body.alt if body.alt is not None else _VARSAYILAN_IRTIFA_M
+        irtifa = body.alt if body.alt is not None else varsayilan_irtifa
     elif body.x is not None and body.y is not None:
         north, east = body.x, body.y
-        irtifa = body.z if body.z is not None else _VARSAYILAN_IRTIFA_M
+        irtifa = body.z if body.z is not None else varsayilan_irtifa
     else:
         raise HTTPException(
             status_code=400,
             detail="goto: ya (x,y[,z]) NED ya da (lat,lon[,alt]) verilmeli",
         )
 
-    z_ned = -float(irtifa)  # irtifa (yukarı) → NED aşağı-pozitif
+    if irtifa <= 0.0:
+        raise HTTPException(400, "goto irtifası > 0 olmalı")
+
     heading_valid = body.heading_deg is not None
-    bridge.publish_guided(
-        drone_id,
-        GuidedCommand.ACTION_GOTO,
-        x=north,
-        y=east,
-        z=z_ned,
-        heading_deg=body.heading_deg or 0.0,
-        heading_valid=heading_valid,
+    ned_ozet = {"kuzey": round(north, 2), "dogu": round(east, 2), "z": round(-irtifa, 2)}
+
+    # --- GÜVENLİK KİLİDİ: min-nav-irtifasının altındaysa oto-kalkış-sonra-git ---
+    d = _drone_state(request, drone_id)
+    guncel_alt = d.alt_m if d is not None else 0.0
+    min_nav = prm["min_nav_altitude_m"]
+
+    if guncel_alt >= min_nav:
+        # Zaten yeterli irtifada → doğrudan navigasyon.
+        _publish_goto(bridge, drone_id, north, east, irtifa, body.heading_deg, heading_valid)
+        return _ok(drone_id, "goto", mod="direkt", ned=ned_ozet, irtifa_m=irtifa)
+
+    # Alçak/yerde → önce irtifaya çıkmalı. Oto-kalkış için ARM şart.
+    if d is None or not d.armed:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"Drone {guncel_alt:.1f}m'de (min-nav {min_nav:.1f}m altında) ve disarm. "
+                "Önce ARM et; sonra 'noktaya git' oto-kalkış yapıp gider."
+            ),
+        )
+
+    # Armed + alçak → arka planda: oto-kalkış → irtifa → git.
+    asyncio.create_task(
+        _oto_kalkis_sonra_git(
+            bridge, request.app.state.store, drone_id, irtifa, north, east,
+            body.heading_deg, heading_valid,
+        )
     )
     return _ok(
-        drone_id, "goto",
-        ned={"kuzey": round(north, 2), "dogu": round(east, 2), "z": round(z_ned, 2)},
-        irtifa_m=irtifa,
+        drone_id, "goto", mod="oto-kalkis-sonra-git",
+        ned=ned_ozet, irtifa_m=irtifa,
+        not_="Önce hedef irtifaya çıkılıyor, sonra navigasyon.",
     )
