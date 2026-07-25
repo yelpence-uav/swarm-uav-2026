@@ -12,7 +12,7 @@ import { SwarmStatePanel } from "./components/SwarmStatePanel/SwarmStatePanel";
 import { TelemetryPanel } from "./components/TelemetryPanel/TelemetryPanel";
 import { useQRPositions } from "./hooks/useQRPositions";
 import { useTheme } from "./hooks/useTheme";
-import { MISSION_ID } from "./services/api";
+import { MISSION_ID, guided } from "./services/api";
 import { TelemetryWS } from "./services/websocket";
 import type { ConnectionStatus } from "./services/websocket";
 import type { TelemetryPayload } from "./types/telemetry";
@@ -95,6 +95,8 @@ export default function App() {
           snapshot={payload.drones}
           qrPositions={qr.positions}
           activeQrId={payload.swarm_state?.current_qr_id ?? 0}
+          guidedEnabled={!isSimMode && !missionActive}
+          onGoto={(id, target) => guided.goto(id, target)}
         />
         <AlertList alerts={payload.alerts} />
       </main>
