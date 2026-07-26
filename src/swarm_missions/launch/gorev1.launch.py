@@ -14,6 +14,9 @@ def _spawn(context, *args, **kwargs):
     o_lat = float(LaunchConfiguration('origin_lat').perform(context))
     o_lon = float(LaunchConfiguration('origin_lon').perform(context))
     o_alt = float(LaunchConfiguration('origin_alt').perform(context))
+    # origin_source: 'fixed' (sim, sabit GPS) | 'first_fix' (saha, dron GPS'i).
+    # Varsayılan fixed; saha başlatıcısı 'first_fix' ile ezer.
+    origin_src = LaunchConfiguration('origin_source').perform(context)
     ids = list(range(1, n + 1))
 
     nodes = []
@@ -44,12 +47,16 @@ def _spawn(context, *args, **kwargs):
             package='swarm_core', executable='path_planner',
             name='path_planner',
         ),
-        # NED çapası (origin). SITL için fixed_lat/lon sim spawn GPS'ine
-        # göre ayarlanmalı — aksi halde NED çözümü kaymalı olur.
+        # NED çapası (origin). origin_source argümanıyla seçilir:
+        #   'fixed'     → sim dünyasının spawn GPS'i (fixed_lat/lon). Varsayılan.
+        #   'first_fix' → dron1'in ilk GPS fix'i otomatik home olur (saha).
+        # Sim aynen çalışır (varsayılan fixed); saha başlatıcısı
+        # origin_source:=first_fix ile ezer — TEK FARK budur.
         Node(
             package='swarm_control', executable='swarm_origin_publisher',
             name='swarm_origin',
-            parameters=[{'origin_source': 'fixed',
+            parameters=[{'origin_source': origin_src,
+                         'first_fix_agent_id': 1,
                          'fixed_lat': o_lat, 'fixed_lon': o_lon,
                          'fixed_alt': o_alt}],
         ),
@@ -134,5 +141,7 @@ def generate_launch_description():
         DeclareLaunchArgument('origin_lat', default_value='41.0441'),
         DeclareLaunchArgument('origin_lon', default_value='29.0017'),
         DeclareLaunchArgument('origin_alt', default_value='0.48'),
+        # 'fixed' = sim sabit GPS'i (varsayılan) | 'first_fix' = saha, dron GPS'i
+        DeclareLaunchArgument('origin_source', default_value='fixed'),
         OpaqueFunction(function=_spawn),
     ])
