@@ -7,19 +7,9 @@ from .preflight_checker import run_preflight_checks
 
 _ARMING_TIMEOUT_S = 15.0
 _ARMED_STABILIZE_S = 2.0
-_TAKEOFF_TIMEOUT_S = 30.0
-# İniş süresi ayrılma noktası ile ped arasındaki mesafeye bağlıdır; bütçeyi
-# geometriden hesaplayan ve gerekirse inişi güvenle durduran taraf
-# precision_landing'dir. Buradaki sınır o modül tümden yanıt vermezse devreye
-# giren son emniyettir — hesaplanan bütçeden kısa olursa sağlıklı inişi yarıda
-# keser (dron pedin üstünde asılı kalır, sonra rastgele yere iner).
-_PRECISION_LANDING_TIMEOUT_S = 300.0
-_REJOIN_TIMEOUT_S = 60.0
 _WAITING_REJOIN_TIMEOUT_S = 120.0
-# LANDING'de disarm beklenir. Offboard kaybı artık LANDING'de failsafe TETİKLEMEZ
-# (iniş komutunu biz verdik, PX4 LAND moduna geçince offboard doğal olarak
-# düşer — bu beklenen bir kayıptır). O yüzden takılan iniş için AYRI bir zaman
-# aşımı gerekir: aksi halde PX4 hiç inemezse dron sonsuza dek LANDING'de kalır.
+# LANDING'de disarm beklenir; offboard kaybı burada failsafe tetiklemediği
+# için takılan iniş ayrı bir zaman aşımıyla yakalanır.
 _LANDING_TIMEOUT_S = 60.0
 
 _FAILSAFE_EXEMPT = frozenset({
@@ -134,8 +124,6 @@ def _from_takeoff(ctx: AgentContext) -> AgentState | None:
             and ctx.vertical_speed_ok
             and (ctx.origin_synced or ctx.sitl_mode)):
         return AgentState.IN_SWARM
-    if ctx.time_in_state() > _TAKEOFF_TIMEOUT_S:
-        return AgentState.FAILSAFE
     return None
 
 
@@ -170,8 +158,6 @@ def _from_precision_landing(ctx: AgentContext) -> AgentState | None:
     """PRECISION_LANDING durumundan gecisleri degerlendirir."""
     if not ctx.armed:
         return AgentState.WAITING_REJOIN
-    if ctx.time_in_state() > _PRECISION_LANDING_TIMEOUT_S:
-        return AgentState.FAILSAFE
     return None
 
 
@@ -194,8 +180,6 @@ def _from_rejoining(ctx: AgentContext) -> AgentState | None:
     """REJOINING durumundan gecisleri degerlendirir."""
     if ctx.pending_state == AgentState.IN_SWARM:
         return AgentState.IN_SWARM
-    if ctx.time_in_state() > _REJOIN_TIMEOUT_S:
-        return AgentState.FAILSAFE
     return None
 
 
