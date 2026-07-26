@@ -25,6 +25,18 @@ VENV=/home/yentur/gcs-venv
 BASE_ESP_PORT="${BASE_ESP_PORT:-/dev/serial/by-id/usb-Silicon_Labs_CP2102_USB_to_UART_Bridge_Controller_0001-if00-port0}"
 BASE_ESP_BAUD=460800
 
+# --- Ortak NED origin (sabit çapa) — SAHAYA göre güncelle ---
+# Origin İKİ topic'te gerekir:
+#   /swarm/public/origin   -> backend (harita tıklaması lat/lon -> NED çevirisi)
+#   /swarm/internal/origin -> base esp32_bridge -> mesh -> drone px4_bridge
+#                             (SET_GPS_GLOBAL_ORIGIN; formation_node origin gelmeden setpoint üretmez)
+# base esp32_bridge public'i mesh'e İLETMEZ (yalnız /internal dinler) -> İKİ yayıncı gerekir.
+# Değeri sahanın referans noktasıyla değiştir (env ile: ORIGIN_LAT=... ./yki_baslat.sh).
+# RTK baz istasyonu gelince: swarm_origin_publisher'ı origin_source:=rtk_base'e çevir.
+ORIGIN_LAT="${ORIGIN_LAT:-38.6904758}"
+ORIGIN_LON="${ORIGIN_LON:-39.1610188}"
+ORIGIN_ALT="${ORIGIN_ALT:-1218.5}"
+
 # --- DDS: loopback (WiFi'den bağımsız) — tek kesin mekanizma ---
 DDS_URI="file://$REPO/src/gcs/cyclonedds_yki.xml"
 
@@ -42,6 +54,24 @@ setsid bash -c "source /opt/ros/jazzy/setup.bash && source '$REPO/install/setup.
   exec ros2 run swarm_control esp32_bridge --ros-args -r __node:=esp32_base \
   -p serial_port:=$BASE_ESP_PORT -p baud:=$BASE_ESP_BAUD -p agent_id:=10" \
   > /tmp/yki_base_bridge.log 2>&1 < /dev/null &
+disown
+
+# --- 1.5) Ortak origin yayıncıları — İKİ tane (bkz. yukarıdaki açıklama) ---
+echo "[YKİ] origin yayıncıları başlatılıyor (lat=$ORIGIN_LAT lon=$ORIGIN_LON alt=$ORIGIN_ALT)..."
+# (a) public -> backend harita->NED
+setsid bash -c "source /opt/ros/jazzy/setup.bash && source '$REPO/install/setup.bash' && \
+  export ROS_DOMAIN_ID=0 RMW_IMPLEMENTATION=rmw_cyclonedds_cpp CYCLONEDDS_URI='$DDS_URI' && \
+  exec ros2 run swarm_control swarm_origin_publisher --ros-args -r __node:=swarm_origin_pub_public \
+  -p origin_source:=fixed -p fixed_lat:=$ORIGIN_LAT -p fixed_lon:=$ORIGIN_LON -p fixed_alt:=$ORIGIN_ALT -p rate_hz:=1.0" \
+  > /tmp/yki_origin_public.log 2>&1 < /dev/null &
+disown
+# (b) internal -> base bridge -> mesh -> drone (SET_GPS_GLOBAL_ORIGIN)
+setsid bash -c "source /opt/ros/jazzy/setup.bash && source '$REPO/install/setup.bash' && \
+  export ROS_DOMAIN_ID=0 RMW_IMPLEMENTATION=rmw_cyclonedds_cpp CYCLONEDDS_URI='$DDS_URI' && \
+  exec ros2 run swarm_control swarm_origin_publisher --ros-args -r __node:=swarm_origin_pub_internal \
+  -r /swarm/public/origin:=/swarm/internal/origin \
+  -p origin_source:=fixed -p fixed_lat:=$ORIGIN_LAT -p fixed_lon:=$ORIGIN_LON -p fixed_alt:=$ORIGIN_ALT -p rate_hz:=1.0" \
+  > /tmp/yki_origin_internal.log 2>&1 < /dev/null &
 disown
 
 # --- 2) Backend (REST + WebSocket, ros2 modu) ---
