@@ -17,7 +17,7 @@ const CONFIRM_MSG: Record<ActionKey, string | null> = {
   land: "TÜM drone'ları indir? Onay?",
   rtl: "TÜM drone'ları başlangıca geri çağır? Onay?",
   disarm:
-    "ACİL DUR — TÜM drone'ların motorları kesilir. Havadakiler düşer!\n\nOnaylıyor musun?",
+    "ACİL DUR - TÜM drone'ların motorları kesilir. Havadakiler düşer!\n\nOnaylıyor musun?",
 };
 
 interface MissionControlProps {
@@ -69,7 +69,7 @@ export function MissionControl({ anyConnected, disabled = false }: MissionContro
   return (
     <div className="mc">
       <span className="mc__label">
-        SÜRÜ KOMUTU{disabled ? " (görev aktif → kilit)" : ""}:
+        SÜRÜ KOMUTU{disabled ? " (görev aktif -> kilit)" : ""}:
       </span>
       {(Object.keys(ACTION_LABEL) as ActionKey[]).map((key) => {
         const meta = ACTION_LABEL[key];

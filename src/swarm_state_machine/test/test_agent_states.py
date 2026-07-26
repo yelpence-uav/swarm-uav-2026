@@ -3,9 +3,9 @@
 import unittest
 
 from swarm_state_machine.agent_fsm.agent_states import (
-    AVOIDANCE_EXCLUDE_STATES,
     AgentRole,
     AgentState,
+    AVOIDANCE_EXCLUDE_STATES,
     FlightMode,
 )
 

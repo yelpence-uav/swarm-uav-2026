@@ -1,5 +1,4 @@
-/* ============================================================
-   Yelpence GCS — Tasarım Sistemi
+   Yelpence GCS - Tasarım Sistemi
    ============================================================
    Renkler, gölgeler, gradyanlar, tipografi, spacing token'ları.
    Koyu tema default; html[data-theme="light"] overrides aşağıda.
@@ -7,7 +6,7 @@
    ============================================================ */
 
 :root {
-  /* === Renk paleti (koyu tema) ============================== */
+/* Renk paleti (koyu tema) */
   --color-bg-base:       #070b14;
   --color-bg-elevated:   #0e1424;
   --color-bg-panel:      #131b30;
@@ -23,7 +22,7 @@
   --color-text-muted:     #5b6677;
   --color-text-inverse:   #0a0e1a;
 
-  /* Accent renkleri — tema değişse de korunur (parlaklık ayarlanır) */
+  /* Accent renkleri - tema değişse de korunur (parlaklık ayarlanır) */
   --color-accent:         #38bdf8;
   --color-accent-strong:  #0ea5e9;
   --color-accent-glow:    rgba(56, 189, 248, 0.45);
@@ -40,12 +39,12 @@
   --color-danger-glow:    rgba(239, 68, 68, 0.5);
   --color-critical:       #dc2626;
 
-  /* Drone renkleri (3 drone — tematik aksent farklı) */
+  /* Drone renkleri (3 drone - tematik aksent farklı) */
   --color-drone-1:       #38bdf8;  /* cyan */
   --color-drone-2:       #a78bfa;  /* violet */
   --color-drone-3:       #fb923c;  /* orange */
 
-  /* === Gradientler ========================================== */
+/* Gradientler */
   --gradient-bg:
     radial-gradient(ellipse at top left, rgba(56, 189, 248, 0.08), transparent 60%),
     radial-gradient(ellipse at bottom right, rgba(251, 146, 60, 0.06), transparent 60%),
@@ -71,7 +70,7 @@
   --gradient-accent-line:
     linear-gradient(90deg, transparent, var(--color-accent), transparent);
 
-  /* === Gölgeler ============================================= */
+/* Gölgeler */
   --shadow-sm:    0 1px 2px rgba(0, 0, 0, 0.4);
   --shadow-md:    0 4px 12px rgba(0, 0, 0, 0.5);
   --shadow-lg:    0 12px 32px rgba(0, 0, 0, 0.6);
@@ -84,7 +83,7 @@
 
   --shadow-inset: inset 0 1px 0 rgba(255, 255, 255, 0.08);
 
-  /* === Spacing (4px ölçek) ================================== */
+/* Spacing (4px ölçek) */
   --space-1:  4px;
   --space-2:  8px;
   --space-3:  12px;
@@ -96,14 +95,14 @@
   --space-12: 48px;
   --space-16: 64px;
 
-  /* === Radius ================================================ */
+/* Radius */
   --radius-sm:   6px;
   --radius-md:   10px;
   --radius-lg:   14px;
   --radius-xl:   20px;
   --radius-full: 9999px;
 
-  /* === Tipografi ============================================ */
+/* Tipografi */
   --font-ui:   "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   --font-mono: "JetBrains Mono", "SF Mono", Menlo, monospace;
 
@@ -120,7 +119,7 @@
   --leading-base:  1.45;
   --leading-loose: 1.65;
 
-  /* === Geçişler ============================================= */
+/* Geçişler */
   --ease-out:    cubic-bezier(0.16, 1, 0.3, 1);
   --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
 
@@ -128,7 +127,7 @@
   --transition-base: 250ms var(--ease-out);
   --transition-slow: 400ms var(--ease-out);
 
-  /* === Z-index ============================================== */
+/* Z-index */
   --z-base:     0;
   --z-elevated: 10;
   --z-overlay:  100;
@@ -136,7 +135,7 @@
   --z-modal:    1000;
 }
 
-/* === Açık tema ============================================== */
+/* Açık tema */
 html[data-theme="light"] {
   --color-bg-base:       #f1f5f9;
   --color-bg-elevated:   #ffffff;
@@ -174,7 +173,7 @@ html[data-theme="light"] {
   --shadow-inset: inset 0 1px 0 rgba(255, 255, 255, 0.5);
 }
 
-/* === Global reset + base =================================== */
+/* Global reset + base */
 *,
 *::before,
 *::after {
@@ -224,7 +223,7 @@ button {
   letter-spacing: -0.01em;
 }
 
-/* === Scrollbar (koyu tema) ================================= */
+/* Scrollbar (koyu tema) */
 ::-webkit-scrollbar {
   width: 10px;
   height: 10px;
@@ -244,7 +243,7 @@ button {
   border: 2px solid transparent;
 }
 
-/* === Animasyon keyframes (global olarak kullanılır) ======== */
+/* Animasyon keyframes (global olarak kullanılır) */
 @keyframes pulse-glow {
   0%, 100% { box-shadow: 0 0 0 0 var(--color-danger-glow); }
   50%      { box-shadow: 0 0 0 8px transparent; }

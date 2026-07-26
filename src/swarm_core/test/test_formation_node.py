@@ -1,16 +1,8 @@
-"""formation_node.py pure-logic birim testleri (komut-tabanlı sürüm).
-
-formation_node artık merkezi SwarmState okumaz; slot atamasını ve merkezi
-lider'in FormationCommand'ından alır. Bu testler ROS2 runtime'ı olmadan,
-object.__new__ ile __init__ atlanarak saf mantık metodlarını sınar:
-  - _resolve_center   (merkez doğrudan komuttan)
-  - _compute_velocity (yalnızca SVT; merkezi feed-forward yok)
-  - _shared_to_local  (shared NED → local NED dönüşümü)
-"""
+"""formation_node.py - formasyon düğümü birim testleri."""
 
 import math
-import unittest
 from types import SimpleNamespace
+import unittest
 from unittest.mock import MagicMock
 
 from swarm_core.formation_control.formation_node import (
@@ -28,21 +20,7 @@ def _make_node(
     rel_stale_s: float = 0.5,
     rel_enable: bool = True,
 ) -> FormationControlNode:
-    """ROS2 olmadan test için minimal FormationControlNode oluşturur.
-
-    Args:
-        agent_id (int): Drone kimlik numarası.
-        max_speed (float): Maksimum hız sınırı, m/s.
-        svt_gain (float): SVT elastik kazancı.
-        svt_threshold (float): SVT aktivasyon eşiği, metre.
-        rel_k (float): Göreli (A7) düzeltme kazancı.
-        rel_threshold (float): Göreli düzeltme deadband eşiği, metre.
-        rel_stale_s (float): NeighborInfo bayatlama eşiği, saniye.
-        rel_enable (bool): Göreli koruma açık mı?
-
-    Returns:
-        FormationControlNode: Kısmi başlatılmış node.
-    """
+    """ROS2 olmadan test için minimal FormationControlNode oluşturur."""
     node = object.__new__(FormationControlNode)
     node._agent_id = agent_id
     node._max_speed_mps = max_speed
@@ -61,7 +39,7 @@ def _make_node(
     node._current_pos_y = 0.0
     node._current_pos_z = 0.0
     # OSİLASYON DÜZELTMESİ: tether hız sönümü için gereken alanlar.
-    # _current_vel=0 ve ff varsayılan=0 → damping katkısı 0 (saf SVT testleri).
+    # _current_vel=0 ve ff varsayılan=0 - damping katkısı 0.
     node._svt_damp = 0.2
     node._current_vel_x = 0.0
     node._current_vel_y = 0.0
@@ -75,6 +53,11 @@ def _make_node(
     node._gps_valid = False
     node._current_lat = 0.0
     node._current_lon = 0.0
+
+    # Dağıtık slot ataması: yerel hesap yoksa lider ofsetine düşülür.
+    node._local_offsets = None
+    node._local_offsets_type = None
+    node._wing_alpha_rad = math.radians(45.0)
 
     # A7 — göreli (komşu tabanlı) koruma alanları
     node._rel_enable = rel_enable
@@ -123,16 +106,7 @@ def _cmd(
     center_y: float = 0.0,
     center_z: float = -10.0,
 ) -> SimpleNamespace:
-    """Test için sahte FormationCommand (yalnızca merkez alanları).
-
-    Args:
-        center_x (float): Formasyon merkezi NED X, metre.
-        center_y (float): Formasyon merkezi NED Y, metre.
-        center_z (float): Formasyon merkezi NED Z, metre.
-
-    Returns:
-        SimpleNamespace: Sahte FormationCommand.
-    """
+    """Test için sahte FormationCommand (yalnızca merkez alanları)."""
     return SimpleNamespace(
         center_x=center_x,
         center_y=center_y,
@@ -183,13 +157,19 @@ class TestComputeVelocity(unittest.TestCase):
         self.assertAlmostEqual(vy, 0.0)
         self.assertAlmostEqual(vz, 0.0)
 
-    def test_esik_altinda_svt_uygulanmaz(self):
-        """XY hatası < threshold ise SVT katkısı sıfırdır."""
+    def test_esik_altinda_svt_zayiflar(self):
+        """XY hatası < threshold ise SVT smoothstep ile zayıflar.
+
+        Sert deadband (eşik altında tam sıfır) limit-cycle üretiyordu; yerine
+        C1 sürekli zarf kullanılır: merkeze yaklaştıkça çekme pürüzsüzce
+        sıfıra iner ama eşik altında tam sıfır değildir.
+        """
         self.node._pos_valid = True
         self.node._current_pos_x = 9.5
-        # Hata = 0.5 < threshold=2.0
+        # Hata = 0.5 < threshold=2.0 -> zayiflatilmis (kucuk) cekme
         vx, vy, vz = self.node._compute_velocity(10.0, 0.0, 0.0, 5.0)
-        self.assertAlmostEqual(vx, 0.0)
+        self.assertGreater(vx, 0.0)   # hedefe dogru cekme var
+        self.assertLess(vx, 0.2)      # ama zayiflatilmis
         self.assertAlmostEqual(vy, 0.0)
         self.assertAlmostEqual(vz, 0.0)
 
@@ -197,7 +177,7 @@ class TestComputeVelocity(unittest.TestCase):
         """XY hatası > threshold ise SVT elastik kuvveti hedefe çeker."""
         self.node._pos_valid = True
         self.node._current_pos_x = 5.0
-        # hata = 5-10 = -5, dist=5 > 2 → vx = -0.5*(-5) = 2.5
+        # hata = 5-10 = -5, dist=5 > 2 -> vx = -0.5*(-5) = 2.5
         vx, vy, vz = self.node._compute_velocity(10.0, 0.0, 0.0, 5.0)
         self.assertAlmostEqual(vx, 2.5)
         self.assertAlmostEqual(vy, 0.0)
@@ -206,18 +186,12 @@ class TestComputeVelocity(unittest.TestCase):
         """Z hatası eşiği aşınca dikey SVT uygulanır."""
         self.node._pos_valid = True
         self.node._current_pos_z = 0.0
-        # target_z=-1 → ez = 0-(-1) = 1, vz = -2.0*1 = -2.0
+        # target_z=-1 -> ez = 0-(-1) = 1, vz = -2.0*1 = -2.0
         vx, vy, vz = self.node._compute_velocity(0.0, 0.0, -1.0, 5.0)
         self.assertAlmostEqual(vz, -2.0)
 
     def test_oscillating_svt_uygulanir(self):
-        """C-modu: oscillating=True olsa bile SVT uygulanır (atlanmaz).
-
-        SVT tek pozisyon kontrolcüsü olduğundan oscillating'de atlanamaz
-        (atlanırsa konum tutma çöker); salınımı hız sönümü (-svt_damp·v)
-        söndürür. Burada _current_vel=0 olduğundan saf SVT görülür:
-        ex = 0-10 = -10 → vx = -0.5·(-10) = 5.0.
-        """
+        """C-modu: oscillating=True olsa bile SVT uygulanır (atlanmaz)."""
         self.node._pos_valid = True
         self.node._oscillating = True
         self.node._current_pos_x = 0.0
@@ -233,7 +207,7 @@ class TestComputeVelocity(unittest.TestCase):
 
 
 class TestSharedToLocal(unittest.TestCase):
-    """_shared_to_local: shared NED → local NED dönüşümü."""
+    """_shared_to_local: shared NED -> local NED dönüşümü."""
 
     def setUp(self):
         """Her test için node hazırlar."""
@@ -265,23 +239,19 @@ class TestSharedToLocal(unittest.TestCase):
         self.node._current_lon = 30.0
         self.node._current_pos_x = 2.0
         self.node._current_pos_y = 3.0
-        # cur_n=0, cur_e=0 → x = 5-0+2 = 7 ; y = 7-0+3 = 10
+        # cur_n=0, cur_e=0 -> x = 5-0+2 = 7 ; y = 7-0+3 = 10
         x, y = self.node._shared_to_local(5.0, 7.0)
         self.assertAlmostEqual(x, 7.0)
         self.assertAlmostEqual(y, 10.0)
 
 
 class TestRelativeCorrection(unittest.TestCase):
-    """_compute_relative_correction (A7 göreli koruma) testleri.
-
-    Senaryo: 2 drone, drone1 (ben, idx 0) ve drone2 (komşu, idx 1).
-    İstenen: drone2 benden +Y'de 8m olmalı (offset farkı).
-    """
+    """_compute_relative_correction (A7 göreli koruma) testleri."""
 
     def setUp(self):
         """agent_id=1, rel_k=0.5, threshold=0.2 node hazırlar."""
         self.node = _make_node(agent_id=1, rel_k=0.5, rel_threshold=0.2)
-        # offset: drone1=(0,0,0), drone2=(0,8,0) → istenen göreli (0,+8)
+        # offset: drone1=(0,0,0), drone2=(0,8,0) -> istenen göreli (0,+8)
         self.msg = _fcmd(
             agent_ids=[1, 2],
             off_x=[0.0, 0.0],
@@ -306,7 +276,7 @@ class TestRelativeCorrection(unittest.TestCase):
 
     def test_komsu_uzaksa_yaklasir(self):
         """Komşu istenen mesafeden uzaksa o yöne doğru düzeltir."""
-        # istenen (0,8), gerçek (0,10) → hata=+2 → vy = 0.5*2 = 1.0
+        # istenen (0,8), gerçek (0,10) -> hata=+2 -> vy = 0.5*2 = 1.0
         self.node._neighbors = {2: _neighbor(0.0, 10.0, 0.0)}
         self.node._neighbor_rx_time = {2: 100.0}
         vx, vy, vz = self.node._compute_relative_correction(
@@ -318,7 +288,7 @@ class TestRelativeCorrection(unittest.TestCase):
 
     def test_komsu_yakinsa_uzaklasir(self):
         """Komşu istenenden yakınsa ters yöne düzeltir."""
-        # istenen (0,8), gerçek (0,6) → hata=-2 → vy = 0.5*-2 = -1.0
+        # istenen (0,8), gerçek (0,6) -> hata=-2 -> vy = 0.5*-2 = -1.0
         self.node._neighbors = {2: _neighbor(0.0, 6.0, 0.0)}
         self.node._neighbor_rx_time = {2: 100.0}
         vx, vy, vz = self.node._compute_relative_correction(
@@ -328,7 +298,7 @@ class TestRelativeCorrection(unittest.TestCase):
 
     def test_esik_altinda_sifir(self):
         """Hata deadband eşiğinin altındaysa düzeltme sıfırdır."""
-        # istenen (0,8), gerçek (0,8.1) → hata=0.1 < 0.2 → 0
+        # istenen (0,8), gerçek (0,8.1) -> hata=0.1 < 0.2 -> 0
         self.node._neighbors = {2: _neighbor(0.0, 8.1, 0.0)}
         self.node._neighbor_rx_time = {2: 100.0}
         vx, vy, vz = self.node._compute_relative_correction(
@@ -347,7 +317,7 @@ class TestRelativeCorrection(unittest.TestCase):
     def test_bayat_veri_atlanir(self):
         """Eski (stale) NeighborInfo hesaba katılmaz."""
         self.node._neighbors = {2: _neighbor(0.0, 10.0, 0.0)}
-        # rx=100, now=101 → 1.0s > rel_stale_s=0.5 → bayat
+        # rx=100, now=101 -> 1.0s > rel_stale_s=0.5 -> bayat
         self.node._neighbor_rx_time = {2: 100.0}
         v = self.node._compute_relative_correction(self.msg, 0, 0.0, 101.0)
         self.assertEqual(v, (0.0, 0.0, 0.0))

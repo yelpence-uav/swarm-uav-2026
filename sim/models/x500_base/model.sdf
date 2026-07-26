@@ -684,8 +684,13 @@
       </visual>
       <sensor name="camera" type="camera">
         <camera>
-          <horizontal_fov>1.047</horizontal_fov>
-          <image><width>1280</width><height>720</height><format>R8G8B8</format></image>
+          <!-- SITL DDS darbogazi: gz 20Hz render eder ama 2.7MB/kare (1280x720)
+               cyclonedds'ten ~0.2Hz gecer (yuzlerce PX4 topic + buyuk kare).
+               640x360 = 0.69MB → DDS rahat tasir. Dar FOV 14.7° (0.257 rad)
+               → fx≈2477 → 1.2m QR yine ~15m okunur (decode fizigi gercek
+               Arducam tam-res ile ayni px/modul). FOV≤90° ✓. -->
+          <horizontal_fov>0.257</horizontal_fov>
+          <image><width>640</width><height>360</height><format>R8G8B8</format></image>
           <clip><near>0.1</near><far>1000</far></clip>
         </camera>
         <always_on>1</always_on>

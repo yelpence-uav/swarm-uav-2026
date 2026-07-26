@@ -1,4 +1,4 @@
-"""test_esp32_crc16.py — CRC16-CCITT birim testleri."""
+"""test_esp32_crc16.py - CRC16-CCITT birim testleri."""
 
 from swarm_control.esp32_bridge.crc16 import crc16, crc16_dogrula
 

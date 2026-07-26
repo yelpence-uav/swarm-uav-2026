@@ -34,16 +34,11 @@ const EMPTY_PAYLOAD: TelemetryPayload = {
 };
 
 export default function App() {
-  // Tema hook'unu burada bir kez çağırıp data-theme'i set etmesini garantile.
   useTheme();
-
-  // QR konumları — operatör girer, haritada gösterilir, localStorage'da saklanır.
   const qr = useQRPositions();
 
   const [payload, setPayload] = useState<TelemetryPayload>(EMPTY_PAYLOAD);
   const [status, setStatus] = useState<ConnectionStatus>("connecting");
-  // Görev tipini App seviyesinde tut — joystick paneli görev başlatılmasa
-  // bile Görev 2 seçilince görünmeli (pilot kumandayı önceden test eder).
   const [selectedMissionId, setSelectedMissionId] = useState<number>(
     MISSION_ID.DYNAMIC_SWARM,
   );
@@ -74,9 +69,6 @@ export default function App() {
   const activeMission = payload.swarm_state?.active_mission ?? "";
   const isSimMode = payload.connection_mode === "mavlink-sim";
 
-  // Joystick paneli: Görev 2 SEÇİLDİYSE (henüz başlamamış olsa da) ya da
-  // backend aktif görevi Yarı Otonom olarak raporluyorsa görünür. Operatör
-  // başlatma butonuna basmadan önce de joystick'i test edebilmeli.
   const joystickVisible =
     selectedMissionId === MISSION_ID.SEMI_AUTONOMOUS ||
     activeMission === "semi_autonomous";

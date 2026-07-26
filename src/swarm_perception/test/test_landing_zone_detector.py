@@ -1,36 +1,15 @@
-# Copyright 2026 Yelpence TEKNOFEST 2026
-#
-# Permission is hereby granted, free of charge, to any person obtaining a copy
-# of this software and associated documentation files (the "Software"), to deal
-# in the Software without restriction, including without limitation the rights
-# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-# copies of the Software, and to permit persons to whom the Software is
-# furnished to do so, subject to the following conditions:
-#
-# The above copyright notice and this permission notice shall be included in
-# all copies or substantial portions of the Software.
-#
-# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
-# THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
-# THE SOFTWARE.
+# Copyright 2026 Yelpence
 
-"""
-test_landing_zone_detector.py
-
-LandingZoneDetector birim testleri.
-OpenCV fonksiyonları üzerinde renk filtrelemesi simüle edilir.
-"""
+"""LandingZoneDetector birim testleri."""
 
 import unittest
 
 import cv2
+
 import numpy as np
 
 from swarm_perception.vision_node.landing_zone_detector import (
+    ensure_bgr,
     LandingZoneDetector,
 )
 
@@ -103,6 +82,37 @@ class TestLandingZoneDetector(unittest.TestCase):
 
         results = self.detector.detect(img)
         self.assertEqual(len(results), 0)
+
+    def test_rgb8_kare_bgr_ye_cevrilir(self) -> None:
+        """rgb8 yayınlayan kamera KIRMIZI pedi kırmızı olarak verdirmeli.
+
+        Dedektör BGR bekler. Kamera rgb8 yayınlarken ham tampon doğrudan
+        verilirse kırmızı ile mavi kanalı yer değiştirir: kırmızı ped "mavi",
+        mavi ped "kırmızı" etiketlenir ve "kırmızıya in" emrini alan dron MAVİ
+        pede iner (yaşanan bug). ensure_bgr bunu formatı okuyarak önler.
+        """
+        # RGB düzeninde kırmızı çember: R kanalı dolu -> (255, 0, 0)
+        rgb = np.zeros((100, 100, 3), dtype=np.uint8)
+        cv2.circle(rgb, (50, 50), 15, (255, 0, 0), -1)
+
+        # Ham (çevrilmemiş) kare: dedektör bunu MAVİ sanır -> hatanın ta kendisi
+        ham = self.detector.detect(rgb)
+        self.assertEqual(len(ham), 1)
+        self.assertEqual(ham[0]['color'], 2, 'cevrilmemis rgb8 mavi gorunur')
+
+        # ensure_bgr ile: doğru şekilde KIRMIZI
+        duzeltilmis = self.detector.detect(ensure_bgr(rgb, 'rgb8'))
+        self.assertEqual(len(duzeltilmis), 1)
+        self.assertEqual(duzeltilmis[0]['color'], 1)
+
+    def test_bgr8_kare_dokunulmadan_gecer(self) -> None:
+        """Zaten BGR olan kare ensure_bgr'den değişmeden geçer."""
+        bgr = np.zeros((100, 100, 3), dtype=np.uint8)
+        cv2.circle(bgr, (50, 50), 15, (0, 0, 255), -1)   # BGR'de kırmızı
+
+        sonuc = self.detector.detect(ensure_bgr(bgr, 'bgr8'))
+        self.assertEqual(len(sonuc), 1)
+        self.assertEqual(sonuc[0]['color'], 1)
 
 
 if __name__ == '__main__':

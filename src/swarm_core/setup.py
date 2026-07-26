@@ -13,18 +13,15 @@ setup(
     ],
     install_requires=['setuptools'],
     zip_safe=True,
-    maintainer='Yelpence TEKNOFEST 2026',
-    maintainer_email='kocakseydagul@gmail.com',
-    description='Swarm UAV control core: formation control, consensus, collision avoidance, path planning',
+    maintainer='Yelpençe Takımı',
+    maintainer_email='osmancevik@pm.me',
+    description='Swarm UAV control core modules',
     license='MIT',
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
             'formation_node = '
             'swarm_core.formation_control.formation_node:main',
-            'formation_test_publisher = '
-            'swarm_core.formation_control'
-            '.formation_test_publisher:main',
             'collision_avoidance = '
             'swarm_core.collision_avoidance'
             '.collision_avoidance_node:main',

@@ -1,10 +1,5 @@
-#!/usr/bin/env python3
-"""
-Sürü manevra (pitch/roll/yaw) yürütme düğümü.
-
-Bu modül, her İHA üzerinde dağıtık olarak çalışarak
-manevra hedeflerini 3 boyutlu rotasyonla hesaplar.
-"""
+# Copyright 2026 Yelpence
+"""Suru manevra (pitch/roll/yaw) yurutme dugumu."""
 
 import math
 import time
@@ -20,6 +15,8 @@ from rclpy.qos import (
     ReliabilityPolicy,
 )
 
+from swarm_core.formation_control.formation_geometry import latlon_to_ned
+
 from swarm_interfaces.action import ExecuteManeuver
 from swarm_interfaces.msg import (
     AgentSetpoint,
@@ -27,10 +24,8 @@ from swarm_interfaces.msg import (
     FormationCommand,
     SwarmControlCommand,
     SwarmOrigin,
+    SystemEvent,
 )
-
-from swarm_core.formation_control.formation_geometry import latlon_to_ned
-
 
 _RELIABLE_QOS = QoSProfile(
     reliability=ReliabilityPolicy.RELIABLE,
@@ -54,18 +49,10 @@ _ORIGIN_QOS = QoSProfile(
 )
 
 
-def euler_to_matrix(roll_rad, pitch_rad, yaw_rad):
-    """
-    3D Z-Y-X Euler açılarından rotasyon matrisi üretir.
-
-    Args:
-        roll_rad (float): X ekseni etrafında dönüş açısı (radyan).
-        pitch_rad (float): Y ekseni etrafında dönüş açısı (radyan).
-        yaw_rad (float): Z ekseni etrafında dönüş açısı (radyan).
-
-    Returns:
-        tuple: 3x3 boyutunda rotasyon matrisi.
-    """
+def euler_to_matrix(
+    roll_rad: float, pitch_rad: float, yaw_rad: float
+) -> tuple[tuple[float, float, float], ...]:
+    """3D Euler acilarindan rotasyon matrisi uretir."""
     cr = math.cos(roll_rad)
     sr = math.sin(roll_rad)
     cp = math.cos(pitch_rad)
@@ -89,19 +76,9 @@ def euler_to_matrix(roll_rad, pitch_rad, yaw_rad):
 
 
 class ManeuverExecutorNode(Node):
-    """
-    Manevra hedeflerini hesaplayan dağıtık ROS 2 düğümü.
+    """Manevra hedeflerini hesaplayan dagitik ROS 2 dugumu."""
 
-    Sürü merkezini baz alıp rotasyon hesaplayarak ilgili İHA'nın
-    lokal setpoint değerlerini yüksek öncelikle yayınlar.
-    """
-
-    def __init__(self):
-        """
-        Düğümü ve gerekli parametreleri başlatır.
-
-        Abonelikleri, yayıncıları ve Action Server'ı kurar.
-        """
+    def __init__(self) -> None:
         super().__init__('maneuver_executor')
 
         self.declare_parameter('agent_id', 1)
@@ -138,10 +115,13 @@ class ManeuverExecutorNode(Node):
         self._maneuver_yaw_rad = 0.0
 
         self._action_cb_group = ReentrantCallbackGroup()
+        # Action adı per-drone: node her İHA'da agent_id ile çalışır; global
+        # ad kullanılırsa 3 sunucu çakışır. Her drone'un mission1'i kendi
+        # lokal maneuver_executor'ını çağırır (action mesh üzerinden gitmez).
         self._action_server = ActionServer(
             self,
             ExecuteManeuver,
-            '/swarm/maneuver/execute',
+            f'/drone_{self._agent_id}/maneuver/execute',
             execute_callback=self.execute_callback,
             goal_callback=self.goal_callback,
             cancel_callback=self.cancel_callback,
@@ -156,24 +136,25 @@ class ManeuverExecutorNode(Node):
             self._publish_setpoint,
         )
 
-        log_msg = f'Maneuver Node baslatildi (id={self._agent_id})'
-        self.get_logger().info(log_msg)
+        self.get_logger().info(f'Maneuver Node baslatildi: {self._agent_id}')
 
-    def _setup_publishers(self):
-        """
-        Yerel setpoint yayıncısını oluşturur.
-        """
+    def _setup_publishers(self) -> None:
+        """Yerel setpoint yayincisini olusturur."""
         topic = f'/drone_{self._agent_id}/control/setpoint/raw'
         self._setpoint_pub = self.create_publisher(
             AgentSetpoint,
             topic,
             _BEST_EFFORT_QOS,
         )
+        # Manevrayı yürüten birim, tamamlanma/başarısızlığı kendi bildirir
+        # (precision_landing'in kendi bitişini bildirmesiyle aynı desen).
+        # mission_fsm bu olayla QR manevra adımını ilerletir; proxy /public'e taşır.
+        self._event_pub = self.create_publisher(
+            SystemEvent, '/swarm/internal/events/system', _RELIABLE_QOS,
+        )
 
-    def _setup_subscribers(self):
-        """
-        Gerekli ROS 2 topic aboneliklerini kurar.
-        """
+    def _setup_subscribers(self) -> None:
+        """Gerekli ROS 2 topic aboneliklerini kurar."""
         self.create_subscription(
             FormationCommand,
             '/swarm/public/formation/target',
@@ -199,22 +180,10 @@ class ManeuverExecutorNode(Node):
             _BEST_EFFORT_QOS,
         )
 
-    def _on_formation_command(self, msg):
-        """
-        Liderden gelen formasyon hedefini kaydeder.
-
-        Args:
-            msg (FormationCommand): Gelen formasyon mesajı.
-        """
+    def _on_formation_command(self, msg: FormationCommand) -> None:
         self._current_formation = msg
 
-    def _on_agent_status(self, msg):
-        """
-        İHA'nın anlık telemetri bilgisini kaydeder.
-
-        Args:
-            msg (AgentStatus): İHA telemetri durumu.
-        """
+    def _on_agent_status(self, msg: AgentStatus) -> None:
         self._current_pos_x = float(msg.pos_x)
         self._current_pos_y = float(msg.pos_y)
         self._current_pos_z = float(msg.pos_z)
@@ -227,65 +196,27 @@ class ManeuverExecutorNode(Node):
             self._current_lon = float(msg.lon_deg)
             self._gps_valid = True
 
-    def _on_swarm_origin(self, msg):
-        """
-        Sürü GPS merkez noktasını kaydeder.
-
-        Args:
-            msg (SwarmOrigin): Merkez referans mesajı.
-        """
+    def _on_swarm_origin(self, msg: SwarmOrigin) -> None:
         if msg.valid:
             self._origin_lat = float(msg.origin_lat_deg)
             self._origin_lon = float(msg.origin_lon_deg)
 
-    def _on_control_command(self, msg):
-        """
-        Manevra modu değiştiğinde yayını iptal eder.
-
-        Args:
-            msg (SwarmControlCommand): Kontrol modu mesajı.
-        """
+    def _on_control_command(self, msg: SwarmControlCommand) -> None:
         mode_m = SwarmControlCommand.MODE_MANEUVER
         if msg.mode != mode_m and self._publishing_active:
             self.get_logger().info('Mod degisti, manevra durdu.')
             self._publishing_active = False
 
     def goal_callback(self, goal_request):
-        """
-        Gelen manevra eylemi hedefini kabul eder.
-
-        Args:
-            goal_request: İstenilen manevra talebi.
-
-        Returns:
-            GoalResponse: Talebin kabul durumu.
-        """
         self.get_logger().info('Manevra talebi alindi.')
         return GoalResponse.ACCEPT
 
     def cancel_callback(self, goal_handle):
-        """
-        Manevra eylemini iptal eder.
-
-        Args:
-            goal_handle: Eylemi yöneten tutucu obje.
-
-        Returns:
-            CancelResponse: İptal işleminin kabul durumu.
-        """
         self.get_logger().info('Manevra iptal edildi.')
         return CancelResponse.ACCEPT
 
     def execute_callback(self, goal_handle):
-        """
-        Manevrayı belirtilen süre zarfında enterpolasyonla işler.
-
-        Args:
-            goal_handle: Manevra eyleminin tutucusu.
-
-        Returns:
-            ExecuteManeuver.Result: Eylemin sonuç bilgisi.
-        """
+        """Manevrayi enterpolasyonla isletir."""
         goal = goal_handle.request
         target_p = math.radians(goal.pitch_deg)
         target_r = math.radians(goal.roll_deg)
@@ -297,12 +228,16 @@ class ManeuverExecutorNode(Node):
 
         start_time = time.time()
         feedback = ExecuteManeuver.Feedback()
-        self.get_logger().info(f'Manevra basliyor. Durasyon: {duration}s')
+        self.get_logger().info(f'Manevra basliyor. Sure: {duration}s')
 
         while rclpy.ok():
             if goal_handle.is_cancel_requested:
                 goal_handle.canceled()
                 self._publishing_active = False
+                self._pub_event(
+                    SystemEvent.EVENT_MANEUVER_FAILED,
+                    'Manevra iptal edildi',
+                )
                 return ExecuteManeuver.Result()
 
             now = time.time()
@@ -340,27 +275,35 @@ class ManeuverExecutorNode(Node):
             self._publishing_active = False
 
         goal_handle.succeed()
+        self._pub_event(
+            SystemEvent.EVENT_MANEUVER_COMPLETED,
+            'Manevra tamamlandı',
+        )
 
         res = ExecuteManeuver.Result()
         res.success = True
-        res.result_message = "Basarili."
+        res.result_message = 'Basarili.'
         res.final_pitch_error_deg = 0.0
         res.final_roll_error_deg = 0.0
         res.final_yaw_error_deg = 0.0
         res.final_max_position_error_m = 0.0
         return res
 
-    def _shared_to_local(self, shared_x, shared_y):
-        """
-        Ortak referans sistemini İHA'nın lokal NED sistemine çevirir.
+    def _pub_event(self, event_type, message):
+        """Manevra tamamlanma/başarısızlık olayını yayınlar."""
+        m = SystemEvent()
+        m.stamp = self.get_clock().now().to_msg()
+        m.event_type = int(event_type)
+        m.severity = SystemEvent.SEVERITY_INFO
+        m.source_agent_id = self._agent_id
+        m.source_module = 'maneuver_executor'
+        m.message = message
+        self._event_pub.publish(m)
 
-        Args:
-            shared_x (float): Ortak kuzey koordinatı (X).
-            shared_y (float): Ortak doğu koordinatı (Y).
-
-        Returns:
-            tuple: Lokal X ve Y koordinatları.
-        """
+    def _shared_to_local(
+        self, shared_x: float, shared_y: float
+    ) -> tuple[float, float]:
+        """Shared NED koordinatini local NED'e cevirir."""
         if self._origin_lat is None or not self._gps_valid:
             return shared_x, shared_y
 
@@ -372,10 +315,8 @@ class ManeuverExecutorNode(Node):
         ly = shared_y - cur_e + self._current_pos_y
         return lx, ly
 
-    def _publish_setpoint(self):
-        """
-        Manevra hedef noktasını hesaplar ve yayınlar.
-        """
+    def _publish_setpoint(self) -> None:
+        """Manevra hedef noktasini hesaplar ve yayinlar."""
         if not self._publishing_active:
             return
 
@@ -416,9 +357,29 @@ class ManeuverExecutorNode(Node):
         dy_rot = rmat[1][0] * ox + rmat[1][1] * oy + rmat[1][2] * oz
         dz_rot = rmat[2][0] * ox + rmat[2][1] * oy + rmat[2][2] * oz
 
+        # MERKEZ SABİT KALMALI (şartname 5.1.2: "sürü merkezinin konumunu
+        # SABİT tutarak eğilme"). Rotasyon sonrası TÜM slotların z değişim
+        # ortalaması genelde sıfır DEĞİLDİR (asimetrik formasyonda; örn.
+        # okbaşında iki kanat geride, pitch ikisini de aşağı iter) → sürü
+        # topluca AŞAĞI kayar. Formasyon tarafındaki eğik poz (apply_tilt)
+        # bu ortalamayı çıkarıyor ama maneuver_executor çıkarmıyordu; ikisi
+        # devir tesliminde farklı z verince sürü SALINIYORDU (ölçüldü: pitch
+        # geçişinde ~0.65 m'lik iki dipli salınım, sonra oturuyor). Buradaki
+        # ortalama çıkarma iki tarafı hizalar: geçiş salınımı biter.
+        oz_ort = 0.0
+        n_slot = min(len(msg.offset_x), len(msg.offset_y), len(msg.offset_z))
+        if n_slot > 0:
+            for k in range(n_slot):
+                zx = float(msg.offset_x[k])
+                zy = float(msg.offset_y[k])
+                zz = float(msg.offset_z[k])
+                oz_ort += (rmat[2][0] * zx + rmat[2][1] * zy
+                           + rmat[2][2] * zz)
+            oz_ort /= n_slot
+
         shared_x = cx + dx_rot
         shared_y = cy + dy_rot
-        shared_z = cz + dz_rot
+        shared_z = cz + (dz_rot - oz_ort)
 
         local_x, local_y = self._shared_to_local(shared_x, shared_y)
 
@@ -461,10 +422,7 @@ class ManeuverExecutorNode(Node):
         self._setpoint_pub.publish(out)
 
 
-def main(args=None):
-    """
-    Düğümü başlatır ve iş parçacığı yöneticisi ile çalıştırır.
-    """
+def main(args=None) -> None:
     rclpy.init(args=args)
     node = ManeuverExecutorNode()
     try:
@@ -475,7 +433,11 @@ def main(args=None):
         pass
     finally:
         node.destroy_node()
-        rclpy.try_shutdown()
+        try:
+            if rclpy.ok():
+                rclpy.shutdown()
+        except Exception:  # noqa: BLE001
+            pass
 
 
 if __name__ == '__main__':

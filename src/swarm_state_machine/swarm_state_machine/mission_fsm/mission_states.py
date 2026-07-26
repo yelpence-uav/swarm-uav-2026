@@ -1,14 +1,11 @@
-"""mission_states.py — MissionState, MissionType, QrTaskStep enumları."""
+# Copyright 2026 Yelpence
+"""Sürü seviyesi gorev FSM durum ve tip enumlari."""
 
 from enum import IntEnum
 
 
 class MissionState(IntEnum):
-    """Sürü seviyesi görev FSM durumları.
-
-    /swarm/internal/mission/state topicinde UInt8 olarak yayınlanır.
-    Tüketiciler: formation_control, mission1_dynamic_swarm, GCS.
-    """
+    """Sürü seviyesi görev FSM durumları."""
 
     UNKNOWN = 0
     IDLE = 1
@@ -27,7 +24,7 @@ class MissionState(IntEnum):
 
 
 class MissionType(IntEnum):
-    """Görev tipi (GCS'in TriggerMission.srv mission_id ile seçtiği)."""
+    """Görev tipi."""
 
     UNKNOWN = 0
     DYNAMIC_SWARM = 1
@@ -35,13 +32,7 @@ class MissionType(IntEnum):
 
 
 class QrTaskStep(IntEnum):
-    """EXECUTE_QR_TASK içinde sırayla çalışan QR alt-adımları.
-
-    Çalışma sırası: FORMATION -> MANEUVER -> ALTITUDE -> DETACH.
-    Aktif adımlar QRMissionData.*_active bayraklarıyla belirlenir.
-    Tamamlanma SystemEvent ile bildirilir (EVENT_FORMATION_REACHED,
-    EVENT_MANEUVER_COMPLETED, EVENT_AGENT_DETACHED).
-    """
+    """EXECUTE_QR_TASK QR alt-adımları."""
 
     NONE = 0
     FORMATION = 1

@@ -1,9 +1,7 @@
-"""pytest paylasilan hazirlik dosyasi.
+"""pytest hazirlik dosyasi.
 
-Birim testler ROS2 ortami olmadan koshturulabilsin diye rclpy ve
-std_msgs MagicMock ile yer degistirilir. swarm_control paketinin
-px4_interface.rtcm_packing modulu cross-validation icin sys.path'e
-eklenir (bagimsiz crc24q'sini kullanmak istiyoruz).
+ROS2 olmadan test kosmak icin rclpy/std_msgs mock'lanir.
+swarm_control cross-validation icin sys.path'e eklenir.
 """
 
 import os
@@ -11,9 +9,11 @@ import sys
 from unittest.mock import MagicMock
 
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+sys.path.insert(
+    0, os.path.join(os.path.dirname(__file__), '..')
+)
 
-# swarm_control sister paketten px4_interface.rtcm_packing icin sys.path
+# swarm_control: capraz CRC24Q dogrulamasi icin
 _SWARM_CONTROL_PATH = os.path.abspath(
     os.path.join(
         os.path.dirname(__file__), '..', '..',
@@ -22,7 +22,7 @@ _SWARM_CONTROL_PATH = os.path.abspath(
 )
 sys.path.insert(0, _SWARM_CONTROL_PATH)
 
-# rclpy + std_msgs mock (sim_rtcm_source_node import edilirse)
+# ROS2 mock
 sys.modules.setdefault('rclpy', MagicMock())
 sys.modules.setdefault('rclpy.node', MagicMock())
 sys.modules.setdefault('std_msgs', MagicMock())

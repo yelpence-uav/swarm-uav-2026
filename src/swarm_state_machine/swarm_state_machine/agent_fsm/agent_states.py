@@ -1,11 +1,11 @@
+# Copyright 2026 Yelpence
+"""Ajan FSM durum ve rol sabitleri."""
+
 from enum import IntEnum
 
 
 class AgentState(IntEnum):
-    """Ajan FSM durum sabitleri.
-
-    AgentStatus.msg STATE_* ile birebir eşleşir.
-    """
+    """Ajan FSM durum sabitleri."""
 
     UNKNOWN = 0
     IDLE = 1
@@ -25,8 +25,27 @@ class AgentState(IntEnum):
     STANDBY = 15
 
 
+FORMATION_ACTIVE_STATES = frozenset({
+    AgentState.IN_SWARM,
+    AgentState.EXECUTING_TASK,
+})
+"""Formasyon hesaplarına (centroid, konum dizileri, kalite) dahil edilen durumlar.
+
+İnmiş/düşmüş/ayrılmış ajanlar (LANDED, FAILSAFE, DETACHED ...) dışarıda kalır —
+onlara slot atanırsa formasyonda ölü boşluk oluşur.
+
+ARMED/TAKEOFF bilerek DIŞARIDA: bu durumlar eklendiğinde yerdeki dronlar centroid'e
+girip merkez irtifasını yer seviyesine çekiyor, formasyon sürüyü aşağıda tutmaya
+çalışıyor ve kalkış tırmanışı engelleniyor (denendi, dronlar yükselemeyip indi).
+Kalkış dizilişini korumak için önce irtifa referansının konumdan ayrılması gerekir.
+
+Tek tanım: centroid, konum dizileri ve kalite metriği AYNI kümeyi kullanmalıdır.
+Biri değişip diğeri unutulursa ofsetler (konum - centroid) tutarsız çıkar.
+"""
+
+
 class AgentRole(IntEnum):
-    """Ajan rol sabitleri. AgentStatus.msg ROLE_* ile birebir eşleşir."""
+    """Ajan rol sabitleri."""
 
     UNKNOWN = 0
     LEADER = 1
@@ -36,7 +55,7 @@ class AgentRole(IntEnum):
 
 
 class FlightMode(IntEnum):
-    """PX4 uçuş modu sabitleri. AgentStatus.msg FLIGHT_MODE_* ile eşleşir."""
+    """PX4 ucus modu sabitleri."""
 
     UNKNOWN = 0
     MANUAL = 1
@@ -51,8 +70,6 @@ class FlightMode(IntEnum):
     STABILIZED = 10
 
 
-# Yerde veya bağımsız hareket eden state'ler çarpışma önleme hesabına dahil
-# edilmez (ORCA/APF).
 AVOIDANCE_EXCLUDE_STATES = frozenset({
     AgentState.DETACHED,
     AgentState.PRECISION_LANDING,

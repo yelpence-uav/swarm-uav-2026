@@ -1,20 +1,15 @@
-"""Tek bir drone'un tüm anlık durumunu tutan veri yapısı."""
+# Copyright 2026 Yelpence
+"""Tek bir drone'un tum anlik durumunu tutan veri yapisi."""
 
-import time
 from dataclasses import dataclass, field
+import time
 
-from .agent_states import AgentState, AgentRole, FlightMode
+from .agent_states import AgentRole, AgentState, FlightMode
 
 
 @dataclass
 class AgentContext:
-    """
-    Tek bir drone'un tüm anlık durumunu tutar.
-
-    Her drone için ayrı bir AgentContext nesnesi oluşturulur.
-    agent_health_monitor bu sınıfı günceller.
-    agent_fsm_node bu sınıfı okur ve AgentStatus.msg olarak yayınlar.
-    """
+    """Tek bir drone'un tum anlik durumunu tutar."""
 
     agent_id: int
 
@@ -36,8 +31,6 @@ class AgentContext:
     battery_voltage_v: float = 0.0
     battery_current_a: float = 0.0
 
-    # NED koordinat sistemi: Z ekseni aşağıya pozitif.
-    # 20m yükseklikte uçan drone'un pos_z = -20.0
     pos_x: float = 0.0
     pos_y: float = 0.0
     pos_z: float = 0.0
@@ -70,7 +63,7 @@ class AgentContext:
     xy_valid: bool = False
     z_valid: bool = False
     v_xy_valid: bool = False
-    estimator_stable_ticks: int = 0  # kaç ardışık tick'te estimator sağlıklı
+    estimator_stable_ticks: int = 0
 
     origin_synced: bool = False
     origin_sequence: int = 0
@@ -85,11 +78,16 @@ class AgentContext:
     wants_to_join: bool = False
     ready_to_arm: bool = False
 
-    status_text: str = ""
+    status_text: str = ''
 
     sitl_mode: bool = False
 
     mission_start_sequence_active: bool = False
+
+    # Sürüden ayrılan ajanın renkli pedde disarm bekleyeceği süre (saniye).
+    # EVENT_MEMBER_DETACH_STARTED.value ile gelir; WAITING_REJOIN bu süre
+    # dolunca kendi kendine tekrar arm olur (rejoin zamanlaması dronda).
+    detach_wait_s: float = 0.0
 
     altitude_stable: bool = False
     attitude_stable: bool = False
@@ -111,22 +109,14 @@ class AgentContext:
 
     pending_state: AgentState | None = None
 
-    # Offboard'un kesintisiz kapalı olduğu an (None = offboard aktif)
     offboard_lost_since: float | None = None
 
     @property
     def healthy(self) -> bool:
-        """
-        Drone şu an uçuşa güvenli mi?
-
-        Sadece uçuşu fiilen engelleyen 7 kritik koşul kontrol edilir.
-        rc_link, imu/mag/baro, estimator_ok çıkarıldı — bunların
-        gerçek etkisi zaten xy_valid/z_valid/v_xy_valid'e yansır;
-        EKF bozulursa bu üçü zaten false olur. Anlık titremelerde
-        drone'un formasyondan gereksiz çıkmasını önler.
-        """
+        """Drone ucus icin guvenli mi?."""
+        is_sim_bat = self.battery_voltage_v <= 0.0
         battery_ok = (
-            self.battery_voltage_v <= 0.0  # 0V = sim battery disabled, skip
+            is_sim_bat
             or self.battery_voltage_v > self.battery_critical_voltage_v
         )
         return (
@@ -140,20 +130,10 @@ class AgentContext:
         )
 
     def set_state(self, new_state: AgentState) -> None:
-        """
-        Drone'un durumunu değiştirir ve timeout sayacını sıfırlar.
-
-        Args:
-            new_state: Geçilecek hedef state.
-        """
+        """Durumu degistirir."""
         self.state = new_state
         self.state_entry_time = time.monotonic()
 
     def time_in_state(self) -> float:
-        """
-        Bu state'te kaç saniyedir?
-
-        Returns:
-            Geçen süre (saniye).
-        """
+        """Bu durumda gecen sureyi doner."""
         return time.monotonic() - self.state_entry_time

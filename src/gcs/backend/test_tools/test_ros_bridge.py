@@ -56,25 +56,45 @@ def main():
 
     log.info("=" * 60)
     log.info("AgentStatus mesaj sayıları: %s (her drone ~40)", counts)
-    log.info("SwarmState mesaj sayısı: %d (~16 beklenir, 2Hz × 8sn)", swarm_state_count[0])
+    log.info(
+        "SwarmState mesaj sayısı: %d (~16 beklenir, 2Hz × 8sn)",
+        swarm_state_count[0],
+    )
 
     log.info("Son SwarmState snapshot:")
     ss = bridge.get_swarm_state()
     if ss:
-        log.info("  swarm_state=%d leader=%d active=%d formation=%d mission=%s",
-                 ss["swarm_state"], ss["leader_id"], ss["active_agent_count"],
-                 ss["active_formation"], ss["mission_active"])
-        log.info("  formation_max_error=%.2fm avg_error=%.2fm",
-                 ss["formation_max_error_m"], ss["formation_avg_error_m"])
-        log.info("  current_qr=%d active_mission=%s",
-                 ss["current_qr_id"], ss["active_mission"])
+        log.info(
+            "  swarm_state=%d leader=%d active=%d formation=%d mission=%s",
+            ss["swarm_state"],
+            ss["leader_id"],
+            ss["active_agent_count"],
+            ss["active_formation"],
+            ss["mission_active"],
+        )
+        log.info(
+            "  formation_max_error=%.2fm avg_error=%.2fm",
+            ss["formation_max_error_m"],
+            ss["formation_avg_error_m"],
+        )
+        log.info(
+            "  current_qr=%d active_mission=%s",
+            ss["current_qr_id"],
+            ss["active_mission"],
+        )
     else:
         log.info("  (henüz SwarmState mesajı gelmedi)")
 
-    log.info("AlertManager event'leri (event bus → push_event):")
+    log.info("AlertManager event'leri (event bus -> push_event):")
     snapshot_alerts = alerts.evaluate(store.snapshot())
     for a in snapshot_alerts:
-        log.info("  [%s] drone=%d code=%s — %s", a.severity, a.drone_id, a.code, a.message)
+        log.info(
+            "  [%s] drone=%d code=%s - %s",
+            a.severity,
+            a.drone_id,
+            a.code,
+            a.message,
+        )
 
     log.info("StateStore drone snapshot:")
     for d in store.snapshot():
@@ -82,9 +102,21 @@ def main():
             "  %s | conn=%s armed=%s mode=%s state=%d role=%d "
             "pos=(%.1f,%.1f,%.1f) lat=%.5f lon=%.5f alt=%.1fm "
             "bat=%.1f%% gps=%d(%dsat) origin_sync=%s",
-            d.name, d.connected, d.armed, d.mode, d.state, d.role,
-            d.pos_x, d.pos_y, d.pos_z, d.lat, d.lon, d.alt_m,
-            d.battery_percent, d.gps_fix_type, d.gps_satellites,
+            d.name,
+            d.connected,
+            d.armed,
+            d.mode,
+            d.state,
+            d.role,
+            d.pos_x,
+            d.pos_y,
+            d.pos_z,
+            d.lat,
+            d.lon,
+            d.alt_m,
+            d.battery_percent,
+            d.gps_fix_type,
+            d.gps_satellites,
             d.origin_synced,
         )
 

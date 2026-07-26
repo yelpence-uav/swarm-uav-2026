@@ -4,12 +4,15 @@
   <name>swarm_control</name>
   <version>0.1.0</version>
   <description>PX4 interface bridge</description>
-  <maintainer email="kocakseydagul@gmail.com">Yelpence TEKNOFEST 2026</maintainer>
+  <maintainer email="osmancevik@pm.me">Yelpençe Takımı</maintainer>
   <license>MIT</license>
 
   <depend>rclpy</depend>
   <depend>std_msgs</depend>
   <depend>swarm_interfaces</depend>
+  <!-- latlon_to_ned (saf matematik, ROS'suz): GPS -> paylaşılan NED çevrimi
+       tek kaynaktan gelsin; px4_bridge kendi kopyasını tutmasın. -->
+  <depend>swarm_core</depend>
   <depend>mavros_msgs</depend>
   <depend>geographic_msgs</depend>
   <depend>nav_msgs</depend>

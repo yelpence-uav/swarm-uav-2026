@@ -23,7 +23,7 @@ export function QRPanel({ qr }: QRPanelProps) {
       <section className="qr-panel qr-panel--empty">
         <span className="qr-panel__title">QR GÖREV</span>
         <span className="qr-panel__placeholder">
-          (henüz QR okunmadı — qr_detector bekleniyor)
+          (henüz QR okunmadı - qr_detector bekleniyor)
         </span>
       </section>
     );
@@ -79,7 +79,7 @@ export function QRPanel({ qr }: QRPanelProps) {
         {qr.detach_active && (
           <Task
             label="Ayrılma"
-            value={`Drone ${qr.target_agent_id} → ${colorLabel}`}
+            value={`Drone ${qr.target_agent_id} -> ${colorLabel}`}
             highlight={qr.detach_color}
           />
         )}

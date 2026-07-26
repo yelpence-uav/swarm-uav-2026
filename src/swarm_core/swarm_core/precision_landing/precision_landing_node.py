@@ -1,33 +1,5 @@
-# Copyright 2026 Yelpence TEKNOFEST 2026
-#
-# Permission is hereby granted, free of charge, to any person obtaining a copy
-# of this software and associated documentation files (the "Software"), to deal
-# in the Software without restriction, including without limitation the rights
-# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-# copies of the Software, and to permit persons to whom the Software is
-# furnished to do so, subject to the following conditions:
-#
-# The above copyright notice and this permission notice shall be included in
-# all copies or substantial portions of the Software.
-#
-# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
-# THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
-# THE SOFTWARE.
-
-"""
-precision_landing_node.py.
-
-precision_landing_core'u ROS 2'ye bağlayan per-drone düğüm.
-
-Sadece kendi dronu STATE_PRECISION_LANDING iken aktiftir. Çıktıyı saf-hız
-AgentSetpoint olarak /drone_{id}/control/setpoint'e yayınlar (px4_bridge tek
-PX4 yazıcısıdır). Touchdown'da /swarm/agent/drone{id}/commands'e 'disarm'
-gönderir; agent_fsm armed=False görüp WAITING_REJOIN'e geçer.
-"""
+# Copyright 2026 Yelpence
+"""Hassas inis dugumunu ROS 2'ye baglayan per-drone dugum."""
 
 import rclpy
 from rclpy.node import Node
@@ -39,6 +11,7 @@ from rclpy.qos import (
 )
 
 from std_msgs.msg import String
+
 from swarm_interfaces.msg import (
     AgentSetpoint,
     AgentStatus,
@@ -66,10 +39,9 @@ _RELIABLE_QOS = QoSProfile(
 
 
 class PrecisionLandingNode(Node):
-    """Renkli bölgeye hassas iniş düğümü (drone başına)."""
+    """Renkli bolgeye hassas inis dugumu."""
 
     def __init__(self) -> None:
-        """Initialize."""
         super().__init__('precision_landing_node')
 
         self.declare_parameter('agent_id', 1)
@@ -78,7 +50,10 @@ class PrecisionLandingNode(Node):
         self.declare_parameter('descend_speed_mps', 0.4)
         self.declare_parameter('xy_align_tol_m', 0.5)
         self.declare_parameter('touchdown_alt_m', 0.3)
+        # Süre bütçesinin TABANI; gerçek sınır bölgeye olan mesafe ve irtifadan
+        # hesaplanır (bkz. PrecisionLandingCore._time_budget_s).
         self.declare_parameter('landing_timeout_s', 45.0)
+        self.declare_parameter('landing_time_margin_s', 45.0)
 
         self._agent_id = self.get_parameter('agent_id').value
         rate = self.get_parameter('control_rate_hz').value
@@ -89,16 +64,19 @@ class PrecisionLandingNode(Node):
             xy_align_tol_m=self.get_parameter('xy_align_tol_m').value,
             touchdown_alt_m=self.get_parameter('touchdown_alt_m').value,
             landing_timeout_s=self.get_parameter('landing_timeout_s').value,
+            landing_time_margin_s=self.get_parameter(
+                'landing_time_margin_s').value,
         )
 
-        # Girdi durumları
         self._pose = None
         self._active = False
         self._target_color = 0
         self._zone_map = []
+        # Yayıncı (dron) başına bölge haritası. Tek topic'e her dron kendi
+        # gözlemini yayınlar; üzerine yazmak yerine hepsi birleştirilir.
+        self._zone_maps: dict[int, list] = {}
         self._live_zone = None
 
-        # Tek seferlik olay bayrakları
         self._started_emitted = False
         self._disarm_sent = False
         self._seq = 0
@@ -107,11 +85,11 @@ class PrecisionLandingNode(Node):
         self.create_timer(1.0 / rate, self._on_timer)
 
         self.get_logger().info(
-            f'precision_landing_node başlatıldı: agent_id={self._agent_id}'
+            f'precision_landing_node baslatildi: agent_id={self._agent_id}'
         )
 
     def _setup_io(self) -> None:
-        """Abonelik ve yayıncıları kurar."""
+        """Abonelik ve yayincilari kurar."""
         aid = self._agent_id
 
         self.create_subscription(
@@ -131,9 +109,6 @@ class PrecisionLandingNode(Node):
             self._on_qr, _RELIABLE_QOS,
         )
 
-        # formation_node gibi /raw'a yaz → collision_avoidance filtresinden
-        # geçsin (yaklaşmada çarpışma koruması; iniş fazında CA passthrough).
-        # /control/setpoint'in tek yazıcısı collision_avoidance olarak kalır.
         self._sp_pub = self.create_publisher(
             AgentSetpoint, f'/drone_{aid}/control/setpoint/raw',
             _BEST_EFFORT_QOS,
@@ -145,11 +120,8 @@ class PrecisionLandingNode(Node):
             SystemEvent, '/swarm/internal/events/system', _RELIABLE_QOS,
         )
 
-    # =================================================================
-    # ABONELIK CALLBACK'LERI
-    # =================================================================
     def _on_status(self, msg: AgentStatus) -> None:
-        """Kendi pozumuzu ve aktiflik durumumuzu günceller."""
+        """Kendi pozumuzu ve aktiflik durumumuzu gunceller."""
         self._pose = (
             float(msg.pos_x), float(msg.pos_y),
             float(msg.pos_z), float(msg.heading_deg),
@@ -157,7 +129,7 @@ class PrecisionLandingNode(Node):
         self._active = (msg.state == AgentStatus.STATE_PRECISION_LANDING)
 
     def _on_zone_map(self, msg: ZoneMap) -> None:
-        """Biriktirilen bölge haritasını listeye çevirir."""
+        """Birlestirilmis bolge haritasini listeye cevirir."""
         zones = []
         for i in range(msg.zone_count):
             zones.append({
@@ -166,32 +138,28 @@ class PrecisionLandingNode(Node):
                 'y': float(msg.zone_y[i]),
                 'count': float(msg.observation_count[i]),
             })
-        self._zone_map = zones
+        self._zone_maps[int(msg.publisher_agent_id)] = zones
+        self._zone_map = [z for zs in self._zone_maps.values() for z in zs]
 
     def _on_live_zone(self, msg: LandingZoneDetection) -> None:
-        """Canlı kamera tespitini saklar (kapalı çevrim ortalama için)."""
+        """Canli kamera tespitini saklar."""
         if not msg.primary_valid:
             self._live_zone = None
             return
-        # vision_node: primary_x = ileri (NED x) frac, primary_y = sağ frac.
         self._live_zone = {
             'valid': True,
             'color': int(msg.primary_color),
-            'frac_fwd': float(msg.primary_x),
-            'frac_right': float(msg.primary_y),
-            'fov_deg': float(msg.fov_deg),
+            'ned_dx': float(msg.primary_x),
+            'ned_dy': float(msg.primary_y),
         }
 
     def _on_qr(self, msg: QRMissionData) -> None:
-        """Kendi ajanımıza ait ayrılma rengini mandallar."""
+        """Ayrilma rengini mandallar."""
         if msg.detach_active and msg.target_agent_id == self._agent_id:
             self._target_color = int(msg.detach_color)
 
-    # =================================================================
-    # KONTROL DONGUSU
-    # =================================================================
     def _on_timer(self) -> None:
-        """Saf mantığı çağırır, çıktıyı setpoint/komut olarak yayınlar."""
+        """Saf mantigi calistirir ve ciktilari yayinlar."""
         now = self.get_clock().now().nanoseconds * 1e-9
         cmd = self._core.update(
             self._active, self._pose, self._target_color,
@@ -202,6 +170,33 @@ class PrecisionLandingNode(Node):
             self._started_emitted = False
             self._disarm_sent = False
             return
+
+        # TEŞHİS: hassas iniş aktifken node'un elinde NE VAR. Sessizce hiçbir
+        # setpoint üretmeyip FAILSAFE'e düşen durumu (yaşanan bug) kör noktada
+        # bırakmamak için; girdilerden hangisi eksik doğrudan görünsün.
+        n_red = sum(1 for z in self._zone_map if int(z.get('color', 0)) == 1)
+        n_blue = sum(1 for z in self._zone_map if int(z.get('color', 0)) == 2)
+        # Hedef rengin ADAYLARI: hangi konuma, kaç gözlemle inilmek isteniyor.
+        # Yanlış pede inme ancak bu adaylar gerçek ped konumuyla karşılaştırılınca
+        # teşhis edilebilir (renk doğru ama konum yansıtması şaşmış olabilir).
+        adaylar = sorted(
+            (z for z in self._zone_map
+             if int(z.get('color', 0)) == int(self._target_color)),
+            key=lambda z: -float(z.get('count', 0.0)),
+        )[:3]
+        aday_str = ' '.join(
+            f'({float(z["x"]):.1f},{float(z["y"]):.1f})x{float(z["count"]):.0f}'
+            for z in adaylar
+        ) or 'YOK'
+        self.get_logger().info(
+            f'PL: aktif=1 renk={self._target_color} '
+            f'poz={"VAR" if self._pose else "YOK"} '
+            f'zone={len(self._zone_map)} (kirmizi={n_red} mavi={n_blue}) '
+            f'faz={cmd.phase} yayin={cmd.publish} '
+            f'HEDEF=({cmd.target_x:.1f},{cmd.target_y:.1f}) '
+            f'ADAYLAR={aday_str} msg={cmd.message}',
+            throttle_duration_sec=2.0,
+        )
 
         if not self._started_emitted:
             self._started_emitted = True
@@ -224,7 +219,7 @@ class PrecisionLandingNode(Node):
             )
 
     def _publish_setpoint(self, cmd) -> None:
-        """LandingCommand'i saf-hız AgentSetpoint olarak yayınlar."""
+        """Setpoint yayinlar."""
         sp = AgentSetpoint()
         sp.stamp = self.get_clock().now().to_msg()
         sp.sequence_num = self._seq
@@ -244,7 +239,7 @@ class PrecisionLandingNode(Node):
         self._sp_pub.publish(sp)
 
     def _emit_event(self, event_type: int, message: str) -> None:
-        """SystemEvent yayınlar (renk = value)."""
+        """Aciklama: SystemEvent yayinlar."""
         ev = SystemEvent()
         ev.stamp = self.get_clock().now().to_msg()
         ev.event_type = event_type
@@ -257,7 +252,6 @@ class PrecisionLandingNode(Node):
 
 
 def main(args=None) -> None:
-    """Entry point."""
     rclpy.init(args=args)
     node = PrecisionLandingNode()
     try:
@@ -266,7 +260,11 @@ def main(args=None) -> None:
         pass
     finally:
         node.destroy_node()
-        rclpy.shutdown()
+        try:
+            if rclpy.ok():
+                rclpy.shutdown()
+        except Exception:  # noqa: BLE001
+            pass
 
 
 if __name__ == '__main__':

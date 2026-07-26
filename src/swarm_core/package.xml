@@ -4,10 +4,11 @@
   <name>swarm_core</name>
   <version>0.1.0</version>
   <description>Swarm UAV control core: formation control, consensus, collision avoidance, path planning</description>
-  <maintainer email="kocakseydagul@gmail.com">Yelpence TEKNOFEST 2026</maintainer>
+  <maintainer email="osmancevik@pm.me">Yelpençe Takımı</maintainer>
   <license>MIT</license>
 
   <depend>rclpy</depend>
+  <depend>std_msgs</depend>
   <depend>swarm_interfaces</depend>
 
   <test_depend>ament_copyright</test_depend>

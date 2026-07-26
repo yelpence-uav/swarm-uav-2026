@@ -1,8 +1,5 @@
-"""REST endpoint — anlık snapshot (debug + frontend health check).
-
-WebSocket'i tamamlar. Frontend ilk yüklemede bunu çağırarak başlangıç state'ini alır,
-sonra WS'ye geçer.
-"""
+# Copyright 2026 Yelpence
+"""REST telemetry endpoint'leri."""
 
 import dataclasses
 
@@ -13,6 +10,7 @@ router = APIRouter(prefix="/api", tags=["telemetry"])
 
 @router.get("/telemetry/snapshot")
 def get_snapshot(request: Request):
+    """Anlık telemetri durumunu döner."""
     store = request.app.state.store
     alerts = request.app.state.alerts
     bridge = getattr(request.app.state, "bridge", None)
@@ -20,7 +18,9 @@ def get_snapshot(request: Request):
     return {
         "drones": [dataclasses.asdict(d) for d in snap],
         "alerts": [dataclasses.asdict(a) for a in alerts.evaluate(snap)],
-        "swarm_state": bridge.get_swarm_state() if bridge is not None else None,
+        "swarm_state": (
+            bridge.get_swarm_state() if bridge is not None else None
+        ),
         "qr": bridge.get_qr_data() if bridge is not None else None,
         "connection_mode": request.app.state.connection_mode,
     }
@@ -28,6 +28,7 @@ def get_snapshot(request: Request):
 
 @router.get("/health")
 def health(request: Request):
+    """Sağlık kontrolü."""
     store = request.app.state.store
     snap = store.snapshot()
     return {

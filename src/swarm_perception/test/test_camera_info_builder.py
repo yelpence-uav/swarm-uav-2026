@@ -1,25 +1,7 @@
-# Copyright 2026 Yelpence TEKNOFEST 2026
-#
-# Permission is hereby granted, free of charge, to any person obtaining a copy
-# of this software and associated documentation files (the "Software"), to deal
-# in the Software without restriction, including without limitation the rights
-# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-# copies of the Software, and to permit persons to whom the Software is
-# furnished to do so, subject to the following conditions:
-#
-# The above copyright notice and this permission notice shall be included in
-# all copies or substantial portions of the Software.
-#
-# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
-# THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
-# THE SOFTWARE.
+# Copyright 2026 Yelpence
 
 """
-test_camera_info_builder.py
+test_camera_info_builder.py.
 
 camera_info_builder modülü birim testleri.
 
@@ -43,7 +25,7 @@ class TestComputeFovDeg(unittest.TestCase):
 
     def test_bilinen_fov(self):
         """Gazebo FOV 1.047 rad (~60°) ile tutarlılık."""
-        # 1280 genişlik, 1.047 rad FOV → fx ≈ 1108.5
+        # 1280 genişlik, 1.047 rad FOV -> fx ≈ 1108.5
         fx = 1108.5
         fov = compute_fov_deg(fx, 1280)
         # 60° civarı bekliyoruz
@@ -51,8 +33,8 @@ class TestComputeFovDeg(unittest.TestCase):
 
     def test_90_derece_fov(self):
         """90° FOV: fx = width/2 olmalı."""
-        # tan(45°) = 1 → fx = width/2
-        fx = 640.0  # width=1280 için fx=640 → 90° FOV
+        # tan(45°) = 1 -> fx = width/2
+        fx = 640.0  # width=1280 için fx=640 -> 90° FOV
         fov = compute_fov_deg(fx, 1280)
         self.assertAlmostEqual(fov, 90.0, delta=0.1)
 
@@ -110,7 +92,7 @@ class TestBuildCameraInfo(unittest.TestCase):
         self.assertEqual(info['distortion_model'], 'plumb_bob')
 
     def test_varsayilan_distortion_sifir(self):
-        """Gazebo'da distortion yok — varsayılan sıfır olmalı."""
+        """Gazebo'da distortion yok - varsayılan sıfır olmalı."""
         info = build_camera_info()
         self.assertEqual(len(info['d']), 5)
         for d in info['d']:
@@ -168,7 +150,7 @@ class TestBuildCameraInfo(unittest.TestCase):
         """Varsayılan parametreler Gazebo model.sdf ile tutarlı olmalı.
 
         Gazebo: 1280x720, horizontal_fov=1.047 rad
-        → fx = (1280/2) / tan(1.047/2) ≈ 1108.5
+        -> fx = (1280/2) / tan(1.047/2) ≈ 1108.5
         """
         info = build_camera_info()
         self.assertEqual(info['width'], 1280)

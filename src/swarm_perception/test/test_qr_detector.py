@@ -1,32 +1,15 @@
-# Copyright 2026 Yelpence TEKNOFEST 2026
-#
-# Permission is hereby granted, free of charge, to any person obtaining a copy
-# of this software and associated documentation files (the "Software"), to deal
-# in the Software without restriction, including without limitation the rights
-# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-# copies of the Software, and to permit persons to whom the Software is
-# furnished to do so, subject to the following conditions:
-#
-# The above copyright notice and this permission notice shall be included in
-# all copies or substantial portions of the Software.
-#
-# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
-# THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
-# THE SOFTWARE.
+# Copyright 2026 Yelpence
 
 """
-test_qr_detector.py
+test_qr_detector.py.
 
 QRDetector birim testleri.
 Pyzbar mocklanarak saf test edilir.
 """
 
-import unittest
+import json
 import sys
+import unittest
 from unittest.mock import MagicMock, patch
 
 import numpy as np
@@ -53,9 +36,14 @@ class TestQRDetector(unittest.TestCase):
 
     @patch('swarm_perception.vision_node.qr_detector.decode')
     def test_valid_qr_detection(self, mock_decode: MagicMock) -> None:
-        """Geçerli bir YELPENCE QR kodunun başarıyla ayrıştırılması."""
+        """Geçerli bir şartname JSON QR kodunun başarıyla ayrıştırılması."""
+        payload = {
+            'qr': 5, 'w': 4,
+            'mis': [[['frm', 'v', 2.5]]],
+            'team': {'1': [1, 6]},
+        }
         mock_obj = MagicMock()
-        mock_obj.data = b'team_id=YELPENCE; qr_id=5; next_qr=6; spacing_m=2.5'
+        mock_obj.data = json.dumps(payload).encode('utf-8')
         mock_obj.rect.left = 100
         mock_obj.rect.top = 100
         mock_obj.rect.width = 50
@@ -68,18 +56,23 @@ class TestQRDetector(unittest.TestCase):
         self.assertEqual(len(results), 1)
         res = results[0]
         self.assertTrue(res['valid'])
-        self.assertEqual(res['team_id'], 'YELPENCE')
         self.assertEqual(res['qr_id'], 5)
         self.assertEqual(res['next_qr'], 6)
         self.assertTrue(res['target_active'])
+        self.assertTrue(res['formation_active'])
         self.assertEqual(res['spacing_m'], 2.5)
         self.assertEqual(res['error_message'], '')
 
     @patch('swarm_perception.vision_node.qr_detector.decode')
-    def test_invalid_team_id(self, mock_decode: MagicMock) -> None:
-        """Farklı bir takıma ait QR kodunun geçersiz sayılması."""
+    def test_invalid_team_slot(self, mock_decode: MagicMock) -> None:
+        """Takım slotu tabloda yoksa QR geçersiz sayılmalı."""
+        payload = {
+            'qr': 1, 'w': 4,
+            'mis': [[['frm', 'v', 2.5]]],
+            'team': {'2': [1, 3]},   # slot 1 tabloda yok
+        }
         mock_obj = MagicMock()
-        mock_obj.data = b'team_id=BASKATAKIM; qr_id=1'
+        mock_obj.data = json.dumps(payload).encode('utf-8')
         mock_obj.rect.left = 0
         mock_obj.rect.top = 0
         mock_obj.rect.width = 10
@@ -91,11 +84,15 @@ class TestQRDetector(unittest.TestCase):
 
         self.assertEqual(len(results), 1)
         self.assertFalse(results[0]['valid'])
-        self.assertEqual(results[0]['error_message'], 'Gecersiz takim ID')
+        self.assertIn('slot', results[0]['error_message'].lower())
 
     def test_parse_formation(self) -> None:
-        """Formasyon verilerinin doğru parse edilmesi."""
-        text = "team_id=YELPENCE; formation=V; spacing_m=5.0"
+        """Formasyon (frm) komutunun doğru parse edilmesi."""
+        text = json.dumps({
+            'qr': 1, 'w': 4,
+            'mis': [[['frm', 'v', 5.0]]],
+            'team': {'1': [1, 3]},
+        })
         parsed = self.detector._parse_qr_text(text)
 
         self.assertTrue(parsed['valid'])
@@ -104,16 +101,24 @@ class TestQRDetector(unittest.TestCase):
         self.assertEqual(parsed['spacing_m'], 5.0)
 
     def test_parse_maneuver(self) -> None:
-        """Manevra verilerinin doğru parse edilmesi."""
-        text = "team_id=YELPENCE; pitch_deg=-15.5"
+        """Manevra (mnv) komutunun doğru parse edilmesi."""
+        text = json.dumps({
+            'qr': 1, 'w': 4,
+            'mis': [[['mnv', -15.5, 0]]],
+            'team': {'1': [1, 3]},
+        })
         parsed = self.detector._parse_qr_text(text)
 
         self.assertTrue(parsed['maneuver_active'])
         self.assertEqual(parsed['pitch_deg'], -15.5)
 
     def test_parse_detach(self) -> None:
-        """Ayrılma ve renk verilerinin doğru parse edilmesi."""
-        text = "team_id=YELPENCE; detach_color=RED"
+        """Ayrılma (leav) komutunun doğru parse edilmesi."""
+        text = json.dumps({
+            'qr': 1, 'w': 4,
+            'mis': [[['leav', 2, 'r']]],
+            'team': {'1': [1, 3]},
+        })
         parsed = self.detector._parse_qr_text(text)
 
         self.assertTrue(parsed['detach_active'])

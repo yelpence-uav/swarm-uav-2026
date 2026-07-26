@@ -18,48 +18,36 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 # THE SOFTWARE.
 
-"""
-qr_detector.py.
+"""qr_detector.py."""
 
-Pyzbar kullanarak BGR görüntülerde QR kod tespiti yapan saf modül.
-ROS 2 bağımlılığı taşımaz, yalnızca numpy ve pyzbar kullanır.
-"""
-
+import json
 from typing import Any, Dict, List
 
 import numpy as np
+
 from pyzbar.pyzbar import decode
+
+# QR komut kısaltmaları -> QRMissionData enum değerleri.
+_FORMATION_CODES = {'ok': 1, 'v': 2, 'l': 3}     # OKBASI / V / CIZGI
+_COLOR_CODES = {'r': 1, 'b': 2}                   # RED / BLUE
 
 
 class QRDetector:
-    """Görüntüdeki QR kodlarını bulup ayrıştıran sınıf."""
+    """Goruntudeki QR kodlarini bulup ayristiran sinif."""
 
-    def __init__(self, min_confidence: float = 0.5) -> None:
-        """
-        Qrdetector sınıfını ilklendirir.
-
-        Args:
-            min_confidence (float): Asgari güven eşiği (pyzbar desteklemez,
-                ancak mimari uyumu için korunmuştur).
-        """
+    def __init__(
+        self, min_confidence: float = 0.5, team_slot: int = 1
+    ) -> None:
+        """Aciklama: QRDetector sinifini ilklendirir."""
         self._min_confidence = min_confidence
+        self._team_slot = int(team_slot)
 
     def detect(self, image: np.ndarray) -> List[Dict[str, Any]]:
-        """
-        Verilen BGR görüntü üzerindeki QR kodları bulur ve ayrıştırır.
-
-        Args:
-            image (np.ndarray): cv2 formatında BGR görüntü matrisi.
-
-        Returns:
-            List[Dict[str, Any]]: Ayrıştırılmış QR veri sözlüğü listesi.
-        """
+        """BGR goruntu uzerindeki QR kodlari bulur ve ayristirir."""
         if image is None or image.size == 0:
             return []
 
-        # Pyzbar decode işlemi (RGB veya BGR fark etmez)
         decoded_objects = decode(image)
-
         results = []
         for obj in decoded_objects:
             try:
@@ -67,11 +55,9 @@ class QRDetector:
             except UnicodeDecodeError:
                 continue
 
-            # Sınırlayıcı kutu (Bounding Box) koordinatları
             rect = obj.rect
             img_h, img_w = image.shape[:2]
 
-            # QRMissionData formatına uygun veri yapısı
             qr_data = {
                 'raw_text': raw_text,
                 'image_x': float(rect.left + rect.width / 2) / img_w,
@@ -82,25 +68,13 @@ class QRDetector:
 
             parsed_fields = self._parse_qr_text(raw_text)
             qr_data.update(parsed_fields)
-
             results.append(qr_data)
 
         return results
 
-    def _parse_qr_text(self, text: str) -> Dict[str, Any]:
-        """
-        QR kod metnini noktalı virgül (;) ile ayrıştırır.
-
-        Örnek metin:
-        team_id=YELPENCE; qr_id=1; next_qr=4; formation=OKBASI; spacing_m=6
-
-        Args:
-            text (str): QR kod içerisinden okunan ham metin.
-
-        Returns:
-            Dict[str, Any]: Anahtar-değer çiftlerinden oluşan sözlük.
-        """
-        parsed = {
+    def _blank_result(self) -> Dict[str, Any]:
+        """Tüm alanları nötr olan boş bir sonuç sözlüğü döndürür."""
+        return {
             'team_id': '',
             'qr_id': 0,
             'qr_seq': 0,
@@ -125,70 +99,78 @@ class QRDetector:
             'error_message': '',
         }
 
-        # Takım eşleştirmesi
-        parts = [p.strip() for p in text.split(';') if p.strip()]
+    def _parse_qr_text(self, text: str) -> Dict[str, Any]:
+        """Şartname JSON'ını ayrıştırıp bu takımın görev paketini düzleştirir."""
+        parsed = self._blank_result()
 
-        for part in parts:
-            if '=' not in part:
-                continue
+        try:
+            data = json.loads(text)
+        except (json.JSONDecodeError, TypeError):
+            parsed['error_message'] = 'QR JSON cozulemedi'
+            return parsed
 
-            key, val = part.split('=', 1)
-            key = key.strip().lower()
-            val = val.strip()
+        try:
+            parsed['qr_id'] = int(data['qr'])
+            parsed['wait_s'] = float(data['w'])
+            packages = data['mis']
+            team_table = data['team']
+        except (KeyError, TypeError, ValueError):
+            parsed['error_message'] = 'QR sema alanlari eksik'
+            return parsed
 
+        slot = str(self._team_slot)
+        if slot not in team_table:
+            parsed['error_message'] = f'Takim slotu {slot} tabloda yok'
+            return parsed
+
+        try:
+            package_no, next_qr = team_table[slot]
+            package_no = int(package_no)
+            parsed['next_qr'] = int(next_qr)
+        except (ValueError, TypeError):
+            parsed['error_message'] = 'Takim tablosu girdisi bozuk'
+            return parsed
+
+        parsed['target_active'] = True
+        # sonraki_qr == 0 -> dinamik senaryo bitti, baslangica don.
+        parsed['complete_mission'] = parsed['next_qr'] == 0
+
+        # Paket numarasi 1-tabanli; mis listesi 0-tabanli.
+        idx = package_no - 1
+        if not isinstance(packages, list) or not (0 <= idx < len(packages)):
+            parsed['error_message'] = f'Paket {package_no} listede yok'
+            return parsed
+
+        for command in packages[idx]:
             try:
-                self._assign_field(parsed, key, val)
-            except ValueError as e:
-                parsed['error_message'] = str(e)
+                self._apply_command(parsed, command)
+            except (ValueError, TypeError, IndexError) as exc:
+                parsed['error_message'] = str(exc)
                 return parsed
 
-        # Temel doğrulama: team_id YELPENCE olmalı
-        if parsed['team_id'] == 'YELPENCE':
-            parsed['valid'] = True
-        else:
-            parsed['error_message'] = 'Gecersiz takim ID'
-
+        parsed['valid'] = True
         return parsed
 
-    def _assign_field(
-        self, parsed: Dict[str, Any], key: str, val: str
+    def _apply_command(
+        self, parsed: Dict[str, Any], command: List[Any]
     ) -> None:
-        """
-        Ayrıştırılan alanı veri sözlüğüne atar.
+        """Tek bir görev komutunu ([op, ...]) sonuç sözlüğüne uygular."""
+        op = command[0]
 
-        Args:
-            parsed (Dict[str, Any]): Verilerin saklandığı sözlük.
-            key (str): İşlenecek alanın anahtarı.
-            val (str): Alana atanacak değer.
-        """
-        if key == 'team_id':
-            parsed['team_id'] = val
-        elif key == 'qr_id':
-            parsed['qr_id'] = int(val)
-        elif key == 'qr_seq':
-            parsed['qr_seq'] = int(val)
-        elif key == 'next_qr':
-            parsed['next_qr'] = int(val)
-            parsed['target_active'] = True
-        elif key == 'formation':
+        if op == 'frm':
             parsed['formation_active'] = True
-            if val.upper() == 'OKBASI':
-                parsed['formation_type'] = 1
-            elif val.upper() == 'V':
-                parsed['formation_type'] = 2
-            elif val.upper() == 'CIZGI':
-                parsed['formation_type'] = 3
-        elif key == 'spacing_m':
-            parsed['spacing_m'] = float(val)
-        elif key == 'altitude_agl_m':
-            parsed['altitude_agl_m'] = float(val)
-            parsed['altitude_active'] = True
-        elif key == 'pitch_deg':
-            parsed['pitch_deg'] = float(val)
+            parsed['formation_type'] = _FORMATION_CODES.get(command[1], 0)
+            parsed['spacing_m'] = float(command[2])
+        elif op == 'mnv':
             parsed['maneuver_active'] = True
-        elif key == 'detach_color':
+            parsed['pitch_deg'] = float(command[1])
+            parsed['roll_deg'] = float(command[2])
+        elif op == 'alt':
+            parsed['altitude_active'] = True
+            parsed['altitude_agl_m'] = float(command[1])
+        elif op == 'leav':
             parsed['detach_active'] = True
-            if val.upper() == 'RED':
-                parsed['detach_color'] = 1
-            elif val.upper() == 'BLUE':
-                parsed['detach_color'] = 2
+            parsed['target_agent_id'] = int(command[1])
+            parsed['detach_color'] = _COLOR_CODES.get(command[2], 0)
+        else:
+            raise ValueError(f'Bilinmeyen komut: {op}')

@@ -47,7 +47,7 @@
   opacity: 0.12;
 }
 
-/* === Head ================================================== */
+/* Head */
 .drone-card__head {
   display: flex;
   align-items: center;
@@ -107,7 +107,7 @@
   border: 1px solid var(--color-border);
 }
 
-/* === State =================================================== */
+/* State */
 .drone-card__state {
   display: flex;
   align-items: center;
@@ -122,7 +122,7 @@
   letter-spacing: 0.08em;
 }
 
-/* === Stats grid ============================================ */
+/* Stats grid */
 .drone-card__stats {
   margin: 0;
   display: grid;
@@ -150,7 +150,7 @@
   font-weight: 500;
 }
 
-/* === Footer ================================================= */
+/* Footer */
 .drone-card__footer {
   font-size: 10px;
   color: var(--color-text-muted);
@@ -159,7 +159,7 @@
   margin-top: auto;
 }
 
-/* === Offline state ========================================= */
+/* Offline state */
 .drone-card--offline {
   opacity: 0.7;
 }
