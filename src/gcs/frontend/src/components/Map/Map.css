@@ -193,6 +193,12 @@ html[data-theme="dark"] .leaflet-tile {
   color: var(--color-text-secondary);
 }
 
+.map-goto-bar__hint {
+  font-size: 11px;
+  color: var(--color-text-secondary);
+  opacity: 0.75;
+}
+
 .map-goto-bar__field input,
 .map-goto-bar__field select {
   width: 64px;

@@ -67,7 +67,6 @@ export function MapView({
   const [pending, setPending] = useState<{ lat: number; lon: number } | null>(null);
   const [gotoDrone, setGotoDrone] = useState<number | null>(null);
   const [gotoAlt, setGotoAlt] = useState("5");
-  const [gotoSpeed, setGotoSpeed] = useState("3");
   const [gotoSending, setGotoSending] = useState(false);
   const [gotoError, setGotoError] = useState<string | null>(null);
 
@@ -252,9 +251,9 @@ export function MapView({
         ? gotoDrone
         : connectedDrones[0].drone_id;
     setGotoDrone(chosen);
-    // Varsayılan irtifa/hız = Ayarlar parametreleri (operatör pop-up'ta değiştirebilir).
+    // Varsayılan irtifa = Ayarlar parametresi (operatör pop-up'ta değiştirebilir).
+    // Hız YKİ'den ayarlanmıyor; drone MPC_XY_VEL_MAX (QGC) ile sınırlı.
     setGotoAlt(String(params?.default_altitude_m ?? 5));
-    setGotoSpeed(String(params?.default_speed_ms ?? 3));
     setGotoError(null);
     setPending({ lat: e.latlng.lat, lon: e.latlng.lng });
   };
@@ -266,12 +265,10 @@ export function MapView({
       setGotoError("İrtifa > 0 olmalı");
       return;
     }
-    const speed = parseFloat(gotoSpeed);
     setGotoSending(true);
     setGotoError(null);
     try {
       const target: GotoTarget = { lat: pending.lat, lon: pending.lon, alt };
-      if (!Number.isNaN(speed) && speed > 0) target.speed = speed;
       await onGoto(gotoDrone, target);
       setPending(null);
     } catch (err) {
@@ -321,15 +318,9 @@ export function MapView({
             />
             m
           </label>
-          <label className="map-goto-bar__field">
-            Hız
-            <input
-              value={gotoSpeed}
-              onChange={(e) => setGotoSpeed(e.target.value)}
-              inputMode="decimal"
-            />
-            m/s
-          </label>
+          <div className="map-goto-bar__hint">
+            Hız: MPC_XY_VEL_MAX (QGC'den)
+          </div>
           {connectedDrones.length > 1 && (
             <label className="map-goto-bar__field">
               Drone
