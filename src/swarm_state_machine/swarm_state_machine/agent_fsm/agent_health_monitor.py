@@ -9,21 +9,14 @@ import time
 from swarm_interfaces.msg import SystemEvent
 
 from .agent_context import AgentContext
-from .agent_states import AgentRole, AgentState
+from .agent_states import AgentState
 
 _OFFBOARD_LOSS_TIMEOUT_S = 5.0
-
-_TAKEOFF_TIMEOUT_S = 30.0
-_LANDING_TIMEOUT_S = 60.0
-_RETURN_HOME_TIMEOUT_S = 120.0
 
 _ALT_STABLE_VAR = 0.05
 _ATT_STABLE_VAR = 4.0
 _VEL_Z_OK_THR = 0.5
 _ALT_REACH_THR = 0.5
-_OSCILLATION_VAR = 9.0
-_UNSTABLE_ATT_VAR = 25.0
-_UNSTABLE_VEL_THR = 2.0
 
 _BATT_LOW_OFFSET_V = 1.0
 
@@ -114,17 +107,11 @@ def check(ctx: AgentContext) -> HealthCheckResult:
     if result.safety_hold:
         return result
 
-    result = _check_state_timeout(ctx)
-    if result.critical_fault or result.safety_hold:
-        return result
-
     _check_flight_stability(ctx)
 
     result = _check_altitude_limits(ctx)
     if result.safety_hold:
         return result
-
-    _check_role_state_consistency(ctx)
 
     return HealthCheckResult()
 
@@ -243,37 +230,6 @@ def _check_geofence(ctx: AgentContext) -> HealthCheckResult:
     return HealthCheckResult()
 
 
-def _check_state_timeout(ctx: AgentContext) -> HealthCheckResult:
-    """Bir state'te cok uzun kalindi mi kontrol eder."""
-    elapsed = ctx.time_in_state()
-
-    if ctx.state == AgentState.TAKEOFF and elapsed > _TAKEOFF_TIMEOUT_S:
-        return HealthCheckResult(
-            critical_fault=True,
-            event_type=SystemEvent.EVENT_AGENT_FAULT,
-            reason=f'TAKEOFF timeout: {elapsed:.0f}s',
-        )
-
-    if ctx.state == AgentState.LANDING and elapsed > _LANDING_TIMEOUT_S:
-        return HealthCheckResult(
-            critical_fault=True,
-            event_type=SystemEvent.EVENT_AGENT_FAULT,
-            reason=f'LANDING timeout: {elapsed:.0f}s',
-        )
-
-    if (ctx.state == AgentState.RETURN_HOME
-            and elapsed > _RETURN_HOME_TIMEOUT_S):
-        reason = f'RETURN_HOME timeout: {elapsed:.0f}s'
-        ctx.status_text = reason
-        return HealthCheckResult(
-            safety_hold=True,
-            event_type=SystemEvent.EVENT_SAFETY_HOLD,
-            reason=reason,
-        )
-
-    return HealthCheckResult()
-
-
 def _check_flight_stability(ctx: AgentContext) -> None:
     """Son 2 saniyelik veriden stabilite bayraklarini hesaplar."""
     win = _get_window(ctx)
@@ -298,14 +254,6 @@ def _check_flight_stability(ctx: AgentContext) -> None:
     att_var = max(r_var, p_var)
     ctx.attitude_stable = att_var < _ATT_STABLE_VAR
 
-    ctx.oscillation_detected = att_var > _OSCILLATION_VAR
-
-    max_vz = max(abs(v) for v in win.vel_z)
-    ctx.unstable_flight = (
-        att_var > _UNSTABLE_ATT_VAR
-        or max_vz > _UNSTABLE_VEL_THR
-    )
-
 
 def _check_altitude_limits(ctx: AgentContext) -> HealthCheckResult:
     """Maksimum irtifa sinirini kontrol eder."""
@@ -326,19 +274,3 @@ def _check_altitude_limits(ctx: AgentContext) -> HealthCheckResult:
         )
 
     return HealthCheckResult()
-
-
-def _check_role_state_consistency(ctx: AgentContext) -> None:
-    """Role ve state tutarliligini kontrol eder."""
-    if (
-        ctx.role == AgentRole.STANDBY
-        and ctx.state == AgentState.IN_SWARM
-    ):
-        ctx.status_text = 'Role/state tutarsizlik: STANDBY + IN_SWARM'
-    elif (
-        ctx.state == AgentState.IN_SWARM
-        and ctx.role not in (AgentRole.LEADER, AgentRole.FOLLOWER)
-    ):
-        ctx.status_text = (
-            f'Role/state tutarsizlik: IN_SWARM + {ctx.role.name}'
-        )

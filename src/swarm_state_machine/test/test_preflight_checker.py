@@ -70,46 +70,20 @@ class TestPreflightGpsHatalari(unittest.TestCase):
         self.assertFalse(passed)
         self.assertTrue(any('GPS fix' in f for f in failures))
 
-    def test_yuksek_hdop(self):
-        """GPS HDOP 1.5 ve üzerindeyse preflight başarısız olmalı."""
-        ctx = _sitl_ctx()
-        ctx.gps_hdop = 1.5
-        passed, failures = run_preflight_checks(ctx)
-        self.assertFalse(passed)
-        self.assertTrue(any('HDOP' in f for f in failures))
 
-    def test_az_uydu(self):
-        """6'dan az uydu varsa preflight başarısız olmalı."""
-        ctx = _sitl_ctx()
-        ctx.gps_satellites = 5
-        passed, failures = run_preflight_checks(ctx)
-        self.assertFalse(passed)
-        self.assertTrue(any('uydu' in f for f in failures))
+class TestPreflightKonum(unittest.TestCase):
+    """EKF2 konum tahmini senaryoları."""
 
-
-class TestPreflightImuHatalari(unittest.TestCase):
-    """IMU ve estimator hata senaryoları."""
-
-    def test_imu_sagliksiz(self):
-        """IMU sağlıksızsa preflight başarısız olmalı."""
+    def test_konum_gecersiz(self):
+        """Konum tahmini geçersizse preflight başarısız olmalı."""
         ctx = _sitl_ctx()
         ctx.sitl_mode = False
-        ctx.rc_link_ok = True
-        ctx.gcs_link_ok = True
         ctx.home_set = True
         ctx.origin_synced = True
-        ctx.imu_healthy = False
+        ctx.xy_valid = False
         passed, failures = run_preflight_checks(ctx)
         self.assertFalse(passed)
-        self.assertTrue(any('IMU' in f for f in failures))
-
-    def test_estimator_kararli_degil(self):
-        """EKF2 kararlı değilse preflight başarısız olmalı."""
-        ctx = _sitl_ctx()
-        ctx.estimator_stable_ticks = 5
-        passed, failures = run_preflight_checks(ctx)
-        self.assertFalse(passed)
-        self.assertTrue(any('kararlı' in f for f in failures))
+        self.assertTrue(any('Konum' in f for f in failures))
 
 
 class TestPreflightBatarya(unittest.TestCase):

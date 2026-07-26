@@ -7,10 +7,6 @@ from .preflight_checker import run_preflight_checks
 
 _ARMING_TIMEOUT_S = 15.0
 _ARMED_STABILIZE_S = 2.0
-_TAKEOFF_TIMEOUT_S = 30.0
-_PRECISION_LANDING_TIMEOUT_S = 60.0
-_REJOIN_TIMEOUT_S = 60.0
-_WAITING_REJOIN_TIMEOUT_S = 120.0
 
 _FAILSAFE_EXEMPT = frozenset({
     AgentState.UNKNOWN,
@@ -120,8 +116,6 @@ def _from_takeoff(ctx: AgentContext) -> AgentState | None:
             and ctx.vertical_speed_ok
             and (ctx.origin_synced or ctx.sitl_mode)):
         return AgentState.IN_SWARM
-    if ctx.time_in_state() > _TAKEOFF_TIMEOUT_S:
-        return AgentState.FAILSAFE
     return None
 
 
@@ -156,8 +150,6 @@ def _from_precision_landing(ctx: AgentContext) -> AgentState | None:
     """PRECISION_LANDING durumundan gecisleri degerlendirir."""
     if not ctx.armed:
         return AgentState.WAITING_REJOIN
-    if ctx.time_in_state() > _PRECISION_LANDING_TIMEOUT_S:
-        return AgentState.FAILSAFE
     return None
 
 
@@ -165,8 +157,6 @@ def _from_waiting_rejoin(ctx: AgentContext) -> AgentState | None:
     """WAITING_REJOIN durumundan gecisleri degerlendirir."""
     if ctx.pending_state == AgentState.REJOINING:
         return AgentState.REJOINING
-    if ctx.time_in_state() > _WAITING_REJOIN_TIMEOUT_S:
-        return AgentState.FAILSAFE
     return None
 
 
@@ -174,8 +164,6 @@ def _from_rejoining(ctx: AgentContext) -> AgentState | None:
     """REJOINING durumundan gecisleri degerlendirir."""
     if ctx.pending_state == AgentState.IN_SWARM:
         return AgentState.IN_SWARM
-    if ctx.time_in_state() > _REJOIN_TIMEOUT_S:
-        return AgentState.FAILSAFE
     return None
 
 
