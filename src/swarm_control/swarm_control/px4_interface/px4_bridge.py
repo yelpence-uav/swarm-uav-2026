@@ -85,6 +85,9 @@ _RTK_MAX_TAMPON_BYTE = 2 * _RTCM_MAX_FRAME
 _RTK_MAKUL_PAYLOAD = 768
 _GPS_INJECT_QOS_DEPTH = 10       # command_sender deseni
 _RTK_DIAG_PERIOD_S = 1.0         # RTK tanı log periyodu
+# Burun-ileri: hedefe bu mesafeden yakınken dönme (spin/toilet-bowl önle),
+# mevcut yönü tut. Uzaktayken hedefe yönelip düz git.
+_BURUN_ILERI_MIN_M = 0.8
 
 
 class Px4BridgeNode(Node):
@@ -531,8 +534,21 @@ class Px4BridgeNode(Node):
             target_x = float(sp.x)
             target_y = float(sp.y)
             target_z = float(sp.z)
-            _yaw = math.radians(float(sp.heading_deg))
-            target_yaw = (_yaw + math.pi) % (2 * math.pi) - math.pi
+            if sp.heading_valid:
+                # Yön açıkça verildi (formasyon her zaman verir) → onu kullan.
+                _yaw = math.radians(float(sp.heading_deg))
+                target_yaw = (_yaw + math.pi) % (2 * math.pi) - math.pi
+            else:
+                # BURUN-İLERİ: yön verilmedi (guided goto) → hedefe DOĞRU yönel,
+                # düz git (yan/geri değil). Her tick'te hedefe bakarak tüm yol
+                # boyunca burun ileri. Hedefe çok yakınken dönme (spin önle),
+                # mevcut yönü tut. NED: yaw=0 kuzey, +doğu.
+                dx = target_x - self._cached_pos_x
+                dy = target_y - self._cached_pos_y
+                if math.hypot(dx, dy) >= _BURUN_ILERI_MIN_M:
+                    target_yaw = math.atan2(dy, dx)
+                else:
+                    target_yaw = self._cached_yaw_rad
         elif self._target_altitude_ned is not None:
             # Kalkış/irtifa-hold: yatayda dondurulmuş çapa,
             # dikeyde hedef irtifa.
