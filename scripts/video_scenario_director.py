@@ -46,7 +46,7 @@ from rclpy.qos import (
 )
 from std_msgs.msg import UInt8
 
-from swarm_interfaces.msg import QRCoordinates, QRMissionData
+from swarm_interfaces.msg import AgentStatus, QRCoordinates, QRMissionData
 from swarm_interfaces.srv import TriggerMission
 
 # Enlem başına metre (formation_geometry ile birebir). NED ofsetlerini
@@ -72,33 +72,53 @@ _STATE_NAMES = {
 }
 
 # Formasyon tipleri (QRMissionData / formation_geometry ile birebir).
+_AGENT_COUNT = 3
+# Kalkış köşesine varınca okbaşı komutunun gecikmesi (sn) — diziliş
+# heading'e oturmadan geçilirse formasyon dağınık görünür.
+_KALKIS_OTURMA_S = 5.0
+
+# Varsayılanlar; swarm_config.py aşağıda bunları ezer.
+_UCGEN_YARICAP_M = 24.0
+_KALKIS_KOSE_MESAFE_M = 1.0
+
+
+def _UCGEN_KOSE(aci_deg):
+    """Üçgenin bir köşesini (kuzey, doğu) metre olarak verir.
+
+    Köşeler home merkezli _UCGEN_YARICAP_M yarıçaplı çember üzerinde 120°
+    aralıkla dizilir; açı kuzeyden saat yönünde ölçülür. Yarıçap değişince
+    üç köşe de birlikte ölçeklenir — elle koordinat düzeltmek gerekmez.
+    """
+    r = math.radians(aci_deg)
+    return (
+        round(_UCGEN_YARICAP_M * math.cos(r), 2),   # kuzey
+        round(_UCGEN_YARICAP_M * math.sin(r), 2),   # doğu
+    )
+
+
+
 _FRM_OKBASI = 1
 _FRM_V = 2
 _FRM_CIZGI = 3
 
-# --- ÜÇGEN SENARYOSU ---------------------------------------------------------
-# Her köşe: home'a (origin) göre NED ofset (kuzey, doğu) metre + o köşede
-# okunacak QR içeriği. Köşeler DOĞRUSAL OLMAYAN (üçgen) seçilir — video şartı.
-# Sahada bu değerleri alana göre değiştir; origin'i --origin-lat/lon ile ver.
-#
-# Sıra: HOME → V1(QR1) → V2(QR2) → V3(QR3) → HOME.
-#   QR1'de FORMASYON DEĞİŞİMİ (video şartı: en az bir formasyon değişimi).
-#   QR3'te next_qr=0 → görev sonu → eve dönüş.
-# Köşeler sahanın GERÇEK QR noktalarından seçildi → hepsi saha İÇİNDE
-# (saha 105x68 m; QR'lar hexagon halinde içeride). Dünya ENU olduğundan
-# world(x,y) = (Doğu, Kuzey); director NED (kuzey, doğu) ister →
-# kuzey = world_y, doğu = world_x.
-#   V1 = QR1 world(24, 0)      → kuzey  0.00, doğu +24
-#   V2 = QR3 world(-12, 20.78) → kuzey +20.78, doğu -12
-#   V3 = QR5 world(-12,-20.78) → kuzey -20.78, doğu -12
-# Home (spawn) saha merkezinde → üçgen home etrafında, her bacakta belirgin
-# dönüş, hepsi ±34m kuzey / ±52m doğu sınırının rahat içinde.
+# Tüm video ayarları swarm_config.py'den okunur; sahada yalnız o dosya
+# düzenlenir.
+import os as _os
+import sys as _sys
+_sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__)))
+import swarm_config as _cfg
+_UCGEN_YARICAP_M = float(_cfg.ALAN_YARICAP_M)
+_KALKIS_KOSE_MESAFE_M = float(_cfg.KALKIS_MESAFE_M)
 _VERTICES = [
-    # (qr_id, kuzey_m, doğu_m, next_qr, formasyon, spacing_m, wait_s)
-    (1,   0.00,  24.0, 2, _FRM_OKBASI, 6.0, 4.0),   # V1: OKBAŞI'na geç, bekle
-    (2,  20.78, -12.0, 3, 0,           0.0, 2.0),   # V2: formasyon aynı, next=3
-    (3, -20.78, -12.0, 0, 0,           0.0, 2.0),   # V3: son nokta (next=0)
+    (kid,
+     *(_UCGEN_KOSE(aci) if aci is not None else (None, None)),
+     nxt, frm, sp, wait, alt, roll, pitch)
+    for (kid, aci, nxt, frm, sp, wait, alt, roll, pitch) in _cfg.KOSELER
 ]
+
+# Üçgen senaryosu: her köşe home'a göre NED ofset (kuzey, doğu) + o köşede
+# okunacak QR içeriği. Akış: HOME → V1 → V2 → V3 → HOME; V1'de formasyon
+# değişimi, son köşede next_qr=0 ile görev sonu.
 
 
 def _ned_to_latlon(north, east, ref_lat, ref_lon):
@@ -168,24 +188,113 @@ class VideoScenarioDirector(Node):
         self._qr_seq = 0
         self._started = False
         self._done = False
+        self._land_sent = False   # LAND bir kez gönderilsin (emit-once)
 
+        # Sürünün YERDEKİ konumları — kalkış köşesini buradan hesaplayacağız.
+        # Diziliş sahada rastgele olacağı için sabit koordinat yazılamaz.
+        self._pos: dict[int, tuple[float, float]] = {}
+        self._yaw: dict[int, float] = {}
+        for i in range(1, _AGENT_COUNT + 1):
+            self.create_subscription(
+                AgentStatus, f'/swarm/agent/drone{i}/telemetry',
+                lambda m, k=i: (
+                    self._pos.__setitem__(k, (m.pos_x, m.pos_y)),
+                    self._yaw.__setitem__(k, m.heading_deg),
+                ),
+                best_effort,
+            )
+
+        self._coords_sent = False
+        # Koordinat tablosu, sürünün konumu bilinmeden yayınlanamaz (kalkış
+        # köşesi merkeze göre hesaplanıyor). Telemetri gelene kadar bekle;
+        # gelince yayınla ve görev başlatma sayacını o an kur.
+        self._coords_timer = self.create_timer(0.5, self._try_publish_coords)
+        self._start_timer = None
+        self.get_logger().info(
+            f'Director hazır. team={self._team} '
+            f'origin=({self._origin_lat:.6f},{self._origin_lon:.6f}). '
+            f'{_AGENT_COUNT} dronun konumu bekleniyor '
+            '(kalkış köşesi sürü merkezinden hesaplanacak).'
+        )
+
+    def _try_publish_coords(self) -> None:
+        """Sürünün konumu gelince koordinat tablosunu yayınlar (bir kez).
+
+        Kalkış köşesi sürünün merkezine göre hesaplandığı için tablo,
+        telemetri akmadan yayınlanamaz. Konumlar gelmezse bekler; makul
+        bir süre sonra merkezi origin varsayıp yine de devam eder ki
+        senaryo hiç başlamamazlık etmesin.
+        """
+        if self._coords_sent:
+            return
+        self._coords_bekleme = getattr(self, '_coords_bekleme', 0) + 1
+        yeter = len(self._pos) >= _AGENT_COUNT
+        if not yeter and self._coords_bekleme < 60:      # ~30 sn bekle
+            return
+        if not yeter:
+            self.get_logger().warn(
+                f'{len(self._pos)}/{_AGENT_COUNT} dronun konumu geldi; '
+                'kalkış köşesi için merkez origin varsayılıyor.'
+            )
+        self._coords_sent = True
+        self._coords_timer.cancel()
         self._publish_coords()
-        # Stack ayağa kalksın diye kısa bekleme, sonra görevi başlat.
         self._start_timer = self.create_timer(
             self._start_delay_s, self._start_mission,
         )
         self.get_logger().info(
-            f'Director hazır. team={self._team} '
-            f'origin=({self._origin_lat:.6f},{self._origin_lon:.6f}). '
             f'{self._start_delay_s:.0f} sn sonra görev başlatılacak.'
         )
 
+    def _swarm_centroid(self) -> tuple[float, float]:
+        """Sürünün yerdeki merkezi (shared NED, metre)."""
+        if not self._pos:
+            return (0.0, 0.0)
+        xs = [p[0] for p in self._pos.values()]
+        ys = [p[1] for p in self._pos.values()]
+        return (sum(xs) / len(xs), sum(ys) / len(ys))
+
+    def _kalkis_kosesi(self) -> tuple[float, float]:
+        """Kalkış köşesini sürünün ÖNÜNE (baktığı yöne) yerleştirir.
+
+        Yön, sürünün mevcut yaw'ından alınır — hedeften DEĞİL. Sebebi sıra:
+        sistem her köşeden önce o köşeye DÖNER (ROTATE), sonra gider, sonra
+        görevi (formasyon değişimi) uygular. Köşe hedef yönüne konursa sürü
+        okbaşına geçmeden ÖNCE çizgi halindeyken dönmek zorunda kalıyor —
+        gözlenen "yatay çizgi dikleşiyor" hareketi buydu.
+
+        Sürünün zaten baktığı yöne konunca dönecek bir şey kalmaz: sürü
+        kalkar, okbaşına geçer, asıl rotasyonu okbaşı halinde yapar.
+        Diziliş rastgele olsa da çalışır; yön de konum da telemetriden gelir.
+        """
+        cn, ce = self._swarm_centroid()
+        if not self._yaw:
+            return (cn, ce)
+        # Yaw ortalaması açısal olarak alınır (359°/1° ortalaması 180 değil 0).
+        sn = sum(math.sin(math.radians(y)) for y in self._yaw.values())
+        cs = sum(math.cos(math.radians(y)) for y in self._yaw.values())
+        if abs(sn) < 1e-9 and abs(cs) < 1e-9:
+            return (cn, ce)
+        yon = math.atan2(sn, cs)          # NED: 0 = kuzey, saat yönü +
+        return (
+            cn + _KALKIS_KOSE_MESAFE_M * math.cos(yon),
+            ce + _KALKIS_KOSE_MESAFE_M * math.sin(yon),
+        )
+
     def _publish_coords(self) -> None:
-        """3 köşenin lat/lon'unu QRCoordinates olarak latched yayınlar."""
+        """Köşelerin lat/lon'unu QRCoordinates olarak latched yayınlar."""
         msg = QRCoordinates()
         msg.stamp = self.get_clock().now().to_msg()
         ids, lats, lons = [], [], []
+        kalkis = self._kalkis_kosesi()
+        cn, ce = self._swarm_centroid()
+        self.get_logger().info(
+            f'Sürü merkezi NED({cn:+.1f},{ce:+.1f}) — kalkış köşesi '
+            f'NED({kalkis[0]:+.1f},{kalkis[1]:+.1f}) olarak hesaplandı.'
+        )
         for qr_id, north, east, *_ in _VERTICES:
+            if north is None:               # kalkış köşesi — hesaplanan konum
+                north, east = kalkis
             lat, lon = _ned_to_latlon(
                 north, east, self._origin_lat, self._origin_lon,
             )
@@ -248,15 +357,65 @@ class VideoScenarioDirector(Node):
 
         # EXECUTE_QR_TASK'a YENİ giriş = bir köşeye VARDIK → o köşenin içeriğini bas.
         if state == _ST_EXECUTE_QR_TASK and prev != _ST_EXECUTE_QR_TASK:
-            self._inject_current_vertex()
+            # İlk köşede enjeksiyonu geciktir: sürü varışta rotasyonu henüz
+            # tamamlamamış oluyor, yamuk dizilişte formasyon geçişi dağınık
+            # görünür. Diğer köşelerde sürü navigasyon sonunda zaten oturur.
+            if self._exec_index == 0 and _KALKIS_OTURMA_S > 0.0:
+                self.get_logger().info(
+                    f'Kalkış köşesi: formasyon otursun diye '
+                    f'{_KALKIS_OTURMA_S:.0f} sn bekleniyor.'
+                )
+                self._oturma_timer = self.create_timer(
+                    _KALKIS_OTURMA_S, self._gecikmeli_enjekte,
+                )
+            else:
+                self._inject_current_vertex()
 
-        # Görev sonu — logla, düğümü kapat.
+        # Son köşeden sonra olduğun yerde in — yalnız bu senaryoda.
+        # Video 5 dakikayla sınırlı; eve dönüş bacağı bu bütçeye sığmıyor.
+        # Gerçek görevde FSM normal RETURN_HOME akışını uygular
+        # (gorev1.launch.py bu director'ı çalıştırmaz).
+        if state == _ST_RETURN_HOME and not self._land_sent:
+            self._land_sent = True
+            self._send_land()
+
+        # Görev sonu — logla.
         if state in (_ST_RETURN_HOME, _ST_LANDING, _ST_MISSION_COMPLETE) \
                 and not self._done:
             self._done = True
             self.get_logger().info(
-                'Son köşe okundu → sürü eve dönüyor/iniyor. Senaryo tamam.'
+                'Son köşe okundu → sürü iniyor. Senaryo tamam.'
             )
+
+    def _send_land(self) -> None:
+        """Sürüye 'olduğun yerde in' komutu gönderir (TriggerMission LAND)."""
+        if not self._trigger_cli.service_is_ready():
+            self.get_logger().error(
+                '/swarm/mission/trigger hazır değil — LAND gönderilemedi; '
+                'sürü eve dönüşe devam edecek.'
+            )
+            return
+        req = TriggerMission.Request()
+        req.mission_id = TriggerMission.Request.MISSION_DYNAMIC_SWARM
+        req.command = TriggerMission.Request.COMMAND_LAND
+        req.team_id = self._team
+        fut = self._trigger_cli.call_async(req)
+        fut.add_done_callback(
+            lambda f: self.get_logger().info(
+                f'LAND yanıtı: {getattr(f.result(), "message", "?")}'
+            )
+        )
+        self.get_logger().info(
+            '>>> Son köşe tamamlandı → LAND gönderildi '
+            '(video: eve dönüş yok, olduğu yerde iniş).'
+        )
+
+    def _gecikmeli_enjekte(self) -> None:
+        """Bekleme bitince kalkış köşesinin içeriğini enjekte eder (bir kez)."""
+        if getattr(self, '_oturma_timer', None) is not None:
+            self._oturma_timer.cancel()
+            self._oturma_timer = None
+        self._inject_current_vertex()
 
     def _inject_current_vertex(self) -> None:
         """Sıradaki köşenin QR içeriğini (formasyon + next_qr) yayınlar."""
@@ -265,7 +424,7 @@ class VideoScenarioDirector(Node):
                 'Beklenenden fazla EXECUTE girişi — enjeksiyon atlandı.'
             )
             return
-        qr_id, _n, _e, next_qr, frm, spacing, wait_s = \
+        qr_id, _n, _e, next_qr, frm, spacing, wait_s, irtifa, roll, pitch = \
             _VERTICES[self._exec_index]
         self._exec_index += 1
         self._qr_seq += 1
@@ -285,19 +444,25 @@ class VideoScenarioDirector(Node):
         m.formation_active = frm != 0
         m.formation_type = int(frm)
         m.spacing_m = float(spacing)
-        # Bu senaryoda manevra/irtifa/ayrılma yok.
-        m.maneuver_active = False
-        m.altitude_active = False
+        # Manevra: roll veya pitch sıfırdan farklıysa aktif.
+        m.maneuver_active = (roll != 0.0) or (pitch != 0.0)
+        m.roll_deg = float(roll)
+        m.pitch_deg = float(pitch)
+        # İrtifa: >0 ise o irtifaya çıkılır (0 = değişiklik yok).
+        m.altitude_active = irtifa > 0.0
+        m.altitude_agl_m = float(irtifa)
+        # Bu senaryoda sürüden ayrılma yok.
         m.detach_active = False
         m.wait_s = float(wait_s)
         m.raw_text = (
-            f'VIDEO QR{qr_id}: next={next_qr} '
-            f'frm={frm} spacing={spacing} wait={wait_s}'
+            f'VIDEO QR{qr_id}: next={next_qr} frm={frm} spacing={spacing} '
+            f'alt={irtifa} roll={roll} pitch={pitch} wait={wait_s}'
         )
         self._qr_pub.publish(m)
         self.get_logger().info(
             f'>>> QR{qr_id} içeriği enjekte edildi '
-            f'(sıradaki=QR{next_qr}, formasyon={frm}, wait={wait_s}s).'
+            f'(sıradaki=QR{next_qr}, formasyon={frm}, irtifa={irtifa}, '
+            f'roll={roll}, wait={wait_s}s).'
         )
 
 
