@@ -7,6 +7,10 @@ from .preflight_checker import run_preflight_checks
 
 _ARMING_TIMEOUT_S = 15.0
 _ARMED_STABILIZE_S = 2.0
+_WAITING_REJOIN_TIMEOUT_S = 120.0
+# LANDING'de disarm beklenir; offboard kaybı burada failsafe tetiklemediği
+# için takılan iniş ayrı bir zaman aşımıyla yakalanır.
+_LANDING_TIMEOUT_S = 60.0
 
 _FAILSAFE_EXEMPT = frozenset({
     AgentState.UNKNOWN,
@@ -34,6 +38,8 @@ _OFFBOARD_CHECK_STATES = frozenset({
 def evaluate_transitions(ctx: AgentContext) -> AgentState | None:
     """Mevcut duruma gore gecilmesi gereken sonraki state'i doner."""
     if ctx.autonomous_control_paused or ctx.hold_active:
+        if ctx.pending_state in (AgentState.LANDING, AgentState.FAILSAFE):
+            return ctx.pending_state
         return None
 
     if ctx.state not in _FAILSAFE_EXEMPT and not ctx.healthy:
@@ -73,7 +79,9 @@ def evaluate_transitions(ctx: AgentContext) -> AgentState | None:
 
 
 def _from_unknown(ctx: AgentContext) -> AgentState | None:
-    """UNKNOWN durumundan gecisleri degerlendirir."""
+    """PX4 linki kurulunca IDLE'a geçer; kurulana kadar UNKNOWN'da bekler."""
+    if not ctx.px4_link_ok:
+        return None
     return AgentState.IDLE
 
 
@@ -155,8 +163,16 @@ def _from_precision_landing(ctx: AgentContext) -> AgentState | None:
 
 def _from_waiting_rejoin(ctx: AgentContext) -> AgentState | None:
     """WAITING_REJOIN durumundan gecisleri degerlendirir."""
-    if ctx.pending_state == AgentState.REJOINING:
-        return AgentState.REJOINING
+    ready = (
+        ctx.time_in_state() >= ctx.detach_wait_s
+        or ctx.pending_state == AgentState.REJOINING
+    )
+    if ready:
+        passed, _ = run_preflight_checks(ctx)
+        if passed:
+            return AgentState.ARMING
+    if ctx.time_in_state() > _WAITING_REJOIN_TIMEOUT_S:
+        return AgentState.FAILSAFE
     return None
 
 
@@ -180,6 +196,8 @@ def _from_landing(ctx: AgentContext) -> AgentState | None:
     """LANDING durumundan gecisleri degerlendirir."""
     if not ctx.armed:
         return AgentState.LANDED
+    if ctx.time_in_state() > _LANDING_TIMEOUT_S:
+        return AgentState.FAILSAFE
     return None
 
 

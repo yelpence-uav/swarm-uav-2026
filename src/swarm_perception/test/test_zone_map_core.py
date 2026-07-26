@@ -8,46 +8,69 @@ from swarm_perception.vision_node.zone_map_core import (
     COLOR_BLUE,
     COLOR_RED,
     COLOR_UNKNOWN,
+    zone_offset_ned_m,
     ZoneMapCore,
 )
 
-
-def test_merkez_tespit_drone_konumuna_projekte_olur():
-    """Görüntü merkezindeki bölge, dron konumunun tam altına düşer."""
-    zm = ZoneMapCore()
-    # Dron (10, 20)'de, 15 m yukarıda (NED z=-15), heading 0.
-    gx, gy, gz = zm.project(0.5, 0.5, 60.0, (10.0, 20.0, -15.0, 0.0))
-    assert math.isclose(gx, 10.0, abs_tol=1e-6)
-    assert math.isclose(gy, 20.0, abs_tol=1e-6)
-    assert math.isclose(gz, 0.0, abs_tol=1e-6)
+# Test kamerası: 640x360, görüntü merkezi ortada, fx=fy=400 px.
+_FX = 400.0
+_FY = 400.0
+_CX = 320.0
+_CY = 180.0
 
 
-def test_ileri_sapma_heading_sifirda_x_ekseninde():
-    """heading=0 iken görüntü dikey sapması NED +x (ileri) yönüne gider."""
-    zm = ZoneMapCore()
+def test_merkez_tespit_dronun_tam_altina_duser():
+    """Görüntü merkezindeki bölge sıfır ofsete düşer (dronun altı)."""
+    dx, dy = zone_offset_ned_m(
+        _CX, _CY, _FX, _FY, _CX, _CY, height_m=15.0, heading_deg=0.0
+    )
+    assert math.isclose(dx, 0.0, abs_tol=1e-9)
+    assert math.isclose(dy, 0.0, abs_tol=1e-9)
+
+
+def test_goruntunun_ALTI_gerideki_bolgedir():
+    """Görüntüde AŞAĞI = gövdede GERİ."""
     height = 10.0
-    # image_y > 0.5 -> ileri (fwd_frac > 0); image_x merkez.
-    gx, gy, _ = zm.project(0.5, 0.75, 60.0, (0.0, 0.0, -height, 0.0))
-    expected_fwd = height * math.tan(math.radians(0.25 * 60.0))
-    assert math.isclose(gx, expected_fwd, rel_tol=1e-6)
-    assert math.isclose(gy, 0.0, abs_tol=1e-6)
+    v_alt = _CY + 100.0  # merkezin 100 px ALTINDA
+    dx, dy = zone_offset_ned_m(
+        _CX, v_alt, _FX, _FY, _CX, _CY, height, heading_deg=0.0
+    )
+    assert dx < 0.0, 'goruntunun alti GERIDE olmali (negatif ileri)'
+    assert math.isclose(dx, -height * 100.0 / _FY, rel_tol=1e-9)
+    assert math.isclose(dy, 0.0, abs_tol=1e-9)
+
+
+def test_olcek_odak_uzakligindan_gelir():
+    """Ofset, sabit bir görüş açısından değil fx/fy'den ölçeklenir."""
+    height = 20.0
+    u_sag = _CX + 80.0
+    dx, dy = zone_offset_ned_m(
+        u_sag, _CY, _FX, _FY, _CX, _CY, height, heading_deg=0.0
+    )
+    # Pinhole: ofset = irtifa * piksel_sapma / fx
+    assert math.isclose(dy, height * 80.0 / _FX, rel_tol=1e-9)
+    assert math.isclose(dx, 0.0, abs_tol=1e-9)
+
+
+def test_dar_ve_genis_kamera_farkli_olcek_verir():
+    """Odak uzaklığı büyüyünce (dar açı) aynı piksel sapması daha az metre."""
+    args = (_CX + 100.0, _CY, )
+    dar = zone_offset_ned_m(*args, 800.0, 800.0, _CX, _CY, 10.0, 0.0)[1]
+    genis = zone_offset_ned_m(*args, 400.0, 400.0, _CX, _CY, 10.0, 0.0)[1]
+    assert dar < genis
+    assert math.isclose(genis / dar, 2.0, rel_tol=1e-9)
 
 
 def test_heading_donusu_uygulanir():
-    """heading=90° iken ileri ofset NED +y yönüne döner."""
-    zm = ZoneMapCore()
+    """heading=90° iken gövde ileri yönü NED +y'ye (doğuya) döner."""
     height = 10.0
-    gx, gy, _ = zm.project(0.5, 0.75, 60.0, (0.0, 0.0, -height, 90.0))
-    expected = height * math.tan(math.radians(0.25 * 60.0))
-    assert math.isclose(gx, 0.0, abs_tol=1e-5)
-    assert math.isclose(gy, expected, rel_tol=1e-5)
-
-
-def test_min_irtifa_clamp():
-    """Çok alçakta projeksiyon patlamaz, min irtifa kullanılır."""
-    zm = ZoneMapCore(min_height_m=0.5)
-    gx, gy, _ = zm.project(0.75, 0.5, 60.0, (0.0, 0.0, 0.0, 0.0))
-    assert math.isfinite(gx) and math.isfinite(gy)
+    v_ust = _CY - 100.0  # merkezin ÜSTÜ = ileri
+    dx, dy = zone_offset_ned_m(
+        _CX, v_ust, _FX, _FY, _CX, _CY, height, heading_deg=90.0
+    )
+    beklenen = height * 100.0 / _FY
+    assert math.isclose(dx, 0.0, abs_tol=1e-6)
+    assert math.isclose(dy, beklenen, rel_tol=1e-6)
 
 
 def test_yeni_bolge_eklenir():

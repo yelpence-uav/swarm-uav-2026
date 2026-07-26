@@ -12,6 +12,8 @@ from rclpy.qos import (
     ReliabilityPolicy,
 )
 
+from std_msgs.msg import UInt8
+
 from swarm_interfaces.msg import (
     AgentSetpoint,
     AgentStatus,
@@ -21,9 +23,32 @@ from swarm_interfaces.msg import (
 )
 
 from .formation_geometry import (
+    compute_slot_offsets,
+    FORMATION_CIZGI,
+    FORMATION_OKBASI,
+    FORMATION_V,
+    hungarian_assignment,
     latlon_to_ned,
     rotate_offset,
 )
+
+# mission_fsm aktif QR alt-adımını /swarm/public/mission/qr_step üzerinde
+# QrTaskStep değeriyle (UInt8) yayınlar. MANEUVER adımında formasyon çıkışı
+# susturulur; o an /raw'a yalnız maneuver_executor yazsın (tek yazıcı → drone
+# titremez). Manevra sonrası eğik poz, lider'in FormationCommand'a gömdüğü
+# eğik ofsetlerle korunur; bu node onları normal şekilde uygular.
+_QR_STEP_MANEUVER = 2
+
+# Bu drone formasyondan ayrılmış/iniş/rejoin durumundayken formation_control
+# susar; o an precision_landing veya agent_fsm/PX4 sürücüdür. Aynı /raw'a iki
+# yazıcı olmasın (ayrılan dronda formasyon-precision çakışması önlenir).
+_MUTE_STATES = frozenset({
+    AgentStatus.STATE_DETACHED,
+    AgentStatus.STATE_PRECISION_LANDING,
+    AgentStatus.STATE_WAITING_REJOIN,
+    AgentStatus.STATE_REJOINING,
+})
+
 
 _RELIABLE_QOS = QoSProfile(
     reliability=ReliabilityPolicy.RELIABLE,
@@ -112,14 +137,48 @@ class FormationControlNode(Node):
         self.declare_parameter('svt_k_z', 2.0)
         self.declare_parameter('svt_threshold_z_m', 0.05)
         self.declare_parameter('svt_damp', 0.35)
-        self.declare_parameter('target_ramp_mps', 1.0)
-        self.declare_parameter('rel_enable', True)
+        # Slot rampasi: hedef slotun saniyede kac metre kayabilecegi.
+        # 0.0 => ramp_rate = max_speed, yani rampa SEYIR HIZINDAN TURETILIR.
+        #
+        # Eskiden sabit 1.0 idi. max_speed 3.0 olmasina ragmen slot 1.0 m/s'den
+        # hizli kayamiyordu ve v_ff de rampanin hizindan turedigi icin drona
+        # giden komut 1.0'da tavan yapiyordu. Merkez ise (path_planner, ayri
+        # dosya, ayri parametre) 3.0 ile kosuyordu; iki sayi birbirinden
+        # habersizdi. Olculdu: merkez 3.00 m/s iken komut 1.05, dron 1.07 m/s
+        # -> aradaki ~2 m/s her saniye acige eklenip suru merkezin gerisinde
+        # kaliyordu (bacak basina 5 -> 12.5 -> 20.4 m).
+        #
+        # Turetme sayesinde max_speed 2/3/4 ne verilirse verilsin merkez ile
+        # dron ayni tavani paylasir, aralarinda kalici fark olusmaz.
+        # Ani slot sicramalarinin yumusatilmasi artik path_planner'daki ivme
+        # rampasi (linear_trajectory.accel_time_s) tarafindan saglaniyor.
+        self.declare_parameter('target_ramp_mps', 0.0)
+        # A7 — göreli (komşu tabanlı) formasyon koruma. VARSAYILAN KAPALI:
+        # komşu konumu NeighborInfo'dan gelir ve 0.5 sn'ye kadar bayat olabilir;
+        # bayat veriyle düzeltme yalpalatıp dronları birbirine sokuyordu
+        # (ölçüldü: relative açıkken en yakın mesafe 0.28 m — near-collision;
+        # kapatınca 0 ihlal, min 2.68 m). SITL'de GPS temiz olduğu için mutlak
+        # SVT tek başına yeterli. Gerçek sahada GPS gürültüsünde relative'e
+        # ihtiyaç olursa: -p rel_enable:=true ile açılır (ama bayatlık sorunu
+        # da giderilmeli).
+        self.declare_parameter('rel_enable', False)
         self.declare_parameter('rel_k', 0.2)
         self.declare_parameter('rel_threshold_m', 0.2)
         self.declare_parameter('rel_stale_s', 0.5)
         self.declare_parameter('keeping_enter_m', 1.2)
         self.declare_parameter('keeping_exit_m', 1.8)
         self.declare_parameter('vff_lpf_alpha', 0.3)
+        # v_ff bayatlık süresi: bu kadar süredir yeni FormationCommand
+        # gelmediyse merkez artık HAREKET ETMİYOR demektir → v_ff sıfırlanır.
+        # Yoksa son komuttaki hız donup kalır ve her tick'te komuta eklenir;
+        # SVT ile dengelenip kalıcı sapma üretir (hata = v_ff / svt_k).
+        # 1.5 s: path_planner rampasında komutlar ~1.0-1.2 s arayla gelir;
+        # eşik bunun üstünde olmalı ki rampa boyunca v_ff yaşasın, rampa
+        # bitince (komut kesilince) sıfırlansın.
+        self.declare_parameter('vff_hold_s', 1.5)
+        # Ok Başı/V kanat açısı — yerel (dağıtık) atama geometrisi lider ile
+        # birebir aynı olsun diye orchestrator ile aynı default (45°).
+        self.declare_parameter('wing_alpha_deg', 45.0)
 
         self._agent_id = int(self.get_parameter('agent_id').value)
         self._publish_rate_hz = float(
@@ -162,17 +221,48 @@ class FormationControlNode(Node):
         self._keeping_exit_m = float(
             self.get_parameter('keeping_exit_m').value
         )
-        self._vff_lpf_alpha = float(
+        self._vff_hold_s: float = float(
+            self.get_parameter('vff_hold_s').value
+        )
+        self._vff_lpf_alpha: float = float(
             self.get_parameter('vff_lpf_alpha').value
         )
+        # C MODU (SAF HIZ-TABANLI): position_valid=False → pozisyon kontrolü
+        # TÜMÜYLE bizde (SVT tek feedback, PX4 ile çakışmaz). v_cmd = v_svt +
+        # v_damp + v_rel + v_ff. in_formation gate KALDIRILDI — SVT hem form-up
+        # hem seyirde çalışır, tek mod. v_ff LPF durumu:
+        self._vff_x: float = 0.0
+        self._vff_y: float = 0.0
+        self._vff_z: float = 0.0
+        # v_ff = d(SHARED slot)/dt — KOMUT callback'inde (2Hz) hesaplanır,
+        # publish loop'ta (50Hz) DEĞİL. 50Hz'de sabit-merkezi türevlemek
+        # testere dişi (impuls treni) üretir → sallanma. Komut frekansında:
+        # merkez 0.5s'de 0.5m kayar → v_ff=1.0 düz.
+        self._prev_slot_x: float | None = None
+        self._prev_slot_y: float | None = None
+        self._prev_slot_z: float | None = None
+        self._prev_cmd_time: float | None = None
+        # v_ff artık 2Hz komut türevinden değil, 50Hz ramp'ın hızından gelir
+        # (ramp trajektöriyi sürekli interpole eder → basamaklı değil). Ramp'ın
+        # bir önceki konumu, hızını 50Hz'de türevlemek için tutulur.
+        self._prev_ramp_x: float | None = None
+        self._prev_ramp_y: float | None = None
+        self._prev_ramp_z: float | None = None
+        # Aktif QR alt-adımı (mission_fsm yayınlar); MANEUVER'da çıkış susar.
+        self._qr_step: int = 0
+        # Bu drone'un kendi FSM durumu; ayrılma/iniş durumlarında çıkış susar.
+        self._agent_state: int = 0
 
-        self._vff_x = 0.0
-        self._vff_y = 0.0
-        self._vff_z = 0.0
-        self._prev_slot_x = None
-        self._prev_slot_y = None
-        self._prev_slot_z = None
-        self._prev_cmd_time = None
+        # DAĞITIK ATAMA (çıpalı): her dron kendi slotunu peer konumlarından
+        # yerel hesaplar; liderin komuttaki atamasıyla uyuşursa yereli kullanır
+        # (dağıtık), yoksa lidere düşer (güvenli, çakışma yok). Sonuç
+        # formation_type'a freeze → reshape'te bir kez, aynı tipte tekrar yok
+        # (rijit diziliş korunur). Kanat açısı lider ile aynı olmalı.
+        self._wing_alpha_rad: float = math.radians(
+            float(self.get_parameter('wing_alpha_deg').value)
+        )
+        self._local_offsets: dict[int, tuple[float, float, float]] | None = None
+        self._local_offsets_type: int | None = None
 
     def _setup_publishers(self) -> None:
         """Setpoint publisher'ini olusturur."""
@@ -202,6 +292,12 @@ class FormationControlNode(Node):
             self._on_swarm_origin,
             _ORIGIN_QOS,
         )
+        self.create_subscription(
+            UInt8,
+            '/swarm/public/mission/qr_step',
+            self._on_qr_step,
+            _RELIABLE_QOS,
+        )
 
     def _ensure_neighbor_subs(self, agent_ids) -> None:
         """Atamadaki her komsu icin abonelik kurar."""
@@ -226,7 +322,10 @@ class FormationControlNode(Node):
             )
 
     def _on_formation_command(self, msg: FormationCommand) -> None:
-        """Gelen FormationCommand'i saklar ve v_ff hesaplar."""
+        """Gelen FormationCommand'ı saklar."""
+        if int(self._agent_id) not in [int(a) for a in msg.agent_ids]:
+            return
+
         prev = self._current_formation
         self._current_formation = msg
         type_changed = (
@@ -237,44 +336,72 @@ class FormationControlNode(Node):
             self._ramp_y = None
             self._ramp_z = None
 
-        agent_ids = list(msg.agent_ids)
-        if self._agent_id in agent_ids:
-            idx = agent_ids.index(self._agent_id)
-            if (idx < len(msg.offset_x) and idx < len(msg.offset_y)
-                    and idx < len(msg.offset_z)):
-                hr = math.radians(msg.heading_deg)
-                odx, ody = rotate_offset(
-                    msg.offset_x[idx], msg.offset_y[idx], hr
-                )
-                ssx = float(msg.center_x) + odx
-                ssy = float(msg.center_y) + ody
-                ssz = float(msg.center_z) + float(msg.offset_z[idx])
-                now = self.get_clock().now().nanoseconds * 1e-9
-                if (not type_changed and self._prev_slot_x is not None
-                        and self._prev_cmd_time is not None):
-                    dtc = now - self._prev_cmd_time
-                    if dtc > 1e-3:
-                        a = self._vff_lpf_alpha
-                        self._vff_x = (
-                            a * (ssx - self._prev_slot_x) / dtc
-                            + (1.0 - a) * self._vff_x
-                        )
-                        self._vff_y = (
-                            a * (ssy - self._prev_slot_y) / dtc
-                            + (1.0 - a) * self._vff_y
-                        )
-                        self._vff_z = (
-                            a * (ssz - self._prev_slot_z) / dtc
-                            + (1.0 - a) * self._vff_z
-                        )
-                else:
-                    self._vff_x = self._vff_y = self._vff_z = 0.0
-                self._prev_slot_x = ssx
-                self._prev_slot_y = ssy
-                self._prev_slot_z = ssz
-                self._prev_cmd_time = now
+        # v_ff artık burada (2Hz komut türevi) DEĞİL, publish loop'ta ramp'ın
+        # 50Hz hızından hesaplanıyor → basamaklı 2Hz zıplama yok, sürekli
+        # feedforward. Burada yalnızca komut zaman damgası tutulur: akış
+        # kesilince v_ff'i sıfırlayan bayatlık kapısı (publish loop'ta) bunu
+        # kullanır. Ramp, tip değişiminde de hedefe pürüzsüz kaydığından
+        # eski slot-türevi spike-engeli gerekmez.
+        self._prev_cmd_time = self.get_clock().now().nanoseconds * 1e-9
 
         self._ensure_neighbor_subs(msg.agent_ids)
+
+        # DAĞITIK ATAMA (çıpalı): reshape'te (tip değişince) kendi atamamı peer
+        # konumlarından yerel hesapla, liderin gömdüğüyle karşılaştır. Aynıysa
+        # yereli kullan (dağıtık → puan); farklı/eksikse lidere düş (güvenli →
+        # çakışma yok). Sonuç formation_type'a freeze: aynı tipte yeniden
+        # hesaplama yok, rijit diziliş korunur. Peer/GPS hazır değilse bu tip
+        # boyunca her komutta tekrar denenir (hazır olunca dondurulur).
+        if type_changed:
+            self._local_offsets = None
+            self._local_offsets_type = None
+        if (self._local_offsets is None
+                and int(msg.formation_type) in (
+                    FORMATION_OKBASI, FORMATION_V, FORMATION_CIZGI)):
+            now_s = self.get_clock().now().nanoseconds * 1e-9
+            ids = [int(a) for a in msg.agent_ids]
+            peer = self._peer_positions(ids, now_s)
+            leader = self._leader_offsets(msg)
+            local = (
+                self._compute_local_offsets(msg, peer)
+                if peer is not None else None
+            )
+            if (local is not None and leader is not None
+                    and self._assignments_match(local, leader)):
+                self._local_offsets = local
+                self._local_offsets_type = int(msg.formation_type)
+                mine = local.get(self._agent_id)
+                tablo = ' '.join(
+                    f'a{a}->({o[0]:+.1f},{o[1]:+.1f})'
+                    for a, o in sorted(local.items())
+                )
+                self.get_logger().info(
+                    f'dagitik atama: yerel hesap lider ile UYUSTU '
+                    f'-> yerel kullaniliyor | BENIM SLOT='
+                    f'({mine[0]:+.2f},{mine[1]:+.2f},{mine[2]:+.2f}) '
+                    f'| TAM ATAMA: {tablo}'
+                )
+            elif local is not None and leader is not None:
+                y = ' '.join(
+                    f'a{a}->({o[0]:+.1f},{o[1]:+.1f})'
+                    for a, o in sorted(local.items())
+                )
+                ldr = ' '.join(
+                    f'a{a}->({o[0]:+.1f},{o[1]:+.1f})'
+                    for a, o in sorted(leader.items())
+                )
+                self.get_logger().warn(
+                    f'dagitik atama: yerel != lider -> guvenlik icin lider '
+                    f'kullaniliyor | YEREL: {y} | LIDER: {ldr}'
+                )
+
+        self.get_logger().info(
+            f'FormationCommand alindi: type={msg.formation_type}, '
+            f'heading={msg.heading_deg:.1f}deg, '
+            f'center=({msg.center_x:.1f}, {msg.center_y:.1f}, '
+            f'{msg.center_z:.1f}), atama={list(msg.agent_ids)}',
+            throttle_duration_sec=1.0,
+        )
 
     def _on_agent_status(self, msg: AgentStatus) -> None:
         """Drone durumunu gunceller."""
@@ -286,6 +413,8 @@ class FormationControlNode(Node):
         self._current_vel_z = float(msg.vel_z)
         self._pos_valid = True
         self._oscillating = msg.oscillation_detected
+
+        self._agent_state = int(msg.state)
 
         self._origin_synced = bool(msg.origin_synced)
         self._estimator_ok = bool(msg.estimator_ok)
@@ -339,17 +468,28 @@ class FormationControlNode(Node):
         vy = 0.0
         vz = 0.0
 
+        # SVT: konum hatasıyla orantılı yay kuvveti (çıktı HIZ — C modu aynen).
+        # Sert deadband (hata > threshold ise çek, altında SIFIR) bir aç/kapa
+        # süreksizliğiydi ve limit-cycle üretiyordu: dron threshold sınırında
+        # çekme açılıp kapanınca titriyordu (genlik ≈ threshold). Yerine C¹
+        # sürekli smoothstep zarfı: merkezde çekme pürüzsüzce sıfıra iner
+        # (gürültü kovalamaz) ama süreksizlik yok → limit-cycle yok.
         if self._pos_valid:
             ex = self._current_pos_x - target_x
             ey = self._current_pos_y - target_y
             dist_xy = math.sqrt(ex * ex + ey * ey)
-            if dist_xy > self._svt_threshold_m:
-                vx -= self._svt_k * ex
-                vy -= self._svt_k * ey
+            thr = self._svt_threshold_m
+            t = dist_xy / thr if thr > 1e-9 else 2.0
+            s_xy = 1.0 if t >= 1.0 else t * t * (3.0 - 2.0 * t)
+            vx -= self._svt_k * ex * s_xy
+            vy -= self._svt_k * ey * s_xy
 
+            # Z SVT: anlık yükseklik düzeltmesi (aynı yumuşak-zone)
             ez = self._current_pos_z - target_z
-            if abs(ez) > self._svt_threshold_z_m:
-                vz -= self._svt_k_z * ez
+            thrz = self._svt_threshold_z_m
+            tz = abs(ez) / thrz if thrz > 1e-9 else 2.0
+            s_z = 1.0 if tz >= 1.0 else tz * tz * (3.0 - 2.0 * tz)
+            vz -= self._svt_k_z * ez * s_z
 
             vx -= self._svt_damp * self._current_vel_x
             vy -= self._svt_damp * self._current_vel_y
@@ -369,9 +509,10 @@ class FormationControlNode(Node):
             return 0.0, 0.0, 0.0
 
         agent_ids = list(msg.agent_ids)
-        my_ox = float(msg.offset_x[my_idx])
-        my_oy = float(msg.offset_y[my_idx])
-        my_oz = float(msg.offset_z[my_idx])
+        my = self._slot_offset(msg, self._agent_id)
+        if my is None:
+            return 0.0, 0.0, 0.0
+        my_ox, my_oy, my_oz = my
 
         sum_ex = 0.0
         sum_ey = 0.0
@@ -387,14 +528,13 @@ class FormationControlNode(Node):
             rx = self._neighbor_rx_time.get(nid, 0.0)
             if now - rx > self._rel_stale_s:
                 continue
-            n_idx = agent_ids.index(nid)
-            if (n_idx >= len(msg.offset_x) or n_idx >= len(msg.offset_y)
-                    or n_idx >= len(msg.offset_z)):
+            no = self._slot_offset(msg, nid)
+            if no is None:
                 continue
-
-            dbx = float(msg.offset_x[n_idx]) - my_ox
-            dby = float(msg.offset_y[n_idx]) - my_oy
-            dbz = float(msg.offset_z[n_idx]) - my_oz
+            # İstenen göreli (komşu - ben), body frame → shared NED
+            dbx = no[0] - my_ox
+            dby = no[1] - my_oy
+            dbz = no[2] - my_oz
             des_x, des_y = rotate_offset(dbx, dby, heading_rad)
             des_z = dbz
 
@@ -440,8 +580,151 @@ class FormationControlNode(Node):
             float(msg.center_z),
         )
 
+    # --- Dağıtık atama (çıpalı) ----------------------------------------------
+
+    def _peer_positions(
+        self,
+        agent_ids: list[int],
+        now: float,
+    ) -> dict[int, tuple[float, float, float]] | None:
+        """Tüm sürünün shared-NED konumunu SADECE peer veriden kurar."""
+        origin_lat = getattr(self, '_origin_lat', None)
+        origin_lon = getattr(self, '_origin_lon', None)
+        if (not getattr(self, '_gps_valid', False)
+                or origin_lat is None or origin_lon is None):
+            return None
+        my_n, my_e = latlon_to_ned(
+            self._current_lat, self._current_lon, origin_lat, origin_lon
+        )
+        pos: dict[int, tuple[float, float, float]] = {}
+        for a in agent_ids:
+            a = int(a)
+            if a == self._agent_id:
+                pos[a] = (my_n, my_e, 0.0)
+                continue
+            info = self._neighbors.get(a)
+            if info is None or not info.link_active:
+                return None
+            if now - self._neighbor_rx_time.get(a, 0.0) > self._rel_stale_s:
+                return None
+            pos[a] = (
+                my_n + float(info.relative_x),
+                my_e + float(info.relative_y),
+                0.0,
+            )
+        return pos
+
+    def _compute_local_offsets(
+        self,
+        msg: FormationCommand,
+        positions: dict[int, tuple[float, float, float]],
+    ) -> dict[int, tuple[float, float, float]] | None:
+        """Slot atamasını yerel olarak hesaplar (dağıtık atama)."""
+        ftype = int(msg.formation_type)
+        if ftype not in (FORMATION_OKBASI, FORMATION_V, FORMATION_CIZGI):
+            return None
+        ids = [int(a) for a in msg.agent_ids]
+        n = len(ids)
+        if n == 0:
+            return None
+        try:
+            slots = compute_slot_offsets(
+                ftype, n, float(msg.spacing_m), self._wing_alpha_rad
+            )
+        except ValueError:
+            return None
+        cx, cy, _cz = self._resolve_center(msg)
+        heading_rad = math.radians(msg.heading_deg)
+        world = []
+        for (ox, oy, _oz) in slots:
+            wx, wy = rotate_offset(ox, oy, heading_rad)
+            world.append((cx + wx, cy + wy))
+        cost = []
+        for a in ids:
+            px, py, _pz = positions[a]
+            cost.append([math.hypot(px - sx, py - sy) for (sx, sy) in world])
+        assignment = hungarian_assignment(cost)
+        return {
+            ids[i]: (
+                float(slots[assignment[i]][0]),
+                float(slots[assignment[i]][1]),
+                float(slots[assignment[i]][2]),
+            )
+            for i in range(n)
+        }
+
+    def _leader_offsets(
+        self,
+        msg: FormationCommand,
+    ) -> dict[int, tuple[float, float, float]] | None:
+        """Liderin komuta gömdüğü atamayı sözlük olarak döner (çıpa/fallback)."""
+        ids = [int(a) for a in msg.agent_ids]
+        if (len(msg.offset_x) < len(ids) or len(msg.offset_y) < len(ids)
+                or len(msg.offset_z) < len(ids)):
+            return None
+        return {
+            ids[i]: (
+                float(msg.offset_x[i]),
+                float(msg.offset_y[i]),
+                float(msg.offset_z[i]),
+            )
+            for i in range(len(ids))
+        }
+
+    @staticmethod
+    def _assignments_match(
+        a: dict[int, tuple[float, float, float]],
+        b: dict[int, tuple[float, float, float]],
+        tol: float = 0.05,
+    ) -> bool:
+        """İki atama (id→ofset) tol metre içinde birebir aynı mı."""
+        if set(a.keys()) != set(b.keys()):
+            return False
+        for k in a:
+            if (abs(a[k][0] - b[k][0]) > tol
+                    or abs(a[k][1] - b[k][1]) > tol
+                    or abs(a[k][2] - b[k][2]) > tol):
+                return False
+        return True
+
+    def _slot_offset(
+        self,
+        msg: FormationCommand,
+        agent_id: int,
+    ) -> tuple[float, float, float] | None:
+        """Ajanın efektif slot ofsetini verir (yerel atama varsa ondan)."""
+        agent_id = int(agent_id)
+        if self._local_offsets is not None and agent_id in self._local_offsets:
+            return self._local_offsets[agent_id]
+        ids = [int(a) for a in msg.agent_ids]
+        if agent_id in ids:
+            i = ids.index(agent_id)
+            if (i < len(msg.offset_x) and i < len(msg.offset_y)
+                    and i < len(msg.offset_z)):
+                return (
+                    float(msg.offset_x[i]),
+                    float(msg.offset_y[i]),
+                    float(msg.offset_z[i]),
+                )
+        return None
+
+    def _on_qr_step(self, msg: UInt8) -> None:
+        """mission_fsm'in yayınladığı aktif QR alt-adımını saklar."""
+        self._qr_step = int(msg.data)
+
     def _publish_setpoint(self) -> None:
-        """Hedef setpoint'ini hesaplar ve yayinlar."""
+        """Periyodik setpoint hesaplar ve AgentSetpoint yayınlar."""
+        # MANEUVER adımında formasyon susar → /raw'a yalnız maneuver_executor
+        # yazar, iki yazıcı çakışması önlenir. Eğik poz sonradan eğik ofsetle
+        # korunduğu için bu susma yalnızca aktif manevra hareketi süresincedir.
+        if self._qr_step == _QR_STEP_MANEUVER:
+            return
+
+        # Bu drone ayrılmış/iniş/rejoin durumundaysa formation sürücü değildir
+        # (precision_landing veya agent_fsm/PX4). /raw'a yazma.
+        if self._agent_state in _MUTE_STATES:
+            return
+
         msg = self._current_formation
         if msg is None:
             return
@@ -465,10 +748,10 @@ class FormationControlNode(Node):
             return
 
         idx = agent_ids.index(self._agent_id)
-        if (idx >= len(msg.offset_x) or idx >= len(msg.offset_y)
-                or idx >= len(msg.offset_z)):
+        off = self._slot_offset(msg, self._agent_id)
+        if off is None:
             self.get_logger().warn(
-                'komuttaki offset dizileri eksik; setpoint atlandi',
+                'slot ofseti yok (yerel/komut); setpoint atlandi',
                 throttle_duration_sec=2.0,
             )
             return
@@ -476,12 +759,10 @@ class FormationControlNode(Node):
         center_x, center_y, center_z = self._resolve_center(msg)
         heading_rad = math.radians(msg.heading_deg)
 
-        dx, dy = rotate_offset(
-            msg.offset_x[idx], msg.offset_y[idx], heading_rad
-        )
+        dx, dy = rotate_offset(off[0], off[1], heading_rad)
         x = center_x + dx
         y = center_y + dy
-        z = center_z + msg.offset_z[idx]
+        z = center_z + off[2]
 
         x, y = self._shared_to_local(x, y)
 
@@ -517,10 +798,48 @@ class FormationControlNode(Node):
                 setattr(self, attr, cur + step)
         x, y, z = self._ramp_x, self._ramp_y, self._ramp_z
 
+        # v_ff = ramp'ın 50Hz hızı (pürüzsüz feedforward). Ramp, komut hedefine
+        # doğru her tick ilerler; slot'un aksine 50Hz'de SABİT DEĞİL, o yüzden
+        # türevi testere dişi değil sürekli hız verir. Hedefe yaklaşınca adım
+        # küçülür → v_ff pürüzsüzce 0'a iner (basamaklı 2Hz zıplama yok).
+        if self._prev_ramp_x is None:
+            self._prev_ramp_x, self._prev_ramp_y, self._prev_ramp_z = x, y, z
+        elif dt > 1e-3:
+            a = self._vff_lpf_alpha
+            self._vff_x = (a * (x - self._prev_ramp_x) / dt
+                           + (1.0 - a) * self._vff_x)
+            self._vff_y = (a * (y - self._prev_ramp_y) / dt
+                           + (1.0 - a) * self._vff_y)
+            self._vff_z = (a * (z - self._prev_ramp_z) / dt
+                           + (1.0 - a) * self._vff_z)
+            self._prev_ramp_x, self._prev_ramp_y, self._prev_ramp_z = x, y, z
+
+        # === HIZ KOMUTU (C MODU: SAF HIZ-TABANLI) =========================
+        # v_cmd = v_svt + v_damp + v_rel + v_ff. Pozisyon kontrolü TÜMÜYLE
+        # burada (SVT tek feedback) → position_valid=False, PX4 ile ÇAKIŞMAZ.
+        # in_formation gate YOK: SVT form-up'ta büyük hata→büyük çekme, seyirde
+        # küçük→ince koruma; tek mod. APF (CA node) bu hıza zincirde eklenir.
+        #
+        # SVT + damping: ramp'lı lokal slota çeker (-k·err) + sönümler (-b·v).
         svx, svy, svz = self._compute_velocity(x, y, z, max_speed)
         rvx, rvy, rvz = self._compute_relative_correction(
             msg, idx, heading_rad, now
         )
+        # v_ff: merkez hızı feed-forward. KOMUT callback'inde (2Hz) hesaplandı
+        # (self._vff_*); burada SADECE eklenir. Hız frame-bağımsız (sabit origin
+        # offset'i türevde kaybolur) → shared'de hesaplanan lokalde de geçerli.
+        #
+        # BAYATLIK KAPISI: komut akışı kesilince merkez artık hareket etmiyordur;
+        # v_ff sıfırlanmalı. Aksi halde son komuttaki hız DONAR ve her tick'te
+        # eklenmeye devam eder → SVT ile dengelenip kalıcı sapma bırakır
+        # (hata = v_ff / svt_k; ölçümde 3.0/0.8 ≈ 3.7 m). Emit-once komut
+        # mimarisinde bu kaçınılmazdır, o yüzden burada kapatılır.
+        if (self._prev_cmd_time is None
+                or (now - self._prev_cmd_time) > self._vff_hold_s):
+            self._vff_x = 0.0
+            self._vff_y = 0.0
+            self._vff_z = 0.0
+
         vx, vy, vz = self._clamp_speed(
             svx + rvx + self._vff_x,
             svy + rvy + self._vff_y,

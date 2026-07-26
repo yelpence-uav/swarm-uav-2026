@@ -9,6 +9,7 @@ import cv2
 import numpy as np
 
 from swarm_perception.vision_node.landing_zone_detector import (
+    ensure_bgr,
     LandingZoneDetector,
 )
 
@@ -81,6 +82,37 @@ class TestLandingZoneDetector(unittest.TestCase):
 
         results = self.detector.detect(img)
         self.assertEqual(len(results), 0)
+
+    def test_rgb8_kare_bgr_ye_cevrilir(self) -> None:
+        """rgb8 yayınlayan kamera KIRMIZI pedi kırmızı olarak verdirmeli.
+
+        Dedektör BGR bekler. Kamera rgb8 yayınlarken ham tampon doğrudan
+        verilirse kırmızı ile mavi kanalı yer değiştirir: kırmızı ped "mavi",
+        mavi ped "kırmızı" etiketlenir ve "kırmızıya in" emrini alan dron MAVİ
+        pede iner (yaşanan bug). ensure_bgr bunu formatı okuyarak önler.
+        """
+        # RGB düzeninde kırmızı çember: R kanalı dolu -> (255, 0, 0)
+        rgb = np.zeros((100, 100, 3), dtype=np.uint8)
+        cv2.circle(rgb, (50, 50), 15, (255, 0, 0), -1)
+
+        # Ham (çevrilmemiş) kare: dedektör bunu MAVİ sanır -> hatanın ta kendisi
+        ham = self.detector.detect(rgb)
+        self.assertEqual(len(ham), 1)
+        self.assertEqual(ham[0]['color'], 2, 'cevrilmemis rgb8 mavi gorunur')
+
+        # ensure_bgr ile: doğru şekilde KIRMIZI
+        duzeltilmis = self.detector.detect(ensure_bgr(rgb, 'rgb8'))
+        self.assertEqual(len(duzeltilmis), 1)
+        self.assertEqual(duzeltilmis[0]['color'], 1)
+
+    def test_bgr8_kare_dokunulmadan_gecer(self) -> None:
+        """Zaten BGR olan kare ensure_bgr'den değişmeden geçer."""
+        bgr = np.zeros((100, 100, 3), dtype=np.uint8)
+        cv2.circle(bgr, (50, 50), 15, (0, 0, 255), -1)   # BGR'de kırmızı
+
+        sonuc = self.detector.detect(ensure_bgr(bgr, 'bgr8'))
+        self.assertEqual(len(sonuc), 1)
+        self.assertEqual(sonuc[0]['color'], 1)
 
 
 if __name__ == '__main__':

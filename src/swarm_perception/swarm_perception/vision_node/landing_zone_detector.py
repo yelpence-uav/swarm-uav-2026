@@ -8,6 +8,13 @@ import cv2
 import numpy as np
 
 
+def ensure_bgr(image: np.ndarray, encoding: str) -> np.ndarray:
+    """Görüntüyü dedektörlerin beklediği BGR düzenine getirir."""
+    if encoding == 'rgb8':
+        return cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
+    return image
+
+
 class LandingZoneDetector:
     """Kirmizi/mavi inis bolgelerini HSV uzayinda tespit eder."""
 

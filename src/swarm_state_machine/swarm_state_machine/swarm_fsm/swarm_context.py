@@ -6,7 +6,7 @@ import math
 import time
 
 from .swarm_states import FormationType, SwarmState
-from ..agent_fsm.agent_states import AgentState
+from ..agent_fsm.agent_states import FORMATION_ACTIVE_STATES
 
 
 @dataclass
@@ -121,11 +121,10 @@ class SwarmContext:
         return time.monotonic() - self.state_entry_time
 
     def compute_centroid(self) -> None:
-        """Aktif ajanların agirlik merkezini hesaplar."""
-        in_swarm_states = {AgentState.IN_SWARM, AgentState.EXECUTING_TASK}
+        """Aktif ajanların ağırlık merkezini hesaplar."""
         active = [
             a for a in self.agents.values()
-            if a.state in in_swarm_states and not a.is_stale()
+            if a.state in FORMATION_ACTIVE_STATES and not a.is_stale()
         ]
         if not active:
             return
@@ -140,10 +139,9 @@ class SwarmContext:
         target_offsets: dict[int, tuple[float, float, float]] | None = None,
     ) -> None:
         """Formasyon kalite metriklerini hesaplar."""
-        in_swarm_states = {AgentState.IN_SWARM, AgentState.EXECUTING_TASK}
         active = [
             a for a in self.agents.values()
-            if a.state in in_swarm_states and not a.is_stale()
+            if a.state in FORMATION_ACTIVE_STATES and not a.is_stale()
         ]
         if not active:
             self.formation_max_error_m = 0.0

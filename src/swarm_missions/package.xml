@@ -1,15 +1,16 @@
 <?xml version="1.0"?>
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
-  <name>swarm_core</name>
+  <name>swarm_missions</name>
   <version>0.1.0</version>
-  <description>Swarm UAV control core: formation control, consensus, collision avoidance, path planning</description>
-  <maintainer email="osmancevik@pm.me">Yelpençe Takımı</maintainer>
+  <description>Sürü görev orkestrasyonu: Görev 1 dinamik sürü akışı.</description>
+  <maintainer email="kocakseydagul@gmail.com">Yelpence TEKNOFEST 2026</maintainer>
   <license>MIT</license>
 
   <depend>rclpy</depend>
   <depend>std_msgs</depend>
   <depend>swarm_interfaces</depend>
+  <depend>swarm_core</depend>
 
   <test_depend>ament_copyright</test_depend>
   <test_depend>ament_flake8</test_depend>

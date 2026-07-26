@@ -33,6 +33,13 @@ _AIRBORNE = frozenset({
     AgentState.LANDING,
 })
 
+# Offboard setpoint bastığımız (direksiyonun BİZDE olduğu) durumlar. LANDING
+# hariç _AIRBORNE ile aynıdır: LANDING'de "in" komutunu biz verdik, PX4 kendi
+# LAND moduna geçip offboard'dan çıkar — bu BEKLENEN bir kayıptır, arıza değil.
+# Offboard kaybı kontrolü bu kümeye bakar; EKF/geofence/RC kontrolleri LANDING'de
+# de geçerli olduğu için _AIRBORNE'a bakmaya devam eder.
+_OFFBOARD_CONTROLLED = _AIRBORNE - {AgentState.LANDING}
+
 
 @dataclass
 class HealthCheckResult:
@@ -117,7 +124,12 @@ def check(ctx: AgentContext) -> HealthCheckResult:
 
 
 def _check_critical_faults(ctx: AgentContext) -> HealthCheckResult:
-    """Kritik donanim hatalarini kontrol eder."""
+    """En kritik donanım hatalarını kontrol eder."""
+    # UNKNOWN state'de ilk telemetri henüz gelmemiş olabilir; başlatma
+    # yarış koşulunu önlemek için PX4 link kontrolü UNKNOWN'da atlanır.
+    if ctx.state == AgentState.UNKNOWN:
+        return HealthCheckResult()
+
     if not ctx.px4_link_ok:
         return HealthCheckResult(
             critical_fault=True,
@@ -137,13 +149,10 @@ def _check_critical_faults(ctx: AgentContext) -> HealthCheckResult:
             reason='EKF2 estimator hatalı',
         )
 
-    is_offboard_lost = (
-        ctx.state in _AIRBORNE
-        and ctx.offboard_lost_since is not None
-        and (time.monotonic() - ctx.offboard_lost_since)
-        > _OFFBOARD_LOSS_TIMEOUT_S
-    )
-    if is_offboard_lost:
+    if (ctx.state in _OFFBOARD_CONTROLLED
+            and ctx.offboard_lost_since is not None
+            and (time.monotonic() - ctx.offboard_lost_since)
+            > _OFFBOARD_LOSS_TIMEOUT_S):
         return HealthCheckResult(
             critical_fault=True,
             event_type=SystemEvent.EVENT_OFFBOARD_LOST,

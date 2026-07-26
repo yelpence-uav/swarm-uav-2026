@@ -9,6 +9,26 @@ COLOR_RED = 1
 COLOR_BLUE = 2
 
 
+def zone_offset_ned_m(
+    u_px: float,
+    v_px: float,
+    fx: float,
+    fy: float,
+    cx: float,
+    cy: float,
+    height_m: float,
+    heading_deg: float,
+) -> Tuple[float, float]:
+    """Görüntüdeki bölge merkezinin drona göre NED ofseti (metre)."""
+    right_m = height_m * (u_px - cx) / fx
+    fwd_m = -height_m * (v_px - cy) / fy
+
+    hd = math.radians(heading_deg)
+    ned_x = fwd_m * math.cos(hd) - right_m * math.sin(hd)
+    ned_y = fwd_m * math.sin(hd) + right_m * math.cos(hd)
+    return ned_x, ned_y
+
+
 class ZoneMapCore:
     """Renkli bolgeleri global NED'de biriktiren hafiza ve projeksiyon."""
 
@@ -18,14 +38,7 @@ class ZoneMapCore:
         min_height_m: float = 0.5,
         confidence_obs_full: int = 5,
     ) -> None:
-        """
-        Bolge haritasini ilklendirir.
-
-        Args:
-            merge_dist_m: Birlestirme mesafe esigi.
-            min_height_m: Projeksiyon icin asgari yukseklik.
-            confidence_obs_full: Tam guven icin gereken gozlem sayisi.
-        """
+        """Bolge haritasini ilklendirir."""
         self._merge_dist_m = float(merge_dist_m)
         self._min_height_m = float(min_height_m)
         self._obs_full = max(1, int(confidence_obs_full))
@@ -38,18 +51,7 @@ class ZoneMapCore:
         fov_deg: float,
         pose: Tuple[float, float, float, float],
     ) -> Tuple[float, float, float]:
-        """
-        Goruntudeki bolge merkezini global NED konumuna projekte eder.
-
-        Args:
-            image_x: Bolge merkezinin yatay piksel orani.
-            image_y: Bolge merkezinin dikey piksel orani.
-            fov_deg: Kamera gorus acisi.
-            pose: Drone'un global NED pozu.
-
-        Returns:
-            Tuple[float, float, float]: Global NED konumu.
-        """
+        """Goruntudeki bolge merkezini global NED konumuna projekte eder."""
         px, py, pz, heading_deg = pose
         fov = fov_deg if fov_deg > 1.0 else 60.0
 
@@ -75,16 +77,7 @@ class ZoneMapCore:
         gz: float = 0.0,
         detection_confidence: float = 1.0,
     ) -> None:
-        """
-        Gozlemi haritaya ekler veya birlestirir.
-
-        Args:
-            color: Renk kimligi.
-            gx: Global NED x.
-            gy: Global NED y.
-            gz: Global NED z.
-            detection_confidence: Tespit guveni.
-        """
+        """Gozlemi haritaya ekler veya birlestirir."""
         if color not in (COLOR_RED, COLOR_BLUE):
             return
 
@@ -128,17 +121,7 @@ class ZoneMapCore:
     def nearest(
         self, color: int, x: float, y: float
     ) -> Optional[Dict[str, float]]:
-        """
-        Verilen konuma en yakin bolgeyi bulur.
-
-        Args:
-            color: Renk kimligi.
-            x: Global NED x.
-            y: Global NED y.
-
-        Returns:
-            Optional[Dict[str, float]]: En yakin bolge kaydi kopyasi.
-        """
+        """Verilen konuma en yakin bolgeyi bulur."""
         best = None
         best_d = float('inf')
         for z in self._zones:

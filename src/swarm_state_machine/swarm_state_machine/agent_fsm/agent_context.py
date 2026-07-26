@@ -84,6 +84,11 @@ class AgentContext:
 
     mission_start_sequence_active: bool = False
 
+    # Sürüden ayrılan ajanın renkli pedde disarm bekleyeceği süre (saniye).
+    # EVENT_MEMBER_DETACH_STARTED.value ile gelir; WAITING_REJOIN bu süre
+    # dolunca kendi kendine tekrar arm olur (rejoin zamanlaması dronda).
+    detach_wait_s: float = 0.0
+
     altitude_stable: bool = False
     attitude_stable: bool = False
     vertical_speed_ok: bool = False
