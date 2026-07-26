@@ -1110,13 +1110,21 @@ class Esp32BridgeNode(Node):
         # --- POSE 10Hz ---
         if now - self._son_pose_gonderim_ts >= self._pose_periyot_s:
             self._son_pose_gonderim_ts = now
+            # alt_dm: GORELI irtifa (yerden yukseklik, m yukari; dm) — AMSL DEGIL.
+            # ONCEDEN -pos_z (EKF yerel Z) kullaniliyordu; ANCAK EKF yerel-Z origin'i
+            # boot'a bagli ~10m kayabiliyor VE ucus boyunca suruyor -> yerdeyken YKI
+            # 10m gosteriyordu, min-nav guvenlik kilidini bosa cikariyordu (yerde
+            # direkt goto -> devrilme). SAGLAM kaynak: AMSL - home_AMSL (PX4 rel_alt
+            # ile ayni, QGC ile ayni, ~0 yerde). Home yoksa 0 gonder (guvenli:
+            # kilit yerde sayar, oto-kalkis zorlar; yanlislikla yatay nav baslatmaz).
+            if msg.home_alt_amsl_m != 0.0 and msg.gps_fix_type >= 3:
+                rel_alt_m = msg.alt_amsl_m - msg.home_alt_amsl_m
+            else:
+                rel_alt_m = 0.0
             payload = pp.pose_paketle(
                 lat=int(msg.lat_deg * 1e7),
                 lon=int(msg.lon_deg * 1e7),
-                # alt_dm artik GORELI irtifa (m, yukari; dm) — AMSL DEGIL.
-                # Drone'un EKF goreli irtifasi (-pos_z, NED down negatif=yukari).
-                # Boylece YKI'de irtifa origin'den bagimsiz, pürüzsüz, QGC ile ayni.
-                alt_dm=int(-msg.pos_z * 10.0),
+                alt_dm=int(rel_alt_m * 10.0),
                 heading=int(msg.heading_deg * 10.0),
                 vx=int(msg.vel_x * 100.0),
                 vy=int(msg.vel_y * 100.0),
