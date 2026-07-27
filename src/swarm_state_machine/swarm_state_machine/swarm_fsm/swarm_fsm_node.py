@@ -61,6 +61,13 @@ _HEARTBEAT_QOS = QoSProfile(
     depth=5,
 )
 
+_STATUS_QOS = QoSProfile(
+    reliability=ReliabilityPolicy.BEST_EFFORT,
+    durability=DurabilityPolicy.VOLATILE,
+    history=HistoryPolicy.KEEP_LAST,
+    depth=10,
+)
+
 _AGENT_STALE_TIMEOUT_S = 3.0
 _FORMATION_STABLE_THRESHOLD_M = 1.5
 _FORMATION_REACHED_THRESHOLD_M = 1.0
@@ -134,7 +141,7 @@ class SwarmFsmNode(Node):
                 AgentStatus,
                 f'/swarm/public/drone{aid}/status',
                 self._make_agent_cb(aid),
-                10,
+                _STATUS_QOS,
             )
 
         self.create_subscription(

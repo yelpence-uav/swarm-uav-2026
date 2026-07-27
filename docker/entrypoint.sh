@@ -12,6 +12,7 @@ sudo chown -R yelpence:yelpence \
   /home/yelpence/ros2_ws/install \
   /home/yelpence/ros2_ws/src/PX4-Autopilot/build \
   /home/yelpence/ros2_ws/src/px4_autopilot/build 2>/dev/null || true
+sudo chmod -R 666 /dev/input 2>/dev/null || true
 # kucuk harfli px4_autopilot aktif klasordur; chown edilmezse anonim
 # volume root kalir ve make Permission denied verir.
 
@@ -67,6 +68,7 @@ sudo service ssh start >/dev/null 2>&1
 
 # 1. ROS 2 Jazzy Global Ortamını Yükle
 source /opt/ros/jazzy/setup.bash
+export CYCLONEDDS_URI=file:///home/yelpence/ros2_ws/docker/cyclonedds.xml
 
 # 2. Python Sanal Ortamını Aktif Et
 source /home/yelpence/venv/bin/activate

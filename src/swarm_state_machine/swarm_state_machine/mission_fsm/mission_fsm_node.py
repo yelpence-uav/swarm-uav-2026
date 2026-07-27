@@ -116,13 +116,18 @@ class MissionFsmNode(Node):
             _RELIABLE_QOS,
         )
 
+    def _make_agent_cb(self, aid: int):
+        def cb(msg: AgentStatus) -> None:
+            self._on_agent_status(msg, aid)
+        return cb
+
     def _setup_subscribers(self) -> None:
         """Abone kanallarını oluşturur."""
         for aid in self._agent_ids:
             self.create_subscription(
                 AgentStatus,
                 f'/swarm/public/drone{aid}/status',
-                lambda msg, a=aid: self._on_agent_status(msg, a),
+                self._make_agent_cb(aid),
                 _BEST_EFFORT_QOS,
             )
 
@@ -167,10 +172,7 @@ class MissionFsmNode(Node):
         self._publish_state()
 
         terminal = (MissionState.ABORTED, MissionState.MISSION_COMPLETE)
-        if ctx.state in terminal:
-            if hasattr(self, '_timer'):
-                self._timer.cancel()
-        else:
+        if ctx.state not in terminal:
             ctx.pending_command = 0
 
     def _transition(self, new_state: MissionState) -> None:
@@ -433,11 +435,10 @@ class MissionFsmNode(Node):
 
         if cmd == TriggerMission.Request.COMMAND_START:
             if ctx.state != MissionState.IDLE:
-                response.success = False
-                response.message = (
-                    f'START reddedildi: durum={ctx.state.name}'
-                )
-                return response
+                ctx.set_state(MissionState.IDLE)
+                ctx.abort_reason = ''
+                if hasattr(self, '_timer') and self._timer.is_canceled():
+                    self._timer.reset()
 
             try:
                 mission_type = MissionType(request.mission_id)

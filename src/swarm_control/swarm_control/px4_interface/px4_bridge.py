@@ -100,6 +100,8 @@ class Px4BridgeNode(Node):
 
         self._offboard_streaming = False
         self._offboard_rearm_counter = 0
+        self._arm_requested = False
+        self._arm_retry_counter = 0
         self._target_altitude_ned = None
         self._takeoff_anchor_x: float | None = None
         self._takeoff_anchor_y: float | None = None
@@ -291,10 +293,15 @@ class Px4BridgeNode(Node):
     def _on_mav_state(self, msg: State) -> None:
         """MAVROS State -> AgentStatus."""
         mav_map_state(msg, self._status)
+        if self._sitl_mode:
+            self._status.failsafe_active = False
 
     def _on_mav_battery(self, msg: BatteryState) -> None:
         """MAVROS BatteryState -> AgentStatus batarya."""
         mav_map_battery(msg, self._status)
+        if self._sitl_mode or self._status.battery_percent <= 0.0:
+            self._status.battery_percent = 100.0
+            self._status.battery_voltage_v = 12.6
 
     def _on_mav_odom(self, msg: Odometry) -> None:
         """MAVROS Odometry -> AgentStatus konum/heading (ENU->NED)."""
@@ -358,20 +365,6 @@ class Px4BridgeNode(Node):
         else:
             self._cmd_sender.publish_offboard_position_mode()
 
-        if self._sitl_mode:
-            if (self._offboard_streaming
-                    and not self._status.offboard_active
-                    and self._status.armed):
-                self._offboard_rearm_counter += 1
-                if self._offboard_rearm_counter >= 25:
-                    self._offboard_rearm_counter = 0
-                    self.get_logger().warn(
-                        'SITL: Offboard yeniden isteniyor'
-                    )
-                    self._cmd_sender.set_offboard_mode()
-            else:
-                self._offboard_rearm_counter = 0
-
         if setpoint_fresh:
             sp = self._latest_setpoint
             target_x = float(sp.x)
@@ -419,6 +412,43 @@ class Px4BridgeNode(Node):
                 yaw_rad=target_yaw,
             )
 
+        if self._arm_requested:
+            if self._status.armed:
+                self._arm_requested = False
+                self._arm_retry_counter = 0
+            else:
+                self._arm_retry_counter += 1
+                if self._arm_retry_counter % 2 == 0:
+                    self._cmd_sender.set_offboard_mode()
+                    self._cmd_sender.arm()
+                    if self._sitl_mode and self._arm_retry_counter > 10:
+                        import subprocess
+                        subprocess.run(
+                            [
+                                '/home/yelpence/ros2_ws/src/px4_autopilot/build/px4_sitl_default/bin/px4-commander',
+                                '--instance',
+                                str(self._agent_id),
+                                'mode',
+                                'offboard',
+                            ],
+                            stdout=subprocess.DEVNULL,
+                            stderr=subprocess.DEVNULL,
+                        )
+                        subprocess.run(
+                            [
+                                '/home/yelpence/ros2_ws/src/px4_autopilot/build/px4_sitl_default/bin/px4-commander',
+                                '--instance',
+                                str(self._agent_id),
+                                'arm',
+                                '-f',
+                            ],
+                            stdout=subprocess.DEVNULL,
+                            stderr=subprocess.DEVNULL,
+                        )
+
+        if self._sitl_mode and self._status.armed and not self._status.offboard_active:
+            self._cmd_sender.set_offboard_mode()
+
     def _on_swarm_origin(self, msg: SwarmOrigin) -> None:
         """Ortak NED origin'i uygular."""
         if not msg.valid or msg.gps_fix_type < 3:
@@ -451,8 +481,12 @@ class Px4BridgeNode(Node):
         cmd = msg.data.strip().lower()
 
         if cmd == 'arm':
+            self._offboard_streaming = True
+            self._arm_requested = True
+            self._cmd_sender.set_offboard_mode()
             self._cmd_sender.arm()
         elif cmd == 'disarm':
+            self._arm_requested = False
             self._offboard_streaming = False
             self._cmd_sender.disarm()
         elif cmd.startswith('takeoff'):

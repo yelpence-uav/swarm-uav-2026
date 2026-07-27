@@ -98,6 +98,7 @@ RUN pip install --no-cache-dir --upgrade pip && \
 # .bashrc Ayarları
 RUN echo "source /opt/ros/jazzy/setup.bash" >> ~/.bashrc \
     && echo "if [ -f ~/ros2_ws/install/setup.bash ]; then source ~/ros2_ws/install/setup.bash; fi" >> ~/.bashrc \
+    && echo "export CYCLONEDDS_URI=file:///home/yelpence/ros2_ws/docker/cyclonedds.xml" >> ~/.bashrc \
     && echo "source ~/venv/bin/activate" >> ~/.bashrc 
 
 # Konteyner Başlatma

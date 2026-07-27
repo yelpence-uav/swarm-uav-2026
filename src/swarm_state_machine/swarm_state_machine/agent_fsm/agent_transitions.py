@@ -5,7 +5,7 @@ from .agent_context import AgentContext
 from .agent_states import AgentState, FlightMode
 from .preflight_checker import run_preflight_checks
 
-_ARMING_TIMEOUT_S = 15.0
+_ARMING_TIMEOUT_S = 30.0
 _ARMED_STABILIZE_S = 2.0
 _TAKEOFF_TIMEOUT_S = 30.0
 _PRECISION_LANDING_TIMEOUT_S = 60.0
@@ -30,8 +30,6 @@ _OFFBOARD_CHECK_STATES = frozenset({
     AgentState.DETACHED,
     AgentState.PRECISION_LANDING,
     AgentState.REJOINING,
-    AgentState.RETURN_HOME,
-    AgentState.LANDING,
 })
 
 

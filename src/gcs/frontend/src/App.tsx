@@ -93,7 +93,7 @@ export default function App() {
 
       {joystickVisible && (
         <aside className="app__joystick">
-          <JoystickPanel enabled={missionActive} />
+          <JoystickPanel enabled={true} />
         </aside>
       )}
 

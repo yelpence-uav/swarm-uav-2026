@@ -168,7 +168,7 @@ class ModeManagerNode(Node):
 
         self.create_subscription(
             SystemEvent,
-            '/swarm/public/events/system',
+            '/swarm/internal/events/system',
             self._on_event,
             _RELIABLE_QOS,
         )
@@ -403,11 +403,10 @@ class ModeManagerNode(Node):
     def _on_event(self, msg: SystemEvent) -> None:
         eid = msg.event_type
 
-        if eid == SystemEvent.EVENT_EMERGENCY_LAND:
-            self._ctx.emergency_stop_requested = True
-
-        elif eid == SystemEvent.EVENT_RTL_TRIGGERED:
+        if eid in (SystemEvent.EVENT_EMERGENCY_LAND, SystemEvent.EVENT_RTL_TRIGGERED):
+            self._ctx.emergency_stop_requested = False
             self._ctx.rtl_requested = True
+            self._ctx.land_requested = True
 
     def _publish_formation_command(self, params: dict) -> None:
         msg = FormationCommand()

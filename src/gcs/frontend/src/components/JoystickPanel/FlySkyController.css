@@ -1,0 +1,387 @@
+/* FlySky FS-i6X Virtual Controller Styling - Compact 380px Sidebar Fit */
+
+.flysky-card {
+  background: linear-gradient(145deg, #0f172a 0%, #1e293b 100%);
+  border: 1px solid #334155;
+  border-radius: 12px;
+  padding: 8px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+  user-select: none;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+
+/* Transmitter Top Header */
+.flysky-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid #334155;
+  padding-bottom: 4px;
+}
+
+.flysky-brand {
+  display: flex;
+  flex-direction: column;
+}
+
+.flysky-title {
+  font-size: 1.0rem;
+  font-weight: 800;
+  letter-spacing: 1px;
+  color: #f8fafc;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.flysky-subtitle {
+  font-size: 0.55rem;
+  color: #94a3b8;
+  letter-spacing: 0.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.flysky-status-badge {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border-radius: 12px;
+  font-size: 0.65rem;
+  font-weight: 700;
+  background: rgba(15, 23, 42, 0.6);
+  border: 1px solid #334155;
+  max-width: 150px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.flysky-status-badge--connected {
+  color: #4ade80;
+  border-color: rgba(74, 222, 128, 0.3);
+}
+
+.flysky-status-badge--simulated {
+  color: #38bdf8;
+  border-color: rgba(56, 189, 248, 0.3);
+}
+
+.flysky-led {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background-color: #64748b;
+  flex-shrink: 0;
+}
+
+.flysky-led--green {
+  background-color: #4ade80;
+  box-shadow: 0 0 6px #4ade80;
+}
+
+.flysky-led--blue {
+  background-color: #38bdf8;
+  box-shadow: 0 0 6px #38bdf8;
+}
+
+/* Switches Grid (4 columns = SwA, SwB, SwC, SwD fit 380px container) */
+.flysky-switches-bar {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+  background: #090d16;
+  padding: 6px;
+  border-radius: 8px;
+  border: 1px solid #1e293b;
+}
+
+.flysky-switch-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  background: #0f172a;
+  padding: 6px 2px;
+  border-radius: 6px;
+  border: 1px solid #1e293b;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.flysky-switch-item:hover {
+  background: #1e293b;
+}
+
+.flysky-switch-label {
+  font-size: 0.62rem;
+  font-weight: 700;
+  color: #cbd5e1;
+  text-align: center;
+  white-space: nowrap;
+}
+
+/* Toggle Switch Visual */
+.flysky-toggle-btn {
+  width: 26px;
+  height: 38px;
+  background: #1e293b;
+  border: 1.5px solid #475569;
+  border-radius: 5px;
+  position: relative;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.flysky-toggle-lever {
+  width: 10px;
+  height: 18px;
+  background: linear-gradient(180deg, #e2e8f0 0%, #94a3b8 100%);
+  border-radius: 2px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+  position: absolute;
+  transition: transform 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.flysky-toggle-lever--up {
+  transform: translateY(-6px);
+}
+
+.flysky-toggle-lever--down {
+  transform: translateY(6px);
+}
+
+.flysky-toggle-lever--mid {
+  transform: translateY(0);
+}
+
+.flysky-switch-val {
+  font-size: 0.58rem;
+  font-weight: 700;
+  color: #94a3b8;
+  white-space: nowrap;
+}
+
+.flysky-switch-val--active {
+  color: #38bdf8;
+}
+
+.flysky-switch-val--alert {
+  color: #f43f5e;
+}
+
+/* Dial / Pot Knob */
+.flysky-pot-knob {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: radial-gradient(circle, #334155 0%, #0f172a 100%);
+  border: 1.5px solid #475569;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.flysky-pot-pointer {
+  width: 2px;
+  height: 10px;
+  background: #38bdf8;
+  border-radius: 1px;
+  position: absolute;
+  top: 2px;
+  transform-origin: bottom center;
+  transition: transform 0.1s linear;
+}
+
+/* LCD Backlit Screen */
+.flysky-lcd-screen {
+  background: #022c22;
+  border: 2px solid #064e3b;
+  border-radius: 8px;
+  padding: 8px;
+  box-shadow: inset 0 0 10px rgba(16, 185, 129, 0.2);
+  color: #6ee7b7;
+  font-family: "Courier New", Courier, monospace;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.flysky-lcd-header {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.65rem;
+  font-weight: bold;
+  border-bottom: 1px dashed rgba(110, 231, 183, 0.3);
+  padding-bottom: 3px;
+}
+
+.flysky-lcd-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 4px 8px;
+}
+
+.flysky-lcd-cell {
+  display: flex;
+  flex-direction: column;
+}
+
+.flysky-lcd-label {
+  font-size: 0.55rem;
+  opacity: 0.75;
+}
+
+.flysky-lcd-val {
+  font-size: 0.7rem;
+  font-weight: bold;
+  color: #a7f3d0;
+}
+
+/* Dual Gimbals Section (Side by side fit in 380px) */
+.flysky-gimbals-row {
+  display: flex;
+  justify-content: space-around;
+  align-items: center;
+  gap: 8px;
+  background: #090d16;
+  padding: 8px;
+  border-radius: 8px;
+  border: 1px solid #1e293b;
+}
+
+.flysky-gimbal-box {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
+.flysky-gimbal-title {
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: #cbd5e1;
+  text-align: center;
+}
+
+.flysky-gimbal-ring {
+  width: 76px;
+  height: 76px;
+  background: radial-gradient(circle, #0f172a 0%, #020617 100%);
+  border: 2px solid #334155;
+  border-radius: 50%;
+  position: relative;
+  box-shadow: inset 0 3px 6px rgba(0, 0, 0, 0.8);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+/* Gimbal Axis Crosshair Grid */
+.flysky-gimbal-crosshair-h {
+  position: absolute;
+  width: 100%;
+  height: 1px;
+  background: rgba(148, 163, 184, 0.2);
+}
+
+.flysky-gimbal-crosshair-v {
+  position: absolute;
+  height: 100%;
+  width: 1px;
+  background: rgba(148, 163, 184, 0.2);
+}
+
+/* Stick Head */
+.flysky-stick-head {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: radial-gradient(circle, #60a5fa 0%, #1d4ed8 100%);
+  border: 1.5px solid #93c5fd;
+  box-shadow: 0 0 8px rgba(59, 130, 246, 0.6);
+  position: absolute;
+  transform: translate(-50%, -50%);
+  transition: left 0.05s ease-out, top 0.05s ease-out;
+}
+
+.flysky-stick-coords {
+  display: flex;
+  gap: 4px;
+  font-size: 0.62rem;
+  font-weight: 600;
+  color: #94a3b8;
+  font-family: monospace;
+}
+
+.flysky-stick-coord-item {
+  background: #1e293b;
+  padding: 2px 4px;
+  border-radius: 3px;
+  border: 1px solid #334155;
+}
+
+.flysky-stick-coord-item span {
+  color: #38bdf8;
+}
+
+/* Scrollable Diagnostics Panel (Under Gimbal Sticks) */
+.flysky-diag-panel {
+  background: #020617;
+  border: 1px solid #1e293b;
+  border-radius: 8px;
+  padding: 6px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-size: 0.62rem;
+}
+
+.flysky-diag-header {
+  font-size: 0.60rem;
+  font-weight: 800;
+  color: #94a3b8;
+  letter-spacing: 0.5px;
+  border-bottom: 1px solid #1e293b;
+  padding-bottom: 3px;
+  text-transform: uppercase;
+}
+
+.flysky-diag-body {
+  max-height: 65px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding-right: 4px;
+}
+
+.flysky-diag-body::-webkit-scrollbar {
+  width: 4px;
+}
+
+.flysky-diag-body::-webkit-scrollbar-track {
+  background: #090d16;
+  border-radius: 2px;
+}
+
+.flysky-diag-body::-webkit-scrollbar-thumb {
+  background: #334155;
+  border-radius: 2px;
+}
+
+.flysky-diag-row {
+  line-height: 1.35;
+  word-break: break-all;
+}

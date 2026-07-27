@@ -115,44 +115,53 @@ export function MissionPanel({
           />
         </label>
 
-        <button
-          className="mission-panel__start"
-          disabled={startDisabled}
-          onClick={() => trigger(MISSION_COMMAND.START, "GÖREV BAŞLAT")}
-          title={
-            missionActive
-              ? "Görev zaten aktif"
-              : startDisabled
-                ? "Takım ID gerekli"
-                : "Görev başlatma servis çağrısı yap"
-          }
-        >
-          {busy === "GÖREV BAŞLAT" ? "GÖNDERİLİYOR..." : "▶ GÖREV BAŞLAT"}
-        </button>
-
-        {missionId === MISSION_ID.SEMI_AUTONOMOUS && !missionActive && (
-          <div className="mission-panel__hint">
-            ⓘ Görev başlayınca joystick paneli sağda açılacak. Pilot kumandayı
-            hazır tutmalı (deadman R1).
+        {missionId !== MISSION_ID.SEMI_AUTONOMOUS ? (
+          <button
+            className="mission-panel__start"
+            disabled={startDisabled}
+            onClick={() => trigger(MISSION_COMMAND.START, "GÖREV BAŞLAT")}
+            title={
+              missionActive
+                ? "Görev zaten aktif"
+                : startDisabled
+                  ? "Takım ID gerekli"
+                  : "Görev başlatma servis çağrısı yap"
+            }
+          >
+            {busy === "GÖREV BAŞLAT" ? "GÖNDERİLİYOR..." : "▶ GÖREV BAŞLAT"}
+          </button>
+        ) : (
+          <div
+            className="mission-panel__hint"
+            style={{
+              background: "rgba(56, 189, 248, 0.1)",
+              border: "1px solid rgba(56, 189, 248, 0.3)",
+              color: "#38bdf8",
+              padding: "6px 12px",
+              borderRadius: "6px",
+              fontWeight: 600,
+              fontSize: "0.85rem",
+            }}
+          >
+            🕹 Görev 2 Kumandadan Başlatılır (SwD Şalteri)
           </div>
         )}
       </div>
 
-      {/* Şartname §5.1: görev başladıktan sonra GCS müdahalesi yasak. Tek
-          istisna operatörün görevi sonlandırması - acil senaryoda kullanılır,
-          basıldığında görev başarısız sayılır. */}
-      <div className="mission-panel__row mission-panel__row--safety">
-        <span className="mission-panel__safety-label">
-          ⚠ Acil sonlandırma (görev başarısız sayılır):
-        </span>
-        <button
-          className="mission-panel__safety-btn mission-panel__safety-btn--abort"
-          disabled={busy !== null || !missionActive}
-          onClick={() => trigger(MISSION_COMMAND.ABORT, "GÖREVİ İPTAL", "double")}
-        >
-          ✕ Görevi İptal Et
-        </button>
-      </div>
+      {missionId !== MISSION_ID.SEMI_AUTONOMOUS && (
+        <div className="mission-panel__row mission-panel__row--safety">
+          <span className="mission-panel__safety-label">
+            ⚠ Acil sonlandırma (görev başarısız sayılır):
+          </span>
+          <button
+            className="mission-panel__safety-btn mission-panel__safety-btn--abort"
+            disabled={busy !== null || !missionActive}
+            onClick={() => trigger(MISSION_COMMAND.ABORT, "GÖREVİ İPTAL", "double")}
+          >
+            ✕ Görevi İptal Et
+          </button>
+        </div>
+      )}
 
       {lastResult && (
         <div
