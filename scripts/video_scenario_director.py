@@ -35,6 +35,8 @@ düzenlemesi yeter (uçuş koduna dokunmadan).
 
 import argparse
 import math
+import os
+import sys
 
 import rclpy
 from rclpy.node import Node
@@ -44,9 +46,11 @@ from rclpy.qos import (
     QoSProfile,
     QoSReliabilityPolicy,
 )
+
 from std_msgs.msg import UInt8
 
-from swarm_interfaces.msg import AgentStatus, QRCoordinates, QRMissionData
+from swarm_interfaces.msg import (
+    AgentStatus, QRCoordinates, QRMissionData, SwarmOrigin)
 from swarm_interfaces.srv import TriggerMission
 
 # Enlem başına metre (formation_geometry ile birebir). NED ofsetlerini
@@ -96,17 +100,14 @@ def _UCGEN_KOSE(aci_deg):
     )
 
 
-
 _FRM_OKBASI = 1
 _FRM_V = 2
 _FRM_CIZGI = 3
 
 # Tüm video ayarları swarm_config.py'den okunur; sahada yalnız o dosya
-# düzenlenir.
-import os as _os
-import sys as _sys
-_sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__)))
-import swarm_config as _cfg
+# düzenlenir. (sys.path eklemesi import'tan önce şart → E402 kaçınılmaz.)
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import swarm_config as _cfg  # noqa: E402,I100
 _UCGEN_YARICAP_M = float(_cfg.ALAN_YARICAP_M)
 _KALKIS_KOSE_MESAFE_M = float(_cfg.KALKIS_MESAFE_M)
 _VERTICES = [
@@ -124,7 +125,7 @@ _VERTICES = [
 def _ned_to_latlon(north, east, ref_lat, ref_lon):
     """NED ofsetini (metre) referans noktasına göre lat/lon'a çevirir.
 
-    latlon_to_ned'in tersidir; küçük alanlar için düz (equirectangular) yaklaşım
+    latlon_to_ned tersi; küçük alanda düz (equirectangular) yaklaşım
     yeterli. Sürünün uçtuğu shared-NED çerçevesiyle tutarlıdır.
     """
     lat = ref_lat + north / _M_PER_DEG_LAT
@@ -141,6 +142,8 @@ class VideoScenarioDirector(Node):
         self._team = str(args.team)
         self._origin_lat = float(args.origin_lat)
         self._origin_lon = float(args.origin_lon)
+        # Origin swarm_origin'den otomatik; --origin fallback.
+        self._origin_ready = False
         self._start_delay_s = float(args.start_delay)
 
         # QoS profilleri — mission_fsm'in beklediğiyle eşleşir.
@@ -159,7 +162,7 @@ class VideoScenarioDirector(Node):
         self._coords_pub = self.create_publisher(
             QRCoordinates, '/swarm/public/mission/qr_coords', latched,
         )
-        # QR içeriği (kameranın okuyacağı şeyin yerine) — varışlarda yayınlanır.
+        # QR içeriği (kamera yerine) — varışlarda yayınlanır.
         self._qr_pub = self.create_publisher(
             QRMissionData, '/swarm/public/perception/qr_data', reliable,
         )
@@ -168,18 +171,23 @@ class VideoScenarioDirector(Node):
             TriggerMission, '/swarm/mission/trigger',
         )
 
-        # Mission durumu — hem internal (mission_fsm doğrudan) hem public (proxy
-        # röle) dinlenir; proxy açık/kapalı fark etmez, hangisi tıkırsa o kullanılır.
+        # Mission durumu — internal (mission_fsm) + public (proxy röle)
+        # dinlenir; hangisi tıkırsa o kullanılır.
         best_effort = QoSProfile(
             reliability=QoSReliabilityPolicy.BEST_EFFORT,
             durability=QoSDurabilityPolicy.VOLATILE,
             history=QoSHistoryPolicy.KEEP_LAST, depth=10,
         )
         self.create_subscription(
-            UInt8, '/swarm/internal/mission/state', self._on_state, best_effort,
+            UInt8, '/swarm/internal/mission/state',
+            self._on_state, best_effort,
         )
         self.create_subscription(
             UInt8, '/swarm/public/mission/state', self._on_state, best_effort,
+        )
+        # Origin'i swarm_origin'den otomatik al (saha: first_fix).
+        self.create_subscription(
+            SwarmOrigin, '/swarm/internal/origin', self._on_origin, latched,
         )
 
         self._prev_state: int | None = None
@@ -228,13 +236,14 @@ class VideoScenarioDirector(Node):
         if self._coords_sent:
             return
         self._coords_bekleme = getattr(self, '_coords_bekleme', 0) + 1
-        yeter = len(self._pos) >= _AGENT_COUNT
+        # Konum + origin gelmeli; gelmezse ~30 sn sonra --origin fallback.
+        yeter = len(self._pos) >= _AGENT_COUNT and self._origin_ready
         if not yeter and self._coords_bekleme < 60:      # ~30 sn bekle
             return
         if not yeter:
             self.get_logger().warn(
-                f'{len(self._pos)}/{_AGENT_COUNT} dronun konumu geldi; '
-                'kalkış köşesi için merkez origin varsayılıyor.'
+                f'{len(self._pos)}/{_AGENT_COUNT} konum, '
+                f'origin_ready={self._origin_ready}; elle --origin ile devam.'
             )
         self._coords_sent = True
         self._coords_timer.cancel()
@@ -245,6 +254,14 @@ class VideoScenarioDirector(Node):
         self.get_logger().info(
             f'{self._start_delay_s:.0f} sn sonra görev başlatılacak.'
         )
+
+    def _on_origin(self, msg: SwarmOrigin) -> None:
+        """Origin'i swarm_origin'den otomatik alır (saha: first_fix)."""
+        if not msg.valid:
+            return
+        self._origin_lat = float(msg.origin_lat_deg)
+        self._origin_lon = float(msg.origin_lon_deg)
+        self._origin_ready = True
 
     def _swarm_centroid(self) -> tuple[float, float]:
         """Sürünün yerdeki merkezi (shared NED, metre)."""
@@ -309,10 +326,10 @@ class VideoScenarioDirector(Node):
         msg.lat_deg = lats
         msg.lon_deg = lons
         self._coords_pub.publish(msg)
-        self.get_logger().info(f'Koordinat tablosu yayınlandı ({len(ids)} köşe).')
+        self.get_logger().info(f'Koordinat tablosu yayınlandı ({len(ids)}).')
 
     def _start_mission(self) -> None:
-        """TriggerMission START çağırır (bir kez) — sürü kalkışa geçer."""
+        """Görevi başlatır (TriggerMission START, bir kez) — sürü kalkar."""
         self._start_timer.cancel()
         if self._started:
             return
@@ -344,7 +361,7 @@ class VideoScenarioDirector(Node):
             self.get_logger().error(f'START servisi hata: {exc}')
 
     def _on_state(self, msg: UInt8) -> None:
-        """Mission durumu değişince tetiklenir; varışta QR içeriği enjekte eder."""
+        """Durum değişince tetiklenir; varışta QR içeriği enjekte eder."""
         state = int(msg.data)
         if state == self._prev_state:
             return
@@ -355,7 +372,7 @@ class VideoScenarioDirector(Node):
             f'→ {_STATE_NAMES.get(state, state)}'
         )
 
-        # EXECUTE_QR_TASK'a YENİ giriş = bir köşeye VARDIK → o köşenin içeriğini bas.
+        # EXECUTE_QR_TASK'a YENİ giriş = köşeye VARDIK → içeriğini bas.
         if state == _ST_EXECUTE_QR_TASK and prev != _ST_EXECUTE_QR_TASK:
             # İlk köşede enjeksiyonu geciktir: sürü varışta rotasyonu henüz
             # tamamlamamış oluyor, yamuk dizilişte formasyon geçişi dağınık
@@ -411,7 +428,7 @@ class VideoScenarioDirector(Node):
         )
 
     def _gecikmeli_enjekte(self) -> None:
-        """Bekleme bitince kalkış köşesinin içeriğini enjekte eder (bir kez)."""
+        """Bekleme bitince kalkış köşesi içeriğini enjekte eder (bir kez)."""
         if getattr(self, '_oturma_timer', None) is not None:
             self._oturma_timer.cancel()
             self._oturma_timer = None
@@ -476,7 +493,7 @@ def main() -> None:
     ap.add_argument('--origin-lon', type=float, default=29.0017,
                     help='Alan GPS orijini boylamı (SwarmOrigin ile aynı)')
     ap.add_argument('--start-delay', type=float, default=8.0,
-                    help='Koordinat yayınından START komutuna kadar bekleme (sn)')
+                    help='Koordinat yayını → START arası bekleme (sn)')
     args = ap.parse_args()
 
     rclpy.init()
