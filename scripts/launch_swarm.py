@@ -104,7 +104,13 @@ def run_in_tmux(command, title, log_name=None):
     os.makedirs(os.path.join(WORKSPACE, 'logs'), exist_ok=True)
     setup_cmd = (
         'source /opt/ros/jazzy/setup.bash && '
-        f'source {WORKSPACE}/install/setup.bash'
+        f'source {WORKSPACE}/install/setup.bash && '
+        'export ROS_DOMAIN_ID=10 && '
+        'export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp && '
+        # Tum dugumler ayni unicast kesfi kullansin; bash -c non-interactive
+        # oldugu icin .bashrc yuklenmez, URI burada acikca verilmezse dugumler
+        # varsayilan (multicast) kesfe duser ve birbirini goremez.
+        f'export CYCLONEDDS_URI=file://{WORKSPACE}/cyclonedds.xml'
     )
 
     if log_name:
@@ -133,6 +139,9 @@ def run_background(command, log_name):
     full_cmd = (
         'source /opt/ros/jazzy/setup.bash && '
         f'source {WORKSPACE}/install/setup.bash && '
+        'export ROS_DOMAIN_ID=10 && '
+        'export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp && '
+        f'export CYCLONEDDS_URI=file://{WORKSPACE}/cyclonedds.xml && '
         f'{command} >> {log_path} 2>&1'
     )
     return subprocess.Popen(['bash', '-c', full_cmd])
