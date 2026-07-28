@@ -69,11 +69,10 @@ volatile uint32_t      manevra_bitis_ms     = 0;
 // sentinel'idir; baz'a da 99 verilirse pi_bridge baz ile RTK'yi ayirt edemez ve
 // RTK trafigi mesh-liveness'i tazeleyip link kopmasini maskeler (bkz mesh_config.h).
 static const struct { uint8_t mac[6]; uint8_t id; } drone_tablo[] = {
-    {{0xB0, 0xCB, 0xD8, 0xC8, 0xA8, 0x30}, 1},   // drone ESP32 (bu kart)
-    // Drone 2-4 henuz temin edilmedi; placeholder MAC birakmak yanlis eslesme
-    // riski dogurur (bkz RX BASE'teki ayni tablo). Donanim gelince ac.
-    // {{0x00, 0x00, 0x00, 0x00, 0x00, 0x00}, 2},
-    // {{0x00, 0x00, 0x00, 0x00, 0x00, 0x00}, 3},
+    {{0xB0, 0xCB, 0xD8, 0xC8, 0xA8, 0x30}, 1},   // ylp00 (drone ESP32)
+    {{0xD4, 0xE9, 0xF4, 0xFB, 0x13, 0x88}, 2},   // ylp01
+    {{0xA4, 0xF0, 0x0F, 0x64, 0xA9, 0x90}, 3},   // ylp02
+    // Drone 4 henuz temin edilmedi; MAC'i tools/mac_reader ile okuyup ac.
     // {{0x00, 0x00, 0x00, 0x00, 0x00, 0x00}, 4},
     {{0xA4, 0xF0, 0x0F, 0x64, 0xB5, 0x34}, BAZ_MESH_ID},   // RX BASE (yer)
 };

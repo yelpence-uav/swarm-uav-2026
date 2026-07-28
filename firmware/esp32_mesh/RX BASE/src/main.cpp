@@ -110,13 +110,10 @@ uint8_t                  failsafe_active_mode = APM_MODE_RTL;
 // Baz'in kendi MAC'i buraya girmez (kendi yayinini _benim_mac_mi eler); baz
 // kimligi TX DRONE tarafindaki tabloda BAZ_MESH_ID olarak duruyor.
 static const struct { uint8_t mac[6]; uint8_t id; } drone_tablo[] = {
-    {{0xB0, 0xCB, 0xD8, 0xC8, 0xA8, 0x30}, 1},   // drone ESP32
-    // Drone 2-4 henuz temin edilmedi. Placeholder MAC ile acik birakmak
-    // yanlis eslesme riski dogurur: mac_to_id() sahte bir MAC'e ID verirse
-    // olmayan bir drone mesh'te "aktif" gorunur ve komsu sayisini sisirir.
-    // Donanim gelince MAC'i tools/mac_reader ile okuyup satiri ac.
-    // {{0x00, 0x00, 0x00, 0x00, 0x00, 0x00}, 2},
-    // {{0x00, 0x00, 0x00, 0x00, 0x00, 0x00}, 3},
+    {{0xB0, 0xCB, 0xD8, 0xC8, 0xA8, 0x30}, 1},   // ylp00 (drone ESP32)
+    {{0xD4, 0xE9, 0xF4, 0xFB, 0x13, 0x88}, 2},   // ylp01
+    {{0xA4, 0xF0, 0x0F, 0x64, 0xA9, 0x90}, 3},   // ylp02
+    // Drone 4 henuz temin edilmedi; MAC'i tools/mac_reader ile okuyup ac.
     // {{0x00, 0x00, 0x00, 0x00, 0x00, 0x00}, 4},
 };
 static constexpr uint8_t DRONE_SAYISI = sizeof(drone_tablo) / sizeof(drone_tablo[0]);
