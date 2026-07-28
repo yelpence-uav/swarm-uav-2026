@@ -20,9 +20,12 @@
 
 REPO=/home/yentur/yelpence-2026-swarm
 VENV=/home/yentur/gcs-venv
-# base ESP seri portu — kalici by-id yolu (ttyUSB numarasi yeniden takinca degisir, by-id degismez).
-# Base ESP = Silicon Labs CP2102. Farkli kart/port icin: BASE_ESP_PORT=/dev/ttyUSB0 ./yki_baslat.sh
-BASE_ESP_PORT="${BASE_ESP_PORT:-/dev/serial/by-id/usb-Silicon_Labs_CP2102_USB_to_UART_Bridge_Controller_0001-if00-port0}"
+# base ESP VERI portu — kalici by-id yolu (ttyUSB numarasi degisir, by-id degismez).
+# RX BASE 'esp32dev' (default/loglu) env: VERI Serial2 -> USB-TTL (CH340) @460800.
+#   LOG hatti ayri: ESP'nin CP2102'si @115200 ([MESH] ciktilari) — izlemek icin:
+#   screen /dev/serial/by-id/usb-Silicon_Labs_CP2102...  115200  (veya pio device monitor)
+# Farkli port icin: BASE_ESP_PORT=/dev/ttyUSB1 ./yki_baslat.sh
+BASE_ESP_PORT="${BASE_ESP_PORT:-/dev/serial/by-id/usb-1a86_USB_Serial-if00-port0}"
 BASE_ESP_BAUD=460800
 
 # --- Ortak NED origin (sabit çapa) — SAHAYA göre güncelle ---
