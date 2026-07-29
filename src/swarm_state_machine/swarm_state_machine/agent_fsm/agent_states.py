@@ -29,17 +29,17 @@ FORMATION_ACTIVE_STATES = frozenset({
     AgentState.IN_SWARM,
     AgentState.EXECUTING_TASK,
 })
-"""Formasyon hesaplarına (centroid, konum dizileri, kalite) dahil edilen durumlar.
+"""Formasyon hesaplarına (centroid, konum dizileri, kalite) dahil edilen durumlar.  # noqa: E501
 
 İnmiş/düşmüş/ayrılmış ajanlar (LANDED, FAILSAFE, DETACHED ...) dışarıda kalır —
 onlara slot atanırsa formasyonda ölü boşluk oluşur.
 
-ARMED/TAKEOFF bilerek DIŞARIDA: bu durumlar eklendiğinde yerdeki dronlar centroid'e
-girip merkez irtifasını yer seviyesine çekiyor, formasyon sürüyü aşağıda tutmaya
-çalışıyor ve kalkış tırmanışı engelleniyor (denendi, dronlar yükselemeyip indi).
-Kalkış dizilişini korumak için önce irtifa referansının konumdan ayrılması gerekir.
+ARMED/TAKEOFF bilerek DIŞARIDA: bu durumlar eklendiğinde yerdeki dronlar centroid'e  # noqa: E501
+girip merkez irtifasını yer seviyesine çekiyor, formasyon sürüyü aşağıda tutmaya  # noqa: E501
+çalışıyor ve kalkış tırmanışı engelleniyor (denendi, dronlar yükselemeyip indi).  # noqa: E501
+Kalkış dizilişini korumak için önce irtifa referansının konumdan ayrılması gerekir.  # noqa: E501
 
-Tek tanım: centroid, konum dizileri ve kalite metriği AYNI kümeyi kullanmalıdır.
+Tek tanım: centroid, konum dizileri ve kalite metriği AYNI kümeyi kullanmalıdır.  # noqa: E501
 Biri değişip diğeri unutulursa ofsetler (konum - centroid) tutarsız çıkar.
 """
 

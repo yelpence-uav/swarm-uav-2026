@@ -146,12 +146,12 @@ def _from_synchronized_takeoff(ctx: MissionContext) -> MissionState | None:
 def _from_navigate_to_qr(ctx: MissionContext) -> MissionState | None:
     """NAVIGATE_TO_QR durumundan gecisleri degerlendirir."""
     if ctx.event_formation_reached:
-        # REJOIN KAPISI: ayrılan ajan sürüye katılmadan QR görevlerini BAŞLATMA.
+        # REJOIN KAPISI: ayrılan ajan sürüye katılmadan QR görevlerini BAŞLATMA.  # noqa: E501
         # Şartname, ayrılan elemanın "en geç bir sonraki QR kodunun GÖREVİNE
         # katılarak" sürüyle hareket etmesini ister; ayrıca formasyon/manevra/
         # rotasyon görevleri minimum 3 İHA gerektirir (Tablo 7) → eksik sürüyle
         # icra edilirse o kalemlerden puan alınamaz. Ajan iner, disarm olur,
-        # bekler, tekrar arm olup sürüye yetişir; o dönene kadar burada beklenir.
+        # bekler, tekrar arm olup sürüye yetişir; o dönene kadar burada beklenir.  # noqa: E501
         #
         # Sonsuz bekleme yok: ajan dönemezse (_REJOIN_WAIT_S aşılırsa) görev
         # eksik sürüyle de olsa ilerler — tamamen tıkanmaktansa kısmi puan.

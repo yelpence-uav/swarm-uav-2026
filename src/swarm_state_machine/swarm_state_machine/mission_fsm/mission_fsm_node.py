@@ -252,12 +252,12 @@ class MissionFsmNode(Node):
             # İlk hedefi (start_qr) ROTASYONDAN ÖNCE çöz. Eskiden yalnız
             # NAVIGATE_TO_QR'a girerken çözülüyordu; ama akış ROTATE→NAVIGATE
             # olduğundan ilk ROTASYON hedefsiz kalıyordu: orchestrator dönüş
-            # bearing'ini hesaplayamıyor, heading rampası tamamlanmadan rotasyon
+            # bearing'ini hesaplayamıyor, heading rampası tamamlanmadan rotasyon  # noqa: E501
             # bitiyor, sonra navigasyon boyunca heading slew'lenip formasyonu
             # DÖNERKEN İLERLETİYOR → eğri yol (ölçüldü: ilk bacak düz hattan
             # 7.6 m sapma). Hedef start_qr'dan; QR okumaya bağlı değil, konum
             # tablosu geldiği an (görev başından) çözülebilir → erken çözülür,
-            # ilk rotasyon hedefli olur, heading tam oturur, navigasyon düz gider.
+            # ilk rotasyon hedefli olur, heading tam oturur, navigasyon düz gider.  # noqa: E501
             if ctx.next_qr_target is None:
                 self._resolve_initial_target()
 

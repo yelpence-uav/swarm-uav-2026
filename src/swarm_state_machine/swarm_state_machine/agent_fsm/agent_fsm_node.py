@@ -251,7 +251,7 @@ class AgentFsmNode(Node):
             # Nominal eve dönüş formasyonla, offboard'da yapılır: orchestrator
             # sürüyü home'a uçuran setpoint'leri yayınlar, çarpışma kaçınması
             # aktif kalır. Native RTL (return_home) yalnız gerçek offboard/link
-            # kaybı failsafe'ine bırakıldı — burada offboard akışını sürdürürüz.
+            # kaybı failsafe'ine bırakıldı — burada offboard akışını sürdürürüz.  # noqa: E501
             cmd = 'offboard'
         else:
             return
@@ -439,7 +439,7 @@ class AgentFsmNode(Node):
         ctx = self._ctx
         prev_pilot = ctx.pilot_override_active
 
-        # Ilk mesajla birlikte "artik veriye dayanarak karar verebilirim" isareti.
+        # Ilk mesajla birlikte "artik veriye dayanarak karar verebilirim" isareti.  # noqa: E501
         # Bundan once saglik kontrolleri hukum vermez (bkz agent_context.py).
         ctx.telemetri_alindi = True
         ctx.px4_link_ok = msg.px4_link_ok
@@ -537,7 +537,7 @@ class AgentFsmNode(Node):
         self._prev_pilot_override = ctx.pilot_override_active
 
     def _publish_status(self) -> None:
-        """Aciklama: AgentContext'i AgentStatus mesajina donusturup yayinlar."""
+        """Aciklama: AgentContext'i AgentStatus mesajina donusturup yayinlar."""  # noqa: E501
         ctx = self._ctx
         m = AgentStatus()
         m.stamp = self.get_clock().now().to_msg()

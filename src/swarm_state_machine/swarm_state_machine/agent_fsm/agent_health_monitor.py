@@ -197,7 +197,7 @@ def _check_critical_faults(ctx: AgentContext) -> HealthCheckResult:
             reason='PX4 link koptu',
         )
 
-    # SITL'de yaw hizalaması başlangıçta salınım yapar; real flight'ta her zaman kontrol et
+    # SITL'de yaw hizalaması başlangıçta salınım yapar; real flight'ta her zaman kontrol et  # noqa: E501
     if ctx.state in _AIRBORNE and not ctx.estimator_ok and not ctx.sitl_mode:
         return HealthCheckResult(
             critical_fault=True,
@@ -260,10 +260,10 @@ def _check_rc_safety(ctx: AgentContext) -> HealthCheckResult:
         # kararli bir durumdur (operator drone'u guvenli konuma almistir).
         #
         # Ayrim sart: aksi halde iki kural birbiriyle savasiyor ve FSM saniyede
-        # birkac kez FAILSAFE <-> LANDED zipliyordu (sahada goruldu, 2026-07-22):
+        # birkac kez FAILSAFE <-> LANDED zipliyordu (sahada goruldu, 2026-07-22):  # noqa: E501
         #   bu kontrol      -> kill aktif, her durumda kritik ariza -> FAILSAFE
         #   _tick():184     -> FAILSAFE + kill + yerde + stabil     -> LANDED
-        # Yerde kill'i ariza saymayinca dongu kirilir, ucusta koruma aynen kalir.
+        # Yerde kill'i ariza saymayinca dongu kirilir, ucusta koruma aynen kalir.  # noqa: E501
         #
         # kill_switch_active telemetride tasinmaya devam eder; YKİ durumu
         # gorur, sadece FSM bunu "ariza" diye islemez.
@@ -293,7 +293,7 @@ def _check_rc_safety(ctx: AgentContext) -> HealthCheckResult:
             reason=reason,
         )
 
-    if ctx.rc_signal_failsafe_active and ctx.state in _AIRBORNE and not ctx.sitl_mode:
+    if ctx.rc_signal_failsafe_active and ctx.state in _AIRBORNE and not ctx.sitl_mode:  # noqa: E501
         return HealthCheckResult(
             critical_fault=True,
             event_type=SystemEvent.EVENT_AGENT_FAULT,

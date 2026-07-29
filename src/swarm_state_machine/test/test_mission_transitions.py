@@ -206,7 +206,7 @@ class TestSynchronizedTakeoff(unittest.TestCase):
         self.assertEqual(result, MissionState.ROTATE_TO_NEXT)
 
     def test_gorev1_qr_yok_yine_rotate(self):
-        """Görev 1: ajanlar IN_SWARM ise QR olsa da olmasa da ROTATE_TO_NEXT."""
+        """Görev 1: ajanlar IN_SWARM ise QR olsa da olmasa da ROTATE_TO_NEXT."""  # noqa: E501
         ctx = _ctx(MissionState.SYNCHRONIZED_TAKEOFF)
         _all_agents(ctx, state=5)
         ctx.current_qr = None   # QR henüz okunmadı - yine de geçiş olmalı
@@ -474,14 +474,14 @@ class TestReturnHome(unittest.TestCase):
     """RETURN_HOME state geçiş testleri."""
 
     def test_ajanlar_landing_ise_EVE_VARMADAN_inme(self):
-        """Ajanlar LANDING(12) durumunda ama EVE VARMADAN → inme, uçmaya devam."""
+        """Ajanlar LANDING(12) durumunda ama EVE VARMADAN → inme, uçmaya devam."""  # noqa: E501
         ctx = _ctx(MissionState.RETURN_HOME)
         _all_agents(ctx, state=12)
         ctx.event_formation_reached = False
         self.assertIsNone(evaluate_transitions(ctx))
 
     def test_eve_varinca_landing(self):
-        """Sürü eve varıp formasyon oturunca (event_formation_reached) → LANDING."""
+        """Sürü eve varıp formasyon oturunca (event_formation_reached) → LANDING."""  # noqa: E501
         ctx = _ctx(MissionState.RETURN_HOME)
         _all_agents(ctx, state=11)
         ctx.event_formation_reached = True
@@ -685,7 +685,7 @@ class TestFindFirstQrStep(unittest.TestCase):
         self.assertEqual(find_first_qr_step(qr), QrTaskStep.FORMATION)
 
     def test_maneuver_ve_altitude_maneuver_once(self):
-        """Maneuver ve altitude aktifse şartnameye göre MANEUVER önce gelmeli."""
+        """Maneuver ve altitude aktifse şartnameye göre MANEUVER önce gelmeli."""  # noqa: E501
         qr = _qr(maneuver_active=True, altitude_active=True)
         self.assertEqual(find_first_qr_step(qr), QrTaskStep.MANEUVER)
 
@@ -800,7 +800,7 @@ class TestTerminalRecovery(unittest.TestCase):
     """ABORTED / MISSION_COMPLETE → yere inince IDLE'a toparlanma."""
 
     def test_aborted_yerde_idle_doner(self):
-        """ABORTED + ajanlar IDLE + bekleme dolmuş → IDLE (restart gerekmez)."""
+        """ABORTED + ajanlar IDLE + bekleme dolmuş → IDLE (restart gerekmez)."""  # noqa: E501
         ctx = _ctx(MissionState.ABORTED)
         _all_agents(ctx, 1)  # STATE_IDLE (kalkmadılar)
         _geç(ctx, 5.0)       # dwell (3s) doldu

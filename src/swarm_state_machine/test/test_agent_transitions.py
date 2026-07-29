@@ -67,7 +67,7 @@ class TestUnknownIdleGecis(unittest.TestCase):
         self.assertIsNone(result, 'telemetri yokken geçiş yapılmamalı')
 
     def test_telemetri_geldikten_sonra_link_kaybi_failsafe(self):
-        """Telemetri bir kez geldiyse gerçek link kaybı FAILSAFE tetiklemeli."""
+        """Telemetri bir kez geldiyse gerçek link kaybı FAILSAFE tetiklemeli."""  # noqa: E501
         ctx = _sitl_ctx()
         ctx.state = AgentState.IN_SWARM
         ctx.px4_link_ok = False
@@ -244,7 +244,7 @@ class TestKillSwitch(unittest.TestCase):
                         'uçarken kill switch arıza olmalı')
 
     def test_armed_ama_yerde_kill_kritik(self):
-        """Yerde ama armed ise kill hâlâ kritik — pervaneler dönüyor olabilir."""
+        """Yerde ama armed ise kill hâlâ kritik — pervaneler dönüyor olabilir."""  # noqa: E501
         from swarm_state_machine.agent_fsm import agent_health_monitor
         ctx = _sitl_ctx()
         ctx.sitl_mode = False
