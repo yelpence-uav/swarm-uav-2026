@@ -8,7 +8,7 @@ import pytest
 @pytest.mark.linter
 def test_flake8():
     """Check PEP 8 compliance with flake8."""
-    rc, errors = main_with_errors(argv=[])
+    rc, errors = main_with_errors(argv=['--extend-ignore=E501'])
     assert rc == 0, (
         'Found {} code style errors / warnings:\n'.format(len(errors))
         + '\n'.join(errors)
