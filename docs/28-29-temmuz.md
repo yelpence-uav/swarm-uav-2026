@@ -559,3 +559,118 @@ sorunu sanılıyor.
 
 Hepsi `docs/cihazlar.md`'de: MAC'ler, kullanıcı adları, konteyner adları
 (ylp00 → `drone1`, ylp02 → `drone3`), ESP mesh ID'leri, USB by-id yolları.
+
+---
+
+## 10. 30 Temmuz — uçuş kaydı güç kesilince açılmıyordu
+
+### 10.1 Dün gecenin sorusu cevaplandı
+
+Kalıcı journal ilk işini yaptı. ylp00'ın önceki oturumu 22:42:51'de rutin bir
+izleme kaydından sonra **aniden kesiliyor**, kapanma dizisi yok → güç kesildi,
+çökme değil. Öncesinde tek kritik hata yok. §7'deki iki açıklanamayan arıza
+için artık ayırt edici veri var.
+
+### 10.2 Kusur: `reindex` iddiası yanlıştı
+
+`metadata.yaml` yalnız bag **düzgün kapanınca** yazılıyor. Uçuş her zaman güç
+kesilerek bittiği için pratikte hiç yazılmıyor. §-öncesi dokümanda "`ros2 bag
+reindex` ile kurtarılır" yazıyordu. **Denendi, kurtarmıyor:**
+
+    No storage files found for reindexing. Abort
+
+Sebep: `--compression-mode file` ile parçalar `.mcap.zstd` oluyor ve
+`reindex` sıkıştırılmış dosyaları **hiç görmüyor**. Sonuç: 29 Temmuz kaydı —
+113 sağlam parça, 65 MB — okunamıyor. ylp02'de aynısı (113 parça, 64 MB).
+
+Yanıltıcı ayrıntı: dizinin son parçası `_113.mcap` **0 bayt** (güç kesilirken
+yeni açılmış). Onu kenara alıp tekrar denemek de işe yaramıyor — asıl sebep
+o değil, sıkıştırma.
+
+### 10.3 Düzeltme: sıkıştırmayı mcap'in kendisi yapıyor
+
+`baslat.sh`'te:
+
+    - --compression-mode file --compression-format zstd
+    + --storage-config-file /tmp/mcap_zstd.yaml      # compression: Zstd, level: Default
+
+Parçalar geçerli `.mcap` dosyası olarak kalıyor, içi sıkıştırılıyor.
+`reindex` artık tanıyor.
+
+**Ölçümle doğrulandı** (tahmin değil):
+
+| | eski ayar | yeni ayar |
+|---|---|---|
+| dosya | `.mcap.zstd` | `.mcap` |
+| disk hızı | 22 KB/s | **42 KB/s** (1.9 kat) |
+| SIGKILL sonrası `reindex` | `Abort` | **`Reindexing complete`** |
+| metadata'sız okuma | ✗ | 23.577 mesaj, 38 konu |
+
+SIGKILL testi güç kesintisinin aynısı: 20 sn kayıt → `kill -9` → reindex
+başarılı, **yarım kalan son parça dahil** okundu. 14 dk uçuş ~35 MB, 5 GB
+tavana ~140 uçuş sığar.
+
+İkisine de kuruldu, konteynerler yeniden başlatıldı, kayıt `.mcap` üretiyor
+ve uçuş yığını ayakta (8 süreç) doğrulandı.
+
+### 10.4 Dünkü kayıt kurtarılabilir (ama değmez)
+
+Yol: host'ta `unzstd` (konteynerde zstd binary'si **yok**) → `docker cp` →
+`reindex`. 5 parçayla denendi: 59.345 mesaj okundu.
+
+Ama o kayıt **uçuş verisi değil** — 29 Tem 21:47–22:43, drone yerde
+dururkenki telemetri. Kaydedicinin çalıştığını kanıtladı ve bu kusuru
+ortaya çıkardı; kaybolsa önemli bir şey kaybolmuyor.
+
+### 10.5 Kapatılmayan iki konu
+
+1. **Trap çalışmıyor.** `baslat.sh` PID 1 doğrulandı, yani `docker restart`'ın
+   SIGTERM'i ona ulaşıyor; buna rağmen kapanan kayda `metadata.yaml`
+   yazılmadı. Kovalanmadı çünkü sahada zaten güç kesiliyor, düzgün kapanma
+   pratikte hiç olmuyor ve reindex artık yolu kapatıyor.
+2. **Kayıt uçuşa bağlı değil** — konteyner ayakta olduğu sürece çalışıyor.
+   Boşta 42 KB/s yazıyor; gerçek uçuşun verisi saatlerce boşta telemetri
+   arasında gömülü kalıyor. arm/disarm'a bağlamak düşünülebilir.
+
+### 10.6 Düğüm çıktıları artık kaybolmuyor
+
+Üçüncü bir boşluk vardı: düğüm günlükleri `> /tmp/mavros.log` ile açılıyordu
+ve `>` her açılışta dosyayı **truncate ediyordu**. Yani MAVROS çöküp yığın
+yeniden başladığında çökme mesajı siliniyordu. Sistem günlüğü journald'da,
+telemetri ros2 bag'de duruyordu ama **"hangi düğüm neden öldü"** sorusunun
+cevabı hiçbir yerde kalmıyordu.
+
+Artık `/ws/gunluk/<damga>/` altına yazılıyor:
+
+| | eski | yeni |
+|---|---|---|
+| yol | `/tmp/*.log` (konteyner içi) | `~/yelpence_ws/gunluk/<damga>/` (host'ta) |
+| önceki açılış | siliniyordu | en yeni **10** açılış tutuluyor |
+| okumak için | `docker exec` gerekiyordu | host'tan düz `tail` |
+| konteyner silinirse | kayboluyordu | kalıyor |
+
+Sabit yol: `~/yelpence_ws/gunluk/son/mavros.log`
+
+**Tuzak — ölçümle çıktı:** `son` sembolik bağı ilk denemede **mutlak** yolla
+kuruldu (`/ws/gunluk/<damga>`). Konteyner içinde çalıştı ama host'ta `/ws`
+diye bir yol olmadığı için `~/yelpence_ws/gunluk/son` **kırık** çıktı. Bağın
+göreli olması gerekiyor — sadece dizin adı. Budama da `-type d` ile yapılıyor,
+yoksa bağın kendisi listeye girip hedefiyle birlikte silinebilir.
+
+Doğrulandı (iki Pi'de): `son` doğru dizini gösteriyor, altı düğüm günlüğü
+(`mavros`, `px4b`, `fsm`, `esp`, `hizlar`, `kayit`) host'tan `docker`
+kullanmadan okunuyor, uçuş yığını ayakta (8 süreç), kayıt çalışıyor.
+
+### 10.7 Özet — kaç ayrı kayıt var
+
+Karışmasın diye tek yerde:
+
+| # | nerede çalışır | ne tutar | nereye |
+|---|---|---|---|
+| 1 | Docker **içinde** | Pixhawk/MAVROS telemetrisi + `/swarm/` | `~/yelpence_ws/kayit/` |
+| 2 | Docker **içinde** | düğümlerin kendi çıktıları | `~/yelpence_ws/gunluk/` |
+| 3 | host, systemd timer | Pi'nin hâli (voltaj, ısı, wifi, RAM, disk…) | `/var/log/yelpence_izle.log` |
+| 4 | host, aynı timer | **yalnız arıza anları** (dmesg + ağ + docker) | `/var/log/yelpence_olay.log` |
+| 5 | host, journald | çekirdek + bütün servisler | `/var/log/journal/` |
+
+4 numara iki Pi'de de **hâlâ yok** — bugüne kadar arıza yakalanmadı.
