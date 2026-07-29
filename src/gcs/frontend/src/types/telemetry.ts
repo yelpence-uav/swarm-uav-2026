@@ -74,6 +74,7 @@ export interface DroneState {
 
   rc_link_ok: boolean;
   kill_switch_active: boolean;
+  ready_to_arm: boolean;
   rc_signal_failsafe_active: boolean;
 
   oscillation_detected: boolean;

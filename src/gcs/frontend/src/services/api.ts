@@ -55,6 +55,57 @@ export class CommandFailure extends Error {
   }
 }
 
+/** Nokta-git hedefi: manuel NED (x/y/z, z=irtifa↑) VEYA harita/GPS (lat/lon/alt). */
+export interface GotoTarget {
+  x?: number;
+  y?: number;
+  z?: number;
+  lat?: number;
+  lon?: number;
+  alt?: number;
+  heading_deg?: number;
+  speed?: number;
+}
+
+/**
+ * Guided (tekil drone) uçuş komutları — ESP mesh üzerinden (connection_mode=ros2).
+ * arm/takeoff/goto/rtl/land. Otonom görevden bağımsız operatör kontrolü.
+ */
+export const guided = {
+  arm: (droneId: number) => postCommand(`/guided/${droneId}/arm`),
+  disarm: (droneId: number) => postCommand(`/guided/${droneId}/disarm`),
+  takeoff: (droneId: number, altitude: number) =>
+    postCommand(`/guided/${droneId}/takeoff`, { altitude }),
+  rtl: (droneId: number) => postCommand(`/guided/${droneId}/rtl`),
+  land: (droneId: number) => postCommand(`/guided/${droneId}/land`),
+  goto: (droneId: number, target: GotoTarget) =>
+    postJson<CommandResult>(`/guided/${droneId}/goto`, target),
+};
+
+/** Uçuş parametreleri — Ayarlar sekmesi + takeoff/goto varsayılanları. */
+export interface FlightParams {
+  default_altitude_m: number;
+  default_speed_ms: number;
+  min_nav_altitude_m: number;
+}
+
+async function reqJson<T>(path: string, method: string, body?: unknown): Promise<T> {
+  const res = await fetch(`${API_BASE}${path}`, {
+    method,
+    headers: body !== undefined ? { "Content-Type": "application/json" } : undefined,
+    body: body !== undefined ? JSON.stringify(body) : undefined,
+  });
+  if (!res.ok) {
+    throw new CommandFailure(await res.text().catch(() => res.statusText), res.status);
+  }
+  return res.json();
+}
+
+export const params = {
+  get: () => reqJson<FlightParams>("/params", "GET"),
+  update: (patch: Partial<FlightParams>) => reqJson<FlightParams>("/params", "PUT", patch),
+};
+
 export const api = {
   takeoff: (droneId: number, altitude?: number) =>
     postCommand(

@@ -33,17 +33,77 @@ def test_pose_round_trip():
 
 
 def test_durum_round_trip():
-    """TIP_DURUM çerçevesi tüm sağlık alanlarıyla çözülmeli."""
-    payload = struct.pack(
-        '<BBBBBfBBBBbBB', 3, 1, 1, 6, 87, 16.8, 1, 1, 1, 1, -65, 1, 0
+    """TIP_DURUM çerçevesi tüm sağlık alanlarıyla çözülmeli (REV C)."""
+    payload = pp.durum_paketle(
+        drone_id=3, durum=1, armed=1, gps_fix_type=6, battery_pct=87,
+        battery_volt=16.8, ekf_ok=1, imu_ok=1, mag_ok=1, baro_ok=1,
+        rssi=-65, mesh_link_ok=1, mesh_komsu_sayisi=0,
     )
+    assert len(payload) == 16, 'DURUM payload 16 bayt olmalı'
     decoded = cobs_decode(_cerceve_uret(pp.TIP_DURUM, 3, payload))
     cerceve = pp.cerceve_coz(decoded)
     durum = pp.durum_coz(cerceve.payload)
     assert durum.drone_id == 3
     assert durum.gps_fix_type == 6
     assert durum.rssi == -65
-    assert abs(durum.battery_volt - 16.8) < 0.01
+    assert abs(durum.battery_volt - 16.8) < 0.06   # 0.1 V çözünürlük
+    assert durum.armed and durum.ekf_ok and durum.imu_ok
+    assert durum.mag_healthy if hasattr(durum, 'mag_healthy') else durum.mag_ok
+
+
+def test_durum_kill_switch_ve_rc_link_tasiniyor():
+    """Kill switch ve RC link mesh'ten geçmeli.
+
+    Regresyon: bu iki alan drone tarafında doğru hesaplanıyordu ama 16 baytlık
+    payload dolu olduğu için YKİ'ye hiç ulaşmıyordu — operatör kill switch
+    açıkken drone'u 'boşta' görüyordu (saha, 2026-07-22).
+    """
+    payload = pp.durum_paketle(
+        drone_id=1, durum=1, armed=0, gps_fix_type=4, battery_pct=50,
+        battery_volt=15.0, ekf_ok=1, imu_ok=1, mag_ok=1, baro_ok=1,
+        rssi=-70, mesh_link_ok=1, kill_switch_active=1, rc_link_ok=1,
+    )
+    d = pp.durum_coz(payload)
+    assert d.kill_switch_active is True
+    assert d.rc_link_ok is True
+    assert d.armed is False, 'kill biti armed bitine sızmamalı'
+
+    # Kill kapalıyken de doğru okunmalı
+    d2 = pp.durum_coz(pp.durum_paketle(
+        drone_id=1, durum=1, armed=1, gps_fix_type=4, battery_pct=50,
+        battery_volt=15.0, ekf_ok=1, imu_ok=1, mag_ok=1, baro_ok=1,
+        rssi=-70, mesh_link_ok=1, kill_switch_active=0, rc_link_ok=1,
+    ))
+    assert d2.kill_switch_active is False
+    assert d2.armed is True
+
+
+def test_durum_gps_hassasiyeti_ve_mod_tasiniyor():
+    """Uydu sayısı, HDOP ve uçuş modu mesh'ten geçmeli.
+
+    Regresyon: YKİ'de 'DGPS 0' görünüyordu; o sıfır '0 uydu' değil
+    'veri yok' demekti çünkü alanlar hiç taşınmıyordu.
+    """
+    d = pp.durum_coz(pp.durum_paketle(
+        drone_id=1, durum=1, armed=0, gps_fix_type=4, battery_pct=50,
+        battery_volt=15.0, ekf_ok=1, imu_ok=1, mag_ok=1, baro_ok=1,
+        rssi=-70, mesh_link_ok=1,
+        ucus_modu=6, gps_uydu=17, gps_hdop=0.8,
+    ))
+    assert d.gps_uydu == 17
+    assert abs(d.gps_hdop - 0.8) < 0.06
+    assert d.ucus_modu == 6
+
+
+def test_durum_hdop_bilinmiyor_sentineli():
+    """HDOP bilinmiyorsa 255 sentineli gidip 99.9 olarak dönmeli."""
+    d = pp.durum_coz(pp.durum_paketle(
+        drone_id=1, durum=1, armed=0, gps_fix_type=0, battery_pct=0,
+        battery_volt=0.0, ekf_ok=0, imu_ok=0, mag_ok=0, baro_ok=0,
+        rssi=0, mesh_link_ok=0, gps_hdop=99.9,
+    ))
+    assert d.gps_hdop_x10 == 255
+    assert d.gps_hdop == 99.9
 
 
 def test_origin_paketle_coz():
@@ -265,3 +325,67 @@ def test_komut_fmt_layout_sozlesmesi():
     p = pp.komut_paketle(alt_tip=0, flags=0, roll_x100=0,
                          pitch_x100=0, yaw_x100=0, throttle_x100=0x0304)
     assert p[8:10] == b'\x04\x03'       # throttle offset 8
+
+
+def test_komut_arm_disarm_flag():
+    """Guided arm/disarm bitleri (0x40/0x80) ayrı set/test edilebilmeli."""
+    payload = pp.komut_paketle(
+        alt_tip=pp.KOMUT_MODE_GUIDED,
+        flags=pp.KOMUT_FLAG_ARM | pp.KOMUT_FLAG_DEADMAN_PRESSED,
+        roll_x100=0, pitch_x100=0, yaw_x100=0, throttle_x100=0,
+    )
+    k = pp.komut_coz(payload)
+    assert k.alt_tip == pp.KOMUT_MODE_GUIDED
+    assert k.flags & pp.KOMUT_FLAG_ARM
+    assert not k.flags & pp.KOMUT_FLAG_DISARM
+    assert k.flags & pp.KOMUT_FLAG_DEADMAN_PRESSED
+
+
+def test_goto_round_trip():
+    """TIP_GOTO nokta-git hedefi tüm alanları korumalı + metre dönüşümü."""
+    payload = pp.goto_paketle(
+        kuzey_dm=1250, dogu_dm=-800, asagi_dm=-150,   # 125m K, 80m B, 15m irtifa
+        yaw_ddeg=900, bayraklar=pp.GOTO_BAYRAK_YAW_GECERLI,
+    )
+    assert len(payload) == 16
+    g = pp.goto_coz(payload)
+    assert g.kuzey_dm == 1250
+    assert g.dogu_dm == -800
+    assert g.asagi_dm == -150
+    assert g.kuzey_m == 125.0
+    assert g.dogu_m == -80.0
+    assert g.asagi_m == -15.0
+    assert g.yaw_deg == 90.0
+    assert g.yaw_gecerli is True
+
+
+def test_goto_yaw_gecersiz():
+    """GOTO_BAYRAK_YAW_GECERLI yoksa yaw_gecerli False dönmeli."""
+    g = pp.goto_coz(pp.goto_paketle(kuzey_dm=0, dogu_dm=0, asagi_dm=-100))
+    assert g.yaw_gecerli is False
+
+
+def test_goto_cerceve_uctan_uca():
+    """goto_paketle -> firmware çerçevesi -> cerceve_coz -> goto_coz."""
+    payload = pp.goto_paketle(kuzey_dm=300, dogu_dm=300, asagi_dm=-200)
+    ham = _cerceve_uret(pp.TIP_GOTO, 1, payload)
+    c = pp.cerceve_coz(cobs_decode(ham))
+    assert c is not None
+    assert c.tip == pp.TIP_GOTO
+    g = pp.goto_coz(c.payload)
+    assert g.kuzey_dm == 300
+    assert g.asagi_m == -20.0
+
+
+def test_goto_fmt_layout_sozlesmesi():
+    """mesh_config.h goto_veri_t static_assert'lerinin Python yakası."""
+    assert struct.calcsize(pp._GOTO_FMT) == 16
+
+    p = pp.goto_paketle(kuzey_dm=0x0102, dogu_dm=0, asagi_dm=0)
+    assert p[0:2] == b'\x02\x01'        # kuzey offset 0, little-endian
+
+    p = pp.goto_paketle(kuzey_dm=0, dogu_dm=0, asagi_dm=0x0304)
+    assert p[4:6] == b'\x04\x03'        # asagi offset 4
+
+    p = pp.goto_paketle(kuzey_dm=0, dogu_dm=0, asagi_dm=0, bayraklar=0xAB)
+    assert p[8] == 0xAB                 # bayraklar offset 8

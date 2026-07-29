@@ -16,6 +16,9 @@ def _sitl_ctx() -> AgentContext:
     """SITL modunda sağlıklı, uçuşa hazır bir bağlam döner."""
     ctx = AgentContext(agent_id=1)
     ctx.sitl_mode = True
+    # Saglikli baglam, tanimi geregi telemetri almis demektir; bu bayrak
+    # olmadan saglik kontrolleri "henuz bilmiyorum" dalina duser.
+    ctx.telemetri_alindi = True
     ctx.px4_link_ok = True
     ctx.rc_link_ok = True
     ctx.imu_healthy = True
@@ -41,12 +44,36 @@ def _preflight_ready(ctx: AgentContext) -> AgentContext:
 class TestUnknownIdleGecis(unittest.TestCase):
     """UNKNOWN -> IDLE geçiş testleri."""
 
-    def test_unknown_her_zaman_idle(self):
-        """UNKNOWN durumundan her zaman IDLE'a geçilmeli."""
+    def test_telemetri_geldiyse_idle(self):
+        """Telemetri alındıysa UNKNOWN → IDLE."""
         ctx = _sitl_ctx()
         ctx.state = AgentState.UNKNOWN
         result = evaluate_transitions(ctx)
         self.assertEqual(result, AgentState.IDLE)
+
+    def test_telemetri_yokken_unknown_da_bekler(self):
+        """Telemetri gelmeden IDLE denmemeli — 'hazırım' yalanı olur.
+
+        Regresyon: node açılışında px4_link_ok varsayılan False olduğu için
+        ilk tick (t~0.1 sn, DDS keşfi bitmeden) 'PX4 link koptu' deyip
+        FAILSAFE'e düşüyordu ve _from_failsafe dışarıdan pending_state
+        beklediği için bir daha çıkamıyordu.
+        """
+        ctx = _sitl_ctx()
+        ctx.telemetri_alindi = False
+        ctx.px4_link_ok = False          # veri gelmemis, varsayilan deger
+        ctx.state = AgentState.UNKNOWN
+        result = evaluate_transitions(ctx)
+        self.assertIsNone(result, 'telemetri yokken geçiş yapılmamalı')
+
+    def test_telemetri_geldikten_sonra_link_kaybi_failsafe(self):
+        """Telemetri bir kez geldiyse gerçek link kaybı FAILSAFE tetiklemeli."""
+        ctx = _sitl_ctx()
+        ctx.state = AgentState.IN_SWARM
+        ctx.px4_link_ok = False
+        from swarm_state_machine.agent_fsm import agent_health_monitor
+        sonuc = agent_health_monitor.check(ctx)
+        self.assertTrue(sonuc.critical_fault, 'link kaybı yakalanmalıydı')
 
 
 class TestIdleArmingGecis(unittest.TestCase):
@@ -182,3 +209,47 @@ class TestReturnHomeGecisi(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class TestKillSwitch(unittest.TestCase):
+    """Kill switch — havada arıza, yerde kararlı durum."""
+
+    def test_yerde_kill_ariza_degil(self):
+        """Yerde disarm haldeyken kill switch kritik arıza sayılmamalı.
+
+        Regresyon: kill'i her durumda arıza saymak, _tick()'teki
+        'FAILSAFE + kill + yerde → LANDED' kuralıyla çakışıyor ve FSM
+        saniyede birkaç kez FAILSAFE ↔ LANDED zıplıyordu (saha, 2026-07-22).
+        """
+        from swarm_state_machine.agent_fsm import agent_health_monitor
+        ctx = _sitl_ctx()
+        ctx.sitl_mode = False          # RC kontrolü SITL'de atlanıyor
+        ctx.state = AgentState.LANDED
+        ctx.armed = False
+        ctx.kill_switch_active = True
+        sonuc = agent_health_monitor.check(ctx)
+        self.assertFalse(sonuc.critical_fault,
+                         'yerde kill switch arıza sayılmamalı')
+
+    def test_havada_kill_kritik_ariza(self):
+        """Uçarken kill switch kritik arıza olmalı — koruma korunuyor."""
+        from swarm_state_machine.agent_fsm import agent_health_monitor
+        ctx = _sitl_ctx()
+        ctx.sitl_mode = False
+        ctx.state = AgentState.IN_SWARM
+        ctx.armed = True
+        ctx.kill_switch_active = True
+        sonuc = agent_health_monitor.check(ctx)
+        self.assertTrue(sonuc.critical_fault,
+                        'uçarken kill switch arıza olmalı')
+
+    def test_armed_ama_yerde_kill_kritik(self):
+        """Yerde ama armed ise kill hâlâ kritik — pervaneler dönüyor olabilir."""
+        from swarm_state_machine.agent_fsm import agent_health_monitor
+        ctx = _sitl_ctx()
+        ctx.sitl_mode = False
+        ctx.state = AgentState.IDLE
+        ctx.armed = True
+        ctx.kill_switch_active = True
+        sonuc = agent_health_monitor.check(ctx)
+        self.assertTrue(sonuc.critical_fault)

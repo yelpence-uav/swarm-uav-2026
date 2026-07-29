@@ -6,7 +6,7 @@ from .agent_context import AgentContext
 
 def run_preflight_checks(
     ctx: AgentContext,
-    battery_min_voltage: float = 15.2,
+    battery_min_voltage: float = 13.60,
 ) -> tuple[bool, list[str]]:
     """Arming'e izin verilip verilmeyecegini kontrol eder."""
     failures: list[str] = []

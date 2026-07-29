@@ -33,8 +33,24 @@ Kullanım:
 """
 
 import argparse
+import signal
 import sys
 import time
+
+# SIGTERM/SIGINT ile temiz kapanış.
+#
+# Bu olmadan süreç sinyali yok sayıyordu: ana döngü `while True` idi ve
+# pyserial okuması sinyalle kesilmiyordu. Sonucu yki_durdur.sh'ın (düz `kill`
+# = SIGTERM) okuyucuyu durduramaması; portu bırakmadığı için bir sonraki
+# başlatma "Device or resource busy" alıyordu. Sahada `kill -9` gerekti.
+_dur_istendi = False
+
+
+def _sinyal_yakala(signum, _frame) -> None:
+    global _dur_istendi
+    _dur_istendi = True
+    print(f"\n[YKİ-RTCM] sinyal {signum} alındı, kapanılıyor...", flush=True)
+
 
 try:
     from .crc import crc24q
@@ -130,8 +146,15 @@ def main() -> None:
     ap.add_argument("--gps-port", help="Here4 Base COM/seri portu")
     ap.add_argument("--gps-baud", type=int, default=115200)
     ap.add_argument("--esp-port", default=None,
-                    help="Base ESP portu. VERİLMEZSE sadece oku+logla (test modu).")
+                    help="Base ESP portu. DOĞRUDAN seri yazım — yalnız saha "
+                         "teşhisi/tek başına test için. Üretimde --ros-topic "
+                         "kullanın: seri portun sahibi esp32_bridge'dir ve "
+                         "aynı portu iki süreç açamaz.")
     ap.add_argument("--esp-baud", type=int, default=460800)
+    ap.add_argument("--ros-topic", default=None, metavar="TOPIC",
+                    help="ÜRETİM YOLU. RTCM3 mesajlarını bu ROS topic'ine "
+                         "yayınlar; esp32_bridge abone olup çerçeveleyerek "
+                         "baz ESP'ye yazar. Örn: /swarm/internal/rtcm")
     ap.add_argument("--self-test", action="store_true",
                     help="Donanımsız öz-testleri çalıştır ve çık")
     args = ap.parse_args()
@@ -142,14 +165,40 @@ def main() -> None:
     if not args.gps_port:
         ap.error("--gps-port gerekli (ya da --self-test)")
 
-    import serial  # yalnız gerçek çalıştırmada gerekli
+    # Not: pyserial'i _try_open() kendi içinde import ediyor; burada ayrıca
+    # import etmeye gerek yok (eskiden vardı, kullanılmıyordu — flake8 F401).
+
+    # ROS yayıncısı — tembel kurulum. rclpy yalnızca --ros-topic verilirse
+    # import edilir, böylece bu script ROS kurulu olmayan bir makinede de
+    # (saha teşhisi, --self-test) çalışmaya devam eder.
+    ros_pub = ros_node = None
+    if args.ros_topic:
+        import rclpy
+        from rclpy.qos import (QoSDurabilityPolicy, QoSHistoryPolicy,
+                               QoSProfile, QoSReliabilityPolicy)
+        from std_msgs.msg import UInt8MultiArray
+        # QoS, esp32_bridge'deki _RTCM_QOS ile BİREBİR aynı olmalı.
+        # Uyumsuz QoS'ta DDS bağlantıyı hiç kurmaz ve HATA DA VERMEZ —
+        # bu projede daha önce yaşandı (20 Temmuz §7.7). Varsayılana
+        # güvenmek yerine açıkça yazıyoruz.
+        qos = QoSProfile(reliability=QoSReliabilityPolicy.RELIABLE,
+                         durability=QoSDurabilityPolicy.VOLATILE,
+                         history=QoSHistoryPolicy.KEEP_LAST, depth=10)
+        rclpy.init()
+        ros_node = rclpy.create_node("yki_rtcm_reader")
+        ros_pub = ros_node.create_publisher(UInt8MultiArray, args.ros_topic, qos)
+        _ROS_MSG = UInt8MultiArray
 
     gps = esp = None
     gps_err = esp_err = ""
     next_gps_try = next_esp_try = 0.0
 
-    mode = (f"→ ESP {args.esp_port}@{args.esp_baud}"
-            if args.esp_port else "SADECE oku+logla (ESP yok)")
+    if args.ros_topic:
+        mode = f"→ ROS {args.ros_topic}"
+    elif args.esp_port:
+        mode = f"→ ESP {args.esp_port}@{args.esp_baud} (doğrudan seri)"
+    else:
+        mode = "SADECE oku+logla (çıkış yok)"
     print(f"[YKİ-RTCM] başladı · GPS {args.gps_port}@{args.gps_baud} · {mode}")
 
     parser = RTCMStreamParser()
@@ -162,7 +211,10 @@ def main() -> None:
     types_seen: dict[int, int] = {}
     msm7_seen: set[int] = set()
 
-    while True:
+    signal.signal(signal.SIGTERM, _sinyal_yakala)
+    signal.signal(signal.SIGINT, _sinyal_yakala)
+
+    while not _dur_istendi:
         now = time.monotonic()
 
         # --- port sağlığı: kopanı 2 sn'de bir yeniden dene -----------------
@@ -202,6 +254,14 @@ def main() -> None:
                 msm7_seen.add(t)            # uyarısı özette (spam yok)
             win_msgs += 1
             win_bytes += len(frame)
+            # ÜRETİM YOLU: ham RTCM3 mesajını ROS'a yayınla. Çerçeveleme
+            # (TIP_RTK+BAZ_ID+CRC16+COBS) esp32_bridge'in işi — seri portun
+            # sahibi o. Burada çerçevelersek iş iki yerde yapılır ve biri
+            # değişince diğeri sessizce uyumsuz kalır.
+            if ros_pub is not None:
+                m = _ROS_MSG()
+                m.data = list(frame)
+                ros_pub.publish(m)
             if esp is not None:
                 try:
                     esp.write(frame_rtcm(frame))
@@ -230,8 +290,15 @@ def main() -> None:
                     hint = ("hatta HİÇ veri yok → kablo/Base gücü/"
                             "Mission Planner portu kapattı mı?")
                 else:
-                    hint = (f"ham veri akıyor ({delta_bytes}B/sn) ama RTCM "
-                            f"çözülemiyor → --gps-baud yanlış / parazit")
+                    # En sık sebep: modül base olarak YAPILANDIRILMAMIŞ ve
+                    # NMEA basıyor. Sahada birebir bu yaşandı (NEO-F9P,
+                    # fabrika ayarı, 1888 B/sn saf NMEA). USB'ye takılı bir
+                    # F9P CDC-ACM'dir ve baud'un hiçbir etkisi yoktur, o
+                    # yüzden "baud yanlış" ilk şüpheli DEĞİL.
+                    hint = (f"ham veri akıyor ({delta_bytes}B/sn) ama RTCM yok "
+                            f"→ modül base modunda mı? (TMODE3 + RTCM3 "
+                            f"mesajları açık olmalı: yapılandırmak için "
+                            f"f9p_base_yapilandir.py (bu dizinde))")
                 line = (f"⚠ RTCM GELMİYOR ({gap:.0f} sn) · "
                         f"crc_err={parser.crc_errors} (+{delta_crc}) → {hint}")
             else:
@@ -251,6 +318,19 @@ def main() -> None:
             types_seen = {}
             msm7_seen = set()
             next_summary = now + SUMMARY_PERIOD_SEC
+
+    # --- temiz kapanış (SIGTERM/SIGINT) ------------------------------------
+    for p in (gps, esp):
+        try:
+            if p is not None:
+                p.close()
+        except Exception:
+            pass
+    if ros_node is not None:
+        import rclpy
+        ros_node.destroy_node()
+        rclpy.shutdown()
+    print("[YKİ-RTCM] kapandı.")
 
 
 # --------------------------------------------------------------------------

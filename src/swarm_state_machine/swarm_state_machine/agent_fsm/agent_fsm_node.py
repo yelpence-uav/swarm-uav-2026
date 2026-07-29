@@ -439,6 +439,9 @@ class AgentFsmNode(Node):
         ctx = self._ctx
         prev_pilot = ctx.pilot_override_active
 
+        # Ilk mesajla birlikte "artik veriye dayanarak karar verebilirim" isareti.
+        # Bundan once saglik kontrolleri hukum vermez (bkz agent_context.py).
+        ctx.telemetri_alindi = True
         ctx.px4_link_ok = msg.px4_link_ok
         ctx.armed = msg.armed
         ctx.offboard_enabled = msg.offboard_enabled
@@ -453,6 +456,17 @@ class AgentFsmNode(Node):
         ctx.failsafe_active = msg.failsafe_active
         ctx.rc_signal_failsafe_active = msg.rc_signal_failsafe_active
         ctx.rc_link_ok = msg.rc_link_ok
+        # Kill switch'i TELEMETRIDEN oku. Eskiden yalnizca
+        # EVENT_KILL_SWITCH_ACTIVATED olayindan set ediliyordu ve o olayi
+        # hicbir dugum uretmiyordu; ustelik o yol sadece True yapip hicbir
+        # zaman geri almiyordu. Telemetri hem set hem clear'i doguru tasir:
+        # px4_bridge her RC mesajinda kanal degerinden hesapliyor.
+        ctx.kill_switch_active = msg.kill_switch_active
+        # PX4 PREARM_CHECK biti (px4_bridge /diagnostics'ten cikariyor).
+        # Bu satir olmadan ctx.ready_to_arm varsayilan False'ta kaliyor ve
+        # _publish_status onu oyle yayinliyordu — YKİ'de "ARM EDILEMEZ"
+        # uyarisi buton basilsa da hic kaybolmuyordu.
+        ctx.ready_to_arm = msg.ready_to_arm
 
         ctx.battery_voltage_v = msg.battery_voltage_v
         ctx.battery_current_a = msg.battery_current_a

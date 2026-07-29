@@ -9,6 +9,7 @@ interface AppHeaderProps {
   drones: DroneState[];
   swarmState: SwarmState | null;
   selectedMissionId: number;
+  onOpenSettings?: () => void;
 }
 
 const STATUS_LABEL: Record<ConnectionStatus, string> = {
@@ -38,6 +39,7 @@ export function AppHeader({
   drones,
   swarmState,
   selectedMissionId,
+  onOpenSettings,
 }: AppHeaderProps) {
   const { theme, toggleTheme } = useTheme();
 
@@ -98,6 +100,17 @@ export function AppHeader({
       </div>
 
       <div className="app-header__actions">
+        {onOpenSettings && (
+          <button
+            type="button"
+            className="app-header__theme-toggle"
+            onClick={onOpenSettings}
+            aria-label="Ayarlar"
+            title="Ayarlar — parametreler (irtifa, hız, min-nav)"
+          >
+            ⚙
+          </button>
+        )}
         <button
           type="button"
           className="app-header__theme-toggle"
