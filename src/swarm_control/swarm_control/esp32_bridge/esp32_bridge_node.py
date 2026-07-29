@@ -95,6 +95,23 @@ _EVENT_QOS = QoSProfile(
     depth=10,
 )
 
+# RTCM (YKİ okuyucusu -> baz bridge -> mesh): RELIABLE + VOLATILE.
+#
+# Spec §1 "ağ seviyesinde retransmisyon YOK, taze veri > eksiksiz veri" kuralı
+# HAVA LİNKİ içindir. Burası laptop-içi loopback DDS hop'u; orada kaybetmenin
+# hiçbir karşılığı yok — tazelik kazandırmaz, sadece RTCM mesajını öldürür.
+# O yüzden yerel hop RELIABLE. Derinlik 10, ~5 msg/s trafikte yayıncıyı
+# bloke etme riski yok.
+#
+# VOLATILE (TRANSIENT_LOCAL değil): geç katılan bir aboneye BAYAT RTCM
+# göndermek zararlıdır. Düzeltme verisinin yaşı > 2 sn ise zaten işe yaramaz.
+_RTCM_QOS = QoSProfile(
+    reliability=QoSReliabilityPolicy.RELIABLE,
+    durability=QoSDurabilityPolicy.VOLATILE,
+    history=QoSHistoryPolicy.KEEP_LAST,
+    depth=10,
+)
+
 _FRAME_DELIM = 0x00
 
 # Firmware durum kodunu AgentStatus.state'e eşler. Ayrılmış/inmiş
@@ -167,7 +184,23 @@ class Esp32BridgeNode(Node):
         self.declare_parameter('agent_id', 1)
         self.declare_parameter('serial_port', '/dev/ttyUSB0')
         self.declare_parameter('baud', 460800)
-        self.declare_parameter('rtcm_out_topic', '/rtcm/in')
+        # Boş bırakılırsa agent_id'den türetilir: /drone_{id}/rtcm/in
+        #
+        # Eski varsayılan '/rtcm/in' (mutlak, ad alanısız) idi ve px4_bridge
+        # f'{ns}/rtcm/in' = '/drone_{id}/rtcm/in' dinliyordu — İKİSİ HİÇ
+        # BAĞLANMIYORDU. baslat.sh de bu parametreyi geçmiyor, yani sahadaki
+        # yapılandırmada RTCM esp32_bridge'den çıkıp px4_bridge'e hiç
+        # ulaşmıyordu. RTCM daha önce hiç akmadığı için fark edilmemiş;
+        # uçtan uca testte yakalandı (baz "185 mesaj gönderdim" derken
+        # drone'da rtk sayacı 0 kalıyordu).
+        #
+        # Varsayılanı türetmek, parametreyi hatırlamak zorunda kalmamak için:
+        # px4_bridge ad alanını agent_id'den ürettiği sürece ikisi kendiliğinden
+        # eşleşir.
+        self.declare_parameter('rtcm_out_topic', '')
+        # Baz istasyonunda: YKİ'nin RTK okuyucusundan gelen RTCM3 mesajları.
+        # Drone tarafında bu topic'e yayın yapan yok → abonelik boşta durur.
+        self.declare_parameter('rtcm_in_topic', '/swarm/internal/rtcm')
         self._agent_id = int(self.get_parameter('agent_id').value)
         port = str(self.get_parameter('serial_port').value)
         baud = int(self.get_parameter('baud').value)
@@ -200,6 +233,11 @@ class Esp32BridgeNode(Node):
         self._gonderim_drop = 0    # port kapalı/hata ile düşürülen
         self._rtk_alindi = 0       # alınan RTK/RTCM çerçevesi (liveness değil)
         self._bilinmeyen_tip = 0   # dispatch'te eşleşmeyen tip sayısı
+        # Baz tarafı RTCM sayaçları. "RTK neden fix vermiyor" sorusunda ilk
+        # ayrım: RTCM baz ESP'ye hiç ulaştı mı? Bu iki sayaç olmadan YKİ
+        # okuyucusunun sessizce durması ile havada kaybolması ayırt edilemez.
+        self._rtcm_gonderilen = 0  # mesh'e yazılan RTCM3 mesajı
+        self._rtcm_reddedilen = 0  # geçersiz bulunup atılan (boyut/preamble/uzunluk)
         # KOMUT için bridge-tarafı seq sayacı; firmware payload'a seq
         # eklenene kadar monoton değer üretir. mesh_config.h ile teyit
         # edilmesi gerekir.
@@ -258,10 +296,17 @@ class Esp32BridgeNode(Node):
             '/swarm/public/events/system',
             _EVENT_QOS,
         )
-        # RTK: mesh'ten gelen RTCM'i px4_interface'e ilet (rtcm/in)
+        # RTK: mesh'ten gelen RTCM'i px4_interface'e ilet.
+        # Boş parametre = agent_id'den türet; px4_bridge'in
+        # f'/drone_{agent_id}/rtcm/in' aboneliğiyle eşleşsin (bkz. parametre
+        # tanımındaki not).
+        _rtcm_cikis = str(self.get_parameter('rtcm_out_topic').value).strip()
+        if not _rtcm_cikis:
+            _rtcm_cikis = f'/drone_{self._agent_id}/rtcm/in'
+        self.get_logger().info(f'RTCM çıkış topic: {_rtcm_cikis}')
         self._rtcm_pub = self.create_publisher(
             UInt8MultiArray,
-            str(self.get_parameter('rtcm_out_topic').value),
+            _rtcm_cikis,
             10,
         )
         # YKİ'den gelen QR tablosu; son değeri saklarız (latched).
@@ -353,6 +398,25 @@ class Esp32BridgeNode(Node):
             _ELECTION_QOS,
         )
 
+        # YKİ RTK okuyucusu -> ESP32: RTCM3 düzeltme verisi.
+        #
+        # NEDEN ROS ÜZERİNDEN, doğrudan seri porta değil:
+        # Bir seri portu tek süreç açabilir ve bu portun sahibi zaten bu node.
+        # yki_rtcm_reader doğrudan yazmaya kalksaydı "Device or resource busy"
+        # alırdı (sahada QGC'nin autoconnect'iyle birebir bu yaşandı). RTCM'i
+        # topic'ten alarak port sahipliği tek elde kalıyor ve çakışma yapısal
+        # olarak imkânsızlaşıyor.
+        #
+        # Okuyucunun ayrı süreç kalması bilinçli: çökerse telemetri ve komut
+        # yolu etkilenmez. Tek süreçte birleştirmek RTCM hatasını tüm YKİ'yi
+        # düşüren bir hataya dönüştürürdü.
+        self.create_subscription(
+            UInt8MultiArray,
+            str(self.get_parameter('rtcm_in_topic').value),
+            self._on_rtcm_out,
+            _RTCM_QOS,
+        )
+
         # Seri okuma thread'i
         self._calisiyor = True
         self._okuma_thread = threading.Thread(
@@ -413,6 +477,8 @@ class Esp32BridgeNode(Node):
             f'gonderim_drop={self._gonderim_drop} '
             f'id_uyumsuz={self._id_uyumsuz} '
             f'rtk={self._rtk_alindi} bilinmeyen={self._bilinmeyen_tip} '
+            f'rtcm_tx={self._rtcm_gonderilen} '
+            f'rtcm_red={self._rtcm_reddedilen} '
             f'son_alim_yas_s={son_alim_yas:.2f}'
         )
         # Mesh diag: bu drone'un kendi gözleminden çıkıyor → /internal/
@@ -1061,17 +1127,27 @@ class Esp32BridgeNode(Node):
     # =================================================================
     # ROS2 -> MESH İŞLEYİCİLERİ (UART'a yaz)
     # =================================================================
-    def _uart_yaz(self, tip: int, iha_id: int, payload: bytes) -> None:
+    def _uart_yaz(self, tip: int, iha_id: int, payload: bytes,
+                  maks: int = 18) -> None:
         """Bir paketi çerçeveleyip (CRC+COBS) seri porta yazar.
 
         Args:
             tip (int): Paket tipi (TIP_*).
             iha_id (int): Kaynak drone kimliği.
-            payload (bytes): 16 baytlık payload.
+            payload (bytes): Gönderilecek yük.
+            maks (int): İzin verilen en büyük payload. Varsayılan 18, mesh
+                paketlerinin (`mesh_paket_t.veri[18]`) sınırı. TIP_RTK bunun
+                istisnası: RTCM3 mesajı 1029 bayta kadar çıkar ve ESP tarafında
+                fragmentlenir, `mesh_gonder()` yolunu hiç kullanmaz.
+
+        Not: 18 baytlık varsayılan bir koruma, kısıt değil. Yanlış boyutta bir
+        payload ESP'de sessizce yanlış çözülür (alanlar kayar), o yüzden erken
+        yakalanıyor. RTCM için sınırı gevşetiyoruz ama KALDIRMIYORUZ — üst sınır
+        yine RTCM3'ün kendi tavanı.
         """
-        if not 1 <= len(payload) <= 18:
+        if not 1 <= len(payload) <= maks:
             self.get_logger().warning(
-                f'UART payload 1-18 byte olmalı ({len(payload)}), atlandı'
+                f'UART payload 1-{maks} byte olmalı ({len(payload)}), atlandı'
             )
             return
         govde = bytes([tip, iha_id]) + payload
@@ -1095,6 +1171,48 @@ class Esp32BridgeNode(Node):
                     pass
                 self._ser = None
                 self._gonderim_drop += 1
+
+    # RTCM3 çerçeve tavanı: uzunluk alanı 10 bit → payload <= 1023,
+    # tam çerçeve = 3 (başlık) + 1023 + 3 (CRC24Q) = 1029. Spec §2.6.
+    _RTCM_MAKS = 1029
+    _RTCM_MIN = 6          # boş payload'lı en küçük geçerli çerçeve
+
+    def _on_rtcm_out(self, msg: UInt8MultiArray) -> None:
+        """RTCM3 mesajını TIP_RTK çerçevesi olarak baz ESP'ye yazar.
+
+        Zincir: u-blox -> yki_rtcm_reader -> (bu topic) -> ESP -> mesh -> drone.
+
+        Fragmentleme BURADA YAPILMAZ — tam mesaj gönderilir, parçalama baz
+        ESP'nin işi (spec §3.1: "YKİ PARÇALAMA YAPMAZ"). İki yerde parçalarsak
+        çift fragmantasyon olur ve drone tarafındaki reassembly bozulur.
+        """
+        veri = bytes(msg.data)
+
+        # Ucuz savunmalar: okuyucu CRC-24Q'yu zaten doğruluyor, ama bu topic'e
+        # başka bir şey yayın yaparsa çöp mesh'e çıkmadan burada dursun.
+        if not self._RTCM_MIN <= len(veri) <= self._RTCM_MAKS:
+            self._rtcm_reddedilen += 1
+            self.get_logger().warning(
+                f'RTCM boyutu geçersiz ({len(veri)} byte), atıldı'
+            )
+            return
+        if veri[0] != 0xD3:
+            self._rtcm_reddedilen += 1
+            self.get_logger().warning('RTCM 0xD3 ile başlamıyor, atıldı')
+            return
+        beklenen = 3 + (((veri[1] & 0x03) << 8) | veri[2]) + 3
+        if beklenen != len(veri):
+            self._rtcm_reddedilen += 1
+            self.get_logger().warning(
+                f'RTCM uzunluğu tutarsız (beklenen {beklenen}, '
+                f'gelen {len(veri)}), atıldı'
+            )
+            return
+
+        # iha_id alanı RTK'de BAZ_ID (99) sentinel'i taşır — mesh kimliği DEĞİL.
+        # ESP tarafı (rtk_sender.h) bu değeri birebir bekliyor.
+        self._uart_yaz(pp.TIP_RTK, pp.BAZ_ID, veri, maks=self._RTCM_MAKS)
+        self._rtcm_gonderilen += 1
 
     def _on_own_status(self, msg: AgentStatus) -> None:
         """Kendi otoritatif durumumuzu TIP_POSE + TIP_DURUM olarak yayar.

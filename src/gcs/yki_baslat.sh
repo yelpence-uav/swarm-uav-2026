@@ -18,8 +18,10 @@
 # NOT: 'set -u' KULLANMA — ROS setup.bash bağlanmamış değişken referanslar,
 # set -u ile source patlar (AMENT_TRACE_SETUP_FILES).
 
-REPO=/home/yentur/yelpence-2026-swarm
-VENV=/home/yentur/gcs-venv
+# Repo kokunu scriptin KENDI konumundan bul: farkli kullanici/makinede (yentur,
+# eyup, ...) elle duzenleme gerekmesin. Ikisi de env ile ezilebilir.
+REPO="${REPO:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
+VENV="${VENV:-$HOME/gcs-venv}"
 # base ESP VERI portu — kalici by-id yolu (ttyUSB numarasi degisir, by-id degismez).
 # RX BASE 'esp32dev' (default/loglu) env: VERI Serial2 -> USB-TTL (CH340) @460800.
 #   LOG hatti ayri: ESP'nin CP2102'si @115200 ([MESH] ciktilari) — izlemek icin:
@@ -42,6 +44,19 @@ ORIGIN_ALT="${ORIGIN_ALT:-1218.5}"
 
 # --- DDS: loopback (WiFi'den bağımsız) — tek kesin mekanizma ---
 DDS_URI="file://$REPO/src/gcs/cyclonedds_yki.xml"
+
+# --- Önce çalışan örnekleri durdur (IDEMPOTENT) ---
+# Bu script eskiden mevcut süreçleri kontrol etmiyordu: her çalıştırmada
+# yenilerini başlatıp eskilerini bırakıyordu. Sonuç, aynı seri portu isteyen
+# N tane esp32_base ve N tane origin yayıncısı — biri portu tutar, diğerleri
+# saniyede bir "Device or resource busy" döngüsüne girer. Ölçüldü: art arda
+# birkaç başlatmadan sonra 12 esp32_base, 22 origin yayıncısı.
+# Sahada bu, teşhisi çok zor bir "bazen çalışıyor" arızası olurdu.
+if pgrep -f "esp32_base|swarm_origin_pub|yki_rtcm_reader|uvicorn backend" > /dev/null 2>&1; then
+  echo "[YKİ] çalışan örnekler bulundu, önce durduruluyor..."
+  bash "$(dirname "${BASH_SOURCE[0]}")/yki_durdur.sh"
+  sleep 2
+fi
 
 # --- ROS 2 ortamı ---
 source /opt/ros/jazzy/setup.bash
@@ -76,6 +91,26 @@ setsid bash -c "source /opt/ros/jazzy/setup.bash && source '$REPO/install/setup.
   -p origin_source:=fixed -p fixed_lat:=$ORIGIN_LAT -p fixed_lon:=$ORIGIN_LON -p fixed_alt:=$ORIGIN_ALT -p rate_hz:=1.0" \
   > /tmp/yki_origin_internal.log 2>&1 < /dev/null &
 disown
+
+# --- 1.7) RTK okuyucu: u-blox -> ROS -> base bridge -> mesh ---
+# Seri portun sahibi esp32_bridge'dir (aynı portu iki süreç açamaz), o yüzden
+# RTCM doğrudan porta değil ROS topic'ine gider. Okuyucu AYRI süreç: çökerse
+# telemetri ve komut yolu etkilenmez.
+# GPS portu takılı değilse okuyucu 2 sn'de bir yeniden dener, YKİ'yi bloke etmez.
+RTK_GPS_PORT="${RTK_GPS_PORT:-/dev/serial/by-id/usb-u-blox_AG_-_www.u-blox.com_u-blox_GNSS_receiver-if00}"
+RTK_TOPIC="${RTK_TOPIC:-/swarm/internal/rtcm}"
+if [ -e "$RTK_GPS_PORT" ]; then
+  echo "[YKİ] RTK okuyucu başlatılıyor ($RTK_GPS_PORT -> $RTK_TOPIC)..."
+  setsid bash -c "source /opt/ros/jazzy/setup.bash && source '$REPO/install/setup.bash' && \
+    source '$VENV/bin/activate' && \
+    export ROS_DOMAIN_ID=0 RMW_IMPLEMENTATION=rmw_cyclonedds_cpp CYCLONEDDS_URI='$DDS_URI' && \
+    exec python3 '$REPO/src/gcs/backend/rtcm/yki_rtcm_reader.py' \
+      --gps-port '$RTK_GPS_PORT' --ros-topic '$RTK_TOPIC'" \
+    > /tmp/yki_rtcm.log 2>&1 < /dev/null &
+  disown
+else
+  echo "[YKİ] RTK okuyucu ATLANDI — GPS portu yok ($RTK_GPS_PORT)"
+fi
 
 # --- 2) Backend (REST + WebSocket, ros2 modu) ---
 echo "[YKİ] backend başlatılıyor (:8000)..."
