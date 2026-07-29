@@ -1,10 +1,44 @@
 # YELPENÇE — RTCM Dağıtım Sistemi Teknik Spesifikasyonu
 
-> **Sürüm: REV B** — bu doküman RTK Base'den üretilen RTCM3 düzeltme verisini,
+> **Sürüm: REV C** — bu doküman RTK Base'den üretilen RTCM3 düzeltme verisini,
 > ESP-NOW üzerinden sürüdeki tüm İHA'lara taşıyıp Pixhawk'a enjekte eden
-> 4 modüllü sistemin byte-seviyesi sözleşmesidir.
+> sistemin byte-seviyesi sözleşmesidir.
 
-## REV B — değişiklik kaydı ve okuma notu
+## ⚠ REV C — ÖNCE BUNU OKU
+
+REV B yazıldığında sistem **hiç uçtan uca çalıştırılmamıştı**. 28–29 Temmuz
+2026'da çalıştırıldı (bkz `docs/28-29-temmuz.md`) ve aşağıdaki bölümlerin
+bir kısmı gerçeği yansıtmaz hale geldi. Spec'in kendi kuralı geçerli:
+**kod kazanır.**
+
+Aşağıdaki tablo, dokümanın geri kalanında karşılaşacağın YANLIŞ ifadeleri ve
+güncel karşılıklarını verir. Bir bölüm bunlardan birini söylüyorsa, o bölüm
+REV B metnidir ve **bu tablo onu geçersiz kılar**.
+
+| REV B'de yazan | REV C gerçeği | Kaynak |
+|---|---|---|
+| ESP-NOW hava linki **AES-128-GCM şifreli** | **Şifreleme YOK.** Kaldırıldı; zarf 70 → 25 bayt. Gerekçe: şartname §5.4 gizlilik değil **parazit** şartı koyuyor; ayrıca NVS session sayacı sahada üç kez "duyar ama duyulmaz" arızası üretti. | `mesh_config.h` başındaki GÜVENLİK MODELİ notu |
+| Fragment payload **191 B**, `RTK_MAX_FRAGS=8` → 1528 B | **238 B**, 8×238 = 1904 B. Şifreleme kalkınca 47 bayt serbest kaldı. En büyük RTCM3 (1029 B) artık **5** parçaya sığıyor, 6 değil. | `rtk_pure.h::RTK_FRAG_PAYLOAD_MAKS` |
+| Reassembly buffer **1600 B** | **1920 B** | `rtk_pure.h::RTK_REASSEMBLY_BUF_SIZE` |
+| Anti-replay, `session_id`, NVS boot sayacı, fail-closed, "NVS erase tuzağı" | **Tamamı kaldırıldı.** Firmware NVS'e hiç dokunmuyor, provizyon adımı yok. §2.4'ün F1 notu ve §3.1'deki erase prosedürü **geçersiz**. | `mesh_config.h`, `YUKLEME_PROSEDURU.md` |
+| Fragment'lar **broadcast** yayınlanır | **Unicast**, mesh'in canlı node tablosuna. Gerekçe: broadcast'te 802.11 ACK yok; RTCM'de tek parça kaybı TÜM mesajı öldürür, yani kayıp olasılığı parça sayısıyla çarpılır. Canlı node yoksa broadcast'e düşülür. | `rtk_handler.h::rtk_mesh_gonder` |
+| RTCM base'e **adanmış UART**'tan (Serial1) girer | **YKİ veri hattından `TIP_RTK` çerçevesi olarak** gelir (Serial2, USB-TTL). `RTCM_GIRISI_VAR=0` kalır; adanmış hat açılırsa boşta GPIO gürültüyü çerçeve sanıp hattı doldurur (ölçüldü: 11.6 kB/s). | `RX BASE/src/main.cpp` |
+| YKİ **doğrudan seri porta** yazar | **ROS topic'ine yayınlar** (`/swarm/internal/rtcm`); `esp32_bridge` abone olup çerçeveler ve yazar. Sebep: bir portu tek süreç açabilir ve sahibi `esp32_bridge`. Sahada QGC autoconnect'i ile birebir bu çatışma yaşandı. | `yki_rtcm_reader.py --ros-topic` |
+| §2.5 MAVLink enjeksiyonu `pi_bridge`'te yapılacak | **Yapıldı**: `px4_bridge` `{ns}/rtcm/in` dinliyor, MAVROS'un `gps_rtk/send_rtcm`'ine veriyor; parçalamayı MAVROS yapıyor. `esp32_bridge`'in yayın topic'i `agent_id`'den türetilir. | `px4_bridge.py` |
+| §6'da `yki/`, `pi_bridge/` "henüz yok" | İkisi de var: `src/gcs/backend/rtcm/` ve `src/swarm_control/`. | — |
+
+**Değişmeyenler** (REV B metni hâlâ geçerli): CRC16-CCITT-FALSE + big-endian,
+§2.2 UART çerçeve formatı (`COBS(TIP+ID+rtcm+crc16_be)+0x00`), `TIP_RTK=0x0C`,
+`BAZ_ID=99`, COBS 254-blok kuralı, `RTK_MAX_FRAGS=8`, 500 ms reassembly
+timeout, MSM4 mesaj seti, ağ-seviyesi retransmisyon yasağı, §5.1'deki
+"baz linki koptuğunda otonom görevi kesme" kararı.
+
+**Uçtan uca doğrulama (29 Temmuz):** 125 RTCM mesajı yayınlandı → her iki
+İHA'da `msg=125 frag=125 sync_kayip=0 cb_hata=0`. Kayıp sıfır.
+
+---
+
+## REV B — değişiklik kaydı ve okuma notu (TARİHSEL — yukarıdaki REV C tablosuyla birlikte oku)
 
 REV A (ilk taslak) yazıldığında ESP tarafı henüz uygulanmamıştı; uygulama
 sırasında takım dört karar aldı ve bunlar ilk taslağın bazı kurallarını
@@ -200,8 +234,8 @@ offset  boyut  alan                                                 kaynak
 6       4      msg_id          (rtk_mesh_frag_t.paket_id)           RTCM sayacı — her RTCM MESAJINDA +1
 10      1      frag_index      (0'dan başlar)
 11      1      frag_total
-12      1      frag_uzunluk    (bu parçadaki gerçek veri byte sayısı, 1..191)
-13      ≤191   payload         (RTCM mesajının dilimi)
+12      1      frag_uzunluk    (bu parçadaki gerçek veri byte sayısı, 1..238)
+13      ≤238   payload         (RTCM mesajının dilimi)
 ------  -----  toplam = 13 + frag_uzunluk, en fazla 204
 ```
 
@@ -220,15 +254,28 @@ offset  boyut  alan                                                 kaynak
 > İki sayacı birleştirmek reassembly'yi bozardı: mesh sayacı fragment başına
 > arttığı için aynı mesajın parçaları farklı `msg_id` taşır görünürdü.
 
-**RTK_FRAG_PAYLOAD_MAKS hesabı** (250 byte ESP-NOW sınırından geriye doğru):
+**RTK_FRAG_PAYLOAD_MAKS hesabı** — ⚠ **REV C'de DEĞİŞTİ.** Şifreleme
+kaldırılınca zarftan 47 bayt serbest kaldı. Güncel hesap (250 byte ESP-NOW
+sınırından geriye doğru):
+
+```
+önsöz (sihir2 + tip1)                                                 =  3 B
+frag başlığı (msg_id4 + frag_index1 + frag_total1 + frag_uzunluk1)    =  7 B
+CRC16                                                                 =  2 B
+250 - 3 - 7 - 2 = 238 B  →  RTK_FRAG_PAYLOAD_MAKS = 238  (static_assert >= 180)
+```
+
+<details>
+<summary>REV B'nin (şifreli) hesabı — tarihsel, ARTIK GEÇERLİ DEĞİL</summary>
 
 ```
 sabit zarf alanları (kaynak_mac6+hedef_mac6+paket_id4+atlama_sayisi1+tip1+iv12+tag16) = 46 B
 250 - 46 = 204 B                        (sifreli_veri için kalan yer)
 anti_replay (session_id2 + paket_id4)                                 =  6 B
 frag başlığı (msg_id4 + frag_index1 + frag_total1 + frag_uzunluk1)    =  7 B
-204 - 6 - 7 = 191 B  →  RTK_FRAG_PAYLOAD_MAKS = 191  (static_assert >= 180)
+204 - 6 - 7 = 191 B
 ```
+</details>
 
 > Not: frag başlığı **7 B**'dir çünkü `msg_id`'nin 4 byte'ını içerir. Bir ara
 > sürüm bu satırı "(idx1+total1+len1) = 7 B" diye etiketliyordu — toplam
@@ -236,24 +283,31 @@ frag başlığı (msg_id4 + frag_index1 + frag_total1 + frag_uzunluk1)    =  7 B
 
 - `msg_id` **4 byte** (ilk taslakta 2 byte idi — mesh-geneli `paket_id` alanıyla
   aynı genişlikte tutuldu, tasarım tutarlılığı için).
-- MAX_PAYLOAD = **191** (ilk taslaktaki 243 değil — GCM zarf ek yükü düşüldükten
-  sonraki gerçek pay).
-- `RTK_MAX_FRAGS = 8` (8×191 = 1528 B). Reassembly buffer **1600 B**.
+- MAX_PAYLOAD = **238** (REV B'deki 191 değil — şifreleme kalktı).
+- `RTK_MAX_FRAGS = 8` (8×238 = 1904 B). Reassembly buffer **1920 B**.
   - **Yeterlilik kanıtı:** RTCM3'ün uzunluk alanı 10 bit olduğundan (§2.6) bir
     RTCM3 mesajı en fazla `3 + 1023 + 3 = 1029 B`'dir → en kötü durumda
-    `ceil(1029/191) = 6` fragment. 8 fragment **her geçerli RTCM3 mesajı için**
-    yeterlidir, 2 fragment marj bırakır.
-- Gönderim: broadcast MAC `FF:FF:FF:FF:FF:FF`.
+    `ceil(1029/238) = 5` fragment. 8 fragment **her geçerli RTCM3 mesajı için**
+    yeterlidir, 3 fragment marj bırakır.
+  - Doğrulandı (29 Temmuz): 106 B → 1 parça, 238 B → 1, 239 B → 2, 406 B → 2,
+    1029 B → 5.
+- Gönderim: **canlı node tablosuna UNICAST** (REV C). Broadcast'te 802.11 ACK
+  yoktur ve RTCM'de tek parça kaybı TÜM mesajı öldürür; unicast'te donanım
+  ACK + MAC retry devreye girer. Hiç canlı node yoksa broadcast'e düşülür.
 - **Fragment'lar arası sabit 2 ms bekleme YOK** (REV B karar #4). Yerine:
   CSMA rastgele bekleme (0–10 ms, `CSMA_GECIKME_MAKS_MS`, mesh geneliyle ortak
   mekanizma) + **3 denemelik yerel radyo retry** (`esp_now_send()` yerel hata
   dönerse 2–7 ms arayla). Bu **ağ-seviyesi ACK DEĞİLDİR** — broadcast'te donanım
   ACK'i yoktur, sadece yerel TX kuyruğu hatası kurtarılır (bkz §1, §5).
   - Gerekçe: REV A'nın "2 ms bekle" önerisi ~23 fragment/mesaj varsayımına
-    (243→12 B payload) göre yazılmıştı. 191 B payload ile tipik MSM4 mesajı
-    1–2, en kötü 6 fragment eder; her `rtk_mesh_gonder()` zaten kendi CSMA
+    (243→12 B payload) göre yazılmıştı. 238 B payload ile tipik MSM4 mesajı
+    1–2, en kötü 5 fragment eder; her `rtk_mesh_gonder()` zaten kendi CSMA
     beklemesini uyguluyor. Sabit gecikme eklemek RTCM'in 1 sn'lik tazelik
     bütçesini gereksiz tüketirdi.
+  - **REV C notu:** CSMA beklemesi artık fragment BAŞINA bir kez uygulanıyor,
+    hedef başına değil. Unicast'e geçince aynı fragment N hedefe gidiyor; N kez
+    rastgele beklemek gecikmeyi N'e katlar ve hiçbir şey kazandırmaz — 802.11
+    MAC her çerçeve için kendi çekişmesini zaten yapıyor.
   - Referans: `rtk_handler.h::rtk_mesh_gonder()`.
 - WiFi kanalı: **sabit CH 11** (`MESH_KANAL`). İlk taslakta örnek olarak CH 6
   verilmişti; gerçek değer önemli değil, **tüm ESP'lerde AYNI ve sabit olması**
@@ -304,7 +358,7 @@ frag başlığı (msg_id4 + frag_index1 + frag_total1 + frag_uzunluk1)    =  7 B
   > ve kimliği GCM tag sağlar (CRC16 yalnızca §2.2'deki UART hatlarında
   > kullanılır). CRC16 zaten kasıtlı sahteciliğe karşı koruma sağlamazdı.
 - Fragment başlığı geçersizse at: `frag_total == 0`, `frag_total > 8`,
-  `frag_index >= frag_total`, `frag_uzunluk == 0` veya `frag_uzunluk > 191`.
+  `frag_index >= frag_total`, `frag_uzunluk == 0` veya `frag_uzunluk > 238`.
 - Çerçeve uzunluğu başlıkla tutarsızsa at: `uzunluk != 7 + frag_uzunluk`.
 - `msg_id` mevcut buffer'ınkinden FARKLI ise: buffer'ı sıfırla, yeni mesaja başla
   (yarım eski mesaj düşer — bu bilinçli tasarım).
@@ -312,8 +366,8 @@ frag başlığı (msg_id4 + frag_index1 + frag_total1 + frag_uzunluk1)    =  7 B
   tam mesaj UART'a (§2.2 formatı) yazılır.
 - **500 ms** içinde tamamlanmayan mesaj timeout ile temizlenir
   (`RTK_FRAG_TIMEOUT_MS`).
-- Reassembly buffer boyutu **1600 B** (`RTK_REASSEMBLY_BUF_SIZE`; ≥1200 şartını
-  karşılar, 8×191=1528'e yuvarlanmış üst sınır).
+- Reassembly buffer boyutu **1920 B** (`RTK_REASSEMBLY_BUF_SIZE`; 8×238=1904'e
+  yuvarlanmış üst sınır). REV B'de 1600 B idi.
 - Referans: `common/mesh_shared/rtk_pure.h::rtk_asm_fragment_isle()` — Arduino'dan
   bağımsız saf durum makinesi, native testlerle doğrulanıyor.
 
@@ -332,7 +386,7 @@ frag başlığı (msg_id4 + frag_index1 + frag_total1 + frag_uzunluk1)    =  7 B
 - Pixhawk bağlantısı: TELEM2, 921600 baud (config'den ayarlanabilir).
 
 > **Karıştırmayın:** buradaki 720 B / 4 fragment sınırı **MAVLink katmanına**
-> aittir ve §2.3'teki mesh fragmantasyon sınırından (8×191 = 1528 B) tamamen
+> aittir ve §2.3'teki mesh fragmantasyon sınırından (8×238 = 1904 B) tamamen
 > ayrıdır. İkisi farklı katmanların farklı limitleridir.
 
 ### 2.6 RTCM3 Çerçeve Yapısı (referans)
@@ -433,7 +487,7 @@ chunk'la → ESP-NOW broadcast.
 - COBS decode + CRC16 doğrulama (TIP+ID dahil, BE); TIP/ID kontrolü; hata sayaçları.
 - Giriş savunmaları: `payload[0] == 0xD3`, RTCM uzunluk alanı ile çerçeve
   boyutu tutarlılığı, MSM7 uyarısı (§2.6).
-- `rtk_rtcm_fragment_ve_gonder()`: msg_id artır, **191**'lik dilimlere böl,
+- `rtk_rtcm_fragment_ve_gonder()`: msg_id artır, **238**'lik dilimlere böl,
   her fragment'ı §2.3 büyük GCM zarfıyla broadcast et. **Sabit 2 ms bekleme YOK**
   — CSMA + 3 denemelik yerel retry (§2.3, karar #4).
 - WiFi: `WIFI_STA` mod, **kanal 11 sabit**, `esp_now_init`, broadcast peer ekle.
