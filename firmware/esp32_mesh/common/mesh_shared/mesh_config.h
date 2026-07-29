@@ -8,6 +8,7 @@
 #include "freertos/task.h"
 #include "rtk_pure.h"      // RTK_ENV_MAKS_TOPLAM vb. tek yerden
 #include "uart_cobs.h"     // cobs_crc16 (CRC16-CCITT-FALSE) — paket butunlugu
+#include "mesh_log.h"      // MESH_LOG_* — calisma-zamani loglari icin tek kapi
 
 // ============================================================================
 // GUVENLIK MODELI — NEDEN SIFRELEME YOK
@@ -405,7 +406,7 @@ static inline void _peer_ekle(const uint8_t* mac) {
     peer.channel = MESH_KANAL;
     peer.encrypt = false;
     if (esp_now_add_peer(&peer) == ESP_OK)
-        Serial.printf("[MESH] Yeni peer: %02X:%02X:%02X:%02X:%02X:%02X\n",
+        MESH_LOG_PRINTF("[MESH] Yeni peer: %02X:%02X:%02X:%02X:%02X:%02X\n",
             mac[0],mac[1],mac[2],mac[3],mac[4],mac[5]);
 }
 
@@ -506,7 +507,7 @@ static inline esp_err_t _mesh_gonder(mesh_paket_t* p, const uint8_t* hedef) {
     }
     if (ret != ESP_OK) {
         _paket_dustu++;
-        Serial.printf("[MESH] Gonderim hatasi: %d tip:%d dustu:%lu\n",
+        MESH_LOG_PRINTF("[MESH] Gonderim hatasi: %d tip:%d dustu:%lu\n",
                       ret, p->tip, _paket_dustu);
     }
     return ret;
@@ -561,7 +562,7 @@ static inline bool mesh_tip_gecebilir(uint8_t tip, uint32_t simdi, uint32_t min_
         // log: sessizce gecirmek o tip icin hiz limitini komple kaldirirdi.
         // (static_assert bunu derlemede yakalar; bu dal o assert'in gevsetildigi
         // senaryonun sigortasi.)
-        Serial.printf("[MESH] KRITIK: TIP 0x%02X hiz-limiti tablosuna sigmiyor "
+        MESH_LOG_PRINTF("[MESH] KRITIK: TIP 0x%02X hiz-limiti tablosuna sigmiyor "
                       "(boyut %u) - REDDEDILDI. MESH_TIP_TABLO_BOYU'nu buyut.\n",
                       tip, (unsigned)MESH_TIP_TABLO_BOYU);
         return false;
@@ -575,16 +576,16 @@ static inline bool mesh_tip_gecebilir(uint8_t tip, uint32_t simdi, uint32_t min_
 }
 
 static inline void mesh_tip_dusen_yazdir(void) {
-    Serial.print("[MESH] hiz-limitinde dusen cerceve:");
+    MESH_LOG_PRINT("[MESH] hiz-limitinde dusen cerceve:");
     bool var = false;
     for (uint8_t t = 0; t < MESH_TIP_TABLO_BOYU; t++) {
         if (_tip_dusen[t]) {
-            Serial.printf(" tip0x%02X=%lu", t, (unsigned long)_tip_dusen[t]);
+            MESH_LOG_PRINTF(" tip0x%02X=%lu", t, (unsigned long)_tip_dusen[t]);
             var = true;
         }
     }
-    if (!var) Serial.print(" yok");
-    Serial.println();
+    if (!var) MESH_LOG_PRINT(" yok");
+    MESH_LOG_PRINTLN();
 }
 
 static inline uint8_t mesh_komsu_sayisi() {
@@ -617,7 +618,7 @@ static inline void mesh_node_timeout_kontrol() {
     for (uint8_t i = 0; i < MESH_MAX_NODES; i++) {
         if (!_bilinen_nodlar[i].aktif) continue;
         if (simdi - _bilinen_nodlar[i].son_heartbeat_ms > NODE_TIMEOUT_MS) {
-            Serial.printf("[MESH] Timeout: %02X:%02X:%02X:%02X:%02X:%02X\n",
+            MESH_LOG_PRINTF("[MESH] Timeout: %02X:%02X:%02X:%02X:%02X:%02X\n",
                 _bilinen_nodlar[i].mac[0],_bilinen_nodlar[i].mac[1],
                 _bilinen_nodlar[i].mac[2],_bilinen_nodlar[i].mac[3],
                 _bilinen_nodlar[i].mac[4],_bilinen_nodlar[i].mac[5]);
@@ -698,7 +699,7 @@ static void _esp_now_send_cb(const uint8_t* mac, esp_now_send_status_t status) {
     if (status == ESP_NOW_SEND_SUCCESS) _gonderim_basari++;
     else {
         _gonderim_hata++;
-        Serial.printf("[MESH] ACK yok: %02X:%02X:%02X:%02X:%02X:%02X\n",
+        MESH_LOG_PRINTF("[MESH] ACK yok: %02X:%02X:%02X:%02X:%02X:%02X\n",
             mac[0],mac[1],mac[2],mac[3],mac[4],mac[5]);
     }
 }
@@ -840,21 +841,21 @@ static inline void mesh_loop() {
 }
 
 static inline void mesh_durum_yazdir() {
-    Serial.println("=== MESH DURUM ===");
+    MESH_LOG_PRINTLN("=== MESH DURUM ===");
     uint8_t aktif = 0;
     for (uint8_t i = 0; i < MESH_MAX_NODES; i++) {
         if (!_bilinen_nodlar[i].aktif) continue;
         aktif++;
-        Serial.printf("  [%d] %02X:%02X:%02X:%02X:%02X:%02X  %ums\n", i,
+        MESH_LOG_PRINTF("  [%d] %02X:%02X:%02X:%02X:%02X:%02X  %ums\n", i,
             _bilinen_nodlar[i].mac[0],_bilinen_nodlar[i].mac[1],
             _bilinen_nodlar[i].mac[2],_bilinen_nodlar[i].mac[3],
             _bilinen_nodlar[i].mac[4],_bilinen_nodlar[i].mac[5],
             (unsigned)(millis()-_bilinen_nodlar[i].son_heartbeat_ms));
     }
-    Serial.printf("  Aktif: %d/%d  crc_hatasi=%lu paket_dustu=%lu\n",
+    MESH_LOG_PRINTF("  Aktif: %d/%d  crc_hatasi=%lu paket_dustu=%lu\n",
         aktif, MESH_MAX_NODES,
         (unsigned long)_crc_hatasi, (unsigned long)_paket_dustu);
-    Serial.println("==================");
+    MESH_LOG_PRINTLN("==================");
 }
 
 // Joystick komut struct (float32 encoding).

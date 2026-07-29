@@ -4,6 +4,7 @@
 #include "mesh_config.h"   // TIP_RTK, BAZ_ID, BROADCAST_MAC, MESH_KANAL, GCM/AAD/replay yardimcilari
 #include "uart_cobs.h"     // ortak cobs_cerceve_olustur (CRC TIP+BAZ_ID dahil)
 #include "rtk_pure.h"      // sabitler + saf fragmantasyon/reassembly mantigi
+#include "mesh_log.h"      // MESH_LOG_* — Serial veri hattiysa loglari susturur
 
 // Sabitler.
 // RTK_FRAG_PAYLOAD_MAKS, RTK_MAX_FRAGS, RTK_REASSEMBLY_BUF_SIZE,
@@ -60,7 +61,7 @@ static inline void _rtk_uart_gonder(const uint8_t* veri, uint16_t uzunluk,
     uint16_t cobs_len = cobs_cerceve_olustur(TIP_RTK, BAZ_ID, veri, uzunluk, ham, cobs_buf);
     uart.write(cobs_buf, cobs_len);
     rtk_uart_gonderilen++;
-    Serial.printf("[RTK] RPiye gonderildi: %u byte (toplam: %lu)\n",
+    MESH_LOG_PRINTF("[RTK] RPiye gonderildi: %u byte (toplam: %lu)\n",
                   uzunluk, rtk_uart_gonderilen);
 }
 
@@ -72,7 +73,7 @@ static inline void _rtk_uart_gonder(const uint8_t* veri, uint16_t uzunluk,
 static inline void rtk_mesh_frag_handle(const uint8_t* ham_veri, uint16_t uzunluk,
                                          HardwareSerial& uart) {
     if (uzunluk < RTK_FRAG_HEADER_BOYUTU) {
-        Serial.printf("[RTK] HATA: fragment cok kisa (%u byte, beklenen en az %u)\n",
+        MESH_LOG_PRINTF("[RTK] HATA: fragment cok kisa (%u byte, beklenen en az %u)\n",
                       uzunluk, (unsigned)RTK_FRAG_HEADER_BOYUTU);
         rtk_kayip_gecersiz++;
         return;
@@ -81,7 +82,7 @@ static inline void rtk_mesh_frag_handle(const uint8_t* ham_veri, uint16_t uzunlu
     const rtk_mesh_frag_t* f = (const rtk_mesh_frag_t*)ham_veri;
 
     if (uzunluk != (uint16_t)(RTK_FRAG_HEADER_BOYUTU + f->frag_uzunluk)) {
-        Serial.printf("[RTK] HATA: uzunluk tutarsiz (beklenen %u, gelen %u)\n",
+        MESH_LOG_PRINTF("[RTK] HATA: uzunluk tutarsiz (beklenen %u, gelen %u)\n",
                       (unsigned)(RTK_FRAG_HEADER_BOYUTU + f->frag_uzunluk), uzunluk);
         rtk_kayip_gecersiz++;
         return;
@@ -94,30 +95,30 @@ static inline void rtk_mesh_frag_handle(const uint8_t* ham_veri, uint16_t uzunlu
 
     switch (sonuc) {
         case RTK_ASM_REDDEDILDI:
-            Serial.printf("[RTK] HATA: gecersiz frag index=%u total=%u len=%u\n",
+            MESH_LOG_PRINTF("[RTK] HATA: gecersiz frag index=%u total=%u len=%u\n",
                           f->frag_index, f->frag_total, f->frag_uzunluk);
             rtk_kayip_gecersiz++;
             return;
         case RTK_ASM_DUPLIKAT:
-            Serial.printf("[RTK] Duplikat frag %u, atlaniyor\n", f->frag_index);
+            MESH_LOG_PRINTF("[RTK] Duplikat frag %u, atlaniyor\n", f->frag_index);
             return;
         case RTK_ASM_TASTI:
-            Serial.printf("[RTK] HATA: reassembly buffer tasti (paket_id=%lu)\n",
+            MESH_LOG_PRINTF("[RTK] HATA: reassembly buffer tasti (paket_id=%lu)\n",
                           (unsigned long)f->paket_id);
             rtk_kayip_gecersiz++;
             return;
         case RTK_ASM_DEVAM:
             rtk_alinan++;
-            Serial.printf("[RTK] Mesh frag %u/%u alindi (paket_id=%lu, %uB)\n",
+            MESH_LOG_PRINTF("[RTK] Mesh frag %u/%u alindi (paket_id=%lu, %uB)\n",
                           f->frag_index + 1, f->frag_total, (unsigned long)f->paket_id,
                           f->frag_uzunluk);
             return;
         case RTK_ASM_TAMAMLANDI:
             rtk_alinan++;
-            Serial.printf("[RTK] Mesh frag %u/%u alindi (paket_id=%lu, %uB)\n",
+            MESH_LOG_PRINTF("[RTK] Mesh frag %u/%u alindi (paket_id=%lu, %uB)\n",
                           f->frag_index + 1, f->frag_total, (unsigned long)f->paket_id,
                           f->frag_uzunluk);
-            Serial.printf("[RTK] Birlestirildi: %u byte\n", toplam_uzunluk);
+            MESH_LOG_PRINTF("[RTK] Birlestirildi: %u byte\n", toplam_uzunluk);
             _rtk_uart_gonder(_rtk_asm.buf, toplam_uzunluk, uart);
             rtk_asm_sifirla(&_rtk_asm);
             return;
@@ -133,9 +134,46 @@ static inline void rtk_mesh_frag_handle(const uint8_t* ham_veri, uint16_t uzunlu
 // Onsozun ilk 3 bayti kucuk paketle ayni: ISR offset 0'da sihiri, offset 2'de
 // tipi okuyup hangi ring buffer'a yazacagina tam parse etmeden karar verebiliyor.
 //
-// hedef: nullptr -> broadcast. RTCM icin cagiran taraf unicast hedefi vermeli;
-// parca kaybi TUM mesaji oldurdugu icin 802.11 ACK+retry burada cok kiymetli
-// (bkz mesh_config.h::_mesh_gonder UNICAST vs BROADCAST notu).
+// Tek hedefe gonderim (yerel TX-kuyrugu hatasi icin 3 deneme).
+// hedef nullptr olamaz; cagiran BROADCAST_MAC gecebilir.
+static inline bool _rtk_zarf_gonder(const uint8_t* hedef, const uint8_t* ham,
+                                     uint16_t uzunluk) {
+    if (!esp_now_is_peer_exist(hedef)) {
+        esp_now_peer_info_t bp = {};
+        memcpy(bp.peer_addr, hedef, 6);
+        bp.channel = MESH_KANAL;
+        bp.encrypt = false;
+        esp_now_add_peer(&bp);
+    }
+    esp_err_t ret = ESP_FAIL;
+    for (int d = 0; d < 3; d++) {
+        ret = esp_now_send(hedef, ham, uzunluk);
+        if (ret == ESP_OK) return true;
+        // Yerel hata (TX kuyrugu dolu). Havada kaybolan paketle ilgisi yok.
+        if (d < 2) vTaskDelay(pdMS_TO_TICKS(2 + (uint32_t)esp_random() % 6));
+    }
+    return false;
+}
+
+// RTK fragmentini mesh'e yayar.
+//
+// UNICAST, broadcast DEGIL — ve bu RTCM'e ozgu bilincli bir karar:
+//   Broadcast'te 802.11 ACK yoktur; havada kaybolan paket telafi edilmez.
+//   Normal telemetride bu kabul edilebilir, cunku POSE/DURUM periyodiktir ve
+//   kayip bir sonraki turda kapanir. RTCM'de KAPANMAZ: bir mesaj N parcaya
+//   bolunmustur ve TEK parcanin kaybi mesajin TAMAMINI oldurur (reassembly
+//   timeout'a duser). Yani kayip olasiligi parca sayisiyla carpilir.
+//   Unicast'te donanim ACK + MAC katmani retry'i devreye girer.
+//
+// Hedefler: mesh'in canli node tablosu (_bilinen_nodlar). Boylece kapali/menzil
+// disi bir drone'a bosuna retry harcanmaz — o node zaten NODE_TIMEOUT_MS sonra
+// tablodan dusuyor. Hic canli node yoksa broadcast'e dusulur (soguk baslangic:
+// baz RTCM'i almis ama henuz kimseyi duymamis olabilir).
+//
+// CSMA beklemesi fragment BASINA bir kez uygulanir, hedef basina degil: ayni
+// fragment'i N hedefe yollarken N kez rastgele beklemek gecikmeyi N'e katlar ve
+// hicbir sey kazandirmaz — 802.11 MAC her cerceve icin kendi cekismesini
+// zaten yapiyor.
 static inline void rtk_mesh_gonder(const rtk_mesh_frag_t* frag,
                                     const uint8_t* hedef = nullptr) {
     uint8_t ham[RTK_ENV_MAKS_TOPLAM];
@@ -152,31 +190,45 @@ static inline void rtk_mesh_gonder(const rtk_mesh_frag_t* frag,
     memcpy(ham + crc_oncesi, &crc, RTK_CRC_BOYUTU);
     uint16_t toplam_uzunluk = crc_oncesi + RTK_CRC_BOYUTU;
 
-    if (hedef == nullptr) hedef = BROADCAST_MAC;
-    if (!esp_now_is_peer_exist(hedef)) {
-        esp_now_peer_info_t bp = {};
-        memcpy(bp.peer_addr, hedef, 6);
-        bp.channel = MESH_KANAL;
-        bp.encrypt = false;
-        esp_now_add_peer(&bp);
-    }
-
+    // CSMA: fragment basina TEK bekleme (bkz yukaridaki not).
     uint32_t bekleme = (uint32_t)esp_random() % (CSMA_GECIKME_MAKS_MS + 1);
     if (bekleme > 0) vTaskDelay(pdMS_TO_TICKS(bekleme));
 
-    esp_err_t ret = ESP_FAIL;
-    for (int d = 0; d < 3; d++) {
-        ret = esp_now_send(hedef, ham, toplam_uzunluk);
-        if (ret == ESP_OK) break;
-        if (d < 2) vTaskDelay(pdMS_TO_TICKS(2 + (uint32_t)esp_random() % 6));
-    }
-    if (ret != ESP_OK) {
-        rtk_tx_zarf_hatasi++;
-        Serial.printf("[RTK-TX] Zarf gonderimi basarisiz (frag %u/%u)\n",
-                      frag->frag_index + 1, frag->frag_total);
+    // Cagiran acikca bir hedef verdiyse ona uy (test/ozel kullanim).
+    if (hedef != nullptr) {
+        if (_rtk_zarf_gonder(hedef, ham, toplam_uzunluk)) rtk_tx_frag++;
+        else {
+            rtk_tx_zarf_hatasi++;
+            MESH_LOG_PRINTF("[RTK-TX] Zarf gonderimi basarisiz (frag %u/%u)\n",
+                            frag->frag_index + 1, frag->frag_total);
+        }
         return;
     }
-    rtk_tx_frag++;
+
+    // Canli node'lara unicast.
+    uint32_t simdi = millis();
+    uint8_t  gonderilen = 0, hata = 0;
+    for (uint8_t i = 0; i < MESH_MAX_NODES; i++) {
+        if (!_bilinen_nodlar[i].aktif) continue;
+        if (simdi - _bilinen_nodlar[i].son_heartbeat_ms > NODE_TIMEOUT_MS) continue;
+        if (_rtk_zarf_gonder(_bilinen_nodlar[i].mac, ham, toplam_uzunluk)) gonderilen++;
+        else hata++;
+    }
+
+    if (gonderilen == 0 && hata == 0) {
+        // Hic canli node yok -> soguk baslangic. Broadcast en azindan bir sansi
+        // korur; ACK'siz oldugu icin garanti degil, ama hicbir sey yollamamaktan
+        // iyidir.
+        if (_rtk_zarf_gonder(BROADCAST_MAC, ham, toplam_uzunluk)) gonderilen++;
+        else hata++;
+    }
+
+    if (gonderilen > 0) rtk_tx_frag++;
+    if (hata > 0) {
+        rtk_tx_zarf_hatasi++;
+        MESH_LOG_PRINTF("[RTK-TX] Zarf gonderimi basarisiz (frag %u/%u, %u hedef)\n",
+                        frag->frag_index + 1, frag->frag_total, hata);
+    }
 }
 
 // Buyuk RTK zarfi - alim.
@@ -220,7 +272,7 @@ static inline void rtk_mesh_loop(HardwareSerial& uart = Serial1) {
 // Timeout kontrol, rtk_mesh_loop()'tan cagrilir.
 static inline void rtk_loop(void) {
     if (rtk_asm_timeout_kontrol(&_rtk_asm, millis())) {
-        Serial.println("[RTK] Assembly timeout — sifirlandi (fragment havada kayboldu = RF)");
+        MESH_LOG_PRINTLN("[RTK] Assembly timeout — sifirlandi (fragment havada kayboldu = RF)");
         rtk_kayip_timeout++;
     }
 }
@@ -228,7 +280,7 @@ static inline void rtk_loop(void) {
 // Alici (İHA) istatistigi. Kayip kovalarinin anlami icin sayac tanimlarinin
 // basindaki nota bak; "kayip" tek sayi olarak bakildiginda yaniltir.
 static inline void rtk_istatistik_yazdir(void) {
-    Serial.printf("[RTK] alinan=%lu uart_gonderilen=%lu kayip=%lu "
+    MESH_LOG_PRINTF("[RTK] alinan=%lu uart_gonderilen=%lu kayip=%lu "
                   "(crc=%lu gecersiz=%lu timeout=%lu)\n",
                   (unsigned long)rtk_alinan,
                   (unsigned long)rtk_uart_gonderilen,

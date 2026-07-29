@@ -1,6 +1,7 @@
 #pragma once
 #include <Arduino.h>
 #include "freertos/FreeRTOS.h"
+#include "mesh_log.h"   // MESH_LOG_* — Serial veri hattiysa loglari susturur
 extern portMUX_TYPE _recv_mux;
 
 // Failsafe zaman esikleri.
@@ -72,7 +73,7 @@ static inline void _failsafe_rpi_bildir(uint8_t failsafe_tip, HardwareSerial& ua
     cobs_buf[yaz_idx++] = 0x00;  // COBS frame terminator
 
     uart.write(cobs_buf, yaz_idx);
-    Serial.printf("[FAILSAFE] RPiye bildirildi (COBS+CRC): tip=0x%02X\n", failsafe_tip);
+    MESH_LOG_PRINTF("[FAILSAFE] RPiye bildirildi (COBS+CRC): tip=0x%02X\n", failsafe_tip);
 }
 
 // Failsafe kontrol.
@@ -85,25 +86,25 @@ inline void failsafe_kontrol(HardwareSerial& uart = Serial1) {
     if (ardisik_kayip_sayisi >= ARDISIK_KAYIP_ESIGI && _failsafe_asama < 2) {
         _failsafe_asama     = 2;
         failsafe_tetiklendi = true;
-        Serial.printf("[FAILSAFE] Ardisik kayip (%u): RPiye RTL bildiriliyor\n",
+        MESH_LOG_PRINTF("[FAILSAFE] Ardisik kayip (%u): RPiye RTL bildiriliyor\n",
                       ardisik_kayip_sayisi);
         _failsafe_rpi_bildir(FAILSAFE_TIP_RTL, uart);
         return;
     }
     if (gecen >= FAILSAFE_WARN_MS && _failsafe_asama == 0) {
         _failsafe_asama = 1;
-        Serial.println("[FAILSAFE] UYARI: Baglanti zayif");
+        MESH_LOG_PRINTLN("[FAILSAFE] UYARI: Baglanti zayif");
         _failsafe_rpi_bildir(FAILSAFE_TIP_UYARI, uart);
     }
     if (gecen >= FAILSAFE_SOFT_MS && _failsafe_asama == 1) {
         _failsafe_asama     = 2;
         failsafe_tetiklendi = true;
-        Serial.printf("[FAILSAFE] SOFT (%lums): RPiye RTL bildiriliyor\n", gecen);
+        MESH_LOG_PRINTF("[FAILSAFE] SOFT (%lums): RPiye RTL bildiriliyor\n", gecen);
         _failsafe_rpi_bildir(FAILSAFE_TIP_RTL, uart);
     }
     if (gecen >= FAILSAFE_HARD_MS && _failsafe_asama == 2) {
         _failsafe_asama = 3;
-        Serial.println("[FAILSAFE] HARD 15s: RPiye LAND bildiriliyor");
+        MESH_LOG_PRINTLN("[FAILSAFE] HARD 15s: RPiye LAND bildiriliyor");
         _failsafe_rpi_bildir(FAILSAFE_TIP_LAND, uart);
     }
 }
@@ -111,7 +112,7 @@ inline void failsafe_kontrol(HardwareSerial& uart = Serial1) {
 // Failsafe reset.
 inline void failsafe_reset() {
     if (_failsafe_asama > 0) {
-        Serial.printf("[FAILSAFE] Sifirlandi (asama %u)\n", _failsafe_asama);
+        MESH_LOG_PRINTF("[FAILSAFE] Sifirlandi (asama %u)\n", _failsafe_asama);
         _failsafe_asama     = 0;
         failsafe_tetiklendi = false;
         portENTER_CRITICAL(&_recv_mux);

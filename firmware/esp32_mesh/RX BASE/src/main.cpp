@@ -69,6 +69,22 @@
 //     bekletmiyor.
 #define YKI_BAUD  460800
 
+// loop() basina YKİ hattindan okunacak en fazla bayt.
+//
+// Eskiden 32'ydi ve bu yalnizca kucuk mesh cerceveleri (~27B COBS) icin
+// dogruydu. RTCM cercevesi COBS'la ~1040 bayta cikar; 32 bayt/tur ile tek bir
+// RTCM mesajini almak 32+ loop turu surer ve loop() yayin yaparken CSMA
+// beklemesi (0-10ms) barindirdigi icin tek mesaj yuzlerce ms'ye yayilirdi —
+// RTCM'in 1 sn'lik tazelik butcesi orada biterdi. (Yuk testinde olculdu:
+// base UART'tan ~35 cerceve/sn'yi ancak alabiliyordu.)
+//
+// 1200: en buyuk cerceveyi (~1040B) tek turda yutar, ustune marj birakir.
+// Ust sinir yine de var: sinirsiz okuma, hat doygunken loop()'u kilitleyip
+// mesh_loop()/rtk_mesh_loop()'u ac birakirdi.
+// Tasma riski yok: 460800 baud = ~46 KB/sn; loop() 50Hz'de bile
+// 1200*50 = 60 KB/sn drenaj kapasitesi verir, RX tamponu (2048B) dolmaz.
+#define YKI_LOOP_MAKS_BAYT  1200
+
 // FreeRTOS queue.
 struct uart_mesaj_t {
     uint8_t tip;
@@ -392,16 +408,38 @@ void loop() {
     // Whitelist/dispatch mantigi sadece tamamlanmis cerceveye uygulanir; hicbir
     // dali ayristirici durumunu (idx) etkilemez.
     static uart_frame_parser_t pi_parser;
-    uint8_t okunan = 0;
-    while (YKI_SERIAL.available() && okunan < 32) {  // tek-USB modunda Serial0
+    uint16_t okunan = 0;
+    while (YKI_SERIAL.available() && okunan < YKI_LOOP_MAKS_BAYT) {  // tek-USB modunda Serial0
         uint8_t b = YKI_SERIAL.read();
         okunan++;
-        uint8_t tip_byte, id_byte_unused;
+        uint8_t tip_byte, id_byte;
         const uint8_t* cerceve_payload;
         uint16_t cerceve_payload_uzunluk;
-        if (!uart_frame_parser_push(&pi_parser, b, &tip_byte, &id_byte_unused,
+        if (!uart_frame_parser_push(&pi_parser, b, &tip_byte, &id_byte,
                                     &cerceve_payload, &cerceve_payload_uzunluk))
             continue;
+
+        // TIP_RTK: asagidaki 18 baytlik mesh yolundan ONCE ayrilmali.
+        // RTCM govdesi 1029 bayta kadar cikar; asagidaki `veri[18]` + 16 bayt
+        // kirpma onu sessizce kirpar ve mesh'e cop giderdi. RTK kendi buyuk
+        // zarfini ve fragmantasyonunu kullanir (rtk_sender.h), mesh_gonder()
+        // yolunu HIC kullanmaz. Hiz limiti de uygulanmaz: RTCM zaten ~1Hz
+        // uretilir ve `mesh_tip_gecebilir` 50ms kapisi cok fragmentli bir
+        // mesajin parcalarini birbirine dusururdu.
+        if (tip_byte == TIP_RTK) {
+            // ID kapisi: adanmis Serial1 yolundaki (rtk_serial_isle) kontrolun
+            // aynisi. Iki yol esdeger olmali, yoksa rtk_tx_istatistik_yazdir()
+            // teshis kilavuzundaki "yki_tip yuksek -> YKİ protokolu uyumsuz"
+            // satiri asil kullanilan yolda hic artmaz ve yaniltir.
+            if (id_byte != BAZ_ID) {
+                rtk_yki_tip_hatasi++;
+                DBG_PRINTF("[RTK-RX] HATA: TIP_RTK ama id=%u (beklenen %u), atildi\n",
+                           id_byte, (unsigned)BAZ_ID);
+                continue;
+            }
+            rtk_rtcm_payload_isle(cerceve_payload, cerceve_payload_uzunluk);
+            continue;
+        }
 
         uint32_t simdi = millis();
         // mesh_gonder() her zaman 18 byte okur (memcpy(tam_veri+6, veri, 18)),

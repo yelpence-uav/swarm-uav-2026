@@ -245,9 +245,16 @@ void setup() {
 
 void loop() {
     // rtk_loop() rtk_mesh_loop() icinden cagriliyor (RTK buyuk zarfini
-    // _rtk_recv_buffer'dan bosaltip cozer). Port varsayilani (Serial1) burada
-    // dogru: TX DRONE'da Serial1 Pi hattidir. (RX BASE'te Serial2 acikca gecilir.)
-    rtk_mesh_loop();
+    // _rtk_recv_buffer'dan bosaltip cozer).
+    //
+    // RPI_SERIAL ACIKCA gecilmeli, varsayilana (Serial1) birakilmamali.
+    // Eskiden burada argumansiz cagriliyordu ve yorum "TX DRONE'da Serial1 Pi
+    // hattidir" diyordu — bu RPI_SERIAL0_MODU eklenmeden ONCE dogruydu. O mod
+    // RPi hattini Serial0'a tasidi ama bu cagri yerinde kaldi: drone RTCM'i
+    // havadan aliyor, birlestiriyor ve RPi'ye BAGLI OLMAYAN Serial1'e yaziyordu.
+    // Semptom sinsi: baz "gonderdim" der, drone ESP'si "aldim" der, RPi'de
+    // rtk sayaci 0 kalir ve sorun RF'de aranir. (Uctan uca testte yakalandi.)
+    rtk_mesh_loop(RPI_SERIAL);
     esp_task_wdt_reset();
     mesh_loop();
 
@@ -262,7 +269,12 @@ void loop() {
         }
     }
 
-    failsafe_kontrol();
+    // rtk_mesh_loop ile AYNI hata buradaydi: varsayilan Serial1'e yaziyordu,
+    // oysa RPI_SERIAL0_MODU'da RPi hatti Serial0. Sonucu daha agir: failsafe
+    // bildirimi (0xFA -> RTL/LAND) RPi'ye hic ulasmiyordu, yani mesh kopunca
+    // esp32_bridge::_isle_failsafe ATESLENMIYORDU. RX BASE bunu dogru yapiyor
+    // (failsafe_kontrol(YKI_SERIAL)), TX DRONE atlanmisti.
+    failsafe_kontrol(RPI_SERIAL);
 
 #ifndef RTK_ISTATISTIK_LOGLAMA_KAPALI
     // Periyodik RTK istatistik logu (spec 3.3). build_flags'a

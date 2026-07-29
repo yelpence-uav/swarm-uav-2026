@@ -23,6 +23,15 @@
 // Pi<->ESP komut protokolu cerceveleri kucuktur (ham <= tip+id+18B payload+
 // crc16 = 22B; COBS + terminator <= ~27B). 32, eski main.cpp'lerdeki
 // rx_buf[32]/rpi_rx_buf[32] boyutuyla ayni ve yeterli marj birakiyor.
+//
+// AMA: RX BASE'in YKİ hatti coklanmis ve TIP_RTK de oradan geliyor. Bir RTCM3
+// mesaji en fazla 1029B (spec §2.6), cerceveye girince
+// TIP(1)+ID(1)+1029+CRC16(2) = 1033B, COBS worst-case ~1040B. 32 baytlik tampon
+// bunu alamaz; her RTCM cercevesi tasma dalinda (idx=0) sessizce dusuerdi.
+// Bu yuzden boyut derleme zamaninda buyutulebilir:
+//     RX BASE/platformio.ini  ->  -D UART_FRAME_BUF_SIZE=1100
+// TX DRONE'da 32 kaliyor: drone'un RPi hatti buyuk cerceve tasimiyor (RTCM
+// ters yonde, hava linkinden gelip _rtk_uart_gonder ile YAZILIYOR).
 #ifndef UART_FRAME_BUF_SIZE
 #define UART_FRAME_BUF_SIZE 32
 #endif
@@ -33,7 +42,11 @@ typedef struct {
     // decoded ve raw ayni boyutta; cobs_decode ciktisi giristen her zaman kisa
     // oldugundan tasma imkansiz.
     uint8_t decoded[UART_FRAME_BUF_SIZE];  // cozulmus cerceve (payload buraya isaret eder)
-    uint8_t idx;
+    // uint16_t: UART_FRAME_BUF_SIZE 255'i asabiliyor (bkz yukaridaki RTCM notu).
+    // uint8_t kalsaydi idx 256'da sarar, tasma kontrolu (idx < BUF_SIZE) hep
+    // dogru kalir ve ayristirici cerceveyi bastan yazmaya baslardi — semptom
+    // "buyuk cerceveler bozuk gelir", sebebi gorunmez.
+    uint16_t idx;
 } uart_frame_parser_t;
 
 static inline void uart_frame_parser_sifirla(uart_frame_parser_t* st) {
@@ -60,7 +73,7 @@ static inline bool uart_frame_parser_push(
         else st->idx = 0;   // tasma: cerceveyi at, yeniden senkronize ol
         return false;
     }
-    uint8_t n = st->idx;
+    uint16_t n = st->idx;
     st->idx = 0;            // 0x00'da her zaman sifirla (yapisal desync korumasi)
     if (n < 4) return false;
     uint16_t dlen = cobs_decode(st->raw, (uint16_t)n, st->decoded);

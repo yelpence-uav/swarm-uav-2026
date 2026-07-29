@@ -302,6 +302,98 @@ void test_frame_parser_bolunmus_cerceve_birlesir(void) {
     TEST_ASSERT_EQUAL_UINT8_ARRAY(pg, pk, 16);
 }
 
+// --- RTCM boyutunda cerceveler (TIP_RTK'nin YKİ hattindan gecisi) -----------
+//
+// RX BASE'in YKİ hatti coklanmis: kucuk mesh cerceveleri ve TIP_RTK ayni
+// porttan geliyor. Ayristirici varsayilan 32 baytlik tamponla derlenirse her
+// RTCM cercevesi tasma dalinda (idx=0) SESSIZCE duserdi — hata sayaci bile
+// artmadan. Bu testler tamponun gercekten RTCM boyutunu tasidigini dogruluyor.
+//
+// Tampon boyutu derleme zamani sabiti; platformio.ini [env:native] ve
+// [env:esp32dev] ayni degeri (1100) veriyor ki test ile uretim ayni yolu
+// kullansin.
+static_assert(UART_FRAME_BUF_SIZE >= 1040,
+              "Bu testler RTCM boyutunda cerceve dogruluyor: en buyuk RTCM3 "
+              "mesaji 1029B, cerceve TIP+ID+1029+CRC16 = 1033B, COBS ~1040B. "
+              "platformio.ini'ye -D UART_FRAME_BUF_SIZE=1100 ekleyin.");
+
+// Buyuk cerceve kurucu: _cerceve_yap'in scratch tamponlari (64/80) RTCM
+// boyutunu almiyor, o yuzden ayri.
+static void _buyuk_cerceve_yap(uint8_t tip, uint8_t id, const uint8_t* payload,
+                               uint16_t plen, uint8_t* cikis, uint16_t* cikis_len) {
+    static uint8_t ham[1400], cobs[1500];
+    uint16_t clen = cobs_cerceve_olustur(tip, id, payload, plen, ham, cobs);
+    memcpy(cikis, cobs, clen);
+    *cikis_len = clen;
+}
+
+// En buyuk gecerli RTCM3 mesaji (1029B) cerceveden saglam gecmeli.
+void test_frame_parser_rtcm_1029B_gecer(void) {
+    uart_frame_parser_t st; uart_frame_parser_sifirla(&st);
+    static uint8_t payload[1029];
+    // 0x00 dahil her degeri kullan: COBS'un 254-blok kuralini da zorlar.
+    for (uint16_t i = 0; i < sizeof(payload); i++) payload[i] = (uint8_t)(i & 0xFF);
+    payload[0] = 0xD3;   // RTCM3 preamble (gercekci)
+
+    static uint8_t cerceve[1500]; uint16_t clen;
+    _buyuk_cerceve_yap(0x0C /*TIP_RTK*/, 99 /*BAZ_ID*/, payload, sizeof(payload),
+                       cerceve, &clen);
+
+    static uint8_t pk[1200];
+    uint8_t tip, id; uint16_t plen;
+    TEST_ASSERT_EQUAL_INT(1, _besle(&st, cerceve, clen, &tip, &id, pk, &plen));
+    TEST_ASSERT_EQUAL_UINT8(0x0C, tip);
+    TEST_ASSERT_EQUAL_UINT8(99, id);
+    TEST_ASSERT_EQUAL_UINT16(sizeof(payload), plen);
+    TEST_ASSERT_EQUAL_UINT8_ARRAY(payload, pk, sizeof(payload));
+}
+
+// Regresyon: idx eskiden uint8_t idi. 255 bayti asan bir cerceve idx'i sarar,
+// tasma kapisi (idx < BUF_SIZE) hep dogru kalir ve ayristirici cerceveyi
+// bastan yazmaya baslardi. Semptom "buyuk cerceveler bozuk gelir", sebep
+// gorunmez. 260B payload sinirin hemen ustunde.
+void test_frame_parser_255_bayt_ustu_idx_sarmaz(void) {
+    uart_frame_parser_t st; uart_frame_parser_sifirla(&st);
+    static uint8_t payload[260];
+    for (uint16_t i = 0; i < sizeof(payload); i++) payload[i] = (uint8_t)(i * 7 + 3);
+
+    static uint8_t cerceve[400]; uint16_t clen;
+    _buyuk_cerceve_yap(0x0C, 99, payload, sizeof(payload), cerceve, &clen);
+    TEST_ASSERT_GREATER_THAN_UINT16(255, clen);   // testin anlamli oldugunu kanitla
+
+    static uint8_t pk[400];
+    uint8_t tip, id; uint16_t plen;
+    TEST_ASSERT_EQUAL_INT(1, _besle(&st, cerceve, clen, &tip, &id, pk, &plen));
+    TEST_ASSERT_EQUAL_UINT16(sizeof(payload), plen);
+    TEST_ASSERT_EQUAL_UINT8_ARRAY(payload, pk, sizeof(payload));
+}
+
+// Tamponu asan cerceve dusmeli, AMA ardindan gelen gecerli cerceve parse
+// edilmeli (tasma sonrasi resync). Buyuk tamponla da desync garantisi durmali.
+void test_frame_parser_tampon_asimi_sonrasi_resync(void) {
+    uart_frame_parser_t st; uart_frame_parser_sifirla(&st);
+
+    // Tamponu kesin asan cerceve: payload BUF_SIZE kadar -> COBS daha da buyuk.
+    static uint8_t buyuk[UART_FRAME_BUF_SIZE + 200];
+    for (uint16_t i = 0; i < sizeof(buyuk); i++) buyuk[i] = (uint8_t)(i | 1);  // 0x00 yok
+    static uint8_t pk[1200];
+    uint8_t tip, id; uint16_t plen;
+    // Terminatorsuz besle: hepsi tampona yazilmaya calisilir, tasar.
+    TEST_ASSERT_EQUAL_INT(0, _besle(&st, buyuk, sizeof(buyuk), &tip, &id, pk, &plen));
+
+    // Simdi kucuk, gecerli bir cerceve: sifirdan parse edilmeli.
+    uint8_t kucuk_payload[8] = {1,2,3,4,5,6,7,8};
+    uint8_t cerceve[80]; uint16_t clen;
+    _cerceve_yap(0x07 /*TIP_DURUM*/, 3, kucuk_payload, 8, cerceve, &clen);
+    // Onceki tasma yarim kaldi; once bir 0x00 ile senkronu kapat.
+    uint8_t sifir = 0x00;
+    _besle(&st, &sifir, 1, &tip, &id, pk, &plen);
+    TEST_ASSERT_EQUAL_INT(1, _besle(&st, cerceve, clen, &tip, &id, pk, &plen));
+    TEST_ASSERT_EQUAL_UINT8(0x07, tip);
+    TEST_ASSERT_EQUAL_UINT8(3, id);
+    TEST_ASSERT_EQUAL_UINT8_ARRAY(kucuk_payload, pk, 8);
+}
+
 // Tehdit: saldirgan RF'i yakalar, gonderici reboot edene kadar bekler, sonra
 // eski session'in (authenticated ama eski) paketlerini tekrar oynatir.
 // "session_id farkli -> reboot varsay, pencereyi sifirla, kabul" deseydik saldiri
@@ -488,6 +580,9 @@ int main(int argc, char** argv) {
     RUN_TEST(test_frame_parser_istenmeyen_tip_sonraki_komutu_bozmaz);
     RUN_TEST(test_frame_parser_tasma_gurultu_sonrasi_resync);
     RUN_TEST(test_frame_parser_bolunmus_cerceve_birlesir);
+    RUN_TEST(test_frame_parser_rtcm_1029B_gecer);
+    RUN_TEST(test_frame_parser_255_bayt_ustu_idx_sarmaz);
+    RUN_TEST(test_frame_parser_tampon_asimi_sonrasi_resync);
     RUN_TEST(test_fragmantasyon_25B);
     RUN_TEST(test_fragmantasyon_180B);
     RUN_TEST(test_fragmantasyon_238B);
