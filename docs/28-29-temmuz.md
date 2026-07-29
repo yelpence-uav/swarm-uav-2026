@@ -275,10 +275,23 @@ düzgün kapanan bir rclpy script'i yaz.
 
 ### 5.6 CP2102 portunu açmak ESP'yi resetliyor
 
-`dtr=False`/`rts=False` ile açmak denendi, **tutmadı**. Base ESP'nin
-konsolunu izlerken bunu hesaba kat; portu tekrar tekrar açıp kapatmak
-kartı sürekli resetler ve 10 sn'lik istatistik periyoduna hiç ulaşamazsın.
-Bir kez aç, bırakma.
+Portu tekrar tekrar açıp kapatmak kartı sürekli resetler ve 10 sn'lik
+istatistik periyoduna hiç ulaşamazsın. Bir kez aç, bırakma.
+
+**29 Temmuz düzeltmesi — çalışan yol bulundu.** Sorun `dtr`/`rts`'yi
+`Serial()` çağrısına parametre olarak vermek değil; pyserial **açılış
+sırasında** RTS'yi çekiyor ve bırakmıyor → EN low → ESP resette *kalıyor*.
+İlk denemede kart 12 sn boyunca sessizdi, bozuk değildi, resette tutuluyordu.
+Doğrusu: aç, sonra **hemen** temizle.
+
+```python
+s = serial.Serial('/dev/ttyUSB1', 115200, timeout=0.4)
+s.setDTR(False); s.setRTS(False)      # EN'i bırak — kart çalışsın
+```
+
+Açılışta bir kez resetlenir, sonrası kesintisiz akar. Kartı bilerek
+resetlemek istersen (boot mesajlarını görmek için) tersi:
+`setRTS(True)` → 0.15 sn → `setRTS(False)`.
 
 ---
 
@@ -294,7 +307,11 @@ geçiyor, iki drone'a ve base'e yüklendi.
    → yapılandırma arayüzü destekleniyor. `src/gcs/backend/rtcm/f9p_base_yapilandir.py`
    yazıldı ve salt-okunur modda doğrulandı. **Survey-In açık gökyüzü
    gerektirir**, kapalı alanda yakınsamaz.
-2. **RTK Fixed doğrulaması.** GPS fix 3D → Float → Fixed.
+   > 29 Temmuz: yapılandırıldı, RTK Fixed alındı. Ancak ayarların bir kısmı
+   > yalnız RAM'e yazılmış — güç kesintisinde uçtu. Bkz. §7.3.
+2. **RTK Fixed doğrulaması.** GPS fix 3D → Float → Fixed. → 29 Temmuz'da
+   **alındı**: 345 örnek, %100 Fixed, yatay std 0.2 cm; dronlar arası 203 cm
+   ölçüldü ve şerit metreyle birebir doğrulandı.
 3. **ylp00 pusulası.** Alan büyüklüğünü 16.9 µT okuyor (Elazığ'da ~47
    olmalı), ylp02 46.8 µT ile doğru. İki kez kalibre edildi, düzelmedi.
    Manyetik gürültü **değil** (ylp00 std 0.07 µT ile en sessiz kart).
@@ -305,10 +322,153 @@ geçiyor, iki drone'a ve base'e yüklendi.
    > Pusula RTK'yı **engellemiyor** — RTK Fixed tamamen GNSS faz ölçümüne
    > dayanır. Pusula formasyon ve heading için gerekli.
 
-### Doküman borcu
-`docs/YELPENCE_RTCM_SPEC.md` hâlâ **REV B** ve şunları yanlış anlatıyor:
-şifreleme var (kaldırıldı), fragment 191 B (238), broadcast (unicast), RTCM
-adanmış UART'tan gelir (YKİ veri hattından `TIP_RTK` olarak gelir), YKİ
-doğrudan seri porta yazar (ROS topic'ine yayınlar). Spec'in kendi kuralı:
-*"kod ile spec çelişirse kod kazanır ve spec bug'dır — bildir."* Bildirildi,
-REV C güncellemesi bekliyor.
+### Doküman borcu — kapandı
+`docs/YELPENCE_RTCM_SPEC.md` REV B şunları yanlış anlatıyordu: şifreleme var
+(kaldırıldı), fragment 191 B (238), broadcast (unicast), RTCM adanmış
+UART'tan gelir (YKİ veri hattından `TIP_RTK` olarak gelir), YKİ doğrudan
+seri porta yazar (ROS topic'ine yayınlar). Spec'in kendi kuralı: *"kod ile
+spec çelişirse kod kazanır ve spec bug'dır — bildir."* Bildirildi ve **REV C
+ile düzeltildi** (commit `d58853e`).
+
+---
+
+## 7. 29 Temmuz — RC failsafe zinciri ve RTK kalıcılığı
+
+Bu bölümdeki her şey **ölçümle** doğrulandı; alıcı davranışı hakkında tahmin
+yürütülüp sonra ölçümle çürütülen iddialar da not edildi.
+
+### 7.1 Alıcı failsafe'i kill switch'i tetikliyor — **en tehlikelisi**
+
+Belirti: kumanda kapatılınca ylp00 kırmızı yanıyor, ylp02 yeşil kalıyor.
+Sahadaki ilk yorum "kumandayı mı değiştirsem" oldu.
+
+Ölçüm — MAVROS `rc/in`, ylp00, kumanda **kapalı**:
+
+```
+[1488, 1496, 1017, 1500, 2000, 2000, 1000, 1000]
+                          ^CH5
+```
+
+`RC_MAP_KILL_SW = 5`, `RC_KILLSWITCH_TH = 0.75`, `RC5_MIN/MAX = 1000/2001`
+→ CH5 = 2000 normalize edilince +1.0 → eşiğin üstünde → **kill AÇIK**.
+
+Kök neden: ylp00'ın **alıcısında** failsafe kayıtlı ve CH5 için 2000
+saklıyor. ylp02'nin alıcısında failsafe hiç kayıtlı değil, değerler donuyor.
+
+Neden görünmez: PX4 parametreleri iki dronede **birebir aynı**
+(`RC_MAP_KILL_SW`, `RC_KILLSWITCH_TH`, `NAV_RCL_ACT`, `COM_RC_LOSS_T`…).
+Ayar alıcının flash'ında duruyor — QGC göstermiyor, RC kalibrasyonu
+dokunmuyor, parametre karşılaştırması bulamıyor. Kumandayı değiştirmek de
+çözmezdi.
+
+Tehlike: havada RC kaybı → RTL **değil**, anında motor kesme. `NAV_RCL_ACT=2`
+yazılı ama hiç devreye girmiyor.
+
+### 7.2 `RC_FAILS_THR = 0` → RTL failsafe üç dronede de ölü
+
+Kumanda kapalıyken alıcı yayına devam ediyor (RSSI 41, kareler akıyor), bu
+yüzden PX4 bağlantı kaybını göremiyor ve `rc_link_ok` **True** kalıyor.
+`RC_FAILS_THR=0` gaz eşiğiyle algılamayı da kapattığı için ikinci yol da yok.
+
+Alıcının sakladığı gaz failsafe değeri **1017**, `RC3_MIN` ise **1016** —
+1 µs fark. Eşik koyacak yer yok. Sebep klasik: failsafe, gaz çubuğu en
+aşağıdayken yakalanmış.
+
+Çözüm — kumandada End Points ile ayrım yaratmak:
+
+1. Functions → End Points → Ch3 **alt** ucu geçici %120 (imleç tuşla değil,
+   **çubuğu o yöne iterek** seçilir — soldaki değer aşağı yönü)
+2. Çubuk aşağıdayken RX Setup → Failsafe → Ch3 kaydet
+3. Ch5 / Ch6 / Ch7 → **Off** (Ch5 kritik, §7.1)
+4. End Points → Ch3 %100'e geri
+5. `RC_FAILS_THR = 960`
+
+ylp02'de %120 uygulandı, çubuk aşağıda **908** ölçüldü → 1016 ile arada
+108 µs boşluk.
+
+> **Açık soru.** Alıcı 908'i ham PWM olarak mı, yüzde olarak mı saklıyor?
+> Yüzde ise End Points geri alınınca 1016'ya ölçeklenir ve numara boşa gider.
+> Ölçümle karara bağlanacak; tahminle geçilmedi. Boşa çıkarsa Subtrim yolu.
+
+### 7.3 F9P ayarları RAM'e yazılırsa güç kesintisinde uçuyor
+
+Belirti: USB çıkarılıp takılınca RTK Fixed → Float, YKİ'de 2 cm → 30 cm.
+
+Ölçüm: flash'ta `TMODE=1` (survey-in); açık RTCM mesajları yalnız
+`1074/1084/1094/1124`; `1005` ve `1230` **rate 0**; hız 1 Hz değil **10 Hz**.
+
+Kök neden: 1005/1230 ve 1 Hz ayarı `--gecici` ile **yalnız RAM'e** yazılmış.
+Güç kesilince flash'taki eski hal geri geldi. Üç belirti de tek sebepten.
+
+Ayrıca **survey-in modu her açılışta baştan başlar** — modun doğası bu, ve
+survey bitmeden 1005 yayınlanmaz.
+
+Kalıcı çözüm: yapılandırmayı `--gecici` **olmadan** çalıştır (varsayılan
+zaten RAM+BBR+Flash, `katman=7`), survey bitince `--sabitle` ile sabit moda
+al. O zaman açılışta survey beklemeden 1005 akar.
+
+Survey doğruluğu kabul edilebilir seviyeye çekilebilir: baz konumundaki
+mutlak hata **tüm dronlara ortak** kayma olarak binder, göreli doğruluk
+(formasyon için önemli olan) etkilenmez.
+
+### 7.4 Rover baz konumunu önbelleğe alıyor
+
+1005 tamamen kesildikten sonra da ylp02 RTK Fixed'de kaldı. Rover son aldığı
+baz ARP'sini saklıyor ve gözlem mesajları aktığı sürece çözüm üretmeye devam
+ediyor.
+
+"1005 yok → Fixed yok" **yanlış** — bu iddia kuruldu ve ölçümle çürütüldü.
+1005 eksikliği ancak rover sıfırdan başladığında vurur.
+
+### 7.5 `--durum` "kapalı" ile "cevap gelmedi"yi ayırt edemiyor
+
+`f9p_base_yapilandir.py` içindeki durum ekranı `d.get(k)` ile bakıyor; anahtar
+CFG-VALGET cevabında hiç gelmediyse de None döner ve **kapalı** raporlanır.
+1005/1230'un gerçekten 0 olduğu, anahtarları **tek tek** sorarak doğrulandı.
+Toplu sorguda cevap bölünürse ekran yanıltır.
+
+### 7.6 USB takıp çıkarma base ESP'yi kilitli bırakıyor
+
+Köprü portu geri açtı (`fd 32 → /dev/ttyUSB0`, replug anıyla aynı saniye) ama
+telemetri gelmedi, üç drone da `connected=False`. ESP resetlenince mesh anında
+geri geldi: `Aktif: 2/8  crc_hatasi=0  paket_dustu=0`.
+
+Kural: base ESP'yi çıkarıp taktıysan **resetle**, köprünün portu geri açması
+yeterli değil.
+
+### 7.7 QGC otomatik bağlantısı u-blox'u kapıyor
+
+`QGroundControl.ini` içinde `autoConnectRTKGPS` anahtarı **yok** → varsayılan
+açık. QGC açılınca F9P'yi alıyor, `yki_rtcm_reader` porta giremiyor, RTCM
+duruyor. QGC kapanınca bırakıyor. Kalıcı çözüm: QGC **kapalıyken** ini'ye
+`autoConnectRTKGPS=false` ekle — o zaman QGC'yi açık tutup RTK'yı da
+çalıştırabilirsin.
+
+---
+
+## 8. Yarına kalanlar (30 Temmuz)
+
+### RC failsafe — yarım kaldı
+1. **ylp02**: RX Setup → Failsafe'te Ch3'ü 908'de kaydet, Ch5/Ch6/Ch7 → Off,
+   End Points %100'e geri al. Sonra kumanda kapatılıp ölç: Ch3 908'de mi
+   kaldı (ham saklandı) yoksa 1016'ya mı döndü (yüzde saklandı)?
+2. Doğrulanınca `RC_FAILS_THR = 960`.
+3. Aynısı **ylp00** ve **ylp01** için.
+4. Son doğrulama (pervanesiz): kumanda kapalı → `rc_link_ok=False`, kill
+   **açılmıyor**, PX4 RC kaybı ilan ediyor, mod RTL'e geçiyor.
+
+### RTK
+5. u-blox anteni açık gökyüzüne al, `--gecici` **olmadan** yapılandır,
+   survey bitince `--sabitle`.
+6. Hız 1 Hz'e geri (şu an 10 Hz, ~4.4 kB/s — mesh kaldırıyor ama gereksiz).
+
+### Donanım
+7. **ylp00 anten/stand** — Here4 düz değil (Z = −28, beklenen −39; büyüklük
+   38.8 µT, beklenen ~47). Hem pusulayı hem RTK'yı etkiliyor: ylp02 Fixed'e
+   çıkarken ylp00 Float'ta kalıyor.
+8. **ylp01 hiç ağa alınmadı** — şartname 3 İHA istiyor.
+9. İvmeölçer + Level Horizon kalibrasyonu (`High Accelerometer Bias` hâlâ
+   arming raporunda).
+
+### Arayüz
+10. Dronlar arası mesafe göstergesi (kart üzerinde sayı / haritada çizgi).
