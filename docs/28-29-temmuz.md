@@ -472,3 +472,90 @@ duruyor. QGC kapanınca bırakıyor. Kalıcı çözüm: QGC **kapalıyken** ini'
 
 ### Arayüz
 10. Dronlar arası mesafe göstergesi (kart üzerinde sayı / haritada çizgi).
+
+---
+
+## 9. 29 Temmuz akşam — GPS standı ölçümle doğrulandı
+
+### 9.1 Yeni stand `estimator_ok`'i tek başına çeviriyor
+
+Yeni GPS standı ylp00'a takıldı, ylp02'de eski stand kaldı. İkisi de **aynı
+anda, aynı binanın içinde**. Kontrollü karşılaştırma:
+
+| | ylp00 (YENİ) | ylp02 (ESKİ) | PX4 barajı |
+|---|---|---|---|
+| `h_acc` yatay doğruluk | **2.65 m** | 4.42 m | `EKF2_REQ_EPH` = **3.0 m** |
+| `v_acc` dikey doğruluk | 4.88 m | 6.46 m | `EKF2_REQ_EPV` = 5.0 m |
+| `vel_acc` hız doğruluğu | 0.13 m/s | 0.28 m/s | `EKF2_REQ_SACC` = 0.5 m/s |
+| uydu | 26 | 25 | — |
+| HDOP | 0.54 | 0.58 | — |
+| `estimator_ok` | **True** | **False** | — |
+
+Baraj değerleri varsayılan kabul edilmedi, ylp02'den `param/pull` ile okundu
+(`EKF2_REQ_EPH = 3.0`, `EKF2_REQ_SACC = 0.5`, `EKF2_REQ_HDRIFT = 0.1`).
+
+**Uydu sayısı ve HDOP ikisinde de aynı.** Yani stand uydu görüşünü
+iyileştirmiyor — sinyal kalitesini iyileştiriyor (yansıma/EMI azalıyor).
+HDOP'a bakıp "GPS mükemmel" demek bu yüzden yanıltıcı: ylp02'nin HDOP'u 0.58,
+buna rağmen alıcının kendi doğruluk tahmini 4.42 m ve baraj 3.0 m.
+
+Zincir baştan sona: `h_acc > EKF2_REQ_EPH` → EKF GPS'i yatay konum füzyonuna
+almıyor → `pos_horiz_abs_status_flag = False` → `estimator_ok = False`
+(tanım: `mavros_telemetry_mapper.py:249`, `att_ok and pos_ok`) → `ready_to_arm
+= False`.
+
+`att_ok` True olduğu (`imu_healthy`/`mag_healthy` True geliyor) ve bu üç
+bayrağın mesh paketinde **ayrı ayrı** taşındığı doğrulandı
+(`esp32_bridge_node.py:1269` paketleme, `:774` çözme) — yani düşen bayrağın
+`pos_horiz_abs` olduğu çıkarımı sağlam, varsayılan `True` değerinden gelmiyor.
+
+### 9.2 Kabul kriteri
+
+ylp02'ye yeni stand takılınca bakılacak tek rakam: **`h_acc` < 3.0 m**.
+
+    ssh yelpence02@<ip> 'docker exec drone3 bash -lc \
+      "source /opt/ros/jazzy/setup.bash && \
+       ros2 topic echo /drone_3/mavros/gpsstatus/gps1/raw --once | grep -E \"h_acc|v_acc|vel_acc\""'
+
+**Pay dar:** ylp00 bina içinde 2.65 m ile barajı sadece 35 cm payla geçiyor.
+Koşullar biraz değişse tekrar False'a düşebilir. Dışarıda sorun değil —
+saha ölçümü ayrıca alınmalı.
+
+### 9.3 Kumanda/failsafe konusu ertelendi
+
+§7 ve §8'deki RC failsafe işi, tüm drone'ların GPS'i düzelene kadar bilinçli
+olarak beklemeye alındı. Bu sırada ölçülen bir ek veri var (ikisi de kumanda
+**kapalıyken**):
+
+| | ylp00 | ylp02 |
+|---|---|---|
+| `rc_link_ok` | **True** | False |
+| `kill_switch_active` | **True** | False |
+| `rc/in` yayını | var | yok |
+
+ylp00 kumanda kapalıyken hâlâ "bağlı" diyor — alıcı susmuyor, hafızasındaki
+failsafe değerlerini göndermeye devam ediyor; içlerinden biri CH5'i kill'e
+atıyor. ylp02'nin alıcısı ise tamamen susuyor, PX4 kaybı doğru şekilde ilan
+ediyor.
+
+Bu, §7.1'deki teşhisi doğruluyor ama bir ayrıntıyı düzeltiyor: ylp02'nin
+alıcısı değerleri **dondurmuyor, kesiyor**. Sonuç aynı kapıya çıkıyor
+(kill tetiklenmiyor), mekanizma farklı.
+
+**Güvenlik notu:** "kumanda kapalıyken kırmızı yanan" davranış aslında
+istenen davranış değil — o kırmızı kill switch'tir, RC kaybı ilanı değildir.
+Alıcı sahte çerçeve göndermeye devam ettiği için PX4 kaybı hiç görmez ve
+`NAV_RCL_ACT` (RTL) devreye giremez. Yerde bu sadece bir ışık; havada motor
+kesme demek. Doğru hedef ylp02'yi ylp00'a benzetmek değil, **ylp00'ı ylp02
+gibi susan alıcıya çevirip** ikisinde de RC kaybında RTL'i açmak.
+
+### 9.4 Cihaz tablosu ayrı dosyaya alındı
+
+DHCP yüzünden IP'ler gün içinde değişti (`10.207.118.x` → `10.158.16.x`) ve
+bütün SSH komutları kırıldı. Kalıcı kimlik MAC'tir. SSH kullanıcı adları da
+drone başına ayrı (`yelpence00`, `yelpence02` — `yelpence` değil); yanlış
+kullanıcıyla `Permission denied (publickey,password)` alınıyor ve anahtar
+sorunu sanılıyor.
+
+Hepsi `docs/cihazlar.md`'de: MAC'ler, kullanıcı adları, konteyner adları
+(ylp00 → `drone1`, ylp02 → `drone3`), ESP mesh ID'leri, USB by-id yolları.
