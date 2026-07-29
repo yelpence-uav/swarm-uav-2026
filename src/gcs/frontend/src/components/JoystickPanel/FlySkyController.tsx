@@ -92,71 +92,86 @@ export function FlySkyController({
             {frame.swA ? "YUKARI (KİLİTLİ)" : "AŞAĞI (AÇIK)"}
           </span>
         </div>
-
-        {/* SwB: Mode Selection */}
-        <div
-          className="flysky-switch-item"
-          onClick={() => onModeChange(mode === 0 ? 1 : 0)}
-          title="SwB: Mod Değiştir (Tıkla veya Kumandadan Değiştir)"
-        >
-          <span className="flysky-switch-label">SwB (Mod)</span>
-          <div className="flysky-toggle-btn">
-            <div
-              className={
-                "flysky-toggle-lever " +
-                ((frame.connected ? frame.swB : mode === 1)
-                  ? "flysky-toggle-lever--down"
-                  : "flysky-toggle-lever--up")
-              }
-            />
-          </div>
-          <span className="flysky-switch-val flysky-switch-val--active">
-            {(frame.connected ? frame.swB : mode === 1) ? "MANEVRA" : "HAREKET"}
-          </span>
-        </div>
-
-        {/* SwC: Formation Selection (3-pos) */}
-        <div
-          className="flysky-switch-item"
-          onClick={() => onFormationChange((formation + 1) % 3)}
-          title="SwC: Formasyon Seç (Tıkla veya Kumandadan Değiştir)"
-        >
-          <span className="flysky-switch-label">SwC (Formasyon)</span>
-          <div className="flysky-toggle-btn">
-            <div
-              className={
-                "flysky-toggle-lever " +
-                ((frame.connected ? frame.swC : formation) === 0
-                  ? "flysky-toggle-lever--up"
-                  : (frame.connected ? frame.swC : formation) === 2
-                  ? "flysky-toggle-lever--down"
-                  : "flysky-toggle-lever--mid")
-              }
-            />
-          </div>
-          <span className="flysky-switch-val flysky-switch-val--active">
-            {formationNames[frame.connected ? frame.swC : formation]}
-          </span>
-        </div>
-
-        {/* SwD: Takeoff / Land */}
-        <div className="flysky-switch-item" title="SwD: Kalkış / İniş Switch">
-          <span className="flysky-switch-label">SwD (Kalkış)</span>
-          <div className="flysky-toggle-btn">
-            <div
-              className={
-                "flysky-toggle-lever " +
-                (frame.swD
-                  ? "flysky-toggle-lever--down"
-                  : "flysky-toggle-lever--up")
-              }
-            />
-          </div>
-          <span className="flysky-switch-val">
-            {frame.swD ? "KALKIŞ" : "İNİŞ/HOLD"}
-          </span>
-        </div>
       </div>
+
+      {/* Main Controls Section with Mist Overlay when SwA is Locked */}
+      <div className="flysky-controls-container">
+        {frame.swA && (
+          <div className="flysky-locked-overlay">
+            <div className="flysky-locked-badge">
+              <span>🔒</span> EMNİYET KİLİTLİ (SwA YUKARIDA)
+            </div>
+            <div className="flysky-locked-subtext">
+              Sürü komut akışına kapalıdır. Mod ve formasyon komutlarını çalıştırmak için <strong>SwA şalterini AŞAĞI</strong> indirin.
+            </div>
+          </div>
+        )}
+
+        <div className="flysky-switches-bar">
+          {/* SwB: Mode Selection */}
+          <div
+            className="flysky-switch-item"
+            onClick={() => !frame.swA && onModeChange(mode === 0 ? 1 : 0)}
+            title="SwB: Mod Değiştir (Tıkla veya Kumandadan Değiştir)"
+          >
+            <span className="flysky-switch-label">SwB (Mod)</span>
+            <div className="flysky-toggle-btn">
+              <div
+                className={
+                  "flysky-toggle-lever " +
+                  ((frame.connected ? frame.swB : mode === 1)
+                    ? "flysky-toggle-lever--down"
+                    : "flysky-toggle-lever--up")
+                }
+              />
+            </div>
+            <span className="flysky-switch-val flysky-switch-val--active">
+              {(frame.connected ? frame.swB : mode === 1) ? "MANEVRA" : "HAREKET"}
+            </span>
+          </div>
+
+          {/* SwC: Formation Selection (3-pos) */}
+          <div
+            className="flysky-switch-item"
+            onClick={() => !frame.swA && onFormationChange((formation + 1) % 3)}
+            title="SwC: Formasyon Seç (Tıkla veya Kumandadan Değiştir)"
+          >
+            <span className="flysky-switch-label">SwC (Formasyon)</span>
+            <div className="flysky-toggle-btn">
+              <div
+                className={
+                  "flysky-toggle-lever " +
+                  ((frame.connected ? frame.swC : formation) === 0
+                    ? "flysky-toggle-lever--up"
+                    : (frame.connected ? frame.swC : formation) === 2
+                    ? "flysky-toggle-lever--down"
+                    : "flysky-toggle-lever--mid")
+                }
+              />
+            </div>
+            <span className="flysky-switch-val flysky-switch-val--active">
+              {formationNames[frame.connected ? frame.swC : formation]}
+            </span>
+          </div>
+
+          {/* SwD: Takeoff / Land */}
+          <div className="flysky-switch-item" title="SwD: Kalkış / İniş Switch">
+            <span className="flysky-switch-label">SwD (Kalkış)</span>
+            <div className="flysky-toggle-btn">
+              <div
+                className={
+                  "flysky-toggle-lever " +
+                  (frame.swD
+                    ? "flysky-toggle-lever--down"
+                    : "flysky-toggle-lever--up")
+                }
+              />
+            </div>
+            <span className="flysky-switch-val">
+              {frame.swD ? "KALKIŞ" : "İNİŞ/HOLD"}
+            </span>
+          </div>
+        </div>
 
       {/* Dual Gimbals (Sticks) - Placed directly below switches */}
       <div className="flysky-gimbals-row">
@@ -291,6 +306,7 @@ export function FlySkyController({
             <strong>BAĞLANTI DURUMU:</strong> {frame.connected ? `BAĞLI (${frame.pad_id})` : "BAĞLANTI BEKLENİYOR / SIMULATOR"}
           </div>
         </div>
+      </div>
       </div>
     </div>
   );

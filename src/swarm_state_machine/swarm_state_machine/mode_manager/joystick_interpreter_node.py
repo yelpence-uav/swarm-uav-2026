@@ -378,21 +378,21 @@ class JoystickInterpreterNode(Node):
         else:
             aux1 = -1000
 
-        # SwB (Sürü Modu): Yukarı = Buton 3 (idx 2), Aşağı = Buton 4 (idx 3)
+        # SwB (Sürü Modu): Buton 2 (idx 2) = Yukarı (Movement), Buton 3 (idx 3) = Aşağı (Maneuver)
         btn_swb_down = bool(msg.buttons[3]) if len(msg.buttons) > 3 else False
         aux2 = 1000 if btn_swb_down else -1000
 
-        # SwC (Formasyon 3-pos): En Üst = Buton 5 (idx 4), Orta = Nötr, En Aşağı = Buton 6 (idx 5)
+        # SwC (Formasyon 3-pos): Buton 4 (idx 4) = Yukarı (Ok Başı), Buton 5 (idx 5) = Aşağı (Çizgi), Hiçbiri = Ortada (V)
         btn_swc_top = bool(msg.buttons[4]) if len(msg.buttons) > 4 else False
         btn_swc_bot = bool(msg.buttons[5]) if len(msg.buttons) > 5 else False
-        if btn_swc_top:
-            aux3 = -1000   # EN ÜST = Ok Başı (0)
-        elif btn_swc_bot:
-            aux3 = 1000    # EN AŞAĞI = Çizgi (2)
+        if btn_swc_top and not btn_swc_bot:
+            aux3 = -1000   # YUKARI = Ok Başı
+        elif btn_swc_bot and not btn_swc_top:
+            aux3 = 1000    # AŞAĞI = Çizgi
         else:
-            aux3 = 0       # ORTA = Formasyonsuz (1)
+            aux3 = 0       # ORTA = V Formasyonu
 
-        # SwD (Kalkış / İniş): Yukarı = Buton 7 (idx 6), Aşağı = Buton 8 (idx 7)
+        # SwD (Kalkış / İniş): Buton 6 (idx 6) = Yukarı (İniş), Buton 7 (idx 7) = Aşağı (Kalkış)
         btn_swd_down = bool(msg.buttons[7]) if len(msg.buttons) > 7 else False
         aux4 = 1000 if btn_swd_down else -1000
 

@@ -130,36 +130,59 @@ export function readGamepad(): GamepadFrame {
         if (p.buttons[bIdx]?.pressed) rawBtns.push(bIdx);
       }
 
-      let swA = false;
+      let swA = true;
       let swB = false;
       let swC = 1;
       let swD = false;
+      let deadman = false;
 
       if (isRcTx) {
-        // KULLANICI ÖZEL KUMANDA HARİTASI (BUTON 1-8)
-        // SwA: Yukarı = Buton 1 (idx 0), Aşağı = Buton 2 (idx 1)
-        // SwB: Yukarı = Buton 3 (idx 2), Aşağı = Buton 4 (idx 3)
-        // SwC: En Üst = Buton 5 (idx 4), Orta = Nötr, En Aşağı = Buton 6 (idx 5)
-        // SwD: Yukarı = Buton 7 (idx 6), Aşağı = Buton 8 (idx 7)
+        // KUMANDA BUTON HARİTASI (Butonlar önceliklidir):
+        // Buton 0 (idx 0) & Buton 1 (idx 1): SwA (Emniyet Kilidi)
+        // Buton 2 (idx 2) & Buton 3 (idx 3): SwB (Sürü Modu)
+        // Buton 4 (idx 4) & Buton 5 (idx 5): SwC (Formasyon Seçimi) - İkisi de basılı değilse ORTADA (1)
+        // Buton 6 (idx 6) & Buton 7 (idx 7): SwD (Kalkış / İniş)
 
-        swA = !!p.buttons[0]?.pressed; // SwA YUKARI = Buton 1 (idx 0) -> Emniyet AÇIK (True)
-        swB = !!(p.buttons[3]?.pressed || (p.buttons[4]?.pressed && !p.buttons[2]?.pressed));
+        const hasButtons = p.buttons.length >= 6;
 
-        const isSwCTop = !!p.buttons[4]?.pressed; // Buton 5 (idx 4)
-        const isSwCBot = !!p.buttons[5]?.pressed; // Buton 6 (idx 5)
+        if (hasButtons) {
+          // SwA (Emniyet Kilidi): Buton 0 (Yukarı/Kilitli), Buton 1 (Aşağı/Emniyet Açık)
+          const isSwaDown = !!p.buttons[1]?.pressed;
+          swA = !isSwaDown;
+          deadman = isSwaDown;
 
-        if (isSwCTop) {
-          swC = 0; // EN ÜST = Ok Başı (0)
-        } else if (isSwCBot) {
-          swC = 2; // EN AŞAĞI = Çizgi (2)
+          // SwB (Sürü Modu): Buton 2 (Yukarı/Movement -> swB=false), Buton 3 (Aşağı/Maneuver -> swB=true)
+          swB = !!p.buttons[3]?.pressed;
+
+          // SwC (Formasyon 3-pos): Buton 4 (Yukarı -> 0), Buton 5 (Aşağı -> 2), İkisi de basılı değilse (Ortada -> 1)
+          const isSwCTop = !!p.buttons[4]?.pressed;
+          const isSwCBot = !!p.buttons[5]?.pressed;
+
+          if (isSwCTop && !isSwCBot) {
+            swC = 0; // YUKARIDA = Ok Başı (0)
+          } else if (isSwCBot && !isSwCTop) {
+            swC = 2; // AŞAĞIDA = Çizgi (2)
+          } else {
+            swC = 1; // İKİSİ DE DEĞİLSE / ORTADA = V Formasyonu (1)
+          }
+
+          // SwD (Kalkış / İniş): Buton 6 (Yukarı/İniş -> swD=false), Buton 7 (Aşağı/Kalkış -> swD=true)
+          swD = !!p.buttons[7]?.pressed;
         } else {
-          swC = 1; // ORTA = Formasyonsuz (1)
+          // Eksen Tabanlı Yedek Kontrol (Axes Fallback)
+          const isSwaDown = ax4 > 0.2;
+          swA = !isSwaDown;
+          deadman = isSwaDown;
+          swB = ax6 > 0.2;
+          if (ax5 < -0.2) swC = 0;
+          else if (ax5 > 0.2) swC = 2;
+          else swC = 1;
+          swD = ax7 > 0.2;
         }
-
-        swD = !!(p.buttons[7]?.pressed || p.buttons[8]?.pressed);
       } else {
-        // Standard Xbox/PS Gamepad button mapping
-        swA = !!(p.buttons[0]?.pressed || p.buttons[4]?.pressed);
+        // Standard Xbox/PS Gamepad
+        deadman = !!(p.buttons[4]?.pressed || p.buttons[5]?.pressed);
+        swA = !deadman;
         swB = ax5 > 0.2;
         swD = !!(p.buttons[2]?.pressed || p.buttons[3]?.pressed);
         if (p.buttons[8]?.pressed) swC = 0;
@@ -174,9 +197,6 @@ export function readGamepad(): GamepadFrame {
       const vrA = p.axes[8] !== undefined ? clip(p.axes[8]) : (p.axes[6] !== undefined ? clip(p.axes[6]) : 0);
       const vrB = p.axes[9] !== undefined ? clip(p.axes[9]) : (p.axes[7] !== undefined ? clip(p.axes[7]) : 0);
 
-      // SwA YUKARI (swA = true) -> Emniyet Korumada/Kilitli (deadman = false, hiçbir switch çalışmaz)
-      // SwA AŞAĞI  (swA = false) -> Emniyet İzinli (deadman = true, switchler ve kalkış çalışır)
-      const deadman = !swA;
       const emergency = !!(p.buttons[8]?.pressed || p.buttons[9]?.pressed);
 
       return {

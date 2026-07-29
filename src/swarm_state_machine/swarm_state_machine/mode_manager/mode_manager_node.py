@@ -431,7 +431,8 @@ class ModeManagerNode(Node):
             ctx.centroid_z = msg.centroid_z
             ctx.formation_heading_deg = msg.formation_heading_deg
 
-        ctx.active_formation = msg.active_formation
+        if msg.active_formation > 0:
+            ctx.active_formation = msg.active_formation
         ctx.formation_reached = msg.formation_reached
         ctx.formation_stable = msg.formation_stable
 
@@ -481,15 +482,37 @@ class ModeManagerNode(Node):
                 msg.offset_x = [float(o[0]) for o in offsets]
                 msg.offset_y = [float(o[1]) for o in offsets]
                 msg.offset_z = [float(o[2]) for o in offsets]
+                self._last_valid_offsets_x = list(msg.offset_x)
+                self._last_valid_offsets_y = list(msg.offset_y)
+                self._last_valid_offsets_z = list(msg.offset_z)
             except Exception as e:
                 self.get_logger().error(f'Slot offset hesaplama hatası: {e}')
                 msg.offset_x = [0.0] * num_agents
                 msg.offset_y = [0.0] * num_agents
                 msg.offset_z = [0.0] * num_agents
+        elif ftype == FORMATION_UNKNOWN and hasattr(self, '_last_valid_offsets_x') and len(self._last_valid_offsets_x) == num_agents:
+            # Formasyondan Formasyonsuza geçildiğinde dronelar oldukları konum offsetlerini korur
+            msg.offset_x = list(self._last_valid_offsets_x)
+            msg.offset_y = list(self._last_valid_offsets_y)
+            msg.offset_z = list(self._last_valid_offsets_z)
         else:
-            msg.offset_x = [0.0] * num_agents
-            msg.offset_y = [0.0] * num_agents
-            msg.offset_z = [0.0] * num_agents
+            # Formasyonsuz (FORMATION_UNKNOWN) ve henüz hiç formasyon seçilmemiş (ilk kalkış anı):
+            # Droneların kalkışta birbirine kayıp çarpışmaması için mevcut ajan konumlarına göre offset hesaplanır
+            ox, oy, oz = [], [], []
+            ctx = self._ctx
+            for aid in msg.agent_ids:
+                status = ctx.agent_statuses.get(aid)
+                if status is not None and (getattr(status, 'position_valid', False) or status.x != 0.0 or status.y != 0.0):
+                    ox.append(float(status.x - ctx.centroid_x))
+                    oy.append(float(status.y - ctx.centroid_y))
+                    oz.append(0.0)
+                else:
+                    ox.append(0.0)
+                    oy.append(0.0)
+                    oz.append(0.0)
+            msg.offset_x = ox
+            msg.offset_y = oy
+            msg.offset_z = oz
 
         self._formation_pub.publish(msg)
 
