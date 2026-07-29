@@ -85,7 +85,9 @@ def evaluate_transitions(ctx: AgentContext) -> AgentState | None:
 
 
 def _from_unknown(ctx: AgentContext) -> AgentState | None:
-    """İlk telemetri geldikten sonra IDLE'a geçer.
+    """Evaluate transitions from this state.
+
+    İlk telemetri geldikten sonra IDLE'a geçer.
 
     Telemetri gelmeden IDLE demek "hazırım" demektir; oysa o anda drone'un
     durumu hakkında hiçbir bilgimiz yok. UNKNOWN'da beklemek dürüst davranış:
@@ -103,7 +105,8 @@ def _from_unknown(ctx: AgentContext) -> AgentState | None:
 
 
 def _from_idle(ctx: AgentContext) -> AgentState | None:
-    """
+    """Evaluate transitions from this state.
+
     IDLE → ARMING: Arming talebi varsa ve preflight kontrolleri geçiyorsa.
 
     Args:
@@ -120,7 +123,8 @@ def _from_idle(ctx: AgentContext) -> AgentState | None:
 
 
 def _from_arming(ctx: AgentContext) -> AgentState | None:
-    """
+    """Evaluate transitions from this state.
+
     ARMING → ARMED: PX4 arm onayı verdi.
     ARMING → IDLE: Sağlık kaybı veya timeout.
 
@@ -140,7 +144,8 @@ def _from_arming(ctx: AgentContext) -> AgentState | None:
 
 
 def _from_armed(ctx: AgentContext) -> AgentState | None:
-    """
+    """Evaluate transitions from this state.
+
     ARMED → TAKEOFF: Görev başlatma sinyali geldi ve OFFBOARD aktif.
     ARMED → IDLE: Disarm veya sağlık kaybı.
 
@@ -160,7 +165,8 @@ def _from_armed(ctx: AgentContext) -> AgentState | None:
 
 
 def _from_takeoff(ctx: AgentContext) -> AgentState | None:
-    """
+    """Evaluate transitions from this state.
+
     TAKEOFF → IN_SWARM: Hedef irtifaya ulaşıldı ve drone stabil.
     TAKEOFF → FAILSAFE: 30 saniyede irtifaya ulaşılamadı.
 
@@ -182,7 +188,8 @@ def _from_takeoff(ctx: AgentContext) -> AgentState | None:
 
 
 def _from_in_swarm(ctx: AgentContext) -> AgentState | None:
-    """
+    """Evaluate transitions from this state.
+
     IN_SWARM: Swarm manager komutlarına göre geçiş yapar.
 
     Args:
@@ -203,7 +210,8 @@ def _from_in_swarm(ctx: AgentContext) -> AgentState | None:
 
 
 def _from_executing_task(ctx: AgentContext) -> AgentState | None:
-    """
+    """Evaluate transitions from this state.
+
     EXECUTING_TASK → IN_SWARM: Görev tamamlandı.
     EXECUTING_TASK → RETURN_HOME: RTL komutu geldi.
 
@@ -221,7 +229,9 @@ def _from_executing_task(ctx: AgentContext) -> AgentState | None:
 
 
 def _from_detached(ctx: AgentContext) -> AgentState | None:
-    """DETACHED'dan her zaman PRECISION_LANDING'e geçer.
+    """Evaluate transitions from this state.
+
+    DETACHED'dan her zaman PRECISION_LANDING'e geçer.
 
     Args:
         ctx (AgentContext): Drone'un anlık durum bilgisi.
@@ -233,7 +243,8 @@ def _from_detached(ctx: AgentContext) -> AgentState | None:
 
 
 def _from_precision_landing(ctx: AgentContext) -> AgentState | None:
-    """
+    """Evaluate transitions from this state.
+
     PRECISION_LANDING → WAITING_REJOIN: Disarm oldu, iniş tamamlandı.
     PRECISION_LANDING → FAILSAFE: 60s içinde inemedi.
 
@@ -251,7 +262,8 @@ def _from_precision_landing(ctx: AgentContext) -> AgentState | None:
 
 
 def _from_waiting_rejoin(ctx: AgentContext) -> AgentState | None:
-    """
+    """Evaluate transitions from this state.
+
     WAITING_REJOIN → REJOINING: Swarm manager yeniden katılma izni verdi.
     WAITING_REJOIN → FAILSAFE: 120s içinde izin gelmedi.
 
@@ -269,7 +281,8 @@ def _from_waiting_rejoin(ctx: AgentContext) -> AgentState | None:
 
 
 def _from_rejoining(ctx: AgentContext) -> AgentState | None:
-    """
+    """Evaluate transitions from this state.
+
     REJOINING → IN_SWARM: Sürüye başarıyla katıldı.
     REJOINING → FAILSAFE: 60s içinde katılamadı.
 
@@ -287,7 +300,8 @@ def _from_rejoining(ctx: AgentContext) -> AgentState | None:
 
 
 def _from_return_home(ctx: AgentContext) -> AgentState | None:
-    """
+    """Evaluate transitions from this state.
+
     RETURN_HOME → LANDING: PX4 RTL tamamlandı veya swarm manager iniş
     komutu verdi.
 
@@ -305,7 +319,8 @@ def _from_return_home(ctx: AgentContext) -> AgentState | None:
 
 
 def _from_landing(ctx: AgentContext) -> AgentState | None:
-    """
+    """Evaluate transitions from this state.
+
     LANDING → LANDED: Disarm oldu, iniş tamamlandı.
 
     Args:
@@ -320,7 +335,8 @@ def _from_landing(ctx: AgentContext) -> AgentState | None:
 
 
 def _from_landed(ctx: AgentContext) -> AgentState | None:
-    """
+    """Evaluate transitions from this state.
+
     LANDED → IDLE: Yeni görev için hazırlan.
     LANDED → STANDBY: Drone pasif moda alınıyor.
 
@@ -338,7 +354,8 @@ def _from_landed(ctx: AgentContext) -> AgentState | None:
 
 
 def _from_failsafe(ctx: AgentContext) -> AgentState | None:
-    """
+    """Evaluate transitions from this state.
+
     FAILSAFE → RETURN_HOME: Sağlık geri geldi ve swarm manager onayladı.
     FAILSAFE → LANDING: RTL mümkün değilse acil iniş.
 
@@ -373,7 +390,8 @@ def _from_failsafe(ctx: AgentContext) -> AgentState | None:
 
 
 def _from_standby(ctx: AgentContext) -> AgentState | None:
-    """
+    """Evaluate transitions from this state.
+
     STANDBY → ARMING: Katılma isteği var ve preflight geçiyor.
 
     Args:

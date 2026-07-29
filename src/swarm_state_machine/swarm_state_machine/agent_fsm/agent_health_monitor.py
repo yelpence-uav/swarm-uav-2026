@@ -1,9 +1,9 @@
 """Drone uçuş sağlık kontrollerini her FSM tick'inde çalıştırır."""
 
-import statistics
-import time
 from collections import deque
 from dataclasses import dataclass
+import statistics
+import time
 
 from swarm_interfaces.msg import SystemEvent
 
@@ -52,6 +52,7 @@ class HealthCheckResult:
         event_type: Yayınlanacak SystemEvent.event_type değeri.
         reason: status_text ve log için açıklama.
     """
+
     critical_fault: bool = False
     safety_hold: bool = False
     warning: bool = False
