@@ -19,6 +19,25 @@ const GPS_LABEL: Record<number, string> = {
   6: "RTK-Fix",
 };
 
+// Fix tipine karşılık gelen tipik yatay doğruluk.
+//
+// NEDEN eph DEĞİL: Here4 DroneCAN üzerinden gelen kovaryansı RTK çözümünü
+// yansıtacak şekilde güncellemiyor. Sahada ölçüldü (29 Temmuz): RTK-Fixed
+// durumdayken GPS eph'i 66 cm bildiriyordu, oysa hareketsiz drone'un gerçek
+// konum saçılımı 345 örnekte std 0.2 cm, tepe sapma 1.5 cm idi. eph'i
+// göstermek operatörü 300 kat yanıltırdı.
+//
+// fix_type ise doğruluk SINIFININ kendisidir ve güvenilir — QGC ve Mission
+// Planner da doğruluğu böyle raporlar. "~" işareti bunun ölçüm değil sınıf
+// olduğunu belli ediyor.
+const GPS_DOGRULUK: Record<number, string> = {
+  2: "~10 m",
+  3: "~2 m",
+  4: "~1 m",
+  5: "~30 cm",
+  6: "~2 cm",
+};
+
 interface DroneCardProps {
   drone: DroneState;
   /** Kart sağ üstündeki tek buton — seçili drone kontrol panelini açar. */
@@ -87,6 +106,7 @@ export function DroneCard({ drone, onSelect, selected = false }: DroneCardProps)
 
   const armed = drone.armed;
   const gpsLabel = GPS_LABEL[drone.gps_fix_type] ?? "?";
+  const gpsDogruluk = GPS_DOGRULUK[drone.gps_fix_type] ?? "";
 
   // Operatorun sordugu tek soru "su an ucabilir mi". Kill switch'i, on-kontrolu
   // ve kumanda baglantisini tek "ucamaz" sebebi olarak birlestiriyoruz.
@@ -127,7 +147,12 @@ export function DroneCard({ drone, onSelect, selected = false }: DroneCardProps)
         <Stat label="ALT" value={`${drone.alt_m.toFixed(1)} m`} />
         <Stat label="HIZ" value={`${drone.groundspeed_mps.toFixed(1)} m/s`} />
         <Stat label="YAW" value={`${drone.yaw_deg.toFixed(0)}°`} />
-        <Stat label="GPS" value={`${gpsLabel} · ${drone.gps_satellites}`} />
+        <Stat
+          label="GPS"
+          value={`${gpsLabel} · ${drone.gps_satellites}${
+            gpsDogruluk ? ` · ${gpsDogruluk}` : ""
+          }`}
+        />
       </dl>
 
       <footer className="drone-card__footer mono">
