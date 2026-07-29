@@ -39,12 +39,38 @@ fi
 KULLANICI="${SUDO_USER:-$(logname 2>/dev/null || echo '')}"
 
 # ---------------------------------------------------------------- 1) saat ---
-echo "--- 1/4  saat dilimi ---"
+echo "--- 1/6  saat dilimi ---"
 timedatectl set-timezone Europe/Istanbul
 echo "    $(timedatectl show -p Timezone --value)"
 
+# ------------------------------------------------------------ 1.5) wifi ---
+# SSH'a bazen 20 sn bağlanamama sorununun sebebi: WiFi radyosu boştayken
+# uykuya geçiyor, gelen bağlantıyı geç fark ediyor. Ping atmak radyoyu
+# uyandırdığı için "ping atınca bağlanıyor" davranışı çıkıyordu. Ölçüldü:
+# iki Pi'de de "Power save: on".
+#
+# nmcli ile kapatıyoruz çünkü NetworkManager yeniden bağlanınca `iw` ile
+# yapılan geçici değişikliği geri alır; bağlantı profiline yazmak kalıcıdır.
+# wifi.powersave: 2 = kapalı, 3 = açık.
+#
+# Maliyeti: radyo uyanık kalır, birkaç yüz mW fazla çeker. Motorların yanında
+# ölçülemeyecek kadar küçük. WiFi zaten uçuş için kritik hat değil (mesh var),
+# yer tarafındaki bakım/hata ayıklama yolu — orada gecikme gerçek zaman kaybı.
+echo "--- 2/6  wifi power save ---"
+if systemctl is-active --quiet NetworkManager; then
+    nmcli -t -f NAME,TYPE connection show 2>/dev/null \
+      | awk -F: '$2=="802-11-wireless"{print $1}' \
+      | while read -r baglanti; do
+            nmcli connection modify "$baglanti" wifi.powersave 2 2>/dev/null \
+              && echo "    $baglanti -> powersave kapali"
+        done
+    nmcli device reapply wlan0 >/dev/null 2>&1 || true
+fi
+/usr/sbin/iw dev wlan0 set power_save off 2>/dev/null || true   # anlik etki
+echo -n "    su anki durum : "; /usr/sbin/iw dev wlan0 get power_save 2>/dev/null || echo "?"
+
 # ------------------------------------------------------------- 2) journal ---
-echo "--- 2/4  kalıcı journal + okuma yetkisi ---"
+echo "--- 3/6  kalıcı journal + okuma yetkisi ---"
 # DOSYA ADI ÖNEMLİ — "10-" ile başlarsa İŞE YARAMAZ.
 # Raspberry Pi OS, SD kartı yıpratmamak için journald'ı bilerek RAM'e sabitleyen
 # kendi dosyasını koyuyor:
@@ -86,7 +112,7 @@ sleep 2
 journalctl --flush 2>/dev/null || true
 
 # --------------------------------------------------------------- 3) izle ---
-echo "--- 3/4  izleme scripti ---"
+echo "--- 4/6  izleme scripti ---"
 cat > /usr/local/bin/yelpence_izle.sh <<'BETIK'
 #!/bin/bash
 # Dakikada bir sistem durumunu tek satır yazar. Arıza görürse ayrıca
@@ -166,7 +192,7 @@ rm -f /etc/systemd/system/guc-izle.service /etc/systemd/system/guc-izle.timer
 systemctl disable --now guc-izle.timer 2>/dev/null || true
 
 # --------------------------------------------------------------- 4) timer ---
-echo "--- 4/4  timer ---"
+echo "--- 5/6  timer ---"
 cat > /etc/systemd/system/yelpence-izle.service <<'EOF'
 [Unit]
 Description=Yelpence drone Pi durum kaydi
@@ -195,6 +221,80 @@ systemctl daemon-reload
 systemctl enable --now yelpence-izle.timer
 /usr/local/bin/yelpence_izle.sh
 
+# ---------------------------------------------------------- 6) ucus kaydi ---
+# PX4'un kendi ULog'unun yerine gecen kayit. Pixhawk'ta RAM sinirda oldugu icin
+# FCU tarafinda logger ACILMIYOR; onun yerine MAVROS'un ZATEN aldigi veriyi
+# Pi'de diske yaziyoruz. Pixhawk'a EK YUK BINMEZ — veri hatta nasilsa akiyor,
+# biz sadece kaydediyoruz.
+#
+# ULog'dan eksigi: PX4'un ic uORB konulari (kestirimci innovation'lari,
+# aktuator ciktilari, ham sensor 250 Hz+) MAVLink'ten gecmez. Mevcut yayin
+# hizlariyla (ATTITUDE_QUAT 20 Hz, ODOMETRY 20 Hz, GLOBAL_POS 10 Hz) 10 Hz'e
+# kadar olan olaylar yakalanir — kaza/olay analizi icin yeter, EKF veya
+# kontrol ayari icin yetmez. Gerekirse mesaj_hizlari.py'den SECICI olarak
+# yukseltilir (hepsi birden degil; her mesaj FCU'da CPU ve biraz RAM demek).
+#
+# baslat.sh'e DOKUNULMUYOR: Pi'deki surum repodakinden ayrismis durumda ve
+# ucus zinciri orada. Kayit ayri bir servis olarak disaridan docker exec ile
+# baglaniyor; konteyner yeniden baslatmaya gerek yok, ucus yigini etkilenmez.
+echo "--- 6/6  kayit disk bekcisi ---"
+# NOT: ucus kaydini (ros2 bag) BU script kurmaz — o /ws/baslat.sh icinde,
+# konteynerin icinde calisir. Sebebi: docker exec ile disaridan baglanirsak
+# systemd'nin gonderdigi sinyal konteynerin ICINE ulasmaz (Docker iletmez),
+# kayit sureci oksuz kalir ve bag indekssiz/acilmaz halde biter. Kayit
+# konteynerin icinde baslarsa bu sorun hic olusmuyor.
+# Host'a dusen tek is disk yonetimi — asagidaki bekci.
+
+# Disk bekcisi: kayit dizini tavani asarsa EN ESKI parcalari siler.
+cat > /usr/local/bin/yelpence_kayit_temizlik.sh <<'BETIK'
+#!/bin/bash
+# Kayit dizinini tavan altinda tutar. Saatte bir calisir.
+set -uo pipefail
+TAVAN_MB=5000                       # toplam kayit tavani
+for D in /home/*/yelpence_ws/kayit; do
+    [ -d "$D" ] || continue
+    while :; do
+        boyut=$(du -sm "$D" 2>/dev/null | cut -f1)
+        [ -z "$boyut" ] && break
+        [ "$boyut" -le "$TAVAN_MB" ] && break
+        eski=$(ls -1dt "$D"/*/ 2>/dev/null | tail -1)
+        [ -z "$eski" ] && break
+        echo "$(date -Is) tavan asildi (${boyut}MB) -> siliniyor: $eski" \
+            >> /var/log/yelpence_izle.log
+        rm -rf "$eski"
+    done
+done
+BETIK
+chmod +x /usr/local/bin/yelpence_kayit_temizlik.sh
+
+cat > /etc/systemd/system/yelpence-kayit-temizlik.service <<'EOF'
+[Unit]
+Description=Kayit dizini tavan bekcisi
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/yelpence_kayit_temizlik.sh
+Nice=19
+IOSchedulingClass=idle
+EOF
+
+cat > /etc/systemd/system/yelpence-kayit-temizlik.timer <<'EOF'
+[Unit]
+Description=Kayit temizligini saatte bir calistir
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=1h
+
+[Install]
+WantedBy=timers.target
+EOF
+
+systemctl disable --now yelpence-kayit.service 2>/dev/null || true
+rm -f /etc/systemd/system/yelpence-kayit.service /usr/local/bin/yelpence_kayit.sh
+systemctl daemon-reload
+systemctl enable --now yelpence-kayit-temizlik.timer
+
 # ------------------------------------------------------------ dogrulama ---
 echo
 echo "=== KURULDU ==="
@@ -212,9 +312,23 @@ else
     systemd-analyze cat-config systemd/journald.conf 2>/dev/null \
         | grep -E '^#.*journald\.conf|^\s*Storage=' | sed 's/^/      /'
 fi
+echo -n "wifi psave  : "; /usr/sbin/iw dev wlan0 get power_save 2>/dev/null | awk '{print $NF}'
+echo -n "ucus kaydi  : "; docker exec $(docker ps --format "{{.Names}}" | grep -E "^drone[0-9]+$" | head -1) pgrep -f "ros2 bag record" >/dev/null 2>&1 && echo "calisiyor (konteyner icinde)" || echo "YOK — baslat.sh guncellendi mi? konteyner yeniden baslatildi mi?"
+sleep 4
+KDIZIN=$(ls -1dt /home/*/yelpence_ws/kayit/*/ 2>/dev/null | head -1)
+if [ -n "$KDIZIN" ]; then
+    echo "    aktif bag : $KDIZIN"
+    echo -n "    kayitli konu sayisi : "
+    ls -1 "$KDIZIN" 2>/dev/null | wc -l
+else
+    echo "    UYARI: henuz bag dizini yok — 'journalctl -u yelpence-kayit -n 20' ile bak"
+fi
 echo "ilk satir   : $(tail -1 /var/log/yelpence_izle.log 2>/dev/null)"
 echo
 echo "Sonradan bakmak icin:"
 echo "    tail -40 /var/log/yelpence_izle.log      # dakika dakika durum"
 echo "    cat /var/log/yelpence_olay.log           # sadece ariza anlari"
 echo "    journalctl -b -1 -e                      # onceki oturumun sonu"
+echo "    ls -lt ~/yelpence_ws/kayit/              # ucus kayitlari"
+echo "    docker exec <kap> tail -20 /tmp/kayit.log  # kayit surecinin cikti gunlugu"
+echo "    ros2 bag reindex ~/yelpence_ws/kayit/<dizin>  # cokme sonrasi metadata.yaml yoksa"
