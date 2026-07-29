@@ -13,7 +13,7 @@ _CMD_RESUME = 4
 _CMD_RTL = 5
 _CMD_LAND = 6
 
-_PREFLIGHT_TIMEOUT_S = 60.0
+_PREFLIGHT_TIMEOUT_S = 3600.0
 _TAKEOFF_TIMEOUT_S = 90.0
 _NAVIGATE_TIMEOUT_S = 120.0
 _QR_TASK_TIMEOUT_S = 90.0
@@ -35,7 +35,7 @@ def evaluate_transitions(ctx: MissionContext) -> MissionState | None:
         if ctx.state not in _TERMINAL_STATES:
             return MissionState.ABORTED
 
-    if (ctx.pending_command in (_CMD_RTL, _CMD_LAND)
+    if (ctx.pending_command == _CMD_RTL
             and ctx.state not in _TERMINAL_STATES
             and ctx.state not in (
                 MissionState.RETURN_HOME,
@@ -43,6 +43,14 @@ def evaluate_transitions(ctx: MissionContext) -> MissionState | None:
                 MissionState.IDLE,
             )):
         return MissionState.RETURN_HOME
+
+    if (ctx.pending_command == _CMD_LAND
+            and ctx.state not in _TERMINAL_STATES
+            and ctx.state not in (
+                MissionState.LANDING,
+                MissionState.IDLE,
+            )):
+        return MissionState.LANDING
 
     if (ctx.pending_command == _CMD_PAUSE
             and ctx.state not in _TERMINAL_STATES

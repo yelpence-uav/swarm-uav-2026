@@ -83,7 +83,7 @@ class JoystickInterpreterNode(Node):
         self._requested_formation = 0
         self._requested_spacing_m = 5.0
         self._last_aux3_formation = None
-        self._last_aux4 = 0
+        self._last_aux4 = -1000  # SwD UP varsayılan
         self._safety_active = False
         init_cmd = SwarmControlCommand()
         init_cmd.mode = SwarmControlCommand.MODE_SWARM_MOVEMENT
@@ -193,7 +193,22 @@ class JoystickInterpreterNode(Node):
         # SwA aktif değilse hiçbir komut çalışmaz (arm dahil)
         aux1_val = getattr(msg, self.AUX_SAFETY_CHANNEL, 0)
         self._safety_active = aux1_val > self.AUX_SAFETY_THRESH
+
+        # Emniyet kilitliyken de aux durumlarını takip et.
+        # Böylece kilit açıldığında sahte edge tetiklenmez.
+        aux4_val = getattr(msg, self.AUX_TAKEOFF_LAND_CHANNEL, 0)
+        aux3_val = getattr(msg, self.AUX_FORMATION_CHANNEL, 0)
+
         if not self._safety_active:
+            # Aux durumlarını güncelle ama komut gönderme
+            self._last_aux4 = aux4_val
+            if aux3_val < self.AUX_FORMATION_THRESH_LOW:
+                self._last_aux3_formation = SwarmControlCommand.FORMATION_OKBASI
+            elif aux3_val > self.AUX_FORMATION_THRESH_HIGH:
+                self._last_aux3_formation = SwarmControlCommand.FORMATION_CIZGI
+            else:
+                self._last_aux3_formation = SwarmControlCommand.FORMATION_UNKNOWN
+
             cmd.command_valid = False
             cmd.deadman_pressed = False
             cmd.takeoff = False
@@ -225,14 +240,14 @@ class JoystickInterpreterNode(Node):
             self._active_mode = SwarmControlCommand.MODE_SWARM_MOVEMENT
         cmd.mode = self._active_mode
 
-        # Formasyon Seçimi (AUX 3 - SwC: Ok Başı / V / Çizgi)
-        aux3_val = getattr(msg, self.AUX_FORMATION_CHANNEL, 0)
+        # Formasyon Seçimi (AUX 3 - SwC: Ok Başı / Formasyonsuz / Çizgi)
+        # aux3_val yukarıda okundu
         if aux3_val < self.AUX_FORMATION_THRESH_LOW:
             current_aux3_formation = SwarmControlCommand.FORMATION_OKBASI
         elif aux3_val > self.AUX_FORMATION_THRESH_HIGH:
             current_aux3_formation = SwarmControlCommand.FORMATION_CIZGI
         else:
-            current_aux3_formation = SwarmControlCommand.FORMATION_V
+            current_aux3_formation = SwarmControlCommand.FORMATION_UNKNOWN  # ORTA = Formasyonsuz (0)
 
         if self._last_aux3_formation != current_aux3_formation:
             self._last_aux3_formation = current_aux3_formation
@@ -250,15 +265,15 @@ class JoystickInterpreterNode(Node):
         cmd.emergency_stop = False
 
         # Kalkış / İniş Tetikleme (AUX 4 - SwD)
-        # Şalteri AŞAĞI indirince (<-300) KALKIŞ, YUKARI kaldırınca (>300) İNİŞ
-        aux4_val = getattr(msg, self.AUX_TAKEOFF_LAND_CHANNEL, 0)
-        if aux4_val < self.AUX_LAND_THRESH and (
-            self._last_aux4 >= self.AUX_LAND_THRESH
+        # Şalteri AŞAĞI indirince (>300) KALKIŞ (Mission 1), YUKARI kaldırınca (<-300) İNİŞ (Mission 6)
+        # aux4_val yukarıda okundu
+        if aux4_val > self.AUX_TAKEOFF_THRESH and (
+            self._last_aux4 <= self.AUX_TAKEOFF_THRESH
         ):
             cmd.takeoff = True
             self._call_trigger_mission(1)
-        elif aux4_val > self.AUX_TAKEOFF_THRESH and (
-            self._last_aux4 <= self.AUX_TAKEOFF_THRESH
+        elif aux4_val < self.AUX_LAND_THRESH and (
+            self._last_aux4 >= self.AUX_LAND_THRESH
         ):
             cmd.land = True
             self._call_trigger_mission(6)
@@ -301,11 +316,10 @@ class JoystickInterpreterNode(Node):
         cmd.deadman_timeout_s = self._deadman_timeout_s
 
         if elapsed_s > self._deadman_timeout_s:
-            cmd.command_valid = False
-            cmd.deadman_pressed = False
-        else:
-            cmd.command_valid = self._last_cmd.command_valid
-            cmd.deadman_pressed = self._last_cmd.deadman_pressed
+            return
+
+        cmd.command_valid = self._last_cmd.command_valid
+        cmd.deadman_pressed = self._last_cmd.deadman_pressed
 
         cmd.requested_formation = self._requested_formation
         cmd.requested_spacing_m = self._requested_spacing_m
@@ -351,27 +365,36 @@ class JoystickInterpreterNode(Node):
         throttle = msg.axes[2] if len(msg.axes) > 2 else 0.0
         yaw = msg.axes[3] if len(msg.axes) > 3 else 0.0
 
-        # Aux Kanalları:
-        # aux1 = SwA (Emniyet), axes[4]
-        aux1 = int(msg.axes[4] * 1000) if len(msg.axes) > 4 else 0
+        # SwA (Emniyet Kilidi): Yukarı = Buton 1 (idx 0) veya axis 4 < -0.2 -> KİLİTLİ (-1000)
+        #                        Aşağı  = Buton 2 (idx 1) veya axis 4 > 0.2 -> EMNİYET AÇIK (1000)
+        btn_swa_up = bool(msg.buttons[0]) if len(msg.buttons) > 0 else False
+        btn_swa_down = bool(msg.buttons[1]) if len(msg.buttons) > 1 else False
+        axis_swa = msg.axes[4] if len(msg.axes) > 4 else 0.0
 
-        # aux2 = SwB (Mod): SADECE axes[5]
-        aux2 = int(msg.axes[5] * 1000) if len(msg.axes) > 5 else 0
-
-        # aux3 = SwC (Formasyon 3-pos): ALT = Çizgi (1000), ÜST = V (-1000), ORTA = Ok Başı (0)
-        btn0_pressed = bool(msg.buttons[0]) if len(msg.buttons) > 0 else (bool(msg.buttons[8]) if len(msg.buttons) > 8 else False)
-        btn1_pressed = bool(msg.buttons[1]) if len(msg.buttons) > 1 else (bool(msg.buttons[9]) if len(msg.buttons) > 9 else False)
-        if btn0_pressed:
-            aux3 = 1000    # ALT = Çizgi
-        elif btn1_pressed:
-            aux3 = -1000   # ÜST = V Formasyonu
+        if btn_swa_up or axis_swa < -0.2:
+            aux1 = -1000
+        elif btn_swa_down or axis_swa > 0.2:
+            aux1 = 1000
         else:
-            aux3 = 0       # ORTA = Ok Başı
+            aux1 = -1000
 
-        # aux4 = SwD (Kalkış/İniş): SADECE Buton 2 ve 3 (Canlı test ile doğrulandı)
-        btn2_pressed = bool(msg.buttons[2]) if len(msg.buttons) > 2 else False
-        btn3_pressed = bool(msg.buttons[3]) if len(msg.buttons) > 3 else False
-        aux4 = -1000 if (btn2_pressed or btn3_pressed) else 1000
+        # SwB (Sürü Modu): Yukarı = Buton 3 (idx 2), Aşağı = Buton 4 (idx 3)
+        btn_swb_down = bool(msg.buttons[3]) if len(msg.buttons) > 3 else False
+        aux2 = 1000 if btn_swb_down else -1000
+
+        # SwC (Formasyon 3-pos): En Üst = Buton 5 (idx 4), Orta = Nötr, En Aşağı = Buton 6 (idx 5)
+        btn_swc_top = bool(msg.buttons[4]) if len(msg.buttons) > 4 else False
+        btn_swc_bot = bool(msg.buttons[5]) if len(msg.buttons) > 5 else False
+        if btn_swc_top:
+            aux3 = -1000   # EN ÜST = Ok Başı (0)
+        elif btn_swc_bot:
+            aux3 = 1000    # EN AŞAĞI = Çizgi (2)
+        else:
+            aux3 = 0       # ORTA = Formasyonsuz (1)
+
+        # SwD (Kalkış / İniş): Yukarı = Buton 7 (idx 6), Aşağı = Buton 8 (idx 7)
+        btn_swd_down = bool(msg.buttons[7]) if len(msg.buttons) > 7 else False
+        aux4 = 1000 if btn_swd_down else -1000
 
         aux5 = 0
         aux6 = 0

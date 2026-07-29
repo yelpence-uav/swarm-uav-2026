@@ -208,9 +208,9 @@ class TestPreflight(unittest.TestCase):
         self.assertIsNone(evaluate_transitions(ctx))
 
     def test_timeout_aborted(self):
-        """60s içinde hazır olunmazsa ABORTED geçmeli."""
+        """3600s içinde hazır olunmazsa ABORTED geçmeli."""
         ctx = _ctx(MissionState.PREFLIGHT)
-        _geç(ctx, 61.0)
+        _geç(ctx, 3601.0)
         result = evaluate_transitions(ctx)
         self.assertEqual(result, MissionState.ABORTED)
 
@@ -503,15 +503,15 @@ class TestSemiAutonomous(unittest.TestCase):
         result = evaluate_transitions(ctx)
         self.assertEqual(result, MissionState.RETURN_HOME)
 
-    def test_land_komutu_return_home(self):
-        """LAND komutu -> RETURN_HOME."""
+    def test_land_komutu_landing(self):
+        """LAND komutu -> LANDING."""
         ctx = _ctx(
             MissionState.SEMI_AUTONOMOUS,
             mission_type=MissionType.SEMI_AUTONOMOUS,
         )
         ctx.pending_command = _LAND
         result = evaluate_transitions(ctx)
-        self.assertEqual(result, MissionState.RETURN_HOME)
+        self.assertEqual(result, MissionState.LANDING)
 
     def test_aktif_bekle(self):
         """Komut yokken SEMI_AUTONOMOUS'ta beklemeli."""
@@ -653,12 +653,12 @@ class TestGlobalRtl(unittest.TestCase):
     def test_rtl_paused(self):
         self._rtl_testi(MissionState.PAUSED)
 
-    def test_land_komutu_da_rtl(self):
-        """LAND komutu da RETURN_HOME tetiklemeli."""
+    def test_land_komutu_landing(self):
+        """LAND komutu doğrudan LANDING (olduğu yere iniş) tetiklemeli."""
         ctx = _ctx(MissionState.NAVIGATE_TO_QR)
         ctx.pending_command = _LAND
         result = evaluate_transitions(ctx)
-        self.assertEqual(result, MissionState.RETURN_HOME)
+        self.assertEqual(result, MissionState.LANDING)
 
 
 class TestGlobalPause(unittest.TestCase):

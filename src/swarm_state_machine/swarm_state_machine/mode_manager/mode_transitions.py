@@ -4,8 +4,8 @@
 from .mode_context import ModeContext
 from .mode_states import ControlMode, ModeState
 
-_PREFLIGHT_TIMEOUT_S = 60.0
-_TAKEOFF_TIMEOUT_S = 90.0
+_PREFLIGHT_TIMEOUT_S = 3600.0
+_TAKEOFF_TIMEOUT_S = 300.0
 _LANDING_TIMEOUT_S = 90.0
 _RTL_TIMEOUT_S = 120.0
 

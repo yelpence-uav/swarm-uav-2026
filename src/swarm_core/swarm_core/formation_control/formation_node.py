@@ -120,8 +120,10 @@ class FormationControlNode(Node):
         self.declare_parameter('keeping_enter_m', 1.2)
         self.declare_parameter('keeping_exit_m', 1.8)
         self.declare_parameter('vff_lpf_alpha', 0.3)
+        self.declare_parameter('sitl_mode', True)
 
         self._agent_id = int(self.get_parameter('agent_id').value)
+        self._sitl_mode = bool(self.get_parameter('sitl_mode').value)
         self._publish_rate_hz = float(
             self.get_parameter('publish_rate_hz').value
         )
@@ -193,6 +195,18 @@ class FormationControlNode(Node):
         self.create_subscription(
             AgentStatus,
             f'/swarm/agent/drone{self._agent_id}/telemetry',
+            self._on_agent_status,
+            _BEST_EFFORT_QOS,
+        )
+        self.create_subscription(
+            AgentStatus,
+            f'/swarm/public/drone{self._agent_id}/status',
+            self._on_agent_status,
+            _BEST_EFFORT_QOS,
+        )
+        self.create_subscription(
+            AgentStatus,
+            f'/swarm/internal/drone{self._agent_id}/status',
             self._on_agent_status,
             _BEST_EFFORT_QOS,
         )
@@ -450,14 +464,14 @@ class FormationControlNode(Node):
         if not agent_ids or self._agent_id not in agent_ids:
             return
 
-        if not self._origin_synced:
+        if not self._sitl_mode and not self._origin_synced:
             self.get_logger().warn(
                 'origin senkronlanmadi; setpoint bekletiliyor',
                 throttle_duration_sec=2.0,
             )
             return
 
-        if not (self._xy_valid and self._z_valid):
+        if not self._sitl_mode and not (self._xy_valid and self._z_valid):
             self.get_logger().warn(
                 'konum tahmini gecersiz; setpoint bekletiliyor',
                 throttle_duration_sec=2.0,

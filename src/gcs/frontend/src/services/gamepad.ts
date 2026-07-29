@@ -136,67 +136,27 @@ export function readGamepad(): GamepadFrame {
       let swD = false;
 
       if (isRcTx) {
-        swA = ax4 > 0.0;
-        swB = ax5 > 0.2; // Varsayılan SwB
-        swC = 1;         // Varsayılan V
-        swD = !!(p.buttons[2]?.pressed || p.buttons[3]?.pressed); // Varsayılan SwD
+        // KULLANICI ÖZEL KUMANDA HARİTASI (BUTON 1-8)
+        // SwA: Yukarı = Buton 1 (idx 0), Aşağı = Buton 2 (idx 1)
+        // SwB: Yukarı = Buton 3 (idx 2), Aşağı = Buton 4 (idx 3)
+        // SwC: En Üst = Buton 5 (idx 4), Orta = Nötr, En Aşağı = Buton 6 (idx 5)
+        // SwD: Yukarı = Buton 7 (idx 6), Aşağı = Buton 8 (idx 7)
 
-        // SwC (Formasyon 3-pos): 
-        // Fiziksel ALT (Buton 0/8) -> 2 (ÇİZGİ)
-        // Fiziksel ÜST (Buton 1/9) -> 1 (V FORMASYONU)
-        // Fiziksel ORTA (Nötr / Hiçbiri) -> 0 (OK BAŞI)
-        if (p.buttons[0]?.pressed || p.buttons[8]?.pressed) {
-          swC = 2; // ALT = Çizgi
-        } else if (p.buttons[1]?.pressed || p.buttons[9]?.pressed) {
-          swC = 1; // ÜST = V Formasyonu
+        swA = !!p.buttons[0]?.pressed; // SwA YUKARI = Buton 1 (idx 0) -> Emniyet AÇIK (True)
+        swB = !!(p.buttons[3]?.pressed || (p.buttons[4]?.pressed && !p.buttons[2]?.pressed));
+
+        const isSwCTop = !!p.buttons[4]?.pressed; // Buton 5 (idx 4)
+        const isSwCBot = !!p.buttons[5]?.pressed; // Buton 6 (idx 5)
+
+        if (isSwCTop) {
+          swC = 0; // EN ÜST = Ok Başı (0)
+        } else if (isSwCBot) {
+          swC = 2; // EN AŞAĞI = Çizgi (2)
         } else {
-          swC = 0; // ORTA = Ok Başı
+          swC = 1; // ORTA = Formasyonsuz (1)
         }
 
-        // TÜM ŞALTERLER İÇİN İNTERAKTİF ÖĞRENİLMİŞ DONANIM HARİTASI
-        try {
-          // SwA (Emniyet)
-          const aType = localStorage.getItem('rc_mapping_swA_type');
-          const aIdx = Number(localStorage.getItem('rc_mapping_swA_idx') ?? -1);
-          if (aType === 'axis' && aIdx >= 0) {
-            swA = (p.axes[aIdx] ?? 0) > 0.2;
-          } else if (aType === 'btn' && aIdx >= 0) {
-            swA = !!p.buttons[aIdx]?.pressed;
-          }
-
-          // SwB (Mod)
-          const bType = localStorage.getItem('rc_mapping_swB_type');
-          const bIdx = Number(localStorage.getItem('rc_mapping_swB_idx') ?? -1);
-          if (bType === 'axis' && bIdx >= 0) {
-            swB = (p.axes[bIdx] ?? 0) > 0.2;
-          } else if (bType === 'btn' && bIdx >= 0) {
-            swB = !!p.buttons[bIdx]?.pressed;
-          }
-
-          // SwC (Formasyon)
-          const cType = localStorage.getItem('rc_mapping_swC_type');
-          const cIdx1 = Number(localStorage.getItem('rc_mapping_swC_idx1') ?? -1);
-          const cIdx2 = Number(localStorage.getItem('rc_mapping_swC_idx2') ?? -1);
-          if (cType === 'btn' && cIdx1 >= 0 && cIdx2 >= 0) {
-            if (p.buttons[cIdx1]?.pressed) swC = 0;       // ORTA = Ok Başı
-            else if (p.buttons[cIdx2]?.pressed) swC = 2;  // ALT = Çizgi
-            else swC = 1;                                 // ÜST = V
-          } else if (cType === 'axis' && cIdx1 >= 0) {
-            const axVal = p.axes[cIdx1] ?? 0;
-            if (axVal > -0.3 && axVal < 0.3) swC = 0;     // ORTA = Ok Başı
-            else if (axVal > 0.3) swC = 2;                 // ALT = Çizgi
-            else swC = 1;                                 // ÜST = V
-          }
-
-          // SwD (Kalkış/İniş)
-          const dType = localStorage.getItem('rc_mapping_swD_type');
-          const dIdx = Number(localStorage.getItem('rc_mapping_swD_idx') ?? -1);
-          if (dType === 'axis' && dIdx >= 0) {
-            swD = (p.axes[dIdx] ?? 0) > 0.2;
-          } else if (dType === 'btn' && dIdx >= 0) {
-            swD = !!p.buttons[dIdx]?.pressed;
-          }
-        } catch (_) {}
+        swD = !!(p.buttons[7]?.pressed || p.buttons[8]?.pressed);
       } else {
         // Standard Xbox/PS Gamepad button mapping
         swA = !!(p.buttons[0]?.pressed || p.buttons[4]?.pressed);
@@ -214,7 +174,9 @@ export function readGamepad(): GamepadFrame {
       const vrA = p.axes[8] !== undefined ? clip(p.axes[8]) : (p.axes[6] !== undefined ? clip(p.axes[6]) : 0);
       const vrB = p.axes[9] !== undefined ? clip(p.axes[9]) : (p.axes[7] !== undefined ? clip(p.axes[7]) : 0);
 
-      const deadman = swA;
+      // SwA YUKARI (swA = true) -> Emniyet Korumada/Kilitli (deadman = false, hiçbir switch çalışmaz)
+      // SwA AŞAĞI  (swA = false) -> Emniyet İzinli (deadman = true, switchler ve kalkış çalışır)
+      const deadman = !swA;
       const emergency = !!(p.buttons[8]?.pressed || p.buttons[9]?.pressed);
 
       return {

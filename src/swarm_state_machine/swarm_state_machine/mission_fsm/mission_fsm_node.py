@@ -19,6 +19,7 @@ from swarm_interfaces.msg import (
     MissionTarget,
     QRCoordinates,
     QRMissionData,
+    SwarmControlCommand,
     SystemEvent,
 )
 from swarm_interfaces.srv import TriggerMission
@@ -98,6 +99,7 @@ class MissionFsmNode(Node):
             self.get_parameter('sitl_mode').value
         )
         self._start_qr = int(self.get_parameter('start_qr').value)
+        self._deadman_pressed = False
 
     def _setup_publishers(self) -> None:
         """Yayıncı kanallarını oluşturur."""
@@ -151,6 +153,17 @@ class MissionFsmNode(Node):
             self._on_qr_coords,
             _LATCHED_QOS,
         )
+
+        self.create_subscription(
+            SwarmControlCommand,
+            '/swarm/public/control/command',
+            self._on_control_command,
+            _BEST_EFFORT_QOS,
+        )
+
+    def _on_control_command(self, msg: SwarmControlCommand) -> None:
+        """Sürü kontrol komutundan emniyet anahtarı durumunu günceller."""
+        self._deadman_pressed = bool(msg.deadman_pressed and msg.command_valid)
 
     def _setup_service(self) -> None:
         """Servis sunucusunu oluşturur."""
@@ -236,6 +249,13 @@ class MissionFsmNode(Node):
                 SystemEvent.EVENT_RTL_TRIGGERED,
                 SystemEvent.SEVERITY_WARNING,
                 'Görev FSM RTL tetikledi',
+            )
+
+        elif state == MissionState.LANDING:
+            self._pub_event(
+                SystemEvent.EVENT_EMERGENCY_LAND,
+                SystemEvent.SEVERITY_WARNING,
+                'Görev FSM İniş (LAND) tetikledi',
             )
 
         elif state == MissionState.MISSION_COMPLETE:

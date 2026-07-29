@@ -22,6 +22,12 @@ interface JoystickPanelProps {
   enabled: boolean;   // sadece Görev 2 modundayken true geçilir
 }
 
+const FORMATION_INDEX_TO_ROS2 = [
+  SWARM_FORMATION.OKBASI,  // 0 = En Üst -> Ok Başı (1)
+  SWARM_FORMATION.UNKNOWN, // 1 = Orta -> Formasyonsuz (0)
+  SWARM_FORMATION.CIZGI,   // 2 = En Aşağı -> Çizgi (3)
+];
+
 export function JoystickPanel({ enabled }: JoystickPanelProps) {
   const [frame, setFrame] = useState<GamepadFrame>({
     connected: false,
@@ -41,7 +47,7 @@ export function JoystickPanel({ enabled }: JoystickPanelProps) {
     emergency_button: false,
   });
   const [mode, setMode] = useState<number>(SWARM_CONTROL_MODE.SWARM_MOVEMENT);
-  const [formation, setFormation] = useState<number>(SWARM_FORMATION.V);
+  const [formation, setFormation] = useState<number>(1); // Default 1 = FORMASYONSUZ
   const [publishing, setPublishing] = useState<boolean>(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [pubCount, setPubCount] = useState<number>(0);
@@ -57,19 +63,21 @@ export function JoystickPanel({ enabled }: JoystickPanelProps) {
       const g = readGamepad();
       setFrame(g);
       if (g.connected) {
-        // Sync SwD physical switch (Kalkış / İniş)
+        // Sync SwD physical switch (Kalkış / İniş) - YALNIZCA SwA AŞAĞIDAYKEN (Emniyet Açıkken) ÇALIŞIR!
         if (g.swD !== lastSwDRef.current) {
-          const isTakeoff = g.swD; // true = KALKIŞ (Aşağı), false = İNİŞ (Yukarı)
           lastSwDRef.current = g.swD;
-          missionApi
-            .trigger({
-              mission_id: 2,
-              command: isTakeoff ? 1 : 6,
-              team_id: "team_1",
-            })
-            .catch((err: unknown) => {
-              console.warn("Mission trigger error from SwD switch:", err);
-            });
+          if (g.deadman_pressed) {
+            const isTakeoff = g.swD; // true = KALKIŞ (Aşağı), false = İNİŞ (Yukarı)
+            missionApi
+              .trigger({
+                mission_id: 2,
+                command: isTakeoff ? 1 : 6,
+                team_id: "team_1",
+              })
+              .catch((err: unknown) => {
+                console.warn("Mission trigger error from SwD switch:", err);
+              });
+          }
         }
 
         // Sync SwB physical switch (Kanal 6 / axes[5]) -> Mode
@@ -80,7 +88,24 @@ export function JoystickPanel({ enabled }: JoystickPanelProps) {
         if (g.swC !== undefined && g.swC !== null) {
           setFormation((prev) => {
             if (prev !== g.swC) {
-              formationRequestedRef.current = true;
+              if (g.deadman_pressed) {
+                formationRequestedRef.current = true;
+                const targetRosFormation = FORMATION_INDEX_TO_ROS2[g.swC] ?? SWARM_FORMATION.UNKNOWN;
+                swarmApi.control({
+                  sequence_num: seqRef.current + 1,
+                  command_valid: true,
+                  deadman_pressed: true,
+                  mode: g.swB ? SWARM_CONTROL_MODE.MANEUVER : SWARM_CONTROL_MODE.SWARM_MOVEMENT,
+                  pitch_cmd: g.pitch_cmd,
+                  roll_cmd: g.roll_cmd,
+                  yaw_cmd: g.yaw_cmd,
+                  throttle_cmd: g.throttle_cmd,
+                  formation_change_requested: true,
+                  requested_formation: targetRosFormation,
+                  requested_spacing_m: 5.0,
+                  source_module: "gcs-swc-switch",
+                }).catch((err) => console.warn("SwC formation trigger error:", err));
+              }
               return g.swC;
             }
             return prev;
@@ -114,7 +139,8 @@ export function JoystickPanel({ enabled }: JoystickPanelProps) {
         throttle_cmd: live.throttle_cmd,
         emergency_stop: live.emergency_button,
         formation_change_requested: formationRequestedRef.current,
-        requested_formation: formation,
+        requested_formation: FORMATION_INDEX_TO_ROS2[formation] ?? SWARM_FORMATION.UNKNOWN,
+        requested_spacing_m: 5.0,
         source_module: "gcs-joystick",
       };
       try {
@@ -146,6 +172,20 @@ export function JoystickPanel({ enabled }: JoystickPanelProps) {
   const handleFormationChange = (f: number) => {
     setFormation(f);
     formationRequestedRef.current = true;
+    const targetRosFormation = FORMATION_INDEX_TO_ROS2[f] ?? SWARM_FORMATION.UNKNOWN;
+    swarmApi.control({
+      sequence_num: seqRef.current + 1,
+      command_valid: true,
+      deadman_pressed: true,
+      mode,
+      pitch_cmd: frame.pitch_cmd,
+      roll_cmd: frame.roll_cmd,
+      yaw_cmd: frame.yaw_cmd,
+      throttle_cmd: frame.throttle_cmd,
+      formation_change_requested: true,
+      requested_formation: targetRosFormation,
+      source_module: "gcs-ui-swc",
+    }).catch((err) => console.warn("SwC UI formation trigger error:", err));
   };
 
   return (
