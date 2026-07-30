@@ -49,6 +49,10 @@ sleep 2
 # ve semptom "QR gorevleri hic islenmiyor" olur. Kopru bos gorurse uyariyor.
 # Varsayilan mission1_node:122 / mission_fsm_node:89 ile AYNI olmali;
 # ucu ayrisirsa mission_fsm gelen her QR'i reddeder.
+# TEK TIRNAK SART. ROS 2 "-p ad:=deger" degerini YAML olarak ayristiriyor:
+# 752825 -> INTEGER sanilir, parametre STRING bildirildigi icin
+# InvalidParameterTypeException atar ve DUGUM COKER (yasandi 30 Tem).
+# team_id:='752825' seklinde gecmek gerekiyor.
 TAKIM_ID="${TAKIM_ID:-752825}"
 # KANAT_ALFA_DEG -> wing_alpha_deg: OKBASI/V kanat acisi. FormationCommand bu alani TASIMIYOR, o
 # yuzden lider parametreden okuyup pakete koyuyor, alici paketten okuyor —
@@ -56,7 +60,7 @@ TAKIM_ID="${TAKIM_ID:-752825}"
 # da ayni isimli parametreyi kullaniyor; UCU AYNI OLMALI yoksa slot geometrisi
 # sessizce ayrisir.
 KANAT_ALFA_DEG="${KANAT_ALFA_DEG:-45.0}"
-ros2 run swarm_control esp32_bridge --ros-args -p serial_port:=/dev/ttyAMA4 -p baud:=460800 -p agent_id:=${AGENT_ID} -p team_id:="${TAKIM_ID}" -p wing_alpha_deg:=${KANAT_ALFA_DEG} > "$GUNLUK/esp.log" 2>&1 &
+ros2 run swarm_control esp32_bridge --ros-args -p serial_port:=/dev/ttyAMA4 -p baud:=460800 -p agent_id:=${AGENT_ID} -p team_id:="'${TAKIM_ID}'" -p wing_alpha_deg:=${KANAT_ALFA_DEG} > "$GUNLUK/esp.log" 2>&1 &
 
 # --- Ucus kaydi (PX4 ULog'unun yerine gecen kayit) --------------------------
 # Pixhawk'ta RAM sinirda oldugu icin FCU tarafinda logger ACILMIYOR. Onun
@@ -193,7 +197,7 @@ if [ -n "$SURU_DUGUMLERI" ]; then
         sleep 1
         # team_id: kopru ve mission1 ile AYNI olmali (QR filtresi).
         ros2 run swarm_state_machine mission_fsm_node --ros-args \
-            -p team_id:="${TAKIM_ID}" > "$GUNLUK/mission_fsm.log" 2>&1 &
+            -p team_id:="'${TAKIM_ID}'" > "$GUNLUK/mission_fsm.log" 2>&1 &
         sleep 1
         ros2 run swarm_state_machine mode_manager_node \
             > "$GUNLUK/mode_manager.log" 2>&1 &
@@ -203,7 +207,7 @@ if [ -n "$SURU_DUGUMLERI" ]; then
     # Gorev 1 orkestratoru. KARAR 10: her dronda kosar (sicak yedek).
     if acik gorev1; then
         ros2 run swarm_missions mission1_dynamic_swarm --ros-args \
-            -p agent_id:=${AGENT_ID} -p team_id:="${TAKIM_ID}" \
+            -p agent_id:=${AGENT_ID} -p team_id:="'${TAKIM_ID}'" \
             -p wing_alpha_deg:=${KANAT_ALFA_DEG} \
             > "$GUNLUK/mission1.log" 2>&1 &
         sleep 1
