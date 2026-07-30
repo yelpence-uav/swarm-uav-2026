@@ -53,13 +53,12 @@ Kod yazıldı, birim testleri geçiyor, ama **gerçek meshte/donanımda hiç
 - `[~]` **Gerçek lider seçimi (`consensus_node`).** 30 Temmuz'da **gerçekten
   arm olmuş dronla, sıfır sahte girdiyle doğrulandı** (bkz. §5). Kalan
   parçalar:
-  - `[ ]` **TAKEOFF'a hiç ulaşılamadı.** `ARMED -> TAKEOFF` için
-    `offboard_active` şart; FSM PX4'e `offboard` komutunu veriyor ama PX4
-    kabul etmiyor çünkü OFFBOARD **≥2 Hz setpoint akışı** ister ve setpoint
-    üreten düğümler (formasyon/path) çalışmıyor. Ölçülen log:
-    `ARMED bekliyor: mission_start=True offboard=False ... armed=True`.
-    Yani kalkışı tezgâhta test etmek için `SURU_DUGUMLERI` zincirinin
-    setpoint üreten kısmı da açılmalı.
+  - `[~]` **TAKEOFF'un önündeki engel bulundu ve DÜZELTİLDİ** (`ea80852`,
+    bkz. §3). Kök sebep "setpoint üreten düğüm yok" değildi — o ilk
+    tahminim yanlıştı, `px4_bridge` kendi hold setpoint'ini yayınlıyor.
+    Gerçek sebep: **PX4 armlıyken yerde OFFBOARD'a geçmiyor.**
+    Arm+OFFBOARD zinciri artık donanımda doğrulandı; **görev başlatmadan
+    TAKEOFF'a kadar tam akış henüz koşturulmadı.**
   - `[ ]` **Lider kalp atışı (`_publish_heartbeat`) hiç çalışmadı.**
     `if ctx.is_leader and own_airborne` koşulu var; yerde `own_airborne`
     False olduğu için tek heartbeat yayınlanmadı. Yani heartbeat timeout'a
@@ -138,6 +137,40 @@ Kod yazıldı, birim testleri geçiyor, ama **gerçek meshte/donanımda hiç
 
   incarnation değişimi artık **loglanıyor** — sahada "seçim neden
   uygulanmadı" sorusunun cevabı sessiz kalmasın diye.
+
+- `[x]` **DÜZELTİLDİ (`ea80852`) — PX4 ARMLIYKEN yerde OFFBOARD'a geçmiyor;
+  FSM'in sırası tersti ve dron hiç kalkamıyordu.**
+
+  Tek değişkenli deney (30 Temmuz):
+
+  | durum | `offboard` komutu | sonuç |
+  |---|---|---|
+  | disarm + kumanda kapalı | tek sefer | OFFBOARD ✓ |
+  | disarm + kumanda açık | tek sefer | OFFBOARD ✓ |
+  | **armlı** | tek sefer | **reddedildi** ✗ |
+
+  FSM `ARMING → 'arm'`, `ARMED → 'offboard'` sırasıyla çalıştığı için önce
+  armlıyor sonra mod istiyordu → PX4 reddediyor → dron `ARMED`'da sonsuza
+  kadar takılıyordu (`ARMED bekliyor: offboard=False sure=9.3s`).
+
+  **Düzeltme `px4_bridge`'de** (sıralama kısıtı PX4'e özgü, FSM'e sızmamalı):
+  `arm` komutu geldiğinde önce OFFBOARD isteniyor, `offboard_active` olunca
+  ARM gönderiliyor. Zaten armlıysa **hiçbir şey yapılmıyor** (uçuyor olabilir;
+  mod değiştirip kontrolü habersiz devralmayalım). 8 sn'de aktifleşmezse ARM
+  **gönderilmiyor** ve hata loglanıyor — FSM'in ARMING timeout'u temiz şekilde
+  IDLE'a döndürüyor.
+
+  Donanımda doğrulandı: `OFFBOARD isteniyor` → `OFFBOARD aktif → ARM
+  gönderildi` arası **72 ms**, sonra 12+ sn armlı ve OFFBOARD'da kaldı.
+
+- `[x]` **DÜZELTİLDİ (`ea80852`) — `disarm` bayat kalkış hedefi bırakıyordu.**
+  `precision_landing` görev sonunda `land` DEĞİL doğrudan `disarm` gönderiyor
+  (`precision_landing_node.py:214`), `disarm` dalı ise `_target_altitude_ned`
+  ve çapaları temizlemiyordu. Sonraki `offboard`'da taze formasyon setpoint'i
+  henüz yokken "kalkış/irtifa-hold" dalı devreye girip dronu **önceki görevin
+  irtifasına ve önceki çapa konumuna** sürüyordu — FSM daha TAKEOFF demeden.
+  Komut verilmemiş kalkış; dron yeri değiştiyse yatay kaçış. Artık `land`/`rtl`
+  ile aynı şekilde temizleniyor.
 
 - `[!]` **KUMANDA AÇIKKEN SÜRÜ OTONOMİSİ TAMAMEN DURUR — ÖLÇÜLDÜ
   (30 Temmuz). Uçuş prosedürünü doğrudan belirler.**
@@ -236,6 +269,20 @@ Bunlar **hata değil**, sessizce yanlış sonuç ürettikleri için yazılıyor.
   `--qos-reliability reliable --qos-durability transient_local`.
   Gerçek `consensus_node` aynı TRANSIENT_LOCAL'i kullanıyor
   (`consensus_node.py:118`), yani **sistemde uyumsuzluk yok**.
+- **OFFBOARD'dayken disarm REDDEDİLEBİLİR.** OFFBOARD konum-tutmak hover gazı
+  ister (~%40-50, rölantiden çok hızlı); PX4 bunu görünce iniş dedektörüyle
+  "havadayım" der ve normal disarm'ı reddeder. Ölçüldü: `success=False,
+  result=1`. **Önce `AUTO.LOITER`'a al, sonra disarm et** — o zaman kabul
+  ediyor. Son çare zorla disarm (`param2=21196`), ama o YALNIZ YKİ'nin
+  operatör yolunda var; otonom yığın asla kullanmıyor.
+  > Pervanesiz tezgâh testinde bu şaşırtıcı: dron "uçuyor" sanılır, motorlar
+  > hızlanır, disarm tutmaz. Kumandayı elde tutun.
+- **Motor kesme yolları (senaryo: "dron düşmesin") — ölçüldü.**
+  Dron tarafındaki tek disarm yolu normal `CommandBool value=False` ve PX4
+  bunu uçarken reddediyor. Zorla disarm (21196) dron kodunda **hiç yok**.
+  Offboard kaybında `COM_OBL_RC_ACT = 0` → **POSCTL**, yani kumanda pilota
+  geçer, motor kesilmez. `COM_LOW_BAT_ACT = 2` (dönüş),
+  `COM_DISARM_LAND = 2.0 sn` (yalnız iniş dedektörü "indim" dedikten sonra).
 - **`kill_switch_active` karttaki fiziksel güvenlik/kill switch'i GÖRMEZ.**
   O alan RC kanalından türetiliyor. 30 Temmuz'da `kill_switch_active: false`
   okunurken arm reddediliyordu; gerçek sebep dronun üzerindeki switch'ti.
