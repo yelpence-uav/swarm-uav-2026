@@ -603,18 +603,26 @@ zaten engelliyor (mesh_config.h:528-543, bilinçli tasarım kararı).
 
 **Korku yersiz değil ama hedefi yanlış — asıl kaldıraç RTCM:**
 
-| kaynak | paket/sn |
-|---|---|
-| bütün telemetri (POSE + DURUM) | ~36 |
-| formasyon yayını (KARAR 3) | +5 |
-| **RTCM 10 Hz'de (29 Tem'deki hali)** | **~176** |
-| RTCM 1 Hz'de (olması gereken) | ~18 |
-| **mission1 yerleşim kararı** | **0,02** |
+> **DÜZELTME (30 Tem, sonradan).** Bu tabloda önce RTCM'i "~176 paket/sn"
+> yazmıştım. **Yanlıştı:** 4.4 kB/s'yi 25 bayta bölmüşüm, ama RTK 25 baytlık
+> `mesh_paket_t` zarfını KULLANMIYOR — kendi değişken zarfını kullanıyor, parça
+> başına 250 bayta kadar (`rtk_pure.h`). Doğru hesap aşağıda.
 
-RTCM'i 1 Hz'e çekmek 158 paket/sn kazandırır, mission1 kararı 0,02 paket/sn.
-**7000 kat fark.** Mesh yükü endişesi varsa iş `f9p_base_yapilandir.py`
-(`CFG_RATE_MEAS = 1000`) tarafında — saha günlüğü §8 madde 6 zaten bunu
-listeliyor.
+| kaynak | bayt/sn | iletim/sn (kaba) |
+|---|---|---|
+| POSE (3 drone × ~10 Hz × 25 B) | 750 | ~30 |
+| DURUM (3 drone × 2 Hz) | 150 | ~6 |
+| formasyon yayını (KARAR 3, 5 Hz) | **125** | ~5 |
+| **RTCM 10 Hz (29 Tem'deki hali)** | **~4400** | ~18–29 |
+| RTCM 1 Hz (olması gereken) | ~440 | ~2–3 |
+| **mission1 yerleşim kararı** | ~0,3 | **0,02** |
+
+**İletim SAYISINDA** RTCM telemetriyle kıyaslanabilir, hatta daha az (paketleri
+büyük). **BAYT HACMİNDE** ise baskın: 10 Hz'de havadaki baytların **~%83'ü**
+RTCM. Airtime bayta bağlı olduğu için "RTCM en büyük yük" sonucu ayakta, ama
+paket sayısı iddiası düzeltildi.
+
+mission1 yerleşim kararının maliyeti her iki ölçekte de ihmal edilebilir.
 
 **Karşılığında kazanç: SICAK YEDEK.** Lider düştüğünde yeni lider görev
 durumunu (hangi QR'dayız, hangi adımdayız) **zaten biliyor** çünkü aynı QR
@@ -719,6 +727,22 @@ birbirini yemesi konusundaki korumanın **dışında**. Bu, "yarışıyor" iddia
    29 Temmuz'da ayarların RAM-only yazıldığı ve güç kesilince kaybolduğu
    bulundu, modül flash'taki eski 10 Hz konfigine döndü.
 
+**10 Hz'in GERÇEK bir avantajı var, dürüstlük gereği:** bir düzeltme mesajı
+kaybolursa 10 Hz'de bir sonraki **100 ms** sonra gelir, 1 Hz'de **1000 ms**.
+Yani tek mesaj kaybına karşı daha dayanıklı. **Ama tek yuvalı reassembly bu
+avantajı yiyor:** 10 Hz'de mesajlar birbirini silebildiği için kayıp
+OLASILIĞININ KENDİSİ artıyor. RTK alıcıları 1 sn'lik düzeltme boşluğunu tolere
+ediyor (Fixed→Float düşüşü birkaç saniyelik boşluk gerektirir), o yüzden takas
+1 Hz lehine.
+
+| | 10 Hz (şimdi) | 1 Hz (hedef) |
+|---|---|---|
+| doğruluk | 2 cm | **2 cm** — değişmez |
+| bayt hacmi | 4.4 kB/s | **~440 B/s** |
+| hız sınırı koruması | **yok** | tasarım varsayımı geri gelir |
+| mesaj üstüne mesaj | **var** (100 ms < 500 ms timeout) | yok (1000 ms) |
+| tek kayıptan toparlanma | 100 ms | 1000 ms (tolere edilir) |
+
 **Sonuç:** "1 Hz'e düşür" bir optimizasyon değil, **kaybedilen konfigürasyonu
 geri almak**. Doğru cümle şu: mesh 10 Hz'i taşıyor ama RTK yolu 1 Hz için
 tasarlandı; 10 Hz'de sessizce mesaj kaybı riski var ve o kayıp RF sorunu gibi
@@ -792,7 +816,7 @@ bu belgeye dayanan biri eski hallerine güvenmesin:
 | "`raw_text`, `command_type`, `confidence` kimse okumuyor" | Yanlış. YKİ okuyor (`ros_bridge.py:198-213`), gösterim için. |
 | "`team_id` gerekmiyor" | Yarı yanlış. İki düğüm filtreliyor; atılabilir ama alıcı köprünün doldurması şart. |
 | "`target_x`/`target_y` gerekli (precision_landing:196 okuyor)" | **Yanlış — yanlış pozitif.** Satır 196 `cmd.target_x`, yani ÇIKTI nesnesi. `msg.target_x` / `qr.target_x` saha kodunda hiç yok. İniş hedefi kameradan (`zone_map`). Pakette 4 bayt boşaldı. |
-| "RTCM 10 Hz telemetriyle hız sınırlayıcı üzerinden yarışıyor (~176 paket/sn)" | **Yanlış.** RTK `mesh_tip_gecebilir`'i HİÇ kullanmıyor — `RX BASE/src/main.cpp:426` bunu açıkça yazıyor. Asıl sorun tek yuvalı reassembly (KARAR 12). |
+| "RTCM 10 Hz telemetriyle hız sınırlayıcı üzerinden yarışıyor (~176 paket/sn)" | **İki kez yanlış.** (a) RTK `mesh_tip_gecebilir`'i HİÇ kullanmıyor — `RX BASE/src/main.cpp:426` açıkça yazıyor. (b) 176 sayısı da hatalı: 4.4 kB/s 25 bayta bölünmüş, ama RTK 250 baytlık değişken zarfı kullanıyor → gerçek ~18-29 iletim/sn. Asıl sorun tek yuvalı reassembly (KARAR 12). |
 
 Ayrıca §2'de yazılan üç kör nokta (saklanan nesne, parametre geçişi, `getattr`)
 ilk dört hatanın kaynağıydı; beşincisi ters taramanın yanlış pozitifi,
