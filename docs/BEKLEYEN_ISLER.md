@@ -133,11 +133,34 @@ Kod yazıldı, birim testleri geçiyor, ama **gerçek meshte/donanımda hiç
   incarnation değişimi artık **loglanıyor** — sahada "seçim neden
   uygulanmadı" sorusunun cevabı sessiz kalmasın diye.
 
-- `[ ]` **`healthy=false` geliyor.** ylp00'ın gerçek `AgentStatus`'unda
-  `healthy: false` — `is_eligible` kapılarından biri. Yerde `state=IDLE`
-  zaten uygunluğu engellediği için bugün fark etmiyor, ama **arm edildiğinde
-  bu hâlâ false ise seçim yine olmaz.** Kaynağı araştırılmalı (`agent_fsm`
-  hangi koşulda true yapıyor).
+- `[!]` **FCU'yu doğrudan arm etmek sürü FSM'ini ARMED yapmaz — ÖLÇÜLDÜ
+  (30 Temmuz). Yarışma açısından en kritik operasyonel bulgu.**
+
+  ylp00 MAVROS'tan gerçekten arm edildi (`success=True`, `armed: true`) ama
+  `AgentStatus.state` **1 (IDLE) olarak kaldı** ve **lider seçimi olmadı.**
+
+  Sebep tasarımda: `_from_idle` geçişi `ctx.pending_state == ARMING` istiyor
+  ve bunu **yalnız `EVENT_MISSION_STARTED` olayı** kuruyor
+  (`agent_fsm_node.py:277`). FCU'yu QGC'den, MAVROS'tan **veya kumandayla**
+  arm etmek FSM'i atlar.
+
+  Sonuç: **pilot kumandayla arm ederse sürü yığını kendini armlı saymaz →
+  `ELIGIBLE_STATES` sağlanmaz → lider seçilmez → formasyon mesh'e çıkmaz.**
+  Uçuş prosedürü buna göre yazılmalı: arm **görev başlatma olayı üzerinden**
+  gelmeli.
+
+  > **DİKKAT — tezgâhta görev başlatmak kalkış denemesidir.**
+  > FSM `ARMED`'a girince PX4'e `offboard` komutu veriyor
+  > (`_dispatch_px4_command`), `px4_bridge` de sürekli offboard setpoint
+  > yayınlıyor, yani PX4 OFFBOARD'ı kabul eder. Ardından `ARMED → TAKEOFF`
+  > koşulu sağlanır ve `takeoff:<irtifa>` gider. Pervane takılıyken bu
+  > gerçek bir kalkıştır.
+
+- `[x]` **ÇÖZÜLDÜ — `healthy=false` neden geliyordu.** 30 Temmuz sabahı
+  `healthy: false` ölçülmüştü (pil 14.48 V, kumanda kapalı). Pil
+  değiştirilip (16.61 V) kumanda açıldıktan sonra **`healthy: true`**
+  ölçüldü. Yani düşük pil ve/veya RC bağlantısızlığı kaynaklıydı, kalıcı
+  bir arıza değil.
 
 - `[ ]` **RTK yeniden birleştirme tek slotlu ve yalnız `paket_id` ile
   anahtarlı.** İki farklı kaynak aynı anda RTK gönderirse parçalar karışabilir.
@@ -177,6 +200,15 @@ Bunlar **hata değil**, sessizce yanlış sonuç ürettikleri için yazılıyor.
   `--qos-reliability reliable --qos-durability transient_local`.
   Gerçek `consensus_node` aynı TRANSIENT_LOCAL'i kullanıyor
   (`consensus_node.py:118`), yani **sistemde uyumsuzluk yok**.
+- **`kill_switch_active` karttaki fiziksel güvenlik/kill switch'i GÖRMEZ.**
+  O alan RC kanalından türetiliyor. 30 Temmuz'da `kill_switch_active: false`
+  okunurken arm reddediliyordu; gerçek sebep dronun üzerindeki switch'ti.
+  Yani bu alana bakıp "kill sorunu yok" demek yanlış.
+- **PX4 1.16 arm reddini `STATUSTEXT` ile değil MAVLink Events ile bildirir.**
+  MAVROS metadata olmadığı için `FCU: EVENT 3087815 with args ...` gibi çıplak
+  ID basar; `statustext/recv` boş kalır. **Gerekçeyi düz metin görmek için
+  QGroundControl** kullanılmalı (event metadata'yı çözüyor). Bunu bilmeden
+  MAVROS logunda saatler harcanır.
 - **Yerde disarm haldeyken lider seçimi OLMAZ — ve bu doğru davranıştır.**
   `ELIGIBLE_STATES = {ARMED, TAKEOFF, IN_SWARM, EXECUTING_TASK}`; yerdeki
   dron `STATE_IDLE`. Ölçüldü: iki dronda da `consensus_node` 12 saniye
