@@ -50,10 +50,16 @@ Durum işaretleri:
 Kod yazıldı, birim testleri geçiyor, ama **gerçek meshte/donanımda hiç
 çalışmadı**. Her biri sessizce bozuk olabilir.
 
-- `[~]` **Gerçek lider seçimi (`consensus_node`).** 30 Temmuz'da **doğrulandı**
-  (bkz. §5), ama şu parçalar hâlâ denenmedi:
-  - `[ ]` Gerçekten arm olmuş dronla otomatik seçim (test `AgentStatus`
-    enjekte edilerek yapıldı; yerde arm etmek pervane riski).
+- `[~]` **Gerçek lider seçimi (`consensus_node`).** 30 Temmuz'da **gerçekten
+  arm olmuş dronla, sıfır sahte girdiyle doğrulandı** (bkz. §5). Kalan
+  parçalar:
+  - `[ ]` **TAKEOFF'a hiç ulaşılamadı.** `ARMED -> TAKEOFF` için
+    `offboard_active` şart; FSM PX4'e `offboard` komutunu veriyor ama PX4
+    kabul etmiyor çünkü OFFBOARD **≥2 Hz setpoint akışı** ister ve setpoint
+    üreten düğümler (formasyon/path) çalışmıyor. Ölçülen log:
+    `ARMED bekliyor: mission_start=True offboard=False ... armed=True`.
+    Yani kalkışı tezgâhta test etmek için `SURU_DUGUMLERI` zincirinin
+    setpoint üreten kısmı da açılmalı.
   - `[ ]` **Lider kalp atışı (`_publish_heartbeat`) hiç çalışmadı.**
     `if ctx.is_leader and own_airborne` koşulu var; yerde `own_airborne`
     False olduğu için tek heartbeat yayınlanmadı. Yani heartbeat timeout'a
@@ -132,6 +138,36 @@ Kod yazıldı, birim testleri geçiyor, ama **gerçek meshte/donanımda hiç
 
   incarnation değişimi artık **loglanıyor** — sahada "seçim neden
   uygulanmadı" sorusunun cevabı sessiz kalmasın diye.
+
+- `[!]` **KUMANDA AÇIKKEN SÜRÜ OTONOMİSİ TAMAMEN DURUR — ÖLÇÜLDÜ
+  (30 Temmuz). Uçuş prosedürünü doğrudan belirler.**
+
+  Kumanda açıkken PX4 **POSCTL**'e geçiyor. `PILOT_FLIGHT_MODES = {1,2,3,9,10}`
+  (MANUAL/ALTCTL/POSCTL/ACRO/STABILIZED) olduğu için
+  `pilot_override_active = true` oluyor, o da `autonomous_control_paused = true`
+  yapıyor (`agent_fsm_node.py:525`). Sonuç `evaluate_transitions`'ın ilk
+  satırında:
+
+      if ctx.autonomous_control_paused or ctx.hold_active:
+          return None
+
+  **Hiçbir geçiş olmuyor — ve hiçbir yere loglanmıyor.** Ölçüm:
+  `status_text: Pilot override active`, `state` IDLE'da donmuş, görev başlatma
+  olayı 14 kez teslim edildiği hâlde etkisiz.
+
+  Tasarım doğru (pilotla kavga etmesin) ama **operasyonel sonucu net: otonom
+  uçuş için PX4 pilot olmayan bir modda olmalı** — OFFBOARD(4),
+  AUTO_MISSION(5), AUTO_LOITER(6). Test sırasında `AUTO.LOITER`'a alınca
+  otonomi anında devam etti.
+
+  > Kumandayı **kapatmak** çözüm değil: RC kayıp failsafe'i devreye girer ve
+  > ylp00'da o failsafe **kill** tetikliyor (§1). Doğru yol kumandanın mod
+  > switch'ini pilot olmayan bir moda almak.
+
+- `[ ]` **`status_text` bayat kalıyor.** `pilot_override_active` false'a
+  döndükten sonra da `status_text: Pilot override active` okunuyor; alan
+  yalnız belirli olaylarda üzerine yazılıyor. Sahada yanıltıcı — bayrağın
+  kendisine bakmak lazım.
 
 - `[!]` **FCU'yu doğrudan arm etmek sürü FSM'ini ARMED yapmaz — ÖLÇÜLDÜ
   (30 Temmuz). Yarışma açısından en kritik operasyonel bulgu.**
@@ -274,7 +310,19 @@ Bunlar ölçüldü. Yeniden kurcalamak gereksiz.
   `[CONSENSUS] Lider: 0 -> 1 (round=1, ben=1)`. `is_eligible` →
   `eligible_ids` → `effective_set` → `decide_change` → bootstrap grace →
   `_set_leader` → `ElectionResult` yayını zincirinin tamamı gerçek koştu.
-  Tek sahte girdi `AgentStatus` idi (yerde arm etmek pervane riski).
+- **TAM ZİNCİR, SIFIR SAHTE GİRDİ (pervaneler çıkarık)** — 30 Temmuz.
+  ylp00 gerçekten arm edildi ve seçim gerçek `STATE_ARMED` ile oldu:
+
+      durum izi:  1 -> 2 -> 3 -> 1   (IDLE -> ARMING -> ARMED -> IDLE)
+      fsm.log:    ARMING -> ARMED  /  Rol: LEADER
+      consensus:  [CONSENSUS] Lider: 0 -> 1 (round=1, ben=1)
+
+  Sıra: `EVENT_MISSION_STARTED` → `pending_state=ARMING` → **gerçek
+  preflight geçti** (`origin_synced`, `home_set`, EKF, GPS fix 4, pil
+  16.6 V) → FSM PX4'e `arm` komutu → ARMED → seçim.
+  ylp02'ye ulaşma süresi **109 ms** (`...667.014` → `...667.123`) ve
+  incarnation düzeltmesi orada **üçüncü kez** çalıştı.
+  Sonunda PX4 kendiliğinden disarm etti, FSM `ARMED -> IDLE` döndü.
 - **Lider devralma / `REASON_LEADER_FAULT` dalı** — 30 Temmuz. Yanlış lider
   (3) enjekte edildi, `decide_change` "lider effective kümede yok" deyip
   liderliği geri aldı: `Lider: 3 -> 1 (round=6, ben=1)`.
