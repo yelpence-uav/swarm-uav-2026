@@ -17,6 +17,7 @@ from std_msgs.msg import UInt8
 
 from swarm_core.formation_control.formation_geometry import (
     compute_slot_offsets,
+    FORMATION_UNKNOWN,
     FORMATION_OKBASI,
     FORMATION_V,
     FORMATION_CIZGI,
@@ -431,8 +432,7 @@ class ModeManagerNode(Node):
             ctx.centroid_z = msg.centroid_z
             ctx.formation_heading_deg = msg.formation_heading_deg
 
-        if msg.active_formation > 0:
-            ctx.active_formation = msg.active_formation
+        # active_formation mode_manager tarafindan kumanda/GCS secimiyle yonetilir
         ctx.formation_reached = msg.formation_reached
         ctx.formation_stable = msg.formation_stable
 
@@ -490,29 +490,34 @@ class ModeManagerNode(Node):
                 msg.offset_x = [0.0] * num_agents
                 msg.offset_y = [0.0] * num_agents
                 msg.offset_z = [0.0] * num_agents
-        elif ftype == FORMATION_UNKNOWN and hasattr(self, '_last_valid_offsets_x') and len(self._last_valid_offsets_x) == num_agents:
-            # Formasyondan Formasyonsuza geçildiğinde dronelar oldukları konum offsetlerini korur
-            msg.offset_x = list(self._last_valid_offsets_x)
-            msg.offset_y = list(self._last_valid_offsets_y)
-            msg.offset_z = list(self._last_valid_offsets_z)
-        else:
-            # Formasyonsuz (FORMATION_UNKNOWN) ve henüz hiç formasyon seçilmemiş (ilk kalkış anı):
-            # Droneların kalkışta birbirine kayıp çarpışmaması için mevcut ajan konumlarına göre offset hesaplanır
+        elif ftype == FORMATION_UNKNOWN:
+            # Formasyonsuz (FORMATION_UNKNOWN): Dronelar bağımsız hareket eder, her drone mevcut konum offsetini korur
             ox, oy, oz = [], [], []
             ctx = self._ctx
+            has_telemetry = False
             for aid in msg.agent_ids:
                 status = ctx.agent_statuses.get(aid)
-                if status is not None and (getattr(status, 'position_valid', False) or status.x != 0.0 or status.y != 0.0):
-                    ox.append(float(status.x - ctx.centroid_x))
-                    oy.append(float(status.y - ctx.centroid_y))
+                if status is not None and (getattr(status, 'position_valid', False) or status.pos_x != 0.0 or status.pos_y != 0.0):
+                    has_telemetry = True
+                    ox.append(float(status.pos_x - ctx.centroid_x))
+                    oy.append(float(status.pos_y - ctx.centroid_y))
                     oz.append(0.0)
-                else:
-                    ox.append(0.0)
-                    oy.append(0.0)
-                    oz.append(0.0)
-            msg.offset_x = ox
-            msg.offset_y = oy
-            msg.offset_z = oz
+
+            if has_telemetry and len(ox) == num_agents:
+                msg.offset_x = ox
+                msg.offset_y = oy
+                msg.offset_z = oz
+                self._last_valid_offsets_x = list(ox)
+                self._last_valid_offsets_y = list(oy)
+                self._last_valid_offsets_z = list(oz)
+            elif hasattr(self, '_last_valid_offsets_x') and len(self._last_valid_offsets_x) == num_agents:
+                msg.offset_x = list(self._last_valid_offsets_x)
+                msg.offset_y = list(self._last_valid_offsets_y)
+                msg.offset_z = list(self._last_valid_offsets_z)
+            else:
+                msg.offset_x = [0.0] * num_agents
+                msg.offset_y = [0.0] * num_agents
+                msg.offset_z = [0.0] * num_agents
 
         self._formation_pub.publish(msg)
 

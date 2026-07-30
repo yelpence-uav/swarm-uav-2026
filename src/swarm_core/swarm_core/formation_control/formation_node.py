@@ -379,7 +379,7 @@ class FormationControlNode(Node):
         now: float,
     ) -> tuple[float, float, float]:
         """Komsulara gore goreli duzeltme hizini hesaplar."""
-        if not self._rel_enable:
+        if not self._rel_enable or getattr(msg, 'formation_type', 1) == 0:
             return 0.0, 0.0, 0.0
 
         agent_ids = list(msg.agent_ids)
