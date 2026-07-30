@@ -1143,6 +1143,46 @@ zaten `formation_change_requested` üretiyor). YKİ butonu arayüzde
 kalıp var (`connection_mode` -> "UI yarışma-dışı butonları gizler").
 
 
+### Adım 1c'nin ortaya çıkardığı AÇIK İŞ — kumanda formasyon yolu YOK
+
+Adım 1c'yi yazarken "sahada formasyon kumandadan gelecek" dedim; sonra ölçtüm ve
+**o yol henüz kurulmamış.** Dört eksik, hepsi doğrulandı:
+
+| eksik | ölçüm |
+|---|---|
+| `set_formation()` çağıranı yok | repoda **tek çağrı yok** (`grep`, `def` hariç) |
+| aux kanalı formasyona eşlenmemiş | `aux1..aux6` yalnız `deadman_channel` için okunuyor (satır 71, 124) |
+| `joystick_interpreter_node` başlatılmıyor | ne `deploy/rpi/baslat.sh`'te ne `src/gcs/yki_baslat.sh`'te |
+| topic adı **mutlak** | `/mavros/manual_control/control`; dronda MAVROS `/drone_N/mavros/...` altında yayınlıyor, remap yok |
+
+Son satır **§1.9'daki RTCM topic uyuşmazlığının aynı sınıfı**: düğüm
+başlatılsa bile hiçbir şey almaz ve sebebi hiçbir günlükte görünmez.
+
+**Şartname Görev 2:** *"Formasyon değişimleri kumanda üzerinden
+gerçekleştirilir."* Yani bu yol yarışma şartı, opsiyonel değil.
+
+**İyi haber:** protokol tarafı bitti. Kumanda yolu da aynı `TIP_KOMUT` +
+`KOMUT_FLAG_FORMATION_CHANGE` + `talep_formasyon` zincirini kullanacak. Kalan
+iş üç madde ve hiçbiri mesh'e dokunmuyor:
+
+1. bir aux kanalını formasyon seçimine eşle (`deadman_channel` kalıbı hazır:
+   parametreyle kanal adı verilip `_read_aux_channel` ile okunuyor)
+2. `joystick_interpreter_node`'u `baslat.sh`'e ekle
+3. topic'i `/drone_{AGENT_ID}/mavros/manual_control/control`'e çevir (ya da
+   `--ros-args -r` ile remap et)
+
+**Durum:** açık, Adım 3'ten sonra ele alınacak. Adım 2/3'ü bloke etmiyor.
+
+### Mevcut formasyon değiştirme yolları — özet
+
+Karışmasın diye tek yerde:
+
+| yol | durum | not |
+|---|---|---|
+| **YKİ butonu** (`JoystickPanel`: seçici + "↻ Formasyonu Uygula") | ✅ var, Adım 1c ile **onarıldı** | test/geliştirme; şartname yarışmada YKİ müdahalesini yasaklıyor |
+| **QR** (Görev 1, otonom) | protokol hazır (`TIP_QR_GOREV`), bağlanması Adım 3 | `mission1` → `path_planner` → `TIP_FORMASYON` |
+| **Kumanda** (Görev 2, şartname şartı) | ❌ yok — yukarıdaki 4 eksik | protokol hazır, düğüm/topic işi kaldı |
+
 ### Sıradaki halka — Adım 2 ve neden riskli
 
 `RX BASE/src/main.cpp` ve `TX DRONE/src/main.cpp` whitelist'leri.
