@@ -43,9 +43,11 @@ from swarm_interfaces.msg import (
     AgentSetpoint,
     AgentStatus,
     ElectionResult,
+    FormationCommand,
     GuidedCommand,
     LeaderHeartbeat,
     QRCoordinates,
+    QRMissionData,
     SwarmControlCommand,
     SwarmOrigin,
     SystemEvent,
@@ -54,6 +56,31 @@ from swarm_interfaces.msg import (
 from . import packet_parser as pp
 from .cobs import cobs_decode, cobs_encode
 from .crc16 import crc16
+from .formasyon_montaj import FormasyonMontaj, parcala
+from swarm_core.formation_control.formation_geometry import FORMATION_CUSTOM
+
+# QR ayrıştırma hatası metnini mesh'te taşınan 1 baytlık koda çevirir.
+# qr_detector.py altı ayrı hata üretiyor; metin taşımak yerine kod taşıyoruz
+# (KARAR 8). Eşleşme bulunamazsa QR_HATA_KOMUT'a düşer — bilinmeyen bir hata
+# da olsa YKİ en azından "ayrıştırma patladı" bilgisini alır.
+_QR_HATA_ESLESME = (
+    ('JSON', pp.QR_HATA_JSON),
+    ('sema', pp.QR_HATA_SEMA),
+    ('şema', pp.QR_HATA_SEMA),
+    ('slot', pp.QR_HATA_SLOT),
+    ('tablo', pp.QR_HATA_TABLO),
+    ('Paket', pp.QR_HATA_PAKET),
+    ('paket', pp.QR_HATA_PAKET),
+)
+
+
+def _qr_hata_kodu(mesaj: str) -> int:
+    """qr_detector hata metnini QR_HATA_* koduna eşler."""
+    for parca, kod in _QR_HATA_ESLESME:
+        if parca in mesaj:
+            return kod
+    return pp.QR_HATA_KOMUT
+
 
 # Mesh telemetrisi için BEST_EFFORT — kayıp paket tolere edilir
 _MESH_QOS = QoSProfile(
@@ -201,7 +228,28 @@ class Esp32BridgeNode(Node):
         # Baz istasyonunda: YKİ'nin RTK okuyucusundan gelen RTCM3 mesajları.
         # Drone tarafında bu topic'e yayın yapan yok → abonelik boşta durur.
         self.declare_parameter('rtcm_in_topic', '/swarm/internal/rtcm')
+
+        # --- Sürü koordinasyonu (30 Temmuz) --------------------------------
+        # takim_id: KARAR 7 — QR'ın takım filtresi mesh'te taşınmıyor (metin,
+        # 16 bayta sığmaz). QR'ı okuyan drone yerelde filtreliyor, yani mesh'e
+        # çıkan her QR zaten bizim takıma ait. Alıcı taraf `team_id` alanını
+        # BURADAN doldurmak ZORUNDA: boş bırakılırsa mission_fsm_node:336
+        # (`elif msg.team_id != ctx.team_id: return`) ve mission1_node:205
+        # gelen HER QR'ı reddeder. Sessiz bir tuzak, o yüzden boşsa uyarıyoruz.
+        self.declare_parameter('takim_id', '')
+        # kanat_alfa_deg: OKBASI/V formasyonunun kanat açısı. FormationCommand
+        # bu alanı TAŞIMIYOR, o yüzden gönderen taraf parametreden okur ve
+        # pakete koyar; alıcı paketten okur. Böylece bütün sürü LİDERİN
+        # değerini kullanır. formation_node ve mission1_node'da da aynı isimli
+        # parametre var (ikisinde varsayılan 45.0) ve eşitliği hiçbir şey
+        # zorlamıyordu — biri farklı kalırsa slot geometrisi SESSİZCE ayrışır.
+        self.declare_parameter('kanat_alfa_deg', 45.0)
+
         self._agent_id = int(self.get_parameter('agent_id').value)
+        self._takim_id = str(self.get_parameter('takim_id').value)
+        self._kanat_alfa_deg = float(
+            self.get_parameter('kanat_alfa_deg').value
+        )
         port = str(self.get_parameter('serial_port').value)
         baud = int(self.get_parameter('baud').value)
 
@@ -233,6 +281,20 @@ class Esp32BridgeNode(Node):
         self._gonderim_drop = 0    # port kapalı/hata ile düşürülen
         self._rtk_alindi = 0       # alınan RTK/RTCM çerçevesi (liveness değil)
         self._bilinmeyen_tip = 0   # dispatch'te eşleşmeyen tip sayısı
+        # --- Sürü koordinasyonu (30 Temmuz) --------------------------------
+        # Çok parçalı formasyon montajı (başlık + devam + CUSTOM offsetleri).
+        # 3 drone + adlandırılmış formasyonda tek paket, montaj anında biter.
+        self._formasyon_montaj = FormasyonMontaj()
+        self._formasyon_gonderilen = 0   # mesh'e yazılan formasyon turu (lider)
+        self._formasyon_alinan = 0       # montajı tamamlanıp yayınlanan
+        self._formasyon_lider_degil = 0  # lider kapısında düşürülen
+        self._qr_gorev_gonderilen = 0
+        self._qr_gorev_alinan = 0
+        # Bilinen lider (KARAR 11 kapısı). 0 = henüz seçim görülmedi.
+        # BİLEREK 0 başlıyor: kimse lider değilken formasyon yayınlamak, iki
+        # dronun aynı anda yayınlaması riskini doğurur. Ama sessiz kalmasın
+        # diye kapıda throttle'lı uyarı basılıyor.
+        self._lider_id = 0
         # Baz tarafı RTCM sayaçları. "RTK neden fix vermiyor" sorusunda ilk
         # ayrım: RTCM baz ESP'ye hiç ulaştı mı? Bu iki sayaç olmadan YKİ
         # okuyucusunun sessizce durması ile havada kaybolması ayırt edilemez.
@@ -265,6 +327,18 @@ class Esp32BridgeNode(Node):
 
         self._origin_pub = self.create_publisher(
             SwarmOrigin, '/swarm/public/origin', _ORIGIN_QOS
+        )
+        # --- Sürü koordinasyonu yayıncıları (30 Temmuz) ---------------------
+        # formation/target: mesh'ten gelen (ya da liderde loopback ile kendi
+        # ürettiğimiz) formasyon hedefi. formation_node / collision_avoidance /
+        # maneuver_executor üçü de bu topic'i dinliyor.
+        self._formation_pub = self.create_publisher(
+            FormationCommand, '/swarm/public/formation/target', _MESH_QOS
+        )
+        # perception/qr_data: QR'ı okuyan dronun çözdüğü görev. mission_fsm,
+        # mission1 ve (YKİ'de) ros_bridge dinliyor.
+        self._qr_data_pub = self.create_publisher(
+            QRMissionData, '/swarm/public/perception/qr_data', _MESH_QOS
         )
         self._control_pub = self.create_publisher(
             SwarmControlCommand,
@@ -398,6 +472,30 @@ class Esp32BridgeNode(Node):
             _ELECTION_QOS,
         )
 
+        # RPi -> ESP32: formasyon hedefi (YALNIZ LİDER gönderir, KARAR 11).
+        #
+        # path_planner HER dronda koşuyor (sıcak yedek: lider düşünce yeni
+        # lider gecikmeden yayına geçer), o yüzden bu abonelik her dronda veri
+        # alır. "Şu an lider miyim" kapısı `_on_formation_out` içinde —
+        # firmware'e lider bilgisi taşımak lider değişiminde iki tarafı
+        # senkron tutmayı gerektirirdi.
+        self.create_subscription(
+            FormationCommand,
+            '/swarm/internal/formation/target',
+            self._on_formation_out,
+            _MESH_QOS,
+        )
+
+        # RPi -> ESP32: çözülmüş QR görevi. Lider kapısı YOK — QR'ı hangi
+        # drone okuduysa o yayınlar (şartname: "İHA'lardan en az biri QR
+        # kodunu görsel algılama yöntemi ile tespit etmeli").
+        self.create_subscription(
+            QRMissionData,
+            '/swarm/internal/perception/qr_data',
+            self._on_qr_data_out,
+            _MESH_QOS,
+        )
+
         # YKİ RTK okuyucusu -> ESP32: RTCM3 düzeltme verisi.
         #
         # NEDEN ROS ÜZERİNDEN, doğrudan seri porta değil:
@@ -479,6 +577,20 @@ class Esp32BridgeNode(Node):
             f'rtk={self._rtk_alindi} bilinmeyen={self._bilinmeyen_tip} '
             f'rtcm_tx={self._rtcm_gonderilen} '
             f'rtcm_red={self._rtcm_reddedilen} '
+            # Sürü koordinasyonu sayaçları (30 Temmuz). "Formasyon neden
+            # gelmiyor" sorusunda ilk ayrım burada yapılabilsin:
+            #   form_tx=0 ise lider yayınlamıyor (lider kapısı / path_planner)
+            #   form_lider_degil>0 ise bu drone lider değil, normal
+            #   form_rx=0 ama form_tx>0 ise mesh/whitelist sorunu
+            #   form_yarim>0 ise çok parçalı montaj tamamlanmıyor
+            f'lider={self._lider_id} '
+            f'form_tx={self._formasyon_gonderilen} '
+            f'form_rx={self._formasyon_alinan} '
+            f'form_lider_degil={self._formasyon_lider_degil} '
+            f'form_yarim={self._formasyon_montaj.zaman_asimi_sayisi} '
+            f'form_sahipsiz={self._formasyon_montaj.sahipsiz_parca_sayisi} '
+            f'qr_tx={self._qr_gorev_gonderilen} '
+            f'qr_rx={self._qr_gorev_alinan} '
             f'son_alim_yas_s={son_alim_yas:.2f}'
         )
         # Mesh diag: bu drone'un kendi gözleminden çıkıyor → /internal/
@@ -642,6 +754,17 @@ class Esp32BridgeNode(Node):
             self._isle_qr(cerceve.iha_id, cerceve.payload)
         elif cerceve.tip == pp.TIP_SWARM_STATE:
             self._isle_swarm_state(cerceve.iha_id, cerceve.payload)
+        # --- Sürü koordinasyonu (30 Temmuz) ---
+        elif cerceve.tip == pp.TIP_FORMASYON:
+            self._isle_formasyon(cerceve.iha_id, cerceve.payload)
+        elif cerceve.tip == pp.TIP_FORMASYON_DEVAM:
+            self._isle_formasyon_devam(cerceve.iha_id, cerceve.payload)
+        elif cerceve.tip == pp.TIP_FORM_OFSET:
+            self._isle_form_ofset(cerceve.iha_id, cerceve.payload)
+        elif cerceve.tip == pp.TIP_QR_GOREV:
+            self._isle_qr_gorev(cerceve.iha_id, cerceve.payload)
+        elif cerceve.tip == pp.TIP_QR_HAM:
+            self._isle_qr_ham(cerceve.iha_id, cerceve.payload)
         elif cerceve.tip in (pp.TIP_HEARTBEAT, pp.TIP_VERSION):
             pass  # bilinen tip, downstream aksiyonu yok
         else:
@@ -990,6 +1113,10 @@ class Esp32BridgeNode(Node):
         msg.active_agent_count = hb.active_agent_count
         msg.mission_active = bool(hb.mission_active)
         self._leader_hb_pub.publish(msg)
+        # Lider takibi (KARAR 11 kapısı): heartbeat en sık gelen lider
+        # sinyalidir, seçim mesajı tek atımlık. İkisini de dinliyoruz ki
+        # bridge yeniden başlarsa bir sonraki heartbeat'te lideri öğrensin.
+        self._lider_kaydet(int(hb.leader_id))
 
     def _isle_election(self, source_id: int, payload: bytes) -> None:
         """TIP_ELECTION -> /swarm/public/election/result'a yayın."""
@@ -1006,6 +1133,7 @@ class Esp32BridgeNode(Node):
             i for i in e.confirmed_ids if i != 0
         ]
         self._election_pub.publish(msg)
+        self._lider_kaydet(int(e.new_leader_id))
 
     def _isle_renk(self, source_id: int, payload: bytes) -> None:
         """TIP_RENK -> SystemEvent.EVENT_COLOR_ZONE_DETECTED olarak yayın.
@@ -1466,6 +1594,323 @@ class Esp32BridgeNode(Node):
         )
         self._guided_gonder(pp.TIP_KOMUT, hedef, payload)
 
+    # =================================================================
+    # SÜRÜ KOORDİNASYONU (30 Temmuz) — docs/MESH_PROTOKOL_KARARLARI.md
+    # =================================================================
+    def _formasyon_yayinla(self, tam) -> None:
+        """TamFormasyon'u FormationCommand'a çevirip yayınlar.
+
+        OFFSETLER BURADA DOLDURULUYOR (KARAR 9). Mesh tarifi taşıyor, offsetleri
+        `compute_slot_offsets()` ile geri açıyoruz. Zorunlu, çünkü
+        `maneuver_executor_node.py:335-338` offset dizisi boşsa SESSİZCE
+        `return` ediyor — boş dizi yayınlasak manevra hiç çalışmaz ve sebebi
+        hiçbir logda görünmez. Bu sayede formation_node / collision_avoidance /
+        maneuver_executor hiç değişmedi.
+        """
+        msg = FormationCommand()
+        msg.stamp = self.get_clock().now().to_msg()
+        self._formasyon_seq = (getattr(self, '_formasyon_seq', 0) + 1) & 0xFFFFFFFF
+        msg.sequence_num = self._formasyon_seq
+        msg.formation_type = tam.formasyon_tipi
+        msg.center_x = float(tam.merkez_kuzey_m)
+        msg.center_y = float(tam.merkez_dogu_m)
+        msg.center_z = float(tam.merkez_asagi_m)
+        msg.heading_deg = float(tam.heading_deg)
+        msg.spacing_m = float(tam.spacing_m)
+        msg.agent_ids = [int(a) for a in tam.ajan_ids]
+        msg.offset_x = [float(o[0]) for o in tam.ofsetler]
+        msg.offset_y = [float(o[1]) for o in tam.ofsetler]
+        msg.offset_z = [float(o[2]) for o in tam.ofsetler]
+        # maks_hiz 0 = "belirtilmedi": alıcı düğümler kendi yerel
+        # varsayılanlarını kullanıyor (formation_node:899, maneuver:414).
+        # 0.0 yayınlamak o davranışı koruyor.
+        msg.max_speed_mps = float(tam.maks_hiz_mps)
+        msg.source_module = 'esp32_bridge'
+        self._formation_pub.publish(msg)
+
+    def _isle_formasyon(self, source_id: int, payload: bytes) -> None:
+        """TIP_FORMASYON -> montaja ekle, tamsa yayınla."""
+        veri = pp.formasyon_coz(payload)
+        tam = self._formasyon_montaj.baslik_ekle(
+            source_id, veri, time.monotonic()
+        )
+        if tam is None:
+            # Devam/offset paketi bekleniyor VEYA başlık geçersizdi
+            # (formasyon tipi 0, spacing 0, boş slot). Ayırt edilebilir olsun:
+            if not veri.devam_var and veri.formasyon_tipi not in (1, 2, 3, 99):
+                self.get_logger().warning(
+                    f'agent {source_id}: formasyon tipi '
+                    f'{veri.formasyon_tipi} tanınmıyor, tur düşürüldü'
+                )
+            return
+        self._formasyon_alinan += 1
+        self._formasyon_yayinla(tam)
+
+    def _isle_formasyon_devam(self, source_id: int, payload: bytes) -> None:
+        """TIP_FORMASYON_DEVAM -> slot 4-7 (yalnız 5+ ajanda gelir)."""
+        tam = self._formasyon_montaj.devam_ekle(
+            source_id, pp.formasyon_devam_coz(payload), time.monotonic()
+        )
+        if tam is not None:
+            self._formasyon_alinan += 1
+            self._formasyon_yayinla(tam)
+
+    def _isle_form_ofset(self, source_id: int, payload: bytes) -> None:
+        """TIP_FORM_OFSET -> CUSTOM offsetleri (jüri dizilişi)."""
+        tam = self._formasyon_montaj.ofset_ekle(
+            source_id, pp.form_ofset_coz(payload), time.monotonic()
+        )
+        if tam is not None:
+            self._formasyon_alinan += 1
+            self._formasyon_yayinla(tam)
+
+    def _isle_qr_gorev(self, source_id: int, payload: bytes) -> None:
+        """TIP_QR_GOREV -> QRMissionData yayını.
+
+        `team_id` mesh'te TAŞINMIYOR (metin, 16 bayta sığmaz — KARAR 7). QR'ı
+        okuyan drone yerelde filtrelediği için mesh'e çıkan her QR bizim
+        takımımıza ait. Alanı BURADA doldurmak zorunlu: boş bırakılırsa
+        mission_fsm_node:336 ve mission1_node:205 gelen her QR'ı reddeder.
+        """
+        q = pp.qr_gorev_coz(payload)
+        msg = QRMissionData()
+        msg.stamp = self.get_clock().now().to_msg()
+        msg.detector_agent_id = source_id
+        msg.qr_id = q.qr_id
+        msg.qr_seq = q.qr_seq
+        msg.next_qr = q.sonraki_qr
+        msg.detected = True
+        msg.decoded = q.decoded
+        msg.valid = q.valid
+        msg.formation_active = q.formasyon_aktif
+        msg.maneuver_active = q.manevra_aktif
+        msg.altitude_active = q.irtifa_aktif
+        msg.detach_active = q.ayrilma_aktif
+        msg.complete_mission = q.gorev_bitti
+        msg.formation_type = q.formasyon_tipi
+        msg.spacing_m = float(q.spacing_m)
+        msg.pitch_deg = float(q.pitch_deg)
+        msg.roll_deg = float(q.roll_deg)
+        msg.yaw_deg = float(q.yaw_deg)
+        msg.altitude_agl_m = float(q.irtifa_m)
+        msg.wait_s = float(q.bekleme_s)
+        msg.target_agent_id = q.ayrilan_ajan
+        msg.detach_color = q.ayrilma_renk
+        msg.detach_wait_s = float(q.ayrilma_bekleme_s)
+        msg.team_id = self._takim_id
+        if not self._takim_id:
+            self.get_logger().warning(
+                'takim_id parametresi BOŞ — mission_fsm ve mission1 gelen QR '
+                'görevlerini reddeder (msg.team_id != ctx.team_id). '
+                'baslat.sh/run_drone.sh üzerinden takim_id geçilmeli.',
+                throttle_duration_sec=30.0,
+            )
+        self._qr_gorev_alinan += 1
+        self._qr_data_pub.publish(msg)
+
+    def _isle_qr_ham(self, source_id: int, payload: bytes) -> None:
+        """TIP_QR_HAM -> ayrıştırma hatasının ham metni (SystemEvent olarak).
+
+        Yalnız YKİ'ye iletiliyor (dronların Pi'sine firmware iletmiyor).
+        Şartname "QR içeriği ÖRNEKTİR, nihai format sonrasında paylaşılacaktır"
+        diyor; şemamız tahmin ve format farklı gelirse yapısal alanlar boş
+        kalır. O anda formatı görmenin tek yolu bu.
+        """
+        h = pp.qr_ham_coz(payload)
+        metin = h.dilim.rstrip(b'\x00').decode('utf-8', errors='replace')
+        self._mesh_olay_yayinla(
+            SystemEvent.SEVERITY_WARNING,
+            f'agent {source_id} QR ayrıştırma hatası (kod {h.hata_kodu}) '
+            f'parça {h.parca_no + 1}/{h.toplam_parca}: {metin!r}',
+        )
+
+    def _on_formation_out(self, msg: FormationCommand) -> None:
+        """Formasyon hedefini mesh'e gönderir — YALNIZ LİDER (KARAR 11).
+
+        LOOPBACK: lider kendi paketini codec'ten GERİ GEÇİRİP yerel
+        /swarm/public/formation/target'a yayınlıyor. İki sebep:
+
+        1. Zorunlu. Sahada her Pi'nin ROS grafiği ayrı (ROS_LOCALHOST_ONLY=1)
+           ve kendi mesh yayınımız dispatch'te filtreleniyor
+           (iha_id == agent_id -> return). Yani liderin formation_node'u
+           formasyon hedefini BAŞKA HİÇBİR YOLDAN alamaz. Simülasyonda bu
+           boşluk görünmüyor: network_proxy tek ROS grafiğinde gönderene de
+           geri veriyor.
+        2. Doğruluk. Codec int16 desimetre / int8 derece kuantize ediyor.
+           Loopback olmadan lider tam hassasiyetli, takipçiler kuantize hedefe
+           uçar ve aralarında sistematik kayma olur. Aynı yoldan geçirince
+           bütün sürü BİREBİR aynı hedefi görür.
+        """
+        if not self._lider_miyim():
+            self._formasyon_lider_degil += 1
+            self.get_logger().debug(
+                f'formasyon yayını atlandı: lider={self._lider_id} '
+                f'ben={self._agent_id}'
+            )
+            if self._lider_id == 0:
+                self.get_logger().warning(
+                    'formasyon hedefi geldi ama LİDER BİLİNMİYOR — seçim '
+                    'mesajı hiç görülmedi. consensus_node çalışıyor mu? '
+                    'Formasyon mesh e çıkmıyor.',
+                    throttle_duration_sec=10.0,
+                )
+            return
+
+        ajanlar = [int(a) for a in msg.agent_ids]
+        if not ajanlar:
+            self.get_logger().warning(
+                'formasyon hedefi BOŞ agent_ids ile geldi, atlandı',
+                throttle_duration_sec=10.0,
+            )
+            return
+
+        ofsetler = [
+            (float(x), float(y), float(z))
+            for x, y, z in zip(msg.offset_x, msg.offset_y, msg.offset_z)
+        ]
+        devam_var, ofset_dilimleri = parcala(
+            ajanlar, int(msg.formation_type), ofsetler
+        )
+        if int(msg.formation_type) == FORMATION_CUSTOM and not ofset_dilimleri:
+            self.get_logger().warning(
+                'CUSTOM formasyon ama offset YOK — jüri dizilişi taşınamaz, '
+                'tur atlandı',
+                throttle_duration_sec=10.0,
+            )
+            return
+
+        payload, uyarilar = pp.formasyon_paketle(
+            formasyon_tipi=int(msg.formation_type),
+            merkez_kuzey_m=float(msg.center_x),
+            merkez_dogu_m=float(msg.center_y),
+            merkez_asagi_m=float(msg.center_z),
+            heading_deg=float(msg.heading_deg),
+            spacing_m=float(msg.spacing_m),
+            slot_ajan=ajanlar,
+            maks_hiz_mps=float(msg.max_speed_mps),
+            kanat_alfa_deg=self._kanat_alfa_deg,
+            devam_var=devam_var,
+        )
+        # Kırpma uyarıları SESSİZ KALMAMALI: kırpılan bir merkez/aralık sürüyü
+        # yanlış yere uçurur (KARAR 6). Codec kırpıyor, loglamak bize düşüyor.
+        for u in uyarilar:
+            self.get_logger().warning(f'formasyon paketleme: {u}',
+                                      throttle_duration_sec=5.0)
+
+        self._uart_yaz(pp.TIP_FORMASYON, self._agent_id, payload)
+        if devam_var:
+            self._uart_yaz(
+                pp.TIP_FORMASYON_DEVAM, self._agent_id,
+                pp.formasyon_devam_paketle(ajanlar[pp.FORMASYON_SLOT_PAKET:]),
+            )
+        for slot_bas, dilim in ofset_dilimleri:
+            op, ou = pp.form_ofset_paketle(slot_bas, dilim)
+            for u in ou:
+                self.get_logger().warning(f'formasyon offset: {u}',
+                                          throttle_duration_sec=5.0)
+            self._uart_yaz(pp.TIP_FORM_OFSET, self._agent_id, op)
+        self._formasyon_gonderilen += 1
+
+        # --- LOOPBACK (yukarıdaki docstring'e bkz.) ---
+        simdi = time.monotonic()
+        tam = self._formasyon_montaj.baslik_ekle(
+            self._agent_id, pp.formasyon_coz(payload), simdi
+        )
+        if devam_var and tam is None:
+            tam = self._formasyon_montaj.devam_ekle(
+                self._agent_id, ajanlar[pp.FORMASYON_SLOT_PAKET:], simdi
+            )
+        for slot_bas, dilim in ofset_dilimleri:
+            if tam is not None:
+                break
+            op, _ = pp.form_ofset_paketle(slot_bas, dilim)
+            tam = self._formasyon_montaj.ofset_ekle(
+                self._agent_id, pp.form_ofset_coz(op), simdi
+            )
+        if tam is None:
+            self.get_logger().warning(
+                'LOOPBACK montajı tamamlanmadı — liderin kendi formation_node u '
+                'hedefi ALMAYACAK. Paket dilimleme mantığı gözden geçirilmeli.',
+                throttle_duration_sec=5.0,
+            )
+            return
+        self._formasyon_yayinla(tam)
+
+    def _on_qr_data_out(self, msg: QRMissionData) -> None:
+        """Çözülmüş QR görevini mesh'e gönderir (lider kapısı YOK).
+
+        Şartname: "İHA'lardan en az biri QR kodunu görsel algılama yöntemi ile
+        tespit etmeli ve içeriğini çözümlemelidir." Yani QR'ı hangi drone
+        okuduysa o yayınlar.
+
+        TAKIM FİLTRESİ BURADA: `team_id` mesh'te taşınmıyor, o yüzden bizim
+        takıma ait olmayan QR'ı mesh'e HİÇ ÇIKARMIYORUZ (KARAR 7).
+        """
+        if self._takim_id and msg.team_id and msg.team_id != self._takim_id:
+            self.get_logger().info(
+                f'QR takım {msg.team_id} bize ({self._takim_id}) ait değil, '
+                f'mesh e çıkarılmadı',
+                throttle_duration_sec=10.0,
+            )
+            return
+
+        payload, uyarilar = pp.qr_gorev_paketle(
+            qr_id=int(msg.qr_id), qr_seq=int(msg.qr_seq),
+            sonraki_qr=int(msg.next_qr),
+            valid=bool(msg.valid), decoded=bool(msg.decoded),
+            formasyon_aktif=bool(msg.formation_active),
+            manevra_aktif=bool(msg.maneuver_active),
+            irtifa_aktif=bool(msg.altitude_active),
+            ayrilma_aktif=bool(msg.detach_active),
+            gorev_bitti=bool(msg.complete_mission),
+            formasyon_tipi=int(msg.formation_type),
+            spacing_m=float(msg.spacing_m),
+            pitch_deg=float(msg.pitch_deg),
+            roll_deg=float(msg.roll_deg),
+            yaw_deg=float(msg.yaw_deg),
+            irtifa_m=float(msg.altitude_agl_m),
+            bekleme_s=float(msg.wait_s),
+            ayrilan_ajan=int(msg.target_agent_id),
+            ayrilma_renk=int(msg.detach_color),
+            ayrilma_bekleme_s=float(msg.detach_wait_s),
+        )
+        for u in uyarilar:
+            self.get_logger().warning(f'QR görev paketleme: {u}',
+                                      throttle_duration_sec=5.0)
+        self._uart_yaz(pp.TIP_QR_GOREV, self._agent_id, payload)
+        self._qr_gorev_gonderilen += 1
+
+        # Ayrıştırma patladıysa ham metnin ilk baytlarını da yolla (KARAR 8).
+        # Normal durumda 0 ekstra bayt: YKİ okunabilir metni yapısal
+        # alanlardan kendi kuruyor.
+        if (not msg.decoded or not msg.valid) and msg.error_message:
+            kod = _qr_hata_kodu(str(msg.error_message))
+            for p in pp.qr_ham_paketle(kod, str(msg.raw_text)):
+                self._uart_yaz(pp.TIP_QR_HAM, self._agent_id, p)
+            self.get_logger().warning(
+                f'QR ayrıştırılamadı ({msg.error_message}) — ham metnin ilk '
+                f'{pp.QR_HAM_DILIM_BOYU * pp.QR_HAM_MAKS_PARCA} baytı '
+                f'teşhis için YKİ ye gönderildi'
+            )
+
+    def _lider_kaydet(self, lider_id: int) -> None:
+        """Bilinen lideri günceller ve değişimi loglar.
+
+        Formasyon yayını buna bağlı (KARAR 11). Lider değişimi sessiz kalmamalı:
+        yayının kimden çıktığı değiştiğinde sahada bunu görmek isteriz.
+        """
+        if lider_id and lider_id != self._lider_id:
+            onceki = self._lider_id
+            self._lider_id = lider_id
+            self.get_logger().info(
+                f'lider {onceki} -> {lider_id}'
+                + (' (BEN)' if lider_id == self._agent_id else '')
+            )
+
+    def _lider_miyim(self) -> bool:
+        """Formasyon yayını kapısı (KARAR 11)."""
+        return self._lider_id != 0 and self._lider_id == self._agent_id
+
     def _on_leader_hb_out(self, msg: LeaderHeartbeat) -> None:
         """Lider kalp atışını TIP_LEADER_HB olarak ESP32'ye gönderir."""
         payload = pp.leader_hb_paketle(
@@ -1476,6 +1921,10 @@ class Esp32BridgeNode(Node):
             mission_active=1 if msg.mission_active else 0,
         )
         self._uart_yaz(pp.TIP_LEADER_HB, self._agent_id, payload)
+        # Yerel heartbeat'i YALNIZ lider yayınlar; yani bu çağrı geldiyse
+        # consensus bu drone'u lider görüyor. Kendi yayınımız mesh'ten geri
+        # gelmediği için lideri buradan da öğreniyoruz.
+        self._lider_kaydet(int(msg.leader_id))
 
     def _on_election_out(self, msg: ElectionResult) -> None:
         """ElectionResult'ı TIP_ELECTION olarak ESP32'ye gönderir."""
@@ -1488,6 +1937,10 @@ class Esp32BridgeNode(Node):
             confirmed_ids=tuple(msg.confirmed_by_agent_ids),
         )
         self._uart_yaz(pp.TIP_ELECTION, self._agent_id, payload)
+        # Yerel consensus bu drone'u lider seçtiyse mesh'ten geri gelmesini
+        # BEKLEMEYELIM: kendi yayınımızı dispatch filtreliyor
+        # (iha_id == agent_id -> return), yani mesh yolundan asla öğrenemeyiz.
+        self._lider_kaydet(int(msg.new_leader_id))
 
     # =================================================================
     # KAPANIŞ

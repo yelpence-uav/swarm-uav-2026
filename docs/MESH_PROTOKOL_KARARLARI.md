@@ -972,7 +972,7 @@ Durum özeti:
 | 1b | `packet_parser.py` format/veri sınıfı/paketleyici | **BİTTİ** ✓ |
 | 1c | YKİ/kumanda formasyon seçimi — **kusur düzeltmesi** | **BİTTİ** ✓ |
 | 2 | firmware geçitleri (**4 geçit**, 2 değil) | **BİTTİ** ✓ |
-| 3 | `esp32_bridge_node` abonelik/yayın + geri açma + lider kapısı | bekliyor |
+| 3 | `esp32_bridge_node` abonelik/yayın + geri açma + lider kapısı | **BİTTİ** ✓ |
 | 4 | `baslat.sh` düğüm listesi | bekliyor |
 | 5 | `swarm_missions`'ı Pi'lere kur | bekliyor |
 | 6 | RTCM 1 Hz (bağımsız) | bekliyor |
@@ -1242,6 +1242,133 @@ formation_geometry`'den `compute_slot_offsets` import edecek. Bağımlılık uyg
 içeriyor, `formation_geometry` yalnız `math` import ediyor) **ama** import
 sırası ROS paket kurulumunda ayrışabilir — `colcon build` sırası ve
 `install/` altındaki yerleşim doğrulanmalı.
+
+
+### Adım 3 — köprü (BİTTİ)
+
+**Değişen/eklenen dosyalar:**
+
+| dosya | ne |
+|---|---|
+| `esp32_bridge/formasyon_montaj.py` | **YENİ** — çok parçalı montaj, saf modül |
+| `esp32_bridge/esp32_bridge_node.py` | 2 abonelik, 2 yayıncı, 8 metot, 2 parametre, lider takibi, 8 teşhis sayacı |
+| `test/test_formasyon_montaj.py` | **YENİ** — 22 birim testi |
+| `test/test_entegrasyon_formasyon.py` | **YENİ** — uçtan uca, sanal seri portla |
+| `test/conftest.py` | entegrasyon testinde gerçek ROS mesajları kullanılsın |
+
+#### Adım 3'ün ortaya çıkardığı EN ÖNEMLİ ŞEY: liderin loopback boşluğu
+
+Kod yazmadan önce şunu sordum: **liderin kendi `formation_node`'u formasyon
+hedefini nasıl alacak?** Zincir şöyleydi:
+
+    lider path_planner -> /swarm/internal/formation/target -> köprü -> mesh
+      -> takipçilerin köprüsü -> /swarm/public/formation/target -> formation_node
+
+Liderde son satır **hiç oluşmuyor**. İki ölçümle doğrulandı:
+
+1. Köprü dispatch'i kendi yayınını filtreliyor:
+   `if cerceve.iha_id == self._agent_id: return`
+2. `deploy/rpi/baslat.sh:8` → `ROS_LOCALHOST_ONLY=1`, yani her Pi'nin ROS
+   grafiği ayrı. Liderin `/swarm/public/formation/target`'ının yayıncısı yok.
+
+**Simülasyon bu boşluğu GİZLİYOR.** `network_proxy` internal→public
+aktarırken göndereni dışlamıyor ve sim'de bütün dronlar tek ROS grafiğinde —
+orada liderin `formation_node`'u hedefi alıyor. Yani sim'de çalışan senaryo
+sahada liderin formasyona hiç girmemesiyle sonuçlanırdı.
+
+**Çözüm: LOOPBACK.** Lider kendi paketini codec'ten **geri geçirip** yerel
+`/swarm/public/formation/target`'a yayınlıyor. İkinci bir faydası da var ve
+zorunluluktan bağımsız değerli: codec `int16` desimetre / `int8` derece
+kuantize ediyor. Loopback olmasa lider **tam hassasiyetli**, takipçiler
+**kuantize** hedefe uçar ve aralarında sistematik kayma olurdu. Aynı yoldan
+geçirince bütün sürü **birebir aynı** hedefi görüyor.
+
+#### Montaj ayrı modülde — neden
+
+`FormasyonMontaj` (`formasyon_montaj.py`) `swarm_interfaces`'a bağımlı DEĞİL:
+girdi `packet_parser` veri sınıfları, çıktı düz bir dataclass (`TamFormasyon`).
+`cobs.py` / `crc16.py` ile aynı kalıp — ROS ortamı kurmadan test edilebiliyor.
+22 birim testi bu sayede mümkün oldu.
+
+Zaman aşımı **1.0 sn** (formasyon 5 Hz = 200 ms → 5 tur pay). Daha kısası ağ
+dalgalanmasında sağlam montajı düşürür; daha uzunu bayat parçayı yeni başlıkla
+karıştırma riskini büyütür. Yeni başlık eski yarım montajı **bilerek düşürür**:
+5 Hz akışta yarım eski turu yeni turla karıştırmak slot atamasını bozar ve iki
+drone aynı slotu hedefleyebilir.
+
+#### Lider takibi DÖRT kaynaktan
+
+`_lider_kaydet()` şu dördünden de çağrılıyor ve gerekçesi ayrı:
+
+| kaynak | neden gerekli |
+|---|---|
+| `_isle_leader_hb` (mesh) | en sık gelen lider sinyali; köprü yeniden başlarsa bir sonraki heartbeat'te öğrenir |
+| `_isle_election` (mesh) | lider değişimi anı |
+| `_on_election_out` (yerel) | **kritik** — bu drone lider seçildiyse kendi yayınımız mesh'ten geri gelmez (dispatch filtreler), yalnız buradan öğrenilir |
+| `_on_leader_hb_out` (yerel) | yerel heartbeat'i yalnız lider yayınlar |
+
+`_lider_id` **0 başlıyor** ve kimse lider değilken formasyon yayınlanmıyor —
+iki dronun aynı anda yayınlaması riskini doğurur. Ama sessiz kalmasın diye
+kapıda throttle'lı uyarı basılıyor: *"formasyon hedefi geldi ama LİDER
+BİLİNMİYOR — consensus_node çalışıyor mu?"*
+
+#### Teşhis sayaçları: "formasyon neden gelmiyor" sorusunu bölmek için
+
+`mesh_diag` satırına 8 alan eklendi. Ayrım şeması:
+
+    form_tx=0              -> lider yayınlamıyor (lider kapısı / path_planner)
+    form_lider_degil>0     -> bu drone lider değil, NORMAL
+    form_rx=0 ama form_tx>0-> mesh/whitelist sorunu
+    form_yarim>0           -> çok parçalı montaj tamamlanmıyor
+    form_sahipsiz>0        -> başlığı görülmemiş devam/offset parçası
+    lider=N                -> kimin lider olduğu
+
+#### Adım 3 doğrulaması
+
+**Birim: 137 test geçiyor** (22 yeni montaj testi dahil). Kapsam: offsetlerin
+`compute_slot_offsets` ile **birebir** olduğu (ayrışırsa lider ve takipçi farklı
+geometri kullanır), slot sırasının korunduğu, 5+ ajan devam paketi, CUSTOM
+offset bekleme, zaman aşımı, yeni başlığın eskiyi düşürmesi, kaynakların
+birbirini bozmaması, sahipsiz parça sayımı, geçersiz tip/spacing/boş slot.
+
+**Entegrasyon: `test_entegrasyon_formasyon.py` — GERÇEK bayt akışı.**
+socat ile sanal pty çifti kurulup köprünün bir ucunu o, testin diğerini
+tutuyor. 33 kontrol, hepsi geçti:
+
+| senaryo | doğrulanan |
+|---|---|
+| A) lider kapısı | lider bilinmezken **0 bayt** çıktı, yerel yayın yok, **uyarı basıldı** |
+| B) lider olunca | 22 bayt çıktı, yalnız `0x11` (devam/offset yok — 3 ajan + adlandırılmış), slot sırası `[3,1,2]` korundu, kanat açısı pakete kondu, **loopback yayınlandı, offsetler dolu, merkez kuantize** |
+| C) komşudan alma | `/swarm/public/formation/target` yayınlandı, **offsetler DOLU** (KARAR 9), çizgi genişliği 8.00 m (3 ajan × 4 m — geometri doğru) |
+| D) QR | `team_id` **dolduruldu**, `detector_agent_id` kaynaktan, tüm alanlar kayıpsız |
+| E) sayaçlar | `lider=1 form_tx=1 form_rx=1 form_lider_degil=1 qr_rx=1` — tam isabet |
+
+Test **varsayılan olarak atlanıyor** (`YELPENCE_ENTEGRASYON=1` gerekiyor):
+socat, ROS ve süreç başlatma istiyor, birim test değil.
+
+#### Yolda düşülen iki tuzak (kayda geçiyor)
+
+1. **`conftest.py` ROS mesajlarını taklit ediyor.** `MagicMock` ile
+   `create_publisher()` *"_TYPE_SUPPORT yok"* diye patlıyor. Entegrasyon testi
+   gerçek mesaj gerektirdiği için conftest'e hedefli bir kapı kondu:
+   `YELPENCE_ENTEGRASYON=1` iken taklit yapılmıyor. Birim testlerin davranışı
+   değişmedi (137 test aynı).
+
+2. **`pkill -f <desen>` kendi kabuğunu öldürüyor** — desen çağıran kabuğun
+   komut satırında da geçtiği için (exit 144, iki kez yaşandı). Temizlik
+   `/proc` okunup kendi PID ve ata zinciri dışlanarak yapılıyor. Ayrıca artık
+   süreç bırakmak testi **sessizce bozuyor**: eski köprü aynı pty'ye yazıyor ve
+   lider kapısı testi 0 yerine 44 bayt görüyor (*"multiple access on port"*).
+   Temizlik artık testin ilk adımı. YKİ'nin base köprüsü (`agent_id:=10`)
+   bilinçli olarak korunuyor.
+
+### Adım 4-6 — kalanlar
+
+    4  baslat.sh dugum listesi + takim_id/kanat_alfa parametreleri
+    5  swarm_missions'i Pi'lere kur (paket Pi'lerde YOK)
+    6  RTCM 1 Hz (bagimsiz, KARAR 12)
+    +  UC ESP'yi YENIDEN YUKLE - yeni TIP'ler eski firmware'de else return'e
+       dusuyor. Drone ESP'si icin RPi kablolari SOKULMELI (YUKLEME_PROSEDURU.md)
 
 
 ### Adım 1c'nin ortaya çıkardığı AÇIK İŞ — kumanda formasyon yolu YOK
