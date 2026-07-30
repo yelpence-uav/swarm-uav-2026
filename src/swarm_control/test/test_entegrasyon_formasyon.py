@@ -154,7 +154,7 @@ def _senaryo():
     kopru = subprocess.Popen(
         ['ros2', 'run', 'swarm_control', 'esp32_bridge', '--ros-args',
          '-p', f'agent_id:={AGENT}', '-p', f'serial_port:={PTY_KOPRU}',
-         '-p', f'takim_id:={TAKIM}', '-p', 'kanat_alfa_deg:=45.0'],
+         '-p', f'team_id:={TAKIM}', '-p', 'wing_alpha_deg:=45.0'],
         stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, env=ortam)
     kopru_log = []
     threading.Thread(

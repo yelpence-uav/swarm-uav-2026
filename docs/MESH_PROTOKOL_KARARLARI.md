@@ -973,7 +973,7 @@ Durum özeti:
 | 1c | YKİ/kumanda formasyon seçimi — **kusur düzeltmesi** | **BİTTİ** ✓ |
 | 2 | firmware geçitleri (**4 geçit**, 2 değil) | **BİTTİ** ✓ |
 | 3 | `esp32_bridge_node` abonelik/yayın + geri açma + lider kapısı | **BİTTİ** ✓ |
-| 4 | `baslat.sh` düğüm listesi | bekliyor |
+| 4 | dağıtım altyapısı + `baslat.sh` (opt-in düğümler) | **BİTTİ** ✓ |
 | 5 | `swarm_missions`'ı Pi'lere kur | bekliyor |
 | 6 | RTCM 1 Hz (bağımsız) | bekliyor |
 
@@ -1369,6 +1369,97 @@ socat, ROS ve süreç başlatma istiyor, birim test değil.
     6  RTCM 1 Hz (bagimsiz, KARAR 12)
     +  UC ESP'yi YENIDEN YUKLE - yeni TIP'ler eski firmware'de else return'e
        dusuyor. Drone ESP'si icin RPi kablolari SOKULMELI (YUKLEME_PROSEDURU.md)
+
+
+### Adım 4 — dağıtım altyapısı (BİTTİ)
+
+**"`baslat.sh`'i düzenle" sanılan adım, aslında dağıtım zinciriymiş.**
+
+#### Önce iki tehlikeli şey yakalandı
+
+**1. Bu daldan dağıtım Pi'yi GERİYE alacaktı.** `baslat.sh`'i okuduğumda
+main'in eski sürümünü gördüm — uçuş kaydı ve düğüm günlükleri **yok**. Sebep:
+o iş `feature/rpi-gunlukleme` dalında, bu dal ise main'den çıkmış. Pi'nin
+`baslat.sh`'i (`b88ace73`) ise **rpi-gunlukleme sürümü** — yani Pi bu dalın
+önündeydi. Fark edilmese uçuş kaydı sessizce kaybolurdu.
+
+Çözüm: iki dal birleştirildi. Dosya kesişimi **boş** olduğu için temiz geçti
+(`rpi-gunlukleme` → `deploy/`, `docs/28-29-temmuz.md`; mesh dalı → `firmware/`,
+`src/`). Artık tek dal "dronlarda olması gereken kod"u temsil ediyor.
+
+**2. Parametre adlarını uydurmuşum — sessiz hata sınıfı.** ROS 2 bildirilmemiş
+parametre geçildiğinde **hata vermez**, sessizce yok sayar ve düğüm varsayılanla
+koşar. Ölçüldü:
+
+| benim yazdığım | kod tabanının kullandığı |
+|---|---|
+| `kanat_alfa_deg` | **`wing_alpha_deg`** (formation_node:181, mission1_node:126) |
+| `takim_id` | **`team_id`** (mission_fsm_node:89, mission1_node:122) |
+
+Dahası: `team_id` varsayılanı **`'752825'`** (gerçek takım ID'si), köprümün
+varsayılanı `''` idi. `'' != '752825'` → `mission_fsm` gelen **her QR'ı
+reddederdi** ve semptom "QR görevleri hiç işlenmiyor" olurdu. Köprü artık aynı
+varsayılanı kullanıyor ve `baslat.sh` üçüne birden aynı değeri geçiyor.
+
+Bir de hangi düğümün hangi parametreyi kabul ettiği ölçüldü:
+`path_planner`, `task_reallocator`, `swarm_fsm`, `mission_fsm`, `mode_manager`
+**`agent_id` kabul etmiyor** — geçirmek zararsız ama yanıltıcı olurdu.
+
+#### `deploy/rpi/dagit.sh` (YENİ)
+
+Üç işi birlikte yapıyor ve üçü de gerekli:
+
+    1) rsync --delete ile kaynak senkronu   (artik dosya kalmasin)
+    2) konteynerde colcon build             (install/ guncellenmezse kod DEGISMEZ)
+    3) ~/yelpence_ws/.surum dosyasi         (commit + dal + tarih + KIRLI mi)
+
+**3. adım olmadan ilk ikisi yetmez.** Pi'lerin 8 gün geride olduğunu ancak
+dosya dosya md5 karşılaştırarak bulabildim, çünkü "hangi sürüm yüklü" bilgisi
+hiçbir yerde yoktu. `.surum` bunu tek komuta indiriyor.
+
+`--delete` bilinçli: silinen/taşınan dosya Pi'de kalırsa eski modül import
+edilmeye devam eder ve "neden eski davranıyor" sorusu çıkar.
+
+IP'yi DHCP kaydırırsa subnet taraması yapıp **hostname ile doğruluyor** — 22.
+portu açık olan her makine drone değil.
+
+`network_proxy` ve `sim_rtcm_source` **bilerek dağıtılmıyor**: ikisi de
+simülasyon bileşeni. `network_proxy` sahada `/swarm/public/*`'a ikinci bir
+yayıncı sokar ve teşhisi çok zor bir çift-kaynak durumu oluşturur.
+
+`KURU=1` ile kuru koşu var; ilk denemede **kirli çalışma ağacını yakaladı**.
+
+#### `baslat.sh` — sürü düğümleri BİLEREK OPT-IN
+
+14 düğümü birden açmak, bir tuhaflık çıktığında hangisinden geldiğini ayırt
+edilemez hale getirir — az önce dağıtım için savunduğum ilkenin aynısı. Bu
+yüzden varsayılan **hiçbiri açılmıyor**:
+
+    SURU_DUGUMLERI="consensus"                    # yalniz lider secimi
+    SURU_DUGUMLERI="consensus fusion"             # + komsu yumusatma
+    SURU_DUGUMLERI="consensus fusion formasyon"   # + formasyon zinciri
+    SURU_DUGUMLERI="hepsi"
+
+Gruplar tek düğüm değil **zincir** olarak tanımlı, çünkü tek başına anlamsız
+olanlar var: `formasyon` grubu `formation_node` + `collision_avoidance` +
+`path_planner` üçünü birlikte açıyor. `collision_avoidance` **zorunlu halka**
+(`setpoint/raw` → `setpoint` dönüşümü onda); yalnız `formation_node` açılırsa
+setpoint PX4'e **hiç ulaşmaz**.
+
+`run_drone.sh` üç env'i (`SURU_DUGUMLERI`, `TAKIM_ID`, `KANAT_ALFA_DEG`)
+`-e` ile geçiriyor — geçmezse konteynere hiç ulaşmazlar.
+
+#### Doğrulama
+
+- `bash -n` üç script için temiz
+- Birim: **137 test geçiyor**
+- Entegrasyon: parametre adları değiştikten sonra **tekrar koşturuldu, geçti**
+- `KURU=1 dagit.sh`: iki Pi'yi buldu, kirli ağacı bildirdi, hiçbir şeye dokunmadı
+
+**Mesh testi için asgari küme:** yalnız `esp32_bridge` (zaten koşuyor) +
+`ElectionResult`'ı elle yayınlamak. `consensus` bile gerekmiyor — entegrasyon
+testi tam bunu yapıyor. Yani ilk gerçek mesh testi **hiçbir sürü düğümü
+açmadan** yapılabilir; en temiz izolasyon.
 
 
 ### Adım 1c'nin ortaya çıkardığı AÇIK İŞ — kumanda formasyon yolu YOK

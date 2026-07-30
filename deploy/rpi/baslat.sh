@@ -43,7 +43,20 @@ sleep 5
 # MAVLink yayin hizlari: FCU her resetlendiginde sifirlanir, her aciliste yeniden istenir
 python3 /ws/mesaj_hizlari.py > "$GUNLUK/hizlar.log" 2>&1
 sleep 2
-ros2 run swarm_control esp32_bridge --ros-args -p serial_port:=/dev/ttyAMA4 -p baud:=460800 -p agent_id:=${AGENT_ID} > "$GUNLUK/esp.log" 2>&1 &
+# TAKIM_ID -> team_id: QR'in takim filtresi mesh'te TASINMIYOR (metin, 16 bayta sigmaz).
+# QR'i okuyan drone yerelde filtreliyor; alici kopru bu alani DOLDURMAK ZORUNDA.
+# Bos kalirsa mission_fsm_node:336 ve mission1_node:205 gelen HER QR'i reddeder
+# ve semptom "QR gorevleri hic islenmiyor" olur. Kopru bos gorurse uyariyor.
+# Varsayilan mission1_node:122 / mission_fsm_node:89 ile AYNI olmali;
+# ucu ayrisirsa mission_fsm gelen her QR'i reddeder.
+TAKIM_ID="${TAKIM_ID:-752825}"
+# KANAT_ALFA_DEG -> wing_alpha_deg: OKBASI/V kanat acisi. FormationCommand bu alani TASIMIYOR, o
+# yuzden lider parametreden okuyup pakete koyuyor, alici paketten okuyor —
+# boylece butun suru LIDERIN degerini kullanir. formation_node ve mission1_node
+# da ayni isimli parametreyi kullaniyor; UCU AYNI OLMALI yoksa slot geometrisi
+# sessizce ayrisir.
+KANAT_ALFA_DEG="${KANAT_ALFA_DEG:-45.0}"
+ros2 run swarm_control esp32_bridge --ros-args -p serial_port:=/dev/ttyAMA4 -p baud:=460800 -p agent_id:=${AGENT_ID} -p team_id:="${TAKIM_ID}" -p wing_alpha_deg:=${KANAT_ALFA_DEG} > "$GUNLUK/esp.log" 2>&1 &
 
 # --- Ucus kaydi (PX4 ULog'unun yerine gecen kayit) --------------------------
 # Pixhawk'ta RAM sinirda oldugu icin FCU tarafinda logger ACILMIYOR. Onun
@@ -101,6 +114,129 @@ kapat() {
     kill -TERM 0 2>/dev/null
 }
 trap kapat TERM INT
+
+# --- Suru dugumleri: BILEREK OPT-IN ----------------------------------------
+# Bunlar simulasyon icin yazildi ve sahada HIC kosmadilar. On dortunu birden
+# acmak, bir tuhaflik ciktiginda hangisinden geldigini ayirt edilemez hale
+# getirir. Bu yuzden varsayilan olarak HICBIRI acilmiyor; hangisi acilacaksa
+# SURU_DUGUMLERI ile ADI verilir:
+#
+#   SURU_DUGUMLERI="consensus"                       # yalniz lider secimi
+#   SURU_DUGUMLERI="consensus fusion"                # + komsu yumusatma
+#   SURU_DUGUMLERI="consensus fusion formasyon"      # + formasyon zinciri
+#   SURU_DUGUMLERI="hepsi"                           # tumu (dikkatli)
+#
+# run_drone.sh bunu -e ile gecirir. Sira onemli: formasyon zinciri
+# formation_node -> collision_avoidance -> px4_bridge seklinde akiyor ve
+# collision_avoidance ZORUNLU HALKA (setpoint/raw -> setpoint donusumu onda).
+# Yalniz formation_node acilirsa setpoint PX4'e HIC ulasmaz.
+SURU_DUGUMLERI="${SURU_DUGUMLERI:-}"
+
+acik() {
+    case " $SURU_DUGUMLERI " in
+        *" hepsi "*) return 0 ;;
+        *" $1 "*)    return 0 ;;
+        *)           return 1 ;;
+    esac
+}
+
+if [ -n "$SURU_DUGUMLERI" ]; then
+    echo "[baslat] suru dugumleri: $SURU_DUGUMLERI"
+
+    # Lider secimi. Formasyon yayini buna BAGLI: esp32_bridge'in lider kapisi
+    # (KARAR 11) secim/heartbeat gormeden formasyon yayinlamaz.
+    if acik consensus; then
+        ros2 run swarm_core consensus_node --ros-args \
+            -p agent_id:=${AGENT_ID} > "$GUNLUK/consensus.log" 2>&1 &
+        sleep 2
+    fi
+
+    # Komsu telemetrisini yumusatir (EMA). Formasyon oncesi acilmasi mantikli:
+    # slot atamasi komsu konumlarina bakiyor.
+    if acik fusion; then
+        ros2 run swarm_perception kinematic_fusion --ros-args \
+            -p agent_id:=${AGENT_ID} > "$GUNLUK/fusion.log" 2>&1 &
+        sleep 2
+    fi
+
+    # Formasyon zinciri — UCU BIRLIKTE acilir, tek basina anlamsizlar.
+    if acik formasyon; then
+        # wing_alpha_deg: kopru ve mission1 ile AYNI deger sart, yoksa slot
+        # geometrisi sessizce ayrisir.
+        ros2 run swarm_core formation_node --ros-args \
+            -p agent_id:=${AGENT_ID} -p wing_alpha_deg:=${KANAT_ALFA_DEG} \
+            > "$GUNLUK/formation.log" 2>&1 &
+        sleep 1
+        ros2 run swarm_core collision_avoidance --ros-args \
+            -p agent_id:=${AGENT_ID} > "$GUNLUK/ca.log" 2>&1 &
+        sleep 1
+        # path_planner agent_id KABUL ETMIYOR (olculdu) - lider kapisi
+        # kopruden isliyor (KARAR 11), dugum her dronda kosuyor.
+        ros2 run swarm_core path_planner \
+            > "$GUNLUK/planner.log" 2>&1 &
+        sleep 1
+    fi
+
+    # Manevra (pitch/roll/yaw) — formasyon zinciri acikken anlamli.
+    if acik manevra; then
+        ros2 run swarm_core maneuver_executor --ros-args \
+            -p agent_id:=${AGENT_ID} > "$GUNLUK/manevra.log" 2>&1 &
+        sleep 1
+    fi
+
+    # Suru/gorev FSM'leri. KARAR 1/2: her dronda kosar, SwarmState yerel uretilir.
+    if acik fsm; then
+        # DIKKAT: bu ucu agent_id KABUL ETMIYOR (olculdu). Gecirmek zararsiz
+        # ama yaniltici olurdu - "id gecti sanip" yanlis yerde aranir.
+        ros2 run swarm_state_machine swarm_fsm_node \
+            > "$GUNLUK/swarm_fsm.log" 2>&1 &
+        sleep 1
+        # team_id: kopru ve mission1 ile AYNI olmali (QR filtresi).
+        ros2 run swarm_state_machine mission_fsm_node --ros-args \
+            -p team_id:="${TAKIM_ID}" > "$GUNLUK/mission_fsm.log" 2>&1 &
+        sleep 1
+        ros2 run swarm_state_machine mode_manager_node \
+            > "$GUNLUK/mode_manager.log" 2>&1 &
+        sleep 1
+    fi
+
+    # Gorev 1 orkestratoru. KARAR 10: her dronda kosar (sicak yedek).
+    if acik gorev1; then
+        ros2 run swarm_missions mission1_dynamic_swarm --ros-args \
+            -p agent_id:=${AGENT_ID} -p team_id:="${TAKIM_ID}" \
+            -p wing_alpha_deg:=${KANAT_ALFA_DEG} \
+            > "$GUNLUK/mission1.log" 2>&1 &
+        sleep 1
+    fi
+
+    # Kamera + goru. Kamera donanimi olmayan dronda camera_driver hata dongusune
+    # girer, o yuzden ayri anahtar.
+    if acik goru; then
+        ros2 run swarm_perception camera_driver --ros-args \
+            -p agent_id:=${AGENT_ID} > "$GUNLUK/kamera.log" 2>&1 &
+        sleep 2
+        ros2 run swarm_perception vision_node --ros-args \
+            -p agent_id:=${AGENT_ID} > "$GUNLUK/goru.log" 2>&1 &
+        sleep 1
+    fi
+
+    # Hassas inis — goru acikken anlamli (inis bolgesi kameradan geliyor).
+    if acik inis; then
+        ros2 run swarm_core precision_landing_node --ros-args \
+            -p agent_id:=${AGENT_ID} > "$GUNLUK/inis.log" 2>&1 &
+        sleep 1
+    fi
+
+    # Rol yeniden dagitim.
+    if acik rol; then
+        # task_reallocator agent_id KABUL ETMIYOR (olculdu).
+        ros2 run swarm_core task_reallocator_node \
+            > "$GUNLUK/rol.log" 2>&1 &
+        sleep 1
+    fi
+else
+    echo "[baslat] suru dugumleri KAPALI (SURU_DUGUMLERI bos)"
+fi
 
 echo "tum dugumler basladi (kayit: $KAYIT_DIZIN)"
 wait

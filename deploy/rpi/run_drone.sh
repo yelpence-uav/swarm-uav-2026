@@ -15,6 +15,15 @@ AGENT_ID="${1:?Kullanim: run_drone.sh <AGENT_ID>  (orn: 2)}"
 WS_DIR="${WS_DIR:-$HOME/yelpence_ws}"
 IMAGE="${IMAGE:-yelpence-ros:latest}"
 NAME="drone${AGENT_ID}"
+# Suru koordinasyonu env'leri (30 Temmuz). Konteynere GECMEZSE baslat.sh
+# varsayilanlarini kullanir: SURU_DUGUMLERI bos (hicbir suru dugumu acilmaz),
+# TAKIM_ID bos (kopru uyarir, QR gorevleri reddedilir), KANAT_ALFA 45.
+#
+#   SURU_DUGUMLERI="consensus"     -> kademeli acma, bkz baslat.sh
+#   TAKIM_ID="YLP26"               -> QR takim filtresi icin ZORUNLU
+SURU_DUGUMLERI="${SURU_DUGUMLERI:-}"
+TAKIM_ID="${TAKIM_ID:-}"
+KANAT_ALFA_DEG="${KANAT_ALFA_DEG:-45.0}"
 
 if ! [[ "$AGENT_ID" =~ ^[0-9]+$ ]]; then
   echo "[HATA] AGENT_ID sayi olmali (orn: 2)"; exit 1
@@ -35,6 +44,9 @@ docker run -d --name "$NAME" \
   -v "$WS_DIR:/ws" \
   -e ROS_DOMAIN_ID=0 \
   -e AGENT_ID="$AGENT_ID" \
+  -e SURU_DUGUMLERI="$SURU_DUGUMLERI" \
+  -e TAKIM_ID="$TAKIM_ID" \
+  -e KANAT_ALFA_DEG="$KANAT_ALFA_DEG" \
   "$IMAGE" \
   bash /ws/baslat.sh
 

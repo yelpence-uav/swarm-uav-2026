@@ -230,25 +230,29 @@ class Esp32BridgeNode(Node):
         self.declare_parameter('rtcm_in_topic', '/swarm/internal/rtcm')
 
         # --- Sürü koordinasyonu (30 Temmuz) --------------------------------
-        # takim_id: KARAR 7 — QR'ın takım filtresi mesh'te taşınmıyor (metin,
+        # team_id: KARAR 7 — QR'ın takım filtresi mesh'te taşınmıyor (metin,
         # 16 bayta sığmaz). QR'ı okuyan drone yerelde filtreliyor, yani mesh'e
         # çıkan her QR zaten bizim takıma ait. Alıcı taraf `team_id` alanını
         # BURADAN doldurmak ZORUNDA: boş bırakılırsa mission_fsm_node:336
         # (`elif msg.team_id != ctx.team_id: return`) ve mission1_node:205
         # gelen HER QR'ı reddeder. Sessiz bir tuzak, o yüzden boşsa uyarıyoruz.
-        self.declare_parameter('takim_id', '')
-        # kanat_alfa_deg: OKBASI/V formasyonunun kanat açısı. FormationCommand
+        # Varsayilan mission1_node:122 ve mission_fsm_node:89 ile AYNI
+        # ('752825'). Ucu ayrisirsa mission_fsm gelen her QR'i reddeder
+        # (msg.team_id != ctx.team_id) ve semptom 'QR gorevleri hic
+        # islenmiyor' olur. baslat.sh ucune ayni degeri geciriyor.
+        self.declare_parameter('team_id', '752825')
+        # wing_alpha_deg: OKBASI/V formasyonunun kanat açısı. FormationCommand
         # bu alanı TAŞIMIYOR, o yüzden gönderen taraf parametreden okur ve
         # pakete koyar; alıcı paketten okur. Böylece bütün sürü LİDERİN
         # değerini kullanır. formation_node ve mission1_node'da da aynı isimli
         # parametre var (ikisinde varsayılan 45.0) ve eşitliği hiçbir şey
         # zorlamıyordu — biri farklı kalırsa slot geometrisi SESSİZCE ayrışır.
-        self.declare_parameter('kanat_alfa_deg', 45.0)
+        self.declare_parameter('wing_alpha_deg', 45.0)
 
         self._agent_id = int(self.get_parameter('agent_id').value)
-        self._takim_id = str(self.get_parameter('takim_id').value)
+        self._takim_id = str(self.get_parameter('team_id').value)
         self._kanat_alfa_deg = float(
-            self.get_parameter('kanat_alfa_deg').value
+            self.get_parameter('wing_alpha_deg').value
         )
         port = str(self.get_parameter('serial_port').value)
         baud = int(self.get_parameter('baud').value)
@@ -1700,9 +1704,9 @@ class Esp32BridgeNode(Node):
         msg.team_id = self._takim_id
         if not self._takim_id:
             self.get_logger().warning(
-                'takim_id parametresi BOŞ — mission_fsm ve mission1 gelen QR '
+                'team_id parametresi BOŞ — mission_fsm ve mission1 gelen QR '
                 'görevlerini reddeder (msg.team_id != ctx.team_id). '
-                'baslat.sh/run_drone.sh üzerinden takim_id geçilmeli.',
+                'baslat.sh/run_drone.sh üzerinden TAKIM_ID geçilmeli.',
                 throttle_duration_sec=30.0,
             )
         self._qr_gorev_alinan += 1
