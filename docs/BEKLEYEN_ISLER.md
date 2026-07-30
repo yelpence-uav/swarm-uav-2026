@@ -37,19 +37,49 @@ Durum işaretleri:
 
 - `[ ]` **ylp02 GPS standı.** Kabul ölçütü `h_acc < 3.0 m`. Stand değiştiriliyor.
 
-- `[!]` **ylp01'in ESP32'si ESKİ FIRMWARE — ölçüldü (30 Temmuz).**
-  Tek kalan ylp01 eksiği. Fiziksel erişim gerekiyor: ESP Pi'den sökülüp
-  dizüstüne USB ile takılmalı, sonra PlatformIO ile `TX DRONE` yüklenmeli
-  (mesh ID 2, MAC `D4:E9:F4:FB:13:88`).
+- `[x]` **ÇÖZÜLDÜ — ylp01'in ESP32'si eski firmware'deydi, flaşlandı
+  (30 Temmuz).** Önce/sonra ölçümü:
 
-  Kanıt: ylp00 lider olarak `form_tx=11` gönderdi, ylp01 `form_rx=0` aldı —
-  **hiçbiri gelmedi.** Ama ylp01 aynı turda `lider=1`'i öğrendi, yani
-  `TIP_ELECTION` geçti ve mesh sağlam. Fark net: `TIP_ELECTION` eski
-  firmware'de zaten vardı, bu oturumda eklenen `TIP_FORMASYON` (0x11) ve
-  diğer 4 TIP yok → paketler ESP'de düşüyor.
+  | | flash öncesi | flash sonrası |
+  |---|---|---|
+  | ylp00 `form_tx` | 11 | 21 (+10) |
+  | ylp01 `form_rx` | **0** | **10** (+10, kayıpsız) |
 
-  Etkisi: ylp01 formasyon, QR görev ve QR ham paketlerini **alamaz**.
-  Base + ylp00 + ylp02 flaşlandı, yalnız ylp01 kaldı.
+  Teşhis şöyle daraltılmıştı: ylp01 aynı turda `lider=1`'i öğreniyordu, yani
+  `TIP_ELECTION` geçiyor ve mesh sağlam — ama `TIP_FORMASYON` (0x11) eski
+  firmware'in beyaz listesinde olmadığı için paket **ESP'de** düşüyordu.
+
+  > **Doğru cihaza yüklediğinden emin ol.** Dizüstünde birden fazla USB seri
+  > cihaz olur (base'in CH340 veri hattı, base'in CP2102'si, dron ESP'si) ve
+  > `by-id` adları aynı olabilir (`CP2102_..._0001`). Tahmin etme, MAC oku:
+  >
+  >     python3 ~/.platformio/packages/tool-esptoolpy/esptool.py \
+  >         --port /dev/ttyUSBx --no-stub read_mac
+  >
+  > Ortam **`esp32dev_serial0`** olmalı (RPi hattı Serial0'a alınır):
+  > `pio run -e esp32dev_serial0 -t upload --upload-port /dev/ttyUSBx`
+
+- `[ ]` **ylp01'de pil izleme KAPALI — düşük pil koruması YOK.**
+  PX4'ün güç konnektörü akım/voltaj ölçüm katı arızalı, izleme komple
+  kapatıldı (30 Temmuz, kullanıcı; ileride onarılacak).
+
+  Ölçüldü: `battery_voltage_v = 65.535` — bu **`0xFFFF`**, MAVLink'in
+  "geçersiz" sentinel'i, sıfır değil. Kodun `<= 0.0` koruması bunu
+  **yakalamıyor**; şans eseri zarar vermiyor çünkü 65.5 V hiçbir "çok düşük"
+  eşiğinin altında değil, yani lider seçimi ve preflight çalışmaya devam
+  ediyor (`election.py:29`, `preflight_checker.py:37`,
+  `agent_health_monitor.py:219` — üçü de geçiyor).
+
+  **Asıl risk:** ne PX4'ün `COM_LOW_BAT_ACT=2`'si ne sürü yazılımının
+  kontrolleri tetiklenebilir — ölçüm yok. Onarılana kadar **ylp01 süreye
+  göre uçurulmalı, pil elle takip edilmeli.**
+
+  Küçük düzeltme adayı: telemetri eşleyicide `65.535`'i de "bilinmiyor"
+  saymak, böylece YKİ 65.5 V yerine boş/bilinmiyor gösterir.
+
+- `[ ]` **ylp01'in mesh CRC hata oranı yüksek.** 6253 pakette 542 (**%8.7**);
+  ylp00'da 18008 pakette **0**. Mesh çalışıyor ama anten yerleşimi
+  incelenmeli — havada menzil artınca oran daha da bozulabilir.
 
 - `[x]` **ylp01 ayağa kalktı (30 Temmuz)** — ESP firmware'i hariç diğer
   ikisiyle tam eşit. Kurulum artık `deploy/rpi/pi_hazirla.sh`'ta yazılı
@@ -340,6 +370,24 @@ Bunlar **hata değil**, sessizce yanlış sonuç ürettikleri için yazılıyor.
 - **`esp32_bridge` tanısı log dosyasına yazmaz.** `/swarm/internal/events/system`
   topic'ine `mesh_diag ...` olarak gider. `esp.log`'da yalnız açılış satırları
   vardır; oraya bakmak "sayaç yok" yanılgısı yaratır.
+- **QGroundControl açıkken u-blox takmak ayarları BOZAR — ölçüldü
+  (30 Temmuz).** QGC'nin RTK oto-bağlanması modülü **RAM'e yazarak**
+  yeniden yapılandırıyor: 1 Hz → **10 Hz**, `1005` ve `1230` **kapalı**,
+  survey-in süresi 300 → 180 s. Sonuç: RTCM 5 msg/s'ten **40 msg/s**'e
+  fırlıyor (mesh bütçesini aşar) ve baz konumu hiç gelmiyor.
+
+  Kalıcı katmanlar (Flash **ve** BBR) bozulmuyor, yalnız RAM eziliyor →
+  **u-blox'u çıkarıp takmak düzeltir.** Tekrarlamaması için QGC ini'sine
+  eklendi: `~/.config/QGroundControl.org/QGroundControl.ini`,
+  `[LinkManager]` altında `autoConnectRTKGPS=false` (yedek:
+  `QGroundControl.ini.yelpence-yedek`).
+
+- **u-blox'ta katman kontrolü RAM/FLASH ile YETMEZ — BBR de okunmalı.**
+  F9P açılışta `Default → Flash → BBR` sırasıyla yükler, yani **BBR, Flash'ı
+  ezer.** Yalnız RAM/FLASH karşılaştırmak "ayarlar kalıcı" yanılgısı verir.
+  `--kalici` yazımı üç katmana birden yazıyor (bitmask 7 = RAM|BBR|Flash),
+  doğrulama da üçünü birden okumalı.
+
 - **YKİ tarafında `RMW_IMPLEMENTATION` + `CYCLONEDDS_URI` vermeden düğüm
   başlatmak.** Topic hiç bağlanmaz, sayaç 0 kalır, **hata çıkmaz**. RTCM
   okuyucusunda tam bunu yaşadık.
