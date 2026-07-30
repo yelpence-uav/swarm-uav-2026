@@ -32,6 +32,11 @@ _ORIGIN_QOS = QoSProfile(
 
 _GROUND_VEL_THR = 0.3
 
+# Pilot override status_text'i sabit: yazan ve TEMIZLEYEN aynı metni
+# kullanmalı. Elle iki yere yazılırsa biri değişince metin asla temizlenmez
+# ve sahada bayat kalır (30 Temmuz'da tam bu yaşandı).
+_PILOT_OVERRIDE_METNI = 'Pilot override active'
+
 
 class AgentFsmNode(Node):
     """Tek bir drone'un FSM node'u."""
@@ -523,8 +528,12 @@ class AgentFsmNode(Node):
 
         if ctx.pilot_override_active and not prev_pilot:
             ctx.autonomous_control_paused = True
-            ctx.status_text = (
-                'Pilot override active'
+            ctx.status_text = _PILOT_OVERRIDE_METNI
+            self.get_logger().warn(
+                f'[agent {ctx.agent_id}] PILOT OVERRIDE: '
+                f'mod={ctx.flight_mode.name} — otonom geçişler DURDU '
+                f'(evaluate_transitions autonomous_control_paused ile '
+                f'None dönüyor)'
             )
             self._pub_event(
                 SystemEvent.EVENT_AGENT_PILOT_OVERRIDE,
@@ -532,7 +541,17 @@ class AgentFsmNode(Node):
                 'Manuel mod tespit edildi',
             )
         elif not ctx.pilot_override_active:
+            if ctx.autonomous_control_paused:
+                self.get_logger().info(
+                    f'[agent {ctx.agent_id}] pilot override kalktı '
+                    f'(mod={ctx.flight_mode.name}) — otonomi devam ediyor'
+                )
             ctx.autonomous_control_paused = False
+            # Metni SADECE kendi yazdığımızsa temizliyoruz. Koşulsuz
+            # temizlemek safety hold / sağlık uyarısı gibi daha önemli
+            # mesajları ezerdi (status_text'in 20'den fazla yazarı var).
+            if ctx.status_text == _PILOT_OVERRIDE_METNI:
+                ctx.status_text = ''
 
         self._prev_pilot_override = ctx.pilot_override_active
 

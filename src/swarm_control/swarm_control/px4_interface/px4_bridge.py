@@ -89,6 +89,12 @@ _RTK_DIAG_PERIOD_S = 1.0         # RTK tanı log periyodu
 # mevcut yönü tut. Uzaktayken hedefe yönelip düz git.
 _BURUN_ILERI_MIN_M = 0.8
 
+# ARM, OFFBOARD aktifleşene kadar bu kadar bekler. Süre dolarsa ARM
+# GÖNDERİLMEZ ve hata loglanır — FSM'in ARMING timeout'u (15 sn) devreye girip
+# temiz şekilde IDLE'a döner. Bilerek 15'ten küçük: hata, FSM pes etmeden
+# önce logda görünsün.
+_ARM_OFFBOARD_BEKLEME_S = 8.0
+
 
 class Px4BridgeNode(Node):
     """PX4 ↔ FSM ortadaki köprü node."""
@@ -148,6 +154,11 @@ class Px4BridgeNode(Node):
 
         # OFFBOARD streaming aktif mi — FSM "offboard" gönderince True olur
         self._offboard_streaming: bool = False
+
+        # ARM, OFFBOARD aktifleşmesini bekliyor mu (bkz. _on_fsm_command
+        # 'arm' dalı: PX4 ARMLIYKEN yerde OFFBOARD'a geçmiyor).
+        self._arm_bekliyor: bool = False
+        self._arm_istek_t: float = 0.0
 
         # SITL: offboard yeniden-talep sayacı (50Hz tick'te rate-limit için)
         self._offboard_rearm_counter: int = 0
@@ -495,6 +506,26 @@ class Px4BridgeNode(Node):
         if not self._offboard_streaming:
             return
 
+        # ARM, OFFBOARD'ın aktifleşmesini bekliyor (bkz. 'arm' dalı).
+        # Setpoint akışı yukarıdaki return'den sonra başladığı için PX4 modu
+        # birkaç tick içinde kabul eder; kabul edilince ARM'i gönderiyoruz.
+        if self._arm_bekliyor:
+            if self._status.offboard_active:
+                self._arm_bekliyor = False
+                self._cmd_sender.arm()
+                self.get_logger().info('OFFBOARD aktif → ARM gönderildi')
+            elif (now - self._arm_istek_t) > _ARM_OFFBOARD_BEKLEME_S:
+                # ARM GÖNDERMİYORUZ: OFFBOARD'sız armlamak dronu tam da
+                # kaçındığımız "ARMED'da takılı" durumuna sokardı. FSM'in
+                # ARMING timeout'u IDLE'a döndürecek.
+                self._arm_bekliyor = False
+                self._offboard_streaming = False
+                self.get_logger().error(
+                    f'OFFBOARD {_ARM_OFFBOARD_BEKLEME_S:.0f}s içinde '
+                    f'aktifleşmedi (mod={self._status.flight_mode}) — ARM '
+                    f'GÖNDERİLMEDİ. Dron yerde ve disarm kalıyor.'
+                )
+
         use_velocity = setpoint_fresh and self._latest_setpoint.velocity_valid
 
         if use_velocity and self._velocity_only:
@@ -653,9 +684,41 @@ class Px4BridgeNode(Node):
         cmd = msg.data.strip().lower()
 
         if cmd == 'arm':
-            self._cmd_sender.arm()
+            # PX4 ARMLIYKEN YERDE OFFBOARD'A GEÇMİYOR — 30 Temmuz'da tek
+            # değişkenli deneyle ölçüldü (disarm iken tek talep tutuyor,
+            # kumanda açık da olsa kapalı da; armlıyken tutmuyor). FSM sırası
+            # ARMING->'arm', ARMED->'offboard' olduğu için önce armlanıyor,
+            # sonra mod isteniyordu ve PX4 reddediyordu: dron ARMED'da
+            # sonsuza kadar takılıp hiç kalkamıyordu (offboard=False 9.3 sn).
+            # Bu yüzden sırayı tersine çeviriyoruz: önce OFFBOARD, aktif
+            # olunca ARM (bkz. _offboard_dongusu).
+            if self._status.armed:
+                # Zaten armlı — uçuyor olabilir. Mod değiştirmek uçuş
+                # kontrolünü habersiz devralmak olurdu; hiçbir şey yapma.
+                self.get_logger().info(
+                    'arm komutu geldi ama dron zaten armlı — yok sayıldı'
+                )
+                return
+            self._offboard_streaming = True
+            self._cmd_sender.set_offboard_mode()
+            self._arm_bekliyor = True
+            self._arm_istek_t = self.get_clock().now().nanoseconds * 1e-9
+            self.get_logger().info(
+                'OFFBOARD isteniyor; aktifleşince ARM gönderilecek'
+            )
         elif cmd == 'disarm':
             self._offboard_streaming = False
+            self._arm_bekliyor = False
+            # Bayat kalkış hedefini TEMİZLE. precision_landing görev sonunda
+            # 'land' DEĞİL doğrudan 'disarm' gönderiyor
+            # (precision_landing_node.py:214), yani hedef temizlenmeden
+            # kalıyordu. Bir sonraki 'offboard'da taze formasyon setpoint'i
+            # henüz yokken aşağıdaki "kalkış/irtifa-hold" dalı devreye girip
+            # dronu ÖNCEKİ görevin irtifasına ve ÖNCEKİ çapa konumuna
+            # sürüyordu — FSM daha TAKEOFF demeden, komut verilmemiş kalkış.
+            self._target_altitude_ned = None
+            self._takeoff_anchor_x = None
+            self._takeoff_anchor_y = None
             self._cmd_sender.disarm()
         elif cmd.startswith('takeoff'):
             # "takeoff:10.0" → altitude=10.0; sadece "takeoff" → 10.0 default
@@ -682,12 +745,14 @@ class Px4BridgeNode(Node):
             )
         elif cmd == 'land':
             self._offboard_streaming = False
+            self._arm_bekliyor = False   # iniş geldi, bekleyen ARM iptal
             self._target_altitude_ned = None
             self._takeoff_anchor_x = None
             self._takeoff_anchor_y = None
             self._cmd_sender.land()
         elif cmd == 'rtl':
             self._offboard_streaming = False
+            self._arm_bekliyor = False   # RTL geldi, bekleyen ARM iptal
             self._target_altitude_ned = None
             self._takeoff_anchor_x = None
             self._takeoff_anchor_y = None
