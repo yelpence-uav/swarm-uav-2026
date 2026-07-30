@@ -76,7 +76,14 @@ _ORIGIN_FMT = '<iiiI'        # lat_1e7, lon_1e7, alt_mm, sequence
 # target_id (offset 10, rezerv[0]): guided komutun HEDEF drone'u. Mesh çerçevesi
 # id taşımaz (base düşürür, drone MAC'ten kaynak id üretir), o yüzden hedef
 # payload'da gider. Firmware bunu opak rezerv görür — flash gerekmez.
-_KOMUT_FMT = '<BBhhhhB5x'    # alt_tip, flags, roll/pitch/yaw/throttle x100, target_id
+# talep_formasyon (offset 11) + talep_spacing_dm (offset 12): 30 Temmuz kusur
+# düzeltmesi. SwarmControlCommand.requested_formation ve requested_spacing_m
+# mesh'ten GEÇMİYORDU — köprü yalnız KOMUT_FLAG_FORMATION_CHANGE bayrağını
+# taşıyordu, iki alan alıcıda ROS varsayılanında (0) kalıyordu. Sonuç:
+# "formasyon değiştir" gidiyor, hangi formasyon bilgisi kayboluyor ve
+# spacing=0.0 ile compute_slot_offsets() ValueError atıyordu.
+_KOMUT_FMT = '<BBhhhhBBB3x'  # alt_tip, flags, roll/pitch/yaw/throttle x100,
+#                              target_id, talep_formasyon, talep_spacing_dm
 _LEADER_HB_FMT = '<BIBBB8x'  # leader_id, seq, round, agent_count, mission
 _ELECTION_FMT = '<BBBBIBBBB4x'  # leader, round, reason, trigger, seq, ids
 _QR_FMT = '<BIii3x'          # drone_id, action_id, lat, lon, rezerv[3]
@@ -298,6 +305,25 @@ class KomutVeri:
     yaw_x100: int
     throttle_x100: int
     target_id: int = 0  # guided hedef drone (0 = tümü). Joystick modunda kullanılmaz.
+    talep_formasyon: int = 0     # requested_formation; 0 = belirtilmedi
+    talep_spacing_dm: int = 0    # requested_spacing_m * 10; 0 = belirtilmedi
+
+    @property
+    def talep_spacing_m(self) -> float:
+        """0 = belirtilmedi — çağıran taraf bunu spacing 0.0 sanmamalı."""
+        return self.talep_spacing_dm / 10.0
+
+    @property
+    def formasyon_talebi_gecerli(self) -> bool:
+        """FORMATION_CHANGE bayrağı anlamlı bir formasyonla mı geldi?
+
+        Eski bir gönderici (bu alanlar eklenmeden önceki sürüm) bayrağı set
+        edip baytları sıfır bırakır. O talebi uygulamak sürüyü
+        FORMATION_UNKNOWN'a ve spacing=0'a göndermek demektir; alıcı bunu
+        uygulamak yerine reddetmeli.
+        """
+        return bool(self.flags & KOMUT_FLAG_FORMATION_CHANGE) and \
+            self.talep_formasyon != 0
 
 
 @dataclass
@@ -601,31 +627,48 @@ def pose_paketle(lat: int, lon: int, alt_dm: int, heading: int,
 
 def komut_coz(payload: bytes) -> KomutVeri:
     """TIP_KOMUT payload'ını KomutVeri'ye çözer."""
-    alt_tip, flags, roll, pitch, yaw, throttle, target_id = struct.unpack(
-        _KOMUT_FMT, payload
-    )
-    return KomutVeri(alt_tip, flags, roll, pitch, yaw, throttle, target_id)
+    (alt_tip, flags, roll, pitch, yaw, throttle, target_id,
+     talep_formasyon, talep_spacing_dm) = struct.unpack(_KOMUT_FMT, payload)
+    return KomutVeri(alt_tip, flags, roll, pitch, yaw, throttle, target_id,
+                     talep_formasyon, talep_spacing_dm)
 
 
 def komut_paketle(alt_tip: int, flags: int, roll_x100: int,
                   pitch_x100: int, yaw_x100: int,
-                  throttle_x100: int, target_id: int = 0) -> bytes:
-    """Joystick komutunu 16 baytlık mesh payload'ına paketler.
+                  throttle_x100: int, target_id: int = 0,
+                  talep_formasyon: int = 0,
+                  talep_spacing_m: float = 0.0) -> bytes:
+    """Joystick / formasyon komutunu 16 baytlık mesh payload'ına paketler.
 
     Args:
-        alt_tip (int): Mod (1=SWARM_MOVEMENT, 2=MANEUVER).
+        alt_tip (int): Mod (1=SWARM_MOVEMENT, 2=MANEUVER, 3=GUIDED).
         flags (int): KOMUT_FLAG_* bitleri.
         roll_x100 (int): roll_cmd * 100 (float -> int16 ölçek).
         pitch_x100 (int): pitch_cmd * 100.
         yaw_x100 (int): yaw_cmd * 100.
         throttle_x100 (int): throttle_cmd * 100.
+        target_id (int): Guided hedef drone (0 = tümü).
+        talep_formasyon (int): requested_formation (1/2/3/99); 0 = belirtilmedi.
+        talep_spacing_m (float): requested_spacing_m; 0 = belirtilmedi.
 
     Returns:
         bytes: 16 baytlık payload.
+
+    Note:
+        Bu fonksiyon `bytes` döndürmeye devam ediyor (yeni sürü paketleyicileri
+        `tuple[bytes, list[str]]` döndürüyor) — 10 çağrı yeri var ve imzayı
+        kırmaya değmez. Ayrım ilkeli: aralık kırpma codec'in bilgisi ve burada
+        sessizce yapılıyor; "FORMATION_CHANGE bayrağı formasyon 0 ile anlamsız"
+        gibi ANLAMSAL doğrulama uygulama katmanının işi ve `esp32_bridge`
+        tarafında loglanarak yapılıyor. Bkz. docs/MESH_PROTOKOL_KARARLARI.md §10.
     """
+    # 25.5 m üstü aralık çitli yarışma alanında gerçekçi değil; kırpmak bilgi
+    # kaybetmez. Gerçek doğrulama ve uyarı köprüde (o katman loglayabiliyor).
+    spacing_dm = max(0, min(255, int(round(talep_spacing_m * 10.0))))
     return struct.pack(
         _KOMUT_FMT, alt_tip, flags,
         roll_x100, pitch_x100, yaw_x100, throttle_x100, target_id,
+        talep_formasyon & 0xFF, spacing_dm,
     )
 
 

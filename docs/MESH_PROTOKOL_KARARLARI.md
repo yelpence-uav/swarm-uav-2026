@@ -970,6 +970,7 @@ Durum özeti:
 |---|---|---|
 | 1a | firmware struct'ları + TIP sabitleri | **BİTTİ** ✓ |
 | 1b | `packet_parser.py` format/veri sınıfı/paketleyici | **BİTTİ** ✓ |
+| 1c | YKİ/kumanda formasyon seçimi — **kusur düzeltmesi** | **BİTTİ** ✓ |
 | 2 | RX BASE + TX DRONE whitelist'leri | bekliyor |
 | 3 | `esp32_bridge_node` abonelik/yayın + geri açma + lider kapısı | bekliyor |
 | 4 | `baslat.sh` düğüm listesi | bekliyor |
@@ -1043,6 +1044,104 @@ Köprü loglar; liste göz ardı edilirse bu kodda görünür olur.
 **flake8:** Eklenen ~430 satırda **tek uyarı yok**. Dosyada iki uyarı var
 (`I100` satır 14, `E501` satır 85) ama ikisi de `origin/main`'de de mevcut —
 bu değişiklikle gelmedi, dokunulmadı.
+
+### Adım 1c — YKİ/kumanda formasyon seçimi (BİTTİ) — KUSUR DÜZELTMESİ
+
+**Tetikleyen soru:** *"YKİ'den formasyon seçebilmek sorun olmazsa testlerde
+güzel olur; gereksiz yük katarsa koymayabiliriz."*
+
+**Cevap: yol ZATEN VAR ve sıfır yeni yük.** Ölçüldü, uçtan uca:
+
+    YKİ arayüz (api.ts:195 formation_change_requested, requested_formation)
+      -> backend api/mission.py:138-139
+      -> ros_bridge.py:434-436  (SwarmControlCommand doldurur)
+      -> /swarm/internal/control/command
+      -> esp32_bridge  (KOMUT_FLAG_FORMATION_CHANGE)
+      -> TIP_KOMUT  (mesh; İKİ whitelist'te de ZATEN VAR)
+      -> esp32_bridge  (bayrağı çözer)
+      -> /swarm/public/control/command
+      -> mode_manager_node:367 -> :196-199 -> _handle_formation_change():316
+
+Yeni paket tipi gerekmiyor, yeni whitelist girdisi gerekmiyor, ek periyodik
+trafik yok — tek atımlık bir komut.
+
+**AMA yol KIRIKTI.** `TIP_KOMUT` yalnız bayrağı taşıyordu:
+
+- `esp32_bridge` paketlerken `msg.requested_formation` ve
+  `msg.requested_spacing_m`'i **hiç paketlemiyordu**
+- çözerken `msg.formation_change_requested = True` yapıyor ama iki alan
+  **ROS varsayılanında (0)** kalıyordu
+- `mode_manager_node:369-370` bunları `ctx`'e kopyalıyor
+- `_handle_formation_change` `formation_type=0` (FORMATION_UNKNOWN) ve
+  `spacing_m=0.0` ile formasyon hedefi kuruyor
+- `compute_slot_offsets()` `spacing > 0 olmali` diye **ValueError** atıyor
+
+Yani "V formasyonuna geç" komutu gidiyor, sürüye "bilinmeyen formasyona,
+0 aralıkla geç" olarak varıyor ve formasyon hesabı patlıyor. **Sessiz kırık.**
+
+**Düzeltme — `komut_veri_t` rezervinden iki bayt:**
+
+    uint8_t  target_id;         // offset 10 (zaten Python kullanıyordu)
+    uint8_t  talep_formasyon;   // offset 11: requested_formation (1/2/3/99)
+    uint8_t  talep_spacing_dm;  // offset 12: requested_spacing_m * 10
+    uint8_t  rezerv[3];         // toplam 16 byte
+
+`_KOMUT_FMT`: `'<BBhhhhB5x'` -> `'<BBhhhhBBB3x'` (yine 16 bayt).
+`offsetof` assert'leri 10/11/12 için eklendi.
+
+> **Yan fayda:** `target_id` offset 10'da Python tarafından zaten
+> kullanılıyordu ama firmware struct'ında `rezerv[0]` olarak duruyordu.
+> Belge kayması giderildi ve assert'e bağlandı.
+
+**Firmware davranışı DEĞİŞMİYOR.** ESP `komut_veri_t`'yi hiç okumuyor; tek
+referans `TX DRONE/src/main.cpp:167`'de `sizeof()` ile uzunluk doğrulaması.
+Yani bu, rezervin isimlendirilmesi + sözleşmenin görünür kılınmasıdır.
+
+**Üç katmanda savunma — sürüm uyumsuzluğu sessiz kalmasın:**
+
+1. `komut_paketle` **imzası korundu** (`-> bytes`). 10 çağrı yeri var, kırmaya
+   değmez. Ayrım ilkeli: aralık kırpma codec'in işi (sessizce), **anlamsal**
+   doğrulama uygulama katmanının işi (loglayarak).
+2. **Köprü, gönderirken:** `FORMATION_CHANGE` bayrağı `requested_formation=0`
+   ile geldiyse **bayrağı düşürür ve UYARIR** — anlamsız talebi yaymaz.
+3. **Köprü, alırken:** `KomutVeri.formasyon_talebi_gecerli` bayrak + formasyon
+   birlikte kontrol eder. Bayrak set ama formasyon 0 ise gönderen **eski
+   sürümdür**; talep reddedilir ve uyarı basılır.
+
+**`mode_manager` tek satır değişti** — ve dosyanın kendi kuralına uydu:
+
+    - ctx.requested_spacing_m = msg.requested_spacing_m
+    + if msg.requested_spacing_m > 0.0:
+    +     ctx.requested_spacing_m = msg.requested_spacing_m
+
+İki satır aşağıda `if msg.max_speed_mps > 0.0:` ve
+`if msg.max_yaw_rate_deg_s > 0.0:` zaten aynı kuralı uyguluyor: **0 =
+belirtilmedi, üzerine yazma.** `requested_spacing_m` bu kuralın dışında
+kalmıştı. Koşulsuz atama 0.0'ı `ctx`'e taşıyıp `ValueError`'a yol açıyordu.
+Bu düzeltme mesh yolundan bağımsız da değer taşıyor: simülasyonda
+`network_proxy` üzerinden gelen 0 da artık zarar vermez.
+
+**Doğrulama:** 4 yeni test, **toplam 44 geçiyor**:
+- formasyon + aralık mesh'ten geçiyor (V formasyonu, 7.5 m gidiş-dönüş)
+- bayrak set ama formasyon 0 -> `formasyon_talebi_gecerli is False`
+- yeni alanlar mevcut joystick/guided alanlarının **offsetlerini kaydırmıyor**
+- 25.5 m üstü aralık **kırpılıyor, sarmıyor**
+
+Firmware yeniden derlendi: `komut_veri_t` 16 bayt,
+`target_id@10 talep_formasyon@11 talep_spacing@12`.
+
+flake8: değiştirilen 4 dosyada **yeni uyarı yok** (mevcut 4 uyarı `origin/main`
+ile birebir aynı; `mode_manager_node.py` iki durumda da sıfır uyarı).
+
+**Yarışma notu:** Bu bir **test/geliştirme kolaylığı**, yarışma özelliği değil.
+Şartname Görev 1: *"Yer Kontrol İstasyonu üzerinden görevi başlatma komutu
+dışında herhangi bir müdahale yapılması yasaktır."* Görev 2:
+*"Formasyon değişimleri kumanda üzerinden gerçekleştirilir."* Yani sahada
+formasyon seçimi **kumandadan** olacak — aynı yol (`joystick_interpreter_node`
+zaten `formation_change_requested` üretiyor). YKİ butonu arayüzde
+**yarışma-dışı** olarak işaretlenmeli; `telemetry.ts`'de bunun için zaten bir
+kalıp var (`connection_mode` -> "UI yarışma-dışı butonları gizler").
+
 
 ### Sıradaki halka — Adım 2 ve neden riskli
 

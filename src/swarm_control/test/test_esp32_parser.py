@@ -586,3 +586,70 @@ def test_suru_tipleri_cerceve_uzerinden():
     assert cerceve.tip == pp.TIP_FORMASYON
     f = pp.formasyon_coz(cerceve.payload)
     assert f.dolu_slotlar() == [1, 2, 3]
+
+
+def test_komut_formasyon_talebi_mesh_ten_geciyor():
+    """requested_formation ve requested_spacing_m mesh'ten GEÇMELİ.
+
+    30 Temmuz'a kadar geçmiyordu: köprü yalnız KOMUT_FLAG_FORMATION_CHANGE
+    bayrağını taşıyordu, iki alan alıcıda ROS varsayılanında (0) kalıyordu.
+    Sonuç: "formasyon değiştir" gidiyor ama hangi formasyon bilgisi kayboluyor
+    ve spacing=0.0 ile compute_slot_offsets() ValueError atıyordu. Bu test o
+    kusurun sessizce geri dönmesini engeller.
+    """
+    payload = pp.komut_paketle(
+        alt_tip=pp.KOMUT_MODE_SWARM_MOVEMENT,
+        flags=pp.KOMUT_FLAG_FORMATION_CHANGE,
+        roll_x100=0, pitch_x100=0, yaw_x100=0, throttle_x100=0,
+        talep_formasyon=2,          # FORMATION_V
+        talep_spacing_m=7.5,
+    )
+    assert len(payload) == 16
+
+    k = pp.komut_coz(payload)
+    assert k.flags & pp.KOMUT_FLAG_FORMATION_CHANGE
+    assert k.talep_formasyon == 2
+    assert abs(k.talep_spacing_m - 7.5) < 0.05
+    assert k.formasyon_talebi_gecerli is True
+
+
+def test_komut_formasyon_bayragi_formasyon_sifirla_gecersiz():
+    """Bayrak set ama formasyon 0 ise talep GEÇERSİZ sayılmalı.
+
+    Bu, bu alanlar eklenmeden önceki sürümden gelen paketin görünümü. Talebi
+    uygulamak sürüyü FORMATION_UNKNOWN'a ve spacing 0'a gönderir.
+    """
+    payload = pp.komut_paketle(
+        alt_tip=1, flags=pp.KOMUT_FLAG_FORMATION_CHANGE,
+        roll_x100=0, pitch_x100=0, yaw_x100=0, throttle_x100=0,
+    )
+    k = pp.komut_coz(payload)
+    assert k.flags & pp.KOMUT_FLAG_FORMATION_CHANGE   # bayrak duruyor
+    assert k.talep_formasyon == 0
+    assert k.formasyon_talebi_gecerli is False         # ama talep geçersiz
+
+
+def test_komut_formasyon_alanlari_mevcut_alanlari_bozmuyor():
+    """Yeni alanlar joystick/guided alanlarının offsetlerini kaydırmamalı."""
+    payload = pp.komut_paketle(
+        alt_tip=pp.KOMUT_MODE_GUIDED, flags=pp.KOMUT_FLAG_ARM,
+        roll_x100=-1234, pitch_x100=5678, yaw_x100=-90, throttle_x100=1500,
+        target_id=3, talep_formasyon=99, talep_spacing_m=25.5,
+    )
+    k = pp.komut_coz(payload)
+    assert k.alt_tip == pp.KOMUT_MODE_GUIDED
+    assert k.flags == pp.KOMUT_FLAG_ARM
+    assert (k.roll_x100, k.pitch_x100, k.yaw_x100) == (-1234, 5678, -90)
+    assert k.throttle_x100 == 1500
+    assert k.target_id == 3
+    assert k.talep_formasyon == 99
+    assert k.talep_spacing_dm == 255
+
+
+def test_komut_spacing_tavani_kirpiliyor():
+    """25.5 m üstü aralık sarmamalı, tavanda kırpılmalı."""
+    payload = pp.komut_paketle(
+        alt_tip=1, flags=0, roll_x100=0, pitch_x100=0, yaw_x100=0,
+        throttle_x100=0, talep_formasyon=1, talep_spacing_m=100.0,
+    )
+    assert pp.komut_coz(payload).talep_spacing_dm == 255

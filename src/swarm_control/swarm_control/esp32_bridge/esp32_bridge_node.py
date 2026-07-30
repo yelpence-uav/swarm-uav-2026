@@ -872,9 +872,24 @@ class Esp32BridgeNode(Node):
         msg.land = bool(k.flags & pp.KOMUT_FLAG_LAND)
         msg.rtl = bool(k.flags & pp.KOMUT_FLAG_RTL)
         msg.emergency_stop = bool(k.flags & pp.KOMUT_FLAG_EMERGENCY)
-        msg.formation_change_requested = bool(
-            k.flags & pp.KOMUT_FLAG_FORMATION_CHANGE
-        )
+        # FORMASYON TALEBİ (30 Temmuz): bayrak + hangi formasyon + aralık.
+        # `formasyon_talebi_gecerli` bayrağın anlamlı bir formasyonla geldiğini
+        # doğrular. Bayrak set ama formasyon 0 ise gönderen ESKİ sürümdür (bu
+        # alanlar eklenmeden önceki kod); o talebi uygulamak sürüyü
+        # FORMATION_UNKNOWN'a ve spacing 0'a göndermek olur. Uygulamak yerine
+        # reddediyoruz ve uyarıyoruz — sürüm uyumsuzluğu sessiz kalmamalı.
+        if k.flags & pp.KOMUT_FLAG_FORMATION_CHANGE and not k.talep_formasyon:
+            self.get_logger().warning(
+                f'agent {source_id}: FORMATION_CHANGE bayrağı formasyon=0 ile '
+                f'geldi — talep reddedildi. Gönderen eski sürüm olabilir '
+                f'(talep_formasyon/talep_spacing_dm alanları 30 Temmuz eklendi).'
+            )
+        msg.formation_change_requested = k.formasyon_talebi_gecerli
+        msg.requested_formation = k.talep_formasyon
+        # 0 = "belirtilmedi" olarak yayılıyor. Alıcı taraf (mode_manager) bunu
+        # üzerine yazmama kuralıyla ele alıyor — o yüzden burada uydurma bir
+        # varsayılan doldurmuyoruz; taşıma katmanı politika üretmemeli.
+        msg.requested_spacing_m = k.talep_spacing_m
         msg.deadman_pressed = bool(
             k.flags & pp.KOMUT_FLAG_DEADMAN_PRESSED
         )
@@ -1347,6 +1362,32 @@ class Esp32BridgeNode(Node):
         if msg.deadman_pressed:
             flags |= pp.KOMUT_FLAG_DEADMAN_PRESSED
 
+        # FORMASYON TALEBİ — 30 Temmuz kusur düzeltmesi.
+        # Önceden yalnız KOMUT_FLAG_FORMATION_CHANGE bayrağı taşınıyordu;
+        # requested_formation ve requested_spacing_m mesh'ten GEÇMİYORDU ve
+        # alıcıda ROS varsayılanında (0) kalıyordu. Sonuç: "formasyon değiştir"
+        # gidiyor, HANGİ formasyon bilgisi kayboluyordu; spacing=0.0 ile
+        # compute_slot_offsets() "spacing > 0 olmali" diye ValueError atıyordu.
+        # Yani YKİ/kumanda formasyon seçimi sessizce kırıktı.
+        #
+        # Anlamsal doğrulama BURADA (codec'te değil): bayrak formasyon 0 ile
+        # anlamsız, yaymak sürüyü FORMATION_UNKNOWN'a gönderir. Bayrağı düşür
+        # ve UYAR — sessiz kalmak bu hatanın tekrar aynı şekilde gizlenmesi olur.
+        talep_formasyon = int(msg.requested_formation)
+        talep_spacing = float(msg.requested_spacing_m)
+        if flags & pp.KOMUT_FLAG_FORMATION_CHANGE:
+            if not talep_formasyon:
+                self.get_logger().warning(
+                    'formation_change_requested=True ama requested_formation=0 '
+                    '— bayrak düşürüldü (alıcı FORMATION_UNKNOWN uygulamasın)'
+                )
+                flags &= ~pp.KOMUT_FLAG_FORMATION_CHANGE
+            elif talep_spacing > 25.5:
+                self.get_logger().warning(
+                    f'requested_spacing_m={talep_spacing:.1f} mesh tavanını '
+                    f'(25.5 m) aştı, 25.5 m olarak gönderiliyor'
+                )
+
         payload = pp.komut_paketle(
             alt_tip=msg.mode,
             flags=flags,
@@ -1354,6 +1395,8 @@ class Esp32BridgeNode(Node):
             pitch_x100=_kirp_int16(msg.pitch_cmd * 100.0),
             yaw_x100=_kirp_int16(msg.yaw_cmd * 100.0),
             throttle_x100=_kirp_int16(msg.throttle_cmd * 100.0),
+            talep_formasyon=talep_formasyon,
+            talep_spacing_m=talep_spacing,
         )
         self._uart_yaz(pp.TIP_KOMUT, self._agent_id, payload)
 

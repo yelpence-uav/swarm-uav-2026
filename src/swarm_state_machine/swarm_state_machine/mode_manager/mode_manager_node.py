@@ -367,7 +367,14 @@ class ModeManagerNode(Node):
         if msg.formation_change_requested:
             ctx.formation_change_requested = True
             ctx.requested_formation = msg.requested_formation
-            ctx.requested_spacing_m = msg.requested_spacing_m
+            # 0 = belirtilmedi -> uzerine YAZMA (asagidaki max_speed_mps /
+            # max_yaw_rate_deg_s ile ayni kural). Kosulsuz atama spacing=0.0'i
+            # ctx'e tasiyordu ve compute_slot_offsets() "spacing > 0 olmali"
+            # diye ValueError atiyordu; formasyon degisikligi komple dusuyordu.
+            # Mesh tarafi da 0'i "belirtilmedi" olarak tasiyor (30 Temmuz,
+            # komut_veri_t.talep_spacing_dm).
+            if msg.requested_spacing_m > 0.0:
+                ctx.requested_spacing_m = msg.requested_spacing_m
 
         if msg.max_speed_mps > 0.0:
             ctx.max_speed_mps = msg.max_speed_mps

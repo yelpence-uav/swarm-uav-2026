@@ -891,7 +891,25 @@ struct __attribute__((packed)) komut_veri_t {
     int16_t  pitch_x100;
     int16_t  yaw_x100;
     int16_t  throttle_x100;
-    uint8_t  rezerv[6];    // toplam 16 byte
+    // 30 Temmuz: rezervin ilk uc bayti isimlendirildi. ESP payload'i OPAK
+    // tasiyor (bu struct'i hic okumuyor, yalniz sizeof ile uzunluk dogruluyor
+    // — TX DRONE/src/main.cpp:167), o yuzden isimlendirme davranis degistirmez;
+    // iki tarafin sozlesmesini gorunur kilar.
+    //
+    // target_id zaten packet_parser.py tarafindan offset 10'da kullaniliyordu
+    // ama burada "rezerv[0]" olarak duruyordu — belge kayması giderildi.
+    //
+    // talep_formasyon / talep_spacing_dm NEDEN EKLENDI (kusur duzeltmesi):
+    // SwarmControlCommand.requested_formation ve requested_spacing_m mesh'ten
+    // GECMIYORDU. esp32_bridge yalniz KOMUT_FLAG_FORMATION_CHANGE bayragini
+    // set ediyordu; alici tarafta iki alan ROS varsayilaninda (0) kaliyordu.
+    // Sonuc: "formasyon degistir" gidiyor, HANGI formasyon bilgisi kayboluyor
+    // ve spacing=0.0 ile compute_slot_offsets() "spacing > 0 olmali" diye
+    // ValueError atiyordu. Yani YKI/kumanda formasyon secimi sessizce kirikti.
+    uint8_t  target_id;         // offset 10: guided hedef drone (0 = tumu)
+    uint8_t  talep_formasyon;   // offset 11: requested_formation (1/2/3/99)
+    uint8_t  talep_spacing_dm;  // offset 12: requested_spacing_m * 10 (0-25.5 m)
+    uint8_t  rezerv[3];         // toplam 16 byte
 };
 
 // pi_bridge::packet_parser.py KOMUT_FLAG_* ile BIREBIR ayni degerler.
@@ -922,6 +940,12 @@ static_assert(offsetof(komut_veri_t, roll_x100) == 2,
               "roll_x100 offset 2 OLMALI — pi_bridge _KOMUT_FMT ile uyum");
 static_assert(offsetof(komut_veri_t, throttle_x100) == 8,
               "throttle_x100 offset 8 OLMALI — pi_bridge _KOMUT_FMT ile uyum");
+static_assert(offsetof(komut_veri_t, target_id) == 10,
+              "target_id offset 10 OLMALI — packet_parser.py _KOMUT_FMT ile uyum");
+static_assert(offsetof(komut_veri_t, talep_formasyon) == 11,
+              "talep_formasyon offset 11 OLMALI — packet_parser.py _KOMUT_FMT ile uyum");
+static_assert(offsetof(komut_veri_t, talep_spacing_dm) == 12,
+              "talep_spacing_dm offset 12 OLMALI — packet_parser.py _KOMUT_FMT ile uyum");
 
 // GOTO bayrak bitleri (goto_veri_t.bayraklar).
 #define GOTO_BAYRAK_YAW_GECERLI  0x01   // yaw_ddeg gecerli; yoksa drone yaw'u serbest birakir
