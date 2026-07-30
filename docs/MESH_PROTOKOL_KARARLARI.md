@@ -1,7 +1,9 @@
 # Mesh Protokolü — Sürü Kodlarının Entegrasyonu İçin Kararlar
 
 **Tarih:** 30 Temmuz 2026
-**Durum:** Kararlar alındı, kod YAZILMADI. Bu belge yazılacak kodun sözleşmesidir.
+**Durum:** 12 karar alındı, 6 açık madde kapatıldı, **kod YAZILMADI**.
+Bu belge yazılacak kodun sözleşmesidir. Kod yazmaya engel kalmadı — sıra
+§7.5'teki bağımlılık sırasına göre ilerlemek.
 **Bağlam:** Sürü düğümleri (formasyon, çarpışma önleme, navigasyon, görev) repoda
 duruyor ama sahada birbirine bağlı değil. Simülasyonda `network_proxy` bütün
 topic'leri olduğu gibi taşıdığı için sorun görünmüyor; sahada mesh yükü 16 bayt
@@ -347,7 +349,12 @@ haber verir.
 | `target_agent_id` | orchestrator, mission_fsm, precision_landing | 982 / 579 / 158 |
 | `detach_wait_s` | orchestrator | 985 |
 | `detach_color` | precision_landing | 159 |
-| `target_x`, `target_y` | precision_landing | 196 |
+
+`target_x` / `target_y` bu listede **YOK** — ilk taramada göründüler ama yanlış
+pozitifti (bkz. §5). `precision_landing_node.py:196` satırı `cmd.target_x`, yani
+**çıktı** nesnesi; QR mesajından okuma değil. `msg.target_x` / `qr.target_x`
+saha kodunda hiçbir yerde yok. İniş hedefi kameradan geliyor
+(`zone_map`, `live_zone` → `self._core.update(...)`).
 
     TIP_QR_GOREV = 0x14                                      16 bayt
     ------------------------------------------------------------------
@@ -371,8 +378,37 @@ haber verir.
                               ---
                               16
 
-**`target_x`/`target_y` bilerek DIŞARIDA bırakıldı** — bkz. §7 açık madde 3.
-`team_id` ve `raw_text` de dışarıda, gerekçeleri aşağıda.
+13 bayt kullanılıyor, **3 bayt rezerv**. `target_x`/`target_y` çıkarıldığı için
+(§5 yanlış pozitif) yer rahat; QR formatı nihai hale gelince ek alan buradan
+çıkar. `team_id` ve `raw_text` de dışarıda (KARAR 7, KARAR 8).
+
+**`qr_seq` neden `uint8` yeterli — ve ne zaman yetmez.** Ölçüldü: `qr_seq`
+hiçbir yerde **karşılaştırılmıyor**. `mission_fsm_node.py:351` onu
+`last_accepted_qr_seq`'e yazıyor ama o değişken yalnız yazılıyor (satır 224 ve
+278'de 0'a sıfırlanıyor), **hiç okunmuyor**. Gerçek tekrar-QR kapısı `qr_id`
+üzerinden (satır 342-348). `qr_seq`'in tek gerçek işlevi
+`orchestrator.py:600`'deki emit-once anahtarı: `(mission_state, qr_step, qr_seq)`
+— yani sadece **değişmesi** yeterli, küresel monotonluk gerekmiyor. 6 QR'lık bir
+görevde 256'ya yaklaşmak imkânsız.
+
+> **UYARI — ileride tuzak olur.** `QRMissionData.msg:15` ve `:50` şunu
+> **iddia ediyor**: *"mission_fsm drops out-of-order/stale QRs"*,
+> *"monotonically increasing"*. **Bu davranış uygulanmamış — belge kodu
+> anlatmıyor.** Biri ileride belgeye bakıp
+> `if msg.qr_seq <= last_accepted_qr_seq: return` yazarsa, `uint8` sarması
+> (255 → 0) her şeyi "bayat" sayıp reddeder. O gün ya alan genişletilecek ya
+> sarma açıkça ele alınacak. Bu, saha günlüğü §1.3'teki
+> `uart_frame_parser_t.idx` `uint8_t` sarmasının **aynı sınıfı** — orada da
+> taşma kontrolü sarma sonrası hep doğru kalıyordu ve hiçbir sayaç artmıyordu.
+
+**`spacing_dm` sınırı ve zorunlu koruma.** Ölçüldü: `formation_geometry.py:31`
+yalnız `spacing > 0` doğruluyor, **üst sınır yok**. Değer QR'dan geliyor
+(`qr_detector.py:163`, `frm` komutunun 3. elemanı); şartname *"ajanlar arası X
+(Örn: 5m)"* diyor — X'i hakem söylüyor. Varsayılan 5.0 m.
+`uint8` desimetre = 0.1 m çözünürlük, **25.5 m tavan**. Çitli yarışma alanında
+3 drone için fazlasıyla yeterli **ama sessizce sarmamalı**: köprü 25.5 m üstünü
+**kırpacak ve UYARI basacak** (aynı kural `maks_hiz_x10` ve merkez koordinatları
+için de geçerli). Sessiz sarma bu projenin tekrar tekrar ısırıldığı hata sınıfı.
 
 ---
 
@@ -552,6 +588,101 @@ ile döner, çıktısı boşa gider, durum sıcak kalır.
 
 ---
 
+### KARAR 11 — Lider kapısı KÖPRÜDE olur, `path_planner`'da değil
+
+**Sorun:** KARAR 3, `path_planner_node`'un yalnız liderde yayınlamasını
+gerektiriyor. **Ölçüldü: böyle bir yetenek YOK.** `path_planner_node`'un tek
+aboneliği var (satır 106, `/swarm/path_planning/target`) ve tek yayıncısı
+(satır 113). Ne `agent_id` parametresi, ne seçim/lider aboneliği, ne
+etkinleştirme kapısı. Lider çalışma zamanında değişebildiği için düğümü
+"sadece liderde başlat" da çözüm değil.
+
+**İki seçenek vardı:**
+
+- **(A)** `path_planner`'a lider kapısı eklemek — seçim sonucuna abone olup
+  lider değilse yayınlamamak
+- **(B)** Her dronda koşsun, kapı **köprüde** olsun — `esp32_bridge`
+  `TIP_FORMASYON`'u yalnız lider isem gönderir
+
+**Seçilen: (B).** Gerekçeler:
+
+1. `path_planner` saf bir planlayıcı olarak kalır; ulaşım kaygısı ulaşım
+   katmanında kalır
+2. Kapı **tek yerde** olur. Köprü seçim mesajlarını (`TIP_ELECTION`,
+   `TIP_LEADER_HB`) zaten elden geçiriyor, lideri mandallaması küçük bir ek
+3. **Sıcak yedek** — KARAR 10 ile aynı kazanç: takipçinin `path_planner`'ı
+   çalışır durumda bekler, lider düşünce yeni lider gecikmeden yayına geçer
+4. Takipçinin yerel çıktısı **atıl** — ölçüldü: `/swarm/internal/formation/target`
+   yalnız köprü tarafından tüketiliyor, başka yerel abonesi yok. Kapı kapalıyken
+   hiçbir yere gitmez. `formation_node` `public` tarafını dinliyor.
+
+**Sebep olduğu değişiklik:** `esp32_bridge`'e "şu an lider miyim" durumu
+eklenecek (gelen/giden `ElectionResult`'tan mandallanır) ve `TIP_FORMASYON` /
+`TIP_FORMASYON_DEVAM` / `TIP_FORM_OFSET` gönderimi bu kapıya bağlanacak.
+`path_planner_node` **değişmiyor**.
+
+---
+
+### KARAR 12 — RTCM 1 Hz'e dönecek: mesh yetersiz değil, TASARIM VARSAYIMI ihlal ediliyor
+
+**Bu madde bir düzeltme.** Daha önce RTCM hızını "mesh tıkanıklığı" gerekçesiyle
+düşürmeyi önerdim. **Çerçeve yanlıştı ve şu iddiam da yanlıştı:** "RTCM
+10 Hz'de ~176 paket/sn ile telemetriyle hız sınırlayıcı üzerinden yarışıyor."
+
+**Ölçüm — RTK hız sınırlayıcıyı HİÇ kullanmıyor.** `RX BASE/src/main.cpp:422-428`
+bunu açıkça yazıyor:
+
+    // TIP_RTK: asagidaki 18 baytlik mesh yolundan ONCE ayrilmali.
+    // ... RTK kendi buyuk zarfini ve fragmantasyonunu kullanir (rtk_sender.h),
+    // mesh_gonder() yolunu HIC kullanmaz. Hiz limiti de uygulanmaz: RTCM zaten
+    // ~1Hz uretilir ve `mesh_tip_gecebilir` 50ms kapisi cok fragmentli bir
+    // mesajin parcalarini birbirine dusururdu.
+
+Yani RTK ayrı yoldan gidiyor, `mesh_tip_gecebilir` kapısına girmiyor. Tiplerin
+birbirini yemesi konusundaki korumanın **dışında**. Bu, "yarışıyor" iddiamı
+çürütüyor — ama aynı zamanda daha ciddi bir şeyi ortaya koyuyor.
+
+**Mesh 10 Hz'i kaldırıyor — ölçüldü.** 29 Temmuz'da RTK Fixed elde edildi:
+345 örnek, %100 Fixed, yatay std 0.2 cm. Yani **sorun bant genişliği değil.**
+
+**Sorun şu: 10 Hz, kodun üzerine kurulduğu varsayımı ihlal ediyor.**
+
+1. *Hız sınırı yok.* RTK bilerek kapının dışında bırakıldı, gerekçesi
+   "RTCM zaten ~1Hz üretilir". 10 Hz'de RTK trafiğini sınırlayan **hiçbir şey
+   kalmıyor** — ne kapı, ne sayaç.
+
+2. *Yeniden birleştirme TEK YUVALI.* `rtk_pure.h:133`'teki yapı yalnız
+   `paket_id` ile anahtarlanıyor; `RTK_FRAG_TIMEOUT_MS = 500`. Ön koşul (a)
+   açıkça yazıyor: *"Yuva kaynağa göre anahtarlanmıyor."* Ve (b)/(c) bozulursa:
+
+       // gecikmis bir kopya yeni mesajin ilerlemesini siler ve ARQ olmadigi
+       // icin o RTCM bir daha gelmez; kayip timeout'a duser ve RF PARAZIT
+       // GIBI GORUNUR.
+
+   1 Hz'de mesajlar arası 1000 ms var, timeout 500 ms — rahat. 10 Hz'de 100 ms
+   var. Mesaj tamamlanmadan yenisi başlarsa ikisi de ölür ve **arıza RF
+   parazitine benzer**, yani yanlış yerde aranır.
+
+3. *10 Hz sıfır fayda getiriyor.* RTCM düzeltmeleri uydu saati/yörüngesi ve
+   atmosfer hatalarını anlatıyor; bunlar yavaş değişir ve **baz sabit**. Rover
+   düzeltmeler arasını interpole ediyor. 10 kat veri, aynı 2 cm.
+
+4. *1 Hz zaten TASARIM NİYETİ.* `f9p_base_yapilandir.py:212`
+   `("CFG_RATE_MEAS", 1000)` yazıyor — yani 1 Hz. 10 Hz bir **regresyon**:
+   29 Temmuz'da ayarların RAM-only yazıldığı ve güç kesilince kaybolduğu
+   bulundu, modül flash'taki eski 10 Hz konfigine döndü.
+
+**Sonuç:** "1 Hz'e düşür" bir optimizasyon değil, **kaybedilen konfigürasyonu
+geri almak**. Doğru cümle şu: mesh 10 Hz'i taşıyor ama RTK yolu 1 Hz için
+tasarlandı; 10 Hz'de sessizce mesaj kaybı riski var ve o kayıp RF sorunu gibi
+görünüyor.
+
+**Sebep olduğu değişiklik:** `f9p_base_yapilandir.py` `--gecici` **olmadan**
+çalıştırılacak (kalıcı flash), survey bitince `--sabitle`. Kod değişikliği yok,
+işletim adımı. Saha günlüğü §8 madde 5-6 ile aynı iş.
+
+---
+
 ## 4. Değişecek kodların tam listesi
 
 ### Firmware (C++) — iki taraf birebir tutulacak
@@ -569,18 +700,25 @@ ile döner, çıktısı boşa gider, durum sıcak kalır.
 | dosya | ne yapılacak |
 |---|---|
 | `esp32_bridge/packet_parser.py` | yeni `_FMT` string'leri (`struct.calcsize == 16` doğrulanacak), dataclass'lar, `*_paketle` / `*_coz` fonksiyonları; `_LIVENESS_TIPLERI`'ne eklenmeyecek (bunlar periyodik telemetri değil) |
-| `esp32_bridge/esp32_bridge_node.py` | **internal→mesh:** `/swarm/internal/formation/target` (FormationCommand → TIP_FORMASYON [+DEVAM/OFSET]), `/swarm/internal/perception/qr_data` (QRMissionData → TIP_QR_GOREV [+QR_HAM]) aboneliği. **mesh→public:** dispatch dalları; `compute_slot_offsets()` ile offset **geri açma**; `team_id` alanını yerel takım ID'siyle **doldurma** (KARAR 7 tuzağı) |
+| `esp32_bridge/esp32_bridge_node.py` | **internal→mesh:** `/swarm/internal/formation/target` (FormationCommand → TIP_FORMASYON [+DEVAM/OFSET]), `/swarm/internal/perception/qr_data` (QRMissionData → TIP_QR_GOREV [+QR_HAM]) aboneliği. **mesh→public:** dispatch dalları; `compute_slot_offsets()` ile offset **geri açma** (KARAR 9); `team_id` alanını yerel takım ID'siyle **doldurma** (KARAR 7 tuzağı); **lider kapısı** — `ElectionResult`'tan lideri mandalla, formasyon paketlerini yalnız lider isem gönder (KARAR 11); **sınır kırpma + UYARI** — `spacing_dm`, `maks_hiz_x10`, merkez koordinatları tavanı aşarsa sessizce sarmasın (KARAR 6) |
+| `esp32_bridge/` yeni parametre | `takim_id` — KARAR 7'nin doldurma adımı için gerekli. Yapılandırılmadığı sürece gelen QR'lar `mission_fsm:336`'da reddedilir. |
 
 ### Düğüm yerleşimi (`baslat.sh`)
 
-Her dronda koşacaklar (KARAR 1, 2 gereği): `swarm_fsm_node`, `mission_fsm_node`,
-`mode_manager_node`, `consensus_node`, `kinematic_fusion`, `formation_node`,
-`collision_avoidance`, `maneuver_executor`, `task_reallocator_node`,
-`precision_landing_node`, `camera_driver`, `vision_node`.
+Her dronda koşacaklar: `swarm_fsm_node` (KARAR 1), `mode_manager_node` (KARAR 2),
+`mission_fsm_node`, `mission1_dynamic_swarm` (KARAR 10), `consensus_node`,
+`kinematic_fusion`, `formation_node`, `collision_avoidance`,
+`maneuver_executor`, `task_reallocator_node`, `precision_landing_node`,
+`camera_driver`, `vision_node`.
 
-Yalnız liderde koşacak (KARAR 3): `path_planner_node`.
+`path_planner_node` de **her dronda** koşacak (KARAR 11) — lider kapısı köprüde
+olduğu için düğümün kendisi kısıtlanmıyor; takipçinin çıktısı atıl kalır ve
+lider değişiminde sıcak yedek olarak hazır bekler.
 
-Karara bağlı (bkz. §7 açık madde 1): `mission1_dynamic_swarm`.
+**Sahada ASLA çalıştırılmayacak ikisi:** `network_proxy_node` (mesh simülatörü,
+yerini `esp32_bridge` alıyor), `sim_rtcm_source` (yerini gerçek F9P alıyor).
+Yanlışlıkla açılırsa `/swarm/public/*` topic'lerine ikinci bir yayıncı girer ve
+teşhisi çok zor bir çift-kaynak durumu oluşur.
 
 > **`swarm_missions` paketi Pi'lerde YOK** — ölçüldü, `~/yelpence_ws/src` altında
 > `swarm_control`, `swarm_core`, `swarm_interfaces`, `swarm_perception`,
@@ -597,7 +735,7 @@ Karara bağlı (bkz. §7 açık madde 1): `mission1_dynamic_swarm`.
 
 ## 5. Düzeltilen hatalı iddialar (kayıt için)
 
-Analiz sırasında dört iddia kurulup sonra ölçümle çürütüldü. Kayda geçiyor ki
+Analiz sırasında altı iddia kurulup sonra ölçümle çürütüldü. Kayda geçiyor ki
 bu belgeye dayanan biri eski hallerine güvenmesin:
 
 | iddia | gerçek |
@@ -606,9 +744,27 @@ bu belgeye dayanan biri eski hallerine güvenmesin:
 | "`complete_mission` gerekmiyor" | Yanlış. `mission_transitions.py:191,213` okuyor — "görev bitti mi" kararını veriyor. |
 | "`raw_text`, `command_type`, `confidence` kimse okumuyor" | Yanlış. YKİ okuyor (`ros_bridge.py:198-213`), gösterim için. |
 | "`team_id` gerekmiyor" | Yarı yanlış. İki düğüm filtreliyor; atılabilir ama alıcı köprünün doldurması şart. |
+| "`target_x`/`target_y` gerekli (precision_landing:196 okuyor)" | **Yanlış — yanlış pozitif.** Satır 196 `cmd.target_x`, yani ÇIKTI nesnesi. `msg.target_x` / `qr.target_x` saha kodunda hiç yok. İniş hedefi kameradan (`zone_map`). Pakette 4 bayt boşaldı. |
+| "RTCM 10 Hz telemetriyle hız sınırlayıcı üzerinden yarışıyor (~176 paket/sn)" | **Yanlış.** RTK `mesh_tip_gecebilir`'i HİÇ kullanmıyor — `RX BASE/src/main.cpp:426` bunu açıkça yazıyor. Asıl sorun tek yuvalı reassembly (KARAR 12). |
 
 Ayrıca §2'de yazılan üç kör nokta (saklanan nesne, parametre geçişi, `getattr`)
-bu hataların kaynağıydı.
+ilk dört hatanın kaynağıydı; beşincisi ters taramanın yanlış pozitifi,
+altıncısı da kodu okumadan hızlıca kurulmuş bir çıkarım.
+
+### Belge ile kodun uyuşmadığı iki yer (bu analizin yan ürünü)
+
+Bunlar mesh işiyle ilgili değil ama ölçüm sırasında çıktı; **düzeltilmedi**,
+çünkü davranış değişikliği olur ve ayrı bir karar gerektirir:
+
+1. **`QRMissionData.msg:15,50`** *"mission_fsm drops out-of-order/stale qr_seq"*
+   ve *"monotonically increasing"* diyor. **Uygulanmamış.** Gerçek tekrar
+   kapısı `qr_id` üzerinden (`mission_fsm_node.py:342-348`);
+   `last_accepted_qr_seq` yazılıyor, hiç okunmuyor.
+
+2. **`network_proxy` ile `esp32_bridge` aynı akışları taşımıyor.** Simülasyon
+   9 akış taşıyor, saha 6. Bu belgenin varlık sebebi bu fark. Simülasyonda
+   geçen bir senaryonun sahada geçeceği **garanti değil** — §8'deki
+   karşılaştırma adımı bu yüzden var.
 
 ---
 
@@ -625,36 +781,116 @@ bu hataların kaynağıydı.
 
 ---
 
-## 7. Açık maddeler — kod yazmadan önce kapatılacak
+## 7. Açık maddelerin kapanışı — 6/6 KAPANDI
 
-1. ~~`mission1_dynamic_swarm` nerede koşacak?~~ **KAPANDI — bkz. KARAR 10.**
-   Her dronda koşacak, `TIP_QR_GOREV` broadcast. Mesh maliyeti ölçüldü: %0,024.
+Hepsi ölçümle kapatıldı. Kod yazmaya engel kalmadı.
 
-2. **`path_planner_node` "lider değilim" durumunu destekliyor mu?** KARAR 3
-   yalnız liderde koşmasını gerektiriyor ve lider çalışma zamanında değişebilir.
-   Kodda böyle bir kapı var mı **doğrulanmadı**.
+| # | madde | sonuç |
+|---|---|---|
+| 1 | `mission1` nerede koşacak | **Her dronda** → KARAR 10. Mesh maliyeti %0,024 |
+| 2 | `path_planner` lider kapısı var mı | **YOK** → KARAR 11, kapı köprüye kondu |
+| 3 | `target_x`/`target_y` gerekli mi | **GEREKSİZ** → yanlış pozitifti (§5), pakette 4 bayt boşaldı |
+| 4 | `qr_seq` genişliği | **`uint8` yeterli** → hiçbir yerde karşılaştırılmıyor; ileriye uyarı yazıldı (KARAR 6) |
+| 5 | `spacing_dm` çözünürlüğü | **`uint8` dm yeterli** → 0.1 m / 25.5 m; köprü kırpıp UYARACAK |
+| 6 | Hız sınırı değerleri | **Yeni sabit gerekmiyor** → mevcut `MESH_GONDERIM_MIN_MS = 50` kullanılacak |
 
-3. **`target_x`/`target_y` gerçekten gerekli mi?** `precision_landing_node.py:196`
-   okuyor. Ama aynı düğüm `/drone_{id}/perception/landing_zone` ve
-   `/swarm/perception/zone_map`'e de abone — yani kameranın kendi tespiti var.
-   Şartname "hassas iniş" ve tolerans şartı koyuyor; QR'a gömülü yaklaşık
-   koordinat bunu sağlamaz. **Bu ikisinin biri yedek mi, biri asıl mı —
-   `precision_landing_node` okunup karar verilecek.** Gerekirse `TIP_QR_GOREV`
-   rezervine 4 bayt sığıyor (3 rezerv + 1); sığmazsa ikinci paket.
+**Madde 6'nın ayrıntısı.** Ölçülen mevcut değerler:
+`MESH_GONDERIM_MIN_MS = 50` (her iki firmware, genel kapı = tip başına en fazla
+20 Hz), `JOYSTICK_MIN_ARALIK_MS = 200` (yalnız `TIP_KOMUT`, 5 Hz).
+`TIP_FORMASYON` 5 Hz (200 ms periyot) hedefliyor; 50 ms kapısı bunu **rahat
+geçiriyor**, hiçbir çerçeve düşmez. Ayrı bir sabit tanımlamak gereksiz
+karmaşıklık olur. Diğer yeni tipler (`FORM_OFSET`, `QR_GOREV`, `QR_HAM`) tek
+atımlık, 50 ms fazlasıyla yeter.
 
-4. **`qr_seq` genişliği.** Şu an `uint8` planlandı. Bir görevde 6-7 QR var,
-   sarma riski yok gibi ama `mission_fsm` bayatlık kapısı olarak kullanıyor
-   (`msg.qr_seq` ile eski/sıra dışı QR'ları düşürüyor). Sarma davranışı
-   düşünülecek.
+> **Sınır notu:** `mode_manager` 20 Hz tick'liyor = 50 ms, yani genel kapının
+> **tam sınırında**. KARAR 2 gereği onun formasyon hedefi mesh'e çıkmadığı için
+> sorun yok — ama biri ileride onu mesh'e bağlamaya kalkarsa çerçeveler
+> düşmeye başlar ve `_tip_dusen[]` sayacında görünür.
 
-5. **`spacing_dm` çözünürlüğü.** `uint8` desimetre → 0.1 m adım, 0–25.5 m.
-   Şartname örneği 5 m. Yeterli görünüyor ama 25.5 m üstü aralık istenirse
-   yetmez.
+---
 
-6. **Hız sınırı değerleri.** `mesh_tip_gecebilir` her tip için `min_aralik_ms`
-   istiyor. `TIP_FORMASYON` için 5 Hz hedeflendiğinden ~150 ms uygun görünüyor
-   (200 ms periyoda pay bırakır). Diğer yeni tipler tek atımlık; değerleri
-   belirlenecek.
+## 7.5 Etki zinciri — hangi karar neyi zorunlu kılıyor
+
+Kararlar birbirini tetikliyor. Hiçbir halka atlanmasın diye tam zincir:
+
+### Zincir A: formasyonu mesh'e taşımak
+
+    KARAR 3 (lider yayınlar, 5 Hz)
+      → KARAR 4 gerekli: 16 bayta sığan bir formasyon paketi tasarlanmalı
+        → offsetler sığmıyor (3 ajan için 85+ bayt, ajan sayısıyla büyür)
+          → tarif gönderme fikri: compute_slot_offsets() saf mı? ÖLÇÜLDÜ, saf
+            → ama hungarian_assignment konum bağımlı → ATAMA gönderilmeli
+              → atama zaten agent_ids SIRASINDA kodlu → ek alan gerekmiyor
+        → CUSTOM formasyon tarifle anlatılamaz
+          → KARAR 5 gerekli: TIP_FORM_OFSET, kalkışta bir kez
+        → wing_alpha iki düğümde ayrı parametre, sessizce ayrışabilir
+          → pakete kondu (1 bayt)
+      → KARAR 9 gerekli: köprü tarifi TAM mesaja geri açmalı
+        → çünkü maneuver_executor:335-338 offset boşsa SESSİZCE return ediyor
+          → köprü compute_slot_offsets import edecek
+            → bağımlılık uygun mu? ÖLÇÜLDÜ: swarm_control zaten swarm_core'a
+              bağımlı, formation_geometry saf matematik → uygun
+        → SONUÇ: formation_node / collision_avoidance / maneuver_executor
+          HİÇ DEĞİŞMİYOR
+      → KARAR 11 gerekli: "lider isem yayınla" kapısı
+        → path_planner'da lider farkındalığı var mı? ÖLÇÜLDÜ: YOK
+          → kapı köprüye kondu → path_planner değişmiyor
+            → köprü ElectionResult'tan lideri mandallayacak (yeni durum)
+
+### Zincir B: QR'ı mesh'e taşımak
+
+    KARAR 10 (mission1 her dronda)
+      → QR içeriği tüm dronlara gitmeli → KARAR 6 gerekli
+        → hangi alanlar? DÖRT tarama gerekti (§2), üç kör nokta çıktı
+          → orchestrator getattr ile okuyor → ayrı tarama şart oldu
+        → team_id metin, sığmaz → KARAR 7: okuyan drone filtreler
+          → TUZAK: mission_fsm:336 boş team_id'de HER QR'ı reddeder
+            → köprü alanı kendi takım ID'siyle DOLDURACAK (zorunlu)
+        → raw_text 300-800 bayt (JSON, tüm takımların görevi) → KARAR 8
+          → YKİ metni yapısal alanlardan yerel kurar → 0 ekstra bayt
+          → ama şartname "nihai format sonra paylaşılacak" diyor
+            → şema tahmin → ayrıştırma patlarsa teşhis lazım
+              → TIP_QR_HAM: hata kodu + 52 karakter, yalnız hatada
+      → swarm_missions paketi Pi'lerde YOK (ölçüldü)
+        → kopyalanıp derlenecek → baslat.sh güncellenecek
+
+### Zincir C: SwarmState'i taşımamak
+
+    KARAR 1 (SwarmState geçmez)
+      → her drone kendi SwarmState'ini üretmeli
+        → swarm_fsm_node her dronda koşacak → baslat.sh
+      → mode_manager de SwarmState okuyor (KARAR 2 ile birlikte)
+        → mode_manager her dronda koşacak → baslat.sh
+      → esp32_bridge'e SwarmState için EKLEME YOK
+        → mevcut TIP_SWARM_STATE olduğu gibi kalıyor (YKİ göstergesi)
+
+### Zincir D: firmware/Python eşleşmesi (her yeni tip için)
+
+    Yeni TIP tanımı
+      → mesh_config.h: sabit + struct + static_assert(sizeof == 16)
+      → packet_parser.py: _FMT + struct.calcsize == 16 testi
+      → RX BASE whitelist  ← ATLANIRSA çerçeve SESSİZCE düşer, sayaç bile artmaz
+      → TX DRONE whitelist ← aynısı (§1.1 kusurunun tekrarı olur)
+      → MESH_TIP_TABLO_BOYU kontrolü (24; en büyük yeni tip 0x15 = 21 → yeterli)
+      → hız limiti: MESH_GONDERIM_MIN_MS = 50 (yeni sabit yok)
+
+### Zincir E: RTCM (kod değil, işletim)
+
+    KARAR 12 (1 Hz'e dön)
+      → f9p_base_yapilandir.py --gecici OLMADAN çalıştırılacak (flash'a yaz)
+        → survey tamamlanınca --sabitle
+      → gerekçe: RTK hız sınırlayıcı dışında + tek yuvalı reassembly
+        → 10 Hz'de mesaj üstüne mesaj → sessiz kayıp → RF parazit gibi görünür
+      → kod değişikliği YOK
+
+### Bağımlılık sırası (hangi iş neyi bekliyor)
+
+    1. mesh_config.h struct'ları + packet_parser _FMT'leri   (temel)
+    2. firmware whitelist'leri (RX BASE + TX DRONE)          (1'i bekler)
+    3. esp32_bridge abonelik/yayın + geri açma + lider kapısı (1'i bekler)
+    4. baslat.sh düğüm listesi                                (3'ü bekler)
+    5. swarm_missions'ı Pi'lere kur                           (4 ile birlikte)
+    6. RTCM 1 Hz (bağımsız, şimdi yapılabilir)
 
 ---
 
