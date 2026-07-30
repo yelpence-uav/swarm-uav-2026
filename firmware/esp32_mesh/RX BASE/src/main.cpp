@@ -231,7 +231,23 @@ void mesh_veri_al(const uint8_t* kaynak_mac, const mesh_paket_t* p) {
     else if (p->tip == TIP_VERSION)    msg.uzunluk = sizeof(version_veri_t);
     else if (p->tip == TIP_SWARM_STATE) msg.uzunluk = sizeof(swarm_state_veri_t);
     else if (p->tip == TIP_QR_DATA)    msg.uzunluk = sizeof(qr_veri_t);
-    else return; 
+    // --- Suru koordinasyonu (30 Temmuz, docs/MESH_PROTOKOL_KARARLARI.md) -----
+    // TIP_QR_GOREV: YKI cozulmus QR gorevini gostermeli (ros_bridge.py
+    // QRMissionData okuyor: qr_id, formasyon, irtifa, sonraki_qr...).
+    // TIP_QR_HAM: ayristirma HATASINDA ham metnin ilk baytlari. Sartname
+    // "QR icerigi ORNEKTIR, nihai format sonrasinda paylasilacaktir" diyor;
+    // semamiz tahmin ve format farkli gelirse yapisal alanlar bos kalir.
+    // O anda formati gorebilmenin tek yolu bu (KARAR 8). YKI'ye ILETILIR;
+    // takipci dronlarin Pi'sine iletilmez (orada bilincli olarak yok).
+    else if (p->tip == TIP_QR_GOREV)   msg.uzunluk = sizeof(qr_gorev_veri_t);
+    else if (p->tip == TIP_QR_HAM)     msg.uzunluk = sizeof(qr_ham_veri_t);
+    // TIP_FORMASYON / _DEVAM / _FORM_OFSET BILEREK YOK - simdilik.
+    // Sebep: base UART'in YKI yonu ~35 cerceve/sn ile sinirli (§3, saha
+    // gunlugu) ve formasyon 5 Hz akiyor -> butcenin ~%14'u. Karsiliginda YKI
+    // tarafinda henuz TUKETICI YOK; FormationCommand'i gosteren bir panel
+    // eklenirse burasi acilir. "Once tasi, sonra belki kullanirim" bosa
+    // UART trafigi olurdu. Adim 3'te YKI tarafi netlesince tekrar bakilacak.
+    else return;
 
     memcpy(msg.payload, p->veri, msg.uzunluk);
 
@@ -474,6 +490,18 @@ void loop() {
         }
         // else: taninmayan tip sessizce atilir. TIP_LEADER_HB/TIP_ELECTION
         // bilerek dahil edilmedi: baz, drone consensus'una taraf degil.
+        //
+        // Suru koordinasyonu tipleri (0x11-0x15) de BILEREK DAHIL EDILMEDI:
+        //   TIP_FORMASYON / _DEVAM / _FORM_OFSET -> formasyon hedefini LIDER
+        //     uretir (KARAR 3). YKI'nin ayni tipi yayinlamasi CIFT KAYNAK olur:
+        //     lider 5 Hz akitirken YKI araya girerse hangisi kazanir belirsiz.
+        //     YKI'nin formasyon TALEBI zaten TIP_KOMUT ile gidiyor
+        //     (KOMUT_FLAG_FORMATION_CHANGE + talep_formasyon, Adim 1c) ve
+        //     lider onu kendi 5 Hz akisina katiyor. Dogru katman orasi.
+        //   TIP_QR_GOREV / TIP_QR_HAM -> QR'i drone kamerasi okur, YKI okumaz.
+        //     Ters yon (mesh -> YKI) yukarida ILETILIYOR, gonderme yonu yok.
+        // Bu bir ATLAMA DEGIL; yeni bir tip eklerken buraya da bakilmali diye
+        // gerekce yazildi (§1.1 kusuru sessiz atlamadan cikmisti).
     }
 
     static uint32_t son_durum = 0;

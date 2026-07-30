@@ -971,7 +971,7 @@ Durum özeti:
 | 1a | firmware struct'ları + TIP sabitleri | **BİTTİ** ✓ |
 | 1b | `packet_parser.py` format/veri sınıfı/paketleyici | **BİTTİ** ✓ |
 | 1c | YKİ/kumanda formasyon seçimi — **kusur düzeltmesi** | **BİTTİ** ✓ |
-| 2 | RX BASE + TX DRONE whitelist'leri | bekliyor |
+| 2 | firmware geçitleri (**4 geçit**, 2 değil) | **BİTTİ** ✓ |
 | 3 | `esp32_bridge_node` abonelik/yayın + geri açma + lider kapısı | bekliyor |
 | 4 | `baslat.sh` düğüm listesi | bekliyor |
 | 5 | `swarm_missions`'ı Pi'lere kur | bekliyor |
@@ -1141,6 +1141,107 @@ formasyon seçimi **kumandadan** olacak — aynı yol (`joystick_interpreter_nod
 zaten `formation_change_requested` üretiyor). YKİ butonu arayüzde
 **yarışma-dışı** olarak işaretlenmeli; `telemetry.ts`'de bunun için zaten bir
 kalıp var (`connection_mode` -> "UI yarışma-dışı butonları gizler").
+
+
+### Adım 2 — firmware geçitleri (BİTTİ)
+
+**Plan "2 whitelist" diyordu. Ölçünce DÖRT geçit çıktı.** Bu, planın en
+tehlikeli eksiğiydi: gönderme whitelist'lerini eklesem ve alma taraflarını
+atlasam, paketler mesh'i geçip ESP'de ölürdü — ne log, ne sayaç.
+
+| geçit | dosya:satır | ne yapar |
+|---|---|---|
+| TX DRONE **alma** | `TX DRONE/main.cpp:167-184` | mesh → takipçinin RPi'si |
+| TX DRONE **gönderme** | `TX DRONE/main.cpp:327` | liderin RPi'si → mesh |
+| RX BASE **alma** | `RX BASE/main.cpp:225-234` | mesh → YKİ |
+| RX BASE **gönderme** | `RX BASE/main.cpp:463-474` | YKİ → mesh |
+
+Dördünün de sonu aynı: `else return;` — **sessiz düşüş, sayaç yok.**
+
+**Hangi tip hangi geçitte — ve neden:**
+
+| tip | TX alma | TX gönderme | RX alma | RX gönderme |
+|---|---|---|---|---|
+| `TIP_FORMASYON` | ✅ | ✅ | ⬜ ertelendi | ⬜ çift kaynak |
+| `TIP_FORMASYON_DEVAM` | ✅ | ✅ | ⬜ ertelendi | ⬜ çift kaynak |
+| `TIP_FORM_OFSET` | ✅ | ✅ | ⬜ ertelendi | ⬜ çift kaynak |
+| `TIP_QR_GOREV` | ✅ | ✅ | ✅ | ⬜ QR'ı drone okur |
+| `TIP_QR_HAM` | ⬜ bilinçli | ✅ | ✅ | ⬜ QR'ı drone okur |
+
+Boş kutuların hepsi **bilinçli**, gerekçeleri kodda yorum olarak duruyor:
+
+- **`TIP_QR_HAM` takipçinin RPi'sine iletilmiyor:** ham QR metnini hiçbir uçuş
+  kararı okumuyor (KARAR 8). Broadcast olduğu için takipçiler alır ama Pi'ye
+  taşımak boşa UART trafiği olurdu. YKİ'ye ise **iletiliyor** — asıl amacı o.
+- **Formasyon tipleri RX BASE almada yok:** base UART'ın YKİ yönü ~35 çerçeve/sn
+  ile sınırlı (§3) ve formasyon 5 Hz akıyor → bütçenin %14'ü. Karşılığında YKİ
+  tarafında **henüz tüketici yok**. "Önce taşı, sonra belki kullanırım" boşa
+  trafik olur. Adım 3'te YKİ tarafı netleşince tekrar bakılacak.
+- **Formasyon tipleri RX BASE göndermede yok:** formasyon hedefini **lider**
+  üretir (KARAR 3). YKİ'nin aynı tipi yayınlaması **çift kaynak** olur — lider
+  5 Hz akıtırken YKİ araya girerse hangisi kazanır belirsiz. YKİ'nin formasyon
+  **talebi** zaten `TIP_KOMUT` ile gidiyor (Adım 1c) ve lider onu kendi akışına
+  katıyor. Doğru katman orası.
+
+**Lider kapısı firmware'e girmedi.** Aynı firmware her dronda koşuyor ve lider
+çalışma zamanında değişiyor → whitelist tüm dronlarda izin vermeli. "Şu an lider
+miyim" kapısı Pi tarafında (KARAR 11). Firmware'e lider bilgisi taşımak, lider
+değişiminde iki tarafı senkron tutmayı gerektirirdi.
+
+**Tampon kontrolü (ölçüldü, hepsi sığıyor):**
+
+    RX BASE  uart_mesaj_t.payload[18]   <- yeni yükler 16 bayt      OK
+    TX DRONE uart_gonder: >18 reddediyor, ham[24], cobs_buf[32]     OK
+    TX DRONE UART_FRAME_BUF_SIZE = 32   <- cerceve 20B + COBS ~21B  OK
+
+### Adım 2 doğrulaması — ve testin DİŞLİ olduğunun kanıtı
+
+PlatformIO laptopta kurulu değil, tam firmware derlemesi yapılamadı. Onun
+yerine iki katman doğrulama:
+
+**1. Statik çapraz kontrol.** `main.cpp`'lerdeki her `sizeof(*_veri_t)` ve her
+`TIP_*` referansı `mesh_config.h`'de tanımlı mı? (yorumlar atılarak)
+
+    RX BASE : 11 struct, 16 TIP  -> hepsi tanimli
+    TX DRONE: 16 struct, 19 TIP  -> hepsi tanimli
+
+**2. Yeni regresyon testi: `test_mesh_tip_kapsama.py` (7 test).**
+Bu kusur sınıfının özelliği çalışma zamanında hiçbir sinyal üretmemesi. Test
+firmware kaynağını okuyup dört geçidi ayrı ayrı kontrol ediyor ve hem
+**varlığı** hem **bilinçli yokluğu** doğruluyor — bir tipi bilerek dışarıda
+bıraktıysak tabloda yazılı, biri eklerse test patlar ve gerekçeyi güncellemek
+zorunda kalır. Ayrıca:
+- `TIP_*` değerleri firmware ile `packet_parser` arasında birebir mi
+- `MESH_TIP_TABLO_BOYU` en büyük tipi kapsıyor mu (derleyici olmadan da)
+
+Pi'lerde `firmware/` dizini yok, o yüzden test orada **atlanıyor** (`skipif`).
+
+**Test dişli mi — üç sabotaj denendi, üçü de yakalandı** (saha günlüğü §1.3'teki
+"dişli olduğu doğrulandı" kalıbı):
+
+| sabotaj | sonuç |
+|---|---|
+| TX alma'dan `TIP_FORMASYON` çıkarıldı | ✅ yakalandı, mesajda §1.1 atfı var |
+| TX gönderme'den `TIP_QR_GOREV` çıkarıldı | ✅ yakalandı |
+| `mesh_config.h`'de `TIP_QR_GOREV` 0x14 → 0x16 | ✅ "iki taraf AYRIŞMIŞ" |
+
+Geri alındı, `git diff --stat` yalnız amaçlanan değişiklikleri gösteriyor.
+
+**Toplam:** `swarm_control` paketinde **95 test geçiyor**, 20 atlanıyor
+(`test_mavros_command_sender.py` — laptopta ROS yok, önceden de böyle).
+
+### Adım 3 — sıradaki halka ve bilinen riskleri
+
+`esp32_bridge_node`: abonelikler, yayınlar, **offset geri açma** (KARAR 9),
+**lider kapısı** (KARAR 11), `team_id` doldurma (KARAR 7 tuzağı), sınır
+kırpma uyarıları (KARAR 6).
+
+Bu adımın kendine özgü riski: köprü `swarm_core.formation_control.
+formation_geometry`'den `compute_slot_offsets` import edecek. Bağımlılık uygun
+(ölçüldü: `swarm_control/package.xml` zaten `<depend>swarm_core</depend>`
+içeriyor, `formation_geometry` yalnız `math` import ediyor) **ama** import
+sırası ROS paket kurulumunda ayrışabilir — `colcon build` sırası ve
+`install/` altındaki yerleşim doğrulanmalı.
 
 
 ### Adım 1c'nin ortaya çıkardığı AÇIK İŞ — kumanda formasyon yolu YOK
