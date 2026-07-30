@@ -218,6 +218,54 @@ def test_election_kirpma_4ten_fazla_id():
     assert e.confirmed_ids == (1, 2, 3, 4)
 
 
+def test_election_incarnation_round_trip():
+    """incarnation mesh'ten geçer ve 16 baytı bozmaz.
+
+    Bu alan olmadan yeniden başlayan liderin seçimleri komşu dronda sessizce
+    düşüyordu (30 Temmuz'da ölçüldü).
+    """
+    payload = pp.election_paketle(
+        new_leader_id=3, election_round=7, reason=1,
+        triggered_by=3, sequence_num=5, confirmed_ids=(1,),
+        incarnation=51234,
+    )
+    assert len(payload) == 16
+    e = pp.election_coz(payload)
+    assert e.incarnation == 51234
+    # Diğer alanlar incarnation eklenince kaymamalı
+    assert e.new_leader_id == 3
+    assert e.election_round == 7
+    assert e.sequence_num == 5
+    assert e.confirmed_ids == (1, 0, 0, 0)
+
+
+def test_election_incarnation_varsayilan_sifir():
+    """incarnation verilmezse 0 ('bilinmiyor') olur; eski çağıran kırılmaz."""
+    payload = pp.election_paketle(
+        new_leader_id=1, election_round=1, reason=0,
+        triggered_by=1, sequence_num=1, confirmed_ids=(),
+    )
+    assert pp.election_coz(payload).incarnation == 0
+
+
+def test_election_incarnation_ust_sinir():
+    """incarnation uint16'ya sığar; taşan değer maskelenir, paket bozulmaz."""
+    payload = pp.election_paketle(
+        new_leader_id=1, election_round=1, reason=0,
+        triggered_by=1, sequence_num=1, confirmed_ids=(),
+        incarnation=0xFFFF,
+    )
+    assert len(payload) == 16
+    assert pp.election_coz(payload).incarnation == 0xFFFF
+    # 0x10000 maskelenip 0 olur — struct.error fırlatmamalı
+    payload = pp.election_paketle(
+        new_leader_id=1, election_round=1, reason=0,
+        triggered_by=1, sequence_num=1, confirmed_ids=(),
+        incarnation=0x10000,
+    )
+    assert pp.election_coz(payload).incarnation == 0
+
+
 def test_yeni_tipler_cerceve_uyumlu():
     """Yeni paket tipleri tam çerçevede taşınabilir (POSE/DURUM gibi)."""
     payload = pp.komut_paketle(

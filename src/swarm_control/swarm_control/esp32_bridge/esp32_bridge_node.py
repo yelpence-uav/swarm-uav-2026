@@ -1132,6 +1132,7 @@ class Esp32BridgeNode(Node):
         msg.election_round = e.election_round
         msg.triggered_by_agent_id = e.triggered_by
         msg.reason = e.reason
+        msg.incarnation = e.incarnation
         # 0 dolgu ID'lerini at — gerçekte onay verenler bunlar
         msg.confirmed_by_agent_ids = [
             i for i in e.confirmed_ids if i != 0
@@ -1939,6 +1940,10 @@ class Esp32BridgeNode(Node):
             triggered_by=msg.triggered_by_agent_id,
             sequence_num=msg.sequence_num,
             confirmed_ids=tuple(msg.confirmed_by_agent_ids),
+            # incarnation MESH'TEN GEÇMEK ZORUNDA: eskimiş-mesaj filtresi
+            # komşu dronun consensus'unda çalışıyor. Buradan taşımazsak
+            # yeniden başlayan liderin seçimleri komşuda sessizce düşer.
+            incarnation=msg.incarnation,
         )
         self._uart_yaz(pp.TIP_ELECTION, self._agent_id, payload)
         # Yerel consensus bu drone'u lider seçtiyse mesh'ten geri gelmesini

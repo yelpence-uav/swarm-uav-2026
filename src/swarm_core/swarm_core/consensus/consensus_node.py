@@ -1,6 +1,7 @@
 # Copyright 2026 Yelpence
 """Dagitik consensus dugumu: suru lideri arbitrasyonu."""
 
+import random
 import time
 
 import rclpy
@@ -65,6 +66,13 @@ class ConsensusNode(Node):
 
         self._declare_params()
 
+        # incarnation: BU acilisa ozgu kimlik. Alicilar degistigini gorunce
+        # bu ajanin sequence_num sayacini sifirlar (bkz. ElectionResult.msg).
+        # 0 "bilinmiyor" anlamina ayrildigi icin araliktan cikarildi.
+        # SystemRandom kullaniliyor: iki dron ayni anda acilirsa tohumlari
+        # ayni olmasin.
+        self._incarnation = random.SystemRandom().randrange(1, 0x10000)
+
         self._ctx = ConsensusContext(
             agent_id=self._agent_id,
             agent_count=self._agent_count,
@@ -78,7 +86,8 @@ class ConsensusNode(Node):
         self._timer = self.create_timer(1.0 / self._tick_hz, self._tick)
 
         self.get_logger().info(
-            f'ConsensusNode baslatildi: agent_id={self._agent_id}'
+            f'ConsensusNode baslatildi: agent_id={self._agent_id} '
+            f'incarnation={self._incarnation}'
         )
 
     def _declare_params(self) -> None:
@@ -242,11 +251,29 @@ class ConsensusNode(Node):
         self._apply_role()
 
     def _on_election(self, msg: ElectionResult) -> None:
-        """Lider secim sonucunu alir."""
+        """Lider secim sonucunu alir.
+
+        Eskimis mesaj filtresi KAYNAK BASINA ve incarnation duyarli. Gerekcesi
+        ElectionResult.msg'de ayrintili yazili; kisaca: sequence_num yayinci
+        yeniden baslayinca 0'a doner ve tek global sayac tutulursa yeniden
+        baslayan (ya da yeni secilen) liderin butun sonuclari SESSIZCE duser.
+        """
         ctx = self._ctx
-        if msg.sequence_num <= ctx.max_seen_seq:
+        kaynak = int(msg.triggered_by_agent_id)
+        inc = int(msg.incarnation)
+        kabul, inc_degisti = election.seq_kabul(
+            ctx.seen_seq, kaynak, inc, int(msg.sequence_num)
+        )
+        if inc_degisti:
+            # Sessiz kalmamali: sahada "secim neden uygulanmadi" sorusunun
+            # cevabi tam burada.
+            self.get_logger().info(
+                f'[CONSENSUS] ajan {kaynak} yeniden baslamis '
+                f'(incarnation -> {inc}), seq sayaci sifirlandi'
+            )
+        if not kabul:
             return
-        ctx.max_seen_seq = msg.sequence_num
+        ctx.seen_seq[kaynak] = (inc, int(msg.sequence_num))
         if msg.election_round < ctx.election_round:
             return
 
@@ -276,6 +303,7 @@ class ConsensusNode(Node):
         m.stamp = self.get_clock().now().to_msg()
         ctx.out_seq = (ctx.out_seq + 1) % _U32
         m.sequence_num = ctx.out_seq
+        m.incarnation = self._incarnation
         m.new_leader_id = leader_id
         m.election_round = ctx.election_round
         m.triggered_by_agent_id = self._agent_id

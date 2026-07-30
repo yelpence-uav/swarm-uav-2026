@@ -85,7 +85,11 @@ _ORIGIN_FMT = '<iiiI'        # lat_1e7, lon_1e7, alt_mm, sequence
 _KOMUT_FMT = '<BBhhhhBBB3x'  # alt_tip, flags, roll/pitch/yaw/throttle x100,
 #                              target_id, talep_formasyon, talep_spacing_dm
 _LEADER_HB_FMT = '<BIBBB8x'  # leader_id, seq, round, agent_count, mission
-_ELECTION_FMT = '<BBBBIBBBB4x'  # leader, round, reason, trigger, seq, ids
+_ELECTION_FMT = '<BBBBIBBBBH2x'
+# leader, round, reason, trigger, seq, ids[4], incarnation, rezerv[2]
+# incarnation 30 Temmuz'da rezerv[4]'ün ilk 2 baytından alındı; toplam boyut
+# 16 bayt DEĞİŞMEDİ, o yüzden firmware'in sizeof(election_veri_t) kullanımı
+# etkilenmiyor ve ESP'ler yeniden flaşlanmadan çalışır.
 _QR_FMT = '<BIii3x'          # drone_id, action_id, lat, lon, rezerv[3]
 _SWARM_STATE_FMT = '<BBBBI8x'  # mission_id, fsm, leader, formation, timestamp
 _QR_COORD_FMT = '<BBii6x'    # qr_id, toplam, lat_1e7, lon_1e7, rezerv[6]
@@ -383,6 +387,7 @@ class ElectionVeri:
     triggered_by: int        # election'ı başlatan ajan, 0=sistem
     sequence_num: int
     confirmed_ids: tuple[int, int, int, int]  # max 4 ajan, 0 = boş
+    incarnation: int = 0     # yayıncının açılış kimliği; 0 = bilinmiyor
 
 
 @dataclass
@@ -724,7 +729,9 @@ def leader_hb_paketle(leader_id: int, sequence_num: int,
 def election_coz(payload: bytes) -> ElectionVeri:
     """TIP_ELECTION payload'ını ElectionVeri'ye çözer."""
     (leader, election_round, reason, triggered_by, seq,
-     id0, id1, id2, id3) = struct.unpack(_ELECTION_FMT, payload)
+     id0, id1, id2, id3, incarnation) = struct.unpack(
+        _ELECTION_FMT, payload
+    )
     return ElectionVeri(
         new_leader_id=leader,
         election_round=election_round,
@@ -732,18 +739,24 @@ def election_coz(payload: bytes) -> ElectionVeri:
         triggered_by=triggered_by,
         sequence_num=seq,
         confirmed_ids=(id0, id1, id2, id3),
+        incarnation=incarnation,
     )
 
 
 def election_paketle(new_leader_id: int, election_round: int,
                      reason: int, triggered_by: int,
                      sequence_num: int,
-                     confirmed_ids: tuple) -> bytes:
+                     confirmed_ids: tuple,
+                     incarnation: int = 0) -> bytes:
     """Seçim sonucu alanlarını 16 baytlık payload'a paketler.
 
     Args:
         confirmed_ids (tuple): Onay veren ajan ID'leri. 4'ten kısaysa 0
             ile doldurulur, 4'ten uzunsa kırpılır.
+        incarnation (int): Yayıncının açılış kimliği (0 = bilinmiyor).
+            Varsayılanı 0 çünkü bu parametre 30 Temmuz'da eklendi ve eski
+            çağıranların kırılmaması gerekiyordu; gerçek yayıncı her zaman
+            sıfırdan farklı verir.
 
     Returns:
         bytes: 16 baytlık payload.
@@ -753,6 +766,7 @@ def election_paketle(new_leader_id: int, election_round: int,
         _ELECTION_FMT,
         new_leader_id, election_round, reason, triggered_by,
         sequence_num, ids[0], ids[1], ids[2], ids[3],
+        int(incarnation) & 0xFFFF,
     )
 
 

@@ -220,9 +220,20 @@ struct __attribute__((packed)) election_veri_t {
     uint8_t  election_round;
     uint8_t  reason;              // 0=UNKNOWN 1=TIMEOUT 2=FAULT 3=MANUAL
     uint8_t  triggered_by;        // election'i baslatan ajan ID (0=sistem)
-    uint32_t sequence_num;
+    uint32_t sequence_num;        // yayinci omru boyunca monoton artar
     uint8_t  confirmed_ids[4];    // onay veren ilk 4 ID (0=bos)
-    uint8_t  rezerv[4];
+    // incarnation: yayinci dugumun O ACILISINA ozgu rastgele kimlik.
+    // sequence_num dugum yeniden baslayinca 0'a doner; alici max_seen_seq'i
+    // korudugu icin yeniden baslayan liderin butun secimleri SESSIZCE
+    // dusuyordu (30 Temmuz, iki kollu deneyle olculdu). Alici incarnation
+    // degistigini gorunce o kaynagin sayacini sifirlar. 0 = bilinmiyor.
+    //
+    // rezerv[4] -> incarnation(2) + rezerv[2]: struct HALA 16 BAYT, yani
+    // firmware'in sizeof(election_veri_t) kullanimi degismiyor ve ESP'lerin
+    // yeniden flaslanmasi GEREKMIYOR (firmware bu alanlarin icine bakmiyor,
+    // yalniz uzunluk hesabinda kullaniyor).
+    uint16_t incarnation;
+    uint8_t  rezerv[2];
 };   // 16 byte
 
 struct __attribute__((packed)) version_veri_t {

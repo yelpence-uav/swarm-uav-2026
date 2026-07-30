@@ -57,6 +57,42 @@ def effective_set(
     return effective
 
 
+def seq_kabul(
+    seen: dict, kaynak: int, incarnation: int, seq: int
+) -> tuple[bool, bool]:
+    """Eskimis ElectionResult filtresi. Saf mantik, ROS bagimsiz.
+
+    Onceden tek global `max_seen_seq` vardi ve iki ayri ariza uretiyordu
+    (30 Temmuz, iki kollu deneyle olculdu):
+      1. Yayinci dugum yeniden baslarsa `out_seq` 0'a doner. Global sayac
+         yuksek kaldigi icin liderin BUTUN yeni secim sonuclari sessizce
+         duserdi - log yok, uyari yok.
+      2. Lider el degistirirse yeni lider de seq=1'den baslar; ayni sekilde
+         duserdi. Bu, normal bir islem oldugu icin daha da sinsiydi.
+    Kaynak basina tutmak (2)'yi, incarnation karsilastirmasi (1)'i cozer.
+
+    Args:
+        seen (dict): {kaynak_ajan: (incarnation, gorulen_en_yuksek_seq)}.
+            Bu fonksiyon SOZLUGU DEGISTIRMEZ; guncellemeyi cagiran yapar.
+        kaynak (int): Mesaji yayinlayan ajan (triggered_by_agent_id).
+        incarnation (int): Yayincinin acilis kimligi. 0 = bilinmiyor.
+        seq (int): Mesajin sequence_num'i.
+
+    Returns:
+        tuple: (kabul_edilir, incarnation_degisti). `incarnation_degisti`
+        yalnizca bu kaynak daha once gorulduyse ve kimlik farkliysa True -
+        cagiran bunu loglayabilsin diye ayri donuyor.
+    """
+    onceki = seen.get(kaynak)
+    if onceki is None:
+        return True, False
+    eski_inc, eski_seq = onceki
+    if eski_inc != incarnation:
+        # Yayinci yeniden baslamis: sayac sifirlandi, mesaj taze kabul edilir.
+        return True, True
+    return seq > eski_seq, False
+
+
 def decide_change(ctx, effective: set, now: float):
     """Preemptive liderlik degisimi kararini verir."""
     candidate = min(effective) if effective else 0

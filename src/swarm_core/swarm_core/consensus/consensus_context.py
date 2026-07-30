@@ -58,7 +58,18 @@ class ConsensusContext:
         self.bootstrap_since = 0.0
 
         # Mesaj sayaclari
-        self.max_seen_seq = 0
+        # seen_seq: KAYNAK BASINA gorulen son sequence_num.
+        #   {triggered_by_agent_id: (incarnation, max_seq)}
+        #
+        # Onceden tek global max_seen_seq vardi ve iki ayri arizaya yol
+        # aciyordu (30 Temmuz, iki kollu deneyle olculdu):
+        #   1. Yayinci dugum yeniden baslarsa out_seq 0'a doner; global sayac
+        #      yuksek kaldigi icin liderin BUTUN yeni secimleri sessizce
+        #      dusuyordu.
+        #   2. Lider el degistirirse yeni lider seq=1'den baslar; ayni sekilde
+        #      dusuyordu.
+        # Kaynak basina tutmak (2)'yi, incarnation karsilastirmasi (1)'i cozer.
+        self.seen_seq: dict[int, tuple[int, int]] = {}
         self.out_seq = 0
         self.hb_seq = 0
 

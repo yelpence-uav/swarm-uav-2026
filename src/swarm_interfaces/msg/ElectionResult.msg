@@ -16,12 +16,24 @@
 # Ne zaman: election tamamlandığında (tek seferlik, her election için)
 #
 # STALE MESAJ KORUMASI:
-# Alıcılar: sequence_num gördükleri en yüksek değerden küçükse mesajı yok say.
+# Alıcılar: AYNI (triggered_by_agent_id, incarnation) çifti içinde
+# sequence_num gördükleri en yüksek değerden küçük/eşitse mesajı yok say.
 # election_round mevcut round'dan küçükse mesajı yok say.
+#
+# incarnation NEDEN VAR (30 Temmuz, ölçülerek bulundu):
+# sequence_num yayıncı düğümün ömrü boyunca monoton artar ama düğüm yeniden
+# başlayınca 0'dan başlar. Alıcı max_seen_seq'i koruduğu için yeniden başlayan
+# liderin BÜTÜN yeni seçim sonuçları sessizce düşerdi — log yok, uyarı yok.
+# Aynı şey lider el değiştirdiğinde de olurdu: yeni lider seq=1'den başlar,
+# alıcıların sayacı yüksek kalır.
+# incarnation, yayıncının o açılışına özgü rastgele bir kimlik (0 = bilinmiyor,
+# eski gönderici). Değiştiğini gören alıcı o kaynağın seq sayacını sıfırlar.
+# Bu yüzden sayaç KAYNAK BAŞINA tutulmalıdır, global değil.
 
 builtin_interfaces/Time stamp
 
-uint32 sequence_num            # monoton artar; stale mesaj filtresi
+uint32 sequence_num            # yayıncı ömrü boyunca monoton artar
+uint16 incarnation             # yayıncının açılış kimliği; 0 = bilinmiyor
 
 # Election tetikleyici sebebi
 uint8 REASON_UNKNOWN=0
