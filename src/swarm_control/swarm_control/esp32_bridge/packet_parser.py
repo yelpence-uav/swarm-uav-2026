@@ -32,6 +32,13 @@ TIP_QR_DATA = 0x0E
 TIP_FAILSAFE = 0xFA  # mesh kopunca gelen failsafe (fail_safe.h)
 TIP_QR_COORDS = 0x0F  # YKİ'den gelen QR konumları (her nokta ayrı çerçeve)
 TIP_GOTO = 0x10  # YKİ'den gelen guided tekil nokta-git (goto_veri_t)
+# 0x11-0x15: sürü koordinasyonu (30 Temmuz, docs/MESH_PROTOKOL_KARARLARI.md).
+# Firmware mesh_config.h ile BİREBİR aynı olmalı; orada da aynı uyarı var.
+TIP_FORMASYON = 0x11  # lider -> sürü: formasyon tarifi (5 Hz)
+TIP_FORMASYON_DEVAM = 0x12  # 5-8 ajan için slot listesi devamı
+TIP_FORM_OFSET = 0x13  # yalnız CUSTOM: açık slot offsetleri
+TIP_QR_GOREV = 0x14  # QR'ı okuyan drone -> sürü: çözülmüş görev
+TIP_QR_HAM = 0x15  # yalnız ayrıştırma hatasında: ham metin dilimi
 
 # Failsafe türleri (fail_safe.h)
 FAILSAFE_TIP_UYARI = 0x01
@@ -76,6 +83,46 @@ _QR_FMT = '<BIii3x'          # drone_id, action_id, lat, lon, rezerv[3]
 _SWARM_STATE_FMT = '<BBBBI8x'  # mission_id, fsm, leader, formation, timestamp
 _QR_COORD_FMT = '<BBii6x'    # qr_id, toplam, lat_1e7, lon_1e7, rezerv[6]
 _GOTO_FMT = '<hhhhBB6x'      # kuzey_dm, dogu_dm, asagi_dm, yaw_ddeg, bayraklar, target_id, rezerv[6]
+# --- Sürü koordinasyonu (firmware mesh_config.h struct'larıyla BİREBİR) ---
+# Her biri 16 bayt; test_esp32_parser içinde struct.calcsize ile doğrulanıyor.
+_FORMASYON_FMT = '<BhhhhBBBBBBB'
+# tip|bit7=devam, merkez kuzey/doğu/aşağı dm, heading ddeg, spacing_dm,
+# maks_hiz_x10, kanat_alfa_deg, slot_ajan[4]
+_FORMASYON_DEVAM_FMT = '<BBBB12x'   # slot_ajan[4] (slot 4..7), rezerv[12]
+_FORM_OFSET_FMT = '<BBhhhhhh2x'     # slot_bas, slot_sayisi, ofset_dm[6], rezerv[2]
+_QR_GOREV_FMT = '<BBBBBBbbbBBBB3x'
+# qr_id, qr_seq, sonraki_qr, bayraklar, formasyon_tipi, spacing_dm,
+# pitch/roll/yaw_deg (int8), irtifa_m, bekleme_s, ayrilan_ajan,
+# renk_ve_bekleme, rezerv[3]
+_QR_HAM_FMT = '<BBB13s'             # hata_kodu, parca_no, toplam_parca, dilim[13]
+
+# formasyon_tipi bit7: devam paketi geliyor (5+ ajan)
+FORMASYON_BAYRAK_DEVAM = 0x80
+
+# qr_gorev_veri_t.bayraklar bitleri
+QR_BAYRAK_VALID = 0x01
+QR_BAYRAK_DECODED = 0x02
+QR_BAYRAK_FORMASYON = 0x04     # formation_active
+QR_BAYRAK_MANEVRA = 0x08       # maneuver_active
+QR_BAYRAK_IRTIFA = 0x10        # altitude_active
+QR_BAYRAK_AYRILMA = 0x20       # detach_active
+QR_BAYRAK_GOREV_BITTI = 0x40   # complete_mission
+
+# qr_ham_veri_t.hata_kodu — qr_detector.py'deki altı hata yolu
+QR_HATA_JSON = 1     # json.loads patladı
+QR_HATA_SEMA = 2     # zorunlu alanlar eksik (qr/w/mis/team)
+QR_HATA_SLOT = 3     # takım slotu tabloda yok
+QR_HATA_TABLO = 4    # takım tablosu girdisi bozuk
+QR_HATA_PAKET = 5    # paket numarası listede yok
+QR_HATA_KOMUT = 6    # _apply_command hatası
+
+QR_HAM_DILIM_BOYU = 13   # qr_ham_veri_t.dilim
+QR_HAM_MAKS_PARCA = 4    # en fazla 4 parça = 52 karakter
+
+# Mesh slot kapasitesi. İlk paket 4 slot taşır, devam paketi 4 daha.
+FORMASYON_SLOT_PAKET = 4
+FORMASYON_MAKS_AJAN = 8          # MESH_MAX_NODES ile aynı
+FORM_OFSET_SLOT_PAKET = 2        # form_ofset_veri_t paket başına 2 slot
 
 # Joystick komutu bayrak bitleri (komut_veri_t.flags için).
 # DEADMAN_PRESSED: SwarmControlCommand.deadman_pressed mesh üzerinden
@@ -684,3 +731,433 @@ def qr_koord_coz(payload: bytes) -> QrKoordVeri:
     """TIP_QR_COORDS payload'ını QrKoordVeri'ye çözer."""
     qr_id, toplam, lat, lon = struct.unpack(_QR_COORD_FMT, payload)
     return QrKoordVeri(qr_id, toplam, lat, lon)
+
+
+# ===========================================================================
+# Sürü koordinasyonu (30 Temmuz) — docs/MESH_PROTOKOL_KARARLARI.md
+#
+# NEDEN BU PAKETLEYİCİLER `list[str]` DE DÖNDÜRÜYOR
+# Diğer *_paketle fonksiyonları sınır aşımını sessizce kırpıyor (örn.
+# durum_paketle'deki HDOP sentineli) ve bu orada güvenli: kırpılan değer
+# zaten kullanılamaz kalitede, bilgi kaybı yok.
+#
+# Burada durum farklı. spacing 25.5 m'yi ya da merkez ±3276.7 m'yi aşarsa
+# kırpılan şey GERÇEK bir hedef — sessizce kırpmak sürüyü yanlış yere uçurur.
+# İstisna fırlatmak da doğru değil: köprü yakalamazsa formasyon akışı komple
+# durur, ki bu daha kötü. O yüzden: kırp AMA neyi kırptığını döndür. Köprü
+# bunu loglar. Uyarı listesi göz ardı edilirse bu kodda görünür olur, sahada
+# sessiz kalmaz.
+# ===========================================================================
+
+
+@dataclass
+class FormasyonVeri:
+    """TIP_FORMASYON payload — liderin yayınladığı formasyon tarifi.
+
+    Offsetler taşınmaz: slot geometrisi `compute_slot_offsets()` ile her
+    dronda yerel üretilir (saf fonksiyon). Taşınan şey slot ATAMASI ve o
+    `slot_ajan` listesinin SIRASINDA kodlu — slot_ajan[i] = i. slottaki ajan.
+    """
+
+    formasyon_tipi: int          # 1=OKBASI 2=V 3=CIZGI 99=CUSTOM (bit7 ayrı)
+    merkez_kuzey_dm: int
+    merkez_dogu_dm: int
+    merkez_asagi_dm: int
+    heading_ddeg: int
+    spacing_dm: int
+    maks_hiz_x10: int
+    kanat_alfa_deg: int
+    slot_ajan: list[int]         # 0 = boş slot; sıra = atama
+    devam_var: bool = False      # bit7 set idi: TIP_FORMASYON_DEVAM bekleniyor
+
+    @property
+    def merkez_kuzey_m(self) -> float:
+        return self.merkez_kuzey_dm / 10.0
+
+    @property
+    def merkez_dogu_m(self) -> float:
+        return self.merkez_dogu_dm / 10.0
+
+    @property
+    def merkez_asagi_m(self) -> float:
+        return self.merkez_asagi_dm / 10.0
+
+    @property
+    def heading_deg(self) -> float:
+        return self.heading_ddeg / 10.0
+
+    @property
+    def spacing_m(self) -> float:
+        return self.spacing_dm / 10.0
+
+    @property
+    def maks_hiz_mps(self) -> float:
+        """0 = alıcı yerel varsayılanını kullanır (formation_node davranışı)."""
+        return self.maks_hiz_x10 / 10.0
+
+    def dolu_slotlar(self) -> list[int]:
+        """Sıfır olmayan ajan ID'leri, slot sırasında."""
+        return [a for a in self.slot_ajan if a]
+
+
+@dataclass
+class FormOfsetVeri:
+    """TIP_FORM_OFSET payload — yalnız CUSTOM formasyonda açık offsetler."""
+
+    slot_bas: int
+    slot_sayisi: int
+    ofset_dm: list[int]          # 6 değer: slot0 k,d,a | slot1 k,d,a
+
+    def slot_ofsetleri(self) -> list[tuple[float, float, float]]:
+        """Geçerli slotları (kuzey_m, doğu_m, aşağı_m) listesine çevirir."""
+        out = []
+        for i in range(min(self.slot_sayisi, FORM_OFSET_SLOT_PAKET)):
+            k, d, a = self.ofset_dm[i * 3:i * 3 + 3]
+            out.append((k / 10.0, d / 10.0, a / 10.0))
+        return out
+
+
+@dataclass
+class QrGorevVeri:
+    """TIP_QR_GOREV payload — QR'ı okuyan dronun çözdüğü görev paketi."""
+
+    qr_id: int
+    qr_seq: int
+    sonraki_qr: int
+    bayraklar: int
+    formasyon_tipi: int
+    spacing_dm: int
+    pitch_deg: int
+    roll_deg: int
+    yaw_deg: int
+    irtifa_m: int
+    bekleme_s: int
+    ayrilan_ajan: int
+    renk_ve_bekleme: int
+
+    @property
+    def valid(self) -> bool:
+        return bool(self.bayraklar & QR_BAYRAK_VALID)
+
+    @property
+    def decoded(self) -> bool:
+        return bool(self.bayraklar & QR_BAYRAK_DECODED)
+
+    @property
+    def formasyon_aktif(self) -> bool:
+        return bool(self.bayraklar & QR_BAYRAK_FORMASYON)
+
+    @property
+    def manevra_aktif(self) -> bool:
+        return bool(self.bayraklar & QR_BAYRAK_MANEVRA)
+
+    @property
+    def irtifa_aktif(self) -> bool:
+        return bool(self.bayraklar & QR_BAYRAK_IRTIFA)
+
+    @property
+    def ayrilma_aktif(self) -> bool:
+        return bool(self.bayraklar & QR_BAYRAK_AYRILMA)
+
+    @property
+    def gorev_bitti(self) -> bool:
+        return bool(self.bayraklar & QR_BAYRAK_GOREV_BITTI)
+
+    @property
+    def spacing_m(self) -> float:
+        return self.spacing_dm / 10.0
+
+    @property
+    def ayrilma_renk(self) -> int:
+        """detach_color: 0=bilinmiyor 1=kırmızı 2=mavi (alt 2 bit)."""
+        return self.renk_ve_bekleme & 0x03
+
+    @property
+    def ayrilma_bekleme_s(self) -> int:
+        """detach_wait_s, 0-63 saniye (üst 6 bit)."""
+        return (self.renk_ve_bekleme >> 2) & 0x3F
+
+
+@dataclass
+class QrHamVeri:
+    """TIP_QR_HAM payload — ayrıştırma hatasında ham metnin bir dilimi."""
+
+    hata_kodu: int
+    parca_no: int
+    toplam_parca: int
+    dilim: bytes                 # sonlandırıcı YOK; UTF-8 ortasından kesilebilir
+
+
+def formasyon_coz(payload: bytes) -> FormasyonVeri:
+    """TIP_FORMASYON payload'ını FormasyonVeri'ye çözer."""
+    (tip_ham, k, d, a, hdg, spacing, hiz, alfa,
+     s0, s1, s2, s3) = struct.unpack(_FORMASYON_FMT, payload)
+    return FormasyonVeri(
+        formasyon_tipi=tip_ham & ~FORMASYON_BAYRAK_DEVAM,
+        merkez_kuzey_dm=k, merkez_dogu_dm=d, merkez_asagi_dm=a,
+        heading_ddeg=hdg, spacing_dm=spacing, maks_hiz_x10=hiz,
+        kanat_alfa_deg=alfa, slot_ajan=[s0, s1, s2, s3],
+        devam_var=bool(tip_ham & FORMASYON_BAYRAK_DEVAM),
+    )
+
+
+def formasyon_paketle(formasyon_tipi: int,
+                      merkez_kuzey_m: float, merkez_dogu_m: float,
+                      merkez_asagi_m: float, heading_deg: float,
+                      spacing_m: float, slot_ajan: list[int],
+                      maks_hiz_mps: float = 0.0,
+                      kanat_alfa_deg: float = 45.0,
+                      devam_var: bool = False) -> tuple[bytes, list[str]]:
+    """Formasyon tarifini 16 baytlık payload'a paketler.
+
+    Args:
+        formasyon_tipi (int): 1=OKBASI 2=V 3=CIZGI 99=CUSTOM.
+        merkez_kuzey_m, merkez_dogu_m, merkez_asagi_m (float): NED metre.
+        heading_deg (float): Formasyon yönü, derece.
+        spacing_m (float): Ajanlar arası mesafe, metre.
+        slot_ajan (list[int]): Slot sırasında ajan ID'leri (en fazla 4).
+        maks_hiz_mps (float): 0 = alıcı yerel varsayılanını kullansın.
+        kanat_alfa_deg (float): OKBASI/V kanat açısı.
+        devam_var (bool): 5+ ajan var, devam paketi gelecek.
+
+    Returns:
+        tuple[bytes, list[str]]: 16 baytlık payload ve kırpma uyarıları.
+        Uyarı listesi BOŞ DEĞİLSE çağıran taraf loglamalı — sessizce
+        kırpılan bir hedef sürüyü yanlış yere uçurur.
+    """
+    uyarilar: list[str] = []
+
+    def _kirp_i16(deger_m: float, ad: str) -> int:
+        dm = int(round(deger_m * 10.0))
+        if dm < -32768 or dm > 32767:
+            uyarilar.append(
+                f'{ad}={deger_m:.1f} m int16 desimetre aralığı dışında '
+                f'(±3276.7 m), kırpıldı'
+            )
+            dm = max(-32768, min(32767, dm))
+        return dm
+
+    kuzey = _kirp_i16(merkez_kuzey_m, 'merkez_kuzey')
+    dogu = _kirp_i16(merkez_dogu_m, 'merkez_dogu')
+    asagi = _kirp_i16(merkez_asagi_m, 'merkez_asagi')
+
+    hdg = int(round(heading_deg * 10.0)) % 3600
+    if hdg > 1800:
+        hdg -= 3600            # int16 ddeg: -1800..1800
+
+    spacing_dm = int(round(spacing_m * 10.0))
+    if spacing_dm > 255:
+        uyarilar.append(
+            f'spacing={spacing_m:.1f} m uint8 desimetre tavanını (25.5 m) '
+            f'aştı, kırpıldı'
+        )
+        spacing_dm = 255
+    spacing_dm = max(0, spacing_dm)
+
+    hiz_x10 = int(round(maks_hiz_mps * 10.0))
+    if hiz_x10 > 255:
+        uyarilar.append(
+            f'maks_hiz={maks_hiz_mps:.1f} m/s tavanı (25.5 m/s) aştı, kırpıldı'
+        )
+        hiz_x10 = 255
+    hiz_x10 = max(0, hiz_x10)
+
+    alfa = int(round(kanat_alfa_deg))
+    if not 0 <= alfa <= 255:
+        uyarilar.append(f'kanat_alfa={kanat_alfa_deg} 0-255 dışında, kırpıldı')
+        alfa = max(0, min(255, alfa))
+
+    slotlar = list(slot_ajan[:FORMASYON_SLOT_PAKET])
+    if len(slot_ajan) > FORMASYON_SLOT_PAKET and not devam_var:
+        uyarilar.append(
+            f'{len(slot_ajan)} ajan var ama devam_var=False — '
+            f'{FORMASYON_SLOT_PAKET} üstü slot DÜŞTÜ'
+        )
+    slotlar += [0] * (FORMASYON_SLOT_PAKET - len(slotlar))
+
+    tip_ham = (formasyon_tipi & ~FORMASYON_BAYRAK_DEVAM)
+    if devam_var:
+        tip_ham |= FORMASYON_BAYRAK_DEVAM
+
+    return (
+        struct.pack(_FORMASYON_FMT, tip_ham, kuzey, dogu, asagi, hdg,
+                    spacing_dm, hiz_x10, alfa, *slotlar),
+        uyarilar,
+    )
+
+
+def formasyon_devam_coz(payload: bytes) -> list[int]:
+    """TIP_FORMASYON_DEVAM payload'ını slot 4..7 ajan listesine çözer."""
+    return list(struct.unpack(_FORMASYON_DEVAM_FMT, payload))
+
+
+def formasyon_devam_paketle(slot_ajan: list[int]) -> bytes:
+    """Slot 4..7 ajan ID'lerini 16 baytlık payload'a paketler."""
+    s = list(slot_ajan[:FORMASYON_SLOT_PAKET])
+    s += [0] * (FORMASYON_SLOT_PAKET - len(s))
+    return struct.pack(_FORMASYON_DEVAM_FMT, *s)
+
+
+def form_ofset_coz(payload: bytes) -> FormOfsetVeri:
+    """TIP_FORM_OFSET payload'ını FormOfsetVeri'ye çözer."""
+    alanlar = struct.unpack(_FORM_OFSET_FMT, payload)
+    return FormOfsetVeri(
+        slot_bas=alanlar[0], slot_sayisi=alanlar[1],
+        ofset_dm=list(alanlar[2:8]),
+    )
+
+
+def form_ofset_paketle(slot_bas: int,
+                       ofsetler: list[tuple[float, float, float]]
+                       ) -> tuple[bytes, list[str]]:
+    """CUSTOM formasyon offsetlerini paketler (paket başına en fazla 2 slot).
+
+    Args:
+        slot_bas (int): Bu paketteki ilk slot indeksi.
+        ofsetler (list): En fazla 2 adet (kuzey_m, doğu_m, aşağı_m).
+
+    Returns:
+        tuple[bytes, list[str]]: payload ve kırpma uyarıları.
+    """
+    uyarilar: list[str] = []
+    kullanilan = ofsetler[:FORM_OFSET_SLOT_PAKET]
+    if len(ofsetler) > FORM_OFSET_SLOT_PAKET:
+        uyarilar.append(
+            f'{len(ofsetler)} offset verildi, paket {FORM_OFSET_SLOT_PAKET} '
+            f'taşır — fazlası DÜŞTÜ (çağıran tarafın bölmesi gerekir)'
+        )
+
+    dm: list[int] = []
+    for i, (k, d, a) in enumerate(kullanilan):
+        for deger, ad in ((k, 'kuzey'), (d, 'dogu'), (a, 'asagi')):
+            v = int(round(deger * 10.0))
+            if v < -32768 or v > 32767:
+                uyarilar.append(
+                    f'slot{slot_bas + i} {ad}={deger:.1f} m int16 dm '
+                    f'aralığı dışında, kırpıldı'
+                )
+                v = max(-32768, min(32767, v))
+            dm.append(v)
+    dm += [0] * (6 - len(dm))
+
+    return (
+        struct.pack(_FORM_OFSET_FMT, slot_bas, len(kullanilan), *dm),
+        uyarilar,
+    )
+
+
+def qr_gorev_coz(payload: bytes) -> QrGorevVeri:
+    """TIP_QR_GOREV payload'ını QrGorevVeri'ye çözer."""
+    return QrGorevVeri(*struct.unpack(_QR_GOREV_FMT, payload))
+
+
+def qr_gorev_paketle(qr_id: int, qr_seq: int, sonraki_qr: int,
+                     valid: bool = False, decoded: bool = False,
+                     formasyon_aktif: bool = False,
+                     manevra_aktif: bool = False,
+                     irtifa_aktif: bool = False,
+                     ayrilma_aktif: bool = False,
+                     gorev_bitti: bool = False,
+                     formasyon_tipi: int = 0, spacing_m: float = 0.0,
+                     pitch_deg: float = 0.0, roll_deg: float = 0.0,
+                     yaw_deg: float = 0.0, irtifa_m: float = 0.0,
+                     bekleme_s: float = 0.0, ayrilan_ajan: int = 0,
+                     ayrilma_renk: int = 0, ayrilma_bekleme_s: float = 0.0
+                     ) -> tuple[bytes, list[str]]:
+    """Çözülmüş QR görevini 16 baytlık payload'a paketler.
+
+    Manevra açıları TAM DERECE (int8) taşınır: şartname manevraları "belirli
+    bir açı" diyor ve QR'dan gelen değerler tam derece. 0.1° çözünürlük
+    gerekirse int16'ya geçmek 2 bayt daha ister; rezervde yer var.
+
+    Returns:
+        tuple[bytes, list[str]]: payload ve kırpma uyarıları.
+    """
+    uyarilar: list[str] = []
+
+    bayraklar = 0
+    for kosul, bit in (
+        (valid, QR_BAYRAK_VALID),
+        (decoded, QR_BAYRAK_DECODED),
+        (formasyon_aktif, QR_BAYRAK_FORMASYON),
+        (manevra_aktif, QR_BAYRAK_MANEVRA),
+        (irtifa_aktif, QR_BAYRAK_IRTIFA),
+        (ayrilma_aktif, QR_BAYRAK_AYRILMA),
+        (gorev_bitti, QR_BAYRAK_GOREV_BITTI),
+    ):
+        if kosul:
+            bayraklar |= bit
+
+    def _kirp_u8(deger: float, ad: str, olcek: float = 1.0) -> int:
+        v = int(round(deger * olcek))
+        if v > 255:
+            uyarilar.append(f'{ad}={deger} uint8 tavanını aştı, kırpıldı')
+            v = 255
+        return max(0, v)
+
+    def _kirp_i8(deger: float, ad: str) -> int:
+        v = int(round(deger))
+        if v < -128 or v > 127:
+            uyarilar.append(f'{ad}={deger}° int8 aralığı dışında, kırpıldı')
+            v = max(-128, min(127, v))
+        return v
+
+    renk = ayrilma_renk & 0x03
+    bekleme_ayrilma = int(round(ayrilma_bekleme_s))
+    if bekleme_ayrilma > 63:
+        uyarilar.append(
+            f'ayrilma_bekleme={ayrilma_bekleme_s} s 6 bitlik alana (63 s) '
+            f'sığmadı, kırpıldı'
+        )
+        bekleme_ayrilma = 63
+    bekleme_ayrilma = max(0, bekleme_ayrilma)
+
+    return (
+        struct.pack(
+            _QR_GOREV_FMT,
+            _kirp_u8(qr_id, 'qr_id'),
+            qr_seq & 0xFF,          # sarma bilinçli: karşılaştırılmıyor, bkz. belge
+            _kirp_u8(sonraki_qr, 'sonraki_qr'),
+            bayraklar,
+            _kirp_u8(formasyon_tipi, 'formasyon_tipi'),
+            _kirp_u8(spacing_m, 'spacing', 10.0),
+            _kirp_i8(pitch_deg, 'pitch'),
+            _kirp_i8(roll_deg, 'roll'),
+            _kirp_i8(yaw_deg, 'yaw'),
+            _kirp_u8(irtifa_m, 'irtifa'),
+            _kirp_u8(bekleme_s, 'bekleme'),
+            _kirp_u8(ayrilan_ajan, 'ayrilan_ajan'),
+            renk | (bekleme_ayrilma << 2),
+        ),
+        uyarilar,
+    )
+
+
+def qr_ham_coz(payload: bytes) -> QrHamVeri:
+    """TIP_QR_HAM payload'ını QrHamVeri'ye çözer."""
+    hata, parca, toplam, dilim = struct.unpack(_QR_HAM_FMT, payload)
+    return QrHamVeri(hata, parca, toplam, dilim)
+
+
+def qr_ham_paketle(hata_kodu: int, ham_metin: str) -> list[bytes]:
+    """Ham QR metnini en fazla 4 parçaya bölüp payload listesi döndürür.
+
+    Metin UTF-8'e çevrilip 13 baytlık dilimlere bölünür. Dilim sınırı UTF-8
+    karakterinin ORTASINDAN geçebilir — bu bilinçli: amaç metni doğru
+    çözmek değil, formatın ne olduğunu görmek (`{"QR":` mi `{"qr":` mi).
+    Birleştiren taraf `errors='replace'` ile çözmeli.
+
+    Returns:
+        list[bytes]: 1-4 adet 16 baytlık payload.
+    """
+    ham = ham_metin.encode('utf-8', errors='replace')
+    maks = QR_HAM_DILIM_BOYU * QR_HAM_MAKS_PARCA
+    ham = ham[:maks]
+    parcalar = [ham[i:i + QR_HAM_DILIM_BOYU]
+                for i in range(0, len(ham), QR_HAM_DILIM_BOYU)] or [b'']
+    toplam = len(parcalar)
+    return [
+        struct.pack(_QR_HAM_FMT, hata_kodu, i, toplam,
+                    p.ljust(QR_HAM_DILIM_BOYU, b'\x00'))
+        for i, p in enumerate(parcalar)
+    ]

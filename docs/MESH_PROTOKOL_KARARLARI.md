@@ -92,6 +92,53 @@ Drone tarafı UART 460800 baud = 46 kB/s. Base UART'ın YKİ→base yönündeki
 ~35 çerçeve/sn sınırı (§3, 28-29-temmuz.md) **drone-drone trafiğini
 etkilemez** — o yol base UART'a girmiyor.
 
+### 1.7 Zarfı büyütme seçeneği — ERTELENDİ, analizi hazır
+
+Soru soruldu (30 Tem): *"ESP kodlarında gönderilen paketlerde artış yapmak daha
+sağlıklıysa ve müsaademiz varsa, zamanı gelince konuşalım."* Cevap ve maliyet
+zinciri burada duruyor ki o gün sıfırdan araştırma gerekmesin.
+
+**Telsizde yer var.** `static_assert(sizeof(mesh_paket_t) <= 250)` — şu an 25
+bayt. ESP-NOW tavanı 250, yani **225 bayt boş**. Yani soru "yer var mı" değil,
+"maliyeti ne".
+
+**Bağlayıcı kısıt telsiz değil, TX DRONE'un UART tamponu:**
+
+    uart_frame_parser.h:36   #define UART_FRAME_BUF_SIZE 32      (varsayilan)
+    RX BASE/platformio.ini   -D UART_FRAME_BUF_SIZE=1100          (ezilmis)
+    TX DRONE                 ezilmemis -> 32 bayt
+
+UART çerçevesi `[tip][iha_id][payload][crc16]` = payload + 4, artı COBS payı.
+Payload 18 → çerçeve ~23 bayt → **TX DRONE'da ~9 bayt pay var**. Yani payload
+**27 bayta kadar bedava** büyür. Ötesinde TX DRONE'un `platformio.ini`'sine de
+`-D UART_FRAME_BUF_SIZE=...` girmek şart — **girilmezse §1.2 kusurunun
+aynısı olur**: her çerçeve sessizce taşma dalına düşer, hiçbir sayaç artmaz.
+
+**`veri[18]` beş yerde sabit** — hepsi birlikte değişmeli:
+
+| yer | ne |
+|---|---|
+| `mesh_config.h:300` | struct alanı |
+| `mesh_config.h` `mesh_gonder()` | `memcpy(tam_veri+6, veri, 18)` — **sabit uzunluk okuma** |
+| `RX BASE/src/main.cpp:449` | `uint8_t veri[18] = {0}` — yorumu uyarıyor: 16 olsaydı 2 bayt stack over-read (UB) |
+| `RX BASE/src/main.cpp:450` | `min(payload_uzunluk, 16)` — base→drone tipleri 16 |
+| `TX DRONE/src/main.cpp:318` | `min(payload_uzunluk, 18)` — POSE 18 bayt olduğu için |
+
+> Asimetri bilinçli: POSE (18 B) drone→base yönünde akıyor, base→drone tiplerinin
+> hepsi 16 B. Büyütürken bu asimetri korunmalı yoksa bir yön sessizce kırpar.
+
+**Airtime bedeli:** 25 → 40 bayt paket başına +%60. POSE 30 paket/sn'de gerçek
+ama öldürücü değil; CSMA çekişmesi artar (§1.4'teki 0–10 ms bekleme).
+
+**Şu anki ihtiyaç: YOK.** KARAR 4/5/6'daki her şey 16 bayta sığıyor. Sığmayan
+iki şey var ve ikisi de periyodik değil: CUSTOM offsetleri (kalkışta bir kez,
+2 paket) ve QR hata dilimi (yalnız ayrıştırma patlarsa).
+
+**Ne zaman değer:** **periyodik** bir mesaj 16 baytı aşarsa. O gün
+`veri[18] → veri[26]` neredeyse bedava (TX DRONE'un 32 baytlık tamponunun
+altında kalır) ve yalnız yukarıdaki beş yeri günceller. 26'nın üstü isteniyorsa
+TX DRONE `platformio.ini` de girer ve iş büyür.
+
 ---
 
 ## 2. Yöntem ve karşılaştığım kör noktalar
@@ -909,3 +956,105 @@ Kod yazıldıktan sonra, pervanesiz, yerde:
    satır 335-338'deki `return` tetiklenmemeli
 6. Simülasyon karşılaştırması: `network_proxy` ile çalışan senaryo, sahada
    `esp32_bridge` ile de aynı davranmalı
+
+---
+
+## 10. Uygulama günlüğü — sistem sağlıklı bütün olana kadar
+
+Her adımda: ne değişti, nasıl doğrulandı, bu değişim neyi zorunlu kıldı, sıradaki
+halka ne. **Bir adım "bitti" sayılmaz — doğrulaması yazılana kadar.**
+
+Durum özeti:
+
+| adım | iş | durum |
+|---|---|---|
+| 1a | firmware struct'ları + TIP sabitleri | **BİTTİ** ✓ |
+| 1b | `packet_parser.py` format/veri sınıfı/paketleyici | **BİTTİ** ✓ |
+| 2 | RX BASE + TX DRONE whitelist'leri | bekliyor |
+| 3 | `esp32_bridge_node` abonelik/yayın + geri açma + lider kapısı | bekliyor |
+| 4 | `baslat.sh` düğüm listesi | bekliyor |
+| 5 | `swarm_missions`'ı Pi'lere kur | bekliyor |
+| 6 | RTCM 1 Hz (bağımsız) | bekliyor |
+
+### Adım 1a — firmware struct'ları (BİTTİ)
+
+**Değişen dosya:** `firmware/esp32_mesh/common/mesh_shared/mesh_config.h`
+
+**Ne eklendi:**
+- 5 TIP sabiti: `TIP_FORMASYON` 0x11, `TIP_FORMASYON_DEVAM` 0x12,
+  `TIP_FORM_OFSET` 0x13, `TIP_QR_GOREV` 0x14, `TIP_QR_HAM` 0x15
+- 5 struct: `formasyon_veri_t`, `formasyon_devam_veri_t`, `form_ofset_veri_t`,
+  `qr_gorev_veri_t`, `qr_ham_veri_t` — hepsi 16 bayt
+- Bayrak sabitleri: `FORMASYON_BAYRAK_DEVAM`, `QR_BAYRAK_*` (7), `QR_HATA_*` (6)
+- 11 `static_assert` (boyut + alan offset'leri)
+
+**Zincirde yakalanan ve düzeltilen halka:**
+`static_assert(TIP_GOTO < MESH_TIP_TABLO_BOYU)` → `static_assert(TIP_QR_HAM < ...)`.
+Eski hali en büyük tipe bakmıyordu. Dokunulmasaydı yeni tipler tabloya
+**sığıyor ama assert onları kontrol etmiyor** olurdu; ileride bir tip 24'ü
+aşsa `mesh_tip_gecebilir()` fail-closed dalına düşüp o tipi **komple
+reddederdi** ve derlemede uyarı çıkmazdı.
+
+**Doğrulama:** Struct tanımları ve `static_assert`'ler çıkarılıp `g++ -std=c++17`
+ile derlendi — **hepsi geçti**. Çalıştırılarak boyut ve offset'ler basıldı:
+
+    formasyon_veri_t 16   formasyon_devam_veri_t 16   form_ofset_veri_t 16
+    qr_gorev_veri_t  16   qr_ham_veri_t          16
+    offsetler: merkez_kuzey_dm 1, spacing_dm 9, slot_ajan 12,
+               ofset_dm 2, pitch_deg 6, renk_ve_bekleme 12
+
+> Not: bu, PlatformIO ile tam firmware derlemesinin yerine geçmez. Tam derleme
+> Adım 2'den sonra yapılacak (whitelist'ler de girince).
+
+### Adım 1b — `packet_parser.py` (BİTTİ)
+
+**Değişen dosyalar:**
+`src/swarm_control/swarm_control/esp32_bridge/packet_parser.py` (+~430 satır),
+`src/swarm_control/test/test_esp32_parser.py` (+13 test)
+
+**Ne eklendi:** 5 TIP sabiti, 5 `_FMT`, 14 bayrak/hata sabiti, 4 veri sınıfı
+(`FormasyonVeri`, `FormOfsetVeri`, `QrGorevVeri`, `QrHamVeri`) ve 9 fonksiyon
+(`formasyon_coz/paketle`, `formasyon_devam_coz/paketle`,
+`form_ofset_coz/paketle`, `qr_gorev_coz/paketle`, `qr_ham_coz/paketle`).
+
+**Bilinçli sapma — paketleyiciler `tuple[bytes, list[str]]` döndürüyor.**
+Diğer `*_paketle` fonksiyonları sınır aşımını sessizce kırpıyor ve orada bu
+güvenli (`durum_paketle`'deki HDOP sentineli: kırpılan değer zaten kullanılamaz
+kalitede). Burada kırpılan şey **gerçek bir hedef** — sessizce kırpmak sürüyü
+yanlış yere uçurur. İstisna fırlatmak da yanlış: köprü yakalamazsa formasyon
+akışı komple durur, ki daha kötü. Çözüm: kırp ama **neyi kırptığını döndür**.
+Köprü loglar; liste göz ardı edilirse bu kodda görünür olur.
+
+**Doğrulama:** 13 yeni test, toplam **40 test geçiyor**. Kapsam:
+- 5 formatın hepsi `struct.calcsize == 16`
+- formasyon gidiş-dönüş; **slot sırasının korunduğu** (= atama bozulmuyor)
+- heading sarması: 350° → −10°, 181° → −179°
+- 8 ajan → devam paketi, bit7'nin tipe **sızmadığı**
+- 4'ten fazla slot + `devam_var=False` → uyarı şart
+- kırpma: merkez 5000 m, spacing 30 m, hız 40 m/s → 3 uyarı, `32767`'de
+  **kırpıldı, sarmadı**
+- CUSTOM offsetleri gidiş-dönüş; 3 offset verilince uyarı
+- QR görev: 19 alan + 7 bayrak; `renk` ve `bekleme` aynı bayttan **doğru
+  ayrışıyor**
+- QR kırpma: pitch 200° → 127, ayrılma bekleme 99 s → 63
+- QR ham metin: 4 parçaya bölünüp birleştiriliyor, boş metin çökmüyor
+- tam UART çerçevesi (CRC + COBS) üzerinden uçtan uca
+
+**flake8:** Eklenen ~430 satırda **tek uyarı yok**. Dosyada iki uyarı var
+(`I100` satır 14, `E501` satır 85) ama ikisi de `origin/main`'de de mevcut —
+bu değişiklikle gelmedi, dokunulmadı.
+
+### Sıradaki halka — Adım 2 ve neden riskli
+
+`RX BASE/src/main.cpp` ve `TX DRONE/src/main.cpp` whitelist'leri.
+
+**Bu, zincirin atlanması en kolay ve en sessiz halkası.** Saha günlüğü §1.1
+tam olarak bu kusuru anlatıyor: `TIP_RTK` whitelist'te olmadığı için her RTCM
+çerçevesi `else: tanınmayan tip sessizce atılır` dalına düşüyordu ve **hata
+sayacı bile artmıyordu**. Aynısı olursa formasyon paketleri hiç gitmez ve
+sebebi hiçbir günlükte görünmez.
+
+Adım 2'de ayrıca cevaplanacak: `TIP_FORMASYON` **drone→drone** akıyor, yani
+asıl yol `TX DRONE`. `RX BASE` whitelist'i YKİ→mesh yönü için; YKİ formasyon
+yayınlamayacaksa base tarafına eklemek gerekmez. Karar Adım 2'de, kodu okuyarak
+verilecek — şimdiden varsayılmıyor.

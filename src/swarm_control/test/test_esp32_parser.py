@@ -389,3 +389,200 @@ def test_goto_fmt_layout_sozlesmesi():
 
     p = pp.goto_paketle(kuzey_dm=0, dogu_dm=0, asagi_dm=0, bayraklar=0xAB)
     assert p[8] == 0xAB                 # bayraklar offset 8
+
+
+# ===========================================================================
+# Sürü koordinasyonu tipleri (30 Temmuz) — docs/MESH_PROTOKOL_KARARLARI.md
+#
+# Bu testler firmware ile Python arasındaki SÖZLEŞMEYİ tutar. Firmware
+# tarafında karşılığı mesh_config.h'deki static_assert'ler; ikisi birlikte
+# değişmezse çerçeve sessizce bozulur.
+# ===========================================================================
+
+
+def test_suru_tipleri_16_bayt():
+    """Yeni payload formatlarının hepsi tam 16 bayt olmalı."""
+    for fmt in (pp._FORMASYON_FMT, pp._FORMASYON_DEVAM_FMT,
+                pp._FORM_OFSET_FMT, pp._QR_GOREV_FMT, pp._QR_HAM_FMT):
+        assert struct.calcsize(fmt) == 16, fmt
+
+
+def test_formasyon_round_trip():
+    """Formasyon tarifi kayıpsız gidip gelmeli; slot SIRASI korunmalı."""
+    payload, uyarilar = pp.formasyon_paketle(
+        formasyon_tipi=1, merkez_kuzey_m=12.3, merkez_dogu_m=-45.6,
+        merkez_asagi_m=-15.0, heading_deg=137.5, spacing_m=5.0,
+        slot_ajan=[3, 1, 2], maks_hiz_mps=3.0, kanat_alfa_deg=45.0,
+    )
+    assert len(payload) == 16
+    assert uyarilar == []
+
+    f = pp.formasyon_coz(payload)
+    assert f.formasyon_tipi == 1
+    assert abs(f.merkez_kuzey_m - 12.3) < 0.05
+    assert abs(f.merkez_dogu_m + 45.6) < 0.05
+    assert abs(f.merkez_asagi_m + 15.0) < 0.05
+    assert abs(f.heading_deg - 137.5) < 0.05
+    assert abs(f.spacing_m - 5.0) < 0.05
+    assert abs(f.maks_hiz_mps - 3.0) < 0.05
+    assert f.kanat_alfa_deg == 45
+    # Slot sırası ATAMADIR; bozulursa iki drone aynı slotu hedefler.
+    assert f.dolu_slotlar() == [3, 1, 2]
+    assert f.devam_var is False
+
+
+def test_formasyon_heading_sarma():
+    """heading int16 desi-derece: 180° üstü negatife sarmalı."""
+    for gelen, beklenen in ((350.0, -10.0), (180.0, 180.0),
+                            (181.0, -179.0), (0.0, 0.0)):
+        payload, _ = pp.formasyon_paketle(1, 0, 0, 0, gelen, 5.0, [1])
+        assert abs(pp.formasyon_coz(payload).heading_deg - beklenen) < 0.05
+
+
+def test_formasyon_devam_paketi():
+    """5+ ajanda bit7 set olmalı ve tip değeri kirlenmemeli."""
+    payload, _ = pp.formasyon_paketle(
+        2, 0, 0, -20.0, 90.0, 4.0, [1, 2, 3, 4, 5, 6, 7, 8], devam_var=True,
+    )
+    f = pp.formasyon_coz(payload)
+    assert f.slot_ajan == [1, 2, 3, 4]
+    assert f.devam_var is True
+    assert f.formasyon_tipi == 2      # bit7 tipe sızmamalı
+
+    devam = pp.formasyon_devam_paketle([5, 6, 7, 8])
+    assert len(devam) == 16
+    assert pp.formasyon_devam_coz(devam) == [5, 6, 7, 8]
+
+
+def test_formasyon_slot_tasmasi_uyariyor():
+    """devam_var verilmeden 4'ten fazla slot geçilirse UYARI dönmeli."""
+    _, uyarilar = pp.formasyon_paketle(
+        1, 0, 0, 0, 0, 5.0, [1, 2, 3, 4, 5], devam_var=False,
+    )
+    assert any('DÜŞTÜ' in u for u in uyarilar)
+
+
+def test_formasyon_kirpma_sessiz_degil():
+    """Sınır aşımı KIRPILMALI ama sessiz kalmamalı (KARAR 6).
+
+    Sessiz sarma sürüyü yanlış yere uçurur; bu projenin tekrar tekrar
+    ısırıldığı hata sınıfı (bkz. saha günlüğü §1.3).
+    """
+    payload, uyarilar = pp.formasyon_paketle(
+        1, 5000.0, 0, 0, 0, 30.0, [1], maks_hiz_mps=40.0,
+    )
+    assert any('merkez_kuzey' in u for u in uyarilar)
+    assert any('spacing' in u for u in uyarilar)
+    assert any('maks_hiz' in u for u in uyarilar)
+
+    f = pp.formasyon_coz(payload)
+    assert f.merkez_kuzey_dm == 32767   # kırpıldı, sarmadı
+    assert f.spacing_dm == 255
+
+
+def test_form_ofset_round_trip():
+    """CUSTOM offsetleri paket başına 2 slot taşımalı."""
+    payload, uyarilar = pp.form_ofset_paketle(
+        0, [(2.3, -1.7, 0.0), (-4.1, 3.2, -0.5)],
+    )
+    assert len(payload) == 16
+    assert uyarilar == []
+
+    o = pp.form_ofset_coz(payload)
+    assert o.slot_bas == 0
+    assert o.slot_sayisi == 2
+    slotlar = o.slot_ofsetleri()
+    assert all(abs(a - b) < 0.05 for a, b in zip(slotlar[0], (2.3, -1.7, 0.0)))
+    assert all(abs(a - b) < 0.05 for a, b in zip(slotlar[1], (-4.1, 3.2, -0.5)))
+
+
+def test_form_ofset_fazla_slot_uyariyor():
+    """Pakete sığmayan offset sessizce düşmemeli."""
+    _, uyarilar = pp.form_ofset_paketle(0, [(0, 0, 0)] * 3)
+    assert any('DÜŞTÜ' in u for u in uyarilar)
+
+
+def test_qr_gorev_round_trip():
+    """QR görev paketi tüm bayraklar ve alanlarla kayıpsız gidip gelmeli."""
+    payload, uyarilar = pp.qr_gorev_paketle(
+        qr_id=3, qr_seq=7, sonraki_qr=4, valid=True, decoded=True,
+        formasyon_aktif=True, manevra_aktif=True, irtifa_aktif=True,
+        ayrilma_aktif=True, gorev_bitti=False, formasyon_tipi=1,
+        spacing_m=5.0, pitch_deg=10.0, roll_deg=-15.0, yaw_deg=45.0,
+        irtifa_m=15.0, bekleme_s=5.0, ayrilan_ajan=2,
+        ayrilma_renk=1, ayrilma_bekleme_s=12.0,
+    )
+    assert len(payload) == 16
+    assert uyarilar == []
+
+    q = pp.qr_gorev_coz(payload)
+    assert q.qr_id == 3
+    assert q.qr_seq == 7
+    assert q.sonraki_qr == 4
+    assert q.valid and q.decoded
+    assert q.formasyon_aktif and q.manevra_aktif
+    assert q.irtifa_aktif and q.ayrilma_aktif
+    assert q.gorev_bitti is False
+    assert q.formasyon_tipi == 1
+    assert abs(q.spacing_m - 5.0) < 0.05
+    assert (q.pitch_deg, q.roll_deg, q.yaw_deg) == (10, -15, 45)
+    assert q.irtifa_m == 15
+    assert q.bekleme_s == 5
+    assert q.ayrilan_ajan == 2
+    # renk ve bekleme AYNI bayta paketlenir; ayrışmaları şart.
+    assert q.ayrilma_renk == 1
+    assert q.ayrilma_bekleme_s == 12
+
+
+def test_qr_gorev_kirpma_uyariyor():
+    """int8 açı ve 6 bitlik bekleme alanı taşarsa uyarmalı."""
+    payload, uyarilar = pp.qr_gorev_paketle(
+        1, 1, 0, pitch_deg=200.0, irtifa_m=300.0, ayrilma_bekleme_s=99.0,
+    )
+    assert any('pitch' in u for u in uyarilar)
+    assert any('irtifa' in u for u in uyarilar)
+    assert any('ayrilma_bekleme' in u for u in uyarilar)
+
+    q = pp.qr_gorev_coz(payload)
+    assert q.pitch_deg == 127
+    assert q.ayrilma_bekleme_s == 63
+
+
+def test_qr_ham_bolme():
+    """Ham QR metni en fazla 4 parçaya bölünüp birleştirilebilmeli.
+
+    Gerekçe: şartname "QR içeriği örnektir, nihai format sonrasında
+    paylaşılacaktır" diyor. Şema tahmin; ayrıştırma patlarsa formatı
+    görmenin tek yolu ham metnin ilk baytları.
+    """
+    metin = '{"qr":1,"w":5.0,"mis":[[["frm","ok",5.0]]],"team":{"1":[1,4]}}'
+    parcalar = pp.qr_ham_paketle(pp.QR_HATA_JSON, metin)
+    assert 1 <= len(parcalar) <= pp.QR_HAM_MAKS_PARCA
+    assert all(len(p) == 16 for p in parcalar)
+
+    birlesik = b''
+    for p in parcalar:
+        h = pp.qr_ham_coz(p)
+        assert h.hata_kodu == pp.QR_HATA_JSON
+        assert h.toplam_parca == len(parcalar)
+        birlesik += h.dilim
+    cozulen = birlesik.rstrip(b'\x00').decode('utf-8', errors='replace')
+    assert cozulen == metin[:pp.QR_HAM_DILIM_BOYU * pp.QR_HAM_MAKS_PARCA]
+
+
+def test_qr_ham_bos_metin():
+    """Boş metin çökmemeli — hata kodu tek başına da bilgi taşır."""
+    parcalar = pp.qr_ham_paketle(pp.QR_HATA_SEMA, '')
+    assert len(parcalar) == 1
+    assert pp.qr_ham_coz(parcalar[0]).hata_kodu == pp.QR_HATA_SEMA
+
+
+def test_suru_tipleri_cerceve_uzerinden():
+    """Tam UART çerçevesi (CRC + COBS) üzerinden uçtan uca çözülmeli."""
+    payload, _ = pp.formasyon_paketle(3, 1.0, 2.0, -10.0, 45.0, 5.0, [1, 2, 3])
+    decoded = cobs_decode(_cerceve_uret(pp.TIP_FORMASYON, 1, payload))
+    cerceve = pp.cerceve_coz(decoded)
+    assert cerceve is not None
+    assert cerceve.tip == pp.TIP_FORMASYON
+    f = pp.formasyon_coz(cerceve.payload)
+    assert f.dolu_slotlar() == [1, 2, 3]
