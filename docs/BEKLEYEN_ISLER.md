@@ -21,6 +21,29 @@ Durum işaretleri:
   - ylp02'nin vericisi hâlâ **End Points %120** — kanal kalibrasyonu bozuk.
   - Kabul ölçütü: verici kapatıldığında dron RTL'e geçmeli, kill olmamalı.
 
+- `[!]` **İÇERİDE ARM MÜMKÜN DEĞİL — EKF, GPS'i doğruluk yetersizliğinden
+  reddediyor. Ölçüldü (30 Temmuz).** "Neden arm olmuyor" sorusunun cevabı.
+
+  | | eşik | ylp00 | ylp01 |
+  |---|---|---|---|
+  | `EKF2_REQ_EPH` | **3.0 m** | `h_acc` **3.09 m** ✗ | `h_acc` **3.43 m** ✗ |
+
+  `EstimatorStatus` bayrakları: `attitude_status_flag: true`,
+  `pos_vert_abs: true`, ama **`pos_horiz_abs`, `pos_horiz_rel`,
+  `velocity_horiz` hepsi false** — EKF yatay GPS'i hiç füzyona sokmuyor.
+  `gps_glitch_status_flag: false`, yani **arıza değil**, sadece yeterince
+  doğru değil.
+
+  Zinciri: `h_acc > EKF2_REQ_EPH` → EKF GPS'i reddeder → `estimator_ok=false`
+  → preflight'ta "Konum tahmini (EKF2) hazır değil" → `ready_to_arm=false`.
+
+  Sabah ylp00 `h_acc=2.14 m` iken armlanabiliyordu; içeride doğruluk 3 m'nin
+  üstüne çıkınca kapandı. **Çözüm açık alana çıkmak** (ve RTK survey-in ile
+  doğruluğu santimetreye indirmek) — kod/parametre sorunu değil.
+
+  > `EKF2_REQ_EPH`'i büyütmek arm'ı açar ama **kötü konumla uçmak demektir**;
+  > otonom formasyonda çarpışma riski doğurur. Eşiği gevşetmeyin.
+
 - `[ ]` **RTK survey-in tamamlama.** Açık gökyüzü şart.
   - u-blox şu an `1074/1084/1094/1124/1230` yayınlıyor; **`1005` YOK**.
   - `1005` = baz istasyonu konumu. O akmadan rover baseline kuramaz, yani
@@ -77,9 +100,11 @@ Durum işaretleri:
   Küçük düzeltme adayı: telemetri eşleyicide `65.535`'i de "bilinmiyor"
   saymak, böylece YKİ 65.5 V yerine boş/bilinmiyor gösterir.
 
-- `[ ]` **ylp01'in mesh CRC hata oranı yüksek.** 6253 pakette 542 (**%8.7**);
-  ylp00'da 18008 pakette **0**. Mesh çalışıyor ama anten yerleşimi
-  incelenmeli — havada menzil artınca oran daha da bozulabilir.
+- `[x]` **GERİ ÇEKİLDİ — ylp01'de "yüksek CRC hata oranı" anten sorunu
+  değilmiş.** Bir ara 6253 pakette 542 (%8.7) ölçülmüştü ve anten yerleşimi
+  şüphelenmişti. Ama o ölçüm **QGC'nin yol açtığı 40 msg/s RTCM seliyle
+  aynı ana denk geliyor** — sel mesh'i boğuyordu. u-blox 1 Hz'e dönünce
+  ylp01 ve ylp00 **ikisi de `crc_fail=0`**. Anten şüphesi desteklenmiyor.
 
 - `[x]` **ylp01 ayağa kalktı (30 Temmuz)** — ESP firmware'i hariç diğer
   ikisiyle tam eşit. Kurulum artık `deploy/rpi/pi_hazirla.sh`'ta yazılı
