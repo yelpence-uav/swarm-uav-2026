@@ -37,8 +37,30 @@ Durum işaretleri:
 
 - `[ ]` **ylp02 GPS standı.** Kabul ölçütü `h_acc < 3.0 m`. Stand değiştiriliyor.
 
-- `[ ]` **ylp01 hiç ayağa kalkmadı.** Şartname **3 İHA** istiyor. Kurulum,
-  dağıtım (`dagit.sh`), ESP flash, parametre seti — hiçbiri yapılmadı.
+- `[!]` **ylp01'in ESP32'si ESKİ FIRMWARE — ölçüldü (30 Temmuz).**
+  Tek kalan ylp01 eksiği. Fiziksel erişim gerekiyor: ESP Pi'den sökülüp
+  dizüstüne USB ile takılmalı, sonra PlatformIO ile `TX DRONE` yüklenmeli
+  (mesh ID 2, MAC `D4:E9:F4:FB:13:88`).
+
+  Kanıt: ylp00 lider olarak `form_tx=11` gönderdi, ylp01 `form_rx=0` aldı —
+  **hiçbiri gelmedi.** Ama ylp01 aynı turda `lider=1`'i öğrendi, yani
+  `TIP_ELECTION` geçti ve mesh sağlam. Fark net: `TIP_ELECTION` eski
+  firmware'de zaten vardı, bu oturumda eklenen `TIP_FORMASYON` (0x11) ve
+  diğer 4 TIP yok → paketler ESP'de düşüyor.
+
+  Etkisi: ylp01 formasyon, QR görev ve QR ham paketlerini **alamaz**.
+  Base + ylp00 + ylp02 flaşlandı, yalnız ylp01 kaldı.
+
+- `[x]` **ylp01 ayağa kalktı (30 Temmuz)** — ESP firmware'i hariç diğer
+  ikisiyle tam eşit. Kurulum artık `deploy/rpi/pi_hazirla.sh`'ta yazılı
+  (önceden hiçbir yerde yoktu, ylp00'dan geri mühendislikle çıkarıldı).
+  Doğrulandı: Pixhawk bağlı (`connected: true`), mesh `komsu=2`, 8 süreç,
+  günlük dosyaları + uçuş kaydı çalışıyor, PX4 RTK parametreleri **zaten
+  doğruydu** (`UAVCAN_PUB_RTCM=1`), `.surum` takibi kuruldu.
+
+  En kritik eksik `cmdline.txt`'deki **`console=serial0,115200`** idi —
+  seri konsol Pixhawk'ın UART0'ını işgal ediyordu; kaldırılmasaydı MAVROS
+  hiç bağlanamazdı.
 
 - `[ ]` **Uçuşta formasyon testi.** Mesh aktarımı masada doğrulandı (§5) ama
   havada, gerçek konum/EKF ile hiç denenmedi.

@@ -27,6 +27,14 @@ Not: ylp01'in wlan0 MAC öneki diğer ikisinden farklı (`da:04:2d` ↔ `71:60:x
 farklı parti Raspberry Pi. Yine de `88:a2:9e` (Raspberry Pi Trading) önekiyle
 bulunur.
 
+**Pi bir süre boşta kalınca SSH'a cevap vermiyorsa** sebebi Wi-Fi güç
+tasarrufudur (uyanması için ~30 sn ping gerekiyordu). Üçünde de kapatıldı:
+
+    nmcli connection modify rpissid 802-11-wireless.powersave disable
+
+Yeni bir Pi kurarken bunu ve diğer bütün adımları
+`deploy/rpi/pi_hazirla.sh` yapıyor (Pi üzerinde `sudo bash pi_hazirla.sh <id>`).
+
 YKİ dizüstü: `10.158.16.115`, MAC `5c:b4:7e:af:b3:83`, arayüz `wlp0s20f3`.
 
 SSH anahtarı (`~/.ssh/id_ed25519`) ylp00 ve ylp02'de kurulu — parola sorulmaz.
