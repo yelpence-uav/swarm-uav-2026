@@ -531,8 +531,40 @@ Görev: İHA-ESP'den UART çerçevelerini çöz → §2.5 kurallarıyla Pixhawk'
   tam-kat durumları ve 181 byte sınır durumu).
 - `main.py`: CLI: `--esp-port`, `--mav-port`, `--mav-baud`. Loglama: enjekte edilen
   mesaj/sn, düşen mesaj, son mesajdan bu yana geçen süre (staleness uyarısı >2 sn).
-- ArduPilot parametre notu (koda değil README'ye): `GPS_TYPE=9` (DroneCAN/Here4),
-  `CAN_P1_DRIVER=1`, `CAN_D1_PROTOCOL=1`, `GPS_INJECT_TO=127`.
+- **Uçuş kontrolcüsü parametre notu — DÜZELTİLDİ (30 Temmuz).**
+
+  Burada önce **ArduPilot** parametreleri yazıyordu (`GPS_TYPE=9`,
+  `CAN_P1_DRIVER=1`, `CAN_D1_PROTOCOL=1`, `GPS_INJECT_TO=127`). **Bu filo için
+  geçersiz:** ölçüldü, kartlar **PX4 Pro 1.16.1** koşuyor (params dosyası
+  başlığı: `Stack: PX4 Pro`). O parametreler PX4'te yok; arayan kişi hiçbirini
+  bulamaz ve yanlış yerde arar.
+
+  PX4 karşılıkları (Here4 = DroneCAN GPS):
+
+  | parametre | değer | ne yapar |
+  |---|---|---|
+  | `UAVCAN_ENABLE` | 2 | DroneCAN açık (sensör + ESC) |
+  | `UAVCAN_SUB_GPS` | 1 | Here4'ten GPS alınır |
+  | `UAVCAN_SUB_GPS_R` | 1 | GPS relative/RTK aboneliği |
+  | **`UAVCAN_PUB_RTCM`** | **1** | **PX4'ün MAVLink'ten aldığı RTCM'i DroneCAN veriyoluna yayınlaması** |
+  | `GPS_1_CONFIG` / `GPS_2_CONFIG` | 0 | seri GPS kapalı (GPS DroneCAN'de) |
+  | `UAVCAN_BITRATE` | 1000000 | CAN hızı |
+
+  **`UAVCAN_PUB_RTCM` bu zincirin son halkası ve sessizce kopuyor.** 0 iken:
+
+      u-blox -> YKİ -> mesh -> RPi -> MAVROS -> PX4     buraya kadar AKAR
+      PX4 -> DroneCAN -> Here4                          AKMAZ
+
+  Semptomu sinsi: `px4_bridge` "RTCM enjekte ettim" der, sayaçlar artar, hiçbir
+  hata çıkmaz — yalnızca `gps_fix_type` 4'te (DGPS) kalır, 5/6'ya (Float/Fixed)
+  çıkmaz. 30 Temmuz'da ölçüldü: ylp00'da 1, **ylp02'de 0**; ylp02'nin RTCM'i
+  Here4'e hiç ulaşmıyordu.
+
+  > PX4'te `UAVCAN_*` parametrelerinin çoğu **reboot ister** — UAVCAN sürücüsü
+  > yayıncılarını açılışta kurar. Değiştirdikten sonra FCU yeniden başlatılmalı.
+  > FCU reboot'u MAVLink yayın hızlarını da sıfırlar, o yüzden
+  > `mesaj_hizlari.py` tekrar çalıştırılmalı (ya da konteyner yeniden
+  > başlatılmalı — `baslat.sh` bunu sırayla yapıyor).
 
 ### 3.5 `common/` — Paylaşılan Python kodu
 
