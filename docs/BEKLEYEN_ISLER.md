@@ -88,8 +88,9 @@ Kod yazıldı, birim testleri geçiyor, ama **gerçek meshte/donanımda hiç
 
 ## 3. Bilinen açıklar ve riskler
 
-- `[!]` **`consensus_node` yeniden başlarsa seçimleri sessizce yok sayılır —
-  ÖLÇÜLDÜ (30 Temmuz).** Bu listedeki en ciddi kod açığı.
+- `[x]` **DÜZELTİLDİ (30 Temmuz, `66c4786`) — `consensus_node` yeniden
+  başlarsa seçimleri sessizce yok sayılıyordu.** Kayıt olarak bırakılıyor;
+  doğrulaması §5'te.
 
   `_on_election` (`consensus_node.py`) eskimiş mesaj filtresi:
 
@@ -116,14 +117,21 @@ Kod yazıldı, birim testleri geçiyor, ama **gerçek meshte/donanımda hiç
   B kolunda round bilerek yüksek tutuldu (9 > 6), yani onu reddeden **tek
   şey seq filtresiydi.**
 
-  Düzeltme bir tasarım kararı, o yüzden tek taraflı yapılmadı. Seçenekler:
-  (a) geriye doğru büyük sıçramayı "restart" sayıp kabul etmek,
-  (b) `max_seen_seq`'i kaynak ajan başına tutmak (aynı ajanın restart'ını
-  hâlâ çözmez), (c) mesaja boot/incarnation kimliği eklemek (protokol
-  değişikliği, en sağlamı).
-  **Acil hafifletme:** `consensus_node`'ları tek tek değil **hep birlikte**
-  yeniden başlatmak (ya da tüm yığını). Tek dronun düğümünü restart etmek
-  o dronu sessizce lider olamaz hale getirir.
+  **Uygulanan çözüm — (c): protokole kimlik eklemek.** `ElectionResult`'a
+  `uint16 incarnation` eklendi (yayıncının o açılışına özgü rastgele kimlik,
+  `SystemRandom`, 0 = bilinmiyor). `max_seen_seq` tek int'ten
+  `seen_seq: {kaynak: (incarnation, max_seq)}` sözlüğüne çevrildi — **kaynak
+  başına** sayaç lider devri sorununu, incarnation karşılaştırması restart
+  sorununu çözüyor. Filtre `election.seq_kabul()` saf fonksiyonuna ayrıldı
+  (repo düzeni: saf mantık `election.py`, ROS bağlantısı node'da), böylece
+  ROS'suz test edilebiliyor.
+
+  Mesh'te yer: `election_veri_t`'de `rezerv[4]` → `incarnation(2)` +
+  `rezerv[2]`. **Struct hâlâ 16 bayt**, firmware yalnız `sizeof()` kullanıyor
+  ve alanların içine bakmıyor → **ESP'leri yeniden flaşlamak gerekmedi.**
+
+  incarnation değişimi artık **loglanıyor** — sahada "seçim neden
+  uygulanmadı" sorusunun cevabı sessiz kalmasın diye.
 
 - `[ ]` **`healthy=false` geliyor.** ylp00'ın gerçek `AgentStatus`'unda
   `healthy: false` — `is_eligible` kapılarından biri. Yerde `state=IDLE`
@@ -238,6 +246,20 @@ Bunlar ölçüldü. Yeniden kurcalamak gereksiz.
 - **Lider devralma / `REASON_LEADER_FAULT` dalı** — 30 Temmuz. Yanlış lider
   (3) enjekte edildi, `decide_change` "lider effective kümede yok" deyip
   liderliği geri aldı: `Lider: 3 -> 1 (round=6, ben=1)`.
+- **incarnation düzeltmesi uçtan uca (gerçek donanım)** — 30 Temmuz.
+  ylp00'ın `consensus_node`'u yeniden başlatıldı (`incarnation 11724 ->
+  33991`), yeni seçim **yine `seq=1`** ile yayınlandı, mesh'ten ylp02'ye
+  gitti ve ylp02 kabul edip logladı:
+
+      [CONSENSUS] ajan 1 yeniden baslamis (incarnation -> 33991),
+      seq sayaci sifirlandi
+
+  ylp00 seçimi `...842.890`, ylp02 kaydı `...842.912` — **22 ms.**
+  Düzeltme öncesi bu mesaj sessizce düşüyordu.
+- **`.msg` değişikliği iki dronda da derlendi** (`swarm_interfaces`, 1dk 24s).
+  Host PC'de colcon/CMake çöküyor ve `ament_flake8` yok — **host ROS
+  geliştirme ortamı eksik**, ayrı bir sorun; derleme dronların
+  konteynerinde yapılıyor ve orada sağlam.
 - **Lider loopback** — liderin kendi `/swarm/public/formation/target` çıktısı
   takipçininkiyle **birebir aynı**. Loopback olmasa lider tam hassasiyetli,
   takipçi kuantize hedefe uçardı.
@@ -256,12 +278,9 @@ Bunlar ölçüldü. Yeniden kurcalamak gereksiz.
 
 ## 6. Sıradaki mantıklı adım
 
-1. **`consensus_node` seq açığına karar ver** (§3, ilk madde). Kod açığı ve
-   sahada lideri sessizce felç edebiliyor. Karar verilmesi gereken tek şey
-   hangi düzeltme yolu.
+1. **`healthy=false` kaynağını bul** (§3) — arm edildikten sonra da false
+   kalırsa lider seçimi hiç olmaz. Masada, arm edilerek test edilebilir.
 2. **ylp01'i ayağa kaldır** — şartname 3 İHA istiyor, en büyük tek eksik.
 3. **RC failsafe** — uçuş izninin kapısı; masada yapılabilir (verici + alıcı).
-4. **`healthy=false` kaynağını bul** (§3) — arm sonrası da false kalırsa
-   seçim hiç olmaz.
-5. **Açık alana çık:** RTK survey-in + `1005` + `fix_type` 5/6 doğrulaması.
-6. **CUSTOM formasyon + `TIP_FORM_OFSET`** — jüri dizilişi bu yoldan gelecek.
+4. **Açık alana çık:** RTK survey-in + `1005` + `fix_type` 5/6 doğrulaması.
+5. **CUSTOM formasyon + `TIP_FORM_OFSET`** — jüri dizilişi bu yoldan gelecek.
