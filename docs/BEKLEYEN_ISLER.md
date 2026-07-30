@@ -59,11 +59,12 @@ Kod yazıldı, birim testleri geçiyor, ama **gerçek meshte/donanımda hiç
     Gerçek sebep: **PX4 armlıyken yerde OFFBOARD'a geçmiyor.**
     Arm+OFFBOARD zinciri artık donanımda doğrulandı; **görev başlatmadan
     TAKEOFF'a kadar tam akış henüz koşturulmadı.**
-  - `[ ]` **Lider kalp atışı (`_publish_heartbeat`) hiç çalışmadı.**
-    `if ctx.is_leader and own_airborne` koşulu var; yerde `own_airborne`
-    False olduğu için tek heartbeat yayınlanmadı. Yani heartbeat timeout'a
-    dayalı lider düşmesi tespiti (`effective_set`'teki `hb_age` dalı) hiç
-    sınanmadı. **Bu yalnız uçuşta test edilebilir.**
+  - `[~]` **Lider kalp atışı ÇALIŞTI** (30 Temmuz, bkz. §5) — `TAKEOFF`
+    durumuna ulaşılınca `own_airborne` True oldu ve **300 heartbeat**
+    yayınlandı. Kalan: bu heartbeat'in **mesh üzerinden ylp02'ye** ulaştığı
+    ve heartbeat timeout'una dayalı lider düşmesi tespitinin
+    (`effective_set`'teki `hb_age` dalı) çalıştığı doğrulanmadı — ikisi de
+    yeni bir armlı koşum ister.
   - `[ ]` 3 dronlu seçim (ylp01 yok).
   - `[ ]` `_apply_role` / `AssignRole` servis çağrısı — seçim sonrası rol
     ataması gözlenmedi.
@@ -383,6 +384,26 @@ Bunlar ölçüldü. Yeniden kurcalamak gereksiz.
 
   ylp00 seçimi `...842.890`, ylp02 kaydı `...842.912` — **22 ms.**
   Düzeltme öncesi bu mesaj sessizce düşüyordu.
+- **TAM AKIŞ: görev başlat → arm → offboard → TAKEOFF** — 30 Temmuz,
+  pervaneler çıkarık. Düzeltmelerden (`ea80852`) sonra:
+
+      durum izi:  1 -> 2 -> 3 -> 4 -> 14   (IDLE/ARMING/ARMED/TAKEOFF/FAILSAFE)
+      PX4 mod:    AUTO.LOITER -> OFFBOARD
+      seçim:      [CONSENSUS] Lider: 0 -> 1
+
+  FSM logundaki belirleyici satır — düzeltmeden önce burada `offboard=False`
+  yazıyor ve dron sonsuza kadar takılıyordu:
+
+      ARMED bekliyor: mission_start=True offboard=True sure=0.1s armed=True
+
+  `TAKEOFF -> FAILSAFE` geçişi tam 30 sn'de oldu = `_TAKEOFF_TIMEOUT_S`.
+  **Beklenen ve doğru davranış:** pervanesiz irtifaya ulaşılamaz, FSM de
+  doğru şekilde failsafe'e düşer. Hata değil.
+- **LİDER KALP ATIŞI İLK KEZ YAYINLANDI** — 30 Temmuz. `TAKEOFF` durumu
+  `AIRBORNE_STATES` içinde olduğu için `own_airborne` True oldu ve
+  `_publish_heartbeat` çalıştı: **300 mesaj**, `leader_id: 1`,
+  `sequence_num` monoton artıyor, `active_agent_count: 1`.
+  Bu yol daha önce hiç çalışmamıştı.
 - **`.msg` değişikliği iki dronda da derlendi** (`swarm_interfaces`, 1dk 24s).
   Host PC'de colcon/CMake çöküyor ve `ament_flake8` yok — **host ROS
   geliştirme ortamı eksik**, ayrı bir sorun; derleme dronların
