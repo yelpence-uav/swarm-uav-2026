@@ -32,9 +32,9 @@ KURU="${KURU:-0}"
 # Kullanici adlari drone basina AYRI (yelpence00 / yelpence02, duz "yelpence"
 # degil) — karistirilirsa "Permission denied (publickey)" alinir ve anahtar
 # sorunu sanilir.
-declare -A KULLANICI=( [ylp00]="yelpence00" [ylp02]="yelpence02" )
-declare -A SON_IP=(    [ylp00]="10.158.16.134" [ylp02]="10.158.16.189" )
-declare -A KAP=(       [ylp00]="drone1" [ylp02]="drone3" )
+declare -A KULLANICI=( [ylp00]="yelpence00" [ylp01]="yelpence01" [ylp02]="yelpence02" )
+declare -A SON_IP=(    [ylp00]="10.158.16.134" [ylp01]="10.158.16.211" [ylp02]="10.158.16.189" )
+declare -A KAP=(       [ylp00]="drone1" [ylp01]="drone2" [ylp02]="drone3" )
 SUBNET="10.158.16"
 
 # Pi'lere gidecek ROS paketleri. network_proxy ve sim_rtcm_source BILEREK YOK:
@@ -158,7 +158,7 @@ EOF
 # ---------------------------------------------------------------------------
 hedefler=("$@")
 if [ ${#hedefler[@]} -eq 0 ]; then
-    hedefler=(ylp00 ylp02)
+    hedefler=(ylp00 ylp01 ylp02)
 fi
 
 basarili=0

@@ -17,15 +17,27 @@ Kullanıcı adı **drone başına ayrı** — hepsi `yelpence` değil. Karışt�
 `Permission denied (publickey,password)` alırsın; anahtar sorunu sanma, önce
 kullanıcı adını doğrula.
 
-| Drone | Hostname | SSH kullanıcı | wlan0 MAC          | eth0 MAC           | Docker konteyner | IP (29 Tem) |
+| Drone | Hostname | SSH kullanıcı | wlan0 MAC          | eth0 MAC           | Docker konteyner | IP (30 Tem) |
 |-------|----------|---------------|--------------------|--------------------|------------------|-------------|
 | ylp00 | `ylp00`  | `yelpence00`  | `88:a2:9e:71:60:ed`| `88:a2:9e:71:60:ec`| `drone1`         | 10.158.16.134 |
-| ylp01 | —        | —             | —                  | —                  | —                | (hiç ayağa kalkmadı) |
+| ylp01 | `ylp01`  | `yelpence01`  | `88:a2:9e:da:04:2d`| (bilinmiyor)       | `drone2` (kurulacak) | 10.158.16.211 |
 | ylp02 | `ylp02`  | `yelpence02`  | `88:a2:9e:71:60:24`| `88:a2:9e:71:60:23`| `drone3`         | 10.158.16.189 |
 
-SSH anahtarı (`~/.ssh/id_ed25519`) ikisinde de kurulu — parola sorulmaz.
+Not: ylp01'in wlan0 MAC öneki diğer ikisinden farklı (`da:04:2d` ↔ `71:60:xx`) —
+farklı parti Raspberry Pi. Yine de `88:a2:9e` (Raspberry Pi Trading) önekiyle
+bulunur.
+
+YKİ dizüstü: `10.158.16.115`, MAC `5c:b4:7e:af:b3:83`, arayüz `wlp0s20f3`.
+
+SSH anahtarı (`~/.ssh/id_ed25519`) ylp00 ve ylp02'de kurulu — parola sorulmaz.
+**ylp01'de kurulmadıysa** bir kez:
+
+    ssh-copy-id -i ~/.ssh/id_ed25519.pub yelpence01@<ylp01-ip>
+
+Kullanım:
 
     ssh yelpence00@<ylp00-ip>      # ylp00
+    ssh yelpence01@<ylp01-ip>      # ylp01
     ssh yelpence02@<ylp02-ip>      # ylp02
 
 Konteyner içinde ROS komutu:
