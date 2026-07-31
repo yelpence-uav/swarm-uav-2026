@@ -117,6 +117,15 @@ class BasitKacinmaNode(Node):
         if not (0.0 < self._hard < self._d0):
             raise ValueError('hard_m < d0_m olmalı')
 
+        # KONTROL YOLU QoS: px4_bridge bu konuyu RELIABLE dinliyor,
+        # esp32_bridge de varsayilan derinlik 10 (RELIABLE) ile yaziyor.
+        # Ilk surumde SENSOR_DATA (BEST_EFFORT) kullanilmisti ve ROS
+        # uyardi: "requesting incompatible QoS. No messages will be sent."
+        # Yani dugum dogru hesaplayip yayinlayacak, px4_bridge HIC
+        # almayacakti — sessiz ariza. Kanitlanmis olanla ayni tutuluyor.
+        kontrol_qos = 10
+        # Telemetri yolu BEST_EFFORT kalabilir: RELIABLE yayinci ile
+        # BEST_EFFORT abone uyumludur, tersi degil.
         qos = QoSPresetProfiles.SENSOR_DATA.value
         self._kendi = None            # (kuzey, doğu)
         self._komsu = {}              # id -> (kuzey, doğu, zaman)
@@ -124,10 +133,10 @@ class BasitKacinmaNode(Node):
         self._ham = None              # son gelen ham setpoint
 
         self._pub = self.create_publisher(
-            AgentSetpoint, f'/drone_{self._aid}/control/setpoint', qos)
+            AgentSetpoint, f'/drone_{self._aid}/control/setpoint', kontrol_qos)
         self.create_subscription(
             AgentSetpoint, f'/drone_{self._aid}/control/setpoint/raw',
-            self._on_raw, qos)
+            self._on_raw, kontrol_qos)
         self.create_subscription(
             AgentStatus, f'/swarm/agent/drone{self._aid}/telemetry',
             self._on_kendi, qos)
@@ -194,14 +203,10 @@ class BasitKacinmaNode(Node):
             taze = [(k, d) for (k, d, ts) in self._komsu.values()
                     if t - ts <= self._bayat]
             if taze:
-                itme = itme_vektoru(self._kendi, taze,
-                                    self._d0, self._hard, self._f_sat)
-                # KELEPÇE: APF çarpışmasızlığı garanti etmez; sapmanın
-                # büyüklüğü her koşulda sınırlı kalmalı.
+                # KELEPÇE _guncel_itme icinde uygulaniyor: APF
+                # carpismasizligi garanti etmez, sapma her kosulda sinirli.
+                itme = self._guncel_itme()
                 buy = math.hypot(*itme)
-                if buy > self._max_itme:
-                    itme = (itme[0] * self._max_itme / buy,
-                            itme[1] * self._max_itme / buy)
                 if buy > 1e-3:
                     # deepcopy: alanları tek tek setattr ile kopyalamak iç
                     # içe alanlarda sessizce bozulabilir. Mesajı YERİNDE
@@ -218,6 +223,27 @@ class BasitKacinmaNode(Node):
         self._son_itme = itme
         self._pub.publish(cik)
 
+    def _guncel_itme(self):
+        """Anlik itmeyi hesaplar — ham hedef OLMASA DA.
+
+        Asama-1 gozlem testi icin sart: remap yapilmadan dugum hicbir
+        setpoint yayinlamaz, ama itmenin dogru hesaplandigini gormemiz
+        gerekir. Ilk surumde itme yalniz hedef varken hesaplaniyordu ve
+        gozlem modunda hep 0.00 goruluyordu.
+        """
+        if self._kendi is None:
+            return (0.0, 0.0)
+        t = self._simdi()
+        taze = [(k, d) for (k, d, ts) in self._komsu.values()
+                if t - ts <= self._bayat]
+        if not taze:
+            return (0.0, 0.0)
+        it = itme_vektoru(self._kendi, taze, self._d0, self._hard, self._f_sat)
+        buy = math.hypot(*it)
+        if buy > self._max_itme:
+            it = (it[0] * self._max_itme / buy, it[1] * self._max_itme / buy)
+        return it
+
     def _durum_yaz(self) -> None:
         if self._kendi is None:
             self.get_logger().warn('kendi konumum yok — kaçınma PASİF',
@@ -230,10 +256,12 @@ class BasitKacinmaNode(Node):
             mesafe = math.hypot(self._kendi[0] - k, self._kendi[1] - d)
             satir.append(f'd{nid}={mesafe:.1f}m'
                          + ('(BAYAT)' if yas > self._bayat else ''))
+        it = self._guncel_itme()
+        durum = 'AKTIF' if self._ham is not None else 'gözlem'
         if satir:
             self.get_logger().info(
-                'komşu: ' + ' '.join(satir)
-                + f'  itme=({self._son_itme[0]:+.2f},{self._son_itme[1]:+.2f})m',
+                f'[{durum}] komşu: ' + ' '.join(satir)
+                + f'  itme=({it[0]:+.2f},{it[1]:+.2f}) |{math.hypot(*it):.2f}|m',
                 throttle_duration_sec=2.0)
 
 
