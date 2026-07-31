@@ -47,7 +47,16 @@ BEKLENEN = {
 ESIK_HACC_M = 1.0        # bunun ustunde ucma (RTK varken 0.02 bekleriz)
 ESIK_UYDU = 12
 ESIK_PIL_YUZDE = 40.0
-ESIK_MAG_UT = (45.0, 55.0)
+# |B| PENCERESI GENIS BILEREK. Ilk hali (45-55) fazla darmis: ylp00 gun
+# icinde 49.2 / 48.3 / 46.3 / 44.7 okudu ve 44.7'de YANLIS ALARM verdi.
+# Dunya alani bu enlemde ~47-48 uT; manyetometrede %10 olcek hatasi
+# normaldir. Bu yuzden buyukluk yalnizca "bu gercekten bir manyetometre
+# okumasi mi" kontrolu — arizayi yakalayan sey STD.
+#
+# AYIRT EDICI OLAN STD: ylp00 (saglam) 0.95-1.27, ylp02 (bozuk) 62.85.
+# Arada 50 kat var. Sabit bir sapmayi kalibrasyon soguruyor; zamanla
+# degisen alani hicbir kalibrasyon duzeltemiyor.
+ESIK_MAG_UT = (35.0, 65.0)
 ESIK_MAG_STD = 3.0
 
 _gecti = 0
