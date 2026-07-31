@@ -79,6 +79,7 @@ SEYIR_HIZI_MS = 1.0
 # 1 m/s'te ölçüsel bütçe: kalkış ~25 + diziliş 10 + 3 bacak x 22 + formasyon
 # değişimi 12 + iki rotasyon 26 + iniş ~20  =~ 160 s (2:40). 300 s sınırının
 # rahat altında; sıkışırsak KENAR_M küçültülür.
+ARM_ASIM_S = 10         # arm teyidi için tanınan süre
 KALKIS_ASIM_S = 45      # irtifaya çıkma için tanınan süre
 BACAK_ASIM_S = 60       # bir bacağı uçmak için tanınan süre (22 m @ 1 m/s = 22 s)
 YERLESME_S = 6.0        # rotasyon/formasyon sonrası bekleme (videoda görünsün)
@@ -338,12 +339,27 @@ def gorev(kuru: bool) -> int:
 
     # --- 1) ARM + KALKIŞ ---------------------------------------------------
     print("\n=== 1) ARM + KALKIŞ ===")
+    # ARM TEYİDİ BEKLENİR. arm komutu px4_bridge'de önce OFFBOARD'a geçip
+    # sonra arm ediyor (PX4 yerde armlıyken OFFBOARD'a girmiyor); bu birkaç
+    # yüz ms sürer. Teyit beklemeden takeoff yollamak, komutun daha disarm
+    # haldeki uçağa gitmesi ve sessizce düşmesi demek.
     for did in DRONELAR:
         print(f"    drone {did}: arm + takeoff {irtifa(did):.1f}m")
-        if not kuru:
-            _istek(f"/api/guided/{did}/arm")
-            time.sleep(1.0)
-            _istek(f"/api/guided/{did}/takeoff?altitude={irtifa(did)}")
+        if kuru:
+            time.sleep(0.2)
+            continue
+        _istek(f"/api/guided/{did}/arm")
+        t_bas = time.time()
+        while time.time() - t_bas < ARM_ASIM_S:
+            time.sleep(0.5)
+            if durum().get(did, {}).get("armed"):
+                print(f"      arm teyit ({time.time() - t_bas:.1f}s)")
+                break
+        else:
+            print(f"      ARM EDİLEMEDİ ({ARM_ASIM_S:.0f}s) — görev durduruluyor")
+            indir(kuru)
+            return 1
+        _istek(f"/api/guided/{did}/takeoff?altitude={irtifa(did)}")
         time.sleep(1.0)
 
     if not kuru:
