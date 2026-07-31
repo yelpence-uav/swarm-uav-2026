@@ -46,7 +46,7 @@
 #
 # Kullanım:
 #     python3 gorev_kanit_ucus.py --kuru          # komut yok, plan + doğrulama
-#     python3 gorev_kanit_ucus.py --dronelar 1,3  # prova (iki drone)
+#     python3 gorev_kanit_ucus.py --dronelar 1,2  # prova (iki drone)
 #     python3 gorev_kanit_ucus.py --dronelar 1,2,3
 # =============================================================================
 
@@ -63,7 +63,11 @@ YKI = "http://localhost:8000"
 ZAMAN_ASIMI_S = 5.0
 
 # ylp00 -> 1, ylp01 -> 2, ylp02 -> 3 (bkz. docs/cihazlar.md)
-DRONELAR = [1, 3]
+# 31 Temmuz: ylp02 DEVRE DISI — pusulasi 143 uT / std 63 okuyor (saglami
+# 48 uT / std 1), kalibrasyon "unable to fit mag 0" ile basarisiz.
+# Olcumle elenenler: kamera guc kablosu, ESP32 mesh yayini, hareket,
+# yapilandirma farki. Bkz. src/gcs/pusula_olc.py
+DRONELAR = [1, 2]
 
 # --- Geometri ---------------------------------------------------------------
 ARALIK_M = 10.0         # formasyonda komşu slotlar arası mesafe
@@ -618,7 +622,8 @@ def main() -> int:
     global DRONELAR
     ap = argparse.ArgumentParser(description="Kanıt uçuşu görev koşucusu")
     ap.add_argument("--kuru", action="store_true", help="komut gönderme; planı kur ve doğrula")
-    ap.add_argument("--dronelar", default="1,3", help="virgülle: 1,3 (prova) veya 1,2,3")
+    ap.add_argument("--dronelar", default="1,2",
+                    help="virgülle: 1,2 (prova) veya 1,2,3")
     a = ap.parse_args()
     DRONELAR = [int(x) for x in a.dronelar.split(",") if x.strip()]
 
