@@ -64,9 +64,23 @@ KENAR_M = 22.0        # üçgen kenarı (görev noktaları arası)
 TOLERANS_M = 2.5      # "vardı" sayılma yarıçapı
 MAX_GOTO_M = 60.0     # GÜVENLİK KELEPÇESİ: bundan uzağa tek goto YOK
 
+# --- Hız --------------------------------------------------------------------
+# UÇUŞ HIZI BURADAN DEĞİL, PX4'TEN GELİR. GotoBody'de bir 'speed' alanı var
+# ama cmd_goto onu hiç okumuyor — ölü alan, yanıltmasın. px4_bridge POZİSYON
+# setpoint'i yolluyor; OFFBOARD'da hızı sınırlayan parametre MPC_XY_VEL_MAX.
+# Varsayılan 12 m/s idi ve sahada "çok hızlı" bulundu; 31 Temmuz'da iki
+# dronda da 1.0 m/s yapıldı (ros2 param set ... MPC_XY_VEL_MAX 1.0).
+# Aşağıdaki süre bütçesi 1 m/s varsayar. Hızı değiştirirsen bunları da gözden
+# geçir. RÜZGÂR NOTU: 1 m/s'te rüzgâr baskın hale gelir; rüzgâra karşı bacak
+# uzarsa BACAK_ASIM_S yetmeyebilir.
+SEYIR_HIZI_MS = 1.0
+
 # --- Zamanlama (saniye) — toplam 5 dk sınırına sığmalı ----------------------
+# 1 m/s'te ölçüsel bütçe: kalkış ~25 + diziliş 10 + 3 bacak x 22 + formasyon
+# değişimi 12 + iki rotasyon 26 + iniş ~20  =~ 160 s (2:40). 300 s sınırının
+# rahat altında; sıkışırsak KENAR_M küçültülür.
 KALKIS_ASIM_S = 45      # irtifaya çıkma için tanınan süre
-BACAK_ASIM_S = 60       # bir bacağı uçmak için tanınan süre
+BACAK_ASIM_S = 60       # bir bacağı uçmak için tanınan süre (22 m @ 1 m/s = 22 s)
 YERLESME_S = 6.0        # rotasyon/formasyon sonrası bekleme (videoda görünsün)
 GOREV_ASIM_S = 280      # toplam görev tavanı; aşılırsa iniş
 

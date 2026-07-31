@@ -41,7 +41,14 @@ echo "[baslat] gunlukler: $GUNLUK"
 # tasiyor — QGC'nin HUD'u icin tam MAVLink akisi gerekir. Bos birakilirsa
 # eski davranis aynen korunur (hicbir yere iletmez).
 #   ornek: GCS_URL=udp://@10.158.16.115:14550
+#
+# Env DISINDA /ws/gcs_url dosyasindan da okunur. Sebep pratik: konteynerler
+# 'docker run -e AGENT_ID=N' ile yaratildi ve env eklemek konteyneri YENIDEN
+# YARATMAK demek — sahada gereksiz risk. Dosya birakip 'docker restart' yeter.
 GCS_URL="${GCS_URL:-}"
+if [ -z "$GCS_URL" ] && [ -f /ws/gcs_url ]; then
+    GCS_URL="$(tr -d '[:space:]' < /ws/gcs_url)"
+fi
 if [ -n "$GCS_URL" ]; then
     echo "[baslat] MAVLink QGC'ye iletiliyor: $GCS_URL"
     ros2 run mavros mavros_node --ros-args -r __ns:=/drone_${AGENT_ID}/mavros -p fcu_url:=/dev/ttyAMA0:921600 -p gcs_url:="$GCS_URL" > "$GUNLUK/mavros.log" 2>&1 &
