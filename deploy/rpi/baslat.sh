@@ -99,7 +99,41 @@ TAKIM_ID="${TAKIM_ID:-752825}"
 # da ayni isimli parametreyi kullaniyor; UCU AYNI OLMALI yoksa slot geometrisi
 # sessizce ayrisir.
 KANAT_ALFA_DEG="${KANAT_ALFA_DEG:-45.0}"
-ros2 run swarm_control esp32_bridge --ros-args -p serial_port:=/dev/ttyAMA4 -p baud:=460800 -p agent_id:=${AGENT_ID} -p team_id:="'${TAKIM_ID}'" -p wing_alpha_deg:=${KANAT_ALFA_DEG} > "$GUNLUK/esp.log" 2>&1 &
+# --- CARPISMA KACINMASI (opt-in) --------------------------------------------
+# /ws/kacinma dosyasi VARSA devreye girer. Opt-in olmasi bilerek: kacinma
+# ucus komut yolunun ICINE giriyor, habersiz bir dagitimin bunu sessizce
+# aktiflestirmesi istenmez.
+#
+# Devredeyken zincir soyle olur:
+#   esp32_bridge -> /control/setpoint/RAW -> basit_kacinma -> /control/setpoint
+# Yani esp32_bridge'in cikisi yeniden yonlendiriliyor ve kacinma araya
+# giriyor. Dosya yoksa esp32_bridge dogrudan /control/setpoint'e yazar,
+# yani bugune kadarki davranis aynen korunur.
+#
+# NOT: kacinma dugumu calissa bile remap YOKSA zararsizdir — /raw'a kimse
+# yazmadigi icin hicbir setpoint yayinlamaz (Asama-1 gozlem modu boyleydi).
+KACINMA=0
+[ -f /ws/kacinma ] && KACINMA=1
+SP_REMAP=""
+if [ "$KACINMA" = "1" ]; then
+    SP_REMAP="-r /drone_${AGENT_ID}/control/setpoint:=/drone_${AGENT_ID}/control/setpoint/raw"
+    echo "[baslat] CARPISMA KACINMASI ACIK — esp32_bridge cikisi /raw'a yonlendirildi"
+else
+    echo "[baslat] carpisma kacinmasi kapali (/ws/kacinma yok)"
+fi
+
+ros2 run swarm_control esp32_bridge --ros-args -p serial_port:=/dev/ttyAMA4 -p baud:=460800 -p agent_id:=${AGENT_ID} -p team_id:="'${TAKIM_ID}'" -p wing_alpha_deg:=${KANAT_ALFA_DEG} $SP_REMAP > "$GUNLUK/esp.log" 2>&1 &
+
+if [ "$KACINMA" = "1" ]; then
+    sleep 2
+    # komsu_idler: kendisi haric butun filo. Olmayan drone'a abone olmak
+    # zararsiz — veri gelmezse komsu yok sayilir.
+    KOMSULAR=$(echo "1 2 3" | tr ' ' '\n' | grep -v "^${AGENT_ID}$" | paste -sd, -)
+    ros2 run swarm_control basit_kacinma --ros-args \
+        -p agent_id:=${AGENT_ID} -p komsu_idler:="[$KOMSULAR]" \
+        > "$GUNLUK/kacinma.log" 2>&1 &
+    echo "[baslat] basit_kacinma basladi (komsular: $KOMSULAR)"
+fi
 
 # --- Ucus kaydi (PX4 ULog'unun yerine gecen kayit) --------------------------
 # Pixhawk'ta RAM sinirda oldugu icin FCU tarafinda logger ACILMIYOR. Onun
