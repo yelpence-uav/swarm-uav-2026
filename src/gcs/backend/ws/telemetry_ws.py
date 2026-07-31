@@ -2,6 +2,8 @@
 
 import asyncio
 import dataclasses
+
+from backend.core.state_store import ikili_mesafeler
 import json
 import logging
 
@@ -45,6 +47,7 @@ async def telemetry_ws(
                 "swarm_state": swarm_state,
                 "qr": qr,
                 "rtk": rtk,
+                "mesafeler": ikili_mesafeler(snap),
                 "connection_mode": connection_mode,
             }
             await ws.send_text(json.dumps(payload))

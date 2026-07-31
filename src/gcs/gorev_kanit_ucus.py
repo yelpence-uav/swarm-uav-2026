@@ -71,7 +71,7 @@ ZAMAN_ASIMI_S = 5.0
 DRONELAR = [1, 2]
 
 # --- Geometri ---------------------------------------------------------------
-ARALIK_M = 10.0         # formasyonda komşu slotlar arası mesafe
+ARALIK_M = 12.0         # formasyonda komşu slotlar arası mesafe (lider-kanat)
 KANAT_ACISI_DEG = 45.0  # ok başı kanat açısı (orchestrator wing_alpha ile aynı)
 # Görev noktaları arası. Kenarı kısaltmak çarpışma marjını HİÇ etkilemiyor
 # (ölçüldü: kritik an bacaklarda değil, P1'deki roll'lu rotasyonda oluşuyor)
@@ -328,7 +328,7 @@ def _min_mesafe_gecis(a0, a1, b0, b1) -> float:
     return math.dist(p, (0.0, 0.0, 0.0))
 
 
-def plan_dogrula(plan) -> bool:
+def plan_dogrula(plan, baslangic=None) -> bool:
     """Uçmadan önce çarpışmasızlığı KANITLAR.
 
     İki şey denetlenir:
@@ -343,6 +343,11 @@ def plan_dogrula(plan) -> bool:
     print(f"\n=== ÇARPIŞMA DOĞRULAMASI (eşik {MIN_AYRIM_M:.1f} m) ===")
     tamam = True
     en_kotu = (float("inf"), "")
+
+    # YERDEKI GERCEK KONUM da denetlenir. Bu adim olmadan "kalkis noktasindan
+    # ilk formasyona gecerken kesisiyorlar mi" sorusu hic sorulmuyordu.
+    if baslangic:
+        plan = [("YER (gerçek konum)", 0.0, baslangic, False)] + list(plan)
 
     for i, (etiket, _heading, hedefler, _b) in enumerate(plan):
         for a, b in itertools.combinations(DRONELAR, 2):
@@ -381,7 +386,7 @@ def plan_dogrula(plan) -> bool:
 
 
 # --- Plan kurulumu ----------------------------------------------------------
-def plan_kur(merkez0):
+def plan_kur(merkez0, baslangic=None):
     """Bütün görevi (etiket, hedefler) adımları olarak kurar.
 
     Uçmadan önce tamamı kurulur ki doğrulanabilsin. Noktalar kalkış
@@ -401,7 +406,12 @@ def plan_kur(merkez0):
     P3 = _dondur(0.0, K)
 
     plan = []
-    onceki = None
+    # ILK ADIMIN SLOT ATAMASI GERCEK YER KONUMUNA GORE. Onceden sabitti
+    # (drone 1 -> lider, drone 2 -> kanat) ve ucaklar ters yerlestirilirse
+    # kalkista BIRBIRLERININ ICINDEN geciyorlardi. Ustelik dogrulayici bunu
+    # goremiyordu: yalnizca plan adimlari ARASINI denetliyor, yerdeki
+    # gercek konumdan ilk adima gecisi denetlemiyordu.
+    onceki = dict(baslangic) if baslangic else None
     slot = None
 
     def ekle(etiket, merkez, heading, formasyon, irtifa, roll,
@@ -421,7 +431,9 @@ def plan_kur(merkez0):
     y4 = yon_derece(P3, merkez0)
 
     # 1) Kalkış sonrası diziliş — ok başı, P1 yönünde
-    ekle("kalkis/okbasi", merkez0, y1, "okbasi", GOREV_IRTIFA_M, 0.0)
+    # yeniden_ata=True: ucaklar en yakin slota gitsin, kesismesin.
+    ekle("kalkis/okbasi", merkez0, y1, "okbasi", GOREV_IRTIFA_M, 0.0,
+         yeniden_ata=bool(baslangic))
     # 2) P1'e
     ekle("-> P1", P1, y1, "okbasi", GOREV_IRTIFA_M, 0.0, beklet=False)
     # 3) P1'de ROLL
@@ -761,14 +773,16 @@ def gorev(kuru: bool) -> int:
         return 1
     print(f"\nKalkış merkezi (ölçüldü): ({merkez0[0]:+.1f}, {merkez0[1]:+.1f}) NED")
 
-    plan = plan_kur(merkez0)
+    baslangic = {did: (t[did]["pos_x"], t[did]["pos_y"], KALKIS_IRTIFA_M)
+                 for did in DRONELAR if did in t} or None
+    plan = plan_kur(merkez0, baslangic)
     plan_yaz(plan)
     ayak_izi_yaz(plan, merkez0)
     _org = _origin_bul(t)
     koordinat_yaz(merkez0, _org)
     if _HARITA_DOSYA:
         harita_yaz(merkez0, _org, _HARITA_DOSYA)
-    if not plan_dogrula(plan):
+    if not plan_dogrula(plan, baslangic):
         return 1
     if kuru:
         print("\n[KURU] plan doğrulandı, komut gönderilmedi.")
