@@ -5,18 +5,21 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <link rel="icon" type="image/png" href="/logo.png" />
     <title>Yelpence GCS</title>
-    <link
-      rel="stylesheet"
-      href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
-      integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
-      crossorigin=""
-    />
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      rel="stylesheet"
-      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap"
-    />
+    <!--
+      YEREL VARLIKLAR — internete BAGLI DEGIL.
+
+      Eskiden Leaflet CSS unpkg.com'dan, fontlar fonts.googleapis.com'dan
+      cekiliyordu. 31 Temmuz'da laptopun WiFi'i dustugunde arayuz stilsiz
+      kaldi ve harita alani bombos cikti; sahada da ayni sey yasanirdi.
+      Ayrica Brave gibi tarayicilar bu iki alan adini ucuncu taraf sayip
+      engelleyebiliyor. Ikisi de public/vendor/ altina indirildi.
+
+      Internete bagli kalan TEK sey harita karolari (tile.openstreetmap.org,
+      bkz. components/Map/Map.tsx). Karolar olmadan da arayuzun geri kalani
+      duzgun gorunur.
+    -->
+    <link rel="stylesheet" href="/vendor/leaflet/leaflet.css" />
+    <link rel="stylesheet" href="/vendor/fonts/fonts.css" />
   </head>
   <body>
     <div id="root"></div>
