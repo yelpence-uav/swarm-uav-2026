@@ -66,9 +66,12 @@ ZAMAN_ASIMI_S = 5.0
 DRONELAR = [1, 3]
 
 # --- Geometri ---------------------------------------------------------------
-ARALIK_M = 12.0         # formasyonda komşu slotlar arası mesafe
+ARALIK_M = 10.0         # formasyonda komşu slotlar arası mesafe
 KANAT_ACISI_DEG = 45.0  # ok başı kanat açısı (orchestrator wing_alpha ile aynı)
-KENAR_M = 22.0          # görev noktaları arası
+# Görev noktaları arası. Kenarı kısaltmak çarpışma marjını HİÇ etkilemiyor
+# (ölçüldü: kritik an bacaklarda değil, P1'deki roll'lu rotasyonda oluşuyor)
+# ama kaplanan alanı küçültüyor — yani sahaya sığdırmanın bedavaya gelen kolu.
+KENAR_M = 18.0
 TOLERANS_M = 2.5        # "vardı" yarıçapı
 MAX_GOTO_M = 60.0       # tek goto için mesafe tavanı
 
@@ -78,17 +81,23 @@ MAX_GOTO_M = 60.0       # tek goto için mesafe tavanı
 # kendi 'takeoff:10.0' komutunu yolluyor (agent_fsm_node.py:251). Farklı bir
 # değer seçersek iki komut çakışır ve hangisinin kazandığı sıralamaya kalır.
 KALKIS_IRTIFA_M = 10.0
-# Görev (formasyon) irtifası. Kalkıştan AYRI tutuluyor: roll manevrasında
-# kanatlar merkezden dz = 0.408 x ARALIK_M kadar ayrılıyor (12 m aralıkta
-# ±4.9 m). Kalkış irtifası 10 m'de kalsaydı alttaki uçak 5.1 m'ye inerdi —
-# manevra sırasında fazla alçak. 12 m'de yayılım 7.1-16.9 m arasında kalıyor.
+# Görev (formasyon) irtifası — kalkış irtifasından AYRI. Roll manevrasında
+# kanatlar merkezden dz = 0.408 x ARALIK_M kadar ayrılıyor; 10 m aralıkta
+# ±4.1 m. Kalkış irtifası 10 m'de kalsaydı alttaki uçak 5.9 m'ye inerdi,
+# manevra sırasında fazla alçak. 12 m'de yayılım 7.9 - 16.1 m arasında kalıyor.
 GOREV_IRTIFA_M = 12.0
 YENI_IRTIFA_M = 18.0    # P3'teki irtifa değişimi hedefi
 
 # --- Manevra ----------------------------------------------------------------
 # Şartname: sürü merkezi sabit, sağa/sola yatış. 30° seçildi çünkü 20°'de
-# kanatlar merkezden yalnız ±2.1 m ayrılıyordu ve yerden çekimde bu sınırda
-# kalıyor; 30°'de ±3.3 m'ye çıkıyor, manevra videoda net görünüyor.
+# kanatlar merkezden yalnız ±2.7 m ayrılıyor ve yerden çekimde sınırda
+# kalıyordu; 30°'de ±4.1 m'ye çıkıyor.
+#
+# SEZGİYE AYKIRI, DİKKAT: roll'u KÜÇÜLTMEK çarpışma marjını KÖTÜLEŞTİRİYOR.
+# Ölçüldü (8 m aralıkta): roll 30° -> kritik an 4.13 m, roll 20° -> 3.26 m.
+# Sebebi, roll'lu rotasyonda uçakları ayıran şeyin bir kısmının DİKEY ayrım
+# olması ve onu roll'un üretmesi. "Daha az manevra = daha güvenli" burada
+# yanlış; roll'u düşürürsen aralığı da büyütmen gerekir.
 ROLL_ACISI_DEG = 30.0
 
 # --- Çarpışma ---------------------------------------------------------------
@@ -96,9 +105,16 @@ ROLL_ACISI_DEG = 30.0
 # başlamaz. GPS hatası + pervane çapı + akış etkisi için bolca pay.
 MIN_AYRIM_M = 4.0
 
+# MAVLink GPS_FIX_TYPE. 5/6 = RTK; ancak orada konum hatasi cm mertebesine
+# iner. Alttaki degerlerde metre mertebesinde hata var ve carpisma marji
+# (5.16 m) bunu SOGURMAK zorunda kalir. RTK ENGEL DEGIL, uyari.
+_FIX_ADI = {0: 'yok', 1: 'fixsiz', 2: '2D', 3: '3D', 4: 'DGPS',
+            5: 'RTK-Float', 6: 'RTK-FIX'}
+
 # --- Zamanlama (saniye) — 1 m/s'e göre; toplam 5 dk sınırına sığmalı --------
 # Hız PX4'te: MPC_XY_VEL_MAX = 1.0 (31 Tem'de iki dronda da ayarlandı).
-# Bütçe: kalkış ~25 + 4 bacak x 22 + manevralar ~60 + iniş ~20 =~ 195 s.
+# Bütçe: arm+kalkış ~30 + 4 bacak x 18 + manevralar ~60 + yerleşmeler ~48
+# + iniş (18 m / 0.7 m/s) ~26 =~ 240 s. 300 s sınırında ~1 dk pay kalıyor.
 ARM_ASIM_S = 10
 KALKIS_ASIM_S = 60
 ADIM_ASIM_S = 70
@@ -468,6 +484,7 @@ def on_kontrol(kuru: bool) -> bool:
         print("  [KURU] YKİ kapalı — telemetri yok, ön kontrol atlandı")
         return True
     tamam = True
+    rtk_yok = []
     for did in DRONELAR:
         d = t.get(did)
         if d is None:
@@ -481,12 +498,26 @@ def on_kontrol(kuru: bool) -> bool:
             engel.append("ZATEN ARMED")
         if d["gps_fix_type"] < 3:
             engel.append(f"GPS fix={d['gps_fix_type']}")
+        fix = d["gps_fix_type"]
         print(f"  drone {did}: bagli={d['connected']} armed={d['armed']} mod={d['mode']} "
-              f"fix={d['gps_fix_type']} sat={d['gps_satellites']} pil={d['battery_percent']:.0f}% "
+              f"GPS={_FIX_ADI.get(fix, fix)} sat={d['gps_satellites']} "
+              f"pil={d['battery_percent']:.0f}% "
               f"NED=({d['pos_x']:+.1f},{d['pos_y']:+.1f})")
+        if fix < 5:
+            rtk_yok.append(did)
         if engel:
             print(f"           ENGEL: {', '.join(engel)}")
             tamam = False
+
+    # RTK ENGEL DEGIL, UYARI. Gorev RTK olmadan da ucar: carpisma marji
+    # (5.16 m) metre mertebesindeki GPS hatasini sogurecek sekilde secildi.
+    # Ama RTK fix varsa hata cm'ye iner ve ayni plan cok daha rahat olur —
+    # o yuzden ucmadan once gorulmesi gereken bir bilgi.
+    if rtk_yok:
+        print(f"\n  UYARI: RTK fix YOK (drone {', '.join(map(str, rtk_yok))}). "
+              f"Konum hatasi metre mertebesinde olabilir.")
+        print(f"  Plan yine de guvenli: en kritik an {MIN_AYRIM_M:.1f} m esiginin "
+              "uzerinde tutuluyor. Ruzgar varsa RTK'yi beklemek daha iyi.")
     return tamam
 
 
