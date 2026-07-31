@@ -141,6 +141,24 @@ _RTCM_QOS = QoSProfile(
 
 _FRAME_DELIM = 0x00
 
+# --- Guided komut tekrar kuyrugu (bkz. Esp32BridgeNode._guided_gonder) -------
+# Broadcast'te OTA ACK yok, cerceve havada kaybolabilir; her komut birkac kez
+# gonderilir. Araliklar base ESP'nin TIP BASINA uyguladigi kapilarin USTUNDE
+# secildi, cunku iki drone ayni kapiyi paylasiyor:
+#     TIP_KOMUT -> RX BASE/src/main.cpp:186  JOYSTICK_MIN_ARALIK_MS = 200
+#     TIP_GOTO  -> RX BASE/src/main.cpp:187  MESH_GONDERIM_MIN_MS   =  50
+# Bu degerleri firmware'deki sinirin ALTINA cekme: cerceve sessizce duser,
+# hicbir hata donmez ve teshis "drone komutu almadi"ya kadar uzar.
+_GUIDED_TEKRAR = 4                  # cerceve basina kopya sayisi
+_GUIDED_TEKRAR_ARALIK_S = 0.25      # ayni komutun iki kopyasi arasi en az
+_GUIDED_TICK_S = 0.05               # kuyruk bosaltma zamanlayicisi
+_GUIDED_KUYRUK_MAKS = 64            # tasma sigortasi (normalde <10)
+_GUIDED_TIP_ARALIK_S = {
+    pp.TIP_KOMUT: 0.30,             # firmware kapisi 0.200
+    pp.TIP_GOTO: 0.10,              # firmware kapisi 0.050
+}
+_GUIDED_TIP_ARALIK_S_VARSAYILAN = 0.30
+
 # Firmware durum kodunu AgentStatus.state'e eşler. Ayrılmış/inmiş
 # komşular (7/8/13/14) çarpışma önlemeden çıkarılır. Kodlar
 # mesh_config.h ile birebir aynı olmalı.
@@ -409,8 +427,13 @@ class Esp32BridgeNode(Node):
         self._guided_hedef: AgentSetpoint | None = None
         self._guided_sp_timer = self.create_timer(0.1, self._guided_hedef_tekrar)
         # Guided komutu güvenilir teslim için birkaç kez aralıklı gönderilir
-        # (broadcast'te OTA ACK yok). Aktif tekrar timer'ları burada tutulur.
-        self._guided_gonder_timerlar: set = set()
+        # (broadcast'te OTA ACK yok). TEK kuyruk + TEK zamanlayıcı: komut
+        # başına ayrı timer, iki drone'un tekrar dizilerini base ESP'nin
+        # tip-başına hız limitinde çakıştırıyordu (bkz. _guided_gonder).
+        self._guided_kuyruk: list = []
+        self._guided_son_gonderim: dict = {}
+        self._guided_kuyruk_timer = self.create_timer(
+            _GUIDED_TICK_S, self._guided_kuyruk_bosalt)
 
         # Seri port ayarlarını sakla — kopma sonrası reconnect için
         self._port = port
@@ -1534,24 +1557,84 @@ class Esp32BridgeNode(Node):
         self._uart_yaz(pp.TIP_KOMUT, self._agent_id, payload)
 
     def _guided_gonder(self, tip: int, hedef: int, payload: bytes) -> None:
-        """Guided komutu güvenilir teslim için 250ms aralıkla 4 kez gönderir.
+        """Guided komutu tekrar kuyruğuna koyar (4 kopya, TEK ortak zamanlayıcı).
 
-        Broadcast'te OTA ACK/retry yok; tek çerçeve havada kaybolabilir. Base
-        ESP JOYSTICK rate limiti 200ms olduğundan 250ms aralık hepsinin geçmesini
-        sağlar. Non-blocking (ROS timer); operatör tek tık yapınca komut oturur.
+        ESKI HALI IKI DRONE'DA BOZUKTU — 1 Agustos'ta olculdu. Her komut kendi
+        timer'iyla 250 ms arayla 4 kez gonderiliyordu ve yorumu "base ESP'nin
+        200 ms JOYSTICK limiti var, 250 ms hepsini gecirir" diyordu. Bu TEK
+        DRONE icin dogru; IKI drone icin YANLIS, cunku base'deki limit TIP
+        BASINA tutuluyor, HEDEF BASINA degil (mesh_config.h:597,
+        _son_tip_gonderim_ms[tip]). Iki ucagin tekrar dizileri ayni 200 ms
+        kapisini paylasiyor:
+
+            drone1 -> t = 0.00  0.25  0.50  0.75
+            drone2 -> t = 0.30  0.55  0.80  1.05      (YKI 300 ms araliklı)
+            kapi   ->   gecer gecer  DUSER gecer DUSER gecer DUSER ... gecer
+                        (d1#1) (d1#2)(d2#1) (d1#3)(d2#2) (d1#4)(d2#3)  (d2#4)
+
+        Yani ikinci ucak 4 cerceveden 3'unu kaybediyor, elinde tek sans
+        kaliyor; o da havada duserse komut hic ulasmiyor. Log bunu birebir
+        dogruladi: ylp01, drone 1'in DORT land cercevesini, kendisininse
+        TEK tanesini duydu. Kalkista o tek sans da dustu ve ucak ARMLI
+        halde yerde kaldi.
+
+        SIMDIKI HALI: tum guided cerceveler TEK kuyruga giriyor ve tek bir
+        20 Hz zamanlayici bosaltiyor. Kuyruk, TIP BASINA en az _TIP_ARALIK_S
+        birakiyor (base kapilarinin ustunde) ve gonderdigi kaydi kuyrugun
+        SONUNA atiyor — boylece ucaklar SIRAYLA gonderiyor. Iki takeoff:
+
+            d1#1 d2#1 d1#2 d2#2 d1#3 d2#3 d1#4 d2#4   (300 ms arayla)
+
+        Her ucak dort cercevenin dordunu de aliyor ve ilkini 300 ms icinde
+        aliyor. Cagiranin (YKI gorev kosucusu, arayuz butonlari) araliga
+        dikkat etmesi GEREKMIYOR — garanti burada.
         """
-        self._uart_yaz(tip, hedef, payload)  # ilki hemen
-        durum = {'kalan': 3, 'timer': None}
+        # Ayni hedefe yeni GOTO gelince eskisinin bekleyen tekrarlari
+        # anlamsizlasir (yeni hedef eskisini gecersiz kilar) — atilir.
+        # TIP_KOMUT'ta ayiklama YOK: arm/takeoff/land birbirinin yerine
+        # gecmez, her biri ulasmali.
+        if tip == pp.TIP_GOTO:
+            self._guided_kuyruk = [k for k in self._guided_kuyruk
+                                   if not (k['tip'] == tip and k['hedef'] == hedef)]
+        if len(self._guided_kuyruk) >= _GUIDED_KUYRUK_MAKS:
+            atilan = self._guided_kuyruk.pop(0)
+            self.get_logger().warning(
+                f'guided kuyrugu dolu ({_GUIDED_KUYRUK_MAKS}) — '
+                f"tip=0x{atilan['tip']:02X} hedef={atilan['hedef']} atildi")
+        self._guided_kuyruk.append({
+            'tip': tip, 'hedef': hedef, 'payload': payload,
+            'kalan': _GUIDED_TEKRAR, 'en_erken': 0.0,
+        })
 
-        def _tekrar():
-            self._uart_yaz(tip, hedef, payload)
-            durum['kalan'] -= 1
-            if durum['kalan'] <= 0 and durum['timer'] is not None:
-                durum['timer'].cancel()
-                self._guided_gonder_timerlar.discard(durum['timer'])
+    def _guided_kuyruk_bosalt(self) -> None:
+        """Kuyruktaki guided cerceveleri tip basina aralikla gonderir.
 
-        durum['timer'] = self.create_timer(0.25, _tekrar)
-        self._guided_gonder_timerlar.add(durum['timer'])
+        Tick basina TIP BASINA en fazla bir cerceve: tipler base'de ayri
+        kapilar oldugu icin birbirini bekletmelerine gerek yok, ama ayni
+        tipteki iki cerceve arasinda _TIP_ARALIK_S korunmali.
+        """
+        if not self._guided_kuyruk:
+            return
+        simdi = time.monotonic()
+        gonderildi = set()
+        for kayit in list(self._guided_kuyruk):
+            tip = kayit['tip']
+            if tip in gonderildi:
+                continue
+            aralik = _GUIDED_TIP_ARALIK_S.get(tip, _GUIDED_TIP_ARALIK_S_VARSAYILAN)
+            if simdi - self._guided_son_gonderim.get(tip, 0.0) < aralik:
+                continue
+            if kayit['en_erken'] > simdi:
+                continue
+            self._uart_yaz(tip, kayit['hedef'], kayit['payload'])
+            self._guided_son_gonderim[tip] = simdi
+            gonderildi.add(tip)
+            kayit['kalan'] -= 1
+            self._guided_kuyruk.remove(kayit)
+            if kayit['kalan'] > 0:
+                # Sona at: sirayi diger hedefe ver (dongusel adalet).
+                kayit['en_erken'] = simdi + _GUIDED_TEKRAR_ARALIK_S
+                self._guided_kuyruk.append(kayit)
 
     def _on_guided_out(self, msg: GuidedCommand) -> None:
         """GuidedCommand'ı mesh'e iletir: TIP_GOTO veya guided TIP_KOMUT.
