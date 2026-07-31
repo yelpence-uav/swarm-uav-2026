@@ -1,4 +1,4 @@
-import type { DroneState, SwarmState } from "../../types/telemetry";
+import type { DroneState, RtkStatus, SwarmState } from "../../types/telemetry";
 import type { ConnectionStatus } from "../../services/websocket";
 import { useTheme } from "../../hooks/useTheme";
 import { MISSION_ID } from "../../services/api";
@@ -8,6 +8,7 @@ interface AppHeaderProps {
   status: ConnectionStatus;
   drones: DroneState[];
   swarmState: SwarmState | null;
+  rtk: RtkStatus | null;
   selectedMissionId: number;
   onOpenSettings?: () => void;
 }
@@ -38,6 +39,7 @@ export function AppHeader({
   status,
   drones,
   swarmState,
+  rtk,
   selectedMissionId,
   onOpenSettings,
 }: AppHeaderProps) {
@@ -50,6 +52,13 @@ export function AppHeader({
   const anyArmed = drones.some((d) => d.armed);
 
   const missionActive = swarmState?.mission_active ?? false;
+
+  // RTK/RTCM akisi. 31 Temmuz'da u-blox sonradan takildi, YKI acilista portu
+  // goremeyip RTCM okuyucusunu hic baslatmamisti ve arayuzde bunu gosteren
+  // hicbir sey yoktu — akmadigi ancak drone'a SSH atip px4_bridge logundaki
+  // 'rtk: msg=0' sayacina bakinca anlasildi. Artik burada gorunuyor.
+  const rtkLabel = rtk?.bagli ? `${rtk.msg_hz.toFixed(0)} Hz` : "YOK";
+  const rtkTone: "success" | "danger" = rtk?.bagli ? "success" : "danger";
 
   return (
     <header className="app-header">
@@ -84,6 +93,11 @@ export function AppHeader({
           value={missionLabel(missionActive, selectedMissionId)}
           tone={missionTone(missionActive)}
           pulse={missionActive}
+        />
+        <Metric
+          label="RTK"
+          value={rtkLabel}
+          tone={rtkTone}
         />
         <Metric
           label="Bağlantı"

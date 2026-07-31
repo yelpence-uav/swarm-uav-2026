@@ -34,6 +34,7 @@ const EMPTY_PAYLOAD: TelemetryPayload = {
   alerts: [],
   swarm_state: null,
   qr: null,
+  rtk: null,
 };
 
 const DEFAULT_PARAMS: FlightParams = {
@@ -100,6 +101,7 @@ export default function App() {
         status={status}
         drones={payload.drones}
         swarmState={payload.swarm_state}
+        rtk={payload.rtk ?? null}
         selectedMissionId={selectedMissionId}
         onOpenSettings={() => setSettingsOpen(true)}
       />

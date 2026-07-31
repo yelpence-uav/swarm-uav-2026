@@ -97,20 +97,27 @@ disown
 # RTCM doğrudan porta değil ROS topic'ine gider. Okuyucu AYRI süreç: çökerse
 # telemetri ve komut yolu etkilenmez.
 # GPS portu takılı değilse okuyucu 2 sn'de bir yeniden dener, YKİ'yi bloke etmez.
+#
+# BU YÜZDEN KOŞULSUZ BAŞLATILIYOR. Eskiden "port var mı" diye bakılıp yoksa
+# HİÇ başlatılmıyordu — okuyucunun kendi tekrar-deneme yeteneğine sıra bile
+# gelmiyordu. 31 Temmuz'da tam bu ısırdı: u-blox YKİ açıldıktan SONRA takıldı,
+# RTCM hiç akmadı, ve bu ancak drone'a SSH atıp px4_bridge logundaki
+# 'rtk: msg=0' sayacına bakınca fark edildi. Artık okuyucu her hâlükârda
+# başlar, port gelince kendiliğinden bağlanır.
 RTK_GPS_PORT="${RTK_GPS_PORT:-/dev/serial/by-id/usb-u-blox_AG_-_www.u-blox.com_u-blox_GNSS_receiver-if00}"
 RTK_TOPIC="${RTK_TOPIC:-/swarm/internal/rtcm}"
 if [ -e "$RTK_GPS_PORT" ]; then
   echo "[YKİ] RTK okuyucu başlatılıyor ($RTK_GPS_PORT -> $RTK_TOPIC)..."
-  setsid bash -c "source /opt/ros/jazzy/setup.bash && source '$REPO/install/setup.bash' && \
-    source '$VENV/bin/activate' && \
-    export ROS_DOMAIN_ID=0 RMW_IMPLEMENTATION=rmw_cyclonedds_cpp CYCLONEDDS_URI='$DDS_URI' && \
-    exec python3 '$REPO/src/gcs/backend/rtcm/yki_rtcm_reader.py' \
-      --gps-port '$RTK_GPS_PORT' --ros-topic '$RTK_TOPIC'" \
-    > /tmp/yki_rtcm.log 2>&1 < /dev/null &
-  disown
 else
-  echo "[YKİ] RTK okuyucu ATLANDI — GPS portu yok ($RTK_GPS_PORT)"
+  echo "[YKİ] RTK okuyucu başlatılıyor — GPS portu HENÜZ YOK, takılınca bağlanacak"
 fi
+setsid bash -c "source /opt/ros/jazzy/setup.bash && source '$REPO/install/setup.bash' && \
+  source '$VENV/bin/activate' && \
+  export ROS_DOMAIN_ID=0 RMW_IMPLEMENTATION=rmw_cyclonedds_cpp CYCLONEDDS_URI='$DDS_URI' && \
+  exec python3 '$REPO/src/gcs/backend/rtcm/yki_rtcm_reader.py' \
+    --gps-port '$RTK_GPS_PORT' --ros-topic '$RTK_TOPIC'" \
+  > /tmp/yki_rtcm.log 2>&1 < /dev/null &
+disown
 
 # --- 2) Backend (REST + WebSocket, ros2 modu) ---
 echo "[YKİ] backend başlatılıyor (:8000)..."
