@@ -58,23 +58,53 @@ def _smoothstep(t: float) -> float:
     return t * t * (3.0 - 2.0 * t)
 
 
-def itme_vektoru(kendi, komsular, d0: float, hard: float, f_sat: float):
+# Teğet bileşenin ölçeklendiği referans yaklaşma hızı (m/s). Komşu bundan
+# hızlı yaklaşıyorsa teğet tam açılır.
+_REF_KAPANMA_MS = 1.5
+
+
+def itme_vektoru(kendi, komsular, d0: float, hard: float, f_sat: float,
+                 k_tan: float = 0.0):
     """Komşulardan gelen toplam yatay itmeyi (kuzey, doğu) döner.
 
     SAF FONKSİYON — ROS'suz test edilebilsin diye ayrı tutuldu.
 
+    İki bileşen var:
+
+    RADYAL — komşudan doğrudan uzağa. Tek başına yetmez: kafa kafaya bir
+    yaklaşmada uçak dümdüz geri geri kaçar, yol vermez, ve sonunda ya
+    sıkışır ya menzil dışına itilir.
+
+    TEĞET — radyal itmenin 90° döndürülmüşü. "Kenara çekilip yol verme"
+    hareketini bu üretir. YALNIZ komşu YAKLAŞIRKEN açılır (uzaklaşırken
+    gereksiz), ve yaklaşma hızıyla orantılıdır.
+
+    NEDEN KENDI HIZIMIZLA DEĞİL, YAKLAŞMA HIZIYLA ÖLÇEKLİYORUZ:
+    repodaki ca_core._tangent teğeti KENDİ hızımıza bağlıyor ve biz
+    asılı duruyorsak (hız ~0) teğeti hiç açmıyor. Oysa asılı dururken
+    üstümüze gelen bir uçak, teğete en çok ihtiyaç duyduğumuz durum.
+
+    HEP AYNI TARAFA: teğet yönü sabit (radyalin -90°'si). Havacılıktaki
+    "sağa geç" kuralı gibi. Sebebi kritik — iki otonom uçak karşılaşırsa
+    ikisi de aynı kuralı uygulayınca DOĞAL OLARAK ayrışırlar. Taraf
+    duruma göre seçilseydi ikisi de aynı yönü seçip birbirini kovalardı.
+
     Args:
         kendi: (kuzey, doğu) kendi konumumuz.
-        komsular: [(kuzey, doğu), ...] komşu konumları.
+        komsular: [(kuzey, doğu, kapanma_hizi), ...]. kapanma_hizi pozitifse
+            komşu yaklaşıyor (m/s); negatifse uzaklaşıyor.
         d0: itmenin başladığı yarıçap (m).
         hard: itmenin doyuma ulaştığı yarıçap (m).
         f_sat: doygunluktaki itme büyüklüğü (m).
+        k_tan: teğet bileşenin radyale oranı. 0 = kapalı.
 
     Returns:
         (kuzey, doğu) toplam itme vektörü, metre.
     """
     tk = td = 0.0
-    for kk, kd in komsular:
+    for komsu in komsular:
+        kk, kd = komsu[0], komsu[1]
+        kapanma = komsu[2] if len(komsu) > 2 else 0.0
         dk = kendi[0] - kk
         dd = kendi[1] - kd
         d = math.hypot(dk, dd)
@@ -86,8 +116,15 @@ def itme_vektoru(kendi, komsular, d0: float, hard: float, f_sat: float):
             tk += f_sat
             continue
         buyukluk = f_sat if d <= hard else f_sat * _smoothstep((d0 - d) / (d0 - hard))
-        tk += buyukluk * dk / d
-        td += buyukluk * dd / d
+        ux, uy = dk / d, dd / d
+        tk += buyukluk * ux
+        td += buyukluk * uy
+        if k_tan > 0.0 and kapanma > 0.0:
+            w = min(1.0, kapanma / _REF_KAPANMA_MS)
+            f = k_tan * w * buyukluk
+            # Radyalin -90°'si. SABİT taraf — yukarıdaki gerekçe.
+            tk += f * uy
+            td += f * (-ux)
     return tk, td
 
 
@@ -107,6 +144,10 @@ class BasitKacinmaNode(Node):
         self.declare_parameter('f_sat_m', 4.0)
         self.declare_parameter('max_itme_m', 6.0)
         self.declare_parameter('bayat_s', 1.5)
+        # Teğet bileşen oranı. 0 = kapalı (yalnız radyal). 0.8 -> itme
+        # yönü radyalden ~39° sapar, yani uçak geri geri kaçmak yerine
+        # belirgin şekilde KENARA çekilir.
+        self.declare_parameter('k_tan', 0.8)
 
         self._aid = int(self.get_parameter('agent_id').value)
         self._d0 = float(self.get_parameter('d0_m').value)
@@ -114,6 +155,7 @@ class BasitKacinmaNode(Node):
         self._f_sat = float(self.get_parameter('f_sat_m').value)
         self._max_itme = float(self.get_parameter('max_itme_m').value)
         self._bayat = float(self.get_parameter('bayat_s').value)
+        self._k_tan = float(self.get_parameter('k_tan').value)
         if not (0.0 < self._hard < self._d0):
             raise ValueError('hard_m < d0_m olmalı')
 
@@ -129,6 +171,7 @@ class BasitKacinmaNode(Node):
         qos = QoSPresetProfiles.SENSOR_DATA.value
         self._kendi = None            # (kuzey, doğu)
         self._komsu = {}              # id -> (kuzey, doğu, zaman)
+        self._kapanma = {}            # id -> yaklaşma hızı (m/s)
         self._son_itme = (0.0, 0.0)
         self._ham = None              # son gelen ham setpoint
 
@@ -160,14 +203,37 @@ class BasitKacinmaNode(Node):
         self.get_logger().info(
             f'basit_kacinma başladı: agent={self._aid} '
             f'd0={self._d0} hard={self._hard} f_sat={self._f_sat} '
-            f'max={self._max_itme}')
+            f'max={self._max_itme} k_tan={self._k_tan}')
 
     # --- girişler ----------------------------------------------------------
     def _on_kendi(self, m: AgentStatus) -> None:
         self._kendi = (m.pos_x, m.pos_y)
 
     def _on_komsu(self, nid: int, m: AgentStatus) -> None:
-        self._komsu[nid] = (m.pos_x, m.pos_y, self._simdi())
+        """Komşu konumunu ve YAKLAŞMA HIZINI günceller.
+
+        Yaklaşma hızı, komşunun bildirdiği hızdan DEĞİL mesafenin
+        değişiminden türetiliyor. Sebebi: mesh'in hız alanını güvenilir
+        taşıdığını doğrulamadık, ama konumu taşıdığını ölçtük. Mesafe
+        farkı ikimizin hareketini birden kapsar, yani biz de hareket
+        etsek doğru çalışır.
+        """
+        t = self._simdi()
+        yeni = (m.pos_x, m.pos_y)
+        onceki = self._komsu.get(nid)
+        if onceki is not None and self._kendi is not None:
+            dt = t - onceki[2]
+            if 0.02 < dt < 2.0:
+                eski_d = math.hypot(self._kendi[0] - onceki[0],
+                                    self._kendi[1] - onceki[1])
+                yeni_d = math.hypot(self._kendi[0] - yeni[0],
+                                    self._kendi[1] - yeni[1])
+                ham = (eski_d - yeni_d) / dt          # + ise yaklaşıyor
+                # Alçak geçiren süzgeç: tek örneklik GPS gürültüsü teğeti
+                # rastgele tetiklemesin.
+                onceki_k = self._kapanma.get(nid, 0.0)
+                self._kapanma[nid] = 0.7 * onceki_k + 0.3 * ham
+        self._komsu[nid] = (yeni[0], yeni[1], t)
 
     def _simdi(self) -> float:
         return self.get_clock().now().nanoseconds * 1e-9
@@ -200,7 +266,8 @@ class BasitKacinmaNode(Node):
 
         if self._kendi is not None and msg.position_valid:
             t = self._simdi()
-            taze = [(k, d) for (k, d, ts) in self._komsu.values()
+            taze = [(k, d, self._kapanma.get(nid, 0.0))
+                    for nid, (k, d, ts) in self._komsu.items()
                     if t - ts <= self._bayat]
             if taze:
                 # KELEPÇE _guncel_itme icinde uygulaniyor: APF
@@ -234,11 +301,13 @@ class BasitKacinmaNode(Node):
         if self._kendi is None:
             return (0.0, 0.0)
         t = self._simdi()
-        taze = [(k, d) for (k, d, ts) in self._komsu.values()
+        taze = [(k, d, self._kapanma.get(nid, 0.0))
+                for nid, (k, d, ts) in self._komsu.items()
                 if t - ts <= self._bayat]
         if not taze:
             return (0.0, 0.0)
-        it = itme_vektoru(self._kendi, taze, self._d0, self._hard, self._f_sat)
+        it = itme_vektoru(self._kendi, taze, self._d0, self._hard,
+                          self._f_sat, self._k_tan)
         buy = math.hypot(*it)
         if buy > self._max_itme:
             it = (it[0] * self._max_itme / buy, it[1] * self._max_itme / buy)
@@ -254,7 +323,8 @@ class BasitKacinmaNode(Node):
         for nid, (k, d, ts) in sorted(self._komsu.items()):
             yas = t - ts
             mesafe = math.hypot(self._kendi[0] - k, self._kendi[1] - d)
-            satir.append(f'd{nid}={mesafe:.1f}m'
+            kap = self._kapanma.get(nid, 0.0)
+            satir.append(f'd{nid}={mesafe:.1f}m/{kap:+.1f}ms'
                          + ('(BAYAT)' if yas > self._bayat else ''))
         it = self._guncel_itme()
         durum = 'AKTIF' if self._ham is not None else 'gözlem'
