@@ -34,7 +34,20 @@ find /ws/gunluk -maxdepth 1 -mindepth 1 -type d -printf '%T@ %p\n' 2>/dev/null \
 ln -sfn "$(basename "$GUNLUK")" /ws/gunluk/son   # ~/yelpence_ws/gunluk/son/mavros.log
 echo "[baslat] gunlukler: $GUNLUK"
 
-ros2 run mavros mavros_node --ros-args -r __ns:=/drone_${AGENT_ID}/mavros -p fcu_url:=/dev/ttyAMA0:921600 > "$GUNLUK/mavros.log" 2>&1 &
+# GCS_URL: MAVROS'un MAVLink'i AYNEN ilettigi ikinci ucnokta (QGroundControl).
+# NEDEN VAR: kanit videosu yonergesi "ucus modunun ve yonelimlerin acikca
+# gorundugu Mission Planner veya QGroundControl ekran goruntusu" istiyor.
+# Telemetri normalde ESP mesh'ten YKI'ye gidiyor ama mesh 16 baytlik ozet
+# tasiyor — QGC'nin HUD'u icin tam MAVLink akisi gerekir. Bos birakilirsa
+# eski davranis aynen korunur (hicbir yere iletmez).
+#   ornek: GCS_URL=udp://@10.158.16.115:14550
+GCS_URL="${GCS_URL:-}"
+if [ -n "$GCS_URL" ]; then
+    echo "[baslat] MAVLink QGC'ye iletiliyor: $GCS_URL"
+    ros2 run mavros mavros_node --ros-args -r __ns:=/drone_${AGENT_ID}/mavros -p fcu_url:=/dev/ttyAMA0:921600 -p gcs_url:="$GCS_URL" > "$GUNLUK/mavros.log" 2>&1 &
+else
+    ros2 run mavros mavros_node --ros-args -r __ns:=/drone_${AGENT_ID}/mavros -p fcu_url:=/dev/ttyAMA0:921600 > "$GUNLUK/mavros.log" 2>&1 &
+fi
 sleep 15
 ros2 run swarm_control px4_bridge --ros-args -p agent_id:=${AGENT_ID} > "$GUNLUK/px4b.log" 2>&1 &
 sleep 5
