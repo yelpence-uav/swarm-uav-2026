@@ -53,6 +53,7 @@
 import argparse
 import itertools
 import math
+import pathlib
 import signal
 import sys
 import time
@@ -75,6 +76,16 @@ KANAT_ACISI_DEG = 45.0  # ok başı kanat açısı (orchestrator wing_alpha ile 
 # Görev noktaları arası. Kenarı kısaltmak çarpışma marjını HİÇ etkilemiyor
 # (ölçüldü: kritik an bacaklarda değil, P1'deki roll'lu rotasyonda oluşuyor)
 # ama kaplanan alanı küçültüyor — yani sahaya sığdırmanın bedavaya gelen kolu.
+# Gorev rotasinin YONU (pusula derecesi). 0 = ilk bacak KUZEYE.
+# NEDEN VAR: kod BINALARI GOREMEZ. Engel algilama, harita, geofence yok —
+# ucgeni onunde ne varsa ucar. Guvenlik tamamen rotanin acik alana
+# denk gelmesine bagli. Bu yuzden rota dondurulebilir: acik alan
+# doguya bakiyorsa --yon 90, guneye bakiyorsa --yon 180.
+# SAHADA SECILDI (31 Temmuz): -90 = ilk bacak BATIYA. Acik alan o yonde.
+# Varsayilan yapildi ki --yon vermeyi unutan bir kosu ucagi kuzeye,
+# yani binalarin oldugu tarafa yollamasin.
+ROTA_YONU_DEG = -90.0
+
 KENAR_M = 18.0
 TOLERANS_M = 2.5        # "vardı" yarıçapı
 MAX_GOTO_M = 60.0       # tek goto için mesafe tavanı
@@ -128,6 +139,7 @@ YERLESME_S = 6.0        # YALNIZ manevra adimlarindan sonra (roll, rotasyon,
 GOREV_ASIM_S = 285
 
 _iniyor = False
+_HARITA_DOSYA = None
 
 
 # --- HTTP -------------------------------------------------------------------
@@ -342,9 +354,16 @@ def plan_kur(merkez0):
     yani üçü doğrusal DEĞİL (yönergenin şartı).
     """
     K = KENAR_M
-    P1 = (merkez0[0] + K, merkez0[1])
-    P2 = (merkez0[0] + K, merkez0[1] + K)
-    P3 = (merkez0[0], merkez0[1] + K)
+    # Ucgen once yerel eksende kurulur (ileri, saga), sonra ROTA_YONU_DEG
+    # kadar dondurulur. Boylece sekil ve carpismasizlik aynen korunur,
+    # yalniz sahadaki yonelim degisir.
+    h = math.radians(ROTA_YONU_DEG)
+    def _dondur(ileri, saga):
+        return (merkez0[0] + ileri * math.cos(h) + saga * (-math.sin(h)),
+                merkez0[1] + ileri * math.sin(h) + saga * math.cos(h))
+    P1 = _dondur(K, 0.0)
+    P2 = _dondur(K, K)
+    P3 = _dondur(0.0, K)
 
     plan = []
     onceki = None
@@ -395,6 +414,156 @@ def plan_kur(merkez0):
     # 12) kalkış noktasına dön
     ekle("-> EV (kalkis noktasi)", merkez0, y4, "cizgi", YENI_IRTIFA_M, 0.0, beklet=False)
     return plan
+
+
+def _origin_bul(t):
+    """Telemetriden NED origin'ini turetir.
+
+    Drone hem lat/lon hem NED bildiriyor; ikisinin farki origin'i verir.
+    Yapilandirmadaki sabiti okumaktansa bunu tercih ediyoruz: origin
+    yanlis ayarlanmissa bile burada GERCEK donusum cikar, yani haritaya
+    koydugumuz nokta ucagin gercekten gidecegi yer olur.
+    """
+    for d in t.values():
+        if d.get("connected") and abs(d.get("lat", 0.0)) > 0.001:
+            enlem = d["lat"] - d["pos_x"] / 111320.0
+            boylam = d["lon"] - d["pos_y"] / (111320.0 * math.cos(math.radians(d["lat"])))
+            return enlem, boylam
+    return None
+
+
+def ned_to_latlon(origin, kuzey, dogu):
+    enlem = origin[0] + kuzey / 111320.0
+    boylam = origin[1] + dogu / (111320.0 * math.cos(math.radians(origin[0])))
+    return enlem, boylam
+
+
+def koordinat_yaz(merkez0, origin):
+    """Gorev noktalarini GPS olarak basar — haritada kontrol edilebilsin.
+
+    NEDEN VAR: kod engel GORMEZ. Ucmadan once noktalari haritaya koyup
+    bina/agac var mi diye BAKMAK, elimizdeki tek engel kontrolu.
+    """
+    if origin is None:
+        print("\n=== GPS KOORDİNATLARI: origin türetilemedi (telemetri yok) ===")
+        return
+    K = KENAR_M
+    h = math.radians(ROTA_YONU_DEG)
+
+    def _d(ileri, saga):
+        return (merkez0[0] + ileri * math.cos(h) + saga * (-math.sin(h)),
+                merkez0[1] + ileri * math.sin(h) + saga * math.cos(h))
+
+    noktalar = [("KALKIS/EV", merkez0), ("P1", _d(K, 0.0)),
+                ("P2", _d(K, K)), ("P3", _d(0.0, K))]
+    print("\n=== GPS KOORDİNATLARI (haritada kontrol et) ===")
+    for ad, (kz, dg) in noktalar:
+        la, lo = ned_to_latlon(origin, kz, dg)
+        print(f"  {ad:<10} {la:.7f}, {lo:.7f}")
+    la0, lo0 = ned_to_latlon(origin, *merkez0)
+    print(f"\n  Haritada tek tek aç:")
+    for ad, (kz, dg) in noktalar:
+        la, lo = ned_to_latlon(origin, kz, dg)
+        print(f"    {ad:<10} https://www.google.com/maps?q={la:.7f},{lo:.7f}")
+
+
+_HARITA_SABLON = """<!doctype html>
+<html lang="tr"><head><meta charset="utf-8">
+<title>Yelpence — gorev rotasi</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>html,body,#h{height:100%%;margin:0}
+.bilgi{position:absolute;z-index:1000;top:10px;left:50px;background:#fff;
+padding:8px 12px;font:13px system-ui;border-radius:6px;box-shadow:0 1px 6px #0006}
+</style></head><body>
+<div class="bilgi"><b>Görev rotası</b><br>%(ozet)s</div>
+<div id="h"></div><script>
+var m=L.map('h');
+// maxNativeZoom 18 SART: bu bolgede Esri z19+ icin gercek goruntu yerine
+// "Map data not available" yer tutucusu donduruyor (2521 bayt, olculdu).
+// 18'de birakinca Leaflet z18 karosunu buyuterek gosteriyor.
+var uydu=L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+ {maxZoom:22,maxNativeZoom:18,attribution:'Esri'}).addTo(m);
+var sokak=L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+ {maxZoom:22,maxNativeZoom:19,attribution:'OpenStreetMap'});
+L.control.layers({'Uydu':uydu,'Sokak (binalar)':sokak}).addTo(m);
+var n=%(noktalar)s;
+var yol=n.map(function(p){return [p[1],p[2]]});
+L.polyline(yol.concat([yol[0]]),{color:'#ff3b30',weight:3}).addTo(m);
+n.forEach(function(p){
+  L.circleMarker([p[1],p[2]],{radius:8,color:'#fff',weight:2,
+    fillColor:p[0]=='KALKIS/EV'?'#34c759':'#ff9500',fillOpacity:1})
+   .addTo(m).bindTooltip(p[0],{permanent:true,direction:'top'});
+});
+L.circle([%(mlat)f,%(mlon)f],{radius:%(yaricap)f,color:'#ffcc00',
+  fillOpacity:0.06,dashArray:'6 6'}).addTo(m);
+m.fitBounds(L.latLngBounds(yol).pad(0.8),{maxZoom:20});
+</script></body></html>
+"""
+
+
+def harita_yaz(merkez0, origin, dosya):
+    """Gorev noktalarini UYDU goruntusu uzerinde tek haritaya yazar.
+
+    NEDEN VAR: kod engel GORMEZ — harita, geofence, mesafe sensoru yok.
+    Ucmadan once rotayi uydu goruntusune koyup bina/agac var mi diye
+    BAKMAK, elimizdeki tek engel kontrolu. Ayri ayri koordinat linkleri
+    bunun icin yetersizdi; hepsi tek karede gorunmeli.
+    """
+    if origin is None:
+        print("  harita: origin türetilemedi, atlandı")
+        return
+    K = KENAR_M
+    h = math.radians(ROTA_YONU_DEG)
+
+    def _d(ileri, saga):
+        return (merkez0[0] + ileri * math.cos(h) + saga * (-math.sin(h)),
+                merkez0[1] + ileri * math.sin(h) + saga * math.cos(h))
+
+    ham = [("KALKIS/EV", merkez0), ("P1", _d(K, 0.0)),
+           ("P2", _d(K, K)), ("P3", _d(0.0, K))]
+    noktalar = []
+    for ad, (kz, dg) in ham:
+        la, lo = ned_to_latlon(origin, kz, dg)
+        noktalar.append([ad, la, lo])
+    # Daire merkezi NOKTALARIN AGIRLIK MERKEZI. Onceden sabit (+K/2, +K/2)
+    # sapmasiyla hesaplaniyordu ve ROTASYON UYGULANMIYORDU: rota donunce
+    # kare donuyor ama daire eski yerinde kaliyordu.
+    ort_k = sum(n[0] for _a, n in ham) / len(ham)
+    ort_d = sum(n[1] for _a, n in ham) / len(ham)
+    mla, mlo = ned_to_latlon(origin, ort_k, ort_d)
+    ozet = (f"kenar {K:.0f} m &middot; yön {ROTA_YONU_DEG:.0f}° &middot; "
+            f"irtifa {GOREV_IRTIFA_M:.0f}-{YENI_IRTIFA_M:.0f} m<br>"
+            f"<b>kod engel görmez</b> — kırmızı rotada bina/ağaç olmamalı")
+    import json as _j
+    html = _HARITA_SABLON % {
+        "noktalar": _j.dumps(noktalar), "ozet": ozet,
+        "mlat": mla, "mlon": mlo, "yaricap": K * 0.75,
+    }
+    pathlib.Path(dosya).write_text(html, encoding="utf-8")
+    print(f"\n=== HARİTA YAZILDI ===\n  {dosya}")
+    print(f"  Tarayıcıda aç:  xdg-open {dosya}")
+
+
+def ayak_izi_yaz(plan, merkez0):
+    """Kalkis noktasina gore HANGI YONDE NE KADAR yer gerektigini yazar.
+
+    NEDEN VAR: kod binalari, agaclari, direkleri GORMEZ. Ucusun guvenligi
+    tamamen rotanin acik alana denk gelmesine bagli. Ucmadan once
+    "kuzeye 22 m, doguya 24 m yer lazim" diye somut gormek gerekiyor;
+    "18 m'lik ucgen" demek yetmiyor cunku formasyon sapmasi ve rotasyon
+    ucaklari noktalarin OTESINE tasiyor.
+    """
+    k = [h[0] - merkez0[0] for _e, _h, hed, _b in plan for h in hed.values()]
+    d = [h[1] - merkez0[1] for _e, _h, hed, _b in plan for h in hed.values()]
+    z = [h[2] for _e, _h, hed, _b in plan for h in hed.values()]
+    print("\n=== GEREKEN ALAN (kalkış noktasına göre) ===")
+    print(f"  kuzey  : {max(k):+6.1f} m        güney  : {min(k):+6.1f} m")
+    print(f"  doğu   : {max(d):+6.1f} m        batı   : {min(d):+6.1f} m")
+    print(f"  irtifa : {min(z):.1f} - {max(z):.1f} m")
+    print(f"  toplam kutu: {max(k)-min(k):.0f} m (K-G) x {max(d)-min(d):.0f} m (D-B)")
+    print(f"  rota yönü  : {ROTA_YONU_DEG:.0f}°  (0=kuzey, 90=doğu)")
+    print("  UYARI: kod engel GÖRMEZ. Bu kutunun içinde bina/ağaç/direk olmamalı.")
 
 
 def plan_yaz(plan):
@@ -550,6 +719,11 @@ def gorev(kuru: bool) -> int:
 
     plan = plan_kur(merkez0)
     plan_yaz(plan)
+    ayak_izi_yaz(plan, merkez0)
+    _org = _origin_bul(t)
+    koordinat_yaz(merkez0, _org)
+    if _HARITA_DOSYA:
+        harita_yaz(merkez0, _org, _HARITA_DOSYA)
     if not plan_dogrula(plan):
         return 1
     if kuru:
@@ -622,10 +796,20 @@ def main() -> int:
     global DRONELAR
     ap = argparse.ArgumentParser(description="Kanıt uçuşu görev koşucusu")
     ap.add_argument("--kuru", action="store_true", help="komut gönderme; planı kur ve doğrula")
+    ap.add_argument("--harita", nargs="?", const="/tmp/yelpence_rota.html",
+                    default=None, metavar="DOSYA",
+                    help="rotayi uydu haritasina yaz (varsayilan /tmp/yelpence_rota.html)")
+    ap.add_argument("--yon", type=float, default=None,
+                    help="rota yonu (pusula derecesi). 0=kuzey, 90=dogu. "
+                         "Acik alan hangi yondeyse onu ver.")
     ap.add_argument("--dronelar", default="1,2",
                     help="virgülle: 1,2 (prova) veya 1,2,3")
     a = ap.parse_args()
     DRONELAR = [int(x) for x in a.dronelar.split(",") if x.strip()]
+    global ROTA_YONU_DEG, _HARITA_DOSYA
+    if a.yon is not None:
+        ROTA_YONU_DEG = a.yon
+    _HARITA_DOSYA = a.harita
 
     def _kesildi(_s, _f):
         print("\n\n!!! KESİLDİ (Ctrl-C) !!!")
