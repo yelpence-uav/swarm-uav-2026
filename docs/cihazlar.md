@@ -91,6 +91,30 @@ kalır ve "kart bozuk" sanırsın (bkz. saha günlüğü §5.6):
     s = serial.Serial(port, baud, timeout=0.4)
     s.setDTR(False); s.setRTS(False)
 
+## QGroundControl bağlantısı (kanıt videosu için)
+
+Kanıt videosu yönergesi "uçuş modunun ve yönelimlerin açıkça göründüğü"
+QGC/Mission Planner ekranını şart koşuyor. Mesh 16 baytlık özet taşır ve
+QGC'nin HUD'una yetmez — QGC'ye **tam MAVLink** gerekir. Yol WiFi üzerinden:
+
+1. Her Pi'de `~/yelpence_ws/gcs_url` dosyası → `udp-b://:14555@14550`
+   (`baslat.sh` okur; dosya yoksa MAVROS hiçbir yere iletmez).
+2. Laptopta: `~/gcs-venv/bin/python src/gcs/qgc_proxy.py`
+3. QGC → Application Settings → Comm Links → Add → **UDP, port 14551** →
+   Connect. **AutoConnect UDP kapatılmalı**, yoksa QGC 14550'yi kapmaya
+   çalışıp proxy ile yarışır.
+
+**Proxy neden gerekiyor:** iki PX4 de fabrika ayarı `MAV_SYS_ID=1` ile geliyor
+ve QGC araçları sysid ile ayırt ediyor — ikisi de 1 olunca QGC bunları tek
+araç sanıp telemetriyi karıştırır (30 Tem ölçüldü: iki farklı IP, hepsi
+sysid 1). PX4 `MAV_SYS_ID` yazımını hem MAVROS'tan hem doğrudan MAVLink
+`PARAM_SET`'ten **reddetti**; o yüzden düzeltme yerde yapılıyor — proxy
+paketi çözüp kaynak IP'ye göre sysid'yi yeniden yazıyor. Uçağa dokunmaz.
+
+**MAVROS tuzağı:** `udp-b://` şemasında `@PORT` **yok sayılıyor**. Ne yazarsan
+yaz yayın 14550'ye gider; MAVROS logu "GCS URL: ...@14560" dese ve endpoint
+"opened successfully" olsa bile. Üç port aynı anda dinlenerek ölçüldü.
+
 ## Yerel servisler
 
 | Servis   | Adres                   | Log                        |

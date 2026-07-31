@@ -49,12 +49,19 @@ GCS_URL="${GCS_URL:-}"
 if [ -z "$GCS_URL" ] && [ -f /ws/gcs_url ]; then
     GCS_URL="$(tr -d '[:space:]' < /ws/gcs_url)"
 fi
-if [ -n "$GCS_URL" ]; then
-    echo "[baslat] MAVLink QGC'ye iletiliyor: $GCS_URL"
-    ros2 run mavros mavros_node --ros-args -r __ns:=/drone_${AGENT_ID}/mavros -p fcu_url:=/dev/ttyAMA0:921600 -p gcs_url:="$GCS_URL" > "$GUNLUK/mavros.log" 2>&1 &
-else
-    ros2 run mavros mavros_node --ros-args -r __ns:=/drone_${AGENT_ID}/mavros -p fcu_url:=/dev/ttyAMA0:921600 > "$GUNLUK/mavros.log" 2>&1 &
-fi
+# tgt_system = AGENT_ID. NEDEN: PX4'lerin hepsi fabrika ayari MAV_SYS_ID=1
+# ile geliyordu ve QGC araclari SYSID ile ayirt ediyor — ikisi de 1 olunca
+# QGC ikisini TEK ARAC sanip telemetriyi karistiriyor (31 Temmuz'da UDP
+# 14550 dinlenerek olculdu: iki farkli IP'den gelen paketlerin hepsi
+# sysid=1). Her drone'un MAV_SYS_ID'si kendi AGENT_ID'si yapiliyor;
+# MAVROS'un hedef sistemi de ayni olmak ZORUNDA, yoksa FCU ile konusamaz.
+ros2 run mavros mavros_node --ros-args -r __ns:=/drone_${AGENT_ID}/mavros \
+    -p fcu_url:=/dev/ttyAMA0:921600 \
+    -p tgt_system:=${AGENT_ID} \
+    ${GCS_URL:+-p gcs_url:="$GCS_URL"} \
+    > "$GUNLUK/mavros.log" 2>&1 &
+[ -n "$GCS_URL" ] && echo "[baslat] MAVLink QGC'ye iletiliyor: $GCS_URL"
+echo "[baslat] MAVROS tgt_system=$AGENT_ID (PX4 MAV_SYS_ID ile ayni olmali)"
 sleep 15
 ros2 run swarm_control px4_bridge --ros-args -p agent_id:=${AGENT_ID} > "$GUNLUK/px4b.log" 2>&1 &
 sleep 5
