@@ -91,29 +91,45 @@ kalır ve "kart bozuk" sanırsın (bkz. saha günlüğü §5.6):
     s = serial.Serial(port, baud, timeout=0.4)
     s.setDTR(False); s.setRTS(False)
 
-## QGroundControl bağlantısı (kanıt videosu için)
+## QGroundControl bağlantısı
 
 Kanıt videosu yönergesi "uçuş modunun ve yönelimlerin açıkça göründüğü"
 QGC/Mission Planner ekranını şart koşuyor. Mesh 16 baytlık özet taşır ve
-QGC'nin HUD'una yetmez — QGC'ye **tam MAVLink** gerekir. Yol WiFi üzerinden:
+QGC'nin HUD'una yetmez — tam MAVLink gerekir. Yol WiFi üzerinden:
 
-1. Her Pi'de `~/yelpence_ws/gcs_url` dosyası → `udp-b://:14555@14550`
-   (`baslat.sh` okur; dosya yoksa MAVROS hiçbir yere iletmez).
-2. Laptopta: `~/gcs-venv/bin/python src/gcs/qgc_proxy.py`
-3. QGC → Application Settings → Comm Links → Add → **UDP, port 14551** →
-   Connect. **AutoConnect UDP kapatılmalı**, yoksa QGC 14550'yi kapmaya
-   çalışıp proxy ile yarışır.
+1. Her Pi'de `~/yelpence_ws/gcs_url` → `udp-b://:14555@14550`
+2. QGC → Comm Links → Add → **UDP, port 14550** → Connect
+   (**AutoConnect UDP kapalı** olsun; açıksa QGC portu iki kez almaya çalışır)
 
-**Proxy neden gerekiyor:** iki PX4 de fabrika ayarı `MAV_SYS_ID=1` ile geliyor
-ve QGC araçları sysid ile ayırt ediyor — ikisi de 1 olunca QGC bunları tek
-araç sanıp telemetriyi karıştırır (30 Tem ölçüldü: iki farklı IP, hepsi
-sysid 1). PX4 `MAV_SYS_ID` yazımını hem MAVROS'tan hem doğrudan MAVLink
-`PARAM_SET`'ten **reddetti**; o yüzden düzeltme yerde yapılıyor — proxy
-paketi çözüp kaynak IP'ye göre sysid'yi yeniden yazıyor. Uçağa dokunmaz.
+**MAV_SYS_ID her drone'da AYRI olmak zorunda.** QGC araçları sysid ile ayırır;
+ikisi de 1 olursa QGC bunları **tek araç** sanar ve iki uçağın telemetrisi
+aynı araca akar — HUD arada git gel yapar (30 Tem'de yaşandı, ölçüldü:
+14550'ye iki farklı IP'den ~2350'şer paket, hepsi sysid=1).
 
-**MAVROS tuzağı:** `udp-b://` şemasında `@PORT` **yok sayılıyor**. Ne yazarsan
-yaz yayın 14550'ye gider; MAVROS logu "GCS URL: ...@14560" dese ve endpoint
-"opened successfully" olsa bile. Üç port aynı anda dinlenerek ölçüldü.
+| Drone | MAV_SYS_ID | `/ws/tgt_system` |
+|-------|-----------|------------------|
+| ylp00 | 1         | (dosya yok, MAVROS varsayılanı 1) |
+| ylp01 | 2         | `2` |
+| ylp02 | 3         | `3` |
+
+Değiştirme yordamı — **üçü birden yapılmazsa drone sessizce kopar**:
+
+    ros2 param set /drone_N/mavros/param MAV_SYS_ID <N>
+    # FCU'yu YENIDEN BASLAT — PX4 bu parametreyi ancak boyle uygular.
+    # (ilk denemede "yazilmadi" sanilmasinin sebebi budur)
+    ros2 service call /drone_N/mavros/cmd/command mavros_msgs/srv/CommandLong \
+      "{command: 246, param1: 1.0}"
+    echo <N> > ~/yelpence_ws/tgt_system    # MAVROS da ayni sistemi hedeflesin
+    docker restart <konteyner>
+
+`tgt_system` FCU ile uyuşmazsa semptom aldatıcıdır: paketler akmaya devam
+eder ama **içerik boşalır** — `mod=?`, `sat=0`, `pil %0`, arayüzde FAILSAFE.
+İpucu `mavros.log`'daki `detected remote address <sysid>.1` satırıdır.
+
+**`src/gcs/qgc_proxy.py` KULLANILMIYOR.** sysid çakışması için yazılmıştı ama
+MAVROS'un `udp-b` uçnoktası bir karşı taraf keşfedince yayını bırakıp o adrese
+tekil gönderime geçiyor; proxy'ye kilitlenip proxy ölünce telemetri tamamen
+kesiliyor. Ayrıntı dosyanın başlığında.
 
 ## Yerel servisler
 

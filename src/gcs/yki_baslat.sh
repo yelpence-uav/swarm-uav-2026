@@ -119,23 +119,20 @@ setsid bash -c "source /opt/ros/jazzy/setup.bash && source '$REPO/install/setup.
   > /tmp/yki_rtcm.log 2>&1 < /dev/null &
 disown
 
-# --- 1.8) QGC proxy: sysid'yi kaynak IP'ye gore yeniden yazar ---
-# NEDEN VAR: butun PX4'lerimiz fabrika ayari MAV_SYS_ID=1 ile geliyor ve QGC
-# araclari SYSID ile ayirt ediyor. Ikisi de 1 olunca QGC bunlari TEK ARAC
-# sanip iki ucagin telemetrisini ayni araca akitiyor — HUD arada git gel
-# yapiyor (31 Temmuz'da yasandi). PX4 MAV_SYS_ID yazimini reddettigi icin
-# duzeltme yerde yapiliyor.
+# --- QGC BAGLANTISI (proxy YOK, bilerek) ---------------------------------
+# QGC dogrudan UDP 14550'ye baglanir. Her PX4'un MAV_SYS_ID'si AYRI oldugu
+# surece QGC onlari ayri arac gorur ve cift yonlu konusur (parametre indirme,
+# kalibrasyon, komut hepsi calisir).
+#   ylp00 -> 1   ylp01 -> 2   ylp02 -> 3
 #
-# BURADA BASLATILIYOR ki 14550'yi QGC'den ONCE sahiplensin. Yoksa QGC portu
-# kapiyor, proxy baglanamiyor ve karisik akis devam ediyor.
-# QGC tarafi: Comm Links -> Add -> UDP, port 14551 -> Connect.
-if [ -f "$REPO/src/gcs/qgc_proxy.py" ]; then
-  echo "[YKİ] QGC proxy başlatılıyor (:14550 -> :14551, sysid ayrıştırma)..."
-  setsid bash -c "source '$VENV/bin/activate' && \
-    exec python3 '$REPO/src/gcs/qgc_proxy.py'" \
-    > /tmp/yki_qgc_proxy.log 2>&1 < /dev/null &
-  disown
-fi
+# BURAYA PROXY KOYMAYIN. 31 Temmuz'da sysid cakismasi icin qgc_proxy
+# denendi ve ISI BOZDU: MAVROS'un udp-b ucnoktasi bir karsi taraf KESFEDINCE
+# yayini birakip o adrese tekil gonderime geciyor. Proxy drone'a paket
+# yollayinca MAVROS ona kilitlendi, proxy olunce de telemetri tamamen kesildi
+# (olculdu: 14550'de ylp00'dan sifir paket, konteyner restarti gerekti).
+# Dogru cozum sysid'leri FCU'da ayirmaktir — PX4 MAV_SYS_ID'yi ancak YENIDEN
+# BASLATMADA uyguluyor, o yuzden ilk denemede "yazilmadi" sanilmisti.
+# Ayrinti: src/gcs/qgc_proxy.py basligi.
 
 # --- 2) Backend (REST + WebSocket, ros2 modu) ---
 echo "[YKİ] backend başlatılıyor (:8000)..."

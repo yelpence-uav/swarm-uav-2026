@@ -1,5 +1,35 @@
 #!/usr/bin/env python3
 # =============================================================================
+# !!! BU ARAC ARTIK KULLANILMIYOR — ONCE BUNU OKU !!!
+#
+# 31 Temmuz'da sysid cakismasini cozmek icin yazildi, sonra DAHA IYI bir cozum
+# bulundu ve bu arac devre disi birakildi. Otomatik baslatilmiyor.
+#
+# NEDEN BIRAKILDI — iki sebep, ikisi de olculdu:
+#
+# 1) MAVROS'UN KARSI-TARAF KESFINI BOZUYOR. udp-b (broadcast) ucnoktasi bir
+#    karsi taraf gorunce yayini birakip O ADRESE tekil gonderime geciyor
+#    (mavros.log: "link[1001] detected remote address 255.190"). Proxy drone'a
+#    paket yollayinca MAVROS proxy'ye kilitlendi; proxy durunca telemetri
+#    TAMAMEN kesildi. 14550'de ylp00'dan sifir paket kaldi, duzeltmek icin
+#    konteyner restarti gerekti.
+#
+# 2) TEK SOKET IKI AMACLA KULLANILIYORDU. QGC'ye gonderim ve drone'a gonderim
+#    ayni soketten yapiliyordu; MAVROS'un tekil gonderimi o sokete dusunce
+#    "QGC'den geldi" sanilip drone'lara GERI yollandi. Kendi kendini besleyen
+#    dongu: QGC->drone sayaci 21296'ya firlarken drone->QGC 12'de dondu.
+#
+# DOGRU COZUM: her PX4'un MAV_SYS_ID'sini AYRI yap, QGC dogrudan 14550'ye
+# baglansin. Cift yonluluk native calisir (parametre indirme, kalibrasyon,
+# komut). Bizde: ylp00 -> 1, ylp01 -> 2, ylp02 -> 3.
+#   ros2 param set /drone_N/mavros/param MAV_SYS_ID <N>
+#   + FCU YENIDEN BASLAT (PX4 bu parametreyi ancak boyle uygular — ilk
+#     denemede "yazilmadi" sanilmasinin sebebi buydu)
+#   + /ws/tgt_system dosyasina <N> yaz, konteyneri yeniden baslat
+#
+# Bu dosya yalnizca sysid'leri AYIRMANIN mumkun olmadigi bir durumda, ve
+# yukaridaki iki kusur giderilerek kullanilmali.
+# =============================================================================
 # QGC PROXY — iki drone'un MAVLink akisini QGC'nin AYRI ARAC olarak gormesi
 # icin sysid'yi kaynak IP'ye gore yeniden yazar.
 #
@@ -19,8 +49,19 @@
 #
 # Ucaga hicbir sey yapmaz; calismasa bile ucus etkilenmez.
 #
-# AKIS
-#   drone MAVROS --(udp-b broadcast :14550)--> bu proxy --(:14551)--> QGC
+# AKIS — CIFT YONLU
+#   drone MAVROS --(udp-b broadcast :14550)--> proxy --(:14551)--> QGC
+#   QGC        --(cevap)--------------------> proxy --(:14555)--> ilgili drone
+#
+# DONUS YOLU SART: ilk surum tek yonluydu ve QGC'de PARAMETRE INDIRME YARIDA
+# KALIYORDU. Sebep: QGC parametreleri almak icin araca PARAM_REQUEST_LIST
+# GONDERMEK zorunda; tek yonlu proxy'de o istek hicbir zaman ulasmiyor,
+# QGC de sonsuza kadar bekliyor (yesil ilerleme cubugu takiliyor).
+# Ayni sebeple komut/kalibrasyon da calismazdi.
+#
+# Donuste sysid TERSINE cevrilir: QGC 'sysid 2'ye yaziyorum' der, biz onu
+# ylp01'in IP'sine yollar ve target_system'i FCU'nun gercek kimligine (1)
+# geri yazariz.
 #
 # MAVROS TUZAGI (olculdu): udp-b:// semasinda '@PORT' kismi YOK SAYILIYOR.
 # gcs_url'e 'udp-b://:14555@14560' yazilip MAVROS "GCS URL: ...@14560" diye
@@ -39,6 +80,7 @@
 # =============================================================================
 
 import argparse
+import select
 import socket
 import sys
 import time
@@ -71,11 +113,20 @@ def main() -> int:
         giris.bind(("", a.dinle))
     except OSError as e:
         return f"UDP {a.dinle} baglanamadi: {e}"
-    giris.settimeout(1.0)
+    giris.setblocking(False)
+
+    # QGC tarafi TEK soket: hem QGC'ye yolluyoruz hem QGC'nin cevaplari
+    # buraya donuyor (QGC gelen paketin kaynagina cevap verir).
     cikis = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    cikis.setblocking(False)
+
+    sysid_ip = {v: k for k, v in IP_SYSID.items()}
 
     cozucu = mav.MAVLink(None)
     cozucu.robust_parsing = True
+    qcozucu = mav.MAVLink(None)
+    qcozucu.robust_parsing = True
+    qpaketleyiciler: dict = {}
     # Her (yeni sysid, component) icin ayri paketleyici: pack() srcSystem'i
     # MAVLink nesnesinden alir, o yuzden nesneyi yeniden kullanamayiz.
     paketleyiciler: dict = {}
@@ -88,14 +139,56 @@ def main() -> int:
     bilinmeyen: set = set()
     son_rapor = time.time()
 
+    geri = 0
     while True:
         try:
-            veri, adres = giris.recvfrom(4096)
-        except socket.timeout:
-            veri = None
+            hazir, _, _ = select.select([giris, cikis], [], [], 1.0)
         except KeyboardInterrupt:
             print("\nkapatiliyor")
             return 0
+
+        # --- QGC -> drone (donus yolu) --------------------------------------
+        if cikis in hazir:
+            try:
+                qveri, _ = cikis.recvfrom(4096)
+            except (BlockingIOError, OSError):
+                qveri = None
+            if qveri:
+                try:
+                    qmesajlar = qcozucu.parse_buffer(qveri) or []
+                except Exception:
+                    qmesajlar = []
+                for qm in qmesajlar:
+                    hedef_sys = getattr(qm, "target_system", 0)
+                    hedefler = ([sysid_ip[hedef_sys]] if hedef_sys in sysid_ip
+                                else list(IP_SYSID))       # 0 = yayin -> hepsi
+                    # FCU'lar gercekte sysid 1; QGC'nin gordugu numarayi
+                    # geri cevir, yoksa arac komutu kendisine ait saymaz.
+                    if hasattr(qm, "target_system"):
+                        qm.target_system = 1
+                    anahtar = (qm.get_srcSystem(), qm.get_srcComponent())
+                    pq = qpaketleyiciler.get(anahtar)
+                    if pq is None:
+                        pq = mav.MAVLink(None, srcSystem=anahtar[0], srcComponent=anahtar[1])
+                        qpaketleyiciler[anahtar] = pq
+                    try:
+                        ham = qm.pack(pq)
+                    except Exception:
+                        continue
+                    for hip in hedefler:
+                        try:
+                            cikis.sendto(ham, (hip, 14555))
+                            geri += 1
+                        except Exception:
+                            pass
+
+        # --- drone -> QGC ---------------------------------------------------
+        veri = None
+        if giris in hazir:
+            try:
+                veri, adres = giris.recvfrom(4096)
+            except (BlockingIOError, OSError):
+                veri = None
 
         if veri:
             yeni_sysid = IP_SYSID.get(adres[0])
@@ -125,7 +218,8 @@ def main() -> int:
 
         if time.time() - son_rapor >= 5.0:
             if sayac:
-                print("  " + "   ".join(f"sysid {k}: {v} msg" for k, v in sorted(sayac.items())))
+                print("  " + "   ".join(f"sysid {k}: {v} msg" for k, v in sorted(sayac.items()))
+                      + f"   | QGC->drone: {geri}")
             else:
                 print("  (veri yok — drone'lar yayin yapiyor mu? gcs_url portu dogru mu?)")
             son_rapor = time.time()

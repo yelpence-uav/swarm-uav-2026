@@ -49,20 +49,28 @@ GCS_URL="${GCS_URL:-}"
 if [ -z "$GCS_URL" ] && [ -f /ws/gcs_url ]; then
     GCS_URL="$(tr -d '[:space:]' < /ws/gcs_url)"
 fi
-# tgt_system VERILMEZ — MAVROS varsayilani 1'dir ve BUTUN PX4'lerimiz fabrika
-# ayari MAV_SYS_ID=1 ile geliyor.
+# TGT_SYSTEM: MAVROS'un konusacagi PX4 sistem kimligi.
 #
-# 31 Temmuz'da burada 'tgt_system:=${AGENT_ID}' denendi ve ylp02'yi BOZDU:
-# AGENT_ID=3 oldugu icin MAVROS sistem 3'u hedefledi, FCU ise hala 1'di;
-# paketler akmaya devam etti ama icerik bosaldi (mod=?, sat=0, pil %0) —
-# "baglanti var ama veri yok" gibi gorunen, teshisi zor bir hal.
-# PX4 MAV_SYS_ID yazimini hem MAVROS'tan hem dogrudan MAVLink PARAM_SET'ten
-# reddettigi icin ikisini eslemek mumkun olmadi.
+# Varsayilan 1'dir ve cogu PX4'umuz fabrika ayari MAV_SYS_ID=1 ile geliyor.
+# AMA ylp02'nin FCU'su 31 Temmuz'da 3'e gecti: MAV_SYS_ID=3 yazilmisti,
+# PX4 bu parametreyi ancak YENIDEN BASLATMADA uyguluyor, ve FCU o gun
+# yeniden basladi. MAVROS 1'i hedeflemeye devam edince FCU ile hic
+# konusamadi — dugumler ayakta, port acik, ama 'connected: false' ve
+# YKI'de butun alanlar sifir. Teshisi zor bir hal; ipucu mavros.log'daki
+# 'detected remote address 3.125' satiri (saglamda '1.1' olur).
 #
-# QGC'nin iki drone'u ayirmasi zaten FCU'da degil YERDE cozuluyor:
-# src/gcs/qgc_proxy.py sysid'yi kaynak IP'ye gore yeniden yaziyor.
+# Bu yuzden AGENT_ID'den TUREMEZ — o, FCU'su hala 1 olan drone'lari bozar.
+# /ws/tgt_system dosyasindan okunur; yoksa MAVROS varsayilani kullanilir.
+TGT_SYSTEM=""
+if [ -f /ws/tgt_system ]; then
+    TGT_SYSTEM="$(tr -d '[:space:]' < /ws/tgt_system)"
+    echo "[baslat] MAVROS tgt_system=$TGT_SYSTEM (PX4 MAV_SYS_ID ile ayni olmali)"
+fi
+# Suanki durum: ylp00 -> dosya YOK (FCU sysid 1, MAVROS varsayilani 1)
+#               ylp02 -> /ws/tgt_system = 3 (FCU sysid 3)
 ros2 run mavros mavros_node --ros-args -r __ns:=/drone_${AGENT_ID}/mavros \
     -p fcu_url:=/dev/ttyAMA0:921600 \
+    ${TGT_SYSTEM:+-p tgt_system:=$TGT_SYSTEM} \
     ${GCS_URL:+-p gcs_url:="$GCS_URL"} \
     > "$GUNLUK/mavros.log" 2>&1 &
 [ -n "$GCS_URL" ] && echo "[baslat] MAVLink QGC'ye iletiliyor: $GCS_URL"
