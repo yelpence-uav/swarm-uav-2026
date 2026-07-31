@@ -42,6 +42,7 @@ GÜVENLİK SINIRLARI — hepsi bilerek muhafazakâr
   Yani düğümün arızası "kaçınma yok"tur, "kontrol yok" değil.
 """
 
+import copy
 import math
 
 import rclpy
@@ -120,6 +121,7 @@ class BasitKacinmaNode(Node):
         self._kendi = None            # (kuzey, doğu)
         self._komsu = {}              # id -> (kuzey, doğu, zaman)
         self._son_itme = (0.0, 0.0)
+        self._ham = None              # son gelen ham setpoint
 
         self._pub = self.create_publisher(
             AgentSetpoint, f'/drone_{self._aid}/control/setpoint', qos)
@@ -141,6 +143,10 @@ class BasitKacinmaNode(Node):
                 lambda m, n=nid: self._on_komsu(n, m), qos)
             self.get_logger().info(f'komşu aboneliği: drone{nid}')
 
+        # 10 Hz: komşu 4 m/s ile yaklaşsa tik başına 0.4 m ilerler — itme
+        # yeterince sık güncellenir. Daha hızlısı mesh'e değil yalnız yerel
+        # ROS'a yük bindirir, ama 10 Hz zaten fazlasıyla yeterli.
+        self.create_timer(0.1, self._tik)
         self.create_timer(1.0, self._durum_yaz)
         self.get_logger().info(
             f'basit_kacinma başladı: agent={self._aid} '
@@ -159,13 +165,27 @@ class BasitKacinmaNode(Node):
 
     # --- asıl iş -----------------------------------------------------------
     def _on_raw(self, msg: AgentSetpoint) -> None:
-        """Ham setpoint'i itme ile düzeltip yayınlar.
+        """Ham hedefi saklar. İşi zamanlayıcı yapar — sebebi aşağıda."""
+        self._ham = msg
 
-        HER ÇIKIŞ YOLU BİR SETPOINT YAYINLAR. Sessizce düşürmek px4_bridge'in
-        setpoint akışını kesmek demektir ve PX4 OFFBOARD'dan düşer — yani
-        kaçınma düğümündeki bir hata uçağı failsafe'e sokar. Bu yüzden
-        şüpheli her durumda ham setpoint AYNEN geçirilir.
+    def _tik(self) -> None:
+        """Kaçınmayı SÜREKLİ hesaplar ve yayınlar.
+
+        NEDEN ZAMANLAYICI, NEDEN GELEN MESAJ DEĞİL: esp32_bridge setpoint'i
+        OLAY BAZLI yayınlıyor — her guided 'goto' komutunda bir kez, yani
+        görevde ~10 saniyede bir. Kaçınmayı gelen mesaja bağlarsak komşu
+        yaklaşırken hiçbir itme hesaplanmaz ve bir sonraki goto'ya kadar
+        kör kalırız. Kaçınma sürekli çalışmak zorunda.
+
+        HER TİK BİR SETPOINT YAYINLAR (ham hedef geldiyse). Sessizce
+        düşürmek px4_bridge'in akışını kesmek demektir ve PX4 OFFBOARD'dan
+        düşer — yani kaçınmadaki bir hata uçağı failsafe'e sokardı.
+        Şüpheli her durumda ham setpoint AYNEN geçer.
         """
+        msg = self._ham
+        if msg is None:
+            return                    # henüz hedef yok; px4_bridge kendi tutuyor
+
         cik = msg
         itme = (0.0, 0.0)
 
@@ -183,11 +203,11 @@ class BasitKacinmaNode(Node):
                     itme = (itme[0] * self._max_itme / buy,
                             itme[1] * self._max_itme / buy)
                 if buy > 1e-3:
-                    cik = AgentSetpoint()
-                    # Alanları tek tek kopyala: mesajı yerinde değiştirmek
-                    # aynı nesneyi tutan başka aboneleri etkileyebilir.
-                    for alan in msg.get_fields_and_field_types():
-                        setattr(cik, alan, getattr(msg, alan))
+                    # deepcopy: alanları tek tek setattr ile kopyalamak iç
+                    # içe alanlarda sessizce bozulabilir. Mesajı YERİNDE
+                    # değiştirmek de olmaz — aynı nesneyi tutan başka
+                    # aboneler etkilenir.
+                    cik = copy.deepcopy(msg)
                     cik.x = msg.x + itme[0]
                     cik.y = msg.y + itme[1]
                     # z'ye DOKUNULMUYOR — irtifa ayrımı yedek garantimiz.
