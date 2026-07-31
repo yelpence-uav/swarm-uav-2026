@@ -174,7 +174,23 @@ _PILOT_MODLARI = frozenset({1, 2, 3, 9, 10})
 # giden dort takeoff paketini duydugunu ama kendisine hic gelmedigini
 # gosteriyordu. Arm'lar calismisti cunku aralarinda teyit beklemesi vardi
 # (2.5 ve 3.5 sn).
-KOMUT_ARALIK_S = 0.30
+#
+# ASIL COZUM ARTIK BASE KOPRUSUNDE: esp32_bridge_node._guided_gonder tum
+# guided cerceveleri tek kuyruga alip tip basina arali gonderiyor ve
+# ucaklara SIRAYLA veriyor (olculdu: her ucak 4/4 cerceve aliyor, oncesinde
+# ikinci ucak 1/4 aliyordu). Burasi artik yalniz HTTP'yi dovmemek icin
+# kucuk bir aralik; garanti orada.
+KOMUT_ARALIK_S = 0.05
+
+# --- Ucus dinamigi ----------------------------------------------------------
+# SETPOINT YURUTULUR, HEDEF TEK ADIMDA VERILMEZ. Bkz. git_ve_bekle().
+# Bu degerler UCAKTAKI parametreleri DEGISTIRMEZ; MPC_XY_VEL_MAX 4 m/s tavan
+# olarak kalir. Tavani dusurmemek bilincli: carpisma kacinmasinin kacis payi
+# oradan geliyor ve kumandadaki POSCTL de ayni parametreyle sinirli.
+GOREV_HIZ_MPS = 2.0          # yatay yurutme hizi
+GOREV_DIKEY_HIZ_MPS = 1.0    # irtifa degisim hizi (motor isinmasi: daha yavas)
+SETPOINT_ADIM_S = 0.5        # ara hedef gonderim araligi
+TASMA_M = 3.0                # setpoint ucaktan en fazla bu kadar onde olabilir
 
 _son_komut_t = 0.0
 _iniyor = False
@@ -750,12 +766,51 @@ def git(did: int, hedef, heading_deg: float, kuru: bool, t_durum):
         "x": k, "y": d, "z": irtifa, "heading_deg": heading_deg})
 
 
-def varis_bekle(hedefler, asim_s: float, kuru: bool) -> bool:
+def git_ve_bekle(hedefler, heading_deg: float, asim_s: float, kuru: bool,
+                 t_baslangic) -> bool:
+    """Hedeflere ADIM ADIM yürür ve varışı bekler.
+
+    NEDEN TEK KOMUT DEĞİL — 1 Ağustos'ta ölçüldü. Önceki hali son noktayı
+    TEK goto ile veriyordu. OFFBOARD'da PX4 konum setpoint'ini yumuşatmaz;
+    Auto modundaki yörünge üreteci (MPC_JERK_AUTO / MPC_ACC_HOR) o yolda
+    DEVREDE DEĞİLDİR. Yani 8 m ötedeki bir nokta = anında MPC_XY_VEL_MAX
+    kadar hız talebi. Uçak tam yetkiyle atılıyor, varınca aynı sertlikte
+    frenliyor. Ölçüm: 1 sn'lik ortalamalar d1 3.2/3.0 m/s, d2 3.0/2.6 m/s —
+    4 m/s tavanına dayanmış. Operatörün gördüğü "aşırı hızlı tepki" budur.
+
+    Setpoint'i GOREV_HIZ_MPS ile yürütünce talep edilen hız yürütme hızına
+    eşitlenir; hareket düzgün başlar ve düzgün biter.
+
+    UÇAKTAKİ PARAMETRE BİLEREK DÜŞÜRÜLMEDİ (MPC_XY_VEL_MAX 4.0 kalıyor):
+      * çarpışma kaçınmasının kaçış payı o tavandan geliyor — görev hızına
+        eşitlersek kaçış manevrası da 2 m/s'e iner ve itme yetersiz kalır
+      * aynı parametre kumandadaki POSCTL'i de sınırlar; pilotun elinden
+        manevra kabiliyetini almak güvenliği azaltır
+
+    TAŞMA FRENİ: setpoint uçaktan en fazla TASMA_M ötede olabilir. Olmasaydı
+    rüzgâr/kaçınma yüzünden geride kalan uçağın önünde setpoint kaçar, sonra
+    uçak onu yakalamak için hızlanırdı — düzeltmeye çalıştığımız davranışın
+    aynısı, üstelik daha kötüsü.
+    """
     if kuru:
         return True
+    # Yürüyen setpoint uçağın ÖLÇÜLEN yerinden başlar; plandaki önceki
+    # noktadan değil. Uçak nerede kaldıysa oradan devam etsin.
+    sp = {}
+    for did in DRONELAR:
+        d = t_baslangic.get(did)
+        if d is None:
+            raise RuntimeError(f"drone {did} telemetride yok")
+        sp[did] = [d["pos_x"], d["pos_y"], d["alt_m"]]
+    onceki_konum = {did: (sp[did][0], sp[did][1], sp[did][2]) for did in DRONELAR}
+
     basla = time.time()
+    onceki_t = basla
     while time.time() - basla < asim_s:
-        time.sleep(1.0)
+        time.sleep(SETPOINT_ADIM_S)
+        simdi = time.time()
+        dt = max(1e-3, simdi - onceki_t)
+        onceki_t = simdi
         t = durum()
 
         # PİLOT DEVRALDI MI / OFFBOARD DÜŞTÜ MÜ — hemen anla, zaman aşımını
@@ -785,16 +840,47 @@ def varis_bekle(hedefler, asim_s: float, kuru: bool) -> bool:
                       f"(mod={d.get('mode')}, flight_mode={fm}) — failsafe olabilir")
                 return False
 
-        uzak = {}
-        for did, h in hedefler.items():
+        uzak, hiz = {}, {}
+        for did in DRONELAR:
             dd = t.get(did)
             if dd is None:
                 continue
-            uzak[did] = math.dist((dd["pos_x"], dd["pos_y"], dd["alt_m"]), h)
+            hedef = hedefler[did]
+            konum = (dd["pos_x"], dd["pos_y"], dd["alt_m"])
+            uzak[did] = math.dist(konum, hedef)
+            # Ölçülen yer hızı — "ne kadar hızlı gitti" sorusu bir daha
+            # log arkeolojisi gerektirmesin, uçarken görünsün.
+            hiz[did] = math.dist(konum[:2], onceki_konum[did][:2]) / dt
+            onceki_konum[did] = konum
+
+            hk, hd, hi = hedef
+            dk, dd_ = hk - sp[did][0], hd - sp[did][1]
+            yatay = math.hypot(dk, dd_)
+            adim = GOREV_HIZ_MPS * dt
+            if yatay <= adim:
+                sp[did][0], sp[did][1] = hk, hd
+            else:
+                sp[did][0] += dk * adim / yatay
+                sp[did][1] += dd_ * adim / yatay
+            di = hi - sp[did][2]
+            dadim = GOREV_DIKEY_HIZ_MPS * dt
+            sp[did][2] = hi if abs(di) <= dadim else sp[did][2] + math.copysign(dadim, di)
+
+            # TAŞMA FRENİ: ilerledikten SONRA geri çek. Önce bakıp "ilerleme"
+            # demek bir adım geç kalıyor ve sınırı TASMA_M + hız*dt yapıyordu
+            # (ölçüldü: 3.0 yerine 4.0 m). Burada sınır tam olarak TASMA_M.
+            one = math.dist(tuple(sp[did]), konum)
+            if one > TASMA_M:
+                o = TASMA_M / one
+                sp[did] = [konum[j] + (sp[did][j] - konum[j]) * o for j in range(3)]
+            git(did, tuple(sp[did]), heading_deg, kuru, t)
+
         if uzak and all(u <= TOLERANS_M for u in uzak.values()):
-            print("      vardı: " + "  ".join(f"d{k}={v:.1f}m" for k, v in sorted(uzak.items())))
+            print("      vardı: " + "  ".join(
+                f"d{k}={v:.1f}m" for k, v in sorted(uzak.items())))
             return True
-        print("      ... " + "  ".join(f"d{k}={v:.1f}m" for k, v in sorted(uzak.items())), end="\r")
+        print("      ... " + "  ".join(
+            f"d{k}={uzak[k]:.1f}m({hiz[k]:.1f}m/s)" for k in sorted(uzak)), end="\r")
     print(f"\n      ZAMAN AŞIMI ({asim_s:.0f}s)")
     return False
 
@@ -836,6 +922,26 @@ def on_kontrol(kuru: bool) -> bool:
             engel.append("ZATEN ARMED")
         if d["gps_fix_type"] < 3:
             engel.append(f"GPS fix={d['gps_fix_type']}")
+
+        # KUMANDA KAPISI. Kumanda kapaliyken gorev BASLAMAMALI: tek gercek
+        # iptal yolumuz o. Yazilim iptali (Ctrl-C / durdurma dosyasi) YKI'ye,
+        # aga ve mesh'e bagli; kumanda hicbirine bagli degil.
+        #
+        # rc_link_ok BU ISI GORMUYOR — 1 Agustos'ta olculdu: kumandalar
+        # KAPALIYKEN rc_link_ok=True okundu, /mavros/rc/in akmaya devam etti
+        # (rssi sabit 41, kanallar donmus). Alici "son degerleri tut"
+        # failsafe'inde oldugu icin PX4 kumandanin kapandigini GORMUYOR.
+        # Bu yuzden kapiyi PX4'un kendi hukmune baglıyoruz: arm'a hazir mi,
+        # kill anahtari acik mi. Kumanda kapaliyken alici failsafe degerlerine
+        # dusuyor ve bunlar zaten arm'i engelliyor (ylp00'da KILL okundu).
+        if d.get("kill_switch_active"):
+            engel.append("KILL ANAHTARI AÇIK (kumandadan kapat)")
+        if d.get("rc_signal_failsafe_active"):
+            engel.append("RC FAILSAFE")
+        if d.get("failsafe_active"):
+            engel.append("FAILSAFE")
+        if not d.get("ready_to_arm", True):
+            engel.append("ARM'A HAZIR DEĞİL (kumanda açık mı?)")
         fix = d["gps_fix_type"]
         print(f"  drone {did}: bagli={d['connected']} armed={d['armed']} mod={d['mode']} "
               f"GPS={_FIX_ADI.get(fix, fix)} sat={d['gps_satellites']} "
@@ -975,7 +1081,11 @@ def gorev(kuru: bool) -> int:
         t_durum = durum()
 
         # YON KADEMELI VERILIR. Tek sicrama yerine ara yonler; bkz.
-        # YAW_ADIM_DEG yorumu. Konum degismez, yalniz burun doner.
+        # YAW_ADIM_DEG yorumu. Konum degismez, YALNIZ BURUN DONER — bu yuzden
+        # ara adimlarda ucagin OLCULEN yeri gonderilir. Onceden buraya
+        # hedefler[did] (YENI nokta) veriliyordu: yorum "konum degismez"
+        # derken kod ucagi doner donmez yola cikariyordu, ustelik yurutulmemis
+        # tek sicrama olarak. Ikisi bir arada donuse ek bir savrulma katiyordu.
         if onceki_heading is not None and not kuru:
             aralar = yon_dilimle(onceki_heading, heading)
             if aralar:
@@ -983,15 +1093,19 @@ def gorev(kuru: bool) -> int:
                       f"({len(aralar)} ara adım)")
                 for ara in aralar:
                     for did in DRONELAR:
-                        git(did, hedefler[did], ara, kuru, t_durum)
+                        d = t_durum.get(did)
+                        if d is None:
+                            continue
+                        git(did, (d["pos_x"], d["pos_y"], d["alt_m"]),
+                            ara, kuru, t_durum)
                     time.sleep(YAW_ADIM_BEKLE_S)
         onceki_heading = heading
         for did in DRONELAR:
             h = hedefler[did]
             print(f"      drone {did}: ({h[0]:+7.1f},{h[1]:+7.1f}) "
                   f"irtifa {h[2]:5.1f} m yön {heading:5.1f}°")
-            git(did, h, heading, kuru, t_durum)
-        if not varis_bekle(hedefler, min(ADIM_ASIM_S, max(kalan(), 5)), kuru):
+        if not git_ve_bekle(hedefler, heading,
+                            min(ADIM_ASIM_S, max(kalan(), 5)), kuru, t_durum):
             indir(kuru)
             return 1
         if beklet:
