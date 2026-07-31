@@ -52,7 +52,7 @@ DDS_URI="file://$REPO/src/gcs/cyclonedds_yki.xml"
 # saniyede bir "Device or resource busy" döngüsüne girer. Ölçüldü: art arda
 # birkaç başlatmadan sonra 12 esp32_base, 22 origin yayıncısı.
 # Sahada bu, teşhisi çok zor bir "bazen çalışıyor" arızası olurdu.
-if pgrep -f "esp32_base|swarm_origin_pub|yki_rtcm_reader|uvicorn backend" > /dev/null 2>&1; then
+if pgrep -f "esp32_base|swarm_origin_pub|yki_rtcm_reader|qgc_proxy|uvicorn backend" > /dev/null 2>&1; then
   echo "[YKİ] çalışan örnekler bulundu, önce durduruluyor..."
   bash "$(dirname "${BASH_SOURCE[0]}")/yki_durdur.sh"
   sleep 2
@@ -118,6 +118,24 @@ setsid bash -c "source /opt/ros/jazzy/setup.bash && source '$REPO/install/setup.
     --gps-port '$RTK_GPS_PORT' --ros-topic '$RTK_TOPIC'" \
   > /tmp/yki_rtcm.log 2>&1 < /dev/null &
 disown
+
+# --- 1.8) QGC proxy: sysid'yi kaynak IP'ye gore yeniden yazar ---
+# NEDEN VAR: butun PX4'lerimiz fabrika ayari MAV_SYS_ID=1 ile geliyor ve QGC
+# araclari SYSID ile ayirt ediyor. Ikisi de 1 olunca QGC bunlari TEK ARAC
+# sanip iki ucagin telemetrisini ayni araca akitiyor — HUD arada git gel
+# yapiyor (31 Temmuz'da yasandi). PX4 MAV_SYS_ID yazimini reddettigi icin
+# duzeltme yerde yapiliyor.
+#
+# BURADA BASLATILIYOR ki 14550'yi QGC'den ONCE sahiplensin. Yoksa QGC portu
+# kapiyor, proxy baglanamiyor ve karisik akis devam ediyor.
+# QGC tarafi: Comm Links -> Add -> UDP, port 14551 -> Connect.
+if [ -f "$REPO/src/gcs/qgc_proxy.py" ]; then
+  echo "[YKİ] QGC proxy başlatılıyor (:14550 -> :14551, sysid ayrıştırma)..."
+  setsid bash -c "source '$VENV/bin/activate' && \
+    exec python3 '$REPO/src/gcs/qgc_proxy.py'" \
+    > /tmp/yki_qgc_proxy.log 2>&1 < /dev/null &
+  disown
+fi
 
 # --- 2) Backend (REST + WebSocket, ros2 modu) ---
 echo "[YKİ] backend başlatılıyor (:8000)..."
