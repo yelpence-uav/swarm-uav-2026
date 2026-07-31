@@ -66,7 +66,7 @@ ZAMAN_ASIMI_S = 5.0
 DRONELAR = [1, 3]
 
 # --- Geometri ---------------------------------------------------------------
-ARALIK_M = 8.0          # formasyonda komşu slotlar arası mesafe
+ARALIK_M = 12.0         # formasyonda komşu slotlar arası mesafe
 KANAT_ACISI_DEG = 45.0  # ok başı kanat açısı (orchestrator wing_alpha ile aynı)
 KENAR_M = 22.0          # görev noktaları arası
 TOLERANS_M = 2.5        # "vardı" yarıçapı
@@ -78,10 +78,18 @@ MAX_GOTO_M = 60.0       # tek goto için mesafe tavanı
 # kendi 'takeoff:10.0' komutunu yolluyor (agent_fsm_node.py:251). Farklı bir
 # değer seçersek iki komut çakışır ve hangisinin kazandığı sıralamaya kalır.
 KALKIS_IRTIFA_M = 10.0
-YENI_IRTIFA_M = 15.0    # P3'teki irtifa değişimi hedefi
+# Görev (formasyon) irtifası. Kalkıştan AYRI tutuluyor: roll manevrasında
+# kanatlar merkezden dz = 0.408 x ARALIK_M kadar ayrılıyor (12 m aralıkta
+# ±4.9 m). Kalkış irtifası 10 m'de kalsaydı alttaki uçak 5.1 m'ye inerdi —
+# manevra sırasında fazla alçak. 12 m'de yayılım 7.1-16.9 m arasında kalıyor.
+GOREV_IRTIFA_M = 12.0
+YENI_IRTIFA_M = 18.0    # P3'teki irtifa değişimi hedefi
 
 # --- Manevra ----------------------------------------------------------------
-ROLL_ACISI_DEG = 20.0   # şartname: sürü merkezi sabit, sağa/sola yatış
+# Şartname: sürü merkezi sabit, sağa/sola yatış. 30° seçildi çünkü 20°'de
+# kanatlar merkezden yalnız ±2.1 m ayrılıyordu ve yerden çekimde bu sınırda
+# kalıyor; 30°'de ±3.3 m'ye çıkıyor, manevra videoda net görünüyor.
+ROLL_ACISI_DEG = 30.0
 
 # --- Çarpışma ---------------------------------------------------------------
 # Uçaklar arası kabul edilen en küçük mesafe. Plan bunu ihlal ederse görev
@@ -94,7 +102,9 @@ MIN_AYRIM_M = 4.0
 ARM_ASIM_S = 10
 KALKIS_ASIM_S = 60
 ADIM_ASIM_S = 70
-YERLESME_S = 6.0        # manevra sonrası bekleme (videoda net görünsün)
+YERLESME_S = 6.0        # YALNIZ manevra adimlarindan sonra (roll, rotasyon,
+                        # formasyon, irtifa). Duz seyir bacaklarinda beklenmez:
+                        # gosterilecek bir sey yok ve 5 dk sinirinda 24 sn yer actik.
 GOREV_ASIM_S = 285
 
 _iniyor = False
@@ -194,29 +204,42 @@ def slot_dunya(merkez, heading_deg: float, ileri: float, sag: float):
             merkez[1] + ileri * math.sin(h) + sag * math.cos(h))
 
 
-def hedefler_uret(merkez, heading, formasyon, irtifa, roll_deg, onceki=None):
-    """drone_id -> (kuzey, doğu, irtifa). Slot ataması yolu en aza indirir."""
+def hedefler_uret(merkez, heading, formasyon, irtifa, roll_deg,
+                  onceki=None, slot=None, yeniden_ata=False):
+    """drone_id -> (kuzey, doğu, irtifa). slot: drone_id -> slot indeksi.
+
+    SLOT ATAMASI NE ZAMAN DEĞİŞİR — bu ayrım videoyu belirliyor:
+
+    * Rotasyon ve eğim adımlarında slotlar SABİT kalır. Yoksa "en kısa yol"
+      araması uçakları birbirinin slotuna yerleştiriyor; formasyon dönüyor
+      ama uçaklar yerinde sayıyormuş gibi görünüyor (kuru koşuda ölçüldü:
+      90° rotasyonda yatay hareket 2.7 m'ye düşüyordu). Yönerge rotasyonun
+      "net bir şekilde" görünmesini istiyor, o yüzden uçaklar gerçekten
+      savrulmalı.
+    * FORMASYON DEĞİŞİMİNDE yeniden atama yapılır. Orada sabit atama
+      uçakları birbirinin yerine yollayıp KAFA KAFAYA geçiriyordu.
+    """
     n = len(DRONELAR)
     ofs = formasyon_ofsetleri(formasyon, n)
     dz = egim_dz(ofs, 0.0, roll_deg)
     noktalar = [slot_dunya(merkez, heading, *o) + (irtifa + z,)
                 for o, z in zip(ofs, dz)]
 
-    if not onceki:
-        return {did: noktalar[i] for i, did in enumerate(DRONELAR)}
+    if slot is None:
+        slot = {did: i for i, did in enumerate(DRONELAR)}
 
-    # SLOT ATAMASI SABİT DEĞİL: sabit atama (drone i -> slot i) formasyon
-    # değişiminde uçakları birbirinin yerine yollayıp KAFA KAFAYA geçiriyordu
-    # (kuru koşuda ölçüldü). Toplam yolu en aza indiren atama seçilir.
-    en_iyi, en_ucuz = None, float("inf")
-    for perm in itertools.permutations(range(n)):
-        maliyet = sum(
-            math.dist(noktalar[perm[i]], onceki[did])
-            for i, did in enumerate(DRONELAR) if did in onceki
-        )
-        if maliyet < en_ucuz:
-            en_ucuz, en_iyi = maliyet, perm
-    return {did: noktalar[en_iyi[i]] for i, did in enumerate(DRONELAR)}
+    if yeniden_ata and onceki:
+        en_iyi, en_ucuz = None, float("inf")
+        for perm in itertools.permutations(range(n)):
+            maliyet = sum(
+                math.dist(noktalar[perm[i]], onceki[did])
+                for i, did in enumerate(DRONELAR) if did in onceki
+            )
+            if maliyet < en_ucuz:
+                en_ucuz, en_iyi = maliyet, perm
+        slot = {did: en_iyi[i] for i, did in enumerate(DRONELAR)}
+
+    return {did: noktalar[slot[did]] for did in DRONELAR}, slot
 
 
 # --- Çarpışma doğrulaması ---------------------------------------------------
@@ -254,7 +277,7 @@ def plan_dogrula(plan) -> bool:
     tamam = True
     en_kotu = (float("inf"), "")
 
-    for i, (etiket, _heading, hedefler) in enumerate(plan):
+    for i, (etiket, _heading, hedefler, _b) in enumerate(plan):
         for a, b in itertools.combinations(DRONELAR, 2):
             m = math.dist(hedefler[a], hedefler[b])
             if m < en_kotu[0]:
@@ -266,13 +289,24 @@ def plan_dogrula(plan) -> bool:
             continue
         onceki = plan[i - 1][2]
         for a, b in itertools.combinations(DRONELAR, 2):
-            m = _min_mesafe_gecis(onceki[a], hedefler[a], onceki[b], hedefler[b])
-            if m < en_kotu[0]:
-                en_kotu = (m, f"{plan[i-1][0]} -> {etiket} (geçiş, d{a}-d{b})")
-            if m < MIN_AYRIM_M:
-                print(f"  İHLAL  {plan[i-1][0]} -> {etiket}: "
-                      f"d{a}-d{b} geçişte {m:.2f} m'ye yaklaşıyor")
-                tamam = False
+            # Üç senaryo birden denetlenir. İkisi ve üçüncüsü şart, çünkü
+            # "ikisi de eş zamanlı, aynı hızda gider" varsayımı sahada
+            # tutmayabilir: mesh paketi biri için geç gelebilir, rüzgâr birini
+            # yavaşlatabilir, biri hedefine erken oturup bekleyebilir.
+            # DONMUŞ senaryosu bu durumların hepsini kapsayan en kötü hâldir.
+            senaryolar = (
+                ("eş zamanlı", onceki[a], hedefler[a], onceki[b], hedefler[b]),
+                (f"d{a} donmuş", onceki[a], onceki[a], onceki[b], hedefler[b]),
+                (f"d{b} donmuş", onceki[a], hedefler[a], onceki[b], onceki[b]),
+            )
+            for ad, a0, a1, b0, b1 in senaryolar:
+                m = _min_mesafe_gecis(a0, a1, b0, b1)
+                if m < en_kotu[0]:
+                    en_kotu = (m, f"{plan[i-1][0]} -> {etiket} ({ad}, d{a}-d{b})")
+                if m < MIN_AYRIM_M:
+                    print(f"  İHLAL  {plan[i-1][0]} -> {etiket}: "
+                          f"d{a}-d{b} [{ad}] {m:.2f} m'ye yaklaşıyor")
+                    tamam = False
 
     print(f"  en kritik an: {en_kotu[0]:.2f} m  ({en_kotu[1]})")
     print("  SONUÇ: " + ("GEÇTİ" if tamam else "KALDI — görev başlatılmayacak"))
@@ -294,14 +328,17 @@ def plan_kur(merkez0):
 
     plan = []
     onceki = None
+    slot = None
 
-    def ekle(etiket, merkez, heading, formasyon, irtifa, roll):
-        nonlocal onceki
-        h = hedefler_uret(merkez, heading, formasyon, irtifa, roll, onceki)
+    def ekle(etiket, merkez, heading, formasyon, irtifa, roll,
+             yeniden_ata=False, beklet=True):
+        nonlocal onceki, slot
+        h, slot = hedefler_uret(merkez, heading, formasyon, irtifa, roll,
+                                onceki, slot, yeniden_ata)
         # heading PLANA yazılır. Onceden adım sırasında "bir önceki hedeften
         # bu hedefe" diye türetiliyordu; ilk adımda önceki olmadığı için
         # burun kuzeye (0°) bakıyordu. Formasyonun yönü zaten burada belli.
-        plan.append((etiket, heading, h))
+        plan.append((etiket, heading, h, beklet))
         onceki = h
 
     y1 = yon_derece(merkez0, P1)
@@ -310,36 +347,39 @@ def plan_kur(merkez0):
     y4 = yon_derece(P3, merkez0)
 
     # 1) Kalkış sonrası diziliş — ok başı, P1 yönünde
-    ekle("kalkis/okbasi", merkez0, y1, "okbasi", KALKIS_IRTIFA_M, 0.0)
+    ekle("kalkis/okbasi", merkez0, y1, "okbasi", GOREV_IRTIFA_M, 0.0)
     # 2) P1'e
-    ekle("-> P1", P1, y1, "okbasi", KALKIS_IRTIFA_M, 0.0)
+    ekle("-> P1", P1, y1, "okbasi", GOREV_IRTIFA_M, 0.0, beklet=False)
     # 3) P1'de ROLL
-    ekle("P1: ROLL %+.0f" % ROLL_ACISI_DEG, P1, y1, "okbasi", KALKIS_IRTIFA_M, ROLL_ACISI_DEG)
+    ekle("P1: ROLL %+.0f" % ROLL_ACISI_DEG, P1, y1, "okbasi", GOREV_IRTIFA_M, ROLL_ACISI_DEG)
     # 4) rotasyon (P2 yönü), roll KORUNARAK
-    ekle("P1: rotasyon->P2", P1, y2, "okbasi", KALKIS_IRTIFA_M, ROLL_ACISI_DEG)
+    ekle("P1: rotasyon->P2", P1, y2, "okbasi", GOREV_IRTIFA_M, ROLL_ACISI_DEG)
     # 5) roll'lu halde P2'ye
-    ekle("-> P2 (roll'lu)", P2, y2, "okbasi", KALKIS_IRTIFA_M, ROLL_ACISI_DEG)
+    ekle("-> P2 (roll'lu)", P2, y2, "okbasi", GOREV_IRTIFA_M, ROLL_ACISI_DEG, beklet=False)
     # 6) P2'de roll düzelt
-    ekle("P2: roll duzelt", P2, y2, "okbasi", KALKIS_IRTIFA_M, 0.0)
-    # 7) P2'de FORMASYON DEĞİŞİMİ (ok başı -> çizgi), yön sabit
-    ekle("P2: FORMASYON okbasi->cizgi", P2, y2, "cizgi", KALKIS_IRTIFA_M, 0.0)
+    ekle("P2: roll duzelt", P2, y2, "okbasi", GOREV_IRTIFA_M, 0.0)
+    # 7) P2'de FORMASYON DEĞİŞİMİ (ok başı -> çizgi), yön sabit.
+    #    Slot yeniden ataması YALNIZ BURADA: şekil değiştiği için sabit atama
+    #    uçakları birbirinin yerine yollayıp kafa kafaya geçirirdi.
+    ekle("P2: FORMASYON okbasi->cizgi", P2, y2, "cizgi", GOREV_IRTIFA_M, 0.0,
+         yeniden_ata=True)
     # 8) rotasyon (P3 yönü)
-    ekle("P2: rotasyon->P3", P2, y3, "cizgi", KALKIS_IRTIFA_M, 0.0)
+    ekle("P2: rotasyon->P3", P2, y3, "cizgi", GOREV_IRTIFA_M, 0.0)
     # 9) P3'e
-    ekle("-> P3", P3, y3, "cizgi", KALKIS_IRTIFA_M, 0.0)
+    ekle("-> P3", P3, y3, "cizgi", GOREV_IRTIFA_M, 0.0, beklet=False)
     # 10) P3'te İRTİFA DEĞİŞİMİ
-    ekle("P3: IRTIFA %.0f->%.0f m" % (KALKIS_IRTIFA_M, YENI_IRTIFA_M),
+    ekle("P3: IRTIFA %.0f->%.0f m" % (GOREV_IRTIFA_M, YENI_IRTIFA_M),
          P3, y3, "cizgi", YENI_IRTIFA_M, 0.0)
     # 11) rotasyon (eve yön)
     ekle("P3: rotasyon->EV", P3, y4, "cizgi", YENI_IRTIFA_M, 0.0)
     # 12) kalkış noktasına dön
-    ekle("-> EV (kalkis noktasi)", merkez0, y4, "cizgi", YENI_IRTIFA_M, 0.0)
+    ekle("-> EV (kalkis noktasi)", merkez0, y4, "cizgi", YENI_IRTIFA_M, 0.0, beklet=False)
     return plan
 
 
 def plan_yaz(plan):
     print("\n=== GÖREV PLANI ===")
-    for etiket, heading, hedefler in plan:
+    for etiket, heading, hedefler, _b in plan:
         print(f"  {etiket}   (yön {heading:.0f}°)")
         for did in DRONELAR:
             k, d, i = hedefler[did]
@@ -372,6 +412,25 @@ def varis_bekle(hedefler, asim_s: float, kuru: bool) -> bool:
     while time.time() - basla < asim_s:
         time.sleep(1.0)
         t = durum()
+
+        # PİLOT DEVRALDI MI / OFFBOARD DÜŞTÜ MÜ — hemen anla, zaman aşımını
+        # bekleme. Kumandadan bir drone'a müdahale edilirse (POSCTL, LAND,
+        # failsafe) o uçak artık bizim setpoint'lerimizi izlemiyor demektir;
+        # diğerlerini 70 sn havada tutmanın anlamı yok. Sessiz kalırsak
+        # varis_bekle zaman aşımına düşene kadar sürü uçmaya devam ederdi.
+        for did in DRONELAR:
+            d = t.get(did)
+            if d is None:
+                continue
+            if not d.get("offboard_active", False):
+                print(f"\n      !!! drone {did} OFFBOARD'DAN ÇIKTI "
+                      f"(mod={d.get('mode')}) — pilot müdahalesi ya da failsafe")
+                return False
+            if d.get("pilot_override_active", False):
+                print(f"\n      !!! drone {did} PİLOT KONTROLÜNDE "
+                      f"(mod={d.get('mode')})")
+                return False
+
         uzak = {}
         for did, h in hedefler.items():
             dd = t.get(did)
@@ -498,7 +557,7 @@ def gorev(kuru: bool) -> int:
         return 1
 
     # --- Plan adımları ------------------------------------------------------
-    for i, (etiket, heading, hedefler) in enumerate(plan):
+    for i, (etiket, heading, hedefler, beklet) in enumerate(plan):
         print(f"\n=== [{i+1}/{len(plan)}] {etiket}   yön {heading:.0f}°   "
               f"(kalan {kalan():.0f}s) ===")
         t_durum = durum()
@@ -510,8 +569,9 @@ def gorev(kuru: bool) -> int:
         if not varis_bekle(hedefler, min(ADIM_ASIM_S, max(kalan(), 5)), kuru):
             indir(kuru)
             return 1
-        print(f"    yerleşme {YERLESME_S:.0f}s")
-        time.sleep(YERLESME_S)
+        if beklet:
+            print(f"    yerleşme {YERLESME_S:.0f}s (videoda net görünsün)")
+            time.sleep(YERLESME_S)
         if kalan() < 40:
             print(f"\n    GÖREV SÜRE TAVANI ({kalan():.0f}s) — iniliyor")
             break
