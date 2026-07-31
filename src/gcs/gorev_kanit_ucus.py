@@ -144,6 +144,12 @@ YERLESME_S = 6.0        # YALNIZ manevra adimlarindan sonra (roll, rotasyon,
                         # gosterilecek bir sey yok ve 5 dk sinirinda 24 sn yer actik.
 GOREV_ASIM_S = 285
 
+# AgentStatus.flight_mode degerleri (swarm_interfaces/msg/AgentStatus.msg)
+_MOD_OFFBOARD = 4
+# Pilot modlari: MANUAL, ALTCTL, POSCTL, ACRO, STABILIZED. Bunlardan biri
+# gorulurse kumandadan devralinmis demektir.
+_PILOT_MODLARI = frozenset({1, 2, 3, 9, 10})
+
 _iniyor = False
 _HARITA_DOSYA = None
 
@@ -609,21 +615,30 @@ def varis_bekle(hedefler, asim_s: float, kuru: bool) -> bool:
         t = durum()
 
         # PİLOT DEVRALDI MI / OFFBOARD DÜŞTÜ MÜ — hemen anla, zaman aşımını
-        # bekleme. Kumandadan bir drone'a müdahale edilirse (POSCTL, LAND,
-        # failsafe) o uçak artık bizim setpoint'lerimizi izlemiyor demektir;
-        # diğerlerini 70 sn havada tutmanın anlamı yok. Sessiz kalırsak
-        # varis_bekle zaman aşımına düşene kadar sürü uçmaya devam ederdi.
+        # bekleme. Kumandadan müdahale edilirse (POSCTL, LAND, failsafe) o
+        # uçak artık bizim setpoint'lerimizi izlemiyor; diğerlerini 70 sn
+        # havada tutmanın anlamı yok.
+        #
+        # KARAR flight_mode ILE VERILIR, offboard_active ILE DEGIL.
+        # offboard_active MESH'TEN GELMIYOR — esp32_bridge'in kendi yorumu:
+        # "mesh'e CIKMAZ" (esp32_bridge_node.py:408, 1069). Bayrak hep False
+        # kaliyor. 31 Temmuz'daki ilk canli ucusta tam bu yuzden YANLIS ALARM
+        # verildi: telemetri "mode=Offboard, flight_mode=4" derken bayrak
+        # False oldugu icin gorev 9.4 m'de kendini iptal etti ve saglam bir
+        # ucus bosuna indirildi. flight_mode mesh pakette TASINIYOR ve dogru
+        # geliyor.
         for did in DRONELAR:
             d = t.get(did)
             if d is None:
                 continue
-            if not d.get("offboard_active", False):
-                print(f"\n      !!! drone {did} OFFBOARD'DAN ÇIKTI "
-                      f"(mod={d.get('mode')}) — pilot müdahalesi ya da failsafe")
-                return False
-            if d.get("pilot_override_active", False):
+            fm = d.get("flight_mode", 0)
+            if fm in _PILOT_MODLARI:
                 print(f"\n      !!! drone {did} PİLOT KONTROLÜNDE "
-                      f"(mod={d.get('mode')})")
+                      f"(mod={d.get('mode')}) — görev durduruluyor")
+                return False
+            if fm != _MOD_OFFBOARD:
+                print(f"\n      !!! drone {did} OFFBOARD'DAN ÇIKTI "
+                      f"(mod={d.get('mode')}, flight_mode={fm}) — failsafe olabilir")
                 return False
 
         uzak = {}
