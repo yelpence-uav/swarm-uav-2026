@@ -55,6 +55,14 @@ ARM_ASIM_S = 10
 KALKIS_ASIM_S = 60
 TAZELE_S = 2.0      # goto'yu bu sıklıkta tekrarla (setpoint bayatlamasın)
 
+# DURDURMA DOSYASI — her koşulda çalışan iptal.
+# NEDEN VAR: test arka planda (operatörün terminaline bağlı olmadan)
+# başlatılabiliyor. O durumda Ctrl-C sürece HİÇ ULAŞMIYOR. 31 Temmuz gecesi
+# tam bu yaşandı: operatör Ctrl-C'ye bastı, hiçbir şey olmadı, uçağı
+# indirmek için kumandaya müdahale etmek zorunda kaldı. Güvendiği iptal
+# yolunun çalışmaması, hiç olmamasından kötüdür.
+DUR_DOSYASI = "/tmp/kacinma_dur"
+
 _iniyor = False
 
 
@@ -120,7 +128,8 @@ def main():
 
     print("=" * 72)
     print(f"  KAÇINMA TESTİ — drone {OTONOM} {a.irtifa:.0f} m'de asılı duracak")
-    print(f"  Sen drone {KOMSU} ile DAHA ALÇAKTAN yaklaş. Ctrl-C = iniş.")
+    print(f"  Sen drone {KOMSU} ile DAHA ALÇAKTAN yaklaş.")
+    print(f"  DURDURMAK İÇİN:  touch {DUR_DOSYASI}   (ya da Ctrl-C)")
     print("=" * 72)
 
     t = durum()
@@ -171,8 +180,17 @@ def main():
     print(f"    {'komşu':>7} {'beklenen itme':>16} {'gerçek sapma':>16}  hüküm")
     print("    " + "-" * 62)
 
+    import os
+    if os.path.exists(DUR_DOSYASI):
+        os.remove(DUR_DOSYASI)      # eski dosya kalmışsa temizle
+
     son_goto = 0.0
     while True:
+        if os.path.exists(DUR_DOSYASI):
+            print(f"\n    DURDURMA DOSYASI görüldü ({DUR_DOSYASI}) — iniliyor")
+            os.remove(DUR_DOSYASI)
+            indir()
+            return 0
         # goto'yu tazele: setpoint bayatlarsa kaçınma zinciri boşa döner
         if time.time() - son_goto >= TAZELE_S:
             try:
@@ -210,8 +228,10 @@ def main():
         else:
             hukum = "kısmi — uçak henüz yolda"
 
+        # HER SATIR AYRI YAZILIR (\r ile ustune yazilmaz): test arka planda
+        # kosarken log tek satira biner ve ilerleme okunamaz.
         print(f"    {mesafe:6.1f}m {b_buy:9.2f}m {'':4} {s_buy:9.2f}m {'':4}  {hukum}",
-              end="\r")
+              flush=True)
 
 
 if __name__ == "__main__":
