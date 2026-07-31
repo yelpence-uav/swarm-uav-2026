@@ -127,9 +127,15 @@ _FIX_ADI = {0: 'yok', 1: 'fixsiz', 2: '2D', 3: '3D', 4: 'DGPS',
             5: 'RTK-Float', 6: 'RTK-FIX'}
 
 # --- Zamanlama (saniye) — 1 m/s'e göre; toplam 5 dk sınırına sığmalı --------
-# Hız PX4'te: MPC_XY_VEL_MAX = 1.0 (31 Tem'de iki dronda da ayarlandı).
-# Bütçe: arm+kalkış ~30 + 4 bacak x 18 + manevralar ~60 + yerleşmeler ~48
-# + iniş (18 m / 0.7 m/s) ~26 =~ 240 s. 300 s sınırında ~1 dk pay kalıyor.
+# Hız PX4'te: MPC_XY_VEL_MAX (31 Tem: 12 -> 1 -> 2 -> 4 m/s).
+# 4 m/s'te bütçe: arm+kalkış ~30 + 4 bacak x 4.5 + manevralar ~25 +
+# yerleşmeler ~48 + iniş (18 m / 0.7 m/s) ~26 =~ 150 s. Bol pay var.
+#
+# HIZ ARTTIKCA CARPISMA MARJI INCELIR: plan_dogrula KOMUT EDILEN geometriyi
+# denetliyor, gercek ucusta hedefe yaklasirken frenleme mesafesi hizin
+# KARESIYLE buyuyor. 3 drone senaryosunda kritik an 5.16 m; 4 m/s'te iki
+# ucakta birden ~0.5 m asma olursa 4.2 m'ye iner (esik 4.0). Cok dronlu
+# ucusta ya hizi 2'ye dondur ya ARALIK_M'i 12'ye cikar.
 ARM_ASIM_S = 10
 KALKIS_ASIM_S = 60
 ADIM_ASIM_S = 70

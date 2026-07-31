@@ -36,8 +36,8 @@ DRONELAR = {
 # Beklenen ucus parametreleri — ikisinde de AYNI olmali, yoksa formasyon
 # sessizce ayrisir (biri digerinden hizli gider).
 BEKLENEN = {
-    "MPC_XY_VEL_MAX": 2.0,
-    "MPC_XY_CRUISE": 2.0,
+    "MPC_XY_VEL_MAX": 4.0,
+    "MPC_XY_CRUISE": 4.0,
     "MPC_YAWRAUTO_MAX": 25.0,
     "MPC_TILTMAX_AIR": 30.0,
     "MPC_ACC_HOR": 2.0,
