@@ -71,7 +71,7 @@ ZAMAN_ASIMI_S = 5.0
 DRONELAR = [1, 2]
 
 # --- Geometri ---------------------------------------------------------------
-ARALIK_M = 12.0         # formasyonda komşu slotlar arası mesafe (lider-kanat)
+ARALIK_M = 10.0         # formasyonda komşu slotlar arası mesafe (lider-kanat)
 KANAT_ACISI_DEG = 45.0  # ok başı kanat açısı (orchestrator wing_alpha ile aynı)
 # Görev noktaları arası. Kenarı kısaltmak çarpışma marjını HİÇ etkilemiyor
 # (ölçüldü: kritik an bacaklarda değil, P1'deki roll'lu rotasyonda oluşuyor)
@@ -102,6 +102,7 @@ KALKIS_IRTIFA_M = 10.0
 # manevra sırasında fazla alçak. 12 m'de yayılım 7.9 - 16.1 m arasında kalıyor.
 GOREV_IRTIFA_M = 12.0
 YENI_IRTIFA_M = 18.0    # P3'teki irtifa değişimi hedefi
+FORMASYON_TEST_IRTIFA_M = 5.0   # --senaryo formasyon
 
 # --- Manevra ----------------------------------------------------------------
 # Şartname: sürü merkezi sabit, sağa/sola yatış. 30° seçildi çünkü 20°'de
@@ -160,13 +161,42 @@ _MOD_OFFBOARD = 4
 # gorulurse kumandadan devralinmis demektir.
 _PILOT_MODLARI = frozenset({1, 2, 3, 9, 10})
 
+# BASE ESP KOMUTLARI HIZ SINIRINA TABI — bu aralik ondan.
+# firmware/esp32_mesh/RX BASE/src/main.cpp:
+#     TIP_KOMUT (arm/takeoff/land/rtl) -> JOYSTICK_MIN_ARALIK_MS = 200
+#     TIP_GOTO                          -> MESH_GONDERIM_MIN_MS   =  50
+# Sinir TIP BASINA tutulur (_son_tip_gonderim_ms[tip]), HEDEF BASINA DEGIL.
+# Yani iki drone'a ayni tipte komut yollarsak ayni yuvayi paylasirlar ve
+# ikincisi SESSIZCE DUSER.
+#
+# 1 Agustos'ta bu tam olarak yasandi: iki drone'a takeoff art arda gonderildi,
+# ylp00 kalkti, ylp01 armli halde yerde kaldi. ylp01'in ESP logu drone 1'e
+# giden dort takeoff paketini duydugunu ama kendisine hic gelmedigini
+# gosteriyordu. Arm'lar calismisti cunku aralarinda teyit beklemesi vardi
+# (2.5 ve 3.5 sn).
+KOMUT_ARALIK_S = 0.30
+
+_son_komut_t = 0.0
 _iniyor = False
 _HARITA_DOSYA = None
+_SENARYO = "kanit"
 
 
 # --- HTTP -------------------------------------------------------------------
+def _komut_araligi_bekle() -> None:
+    """Iki mesh komutu arasinda base ESP'nin hiz sinirini bekler."""
+    global _son_komut_t
+    kalan = KOMUT_ARALIK_S - (time.time() - _son_komut_t)
+    if kalan > 0:
+        time.sleep(kalan)
+    _son_komut_t = time.time()
+
+
 def _istek(yol: str, yontem: str = "POST", govde: dict | None = None):
     import json as _json
+    # Yalniz mesh'e cikan guided komutlari sinirla; telemetri okumasi degil.
+    if yontem == "POST" and yol.startswith("/api/guided/"):
+        _komut_araligi_bekle()
     veri = None
     basliklar = {}
     if govde is not None:
@@ -485,7 +515,26 @@ def ned_to_latlon(origin, kuzey, dogu):
     return enlem, boylam
 
 
-def koordinat_yaz(merkez0, origin):
+def _plan_noktalari(plan, merkez0):
+    """Planin gectigi NOKTALARI (adim merkezleri) sirayla dondurur.
+
+    NEDEN PLANDAN TURETILIYOR: onceden bu liste kanit senaryosunun ucgeni
+    (P1/P2/P3) olarak SABIT hesaplaniyordu. Baska senaryolarda ekrana ve
+    haritaya YANLIS noktalar basiyordu — ve harita bizim tek engel
+    kontrolumuz oldugu icin bu kabul edilemez.
+    """
+    noktalar = [("KALKIS/EV", merkez0)]
+    for etiket, _h, hedefler, _b in plan:
+        n = len(hedefler)
+        merkez = (sum(v[0] for v in hedefler.values()) / n,
+                  sum(v[1] for v in hedefler.values()) / n)
+        if math.dist(merkez, noktalar[-1][1]) < 1.0:
+            continue                      # ayni noktada duruyor, tekrar yazma
+        noktalar.append((etiket.split(":")[0].strip(), merkez))
+    return noktalar
+
+
+def koordinat_yaz(plan, merkez0, origin):
     """Gorev noktalarini GPS olarak basar — haritada kontrol edilebilsin.
 
     NEDEN VAR: kod engel GORMEZ. Ucmadan once noktalari haritaya koyup
@@ -494,102 +543,90 @@ def koordinat_yaz(merkez0, origin):
     if origin is None:
         print("\n=== GPS KOORDİNATLARI: origin türetilemedi (telemetri yok) ===")
         return
-    K = KENAR_M
-    h = math.radians(ROTA_YONU_DEG)
-
-    def _d(ileri, saga):
-        return (merkez0[0] + ileri * math.cos(h) + saga * (-math.sin(h)),
-                merkez0[1] + ileri * math.sin(h) + saga * math.cos(h))
-
-    noktalar = [("KALKIS/EV", merkez0), ("P1", _d(K, 0.0)),
-                ("P2", _d(K, K)), ("P3", _d(0.0, K))]
+    noktalar = _plan_noktalari(plan, merkez0)
     print("\n=== GPS KOORDİNATLARI (haritada kontrol et) ===")
     for ad, (kz, dg) in noktalar:
         la, lo = ned_to_latlon(origin, kz, dg)
-        print(f"  {ad:<10} {la:.7f}, {lo:.7f}")
-    la0, lo0 = ned_to_latlon(origin, *merkez0)
-    print(f"\n  Haritada tek tek aç:")
-    for ad, (kz, dg) in noktalar:
-        la, lo = ned_to_latlon(origin, kz, dg)
-        print(f"    {ad:<10} https://www.google.com/maps?q={la:.7f},{lo:.7f}")
+        print(f"  {ad:<24} {la:.7f}, {lo:.7f}")
 
 
 _HARITA_SABLON = """<!doctype html>
 <html lang="tr"><head><meta charset="utf-8">
-<title>Yelpence — gorev rotasi</title>
+<title>Yelpence - gorev rotasi</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <style>html,body,#h{height:100%%;margin:0}
 .bilgi{position:absolute;z-index:1000;top:10px;left:50px;background:#fff;
 padding:8px 12px;font:13px system-ui;border-radius:6px;box-shadow:0 1px 6px #0006}
 </style></head><body>
-<div class="bilgi"><b>Görev rotası</b><br>%(ozet)s</div>
+<div class="bilgi"><b>Gorev rotasi</b><br>%(ozet)s</div>
 <div id="h"></div><script>
 var m=L.map('h');
 // maxNativeZoom 18 SART: bu bolgede Esri z19+ icin gercek goruntu yerine
-// "Map data not available" yer tutucusu donduruyor (2521 bayt, olculdu).
-// 18'de birakinca Leaflet z18 karosunu buyuterek gosteriyor.
+// "Map data not available" yer tutucusu donduruyor (olculdu).
 var uydu=L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
  {maxZoom:22,maxNativeZoom:18,attribution:'Esri'}).addTo(m);
 var sokak=L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
  {maxZoom:22,maxNativeZoom:19,attribution:'OpenStreetMap'});
 L.control.layers({'Uydu':uydu,'Sokak (binalar)':sokak}).addTo(m);
-var n=%(noktalar)s;
-var yol=n.map(function(p){return [p[1],p[2]]});
-L.polyline(yol.concat([yol[0]]),{color:'#ff3b30',weight:3}).addTo(m);
-n.forEach(function(p){
+
+var yol=%(yol)s;      // gorev noktalari (adim merkezleri)
+var hedef=%(hedef)s;  // her drone'un SON hedefi
+var hepsi=[];
+if(yol.length>1){
+  var cizgi=yol.map(function(p){return [p[1],p[2]]});
+  L.polyline(cizgi.concat([cizgi[0]]),{color:'#ff3b30',weight:3}).addTo(m);
+  hepsi=hepsi.concat(cizgi);
+}
+yol.forEach(function(p){
+  hepsi.push([p[1],p[2]]);
   L.circleMarker([p[1],p[2]],{radius:8,color:'#fff',weight:2,
-    fillColor:p[0]=='KALKIS/EV'?'#34c759':'#ff9500',fillOpacity:1})
-   .addTo(m).bindTooltip(p[0],{permanent:true,direction:'top'});
+    fillColor:'#34c759',fillOpacity:1}).addTo(m)
+   .bindTooltip(p[0],{permanent:true,direction:'top'});
 });
-L.circle([%(mlat)f,%(mlon)f],{radius:%(yaricap)f,color:'#ffcc00',
-  fillOpacity:0.06,dashArray:'6 6'}).addTo(m);
-m.fitBounds(L.latLngBounds(yol).pad(0.8),{maxZoom:20});
+hedef.forEach(function(p){
+  hepsi.push([p[1],p[2]]);
+  L.circleMarker([p[1],p[2]],{radius:7,color:'#fff',weight:2,
+    fillColor:'#0a84ff',fillOpacity:1}).addTo(m)
+   .bindTooltip(p[0],{permanent:true,direction:'bottom'});
+});
+m.fitBounds(L.latLngBounds(hepsi).pad(0.8),{maxZoom:20});
 </script></body></html>
 """
 
 
-def harita_yaz(merkez0, origin, dosya):
+def harita_yaz(plan, merkez0, origin, dosya):
     """Gorev noktalarini UYDU goruntusu uzerinde tek haritaya yazar.
 
     NEDEN VAR: kod engel GORMEZ — harita, geofence, mesafe sensoru yok.
     Ucmadan once rotayi uydu goruntusune koyup bina/agac var mi diye
-    BAKMAK, elimizdeki tek engel kontrolu. Ayri ayri koordinat linkleri
-    bunun icin yetersizdi; hepsi tek karede gorunmeli.
+    BAKMAK, elimizdeki tek engel kontrolu.
+
+    Iki katman cizilir: YESIL noktalar gorev noktalari (surunun merkezi),
+    MAVI noktalar her drone'un son hedefi. Formasyon testi gibi yatay
+    hareketin olmadigi senaryolarda tek yesil nokta cikar ve asil bilgi
+    mavilerdedir — o yuzden ikisi de gosteriliyor.
     """
     if origin is None:
-        print("  harita: origin türetilemedi, atlandı")
+        print("  harita: origin turetilemedi, atlandi")
         return
-    K = KENAR_M
-    h = math.radians(ROTA_YONU_DEG)
-
-    def _d(ileri, saga):
-        return (merkez0[0] + ileri * math.cos(h) + saga * (-math.sin(h)),
-                merkez0[1] + ileri * math.sin(h) + saga * math.cos(h))
-
-    ham = [("KALKIS/EV", merkez0), ("P1", _d(K, 0.0)),
-           ("P2", _d(K, K)), ("P3", _d(0.0, K))]
-    noktalar = []
-    for ad, (kz, dg) in ham:
-        la, lo = ned_to_latlon(origin, kz, dg)
-        noktalar.append([ad, la, lo])
-    # Daire merkezi NOKTALARIN AGIRLIK MERKEZI. Onceden sabit (+K/2, +K/2)
-    # sapmasiyla hesaplaniyordu ve ROTASYON UYGULANMIYORDU: rota donunce
-    # kare donuyor ama daire eski yerinde kaliyordu.
-    ort_k = sum(n[0] for _a, n in ham) / len(ham)
-    ort_d = sum(n[1] for _a, n in ham) / len(ham)
-    mla, mlo = ned_to_latlon(origin, ort_k, ort_d)
-    ozet = (f"kenar {K:.0f} m &middot; yön {ROTA_YONU_DEG:.0f}° &middot; "
-            f"irtifa {GOREV_IRTIFA_M:.0f}-{YENI_IRTIFA_M:.0f} m<br>"
-            f"<b>kod engel görmez</b> — kırmızı rotada bina/ağaç olmamalı")
     import json as _j
-    html = _HARITA_SABLON % {
-        "noktalar": _j.dumps(noktalar), "ozet": ozet,
-        "mlat": mla, "mlon": mlo, "yaricap": K * 0.75,
-    }
-    pathlib.Path(dosya).write_text(html, encoding="utf-8")
-    print(f"\n=== HARİTA YAZILDI ===\n  {dosya}")
-    print(f"  Tarayıcıda aç:  xdg-open {dosya}")
+    yol = []
+    for ad, (kz, dg) in _plan_noktalari(plan, merkez0):
+        la, lo = ned_to_latlon(origin, kz, dg)
+        yol.append([ad, la, lo])
+    hedef = []
+    if plan:
+        for did, h in sorted(plan[-1][2].items()):
+            la, lo = ned_to_latlon(origin, h[0], h[1])
+            hedef.append([f"drone {did}", la, lo])
+    ozet = (f"aralik {ARALIK_M:.0f} m &middot; yon {ROTA_YONU_DEG:.0f}&deg;<br>"
+            f"<b>kod engel gormez</b> - rotada bina/agac olmamali")
+    pathlib.Path(dosya).write_text(
+        _HARITA_SABLON % {"yol": _j.dumps(yol), "hedef": _j.dumps(hedef),
+                          "ozet": ozet}, encoding="utf-8")
+    print(f"\n=== HARITA YAZILDI ===\n  {dosya}")
+    print(f"  Tarayicida ac:  xdg-open {dosya}")
 
 
 def ayak_izi_yaz(plan, merkez0):
@@ -611,6 +648,78 @@ def ayak_izi_yaz(plan, merkez0):
     print(f"  toplam kutu: {max(k)-min(k):.0f} m (K-G) x {max(d)-min(d):.0f} m (D-B)")
     print(f"  rota yönü  : {ROTA_YONU_DEG:.0f}°  (0=kuzey, 90=doğu)")
     print("  UYARI: kod engel GÖRMEZ. Bu kutunun içinde bina/ağaç/direk olmamalı.")
+
+
+def plan_kur_test(merkez0, baslangic=None):
+    """BASIT IKI DRONE TESTI — tam koreografiden once zinciri sinamak icin.
+
+    Kalkis -> kuzeybatiya kisa gidis -> bekle -> irtifa degisimi -> eve don.
+
+    Tam gorevden farki: formasyon degisimi, roll manevrasi ve cok noktali
+    ucgen YOK. Amac ilk kez IKI ucagi birlikte havada tutmak ve formasyonun
+    gercekten korunup korunmadigini gormek. Formasyon CIZGI: ucaklar gidis
+    yonune DIK, yan yana — biri digerinin pervane akiminda kalmaz.
+    """
+    plan = []
+    onceki = dict(baslangic) if baslangic else None
+    slot = None
+
+    def ekle(etiket, merkez, heading, formasyon, irtifa, roll,
+             yeniden_ata=False, beklet=True):
+        nonlocal onceki, slot
+        h, slot = hedefler_uret(merkez, heading, formasyon, irtifa, roll,
+                                onceki, slot, yeniden_ata)
+        plan.append((etiket, heading, h, beklet))
+        onceki = h
+
+    KB = 315.0                      # kuzeybati
+    MESAFE = 15.0
+    r = math.radians(KB)
+    hedef = (merkez0[0] + MESAFE * math.cos(r), merkez0[1] + MESAFE * math.sin(r))
+
+    ekle("kalkis: cizgi dizilis", merkez0, KB, "cizgi", GOREV_IRTIFA_M, 0.0,
+         yeniden_ata=bool(baslangic))
+    ekle("-> kuzeybati %.0f m" % MESAFE, hedef, KB, "cizgi", GOREV_IRTIFA_M, 0.0,
+         beklet=False)
+    ekle("BEKLE (formasyon tutuyor mu)", hedef, KB, "cizgi", GOREV_IRTIFA_M, 0.0)
+    ekle("IRTIFA %.0f->%.0f m" % (GOREV_IRTIFA_M, YENI_IRTIFA_M),
+         hedef, KB, "cizgi", YENI_IRTIFA_M, 0.0)
+    ekle("-> EV (kalkis noktasi)", merkez0, (KB + 180.0) % 360.0, "cizgi",
+         YENI_IRTIFA_M, 0.0, beklet=False)
+    return plan
+
+
+def plan_kur_formasyon(merkez0, baslangic=None):
+    """FORMASYON TESTI — rastgele yerlesimden cizgi formasyonuna, sonra inis.
+
+    Amac: ucaklar NEREYE koyulursa koyulsun formasyonu kurabiliyor mu?
+    Kalkis noktalari rastgele oldugu icin slot atamasi ve carpismasizlik
+    dogrulamasi gercek bir sinav veriyor — plandaki noktalar degil,
+    ucaklarin fiilen durdugu yer baslangic kabul ediliyor.
+
+    Yatay hareket YOK: formasyon kalkis merkezinin etrafinda kuruluyor,
+    sonra ayni yerde iniliyor. Boylece tek degisken formasyon kurma.
+    """
+    plan = []
+    onceki = dict(baslangic) if baslangic else None
+    slot = None
+
+    def ekle(etiket, merkez, heading, formasyon, irtifa, roll,
+             yeniden_ata=False, beklet=True):
+        nonlocal onceki, slot
+        h, slot = hedefler_uret(merkez, heading, formasyon, irtifa, roll,
+                                onceki, slot, yeniden_ata)
+        plan.append((etiket, heading, h, beklet))
+        onceki = h
+
+    y = ROTA_YONU_DEG
+    # Tek adim: rastgele durduklari yerden cizgi formasyonuna.
+    # yeniden_ata=True -> her ucak EN YAKIN slota gider, kesismezler.
+    ekle("CIZGI formasyonu kur", merkez0, y, "cizgi", FORMASYON_TEST_IRTIFA_M,
+         0.0, yeniden_ata=bool(baslangic))
+    # Formasyon oturunca bir sure tut ki gozle gorulebilsin ve olcebilelim.
+    ekle("formasyonu TUT", merkez0, y, "cizgi", FORMASYON_TEST_IRTIFA_M, 0.0)
+    return plan
 
 
 def plan_yaz(plan):
@@ -775,13 +884,18 @@ def gorev(kuru: bool) -> int:
 
     baslangic = {did: (t[did]["pos_x"], t[did]["pos_y"], KALKIS_IRTIFA_M)
                  for did in DRONELAR if did in t} or None
-    plan = plan_kur(merkez0, baslangic)
+    if _SENARYO == "test":
+        plan = plan_kur_test(merkez0, baslangic)
+    elif _SENARYO == "formasyon":
+        plan = plan_kur_formasyon(merkez0, baslangic)
+    else:
+        plan = plan_kur(merkez0, baslangic)
     plan_yaz(plan)
     ayak_izi_yaz(plan, merkez0)
     _org = _origin_bul(t)
-    koordinat_yaz(merkez0, _org)
+    koordinat_yaz(plan, merkez0, _org)
     if _HARITA_DOSYA:
-        harita_yaz(merkez0, _org, _HARITA_DOSYA)
+        harita_yaz(plan, merkez0, _org, _HARITA_DOSYA)
     if not plan_dogrula(plan, baslangic):
         return 1
     if kuru:
@@ -792,7 +906,9 @@ def gorev(kuru: bool) -> int:
     # ARM TEYİDİ BEKLENİR: px4_bridge önce OFFBOARD'a geçip sonra arm ediyor
     # (PX4 yerde armlıyken OFFBOARD'a girmiyor). Teyit beklemeden takeoff
     # yollamak, komutun hâlâ disarm uçağa gitmesi ve sessizce düşmesi demek.
-    print("\n=== ARM + KALKIŞ ===")
+    kalkis_irt = (FORMASYON_TEST_IRTIFA_M if _SENARYO == "formasyon"
+                  else KALKIS_IRTIFA_M)
+    print(f"\n=== ARM + KALKIŞ {kalkis_irt:.0f} m ===")
     for did in DRONELAR:
         print(f"    drone {did}: arm")
         _istek(f"/api/guided/{did}/arm")
@@ -806,14 +922,42 @@ def gorev(kuru: bool) -> int:
             print(f"      ARM EDİLEMEDİ — görev durduruluyor")
             indir(kuru)
             return 1
-    for did in DRONELAR:
-        _istek(f"/api/guided/{did}/takeoff?altitude={KALKIS_IRTIFA_M}")
-    print(f"    takeoff {KALKIS_IRTIFA_M:.0f} m gönderildi, irtifa bekleniyor...")
+    # KALKIS TEYIDE BAGLI. Onceden komut BIR KEZ gonderilip umuluyordu ve
+    # 1 Agustos'ta bir drone'un takeoff'u mesh hiz sinirinda dusunce o ucak
+    # ARMLI halde YERDE kaldi, digeri havada 60 sn bosuna bekledi. Armli ve
+    # OFFBOARD'da yerde beklemek motorlari hover itkisinde tutar — motor
+    # yaktigimiz durumun aynisi. Artik her ucak icin tirmanis TEYIT ediliyor,
+    # baslamadiysa komut TEKRARLANIYOR, olmuyorsa gorev hic baslamiyor.
+    TIRMANIS_ESIGI_M = 0.8
+    kalanlar = list(DRONELAR)
+    for deneme in range(1, 4):
+        for did in kalanlar:
+            _istek(f"/api/guided/{did}/takeoff?altitude={kalkis_irt}")
+        print(f"    takeoff {kalkis_irt:.0f} m gönderildi "
+              f"(deneme {deneme}, drone {kalanlar}), tırmanış bekleniyor...")
+        t0 = time.time()
+        while time.time() - t0 < 5.0:
+            time.sleep(0.5)
+            t = durum()
+            kalanlar = [d for d in kalanlar
+                        if t.get(d, {}).get("alt_m", 0.0) < TIRMANIS_ESIGI_M]
+            if not kalanlar:
+                break
+        if not kalanlar:
+            print("    tırmanış başladı: hepsi")
+            break
+        print(f"    tırmanmayan: drone {kalanlar} — komut tekrarlanıyor")
+    else:
+        print(f"    KALKIŞ KOMUTU ULAŞMADI: drone {kalanlar} — görev iptal")
+        indir(kuru)
+        return 1
+
+    print(f"    irtifa bekleniyor...")
     t0 = time.time()
     while time.time() - t0 < KALKIS_ASIM_S:
         time.sleep(1.0)
         t = durum()
-        if all(t.get(d, {}).get("alt_m", 0.0) >= KALKIS_IRTIFA_M * 0.9 for d in DRONELAR):
+        if all(t.get(d, {}).get("alt_m", 0.0) >= kalkis_irt * 0.9 for d in DRONELAR):
             print("    irtifa tamam: " + "  ".join(f"d{d}={t[d]['alt_m']:.1f}m" for d in DRONELAR))
             break
         print("    ... " + "  ".join(f"d{d}={t.get(d,{}).get('alt_m',0.0):.1f}m"
@@ -868,6 +1012,11 @@ def main() -> int:
     global DRONELAR
     ap = argparse.ArgumentParser(description="Kanıt uçuşu görev koşucusu")
     ap.add_argument("--kuru", action="store_true", help="komut gönderme; planı kur ve doğrula")
+    ap.add_argument("--senaryo", choices=("kanit", "test", "formasyon"),
+                    default="kanit",
+                    help="kanit = tam koreografi; test = kuzeybati/bekle/"
+                         "irtifa/don; formasyon = rastgele yerlesimden cizgi "
+                         "formasyonu kur ve in")
     ap.add_argument("--harita", nargs="?", const="/tmp/yelpence_rota.html",
                     default=None, metavar="DOSYA",
                     help="rotayi uydu haritasina yaz (varsayilan /tmp/yelpence_rota.html)")
@@ -878,10 +1027,11 @@ def main() -> int:
                     help="virgülle: 1,2 (prova) veya 1,2,3")
     a = ap.parse_args()
     DRONELAR = [int(x) for x in a.dronelar.split(",") if x.strip()]
-    global ROTA_YONU_DEG, _HARITA_DOSYA
+    global ROTA_YONU_DEG, _HARITA_DOSYA, _SENARYO
     if a.yon is not None:
         ROTA_YONU_DEG = a.yon
     _HARITA_DOSYA = a.harita
+    _SENARYO = a.senaryo
 
     def _kesildi(_s, _f):
         print("\n\n!!! KESİLDİ (Ctrl-C) !!!")
@@ -892,7 +1042,9 @@ def main() -> int:
     signal.signal(signal.SIGTERM, _kesildi)
 
     print("=" * 72)
-    print("  KANIT UÇUŞU — ok başı, roll, formasyon değişimi, irtifa değişimi")
+    print("  BASİT İKİ DRONE TESTİ — kuzeybatı, bekle, irtifa, dönüş"
+          if a.senaryo == "test"
+          else "  KANIT UÇUŞU — ok başı, roll, formasyon değişimi, irtifa değişimi")
     print(f"  dronelar: {DRONELAR}   kalkış {KALKIS_IRTIFA_M:.0f} m -> {YENI_IRTIFA_M:.0f} m")
     print(f"  roll {ROLL_ACISI_DEG:.0f}°   aralık {ARALIK_M:.0f} m   kenar {KENAR_M:.0f} m")
     print(f"  mod: {'KURU (komut yok)' if a.kuru else 'CANLI'}")
