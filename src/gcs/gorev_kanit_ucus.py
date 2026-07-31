@@ -145,6 +145,16 @@ YERLESME_S = 6.0        # YALNIZ manevra adimlarindan sonra (roll, rotasyon,
 GOREV_ASIM_S = 285
 
 # AgentStatus.flight_mode degerleri (swarm_interfaces/msg/AgentStatus.msg)
+# Bir rotasyonda yon kac derecelik dilimler halinde verilsin.
+# NEDEN: OFFBOARD'da yon setpoint'i DOGRUDAN gecer; MPC_YAWRAUTO_MAX (25/s)
+# yalniz Auto modlarda uygulanir, ic dongu tavani ise MC_YAWRATE_MAX=200/s.
+# Yani 90'lik tek sicrama yarim saniyede donduruyor — sahada "ani donus"
+# diye goruldu (31 Temmuz, ilk tam gorev). Dilimlere bolunce donus hem
+# yumusuyor hem videoda rotasyon net gorunuyor (yonergenin sarti).
+# MC_YAWRATE_MAX'e DOKUNULMADI: o ucagin toparlama yetenegi.
+YAW_ADIM_DEG = 20.0
+YAW_ADIM_BEKLE_S = 0.8
+
 _MOD_OFFBOARD = 4
 # Pilot modlari: MANUAL, ALTCTL, POSCTL, ACRO, STABILIZED. Bunlardan biri
 # gorulurse kumandadan devralinmis demektir.
@@ -234,6 +244,19 @@ def egim_dz(ofsetler, pitch_deg: float, roll_deg: float):
     dz = [-dx * tp + dy * tr for (dx, dy) in ofsetler]
     ort = sum(dz) / len(dz)
     return [d - ort for d in dz]
+
+
+def yon_dilimle(bas: float, son: float):
+    """Bastan sona EN KISA yonden, YAW_ADIM_DEG'lik ara yonler uretir.
+
+    Son eleman her zaman tam hedef yondur. Fark kucukse bos doner
+    (ara adim gereksiz).
+    """
+    fark = (son - bas + 180.0) % 360.0 - 180.0   # -180..180, en kisa yon
+    if abs(fark) <= YAW_ADIM_DEG:
+        return []
+    n = int(abs(fark) // YAW_ADIM_DEG)
+    return [(bas + fark * (i + 1) / (n + 1)) % 360.0 for i in range(n)]
 
 
 def yon_derece(a, b) -> float:
@@ -787,10 +810,24 @@ def gorev(kuru: bool) -> int:
         return 1
 
     # --- Plan adımları ------------------------------------------------------
+    onceki_heading = None
     for i, (etiket, heading, hedefler, beklet) in enumerate(plan):
         print(f"\n=== [{i+1}/{len(plan)}] {etiket}   yön {heading:.0f}°   "
               f"(kalan {kalan():.0f}s) ===")
         t_durum = durum()
+
+        # YON KADEMELI VERILIR. Tek sicrama yerine ara yonler; bkz.
+        # YAW_ADIM_DEG yorumu. Konum degismez, yalniz burun doner.
+        if onceki_heading is not None and not kuru:
+            aralar = yon_dilimle(onceki_heading, heading)
+            if aralar:
+                print(f"      dönüş {onceki_heading:.0f}° -> {heading:.0f}° "
+                      f"({len(aralar)} ara adım)")
+                for ara in aralar:
+                    for did in DRONELAR:
+                        git(did, hedefler[did], ara, kuru, t_durum)
+                    time.sleep(YAW_ADIM_BEKLE_S)
+        onceki_heading = heading
         for did in DRONELAR:
             h = hedefler[did]
             print(f"      drone {did}: ({h[0]:+7.1f},{h[1]:+7.1f}) "
