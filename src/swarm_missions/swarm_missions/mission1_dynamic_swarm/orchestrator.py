@@ -211,6 +211,11 @@ class _State:
     # üzerinde kalır, yerinde döner. resolve_ned() bu fazlarda artık SONRAKİ
     # QR'ı gösterdiği için (varışta hedef ilerliyor) ona çıpalanamaz.
     qr_anchor: tuple = field(default=None)
+    # QR'a VARIŞTA donan yön (derece). resolve_ned() varışta sonraki QR'a
+    # ilerlediği için heading oraya kayıp sürü GÖREV sırasında (roll/wait)
+    # dönmeye başlıyordu. Bu alan varış yönünü tutar; EXEC+WAIT boyunca heading
+    # buna kilitlenir → "önce görev, sonra dön". ROT'ta çözülür (None).
+    hold_heading: float = field(default=None)
     # QR irtifa merdiveninde en son yayınlanan basamak (-1 = arama kapalı).
     # Basamak değişince yeni komut yayınlanır; aynı basamakta sürü SABİT durur.
     search_step: int = -1
@@ -387,6 +392,12 @@ class Mission1Orchestrator:
             # Üzerinde durduğumuz QR: görevler ve rotasyon boyunca formasyon
             # merkezi buraya çıpalanacak (sürü QR'dan kaymasın, yerinde dönsün).
             self._st.qr_anchor = (float(ned[0]), float(ned[1]))
+            # Varış yönünü DONDUR: görev (roll/wait) boyunca heading buna
+            # kilitlenir, sürü yerinde dönmez. ROT'ta çözülür.
+            if inp.swarm_yaw_deg is not None:
+                self._st.hold_heading = float(inp.swarm_yaw_deg)
+            else:
+                self._st.hold_heading = self._st.heading_deg
             return QrReachedCmd(distance_m=d)
         return None
 
@@ -603,6 +614,12 @@ class Mission1Orchestrator:
     def _handle(self, inp: OrchestratorInput):
         """Faza göre ilgili işleyiciye yönlendirir."""
         s = inp.mission_state
+        # GÖREV/BEKLEME'de yönü DONDUR (varışta kaydedilen hold_heading).
+        # Böylece heading sonraki QR'a kaymaz, sürü roll/wait sırasında
+        # dönmez → "önce görev, sonra dön" (dönüş ROT'ta olur).
+        if s in (_S_EXECUTE_QR_TASK, _S_WAIT_AT_QR) \
+                and self._st.hold_heading is not None:
+            self._st.heading_deg = self._st.hold_heading
         if s == _S_SYNCHRONIZED_TAKEOFF:
             return self._on_takeoff(inp)
         if s == _S_ROTATE_TO_NEXT:
@@ -612,19 +629,13 @@ class Mission1Orchestrator:
         if s == _S_EXECUTE_QR_TASK:
             return self._on_execute(inp)
         if s == _S_WAIT_AT_QR:
-            # BEKLEME sırasında EĞİK POZU KORU. Şartname md.8: manevradan
-            # sonra yeni formasyon/manevra gelene dek eğik poz korunmalı.
-            # Bu faz eskiden hiç işlenmiyordu (return []): manevra QR'ında
-            # wait_s > 0 ise EXECUTE'tan WAIT_AT_QR'a geçiliyor ve orchestrator
-            # burada komut ÜRETMİYORDU. Sonuç: maneuver_executor hareketi
-            # bırakır (hold_after_complete=False), formation eğik pozu ise bu
-            # fazda gelmediği için dron BEKLEME BOYUNCA DÜZLEŞİYORDU; eğik poz
-            # ancak bekleme bitip ROTATE'e geçince geri geliyordu (ölçüldü:
-            # manevra sonrası ~20 sn düz kalıp sonra tekrar eğiliyordu —
-            # "pitch → düz → pitch"). _exec_hold_tilt eğik ofsetli formasyon
-            # komutu üretir; eğim yoksa zaten [] döner, manevrasız QR'da etkisi
-            # olmaz. Emit-once mimarisi komutu bir kez üretir (spam yok).
-            return self._exec_hold_tilt(inp)
+            # BEKLEME'de formasyon EĞİK komutu GÖNDERME. Artık manevra
+            # hold_after_complete=True ile eğimi KENDİ tutuyor (yayını
+            # kesmiyor) → dron eğik kalır, gap yok. Buradan eğik formasyon
+            # yollarsak maneuver_executor o eğik offset'e euler'i bir daha
+            # uygular → DOUBLE-TILT (ölçüldü: eğim 2 katına çıkıp sıçradı).
+            # O yüzden boş dön; eğimi manevra tutar, ROT'ta roll=0 ile bırakılır.
+            return []
         if s == _S_RETURN_HOME:
             return self._on_return_home(inp)
         return []
@@ -780,9 +791,25 @@ class Mission1Orchestrator:
 
     def _on_rotate(self, inp: OrchestratorInput):
         """ROTATE_TO_NEXT: formasyonu bir sonraki QR'a döndürür (merkez sabit)."""
+        # Görev bitti, artık dönebiliriz → yön kilidini ÇÖZ.
+        self._st.hold_heading = None
+        # Manevra eğimini BIRAK: hold=True ile TUTULAN eğimi roll=0 gönderip
+        # rampalı indir (start_r→0 maneuver_executor'da), formasyon DÜZ
+        # devralır. Eğim varken bir kez üret; tilt sıfırlandığından sonraki
+        # tick'lerde tekrar üretmez. Formasyon düz (tilt=0) → double-tilt yok.
+        release = []
+        if self._st.tilt_roll_deg != 0.0 or self._st.tilt_pitch_deg != 0.0:
+            release = [ManeuverCmd(
+                maneuver_type=_MNV_ROLL,
+                pitch_deg=0.0, roll_deg=0.0, yaw_deg=0.0,
+                hold_after_complete=False,
+                duration_s=self._cfg.maneuver_duration_s,
+            )]
+            self._st.tilt_roll_deg = 0.0
+            self._st.tilt_pitch_deg = 0.0
         ned = self._qr_geo.resolve_ned()
         if ned is None:
-            return None
+            return release or None
         heading = self._bearing_deg(inp.centroid, ned)
 
         offsets = self._assign(
@@ -790,9 +817,9 @@ class Mission1Orchestrator:
             heading, inp,
         )
         if offsets is None:
-            return None
+            return release or None
 
-        cmds = []
+        cmds = list(release)
         if not self._st.formation_published:
             # Snapshot çerçevesi: referans sürünün yaw'ı (bkz. _assign).
             ilk_h = self._kalkis_heading(inp)
@@ -881,17 +908,27 @@ class Mission1Orchestrator:
         return []
 
     def _exec_formation(self, inp, qr):
-        """Formasyon değişimi: yeni tip/aralık, eğim sıfırlanır."""
-        self._st.tilt_pitch_deg = 0.0
-        self._st.tilt_roll_deg = 0.0
-        self._st.formation_type = int(getattr(qr, 'formation_type', 0)) \
+        """Formasyon değişimi: yeni tip HEMEN kurulur, eğim RAMPALI iner."""
+        # Yeni tipi HEMEN ayarla — yoksa settle erken tetikler, yeni formasyon
+        # (örn. kolon) HİÇ oluşmaz + tilt yarıda takılı kalır (ölçüldü: kolon
+        # atlandı, dronlar eğik uçtu). Roll/pitch eğimini ANINDA sıfırlama;
+        # her tick 2° indir → reshape+düzleşme yumuşak. 5Hz'de 15°->0 ~1.5sn.
+        new_type = int(getattr(qr, 'formation_type', 0)) \
             or self._st.formation_type
+        if new_type != self._st.formation_type:
+            self._st.formation_type = new_type
+            # Yeni şekli build_slot_assignment ile yeniden kur ve dondur.
+            self._st.frozen_offsets = {}
         spacing = float(getattr(qr, 'spacing_m', 0.0))
         if spacing > 0.0:
             self._st.spacing_m = spacing
-        # Yeni formasyon → jüri-diziliş snapshot'ını bırak; yeni şekli
-        # (OKBAŞI/V/CIZGI) build_slot_assignment ile yeniden kur ve dondur.
-        self._st.frozen_offsets = {}
+        step = 2.0
+        r = self._st.tilt_roll_deg
+        p = self._st.tilt_pitch_deg
+        self._st.tilt_roll_deg = (
+            max(0.0, r - step) if r > 0.0 else min(0.0, r + step))
+        self._st.tilt_pitch_deg = (
+            max(0.0, p - step) if p > 0.0 else min(0.0, p + step))
         offsets = self._assign(
             self._st.formation_type, self._st.spacing_m, inp.centroid,
             self._st.heading_deg, inp,
@@ -922,12 +959,17 @@ class Mission1Orchestrator:
         self._st.tilt_pitch_deg = pitch
         self._st.tilt_roll_deg = roll
         mtype = _maneuver_type(pitch, roll, yaw)
+        # hold_after_complete=True: manevra bitince eğimi TUTAR (yayını
+        # durdurmaz) → eğik setpoint kesilmez → manevra→formasyon devir
+        # boşluğu (düze düşme) KALKAR, ~0.6m sıçrama biter. Eğimi ROT'ta
+        # roll=0 ile bırakırız (_on_rotate). Formasyon tarafı bu sürede
+        # eğim uygulamamalı (WAIT boş döner) → double-tilt önlenir.
         return [ManeuverCmd(
             maneuver_type=mtype,
             pitch_deg=pitch,
             roll_deg=roll,
             yaw_deg=yaw,
-            hold_after_complete=False,
+            hold_after_complete=True,
             duration_s=self._cfg.maneuver_duration_s,
         )]
 

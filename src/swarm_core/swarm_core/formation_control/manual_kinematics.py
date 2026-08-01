@@ -178,9 +178,17 @@ def apply_tilt(
     tilt_pitch_deg: float,
     tilt_roll_deg: float,
 ) -> list[tuple[float, float, float]]:
-    """Formasyon düzlemini eğerek slot offset_z'lerini modüle eder (manevra)."""
-    tp = math.tan(math.radians(tilt_pitch_deg))
-    tr = math.tan(math.radians(tilt_roll_deg))
+    """Formasyon düzlemini eğerek slot offset_z'lerini modüle eder (manevra).
+
+    NOT: sin kullanılır, tan DEĞİL. maneuver_executor eğimi rijit 3B rotasyon
+    (euler_to_matrix, sin/cos) ile uygular; burası eskiden tan ile "düzlem
+    eğimi" yapıyordu. İki farklı model → manevra→formasyon devrinde z uyuşmuyor,
+    sürü ~0.6m YUKARI-AŞAĞI SIÇRIYORDU (ölçüldü). sin ile ikisi aynı modeli
+    kullanır → devir sürekli, sıçrama biter. (Rijit rotasyonun z bileşeni
+    = dy·sin(roll); tan yalnız küçük açıda yakın, 15°'de %3.5 sapıyordu.)
+    """
+    tp = math.sin(math.radians(tilt_pitch_deg))
+    tr = math.sin(math.radians(tilt_roll_deg))
     if not offsets:
         return offsets
 

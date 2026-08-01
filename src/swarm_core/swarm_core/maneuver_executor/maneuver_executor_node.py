@@ -227,6 +227,13 @@ class ManeuverExecutorNode(Node):
             duration = 3.0
 
         start_time = time.time()
+        # Rampayi MEVCUT egimden baslat (0'dan degil): bir onceki manevradan
+        # kalan roll/pitch/yaw'dan hedefe yumusak gecer. Eskiden target*progress
+        # ile 30deg->0 birakisi TEK ADIMDA snap ediyordu (target=0 -> 0*progress
+        # =0) => suru agresif geri sicruyordu. Artik 30->0 da rampali iner.
+        start_p = self._maneuver_pitch_rad
+        start_r = self._maneuver_roll_rad
+        start_y = self._maneuver_yaw_rad
         feedback = ExecuteManeuver.Feedback()
         self.get_logger().info(f'Manevra basliyor. Sure: {duration}s')
 
@@ -246,9 +253,9 @@ class ManeuverExecutorNode(Node):
                 break
 
             progress = elapsed / duration
-            self._maneuver_pitch_rad = target_p * progress
-            self._maneuver_roll_rad = target_r * progress
-            self._maneuver_yaw_rad = target_y * progress
+            self._maneuver_pitch_rad = start_p + (target_p - start_p) * progress
+            self._maneuver_roll_rad = start_r + (target_r - start_r) * progress
+            self._maneuver_yaw_rad = start_y + (target_y - start_y) * progress
             self._publishing_active = True
 
             feedback.progress_percent = progress * 100.0
