@@ -110,6 +110,29 @@ _ORIGIN_TEKRAR_ARALIK_S = 5.0
 _ORIGIN_DOGRULAMA_PERIYOT_S = 1.0
 _M_PER_DEG_LAT = 111320.0
 
+# --- Yerel yorunge yurutucusu (bkz. _yurutucu_ilerlet) ----------------------
+# Yurutucu, setpoint'i hedefe dogru 50 Hz'de KENDI yurutur ve PX4'e hiz
+# ileri-beslemesiyle birlikte verir. Amac mesh'i kontrol dongusunden cikarmak.
+#
+# 2 Agustos'ta olculdu: goto'lar YKI'de 10 Hz uretiliyor ama drone'a 6.6 Hz
+# ve DUZENSIZ variyor (103/203/304 ms). Sebep firmware'de yazili
+# (mesh_config.h:517): POSE ve GOTO broadcast gidiyor, broadcast'te 802.11
+# ACK/retry YOK, havada kaybolan paket telafi edilmiyor. Kayip ~%30.
+#
+# Laptop yuruyen setpoint gonderdiginde her kayip bir SICRAMA uretiyordu:
+# 304 ms'lik bosluktan sonra gelen nokta 0.6 m ileridedir, MPC_XY_P (0.95)
+# ile ~0.57 m/s'lik ani hiz talebi demektir. Operatorun "gaz bas-cek" diye
+# tarif ettigi sey buydu.
+#
+# Yurutucuyle laptop yalniz ADIMIN HEDEFINI gonderir. Hedefin bir kez
+# ulasmasi yeter: esp32_bridge onu 10 Hz'de YEREL tekrar yayinliyor
+# (_guided_hedef_tekrar). Yani paket kaybi zararsizlasir — kaybolan paket
+# zaten ayni hedefi tasiyordu.
+_YURUTUCU_ADIM_TOLERANS_M = 1e-3   # bu kadar kalinca hedefe oturt
+
+
+
+
 
 class Px4BridgeNode(Node):
     """PX4 ↔ FSM ortadaki köprü node."""
@@ -221,6 +244,21 @@ class Px4BridgeNode(Node):
         self._origin_alt: float | None = None
         self._origin_son_gonderim: float = 0.0
         self._origin_uyari_verildi: bool = False
+
+        # --- Yerel yorunge yurutucusu ------------------------------------
+        # Hizlar burada, gorev betiginde DEGIL: yorunge artik burada
+        # uretiliyor. baslat.sh'den -p ile degistirilebilir.
+        self.declare_parameter('guided_hiz_yatay_mps', 2.0)
+        self.declare_parameter('guided_hiz_dikey_mps', 1.0)
+        # TASMA: yurutulen setpoint ucagin OLCULEN yerinden en fazla bu kadar
+        # onde olabilir. Gorev betiginde de vardi ama orada 6.6 Hz'lik ve
+        # gecikmeli telemetriye dayaniyordu; burada 50 Hz ve gecikmesiz.
+        self.declare_parameter('guided_tasma_m', 3.0)
+        self._hiz_yatay = float(self.get_parameter('guided_hiz_yatay_mps').value)
+        self._hiz_dikey = float(self.get_parameter('guided_hiz_dikey_mps').value)
+        self._yurutucu_tasma_m = float(self.get_parameter('guided_tasma_m').value)
+        self._yurutulen: list | None = None      # [kuzey, dogu, asagi] NED
+        self._yurutucu_son_t: float | None = None
 
         # PX4'e komut gönderen yardımcı — MAVROS servis/topic'lerine yazar.
         self._cmd_sender = MavrosCommandSender(
@@ -561,10 +599,24 @@ class Px4BridgeNode(Node):
 
         use_velocity = setpoint_fresh and self._latest_setpoint.velocity_valid
 
+        # YÜRÜTÜCÜ KAPISI — iki şart:
+        #   1) Gönderen hız VERMEDİYSE (guided goto yolu böyle: esp32_bridge
+        #      yalnız position_valid koyuyor). Hız veren yollara DOKUNMUYORUZ.
+        #   2) Setpoint KAÇINMADAN gelmiyorsa. basit_kacinma çıkışını
+        #      SOURCE_COLLISION_AVOIDANCE ile etiketliyor ve o bir KAÇIŞ
+        #      manevrası — yürütmek tepkiyi 2 m/s'e yavaşlatır. Seyirde
+        #      düzgünlük istiyoruz, kaçışta SERTLİK. Takas doğru yönde.
+        yurutucu_aktif = (
+            setpoint_fresh
+            and not self._latest_setpoint.velocity_valid
+            and self._latest_setpoint.source
+            != AgentSetpoint.SOURCE_COLLISION_AVOIDANCE
+        )
+
         if use_velocity and self._velocity_only:
             # B: saf hız modu (PX4 pozisyon yapmaz, SVT ROS'ta tutar)
             self._cmd_sender.publish_offboard_velocity_mode()
-        elif use_velocity:
+        elif use_velocity or yurutucu_aktif:
             # A: pozisyon + hız feedforward (PX4 pozisyon sahibi)
             self._cmd_sender.publish_offboard_position_velocity_mode()
         else:
@@ -650,6 +702,12 @@ class Px4BridgeNode(Node):
         if self._kalkis_kilidi_aktif():
             self._cmd_sender.publish_kalkis_setpoint(
                 self._target_altitude_ned, yaw_rad=self._cached_yaw_rad)
+            # Kilit boyunca yurutucu SIFIRDA tutulur. Kilit acildiginda
+            # ucagin O ANKI yerinden baslasin; yoksa kilit oncesindeki
+            # bayat bir noktadan devam eder ve kilit biter bitmez sicrama
+            # olur. Capa da ayni anda yeniden kuruluyor (bkz.
+            # _kalkis_kilidi_aktif), ikisi tutarli kalmali.
+            self._yurutucu_sifirla()
             return
 
         if use_velocity and self._velocity_only:
@@ -667,12 +725,85 @@ class Px4BridgeNode(Node):
                 float(sp.vx), float(sp.vy), float(sp.vz),
                 yaw_rad=target_yaw,
             )
+        elif yurutucu_aktif:
+            # C: YEREL YÜRÜTÜCÜ — hedefe 50 Hz'de yürür, PX4'e konum + hız
+            # ileri-beslemesi verir. Mesh kontrol döngüsünden çıkar.
+            yur, vel = self._yurutucu_ilerlet(
+                (target_x, target_y, target_z), now)
+            self._cmd_sender.publish_position_velocity_setpoint(
+                yur[0], yur[1], yur[2], vel[0], vel[1], vel[2],
+                yaw_rad=target_yaw,
+            )
         else:
-            # Stale/yok → pozisyon-hold (failsafe, flyaway önler)
+            # Stale/yok → pozisyon-hold (failsafe, flyaway önler).
+            # HAT ÖLÜRSE UÇAK PARK EDER özelliği burada yaşıyor: setpoint
+            # bayatlayınca yürütücü devreden çıkar ve uçak son yerinde tutar.
+            self._yurutucu_sifirla()
             self._cmd_sender.publish_position_setpoint(
                 target_x, target_y, target_z,
                 yaw_rad=target_yaw,
             )
+
+    def _yurutucu_sifirla(self) -> None:
+        """Yürütücüyü sıfırlar; bir sonraki çağrıda uçağın yerinden başlar."""
+        self._yurutulen = None
+        self._yurutucu_son_t = None
+
+    def _yurutucu_ilerlet(self, hedef, simdi):
+        """Setpoint'i hedefe doğru yürütür. (konum, hız) döndürür — ikisi NED.
+
+        NEDEN BURADA — bkz. dosya başındaki _YURUTUCU_ADIM_TOLERANS_M notu.
+        Özeti: yörünge üretimi laptoptaydı ve sonucu %30 kayıplı bir telsiz
+        hattından geçiyordu; her kayıp uçakta bir sıçrama üretiyordu. Burada
+        50 Hz'de ve kayıpsız üretiliyor.
+
+        HIZ İLERİ-BESLEMESİ asıl kazanç. Bugüne kadar PX4'e yalnız KONUM
+        gidiyordu; hız, PX4'ün konum hatasını kapatma çabasından DOLAYLI
+        çıkıyordu ve her yeni nokta bir basamak tepkisi üretiyordu. Artık
+        "2 m/s şu yöne" doğrudan söyleniyor; konum terimi hareketi üretmiyor,
+        yalnız sapmayı düzeltiyor.
+        """
+        if self._yurutulen is None or self._yurutucu_son_t is None:
+            self._yurutulen = [self._cached_pos_x, self._cached_pos_y,
+                               self._cached_pos_z]
+            self._yurutucu_son_t = simdi
+        dt = simdi - self._yurutucu_son_t
+        self._yurutucu_son_t = simdi
+        # Tik atlanirsa (yuk, GC) tek adimda sicramasin diye tavan.
+        dt = max(1e-3, min(dt, 0.2))
+
+        hx, hy, hz = hedef
+        dx, dy = hx - self._yurutulen[0], hy - self._yurutulen[1]
+        yatay = math.hypot(dx, dy)
+        adim = self._hiz_yatay * dt
+        if yatay <= max(adim, _YURUTUCU_ADIM_TOLERANS_M):
+            self._yurutulen[0], self._yurutulen[1] = hx, hy
+            vx = vy = 0.0
+        else:
+            self._yurutulen[0] += dx * adim / yatay
+            self._yurutulen[1] += dy * adim / yatay
+            vx = dx / yatay * self._hiz_yatay
+            vy = dy / yatay * self._hiz_yatay
+
+        dz = hz - self._yurutulen[2]
+        dadim = self._hiz_dikey * dt
+        if abs(dz) <= max(dadim, _YURUTUCU_ADIM_TOLERANS_M):
+            self._yurutulen[2] = hz
+            vz = 0.0
+        else:
+            self._yurutulen[2] += math.copysign(dadim, dz)
+            vz = math.copysign(self._hiz_dikey, dz)
+
+        # TASMA FRENI — yurutulen setpoint ucaktan kopamaz. Ucak ruzgarda
+        # veya itki yetmedigi icin geride kalirsa setpoint onun onunde
+        # kacmasin; yoksa ucak onu yakalamak icin hizlanir.
+        konum = (self._cached_pos_x, self._cached_pos_y, self._cached_pos_z)
+        one = math.dist(tuple(self._yurutulen), konum)
+        if one > self._yurutucu_tasma_m:
+            o = self._yurutucu_tasma_m / one
+            self._yurutulen = [konum[i] + (self._yurutulen[i] - konum[i]) * o
+                               for i in range(3)]
+        return tuple(self._yurutulen), (vx, vy, vz)
 
     def _kalkis_kilidi_aktif(self) -> bool:
         """İlk tırmanışta yatay konum kontrolü kilitli mi?

@@ -229,12 +229,15 @@ GOREV_DIKEY_HIZ_MPS = 1.0    # irtifa degisim hizi (motor isinmasi: daha yavas)
 # hizlaniyor, hatayi kapatinca yavasliyor, 0.5 sn sonra yeni basamak.
 # Saniyede iki kez. Olculen hiz dizisi: 0.5-1.2-1.3-1.9-1.6-2.2-1.7 m/s.
 #
-# 0.1 sn'de adim 0.2 m olur, hiz sicramasi ~0.19 m/s'e iner — hissedilmez.
-# ORTALAMA HIZ DEGISMEZ: adim = GOREV_HIZ_MPS * dt ve dt OLCULEN degerdir,
-# yani dongu mesh/HTTP yuzunden yavaslarsa adim buyur ve hiz yine 2 m/s
-# kalir. Kendi kendini ayarliyor; ust sinir mesh'in tasiyabildigi kadar
-# (base kuyrugu TIP_GOTO'yu 10 Hz'de tutuyor, cok dronda paylasilir).
-SETPOINT_ADIM_S = 0.1        # ara hedef gonderim araligi
+# SONRA (2 Agustos, adim 1): yurutme px4_bridge'e TASINDI. Burasi artik ara
+# nokta uretmiyor, adimin HEDEFINI tekrar tekrar gonderiyor. Dolayisiyla bu
+# aralik "yorunge cozunurlugu" degil, iki isin periyodu:
+#   1) guvenlik denetimleri (kill/failsafe/offboard/kacis) — 5 Hz yeterli
+#   2) hedefin tekrari — mesh'te ~%30 kayip var, tekrar dayanikliligi verir
+# Hedefin BIR KEZ ulasmasi yeterli oldugu icin (drone 10 Hz yerel tekrar
+# yapiyor) 10 Hz'e gerek kalmadi; 0.2 mesh yukunu yariya indiriyor ve
+# RTCM'e yer aciyor.
+SETPOINT_ADIM_S = 0.2        # hedef tekrari + guvenlik denetimi periyodu
 TASMA_M = 3.0                # setpoint ucaktan en fazla bu kadar onde olabilir
 
 # --- Kacis kesicisi (bkz. git_ve_bekle) -------------------------------------
@@ -979,58 +982,63 @@ def guvenlik_ihlali(t) -> str | None:
 
 def git_ve_bekle(hedefler, heading_deg: float, asim_s: float, kuru: bool,
                  t_baslangic) -> bool:
-    """Hedeflere ADIM ADIM yürür ve varışı bekler.
+    """Hedefi gönderir, uçağın varışını bekler ve uçuşu denetler.
 
-    NEDEN TEK KOMUT DEĞİL — 1 Ağustos'ta ölçüldü. Önceki hali son noktayı
-    TEK goto ile veriyordu. OFFBOARD'da PX4 konum setpoint'ini yumuşatmaz;
-    Auto modundaki yörünge üreteci (MPC_JERK_AUTO / MPC_ACC_HOR) o yolda
-    DEVREDE DEĞİLDİR. Yani 8 m ötedeki bir nokta = anında MPC_XY_VEL_MAX
-    kadar hız talebi. Uçak tam yetkiyle atılıyor, varınca aynı sertlikte
-    frenliyor. Ölçüm: 1 sn'lik ortalamalar d1 3.2/3.0 m/s, d2 3.0/2.6 m/s —
-    4 m/s tavanına dayanmış. Operatörün gördüğü "aşırı hızlı tepki" budur.
+    YÖRÜNGE ARTIK BURADA ÜRETİLMİYOR (2 Ağustos, adım 1). Üç aşamadan geçti:
 
-    Setpoint'i GOREV_HIZ_MPS ile yürütünce talep edilen hız yürütme hızına
-    eşitlenir; hareket düzgün başlar ve düzgün biter.
+      1) İlk hâl: son nokta TEK goto ile veriliyordu. OFFBOARD'da PX4 konum
+         setpoint'ini yumuşatmaz (Auto'nun yörünge üreteci o yolda devrede
+         DEĞİL), yani 8 m ötedeki nokta = anında MPC_XY_VEL_MAX kadar hız.
+         Ölçüldü: 3.0-3.2 m/s, 4 m/s tavanına dayanmıştı.
 
-    UÇAKTAKİ PARAMETRE BİLEREK DÜŞÜRÜLMEDİ (MPC_XY_VEL_MAX 4.0 kalıyor):
+      2) Sonra: setpoint BURADA yürütüldü. Hız 2 m/s'e oturdu ama bu sefer
+         "gaz bas-çek" çıktı. Sebep ölçüldü: goto'lar burada 10 Hz üretilse
+         de drone'a 6.6 Hz ve DÜZENSİZ varıyor (103/203/304 ms), çünkü
+         mesh'te POSE/GOTO broadcast gidiyor ve broadcast'te 802.11 ACK/retry
+         yok (firmware mesh_config.h:517'de yazılı). Kayıp ~%30 ve her kayıp
+         bir sıçrama demek.
+
+      3) Şimdi: yürütme px4_bridge'de, 50 Hz'de, hız ileri-beslemesiyle.
+         Buradan yalnız ADIMIN HEDEFİ gidiyor ve tekrarlanıyor. Hedefin bir
+         kez ulaşması yeterli — esp32_bridge onu 10 Hz yerel tekrar yayınlar.
+         Paket kaybı artık zararsız: kaybolan paket aynı hedefi taşıyordu.
+
+    HIZ VE TAŞMA FRENİ px4_bridge'de: guided_hiz_yatay_mps,
+    guided_hiz_dikey_mps, guided_tasma_m (baslat.sh'den veriliyor).
+    Buradaki GOREV_HIZ_MPS / GOREV_DIKEY_HIZ_MPS artık YALNIZ BİLGİ AMAÇLI —
+    ikisi aynı değerde tutulmalı, yoksa ekrandaki sayı yalan söyler.
+
+    UÇAKTAKİ MPC_XY_VEL_MAX BİLEREK DÜŞÜRÜLMEDİ (4.0 kalıyor):
       * çarpışma kaçınmasının kaçış payı o tavandan geliyor — görev hızına
         eşitlersek kaçış manevrası da 2 m/s'e iner ve itme yetersiz kalır
       * aynı parametre kumandadaki POSCTL'i de sınırlar; pilotun elinden
         manevra kabiliyetini almak güvenliği azaltır
 
-    TAŞMA FRENİ: setpoint uçaktan en fazla TASMA_M ötede olabilir. Olmasaydı
-    rüzgâr/kaçınma yüzünden geride kalan uçağın önünde setpoint kaçar, sonra
-    uçak onu yakalamak için hızlanırdı — düzeltmeye çalıştığımız davranışın
-    aynısı, üstelik daha kötüsü.
+    BURADA KALAN İŞ: güvenlik denetimi (pilot devraldı mı, OFFBOARD düştü mü,
+    kill/failsafe/eğim, KAÇIŞ kesicisi) ve varış tespiti.
     """
     if kuru:
         return True
-    # Yürüyen setpoint uçağın ÖLÇÜLEN yerinden başlar; plandaki önceki
-    # noktadan değil. Uçak nerede kaldıysa oradan devam etsin.
-    sp = {}
+    baslangic_konum = {}
     for did in ucanlar():
         d = t_baslangic.get(did)
         if d is None:
             raise RuntimeError(f"drone {did} telemetride yok")
-        sp[did] = [d["pos_x"], d["pos_y"], d["alt_m"]]
-    onceki_konum = {did: tuple(sp[did]) for did in sp}
-    # HIZ OLCUMU icin AYRI durum. Bkz. asagidaki hesap: gorev dongusu
-    # telemetriden HIZLI kostugu icin konum degismeden gecen tiklerde
-    # hiz 0 okunuyordu; olcum konumun GERCEKTEN degistigi anlara baglanir.
-    olcum_konum = {did: tuple(sp[did]) for did in sp}
-    olcum_t = {did: time.time() for did in sp}
-    son_hiz = {did: 0.0 for did in sp}
+        baslangic_konum[did] = (d["pos_x"], d["pos_y"], d["alt_m"])
+    onceki_konum = dict(baslangic_konum)
+    # HIZ OLCUMU icin AYRI durum: telemetri gorev dongusunden YAVAS
+    # yenilendigi icin, konumun GERCEKTEN degistigi anlara baglanir.
+    olcum_konum = dict(baslangic_konum)
+    olcum_t = {did: time.time() for did in baslangic_konum}
+    son_hiz = {did: 0.0 for did in baslangic_konum}
     # KAÇIŞ KESİCİSİ durumu — her uçağın hedefe EN ÇOK yaklaştığı mesafe.
-    en_yakin = {did: float("inf") for did in sp}
-    kacis_basladi = {did: None for did in sp}   # uzaklasmanin BASLADIGI an
+    en_yakin = {did: float("inf") for did in baslangic_konum}
+    kacis_basladi = {did: None for did in baslangic_konum}
 
     basla = time.time()
-    onceki_t = basla
     while time.time() - basla < asim_s:
         time.sleep(SETPOINT_ADIM_S)
         simdi = time.time()
-        dt = max(1e-3, simdi - onceki_t)
-        onceki_t = simdi
         t = durum()
 
         # PİLOT DEVRALDI MI / OFFBOARD DÜŞTÜ MÜ — hemen anla, zaman aşımını
@@ -1065,7 +1073,7 @@ def git_ve_bekle(hedefler, heading_deg: float, asim_s: float, kuru: bool,
                       f"(mod={d.get('mode')}, flight_mode={fm}) — failsafe olabilir")
                 return False
 
-        uzak, hiz, sp_kalan = {}, {}, {}
+        uzak, hiz = {}, {}
         for did in ucanlar():
             dd = t.get(did)
             if dd is None:
@@ -1091,28 +1099,29 @@ def git_ve_bekle(hedefler, heading_deg: float, asim_s: float, kuru: bool,
             hiz[did] = son_hiz[did]
             onceki_konum[did] = konum
 
-            hk, hd, hi = hedef
-            dk, dd_ = hk - sp[did][0], hd - sp[did][1]
-            yatay = math.hypot(dk, dd_)
-            adim = GOREV_HIZ_MPS * dt
-            if yatay <= adim:
-                sp[did][0], sp[did][1] = hk, hd
-            else:
-                sp[did][0] += dk * adim / yatay
-                sp[did][1] += dd_ * adim / yatay
-            di = hi - sp[did][2]
-            dadim = GOREV_DIKEY_HIZ_MPS * dt
-            sp[did][2] = hi if abs(di) <= dadim else sp[did][2] + math.copysign(dadim, di)
+            # HEDEF DOĞRUDAN GÖNDERİLİR — ara nokta YÜRÜTÜLMEZ.
+            #
+            # Yürütme 2 Ağustos'ta px4_bridge'e taşındı (bkz. oradaki
+            # _yurutucu_ilerlet). Sebep ölçüldü: goto'lar burada 10 Hz
+            # üretiliyordu ama drone'a 6.6 Hz ve DÜZENSİZ varıyordu
+            # (103/203/304 ms), çünkü mesh'te POSE/GOTO broadcast gidiyor ve
+            # broadcast'te 802.11 ACK/retry yok — kayıp ~%30. Her kayıp,
+            # yürütülen setpoint'te bir sıçrama demekti: 304 ms'lik boşluktan
+            # sonraki nokta 0.6 m ileride, MPC_XY_P (0.95) ile ~0.57 m/s ani
+            # hız talebi. Operatörün "gaz bas-çek" dediği şey buydu.
+            #
+            # Artık hedefin BİR KEZ ulaşması yeterli: esp32_bridge onu 10 Hz
+            # yerel tekrar yayınlıyor, px4_bridge 50 Hz'de kendi yürütüyor.
+            # Kaybolan paket zaten aynı hedefi taşıyordu — zararsız.
+            #
+            # HIZ ARTIK BURADA DEĞİL: GOREV_HIZ_MPS / GOREV_DIKEY_HIZ_MPS
+            # yerine px4_bridge'in guided_hiz_yatay_mps / _dikey_mps
+            # parametreleri geçerli. İkisi AYNI değerde tutulmalı.
 
-            # TAŞMA FRENİ: ilerledikten SONRA geri çek. Önce bakıp "ilerleme"
-            # demek bir adım geç kalıyor ve sınırı TASMA_M + hız*dt yapıyordu
-            # (ölçüldü: 3.0 yerine 4.0 m). Burada sınır tam olarak TASMA_M.
-            one = math.dist(tuple(sp[did]), konum)
-            if one > TASMA_M:
-                o = TASMA_M / one
-                sp[did] = [konum[j] + (sp[did][j] - konum[j]) * o for j in range(3)]
-            sp_kalan[did] = math.dist(tuple(sp[did]), hedef)
-            git(did, tuple(sp[did]), heading_deg, kuru, t)
+            # TAŞMA FRENİ DE TAŞINDI (px4_bridge, guided_tasma_m). Burada
+            # 6.6 Hz'lik ve gecikmeli telemetriye dayanıyordu; orada uçağın
+            # kendi konumuyla 50 Hz'de ve gecikmesiz çalışıyor.
+            git(did, hedef, heading_deg, kuru, t)
 
         # KAÇIŞ KESİCİSİ — 1 Ağustos 22:18'de EKSİKTİ ve bedeli ağır oldu.
         #
@@ -1149,21 +1158,14 @@ def git_ve_bekle(hedefler, heading_deg: float, asim_s: float, kuru: bool,
                       f"satırına bak)")
                 return False
 
-        # VARIS IKI SARTA BAGLI — ikincisi 1 Agustos'ta EKSIKTI.
+        # VARIS TEK SARTA DONDU — ikinci sart artik GEREKSIZ.
         #
-        # Onceden yalniz "ucak hedefe TOLERANS_M (2.5 m) kadar yaklasti mi"
-        # bakiliyordu. Yatay adimlarda bu zararsizdi (7 m'lik yolun son 2.5
-        # metresi), ama SAF DIKEY bir adimda hatali: 5 m tirmanma komutunda
-        # ucak 2.5 m yukselince "vardi" denir, yurutulen setpoint daha hedefe
-        # varmadan adim kapanir ve ucak komut edilen irtifanin YARISINDA
-        # kalir. Yurutulen setpoint yontemine gecerken bu gozden kacti.
-        #
-        # Ikinci sart, hareketin TAMAMININ komut edilmis olmasini garanti
-        # eder. Iki sart cakismaz: TOLERANS_M (2.5) < TASMA_M (3.0) oldugu
-        # icin ucak hedefe 2.5 m kala tasma freni setpoint'i geri cekmez,
-        # yani sp hedefe oturabilir.
-        if (uzak and all(u <= TOLERANS_M for u in uzak.values())
-                and all(s <= 0.05 for s in sp_kalan.values())):
+        # 1 Agustos'ta "yurutulen setpoint de hedefe otursun" sarti eklenmisti,
+        # cunku setpoint burada yurutuluyordu ve 5 m'lik tirmanis 2.5 m'de
+        # "vardi" sayilabiliyordu. Yurutme px4_bridge'e tasindi: artik ucak
+        # hedefe TAM olarak yuruyor, yarim kalma ihtimali yapisal olarak yok.
+        # Burada bakilacak tek sey ucagin gercekten varip varmadigi.
+        if uzak and all(u <= TOLERANS_M for u in uzak.values()):
             print("      vardı: " + "  ".join(
                 f"d{k}={v:.1f}m" for k, v in sorted(uzak.items())))
             return True
@@ -1617,7 +1619,8 @@ def main() -> int:
               f"{TEKLI_IRTIFA_M + TEKLI_IRTIFA_ARTIS_M:.0f} m   "
               f"ileri {TEKLI_ILERLEME_M:.0f} m   bekleme {TEKLI_BEKLEME_S:.0f}s")
         print(f"  hız {GOREV_HIZ_MPS:.1f} m/s yatay, {GOREV_DIKEY_HIZ_MPS:.1f} m/s dikey"
-              f"   yatay kilit 2.5 m'ye kadar (px4_bridge)")
+              f"   (px4_bridge yürütücüsü)")
+        print(f"  yatay kilit 2.5 m'ye kadar   yörünge drone'da üretiliyor")
     else:
         print(f"  dronelar: {DRONELAR}   kalkış {KALKIS_IRTIFA_M:.0f} m -> {YENI_IRTIFA_M:.0f} m")
         print(f"  roll {ROLL_ACISI_DEG:.0f}°   aralık {ARALIK_M:.0f} m   kenar {KENAR_M:.0f} m")

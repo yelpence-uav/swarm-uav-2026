@@ -75,7 +75,22 @@ ros2 run mavros mavros_node --ros-args -r __ns:=/drone_${AGENT_ID}/mavros \
     > "$GUNLUK/mavros.log" 2>&1 &
 [ -n "$GCS_URL" ] && echo "[baslat] MAVLink QGC'ye iletiliyor: $GCS_URL"
 sleep 15
-ros2 run swarm_control px4_bridge --ros-args -p agent_id:=${AGENT_ID} > "$GUNLUK/px4b.log" 2>&1 &
+# GUIDED YORUNGE HIZLARI — yorunge 2 Agustos'ta px4_bridge'e tasindi
+# (bkz. _yurutucu_ilerlet). Onceden gorev betigi setpoint'i kendi yurutuyor ve
+# her ara noktayi mesh'ten yolluyordu; mesh'te ~%30 paket kaybi oldugu icin
+# her kayip ucakta bir sicrama uretiyordu ("gaz bas-cek"). Artik YKI yalniz
+# hedefi gonderiyor, ara degerleri drone 50 Hz'de kendi uretiyor.
+#
+# Bu degerler gorev betigindeki GOREV_HIZ_MPS / GOREV_DIKEY_HIZ_MPS ile AYNI
+# olmali — ayrisirsa ucus dogru hizda olur ama YKI ekranindaki sayi yalan
+# soyler. Betikteki degerler artik yalniz bilgi amacli.
+GUIDED_HIZ_YATAY="${GUIDED_HIZ_YATAY:-2.0}"
+GUIDED_HIZ_DIKEY="${GUIDED_HIZ_DIKEY:-1.0}"
+GUIDED_TASMA="${GUIDED_TASMA:-3.0}"
+ros2 run swarm_control px4_bridge --ros-args -p agent_id:=${AGENT_ID} \
+    -p guided_hiz_yatay_mps:=${GUIDED_HIZ_YATAY} \
+    -p guided_hiz_dikey_mps:=${GUIDED_HIZ_DIKEY} \
+    -p guided_tasma_m:=${GUIDED_TASMA} > "$GUNLUK/px4b.log" 2>&1 &
 sleep 5
 ros2 run swarm_state_machine agent_fsm_node --ros-args -p agent_id:=${AGENT_ID} > "$GUNLUK/fsm.log" 2>&1 &
 sleep 5
@@ -131,6 +146,7 @@ if [ "$KACINMA" = "1" ]; then
     KOMSULAR=$(echo "1 2 3" | tr ' ' '\n' | grep -v "^${AGENT_ID}$" | paste -sd, -)
     ros2 run swarm_control basit_kacinma --ros-args \
         -p agent_id:=${AGENT_ID} -p komsu_idler:="[$KOMSULAR]" \
+        -p d0_m:=${KACINMA_D0:-6.0} -p hard_m:=${KACINMA_HARD:-3.0} \
         > "$GUNLUK/kacinma.log" 2>&1 &
     echo "[baslat] basit_kacinma basladi (komsular: $KOMSULAR)"
 fi
