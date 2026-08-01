@@ -843,11 +843,24 @@ class Esp32BridgeNode(Node):
             status.pos_z = -rel_alt_m
             status.z_valid = True
             # YATAY (pos_x/pos_y): hala origin-tabanli GPS→NED (harita/formasyon).
+            # ORIGIN_SYNCED BURADA ARTIK YAZILMIYOR — 1 Ağustos 22:18'de bu
+            # satır ylp01'in kaçmasını görünmez kıldı.
+            #
+            # Eski hâli, BAZ İSTASYONU kendi GPS→NED çevirimini yapabildiği
+            # için komşunun origin_synced'ine True yazıyordu. Oysa bayrağın
+            # anlamı "O DRONE'UN PX4'ü ortak origin'i uyguladı mı" —
+            # bambaşka bir şey. O gece YKİ True gösterirken PX4'ün çerçevesi
+            # 12.1 m kayıktı ve komut edilen her nokta o kadar yanlış yere
+            # düşüyordu. Bayrağa bakan bir kapı bile kurtarmazdı.
+            #
+            # Artık drone kendi ölçümünü (px4_bridge._origin_dogrula)
+            # TIP_DURUM'un bayraklar2 bitiyle gönderiyor; _isle_durum onu
+            # yazıyor. Burada yalnız YATAY NED'in kendi origin'imizle
+            # hesaplanabilirliği (xy_valid) belirlenir — o ayrı bir şey.
             ned = self._gps_ned_cevir(lat_deg, lon_deg, 0.0)
             if ned is not None:
                 status.pos_x = ned[0]
                 status.pos_y = ned[1]
-                status.origin_synced = True
                 status.xy_valid = True
                 status.v_xy_valid = True
                 if hasattr(status, 'v_z_valid'):
@@ -856,7 +869,6 @@ class Esp32BridgeNode(Node):
                 # Origin yok → yatay NED yok (dikey irtifa yine de gecerli)
                 status.pos_x = 0.0
                 status.pos_y = 0.0
-                status.origin_synced = False
                 status.xy_valid = False
                 status.v_xy_valid = False
                 if hasattr(status, 'v_z_valid'):
@@ -932,6 +944,9 @@ class Esp32BridgeNode(Node):
             status.kill_switch_active = durum.kill_switch_active
             status.rc_link_ok = durum.rc_link_ok
             status.ready_to_arm = durum.ready_to_arm
+            # ORIGIN_SYNCED ARTIK DRONE'UN KENDI OLCUMUNDEN. Onceden
+            # _isle_pose bunu UYDURUYORDU (bkz. oradaki not).
+            status.origin_synced = durum.origin_synced
             # mesh_link_ok ve mesh_node_count henüz AgentStatus.msg'de yok;
             # eklenince hasattr otomatik doldurur, o zamana kadar
             # status_text taşır. AgentStatus.msg ile teyit edilmesi gerekir.
@@ -1455,6 +1470,10 @@ class Esp32BridgeNode(Node):
                 rc_link_ok=1 if msg.rc_link_ok else 0,
                 # PX4 PREARM_CHECK: emniyet anahtarı dahil tüm ön-kontroller.
                 ready_to_arm=1 if msg.ready_to_arm else 0,
+                # ORIGIN DOGRULAMASI: px4_bridge bunu GONDERMEKLE degil,
+                # GPS ile PX4'un yerel cercevesini KARSILASTIRARAK koyuyor.
+                # Mesh'ten gecmedigi surece baz istasyonu uyduruyordu.
+                origin_synced=1 if msg.origin_synced else 0,
             )
             self._uart_yaz(pp.TIP_DURUM, self._agent_id, payload)
 

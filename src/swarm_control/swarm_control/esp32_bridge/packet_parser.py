@@ -70,6 +70,14 @@ DURUM_BAYRAK_RC_LINK = 0x80
 
 # İkinci bayrak baytı (bayraklar2) — ilk bayt 8 bitle doldu.
 DURUM2_BAYRAK_READY_TO_ARM = 0x01
+# ORIGIN_SYNCED mesh'ten GEÇMİYORDU ve baz istasyonu onu UYDURUYORDU:
+# _isle_pose, kendi GPS→NED çevirimini yapabildiği için komşunun bayrağına
+# True yazıyordu. Oysa bayrağın anlamı "O DRONE'UN PX4'ü ortak origin'i
+# uyguladı mı" — bambaşka bir şey. 1 Ağustos 22:18'de YKİ origin_synced=True
+# gösterirken PX4'ün çerçevesi 12.1 m kayıktı ve ylp01 kaçtı.
+# Bayrak artık drone'un KENDİ doğrulamasından (px4_bridge._origin_dogrula)
+# geliyor. Firmware bayraklar2'yi opak taşır — flash GEREKMEZ.
+DURUM2_BAYRAK_ORIGIN_SYNCED = 0x02
 _RENK_FMT = '<Bii7x'         # renk, lat, lon, rezerv[7]
 _GOREV_FMT = '<BBbB12x'      # tip, param1, param2, bekleme, rezerv[12]
 _ORIGIN_FMT = '<iiiI'        # lat_1e7, lon_1e7, alt_mm, sequence
@@ -249,6 +257,15 @@ class DurumVeri:
     def ready_to_arm(self) -> bool:
         """PX4 PREARM_CHECK: emniyet anahtarı dahil tüm ön-kontroller geçti mi."""
         return bool(self.bayraklar2 & DURUM2_BAYRAK_READY_TO_ARM)
+
+    @property
+    def origin_synced(self) -> bool:
+        """O drone'un PX4'ü ortak origin'i UYGULADI mı (ölçerek doğrulandı).
+
+        Kaynağı px4_bridge._origin_dogrula: GPS'in ortak origin'e göre
+        vermesi gereken NED ile PX4'ün bildirdiği yerel NED karşılaştırılır.
+        """
+        return bool(self.bayraklar2 & DURUM2_BAYRAK_ORIGIN_SYNCED)
 
     @property
     def battery_volt(self) -> float:
@@ -487,7 +504,8 @@ def durum_paketle(drone_id: int, durum: int, armed: int,
                   gps_hdop: float = 99.9,
                   kill_switch_active: int = 0,
                   rc_link_ok: int = 0,
-                  ready_to_arm: int = 0) -> bytes:
+                  ready_to_arm: int = 0,
+                  origin_synced: int = 0) -> bytes:
     """Durum verisi alanlarını 16 baytlık mesh payload'ına paketler (REV C).
 
     RPi kendi durumunu (agent_fsm çıktısı) ESP32'ye gönderirken kullanır.
@@ -534,7 +552,11 @@ def durum_paketle(drone_id: int, durum: int, armed: int,
     if rc_link_ok:
         bayraklar |= DURUM_BAYRAK_RC_LINK
 
-    bayraklar2 = DURUM2_BAYRAK_READY_TO_ARM if ready_to_arm else 0
+    bayraklar2 = 0
+    if ready_to_arm:
+        bayraklar2 |= DURUM2_BAYRAK_READY_TO_ARM
+    if origin_synced:
+        bayraklar2 |= DURUM2_BAYRAK_ORIGIN_SYNCED
 
     # 255 = "bilinmiyor/kötü" sentineli. 25.4'ten büyük HDOP zaten kullanılamaz
     # kalitededir, sentinele kırpmak bilgi kaybetmez.

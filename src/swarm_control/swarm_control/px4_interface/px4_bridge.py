@@ -100,6 +100,10 @@ _ARM_OFFBOARD_BEKLEME_S = 8.0
 # fark santimlerde kalir. 1 Agustos'ta olculen ayrilik 12.1 m idi — yani esik
 # gurultuye degil, gercek ayrisma varsa tetiklenir.
 _ORIGIN_TOLERANS_M = 1.0
+# DIKEY tolerans daha genis: PX4'un yerel z'si baro+GPS fuzyonu, ham GPS
+# AMSL'ine gore zamanla birkac on santim gezinir. 1.5 m'lik gercek ayrisma
+# (1 Agustos'ta olculen) bunun cok uzerinde, yani esik yine de yakalar.
+_ORIGIN_TOLERANS_Z_M = 1.0
 # Tekrar gonderim araligi: PX4 kabul edip EKF'i yeniden kurmasi zaman alir,
 # saniyede bir bombardiman etmenin anlami yok.
 _ORIGIN_TEKRAR_ARALIK_S = 5.0
@@ -722,8 +726,17 @@ class Px4BridgeNode(Node):
         self._origin_gonder('yeni sequence')
 
     def _origin_gonder(self, sebep: str) -> None:
-        """SET_GPS_GLOBAL_ORIGIN gönderir (hız sınırlı)."""
+        """SET_GPS_GLOBAL_ORIGIN gönderir (hız sınırlı, YALNIZ YERDE).
+
+        ARMLIYKEN GÖNDERİLMEZ. Origin'i havada değiştirmek PX4'ün yerel
+        çerçevesini KAYDIRIR: uçağın konumu bir anda sıçrar, kontrolcü o
+        sıçramayı gerçek bir hata sanıp düzeltmeye çalışır. Yani tam olarak
+        önlemeye çalıştığımız şeyin havada olanı. Doğrulama uçarken de koşar
+        ve bayrağı düşürür — ama düzeltme yere inince yapılır.
+        """
         if self._origin_lat is None:
+            return
+        if self._status.armed:
             return
         simdi = self.get_clock().now().nanoseconds * 1e-9
         if simdi - self._origin_son_gonderim < _ORIGIN_TEKRAR_ARALIK_S:
@@ -771,11 +784,23 @@ class Px4BridgeNode(Node):
         bek_y = ((lon - self._origin_lon) * _M_PER_DEG_LAT
                  * math.cos(math.radians(lat)))
         fark = math.hypot(bek_x - self._status.pos_x, bek_y - self._status.pos_y)
-        if fark <= _ORIGIN_TOLERANS_M:
+
+        # DIKEY DE DENETLENIR. Yatay 12.1 m ayrilirken dikey de 1.54 m
+        # ayriydi ve ayni sekilde komut edilen irtifayi kaydiriyordu:
+        # "irtifa 5 m" komutu ucagi zeminden 3.5 m'ye cikariyordu. Fark
+        # kalkis sonrasi olculen irtifa_ofset ile soguruluyordu — yani
+        # semptom gizleniyor, sebep duruyordu.
+        #
+        # GPS'in AMSL'i kullanilabilir oldugu OLCULDU (1216.96 m; elipsoit
+        # yukseklik olsaydi bu enlemde ~1250 civari cikardi).
+        bek_z_up = self._status.alt_amsl_m - self._origin_alt
+        fark_z = abs(bek_z_up - (-self._status.pos_z))
+
+        if fark <= _ORIGIN_TOLERANS_M and fark_z <= _ORIGIN_TOLERANS_Z_M:
             if not self._status.origin_synced:
                 self.get_logger().info(
-                    f'origin DOGRULANDI (fark {fark:.2f} m) — '
-                    f'cerceveler ortusuyor')
+                    f'origin DOGRULANDI (yatay {fark:.2f} m, dikey '
+                    f'{fark_z:.2f} m) — cerceveler ortusuyor')
             self._status.origin_synced = True
             self._origin_uyari_verildi = False
             return
@@ -783,12 +808,15 @@ class Px4BridgeNode(Node):
         if not self._origin_uyari_verildi:
             self._origin_uyari_verildi = True
             self.get_logger().error(
-                f'ORIGIN OTURMAMIS: ortak origin {fark:.2f} m sapma veriyor '
-                f'(tolerans {_ORIGIN_TOLERANS_M:.1f} m). Beklenen NED '
-                f'({bek_x:+.2f},{bek_y:+.2f}), PX4 '
-                f'({self._status.pos_x:+.2f},{self._status.pos_y:+.2f}). '
+                f'ORIGIN OTURMAMIS: yatay sapma {fark:.2f} m (tolerans '
+                f'{_ORIGIN_TOLERANS_M:.1f}), dikey sapma {fark_z:.2f} m '
+                f'(tolerans {_ORIGIN_TOLERANS_Z_M:.1f}). Beklenen NED '
+                f'({bek_x:+.2f},{bek_y:+.2f}) irtifa {bek_z_up:+.2f}, PX4 '
+                f'({self._status.pos_x:+.2f},{self._status.pos_y:+.2f}) '
+                f'irtifa {-self._status.pos_z:+.2f}. '
                 f'UCURMA — setpoint bu kadar yanlis yere gider.')
-        self._origin_gonder(f'dogrulama basarisiz, fark {fark:.1f} m')
+        self._origin_gonder(
+            f'dogrulama basarisiz (yatay {fark:.1f} m, dikey {fark_z:.1f} m)')
 
     def _on_agent_setpoint(self, msg: AgentSetpoint) -> None:
         """

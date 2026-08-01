@@ -40,7 +40,25 @@ BASE_ESP_BAUD=460800
 # RTK baz istasyonu gelince: swarm_origin_publisher'ı origin_source:=rtk_base'e çevir.
 ORIGIN_LAT="${ORIGIN_LAT:-38.6904758}"
 ORIGIN_LON="${ORIGIN_LON:-39.1610188}"
-ORIGIN_ALT="${ORIGIN_ALT:-1218.5}"
+# ORIGIN_ALT ZEMİNİN AMSL YÜKSEKLİĞİ OLMALI — 1218.5 idi, 1.54 m fazlaydı.
+#
+# Bu sayı PX4'ün yerel z=0 düzlemini nereye koyacağını belirler. Zeminden
+# farklıysa "irtifa 5 m" komutu uçağı 5 m'ye ÇIKARMAZ: origin düzlemi 1.54 m
+# yukarıdaysa uçak zeminden 3.46 m'de kalır. Operatörün birden çok görevde
+# bildirdiği "irtifa sıçraması" buydu; kalkış sonrası ölçülen irtifa_ofset
+# semptomu soğuruyordu ama sebep duruyordu.
+#
+# 1 Ağustos'ta ölçüldü, aritmetik birebir oturdu:
+#   GPS AMSL (yerde)     1216.96 m
+#   PX4 yerel z (ENU up)   -1.542 m
+#   1218.5 - 1.542 = 1216.96  -> PX4 1218.5'i DOĞRU uygulamış, sayı yanlışmış.
+# Doğrusu zeminin kendi AMSL'i: 1216.96.
+#
+# BAŞKA SAHADA: drone'u yere koy, GPS'in AMSL'ini oku, buraya yaz —
+#   ros2 topic echo --once /drone_N/mavros/global_position/global | grep altitude
+# Yanlış bırakılırsa px4_bridge._origin_dogrula dikey sapmayı yakalar,
+# origin_synced false olur ve ön kontrol görevi BAŞLATMAZ.
+ORIGIN_ALT="${ORIGIN_ALT:-1216.96}"
 
 # --- DDS: loopback (WiFi'den bağımsız) — tek kesin mekanizma ---
 DDS_URI="file://$REPO/src/gcs/cyclonedds_yki.xml"
