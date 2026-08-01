@@ -1162,7 +1162,7 @@ def gorev(kuru: bool) -> int:
     # kayar, duzeltmek icin egilir, pervane yere vurur.
     ERKEN_KES_S = 8.0
     ERKEN_KES_IRTIFA_M = 1.5
-    print(f"    irtifa bekleniyor...")
+    print(f"    irtifa bekleniyor...")   # (ofset asagida olculuyor)
     t0 = time.time()
     while time.time() - t0 < KALKIS_ASIM_S:
         time.sleep(1.0)
@@ -1185,6 +1185,32 @@ def gorev(kuru: bool) -> int:
         if all(t.get(d, {}).get("alt_m", 0.0) >= kalkis_irt * 0.9 for d in ucanlar()):
             print("    irtifa tamam: " + "  ".join(f"d{d}={t[d]['alt_m']:.1f}m"
                                                    for d in ucanlar()))
+            # IRTIFA OFSETI — kalkis ile goto AYNI cerceveye getirilir.
+            #
+            # Iki ayri referans vardi ve arasindaki fark kalkis biter bitmez
+            # bir SICRAMA olarak goruluyordu:
+            #   kalkis (px4_bridge:810)  _cached_pos_z - altitude  -> ZEMINE gore
+            #   goto   (guided.py:128)   z = -irtifa               -> ORIGIN'e gore
+            # Zemin origin'in z=0'inda degilse ikisi ayrisir. 1 Agustos ucusu:
+            # zemin z=+1.6, kalkis ucagi zeminden 5 m'ye cikardi (z=-3.4), ilk
+            # goto origin'den 5 m istedi (z=-5.0) -> ucak 1.6 m FIRLADI.
+            # Operatorun birden fazla gorevde bildirdigi "1-2 metre irtifa
+            # sicramasi" buydu.
+            #
+            # Origin'i duzeltmek yerine ofset OLCULUYOR: kalkis bitince ucagin
+            # okudugu irtifa, zeminden kalkis_irt kadar yukarida olmasi
+            # gereken bir ucagin ORIGIN'e gore irtifasidir. Aradaki fark
+            # ofsettir ve plandaki tum irtifalara eklenir. Boylece komut
+            # edilen irtifa ucagin ZATEN oldugu yerle ayni olur; sicrama
+            # kalmaz. Kendi kendini kalibre eder, origin yanlissa da calisir.
+            olculen = [t[d]["alt_m"] for d in ucanlar()]
+            irtifa_ofset = sum(olculen) / len(olculen) - kalkis_irt
+            if abs(irtifa_ofset) > 0.15:
+                print(f"    irtifa ofseti {irtifa_ofset:+.2f} m "
+                      f"(zemin origin'in z=0'inda değil) — plana ekleniyor")
+                plan = [(et, hd, {k: (v[0], v[1], v[2] + irtifa_ofset)
+                                  for k, v in hf.items()}, bk)
+                        for et, hd, hf, bk in plan]
             break
         print("    ... " + "  ".join(f"d{d}={t.get(d,{}).get('alt_m',0.0):.1f}m"
                                      for d in ucanlar()), end="\r")
@@ -1194,13 +1220,19 @@ def gorev(kuru: bool) -> int:
         return 1
 
     # --- Plan adımları ------------------------------------------------------
-    # ILK YON DE KADEMELI VERILIR. onceki_heading None baslarsa ilk adimin
-    # yonu tek sicrama olarak gidiyordu: ucak kalkar kalkmaz burnunu
-    # MC_YAWRATE_MAX (200 °/s) hizinda ceviriyordu. Olculen yaw'dan
-    # baslatinca yon_dilimle ilk donusu de dilimliyor.
-    t_yaw = durum_toleransli(kuru)
-    yawlar = [t_yaw[d]["yaw_deg"] for d in ucanlar() if d in (t_yaw or {})]
-    onceki_heading = yawlar[0] if len(yawlar) == 1 else None
+    # ILK YON DE KADEMELI VERILIR — HER DRONE KENDI OLCULEN YONUNDEN.
+    #
+    # Ilk yazimda tek bir onceki_heading tutuluyordu ve "birden fazla ucak
+    # varsa None" deniyordu. Sonucu: IKI DRONELU ucusta ilk adimda HIC
+    # dilimleme yapilmadi, ucaklar park yonunden hedefe TEK HAMLEDE dondu.
+    # 1 Agustos'ta olculdu: d1 ~183 dereceden 238.4 dereceye, yani 55 derece,
+    # MC_YAWRATE_MAX (200 °/s) hizinda. Operatorun gordugu "asiri hizli yon
+    # duzeltmesi" buydu.
+    #
+    # Ucaklar farkli yonlerde park edilir, dolayisiyla tek skaler yetmez:
+    # yon her ucak icin AYRI dilimlenir ve adimlar birlikte yurutulur.
+    t_yaw = durum_toleransli(kuru) or {}
+    onceki_heading = {d: t_yaw[d]["yaw_deg"] for d in ucanlar() if d in t_yaw}
     for i, (etiket, heading, hedefler, beklet) in enumerate(plan):
         print(f"\n=== [{i+1}/{len(plan)}] {etiket}   yön {heading:.0f}°   "
               f"(kalan {kalan():.0f}s) ===")
@@ -1212,20 +1244,27 @@ def gorev(kuru: bool) -> int:
         # hedefler[did] (YENI nokta) veriliyordu: yorum "konum degismez"
         # derken kod ucagi doner donmez yola cikariyordu, ustelik yurutulmemis
         # tek sicrama olarak. Ikisi bir arada donuse ek bir savrulma katiyordu.
-        if onceki_heading is not None and not kuru:
-            aralar = yon_dilimle(onceki_heading, heading)
-            if aralar:
-                print(f"      dönüş {onceki_heading:.0f}° -> {heading:.0f}° "
-                      f"({len(aralar)} ara adım)")
-                for ara in aralar:
+        if onceki_heading and not kuru:
+            dilimler = {did: yon_dilimle(onceki_heading[did], heading)
+                        for did in ucanlar() if did in onceki_heading}
+            en_uzun = max((len(v) for v in dilimler.values()), default=0)
+            if en_uzun:
+                print("      dönüş " + "  ".join(
+                    f"d{k}:{onceki_heading[k]:.0f}°->{heading:.0f}°({len(v)})"
+                    for k, v in sorted(dilimler.items()) if v))
+                for i_ara in range(en_uzun):
                     for did in ucanlar():
                         d = t_durum.get(did)
                         if d is None:
                             continue
+                        ara = dilimler.get(did) or []
+                        # Dilimi biten ucak son yonunde bekler; digerleri
+                        # donmeye devam eder.
+                        y = ara[i_ara] if i_ara < len(ara) else heading
                         git(did, (d["pos_x"], d["pos_y"], d["alt_m"]),
-                            ara, kuru, t_durum)
+                            y, kuru, t_durum)
                     time.sleep(YAW_ADIM_BEKLE_S)
-        onceki_heading = heading
+        onceki_heading = {did: heading for did in ucanlar()}
         for did in DRONELAR:
             h = hedefler[did]
             etiket_s = "  (LİDER — yerinde asılı)" if did == LIDER else ""
