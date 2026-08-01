@@ -102,13 +102,26 @@ GUIDED_TASMA="${GUIDED_TASMA:-3.0}"
 # Tek gercek kaldirac IVME: yurutucu ucagin yetisebileceginden hizli
 # rampalarsa gecikme birikir. Yariya indiriyoruz. Bedeli 7 m'lik gecisin
 # ~4.7 -> ~6 sn'ye cikmasi.
-GUIDED_IVME_YATAY="${GUIDED_IVME_YATAY:-0.8}"
-GUIDED_IVME_DIKEY="${GUIDED_IVME_DIKEY:-0.5}"
+#
+# 3. TUR: ivmeyi yariya indirmek ISE YARAMADI. Olculdu: 1.5 -> 0.8 yapinca
+# yatay asim %25'ten sadece %21'e indi (2.51 -> 2.42), bedeli 3 sn. Sebep:
+# 7 m'lik gecis neredeyse tamamen gecici rejim; gecikmenin sonumlenme zaman
+# sabiti 1/MPC_XY_P ~ 1.05 sn ve seyir fazi zaten ~1 sn. Ivme geri alindi.
+# Asimin gercek kaldiraci GECIKME TELAFISI (bkz. _yurutucu_ilerlet).
+GUIDED_IVME_YATAY="${GUIDED_IVME_YATAY:-1.5}"
+GUIDED_IVME_DIKEY="${GUIDED_IVME_DIKEY:-1.0}"
+# Gecikme telafisi: PX4'un ileri-beslemenin ustune ekledigi MPC_XY_P x gecikme
+# teriminin bu orani geri cikarilir. KP UCAKTAKI MPC_XY_P ILE AYNI OLMALI.
+# Tam telafi (1.0) konum duzeltmesini sifirlar — bilerek 0.7.
+GUIDED_KONUM_KP="${GUIDED_KONUM_KP:-0.95}"
+GUIDED_TELAFI_ORANI="${GUIDED_TELAFI_ORANI:-0.7}"
 ros2 run swarm_control px4_bridge --ros-args -p agent_id:=${AGENT_ID} \
     -p guided_hiz_yatay_mps:=${GUIDED_HIZ_YATAY} \
     -p guided_hiz_dikey_mps:=${GUIDED_HIZ_DIKEY} \
     -p guided_ivme_yatay_mps2:=${GUIDED_IVME_YATAY} \
     -p guided_ivme_dikey_mps2:=${GUIDED_IVME_DIKEY} \
+    -p guided_konum_kp:=${GUIDED_KONUM_KP} \
+    -p guided_telafi_orani:=${GUIDED_TELAFI_ORANI} \
     -p guided_tasma_m:=${GUIDED_TASMA} > "$GUNLUK/px4b.log" 2>&1 &
 sleep 5
 ros2 run swarm_state_machine agent_fsm_node --ros-args -p agent_id:=${AGENT_ID} > "$GUNLUK/fsm.log" 2>&1 &

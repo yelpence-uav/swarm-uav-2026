@@ -258,12 +258,19 @@ class Px4BridgeNode(Node):
         # Detay _yurutucu_ilerlet'te. MPC_ACC_HOR ucakta 2.0; altinda kaliyoruz.
         self.declare_parameter('guided_ivme_yatay_mps2', 1.5)
         self.declare_parameter('guided_ivme_dikey_mps2', 1.0)
+        # GECIKME TELAFISI — bkz. _yurutucu_ilerlet. PX4 konum terimini
+        # ileri-beslemenin USTUNE ekliyor; onu kismen geri cikariyoruz.
+        # guided_konum_kp UCAKTAKI MPC_XY_P ILE AYNI OLMALI (olculdu: 0.95).
+        self.declare_parameter('guided_konum_kp', 0.95)
+        self.declare_parameter('guided_telafi_orani', 0.7)
         self._hiz_yatay = float(self.get_parameter('guided_hiz_yatay_mps').value)
         self._hiz_dikey = float(self.get_parameter('guided_hiz_dikey_mps').value)
         self._ivme_yatay = float(
             self.get_parameter('guided_ivme_yatay_mps2').value)
         self._ivme_dikey = float(
             self.get_parameter('guided_ivme_dikey_mps2').value)
+        self._konum_kp = float(self.get_parameter('guided_konum_kp').value)
+        self._telafi_orani = float(self.get_parameter('guided_telafi_orani').value)
         self._yurutucu_tasma_m = float(self.get_parameter('guided_tasma_m').value)
         self._yurutulen: list | None = None      # [kuzey, dogu, asagi] NED
         self._yurutucu_son_t: float | None = None
@@ -863,6 +870,42 @@ class Px4BridgeNode(Node):
             o = self._yurutucu_tasma_m / one
             self._yurutulen = [konum[i] + (self._yurutulen[i] - konum[i]) * o
                                for i in range(3)]
+
+        # --- GECIKME TELAFISI (yalniz yatay) -------------------------------
+        # PX4 toplam hiz talebini soyle kuruyor:
+        #     talep = bizim ileri-besleme + MPC_XY_P x gecikme
+        # Gecikme = yurutucu ile ucak arasindaki mesafe ve rampa boyunca
+        # kaciniLmaz olarak buyuyor. 2 Agustos'ta olculdu: ~0.5 m gecikme,
+        # 0.95 x 0.5 = ~0.48 m/s fazla -> komut 2.00 iken ucak 2.42.
+        #
+        # IVME BU ISDE KALDIRAC DEGIL, OLCULDU: 1.5 -> 0.8 yapinca asim
+        # %25'ten sadece %21'e indi. Sebebi 7 m'lik gecisin neredeyse tamamen
+        # gecici rejim olmasi — gecikmenin sonumlenme zaman sabiti
+        # 1/MPC_XY_P ~ 1.05 sn ve seyir fazi zaten ~1 sn.
+        #
+        # Bu yuzden mekanizmayi DOGRUDAN hedefliyoruz: PX4'un ekleyecegi
+        # terimi ileri-beslemeden geri cikariyoruz.
+        #
+        # TAMAMINI DEGIL: tam telafi konum duzeltmesini SIFIRLAR ve kontrol
+        # fiilen saf hiza doner — surukleme birikir, tutunacak capa kalmaz.
+        # Kodda o dal (_velocity_only) bilerek kacinilan yol. Oranin %70
+        # olmasi, duzeltmenin %30'unu yerinde birakiyor.
+        if vx or vy:
+            gx = self._yurutulen[0] - konum[0]
+            gy = self._yurutulen[1] - konum[1]
+            tx = self._telafi_orani * self._konum_kp * gx
+            ty = self._telafi_orani * self._konum_kp * gy
+            nvx, nvy = vx - tx, vy - ty
+            # Telafi ileri-beslemeyi TERSINE cevirmesin veya tavani asmasin:
+            # gecikme buyukse (ruzgar, itki yetmemesi) isaret degistirebilirdi.
+            buyuk = math.hypot(nvx, nvy)
+            if buyuk > self._hiz_yatay:
+                nvx, nvy = (nvx / buyuk * self._hiz_yatay,
+                            nvy / buyuk * self._hiz_yatay)
+            elif nvx * vx + nvy * vy < 0.0:
+                nvx = nvy = 0.0          # ters yone dondu -> sifirla
+            vx, vy = nvx, nvy
+
         return tuple(self._yurutulen), (vx, vy, vz)
 
     def _kalkis_kilidi_aktif(self) -> bool:
