@@ -104,6 +104,19 @@ GOREV_IRTIFA_M = 12.0
 YENI_IRTIFA_M = 18.0    # P3'teki irtifa değişimi hedefi
 FORMASYON_TEST_IRTIFA_M = 5.0   # --senaryo formasyon
 
+# --- --senaryo tekli --------------------------------------------------------
+# TEK UCAK, DUZ KOREOGRAFI: kalkis -> burnunun yonunde 7 m -> bekle ->
+# ayni noktada 5 m daha tirman -> bekle -> in.
+#
+# Amaci sinama: hiz (2 m/s gercekten tutuyor mu), yon (bu senaryoda ucak
+# burnunu HIC cevirmiyor, dolayisiyla "ani donus" ciksa sebep bizim
+# komutumuz DEGIL demektir) ve irtifa sicramasi (iki ayri tirmanis var,
+# ikisi de temiz olmali).
+TEKLI_IRTIFA_M = 5.0          # kalkis irtifasi
+TEKLI_ILERLEME_M = 7.0        # kalkis yonunde gidilecek mesafe
+TEKLI_IRTIFA_ARTIS_M = 5.0    # ayni noktada ikinci tirmanis
+TEKLI_BEKLEME_S = 5.0         # her adimda yerinde bekleme
+
 # --- Manevra ----------------------------------------------------------------
 # Şartname: sürü merkezi sabit, sağa/sola yatış. 30° seçildi çünkü 20°'de
 # kanatlar merkezden yalnız ±2.7 m ayrılıyor ve yerden çekimde sınırda
@@ -196,6 +209,13 @@ GOREV_HIZ_MPS = 2.0          # yatay yurutme hizi
 GOREV_DIKEY_HIZ_MPS = 1.0    # irtifa degisim hizi (motor isinmasi: daha yavas)
 SETPOINT_ADIM_S = 0.5        # ara hedef gonderim araligi
 TASMA_M = 3.0                # setpoint ucaktan en fazla bu kadar onde olabilir
+
+# --- Kacis kesicisi (bkz. git_ve_bekle) -------------------------------------
+# Hedefe EN COK yaklastigi mesafeden bu kadar geri giderse ve ardisik
+# KACIS_ARDISIK olcumde oyle kalirsa gorev kesilir. 1 Agustos 22:18'de bu
+# kesici yoktu; mesafe 6.5 -> 78.7 m buyudu ve kod 40 sn seyretti.
+KACIS_MARJ_M = 4.0
+KACIS_ARDISIK = 3            # 0.5 sn'lik olcumlerle 1.5 sn onay
 
 _son_komut_t = 0.0
 _iniyor = False
@@ -530,7 +550,27 @@ def _origin_bul(t):
     return None
 
 
+# UYDU GORUNTUSUNUN GEOREFERANS KAYMASI (1 Agustos'ta goruldu).
+#
+# QGC, YKI ve bu harita AYNI lat/lon'u ciziyor — dogrulandi: telemetri
+# 38.6905781/39.1610555, YKI paneli 38.69058/39.16106, bu harita
+# 38.6905782/39.1610556. Koordinat RTK-Fixed, ~2 cm. Yani kayan sey KOORDINAT
+# DEGIL, ALTLIK GORUNTU: her saglayicinin georeferansi birkac metre farkli
+# (bu harita Esri, YKI OpenStreetMap, QGC kendi saglayicisi).
+#
+# Sonucu onemsiz degil: harita bizim TEK engel kontrolumuz. Goruntu 4 m
+# kaymissa "rotada bina yok" hukmu de 4 m kaymis demektir.
+#
+# Olculunce buraya (kuzey, dogu) metre yazilir; --harita-ofset ile de
+# verilebilir. YALNIZ CIZIME uygulanir: ned_to_latlon'un tek kullanicilari
+# koordinat_yaz ve harita_yaz'dir, ucus geometrisi NED'de kalir ve bundan
+# ETKILENMEZ.
+HARITA_OFSET_KD = (0.0, 0.0)
+
+
 def ned_to_latlon(origin, kuzey, dogu):
+    kuzey += HARITA_OFSET_KD[0]
+    dogu += HARITA_OFSET_KD[1]
     enlem = origin[0] + kuzey / 111320.0
     boylam = origin[1] + dogu / (111320.0 * math.cos(math.radians(origin[0])))
     return enlem, boylam
@@ -587,12 +627,19 @@ var m=L.map('h');
 // "Map data not available" yer tutucusu donduruyor (olculdu).
 var uydu=L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
  {maxZoom:22,maxNativeZoom:18,attribution:'Esri'}).addTo(m);
+// IKINCI UYDU KATMANI: ayni saglayici, AYRI goruntu havuzu (farkli tarih ve
+// georeferans). Katmanlar arasi gecip ucaklarin GERCEKTEN durdugu yere hangisi
+// oturuyor diye bakmak icin — altlik kaymasini olcmenin en hizli yolu.
+var clarity=L.tileLayer('https://clarity.maptiles.arcgis.com/arcgis/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+ {maxZoom:22,maxNativeZoom:19,attribution:'Esri Clarity'});
 var sokak=L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
  {maxZoom:22,maxNativeZoom:19,attribution:'OpenStreetMap'});
-L.control.layers({'Uydu':uydu,'Sokak (binalar)':sokak}).addTo(m);
+L.control.layers({'Uydu (Esri)':uydu,'Uydu (Esri Clarity)':clarity,
+ 'Sokak (binalar)':sokak}).addTo(m);
 
-var yol=%(yol)s;      // gorev noktalari (adim merkezleri)
-var hedef=%(hedef)s;  // her drone'un SON hedefi
+var yol=%(yol)s;        // gorev noktalari (adim merkezleri)
+var hedef=%(hedef)s;    // her drone'un SON hedefi
+var dronelar=%(dronelar)s;  // ucaklarin SU ANKI olculen yeri
 var hepsi=[];
 if(yol.length>1){
   var cizgi=yol.map(function(p){return [p[1],p[2]]});
@@ -611,12 +658,32 @@ hedef.forEach(function(p){
     fillColor:'#0a84ff',fillOpacity:1}).addTo(m)
    .bindTooltip(p[0],{permanent:true,direction:'bottom'});
 });
-m.fitBounds(L.latLngBounds(hepsi).pad(0.8),{maxZoom:20});
+// TURUNCU = ucaklarin SU ANKI yeri. Iki ise yariyor:
+//  1) altlik kaymasini gozle olcmek — isaretci ucagin gercekte durdugu
+//     yerden ne kadar sapmis, oku
+//  2) GOREVE GIRMEYEN ucaklar da gorunur; onlar da fiziksel engel
+//     (1 Agustos: drone 1, gorevdeki drone 2'nin 1.98 m otesinde duruyordu
+//      ve carpisma denetimi tek dronlu senaryoda bunu HIC gormuyordu)
+dronelar.forEach(function(p){
+  hepsi.push([p[1],p[2]]);
+  // 5 m YARICAPLI CEMBER: kaymayi GOZLE METREYE cevirmek icin. Cember
+  // gercek metreyle cizilir (L.circle, L.circleMarker DEGIL), yani
+  // yakinlastirinca boyu degismez. Isaretci ucagin gercek yerinden bir
+  // cember capi kadar sapmissa kayma ~10 m demektir.
+  L.circle([p[1],p[2]],{radius:5,color:'#ff9f0a',weight:1,
+    dashArray:'4,4',fill:false}).addTo(m);
+  L.circleMarker([p[1],p[2]],{radius:9,color:'#000',weight:2,
+    fillColor:'#ff9f0a',fillOpacity:0.95}).addTo(m)
+   .bindTooltip(p[0],{permanent:true,direction:'right',offset:[10,14]});
+});
+// OLCEK CUBUGU: kaymayi "sanki biraz kaymis" degil, METRE olarak soyleyebil.
+L.control.scale({metric:true,imperial:false,maxWidth:220}).addTo(m);
+m.fitBounds(L.latLngBounds(hepsi).pad(1.5),{maxZoom:21});
 </script></body></html>
 """
 
 
-def harita_yaz(plan, merkez0, origin, dosya):
+def harita_yaz(plan, merkez0, origin, dosya, t=None):
     """Gorev noktalarini UYDU goruntusu uzerinde tek haritaya yazar.
 
     NEDEN VAR: kod engel GORMEZ — harita, geofence, mesafe sensoru yok.
@@ -641,11 +708,25 @@ def harita_yaz(plan, merkez0, origin, dosya):
         for did, h in sorted(plan[-1][2].items()):
             la, lo = ned_to_latlon(origin, h[0], h[1])
             hedef.append([f"drone {did}", la, lo])
-    ozet = (f"aralik {ARALIK_M:.0f} m &middot; yon {ROTA_YONU_DEG:.0f}&deg;<br>"
-            f"<b>kod engel gormez</b> - rotada bina/agac olmamali")
+    # BAGLI HER ucak cizilir, yalnizca goreve girenler degil: goreve
+    # girmeyen ucak da fiziksel engeldir. NED uzerinden ceviriliyor ki
+    # plandaki noktalarla AYNI cerceveden (ve ayni ofsetle) ciksin.
+    dronelar = []
+    for did, d in sorted((t or {}).items()):
+        if not d.get("connected") or abs(d.get("lat", 0.0)) < 0.001:
+            continue
+        la, lo = ned_to_latlon(origin, d["pos_x"], d["pos_y"])
+        gorevde = "" if did in DRONELAR else "  (GÖREVDE DEĞİL)"
+        dronelar.append([f"d{did} ŞU AN{gorevde}", la, lo])
+    ofs = (f" &middot; harita ofseti {HARITA_OFSET_KD[0]:+.1f}K "
+           f"{HARITA_OFSET_KD[1]:+.1f}D m" if any(HARITA_OFSET_KD) else "")
+    ozet = (f"aralik {ARALIK_M:.0f} m &middot; yon {ROTA_YONU_DEG:.0f}&deg;{ofs}<br>"
+            f"<b>kod engel gormez</b> - rotada bina/agac olmamali<br>"
+            f"turuncu = ucaklarin SU ANKI yeri (altlik kaymasini buradan olc)")
     pathlib.Path(dosya).write_text(
         _HARITA_SABLON % {"yol": _j.dumps(yol), "hedef": _j.dumps(hedef),
-                          "ozet": ozet}, encoding="utf-8")
+                          "dronelar": _j.dumps(dronelar), "ozet": ozet},
+        encoding="utf-8")
     print(f"\n=== HARITA YAZILDI ===\n  {dosya}")
     print(f"  Tarayicida ac:  xdg-open {dosya}")
 
@@ -739,6 +820,35 @@ def plan_kur_lider(t):
         (f"ÇİZGİ formasyonu — lider d{lider} yerinde asılı, takipçi sağına",
          lyaw, dict(hedefler), True),
         ("formasyonu TUT", lyaw, dict(hedefler), True),
+    ]
+
+
+def plan_kur_tekli(t):
+    """TEK UÇAK — kalkış yönünde 7 m, bekle, aynı noktada 5 m tırman, bekle, in.
+
+    YÖN TELEMETRİDEN OKUNUR. "Kalkış yaptığı yön" uçağın park edildiği
+    yöndür; elle girilmez, ROTA_YONU_DEG'e de bakılmaz. Bunun bir yan
+    faydası var: plandaki heading ölçülen yaw ile AYNI olduğu için yön
+    dilimleme boş kalır, yani uçak burnunu hiç çevirmez. Uçuşta yine de
+    ani bir dönüş görülürse sebebi bizim komutumuz DEĞİLDİR — bu senaryo
+    o değişkeni yapısal olarak devre dışı bırakıyor.
+
+    İki tırmanış var (0->5 ve 5->10) ve ikisi de aynı çerçeveden geçiyor;
+    irtifa sıçraması varsa iki kere görünür, tek seferlik gürültüden
+    ayırt edilebilir.
+    """
+    did = DRONELAR[0]
+    d = t[did]
+    k0, d0, yaw = d["pos_x"], d["pos_y"], d["yaw_deg"]
+    r = math.radians(yaw)
+    k1 = k0 + TEKLI_ILERLEME_M * math.cos(r)
+    d1 = d0 + TEKLI_ILERLEME_M * math.sin(r)
+    irt2 = TEKLI_IRTIFA_M + TEKLI_IRTIFA_ARTIS_M
+    return [
+        (f"ileri {TEKLI_ILERLEME_M:.0f} m (kalkış yönü {yaw:.0f}°)",
+         yaw, {did: (k1, d1, TEKLI_IRTIFA_M)}, TEKLI_BEKLEME_S),
+        (f"İRTİFA {TEKLI_IRTIFA_M:.0f} -> {irt2:.0f} m (aynı noktada)",
+         yaw, {did: (k1, d1, irt2)}, TEKLI_BEKLEME_S),
     ]
 
 
@@ -873,6 +983,9 @@ def git_ve_bekle(hedefler, heading_deg: float, asim_s: float, kuru: bool,
             raise RuntimeError(f"drone {did} telemetride yok")
         sp[did] = [d["pos_x"], d["pos_y"], d["alt_m"]]
     onceki_konum = {did: tuple(sp[did]) for did in sp}
+    # KAÇIŞ KESİCİSİ durumu — her uçağın hedefe EN ÇOK yaklaştığı mesafe.
+    en_yakin = {did: float("inf") for did in sp}
+    kacis_sayac = {did: 0 for did in sp}
 
     basla = time.time()
     onceki_t = basla
@@ -915,7 +1028,7 @@ def git_ve_bekle(hedefler, heading_deg: float, asim_s: float, kuru: bool,
                       f"(mod={d.get('mode')}, flight_mode={fm}) — failsafe olabilir")
                 return False
 
-        uzak, hiz = {}, {}
+        uzak, hiz, sp_kalan = {}, {}, {}
         for did in ucanlar():
             dd = t.get(did)
             if dd is None:
@@ -948,9 +1061,56 @@ def git_ve_bekle(hedefler, heading_deg: float, asim_s: float, kuru: bool,
             if one > TASMA_M:
                 o = TASMA_M / one
                 sp[did] = [konum[j] + (sp[did][j] - konum[j]) * o for j in range(3)]
+            sp_kalan[did] = math.dist(tuple(sp[did]), hedef)
             git(did, tuple(sp[did]), heading_deg, kuru, t)
 
-        if uzak and all(u <= TOLERANS_M for u in uzak.values()):
+        # KAÇIŞ KESİCİSİ — 1 Ağustos 22:18'de EKSİKTİ ve bedeli ağır oldu.
+        #
+        # O gece hedefe olan mesafe 6.5 m'den 78.7 m'ye çıktı, kod bunu 40
+        # saniye boyunca ekrana YAZDI ve hiçbir şey yapmadı. Mod, kill,
+        # failsafe ve eğim denetimleri vardı; "hedeften uzaklaşıyorum"
+        # denetimi yoktu. Uçağı pilot kurtardı.
+        #
+        # ÖLÇÜT "arka arkaya arttı" DEĞİL, "en yakın geldiği yerden bu kadar
+        # geri gitti": rüzgâr ve salınım mesafeyi bir tık büyütebilir ama
+        # EN İYİ yaklaşmadan kalıcı olarak uzaklaşmak normal değildir.
+        # KACIS_MARJ_M kadar geri gitmek + KACIS_ARDISIK ölçüm boyunca öyle
+        # kalmak şart; ikisi birden olmadan kesmiyor.
+        #
+        # En kötü hâlde kaybedilen mesafe: marj + tavan hız x onay süresi
+        # = 4 m + 4 m/s x 1.5 s = 10 m. O geceki 78 m ile kıyaslanmaz.
+        for did, u in uzak.items():
+            if u < en_yakin[did]:
+                en_yakin[did] = u
+                kacis_sayac[did] = 0
+            elif u > en_yakin[did] + KACIS_MARJ_M:
+                kacis_sayac[did] += 1
+            else:
+                kacis_sayac[did] = 0
+            if kacis_sayac[did] >= KACIS_ARDISIK:
+                print(f"\n      !!! drone {did} HEDEFTEN UZAKLAŞIYOR — "
+                      f"en yakın {en_yakin[did]:.1f} m idi, şimdi {u:.1f} m. "
+                      f"KAÇIŞ: görev kesiliyor, iniliyor.")
+                print(f"      (çerçeve kayması olabilir — ön kontroldeki "
+                      f"origin kapısına ve px4b logundaki 'ORIGIN OTURMAMIS' "
+                      f"satırına bak)")
+                return False
+
+        # VARIS IKI SARTA BAGLI — ikincisi 1 Agustos'ta EKSIKTI.
+        #
+        # Onceden yalniz "ucak hedefe TOLERANS_M (2.5 m) kadar yaklasti mi"
+        # bakiliyordu. Yatay adimlarda bu zararsizdi (7 m'lik yolun son 2.5
+        # metresi), ama SAF DIKEY bir adimda hatali: 5 m tirmanma komutunda
+        # ucak 2.5 m yukselince "vardi" denir, yurutulen setpoint daha hedefe
+        # varmadan adim kapanir ve ucak komut edilen irtifanin YARISINDA
+        # kalir. Yurutulen setpoint yontemine gecerken bu gozden kacti.
+        #
+        # Ikinci sart, hareketin TAMAMININ komut edilmis olmasini garanti
+        # eder. Iki sart cakismaz: TOLERANS_M (2.5) < TASMA_M (3.0) oldugu
+        # icin ucak hedefe 2.5 m kala tasma freni setpoint'i geri cekmez,
+        # yani sp hedefe oturabilir.
+        if (uzak and all(u <= TOLERANS_M for u in uzak.values())
+                and all(s <= 0.05 for s in sp_kalan.values())):
             print("      vardı: " + "  ".join(
                 f"d{k}={v:.1f}m" for k, v in sorted(uzak.items())))
             return True
@@ -1017,6 +1177,27 @@ def on_kontrol(kuru: bool) -> bool:
             engel.append("FAILSAFE")
         if not d.get("ready_to_arm", True):
             engel.append("ARM'A HAZIR DEĞİL (kumanda açık mı?)")
+
+        # ÇERÇEVE KAPISI — 1 Ağustos 22:18'de ylp01 bu yüzden kaçtı.
+        #
+        # YKİ'nin bildirdiği konum GPS'ten ORTAK origin'e göre hesaplanıyor;
+        # PX4 ise setpoint'i KENDİ EKF origin'ine göre yorumluyor. İkisi
+        # ayrıysa komut edilen her nokta o fark kadar yanlış yere düşer ve
+        # uçak düzeltemez: gidince YKİ konumu büyür, setpoint yeniden
+        # hesaplanır, yine aynı kadar ileriyi gösterir. Hata kapanmaz,
+        # uçak tam yetkiyle sonsuza kadar gider. Ölçülen ayrılık 12.1 m,
+        # uçak 85 m öteye ve 21 m irtifaya çıktı.
+        #
+        # Bayrak ARTIK GÜVENİLİR: px4_bridge onu göndermekle değil, GPS ile
+        # PX4'ün yerel çerçevesini KARŞILAŞTIRARAK koyuyor (_origin_dogrula).
+        # Eski hâlinde komut yollanır yollanmaz true yapılıyordu ve o gece
+        # true okunuyordu — yani bu kapı o hâliyle kurtarmazdı.
+        #
+        # Alan yoksa da ENGEL: eski px4_bridge koşuyor demektir, doğrulama
+        # yapılmıyordur. Bilinmeyeni "geçti" saymak tam da bu kazayı üretir.
+        if not d.get("origin_synced", False):
+            engel.append("ORIGIN OTURMAMIŞ (çerçeve kayması — px4b logunda "
+                         "'ORIGIN OTURMAMIS' satırına bak)")
         fix = d["gps_fix_type"]
         print(f"  drone {did}: bagli={d['connected']} armed={d['armed']} mod={d['mode']} "
               f"GPS={_FIX_ADI.get(fix, fix)} sat={d['gps_satellites']} "
@@ -1065,7 +1246,23 @@ def gorev(kuru: bool) -> int:
 
     baslangic = {did: (t[did]["pos_x"], t[did]["pos_y"], KALKIS_IRTIFA_M)
                  for did in DRONELAR if did in t} or None
-    if _SENARYO == "lider":
+    if _SENARYO == "tekli":
+        did = DRONELAR[0]
+        if did in t:
+            plan = plan_kur_tekli(t)
+        elif kuru:
+            # YKI kapaliyken de plan YAPISI denetlenebilsin diye. Uyari
+            # yuksek sesle: harita bu halde GERCEK DEGIL.
+            print(f"\n[KURU] drone {did} telemetride yok — yön 0° (kuzey) "
+                  "VARSAYILDI. Haritadaki nokta GERÇEK DEĞİL; yalnız plan "
+                  "yapısını denetlemek için.")
+            plan = plan_kur_tekli({did: {"pos_x": merkez0[0],
+                                         "pos_y": merkez0[1], "yaw_deg": 0.0}})
+        else:
+            print(f"Telemetride yok: drone {did} — tekli senaryosu konum ve "
+                  "yön ölçümüne dayanır, başlatılamaz.")
+            return 1
+    elif _SENARYO == "lider":
         eksik = [d for d in DRONELAR if d not in t]
         if eksik:
             print(f"Telemetride yok: drone {eksik} — lider senaryosu konum ve "
@@ -1083,7 +1280,7 @@ def gorev(kuru: bool) -> int:
     _org = _origin_bul(t)
     koordinat_yaz(plan, merkez0, _org)
     if _HARITA_DOSYA:
-        harita_yaz(plan, merkez0, _org, _HARITA_DOSYA)
+        harita_yaz(plan, merkez0, _org, _HARITA_DOSYA, t)
     if not plan_dogrula(plan, baslangic):
         return 1
     if kuru:
@@ -1094,7 +1291,8 @@ def gorev(kuru: bool) -> int:
     # ARM TEYİDİ BEKLENİR: px4_bridge önce OFFBOARD'a geçip sonra arm ediyor
     # (PX4 yerde armlıyken OFFBOARD'a girmiyor). Teyit beklemeden takeoff
     # yollamak, komutun hâlâ disarm uçağa gitmesi ve sessizce düşmesi demek.
-    kalkis_irt = (FORMASYON_TEST_IRTIFA_M if _SENARYO in ("formasyon", "lider")
+    kalkis_irt = (TEKLI_IRTIFA_M if _SENARYO == "tekli"
+                  else FORMASYON_TEST_IRTIFA_M if _SENARYO in ("formasyon", "lider")
                   else KALKIS_IRTIFA_M)
     print(f"\n=== ARM + KALKIŞ {kalkis_irt:.0f} m ===")
     for did in DRONELAR:
@@ -1275,8 +1473,13 @@ def gorev(kuru: bool) -> int:
             indir(kuru)
             return 1
         if beklet:
-            print(f"    yerleşme {YERLESME_S:.0f}s (videoda net görünsün)")
-            time.sleep(YERLESME_S)
+            # beklet ya True (varsayilan YERLESME_S) ya da SANIYE degeri.
+            # Sayi kabul etmesi tekli senaryosu icin gerekti: orada bekleme
+            # suresi gorevin TANIMININ parcasi (5 sn), "videoda gorunsun"
+            # diye secilmis bir sayi degil.
+            bekle_s = YERLESME_S if beklet is True else float(beklet)
+            print(f"    bekleme {bekle_s:.0f}s")
+            time.sleep(bekle_s)
         if kalan() < 40:
             print(f"\n    GÖREV SÜRE TAVANI ({kalan():.0f}s) — iniliyor")
             break
@@ -1292,17 +1495,24 @@ def main() -> int:
     global DRONELAR
     ap = argparse.ArgumentParser(description="Kanıt uçuşu görev koşucusu")
     ap.add_argument("--kuru", action="store_true", help="komut gönderme; planı kur ve doğrula")
-    ap.add_argument("--senaryo", choices=("kanit", "test", "formasyon", "lider"),
+    ap.add_argument("--senaryo",
+                    choices=("kanit", "test", "formasyon", "lider", "tekli"),
                     default="kanit",
                     help="kanit = tam koreografi; test = kuzeybati/bekle/"
                          "irtifa/don; formasyon = rastgele yerlesimden cizgi "
                          "formasyonu kur ve in; lider = lider YERINDE ASILI durur, "
-                         "takipci onun sagina cizgi formasyonu kurup iner")
+                         "takipci onun sagina cizgi formasyonu kurup iner; "
+                         "tekli = TEK ucak, kalkis yonunde 7 m, bekle, 5 m "
+                         "tirman, bekle, in")
     ap.add_argument("--lider", type=int, default=None,
                     help="--senaryo lider icin YERINDE ASILI duracak drone (or. 2)")
     ap.add_argument("--harita", nargs="?", const="/tmp/yelpence_rota.html",
                     default=None, metavar="DOSYA",
                     help="rotayi uydu haritasina yaz (varsayilan /tmp/yelpence_rota.html)")
+    ap.add_argument("--harita-ofset", default=None, metavar="KUZEY,DOGU",
+                    help="uydu goruntusunun georeferans kaymasi, metre "
+                         "(or. '4,-2'). YALNIZ CIZIME uygulanir; ucus "
+                         "geometrisi NED'de kalir ve etkilenmez.")
     ap.add_argument("--yon", type=float, default=None,
                     help="rota yonu (pusula derecesi). 0=kuzey, 90=dogu. "
                          "Acik alan hangi yondeyse onu ver.")
@@ -1310,7 +1520,13 @@ def main() -> int:
                     help="virgülle: 1,2 (prova) veya 1,2,3")
     a = ap.parse_args()
     DRONELAR = [int(x) for x in a.dronelar.split(",") if x.strip()]
-    global ROTA_YONU_DEG, _HARITA_DOSYA, _SENARYO, LIDER
+    global ROTA_YONU_DEG, _HARITA_DOSYA, _SENARYO, LIDER, HARITA_OFSET_KD
+    if a.harita_ofset:
+        try:
+            k, _, d = a.harita_ofset.partition(",")
+            HARITA_OFSET_KD = (float(k), float(d))
+        except ValueError:
+            ap.error("--harita-ofset 'KUZEY,DOGU' metre olmali (or. '4,-2')")
     if a.senaryo == "lider":
         if a.lider is None:
             ap.error("--senaryo lider icin --lider N gerekli")
@@ -1319,6 +1535,9 @@ def main() -> int:
         if len(DRONELAR) < 2:
             ap.error("--senaryo lider en az iki drone ister (lider + takipci)")
         LIDER = a.lider
+    if a.senaryo == "tekli" and len(DRONELAR) != 1:
+        ap.error("--senaryo tekli TAM OLARAK bir drone ister "
+                 f"(--dronelar 2 gibi; su an {DRONELAR})")
     if a.yon is not None:
         ROTA_YONU_DEG = a.yon
     _HARITA_DOSYA = a.harita
@@ -1333,13 +1552,22 @@ def main() -> int:
     signal.signal(signal.SIGTERM, _kesildi)
 
     print("=" * 72)
-    print("  LİDER YANINA GEÇİŞ — lider yerinde asılı, takipçi sağına gelir"
+    print("  TEK UÇAK TESTİ — kalkış yönünde 7 m, bekle, 5 m tırman, bekle, in"
+          if a.senaryo == "tekli" else
+          "  LİDER YANINA GEÇİŞ — lider yerinde asılı, takipçi sağına gelir"
           if a.senaryo == "lider" else
           "  BASİT İKİ DRONE TESTİ — kuzeybatı, bekle, irtifa, dönüş"
           if a.senaryo == "test"
           else "  KANIT UÇUŞU — ok başı, roll, formasyon değişimi, irtifa değişimi")
-    print(f"  dronelar: {DRONELAR}   kalkış {KALKIS_IRTIFA_M:.0f} m -> {YENI_IRTIFA_M:.0f} m")
-    print(f"  roll {ROLL_ACISI_DEG:.0f}°   aralık {ARALIK_M:.0f} m   kenar {KENAR_M:.0f} m")
+    if a.senaryo == "tekli":
+        print(f"  drone: {DRONELAR[0]}   kalkış {TEKLI_IRTIFA_M:.0f} m -> "
+              f"{TEKLI_IRTIFA_M + TEKLI_IRTIFA_ARTIS_M:.0f} m   "
+              f"ileri {TEKLI_ILERLEME_M:.0f} m   bekleme {TEKLI_BEKLEME_S:.0f}s")
+        print(f"  hız {GOREV_HIZ_MPS:.1f} m/s yatay, {GOREV_DIKEY_HIZ_MPS:.1f} m/s dikey"
+              f"   yatay kilit 2.5 m'ye kadar (px4_bridge)")
+    else:
+        print(f"  dronelar: {DRONELAR}   kalkış {KALKIS_IRTIFA_M:.0f} m -> {YENI_IRTIFA_M:.0f} m")
+        print(f"  roll {ROLL_ACISI_DEG:.0f}°   aralık {ARALIK_M:.0f} m   kenar {KENAR_M:.0f} m")
     print(f"  mod: {'KURU (komut yok)' if a.kuru else 'CANLI'}")
     print("=" * 72)
     try:

@@ -95,6 +95,17 @@ _BURUN_ILERI_MIN_M = 0.8
 # önce logda görünsün.
 _ARM_OFFBOARD_BEKLEME_S = 8.0
 
+# --- Ortak origin dogrulamasi (bkz. _origin_dogrula) ------------------------
+# TOLERANS 1.0 m: RTK'da konum hatasi cm mertebesinde, ortak origin oturmussa
+# fark santimlerde kalir. 1 Agustos'ta olculen ayrilik 12.1 m idi — yani esik
+# gurultuye degil, gercek ayrisma varsa tetiklenir.
+_ORIGIN_TOLERANS_M = 1.0
+# Tekrar gonderim araligi: PX4 kabul edip EKF'i yeniden kurmasi zaman alir,
+# saniyede bir bombardiman etmenin anlami yok.
+_ORIGIN_TEKRAR_ARALIK_S = 5.0
+_ORIGIN_DOGRULAMA_PERIYOT_S = 1.0
+_M_PER_DEG_LAT = 111320.0
+
 
 class Px4BridgeNode(Node):
     """PX4 ↔ FSM ortadaki köprü node."""
@@ -198,6 +209,14 @@ class Px4BridgeNode(Node):
 
         # SwarmOrigin — uygulanmış sequence takibi (tekrar göndermemek için)
         self._applied_origin_seq: int = -1
+        # ORIGIN DOGRULAMASI (1 Agustos 22:18, ylp01 kacti — bkz.
+        # _origin_dogrula). Origin'in SON GONDERILEN degeri burada tutulur;
+        # PX4 unutursa (FCU yeniden baslarsa) tekrar gonderilebilsin.
+        self._origin_lat: float | None = None
+        self._origin_lon: float | None = None
+        self._origin_alt: float | None = None
+        self._origin_son_gonderim: float = 0.0
+        self._origin_uyari_verildi: bool = False
 
         # PX4'e komut gönderen yardımcı — MAVROS servis/topic'lerine yazar.
         self._cmd_sender = MavrosCommandSender(
@@ -297,6 +316,9 @@ class Px4BridgeNode(Node):
             _GPS_INJECT_QOS_DEPTH,
         )
         self.create_timer(_RTK_DIAG_PERIOD_S, self._rtk_tani_yayinla)
+        # Origin dogrulamasi SUREKLI kosar: FCU ucus ARASINDA da yeniden
+        # baslayabilir (pil degisimi) ve o an kimse bakmiyor olabilir.
+        self.create_timer(_ORIGIN_DOGRULAMA_PERIYOT_S, self._origin_dogrula)
 
     def _on_rtcm(self, msg: UInt8MultiArray) -> None:
         """RTCM callback'i (try'lı, exception node'u çökertmez)."""
@@ -682,28 +704,91 @@ class Px4BridgeNode(Node):
 
         Lider drone bu mesajı yayınlar; diğer drone'lar (ve lider kendi
         kendine) SET_GPS_GLOBAL_ORIGIN komutuyla PX4'ü senkronize eder.
-        Aynı sequence tekrar gönderilmez.
+
+        ORIGIN_SYNCED ARTIK BURADA TRUE YAPILMIYOR — 1 Ağustos'ta bu satır
+        yalana dönüştü. Eski hâli komutu gönderip HEMEN 'uygulandı' diyordu;
+        PX4 kabul etti mi diye bakmıyordu. Doğrulamayı _origin_dogrula
+        yapıyor, bayrağı da o koyuyor.
         """
         if not msg.valid or msg.gps_fix_type < 3:
             return
+        self._origin_lat = msg.origin_lat_deg
+        self._origin_lon = msg.origin_lon_deg
+        self._origin_alt = msg.origin_alt_amsl_m
+        self._status.origin_sequence = msg.sequence
         if msg.sequence == self._applied_origin_seq:
             return
         self._applied_origin_seq = msg.sequence
+        self._origin_gonder('yeni sequence')
+
+    def _origin_gonder(self, sebep: str) -> None:
+        """SET_GPS_GLOBAL_ORIGIN gönderir (hız sınırlı)."""
+        if self._origin_lat is None:
+            return
+        simdi = self.get_clock().now().nanoseconds * 1e-9
+        if simdi - self._origin_son_gonderim < _ORIGIN_TEKRAR_ARALIK_S:
+            return
+        self._origin_son_gonderim = simdi
         self._cmd_sender.set_gps_global_origin(
-            msg.origin_lat_deg,
-            msg.origin_lon_deg,
-            msg.origin_alt_amsl_m,
-        )
-        # Ortak origin PX4'e uygulandı: telemetride bildir ki formation_node
-        # (ve diğer tüketiciler) shared→local dönüşümünü güvenle yapabilsin.
-        # Bu flag true olmadan formation_node setpoint üretmez.
-        self._status.origin_synced = True
-        self._status.origin_sequence = msg.sequence
+            self._origin_lat, self._origin_lon, self._origin_alt)
         self.get_logger().info(
-            f'GPS origin set: lat={msg.origin_lat_deg:.6f}, '
-            f'lon={msg.origin_lon_deg:.6f}, '
-            f'alt={msg.origin_alt_amsl_m:.1f}m (seq={msg.sequence})'
-        )
+            f'GPS origin GONDERILDI ({sebep}): lat={self._origin_lat:.6f}, '
+            f'lon={self._origin_lon:.6f}, alt={self._origin_alt:.1f}m '
+            f'(seq={self._applied_origin_seq}) — dogrulama bekleniyor')
+
+    def _origin_dogrula(self) -> None:
+        """PX4'ün yerel çerçevesi ORTAK ORIGIN'e oturmuş mu, ÖLÇEREK bakar.
+
+        NEDEN VAR — 1 Ağustos 22:18, ylp01 kalkıştan 1.4 sn sonra hedeften
+        UZAKLAŞMAYA başladı ve ~85 m öteye, 21 m irtifaya kadar tam yetkiyle
+        uçtu. Sebep ölçüldü: YKİ'nin bildirdiği konum GPS'ten ORTAK origin'e
+        göre hesaplanıyor, PX4'ün setpoint'i yorumladığı çerçeve ise KENDİ
+        EKF origin'ine göre. İkisi 12.1 m ayrıydı (pusula 20.7°) ve uçağın
+        kaçtığı yön tam olarak o yöndü:
+          YKİ  : NED (+12.87, +4.05)  irtifa -0.70
+          PX4  : NED ( +1.59, -0.22)  irtifa -3.52
+        Komut edilen her nokta 12 m yanlış yerdeydi; uçak oraya gidince YKİ
+        konumu büyüyor, setpoint yeniden hesaplanıyor ve YİNE 12 m ileriyi
+        gösteriyordu. Hata hiç kapanmadı.
+
+        Origin BİR KEZ gönderiliyordu (sequence'e göre) ama PX4 uçuş
+        kontrolcüsü her yeniden başlayışta (pil değişimi!) origin'i UNUTUR ve
+        GPS fix'i gelince kendi durduğu yerde yenisini kurar. O gece FCU,
+        origin gönderildikten sonra en az üç kez yeniden el sıkıştı.
+
+        Ölçüm basit: GPS lat/lon'un ortak origin'e göre olması gereken NED'i
+        ile PX4'ün bildirdiği yerel NED'i karşılaştır. Ayrılık varsa origin
+        oturmamıştır — origin_synced FALSE olur ve komut yeniden gönderilir.
+        """
+        if self._origin_lat is None:
+            return
+        if self._status.gps_fix_type < 3 or not self._status.xy_valid:
+            return
+        lat, lon = self._status.lat_deg, self._status.lon_deg
+        if abs(lat) < 0.001:
+            return
+        bek_x = (lat - self._origin_lat) * _M_PER_DEG_LAT
+        bek_y = ((lon - self._origin_lon) * _M_PER_DEG_LAT
+                 * math.cos(math.radians(lat)))
+        fark = math.hypot(bek_x - self._status.pos_x, bek_y - self._status.pos_y)
+        if fark <= _ORIGIN_TOLERANS_M:
+            if not self._status.origin_synced:
+                self.get_logger().info(
+                    f'origin DOGRULANDI (fark {fark:.2f} m) — '
+                    f'cerceveler ortusuyor')
+            self._status.origin_synced = True
+            self._origin_uyari_verildi = False
+            return
+        self._status.origin_synced = False
+        if not self._origin_uyari_verildi:
+            self._origin_uyari_verildi = True
+            self.get_logger().error(
+                f'ORIGIN OTURMAMIS: ortak origin {fark:.2f} m sapma veriyor '
+                f'(tolerans {_ORIGIN_TOLERANS_M:.1f} m). Beklenen NED '
+                f'({bek_x:+.2f},{bek_y:+.2f}), PX4 '
+                f'({self._status.pos_x:+.2f},{self._status.pos_y:+.2f}). '
+                f'UCURMA — setpoint bu kadar yanlis yere gider.')
+        self._origin_gonder(f'dogrulama basarisiz, fark {fark:.1f} m')
 
     def _on_agent_setpoint(self, msg: AgentSetpoint) -> None:
         """
