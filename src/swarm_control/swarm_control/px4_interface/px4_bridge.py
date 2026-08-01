@@ -730,19 +730,38 @@ class Px4BridgeNode(Node):
                     self.get_logger().warning(
                         f'Geçersiz takeoff irtifası: {cmd}'
                     )
-            # Hedef mevcut konuma göreli: origin dünya orijinine
-            # senkronken yer z=0 değildir; mutlak -altitude vermek
-            # alçalma komutuna dönüşür.
-            self._target_altitude_ned = self._cached_pos_z - altitude
-            # Yatay çapayı şimdi dondur — tırmanış boyunca sabit kalsın.
-            self._takeoff_anchor_x = self._cached_pos_x
-            self._takeoff_anchor_y = self._cached_pos_y
-            self.get_logger().info(
-                f'Offboard kalkış hedefi: {altitude:.1f}m '
-                f'(NED z={self._target_altitude_ned:.1f}) '
-                f'çapa=({self._takeoff_anchor_x:.2f}, '
-                f'{self._takeoff_anchor_y:.2f})'
-            )
+            # AYNI KALKIŞ TEKRAR GELİRSE ÇAPA YENİLENMEZ.
+            #
+            # Guided komutlar mesh'e 4 KOPYA gönderiliyor (OTA ACK yok,
+            # esp32_bridge_node._guided_gonder) ve YKİ görev koşucusu
+            # tırmanış başlamazsa komutu TEKRARLIYOR. Yani tek bir kalkış
+            # isteği buraya 4-8 kez gelir. Her gelişte çapayı yeniden
+            # dondurmak kalkışı bozuyordu:
+            #   * hedef irtifa o anki z'ye göre yeniden hesaplanır — uçak
+            #     tırmanmışsa hedef yukarı kayar
+            #   * yatay çapa o anki konuma taşınır — uçak sürüklenmişse
+            #     tutulacak nokta sürüklenmenin peşinden gider
+            # 1 Ağustos ylp00 logu: 8 kalkış çerçevesi, çapa (5.51,3.32)'den
+            # (6.04,2.69)'a kaydı, yani uçak yerde kayarken tutması gereken
+            # nokta da kaydı. Kalkış BİR KEZ çapalanır; hedefi değiştirmek
+            # için önce land/disarm gelir (ikisi de çapayı temizler).
+            if self._target_altitude_ned is not None:
+                self.get_logger().debug(
+                    f'takeoff tekrarı yok sayıldı (çapa zaten kurulu): {cmd}')
+            else:
+                # Hedef mevcut konuma göreli: origin dünya orijinine
+                # senkronken yer z=0 değildir; mutlak -altitude vermek
+                # alçalma komutuna dönüşür.
+                self._target_altitude_ned = self._cached_pos_z - altitude
+                # Yatay çapayı şimdi dondur — tırmanış boyunca sabit kalsın.
+                self._takeoff_anchor_x = self._cached_pos_x
+                self._takeoff_anchor_y = self._cached_pos_y
+                self.get_logger().info(
+                    f'Offboard kalkış hedefi: {altitude:.1f}m '
+                    f'(NED z={self._target_altitude_ned:.1f}) '
+                    f'çapa=({self._takeoff_anchor_x:.2f}, '
+                    f'{self._takeoff_anchor_y:.2f})'
+                )
         elif cmd == 'land':
             self._offboard_streaming = False
             self._arm_bekliyor = False   # iniş geldi, bekleyen ARM iptal

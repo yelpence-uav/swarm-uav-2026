@@ -187,14 +187,10 @@ KOMUT_ARALIK_S = 0.05
 # Bu degerler UCAKTAKI parametreleri DEGISTIRMEZ; MPC_XY_VEL_MAX 4 m/s tavan
 # olarak kalir. Tavani dusurmemek bilincli: carpisma kacinmasinin kacis payi
 # oradan geliyor ve kumandadaki POSCTL de ayni parametreyle sinirli.
-# SABIT (LIDER) DRONE'LAR — planda VAR, komut ALMAZ.
-# --senaryo lider'de lider yerde durur ve takipci onun yanina gecer. Lideri
-# plandan cikarmak kolay olurdu ama YANLIS olurdu: plan_dogrula yalniz
-# plandaki uclari denetler, cikarilan drone denetimden de cikardi. Yerde
-# duran bir ucak yok sayilacak bir sey degil — takipcinin yolu ondan
-# gecebilir. Bu yuzden planda DURAGAN HEDEF olarak duruyor: dogrulamaya
-# giriyor, arm/takeoff/goto/land yollarina girmiyor.
-SABIT: set = set()
+# LIDER — KALKAR ama YERINDE asili durur (yatayda hic kimildamaz).
+# Ilk yazimda "lider yerde kalir" diye kurmustum, YANLISTI: istenen, lider de
+# kalkip kendi noktasinin ustunde durmasi, takipcinin yanina gelmesi.
+LIDER: int | None = None
 
 GOREV_HIZ_MPS = 2.0          # yatay yurutme hizi
 GOREV_DIKEY_HIZ_MPS = 1.0    # irtifa degisim hizi (motor isinmasi: daha yavas)
@@ -715,8 +711,8 @@ def plan_kur_test(merkez0, baslangic=None):
 
 
 def ucanlar():
-    """Komut gonderilecek drone'lar — sabit (lider) olanlar haric."""
-    return [d for d in DRONELAR if d not in SABIT]
+    """Komut gonderilecek drone'lar. Lider de dahil — o da kalkiyor."""
+    return list(DRONELAR)
 
 
 def plan_kur_lider(t):
@@ -726,23 +722,22 @@ def plan_kur_lider(t):
     Takipçi liderin BURNUNUN SAĞINA (yaw + 90°) ARALIK_M mesafeye gider ve
     liderle AYNI yöne döner — çizgi formasyonu budur.
 
-    Lider planda duran hedef olarak yer alır (bkz. SABIT): böylece takipçinin
-    yolu liderin üstünden geçecek olsa plan_dogrula bunu yakalar.
+    Lider de KALKAR; hedefi kendi noktasının üstüdür, yani yatayda hiç
+    kımıldamaz. İlk yazımda "lider yerde kalır" diye kurmuştum, yanlıştı.
     """
-    lider = next(iter(SABIT))
+    lider = LIDER
     l = t[lider]
     lk, ld, lyaw = l["pos_x"], l["pos_y"], l["yaw_deg"]
-    # Liderin ÖLÇÜLEN irtifası kullanılır (0 değil): origin ofseti yüzünden
-    # yerdeki uçak -0.9 m okuyor ve doğrulama telemetriyle aynı düzlemde
-    # kalmalı, yoksa dikey ayrım yapay olarak 0.9 m şişerdi.
-    hedefler = {lider: (lk, ld, l["alt_m"])}
+    hedefler = {lider: (lk, ld, FORMASYON_TEST_IRTIFA_M)}
     sag = math.radians(lyaw + 90.0)
-    for i, did in enumerate(ucanlar(), start=1):
+    takipciler = [d for d in DRONELAR if d != lider]
+    for i, did in enumerate(takipciler, start=1):
         m = ARALIK_M * i
         hedefler[did] = (lk + m * math.cos(sag), ld + m * math.sin(sag),
                          FORMASYON_TEST_IRTIFA_M)
     return [
-        (f"ÇİZGİ formasyonu — lider d{lider}'in sağı", lyaw, dict(hedefler), True),
+        (f"ÇİZGİ formasyonu — lider d{lider} yerinde asılı, takipçi sağına",
+         lyaw, dict(hedefler), True),
         ("formasyonu TUT", lyaw, dict(hedefler), True),
     ]
 
@@ -808,6 +803,39 @@ def git(did: int, hedef, heading_deg: float, kuru: bool, t_durum):
         "x": k, "y": d, "z": irtifa, "heading_deg": heading_deg})
 
 
+MAKS_EGIM_DEG = 35.0   # bunun ustunde ucus normal degil (MPC_TILTMAX_AIR=30)
+
+
+def guvenlik_ihlali(t) -> str | None:
+    """Uçuşu DERHAL kesmeyi gerektiren durum varsa sebebini döndürür.
+
+    1 AĞUSTOS, ylp00: kalkışta yerden kesilemeyip yerde kaydı, devrildi,
+    operatör kill switch'e bastı. Kod bunların HİÇBİRİNİ görmedi ve
+    KALKIS_ASIM_S dolana kadar 62 SANİYE bekledi. O 62 saniye boyunca uçak
+    yerde yatıyordu. Kill switch mesh telemetrisinde ZATEN geliyordu
+    (kill_switch_active), sadece kimse bakmıyordu.
+
+    Bakılan üç şey:
+      * kill switch  — operatör "hemen kes" dedi; beklemek saçma
+      * failsafe     — PX4 kendi kontrolünü devraldı
+      * aşırı eğim   — devrilme/çarpma; MPC_TILTMAX_AIR 30° iken 35° normal
+                       uçuşta görülmez
+    """
+    for did in ucanlar():
+        d = t.get(did)
+        if d is None:
+            continue
+        if d.get("kill_switch_active"):
+            return f"drone {did}: KILL SWITCH (operatör kesti)"
+        if d.get("failsafe_active"):
+            return f"drone {did}: FAILSAFE"
+        egim = max(abs(d.get("roll_deg", 0.0)), abs(d.get("pitch_deg", 0.0)))
+        if egim > MAKS_EGIM_DEG:
+            return (f"drone {did}: AŞIRI EĞİM {egim:.0f}° "
+                    f"(sınır {MAKS_EGIM_DEG:.0f}°) — devrilme olabilir")
+    return None
+
+
 def git_ve_bekle(hedefler, heading_deg: float, asim_s: float, kuru: bool,
                  t_baslangic) -> bool:
     """Hedeflere ADIM ADIM yürür ve varışı bekler.
@@ -868,6 +896,11 @@ def git_ve_bekle(hedefler, heading_deg: float, asim_s: float, kuru: bool,
         # False oldugu icin gorev 9.4 m'de kendini iptal etti ve saglam bir
         # ucus bosuna indirildi. flight_mode mesh pakette TASINIYOR ve dogru
         # geliyor.
+        ihlal = guvenlik_ihlali(t)
+        if ihlal:
+            print(f"\n      !!! {ihlal} — görev durduruluyor")
+            return False
+
         for did in ucanlar():
             d = t.get(did)
             if d is None:
@@ -976,21 +1009,14 @@ def on_kontrol(kuru: bool) -> bool:
         # Bu yuzden kapiyi PX4'un kendi hukmune baglıyoruz: arm'a hazir mi,
         # kill anahtari acik mi. Kumanda kapaliyken alici failsafe degerlerine
         # dusuyor ve bunlar zaten arm'i engelliyor (ylp00'da KILL okundu).
-        # SABIT (lider) drone hic arm edilmeyecek; onda arm kapilarini
-        # aramak yanlis alarm olur. Ondan istenen tek sey guvenilir KONUM
-        # (takipcinin hedefi ondan turetiliyor) ve YERDE + DISARM kalmasi.
-        if did in SABIT:
-            if d["armed"]:
-                engel.append("LİDER ARMED — yerde disarm kalmalı")
-        else:
-            if d.get("kill_switch_active"):
-                engel.append("KILL ANAHTARI AÇIK (kumandadan kapat)")
-            if d.get("rc_signal_failsafe_active"):
-                engel.append("RC FAILSAFE")
-            if d.get("failsafe_active"):
-                engel.append("FAILSAFE")
-            if not d.get("ready_to_arm", True):
-                engel.append("ARM'A HAZIR DEĞİL (kumanda açık mı?)")
+        if d.get("kill_switch_active"):
+            engel.append("KILL ANAHTARI AÇIK (kumandadan kapat)")
+        if d.get("rc_signal_failsafe_active"):
+            engel.append("RC FAILSAFE")
+        if d.get("failsafe_active"):
+            engel.append("FAILSAFE")
+        if not d.get("ready_to_arm", True):
+            engel.append("ARM'A HAZIR DEĞİL (kumanda açık mı?)")
         fix = d["gps_fix_type"]
         print(f"  drone {did}: bagli={d['connected']} armed={d['armed']} mod={d['mode']} "
               f"GPS={_FIX_ADI.get(fix, fix)} sat={d['gps_satellites']} "
@@ -1037,10 +1063,7 @@ def gorev(kuru: bool) -> int:
         return 1
     print(f"\nKalkış merkezi (ölçüldü): ({merkez0[0]:+.1f}, {merkez0[1]:+.1f}) NED")
 
-    # Sabit (lider) drone yerde kalir: baslangic irtifasi OLCULEN degeri,
-    # kalkis irtifasi degil. Aksi halde dogrulama onu havada sanardi.
-    baslangic = {did: (t[did]["pos_x"], t[did]["pos_y"],
-                       t[did]["alt_m"] if did in SABIT else KALKIS_IRTIFA_M)
+    baslangic = {did: (t[did]["pos_x"], t[did]["pos_y"], KALKIS_IRTIFA_M)
                  for did in DRONELAR if did in t} or None
     if _SENARYO == "lider":
         eksik = [d for d in DRONELAR if d not in t]
@@ -1093,7 +1116,11 @@ def gorev(kuru: bool) -> int:
     # OFFBOARD'da yerde beklemek motorlari hover itkisinde tutar — motor
     # yaktigimiz durumun aynisi. Artik her ucak icin tirmanis TEYIT ediliyor,
     # baslamadiysa komut TEKRARLANIYOR, olmuyorsa gorev hic baslamiyor.
-    TIRMANIS_ESIGI_M = 0.8
+    # 0.8 m ESIK GURULTUYE ACIKTI. 1 Agustos'ta ucak yerden hic kesilmedigi
+    # halde "tirmanis basladi" dendi: devrilince EKF dikey kanali sapti ve
+    # irtifa yerde dururken -1.5 ile +1.7 m arasinda gezindi. Esik yukseltildi
+    # ve tek ornek yerine ARDISIK IKI olcum aranıyor.
+    TIRMANIS_ESIGI_M = 1.5
     kalanlar = list(ucanlar())
     for deneme in range(1, 4):
         for did in kalanlar:
@@ -1101,11 +1128,22 @@ def gorev(kuru: bool) -> int:
         print(f"    takeoff {kalkis_irt:.0f} m gönderildi "
               f"(deneme {deneme}, drone {kalanlar}), tırmanış bekleniyor...")
         t0 = time.time()
+        teyit = {d: 0 for d in kalanlar}
         while time.time() - t0 < 5.0:
             time.sleep(0.5)
             t = durum()
-            kalanlar = [d for d in kalanlar
-                        if t.get(d, {}).get("alt_m", 0.0) < TIRMANIS_ESIGI_M]
+            ihlal = guvenlik_ihlali(t)
+            if ihlal:
+                print(f"\n    !!! {ihlal} — kalkış kesiliyor")
+                indir(kuru)
+                return 1
+            for d in list(kalanlar):
+                if t.get(d, {}).get("alt_m", 0.0) >= TIRMANIS_ESIGI_M:
+                    teyit[d] += 1
+                else:
+                    teyit[d] = 0
+                if teyit[d] >= 2:          # ardisik iki olcum
+                    kalanlar.remove(d)
             if not kalanlar:
                 break
         if not kalanlar:
@@ -1117,11 +1155,33 @@ def gorev(kuru: bool) -> int:
         indir(kuru)
         return 1
 
+    # TIRMANMIYORSA ERKEN KES. Onceki hali KALKIS_ASIM_S (60 sn) dolana kadar
+    # beklerdi. 1 Agustos'ta ylp00 yerden kesilemedi, yerde kaydi, devrildi ve
+    # kod 62 saniye bekledi. Yerden kesilemeyen bir ucak icin beklemek
+    # durumu SADECE kotulestirir: PX4 yatay konum tutmaya calisir, ucak
+    # kayar, duzeltmek icin egilir, pervane yere vurur.
+    ERKEN_KES_S = 8.0
+    ERKEN_KES_IRTIFA_M = 1.5
     print(f"    irtifa bekleniyor...")
     t0 = time.time()
     while time.time() - t0 < KALKIS_ASIM_S:
         time.sleep(1.0)
         t = durum()
+        ihlal = guvenlik_ihlali(t)
+        if ihlal:
+            print(f"\n    !!! {ihlal} — kalkış kesiliyor")
+            indir(kuru)
+            return 1
+        gecen = time.time() - t0
+        if gecen > ERKEN_KES_S:
+            takilan = [d for d in ucanlar()
+                       if t.get(d, {}).get("alt_m", 0.0) < ERKEN_KES_IRTIFA_M]
+            if takilan:
+                print(f"\n    !!! drone {takilan} {gecen:.0f} sn'de "
+                      f"{ERKEN_KES_IRTIFA_M:.1f} m'ye çıkamadı — YERDEN "
+                      f"KESİLEMİYOR, iniliyor (itki payı / pil?)")
+                indir(kuru)
+                return 1
         if all(t.get(d, {}).get("alt_m", 0.0) >= kalkis_irt * 0.9 for d in ucanlar()):
             print("    irtifa tamam: " + "  ".join(f"d{d}={t[d]['alt_m']:.1f}m"
                                                    for d in ucanlar()))
@@ -1168,7 +1228,7 @@ def gorev(kuru: bool) -> int:
         onceki_heading = heading
         for did in DRONELAR:
             h = hedefler[did]
-            etiket_s = "  (LİDER — yerde, komut yok)" if did in SABIT else ""
+            etiket_s = "  (LİDER — yerinde asılı)" if did == LIDER else ""
             print(f"      drone {did}: ({h[0]:+7.1f},{h[1]:+7.1f}) "
                   f"irtifa {h[2]:5.1f} m yön {heading:5.1f}°{etiket_s}")
         if not git_ve_bekle(hedefler, heading,
@@ -1197,10 +1257,10 @@ def main() -> int:
                     default="kanit",
                     help="kanit = tam koreografi; test = kuzeybati/bekle/"
                          "irtifa/don; formasyon = rastgele yerlesimden cizgi "
-                         "formasyonu kur ve in; lider = lider YERDE durur, "
+                         "formasyonu kur ve in; lider = lider YERINDE ASILI durur, "
                          "takipci onun sagina cizgi formasyonu kurup iner")
     ap.add_argument("--lider", type=int, default=None,
-                    help="--senaryo lider icin yerde duracak drone (or. 2)")
+                    help="--senaryo lider icin YERINDE ASILI duracak drone (or. 2)")
     ap.add_argument("--harita", nargs="?", const="/tmp/yelpence_rota.html",
                     default=None, metavar="DOSYA",
                     help="rotayi uydu haritasina yaz (varsayilan /tmp/yelpence_rota.html)")
@@ -1211,7 +1271,7 @@ def main() -> int:
                     help="virgülle: 1,2 (prova) veya 1,2,3")
     a = ap.parse_args()
     DRONELAR = [int(x) for x in a.dronelar.split(",") if x.strip()]
-    global ROTA_YONU_DEG, _HARITA_DOSYA, _SENARYO, SABIT
+    global ROTA_YONU_DEG, _HARITA_DOSYA, _SENARYO, LIDER
     if a.senaryo == "lider":
         if a.lider is None:
             ap.error("--senaryo lider icin --lider N gerekli")
@@ -1219,7 +1279,7 @@ def main() -> int:
             ap.error(f"--lider {a.lider} --dronelar listesinde yok")
         if len(DRONELAR) < 2:
             ap.error("--senaryo lider en az iki drone ister (lider + takipci)")
-        SABIT = {a.lider}
+        LIDER = a.lider
     if a.yon is not None:
         ROTA_YONU_DEG = a.yon
     _HARITA_DOSYA = a.harita
@@ -1234,7 +1294,7 @@ def main() -> int:
     signal.signal(signal.SIGTERM, _kesildi)
 
     print("=" * 72)
-    print("  LİDER YANINA GEÇİŞ — lider yerde durur, takipçi sağına gelir"
+    print("  LİDER YANINA GEÇİŞ — lider yerinde asılı, takipçi sağına gelir"
           if a.senaryo == "lider" else
           "  BASİT İKİ DRONE TESTİ — kuzeybatı, bekle, irtifa, dönüş"
           if a.senaryo == "test"
