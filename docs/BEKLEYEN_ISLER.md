@@ -1,6 +1,6 @@
 # Bekleyen İşler — Yapılmayanlar ve İleride Yapılacaklar
 
-**Son güncelleme:** 30 Temmuz 2026
+**Son güncelleme:** 1 Ağustos 2026 (bkz. `31temmuz-1agustos.md`)
 **Takım:** Yelpence (752825) — ylp00, ylp01, ylp02
 
 Bu belge "neyi henüz yapmadık" sorusunun tek cevabı olsun diye tutuluyor.
@@ -9,6 +9,41 @@ Sohbet geçmişi kaybolduğunda buraya bakılır. Her madde **niye bekliyor** ve
 
 Durum işaretleri:
 `[ ]` yapılmadı · `[~]` kısmen · `[B]` başka bir şeye bağlı · `[!]` uçuş izni engeli
+
+---
+
+## 0. 1 Ağustos gecesinden kalanlar — **en yüksek öncelik**
+
+Ayrıntı ve ölçümler: `docs/31temmuz-1agustos.md`
+
+- `[!]` **ylp00 titreşimi ARALIKLI.** Kalkışta devrildi, pervaneleri kırıldı.
+  Zincir ölçüldü: titreşim → ivmeölçer doyması → EKF konum sıçraması →
+  OFFBOARD yerde yatay konum tutarken ~14° eğim → pervane yere vuruyor.
+
+  | | ylp00 1. ölçüm | ylp00 2. ölçüm | ylp01 |
+  |---|---|---|---|
+  | ARMED konum sıçraması | 0.111 m | 0.017 m | 0.024 m |
+  | titreşim z tepe | 33.84 m/s² | 9.46 m/s² | 9.99 m/s² |
+  | yeni clipping | **+80** | 0 | 0 |
+
+  İkinci ölçüm temiz çıktı ama **sebep bulunmadı**. Her uçuştan önce
+  `python3 src/gcs/titresim_olc.py ylp00` çalıştır; clipping artıyorsa UÇMA.
+  Fiziksel kontrol sırası: motor yatakları → FC montaj köpüğü → kol/gövde
+  vidaları.
+
+- `[!]` **ylp00 hover gazı %66.** İtki payı yok; motor yakan ve devrilmeyi
+  kolaylaştıran yapısal sorun. Ağırlık ya da motor/pervane seçimi.
+
+- `[ ]` **`ORIGIN_ALT` yanlış** (`yki_baslat.sh` → 1218.5). Zemin origin'in
+  z=0'ında olmadığı için kalkış (zemine göre) ile goto (origin'e göre)
+  ayrışıyordu; uçak kalkış biter bitmez 1.6 m fırlıyordu. Görev tarafında
+  ofset **ölçülerek** sarıldı ama kaynak düzeltilmedi.
+
+- `[ ]` **Üçüncü irtifa sıçraması** ("yerlerine geldiklerinde"). Muhtemelen 1.
+  adımda 2.0 m kala "vardı" sayılıp kalan farkın 2. adımda kapanması. Ofset
+  düzeltmesinden sonra izle; kalırsa `TOLERANS_M` (2.5) düşür.
+
+- `[ ]` **Kanıt videosu çekilmedi.**
 
 ---
 
