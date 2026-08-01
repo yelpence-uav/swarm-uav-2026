@@ -87,7 +87,21 @@ KANAT_ACISI_DEG = 45.0  # ok başı kanat açısı (orchestrator wing_alpha ile 
 ROTA_YONU_DEG = -90.0
 
 KENAR_M = 18.0
-TOLERANS_M = 2.5        # "vardı" yarıçapı
+# "VARDI" YARICAPI — 2.5 idi, 2 Agustos'ta 1.0'a cekildi.
+#
+# 2.5 fazla genisti ve dongu 0.1 sn'ye inince bu GORUNUR hale geldi: dikey
+# adimda "vardi: d2=1.9m" yazildi, yani ucak komut edilen irtifanin 1.9 m
+# ALTINDAYKEN adim kapandi. Islevsel olarak yikici degil (5 sn'lik bekleme
+# sirasinda setpoint hedefte oldugu icin ucak farki kapatiyor) ama "vardi"
+# demek yanlisti ve bir sonraki adim yanlis yerden basliyordu.
+#
+# Sik ornekleme toleransi DAHA ERKEN yakaliyor: kontrol 2 Hz yerine 10 Hz
+# kosunca, ucak henuz yolun basindayken sart saglaniyor. Yani hizli dongu
+# gevsek toleransi ortaya cikardi, yaratmadi.
+#
+# 1.0 m RTK'da rahat ulasilir (konum hatasi cm mertebesinde) ve adim zaman
+# asimi 70 sn — ruzgarda bile pay var.
+TOLERANS_M = 1.0        # "vardı" yarıçapı
 MAX_GOTO_M = 60.0       # tek goto için mesafe tavanı
 
 # --- İrtifalar --------------------------------------------------------------
@@ -1000,6 +1014,12 @@ def git_ve_bekle(hedefler, heading_deg: float, asim_s: float, kuru: bool,
             raise RuntimeError(f"drone {did} telemetride yok")
         sp[did] = [d["pos_x"], d["pos_y"], d["alt_m"]]
     onceki_konum = {did: tuple(sp[did]) for did in sp}
+    # HIZ OLCUMU icin AYRI durum. Bkz. asagidaki hesap: gorev dongusu
+    # telemetriden HIZLI kostugu icin konum degismeden gecen tiklerde
+    # hiz 0 okunuyordu; olcum konumun GERCEKTEN degistigi anlara baglanir.
+    olcum_konum = {did: tuple(sp[did]) for did in sp}
+    olcum_t = {did: time.time() for did in sp}
+    son_hiz = {did: 0.0 for did in sp}
     # KAÇIŞ KESİCİSİ durumu — her uçağın hedefe EN ÇOK yaklaştığı mesafe.
     en_yakin = {did: float("inf") for did in sp}
     kacis_basladi = {did: None for did in sp}   # uzaklasmanin BASLADIGI an
@@ -1053,9 +1073,22 @@ def git_ve_bekle(hedefler, heading_deg: float, asim_s: float, kuru: bool,
             hedef = hedefler[did]
             konum = (dd["pos_x"], dd["pos_y"], dd["alt_m"])
             uzak[did] = math.dist(konum, hedef)
-            # Ölçülen yer hızı — "ne kadar hızlı gitti" sorusu bir daha
-            # log arkeolojisi gerektirmesin, uçarken görünsün.
-            hiz[did] = math.dist(konum[:2], onceki_konum[did][:2]) / dt
+            # ÖLÇÜLEN YER HIZI — telemetrinin GERÇEKTEN yenilendiği anlara
+            # bağlı. Önceki hâli her tik'te dist/dt hesaplıyordu ve görev
+            # döngüsü 0.5 -> 0.1 sn'ye inince YANILTICI oldu: mesh ~5-7 Hz
+            # veri getiriyor, iki tik arasında konum aynı kalınca hız 0.0,
+            # yeni örnek gelince aradaki bütün yol tek tik'e bölünüp 4 m/s
+            # görünüyordu. 2 Ağustos uçuşunda örneklerin %40'ı 0.0 okudu ve
+            # log "bas-çek" varmış gibi göründü — oysa ölçüm hatasıydı.
+            #
+            # Konum değişmediyse ESKİ değer korunur; değiştiğinde gerçekten
+            # geçen süreye bölünür. Böylece sayı örnekleme hızından bağımsız.
+            if konum[:2] != olcum_konum[did][:2]:
+                gecen = max(1e-3, simdi - olcum_t[did])
+                son_hiz[did] = math.dist(konum[:2], olcum_konum[did][:2]) / gecen
+                olcum_konum[did] = konum
+                olcum_t[did] = simdi
+            hiz[did] = son_hiz[did]
             onceki_konum[did] = konum
 
             hk, hd, hi = hedef
