@@ -254,11 +254,21 @@ class Px4BridgeNode(Node):
         # onde olabilir. Gorev betiginde de vardi ama orada 6.6 Hz'lik ve
         # gecikmeli telemetriye dayaniyordu; burada 50 Hz ve gecikmesiz.
         self.declare_parameter('guided_tasma_m', 3.0)
+        # IVME SINIRI — 2 Agustos ucusunda olculdu, ilk surumde YOKTU.
+        # Detay _yurutucu_ilerlet'te. MPC_ACC_HOR ucakta 2.0; altinda kaliyoruz.
+        self.declare_parameter('guided_ivme_yatay_mps2', 1.5)
+        self.declare_parameter('guided_ivme_dikey_mps2', 1.0)
         self._hiz_yatay = float(self.get_parameter('guided_hiz_yatay_mps').value)
         self._hiz_dikey = float(self.get_parameter('guided_hiz_dikey_mps').value)
+        self._ivme_yatay = float(
+            self.get_parameter('guided_ivme_yatay_mps2').value)
+        self._ivme_dikey = float(
+            self.get_parameter('guided_ivme_dikey_mps2').value)
         self._yurutucu_tasma_m = float(self.get_parameter('guided_tasma_m').value)
         self._yurutulen: list | None = None      # [kuzey, dogu, asagi] NED
         self._yurutucu_son_t: float | None = None
+        self._yur_v_yatay: float = 0.0           # yurutucunun ANLIK hizi
+        self._yur_v_dikey: float = 0.0
 
         # PX4'e komut gönderen yardımcı — MAVROS servis/topic'lerine yazar.
         self._cmd_sender = MavrosCommandSender(
@@ -748,6 +758,8 @@ class Px4BridgeNode(Node):
         """Yürütücüyü sıfırlar; bir sonraki çağrıda uçağın yerinden başlar."""
         self._yurutulen = None
         self._yurutucu_son_t = None
+        self._yur_v_yatay = 0.0
+        self._yur_v_dikey = 0.0
 
     def _yurutucu_ilerlet(self, hedef, simdi):
         """Setpoint'i hedefe doğru yürütür. (konum, hız) döndürür — ikisi NED.
@@ -762,6 +774,30 @@ class Px4BridgeNode(Node):
         çıkıyordu ve her yeni nokta bir basamak tepkisi üretiyordu. Artık
         "2 m/s şu yöne" doğrudan söyleniyor; konum terimi hareketi üretmiyor,
         yalnız sapmayı düzeltiyor.
+
+        İVME SINIRI — ilk sürümde YOKTU ve bedeli 2 Ağustos uçuşunda ölçüldü.
+        Hız ileri-beslemesi BASAMAK olarak veriliyordu: hareket başlarken bir
+        tik'te 0'dan tam hıza, biterken tam hızdan 0'a. Uçuş kaydından
+        (setpoint_raw/local vs velocity_local):
+
+            13.26  KOMUT yat=0.00  ->  13.52  KOMUT yat=2.00   (tek örnekte)
+                   ölçülen: 1.30, 1.82, 2.27, 2.48, 2.57  -> sonra 2.1
+            17.02  KOMUT yat=2.00  ->  17.26  KOMUT yat=0.00
+                   ölçülen: 2.05, 1.52, 0.75, 0.13, 0.62 (geri sekme)
+            22.26  KOMUT dik=0.00  ->  22.52  KOMUT dik=+1.00
+                   ölçülen: 0.82, 1.08, 1.18  -> sonra 1.02
+
+        Operatörün tarifi birebir: "ne yaparsa yapsın önce aşırı hızlı, sonra
+        olması gereken hızda, saliselik". Yatayda %28, dikeyde %18 aşım.
+        Ayrıca navigasyon başlarken bir örneklik dik=-1.00 (aşağı tam gaz)
+        gidiyordu — yürütücü uçağın yerinde başlatılırken irtifa farkı
+        yüzünden. Rampayla o da kalkıyor.
+
+        Çözüm YAMUK (trapez) HIZ PROFİLİ: hız ivme sınırıyla rampalanır ve
+        frene, hedefe v=0 ile varacak mesafede başlanır (v = sqrt(2*a*mesafe)).
+        Hem kalkışta hem duruşta basamak yok. PX4'ün Auto modundaki yörünge
+        üretecinin yaptığı işin aynısı — OFFBOARD'da o devrede olmadığı için
+        burada yapıyoruz.
         """
         if self._yurutulen is None or self._yurutucu_son_t is None:
             self._yurutulen = [self._cached_pos_x, self._cached_pos_y,
@@ -773,26 +809,50 @@ class Px4BridgeNode(Node):
         dt = max(1e-3, min(dt, 0.2))
 
         hx, hy, hz = hedef
+
+        # --- YATAY: yamuk (trapez) hiz profili -----------------------------
         dx, dy = hx - self._yurutulen[0], hy - self._yurutulen[1]
         yatay = math.hypot(dx, dy)
-        adim = self._hiz_yatay * dt
+        # Hedefe v=0 ile varabilmek icin su anki mesafeden cikarilabilecek
+        # en yuksek hiz: v = sqrt(2*a*mesafe). Frenlemeye zamaninda baslatir.
+        v_fren = math.sqrt(2.0 * self._ivme_yatay * yatay)
+        v_hedef = min(self._hiz_yatay, v_fren)
+        if self._yur_v_yatay < v_hedef:
+            self._yur_v_yatay = min(v_hedef,
+                                    self._yur_v_yatay + self._ivme_yatay * dt)
+        else:
+            self._yur_v_yatay = max(v_hedef,
+                                    self._yur_v_yatay - self._ivme_yatay * dt)
+        adim = self._yur_v_yatay * dt
         if yatay <= max(adim, _YURUTUCU_ADIM_TOLERANS_M):
             self._yurutulen[0], self._yurutulen[1] = hx, hy
+            self._yur_v_yatay = 0.0
             vx = vy = 0.0
         else:
             self._yurutulen[0] += dx * adim / yatay
             self._yurutulen[1] += dy * adim / yatay
-            vx = dx / yatay * self._hiz_yatay
-            vy = dy / yatay * self._hiz_yatay
+            vx = dx / yatay * self._yur_v_yatay
+            vy = dy / yatay * self._yur_v_yatay
 
+        # --- DIKEY: ayni profil, isaret ayri tasiniyor ---------------------
         dz = hz - self._yurutulen[2]
-        dadim = self._hiz_dikey * dt
-        if abs(dz) <= max(dadim, _YURUTUCU_ADIM_TOLERANS_M):
+        mesafe_z = abs(dz)
+        v_fren_z = math.sqrt(2.0 * self._ivme_dikey * mesafe_z)
+        v_hedef_z = min(self._hiz_dikey, v_fren_z)
+        if self._yur_v_dikey < v_hedef_z:
+            self._yur_v_dikey = min(v_hedef_z,
+                                    self._yur_v_dikey + self._ivme_dikey * dt)
+        else:
+            self._yur_v_dikey = max(v_hedef_z,
+                                    self._yur_v_dikey - self._ivme_dikey * dt)
+        dadim = self._yur_v_dikey * dt
+        if mesafe_z <= max(dadim, _YURUTUCU_ADIM_TOLERANS_M):
             self._yurutulen[2] = hz
+            self._yur_v_dikey = 0.0
             vz = 0.0
         else:
             self._yurutulen[2] += math.copysign(dadim, dz)
-            vz = math.copysign(self._hiz_dikey, dz)
+            vz = math.copysign(self._yur_v_dikey, dz)
 
         # TASMA FRENI — yurutulen setpoint ucaktan kopamaz. Ucak ruzgarda
         # veya itki yetmedigi icin geride kalirsa setpoint onun onunde

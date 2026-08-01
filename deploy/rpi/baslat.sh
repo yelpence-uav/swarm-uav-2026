@@ -87,9 +87,17 @@ sleep 15
 GUIDED_HIZ_YATAY="${GUIDED_HIZ_YATAY:-2.0}"
 GUIDED_HIZ_DIKEY="${GUIDED_HIZ_DIKEY:-1.0}"
 GUIDED_TASMA="${GUIDED_TASMA:-3.0}"
+# IVME SINIRI: ilk surumde yoktu ve hiz ileri-beslemesi BASAMAK gidiyordu —
+# hareket baslarken bir tik'te 0'dan tam hiza. Ucus kaydinda olculdu: yatayda
+# %28 (2.57 m/s), dikeyde %18 (1.18 m/s) asim. Operator "once asiri hizli,
+# sonra olmasi gereken hizda" diye bildirdi. MPC_ACC_HOR ucakta 2.0; altinda.
+GUIDED_IVME_YATAY="${GUIDED_IVME_YATAY:-1.5}"
+GUIDED_IVME_DIKEY="${GUIDED_IVME_DIKEY:-1.0}"
 ros2 run swarm_control px4_bridge --ros-args -p agent_id:=${AGENT_ID} \
     -p guided_hiz_yatay_mps:=${GUIDED_HIZ_YATAY} \
     -p guided_hiz_dikey_mps:=${GUIDED_HIZ_DIKEY} \
+    -p guided_ivme_yatay_mps2:=${GUIDED_IVME_YATAY} \
+    -p guided_ivme_dikey_mps2:=${GUIDED_IVME_DIKEY} \
     -p guided_tasma_m:=${GUIDED_TASMA} > "$GUNLUK/px4b.log" 2>&1 &
 sleep 5
 ros2 run swarm_state_machine agent_fsm_node --ros-args -p agent_id:=${AGENT_ID} > "$GUNLUK/fsm.log" 2>&1 &
