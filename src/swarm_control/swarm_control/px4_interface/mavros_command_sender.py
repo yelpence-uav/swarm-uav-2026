@@ -46,6 +46,27 @@ _MASK_POS_VEL = (
     _PT.IGNORE_AFX | _PT.IGNORE_AFY | _PT.IGNORE_AFZ
     | _PT.IGNORE_YAW_RATE
 )
+# KALKIS MASKESI — yatayda HIZ, dikeyde POZISYON.
+#
+# NEDEN AYRI BIR MASKE VAR (1 Agustos, ylp00 kalkista devrildi):
+# Kalkis _MASK_POSITION ile yapiliyordu, yani ucak daha YERDEYKEN PX4 yatay
+# KONUM tutuyordu. Konum tutmak "su noktada olmaliyim" demektir; EKF konumu
+# sicradiginda PX4 gercek olmayan bir hatayi duzeltmeye calisir ve EGILIR.
+# Olculdu: kestirim 1.42 m sicradi -> MPC_XY_P ile ~1.3 m/s talep -> ~14
+# derece egim. Yerde duran, gazi kalkis itkisinde olan ucakta 14 derece
+# pervaneyi yere sokar. Ucak devrildi, pervaneleri kirildi.
+#
+# Yatayda HIZ SIFIR komutu ayni amaci (yatayda kimildamasin) guderken bu
+# tuzagi tasimaz: kovalanacak birikmis konum hatasi yoktur, kestirim
+# sicramasi anlik bir hiz hatasi olarak gorunur ve egim kucuk kalir.
+# Bedeli, ruzgarda yavas suruklenme — birkac saniyelik tirmanista onemsiz
+# ve devrilmenin yanina bile yaklasmaz.
+_MASK_KALKIS = (
+    _PT.IGNORE_PX | _PT.IGNORE_PY          # yatay konum YOK SAY
+    | _PT.IGNORE_VZ                        # dikey hizi degil konumu kullan
+    | _PT.IGNORE_AFX | _PT.IGNORE_AFY | _PT.IGNORE_AFZ
+    | _PT.IGNORE_YAW_RATE
+)
 
 
 def _ned_to_enu(x_ned: float, y_ned: float, z_ned: float) -> tuple:
@@ -342,6 +363,24 @@ class MavrosCommandSender:
         msg.velocity.x = e_vx
         msg.velocity.y = e_vy
         msg.velocity.z = e_vz
+        msg.yaw = _yaw_ned_to_enu(yaw_rad)
+        self._setpoint_pub.publish(msg)
+
+    def publish_kalkis_setpoint(self, z: float, yaw_rad: float = 0.0) -> None:
+        """KALKIS setpoint'i: yatayda hiz SIFIR, dikeyde hedef irtifa.
+
+        Yatay konum GONDERILMEZ (bkz. _MASK_KALKIS). Ilk tirmanista konum
+        tutmanin neden devirdigi orada anlatiliyor.
+
+        Args:
+            z (float): NED Z hedefi (Asagi pozitif), metre.
+            yaw_rad (float): NED yaw, radyan.
+        """
+        _, _, e_z = _ned_to_enu(0.0, 0.0, z)
+        msg = self._make_target(_MASK_KALKIS)
+        msg.position.z = e_z
+        msg.velocity.x = 0.0
+        msg.velocity.y = 0.0
         msg.yaw = _yaw_ned_to_enu(yaw_rad)
         self._setpoint_pub.publish(msg)
 

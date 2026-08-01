@@ -165,6 +165,13 @@ class Px4BridgeNode(Node):
 
         # Hedef kalkış irtifası (NED: negatif=yukarı) — None ise hold modu
         self._target_altitude_ned: float | None = None
+        # Kalkis yatay kilidi (bkz. _kalkis_kilidi_aktif): ilk tirmanista
+        # yatay KONUM tutulmaz, yatay HIZ SIFIRLANIR.
+        self._takeoff_baslangic_z: float | None = None
+        self._kalkis_kilidi_acildi = False
+        self.declare_parameter('kalkis_kilit_irtifa_m', 2.5)
+        self._kalkis_kilit_irtifa_m = float(
+            self.get_parameter('kalkis_kilit_irtifa_m').value)
 
         # Kalkış yatay çapası — takeoff anında bir kez dondurulur.
         # Tırmanış boyunca x,y bu sabit noktada tutulur (anlık konumu
@@ -602,6 +609,23 @@ class Px4BridgeNode(Node):
             target_z = self._cached_pos_z
             target_yaw = self._cached_yaw_rad
 
+        # YATAY KİLİT — ilk tırmanışta yatay KONUM tutma YOK.
+        #
+        # 1 Ağustos'ta ylp00 kalkışta devrildi ve pervaneleri kırıldı. Sebep,
+        # uçak daha YERDEYKEN PX4'ün yatay KONUM tutması: EKF konumu 1.42 m
+        # sıçrayınca PX4 gerçek olmayan bir hatayı düzeltmek için ~14° eğildi,
+        # pervane yere vurdu. (Ölçüldü: kalkış çapası 6 sn'de 0.90 m kaydı,
+        # z hiç değişmedi — uçak yerden hiç kesilmemişti.)
+        #
+        # Kilit süresince yatayda HIZ SIFIR komutu gider (publish_kalkis_setpoint):
+        # "yatayda kımıldama" aynen sağlanır ama kovalanacak birikmiş konum
+        # hatası olmadığı için eğim küçük kalır. Kilit irtifasını geçince
+        # normal konum kontrolüne dönülür.
+        if self._kalkis_kilidi_aktif():
+            self._cmd_sender.publish_kalkis_setpoint(
+                self._target_altitude_ned, yaw_rad=self._cached_yaw_rad)
+            return
+
         if use_velocity and self._velocity_only:
             # B: SADECE hız (pozisyon=NaN). Konum kontrolü SVT'de.
             sp = self._latest_setpoint
@@ -623,6 +647,35 @@ class Px4BridgeNode(Node):
                 target_x, target_y, target_z,
                 yaw_rad=target_yaw,
             )
+
+    def _kalkis_kilidi_aktif(self) -> bool:
+        """İlk tırmanışta yatay konum kontrolü kilitli mi?
+
+        Kilit yalnız KALKIŞ sırasında ve yalnız kilit irtifasının ALTINDA
+        geçerli. Kilit açıldığı anda yatay çapa uçağın O ANKİ yerine BİR KEZ
+        yeniden kurulur: kilit boyunca rüzgârla birkaç santim sürüklenmiş
+        olabilir ve eski çapaya dönmek sıçrama komutu olurdu.
+
+        Çapanın kilit dışında yenilenmemesi ayrı bir karar — bkz. takeoff
+        komutunun işlendiği yer.
+        """
+        if self._target_altitude_ned is None:
+            return False
+        if self._takeoff_baslangic_z is None:
+            return False
+        if self._kalkis_kilidi_acildi:
+            return False
+        yukseklik = self._takeoff_baslangic_z - self._cached_pos_z
+        if yukseklik >= self._kalkis_kilit_irtifa_m:
+            self._kalkis_kilidi_acildi = True
+            self._takeoff_anchor_x = self._cached_pos_x
+            self._takeoff_anchor_y = self._cached_pos_y
+            self.get_logger().info(
+                f'yatay kilit AÇILDI ({yukseklik:.1f} m) — çapa '
+                f'({self._takeoff_anchor_x:.2f}, {self._takeoff_anchor_y:.2f})'
+            )
+            return False
+        return True
 
     def _on_swarm_origin(self, msg: SwarmOrigin) -> None:
         """Ortak NED origin'i PX4'e gönderir.
@@ -717,6 +770,8 @@ class Px4BridgeNode(Node):
             # dronu ÖNCEKİ görevin irtifasına ve ÖNCEKİ çapa konumuna
             # sürüyordu — FSM daha TAKEOFF demeden, komut verilmemiş kalkış.
             self._target_altitude_ned = None
+            self._takeoff_baslangic_z = None
+            self._kalkis_kilidi_acildi = False
             self._takeoff_anchor_x = None
             self._takeoff_anchor_y = None
             self._cmd_sender.disarm()
@@ -756,6 +811,9 @@ class Px4BridgeNode(Node):
                 # Yatay çapayı şimdi dondur — tırmanış boyunca sabit kalsın.
                 self._takeoff_anchor_x = self._cached_pos_x
                 self._takeoff_anchor_y = self._cached_pos_y
+                # Yatay kilidin referansı: bu z'den itibaren yükseklik ölçülür.
+                self._takeoff_baslangic_z = self._cached_pos_z
+                self._kalkis_kilidi_acildi = False
                 self.get_logger().info(
                     f'Offboard kalkış hedefi: {altitude:.1f}m '
                     f'(NED z={self._target_altitude_ned:.1f}) '
@@ -766,6 +824,8 @@ class Px4BridgeNode(Node):
             self._offboard_streaming = False
             self._arm_bekliyor = False   # iniş geldi, bekleyen ARM iptal
             self._target_altitude_ned = None
+            self._takeoff_baslangic_z = None
+            self._kalkis_kilidi_acildi = False
             self._takeoff_anchor_x = None
             self._takeoff_anchor_y = None
             self._cmd_sender.land()
@@ -773,6 +833,8 @@ class Px4BridgeNode(Node):
             self._offboard_streaming = False
             self._arm_bekliyor = False   # RTL geldi, bekleyen ARM iptal
             self._target_altitude_ned = None
+            self._takeoff_baslangic_z = None
+            self._kalkis_kilidi_acildi = False
             self._takeoff_anchor_x = None
             self._takeoff_anchor_y = None
             self._cmd_sender.return_home()
