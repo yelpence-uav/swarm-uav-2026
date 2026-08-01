@@ -251,6 +251,12 @@ KACIS_MARJ_M = 4.0
 # Sure olarak yazilinca dongu hizindan bagimsiz.
 KACIS_ONAY_S = 0.8           # en kotu kayip: 4 m + 4 m/s x 0.8 sn = 7.2 m
 
+# --- Tirmanis oturmasi (bkz. irtifa ofseti olcumu) --------------------------
+# Ofset, ucak HAREKETSIZ iken olculmeli. Tirmanis 1 m/s ile bitiyor ve
+# 0.15 m/s'in altina inmesi ~1 sn suruyor; 6 sn tavan fazlasiyla yeterli.
+OTURMA_DIKEY_HIZ_MPS = 0.15
+OTURMA_ASIM_S = 6.0
+
 _son_komut_t = 0.0
 _iniyor = False
 _HARITA_DOSYA = None
@@ -1453,9 +1459,38 @@ def gorev(kuru: bool) -> int:
             # Origin'i duzeltmek yerine ofset OLCULUYOR: kalkis bitince ucagin
             # okudugu irtifa, zeminden kalkis_irt kadar yukarida olmasi
             # gereken bir ucagin ORIGIN'e gore irtifasidir. Aradaki fark
-            # ofsettir ve plandaki tum irtifalara eklenir. Boylece komut
-            # edilen irtifa ucagin ZATEN oldugu yerle ayni olur; sicrama
-            # kalmaz. Kendi kendini kalibre eder, origin yanlissa da calisir.
+            # ofsettir ve plandaki tum irtifalara eklenir.
+            #
+            # OTURMA BEKLENIR — 2 Agustos'ta bu EKSIKTI ve olcumu bozuyordu.
+            #
+            # Kosul irtifanin %90'inda tetikleniyor, yani ucak HALA ~1 m/s ile
+            # TIRMANIRKEN. O anlik okuma "ofset" sayilip plana yaziliyordu;
+            # ucak momentumla hedefin uzerine cikiyor, sonra yurutucu onu
+            # asagi cekiyordu. Operator "kalkista bir irtifaya cikti sonra
+            # kendini alcaltti" diye bildirdi; ucus kaydinda yurutucunun
+            # dik=-0.56 komut ettigi goruluyor — alcalmayi BIZ istemisiz.
+            #
+            # Ayrica dort ucusta ofsetin hep -0.3/-0.5 cikmasinin sebebi de
+            # buydu: gercek bir cerceve farki degil, gecici rejimde olcum.
+            # Dikey cerceve zaten dogrulanmis durumda (px4_bridge
+            # _origin_dogrula: "dikey 0.00 m"), yani ofsetin ~0 cikmasi
+            # gerekiyor. Oturduktan sonra hala buyuk cikarsa GERCEK bir fark
+            # var demektir ve o zaman bakmak anlamli olur.
+            print("    tırmanış oturması bekleniyor...")
+            for _ in range(int(OTURMA_ASIM_S / 0.5)):
+                time.sleep(0.5)
+                t = durum()
+                ihlal = guvenlik_ihlali(t)
+                if ihlal:
+                    print(f"\n    !!! {ihlal} — kesiliyor")
+                    indir(kuru)
+                    return 1
+                dvz = [abs(t.get(d, {}).get("vel_z", 0.0)) for d in ucanlar()]
+                if dvz and max(dvz) <= OTURMA_DIKEY_HIZ_MPS:
+                    break
+            print("    oturdu: " + "  ".join(
+                f"d{d}={t.get(d,{}).get('alt_m',0.0):.2f}m"
+                f"(vz={t.get(d,{}).get('vel_z',0.0):+.2f})" for d in ucanlar()))
             olculen = [t[d]["alt_m"] for d in ucanlar()]
             irtifa_ofset = sum(olculen) / len(olculen) - kalkis_irt
             if abs(irtifa_ofset) > 0.15:

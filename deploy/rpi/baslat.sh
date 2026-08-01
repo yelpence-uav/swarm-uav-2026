@@ -91,8 +91,19 @@ GUIDED_TASMA="${GUIDED_TASMA:-3.0}"
 # hareket baslarken bir tik'te 0'dan tam hiza. Ucus kaydinda olculdu: yatayda
 # %28 (2.57 m/s), dikeyde %18 (1.18 m/s) asim. Operator "once asiri hizli,
 # sonra olmasi gereken hizda" diye bildirdi. MPC_ACC_HOR ucakta 2.0; altinda.
-GUIDED_IVME_YATAY="${GUIDED_IVME_YATAY:-1.5}"
-GUIDED_IVME_DIKEY="${GUIDED_IVME_DIKEY:-1.0}"
+#
+# 2. TUR (2 Agustos, ikinci ucus): rampa geldi, KOMUT tepe artik tam 2.00 /
+# 1.00 — basamak yok. Ama OLCULEN hala asiyor: yatay 2.51 (%25),
+# dikey 1.42 (%42). Sebep artik farkli: rampa sirasinda ucak yurutucunun
+# GERISINDE kaliyor, konum hatasi birikiyor ve PX4 onu ileri-beslemenin
+# USTUNE ekliyor (MPC_XY_P x hata). Olculen gecikme ~0.5 m -> ~0.5 m/s fazla.
+# Operator "varinca biraz geri geldi, sonradan bir duzeltme yapti" dedi.
+#
+# Tek gercek kaldirac IVME: yurutucu ucagin yetisebileceginden hizli
+# rampalarsa gecikme birikir. Yariya indiriyoruz. Bedeli 7 m'lik gecisin
+# ~4.7 -> ~6 sn'ye cikmasi.
+GUIDED_IVME_YATAY="${GUIDED_IVME_YATAY:-0.8}"
+GUIDED_IVME_DIKEY="${GUIDED_IVME_DIKEY:-0.5}"
 ros2 run swarm_control px4_bridge --ros-args -p agent_id:=${AGENT_ID} \
     -p guided_hiz_yatay_mps:=${GUIDED_HIZ_YATAY} \
     -p guided_hiz_dikey_mps:=${GUIDED_HIZ_DIKEY} \
