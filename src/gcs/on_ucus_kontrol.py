@@ -41,6 +41,11 @@ BEKLENEN = {
     "MPC_YAWRAUTO_MAX": 25.0,
     "MPC_TILTMAX_AIR": 30.0,
     "MPC_ACC_HOR": 2.0,
+    # Inis hizi (son 5 m — MPC_LAND_ALT2 altinda). 0.7 varsayilaniydi,
+    # 2 Agustos'ta 0.4'e cekildi: operator inisi daha yavas istedi.
+    # Tabloda olmasi sart, cunku iki ucak farkli hizla inerse formasyon
+    # inisinde biri digerinden once yere degip surunun geometrisi bozulur.
+    "MPC_LAND_SPEED": 0.4,
     "BAT1_SOURCE": 0,
 }
 

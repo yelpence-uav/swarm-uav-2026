@@ -207,7 +207,20 @@ LIDER: int | None = None
 
 GOREV_HIZ_MPS = 2.0          # yatay yurutme hizi
 GOREV_DIKEY_HIZ_MPS = 1.0    # irtifa degisim hizi (motor isinmasi: daha yavas)
-SETPOINT_ADIM_S = 0.5        # ara hedef gonderim araligi
+# SETPOINT GONDERIM ARALIGI — 0.5 idi, "gaz bas-cek" bundandi (2 Agustos).
+#
+# 0.5 sn'de bir 2.0 m/s x 0.5 = 1.0 METRE birden ileri atiyordu. PX4'e rampa
+# degil MERDIVEN gidiyordu: her basamakta konum hatasi aniden 1 m buyuyor,
+# MPC_XY_P (uctan okundu: 0.95) ile hiz talebi ~0.95 m/s sicriyor, ucak
+# hizlaniyor, hatayi kapatinca yavasliyor, 0.5 sn sonra yeni basamak.
+# Saniyede iki kez. Olculen hiz dizisi: 0.5-1.2-1.3-1.9-1.6-2.2-1.7 m/s.
+#
+# 0.1 sn'de adim 0.2 m olur, hiz sicramasi ~0.19 m/s'e iner — hissedilmez.
+# ORTALAMA HIZ DEGISMEZ: adim = GOREV_HIZ_MPS * dt ve dt OLCULEN degerdir,
+# yani dongu mesh/HTTP yuzunden yavaslarsa adim buyur ve hiz yine 2 m/s
+# kalir. Kendi kendini ayarliyor; ust sinir mesh'in tasiyabildigi kadar
+# (base kuyrugu TIP_GOTO'yu 10 Hz'de tutuyor, cok dronda paylasilir).
+SETPOINT_ADIM_S = 0.1        # ara hedef gonderim araligi
 TASMA_M = 3.0                # setpoint ucaktan en fazla bu kadar onde olabilir
 
 # --- Kacis kesicisi (bkz. git_ve_bekle) -------------------------------------
@@ -215,7 +228,11 @@ TASMA_M = 3.0                # setpoint ucaktan en fazla bu kadar onde olabilir
 # KACIS_ARDISIK olcumde oyle kalirsa gorev kesilir. 1 Agustos 22:18'de bu
 # kesici yoktu; mesafe 6.5 -> 78.7 m buyudu ve kod 40 sn seyretti.
 KACIS_MARJ_M = 4.0
-KACIS_ARDISIK = 3            # 0.5 sn'lik olcumlerle 1.5 sn onay
+# ONAY SURESI, ORNEK SAYISI DEGIL. Onceden "ardisik 3 olcum" idi ve bu
+# SETPOINT_ADIM_S'e gizlice bagliydi: aralik 0.5 -> 0.1 sn olunca onay
+# suresi 1.5 sn'den 0.3 sn'ye duser ve ruzgar darbesi yanlis alarm verirdi.
+# Sure olarak yazilinca dongu hizindan bagimsiz.
+KACIS_ONAY_S = 0.8           # en kotu kayip: 4 m + 4 m/s x 0.8 sn = 7.2 m
 
 _son_komut_t = 0.0
 _iniyor = False
@@ -985,7 +1002,7 @@ def git_ve_bekle(hedefler, heading_deg: float, asim_s: float, kuru: bool,
     onceki_konum = {did: tuple(sp[did]) for did in sp}
     # KAÇIŞ KESİCİSİ durumu — her uçağın hedefe EN ÇOK yaklaştığı mesafe.
     en_yakin = {did: float("inf") for did in sp}
-    kacis_sayac = {did: 0 for did in sp}
+    kacis_basladi = {did: None for did in sp}   # uzaklasmanin BASLADIGI an
 
     basla = time.time()
     onceki_t = basla
@@ -1082,14 +1099,17 @@ def git_ve_bekle(hedefler, heading_deg: float, asim_s: float, kuru: bool,
         for did, u in uzak.items():
             if u < en_yakin[did]:
                 en_yakin[did] = u
-                kacis_sayac[did] = 0
+                kacis_basladi[did] = None
             elif u > en_yakin[did] + KACIS_MARJ_M:
-                kacis_sayac[did] += 1
+                if kacis_basladi[did] is None:
+                    kacis_basladi[did] = simdi
             else:
-                kacis_sayac[did] = 0
-            if kacis_sayac[did] >= KACIS_ARDISIK:
+                kacis_basladi[did] = None
+            if (kacis_basladi[did] is not None
+                    and simdi - kacis_basladi[did] >= KACIS_ONAY_S):
                 print(f"\n      !!! drone {did} HEDEFTEN UZAKLAŞIYOR — "
-                      f"en yakın {en_yakin[did]:.1f} m idi, şimdi {u:.1f} m. "
+                      f"en yakın {en_yakin[did]:.1f} m idi, {u:.1f} m'ye çıktı "
+                      f"ve {KACIS_ONAY_S:.1f} sn öyle kaldı. "
                       f"KAÇIŞ: görev kesiliyor, iniliyor.")
                 print(f"      (çerçeve kayması olabilir — ön kontroldeki "
                       f"origin kapısına ve px4b logundaki 'ORIGIN OTURMAMIS' "
