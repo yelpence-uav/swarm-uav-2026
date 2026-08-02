@@ -242,6 +242,27 @@ DONUS_ROTASYON_ADIM_DEG = 2.25      # 180/2.25 = 80 nokta, kiris 0.39 m
 DONUS_GECIS_R_M = 2.0
 DONUS_BEKLEME_S = 3.0
 
+# --- --senaryo tam (KANIT VIDEOSU KOREOGRAFISI) -----------------------------
+# cizgi -> 40 m ileri -> KD'ye rotasyon -> ROLL -> rollu KD navigasyonu ->
+# irtifa esitleme -> eve rotasyon -> eve donus -> inis.
+#
+# "AYNI GUNEYDOGU EKSENI": kuzeydogu (45) ile guneydogu (135) DIK oldugu icin,
+# KD boyunca ilerlerken evin tam GD yonunde kaldigi tek bir nokta vardir.
+# Orada durulur; donus bacagi duz bir GD ucusu olur. Mesafe, (P-H) vektorunun
+# KD birim vektoru uzerindeki izdusumu kadar.
+#
+# ROLLDA LIDER SABIT: egim_dz sürü merkezini sabit tutar (sartname sarti) ve
+# n=2'de lideri 2.89 m ASAGI, takipciyi 2.89 m YUKARI alir. Operator liderin
+# alcalmasini istemedi; bu yuzden liderin dz'si hepsinden CIKARILIYOR —
+# lider 10.0'da kalir, takipci 10 + ARALIK_M*tan(roll) = 15.77 m'ye cikar.
+# Bedeli: suru merkezi 2.89 m yukselir. Kanit videosunda merkezin sabit
+# kalmasi isteniyorsa bu tercih yeniden dusunulmelidir.
+TAM_MESAFE_M = 40.0
+TAM_IRTIFA_M = 10.0
+TAM_ROLL_DEG = 30.0
+TAM_KD_DEG = 45.0            # kuzeydogu
+TAM_BEKLEME_S = 3.0
+
 # --- Manevra ----------------------------------------------------------------
 # Şartname: sürü merkezi sabit, sağa/sola yatış. 30° seçildi çünkü 20°'de
 # kanatlar merkezden yalnız ±2.7 m ayrılıyor ve yerden çekimde sınırda
@@ -963,6 +984,92 @@ def _kacis_marj() -> float:
     return KACIS_MARJ_KACINMA_M if _KACINMA_ACIK else KACIS_MARJ_M
 
 
+def plan_kur_tam(t):
+    """KANIT VİDEOSU KOREOGRAFİSİ — çizgi, ileri, roll, eksen, eve dönüş.
+
+    Adımlar:
+      1) çizgi dizilişi (lider kendi kalkış noktasında)
+      2) liderin baktığı yönde TAM_MESAFE_M
+      3) KUZEYDOĞU'ya rotasyon (lider yerinde, takipçi yay çizer)
+      4) ROLL — lider sabit, takipçi ARALIK_M*tan(roll) kadar yukarı
+      5) roll'u KORUYARAK KD navigasyonu, evin GÜNEYDOĞU ekseni üzerine
+      6) irtifa eşitleme (roll sıfırlanır)
+      7) GÜNEYDOĞU'ya rotasyon
+      8) eve dönüş, formasyon korunarak
+      9) iniş
+
+    GÜNEYDOĞU EKSENİ: KD (45°) ile GD (135°) diktir; KD boyunca ilerlerken
+    evin tam GD yönünde kaldığı TEK bir nokta vardır. Mesafesi, (P - ev)
+    vektörünün KD birim vektörü üzerindeki izdüşümüdür (işaret ters).
+    """
+    lider = LIDER
+    l = t[lider]
+    H = (l["pos_x"], l["pos_y"])
+    lyaw = l["yaw_deg"]
+
+    ofs = formasyon_ofsetleri("cizgi", len(DRONELAR))
+    slot = {lider: 0}
+    for i, did in enumerate([d for d in DRONELAR if d != lider], start=1):
+        slot[did] = i
+
+    def _hedefler(nokta, yon, roll=0.0):
+        """Lider 'nokta'da ve TAM_IRTIFA_M'de; formasyon 'yon'a, 'roll' eğimli.
+
+        Roll'un dz'si LİDERE göre sıfırlanır: egim_dz sürü merkezini sabit
+        tutuyor ve lideri aşağı alıyor; operatör liderin alçalmasını istemedi.
+        """
+        h = math.radians(yon)
+        o_i, o_s = ofs[0]
+        merkez = (nokta[0] - (o_i * math.cos(h) + o_s * (-math.sin(h))),
+                  nokta[1] - (o_i * math.sin(h) + o_s * math.cos(h)))
+        dz = egim_dz(ofs, 0.0, roll)
+        dz = [z - dz[0] for z in dz]          # lider referans: kendisi 0
+        noktalar = [slot_dunya(merkez, yon, *o) + (TAM_IRTIFA_M + z,)
+                    for o, z in zip(ofs, dz)]
+        return {did: noktalar[slot[did]] for did in DRONELAR}
+
+    def _rotasyon(plan, nokta, bas, son, roll=0.0):
+        """bas -> son yönüne KISA taraftan, geçiş noktalarıyla dilimleyerek."""
+        fark = (son - bas) % 360.0
+        if fark > 180.0:
+            fark -= 360.0
+        n = max(1, int(round(abs(fark) / DONUS_ROTASYON_ADIM_DEG)))
+        for i in range(1, n + 1):
+            ara = (bas + fark * i / n) % 360.0
+            if i == n:
+                plan.append((f"rotasyon -> {ara:.0f}° tamam", ara,
+                             _hedefler(nokta, ara, roll), True))
+            else:
+                plan.append((f"rotasyon {i}/{n} -> {ara:.0f}°", ara,
+                             _hedefler(nokta, ara, roll), False,
+                             DONUS_GECIS_R_M))
+
+    h0 = math.radians(lyaw)
+    P = (H[0] + TAM_MESAFE_M * math.cos(h0), H[1] + TAM_MESAFE_M * math.sin(h0))
+    kd = math.radians(TAM_KD_DEG)
+    # Evin GD ekseni uzerine dusen nokta: (P-H)'nin KD uzerindeki izdusumu
+    s = -((P[0] - H[0]) * math.cos(kd) + (P[1] - H[1]) * math.sin(kd))
+    Q = (P[0] + s * math.cos(kd), P[1] + s * math.sin(kd))
+    gd = (math.degrees(math.atan2(H[1] - Q[1], H[0] - Q[0])) + 360.0) % 360.0
+
+    plan = [
+        (f"çizgi dizilişi (lider d{lider})", lyaw, _hedefler(H, lyaw), True),
+        (f"-> {TAM_MESAFE_M:.0f} m ileri (yön {lyaw:.0f}°)", lyaw,
+         _hedefler(P, lyaw), TAM_BEKLEME_S),
+    ]
+    _rotasyon(plan, P, lyaw, TAM_KD_DEG)
+    plan.append((f"ROLL {TAM_ROLL_DEG:.0f}° (takipçi yukarı)", TAM_KD_DEG,
+                 _hedefler(P, TAM_KD_DEG, TAM_ROLL_DEG), True))
+    plan.append((f"-> GD ekseni, roll KORUNARAK ({s:.0f} m)", TAM_KD_DEG,
+                 _hedefler(Q, TAM_KD_DEG, TAM_ROLL_DEG), TAM_BEKLEME_S))
+    plan.append(("irtifa EŞİTLE (roll 0)", TAM_KD_DEG,
+                 _hedefler(Q, TAM_KD_DEG, 0.0), True))
+    _rotasyon(plan, Q, TAM_KD_DEG, gd)
+    plan.append((f"-> EV (lider d{lider} kalkış noktası)", gd,
+                 _hedefler(H, gd), True))
+    return plan
+
+
 def plan_kur_donus(t):
     """ÇİZGİ formasyonu, 20 m ileri, 180° rotasyon, eve dönüş.
 
@@ -1595,7 +1702,14 @@ def gorev(kuru: bool) -> int:
 
     baslangic = {did: (t[did]["pos_x"], t[did]["pos_y"], KALKIS_IRTIFA_M)
                  for did in DRONELAR if did in t} or None
-    if _SENARYO == "donus":
+    if _SENARYO == "tam":
+        eksik = [d for d in DRONELAR if d not in t]
+        if eksik:
+            print(f"Telemetride yok: drone {eksik} — tam senaryo konum ve yön "
+                  "ölçümüne dayanır, başlatılamaz.")
+            return 1
+        plan = plan_kur_tam(t)
+    elif _SENARYO == "donus":
         eksik = [d for d in DRONELAR if d not in t]
         if eksik:
             print(f"Telemetride yok: drone {eksik} — dönüş senaryosu konum ve "
@@ -1661,7 +1775,8 @@ def gorev(kuru: bool) -> int:
     # ARM TEYİDİ BEKLENİR: px4_bridge önce OFFBOARD'a geçip sonra arm ediyor
     # (PX4 yerde armlıyken OFFBOARD'a girmiyor). Teyit beklemeden takeoff
     # yollamak, komutun hâlâ disarm uçağa gitmesi ve sessizce düşmesi demek.
-    kalkis_irt = (DONUS_IRTIFA_M if _SENARYO == "donus"
+    kalkis_irt = (TAM_IRTIFA_M if _SENARYO == "tam"
+                  else DONUS_IRTIFA_M if _SENARYO == "donus"
                   else TAKIP_IRTIFA_M if _SENARYO == "takip"
                   else ASILI_IRTIFA_M if _SENARYO == "asili"
                   else TEKLI_IRTIFA_M if _SENARYO == "tekli"
@@ -1981,7 +2096,7 @@ def main() -> int:
                          "kacinma manevrasini kacis sanip gorevi iptal eder.")
     ap.add_argument("--senaryo",
                     choices=("kanit", "test", "formasyon", "lider", "tekli",
-                             "asili", "takip", "donus"),
+                             "asili", "takip", "donus", "tam"),
                     default="kanit",
                     help="kanit = tam koreografi; test = kuzeybati/bekle/"
                          "irtifa/don; formasyon = rastgele yerlesimden cizgi "
@@ -2020,7 +2135,7 @@ def main() -> int:
             HARITA_OFSET_KD = (float(k), float(d))
         except ValueError:
             ap.error("--harita-ofset 'KUZEY,DOGU' metre olmali (or. '4,-2')")
-    if a.senaryo in ("takip", "donus"):
+    if a.senaryo in ("takip", "donus", "tam"):
         if a.lider is None:
             ap.error(f"--senaryo {a.senaryo} icin --lider N gerekli")
         if a.lider not in DRONELAR:
@@ -2053,7 +2168,10 @@ def main() -> int:
     signal.signal(signal.SIGTERM, _kesildi)
 
     print("=" * 72)
-    print(f"  ÇİZGİ + 180° ROTASYON — {DONUS_MESAFE_M:.0f} m ileri, dön, eve"
+    print(f"  KANIT KOREOGRAFİSİ — çizgi, {TAM_MESAFE_M:.0f} m, KD, roll "
+          f"{TAM_ROLL_DEG:.0f}°, GD ekseni, eve"
+          if a.senaryo == "tam" else
+          f"  ÇİZGİ + 180° ROTASYON — {DONUS_MESAFE_M:.0f} m ileri, dön, eve"
           if a.senaryo == "donus" else
           f"  İKİ DRONLU PROVA — ok başı, {TAKIP_MESAFE_M:.0f} m ileri, "
           f"bekle, eve dön"
@@ -2068,7 +2186,12 @@ def main() -> int:
           "  BASİT İKİ DRONE TESTİ — kuzeybatı, bekle, irtifa, dönüş"
           if a.senaryo == "test"
           else "  KANIT UÇUŞU — ok başı, roll, formasyon değişimi, irtifa değişimi")
-    if a.senaryo == "donus":
+    if a.senaryo == "tam":
+        print(f"  dronelar: {DRONELAR}   LİDER: d{LIDER}   formasyon ÇİZGİ")
+        print(f"  irtifa {TAM_IRTIFA_M:.0f} m   aralık {ARALIK_M:.0f} m   "
+              f"roll {TAM_ROLL_DEG:.0f}° (lider sabit, takipçi "
+              f"+{ARALIK_M*math.tan(math.radians(TAM_ROLL_DEG)):.2f} m)")
+    elif a.senaryo == "donus":
         print(f"  dronelar: {DRONELAR}   LİDER: d{LIDER}   formasyon ÇİZGİ")
         print(f"  irtifa {DONUS_IRTIFA_M:.0f} m   aralık {ARALIK_M:.0f} m   "
               f"rotasyon dilimi {DONUS_ROTASYON_ADIM_DEG:.0f}°")
