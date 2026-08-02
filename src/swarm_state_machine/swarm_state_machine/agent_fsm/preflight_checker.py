@@ -9,8 +9,7 @@ def run_preflight_checks(
     battery_min_voltage: float = 13.60,
 ) -> tuple[bool, list[str]]:
     """Arming'e izin verilip verilmeyecegini kontrol eder."""
-    if ctx.sitl_mode:
-        return (True, [])
+    failures: list[str] = []
 
     if not ctx.px4_link_ok:
         failures.append('PX4 bağlantısı yok')

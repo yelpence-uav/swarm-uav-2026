@@ -614,9 +614,13 @@ class Px4BridgeNode(Node):
                     self._cmd_sender.arm()
                     if self._sitl_mode and self._arm_retry_counter > 10:
                         import subprocess
+                        px4_cmd = (
+                            '/home/yelpence/ros2_ws/src/px4_autopilot/build/'
+                            'px4_sitl_default/bin/px4-commander'
+                        )
                         subprocess.run(
                             [
-                                '/home/yelpence/ros2_ws/src/px4_autopilot/build/px4_sitl_default/bin/px4-commander',
+                                px4_cmd,
                                 '--instance',
                                 str(self._agent_id),
                                 'mode',
@@ -627,7 +631,7 @@ class Px4BridgeNode(Node):
                         )
                         subprocess.run(
                             [
-                                '/home/yelpence/ros2_ws/src/px4_autopilot/build/px4_sitl_default/bin/px4-commander',
+                                px4_cmd,
                                 '--instance',
                                 str(self._agent_id),
                                 'arm',

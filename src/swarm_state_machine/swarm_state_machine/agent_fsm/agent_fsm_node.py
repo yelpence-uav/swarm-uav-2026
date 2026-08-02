@@ -278,7 +278,13 @@ class AgentFsmNode(Node):
         is_mine = tgt == 0 or tgt == aid
 
         if eid == SystemEvent.EVENT_MISSION_STARTED:
-            if ctx.state in (AgentState.IDLE, AgentState.LANDED, AgentState.FAILSAFE, AgentState.UNKNOWN):
+            _idle_states = (
+                AgentState.IDLE,
+                AgentState.LANDED,
+                AgentState.FAILSAFE,
+                AgentState.UNKNOWN,
+            )
+            if ctx.state in _idle_states:
                 ctx.set_state(AgentState.IDLE)
                 ctx.failsafe_active = False
                 ctx.mission_start_sequence_active = True

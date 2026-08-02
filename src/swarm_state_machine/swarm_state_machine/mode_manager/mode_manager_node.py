@@ -17,10 +17,10 @@ from std_msgs.msg import UInt8
 
 from swarm_core.formation_control.formation_geometry import (
     compute_slot_offsets,
-    FORMATION_UNKNOWN,
-    FORMATION_OKBASI,
-    FORMATION_V,
     FORMATION_CIZGI,
+    FORMATION_OKBASI,
+    FORMATION_UNKNOWN,
+    FORMATION_V,
 )
 
 from swarm_interfaces.msg import (
@@ -34,7 +34,7 @@ from swarm_interfaces.msg import (
 
 from .maneuver_mode import compute_agent_setpoints, compute_hold_setpoints
 from .mode_context import ModeContext
-from .mode_states import ACTIVE_CONTROL_STATES, ControlMode, ModeState
+from .mode_states import ControlMode, ModeState
 from .mode_transitions import evaluate_transitions
 from .movement_mode import compute_formation_command, compute_hold_command
 
@@ -323,7 +323,12 @@ class ModeManagerNode(Node):
     def _handle_formation_change(self) -> None:
         """Formasyon degisikligi talebini isler."""
         ctx = self._ctx
-        spacing = ctx.requested_spacing_m if ctx.requested_spacing_m > 0.0 else getattr(self, '_default_spacing_m', 5.0)
+        def_spacing = getattr(self, '_default_spacing_m', 5.0)
+        spacing = (
+            ctx.requested_spacing_m
+            if ctx.requested_spacing_m > 0.0
+            else def_spacing
+        )
         self.get_logger().info(
             f'Formasyon degisikligi: {ctx.requested_formation}, spacing: {spacing}m'
         )
@@ -357,7 +362,7 @@ class ModeManagerNode(Node):
         ctx.command_valid = bool(msg.command_valid)
         ctx.deadman_pressed = bool(msg.deadman_pressed)
 
-        # SwA YUKARI (deadman_pressed == False): Emniyet kesin olarak kilitli, TÜM istekleri sıfırla!
+        # SwA YUKARI (deadman_pressed == False): Emniyet kilitli, TÜM istekleri sıfırla!
         if not msg.deadman_pressed:
             ctx.pitch_cmd = 0.0
             ctx.roll_cmd = 0.0
@@ -491,13 +496,20 @@ class ModeManagerNode(Node):
                 msg.offset_y = [0.0] * num_agents
                 msg.offset_z = [0.0] * num_agents
         elif ftype == FORMATION_UNKNOWN:
-            # Formasyonsuz (FORMATION_UNKNOWN): Dronelar bağımsız hareket eder, her drone mevcut konum offsetini korur
+            # Formasyonsuz (FORMATION_UNKNOWN): Dronelar bağımsız hareket eder
             ox, oy, oz = [], [], []
             ctx = self._ctx
             has_telemetry = False
             for aid in msg.agent_ids:
                 status = ctx.agent_statuses.get(aid)
-                if status is not None and (getattr(status, 'position_valid', False) or status.pos_x != 0.0 or status.pos_y != 0.0):
+                is_pos_valid = (
+                    status is not None and (
+                        getattr(status, 'position_valid', False)
+                        or status.pos_x != 0.0
+                        or status.pos_y != 0.0
+                    )
+                )
+                if is_pos_valid:
                     has_telemetry = True
                     ox.append(float(status.pos_x - ctx.centroid_x))
                     oy.append(float(status.pos_y - ctx.centroid_y))
@@ -510,7 +522,10 @@ class ModeManagerNode(Node):
                 self._last_valid_offsets_x = list(ox)
                 self._last_valid_offsets_y = list(oy)
                 self._last_valid_offsets_z = list(oz)
-            elif hasattr(self, '_last_valid_offsets_x') and len(self._last_valid_offsets_x) == num_agents:
+            elif (
+                hasattr(self, '_last_valid_offsets_x')
+                and len(self._last_valid_offsets_x) == num_agents
+            ):
                 msg.offset_x = list(self._last_valid_offsets_x)
                 msg.offset_y = list(self._last_valid_offsets_y)
                 msg.offset_z = list(self._last_valid_offsets_z)
