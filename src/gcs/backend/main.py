@@ -244,6 +244,11 @@ def create_app() -> FastAPI:
             connection_mode=state.connection_mode,
         )
 
+    dist_dir = Path(__file__).parent.parent / "frontend" / "dist"
+    if dist_dir.exists():
+        from fastapi.staticfiles import StaticFiles
+        app.mount("/", StaticFiles(directory=str(dist_dir), html=True), name="static")
+
     return app
 
 

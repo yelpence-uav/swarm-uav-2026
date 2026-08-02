@@ -8,7 +8,12 @@ import subprocess
 import tempfile
 import time
 
-WORKSPACE = '/home/yelpence/ros2_ws'
+WORKSPACE = os.environ.get(
+    'WORKSPACE',
+    '/home/yelpence/ros2_ws'
+    if os.path.exists('/home/yelpence/ros2_ws')
+    else os.path.abspath(os.path.join(os.path.dirname(__file__), '..')),
+)
 PX4_PATH = os.path.join(WORKSPACE, 'src/px4_autopilot')
 MODELS_PATH = os.path.join(WORKSPACE, 'sim/models')
 DEFAULT_WORLD = os.path.join(
@@ -256,7 +261,9 @@ def main():
         drone_name = f'IHA_{drone_id}'
 
         inner_cmd = (
+            'source /opt/ros/jazzy/setup.bash && '
             f'cd {PX4_PATH} && '
+            'export PATH=$PWD/build/px4_sitl_default/bin:$PATH && '
             'export PX4_SYS_AUTOSTART=4001 && '
             'export PX4_SIM_MODEL=gz_x500 && '
             f'export PX4_GZ_MODEL_NAME={drone_name} && '
@@ -275,8 +282,10 @@ def main():
             f'px4-param --instance {drone_id} set COM_RCL_EXCEPT 4',
             f'px4-param --instance {drone_id} set NAV_RCL_ACT 0',
             f'px4-param --instance {drone_id} set NAV_DLL_ACT 0',
-            f'px4-param --instance {drone_id} set SIM_BAT_ENABLE 1',
+            f'px4-param --instance {drone_id} set SIM_BAT_ENABLE 0',
             f'px4-param --instance {drone_id} set CBRK_SUPPLY_CHK 894281',
+            f'px4-param --instance {drone_id} set COM_LOW_BAT_ACT 0',
+            f'px4-param --instance {drone_id} set COM_FLTMODE_FAIL 0',
             f'px4-param --instance {drone_id} set COM_RC_IN_MODE 4',
             f'px4-param --instance {drone_id} set COM_ARM_WO_GPS 1',
             f'px4-param --instance {drone_id} set COM_ARM_CHK_ESCS 0',
@@ -388,6 +397,12 @@ def main():
         '-p sitl_mode:=True',
         'ModeManager',
         'mode_manager',
+    )
+    time.sleep(1)
+    run_in_tmux(
+        'ros2 run joy joy_node --ros-args -p device_id:=1 -p autorepeat_rate:=20.0',
+        'JoyDriver',
+        'joy_driver',
     )
     time.sleep(1)
     run_in_tmux(

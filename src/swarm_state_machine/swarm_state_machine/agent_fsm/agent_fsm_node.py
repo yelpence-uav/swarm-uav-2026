@@ -117,6 +117,12 @@ class AgentFsmNode(Node):
             10,
         )
         self.create_subscription(
+            SystemEvent,
+            '/swarm/internal/events/system',
+            self._on_event,
+            10,
+        )
+        self.create_subscription(
             SwarmOrigin,
             '/swarm/public/origin',
             self._on_origin,
@@ -272,7 +278,15 @@ class AgentFsmNode(Node):
         is_mine = tgt == 0 or tgt == aid
 
         if eid == SystemEvent.EVENT_MISSION_STARTED:
-            if ctx.state == AgentState.IDLE:
+            _idle_states = (
+                AgentState.IDLE,
+                AgentState.LANDED,
+                AgentState.FAILSAFE,
+                AgentState.UNKNOWN,
+            )
+            if ctx.state in _idle_states:
+                ctx.set_state(AgentState.IDLE)
+                ctx.failsafe_active = False
                 ctx.mission_start_sequence_active = True
                 ctx.pending_state = AgentState.ARMING
             elif ctx.state == AgentState.ARMED:

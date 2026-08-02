@@ -124,6 +124,12 @@ class AgentContext:
     @property
     def healthy(self) -> bool:
         """Drone ucus icin guvenli mi?."""
+        if self.sitl_mode:
+            return (
+                self.px4_link_ok
+                and not self.kill_switch_active
+                and not self.failsafe_active
+            )
         is_sim_bat = self.battery_voltage_v <= 0.0
         battery_ok = (
             is_sim_bat

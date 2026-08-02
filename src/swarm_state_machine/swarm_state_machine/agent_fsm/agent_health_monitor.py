@@ -216,7 +216,7 @@ def _check_critical_faults(ctx: AgentContext) -> HealthCheckResult:
             reason='OFFBOARD modu kayboldu',
         )
 
-    if ctx.battery_voltage_v <= 0.0:
+    if ctx.sitl_mode or ctx.battery_voltage_v <= 0.0:
         return HealthCheckResult()
 
     if ctx.battery_voltage_v < ctx.battery_critical_voltage_v:

@@ -75,7 +75,7 @@ _ELECTION_FMT = '<BBBBIBBBB4x'  # leader, round, reason, trigger, seq, ids
 _QR_FMT = '<BIii3x'          # drone_id, action_id, lat, lon, rezerv[3]
 _SWARM_STATE_FMT = '<BBBBI8x'  # mission_id, fsm, leader, formation, timestamp
 _QR_COORD_FMT = '<BBii6x'    # qr_id, toplam, lat_1e7, lon_1e7, rezerv[6]
-_GOTO_FMT = '<hhhhBB6x'      # kuzey_dm, dogu_dm, asagi_dm, yaw_ddeg, bayraklar, target_id, rezerv[6]
+_GOTO_FMT = '<hhhhBB6x'      # kuzey_dm, dogu_dm, asagi_dm, yaw_ddeg, bayrak, target_id
 
 # Joystick komutu bayrak bitleri (komut_veri_t.flags için).
 # DEADMAN_PRESSED: SwarmControlCommand.deadman_pressed mesh üzerinden
