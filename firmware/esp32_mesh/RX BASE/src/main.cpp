@@ -10,6 +10,81 @@
 #include "uart_cobs.h"   // ortak CRC16/COBS/cerceve kur-coz (RX BASE + TX DRONE)
 #include "uart_frame_parser.h"  // desync-guvenli ortak COBS cerceve ayristirici
 
+// TEK_USB_MODU: YKİ tarafinda USB-TTL adaptor yokken kullanilir. Telemetri/komut
+// hatti Serial2 (GPIO25/26) yerine ESP32'nin kendi USB portuna (Serial0) tasinir,
+// tek kablo yeter. Varsayilan 0 -> Busra'nin iki-UART tasarimi aynen korunur.
+//
+// Bedeli: USB hatti binary COBS tasidigi icin loop icindeki debug printf'leri
+// akisa karisir. Bu yuzden tek-USB modunda susturuluyorlar (DBG_*). Boot
+// mesajlari kaliyor: mesh trafigi baslamadan once bir kez basiliyorlar ve MAC
+// tablosu hatasini gormek kritik.
+//
+// RTCM (Serial1) bu modda beslenmez -> RTK yok. Ayni portu iki surec acamaz
+// (yki_rtcm_reader + esp32_bridge), birlesik surec yazilana kadar Asama 2.
+#ifndef TEK_USB_MODU
+#define TEK_USB_MODU 0
+#endif
+
+#if TEK_USB_MODU
+  #define YKI_SERIAL       Serial
+  #define DBG_PRINTLN(x)   do {} while (0)
+  #define DBG_PRINTF(...)  do {} while (0)
+  // Periyodik RTK/mesh istatistik printf'leri de binary akisa karisirdi.
+  #ifndef RTK_ISTATISTIK_LOGLAMA_KAPALI
+  #define RTK_ISTATISTIK_LOGLAMA_KAPALI 1
+  #endif
+#else
+  #define YKI_SERIAL       Serial2
+  #define DBG_PRINTLN(x)   Serial.println(x)
+  #define DBG_PRINTF(...)  Serial.printf(__VA_ARGS__)
+#endif
+
+// RTCM_GIRISI_VAR: Serial1'in (GPIO16/17) adanmis RTCM giris hatti olarak
+// acilip acilmayacagi. TEK_USB_MODU'dan AYRI tutuluyor, cunku bunlar bagimsiz
+// iki soru: "YKİ verisi hangi porttan geliyor?" ve "ayri bir RTCM hatti var mi?"
+// Eskiden ikisi tek bayraga bagliydi ve TEK_USB_MODU=0 secmek Serial1'i de
+// acmak zorunda birakiyordu.
+//
+// Varsayilan 0. RTCM kaynagi fiziksel olarak bagli degilken Serial1 acilirsa
+// GPIO16 bosta (floating) kalir, gurultu cerceve sanilir ve rtk_serial_isle()
+// her hatali cerceve icin Serial'e "[RTK-RX] HATA" basar. Tek-USB modunda bu
+// YKİ hattini %100 dolduruyordu (olculdu: 11.6 kB/s -> 4.3 B/s); TTL modunda
+// ise debug konsolunu kullanilamaz hale getirir.
+//
+// Hedef mimaride bu bayrak 0 KALIR: RTCM, YKİ veri hattindan TIP_RTK cercevesi
+// olarak gelecek (yki_rtcm_reader -> COBS -> Serial2), adanmis UART'a gerek yok.
+#ifndef RTCM_GIRISI_VAR
+#define RTCM_GIRISI_VAR 0
+#endif
+
+// YKİ veri hattinin baud'u — TEK KAYNAK. Iki modda da ayni deger kullanilir,
+// yoksa mod degistirince Python tarafindaki -p baud:= parametresini de
+// degistirmeyi unutmak cok kolay olurdu (semptomu: hat sessiz, hata yok).
+//
+// 460800 secildi cunku:
+//   - Drone tarafi (RPI_SERIAL0_MODU) zaten 460800'de konusuyor,
+//   - yki_rtcm_reader varsayilani --esp-baud 460800,
+//   - RTCM (~1 kB/s) telemetriyle ayni hatti paylasacak; 115200'de toplam
+//     yuk ~%16 iken 460800'de ~%4 kaliyor ve RTCM burst'u komut baytlarini
+//     bekletmiyor.
+#define YKI_BAUD  460800
+
+// loop() basina YKİ hattindan okunacak en fazla bayt.
+//
+// Eskiden 32'ydi ve bu yalnizca kucuk mesh cerceveleri (~27B COBS) icin
+// dogruydu. RTCM cercevesi COBS'la ~1040 bayta cikar; 32 bayt/tur ile tek bir
+// RTCM mesajini almak 32+ loop turu surer ve loop() yayin yaparken CSMA
+// beklemesi (0-10ms) barindirdigi icin tek mesaj yuzlerce ms'ye yayilirdi —
+// RTCM'in 1 sn'lik tazelik butcesi orada biterdi. (Yuk testinde olculdu:
+// base UART'tan ~35 cerceve/sn'yi ancak alabiliyordu.)
+//
+// 1200: en buyuk cerceveyi (~1040B) tek turda yutar, ustune marj birakir.
+// Ust sinir yine de var: sinirsiz okuma, hat doygunken loop()'u kilitleyip
+// mesh_loop()/rtk_mesh_loop()'u ac birakirdi.
+// Tasma riski yok: 460800 baud = ~46 KB/sn; loop() 50Hz'de bile
+// 1200*50 = 60 KB/sn drenaj kapasitesi verir, RX tamponu (2048B) dolmaz.
+#define YKI_LOOP_MAKS_BAYT  1200
+
 // FreeRTOS queue.
 struct uart_mesaj_t {
     uint8_t tip;
@@ -27,7 +102,7 @@ static void uart_gonder(uint8_t tip, uint8_t iha_id,
     uint8_t ham[22];
     uint8_t cobs_buf[27];
     uint16_t cobs_uzunluk = cobs_cerceve_olustur(tip, iha_id, payload, payload_uzunluk, ham, cobs_buf);
-    Serial2.write(cobs_buf, cobs_uzunluk);  // USB debug'tan ayri hat
+    YKI_SERIAL.write(cobs_buf, cobs_uzunluk);  // tek-USB modunda Serial0
 }
 
 // Sistem mesaji.
@@ -47,14 +122,15 @@ uint8_t                  failsafe_active_mode = APM_MODE_RTL;
 // Tam 6 byte MAC karsilastiriliyor; sadece son byte'a bakilsaydi iki ESP32'nin
 // son byte'i ayni oldugunda (Espressif atamasinda mumkun) iki drone ayni ID'ye
 // eslenip sessizce kimlik cakismasi olurdu.
-// Dikkat: asagidaki ilk 5 byte sifir placeholder'dir. Gercek MAC adreslerini
-// (esptool.py chip_id veya WiFi.macAddress() ile okunan) buraya girmeden derleyip
-// yuklemeyin, yoksa tum dronelarin ilk 5 byte'i esit sayilir.
+// Saha donanimi: elde tek drone ESP32 var, MAC'i tools/mac_reader ile okundu.
+// Baz'in kendi MAC'i buraya girmez (kendi yayinini _benim_mac_mi eler); baz
+// kimligi TX DRONE tarafindaki tabloda BAZ_MESH_ID olarak duruyor.
 static const struct { uint8_t mac[6]; uint8_t id; } drone_tablo[] = {
-    {{0x00, 0x00, 0x00, 0x00, 0x00, 0xB4}, 1},
-    {{0x00, 0x00, 0x00, 0x00, 0x00, 0x88}, 2},
-    {{0x00, 0x00, 0x00, 0x00, 0x00, 0x00}, 3},
-    {{0x00, 0x00, 0x00, 0x00, 0x00, 0xFF}, 4},
+    {{0xB0, 0xCB, 0xD8, 0xC8, 0xA8, 0x30}, 1},   // ylp00 (drone ESP32)
+    {{0xD4, 0xE9, 0xF4, 0xFB, 0x13, 0x88}, 2},   // ylp01
+    {{0xA4, 0xF0, 0x0F, 0x64, 0xA9, 0x90}, 3},   // ylp02
+    // Drone 4 henuz temin edilmedi; MAC'i tools/mac_reader ile okuyup ac.
+    // {{0x00, 0x00, 0x00, 0x00, 0x00, 0x00}, 4},
 };
 static constexpr uint8_t DRONE_SAYISI = sizeof(drone_tablo) / sizeof(drone_tablo[0]);
 
@@ -97,9 +173,8 @@ static void _drone_tablo_dogrula() {
     }
     if (hata) {
         // ID cakismasi iki drone'un telemetrisinin YKİ'ye ayni iha_id ile
-        // karismasi demek (yer istasyonu yanlis drone'u gosterir). aes_init()
-        // 'teki provision-yok durumuyla ayni fail-closed desen: duzeltilmeden
-        // calismaya devam etmez.
+        // karismasi demek (yer istasyonu yanlis drone'u gosterir).
+        // Fail-closed: duzeltilmeden calismaya devam etmez.
         Serial.println("[BOOT] drone_tablo duzeltilmeden ucusa cikilmamali!");
         Serial.println("[BOOT] KRITIK: ID cakismasi - baslatma durduruldu.");
         Serial.flush();
@@ -111,41 +186,23 @@ static void _drone_tablo_dogrula() {
 #define JOYSTICK_MIN_ARALIK_MS 200
 #define MESH_GONDERIM_MIN_MS 50
 
-// Replay kontrol helper: node disaridan alinir.
-static inline bool mesh_replay_dogrula(node_durum_t* node, const uint8_t* decrypted_baslik) {
-    if (!node) return false;
-    return _replay_kontrol(node, (const anti_replay_t*)decrypted_baslik);
-}
 
 
 // Mesh callback.
-void mesh_veri_al(const mesh_paket_t* p) {
-    uint8_t acik[24] = {0};
-
-    // AAD (tip+kaynak_mac+hedef_mac) da dogrulanir
-    uint8_t aad[13];
-    _mesh_aad_olustur(p->tip, p->kaynak_mac, p->hedef_mac, aad);
-    if (!aes_coz_gcm(p->sifreli_veri, 24, acik, p->iv, p->tag, aad, sizeof(aad))) {
-        return; 
-    }
-
-    // mac_to_id whitelist once: bilinmeyen MAC state'e hic girmiyor
-    uint8_t iha_id = mac_to_id(p->kaynak_mac);
+// kaynak_mac ESP-NOW alim callback'inden gelir; pakette tasinmiyor.
+// Sihir, CRC16 ve duplikat kapilari _recv_isle()'de gecildi. Burada kalan tek
+// kapi KIMLIK: drone_tablo'da olmayan MAC reddedilir.
+void mesh_veri_al(const uint8_t* kaynak_mac, const mesh_paket_t* p) {
+    uint8_t iha_id = mac_to_id(kaynak_mac);
     if (iha_id == 0) {
-        Serial.println("[MESH] Bilinmeyen MAC, paket reddedildi");
+        DBG_PRINTLN("[MESH] Bilinmeyen MAC, paket reddedildi");
         return;
     }
-    node_durum_t* node = _node_bul_veya_ekle(p->kaynak_mac);
+    node_durum_t* node = _node_bul_veya_ekle(kaynak_mac);
     if (!node) return;
-    if (!mesh_replay_dogrula(node, acik)) {
-        Serial.println("[MESH] Replay/Eski Paket reddedildi!");
-        return;
-    }
 
-    // Node canliligi replay GECTIKTEN sonra tazelenir (ORTA-1/O1). Eskiden
-    // _recv_isle GCM sonrasi, replay'den ONCE tazeliyordu; replay'de dusen bir
-    // tekrar-oynatma olu komsuyu aktif tutup mesh_komsu_sayisi'ni sisiriyordu.
-    // TX DRONE::mesh_veri_al ile ayni sira.
+    // Canlilik kimlik dogrulandiktan SONRA tazelenir: tanimadigimiz bir MAC
+    // mesh_komsu_sayisi'ni sisirmemeli. TX DRONE::mesh_veri_al ile ayni sira.
     node->son_heartbeat_ms = millis();
     node->aktif            = true;
 
@@ -155,6 +212,11 @@ void mesh_veri_al(const mesh_paket_t* p) {
     portEXIT_CRITICAL(&_recv_mux);
 
     failsafe_reset();
+
+    // HEARTBEAT failsafe zamanlayicisini tazelemek icin buraya kadar geldi;
+    // veri tasimadigi icin YKİ'ye iletilmez.
+    if (p->tip == TIP_HEARTBEAT) return;
+    if (p->tip == TIP_RTK)       return;   // kendi buyuk zarfiyla ayri gelir
 
     uart_mesaj_t msg = {};
     msg.tip    = p->tip;
@@ -171,8 +233,7 @@ void mesh_veri_al(const mesh_paket_t* p) {
     else if (p->tip == TIP_QR_DATA)    msg.uzunluk = sizeof(qr_veri_t);
     else return; 
 
-    // Ilk 6 byte'i atla (anti-replay basligi)
-    memcpy(msg.payload, acik + sizeof(anti_replay_t), msg.uzunluk);
+    memcpy(msg.payload, p->veri, msg.uzunluk);
 
     if (uart_kuyruk) {
         if (xQueueSend(uart_kuyruk, &msg, pdMS_TO_TICKS(5)) != pdPASS) { // 5ms timeout
@@ -184,6 +245,20 @@ void mesh_veri_al(const mesh_paket_t* p) {
 
 void setup() {
     Serial.begin(115200);
+#if TEK_USB_MODU
+    // UART0'in RX tamponu buyutuluyor: tek-USB modunda YKİ komut/telemetri
+    // hatti da bu porttan geciyor ve varsayilan 256B @115200 yalnizca ~22ms
+    // veri tutar (Serial2'deki O3 gerekcesinin aynisi).
+    //
+    // begin()'den ONCE cagirmak UART0'da ise yaramiyor - kart boot dongusune
+    // giriyor (olcumle bulundu: orijinal iki-UART yolu ayni kartta sorunsuz
+    // acilirken tek-USB derlemesi 'entry 0x400805e4' sonrasi surekli
+    // SW_RESET veriyordu). UART0 Arduino core tarafindan erken kuruluyor;
+    // begin()'den sonra end()+yeniden begin() ile tampon guvenle degisiyor.
+    Serial.end();
+    Serial.setRxBufferSize(2048);
+    Serial.begin(YKI_BAUD);   // tek-USB modunda USB hatti = YKİ veri hatti
+#endif
     delay(1000);
     _drone_tablo_dogrula();  // MAC benzersizligini boot'ta dogrula
 
@@ -196,9 +271,15 @@ void setup() {
     // baud 460800 (spec + ekip karari). setRxBufferSize() begin()'den once
     // cagrilmali; sonra cagrilirsa sessizce etkisiz kalir (varsayilan 256B ring
     // buffer kullanilmaya devam eder).
+#if RTCM_GIRISI_VAR
     Serial1.setRxBufferSize(2048);  // spec 3.2: UART RX buffer >= 2048B
     Serial1.begin(460800, SERIAL_8N1, RTK_RX_PIN, RTK_TX_PIN);
-    Serial.println("[UART] YKİ/RTCM (Serial1, 460800) baslatildi - PIN DOGRULAMASI GEREKLI");
+    Serial.println("[UART] RTCM girisi (Serial1, 460800) acildi - PIN DOGRULAMASI GEREKLI");
+#else
+    // Bilerek acilmiyor: bkz RTCM_GIRISI_VAR notu (floating GPIO16 -> sahte
+    // cerceve -> rtk_serial_isle() hata spam'i -> hat doygunlugu).
+    Serial.println("[UART] RTCM girisi kapali (Serial1 acilmadi)");
+#endif
 
     // RTCM durum LED'i (saha teshisi icin yanip soner).
     // TODO: pin placeholder, gercek donanimda dogrulanmali (cogu ESP32 kartinda
@@ -218,9 +299,14 @@ void setup() {
     // varsayilan buffer tasip YKİ komut baytlari sessizce dusebiliyordu. Serial1
     // (RTCM) zaten 2048'e cikarilmisti; bu hat asimetrik kalmisti.
     // setRxBufferSize() begin()'den ONCE cagrilmali (sonra etkisiz).
+#if TEK_USB_MODU
+    // Serial2 hic acilmiyor: YKİ hatti USB'ye (Serial0) tasindi, GPIO25/26 bosta.
+    Serial.printf("[UART] YKİ komut/telemetri TEK-USB modunda (Serial0, %d)\n", YKI_BAUD);
+#else
     Serial2.setRxBufferSize(2048);
-    Serial2.begin(115200, SERIAL_8N1, YKI_RX_PIN, YKI_TX_PIN);
-    Serial.println("[UART] YKİ komut/telemetri (Serial2, 115200) baslatildi - PIN DOGRULAMASI GEREKLI");
+    Serial2.begin(YKI_BAUD, SERIAL_8N1, YKI_RX_PIN, YKI_TX_PIN);
+    Serial.printf("[UART] YKİ komut/telemetri (Serial2, %d) baslatildi\n", YKI_BAUD);
+#endif
 
 
     uart_kuyruk = xQueueCreate(20, sizeof(uart_mesaj_t));
@@ -231,6 +317,10 @@ void setup() {
 
     // Ucus oncesi opsiyonel manuel kanal taramasi.
     // Otomatik degisim yok, sadece operator isterse rapor alir.
+#if TEK_USB_MODU
+    // Tek-USB modunda atlaniyor: ayni port binary COBS tasiyor, 'T' beklemek
+    // YKİ'nin ilk komut baytlarini yutar ve rastgele bir bayt taramayi tetikler.
+#else
     Serial.println("[BOOT] Kanal taramasi icin 3 sn icinde 'T' gonderin (opsiyonel)...");
     uint32_t _tara_bekleme_baslangic = millis();
     while (millis() - _tara_bekleme_baslangic < 3000) {
@@ -239,6 +329,7 @@ void setup() {
             break;
         }
     }
+#endif
 
     esp_wifi_set_channel(MESH_KANAL, WIFI_SECOND_CHAN_NONE);
     mesh_init(mesh_veri_al);
@@ -263,8 +354,12 @@ void loop() {
     // Serial2 acikca verilir: RX BASE'te Serial1 YKİ/RTCM giris hattidir, YKİ
     // komut/telemetri protokolu Serial2'de yurur. Varsayilan (Serial1) birakilirsa
     // reassemble edilen RTCM mesaji YKİ'nin yayin yaptigi hatta geri yazilirdi.
-    rtk_mesh_loop(Serial2);
+    rtk_mesh_loop(YKI_SERIAL);
+#if RTCM_GIRISI_VAR
     rtk_serial_isle(Serial1);
+#endif
+    // RTCM_GIRISI_VAR=0 iken Serial1 hic acilmadi; cagirmak acilmamis UART'tan
+    // okumak olurdu.
     esp_task_wdt_reset();
     mesh_loop();
 
@@ -284,7 +379,7 @@ void loop() {
     // Serial2 verilir; aksi halde bildirim varsayilan Serial1'e (RTCM giris
     // hattina) gider ve YKİ'ye hic ulasmaz. Kademeli (UYARI/RTL/LAND) bildirim
     // TX DRONE ile ayni formatta calisir.
-    failsafe_kontrol(Serial2);
+    failsafe_kontrol(YKI_SERIAL);
 
 #ifndef RTK_ISTATISTIK_LOGLAMA_KAPALI
     // Gonderici tarafi RTK istatistigi (TX DRONE'daki alici karsiligiyla ayni
@@ -296,6 +391,11 @@ void loop() {
         son_rtk_tx_istatistik_ms = millis();
         rtk_tx_istatistik_yazdir();
         mesh_tip_dusen_yazdir();   // hiz limitinde dusen cerceveler (tip bazinda)
+        // Mesh sagligi: aktif komsular + crc_hatasi. crc_hatasi PARAZIT
+        // gostergesidir — sifirdan buyukse ve artiyorsa RF ortami bozuluyor
+        // demektir (sartname §5.4 "frekans gurultusu" sarti). Bu satir olmadan
+        // sayac hicbir yerde gorunmuyordu.
+        mesh_durum_yazdir();
     }
 #endif
 
@@ -308,16 +408,38 @@ void loop() {
     // Whitelist/dispatch mantigi sadece tamamlanmis cerceveye uygulanir; hicbir
     // dali ayristirici durumunu (idx) etkilemez.
     static uart_frame_parser_t pi_parser;
-    uint8_t okunan = 0;
-    while (Serial2.available() && okunan < 32) {  // YKİ hatti Serial2'de
-        uint8_t b = Serial2.read();
+    uint16_t okunan = 0;
+    while (YKI_SERIAL.available() && okunan < YKI_LOOP_MAKS_BAYT) {  // tek-USB modunda Serial0
+        uint8_t b = YKI_SERIAL.read();
         okunan++;
-        uint8_t tip_byte, id_byte_unused;
+        uint8_t tip_byte, id_byte;
         const uint8_t* cerceve_payload;
         uint16_t cerceve_payload_uzunluk;
-        if (!uart_frame_parser_push(&pi_parser, b, &tip_byte, &id_byte_unused,
+        if (!uart_frame_parser_push(&pi_parser, b, &tip_byte, &id_byte,
                                     &cerceve_payload, &cerceve_payload_uzunluk))
             continue;
+
+        // TIP_RTK: asagidaki 18 baytlik mesh yolundan ONCE ayrilmali.
+        // RTCM govdesi 1029 bayta kadar cikar; asagidaki `veri[18]` + 16 bayt
+        // kirpma onu sessizce kirpar ve mesh'e cop giderdi. RTK kendi buyuk
+        // zarfini ve fragmantasyonunu kullanir (rtk_sender.h), mesh_gonder()
+        // yolunu HIC kullanmaz. Hiz limiti de uygulanmaz: RTCM zaten ~1Hz
+        // uretilir ve `mesh_tip_gecebilir` 50ms kapisi cok fragmentli bir
+        // mesajin parcalarini birbirine dusururdu.
+        if (tip_byte == TIP_RTK) {
+            // ID kapisi: adanmis Serial1 yolundaki (rtk_serial_isle) kontrolun
+            // aynisi. Iki yol esdeger olmali, yoksa rtk_tx_istatistik_yazdir()
+            // teshis kilavuzundaki "yki_tip yuksek -> YKİ protokolu uyumsuz"
+            // satiri asil kullanilan yolda hic artmaz ve yaniltir.
+            if (id_byte != BAZ_ID) {
+                rtk_yki_tip_hatasi++;
+                DBG_PRINTF("[RTK-RX] HATA: TIP_RTK ama id=%u (beklenen %u), atildi\n",
+                           id_byte, (unsigned)BAZ_ID);
+                continue;
+            }
+            rtk_rtcm_payload_isle(cerceve_payload, cerceve_payload_uzunluk);
+            continue;
+        }
 
         uint32_t simdi = millis();
         // mesh_gonder() her zaman 18 byte okur (memcpy(tam_veri+6, veri, 18)),
@@ -333,12 +455,20 @@ void loop() {
         // taninmayan tip atilir. Bilinmeyen bir tip TIP_KOMUT'a donusturulup
         // joystick sanilmaz. Hiz limiti tip basina (mesh_tip_gecebilir);
         // TIP_KOMUT kendi 200ms araligini korur.
+        // Bu blokta Serial'e YAZMA: tek-USB modunda Serial, YKİ'nin binary COBS
+        // hattidir. Duz metin akisin ortasina girer, bir sonraki 0x00'a kadar
+        // mevcut cerceveye yapisir ve o telemetri paketi CRC'de duser (olculdu:
+        // her komut bir telemetri cercevesi oldururdu). Teshis gerekirse
+        // DBG_PRINTF kullan - tek-USB'de bilerek susturulmustur.
         if (tip_byte == TIP_KOMUT) {
             if (mesh_tip_gecebilir(TIP_KOMUT, simdi, JOYSTICK_MIN_ARALIK_MS))
                 mesh_gonder(veri, TIP_KOMUT);
         } else if (tip_byte == TIP_RENK  || tip_byte == TIP_DURUM ||
                    tip_byte == TIP_SWARM_STATE || tip_byte == TIP_QR_DATA ||
-                   tip_byte == TIP_ORIGIN || tip_byte == TIP_GOREV) {
+                   tip_byte == TIP_ORIGIN || tip_byte == TIP_GOREV ||
+                   tip_byte == TIP_GOTO) {
+            // TIP_GOTO: YKİ'den tekil nokta-git; tip basina hiz limitiyle mesh'e.
+            // Nadir gonderilir (hedef basina 1), 50Hz OFFBOARD akisi drone'da lokal.
             if (mesh_tip_gecebilir(tip_byte, simdi, MESH_GONDERIM_MIN_MS))
                 mesh_gonder(veri, tip_byte);
         }

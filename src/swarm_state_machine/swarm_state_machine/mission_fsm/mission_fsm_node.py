@@ -66,11 +66,15 @@ class MissionFsmNode(Node):
             agent_ids=self._agent_ids,
             team_id=self._team_id,
             sitl_mode=self._sitl_mode,
+            max_restarts=self._max_restarts,
         )
 
         self._setup_publishers()
         self._setup_subscribers()
         self._setup_service()
+
+        # LANDING'de inis komutunun son yayin zamani (saniyede bir tekrar).
+        self._last_land_cmd_s = 0.0
 
         self._timer = self.create_timer(
             1.0 / self._tick_hz, self._tick
@@ -86,6 +90,9 @@ class MissionFsmNode(Node):
         self.declare_parameter('team_id', '752825')
         self.declare_parameter('tick_hz', 5.0)
         self.declare_parameter('sitl_mode', False)
+        self.declare_parameter('max_restarts', 0)  # 0 = sınırsız (şartname)
+        # Görev başındaki ilk QR hedefi (şartname: QR1). Jenerik kalsın diye
+        # parametre; farklı senaryoda değiştirilebilir.
         self.declare_parameter('start_qr', 1)
 
         self._agent_ids = list(
@@ -100,6 +107,10 @@ class MissionFsmNode(Node):
         )
         self._start_qr = int(self.get_parameter('start_qr').value)
         self._deadman_pressed = False
+        self._max_restarts: int = int(
+            self.get_parameter('max_restarts').value
+        )
+        self._start_qr: int = int(self.get_parameter('start_qr').value)
 
     def _setup_publishers(self) -> None:
         """Yayıncı kanallarını oluşturur."""
@@ -182,8 +193,34 @@ class MissionFsmNode(Node):
         if next_state is not None and next_state != ctx.state:
             self._transition(next_state)
 
+        # LANDING'de inis komutunu TEKRARLA.
+        # _on_state_entry olayi yalnizca BIR KEZ yayinlar. Bu olay
+        # /swarm/internal/... -> network_proxy -> /swarm/public/... yolundan
+        # gecer ve proxy ESP-NOW telsizini PAKET KAYBIYLA simule eder
+        # (_broadcast_drop). Tek paket duserse ajanlar inis komutunu HIC
+        # almaz: gorev MISSION_COMPLETE'e ilerler ama ajanlar RETURN_HOME'da
+        # asili kalir (olculdu: 3 dron da 9.3 m'de armed bekledi, mission_fsm
+        # "indim" sandi). Kritik tek-seferlik komutu kayipli kanalda yollamak
+        # yeterli degil; ajanlar LANDING'e gecene kadar tekrarliyoruz.
+        # Saniyede bir yeter: LANDING timeout'u 90 sn, yani ~90 deneme. Tick
+        # hizinda (5 Hz) yollamak proxy'yi ve tum aboneleri bosuna mesgul eder.
+        if ctx.state == MissionState.LANDING:
+            simdi = time.monotonic()
+            if simdi - self._last_land_cmd_s >= 1.0:
+                self._last_land_cmd_s = simdi
+                self._pub_event(
+                    SystemEvent.EVENT_EMERGENCY_LAND,
+                    SystemEvent.SEVERITY_INFO,
+                    "Sürü home'da — iniş tetiklendi (tekrar)",
+                )
+
         self._publish_state()
 
+        # Terminal durumda pending_command KORUNUR (komut kaybolmasın), ama
+        # timer DURDURULMAZ: _from_terminal, sürü yere inince ABORTED/
+        # MISSION_COMPLETE'ten IDLE'a döndürebilsin diye FSM tick'lemeye devam
+        # etmeli. (Eskiden timer iptal ediliyordu → terminalden çıkış
+        # imkânsızdı, yeni görev için node restart gerekiyordu.)
         terminal = (MissionState.ABORTED, MissionState.MISSION_COMPLETE)
         if ctx.state not in terminal:
             ctx.pending_command = 0
@@ -196,6 +233,19 @@ class MissionFsmNode(Node):
             self._ctx.pause_return_state = old
 
         self._ctx.set_state(new_state)
+
+        # Şartname madde 17: eve varış sonrası restart. QR zincirini sıfırla
+        # ki rota QR1'den yeniden başlasın; sayacı artır (sonsuz döngü yok).
+        if (old == MissionState.RETURN_HOME
+                and new_state == MissionState.ROTATE_TO_NEXT):
+            self._ctx.restart_count += 1
+            self._ctx.restart_pending = False
+            self._ctx.last_accepted_qr_seq = 0
+            self._ctx.current_qr = None
+            self.get_logger().warn(
+                f'[mission_fsm] QR okunamadı — rota baştan başlıyor '
+                f'(deneme {self._ctx.restart_count}/{self._ctx.max_restarts})'
+            )
 
         if new_state == MissionState.ABORTED and not self._ctx.abort_reason:
             self._ctx.abort_reason = (
@@ -218,6 +268,17 @@ class MissionFsmNode(Node):
                 SystemEvent.SEVERITY_INFO,
                 f'Görev {ctx.mission_type.name} başlıyor',
             )
+            # İlk hedefi (start_qr) ROTASYONDAN ÖNCE çöz. Eskiden yalnız
+            # NAVIGATE_TO_QR'a girerken çözülüyordu; ama akış ROTATE→NAVIGATE
+            # olduğundan ilk ROTASYON hedefsiz kalıyordu: orchestrator dönüş
+            # bearing'ini hesaplayamıyor, heading rampası tamamlanmadan rotasyon  # noqa: E501
+            # bitiyor, sonra navigasyon boyunca heading slew'lenip formasyonu
+            # DÖNERKEN İLERLETİYOR → eğri yol (ölçüldü: ilk bacak düz hattan
+            # 7.6 m sapma). Hedef start_qr'dan; QR okumaya bağlı değil, konum
+            # tablosu geldiği an (görev başından) çözülebilir → erken çözülür,
+            # ilk rotasyon hedefli olur, heading tam oturur, navigasyon düz gider.  # noqa: E501
+            if ctx.next_qr_target is None:
+                self._resolve_initial_target()
 
         elif state == MissionState.EXECUTE_QR_TASK:
             if ctx.current_qr is not None:
@@ -245,6 +306,9 @@ class MissionFsmNode(Node):
             )
 
         elif state == MissionState.RETURN_HOME:
+            # QR okunamadığı için dönülüyorsa (current_qr yok) eve varınca
+            # rota baştan başlar; görev tamamlandığı için dönülüyorsa inilir.
+            ctx.restart_pending = ctx.current_qr is None
             self._pub_event(
                 SystemEvent.EVENT_RTL_TRIGGERED,
                 SystemEvent.SEVERITY_WARNING,
@@ -256,6 +320,16 @@ class MissionFsmNode(Node):
                 SystemEvent.EVENT_EMERGENCY_LAND,
                 SystemEvent.SEVERITY_WARNING,
                 'Görev FSM İniş (LAND) tetikledi',
+            # Sürü formasyonla home'a vardı (RETURN_HOME→LANDING kapısı
+            # event_formation_reached). Ajanlar offboard'da RETURN_HOME'da
+            # bekliyor; inişi ancak bu sinyalle tetikleriz. Sinyal olmadan
+            # eskiden inişi yalnız native RTL'in AUTO_LAND'i başlatıyordu —
+            # o da sürüyü eve varmadan rastgele yere indiriyordu. Ajan bu
+            # olayı alınca RETURN_HOME→LANDING→'land' ile home slotuna iner.
+            self._pub_event(
+                SystemEvent.EVENT_EMERGENCY_LAND,
+                SystemEvent.SEVERITY_INFO,
+                "Sürü home'da — iniş tetiklendi",
             )
 
         elif state == MissionState.MISSION_COMPLETE:
@@ -288,21 +362,23 @@ class MissionFsmNode(Node):
         if not msg.decoded or not msg.valid:
             return
 
-        if msg.qr_seq <= self._ctx.last_accepted_qr_seq:
+        qr_id = int(msg.qr_id)
+        if qr_id and qr_id == self._ctx.last_accepted_qr_id:
             self.get_logger().warn(
-                f'[mission_fsm] Eski QR reddedildi: seq={msg.qr_seq}'
-            )
-            self._pub_event(
-                SystemEvent.EVENT_QR_SEQUENCE_REJECTED,
-                SystemEvent.SEVERITY_WARNING,
-                f'Eski QR seq={msg.qr_seq}',
+                f'[mission_fsm] Aynı QR tekrar okundu, atlandı: qr={qr_id}',
+                throttle_duration_sec=5.0,
             )
             return
 
+        self._ctx.last_accepted_qr_id = qr_id
         self._ctx.last_accepted_qr_seq = msg.qr_seq
         self._ctx.current_qr = msg
         self.get_logger().info(
-            f'[mission_fsm] QR kabul edildi: seq={msg.qr_seq}'
+            f'[mission_fsm] QR kabul edildi: qr={qr_id} '
+            f'formasyon={msg.formation_active} '
+            f'manevra={msg.maneuver_active} '
+            f'irtifa={msg.altitude_active} '
+            f'ayrilma={msg.detach_active}'
         )
 
         self._resolve_next_qr_target(msg)
@@ -391,9 +467,17 @@ class MissionFsmNode(Node):
         """Aciklama: SystemEvent mesajlarini isler."""
         eid = msg.event_type
         ctx = self._ctx
+        # TEŞHİS (geçici): hangi event, kimden, hangi state'te geldi.
+        self.get_logger().info(
+            f'[EVENT] id={eid} src={msg.source_agent_id} '
+            f'mod={msg.source_module} state={ctx.state.name}'
+        )
 
         if eid == SystemEvent.EVENT_FORMATION_REACHED:
             if ctx.state == MissionState.NAVIGATE_TO_QR:
+                ctx.event_formation_reached = True
+            elif ctx.state == MissionState.RETURN_HOME:
+                # Eve ulaşıldı; restart bekliyorsa rota baştan başlar.
                 ctx.event_formation_reached = True
             elif ctx.state == MissionState.EXECUTE_QR_TASK:
                 if ctx.qr_task_step in (

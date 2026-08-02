@@ -1,12 +1,4 @@
-"""formation_node.py - formasyon düğümü birim testleri.
-
-formation_node artık merkezi SwarmState okumaz; slot atamasını ve merkezi
-liderin FormationCommand'ından alır. Bu testler ROS2 runtime'ı olmadan,
-object.__new__ ile __init__ atlanarak saf mantık metodlarını sınar:
-  - _resolve_center   (merkez doğrudan komuttan)
-  - _compute_velocity (yalnızca SVT; merkezi feed-forward yok)
-  - _shared_to_local  (shared NED -> local NED dönüşümü)
-"""
+"""formation_node.py - formasyon düğümü birim testleri."""
 
 import math
 from types import SimpleNamespace
@@ -28,21 +20,7 @@ def _make_node(
     rel_stale_s: float = 0.5,
     rel_enable: bool = True,
 ) -> FormationControlNode:
-    """ROS2 olmadan test için minimal FormationControlNode oluşturur.
-
-    Args:
-        agent_id (int): Drone kimlik numarası.
-        max_speed (float): Maksimum hız sınırı, m/s.
-        svt_gain (float): SVT elastik kazancı.
-        svt_threshold (float): SVT aktivasyon eşiği, metre.
-        rel_k (float): Göreli (A7) düzeltme kazancı.
-        rel_threshold (float): Göreli düzeltme deadband eşiği, metre.
-        rel_stale_s (float): NeighborInfo bayatlama eşiği, saniye.
-        rel_enable (bool): Göreli koruma açık mı?
-
-    Returns:
-        FormationControlNode: Kısmi başlatılmış node.
-    """
+    """ROS2 olmadan test için minimal FormationControlNode oluşturur."""
     node = object.__new__(FormationControlNode)
     node._agent_id = agent_id
     node._max_speed_mps = max_speed
@@ -76,7 +54,12 @@ def _make_node(
     node._current_lat = 0.0
     node._current_lon = 0.0
 
-    # A7 - göreli (komşu tabanlı) koruma alanları
+    # Dağıtık slot ataması: yerel hesap yoksa lider ofsetine düşülür.
+    node._local_offsets = None
+    node._local_offsets_type = None
+    node._wing_alpha_rad = math.radians(45.0)
+
+    # A7 — göreli (komşu tabanlı) koruma alanları
     node._rel_enable = rel_enable
     node._rel_k = rel_k
     node._rel_threshold_m = rel_threshold
@@ -123,16 +106,7 @@ def _cmd(
     center_y: float = 0.0,
     center_z: float = -10.0,
 ) -> SimpleNamespace:
-    """Test için sahte FormationCommand (yalnızca merkez alanları).
-
-    Args:
-        center_x (float): Formasyon merkezi NED X, metre.
-        center_y (float): Formasyon merkezi NED Y, metre.
-        center_z (float): Formasyon merkezi NED Z, metre.
-
-    Returns:
-        SimpleNamespace: Sahte FormationCommand.
-    """
+    """Test için sahte FormationCommand (yalnızca merkez alanları)."""
     return SimpleNamespace(
         center_x=center_x,
         center_y=center_y,
@@ -183,13 +157,19 @@ class TestComputeVelocity(unittest.TestCase):
         self.assertAlmostEqual(vy, 0.0)
         self.assertAlmostEqual(vz, 0.0)
 
-    def test_esik_altinda_svt_uygulanmaz(self):
-        """XY hatası < threshold ise SVT katkısı sıfırdır."""
+    def test_esik_altinda_svt_zayiflar(self):
+        """XY hatası < threshold ise SVT smoothstep ile zayıflar.
+
+        Sert deadband (eşik altında tam sıfır) limit-cycle üretiyordu; yerine
+        C1 sürekli zarf kullanılır: merkeze yaklaştıkça çekme pürüzsüzce
+        sıfıra iner ama eşik altında tam sıfır değildir.
+        """
         self.node._pos_valid = True
         self.node._current_pos_x = 9.5
-        # Hata = 0.5 < threshold=2.0
+        # Hata = 0.5 < threshold=2.0 -> zayiflatilmis (kucuk) cekme
         vx, vy, vz = self.node._compute_velocity(10.0, 0.0, 0.0, 5.0)
-        self.assertAlmostEqual(vx, 0.0)
+        self.assertGreater(vx, 0.0)   # hedefe dogru cekme var
+        self.assertLess(vx, 0.2)      # ama zayiflatilmis
         self.assertAlmostEqual(vy, 0.0)
         self.assertAlmostEqual(vz, 0.0)
 
@@ -211,13 +191,7 @@ class TestComputeVelocity(unittest.TestCase):
         self.assertAlmostEqual(vz, -2.0)
 
     def test_oscillating_svt_uygulanir(self):
-        """C-modu: oscillating=True olsa bile SVT uygulanır (atlanmaz).
-
-        SVT tek pozisyon kontrolcüsü olduğundan oscillating'de atlanamaz
-        (atlanırsa konum tutma çöker); salınımı hız sönümü söndürür.
-        Here _current_vel=0 olduğundan saf SVT görülür:
-        ex = 0-10 = -10 -> vx = -0.5·(-10) = 5.0.
-        """
+        """C-modu: oscillating=True olsa bile SVT uygulanır (atlanmaz)."""
         self.node._pos_valid = True
         self.node._oscillating = True
         self.node._current_pos_x = 0.0
@@ -272,11 +246,7 @@ class TestSharedToLocal(unittest.TestCase):
 
 
 class TestRelativeCorrection(unittest.TestCase):
-    """_compute_relative_correction (A7 göreli koruma) testleri.
-
-    Senaryo: 2 drone, drone1 (ben, idx 0) ve drone2 (komşu, idx 1).
-    İstenen: drone2 benden +Y'de 8m olmalı (offset farkı).
-    """
+    """_compute_relative_correction (A7 göreli koruma) testleri."""
 
     def setUp(self):
         """agent_id=1, rel_k=0.5, threshold=0.2 node hazırlar."""

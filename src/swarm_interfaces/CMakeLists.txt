@@ -22,6 +22,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/MissionTarget.msg"
   "msg/NeighborInfo.msg"
   "msg/SwarmControlCommand.msg"
+  "msg/GuidedCommand.msg"
   "msg/SystemEvent.msg"
   "msg/LandingZoneDetection.msg"
   "msg/ZoneMap.msg"

@@ -29,7 +29,7 @@ from .swarm_states import (
     SwarmState,
 )
 from .swarm_transitions import evaluate_transitions
-from ..agent_fsm.agent_states import AgentState
+from ..agent_fsm.agent_states import AgentState, FORMATION_ACTIVE_STATES
 
 _M_PER_DEG_LAT = 111_320.0
 
@@ -61,6 +61,8 @@ _HEARTBEAT_QOS = QoSProfile(
     depth=5,
 )
 
+# BEST_EFFORT: agent status proxy'den (/public) BEST_EFFORT geliyor (kayıplı
+# kanal). RELIABLE abone best-effort yayıncıyla eşleşmez → status alınamaz.
 _STATUS_QOS = QoSProfile(
     reliability=ReliabilityPolicy.BEST_EFFORT,
     durability=DurabilityPolicy.VOLATILE,
@@ -68,6 +70,7 @@ _STATUS_QOS = QoSProfile(
     depth=10,
 )
 
+# --- Sağlık eşikleri ---
 _AGENT_STALE_TIMEOUT_S = 3.0
 _FORMATION_STABLE_THRESHOLD_M = 1.5
 _FORMATION_REACHED_THRESHOLD_M = 1.0
@@ -527,16 +530,17 @@ class SwarmFsmNode(Node):
             ctx.formation_heading_error_deg
         )
 
-        _active_states = frozenset({
-            AgentState.IN_SWARM, AgentState.EXECUTING_TASK,
-        })
+        # agents[] boş — 250 byte ESP-NOW limiti (Kural 4)
+
+        # active_agent_ids + paralel pozisyon dizileri.
+        # Decision B: a.healthy tek bayrak (agent_fsm aggregate'i).
         active_agents = [
             a
             for a in sorted(ctx.agents.values(), key=lambda x: x.agent_id)
             if a.healthy
             and a.origin_synced
             and not a.is_stale()
-            and a.state in _active_states
+            and a.state in FORMATION_ACTIVE_STATES
         ]
         m.active_agent_ids = [a.agent_id for a in active_agents]
 

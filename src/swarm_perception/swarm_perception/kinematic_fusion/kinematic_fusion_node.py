@@ -12,7 +12,7 @@ from rclpy.qos import (
 )
 from rclpy.time import Time
 
-from swarm_interfaces.msg import AgentStatus, NeighborInfo
+from swarm_interfaces.msg import AgentStatus, NeighborInfo, SwarmOrigin
 
 _AVOIDANCE_DISI_STATELER = frozenset({
     AgentStatus.STATE_DETACHED,
@@ -32,6 +32,17 @@ def _sayisal_gecerli(*degerler: float) -> bool:
         if math.isnan(v) or math.isinf(v):
             return False
     return True
+
+
+def _latlon_to_ned(
+    lat: float, lon: float,
+    origin_lat: float, origin_lon: float,
+) -> tuple[float, float]:
+    """GPS lat/lon → shared NED (kuzey, doğu) metre cinsinden."""
+    R = 6_371_000.0
+    north = math.radians(lat - origin_lat) * R
+    east = math.radians(lon - origin_lon) * R * math.cos(math.radians(origin_lat))
+    return north, east
 
 
 def _makul_aralikta(
@@ -73,15 +84,7 @@ class _EmaDurum:
         self.son_olcum_gecerli = False
 
     def guncelle(self, msg: AgentStatus) -> bool:
-        """
-        Gelen telemetri verisine gore EMA durumunu gunceller.
-
-        Args:
-            msg (AgentStatus): Gelen telemetri verisi.
-
-        Returns:
-            bool: Guncelleme basarili ise True.
-        """
+        """Gelen telemetri verisine gore EMA durumunu gunceller."""
         if not _sayisal_gecerli(
             msg.pos_x, msg.pos_y, msg.pos_z,
             msg.vel_x, msg.vel_y, msg.vel_z,
@@ -196,11 +199,29 @@ class KinematicFusionNode(Node):
         self._reset_filtre = 0
         self._son_self_stale_log_ts: Time | None = None
 
+        # SwarmOrigin: shared NED göreli hesabı için ortak referans
+        self._origin_lat: float | None = None
+        self._origin_lon: float | None = None
+
+        # ----- Abonelikler -----
         self.create_subscription(
             AgentStatus,
             f'/swarm/internal/drone{self._self_id}/status',
             self._on_self_status,
             _TELEMETRI_QOS,
+        )
+        from rclpy.qos import DurabilityPolicy
+        _origin_qos = QoSProfile(
+            reliability=QoSReliabilityPolicy.RELIABLE,
+            durability=DurabilityPolicy.TRANSIENT_LOCAL,
+            history=QoSHistoryPolicy.KEEP_LAST,
+            depth=1,
+        )
+        self.create_subscription(
+            SwarmOrigin,
+            '/swarm/public/origin',
+            self._on_origin,
+            _origin_qos,
         )
         for nid in self._neighbor_ids:
             self.create_subscription(
@@ -240,6 +261,13 @@ class KinematicFusionNode(Node):
             self.get_logger().info(ozet)
         except Exception as e:  # noqa: BLE001
             self.get_logger().error(f'tani log hata: {e}')
+
+    # ---------- Callback'ler ----------
+    def _on_origin(self, msg: SwarmOrigin) -> None:
+        """Ortak referans noktasını saklar (shared NED göreli hesabı)."""
+        if msg.valid:
+            self._origin_lat = float(msg.origin_lat_deg)
+            self._origin_lon = float(msg.origin_lon_deg)
 
     def _on_self_status(self, msg: AgentStatus) -> None:
         """Kendi durum verimizi kaydeder."""
@@ -337,16 +365,7 @@ class KinematicFusionNode(Node):
                 )
 
     def _neighbor_info_olustur(self, nid: int, now: Time) -> NeighborInfo:
-        """
-        Komsu verisini hazirlar ve link durumunu test eder.
-
-        Args:
-            nid (int): Komsu IHA kimligi.
-            now (Time): Mevcut ROS zamani.
-
-        Returns:
-            NeighborInfo: Doldurulmus komsuluk bilgi mesaji.
-        """
+        """Komsu verisini hazirlar ve link durumunu test eder."""
         ham = self._son_ham[nid]
         filtre = self._filtreler[nid]
         son_alim = self._son_alim[nid]
@@ -399,8 +418,27 @@ class KinematicFusionNode(Node):
         f_vy = filtre.vy if filtre.vy is not None else ham.vel_y
         f_vz = filtre.vz if filtre.vz is not None else ham.vel_z
 
-        rel_x = float(f_x - self_msg.pos_x)
-        rel_y = float(f_y - self_msg.pos_y)
+        # ----- Relative değerler (komşu - kendi, shared NED) -----
+        # GPS varsa ve origin kilitliyse shared NED'den hesapla:
+        # her drone farklı local origin'de başladığı için local pos_x
+        # farkı spawn offset'i içerir → hayalet hata. GPS→shared NED
+        # çevirimi bu offset'i ortadan kaldırır.
+        if (self._origin_lat is not None
+                and ham.lat_deg != 0.0 and self_msg.lat_deg != 0.0):
+            n_n, n_e = _latlon_to_ned(
+                ham.lat_deg, ham.lon_deg,
+                self._origin_lat, self._origin_lon,
+            )
+            s_n, s_e = _latlon_to_ned(
+                self_msg.lat_deg, self_msg.lon_deg,
+                self._origin_lat, self._origin_lon,
+            )
+            rel_x = float(n_n - s_n)
+            rel_y = float(n_e - s_e)
+        else:
+            # Fallback: origin veya GPS yoksa eski yol (local fark)
+            rel_x = float(f_x - self_msg.pos_x)
+            rel_y = float(f_y - self_msg.pos_y)
         rel_z = float(f_z - self_msg.pos_z)
         rel_vx = float(f_vx - self_msg.vel_x)
         rel_vy = float(f_vy - self_msg.vel_y)

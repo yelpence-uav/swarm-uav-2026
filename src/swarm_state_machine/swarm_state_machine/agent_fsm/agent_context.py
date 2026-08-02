@@ -19,6 +19,16 @@ class AgentContext:
     px4_link_ok: bool = False
     gcs_link_ok: bool = False
 
+    # Ilk AgentStatus ulasti mi. "Henuz bilmiyorum" ile "koptu" ayrimini kurar.
+    #
+    # Neden gerekli: px4_link_ok varsayilan False ve yalnizca _on_telemetry
+    # icinde set ediliyor. Bu bayrak olmadan, node acildiktan ~0.1 sn sonra
+    # calisan ilk tick, DDS kesfi daha bitmemisken px4_link_ok=False goruyor ve
+    # "PX4 link koptu" diye FAILSAFE'e dusuyordu. _from_failsafe disaridan
+    # pending_state bekledigi icin de bir daha cikamiyordu — yani node yaklasik
+    # yarim olasilikla aciliste kalici kilitleniyordu (sahada olculdu).
+    telemetri_alindi: bool = False
+
     armed: bool = False
     offboard_enabled: bool = False
     offboard_active: bool = False
@@ -83,6 +93,11 @@ class AgentContext:
     sitl_mode: bool = False
 
     mission_start_sequence_active: bool = False
+
+    # Sürüden ayrılan ajanın renkli pedde disarm bekleyeceği süre (saniye).
+    # EVENT_MEMBER_DETACH_STARTED.value ile gelir; WAITING_REJOIN bu süre
+    # dolunca kendi kendine tekrar arm olur (rejoin zamanlaması dronda).
+    detach_wait_s: float = 0.0
 
     altitude_stable: bool = False
     attitude_stable: bool = False

@@ -10,45 +10,54 @@
 #include <string.h>
 #include <stddef.h>   // offsetof (asagidaki static_assert icin)
 
-// Buyuk RTK zarfi - byte butcesi:
-//   RTK_ENV_ONSOZ_BOYUTU  = 30  (kaynak_mac6+hedef_mac6+paket_id4+atlama_sayisi1+tip1+iv12)
-//   RTK_ENV_TAG_BOYUTU    = 16  (GCM auth tag)
-//   RTK_ENV_SABIT_TOPLAM  = 46
+// Buyuk RTK zarfi - byte butcesi.
+//
+// Zarf, kucuk mesh paketiyle AYNI onsozu paylasir (sihir[2] + tip[1]); boylece
+// ESP-NOW alim ISR'i tam parse etmeden ikisini ayirt edebilir: offset 0'da
+// sihir, offset 2'de tip.
+//
+//   RTK_ENV_ONSOZ_BOYUTU  = 3   (sihir2 + tip1)
 //   RTK_ENV_MAKS_TOPLAM   = 250 (ESP-NOW donanim siniri, tek kaynak burasi)
-//   RTK_ENV_MAKS_SIFRELI  = 250 - 46 = 204
-//   RTK_ANTI_REPLAY_BOYUTU = 6  (session_id2+paket_id4)
-//   RTK_FRAG_HEADER_BOYUTU = 7  (msg_id4+idx1+total1+len1)
-//   RTK_FRAG_PAYLOAD_MAKS  = 204 - 6 - 7 = 191
+//   RTK_FRAG_HEADER_BOYUTU= 7   (msg_id4 + idx1 + total1 + len1)
+//   RTK_CRC_BOYUTU        = 2   (CRC16-CCITT-FALSE)
+//   RTK_FRAG_PAYLOAD_MAKS = 250 - 3 - 7 - 2 = 238
+//
+// Onceki surumde 191'di: zarf 30 bayt onsoz (MAC'ler + iv) ve 16 bayt GCM
+// tag'i tasiyordu, ayrica 6 bayt anti-replay basligi vardi. Sifreleme
+// kaldirilinca 47 bayt serbest kaldi (bkz mesh_config.h GUVENLIK MODELI).
+// Pratik kazanc: 1029 baytlik en buyuk RTCM mesaji 6 yerine 5 parcaya siger,
+// yani bir mesajin tamamlanmasi icin bir parca daha az riske girer.
 #define RTK_ENV_MAKS_TOPLAM     250
-#define RTK_ENV_ONSOZ_BOYUTU    30
-#define RTK_ENV_TAG_BOYUTU      16
-#define RTK_ENV_SABIT_TOPLAM    (RTK_ENV_ONSOZ_BOYUTU + RTK_ENV_TAG_BOYUTU)
-#define RTK_ENV_MAKS_SIFRELI    (RTK_ENV_MAKS_TOPLAM - RTK_ENV_SABIT_TOPLAM)
-#define RTK_ANTI_REPLAY_BOYUTU  6
+#define RTK_ENV_ONSOZ_BOYUTU    3
+#define RTK_CRC_BOYUTU          2
 #define RTK_FRAG_HEADER_BOYUTU  7
-#define RTK_FRAG_PAYLOAD_MAKS   (RTK_ENV_MAKS_SIFRELI - RTK_ANTI_REPLAY_BOYUTU - RTK_FRAG_HEADER_BOYUTU) // 191
+#define RTK_FRAG_PAYLOAD_MAKS   (RTK_ENV_MAKS_TOPLAM - RTK_ENV_ONSOZ_BOYUTU \
+                                 - RTK_FRAG_HEADER_BOYUTU - RTK_CRC_BOYUTU)  // 238
 
-// Iki ayri assert, ikisi de gerekli:
 // (1) Guvenlik tabani: payload bu alt sinirin altina duserse MAVLink
 //     enjeksiyon uyumu kaybolur.
 static_assert(RTK_FRAG_PAYLOAD_MAKS >= 180,
               "RTK_FRAG_PAYLOAD_MAKS 180'in altina dustu - zarf hesabini kontrol et");
 
-// (2) Sozlesme kilidi: spec §2.3 byte butcesi (250-46-6-7=191). Bu assert
-//     patlarsa zarf yapisi degismis demektir; sayiyi degistirmeden once
-//     docs/YELPENCE_RTCM_SPEC.md §2.3'u guncelle ve YKİ/pi_bridge'e bildir.
-static_assert(RTK_FRAG_PAYLOAD_MAKS == 191,
-              "Zarf byte butcesi degisti: spec §2.3 senkronu gerekli! "
-              "Sayiyi duzeltmeden once docs/YELPENCE_RTCM_SPEC.md §2.3'u "
-              "guncelle ve YKİ/pi_bridge'e bildir.");
+// (2) Sozlesme kilidi: byte butcesi (250-3-7-2=238). Bu assert patlarsa zarf
+//     yapisi degismis demektir; sayiyi degistirmeden once YKİ/pi_bridge'e
+//     bildir (parca boyutu iki tarafta ayni olmali).
+static_assert(RTK_FRAG_PAYLOAD_MAKS == 238,
+              "Zarf byte butcesi degisti: YKİ/pi_bridge senkronu gerekli!");
 
 // (3) numarali kilit rtk_mesh_frag_t tanimindan sonra gelir (offsetof struct
 //     tanimlanmadan cagrilamaz).
 
-// 8 fragment x 191B = 1528B, MSM4/720B MAVLink tavanina bol marj.
+// 8 fragment x 238B = 1904B. RTCM3'un teorik en buyugu 1029B (5 parca), yani
+// 8 parca bol marj birakiyor.
 #define RTK_MAX_FRAGS            8
-// En kotu durum 1528B, 1600'e yuvarlandi.
-#define RTK_REASSEMBLY_BUF_SIZE  1600
+// En kotu durum 8 x 238 = 1904B; 1920'ye yuvarlandi. Bu sayi
+// RTK_FRAG_PAYLOAD_MAKS'a bagli: parca boyutu buyurse burasi da buyumeli,
+// yoksa rtk_asm_fragment_isle() son parcayi RTK_ASM_TASTI ile reddeder.
+#define RTK_REASSEMBLY_BUF_SIZE  1920
+static_assert(RTK_REASSEMBLY_BUF_SIZE >= RTK_MAX_FRAGS * RTK_FRAG_PAYLOAD_MAKS,
+              "Reassembly tamponu RTK_MAX_FRAGS x RTK_FRAG_PAYLOAD_MAKS'i almiyor: "
+              "son parca RTK_ASM_TASTI ile reddedilir ve RTCM mesaji hic tamamlanmaz.");
 #define RTK_FRAG_TIMEOUT_MS      500UL
 
 // Mesh fragment yapisi (saf POD struct).

@@ -48,18 +48,37 @@ class PrecisionLandingCore:
     xy_align_tol_m: float = 0.5
     touchdown_alt_m: float = 0.3
     landing_timeout_s: float = 45.0
+    landing_time_margin_s: float = 45.0
     min_height_m: float = 0.5
     target_radius_m: float = 2.5
 
     _phase: int = field(default=PHASE_IDLE, init=False)
     _target: Optional[Tuple[float, float]] = field(default=None, init=False)
     _start_time: Optional[float] = field(default=None, init=False)
+    _deadline: Optional[float] = field(default=None, init=False)
 
     def reset(self) -> None:
         """Ic durumu sifirlar."""
         self._phase = PHASE_IDLE
         self._target = None
         self._start_time = None
+        self._deadline = None
+
+    def _time_budget_s(
+        self, pose: Tuple[float, float, float, float]
+    ) -> float:
+        """Seçilen bölgeye inmek için gereken süreyi hesaplar (saniye)."""
+        if self._target is None:
+            return self.landing_timeout_s
+        x, y, z, _heading = pose
+        dist = math.hypot(self._target[0] - x, self._target[1] - y)
+        alt_agl = max(0.0, -z)
+        travel = dist / max(0.1, self.approach_speed_mps)
+        descent = alt_agl / max(0.05, self.descend_speed_mps)
+        return max(
+            self.landing_timeout_s,
+            travel + descent + self.landing_time_margin_s,
+        )
 
     @property
     def phase(self) -> int:
@@ -86,10 +105,21 @@ class PrecisionLandingCore:
 
         if self._phase == PHASE_SELECT_ZONE:
             self._select_zone(target_color, zone_map)
+            if self._phase == PHASE_APPROACH:
+                self._deadline = now + self._time_budget_s(pose)
+            elif (self._phase == PHASE_SELECT_ZONE
+                  and self._start_time is not None
+                  and (now - self._start_time) > self.landing_timeout_s):
+                # Hedef renk bölgesi HÂLÂ yok: burada pes edilir. Ama tek boş
+                # bakışta DEĞİL — bölge haritası ayrılma anında birkaç yüz ms
+                # gecikmeyle dolabiliyor; ilk tick'te iptal edip donmak (yaşanan
+                # bug: ped 0.45 m'de biliniyorken havada asılı kalma) yerine
+                # bulunana kadar her tick yeniden aranır.
+                self._phase = PHASE_ABORT
 
         if (self._phase not in (PHASE_DONE, PHASE_ABORT)
-                and self._start_time is not None
-                and (now - self._start_time) > self.landing_timeout_s):
+                and self._deadline is not None
+                and now > self._deadline):
             self._phase = PHASE_ABORT
 
         x, y, z, heading = pose
@@ -179,7 +209,6 @@ class PrecisionLandingCore:
                 best_count = count
                 best = z
         if best is None:
-            self._phase = PHASE_ABORT
             return
         self._target = (float(best['x']), float(best['y']))
         self._phase = PHASE_APPROACH
@@ -203,16 +232,8 @@ class PrecisionLandingCore:
         pose: Tuple[float, float, float, float],
         alt_agl: float,
     ) -> Tuple[float, float]:
-        """Kamera olcumunu global NED koordinatlarina yansitir."""
-        x, y, _z, heading_deg = pose
-        h = max(alt_agl, self.min_height_m)
-        fov = live_zone.get('fov_deg', 60.0)
-        fov = fov if fov > 1.0 else 60.0
-        frac_fwd = live_zone.get('frac_fwd', 0.0)
-        frac_right = live_zone.get('frac_right', 0.0)
-        off_fwd = h * math.tan(math.radians(frac_fwd * fov))
-        off_right = h * math.tan(math.radians(frac_right * fov))
-        hd = math.radians(heading_deg)
-        tx = x + off_fwd * math.cos(hd) - off_right * math.sin(hd)
-        ty = y + off_fwd * math.sin(hd) + off_right * math.cos(hd)
-        return tx, ty
+        """Canlı kamera tespitini global NED hedef konumuna çevirir."""
+        x, y, _z, _heading_deg = pose
+        ned_dx = float(live_zone.get('ned_dx', 0.0))
+        ned_dy = float(live_zone.get('ned_dy', 0.0))
+        return x + ned_dx, y + ned_dy

@@ -47,7 +47,7 @@
   opacity: 0.12;
 }
 
-/* Head */
+/* === Head ================================================== */
 .drone-card__head {
   display: flex;
   align-items: center;
@@ -107,7 +107,86 @@
   border: 1px solid var(--color-border);
 }
 
-/* State */
+/* Tek aksiyon butonu — sağ üstte, kontrol panelini açar */
+.drone-card__ctrl {
+  flex-shrink: 0;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  padding: 3px var(--space-2);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-overlay);
+  color: var(--color-text-secondary);
+  border: 1px solid var(--color-border);
+  cursor: pointer;
+  font-family: var(--font-ui);
+  transition: all var(--transition-fast);
+}
+.drone-card__ctrl:hover {
+  color: var(--color-text-primary);
+  border-color: var(--accent);
+}
+.drone-card__ctrl--active {
+  background: var(--accent);
+  color: var(--color-text-inverse);
+  border-color: var(--accent);
+}
+
+.drone-card--selected {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
+/* === Uçuş hazırlığı ========================================= */
+/* Kill switch, ön-kontrol ve kumanda bağlantısının hepsi tek "uçamaz"
+   göstergesinde toplanır — operatörün tek sorusu "şu an uçabilir mi". */
+.drone-card__fly {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-1);
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-sm);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+}
+
+.drone-card__fly-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: var(--radius-full);
+  flex-shrink: 0;
+}
+
+.drone-card__fly--ok {
+  background: rgba(34, 197, 94, 0.14);
+  border: 1px solid rgba(34, 197, 94, 0.4);
+  color: #22c55e;
+}
+.drone-card__fly--ok .drone-card__fly-dot {
+  background: #22c55e;
+  box-shadow: 0 0 8px #22c55e;
+}
+
+.drone-card__fly--no {
+  background: rgba(239, 68, 68, 0.16);
+  border: 1px solid var(--color-danger);
+  color: var(--color-danger);
+}
+.drone-card__fly--no .drone-card__fly-dot {
+  background: var(--color-danger);
+  box-shadow: 0 0 8px var(--color-danger);
+  animation: fly-uyari 1.4s ease-in-out infinite;
+}
+
+/* Uçamaz nokta yanıp söner: göz otomatik yakalar. */
+@keyframes fly-uyari {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.35; }
+}
+
+/* === State =================================================== */
 .drone-card__state {
   display: flex;
   align-items: center;
@@ -122,7 +201,7 @@
   letter-spacing: 0.08em;
 }
 
-/* Stats grid */
+/* === Stats grid ============================================ */
 .drone-card__stats {
   margin: 0;
   display: grid;
@@ -150,7 +229,7 @@
   font-weight: 500;
 }
 
-/* Footer */
+/* === Footer ================================================= */
 .drone-card__footer {
   font-size: 10px;
   color: var(--color-text-muted);
@@ -159,7 +238,7 @@
   margin-top: auto;
 }
 
-/* Offline state */
+/* === Offline state ========================================= */
 .drone-card--offline {
   opacity: 0.7;
 }

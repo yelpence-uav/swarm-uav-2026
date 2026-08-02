@@ -50,7 +50,10 @@ class PrecisionLandingNode(Node):
         self.declare_parameter('descend_speed_mps', 0.4)
         self.declare_parameter('xy_align_tol_m', 0.5)
         self.declare_parameter('touchdown_alt_m', 0.3)
+        # Süre bütçesinin TABANI; gerçek sınır bölgeye olan mesafe ve irtifadan
+        # hesaplanır (bkz. PrecisionLandingCore._time_budget_s).
         self.declare_parameter('landing_timeout_s', 45.0)
+        self.declare_parameter('landing_time_margin_s', 45.0)
 
         self._agent_id = self.get_parameter('agent_id').value
         rate = self.get_parameter('control_rate_hz').value
@@ -61,12 +64,17 @@ class PrecisionLandingNode(Node):
             xy_align_tol_m=self.get_parameter('xy_align_tol_m').value,
             touchdown_alt_m=self.get_parameter('touchdown_alt_m').value,
             landing_timeout_s=self.get_parameter('landing_timeout_s').value,
+            landing_time_margin_s=self.get_parameter(
+                'landing_time_margin_s').value,
         )
 
         self._pose = None
         self._active = False
         self._target_color = 0
         self._zone_map = []
+        # Yayıncı (dron) başına bölge haritası. Tek topic'e her dron kendi
+        # gözlemini yayınlar; üzerine yazmak yerine hepsi birleştirilir.
+        self._zone_maps: dict[int, list] = {}
         self._live_zone = None
 
         self._started_emitted = False
@@ -130,7 +138,8 @@ class PrecisionLandingNode(Node):
                 'y': float(msg.zone_y[i]),
                 'count': float(msg.observation_count[i]),
             })
-        self._zone_map = zones
+        self._zone_maps[int(msg.publisher_agent_id)] = zones
+        self._zone_map = [z for zs in self._zone_maps.values() for z in zs]
 
     def _on_live_zone(self, msg: LandingZoneDetection) -> None:
         """Canli kamera tespitini saklar."""
@@ -140,9 +149,8 @@ class PrecisionLandingNode(Node):
         self._live_zone = {
             'valid': True,
             'color': int(msg.primary_color),
-            'frac_fwd': float(msg.primary_x),
-            'frac_right': float(msg.primary_y),
-            'fov_deg': float(msg.fov_deg),
+            'ned_dx': float(msg.primary_x),
+            'ned_dy': float(msg.primary_y),
         }
 
     def _on_qr(self, msg: QRMissionData) -> None:
@@ -162,6 +170,33 @@ class PrecisionLandingNode(Node):
             self._started_emitted = False
             self._disarm_sent = False
             return
+
+        # TEŞHİS: hassas iniş aktifken node'un elinde NE VAR. Sessizce hiçbir
+        # setpoint üretmeyip FAILSAFE'e düşen durumu (yaşanan bug) kör noktada
+        # bırakmamak için; girdilerden hangisi eksik doğrudan görünsün.
+        n_red = sum(1 for z in self._zone_map if int(z.get('color', 0)) == 1)
+        n_blue = sum(1 for z in self._zone_map if int(z.get('color', 0)) == 2)
+        # Hedef rengin ADAYLARI: hangi konuma, kaç gözlemle inilmek isteniyor.
+        # Yanlış pede inme ancak bu adaylar gerçek ped konumuyla karşılaştırılınca
+        # teşhis edilebilir (renk doğru ama konum yansıtması şaşmış olabilir).
+        adaylar = sorted(
+            (z for z in self._zone_map
+             if int(z.get('color', 0)) == int(self._target_color)),
+            key=lambda z: -float(z.get('count', 0.0)),
+        )[:3]
+        aday_str = ' '.join(
+            f'({float(z["x"]):.1f},{float(z["y"]):.1f})x{float(z["count"]):.0f}'
+            for z in adaylar
+        ) or 'YOK'
+        self.get_logger().info(
+            f'PL: aktif=1 renk={self._target_color} '
+            f'poz={"VAR" if self._pose else "YOK"} '
+            f'zone={len(self._zone_map)} (kirmizi={n_red} mavi={n_blue}) '
+            f'faz={cmd.phase} yayin={cmd.publish} '
+            f'HEDEF=({cmd.target_x:.1f},{cmd.target_y:.1f}) '
+            f'ADAYLAR={aday_str} msg={cmd.message}',
+            throttle_duration_sec=2.0,
+        )
 
         if not self._started_emitted:
             self._started_emitted = True

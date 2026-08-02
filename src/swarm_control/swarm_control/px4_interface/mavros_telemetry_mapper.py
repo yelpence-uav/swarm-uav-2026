@@ -249,13 +249,110 @@ def map_estimator_status(msg, status) -> None:
     status.estimator_ok = att_ok and pos_ok
 
 
-def map_rc_in(msg, status) -> None:
-    """mavros_msgs/RCIn -> rc_link_ok.
+def _switch_aktif(kanallar, kanal_1tabanli: int, esik: int, ters: bool) -> bool:
+    """Bir RC anahtar kanalinin aktif olup olmadigini soyler.
 
-    Kanal verisi geliyorsa RC bagli kabul edilir.
+    Args:
+        kanallar: RCIn.channels (PWM mikrosaniye, tipik 1000-2000).
+        kanal_1tabanli: Kanal numarasi, kumandadaki gibi 1'den baslar.
+        esik: Bu degerin ustu "aktif" sayilir (ters=True ise alti).
+        ters: Polarite cevirme.
+
+    Returns:
+        bool: Anahtar aktifse True. Kanal yoksa veya 0 (sinyal yok) ise False.
+    """
+    i = kanal_1tabanli - 1
+    if i < 0 or i >= len(kanallar):
+        return False
+    v = kanallar[i]
+    if v == 0:          # 0 = o kanalda sinyal yok, hukum verme
+        return False
+    return (v < esik) if ters else (v > esik)
+
+
+def map_rc_in(msg, status, kill_kanal: int = 5, kill_esik: int = 1500,
+              kill_ters: bool = False, arm_kanal: int = 8,
+              arm_esik: int = 1500, arm_ters: bool = False) -> None:
+    """mavros_msgs/RCIn -> rc_link_ok, kill_switch_active.
+
+    Eskiden yalnizca kanal SAYISINA bakip rc_link_ok set ediyordu; kanal
+    DEGERLERI hic okunmuyordu. Sonucu: kill_switch_active'i dolduran tek yol
+    EVENT_KILL_SWITCH_ACTIVATED olayiydi ve o olayi hicbir dugum uretmiyordu.
+    Yani kill switch acikken drone bunu bilmiyor, YKİ de "bosta" gosteriyordu.
+
+    Kanal/esik/polarite parametre: kumanda degisirse ya da polarite ters
+    cikarsa yeniden derleme degil, baslat.sh'de tek satir degisir. Saha
+    olcumu (2026-07-22, FLYSKY): ch5 kill, 2000 = AKTIF; ch8 arm,
+    1000 = disarm / 2000 = arm (PX4'un armed bayragiyla dogrulandi).
 
     Args:
         msg: mavros_msgs/RCIn.
         status: AgentStatus (yerinde guncellenir).
+        kill_kanal: Kill switch RC kanali (1-tabanli).
+        kill_esik: Bu PWM degerinin ustu kill aktif sayilir.
+        kill_ters: True ise esigin ALTI kill aktif demektir.
+        arm_kanal: Arm switch RC kanali (1-tabanli).
+        arm_esik: Arm esigi.
+        arm_ters: Arm polarite cevirme.
     """
-    status.rc_link_ok = len(msg.channels) > 0
+    kanallar = msg.channels
+    status.rc_link_ok = len(kanallar) > 0
+    if not status.rc_link_ok:
+        # RC yoksa kill hakkinda hukum verme: "bilmiyorum" ile "aktif degil"
+        # farkli seyler. Onceki degeri koruyoruz.
+        return
+    status.kill_switch_active = _switch_aktif(
+        kanallar, kill_kanal, kill_esik, kill_ters
+    )
+    if hasattr(status, 'arm_switch_active'):
+        status.arm_switch_active = _switch_aktif(
+            kanallar, arm_kanal, arm_esik, arm_ters
+        )
+
+
+# MAVLink SYS_STATUS sensor bitmask: "arm on-kontrolleri gecti" biti.
+# https://mavlink.io/en/messages/common.html#MAV_SYS_STATUS_PREARM_CHECK
+_MAV_SYS_STATUS_PREARM_CHECK = 0x10000000
+
+
+def map_diagnostics(msg, status) -> bool:
+    """MAVROS /diagnostics -> ready_to_arm.
+
+    PX4, emniyet anahtarinin (SWITCH portundaki kirmizi LED'li buton)
+    durumunu MAVLink'te AYRI bir alanda bildirmiyor. Ama etkisi
+    SYS_STATUS'un PREARM_CHECK bitinde gorunuyor: buton basili degilken
+    bit temiz, basilinca kalkiyor.
+
+    Saha olcumu (2026-07-22): butona basildigi an
+        Sensor health: 0x0321C83F -> 0x1321C83F
+    yani tam olarak 0x10000000 biti degisti.
+
+    ONEMLI: bu bit YALNIZCA emniyet anahtarini degil, TUM arm on-kontrollerini
+    kapsar (kalibrasyon, GPS kalitesi, batarya...). Yani "emniyet acik" degil
+    "arm edilemez" anlamina gelir. Sebebi ayirt etmek icin PX4'un statustext
+    mesajlari gerekir; bu fonksiyon yalnizca "ucabilir mi" sorusunu cevaplar.
+
+    MAVROS'un diagnostic anahtar adlarina bagimliyiz ("mavros: System" ->
+    "Sensor health"). Anahtar bulunamazsa status'a DOKUNULMAZ: "bilmiyorum"
+    ile "arm edilemez" farkli seylerdir, ikincisini uydurmak yaniltir.
+
+    Args:
+        msg: diagnostic_msgs/DiagnosticArray.
+        status: AgentStatus (yerinde guncellenir).
+
+    Returns:
+        bool: Alan guncellendiyse True, ilgili anahtar bulunamadiysa False.
+    """
+    for st in msg.status:
+        if 'System' not in st.name:
+            continue
+        for kv in st.values:
+            if kv.key != 'Sensor health':
+                continue
+            try:
+                saglik = int(kv.value, 16)
+            except (ValueError, TypeError):
+                return False
+            status.ready_to_arm = bool(saglik & _MAV_SYS_STATUS_PREARM_CHECK)
+            return True
+    return False

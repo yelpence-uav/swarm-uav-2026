@@ -12,7 +12,6 @@
 #include "rtk_pure.h"
 #include "uart_cobs.h"
 #include "uart_frame_parser.h"   // desync regresyon testleri
-#include "replay_pure.h"         // reboot-replay karar kurali
 
 // CRC16 test vektoru (spec 2.1).
 void test_crc16_test_vektoru(void) {
@@ -303,108 +302,114 @@ void test_frame_parser_bolunmus_cerceve_birlesir(void) {
     TEST_ASSERT_EQUAL_UINT8_ARRAY(pg, pk, 16);
 }
 
-// Reboot-replay karar kurali.
+// --- RTCM boyutunda cerceveler (TIP_RTK'nin YKİ hattindan gecisi) -----------
+//
+// RX BASE'in YKİ hatti coklanmis: kucuk mesh cerceveleri ve TIP_RTK ayni
+// porttan geliyor. Ayristirici varsayilan 32 baytlik tamponla derlenirse her
+// RTCM cercevesi tasma dalinda (idx=0) SESSIZCE duserdi — hata sayaci bile
+// artmadan. Bu testler tamponun gercekten RTCM boyutunu tasidigini dogruluyor.
+//
+// Tampon boyutu derleme zamani sabiti; platformio.ini [env:native] ve
+// [env:esp32dev] ayni degeri (1100) veriyor ki test ile uretim ayni yolu
+// kullansin.
+static_assert(UART_FRAME_BUF_SIZE >= 1040,
+              "Bu testler RTCM boyutunda cerceve dogruluyor: en buyuk RTCM3 "
+              "mesaji 1029B, cerceve TIP+ID+1029+CRC16 = 1033B, COBS ~1040B. "
+              "platformio.ini'ye -D UART_FRAME_BUF_SIZE=1100 ekleyin.");
+
+// Buyuk cerceve kurucu: _cerceve_yap'in scratch tamponlari (64/80) RTCM
+// boyutunu almiyor, o yuzden ayri.
+static void _buyuk_cerceve_yap(uint8_t tip, uint8_t id, const uint8_t* payload,
+                               uint16_t plen, uint8_t* cikis, uint16_t* cikis_len) {
+    static uint8_t ham[1400], cobs[1500];
+    uint16_t clen = cobs_cerceve_olustur(tip, id, payload, plen, ham, cobs);
+    memcpy(cikis, cobs, clen);
+    *cikis_len = clen;
+}
+
+// En buyuk gecerli RTCM3 mesaji (1029B) cerceveden saglam gecmeli.
+void test_frame_parser_rtcm_1029B_gecer(void) {
+    uart_frame_parser_t st; uart_frame_parser_sifirla(&st);
+    static uint8_t payload[1029];
+    // 0x00 dahil her degeri kullan: COBS'un 254-blok kuralini da zorlar.
+    for (uint16_t i = 0; i < sizeof(payload); i++) payload[i] = (uint8_t)(i & 0xFF);
+    payload[0] = 0xD3;   // RTCM3 preamble (gercekci)
+
+    static uint8_t cerceve[1500]; uint16_t clen;
+    _buyuk_cerceve_yap(0x0C /*TIP_RTK*/, 99 /*BAZ_ID*/, payload, sizeof(payload),
+                       cerceve, &clen);
+
+    static uint8_t pk[1200];
+    uint8_t tip, id; uint16_t plen;
+    TEST_ASSERT_EQUAL_INT(1, _besle(&st, cerceve, clen, &tip, &id, pk, &plen));
+    TEST_ASSERT_EQUAL_UINT8(0x0C, tip);
+    TEST_ASSERT_EQUAL_UINT8(99, id);
+    TEST_ASSERT_EQUAL_UINT16(sizeof(payload), plen);
+    TEST_ASSERT_EQUAL_UINT8_ARRAY(payload, pk, sizeof(payload));
+}
+
+// Regresyon: idx eskiden uint8_t idi. 255 bayti asan bir cerceve idx'i sarar,
+// tasma kapisi (idx < BUF_SIZE) hep dogru kalir ve ayristirici cerceveyi
+// bastan yazmaya baslardi. Semptom "buyuk cerceveler bozuk gelir", sebep
+// gorunmez. 260B payload sinirin hemen ustunde.
+void test_frame_parser_255_bayt_ustu_idx_sarmaz(void) {
+    uart_frame_parser_t st; uart_frame_parser_sifirla(&st);
+    static uint8_t payload[260];
+    for (uint16_t i = 0; i < sizeof(payload); i++) payload[i] = (uint8_t)(i * 7 + 3);
+
+    static uint8_t cerceve[400]; uint16_t clen;
+    _buyuk_cerceve_yap(0x0C, 99, payload, sizeof(payload), cerceve, &clen);
+    TEST_ASSERT_GREATER_THAN_UINT16(255, clen);   // testin anlamli oldugunu kanitla
+
+    static uint8_t pk[400];
+    uint8_t tip, id; uint16_t plen;
+    TEST_ASSERT_EQUAL_INT(1, _besle(&st, cerceve, clen, &tip, &id, pk, &plen));
+    TEST_ASSERT_EQUAL_UINT16(sizeof(payload), plen);
+    TEST_ASSERT_EQUAL_UINT8_ARRAY(payload, pk, sizeof(payload));
+}
+
+// Tamponu asan cerceve dusmeli, AMA ardindan gelen gecerli cerceve parse
+// edilmeli (tasma sonrasi resync). Buyuk tamponla da desync garantisi durmali.
+void test_frame_parser_tampon_asimi_sonrasi_resync(void) {
+    uart_frame_parser_t st; uart_frame_parser_sifirla(&st);
+
+    // Tamponu kesin asan cerceve: payload BUF_SIZE kadar -> COBS daha da buyuk.
+    static uint8_t buyuk[UART_FRAME_BUF_SIZE + 200];
+    for (uint16_t i = 0; i < sizeof(buyuk); i++) buyuk[i] = (uint8_t)(i | 1);  // 0x00 yok
+    static uint8_t pk[1200];
+    uint8_t tip, id; uint16_t plen;
+    // Terminatorsuz besle: hepsi tampona yazilmaya calisilir, tasar.
+    TEST_ASSERT_EQUAL_INT(0, _besle(&st, buyuk, sizeof(buyuk), &tip, &id, pk, &plen));
+
+    // Simdi kucuk, gecerli bir cerceve: sifirdan parse edilmeli.
+    uint8_t kucuk_payload[8] = {1,2,3,4,5,6,7,8};
+    uint8_t cerceve[80]; uint16_t clen;
+    _cerceve_yap(0x07 /*TIP_DURUM*/, 3, kucuk_payload, 8, cerceve, &clen);
+    // Onceki tasma yarim kaldi; once bir 0x00 ile senkronu kapat.
+    uint8_t sifir = 0x00;
+    _besle(&st, &sifir, 1, &tip, &id, pk, &plen);
+    TEST_ASSERT_EQUAL_INT(1, _besle(&st, cerceve, clen, &tip, &id, pk, &plen));
+    TEST_ASSERT_EQUAL_UINT8(0x07, tip);
+    TEST_ASSERT_EQUAL_UINT8(3, id);
+    TEST_ASSERT_EQUAL_UINT8_ARRAY(kucuk_payload, pk, 8);
+}
+
 // Tehdit: saldirgan RF'i yakalar, gonderici reboot edene kadar bekler, sonra
 // eski session'in (authenticated ama eski) paketlerini tekrar oynatir.
 // "session_id farkli -> reboot varsay, pencereyi sifirla, kabul" deseydik saldiri
 // islerdi. Kural: session_id monoton, kucuk olan reddedilir. Alici yarisi
 // (kalici_session) olmadan kural kagit uzerinde kalir, o yuzden ayrica test edilir.
 
-static replay_state_t _yeni_durum(void) {
-    replay_state_t rs;
-    memset(&rs, 0, sizeof(rs));
-    rs.ilk_paket = true;
-    return rs;
-}
-
-void test_replay_ilk_paket_kabul(void) {
-    replay_state_t rs = _yeni_durum();
-    // Kalici kayit yok (0) -> ilk paket kabul, cagirana "persist et" denir
-    TEST_ASSERT_EQUAL(REPLAY_KABUL_YENI_SESSION, replay_karar(&rs, 5, 100, 0));
-    TEST_ASSERT_EQUAL_UINT16(5, rs.session_id);
-    TEST_ASSERT_FALSE(rs.ilk_paket);
-}
-
 // Cekirdek regresyon: alici reboot etti (RAM durumu yok, ilk_paket=true) ama
 // NVS'te peer'in son session'i duruyor. Saldirgan eski session'i oynatiyor.
-void test_replay_alici_reboot_sonrasi_eski_session_reddedilir(void) {
-    replay_state_t rs = _yeni_durum();
-    // NVS: bu peer'i en son session 9'da gormustuk
-    TEST_ASSERT_EQUAL(REPLAY_RED_ESKI_SESSION, replay_karar(&rs, 7, 500, /*kalici=*/9));
-    // Reddedilen paket durumu KIRLETMEMELI (hala ilk_paket)
-    TEST_ASSERT_TRUE(rs.ilk_paket);
-}
-
 // Ayni senaryo ama kalici kayit yoksa (alici yarisi atlanmis olsaydi) saldiri
 // gecerdi. Bu test alici-persist yarisinin neden sart oldugunu belgeliyor:
 // kalici=0 iken ayni eski paket kabul ediliyor.
-void test_replay_kalici_kayit_yoksa_eski_session_gecer(void) {
-    replay_state_t rs = _yeni_durum();
-    TEST_ASSERT_TRUE(replay_kabul_mu(replay_karar(&rs, 7, 500, /*kalici=*/0)));
-}
-
-void test_replay_ayni_session_devam_kabul(void) {
-    replay_state_t rs = _yeni_durum();
-    // NVS'teki session ile ayni -> normal kabul, persist gerekmez
-    TEST_ASSERT_EQUAL(REPLAY_KABUL, replay_karar(&rs, 9, 100, /*kalici=*/9));
-}
-
-void test_replay_calisirken_eski_session_reddedilir(void) {
-    replay_state_t rs = _yeni_durum();
-    replay_karar(&rs, 10, 100, 0);            // session 10'da calisiyoruz
-    // Saldirgan session 9'dan bir paket enjekte ediyor
-    TEST_ASSERT_EQUAL(REPLAY_RED_ESKI_SESSION, replay_karar(&rs, 9, 50, 10));
-    TEST_ASSERT_EQUAL_UINT16(10, rs.session_id);  // durum bozulmadi
-}
-
-void test_replay_yeni_session_kabul_ve_pencere_sifirlanir(void) {
-    replay_state_t rs = _yeni_durum();
-    replay_karar(&rs, 10, 5000, 0);
-    // Gonderici reboot etti: session 11, paket_id bastan (dusuk)
-    TEST_ASSERT_EQUAL(REPLAY_KABUL_YENI_SESSION, replay_karar(&rs, 11, 1, 10));
-    TEST_ASSERT_EQUAL_UINT16(11, rs.session_id);
-    TEST_ASSERT_EQUAL_UINT32(1, rs.en_yuksek_id);   // pencere sifirlandi
-}
-
-void test_replay_duplikat_reddedilir(void) {
-    replay_state_t rs = _yeni_durum();
-    replay_karar(&rs, 3, 100, 0);
-    TEST_ASSERT_EQUAL(REPLAY_KABUL, replay_karar(&rs, 3, 101, 3));
-    TEST_ASSERT_EQUAL(REPLAY_RED_DUPLIKAT, replay_karar(&rs, 3, 101, 3));  // ayni paket
-    TEST_ASSERT_EQUAL(REPLAY_RED_DUPLIKAT, replay_karar(&rs, 3, 100, 3));
-}
-
-void test_replay_pencere_disi_eski_paket_reddedilir(void) {
-    replay_state_t rs = _yeni_durum();
-    replay_karar(&rs, 3, 1000, 0);
-    // PENCERE_BOYU=64: 1000-64=936 ve altisi cok eski
-    TEST_ASSERT_EQUAL(REPLAY_RED_ESKI_PAKET, replay_karar(&rs, 3, 936, 3));
-    TEST_ASSERT_EQUAL(REPLAY_RED_ESKI_PAKET, replay_karar(&rs, 3, 1, 3));
-    // Pencere icindeki (henuz gorulmemis) eski paket KABUL edilmeli
-    TEST_ASSERT_EQUAL(REPLAY_KABUL, replay_karar(&rs, 3, 990, 3));
-}
-
-void test_replay_sira_disi_pencere_icinde_kabul(void) {
-    replay_state_t rs = _yeni_durum();
-    replay_karar(&rs, 3, 100, 0);
-    TEST_ASSERT_EQUAL(REPLAY_KABUL, replay_karar(&rs, 3, 105, 3));  // ileri sicrama
-    TEST_ASSERT_EQUAL(REPLAY_KABUL, replay_karar(&rs, 3, 102, 3));  // geride kalan
-    TEST_ASSERT_EQUAL(REPLAY_RED_DUPLIKAT, replay_karar(&rs, 3, 102, 3));  // tekrari
-}
-
-void test_replay_buyuk_ilerleme_pencereyi_temizler(void) {
-    replay_state_t rs = _yeni_durum();
-    replay_karar(&rs, 3, 100, 0);
-    // 64'ten buyuk ilerleme -> pencere tamamen temizlenir
-    TEST_ASSERT_EQUAL(REPLAY_KABUL, replay_karar(&rs, 3, 1000, 3));
-    TEST_ASSERT_EQUAL_UINT32(1000, rs.en_yuksek_id);
-    // Eski pencereden bir sey kalmamali: 999 (henuz gorulmedi) kabul
-    TEST_ASSERT_EQUAL(REPLAY_KABUL, replay_karar(&rs, 3, 999, 3));
-}
-
 // Fragmantasyon.
 // Bu testler mesh-seviyesi fragmantasyonu (RTK_MAX_FRAGS=8,
-// RTK_FRAG_PAYLOAD_MAKS=191 -> ust sinir 1528B) dogruluyor. Spec'in "721B ustu
+// RTK_FRAG_PAYLOAD_MAKS=238 -> ust sinir 1904B) dogruluyor. Parca boyutu
+// sifreleme kaldirilinca 191'den 238'e cikti (zarf 47 bayt kuculdu), bu
+// yuzden sinir testleri 238/239'a tasindi. Spec'in "721B ustu
 // dusur" kurali (Bolum 2.5) pi_bridge'in MAVLink enjeksiyon katmanina ait ayri
 // bir sinirdir, mesh fragmantasyonuyla karistirilmamali.
 void _frag_test_yardimci(uint16_t uzunluk, uint8_t beklenen_frag_sayisi) {
@@ -422,14 +427,15 @@ void _frag_test_yardimci(uint16_t uzunluk, uint8_t beklenen_frag_sayisi) {
 
 void test_fragmantasyon_25B(void)  { _frag_test_yardimci(25, 1); }
 void test_fragmantasyon_180B(void) { _frag_test_yardimci(180, 1); }
-void test_fragmantasyon_200B(void) { _frag_test_yardimci(200, 2); }
-void test_fragmantasyon_201B(void) { _frag_test_yardimci(201, 2); }
-void test_fragmantasyon_400B(void) { _frag_test_yardimci(400, 3); }
-void test_fragmantasyon_720B(void) { _frag_test_yardimci(720, 4); }
+void test_fragmantasyon_238B(void) { _frag_test_yardimci(238, 1); }   // tam bir parca
+void test_fragmantasyon_239B(void) { _frag_test_yardimci(239, 2); }   // bir bayt tasar
+void test_fragmantasyon_400B(void) { _frag_test_yardimci(400, 2); }
+void test_fragmantasyon_720B(void) { _frag_test_yardimci(720, 4); }   // tipik MSM4
 void test_fragmantasyon_721B(void) { _frag_test_yardimci(721, 4); }
+void test_fragmantasyon_1029B(void){ _frag_test_yardimci(1029, 5); }  // en buyuk RTCM3
 
 void test_fragmantasyon_ust_sinir_kabul(void) {
-    // RTK_MAX_FRAGS * RTK_FRAG_PAYLOAD_MAKS = 8*191 = 1528B, tam sinirda kabul edilmeli
+    // RTK_MAX_FRAGS * RTK_FRAG_PAYLOAD_MAKS = 8*238 = 1904B, tam sinirda kabul edilmeli
     _frag_test_yardimci(RTK_MAX_FRAGS * RTK_FRAG_PAYLOAD_MAKS, RTK_MAX_FRAGS);
 }
 
@@ -497,10 +503,10 @@ void test_reassembly_sira_disi_gelis_dogru_birlesir(void) {
     uint16_t toplam;
 
     // Uretim sekilli veri: gonderici son parca haric hep tam parca uretir
-    // (rtk_fragman_hesapla), yani 248B -> 191 + 57. 5+5B parcalarla yazilan
-    // eski sekil telde asla olusmuyor ve testi anlamsizlastiriyordu; bu test
-    // teslim edilen byte'lara da bakiyor.
-    const uint16_t MESAJ_UZUNLUK = 248;
+    // (rtk_fragman_hesapla), yani "bir tam parca + 57B artik".
+    // Uzunluk RTK_FRAG_PAYLOAD_MAKS'tan TURETILIYOR; sabit yazilsaydi parca
+    // boyutu her degistiginde (191 -> 238 gibi) bu test kirilirdi.
+    const uint16_t MESAJ_UZUNLUK = RTK_FRAG_PAYLOAD_MAKS + 57;
     uint8_t mesaj[MESAJ_UZUNLUK];
     for (uint16_t i = 0; i < MESAJ_UZUNLUK; i++) mesaj[i] = (uint8_t)(i * 7 + 1);
 
@@ -539,121 +545,25 @@ void test_reassembly_gecersiz_fragment_reddedilir(void) {
         rtk_asm_fragment_isle(&a, 1, 0, 1, RTK_FRAG_PAYLOAD_MAKS + 1, payload, 1000, &toplam));
 }
 
-// RTK ile reboot-replay kesisimi.
 // Bu kesisim daha once "analizle guvenli, testle degil" diye isaretlenmisti;
 // burasi o cumleyi kanita ceviriyor.
 //
 // Modellenen mimari:
-//   - RTK zarfi da genel mesh de ayni anti_replay'i tasiyor ve gonderici tarafta
-//     ayni _paket_sayaci'ndan besleniyor (tek artan dizi).
-//   - ISR offset 17'deki tip'e bakip TIP_RTK'yi ayri bir ring buffer'a
-//     (_rtk_recv_buffer, 8) yaziyor, digerleri _recv_buffer'a (16). Ikisini
-//     farkli donguler bosaltiyor, iki kaynak arasinda sira korunmuyor.
-//   - Alici tarafta ikisi de ayni node->replay penceresini kullaniyor, yani
-//     sirasizlik dogrudan replay penceresine vuruyor.
-//
-// Azami kayma buffer derinlikleriyle sinirli: 8 + 16 = 24 << PENCERE_BOYU(64).
-// Testler bu siniri ve session degisimi anini zorluyor.
-
-// replay_karar'i "kalici kayit yok" kisayoluyla cagiran yardimci (kesisim
 // testlerinde ilgilenilen sey session/pencere etkilesimi, NVS degil).
-static bool _kabul(replay_state_t* rs, uint16_t sid, uint32_t pid) {
-    return replay_kabul_mu(replay_karar(rs, sid, pid, /*kalici=*/0));
-}
-
 // RTK burst'u + genel mesh trafigi TEK sayactan besleniyor; iki ring buffer
 // sirasiz bosaldigi icin alici bunlari karisik sirada goruyor. Hicbir mesru
 // paket kaybolmamali.
-void test_rtk_f1_iki_kaynak_sirasiz_hepsi_kabul(void) {
-    replay_state_t rs = _yeni_durum();
-    // paket_id 1..12: {1,3,5,7} RTK fragmentlari, {2,4,6,8..12} genel mesh.
-    // Gercek loop() sirasi: once TUM rtk buffer, sonra genel buffer.
-    const uint32_t rtk[]   = {1, 3, 5, 7};
-    const uint32_t genel[] = {2, 4, 6, 8, 9, 10, 11, 12};
-
-    for (uint32_t p : rtk)
-        TEST_ASSERT_TRUE_MESSAGE(_kabul(&rs, 1, p), "RTK fragmenti reddedildi");
-    // Genel mesh paketleri SONRA isleniyor -> paket_id'leri geriye gidiyor.
-    // Sliding window bunlari pencere icinde kabul etmeli.
-    for (uint32_t p : genel)
-        TEST_ASSERT_TRUE_MESSAGE(_kabul(&rs, 1, p), "Sirasiz genel mesh paketi reddedildi");
-}
-
 // Kayma tam sinirda (24 = 8+16 buffer derinligi): en kotu durumda bile
 // pencere (64) hepsini soğurmali. Bu test PENCERE_BOYU kucultulurse patlar.
-void test_rtk_f1_azami_kayma_penceresi_asmiyor(void) {
-    replay_state_t rs = _yeni_durum();
-    // Once ileri sicra (RTK buffer'i once bosaldi): 1, sonra 25.
-    TEST_ASSERT_TRUE(_kabul(&rs, 1, 1));
-    TEST_ASSERT_TRUE(_kabul(&rs, 1, 25));
-    // Simdi geride kalan 24 paket (genel buffer) sirasiz geliyor: 2..24
-    for (uint32_t p = 2; p <= 24; p++)
-        TEST_ASSERT_TRUE_MESSAGE(_kabul(&rs, 1, p), "Kayma<=24 pencerede kabul edilmeliydi");
-    // Sinirin otesi (65 geride) reddedilmeli, pencere hala calisiyor.
-    TEST_ASSERT_TRUE(_kabul(&rs, 1, 200));
-    TEST_ASSERT_FALSE_MESSAGE(_kabul(&rs, 1, 200 - PENCERE_BOYU),
-                              "Pencere disi paket kabul edildi");
-}
-
 // SESSION DEGISIMI ANI: gonderici reboot etti (session 1 -> 2) ve _paket_sayaci
 // 0'dan yeniden basladi. Alicinin iki buffer'i hala ESKI session'in paketlerini
 // tasiyor olabilir. Yeni session'in kucuk paket_id'leri kabul edilmeli; eski
 // session'in paketleri ise (buffer'da kalmis olsalar bile) REDDEDILMELI.
-void test_rtk_f1_session_degisimi_aninda_eski_session_paketleri_reddedilir(void) {
-    replay_state_t rs = _yeni_durum();
-    TEST_ASSERT_TRUE(_kabul(&rs, 1, 500));
-    TEST_ASSERT_TRUE(_kabul(&rs, 1, 501));
-
-    // Gonderici reboot: session 2, paket_id 1'den basliyor. Ilk gelen bir RTK
-    // fragmenti olsun -> yeni session kabul, pencere sifirlanir.
-    TEST_ASSERT_TRUE_MESSAGE(_kabul(&rs, 2, 1), "Reboot sonrasi yeni session reddedildi");
-    // Ardindan gecikmis genel mesh paketleri (yeni session, kucuk id) gelir.
-    TEST_ASSERT_TRUE(_kabul(&rs, 2, 2));
-    TEST_ASSERT_TRUE(_kabul(&rs, 2, 3));
-
-    // Kritik: buffer'da kalmis eski session (1) paketleri, paket_id'leri buyuk
-    // olsa bile reddedilmeli. "farkli session -> kabul" deseydik bu paketler
-    // gecerdi (tam da kapatilan acik).
-    TEST_ASSERT_FALSE_MESSAGE(_kabul(&rs, 1, 502),
-                              "Eski session paketi kabul edildi - F1 kurali kesisimde calismiyor");
-    TEST_ASSERT_FALSE_MESSAGE(_kabul(&rs, 1, 9999),
-                              "Eski session'in buyuk paket_id'si kabul edildi");
-    // Yeni session normal akmaya devam etmeli (eski session reddi onu bozmadi).
-    TEST_ASSERT_TRUE(_kabul(&rs, 2, 4));
-}
-
 // RTK burst'u tam session degisimine denk gelirse: ayni RTCM mesajinin
 // fragmentlari reboot'a bolunemez (gonderici reboot ederse burst zaten olur),
 // ama alicinin buffer'inda eski session fragmentleri KALABILIR. Reassembly'nin
-// bunlari gormemesi replay katmaninda saglanmali.
-void test_rtk_f1_burst_ortasinda_reboot_eski_fragmentler_reddedilir(void) {
-    replay_state_t rs = _yeni_durum();
-    // Eski session'da 4 fragmentlik bir RTCM burst'unun ilk 2'si islendi.
-    TEST_ASSERT_TRUE(_kabul(&rs, 7, 100));
-    TEST_ASSERT_TRUE(_kabul(&rs, 7, 101));
-    // Gonderici reboot etti (session 8), yeni burst basladi.
-    TEST_ASSERT_TRUE(_kabul(&rs, 8, 1));
-    // Buffer'da kalan ESKI burst'un 3. ve 4. fragmentleri simdi isleniyor:
-    // reddedilmeli, yoksa reassembly iki session'in fragmentlerini karistirir.
-    TEST_ASSERT_FALSE_MESSAGE(_kabul(&rs, 7, 102),
-                              "Reboot oncesi fragment kabul edildi - reassembly karisirdi");
-    TEST_ASSERT_FALSE_MESSAGE(_kabul(&rs, 7, 103),
-                              "Reboot oncesi fragment kabul edildi - reassembly karisirdi");
-    // Yeni session'in burst'u temiz devam eder.
-    TEST_ASSERT_TRUE(_kabul(&rs, 8, 2));
-    TEST_ASSERT_TRUE(_kabul(&rs, 8, 3));
-}
-
 // Duplikat, kesisimde de tutmali: RTK fragmenti iki kez islenirse (ISR ring
 // buffer'i + retry) ikincisi reddedilmeli.
-void test_rtk_f1_duplikat_fragment_kesisimde_reddedilir(void) {
-    replay_state_t rs = _yeni_durum();
-    TEST_ASSERT_TRUE(_kabul(&rs, 3, 10));
-    TEST_ASSERT_TRUE(_kabul(&rs, 3, 11));
-    TEST_ASSERT_FALSE_MESSAGE(_kabul(&rs, 3, 10), "Duplikat RTK fragmenti kabul edildi");
-    TEST_ASSERT_FALSE_MESSAGE(_kabul(&rs, 3, 11), "Duplikat RTK fragmenti kabul edildi");
-}
-
 int main(int argc, char** argv) {
     (void)argc; (void)argv;
     UNITY_BEGIN();
@@ -670,23 +580,17 @@ int main(int argc, char** argv) {
     RUN_TEST(test_frame_parser_istenmeyen_tip_sonraki_komutu_bozmaz);
     RUN_TEST(test_frame_parser_tasma_gurultu_sonrasi_resync);
     RUN_TEST(test_frame_parser_bolunmus_cerceve_birlesir);
-    RUN_TEST(test_replay_ilk_paket_kabul);
-    RUN_TEST(test_replay_alici_reboot_sonrasi_eski_session_reddedilir);
-    RUN_TEST(test_replay_kalici_kayit_yoksa_eski_session_gecer);
-    RUN_TEST(test_replay_ayni_session_devam_kabul);
-    RUN_TEST(test_replay_calisirken_eski_session_reddedilir);
-    RUN_TEST(test_replay_yeni_session_kabul_ve_pencere_sifirlanir);
-    RUN_TEST(test_replay_duplikat_reddedilir);
-    RUN_TEST(test_replay_pencere_disi_eski_paket_reddedilir);
-    RUN_TEST(test_replay_sira_disi_pencere_icinde_kabul);
-    RUN_TEST(test_replay_buyuk_ilerleme_pencereyi_temizler);
+    RUN_TEST(test_frame_parser_rtcm_1029B_gecer);
+    RUN_TEST(test_frame_parser_255_bayt_ustu_idx_sarmaz);
+    RUN_TEST(test_frame_parser_tampon_asimi_sonrasi_resync);
     RUN_TEST(test_fragmantasyon_25B);
     RUN_TEST(test_fragmantasyon_180B);
-    RUN_TEST(test_fragmantasyon_200B);
-    RUN_TEST(test_fragmantasyon_201B);
+    RUN_TEST(test_fragmantasyon_238B);
+    RUN_TEST(test_fragmantasyon_239B);
     RUN_TEST(test_fragmantasyon_400B);
     RUN_TEST(test_fragmantasyon_720B);
     RUN_TEST(test_fragmantasyon_721B);
+    RUN_TEST(test_fragmantasyon_1029B);
     RUN_TEST(test_fragmantasyon_ust_sinir_kabul);
     RUN_TEST(test_fragmantasyon_ust_sinir_reddedilir);
     RUN_TEST(test_fragmantasyon_bos_girdi);
@@ -695,11 +599,5 @@ int main(int argc, char** argv) {
     RUN_TEST(test_reassembly_duplicate_fragment_atlanir);
     RUN_TEST(test_reassembly_sira_disi_gelis_dogru_birlesir);
     RUN_TEST(test_reassembly_gecersiz_fragment_reddedilir);
-    // RTK ile reboot-replay kesisimi
-    RUN_TEST(test_rtk_f1_iki_kaynak_sirasiz_hepsi_kabul);
-    RUN_TEST(test_rtk_f1_azami_kayma_penceresi_asmiyor);
-    RUN_TEST(test_rtk_f1_session_degisimi_aninda_eski_session_paketleri_reddedilir);
-    RUN_TEST(test_rtk_f1_burst_ortasinda_reboot_eski_fragmentler_reddedilir);
-    RUN_TEST(test_rtk_f1_duplikat_fragment_kesisimde_reddedilir);
     return UNITY_END();
 }

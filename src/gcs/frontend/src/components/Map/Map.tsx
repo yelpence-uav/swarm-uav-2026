@@ -3,12 +3,13 @@ import L from "leaflet";
 
 import type { QRPosition } from "../../hooks/useQRPositions";
 import { isQRPositionSet } from "../../hooks/useQRPositions";
+import type { FlightParams, GotoTarget } from "../../services/api";
 import type { DroneState } from "../../types/telemetry";
 import { droneIcon } from "./droneIcon";
 import { qrIcon } from "./qrIcon";
 import "./Map.css";
 
-// PX4 SITL default home (Zürich Hönggerberg) - test publisher burayı kullanıyor.
+// PX4 SITL default home (Zürich Hönggerberg) — test publisher burayı kullanıyor.
 // Saha'da ilk gerçek pozisyon gelince auto-fit zaten doğru yere alır.
 const ZURICH: L.LatLngTuple = [47.397742, 8.545594];
 const DEFAULT_ZOOM = 19;
@@ -17,9 +18,9 @@ const TRAIL_MAX_POINTS = 80;       // drone başına iz çizgisi uzunluğu
 
 // DroneCard'taki --color-drone-* ile eşleşmeli (cyan/violet/orange tematik aksent).
 const COLORS: Record<number, string> = {
-  1: "#38bdf8",  // cyan - Drone 1
-  2: "#a78bfa",  // violet - Drone 2
-  3: "#fb923c",  // orange - Drone 3
+  1: "#38bdf8",  // cyan — Drone 1
+  2: "#a78bfa",  // violet — Drone 2
+  3: "#fb923c",  // orange — Drone 3
 };
 
 interface DroneVisuals {
@@ -33,10 +34,23 @@ interface DroneVisuals {
 export interface MapProps {
   snapshot: DroneState[];
   qrPositions?: QRPosition[];
-  activeQrId?: number; // swarm_state.current_qr_id - aktif QR'ı vurgula
+  activeQrId?: number; // swarm_state.current_qr_id — aktif QR'ı vurgula
+  /** true iken haritaya tıklayınca QGC tarzı "buraya git" onay çubuğu açılır. */
+  guidedEnabled?: boolean;
+  /** Nokta-git komutu — Map, tıklanan lat/lon + irtifa + hızı buradan gönderir. */
+  onGoto?: (droneId: number, target: GotoTarget) => Promise<unknown>;
+  /** Uçuş parametreleri — pop-up'ta irtifa/hız varsayılanları buradan gelir. */
+  params?: FlightParams;
 }
 
-export function MapView({ snapshot, qrPositions = [], activeQrId = 0 }: MapProps) {
+export function MapView({
+  snapshot,
+  qrPositions = [],
+  activeQrId = 0,
+  guidedEnabled = false,
+  onGoto,
+  params,
+}: MapProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<L.Map | null>(null);
   const visualsRef = useRef<Map<number, DroneVisuals>>(new Map());
@@ -44,6 +58,17 @@ export function MapView({ snapshot, qrPositions = [], activeQrId = 0 }: MapProps
   const formationLineRef = useRef<L.Polyline | null>(null);
   const followRef = useRef<boolean>(true);
   const [followUI, setFollowUI] = useState<boolean>(true);
+
+  // --- QGC tarzı tıkla-git (guided) ---
+  const pendingMarkerRef = useRef<L.Marker | null>(null);
+  const pendingLineRef = useRef<L.Polyline | null>(null);
+  // Leaflet click callback'i son props/state'i görsün diye ref üzerinden çağrılır.
+  const clickHandlerRef = useRef<((e: L.LeafletMouseEvent) => void) | null>(null);
+  const [pending, setPending] = useState<{ lat: number; lon: number } | null>(null);
+  const [gotoDrone, setGotoDrone] = useState<number | null>(null);
+  const [gotoAlt, setGotoAlt] = useState("5");
+  const [gotoSending, setGotoSending] = useState(false);
+  const [gotoError, setGotoError] = useState<string | null>(null);
 
   // Map ilk kurulum
   useEffect(() => {
@@ -66,6 +91,9 @@ export function MapView({ snapshot, qrPositions = [], activeQrId = 0 }: MapProps
       setFollowUI(false);
     });
 
+    // Haritaya tıklama → guided nokta-git (son props için ref üzerinden).
+    map.on("click", (e: L.LeafletMouseEvent) => clickHandlerRef.current?.(e));
+
     mapRef.current = map;
 
     return () => {
@@ -87,7 +115,7 @@ export function MapView({ snapshot, qrPositions = [], activeQrId = 0 }: MapProps
       updateDroneVisuals(map, visualsRef.current, drone);
     }
 
-    // Formation çizgisi - 2+ drone varsa aralarına bağlantı
+    // Formation çizgisi — 2+ drone varsa aralarına bağlantı
     updateFormationLine(map, formationLineRef, validDrones);
 
     // Auto-follow: drone'ların etrafına otomatik zoom
@@ -108,7 +136,7 @@ export function MapView({ snapshot, qrPositions = [], activeQrId = 0 }: MapProps
     }
   }, [snapshot]);
 
-  // QR nokta işaretçileri - operatörün girdiği sabit konumlar. qrPositions
+  // QR nokta işaretçileri — operatörün girdiği sabit konumlar. qrPositions
   // veya aktif QR değişince güncellenir. Sadece lat/lon girilmiş olanlar çizilir.
   useEffect(() => {
     const map = mapRef.current;
@@ -165,6 +193,96 @@ export function MapView({ snapshot, qrPositions = [], activeQrId = 0 }: MapProps
     }
   }, [qrPositions, activeQrId, snapshot]);
 
+  // Bekleyen hedef değişince: geçici işaret + drone'dan noktaya çizgi çiz/güncelle.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+
+    if (!pending) {
+      if (pendingMarkerRef.current) {
+        map.removeLayer(pendingMarkerRef.current);
+        pendingMarkerRef.current = null;
+      }
+      if (pendingLineRef.current) {
+        map.removeLayer(pendingLineRef.current);
+        pendingLineRef.current = null;
+      }
+      return;
+    }
+
+    const tgt: L.LatLngTuple = [pending.lat, pending.lon];
+    if (!pendingMarkerRef.current) {
+      pendingMarkerRef.current = L.marker(tgt, {
+        icon: gotoTargetIcon(),
+        interactive: false,
+        zIndexOffset: 1000,
+      }).addTo(map);
+    } else {
+      pendingMarkerRef.current.setLatLng(tgt);
+    }
+
+    const d = snapshot.find(
+      (x) => x.drone_id === gotoDrone && hasValidPosition(x),
+    );
+    const pts: L.LatLngTuple[] = d ? [[d.lat, d.lon], tgt] : [tgt, tgt];
+    if (!pendingLineRef.current) {
+      pendingLineRef.current = L.polyline(pts, {
+        color: "#22d3ee",
+        weight: 2,
+        opacity: 0.9,
+        dashArray: "6, 6",
+        interactive: false,
+      }).addTo(map);
+    } else {
+      pendingLineRef.current.setLatLngs(pts);
+    }
+  }, [pending, gotoDrone, snapshot]);
+
+  const connectedDrones = snapshot.filter((d) => d.connected);
+
+  // Her render'da güncellenir → Leaflet click callback'i güncel değerleri görür.
+  clickHandlerRef.current = (e) => {
+    if (!guidedEnabled || !onGoto || connectedDrones.length === 0) return;
+    // Hedef koyarken auto-follow'u durdur (harita kaçmasın).
+    followRef.current = false;
+    setFollowUI(false);
+    const chosen =
+      gotoDrone != null && connectedDrones.some((d) => d.drone_id === gotoDrone)
+        ? gotoDrone
+        : connectedDrones[0].drone_id;
+    setGotoDrone(chosen);
+    // Varsayılan irtifa = Ayarlar parametresi (operatör pop-up'ta değiştirebilir).
+    // Hız YKİ'den ayarlanmıyor; drone MPC_XY_VEL_MAX (QGC) ile sınırlı.
+    setGotoAlt(String(params?.default_altitude_m ?? 5));
+    setGotoError(null);
+    setPending({ lat: e.latlng.lat, lon: e.latlng.lng });
+  };
+
+  const sendGoto = async () => {
+    if (!pending || gotoDrone == null || !onGoto) return;
+    const alt = parseFloat(gotoAlt);
+    if (Number.isNaN(alt) || alt <= 0) {
+      setGotoError("İrtifa > 0 olmalı");
+      return;
+    }
+    setGotoSending(true);
+    setGotoError(null);
+    try {
+      const target: GotoTarget = { lat: pending.lat, lon: pending.lon, alt };
+      await onGoto(gotoDrone, target);
+      setPending(null);
+    } catch (err) {
+      setGotoError(err instanceof Error ? err.message : "Komut gönderilemedi");
+    } finally {
+      setGotoSending(false);
+    }
+  };
+
+  const cancelGoto = () => {
+    setPending(null);
+    setGotoError(null);
+  };
+
   const toggleFollow = () => {
     const next = !followRef.current;
     followRef.current = next;
@@ -184,8 +302,79 @@ export function MapView({ snapshot, qrPositions = [], activeQrId = 0 }: MapProps
       >
         {followUI ? "📍 Takip AÇIK" : "📍 Takip KAPALI"}
       </button>
+
+      {pending && (
+        <div className="map-goto-bar" role="dialog">
+          <div className="map-goto-bar__title">🎯 Buraya git</div>
+          <div className="map-goto-bar__coords">
+            {pending.lat.toFixed(6)}, {pending.lon.toFixed(6)}
+          </div>
+          <label className="map-goto-bar__field">
+            İrtifa
+            <input
+              value={gotoAlt}
+              onChange={(e) => setGotoAlt(e.target.value)}
+              inputMode="decimal"
+            />
+            m
+          </label>
+          <div className="map-goto-bar__hint">
+            Hız: MPC_XY_VEL_MAX (QGC'den)
+          </div>
+          {connectedDrones.length > 1 && (
+            <label className="map-goto-bar__field">
+              Drone
+              <select
+                value={gotoDrone ?? ""}
+                onChange={(e) => setGotoDrone(Number(e.target.value))}
+              >
+                {connectedDrones.map((d) => (
+                  <option key={d.drone_id} value={d.drone_id}>
+                    {d.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+          <button
+            type="button"
+            className="map-goto-bar__go"
+            onClick={sendGoto}
+            disabled={gotoSending}
+          >
+            {gotoSending ? "…" : "Git"}
+          </button>
+          <button
+            type="button"
+            className="map-goto-bar__cancel"
+            onClick={cancelGoto}
+            disabled={gotoSending}
+          >
+            İptal
+          </button>
+          {gotoError && <div className="map-goto-bar__error">{gotoError}</div>}
+        </div>
+      )}
     </div>
   );
+}
+
+function gotoTargetIcon(): L.DivIcon {
+  return L.divIcon({
+    className: "goto-target-wrapper",
+    html:
+      '<div class="goto-target">' +
+      '<svg viewBox="0 0 24 24" width="30" height="30">' +
+      '<circle cx="12" cy="12" r="8" fill="none" stroke="#22d3ee" stroke-width="2"/>' +
+      '<circle cx="12" cy="12" r="2" fill="#22d3ee"/>' +
+      '<line x1="12" y1="1" x2="12" y2="6" stroke="#22d3ee" stroke-width="2"/>' +
+      '<line x1="12" y1="18" x2="12" y2="23" stroke="#22d3ee" stroke-width="2"/>' +
+      '<line x1="1" y1="12" x2="6" y2="12" stroke="#22d3ee" stroke-width="2"/>' +
+      '<line x1="18" y1="12" x2="23" y2="12" stroke="#22d3ee" stroke-width="2"/>' +
+      "</svg></div>",
+    iconSize: [30, 30],
+    iconAnchor: [15, 15],
+  });
 }
 
 function hasValidPosition(d: DroneState): boolean {
@@ -298,7 +487,7 @@ function buildPopup(d: DroneState): string {
   return `
     <div style="font-family: ui-monospace, monospace; font-size: 12px;">
       <div style="font-weight: 600; margin-bottom: 4px;">${d.name}</div>
-      <div>${status} - ${d.mode}</div>
+      <div>${status} — ${d.mode}</div>
       <div>alt: ${d.alt_m.toFixed(1)} m</div>
       <div>hız: ${d.groundspeed_mps.toFixed(1)} m/s</div>
       <div>yaw: ${d.yaw_deg.toFixed(1)}°</div>

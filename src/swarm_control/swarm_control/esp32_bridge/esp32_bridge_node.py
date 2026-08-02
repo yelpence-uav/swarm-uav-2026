@@ -1,4 +1,4 @@
-r"""ESP32 mesh ile ROS2 arasinda UART koprusu kuran dugum.
+r"""esp32_bridge.py — ESP32 mesh ↔ ROS2 köprüsü (ana node).
 
 Gerçek donanımda network_proxy'nin yerini alır: komşu drone'lardan
 ESP-NOW mesh üzerinden gelip ESP32'nin UART'a yazdığı paketleri çözer,
@@ -36,14 +36,14 @@ from rclpy.qos import (
     QoSProfile,
     QoSReliabilityPolicy,
 )
-
 import serial
 
-from std_msgs.msg import UInt8MultiArray
-
+from std_msgs.msg import String, UInt8MultiArray
 from swarm_interfaces.msg import (
+    AgentSetpoint,
     AgentStatus,
     ElectionResult,
+    GuidedCommand,
     LeaderHeartbeat,
     QRCoordinates,
     SwarmControlCommand,
@@ -55,6 +55,7 @@ from . import packet_parser as pp
 from .cobs import cobs_decode, cobs_encode
 from .crc16 import crc16
 
+# Mesh telemetrisi için BEST_EFFORT — kayıp paket tolere edilir
 _MESH_QOS = QoSProfile(
     reliability=QoSReliabilityPolicy.BEST_EFFORT,
     durability=QoSDurabilityPolicy.VOLATILE,
@@ -62,6 +63,7 @@ _MESH_QOS = QoSProfile(
     depth=10,
 )
 
+# Origin için RELIABLE + TRANSIENT_LOCAL — geç katılan da son değeri alır
 _ORIGIN_QOS = QoSProfile(
     reliability=QoSReliabilityPolicy.RELIABLE,
     durability=QoSDurabilityPolicy.TRANSIENT_LOCAL,
@@ -77,6 +79,7 @@ _HEARTBEAT_QOS = QoSProfile(
     depth=5,
 )
 
+# ElectionResult: RELIABLE + TRANSIENT_LOCAL, depth=10 (geç gelen alır)
 _ELECTION_QOS = QoSProfile(
     reliability=QoSReliabilityPolicy.RELIABLE,
     durability=QoSDurabilityPolicy.TRANSIENT_LOCAL,
@@ -84,7 +87,25 @@ _ELECTION_QOS = QoSProfile(
     depth=10,
 )
 
+# SystemEvent: RELIABLE, event tabanlı
 _EVENT_QOS = QoSProfile(
+    reliability=QoSReliabilityPolicy.RELIABLE,
+    durability=QoSDurabilityPolicy.VOLATILE,
+    history=QoSHistoryPolicy.KEEP_LAST,
+    depth=10,
+)
+
+# RTCM (YKİ okuyucusu -> baz bridge -> mesh): RELIABLE + VOLATILE.
+#
+# Spec §1 "ağ seviyesinde retransmisyon YOK, taze veri > eksiksiz veri" kuralı
+# HAVA LİNKİ içindir. Burası laptop-içi loopback DDS hop'u; orada kaybetmenin
+# hiçbir karşılığı yok — tazelik kazandırmaz, sadece RTCM mesajını öldürür.
+# O yüzden yerel hop RELIABLE. Derinlik 10, ~5 msg/s trafikte yayıncıyı
+# bloke etme riski yok.
+#
+# VOLATILE (TRANSIENT_LOCAL değil): geç katılan bir aboneye BAYAT RTCM
+# göndermek zararlıdır. Düzeltme verisinin yaşı > 2 sn ise zaten işe yaramaz.
+_RTCM_QOS = QoSProfile(
     reliability=QoSReliabilityPolicy.RELIABLE,
     durability=QoSDurabilityPolicy.VOLATILE,
     history=QoSHistoryPolicy.KEEP_LAST,
@@ -111,20 +132,20 @@ _DURUM_INDI = 11         # disarm, görev tamam
 _DURUM_FAILSAFE = 12     # failsafe (kumanda kaybı)
 _DURUM_STANDBY = 13      # yedek ajan, katılmaya hazır
 _DURUM_STATE_MAP = {
-    _DURUM_BILINMIYOR:  AgentStatus.STATE_UNKNOWN,
-    _DURUM_BOSTA:       AgentStatus.STATE_IDLE,
-    _DURUM_KALKIS:      AgentStatus.STATE_TAKEOFF,
-    _DURUM_SURUDE:      AgentStatus.STATE_IN_SWARM,
-    _DURUM_GOREV:       AgentStatus.STATE_EXECUTING_TASK,
-    _DURUM_AYRILDI:     AgentStatus.STATE_DETACHED,
-    _DURUM_HASSAS_INIS: AgentStatus.STATE_PRECISION_LANDING,
-    _DURUM_KATILMA:     AgentStatus.STATE_REJOINING,
-    _DURUM_BEKLIYOR:    AgentStatus.STATE_WAITING_REJOIN,
-    _DURUM_RTL:         AgentStatus.STATE_RETURN_HOME,
-    _DURUM_INIS:        AgentStatus.STATE_LANDING,
-    _DURUM_INDI:        AgentStatus.STATE_LANDED,
-    _DURUM_FAILSAFE:    AgentStatus.STATE_FAILSAFE,
-    _DURUM_STANDBY:     AgentStatus.STATE_STANDBY,
+    _DURUM_BILINMIYOR:  AgentStatus.STATE_UNKNOWN,            # 0
+    _DURUM_BOSTA:       AgentStatus.STATE_IDLE,               # 1
+    _DURUM_KALKIS:      AgentStatus.STATE_TAKEOFF,            # 4
+    _DURUM_SURUDE:      AgentStatus.STATE_IN_SWARM,           # 5
+    _DURUM_GOREV:       AgentStatus.STATE_EXECUTING_TASK,     # 6
+    _DURUM_AYRILDI:     AgentStatus.STATE_DETACHED,           # 7
+    _DURUM_HASSAS_INIS: AgentStatus.STATE_PRECISION_LANDING,  # 8
+    _DURUM_KATILMA:     AgentStatus.STATE_REJOINING,          # 10
+    _DURUM_BEKLIYOR:    AgentStatus.STATE_WAITING_REJOIN,     # 9
+    _DURUM_RTL:         AgentStatus.STATE_RETURN_HOME,        # 11
+    _DURUM_INIS:        AgentStatus.STATE_LANDING,            # 12
+    _DURUM_INDI:        AgentStatus.STATE_LANDED,             # 13
+    _DURUM_FAILSAFE:    AgentStatus.STATE_FAILSAFE,           # 14
+    _DURUM_STANDBY:     AgentStatus.STATE_STANDBY,            # 15
 }
 
 # Ters yön: AgentStatus.state -> firmware durum kodu. ARMING ve ARMED
@@ -150,12 +171,12 @@ _STATE_DURUM_MAP = {
 
 
 def _kirp_int16(deger: float) -> int:
-    """Float degeri int16 sinirlarina kirpar."""
+    """Float değeri int16 aralığına (-32768..32767) kırpıp tamsayı döner."""
     return max(-32768, min(32767, int(deger)))
 
 
 class Esp32BridgeNode(Node):
-    """ESP32 UART kopru dugumu."""
+    """ESP32 mesh ↔ ROS2 köprü node'u."""
 
     def __init__(self) -> None:
         super().__init__('esp32_bridge')
@@ -163,26 +184,44 @@ class Esp32BridgeNode(Node):
         self.declare_parameter('agent_id', 1)
         self.declare_parameter('serial_port', '/dev/ttyUSB0')
         self.declare_parameter('baud', 460800)
-        self.declare_parameter('rtcm_out_topic', '/rtcm/in')
+        # Boş bırakılırsa agent_id'den türetilir: /drone_{id}/rtcm/in
+        #
+        # Eski varsayılan '/rtcm/in' (mutlak, ad alanısız) idi ve px4_bridge
+        # f'{ns}/rtcm/in' = '/drone_{id}/rtcm/in' dinliyordu — İKİSİ HİÇ
+        # BAĞLANMIYORDU. baslat.sh de bu parametreyi geçmiyor, yani sahadaki
+        # yapılandırmada RTCM esp32_bridge'den çıkıp px4_bridge'e hiç
+        # ulaşmıyordu. RTCM daha önce hiç akmadığı için fark edilmemiş;
+        # uçtan uca testte yakalandı (baz "185 mesaj gönderdim" derken
+        # drone'da rtk sayacı 0 kalıyordu).
+        #
+        # Varsayılanı türetmek, parametreyi hatırlamak zorunda kalmamak için:
+        # px4_bridge ad alanını agent_id'den ürettiği sürece ikisi kendiliğinden
+        # eşleşir.
+        self.declare_parameter('rtcm_out_topic', '')
+        # Baz istasyonunda: YKİ'nin RTK okuyucusundan gelen RTCM3 mesajları.
+        # Drone tarafında bu topic'e yayın yapan yok → abonelik boşta durur.
+        self.declare_parameter('rtcm_in_topic', '/swarm/internal/rtcm')
         self._agent_id = int(self.get_parameter('agent_id').value)
         port = str(self.get_parameter('serial_port').value)
         baud = int(self.get_parameter('baud').value)
 
+        # agent_id: 1-254 (0 = broadcast/invalid, 255 = ESP-NOW broadcast).
+        # Bu sınırın dışı sessiz hata üretir, erken patlayalım.
         if not 1 <= self._agent_id <= 254:
             raise ValueError(
-                f'agent_id 1-254 arasi olmali: '
-                f'{self._agent_id}'
+                f'agent_id 1-254 arasında olmalı, verilen: {self._agent_id}'
             )
-
-        if baud not in (
-            9600, 19200, 38400, 57600, 115200, 230400, 460800
-        ):
+        # baud rate: ESP32 UART için yaygın değerler. 115200 default.
+        if baud not in (9600, 19200, 38400, 57600, 115200, 230400, 460800):
             self.get_logger().warning(
-                f'Olagandisi baud: {baud}'
+                f'Olağandışı baud rate: {baud} (yaygın değil)'
             )
 
+        # Komşu drone başına AgentStatus cache'i (POSE + DURUM birleşir)
         self._komsu_durum: dict[int, AgentStatus] = {}
         self._cache_lock = threading.Lock()
+
+        # Komşu status yayıncıları drone_id'ye göre tembel oluşturulur
         self._status_pubs: dict[int, object] = {}
 
         # Mesh sağlık sayaçları (failsafe gözlemi için).
@@ -194,21 +233,33 @@ class Esp32BridgeNode(Node):
         self._gonderim_drop = 0    # port kapalı/hata ile düşürülen
         self._rtk_alindi = 0       # alınan RTK/RTCM çerçevesi (liveness değil)
         self._bilinmeyen_tip = 0   # dispatch'te eşleşmeyen tip sayısı
+        # Baz tarafı RTCM sayaçları. "RTK neden fix vermiyor" sorusunda ilk
+        # ayrım: RTCM baz ESP'ye hiç ulaştı mı? Bu iki sayaç olmadan YKİ
+        # okuyucusunun sessizce durması ile havada kaybolması ayırt edilemez.
+        self._rtcm_gonderilen = 0  # mesh'e yazılan RTCM3 mesajı
+        self._rtcm_reddedilen = 0  # geçersiz bulunup atılan (boyut/preamble/uzunluk)
         # KOMUT için bridge-tarafı seq sayacı; firmware payload'a seq
         # eklenene kadar monoton değer üretir. mesh_config.h ile teyit
         # edilmesi gerekir.
         self._komut_rx_seq = 0
+        # Header iha_id ile payload drone_id uyumsuzluk sayacı
         self._id_uyumsuz = 0
         # En son bilinen SwarmOrigin (GPS→NED dönüşümü için gerekli).
         # Lider /swarm/internal/origin'a veya mesh _isle_origin yoluyla
         # gelir. Bridge GPS'i NED'e çevirmezse komşu pos_x/y/z=0.0 kalır.
         self._son_origin: SwarmOrigin | None = None
+        # NED dönüşüm için: 1 derece enlem ≈ 111.32 km. Saha 10m × 10m
+        # için düz-dünya yaklaşımı yeterince doğru (<10 km'de hata
+        # cm seviyesinde).
         self._METRE_PER_DERECE_LAT = 111_320.0
-        self._son_alim_ts = 0.0
+        self._son_alim_ts = 0.0    # son başarılı paket zamanı (monotonic)
+        # Son N saniyede mesaj duyan komşu ID'leri
         self._komsu_son_goruldu: dict[int, float] = {}
-
+        # POSE giden son zaman — rate limit için (Ö3)
         self._son_pose_gonderim_ts = 0.0
+        # Rate-limit eşiği: saniyede 10 POSE = 100ms aralık
         self._pose_periyot_s = 0.1
+        # DURUM giden son zaman — 1Hz tavan (state nadiren değişir)
         self._son_durum_gonderim_ts = 0.0
         self._durum_periyot_s = 1.0
 
@@ -230,6 +281,11 @@ class Esp32BridgeNode(Node):
             '/swarm/public/election/result',
             _ELECTION_QOS,
         )
+        # Event yayıncıları iki ayrı topic'e (kontrat 3.1 satır 119):
+        #  - _event_pub_internal: BU drone'un kendi ürettiği event'ler
+        #    (mesh diag, link lost). Publisher kuralı /internal/'a yazar.
+        #  - _event_pub_public: mesh'ten relay edilen komşu event'leri.
+        #    Bridge proxy rolünde, başkasının event'ini /public/'a düşürür.
         self._event_pub_internal = self.create_publisher(
             SystemEvent,
             '/swarm/internal/events/system',
@@ -240,10 +296,17 @@ class Esp32BridgeNode(Node):
             '/swarm/public/events/system',
             _EVENT_QOS,
         )
-        # RTK: mesh'ten gelen RTCM'i px4_interface'e ilet (rtcm/in)
+        # RTK: mesh'ten gelen RTCM'i px4_interface'e ilet.
+        # Boş parametre = agent_id'den türet; px4_bridge'in
+        # f'/drone_{agent_id}/rtcm/in' aboneliğiyle eşleşsin (bkz. parametre
+        # tanımındaki not).
+        _rtcm_cikis = str(self.get_parameter('rtcm_out_topic').value).strip()
+        if not _rtcm_cikis:
+            _rtcm_cikis = f'/drone_{self._agent_id}/rtcm/in'
+        self.get_logger().info(f'RTCM çıkış topic: {_rtcm_cikis}')
         self._rtcm_pub = self.create_publisher(
             UInt8MultiArray,
-            str(self.get_parameter('rtcm_out_topic').value),
+            _rtcm_cikis,
             10,
         )
         # YKİ'den gelen QR tablosu; son değeri saklarız (latched).
@@ -253,12 +316,39 @@ class Esp32BridgeNode(Node):
         self._qr_koord_toplayici: dict[int, tuple] = {}
         self._qr_koord_toplam = 0
 
+        # === Guided (YKİ tekil komut) ===
+        # Drone tarafı: mesh'ten gelen TIP_GOTO / guided TIP_KOMUT'u px4_bridge'in
+        # anladığı arayüze çevirir — String komut + AgentSetpoint. Base tarafında
+        # bu publisher'lar boşta kalır (guided mesh komutu drone'a iner, base'e değil).
+        self._guided_cmd_pub = self.create_publisher(
+            String, f'/swarm/agent/drone{self._agent_id}/commands', 10
+        )
+        self._guided_sp_pub = self.create_publisher(
+            AgentSetpoint, f'/drone_{self._agent_id}/control/setpoint', 10
+        )
+        # Aktif guided hedef; 10 Hz LOKAL tekrar yayınlanır ki px4_bridge OFFBOARD
+        # akışı ve FSM offboard-canlılığı bayatlamasın (mesh'e ÇIKMAZ).
+        self._guided_hedef: AgentSetpoint | None = None
+        self._guided_sp_timer = self.create_timer(0.1, self._guided_hedef_tekrar)
+        # Guided komutu güvenilir teslim için birkaç kez aralıklı gönderilir
+        # (broadcast'te OTA ACK yok). Aktif tekrar timer'ları burada tutulur.
+        self._guided_gonder_timerlar: set = set()
+
+        # Seri port ayarlarını sakla — kopma sonrası reconnect için
         self._port = port
         self._baud = baud
-        self._ser_lock = threading.Lock()
+        self._ser_lock = threading.Lock()  # write/reconnect yarış engeli
+
+        # Seri portu aç (ilk açılış başarısızsa fail-fast yapma; reconnect
+        # thread'i sahaya gidip ESP32 sonra takılırsa da yakalar).
         self._ser: serial.Serial | None = None
         self._seri_ac()
 
+        # RPi -> ESP32: kendi otoritatif durumumuzu mesh'e yaymak için.
+        # Kontrat 3.1 satır 109: agent_fsm /swarm/internal/drone{id}/status
+        # yayınlar (state, armed, battery, GPS, sensör sağlığı dahil).
+        # LOKAL /swarm/agent/.../telemetry ham PX4 verisidir; mesh için
+        # kullanmamalıyız — state alanı oradan UNKNOWN gelir.
         self.create_subscription(
             AgentStatus,
             f'/swarm/internal/drone{self._agent_id}/status',
@@ -266,6 +356,7 @@ class Esp32BridgeNode(Node):
             _MESH_QOS,
         )
 
+        # RPi -> ESP32: lider origin yayınını mesh'e iletmek için
         self.create_subscription(
             SwarmOrigin,
             '/swarm/internal/origin',
@@ -273,6 +364,7 @@ class Esp32BridgeNode(Node):
             _ORIGIN_QOS,
         )
 
+        # RPi -> ESP32: joystick komutu (Görev 2) mesh'e iletilecek
         self.create_subscription(
             SwarmControlCommand,
             '/swarm/internal/control/command',
@@ -280,6 +372,17 @@ class Esp32BridgeNode(Node):
             _MESH_QOS,
         )
 
+        # YKİ -> drone: guided tekil komut (arm/takeoff/goto/rtl/land).
+        # Base istasyonunda backend yayınlar; bu handler mesh'e iletir
+        # (TIP_KOMUT[guided] veya TIP_GOTO). Drone tarafında yayıncı yok → boşta.
+        self.create_subscription(
+            GuidedCommand,
+            '/swarm/internal/guided/command',
+            self._on_guided_out,
+            _MESH_QOS,
+        )
+
+        # RPi -> ESP32: lider kalp atışı (yalnızca aktif lider yayınlar)
         self.create_subscription(
             LeaderHeartbeat,
             '/swarm/internal/leader/heartbeat',
@@ -287,6 +390,7 @@ class Esp32BridgeNode(Node):
             _HEARTBEAT_QOS,
         )
 
+        # RPi -> ESP32: lider seçim sonucu (yeni lider yayınlar)
         self.create_subscription(
             ElectionResult,
             '/swarm/internal/election/result',
@@ -294,6 +398,26 @@ class Esp32BridgeNode(Node):
             _ELECTION_QOS,
         )
 
+        # YKİ RTK okuyucusu -> ESP32: RTCM3 düzeltme verisi.
+        #
+        # NEDEN ROS ÜZERİNDEN, doğrudan seri porta değil:
+        # Bir seri portu tek süreç açabilir ve bu portun sahibi zaten bu node.
+        # yki_rtcm_reader doğrudan yazmaya kalksaydı "Device or resource busy"
+        # alırdı (sahada QGC'nin autoconnect'iyle birebir bu yaşandı). RTCM'i
+        # topic'ten alarak port sahipliği tek elde kalıyor ve çakışma yapısal
+        # olarak imkânsızlaşıyor.
+        #
+        # Okuyucunun ayrı süreç kalması bilinçli: çökerse telemetri ve komut
+        # yolu etkilenmez. Tek süreçte birleştirmek RTCM hatasını tüm YKİ'yi
+        # düşüren bir hataya dönüştürürdü.
+        self.create_subscription(
+            UInt8MultiArray,
+            str(self.get_parameter('rtcm_in_topic').value),
+            self._on_rtcm_out,
+            _RTCM_QOS,
+        )
+
+        # Seri okuma thread'i
         self._calisiyor = True
         self._okuma_thread = threading.Thread(
             target=self._seri_oku_dongusu, daemon=True
@@ -308,28 +432,30 @@ class Esp32BridgeNode(Node):
             f'Esp32BridgeNode başlatıldı: agent_id={self._agent_id}'
         )
 
+    # =================================================================
+    # MESH SAĞLIK RAPORLAMA
+    # =================================================================
     def _diag_yayinla(self) -> None:
-        """Mesh link durumu için SystemEvent yayınlar (operatör görür).
+        """Her saniye mesh diagnostik sayaçlarını SystemEvent yayar.
 
         GPS/mesh güvenilir olmayabilir, failsafe kritik.
         swarm_fsm bu mesajı dinler ve son alım zamanına bakarak mesh
         kopukluğunu (>= 2 sn yok ise) algılayabilir.
         """
         now = time.monotonic()
+        # Son 5 sn'de mesaj duydugumuz komsu sayisi.
+        # _cache_lock + snapshot: seri okuma thread'i ayni dict'e yazarken
+        # dogrudan iterasyon "dict changed size" cokmesine yol acar (race).
+        # Kilidi sadece kopya alirken tut, sayma disarida yapilir.
         with self._cache_lock:
-            komsu_ts = list(
-                self._komsu_son_goruldu.values()
-            )
-        aktif_komsu = sum(
-            1 for ts in komsu_ts if now - ts < 5.0
-        )
+            komsu_ts = list(self._komsu_son_goruldu.values())
+        aktif_komsu = sum(1 for ts in komsu_ts if now - ts < 5.0)
         son_alim_yas = (
-            now - self._son_alim_ts
-            if self._son_alim_ts > 0 else -1.0
+            now - self._son_alim_ts if self._son_alim_ts > 0 else -1.0
         )
         link_ok = (
             self._ser is not None and self._ser.is_open
-            and 0 <= son_alim_yas < 2.0
+            and son_alim_yas >= 0 and son_alim_yas < 2.0
         )
 
         msg = SystemEvent()
@@ -351,12 +477,22 @@ class Esp32BridgeNode(Node):
             f'gonderim_drop={self._gonderim_drop} '
             f'id_uyumsuz={self._id_uyumsuz} '
             f'rtk={self._rtk_alindi} bilinmeyen={self._bilinmeyen_tip} '
+            f'rtcm_tx={self._rtcm_gonderilen} '
+            f'rtcm_red={self._rtcm_reddedilen} '
             f'son_alim_yas_s={son_alim_yas:.2f}'
         )
+        # Mesh diag: bu drone'un kendi gözleminden çıkıyor → /internal/
         self._event_pub_internal.publish(msg)
 
+    # =================================================================
+    # SERİ PORT YÖNETİMİ
+    # =================================================================
     def _seri_ac(self) -> bool:
-        """Seri portu baglantisini acar."""
+        """Seri portu açar. Başarılı ise True, başarısız ise False.
+
+        Saha senaryosu: USB gevşedi, ESP32 reset attı, kablo değişti.
+        Hata fırlatmaz; reconnect döngüsü tekrar dener.
+        """
         with self._ser_lock:
             if self._ser is not None and self._ser.is_open:
                 return True
@@ -365,8 +501,7 @@ class Esp32BridgeNode(Node):
                     self._port, self._baud, timeout=0.1
                 )
                 self.get_logger().info(
-                    f'Seri port acildi: '
-                    f'{self._port} @ {self._baud}'
+                    f'Seri port açıldı: {self._port} @ {self._baud}'
                 )
                 self._mesh_olay_yayinla(
                     SystemEvent.SEVERITY_INFO,
@@ -376,7 +511,7 @@ class Esp32BridgeNode(Node):
             except serial.SerialException as exc:
                 self._ser = None
                 self.get_logger().error(
-                    f'Seri acilamadi ({self._port}): {exc}'
+                    f'Seri port açılamadı ({self._port}): {exc}'
                 )
                 return False
 
@@ -395,10 +530,18 @@ class Esp32BridgeNode(Node):
         msg.message = mesaj
         msg.value = 0.0
         msg.has_position = False
+        # Kendi event'imiz: /swarm/internal/events/system
         self._event_pub_internal.publish(msg)
 
+    # =================================================================
+    # SERİ OKUMA (arka plan thread)
+    # =================================================================
     def _seri_oku_dongusu(self) -> None:
-        """Arka planda UART okumasi yapar."""
+        """Seri porttan sürekli okur, 0x00'da çerçeve keser ve işler.
+
+        Bağlantı koparsa thread ölmez; portu kapatır, 1 saniye bekler,
+        yeniden açmayı dener. Saha güvenilirliği için kritik.
+        """
         tampon = bytearray()
         while self._calisiyor:
             if self._ser is None or not self._ser.is_open:
@@ -409,8 +552,7 @@ class Esp32BridgeNode(Node):
                 veri = self._ser.read(2048)
             except serial.SerialException as exc:
                 self.get_logger().warning(
-                    f'Seri okuma hatasi, tekrar denenecek: '
-                    f'{exc}'
+                    f'Seri okuma hatası, yeniden bağlanılacak: {exc}'
                 )
                 self._mesh_olay_yayinla(
                     SystemEvent.SEVERITY_WARNING,
@@ -437,10 +579,15 @@ class Esp32BridgeNode(Node):
                         tampon.clear()
 
     def _cerceve_isle(self, ham: bytes) -> None:
-        """Cerceveyi cozer ve tipine gore dagitir."""
+        """Bir COBS çerçevesini çözer, doğrular ve tipe göre yayınlar.
+
+        Args:
+            ham (bytes): 0x00 ayracı hariç tek bir COBS çerçevesi.
+        """
         decoded = cobs_decode(ham)
         cerceve = pp.cerceve_coz(decoded)
         if cerceve is None:
+            # CRC hatası veya eksik veri — sayacı artır, sessizce at
             self._crc_fail += 1
             return
         self._alim_ok += 1
@@ -474,33 +621,21 @@ class Esp32BridgeNode(Node):
             return
 
         if cerceve.tip == pp.TIP_POSE:
-            self._isle_pose(
-                cerceve.iha_id, cerceve.payload
-            )
+            self._isle_pose(cerceve.iha_id, cerceve.payload)
         elif cerceve.tip == pp.TIP_DURUM:
-            self._isle_durum(
-                cerceve.iha_id, cerceve.payload
-            )
+            self._isle_durum(cerceve.iha_id, cerceve.payload)
         elif cerceve.tip == pp.TIP_ORIGIN:
-            self._isle_origin(
-                cerceve.iha_id, cerceve.payload
-            )
+            self._isle_origin(cerceve.iha_id, cerceve.payload)
         elif cerceve.tip == pp.TIP_KOMUT:
-            self._isle_komut(
-                cerceve.iha_id, cerceve.payload
-            )
+            self._isle_komut(cerceve.iha_id, cerceve.payload)
+        elif cerceve.tip == pp.TIP_GOTO:
+            self._isle_goto(cerceve.iha_id, cerceve.payload)
         elif cerceve.tip == pp.TIP_LEADER_HB:
-            self._isle_leader_hb(
-                cerceve.iha_id, cerceve.payload
-            )
+            self._isle_leader_hb(cerceve.iha_id, cerceve.payload)
         elif cerceve.tip == pp.TIP_ELECTION:
-            self._isle_election(
-                cerceve.iha_id, cerceve.payload
-            )
+            self._isle_election(cerceve.iha_id, cerceve.payload)
         elif cerceve.tip == pp.TIP_RENK:
-            self._isle_renk(
-                cerceve.iha_id, cerceve.payload
-            )
+            self._isle_renk(cerceve.iha_id, cerceve.payload)
         elif cerceve.tip == pp.TIP_GOREV:
             self._isle_gorev(cerceve.iha_id, cerceve.payload)
         elif cerceve.tip == pp.TIP_QR_DATA:
@@ -515,8 +650,11 @@ class Esp32BridgeNode(Node):
                 f'bilinmeyen tip 0x{cerceve.tip:02X} iha_id={cerceve.iha_id}'
             )
 
+    # =================================================================
+    # MESH -> ROS2 İŞLEYİCİLERİ
+    # =================================================================
     def _komsu_status_al(self, drone_id: int) -> AgentStatus:
-        """Cache'den komsu statusunu doner veya olusturur."""
+        """Komşu için cache'teki AgentStatus'u döner, yoksa oluşturur."""
         status = self._komsu_durum.get(drone_id)
         if status is None:
             status = AgentStatus()
@@ -537,61 +675,71 @@ class Esp32BridgeNode(Node):
         pose = pp.pose_coz(payload)
         lat_deg = pose.lat / 1e7
         lon_deg = pose.lon / 1e7
-        alt_amsl_m = pose.alt_dm / 10.0
+        # NOT: alt_dm artik GORELI irtifa (m, yukari; dm) tasiyor — AMSL DEGIL.
+        # Drone kendi EKF goreli irtifasini (-pos_z) POSE'a koyuyor; boylece
+        # dikey irtifa origin'den BAGIMSIZ, pürüzsüz ve QGC ile ayni gelir.
+        rel_alt_m = pose.alt_dm / 10.0
         vel_x_ned, vel_y_ned = pose.vx / 100.0, pose.vy / 100.0
         with self._cache_lock:
             status = self._komsu_status_al(drone_id)
+            # GPS alanları (her durumda doldur)
             status.lat_deg = lat_deg
             status.lon_deg = lon_deg
-            status.alt_amsl_m = alt_amsl_m
             status.heading_deg = pose.heading / 10.0
             status.vel_x = vel_x_ned
             status.vel_y = vel_y_ned
             status.vel_z = pose.vz / 100.0
-            # GPS→NED dönüşümü ve validity bayrakları
-            ned = self._gps_ned_cevir(lat_deg, lon_deg, alt_amsl_m)
+            # DİKEY: goreli irtifadan dogrudan — origin gerekmez, her zaman gecerli.
+            status.pos_z = -rel_alt_m
+            status.z_valid = True
+            # YATAY (pos_x/pos_y): hala origin-tabanli GPS→NED (harita/formasyon).
+            ned = self._gps_ned_cevir(lat_deg, lon_deg, 0.0)
             if ned is not None:
                 status.pos_x = ned[0]
                 status.pos_y = ned[1]
-                status.pos_z = ned[2]
                 status.origin_synced = True
                 status.xy_valid = True
-                status.z_valid = True
                 status.v_xy_valid = True
                 if hasattr(status, 'v_z_valid'):
                     status.v_z_valid = True
             else:
+                # Origin yok → yatay NED yok (dikey irtifa yine de gecerli)
                 status.pos_x = 0.0
                 status.pos_y = 0.0
-                status.pos_z = 0.0
                 status.origin_synced = False
                 status.xy_valid = False
-                status.z_valid = False
                 status.v_xy_valid = False
                 if hasattr(status, 'v_z_valid'):
                     status.v_z_valid = False
             self._yayinla_status(drone_id, status)
 
     def _gps_ned_cevir(
-        self, lat_deg: float, lon_deg: float,
-        alt_amsl_m: float,
+        self, lat_deg: float, lon_deg: float, alt_amsl_m: float,
     ) -> tuple[float, float, float] | None:
-        """GPS verisini flat-earth yaklasimiyla NED'e cevirir."""
+        """GPS koordinatını yerel NED frame'e çevirir.
+
+        Düz-dünya yaklaşımı (flat-earth approximation): saha < 10 km
+        olduğunda hatası cm seviyesinde. Yarışma sahası 10m × 10m
+        için fazlasıyla yeterli.
+
+        Returns:
+            (pos_x, pos_y, pos_z) NED: North, East, Down (m), veya
+            origin yoksa None.
+        """
         origin = self._son_origin
         if origin is None:
             return None
         olat = float(origin.origin_lat_deg)
         olon = float(origin.origin_lon_deg)
         oalt = float(origin.origin_alt_amsl_m)
-        m_per_deg_lon = (
-            self._METRE_PER_DERECE_LAT
-            * math.cos(math.radians(olat))
+        # 1 derece enlem ≈ 111.32 km (sabit); 1 derece boylam ≈
+        # 111.32 km × cos(enlem). Origin enlemi referans alınır.
+        m_per_deg_lon = self._METRE_PER_DERECE_LAT * math.cos(
+            math.radians(olat)
         )
-        pos_x = (
-            (lat_deg - olat) * self._METRE_PER_DERECE_LAT
-        )
+        pos_x = (lat_deg - olat) * self._METRE_PER_DERECE_LAT
         pos_y = (lon_deg - olon) * m_per_deg_lon
-        pos_z = oalt - alt_amsl_m
+        pos_z = oalt - alt_amsl_m  # NED: Down = aşağı pozitif
         return (pos_x, pos_y, pos_z)
 
     def _isle_durum(self, drone_id: int, payload: bytes) -> None:
@@ -602,15 +750,20 @@ class Esp32BridgeNode(Node):
         komşulara avoidance hesabı yapılmamalı.
         """
         durum = pp.durum_coz(payload)
+        # Header iha_id ile payload drone_id eşleşmeli; aksi halde
+        # paket bozulmuş ya da firmware yanlış kaynak ID yazmış demektir.
+        # Frame header (iha_id) gerçek kaynak kabul edilir; sayacı artır,
+        # log basarak gözlemleyelim ama paketi düşürme (downstream'in
+        # state'i hâlâ değerli olabilir).
         if durum.drone_id != drone_id:
             self._id_uyumsuz += 1
             self.get_logger().warning(
                 f'DURUM ID uyumsuz: header={drone_id} '
-                f'payload={durum.drone_id}'
+                f'payload={durum.drone_id} — header esas alındı'
             )
-        state = _DURUM_STATE_MAP.get(
-            durum.durum, AgentStatus.STATE_UNKNOWN
-        )
+        # Bilinmeyen durum kodları STATE_UNKNOWN (0) olarak bırakılır;
+        # contract gereği UNKNOWN, "aktif gibi davran" anlamına gelir.
+        state = _DURUM_STATE_MAP.get(durum.durum, AgentStatus.STATE_UNKNOWN)
         with self._cache_lock:
             status = self._komsu_status_al(drone_id)
             status.state = state
@@ -622,28 +775,32 @@ class Esp32BridgeNode(Node):
             status.imu_healthy = bool(durum.imu_ok)
             status.mag_healthy = bool(durum.mag_ok)
             status.baro_healthy = bool(durum.baro_ok)
+            # REV C: mesh'ten yeni gelen alanlar.
+            status.flight_mode = durum.ucus_modu
+            status.gps_satellites = durum.gps_uydu
+            status.gps_hdop = durum.gps_hdop
+            status.kill_switch_active = durum.kill_switch_active
+            status.rc_link_ok = durum.rc_link_ok
+            status.ready_to_arm = durum.ready_to_arm
             # mesh_link_ok ve mesh_node_count henüz AgentStatus.msg'de yok;
             # eklenince hasattr otomatik doldurur, o zamana kadar
             # status_text taşır. AgentStatus.msg ile teyit edilmesi gerekir.
             if hasattr(status, 'mesh_link_ok'):
-                status.mesh_link_ok = bool(
-                    durum.mesh_link_ok
-                )
+                status.mesh_link_ok = bool(durum.mesh_link_ok)
             if hasattr(status, 'mesh_node_count'):
-                status.mesh_node_count = int(
-                    durum.mesh_komsu_sayisi
-                )
+                status.mesh_node_count = int(durum.mesh_komsu_sayisi)
             status.status_text = (
                 f'mesh durum={durum.durum} rssi={durum.rssi} '
-                f'link={durum.mesh_link_ok} '
-                f'komsu={durum.mesh_komsu_sayisi}'
+                f'link={durum.mesh_link_ok} komsu={durum.mesh_komsu_sayisi}'
+                + (' KILL' if durum.kill_switch_active else '')
             )
             self._yayinla_status(drone_id, status)
 
-    def _yayinla_status(
-        self, drone_id: int, status: AgentStatus
-    ) -> None:
-        """Komsu durumunu ROS2 uzerinden yayinlar."""
+    def _yayinla_status(self, drone_id: int, status: AgentStatus) -> None:
+        """Komşu AgentStatus'u /swarm/public/drone{id}/status'a yayınlar.
+
+        Not: _cache_lock tutulurken çağrılır.
+        """
         status.stamp = self.get_clock().now().to_msg()
         pub = self._status_pubs.get(drone_id)
         if pub is None:
@@ -655,10 +812,14 @@ class Esp32BridgeNode(Node):
             self._status_pubs[drone_id] = pub
         pub.publish(status)
 
-    def _isle_origin(
-        self, leader_id: int, payload: bytes
-    ) -> None:
-        """Origin pakedini cozer ve public olarak yayinlar."""
+    def _isle_origin(self, leader_id: int, payload: bytes) -> None:
+        """TIP_ORIGIN -> /swarm/public/origin'e SwarmOrigin yayınlar.
+
+        Sender (gönderici lider) sadece gps_fix_type>=3 olduğunda ORIGIN
+        yayınladığı için (bkz. _on_origin_out), bu pakedi gördüğümüzde
+        kalite garantilidir. gps_fix_type=3 (3D fix) varsayılır;
+        firmware ileride alanı paketleyebilirse gerçek değer kullanılır.
+        """
         origin = pp.origin_coz(payload)
         msg = SwarmOrigin()
         msg.stamp = self.get_clock().now().to_msg()
@@ -667,6 +828,8 @@ class Esp32BridgeNode(Node):
         msg.origin_lon_deg = origin.lon_1e7 / 1e7
         msg.origin_alt_amsl_m = origin.alt_mm / 1000.0
         msg.valid = True
+        # Sender garantisi: en az 3D fix. Gerçek değer payload'da yok
+        # (16 byte dolu); subscriber bu varsayım üzerinden çalışsın.
         msg.gps_fix_type = 3
         msg.sequence = origin.sequence
         # NED dönüşümü için yerel kopya — komşu POSE paketlerini ortak
@@ -684,6 +847,20 @@ class Esp32BridgeNode(Node):
         sequence yok, mesh_config.h ile teyit edilmesi gerekir.
         """
         k = pp.komut_coz(payload)
+        # Guided (YKİ tekil komut): FSM/mode_manager'ı baypas edip doğrudan
+        # px4_bridge'e String komuta çevir. source_id burada HEDEF drone'dur
+        # (base gönderirken iha_id'ye hedefi yazar); bize veya broadcast'e
+        # yönelikse uygula. Joystick sürü komutu eskisi gibi akar.
+        if k.alt_tip == pp.KOMUT_MODE_GUIDED:
+            # Hedef payload'da (k.target_id) — mesh çerçeve id'si kaynak MAC'ten
+            # üretildiği için base'in id'sini taşır, hedefi DEĞİL.
+            self.get_logger().info(
+                f'[GUIDED] KOMUT geldi: hedef={k.target_id} bayraklar=0x{k.flags:02X} '
+                f'(benim id={self._agent_id}, cerceve_kaynak={source_id})'
+            )
+            if k.target_id in (self._agent_id, 0):
+                self._guided_discrete_uygula(k)
+            return
         msg = SwarmControlCommand()
         msg.stamp = self.get_clock().now().to_msg()
         msg.mode = k.alt_tip
@@ -694,9 +871,7 @@ class Esp32BridgeNode(Node):
         msg.takeoff = bool(k.flags & pp.KOMUT_FLAG_TAKEOFF)
         msg.land = bool(k.flags & pp.KOMUT_FLAG_LAND)
         msg.rtl = bool(k.flags & pp.KOMUT_FLAG_RTL)
-        msg.emergency_stop = bool(
-            k.flags & pp.KOMUT_FLAG_EMERGENCY
-        )
+        msg.emergency_stop = bool(k.flags & pp.KOMUT_FLAG_EMERGENCY)
         msg.formation_change_requested = bool(
             k.flags & pp.KOMUT_FLAG_FORMATION_CHANGE
         )
@@ -704,19 +879,93 @@ class Esp32BridgeNode(Node):
             k.flags & pp.KOMUT_FLAG_DEADMAN_PRESSED
         )
         msg.command_valid = True
-        self._komut_rx_seq = (
-            (self._komut_rx_seq + 1) & 0xFFFFFFFF
-        )
+        # Bridge-tarafı sequence: her alınan KOMUT için +1. Dedup yapan
+        # downstream'ler 0 görmek yerine monoton bir sayı görmeli.
+        self._komut_rx_seq = (self._komut_rx_seq + 1) & 0xFFFFFFFF
         msg.sequence_num = self._komut_rx_seq
-        msg.source_module = (
-            f'esp32_bridge_from_agent_{source_id}'
-        )
+        msg.source_module = f'esp32_bridge_from_agent_{source_id}'
         self._control_pub.publish(msg)
 
-    def _isle_leader_hb(
-        self, source_id: int, payload: bytes
-    ) -> None:
-        """Lider hb pakedini cozer ve yayinlar."""
+    # =================================================================
+    # GUIDED (YKİ tekil komut) — mesh -> px4_bridge çevirisi
+    # =================================================================
+    def _guided_discrete_uygula(self, k: pp.KomutVeri) -> None:
+        """Guided TIP_KOMUT bayraklarını px4_bridge String komutuna çevirir.
+
+        arm/disarm/takeoff/land/rtl. Takeoff irtifası throttle alanında
+        (metre*100) taşınır. FSM'i baypas eder — guided modda operatör otoritesi.
+        """
+        if k.flags & pp.KOMUT_FLAG_ARM:
+            self._guided_string('arm')
+        elif k.flags & pp.KOMUT_FLAG_DISARM:
+            self._guided_hedef = None
+            self._guided_string('disarm')
+        elif k.flags & pp.KOMUT_FLAG_TAKEOFF:
+            irtifa = k.throttle_x100 / 100.0
+            if irtifa <= 0.0:
+                irtifa = 10.0
+            self._guided_string('offboard')
+            self._guided_string(f'takeoff:{irtifa:.1f}')
+        elif k.flags & pp.KOMUT_FLAG_LAND:
+            self._guided_hedef = None
+            self._guided_string('land')
+        elif k.flags & pp.KOMUT_FLAG_RTL:
+            self._guided_hedef = None
+            self._guided_string('rtl')
+
+    def _guided_string(self, komut: str) -> None:
+        """px4_bridge FSM komut topic'ine String yayınlar (arm/land/takeoff...)."""
+        m = String()
+        m.data = komut
+        self._guided_cmd_pub.publish(m)
+        self.get_logger().info(f'[GUIDED] px4 komut: {komut}')
+
+    def _isle_goto(self, source_id: int, payload: bytes) -> None:
+        """TIP_GOTO -> hedef bizsek AgentSetpoint (NED) olarak px4_bridge'e.
+
+        Hedef mesh'ten bir KEZ gelir; 10 Hz LOKAL tekrar (_guided_hedef_tekrar)
+        OFFBOARD akışını canlı tutar (mesh'e çıkmaz). 'offboard' idempotent gönderilir.
+        Hedef drone payload'da (g.target_id) — çerçeve id'si kaynağı taşır.
+        """
+        g = pp.goto_coz(payload)
+        self.get_logger().info(
+            f'[GUIDED] GOTO geldi: hedef={g.target_id} '
+            f'(benim id={self._agent_id}, cerceve_kaynak={source_id})'
+        )
+        if g.target_id not in (self._agent_id, 0):
+            return
+        sp = AgentSetpoint()
+        sp.agent_id = self._agent_id
+        sp.source = AgentSetpoint.SOURCE_POSITION_CONTROLLER
+        sp.priority = AgentSetpoint.PRIORITY_POSITION
+        sp.x = g.kuzey_m
+        sp.y = g.dogu_m
+        sp.z = g.asagi_m
+        sp.position_valid = True
+        if g.yaw_gecerli:
+            sp.heading_deg = g.yaw_deg
+            sp.heading_valid = True
+        sp.source_module = 'esp32_bridge_guided'
+        self._guided_hedef = sp
+        self._guided_string('offboard')
+        self._guided_hedef_yayinla()
+        self.get_logger().info(
+            f'[GUIDED] goto NED=({sp.x:.1f},{sp.y:.1f},{sp.z:.1f}) '
+            f'yaw={("%.0f" % sp.heading_deg) if g.yaw_gecerli else "serbest"}'
+        )
+
+    def _guided_hedef_yayinla(self) -> None:
+        """Aktif guided hedefi güncel zaman damgasıyla px4_bridge'e yayınlar."""
+        if self._guided_hedef is not None:
+            self._guided_hedef.stamp = self.get_clock().now().to_msg()
+            self._guided_sp_pub.publish(self._guided_hedef)
+
+    def _guided_hedef_tekrar(self) -> None:
+        """10 Hz timer: aktif guided hedefi LOKAL tekrar yayınla (mesh'e çıkmaz)."""
+        self._guided_hedef_yayinla()
+
+    def _isle_leader_hb(self, source_id: int, payload: bytes) -> None:
+        """TIP_LEADER_HB -> /swarm/public/leader/heartbeat'e yayın."""
         hb = pp.leader_hb_coz(payload)
         msg = LeaderHeartbeat()
         msg.stamp = self.get_clock().now().to_msg()
@@ -727,10 +976,8 @@ class Esp32BridgeNode(Node):
         msg.mission_active = bool(hb.mission_active)
         self._leader_hb_pub.publish(msg)
 
-    def _isle_election(
-        self, source_id: int, payload: bytes
-    ) -> None:
-        """Secim sonuc pakedini cozer ve yayinlar."""
+    def _isle_election(self, source_id: int, payload: bytes) -> None:
+        """TIP_ELECTION -> /swarm/public/election/result'a yayın."""
         e = pp.election_coz(payload)
         msg = ElectionResult()
         msg.stamp = self.get_clock().now().to_msg()
@@ -739,38 +986,45 @@ class Esp32BridgeNode(Node):
         msg.election_round = e.election_round
         msg.triggered_by_agent_id = e.triggered_by
         msg.reason = e.reason
+        # 0 dolgu ID'lerini at — gerçekte onay verenler bunlar
         msg.confirmed_by_agent_ids = [
             i for i in e.confirmed_ids if i != 0
         ]
         self._election_pub.publish(msg)
 
-    def _isle_renk(
-        self, source_id: int, payload: bytes
-    ) -> None:
-        """Renk algilama pakedini cozer ve event yayar."""
+    def _isle_renk(self, source_id: int, payload: bytes) -> None:
+        """TIP_RENK -> SystemEvent.EVENT_COLOR_ZONE_DETECTED olarak yayın.
+
+        Mesh üzerinden komşulardan gelen renk bölgesi tespitleri sürünün
+        ortak hafızasına SystemEvent olarak yayımlanır. GPS koordinatları
+        1e-7 derece tamsayı olduğu için NED pos_x/y'ye konmaz; mesaj
+        string'inde taşınır.
+        """
         r = pp.renk_coz(payload)
         msg = SystemEvent()
         msg.stamp = self.get_clock().now().to_msg()
-        msg.event_type = (
-            SystemEvent.EVENT_COLOR_ZONE_DETECTED
-        )
+        msg.event_type = SystemEvent.EVENT_COLOR_ZONE_DETECTED
         msg.severity = SystemEvent.SEVERITY_INFO
         msg.source_agent_id = source_id
         msg.value = float(r.renk)
         msg.has_position = False
         msg.source_module = 'esp32_bridge'
-        msg.message = (
-            f'renk={r.renk} lat_1e7={r.lat} lon_1e7={r.lon}'
-        )
+        msg.message = f'renk={r.renk} lat_1e7={r.lat} lon_1e7={r.lon}'
+        # Komşudan gelen event: bridge proxy rolünde /public/'a düşürür
         self._event_pub_public.publish(msg)
 
-    def _isle_gorev(
-        self, source_id: int, payload: bytes
-    ) -> None:
-        """Gorev pakedini cozer ve event yayar."""
+    def _isle_gorev(self, source_id: int, payload: bytes) -> None:
+        """TIP_GOREV -> SystemEvent olarak yayınlanır.
+
+        QR çözümleme normalde qr_detector'da yapılır; ancak mesh
+        üzerinden komşu drone bir görev paketi (formasyon tipi, irtifa,
+        bekleme süresi) iletmek isterse bu handler devreye girer.
+        SystemEvent ile downstream (mission_fsm, GCS) haberdar edilir.
+        """
         g = pp.gorev_coz(payload)
         msg = SystemEvent()
         msg.stamp = self.get_clock().now().to_msg()
+        # GOREV paketi QR çözümünden çıkar, en yakın event QR_PARSED
         msg.event_type = SystemEvent.EVENT_QR_PARSED
         msg.severity = SystemEvent.SEVERITY_INFO
         msg.source_agent_id = source_id
@@ -873,26 +1127,35 @@ class Esp32BridgeNode(Node):
     # =================================================================
     # ROS2 -> MESH İŞLEYİCİLERİ (UART'a yaz)
     # =================================================================
-    def _uart_yaz(self, tip: int, iha_id: int, payload: bytes) -> None:
+    def _uart_yaz(self, tip: int, iha_id: int, payload: bytes,
+                  maks: int = 18) -> None:
         """Bir paketi çerçeveleyip (CRC+COBS) seri porta yazar.
 
         Args:
             tip (int): Paket tipi (TIP_*).
             iha_id (int): Kaynak drone kimliği.
-            payload (bytes): 16 baytlık payload.
+            payload (bytes): Gönderilecek yük.
+            maks (int): İzin verilen en büyük payload. Varsayılan 18, mesh
+                paketlerinin (`mesh_paket_t.veri[18]`) sınırı. TIP_RTK bunun
+                istisnası: RTCM3 mesajı 1029 bayta kadar çıkar ve ESP tarafında
+                fragmentlenir, `mesh_gonder()` yolunu hiç kullanmaz.
+
+        Not: 18 baytlık varsayılan bir koruma, kısıt değil. Yanlış boyutta bir
+        payload ESP'de sessizce yanlış çözülür (alanlar kayar), o yüzden erken
+        yakalanıyor. RTCM için sınırı gevşetiyoruz ama KALDIRMIYORUZ — üst sınır
+        yine RTCM3'ün kendi tavanı.
         """
-        if not 1 <= len(payload) <= 18:
+        if not 1 <= len(payload) <= maks:
             self.get_logger().warning(
-                f'UART payload 1-18 byte olmalı ({len(payload)}), atlandı'
+                f'UART payload 1-{maks} byte olmalı ({len(payload)}), atlandı'
             )
             return
         govde = bytes([tip, iha_id]) + payload
         crc = crc16(govde)
-        cerceve = govde + bytes(
-            [(crc >> 8) & 0xFF, crc & 0xFF]
-        )
+        cerceve = govde + bytes([(crc >> 8) & 0xFF, crc & 0xFF])
         with self._ser_lock:
             if self._ser is None or not self._ser.is_open:
+                # Port kopuk; okuma thread'i reconnect dener. Drop et.
                 self._gonderim_drop += 1
                 return
             try:
@@ -900,7 +1163,7 @@ class Esp32BridgeNode(Node):
                 self._gonderim_ok += 1
             except serial.SerialException as exc:
                 self.get_logger().warning(
-                    f'Seri yazma hatasi: {exc}'
+                    f'Seri yazma hatası, port kapatılıyor: {exc}'
                 )
                 try:
                     self._ser.close()
@@ -909,38 +1172,93 @@ class Esp32BridgeNode(Node):
                 self._ser = None
                 self._gonderim_drop += 1
 
+    # RTCM3 çerçeve tavanı: uzunluk alanı 10 bit → payload <= 1023,
+    # tam çerçeve = 3 (başlık) + 1023 + 3 (CRC24Q) = 1029. Spec §2.6.
+    _RTCM_MAKS = 1029
+    _RTCM_MIN = 6          # boş payload'lı en küçük geçerli çerçeve
+
+    def _on_rtcm_out(self, msg: UInt8MultiArray) -> None:
+        """RTCM3 mesajını TIP_RTK çerçevesi olarak baz ESP'ye yazar.
+
+        Zincir: u-blox -> yki_rtcm_reader -> (bu topic) -> ESP -> mesh -> drone.
+
+        Fragmentleme BURADA YAPILMAZ — tam mesaj gönderilir, parçalama baz
+        ESP'nin işi (spec §3.1: "YKİ PARÇALAMA YAPMAZ"). İki yerde parçalarsak
+        çift fragmantasyon olur ve drone tarafındaki reassembly bozulur.
+        """
+        veri = bytes(msg.data)
+
+        # Ucuz savunmalar: okuyucu CRC-24Q'yu zaten doğruluyor, ama bu topic'e
+        # başka bir şey yayın yaparsa çöp mesh'e çıkmadan burada dursun.
+        if not self._RTCM_MIN <= len(veri) <= self._RTCM_MAKS:
+            self._rtcm_reddedilen += 1
+            self.get_logger().warning(
+                f'RTCM boyutu geçersiz ({len(veri)} byte), atıldı'
+            )
+            return
+        if veri[0] != 0xD3:
+            self._rtcm_reddedilen += 1
+            self.get_logger().warning('RTCM 0xD3 ile başlamıyor, atıldı')
+            return
+        beklenen = 3 + (((veri[1] & 0x03) << 8) | veri[2]) + 3
+        if beklenen != len(veri):
+            self._rtcm_reddedilen += 1
+            self.get_logger().warning(
+                f'RTCM uzunluğu tutarsız (beklenen {beklenen}, '
+                f'gelen {len(veri)}), atıldı'
+            )
+            return
+
+        # iha_id alanı RTK'de BAZ_ID (99) sentinel'i taşır — mesh kimliği DEĞİL.
+        # ESP tarafı (rtk_sender.h) bu değeri birebir bekliyor.
+        self._uart_yaz(pp.TIP_RTK, pp.BAZ_ID, veri, maks=self._RTCM_MAKS)
+        self._rtcm_gonderilen += 1
+
     def _on_own_status(self, msg: AgentStatus) -> None:
-        """Kendi telemetrimizi mesh'e yazar."""
+        """Kendi otoritatif durumumuzu TIP_POSE + TIP_DURUM olarak yayar.
+
+        Kontrat 3.1: agent_fsm'in /swarm/internal/drone{id}/status
+        yayınını alıp mesh'e iletiriz. POSE 10Hz tavanında (çarpışma
+        önleme için yeterli), DURUM 1Hz tavanında (state değişimi
+        nadiren, batarya/sensör 1Hz yeterli). Hem rate-limit hem UART
+        akış kontrolü için iki ayrı periyot.
+        """
         now = time.monotonic()
 
-        # Pose 10Hz
-        if (now - self._son_pose_gonderim_ts >=
-                self._pose_periyot_s):
+        # --- POSE 10Hz ---
+        if now - self._son_pose_gonderim_ts >= self._pose_periyot_s:
             self._son_pose_gonderim_ts = now
+            # alt_dm: GORELI irtifa (yerden yukseklik, m yukari; dm) — AMSL DEGIL.
+            # ONCEDEN -pos_z (EKF yerel Z) kullaniliyordu; ANCAK EKF yerel-Z origin'i
+            # boot'a bagli ~10m kayabiliyor VE ucus boyunca suruyor -> yerdeyken YKI
+            # 10m gosteriyordu, min-nav guvenlik kilidini bosa cikariyordu (yerde
+            # direkt goto -> devrilme). SAGLAM kaynak: AMSL - home_AMSL (PX4 rel_alt
+            # ile ayni, QGC ile ayni, ~0 yerde). Home yoksa 0 gonder (guvenli:
+            # kilit yerde sayar, oto-kalkis zorlar; yanlislikla yatay nav baslatmaz).
+            if msg.home_alt_amsl_m != 0.0 and msg.gps_fix_type >= 3:
+                rel_alt_m = msg.alt_amsl_m - msg.home_alt_amsl_m
+            else:
+                rel_alt_m = 0.0
             payload = pp.pose_paketle(
                 lat=int(msg.lat_deg * 1e7),
                 lon=int(msg.lon_deg * 1e7),
-                alt_dm=int(msg.alt_amsl_m * 10.0),
+                alt_dm=int(rel_alt_m * 10.0),
                 heading=int(msg.heading_deg * 10.0),
                 vx=int(msg.vel_x * 100.0),
                 vy=int(msg.vel_y * 100.0),
                 vz=int(msg.vel_z * 100.0),
             )
-            self._uart_yaz(
-                pp.TIP_POSE, self._agent_id, payload
-            )
+            self._uart_yaz(pp.TIP_POSE, self._agent_id, payload)
 
         # --- DURUM 1Hz ---
         # Ayrılma akışı için kritik: komşular bizim state'imizi bilmeli.
         # APF de DETACHED/LANDED komşulara avoidance hesaplamaz.
         if now - self._son_durum_gonderim_ts >= self._durum_periyot_s:
             self._son_durum_gonderim_ts = now
-            durum_kodu = _STATE_DURUM_MAP.get(
-                msg.state, _DURUM_BILINMIYOR
-            )
-            batt_pct = max(
-                0, min(100, int(msg.battery_percent))
-            )
+            # AgentStatus.state -> firmware DURUM kodu çevir
+            durum_kodu = _STATE_DURUM_MAP.get(msg.state, _DURUM_BILINMIYOR)
+            # battery_pct'i 0-100 aralığına kırp (negatif veya >100 olabilir)
+            batt_pct = max(0, min(100, int(msg.battery_percent)))
             payload = pp.durum_paketle(
                 drone_id=self._agent_id,
                 durum=durum_kodu,
@@ -952,15 +1270,22 @@ class Esp32BridgeNode(Node):
                 imu_ok=1 if msg.imu_healthy else 0,
                 mag_ok=1 if msg.mag_healthy else 0,
                 baro_ok=1 if msg.baro_healthy else 0,
-                rssi=0,
-                mesh_link_ok=1,
-                mesh_komsu_sayisi=len(
-                    self._komsu_son_goruldu
-                ),
+                rssi=0,        # bizim kendi RSSI yok; firmware doldurur
+                mesh_link_ok=1,  # gönderebiliyorsak link kuruluyor
+                mesh_komsu_sayisi=len(self._komsu_son_goruldu),
+                # REV C alanları — mesh'te yeni açılan yere giriyorlar.
+                # ucus_modu: PX4'ün BİLDİRDİĞİ mod (switch pozisyonu değil).
+                ucus_modu=int(msg.flight_mode),
+                gps_uydu=int(msg.gps_satellites),
+                gps_hdop=float(msg.gps_hdop),
+                # Güvenlik kritik: kill switch açıkken operatör drone'u
+                # "boşta" görüyordu; artık mesh'ten geçiyor.
+                kill_switch_active=1 if msg.kill_switch_active else 0,
+                rc_link_ok=1 if msg.rc_link_ok else 0,
+                # PX4 PREARM_CHECK: emniyet anahtarı dahil tüm ön-kontroller.
+                ready_to_arm=1 if msg.ready_to_arm else 0,
             )
-            self._uart_yaz(
-                pp.TIP_DURUM, self._agent_id, payload
-            )
+            self._uart_yaz(pp.TIP_DURUM, self._agent_id, payload)
 
     def _on_origin_out(self, msg: SwarmOrigin) -> None:
         """Lider origin'ini TIP_ORIGIN olarak ESP32'ye gönderir.
@@ -982,13 +1307,13 @@ class Esp32BridgeNode(Node):
             self._son_origin = msg
         if not msg.valid:
             self.get_logger().warning(
-                'SwarmOrigin gecersiz, mesh yayini es gecildi'
+                'ORIGIN valid=false, mesh yayını atlandı'
             )
             return
         if msg.gps_fix_type < 3:
             self.get_logger().warning(
-                f'Origin GPS fix={msg.gps_fix_type} < 3, '
-                f'mesh yayini es gecildi'
+                f'ORIGIN gps_fix_type={msg.gps_fix_type} < 3, '
+                f'mesh yayını atlandı (kalite yetersiz)'
             )
             return
         payload = pp.origin_paketle(
@@ -997,14 +1322,14 @@ class Esp32BridgeNode(Node):
             alt_mm=int(msg.origin_alt_amsl_m * 1000.0),
             sequence=msg.sequence,
         )
-        self._uart_yaz(
-            pp.TIP_ORIGIN, self._agent_id, payload
-        )
+        self._uart_yaz(pp.TIP_ORIGIN, self._agent_id, payload)
 
-    def _on_control_out(
-        self, msg: SwarmControlCommand
-    ) -> None:
-        """Joystick komutlarini mesh'e yazar."""
+    def _on_control_out(self, msg: SwarmControlCommand) -> None:
+        """SwarmControlCommand'ı TIP_KOMUT olarak ESP32'ye gönderir.
+
+        Görev 2 joystick akışı: int16 ölçeklemesi sınırı dışına çıkan
+        değerler kırpılır.
+        """
         flags = 0
         if msg.takeoff:
             flags |= pp.KOMUT_FLAG_TAKEOFF
@@ -1016,6 +1341,9 @@ class Esp32BridgeNode(Node):
             flags |= pp.KOMUT_FLAG_EMERGENCY
         if msg.formation_change_requested:
             flags |= pp.KOMUT_FLAG_FORMATION_CHANGE
+        # SwarmControlCommand.deadman_pressed mesh'te bayrak biti olarak
+        # taşınır; aksi halde alıcı tarafta downstream motion'u sessizce
+        # reddeder ("command_valid AND deadman_pressed" şartı).
         if msg.deadman_pressed:
             flags |= pp.KOMUT_FLAG_DEADMAN_PRESSED
 
@@ -1025,16 +1353,78 @@ class Esp32BridgeNode(Node):
             roll_x100=_kirp_int16(msg.roll_cmd * 100.0),
             pitch_x100=_kirp_int16(msg.pitch_cmd * 100.0),
             yaw_x100=_kirp_int16(msg.yaw_cmd * 100.0),
-            throttle_x100=_kirp_int16(
-                msg.throttle_cmd * 100.0
-            ),
+            throttle_x100=_kirp_int16(msg.throttle_cmd * 100.0),
         )
-        self._uart_yaz(
-            pp.TIP_KOMUT, self._agent_id, payload
+        self._uart_yaz(pp.TIP_KOMUT, self._agent_id, payload)
+
+    def _guided_gonder(self, tip: int, hedef: int, payload: bytes) -> None:
+        """Guided komutu güvenilir teslim için 250ms aralıkla 4 kez gönderir.
+
+        Broadcast'te OTA ACK/retry yok; tek çerçeve havada kaybolabilir. Base
+        ESP JOYSTICK rate limiti 200ms olduğundan 250ms aralık hepsinin geçmesini
+        sağlar. Non-blocking (ROS timer); operatör tek tık yapınca komut oturur.
+        """
+        self._uart_yaz(tip, hedef, payload)  # ilki hemen
+        durum = {'kalan': 3, 'timer': None}
+
+        def _tekrar():
+            self._uart_yaz(tip, hedef, payload)
+            durum['kalan'] -= 1
+            if durum['kalan'] <= 0 and durum['timer'] is not None:
+                durum['timer'].cancel()
+                self._guided_gonder_timerlar.discard(durum['timer'])
+
+        durum['timer'] = self.create_timer(0.25, _tekrar)
+        self._guided_gonder_timerlar.add(durum['timer'])
+
+    def _on_guided_out(self, msg: GuidedCommand) -> None:
+        """GuidedCommand'ı mesh'e iletir: TIP_GOTO veya guided TIP_KOMUT.
+
+        Çerçeve iha_id'sine HEDEF drone yazılır ama mesh id taşımadığı için
+        hedef asıl olarak payload'da (target_id) gider; drone buna göre süzer.
+        Base istasyonunda çalışır — drone'da bu topic'e yayın olmadığı için dormant.
+        """
+        hedef = int(msg.agent_id)
+        if msg.action == GuidedCommand.ACTION_GOTO:
+            bayraklar = pp.GOTO_BAYRAK_YAW_GECERLI if msg.heading_valid else 0
+            payload = pp.goto_paketle(
+                kuzey_dm=_kirp_int16(msg.x * 10.0),
+                dogu_dm=_kirp_int16(msg.y * 10.0),
+                asagi_dm=_kirp_int16(msg.z * 10.0),
+                yaw_ddeg=_kirp_int16(msg.heading_deg * 10.0),
+                bayraklar=bayraklar,
+                target_id=hedef,
+            )
+            self._guided_gonder(pp.TIP_GOTO, hedef, payload)
+            return
+
+        aksiyon_bayrak = {
+            GuidedCommand.ACTION_ARM: pp.KOMUT_FLAG_ARM,
+            GuidedCommand.ACTION_DISARM: pp.KOMUT_FLAG_DISARM,
+            GuidedCommand.ACTION_TAKEOFF: pp.KOMUT_FLAG_TAKEOFF,
+            GuidedCommand.ACTION_LAND: pp.KOMUT_FLAG_LAND,
+            GuidedCommand.ACTION_RTL: pp.KOMUT_FLAG_RTL,
+        }
+        flag = aksiyon_bayrak.get(msg.action)
+        if flag is None:
+            self.get_logger().warning(f'guided: bilinmeyen action {msg.action}')
+            return
+        # Takeoff hedef irtifası throttle alanında (metre*100) taşınır.
+        throttle = (
+            _kirp_int16(msg.altitude_m * 100.0)
+            if msg.action == GuidedCommand.ACTION_TAKEOFF else 0
         )
+        payload = pp.komut_paketle(
+            alt_tip=pp.KOMUT_MODE_GUIDED,
+            flags=flag,
+            roll_x100=0, pitch_x100=0, yaw_x100=0,
+            throttle_x100=throttle,
+            target_id=hedef,
+        )
+        self._guided_gonder(pp.TIP_KOMUT, hedef, payload)
 
     def _on_leader_hb_out(self, msg: LeaderHeartbeat) -> None:
-        """Lider kalp atisini mesh'e iletir."""
+        """Lider kalp atışını TIP_LEADER_HB olarak ESP32'ye gönderir."""
         payload = pp.leader_hb_paketle(
             leader_id=msg.leader_id,
             sequence_num=msg.sequence_num,
@@ -1042,12 +1432,10 @@ class Esp32BridgeNode(Node):
             active_agent_count=msg.active_agent_count,
             mission_active=1 if msg.mission_active else 0,
         )
-        self._uart_yaz(
-            pp.TIP_LEADER_HB, self._agent_id, payload
-        )
+        self._uart_yaz(pp.TIP_LEADER_HB, self._agent_id, payload)
 
     def _on_election_out(self, msg: ElectionResult) -> None:
-        """Secim sonucunu mesh'e iletir."""
+        """ElectionResult'ı TIP_ELECTION olarak ESP32'ye gönderir."""
         payload = pp.election_paketle(
             new_leader_id=msg.new_leader_id,
             election_round=msg.election_round,
@@ -1056,14 +1444,15 @@ class Esp32BridgeNode(Node):
             sequence_num=msg.sequence_num,
             confirmed_ids=tuple(msg.confirmed_by_agent_ids),
         )
-        self._uart_yaz(
-            pp.TIP_ELECTION, self._agent_id, payload
-        )
+        self._uart_yaz(pp.TIP_ELECTION, self._agent_id, payload)
 
+    # =================================================================
+    # KAPANIŞ
+    # =================================================================
     def destroy_node(self) -> bool:
-        """Node sonlanirken kaynaklari serbest birakir."""
+        """Thread'i durdurur, seri portu kapatır, son istatistik basar."""
         self.get_logger().info(
-            f'Kapanis: alim_ok={self._alim_ok} '
+            f'Kapanış: alim_ok={self._alim_ok} '
             f'crc_fail={self._crc_fail} '
             f'gonderim_ok={self._gonderim_ok} '
             f'gonderim_drop={self._gonderim_drop}'
@@ -1073,7 +1462,7 @@ class Esp32BridgeNode(Node):
             self._okuma_thread.join(timeout=2.0)
             if self._okuma_thread.is_alive():
                 self.get_logger().warning(
-                    'UART thread 2 sn icinde durmadi'
+                    'UART thread 2 sn içinde durmadı, terk ediliyor'
                 )
         with self._ser_lock:
             if self._ser is not None and self._ser.is_open:
@@ -1081,7 +1470,7 @@ class Esp32BridgeNode(Node):
                     self._ser.close()
                 except Exception as exc:  # noqa: BLE001
                     self.get_logger().warning(
-                        f'Seri kapatma hatasi: {exc}'
+                        f'Seri port kapatma hatası: {exc}'
                     )
         return super().destroy_node()
 

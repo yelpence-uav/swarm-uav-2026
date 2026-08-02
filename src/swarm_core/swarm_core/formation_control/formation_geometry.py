@@ -148,6 +148,38 @@ def latlon_to_ned(
     return north, east
 
 
+def rotate_offset(
+    dx: float,
+    dy: float,
+    heading_rad: float,
+) -> tuple[float, float]:
+    """Body frame offsetini heading acisi kadar dondurur (NED)."""
+    cos_h = math.cos(heading_rad)
+    sin_h = math.sin(heading_rad)
+    return dx * cos_h - dy * sin_h, dx * sin_h + dy * cos_h
+
+
+def compute_setpoint(
+    center_x: float,
+    center_y: float,
+    center_z: float,
+    formation_type: int,
+    rank: int,
+    total: int,
+    spacing: float,
+    alpha_rad: float,
+    heading_rad: float,
+) -> tuple[float, float, float]:
+    """Tek drone'un formasyon setpoint'ini NED frame'de hesaplar."""
+    if rank < 0 or rank >= total:
+        raise ValueError(f'rank {rank} aralik disi (0..{total - 1})')
+
+    offsets = compute_slot_offsets(formation_type, total, spacing, alpha_rad)
+    dx, dy, dz = offsets[rank]
+    rx, ry = rotate_offset(dx, dy, heading_rad)
+    return center_x + rx, center_y + ry, center_z + dz
+
+
 def hungarian_assignment(cost: list[list[float]]) -> list[int]:
     """O(N^3) Macar algoritmasi optimal atama."""
     n = len(cost)
@@ -197,35 +229,3 @@ def hungarian_assignment(cost: list[list[float]]) -> list[int]:
     for j in range(1, n + 1):
         assignment[p[j] - 1] = j - 1
     return assignment
-
-
-def rotate_offset(
-    dx: float,
-    dy: float,
-    heading_rad: float,
-) -> tuple[float, float]:
-    """Body frame offsetini heading acisi kadar dondurur (NED)."""
-    cos_h = math.cos(heading_rad)
-    sin_h = math.sin(heading_rad)
-    return dx * cos_h - dy * sin_h, dx * sin_h + dy * cos_h
-
-
-def compute_setpoint(
-    center_x: float,
-    center_y: float,
-    center_z: float,
-    formation_type: int,
-    rank: int,
-    total: int,
-    spacing: float,
-    alpha_rad: float,
-    heading_rad: float,
-) -> tuple[float, float, float]:
-    """Tek drone'un formasyon setpoint'ini NED frame'de hesaplar."""
-    if rank < 0 or rank >= total:
-        raise ValueError(f'rank {rank} aralik disi (0..{total - 1})')
-
-    offsets = compute_slot_offsets(formation_type, total, spacing, alpha_rad)
-    dx, dy, dz = offsets[rank]
-    rx, ry = rotate_offset(dx, dy, heading_rad)
-    return center_x + rx, center_y + ry, center_z + dz

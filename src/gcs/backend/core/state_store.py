@@ -78,6 +78,7 @@ class DroneState:
     # RC + kill switch.
     rc_link_ok: bool = False
     kill_switch_active: bool = False
+    ready_to_arm: bool = False
     rc_signal_failsafe_active: bool = False
 
     # Uçuş kalitesi.

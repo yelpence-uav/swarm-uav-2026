@@ -1,5 +1,4 @@
-# Copyright 2026 Yelpence
-"""Ajan FSM durum gecis kurallari."""
+"""FSM geçiş kuralları — hangi durumdan hangisine geçilecek."""
 
 from .agent_context import AgentContext
 from .agent_states import AgentState, FlightMode
@@ -7,6 +6,8 @@ from .preflight_checker import run_preflight_checks
 
 _ARMING_TIMEOUT_S = 30.0
 _ARMED_STABILIZE_S = 2.0
+_ARMING_TIMEOUT_S = 15.0
+_ARMED_STABILIZE_S = 2.0  # offboard + EKF2 stabilizasyonu için bekle
 _TAKEOFF_TIMEOUT_S = 30.0
 _PRECISION_LANDING_TIMEOUT_S = 60.0
 _REJOIN_TIMEOUT_S = 60.0
@@ -34,7 +35,15 @@ _OFFBOARD_CHECK_STATES = frozenset({
 
 
 def evaluate_transitions(ctx: AgentContext) -> AgentState | None:
-    """Mevcut duruma gore gecilmesi gereken sonraki state'i doner."""
+    """
+    Mevcut duruma göre geçilmesi gereken sonraki state'i döner.
+
+    Args:
+        ctx: Drone'un anlık durum bilgisi.
+
+    Returns:
+        Geçilecek AgentState veya geçiş yoksa None.
+    """
     if ctx.autonomous_control_paused or ctx.hold_active:
         return None
 
@@ -67,20 +76,45 @@ def evaluate_transitions(ctx: AgentContext) -> AgentState | None:
     handler = handlers.get(ctx.state)
     next_state = handler(ctx) if handler else None
 
+    # Şartname kural 13: home set değilken RTL yerine acil iniş yapılır.
     if next_state == AgentState.RETURN_HOME and not ctx.home_set:
-        ctx.status_text = 'Home set değil - RTL yerine acil iniş'
+        ctx.status_text = 'Home set değil — RTL yerine acil iniş'
         return AgentState.LANDING
 
     return next_state
 
 
 def _from_unknown(ctx: AgentContext) -> AgentState | None:
-    """UNKNOWN durumundan gecisleri degerlendirir."""
+    """Evaluate transitions from this state.
+
+    İlk telemetri geldikten sonra IDLE'a geçer.
+
+    Telemetri gelmeden IDLE demek "hazırım" demektir; oysa o anda drone'un
+    durumu hakkında hiçbir bilgimiz yok. UNKNOWN'da beklemek dürüst davranış:
+    arm edilemez ve YKİ'de gerçek durum (bilinmiyor) görünür.
+
+    Args:
+        ctx (AgentContext): Drone'un anlık durum bilgisi.
+
+    Returns:
+        AgentState | None: Telemetri geldiyse IDLE, gelmediyse None (bekle).
+    """
+    if not ctx.telemetri_alindi:
+        return None
     return AgentState.IDLE
 
 
 def _from_idle(ctx: AgentContext) -> AgentState | None:
-    """IDLE durumundan gecisleri degerlendirir."""
+    """Evaluate transitions from this state.
+
+    IDLE → ARMING: Arming talebi varsa ve preflight kontrolleri geçiyorsa.
+
+    Args:
+        ctx: Drone durum bilgisi.
+
+    Returns:
+        AgentState.ARMING veya None.
+    """
     if ctx.pending_state == AgentState.ARMING:
         passed, _ = run_preflight_checks(ctx)
         if passed:
@@ -89,7 +123,17 @@ def _from_idle(ctx: AgentContext) -> AgentState | None:
 
 
 def _from_arming(ctx: AgentContext) -> AgentState | None:
-    """ARMING durumundan gecisleri degerlendirir."""
+    """Evaluate transitions from this state.
+
+    ARMING → ARMED: PX4 arm onayı verdi.
+    ARMING → IDLE: Sağlık kaybı veya timeout.
+
+    Args:
+        ctx: Drone durum bilgisi.
+
+    Returns:
+        Hedef AgentState veya None.
+    """
     if ctx.armed:
         return AgentState.ARMED
     if not ctx.healthy:
@@ -100,7 +144,17 @@ def _from_arming(ctx: AgentContext) -> AgentState | None:
 
 
 def _from_armed(ctx: AgentContext) -> AgentState | None:
-    """ARMED durumundan gecisleri degerlendirir."""
+    """Evaluate transitions from this state.
+
+    ARMED → TAKEOFF: Görev başlatma sinyali geldi ve OFFBOARD aktif.
+    ARMED → IDLE: Disarm veya sağlık kaybı.
+
+    Args:
+        ctx: Drone durum bilgisi.
+
+    Returns:
+        Hedef AgentState veya None.
+    """
     if not ctx.armed or not ctx.healthy:
         return AgentState.IDLE
     if (ctx.mission_start_sequence_active
@@ -111,7 +165,17 @@ def _from_armed(ctx: AgentContext) -> AgentState | None:
 
 
 def _from_takeoff(ctx: AgentContext) -> AgentState | None:
-    """TAKEOFF durumundan gecisleri degerlendirir."""
+    """Evaluate transitions from this state.
+
+    TAKEOFF → IN_SWARM: Hedef irtifaya ulaşıldı ve drone stabil.
+    TAKEOFF → FAILSAFE: 30 saniyede irtifaya ulaşılamadı.
+
+    Args:
+        ctx: Drone durum bilgisi.
+
+    Returns:
+        Hedef AgentState veya None.
+    """
     if (ctx.target_altitude_reached
             and ctx.altitude_stable
             and ctx.attitude_stable
@@ -124,7 +188,16 @@ def _from_takeoff(ctx: AgentContext) -> AgentState | None:
 
 
 def _from_in_swarm(ctx: AgentContext) -> AgentState | None:
-    """IN_SWARM durumundan gecisleri degerlendirir."""
+    """Evaluate transitions from this state.
+
+    IN_SWARM: Swarm manager komutlarına göre geçiş yapar.
+
+    Args:
+        ctx: Drone durum bilgisi.
+
+    Returns:
+        Hedef AgentState veya None.
+    """
     if ctx.pending_state == AgentState.EXECUTING_TASK:
         return AgentState.EXECUTING_TASK
     if ctx.pending_state == AgentState.DETACHED:
@@ -137,7 +210,17 @@ def _from_in_swarm(ctx: AgentContext) -> AgentState | None:
 
 
 def _from_executing_task(ctx: AgentContext) -> AgentState | None:
-    """EXECUTING_TASK durumundan gecisleri degerlendirir."""
+    """Evaluate transitions from this state.
+
+    EXECUTING_TASK → IN_SWARM: Görev tamamlandı.
+    EXECUTING_TASK → RETURN_HOME: RTL komutu geldi.
+
+    Args:
+        ctx: Drone durum bilgisi.
+
+    Returns:
+        Hedef AgentState veya None.
+    """
     if ctx.pending_state == AgentState.RETURN_HOME:
         return AgentState.RETURN_HOME
     if ctx.pending_state == AgentState.IN_SWARM:
@@ -146,12 +229,31 @@ def _from_executing_task(ctx: AgentContext) -> AgentState | None:
 
 
 def _from_detached(ctx: AgentContext) -> AgentState | None:
-    """DETACHED durumundan gecisleri degerlendirir."""
+    """Evaluate transitions from this state.
+
+    DETACHED'dan her zaman PRECISION_LANDING'e geçer.
+
+    Args:
+        ctx (AgentContext): Drone'un anlık durum bilgisi.
+
+    Returns:
+        AgentState: Her zaman AgentState.PRECISION_LANDING.
+    """
     return AgentState.PRECISION_LANDING
 
 
 def _from_precision_landing(ctx: AgentContext) -> AgentState | None:
-    """PRECISION_LANDING durumundan gecisleri degerlendirir."""
+    """Evaluate transitions from this state.
+
+    PRECISION_LANDING → WAITING_REJOIN: Disarm oldu, iniş tamamlandı.
+    PRECISION_LANDING → FAILSAFE: 60s içinde inemedi.
+
+    Args:
+        ctx: Drone durum bilgisi.
+
+    Returns:
+        Hedef AgentState veya None.
+    """
     if not ctx.armed:
         return AgentState.WAITING_REJOIN
     if ctx.time_in_state() > _PRECISION_LANDING_TIMEOUT_S:
@@ -160,7 +262,17 @@ def _from_precision_landing(ctx: AgentContext) -> AgentState | None:
 
 
 def _from_waiting_rejoin(ctx: AgentContext) -> AgentState | None:
-    """WAITING_REJOIN durumundan gecisleri degerlendirir."""
+    """Evaluate transitions from this state.
+
+    WAITING_REJOIN → REJOINING: Swarm manager yeniden katılma izni verdi.
+    WAITING_REJOIN → FAILSAFE: 120s içinde izin gelmedi.
+
+    Args:
+        ctx: Drone durum bilgisi.
+
+    Returns:
+        Hedef AgentState veya None.
+    """
     if ctx.pending_state == AgentState.REJOINING:
         return AgentState.REJOINING
     if ctx.time_in_state() > _WAITING_REJOIN_TIMEOUT_S:
@@ -169,7 +281,17 @@ def _from_waiting_rejoin(ctx: AgentContext) -> AgentState | None:
 
 
 def _from_rejoining(ctx: AgentContext) -> AgentState | None:
-    """REJOINING durumundan gecisleri degerlendirir."""
+    """Evaluate transitions from this state.
+
+    REJOINING → IN_SWARM: Sürüye başarıyla katıldı.
+    REJOINING → FAILSAFE: 60s içinde katılamadı.
+
+    Args:
+        ctx: Drone durum bilgisi.
+
+    Returns:
+        Hedef AgentState veya None.
+    """
     if ctx.pending_state == AgentState.IN_SWARM:
         return AgentState.IN_SWARM
     if ctx.time_in_state() > _REJOIN_TIMEOUT_S:
@@ -178,7 +300,17 @@ def _from_rejoining(ctx: AgentContext) -> AgentState | None:
 
 
 def _from_return_home(ctx: AgentContext) -> AgentState | None:
-    """RETURN_HOME durumundan gecisleri degerlendirir."""
+    """Evaluate transitions from this state.
+
+    RETURN_HOME → LANDING: PX4 RTL tamamlandı veya swarm manager iniş
+    komutu verdi.
+
+    Args:
+        ctx: Drone durum bilgisi.
+
+    Returns:
+        Hedef AgentState veya None.
+    """
     if ctx.flight_mode == FlightMode.AUTO_LAND:
         return AgentState.LANDING
     if ctx.pending_state == AgentState.LANDING:
@@ -187,14 +319,33 @@ def _from_return_home(ctx: AgentContext) -> AgentState | None:
 
 
 def _from_landing(ctx: AgentContext) -> AgentState | None:
-    """LANDING durumundan gecisleri degerlendirir."""
+    """Evaluate transitions from this state.
+
+    LANDING → LANDED: Disarm oldu, iniş tamamlandı.
+
+    Args:
+        ctx: Drone durum bilgisi.
+
+    Returns:
+        AgentState.LANDED veya None.
+    """
     if not ctx.armed:
         return AgentState.LANDED
     return None
 
 
 def _from_landed(ctx: AgentContext) -> AgentState | None:
-    """LANDED durumundan gecisleri degerlendirir."""
+    """Evaluate transitions from this state.
+
+    LANDED → IDLE: Yeni görev için hazırlan.
+    LANDED → STANDBY: Drone pasif moda alınıyor.
+
+    Args:
+        ctx: Drone durum bilgisi.
+
+    Returns:
+        Hedef AgentState veya None.
+    """
     if ctx.pending_state == AgentState.STANDBY:
         return AgentState.STANDBY
     if ctx.pending_state == AgentState.IDLE:
@@ -203,9 +354,34 @@ def _from_landed(ctx: AgentContext) -> AgentState | None:
 
 
 def _from_failsafe(ctx: AgentContext) -> AgentState | None:
-    """FAILSAFE durumundan gecisleri degerlendirir."""
+    """Evaluate transitions from this state.
+
+    FAILSAFE → RETURN_HOME: Sağlık geri geldi ve swarm manager onayladı.
+    FAILSAFE → LANDING: RTL mümkün değilse acil iniş.
+
+    Args:
+        ctx: Drone durum bilgisi.
+
+    Returns:
+        Hedef AgentState veya None.
+    """
     if not ctx.armed and ctx.pending_state == AgentState.IDLE:
         return AgentState.IDLE
+
+    # Yerde kendiliginden toparlanma. YALNIZCA disarm + PX4 linki geri gelmis +
+    # 3 sn stabil kalmissa. Havada BILEREK yok: ucus sirasinda failsafe'ten
+    # sessizce cikip gorevi surdurmek tehlikelidir, orada operator/manager
+    # karari (pending_state) beklenir.
+    #
+    # Neden gerekli: gecici bir link kesintisi (or. MAVROS yeniden baslatma,
+    # baud degisimi) node'u yerde kalici FAILSAFE'te birakiyordu ve tek cikis
+    # yolu sureci yeniden baslatmakti.
+    if (not ctx.armed
+            and ctx.px4_link_ok
+            and ctx.telemetri_alindi
+            and ctx.time_in_state() > 3.0):
+        return AgentState.IDLE
+
     if ctx.healthy and ctx.pending_state == AgentState.RETURN_HOME:
         return AgentState.RETURN_HOME
     if ctx.pending_state == AgentState.LANDING:
@@ -214,7 +390,16 @@ def _from_failsafe(ctx: AgentContext) -> AgentState | None:
 
 
 def _from_standby(ctx: AgentContext) -> AgentState | None:
-    """STANDBY durumundan gecisleri degerlendirir."""
+    """Evaluate transitions from this state.
+
+    STANDBY → ARMING: Katılma isteği var ve preflight geçiyor.
+
+    Args:
+        ctx: Drone durum bilgisi.
+
+    Returns:
+        AgentState.ARMING veya None.
+    """
     if ctx.wants_to_join and ctx.ready_to_arm:
         passed, _ = run_preflight_checks(ctx)
         if passed:

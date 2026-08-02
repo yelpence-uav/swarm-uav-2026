@@ -4,11 +4,47 @@
 #include <esp_now.h>
 #include <WiFi.h>
 #include "esp_wifi.h"      // promiscuous mod kanal taramasi icin
-#include "encryption.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "rtk_pure.h"      // RTK_ENV_MAKS_TOPLAM vb. tek yerden
-#include "replay_pure.h"   // anti_replay_t/replay_state_t + saf replay karari
+#include "uart_cobs.h"     // cobs_crc16 (CRC16-CCITT-FALSE) — paket butunlugu
+#include "mesh_log.h"      // MESH_LOG_* — calisma-zamani loglari icin tek kapi
+
+// ============================================================================
+// GUVENLIK MODELI — NEDEN SIFRELEME YOK
+// ----------------------------------------------------------------------------
+// Onceki surum AES-128-GCM + anti-replay + NVS'te kalici session sayaci
+// kullaniyordu. Kaldirildi. Gerekce:
+//
+// 1. Sartname (2026 Suru IHA, §5.4) haberlesme sifrelemesi ISTEMIYOR. Tek
+//    haberlesme sarti: "haberlesme unitelerini yarisma ortamindaki frekans
+//    gurultusunden etkilenmeyecek sekilde secmelidir." Bu bir PARAZIT sarti,
+//    gizlilik sarti degil — ve sifreleme parazite karsi koruma saglamaz.
+//
+// 2. Tehdit modelimiz kasitli saldiri degil, baska takimin ayni kanalda
+//    kazara yayin yapmasi. Buna karsi uc katman yeterli ve hepsi duruyor:
+//      - MESH_SIHIR (2B)  : yabanci paket ilk iki baytta elenir
+//      - drone_tablo[]    : tablodaki MAC'ten gelmeyen paket reddedilir
+//      - CRC16            : havada bozulan paket reddedilir
+//    Ayrica emniyet zinciri mesh'te degil fiziksel katmanda: her IHA'nin RC
+//    kumandasi ve hakemin kill switch yetkisi var (sartname §5.4).
+//
+// 3. Kaldirilan sistem sahada BIZE ZARAR VERDI. NVS'teki session sayaci bir
+//    node'un flash'i silindiginde sifirlaniyor, peer'ler onu "eski session"
+//    diye KALICI reddediyordu. Semptomu aldatici: node karsiyi duyar (failsafe
+//    atmaz) ama kendi paketleri hicbir yerde kabul edilmez, ve red logu
+//    node'un kendi konsolunda degil peer'in konsolunda basilir. Kendiliginden
+//    duzelmez. Bu tuzak sahada uc kez tetiklendi.
+//
+// Kazanc: zarf 70 -> 25 bayt (havada kalma suresi ~3 kat azaldi, carpisma ve
+// kayip orani dustu), NVS bagimliligi sifir, provizyon adimi ortadan kalkti.
+// ============================================================================
+
+// Paket imzasi: "YE" (Yelpence). Yabanci ESP-NOW trafigi ilk iki baytta,
+// CRC hesabina bile girmeden elenir. Sabit tutulmali; degistirilirse TUM
+// node'lar (baz + her drone) ayni anda yeniden flaslanmali, yoksa birbirlerini
+// duymazlar ve hicbir hata mesaji cikmaz.
+#define MESH_SIHIR  0x4559u
 
 #define MESH_KANAL           11   // Birincil: non-overlapping, TR ISM, sahada en az mesgul
 #define MESH_KANAL_YEDEK      6   // Yedek: ucus oncesi spektrum analizi olumsuzsa buraya gec
@@ -32,6 +68,10 @@
 #define TIP_VERSION     0x0B   // VersionInfo: boot'ta 1 kez, debug
 #define TIP_SWARM_STATE 0x0D   // Sürü seviyesi FSM durumu
 #define TIP_QR_DATA     0x0E   // QR tespit ve çözümleme verisi
+// 0x0F: packet_parser.py::TIP_QR_COORDS'a rezerve (YKİ->drone QR konumlari).
+// GOTO ona carpmasin diye 0x10'dan devam; 0x10 rate tablosunun (16) disina
+// dustugu icin MESH_TIP_TABLO_BOYU 24'e buyutuldu (asagi).
+#define TIP_GOTO        0x10   // YKİ->drone tekil nokta-git (guided, goto_veri_t)
 
 // Dikkat: iki ayri isim uzayi, karistirma:
 //
@@ -182,81 +222,109 @@ struct __attribute__((packed)) version_veri_t {
     uint8_t  rezerv[8];
 };   // 16 byte
 
+// durum_veri_t bayrak bitleri. Alti ayri bool bayt yerine tek bayt: acilan
+// 5 bayt kill switch, RC link, ucus modu, uydu sayisi ve HDOP'a verildi.
+#define DURUM_BAYRAK_ARMED      0x01
+#define DURUM_BAYRAK_EKF_OK     0x02
+#define DURUM_BAYRAK_IMU_OK     0x04
+#define DURUM_BAYRAK_MAG_OK     0x08
+#define DURUM_BAYRAK_BARO_OK    0x10
+#define DURUM_BAYRAK_MESH_LINK  0x20
+#define DURUM_BAYRAK_KILL       0x40   // RC kill switch aktif — motorlar kesik
+#define DURUM_BAYRAK_RC_LINK    0x80   // kumanda baglantisi var
+
+// Ikinci bayrak bayti (bayraklar2). Ilk bayt 8 bitiyle doldu.
+// READY_TO_ARM: PX4'un PREARM_CHECK biti — emniyet anahtari (SWITCH portundaki
+// kirmizi LED'li buton) dahil TUM arm on-kontrolleri gectiyse 1.
+// Ayrik "emniyet anahtari" sinyali yok: PX4 onu MAVLink'te ayri bildirmiyor
+// (saha olcumu 2026-07-22, butona basinca 0x0321C83F -> 0x1321C83F).
+#define DURUM2_BAYRAK_READY_TO_ARM  0x01
+
 // TODO: HAS_PIXHAWK=1 oldugunda durum_veri_t doldur ve loop() icinde TIP_DURUM
 // gonder (500ms). Bagimliliklar: mesh_komsu_sayisi(), MAVLink SYS_STATUS/
 // GPS_RAW_INT/EKF_STATUS_REPORT okuma fonksiyonlari.
+//
+// REV C (2026-07-22): boyut 16 bayt AYNI kaldi, icerik sikistirildi.
+//   battery_volt  float(4) -> uint8 x10  (0-25.5 V, 0.1 V cozunurluk)
+//   armed/ekf/imu/mag/baro/mesh_link  6 bayt -> 1 bayt bit alani
+//   = 9 bayt acildi
+// Acilan yere girenler: ucus_modu, gps_uydu, gps_hdop_x10, ve bayraklara
+// KILL + RC_LINK. Geriye 5 bayt rezerv kaldi.
+//
+// Neden gerekliydi: kill switch ve GPS hassasiyeti drone tarafinda dogru
+// hesaplaniyordu ama pakette yer olmadigi icin YKİ'ye hic ulasmiyordu —
+// operator kill switch acikken drone'u "bosta" goruyordu (saha, 2026-07-22).
 struct __attribute__((packed)) durum_veri_t {
     uint8_t  drone_id;
-    uint8_t  durum;
-    uint8_t  armed;         // 0/1
-    uint8_t  gps_fix_type;  // 0-6
-    uint8_t  battery_pct;   // 0-100
-    float    battery_volt;  // 4 byte
-    uint8_t  ekf_ok;        // 0/1
-    uint8_t  imu_ok;        // 0/1
-    uint8_t  mag_ok;        // 0/1
-    uint8_t  baro_ok;       // 0/1
-    int8_t   rssi;          // dBm (-120..0)
-    uint8_t  mesh_link_ok;  // 0/1
-    uint8_t  mesh_komsu_sayisi; // aktif mesh node sayisi: failsafe + lider secimi + ground izleme
+    uint8_t  durum;             // FSM state (DURUM_* enum)
+    uint8_t  bayraklar;         // DURUM_BAYRAK_* bit alani
+    uint8_t  ucus_modu;         // PX4'un BILDIRDIGI mod (AgentStatus.FLIGHT_MODE_*).
+                                // Switch pozisyonu degil: mod degisimi reddedilirse
+                                // (on-ucus hatasi, GPS yok) ikisi ayrisir ve
+                                // operatorun gormesi gereken gercek olandir.
+    uint8_t  gps_fix_type;      // 0-6  (4=DGPS, 5=RTK float, 6=RTK fixed)
+    uint8_t  gps_uydu;          // gorunen uydu sayisi
+    uint8_t  gps_hdop_x10;      // HDOP * 10 (255 = bilinmiyor/kotu)
+    uint8_t  battery_pct;       // 0-100
+    uint8_t  battery_volt_x10;  // volt * 10 (0-25.5 V)
+    int8_t   rssi;              // dBm (-120..0)
+    uint8_t  mesh_komsu_sayisi; // aktif mesh node sayisi: failsafe + lider secimi
+    uint8_t  bayraklar2;        // DURUM2_BAYRAK_* bit alani
+    uint8_t  rezerv[4];         // toplam 16 byte
 };
+
+// Sozlesme kilidi: pi_bridge (packet_parser.py::_DURUM_FMT) bu duzeni birebir
+// varsayiyor. Boyut degisirse cerceve dilimi kayar ve alanlar sessizce yanlis
+// cozulur — patlamadan once iki tarafi birlikte guncelle.
+static_assert(sizeof(durum_veri_t) == 16,
+              "durum_veri_t 16 byte OLMALI — packet_parser.py _DURUM_FMT ile uyum");
 
 static const uint8_t BROADCAST_MAC[6] = {0xFF,0xFF,0xFF,0xFF,0xFF,0xFF};
 
+// Mesh paketi — 25 bayt (onceki sifreli surum 70 bayttti).
+//
+// Tasinmayan alanlar ve nedenleri:
+//   kaynak_mac : ESP-NOW alim callback'i gonderenin MAC'ini zaten veriyor
+//                (_esp_now_recv_cb'nin ilk parametresi). Pakette tasimak
+//                6 baytin bosa gitmesiydi.
+//   hedef_mac  : Hedef artik esp_now_send()'in adresi. Unicast'te donanim
+//                zaten dogru alicaya goturur, broadcast'te herkese gider.
+//   atlama     : Coklu-atlama (relay) kaldirildi; ESP-NOW menzili saha icin
+//                fazlasiyla yeterli ve relay tek yuvali RTK reassembly'sini
+//                bozuyordu (bkz rtk_pure.h on kosul (b)).
+//   iv/tag     : Sifreleme kaldirildi (bkz yukaridaki GUVENLIK MODELI).
 struct __attribute__((packed)) mesh_paket_t {
-    uint8_t  kaynak_mac[6];
-    uint8_t  hedef_mac[6];
-    uint32_t paket_id;
-    uint8_t  atlama_sayisi;
-    uint8_t  tip;
-    uint8_t  iv[12];           // GCM nonce (12 byte, NIST onerisi)
-    uint8_t  sifreli_veri[24]; // anti_replay(6) + payload(18)
-    uint8_t  tag[16];          // GCM auth tag: sifre cozumunde dogrulanir
+    uint16_t sihir;      // MESH_SIHIR — yabanci paket filtresi
+    uint8_t  tip;        // TIP_*
+    uint16_t paket_id;   // duplikat tespiti (unicast retry kopyalari icin)
+    uint8_t  veri[18];   // payload (mesh_gonder her zaman 18 bayt yazar)
+    uint16_t crc;        // CRC16-CCITT-FALSE, sihir..veri uzerinden
 };
 
-// Sliding window anti-replay.
-// PENCERE_BOYU, anti_replay_t, replay_state_t ve karar mantigi replay_pure.h'de.
-// Burasi sadece ince kabuk: loglama + NVS persist.
-//
-// Sozlesme kilidi (iki pure header arasindaki tek bag): anti_replay_t
-// replay_pure.h'de, kablodaki boyutu ise rtk_pure.h'de RTK_ANTI_REPLAY_BOYUTU
-// literali (6). Iki header birbirini include etmiyor, bagi kuran tek yer burasi.
-// rtk_mesh_gonder() zarfi kurarken memcpy(plaintext, &ar, RTK_ANTI_REPLAY_BOYUTU)
-// yapiyor; anti_replay_t buyurse memcpy 6 bayta kirpar ve alicida anti-replay
-// coker. RTK_FRAG_PAYLOAD_MAKS degismedigi icin rtk_pure.h'deki "== 191" assert'i
-// patlamaz, bu assert o kor noktayi kapatir. Patlarsa once spec §2.3 layout ve
-// byte butcesini guncelle, YKİ/pi_bridge'e bildir, sonra sayiyi degistir.
-static_assert(sizeof(anti_replay_t) == RTK_ANTI_REPLAY_BOYUTU,
-              "anti_replay_t kablo boyutu RTK_ANTI_REPLAY_BOYUTU ile uyumsuz: "
-              "rtk_handler.h'deki memcpy sessizce kirpar ve anti-replay coker. "
-              "Spec §2.3'u guncelle, YKİ/pi_bridge'e bildir, sonra sayiyi degistir.");
-static_assert(offsetof(anti_replay_t, paket_id) == 2,
-              "anti_replay_t alan sirasi degisti: tel formati (spec §2.3, "
-              "offset 0=session_id/2B, 2=paket_id/4B) bozulur.");
-//
-// TODO: GPS_TIMESTAMP: HAS_PIXHAWK + MAVLink GPS okumasi hazir oldugunda
-//   session_id'nin yerine degil yanina konulacak. Bootstrap sorunu var
-//   (boot'ta fix yokken fail-closed = GPS'siz ucamazsin, fail-open =
-//   saldirganin istedigi pencere) ve tek basina ayni saniye icindeki
-//   replay'i durdurmaz, sayac yine gerekli.
+// Sozlesme kilidi: paket ESP-NOW'in tek seferlik siniri icinde kalmali.
+static_assert(sizeof(mesh_paket_t) <= 250,
+              "mesh_paket_t ESP-NOW 250 bayt sinirini asti.");
+// CRC, paketin son iki bayti haric her seyi kapsar. Alan eklenirse bu offset
+// kayar ve _paket_crc_hesapla() sessizce yanlis araligi hesaplar.
+static_assert(offsetof(mesh_paket_t, crc) == sizeof(mesh_paket_t) - 2,
+              "crc alani paketin sonunda olmali — _paket_crc_hesapla() bunu varsayiyor.");
+
+// Paketin CRC'si: bastan crc alanina kadar olan her sey.
+static inline uint16_t _paket_crc_hesapla(const mesh_paket_t* p) {
+    return cobs_crc16((const uint8_t*)p, (uint16_t)(sizeof(mesh_paket_t) - 2));
+}
 
 struct node_durum_t {
-    uint8_t        mac[6];
-    uint32_t       son_heartbeat_ms;
-    bool           aktif;
-    bool           peer_kayitli;
-    replay_state_t replay;
-    // Fail-closed yapiskanligi: _peer_session_kaydet() basarisiz olursa tek
-    // paketi reddetmek yetmezdi; replay_karar() RAM durumunu persist
-    // denemesinden once guncelledigi icin peer'in sonraki paketi "ayni session"
-    // dalindan kabul alip persist edilmeden iceri girerdi. Bayrak bir kez
-    // kalkinca bu node'un tum paketleri basarili persist olana kadar reddedilir.
-    bool           persist_hatasi;
+    uint8_t  mac[6];
+    uint32_t son_heartbeat_ms;
+    bool     aktif;
+    bool     peer_kayitli;
 };
 
 // ISR-safe paket buffer: callback sadece buraya yazar, mesh_loop() okur.
 #define RECV_BUFFER_SIZE 16
 static struct {
+    uint8_t      kaynak_mac[6];   // ESP-NOW callback'inden; pakette tasinmiyor
     mesh_paket_t paket;
 } _recv_buffer[RECV_BUFFER_SIZE];
 static volatile uint8_t _recv_yaz  = 0;
@@ -282,14 +350,16 @@ static volatile bool    _rtk_recv_flag = false;
 extern volatile unsigned long son_paket_ms;
 
 static uint8_t  _benim_mac[6];
-static uint32_t _paket_sayaci     = 0;
-static uint16_t _session_id       = 0; // mesh_init() atar
+static uint16_t _paket_sayaci     = 0;
 static uint32_t _son_heartbeat_ms = 0;
 static node_durum_t _bilinen_nodlar[MESH_MAX_NODES] = {};
 static uint32_t _duplikat_tampon[DUPLIKAT_TAMPON]   = {};
 static uint8_t  _duplikat_indeks                    = 0;
 
-typedef void (*mesh_veri_callback_t)(const mesh_paket_t* paket);
+// Callback artik gonderenin MAC'ini ayri parametre olarak aliyor: MAC pakette
+// tasinmiyor, ESP-NOW alim callback'inden geliyor (bkz mesh_paket_t notu).
+typedef void (*mesh_veri_callback_t)(const uint8_t* kaynak_mac,
+                                      const mesh_paket_t* paket);
 static mesh_veri_callback_t _veri_callback = nullptr;
 
 static inline IRAM_ATTR bool _mac_esit(const uint8_t* a, const uint8_t* b) {
@@ -302,162 +372,29 @@ static inline bool _broadcast_mi(const uint8_t* mac) {
     return _mac_esit(mac, BROADCAST_MAC);
 }
 
-// Peer session kaliciligi (alici yarisi).
-// session_id gonderici tarafinda monoton (bkz mesh_init: NVS boot sayaci). Bu
-// tek basina yetmez: alici da son gordugu session_id'yi persist etmezse
-// saldirgan "aliciyi reboot ettir, eski session'i oynat" senaryosuna kayar.
-// Yazma sikligi: peer basina, peer'in boot'u basina bir kez (session
-// degisiminde). Paket basina yazma yok, flash omru sorunu olmaz.
-struct __attribute__((packed)) peer_session_kayit_t {
-    uint8_t  mac[6];
-    uint16_t session_id;   // 0 = kayit yok
-};   // 8 byte
-
-// Tablo boyutu MESH_MAX_NODES degil, MESH_MAX_NODES+1: mesh'te en fazla
-// MESH_MAX_NODES drone ve ayrica baz istasyonu var, hepsi ayri birer peer.
-// MESH_MAX_NODES (8) olsaydi 8 drone + baz = 9 peer'de tablo dolar ve son peer
-// kalici replay korumasindan mahrum kalirdi.
-#define PEER_SESS_TABLO_BOYU  (MESH_MAX_NODES + 1)
-
-// Sozlesme kilidi: tablo her zaman tum droneler + baz'i alabilmeli. Gevsetilirse
-// _peer_session_kaydet()'in fail-closed dali (peer'in paketlerini reddet) sahada
-// tetiklenir. Patlarsa PEER_SESS_TABLO_BOYU'nu buyut, tabloyu kucultme.
-static_assert(PEER_SESS_TABLO_BOYU >= MESH_MAX_NODES + 1,
-              "peer session tablosu tum droneleri + bazi alamiyor: son peer "
-              "reboot-replay korumasiz kalir (fail-closed'da ise REDDEDILIR). "
-              "PEER_SESS_TABLO_BOYU'nu buyut.");
-
-static peer_session_kayit_t _peer_sessions[PEER_SESS_TABLO_BOYU] = {};
-
-static inline uint16_t _peer_session_getir(const uint8_t* mac) {
-    for (uint8_t i = 0; i < PEER_SESS_TABLO_BOYU; i++)
-        if (_peer_sessions[i].session_id != 0 && _mac_esit(_peer_sessions[i].mac, mac))
-            return _peer_sessions[i].session_id;
-    return 0;   // kayit yok
-}
-
-// Fail-closed: basarisizsa false doner ve cagiran taraf paketi reddeder.
-// Repodaki diger guvenlik yollari (aes_init provision-yok, drone_tablo ID
-// cakismasi, _session_id_uret NVS hatasi) da fail-closed. "Tablo dolu" yolu
-// PEER_SESS_TABLO_BOYU assert'i sayesinde normalde ulasilamaz; bu dal o assert'in
-// gevsetildigi senaryonun sigortasi.
-static inline bool _peer_session_kaydet(const uint8_t* mac, uint16_t sid) {
-    int8_t slot = -1;
-    for (uint8_t i = 0; i < PEER_SESS_TABLO_BOYU; i++) {
-        if (_peer_sessions[i].session_id != 0 && _mac_esit(_peer_sessions[i].mac, mac)) { slot = (int8_t)i; break; }
-        if (_peer_sessions[i].session_id == 0 && slot < 0) slot = (int8_t)i;   // ilk bos
-    }
-    if (slot < 0) {
-        Serial.printf("[REPLAY] KRITIK: peer_sess tablosu dolu, %02X:%02X REDDEDILIYOR "
-                      "(kalici replay korumasi verilemiyor). PEER_SESS_TABLO_BOYU'nu buyut.\n",
-                      mac[4], mac[5]);
-        return false;
-    }
-    memcpy(_peer_sessions[slot].mac, mac, 6);
-    _peer_sessions[slot].session_id = sid;
-    Preferences prefs;
-    if (!prefs.begin("mesh_sec", false)) {
-        // RAM kaydi guncellendi ama NVS'e yazilamadi: bu oturumda koruma calisir
-        // ama biz reboot edersek kayit kaybolur, "aliciyi reboot ettir, eski
-        // session'i oynat" acigi geri acilir. Kalici garanti veremiyoruz,
-        // o yuzden fail-closed.
-        Serial.printf("[REPLAY] KRITIK: NVS acilamadi, %02X:%02X icin peer session "
-                      "PERSIST EDILEMEDI -> REDDEDILIYOR\n", mac[4], mac[5]);
-        return false;
-    }
-    size_t yazilan = prefs.putBytes("peer_sess", _peer_sessions, sizeof(_peer_sessions));
-    prefs.end();
-    if (yazilan != sizeof(_peer_sessions)) {
-        Serial.printf("[REPLAY] KRITIK: peer_sess yazilamadi (%u/%u byte), %02X:%02X "
-                      "REDDEDILIYOR\n", (unsigned)yazilan, (unsigned)sizeof(_peer_sessions),
-                      mac[4], mac[5]);
-        return false;
-    }
-    return true;
-}
-
-static inline void _peer_session_yukle(void) {
-    Preferences prefs;
-    if (prefs.begin("mesh_sec", true)) {
-        // Kayit yoksa getBytes 0 doner; dizi sifir kalir (= kayit yok).
-        prefs.getBytes("peer_sess", _peer_sessions, sizeof(_peer_sessions));
-        prefs.end();
-    }
-}
-
-// session_id kurali monoton: "farkli" degil, "daha buyuk" olmali.
-//   ar->session_id  < bilinen  -> eski session, reddet (reboot-replay saldirisi)
-//   ar->session_id == bilinen  -> ayni session, normal pencere mantigi
-//   ar->session_id  > bilinen  -> gonderici reboot etti, kabul + persist
+// Duplikat tespiti: unicast'te WiFi katmani ACK kaybolursa paketi tekrar
+// gonderir ve alici ayni paketi iki kez gorebilir. paket_id + MAC karisimi
+// son DUPLIKAT_TAMPON pakette tutulur.
 //
-// Kalan bosluk (bilincli): ayni session icinde node NODE_TIMEOUT_MS boyunca
-// susarsa replay penceresi RAM'de sifirlanir (en_yuksek_id persist edilmiyor,
-// flash omru). Bunu daraltmak icin _node_bul_veya_ekle() pasif ama tanidik
-// MAC'i replay durumunu koruyarak canlandiriyor; bosluk sadece node tablodan
-// tamamen dusurulup slot'u baskasina verilirse acilir. Tam cozum GPS zaman
-// damgasi TODO'sunda. Karar replay_pure.h::replay_karar()'da, burasi yalnizca
-// NVS persist + loglama yapar.
-static inline bool _replay_kontrol(node_durum_t* node, const anti_replay_t* ar) {
-    // Fail-closed yapiskanligi: bu node icin kalici kayit verilemediyse duzelene
-    // kadar hicbir paketini kabul etme (bkz node_durum_t::persist_hatasi).
-    if (node->persist_hatasi) {
-        Serial.printf("[REPLAY] %02X:%02X persist hatasi nedeniyle reddediliyor "
-                      "(kalici replay korumasi yok)\n", node->mac[4], node->mac[5]);
-        return false;
-    }
-
-    uint16_t kalici = _peer_session_getir(node->mac);
-    replay_sonuc_t s = replay_karar(&node->replay, ar->session_id, ar->paket_id, kalici);
-
-    switch (s) {
-        case REPLAY_KABUL_YENI_SESSION:
-            // Yeni (daha buyuk) session kabul edildi, kalici kaydi guncelle.
-            // Peer basina, peer'in boot'u basina tek yazma. Fail-closed:
-            // persist edemezsek bu paketi de sonrakileri de reddet, cunku kalici
-            // garanti veremedigimiz peer'i kabul etmek reboot-replay acigini acar.
-            if (!_peer_session_kaydet(node->mac, ar->session_id)) {
-                node->persist_hatasi = true;
-                return false;
-            }
-            return true;
-        case REPLAY_KABUL:
-            return true;
-        case REPLAY_RED_ESKI_SESSION:
-            // Bu log sahadaki tek ipucu. sid cok dusukse (or. 1-2) muhtemelen
-            // saldiri degil, o peer'in NVS'i silinmistir (erase_flash) ve boot
-            // sayaci sifirlanmistir; bkz _session_id_uret() basindaki NVS erase tuzagi.
-            Serial.printf("[REPLAY] ESKI SESSION reddedildi: %02X:%02X sid=%u < kalici=%u\n",
-                          node->mac[4], node->mac[5], ar->session_id, kalici);
-            if (ar->session_id <= 2) {
-                Serial.printf("[REPLAY] ^ sid cok dusuk: %02X:%02X NVS'i silinmis olabilir "
-                              "(erase_flash). Bu peer KALICI reddedilir. Kurtarma: "
-                              "bkz mesh_config.h::_session_id_uret NVS ERASE TUZAGI\n",
-                              node->mac[4], node->mac[5]);
-            }
-            return false;
-        case REPLAY_RED_DUPLIKAT:
-        case REPLAY_RED_ESKI_PAKET:
-        default:
-            return false;
-    }
+// NOT: Bu bir GUVENLIK mekanizmasi DEGIL, sadece kopya elemesi. Eski surumdeki
+// anti-replay (NVS'te kalici session sayaci) kaldirildi — bkz dosya basindaki
+// GUVENLIK MODELI notu.
+// MAC artik pakette olmadigi icin disaridan (callback parametresinden) gelir.
+static inline uint32_t _paket_hash(const uint8_t* kaynak_mac, const mesh_paket_t* p) {
+    uint32_t mac_part = ((uint32_t)kaynak_mac[5] << 24)
+                      | ((uint32_t)kaynak_mac[4] << 16)
+                      | ((uint32_t)kaynak_mac[3] << 8)
+                      |  (uint32_t)kaynak_mac[2];
+    return mac_part ^ ((uint32_t)p->paket_id | ((uint32_t)p->tip << 16));
 }
-
-static inline uint32_t _paket_hash(const mesh_paket_t* p) {
-    // paket_id tam 32 bit; MAC'in alt baytlariyla XOR'lanip karistiriliyor.
-    uint32_t mac_part = ((uint32_t)p->kaynak_mac[5] << 24)
-                      | ((uint32_t)p->kaynak_mac[4] << 16)
-                      | ((uint32_t)p->kaynak_mac[3] << 8)
-                      |  (uint32_t)p->kaynak_mac[2];
-    return mac_part ^ p->paket_id;
-}
-static inline bool _duplikat_mi(const mesh_paket_t* p) {
-    uint32_t h = _paket_hash(p);
+static inline bool _duplikat_mi(const uint8_t* kaynak_mac, const mesh_paket_t* p) {
+    uint32_t h = _paket_hash(kaynak_mac, p);
     for (uint8_t i = 0; i < DUPLIKAT_TAMPON; i++)
         if (_duplikat_tampon[i] == h) return true;
     return false;
 }
-static inline void _duplikat_kaydet(const mesh_paket_t* p) {
-    _duplikat_tampon[_duplikat_indeks] = _paket_hash(p);
+static inline void _duplikat_kaydet(const uint8_t* kaynak_mac, const mesh_paket_t* p) {
+    _duplikat_tampon[_duplikat_indeks] = _paket_hash(kaynak_mac, p);
     _duplikat_indeks = (_duplikat_indeks + 1) % DUPLIKAT_TAMPON;
 }
 
@@ -469,7 +406,7 @@ static inline void _peer_ekle(const uint8_t* mac) {
     peer.channel = MESH_KANAL;
     peer.encrypt = false;
     if (esp_now_add_peer(&peer) == ESP_OK)
-        Serial.printf("[MESH] Yeni peer: %02X:%02X:%02X:%02X:%02X:%02X\n",
+        MESH_LOG_PRINTF("[MESH] Yeni peer: %02X:%02X:%02X:%02X:%02X:%02X\n",
             mac[0],mac[1],mac[2],mac[3],mac[4],mac[5]);
 }
 
@@ -479,34 +416,29 @@ static node_durum_t* _node_bul_veya_ekle(const uint8_t* mac) {
     for (uint8_t i = 0; i < MESH_MAX_NODES; i++) {
         if (_mac_esit(_bilinen_nodlar[i].mac, mac)) {
             if (_bilinen_nodlar[i].aktif) return &_bilinen_nodlar[i];
-            // Pasif ama tanidik MAC. Replay durumu sifirlanarak yeniden
-            // eklenirse (ilk_paket=true -> pencere sifir) saldirgan
-            // NODE_TIMEOUT_MS (12s) boyunca jam yapip node'u dusurdukten sonra
-            // ayni session'in eski paketlerini tekrar oynatabilir. O yuzden
-            // pasif tanidik node replay durumu korunarak canlandirilir.
+            // Pasif ama tanidik MAC: slotu koruyarak canlandirilir.
             tanidik = &_bilinen_nodlar[i];
             break;
         }
-        if (!_bilinen_nodlar[i].aktif && _bilinen_nodlar[i].replay.session_id == 0 &&
-            bos == nullptr)
-            bos = &_bilinen_nodlar[i];   // hic kullanilmamis slot
+        // Hic kullanilmamis slot: MAC'i hala sifir olan.
+        if (!_bilinen_nodlar[i].aktif && bos == nullptr) {
+            static const uint8_t _sifir_mac[6] = {0};
+            if (_mac_esit(_bilinen_nodlar[i].mac, _sifir_mac))
+                bos = &_bilinen_nodlar[i];
+        }
     }
     if (tanidik) {
-        // aktif=true: slot rezerve kalir (asagidaki "en eski pasif node'u geri
-        // don" reuse yolu bu node'u kapmasin, replay durumu korunsun).
+        // aktif=true: slot rezerve kalir, asagidaki reuse yolu bu node'u kapmasin.
         tanidik->aktif = true;
-        // son_heartbeat_ms BILEREK tazelenmez: node canliligi (mesh_komsu_sayisi
-        // + node timeout, ikisi de son_heartbeat_ms tazeligine bakar) ancak paket
-        // replay'i GECTIKTEN sonra ilerlemeli. Aksi halde replay'de dusecek bir
-        // tekrar-oynatma, olu komsuyu burada "taze" yapip mesh_komsu_sayisi'ni
-        // sisirir ve timeout'u baskilardi (ORTA-1/O1). Tazeleme replay sonrasi
-        // yapilir: veri -> callback (mesh_veri_al), heartbeat -> _recv_isle.
-        // replay durumuna dokunulmaz: pencere ve session_id korunur.
+        // son_heartbeat_ms BILEREK tazelenmez: canlilik (mesh_komsu_sayisi ve
+        // node timeout, ikisi de bu damgaya bakar) ancak KIMLIK dogrulandiktan
+        // sonra ilerlemeli. Tazeleme mesh_veri_al icinde, mac_to_id whitelist'i
+        // gectikten sonra yapilir; aksi halde tanimadigimiz bir MAC'in paketi
+        // komsu sayisini sisirirdi.
         return tanidik;
     }
     if (bos == nullptr) {
-        // Hic bos slot yok: en eski pasif node'un yerini al. Replay durumu
-        // kaybolur ama NVS'teki peer_session kaydi eski session'i yine reddeder.
+        // Hic bos slot yok: en eski pasif node'un yerini al.
         for (uint8_t i = 0; i < MESH_MAX_NODES; i++)
             if (!_bilinen_nodlar[i].aktif) { bos = &_bilinen_nodlar[i]; break; }
     }
@@ -515,12 +447,6 @@ static node_durum_t* _node_bul_veya_ekle(const uint8_t* mac) {
         bos->aktif = true;
         bos->peer_kayitli = false;
         bos->son_heartbeat_ms = millis();
-        bos->replay = {};
-        bos->replay.ilk_paket = true;
-        // Slot baska bir MAC'e veriliyor: persist bayragi eski MAC'e aitti,
-        // yeni sahibine miras kalmamali (yoksa yeni peer haksiz reddedilir).
-        // Tanidik MAC'in canlandirildigi yolda bayrak korunur, burada sifirlanir.
-        bos->persist_hatasi = false;
     }
     return bos;
 }
@@ -529,8 +455,18 @@ static uint32_t _csma_son_ms = 0;
 static volatile uint32_t _gonderim_basari = 0;
 static volatile uint32_t _gonderim_hata  = 0;
 static volatile uint32_t _paket_dustu    = 0;
+static volatile uint32_t _crc_hatasi     = 0;   // CRC16 tutmayan paket (parazit gostergesi)
 
-static inline esp_err_t _mesh_gonder(mesh_paket_t* p) {
+// hedef == nullptr -> broadcast, aksi halde unicast.
+//
+// UNICAST vs BROADCAST — neden ikisi de var:
+//   Unicast'te 802.11 katmani donanim ACK'i uretir ve kaybolan paketi KENDI
+//   yeniden gonderir. Broadcast'te ACK yoktur: paket havada kaybolursa kimse
+//   fark etmez ve telafi edilmez. Bu yuzden hedefi belli olan kritik trafik
+//   (YKİ <-> drone telemetri/komut, RTCM) unicast gider; herkese ayni anda
+//   ulasmasi gereken trafik (komsu konumu, heartbeat) broadcast kalir —
+//   orada tek iletim N alicaya ulasir ve kayip bir sonraki periyotta kapanir.
+static inline esp_err_t _mesh_gonder(mesh_paket_t* p, const uint8_t* hedef) {
     if (!esp_now_is_peer_exist(BROADCAST_MAC)) {
         esp_now_peer_info_t bp = {};
         memcpy(bp.peer_addr, BROADCAST_MAC, 6);
@@ -543,14 +479,22 @@ static inline esp_err_t _mesh_gonder(mesh_paket_t* p) {
     if (_csma_bekleme > 0) vTaskDelay(pdMS_TO_TICKS(_csma_bekleme));
     _csma_son_ms = millis();
 
-    const uint8_t* hedef = _broadcast_mi(p->hedef_mac) ? BROADCAST_MAC : p->hedef_mac;
+    if (hedef == nullptr) hedef = BROADCAST_MAC;
+    // Unicast hedefi peer olarak kayitli degilse esp_now_send() ESP_ERR_ESPNOW_NOT_FOUND
+    // dondurur. Kaydi burada tamamla; aksi halde henuz heartbeat duymadigimiz bir
+    // node'a ilk komut sessizce duserdi.
+    if (!_broadcast_mi(hedef) && !esp_now_is_peer_exist(hedef)) {
+        esp_now_peer_info_t peer = {};
+        memcpy(peer.peer_addr, hedef, 6);
+        peer.channel = MESH_KANAL;
+        peer.encrypt = false;
+        esp_now_add_peer(&peer);
+    }
 
-    // Kritik paketler icin retry (3 deneme, aralikli).
-    // Hedef broadcast oldugu icin ESP-NOW donanim ACK'i yoktur; bu retry sadece
-    // yerel gonderim hatasini (TX kuyrugu dolu, esp_now_send() basarisiz)
-    // kurtarir, havada/menzil disinda kaybolan paketi kurtaramaz.
-    // TIP_RTK bu listede yok: artik _mesh_gonder() yolundan gecmiyor,
-    // rtk_mesh_gonder() kendi CSMA+3-deneme mantigini ayri uyguluyor.
+    // Kritik paketler icin yerel retry (3 deneme, aralikli). Bu retry
+    // esp_now_send()'in YEREL hatasini (TX kuyrugu dolu) kurtarir. Havada
+    // kaybolan paketi ise yalnizca unicast kurtarir (802.11 ACK + retry);
+    // broadcast'te oyle bir mekanizma yoktur.
     const bool kritik = (p->tip == TIP_KOMUT || p->tip == TIP_ORIGIN ||
                          p->tip == TIP_GOREV || p->tip == TIP_ELECTION);
     const int deneme_maks = kritik ? 3 : 1;
@@ -563,43 +507,22 @@ static inline esp_err_t _mesh_gonder(mesh_paket_t* p) {
     }
     if (ret != ESP_OK) {
         _paket_dustu++;
-        Serial.printf("[MESH] Gonderim hatasi: %d tip:%d dustu:%lu\n",
+        MESH_LOG_PRINTF("[MESH] Gonderim hatasi: %d tip:%d dustu:%lu\n",
                       ret, p->tip, _paket_dustu);
     }
     return ret;
 }
 
-// GCM AAD (ek dogrulanmis veri).
-// tip + kaynak_mac + hedef_mac AAD olarak verilir; boylece bu 3 alan sifreli
-// payload'i bozmadan degistirilemez (or. TIP_POSE -> TIP_GOREV). atlama_sayisi
-// kasitli olarak disarida: _paketi_ilet() her hop'ta onu artirip ayni iv/tag
-// ile iletir, AAD'e girseydi relay ilk hop'ta tag'i gecersiz kilardi.
-static inline void _mesh_aad_olustur(uint8_t tip, const uint8_t* kaynak_mac,
-                                      const uint8_t* hedef_mac, uint8_t aad[13]) {
-    aad[0] = tip;
-    memcpy(aad + 1, kaynak_mac, 6);
-    memcpy(aad + 7, hedef_mac, 6);
-}
-
 static inline void mesh_gonder(const uint8_t* veri, uint8_t tip,
                                 const uint8_t* hedef = nullptr) {
     mesh_paket_t p = {};
-    memcpy(p.kaynak_mac, _benim_mac, 6);
-    memcpy(p.hedef_mac, (hedef ? hedef : BROADCAST_MAC), 6);
-    p.paket_id      = ++_paket_sayaci;
-    p.atlama_sayisi = 0;
-    p.tip           = tip;
-    iv_uret_rastgele(p.iv);
-    // Anti-replay basligini (session_id + paket_id) sifreli payload icine gom.
-    uint8_t tam_veri[24];
-    anti_replay_t ar_out = { _session_id, p.paket_id };
-    memcpy(tam_veri, &ar_out, sizeof(anti_replay_t));
-    memcpy(tam_veri + sizeof(anti_replay_t), veri, 18);
-    uint8_t aad[13];
-    _mesh_aad_olustur(p.tip, p.kaynak_mac, p.hedef_mac, aad);
-    aes_sifrele_gcm(tam_veri, sizeof(tam_veri), p.sifreli_veri, p.iv, p.tag, aad, sizeof(aad));
-    _duplikat_kaydet(&p);
-    _mesh_gonder(&p);
+    p.sihir    = MESH_SIHIR;
+    p.tip      = tip;
+    p.paket_id = ++_paket_sayaci;
+    memcpy(p.veri, veri, sizeof(p.veri));
+    p.crc      = _paket_crc_hesapla(&p);
+    _duplikat_kaydet(_benim_mac, &p);   // kendi yayinimizi kopya sanmayalim
+    _mesh_gonder(&p, hedef);
 }
 
 // TIP basina gonderim hiz limiti (Pi -> mesh yonu).
@@ -621,8 +544,10 @@ static inline void mesh_gonder(const uint8_t* veri, uint8_t tip,
 //
 // Dizi TIP byte'i ile dogrudan indexlenir (paralel esleme tablosu yok): yeni
 // TIP eklendiginde tabloyu guncellemeyi unutma riski olmasin diye.
-#define MESH_TIP_TABLO_BOYU 16
-static_assert(TIP_QR_DATA < MESH_TIP_TABLO_BOYU,
+// 24: TIP_GOTO=0x10 tablonun 16'lik eski sinirinin ustunde kaliyordu; index=TIP
+// oldugundan boyut en buyuk TIP'ten buyuk olmali. +8 slot x 2 dizi x 4B = +64B RAM.
+#define MESH_TIP_TABLO_BOYU 24
+static_assert(TIP_GOTO < MESH_TIP_TABLO_BOYU,
               "En buyuk TIP hiz-limiti tablosuna sigmiyor: MESH_TIP_TABLO_BOYU'nu buyut.");
 
 static uint32_t _son_tip_gonderim_ms[MESH_TIP_TABLO_BOYU] = {};
@@ -637,7 +562,7 @@ static inline bool mesh_tip_gecebilir(uint8_t tip, uint32_t simdi, uint32_t min_
         // log: sessizce gecirmek o tip icin hiz limitini komple kaldirirdi.
         // (static_assert bunu derlemede yakalar; bu dal o assert'in gevsetildigi
         // senaryonun sigortasi.)
-        Serial.printf("[MESH] KRITIK: TIP 0x%02X hiz-limiti tablosuna sigmiyor "
+        MESH_LOG_PRINTF("[MESH] KRITIK: TIP 0x%02X hiz-limiti tablosuna sigmiyor "
                       "(boyut %u) - REDDEDILDI. MESH_TIP_TABLO_BOYU'nu buyut.\n",
                       tip, (unsigned)MESH_TIP_TABLO_BOYU);
         return false;
@@ -651,16 +576,16 @@ static inline bool mesh_tip_gecebilir(uint8_t tip, uint32_t simdi, uint32_t min_
 }
 
 static inline void mesh_tip_dusen_yazdir(void) {
-    Serial.print("[MESH] hiz-limitinde dusen cerceve:");
+    MESH_LOG_PRINT("[MESH] hiz-limitinde dusen cerceve:");
     bool var = false;
     for (uint8_t t = 0; t < MESH_TIP_TABLO_BOYU; t++) {
         if (_tip_dusen[t]) {
-            Serial.printf(" tip0x%02X=%lu", t, (unsigned long)_tip_dusen[t]);
+            MESH_LOG_PRINTF(" tip0x%02X=%lu", t, (unsigned long)_tip_dusen[t]);
             var = true;
         }
     }
-    if (!var) Serial.print(" yok");
-    Serial.println();
+    if (!var) MESH_LOG_PRINT(" yok");
+    MESH_LOG_PRINTLN();
 }
 
 static inline uint8_t mesh_komsu_sayisi() {
@@ -674,18 +599,18 @@ static inline uint8_t mesh_komsu_sayisi() {
     return count;
 }
 
-static inline void _paketi_ilet(const mesh_paket_t* gelen) {
-    if (!_broadcast_mi(gelen->hedef_mac))    return;
-    if (gelen->atlama_sayisi >= ATLAMA_MAKS) return;
-    mesh_paket_t ilet = *gelen;
-    ilet.atlama_sayisi++;
-    _mesh_gonder(&ilet);
-}
+// NOT: _paketi_ilet() (coklu-atlama relay) kaldirildi. Gerekce:
+//   - ESP-NOW menzili (100m+ acik alan) yarisma sahasi icin fazlasiyla yeterli;
+//     3 drone ve bir baz dogrudan menzil icinde.
+//   - Relay, RTK'nin tek yuvali reassembly'sini bozuyordu: gecikmis bir kopya
+//     devam eden birlestirmeyi siliyor ve o RTCM mesaji bir daha gelmiyordu
+//     (bkz rtk_pure.h on kosul (b)).
+//   - Her relay havada ekstra iletim demek; carpisma olasiligini artiriyordu.
+// Menzil sorunu cikarsa cozum relay degil, once anten/konumlandirma.
 
 static inline void _heartbeat_gonder() {
-    // GCM ile sifrele: sahte HB ile MAC listesine girilmesini engeller
     uint8_t bos[18] = {};
-    mesh_gonder(bos, TIP_HEARTBEAT);
+    mesh_gonder(bos, TIP_HEARTBEAT);   // broadcast: canlilik herkesi ilgilendirir
 }
 
 static inline void mesh_node_timeout_kontrol() {
@@ -693,7 +618,7 @@ static inline void mesh_node_timeout_kontrol() {
     for (uint8_t i = 0; i < MESH_MAX_NODES; i++) {
         if (!_bilinen_nodlar[i].aktif) continue;
         if (simdi - _bilinen_nodlar[i].son_heartbeat_ms > NODE_TIMEOUT_MS) {
-            Serial.printf("[MESH] Timeout: %02X:%02X:%02X:%02X:%02X:%02X\n",
+            MESH_LOG_PRINTF("[MESH] Timeout: %02X:%02X:%02X:%02X:%02X:%02X\n",
                 _bilinen_nodlar[i].mac[0],_bilinen_nodlar[i].mac[1],
                 _bilinen_nodlar[i].mac[2],_bilinen_nodlar[i].mac[3],
                 _bilinen_nodlar[i].mac[4],_bilinen_nodlar[i].mac[5]);
@@ -709,8 +634,12 @@ static inline void mesh_node_timeout_kontrol() {
 static DRAM_ATTR uint32_t _isr_hashler[ISR_DUPLIKAT_TAMPON] = {};
 static DRAM_ATTR uint8_t  _isr_hash_idx = 0;
 
-static inline IRAM_ATTR bool _isr_duplikat_mi(const mesh_paket_t* p) {
-    uint32_t h = p->paket_id ^ ((uint32_t)p->kaynak_mac[5] << 24) ^ ((uint32_t)p->kaynak_mac[4] << 16);
+static inline IRAM_ATTR bool _isr_duplikat_mi(const uint8_t* kaynak_mac,
+                                               const mesh_paket_t* p) {
+    uint32_t h = (uint32_t)p->paket_id
+               ^ ((uint32_t)kaynak_mac[5] << 24)
+               ^ ((uint32_t)kaynak_mac[4] << 16)
+               ^ ((uint32_t)p->tip << 8);
     for (uint8_t i = 0; i < ISR_DUPLIKAT_TAMPON; i++)
         if (_isr_hashler[i] == h) return true;
     _isr_hashler[_isr_hash_idx] = h;
@@ -722,11 +651,18 @@ static portMUX_TYPE _recv_mux = portMUX_INITIALIZER_UNLOCKED;
 
 static void IRAM_ATTR _esp_now_recv_cb(const uint8_t* mac_addr,
                                         const uint8_t* data, int len) {
-    // TIP_RTK buyuk zarfi ayri yoldan isle. Zarf onsozu ortak oldugundan
-    // (kaynak_mac[6]+hedef_mac[6]+paket_id[4]+atlama_sayisi[1] = 17 byte sonrasi
-    // tip) tam parse etmeden offset 17'ye bakmak guvenli; mesh_paket_t'de de tip
-    // ayni offsette.
-    if (len >= 18 && data[17] == TIP_RTK) {
+    // Ilk kapi: sihir. Baska takimin ESP-NOW trafigi burada, CRC hesabina bile
+    // girmeden elenir. Kucuk paket ve RTK zarfi ayni onsozu paylasir
+    // (sihir[2] + tip[1]), o yuzden tek kontrol ikisini de kapsar.
+    if (len < 3) return;
+    uint16_t sihir; memcpy(&sihir, data, 2);
+    if (sihir != MESH_SIHIR) return;
+
+    // Kendi yayinimizi geri alirsak (broadcast'te olur) isleme.
+    if (_benim_mac_mi(mac_addr)) return;
+
+    // TIP_RTK degisken boyutlu buyuk zarf kullanir, kendi ring buffer'ina gider.
+    if (data[2] == TIP_RTK) {
         if (len > RTK_ENV_MAKS_TOPLAM) return;
         portENTER_CRITICAL_ISR(&_recv_mux);
         uint8_t sonraki_rtk = (_rtk_recv_yaz + 1) % RTK_RECV_BUFFER_SIZE;
@@ -741,10 +677,10 @@ static void IRAM_ATTR _esp_now_recv_cb(const uint8_t* mac_addr,
         portEXIT_CRITICAL_ISR(&_recv_mux);
         return;
     }
+
     if (len != sizeof(mesh_paket_t)) return;
     const mesh_paket_t* p = reinterpret_cast<const mesh_paket_t*>(data);
-    if (_benim_mac_mi(p->kaynak_mac)) return;
-    if (_isr_duplikat_mi(p))          return;
+    if (_isr_duplikat_mi(mac_addr, p)) return;
     // Kritik bolge: dual-core race condition onleme
     portENTER_CRITICAL_ISR(&_recv_mux);
     uint8_t sonraki = (_recv_yaz + 1) % RECV_BUFFER_SIZE;
@@ -752,6 +688,7 @@ static void IRAM_ATTR _esp_now_recv_cb(const uint8_t* mac_addr,
         portEXIT_CRITICAL_ISR(&_recv_mux);
         return; // buffer dolu, paketi at
     }
+    memcpy(_recv_buffer[_recv_yaz].kaynak_mac, mac_addr, 6);
     memcpy(&_recv_buffer[_recv_yaz].paket, data, sizeof(mesh_paket_t));
     _recv_yaz = sonraki;
     _recv_flag = true;
@@ -762,79 +699,57 @@ static void _esp_now_send_cb(const uint8_t* mac, esp_now_send_status_t status) {
     if (status == ESP_NOW_SEND_SUCCESS) _gonderim_basari++;
     else {
         _gonderim_hata++;
-        Serial.printf("[MESH] ACK yok: %02X:%02X:%02X:%02X:%02X:%02X\n",
+        MESH_LOG_PRINTF("[MESH] ACK yok: %02X:%02X:%02X:%02X:%02X:%02X\n",
             mac[0],mac[1],mac[2],mac[3],mac[4],mac[5]);
     }
 }
 
 // Buffer'dan paket isle, mesh_loop() icinde cagrilir.
+// Buffer'dan paket isle, mesh_loop() icinde cagrilir.
+//
+// Kabul zinciri (her kapi bir onceki gectikten sonra):
+//   1. sihir     -> ISR'da elendi (yabanci trafik buraya hic gelmez)
+//   2. CRC16     -> havada bozulan paket burada duser
+//   3. duplikat  -> unicast retry kopyasi burada duser
+//   4. mac_to_id -> tablodaki MAC degilse callback icinde reddedilir
 static inline void _recv_isle() {
     _recv_flag = false; // Once sifirla: sonraki ISR yazimini kaybetme
     while (_recv_oku != _recv_yaz) {
-        mesh_paket_t* p = &_recv_buffer[_recv_oku].paket;
+        const uint8_t* kaynak_mac = _recv_buffer[_recv_oku].kaynak_mac;
+        mesh_paket_t*  p          = &_recv_buffer[_recv_oku].paket;
 
-        if (!_duplikat_mi(p)) {
-            _duplikat_kaydet(p);
+        // CRC: havada bozulan paketi ele. 802.11 FCS'i zaten var ama bu bizim
+        // kendi cerceveleme/kopyalama hatalarimizi da yakalar ve ucuz (2 bayt).
+        if (p->crc != _paket_crc_hesapla(p)) {
+            _crc_hatasi++;
+            _recv_oku = (_recv_oku + 1) % RECV_BUFFER_SIZE;
+            continue;
+        }
 
-            node_durum_t* node = _node_bul_veya_ekle(p->kaynak_mac);
-            // peer kaydi GCM dogrulamasindan sonra yapilir
+        if (!_duplikat_mi(kaynak_mac, p)) {
+            _duplikat_kaydet(kaynak_mac, p);
 
-            if (p->tip != TIP_HEARTBEAT) {
-                bool benim_icin = _broadcast_mi(p->hedef_mac) ||
-                                  _benim_mac_mi(p->hedef_mac);
-                if (benim_icin) {
-                    // GCM burada dogrulanir; gecerse node guncellenir
-                    uint8_t _acik_cb[24] = {0};
-                    uint8_t _aad_cb[13];
-                    _mesh_aad_olustur(p->tip, p->kaynak_mac, p->hedef_mac, _aad_cb);
-                    if (!aes_coz_gcm(p->sifreli_veri, 24, _acik_cb, p->iv, p->tag, _aad_cb, sizeof(_aad_cb))) {
-                        Serial.printf("[MESH] GCM hatasi tip:%d %02X:%02X\n",
-                            p->tip, p->kaynak_mac[4], p->kaynak_mac[5]);
-                        // sahte MAC peer listesinden cikar
-                        if (node) { node->aktif = false; node->peer_kayitli = false;
-                                    esp_now_del_peer(node->mac); }
-                        _recv_oku = (_recv_oku + 1) % RECV_BUFFER_SIZE;
-                        continue;
-                    }
-                    // GCM gecti: sadece dogrulanmis MAC'i peer olarak kaydet
-                    if (node && !node->peer_kayitli) {
-                        _peer_ekle(p->kaynak_mac);
-                        node->peer_kayitli = true;
-                    }
-                    // Node canliligi (son_heartbeat_ms/aktif) BURADA tazelenmez:
-                    // veri paketinin replay kontrolu callback icinde yapiliyor ve
-                    // canlilik ancak replay GECTIKTEN sonra ilerlemeli (ORTA-1/O1).
-                    // GCM'i gecmis ama replay'de dusecek bir tekrar-oynatma aksi
-                    // halde olu komsuyu "taze" tutup mesh_komsu_sayisi'ni sisirirdi.
-                    // Tazeleme callback'te (mesh_veri_al) replay dogrulandiktan
-                    // sonra yapilir. Heartbeat yolu (asagida) ayni sirayi izler.
-                    if (_veri_callback) _veri_callback(p);
-                }
-                if (_broadcast_mi(p->hedef_mac)) _paketi_ilet(p);
-            } else {
-                // Heartbeat: GCM dogrulama zorunlu (MAC spoofing onleme)
-                uint8_t acik[24];
-                uint8_t aad_hb[13];
-                _mesh_aad_olustur(p->tip, p->kaynak_mac, p->hedef_mac, aad_hb);
-                if (aes_coz_gcm(p->sifreli_veri, 24, acik, p->iv, p->tag, aad_hb, sizeof(aad_hb))) {
-                    anti_replay_t* ar = (anti_replay_t*)acik;
-                    if (node && _replay_kontrol(node, ar)) {
-                        node->son_heartbeat_ms = millis();
-                        node->aktif = true;
-                    }
-                    if (_broadcast_mi(p->hedef_mac)) _paketi_ilet(p);
-                } else {
-                    Serial.printf("[MESH] Sahte HEARTBEAT! %02X:%02X:%02X:%02X:%02X:%02X\n",
-                        p->kaynak_mac[0], p->kaynak_mac[1], p->kaynak_mac[2],
-                        p->kaynak_mac[3], p->kaynak_mac[4], p->kaynak_mac[5]);
-                    // Heartbeat GCM basarisiz olursa node'u temizle (non-heartbeat
-                    // dalinda yapiliyordu, burada da gerekli). Aksi halde sahte
-                    // kaynak MAC'li heartbeat NODE_TIMEOUT_MS (12sn) boyunca
-                    // "aktif" sayilmaya devam ediyordu.
-                    if (node) { node->aktif = false; node->peer_kayitli = false;
-                                esp_now_del_peer(node->mac); }
-                }
+            node_durum_t* node = _node_bul_veya_ekle(kaynak_mac);
+
+            // Peer kaydi: unicast ile cevap verebilmek icin sart. Eskiden GCM
+            // dogrulamasindan sonra yapiliyordu; artik CRC + sihir kapisi ayni
+            // isi goruyor.
+            if (node && !node->peer_kayitli) {
+                _peer_ekle(kaynak_mac);
+                node->peer_kayitli = true;
             }
+
+            // TIP_HEARTBEAT dahil TUM tipler callback'e gider.
+            //
+            // Eskiden heartbeat burada ayri isleniyor ve callback'e HIC
+            // ulasmiyordu. Sonucu: heartbeat failsafe zamanlayicisini
+            // (son_paket_ms) tazelemiyordu. Baz yalnizca heartbeat yayinlarken
+            // (komut akmayan sessiz donem) drone kendini kopmus sanip failsafe'e
+            // girebiliyordu — oysa heartbeat'in tek isi "link ayakta" demek.
+            // Artik canlilik tazelemesi callback icinde, mac_to_id whitelist'i
+            // GECTIKTEN sonra yapiliyor (tanimadigimiz MAC komsu sayisini
+            // sismesin) ve heartbeat oradan UART'a iletilmeden donuyor.
+            if (_veri_callback) _veri_callback(kaynak_mac, p);
         }
 
         _recv_oku = (_recv_oku + 1) % RECV_BUFFER_SIZE;
@@ -889,68 +804,11 @@ static inline void mesh_kanal_tara(void) {
     Serial.println("[KANAL-TARA] cihazlari (base + her drone) AYNI degerle yeniden flaslayin.");
 }
 
-// Monoton session id (gonderici yarisi).
-// _session_id = esp_random() olsaydi rastgele ve kalici olmaz; alici
-// "session_id farkli" gorunce reboot varsayip pencereyi sifirladigi icin
-// saldirgan yakaladigi eski session paketlerini reboot sonrasi tekrar
-// oynatabilirdi (session_id authenticated, uyduramaz ama aynen oynatabilir).
-// Bu yuzden NVS'te monoton artan boot sayaci kullaniliyor; alici kucuk olani
-// reddeder (bkz _replay_kontrol). Boot basina tek yazma, flash omru sorunu yok.
-//
-// 16-bit sarma: session_id uint16 (tel formati). 65535 boot'ta sararsa "kucukse
-// reddet" kurali kirilirdi, o yuzden sarma yok, fail-closed durulur. 65535 boot
-// gunde 10 boot'ta ~18 yil, pratikte erisilmez.
-//
-// NVS erase tuzagi (sahada bilinmesi sart, okumadan erase_flash yapma):
-//   1. Drone A calisti, boot_ctr=47. Peer'lerin NVS'inde _peer_sessions[A]=47.
-//   2. Biri A'ya erase_flash yapar: aes_key de boot_ctr de gider.
-//   3. Anahtar yeniden yazilip firmware flaslanir ama boot_ctr 0'dan baslar,
-//      A artik session_id=1 gonderir.
-//   4. Peer'ler kurali dogru uygular: 1 < 47 -> A'yi kalici reddeder.
-// Semptom aldatici: A peer'lerin heartbeat'lerini kabul eder (failsafe atmaz)
-// ama kendi paketleri hicbir yerde kabul edilmez; red logu A'da degil peer'in
-// konsolunda basilir ve durum kendiliginden duzelmez. Otomatik kurtarma yok,
-// cunku bu durum saldiriyla ayirt edilemez; dusuk sid'i otomatik kabul etmek
-// korumayi geri alir. Kurtarma: bir node'un NVS'ini silersen surunun tamamini
-// (baz + tum droneler) birlikte erase + yeniden provision + flasla. Sadece
-// peer_sess'i silmek de yeterli (NVS namespace "mesh_sec", anahtar "peer_sess").
-static inline void _session_id_uret(void) {
-    Preferences prefs;
-    if (!prefs.begin("mesh_sec", false)) {
-        Serial.println("[MESH] KRITIK: NVS acilamadi — session_id monoton olamaz.");
-        Serial.println("[MESH] Replay korumasi saglanamadigi icin durduruldu.");
-        Serial.flush();
-        while (true) delay(1000);
-    }
-    uint32_t boot_sayaci = prefs.getUInt("boot_ctr", 0) + 1;
-    if (boot_sayaci > 0xFFFF) {
-        prefs.end();
-        Serial.println("[MESH] KRITIK: boot sayaci 65535'i asti (session_id uint16).");
-        Serial.println("[MESH] Monoton session garantisi bitti — durduruldu.");
-        Serial.println("[MESH] Cozum: tum node'larda NVS boot_ctr sifirlanip AES anahtari");
-        Serial.println("[MESH] yenilenmeli (eski trafik ancak boylece replay edilemez).");
-        Serial.flush();
-        while (true) delay(1000);
-    }
-    prefs.putUInt("boot_ctr", boot_sayaci);
-    prefs.end();
-    _session_id = (uint16_t)boot_sayaci;   // 1..65535, 0 asla (sayac 1'den basliyor)
-    Serial.printf("[MESH] session_id=%u (monoton boot sayaci, NVS)\n", _session_id);
-    if (boot_sayaci <= 2) {
-        // NVS erase tuzagi icin erken uyari. Tuzagi bu cihazin kendi konsolunda
-        // gorunur kilan tek yer; red logu peer'in konsolunda basiliyor. Gercekten
-        // ilk boot ise zararsiz bir bilgi satiri.
-        Serial.println("[MESH] UYARI: boot sayaci ~sifirdan basladi (NVS yeni ya da silinmis).");
-        Serial.println("[MESH] Bu cihaz DAHA ONCE mesh'te calistiysa peer'ler onu KALICI");
-        Serial.println("[MESH] reddeder (eski session gorunur). 'Duyar ama duyulmaz' semptomu.");
-        Serial.println("[MESH] Kurtarma: bkz mesh_config.h::_session_id_uret NVS ERASE TUZAGI");
-    }
-}
-
+// NVS'e hic dokunmaz. Onceki surum burada AES anahtarini okuyor ve monoton
+// boot sayacini artiriyordu; ikisi de kaldirildi (bkz dosya basindaki GUVENLIK
+// MODELI). Pratik sonuc: firmware yuklemesi artik hicbir kalici durumu
+// bozamaz, provizyon adimi yok, "duyar ama duyulmaz" arizasi imkansiz.
 static inline void mesh_init(mesh_veri_callback_t callback) {
-    aes_init(); // Key expansion bir kez yapilir
-    _session_id_uret();     // monoton, NVS'te kalici (gonderici yarisi)
-    _peer_session_yukle();  // peer_mac -> son session_id (alici yarisi)
     _veri_callback = callback;
     esp_read_mac(_benim_mac, ESP_MAC_WIFI_STA);
     Serial.printf("[MESH] MAC: %02X:%02X:%02X:%02X:%02X:%02X\n",
@@ -983,19 +841,21 @@ static inline void mesh_loop() {
 }
 
 static inline void mesh_durum_yazdir() {
-    Serial.println("=== MESH DURUM ===");
+    MESH_LOG_PRINTLN("=== MESH DURUM ===");
     uint8_t aktif = 0;
     for (uint8_t i = 0; i < MESH_MAX_NODES; i++) {
         if (!_bilinen_nodlar[i].aktif) continue;
         aktif++;
-        Serial.printf("  [%d] %02X:%02X:%02X:%02X:%02X:%02X  %ums\n", i,
+        MESH_LOG_PRINTF("  [%d] %02X:%02X:%02X:%02X:%02X:%02X  %ums\n", i,
             _bilinen_nodlar[i].mac[0],_bilinen_nodlar[i].mac[1],
             _bilinen_nodlar[i].mac[2],_bilinen_nodlar[i].mac[3],
             _bilinen_nodlar[i].mac[4],_bilinen_nodlar[i].mac[5],
             (unsigned)(millis()-_bilinen_nodlar[i].son_heartbeat_ms));
     }
-    Serial.printf("  Aktif: %d/%d\n", aktif, MESH_MAX_NODES);
-    Serial.println("==================");
+    MESH_LOG_PRINTF("  Aktif: %d/%d  crc_hatasi=%lu paket_dustu=%lu\n",
+        aktif, MESH_MAX_NODES,
+        (unsigned long)_crc_hatasi, (unsigned long)_paket_dustu);
+    MESH_LOG_PRINTLN("==================");
 }
 
 // Joystick komut struct (float32 encoding).
@@ -1025,8 +885,15 @@ struct __attribute__((packed)) komut_veri_t {
 #define KOMUT_FLAG_EMERGENCY         0x08
 #define KOMUT_FLAG_FORMATION_CHANGE  0x10
 #define KOMUT_FLAG_DEADMAN_PRESSED   0x20
+// Guided (YKİ tekil komut) ek bayraklari. takeoff/land/rtl yukaridakiyle ortak;
+// arm/disarm bos iki bit. flags uint8, 0x40/0x80 bosta.
+#define KOMUT_FLAG_ARM               0x40
+#define KOMUT_FLAG_DISARM            0x80
 #define KOMUT_MODE_SWARM_MOVEMENT    1
 #define KOMUT_MODE_MANEUVER          2
+// Guided nokta-git alt_tip'i: joystick modlarindan (1/2) ayri; drone tarafi
+// bunu gorunce komutu guided yolla (FSM baypas) px4_bridge'e cevirir.
+#define KOMUT_MODE_GUIDED            3
 
 // Layout sozlesmesini derleme zamaninda kilitle: bridge cerceveden sabit 16 byte
 // diliyor (packet_parser.py::cerceve_coz -> govde[2:18]), boyut 16'dan sapamaz;
@@ -1039,3 +906,24 @@ static_assert(offsetof(komut_veri_t, roll_x100) == 2,
               "roll_x100 offset 2 OLMALI — pi_bridge _KOMUT_FMT ile uyum");
 static_assert(offsetof(komut_veri_t, throttle_x100) == 8,
               "throttle_x100 offset 8 OLMALI — pi_bridge _KOMUT_FMT ile uyum");
+
+// GOTO bayrak bitleri (goto_veri_t.bayraklar).
+#define GOTO_BAYRAK_YAW_GECERLI  0x01   // yaw_ddeg gecerli; yoksa drone yaw'u serbest birakir
+
+// YKİ -> drone tekil nokta-git komutu (guided). Hedef, paylasilan SwarmOrigin'e
+// gore NED (desimetre) tasinir; drone tarafi dogrudan AgentSetpoint'e cevirir.
+// Bir KEZ gonderilir — PX4'un istedigi 50Hz OFFBOARD akisi drone'da LOKAL uretilir
+// (mesh'e cikmaz), bu yuzden mesh yuku ihmal edilebilir. Layout packet_parser.py
+// ::_GOTO_FMT '<hhhhB7x' ile BIREBIR; degistirmeden once iki tarafi guncelle.
+struct __attribute__((packed)) goto_veri_t {
+    int16_t  kuzey_dm;   // NED kuzey, desimetre (+-3276.7 m)
+    int16_t  dogu_dm;    // NED dogu,  desimetre
+    int16_t  asagi_dm;   // NED asagi, desimetre (pozitif = asagi; irtifa = -asagi_dm)
+    int16_t  yaw_ddeg;   // hedef yaw, desi-derece (0.1 deg); bayrak yoksa yok sayilir
+    uint8_t  bayraklar;  // GOTO_BAYRAK_*
+    uint8_t  rezerv[7];  // toplam 16 byte
+};
+static_assert(sizeof(goto_veri_t) == 16,
+              "goto_veri_t 16 byte OLMALI — bridge govde[2:18] ile sabit 16B diliyor");
+static_assert(offsetof(goto_veri_t, bayraklar) == 8,
+              "bayraklar offset 8 OLMALI — packet_parser.py _GOTO_FMT ile uyum");
