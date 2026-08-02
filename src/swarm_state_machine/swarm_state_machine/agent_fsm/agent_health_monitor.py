@@ -175,8 +175,6 @@ def check(ctx: AgentContext) -> HealthCheckResult:
 
 
 def _check_critical_faults(ctx: AgentContext) -> HealthCheckResult:
-    """Kritik donanim hatalarini kontrol eder."""
-    if not ctx.px4_link_ok and not ctx.sitl_mode:
     """
     En kritik donanım hatalarını kontrol eder.
 
@@ -208,18 +206,6 @@ def _check_critical_faults(ctx: AgentContext) -> HealthCheckResult:
             reason='EKF2 estimator hatalı',
         )
 
-    _offboard_exempt = frozenset({
-        AgentState.RETURN_HOME,
-        AgentState.LANDING,
-    })
-    is_offboard_lost = (
-        ctx.state in _AIRBORNE
-        and ctx.state not in _offboard_exempt
-        and ctx.offboard_lost_since is not None
-        and (time.monotonic() - ctx.offboard_lost_since)
-        > _OFFBOARD_LOSS_TIMEOUT_S
-    )
-    if is_offboard_lost:
     if (ctx.state in _AIRBORNE
             and ctx.offboard_lost_since is not None
             and (time.monotonic() - ctx.offboard_lost_since)
@@ -423,8 +409,6 @@ def _check_flight_stability(ctx: AgentContext) -> None:
 
 
 def _check_altitude_limits(ctx: AgentContext) -> HealthCheckResult:
-    """Maksimum irtifa sinirini kontrol eder."""
-    if ctx.sitl_mode or ctx.state not in _AIRBORNE:
     """
     Maksimum irtifa sınırını kontrol eder.
 

@@ -316,10 +316,6 @@ class MissionFsmNode(Node):
             )
 
         elif state == MissionState.LANDING:
-            self._pub_event(
-                SystemEvent.EVENT_EMERGENCY_LAND,
-                SystemEvent.SEVERITY_WARNING,
-                'Görev FSM İniş (LAND) tetikledi',
             # Sürü formasyonla home'a vardı (RETURN_HOME→LANDING kapısı
             # event_formation_reached). Ajanlar offboard'da RETURN_HOME'da
             # bekliyor; inişi ancak bu sinyalle tetikleriz. Sinyal olmadan
