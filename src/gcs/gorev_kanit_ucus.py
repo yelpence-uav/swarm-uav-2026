@@ -131,6 +131,18 @@ TEKLI_ILERLEME_M = 7.0        # kalkis yonunde gidilecek mesafe
 TEKLI_IRTIFA_ARTIS_M = 5.0    # ayni noktada ikinci tirmanis
 TEKLI_BEKLEME_S = 5.0         # her adimda yerinde bekleme
 
+# --- --senaryo asili (KACINMA TESTI) ----------------------------------------
+# Tek ucak kalkar, KENDI yerinin ustunde belirtilen sure asili durur, iner.
+# Yatayda hicbir komut yok — dolayisiyla ucak kimildarsa sebep BIZ DEGILIZ.
+# Kacinmayi denemenin en temiz yolu bu: operator OTEKI dronu kumandayla
+# yaklastirir ve otonom ucagin kacip kacmadigina bakar.
+#
+# IRTIFA AYRIMI GUVENLIK ICIN: kacinma yalniz YATAY calisiyor (itme_vektoru
+# 'kuzey, dogu' aliyor, irtifa hesaba hic girmiyor). Yani iki ucagi farkli
+# irtifada tutmak kacinmayi engellemez ama fiziksel carpismayi imkansiz kilar.
+ASILI_IRTIFA_M = 8.0
+ASILI_SURE_S = 60.0
+
 # --- Manevra ----------------------------------------------------------------
 # Şartname: sürü merkezi sabit, sağa/sola yatış. 30° seçildi çünkü 20°'de
 # kanatlar merkezden yalnız ±2.7 m ayrılıyor ve yerden çekimde sınırda
@@ -245,6 +257,21 @@ TASMA_M = 3.0                # setpoint ucaktan en fazla bu kadar onde olabilir
 # KACIS_ARDISIK olcumde oyle kalirsa gorev kesilir. 1 Agustos 22:18'de bu
 # kesici yoktu; mesafe 6.5 -> 78.7 m buyudu ve kod 40 sn seyretti.
 KACIS_MARJ_M = 4.0
+# KACINMA ACIKKEN MARJ GENISLER — yoksa kesici kacinmayi BOGAR.
+#
+# basit_kacinma setpoint'i max_itme_m kadar (varsayilan 6.0 m) kaydirabiliyor.
+# Normal marj 4.0 m oldugu icin bir kacinma manevrasi kesicinin tanimina TAM
+# UYUYOR: "hedeften 4 m uzaklasti ve oyle kaldi". Yani kacinma calissa bile
+# gorev onu kacis sanip inis komutu gonderirdi — hem testi imkansiz kilar hem
+# gercek gorevde bir kacinma manevrasini gorev iptaline cevirirdi.
+#
+# 8.0 = max_itme (6.0) + pay. Koruma zayiflar ama kaybolmaz: 1 Agustos'taki
+# kacisda mesafe 6.5 -> 78.7 m gitmisti; 8 m marj + 0.8 sn onay ile en kotu
+# kayip ~11 m olurdu. 78 metrenin yanina yaklasmaz.
+#
+# BILEREK ACIK BAYRAK: --kacinma verilmeden genislemiyor. Operator kacinmayi
+# actigini beyan etmek zorunda; sessizce gevsemesi istenmez.
+KACIS_MARJ_KACINMA_M = 8.0
 # ONAY SURESI, ORNEK SAYISI DEGIL. Onceden "ardisik 3 olcum" idi ve bu
 # SETPOINT_ADIM_S'e gizlice bagliydi: aralik 0.5 -> 0.1 sn olunca onay
 # suresi 1.5 sn'den 0.3 sn'ye duser ve ruzgar darbesi yanlis alarm verirdi.
@@ -261,6 +288,7 @@ _son_komut_t = 0.0
 _iniyor = False
 _HARITA_DOSYA = None
 _SENARYO = "kanit"
+_KACINMA_ACIK = False        # --kacinma: kacis kesicisinin marjini genisletir
 
 
 # --- HTTP -------------------------------------------------------------------
@@ -831,6 +859,36 @@ def plan_kur_test(merkez0, baslangic=None):
     return plan
 
 
+def _kacis_marj() -> float:
+    """Kaçış kesicisinin marjı — kaçınma açıkken geniş."""
+    return KACIS_MARJ_KACINMA_M if _KACINMA_ACIK else KACIS_MARJ_M
+
+
+def plan_kur_asili(t):
+    """KAÇINMA TESTİ — tek uçak kendi yerinin üstünde asılı durur.
+
+    Yatayda HİÇBİR komut verilmiyor: hedef, uçağın ölçülen kendi konumu.
+    Dolayısıyla uçak yatayda kımıldarsa sebep bizim komutumuz DEĞİLDİR —
+    ya kaçınmadır ya rüzgârdır, ve ikisi ayırt edilebilir (kaçınma yalnız
+    komşu yaklaşırken ve ondan uzağa iter).
+
+    Operatör bu sırada ÖTEKİ dronu kumandayla yaklaştırır. Kaçınmanın
+    kendi yorumunda yazan durum tam olarak budur:
+      "biz asılı duruyorsak teğeti hiç açmıyor. Oysa asılı dururken
+       üstümüze gelen bir uçak, teğete en çok ihtiyaç duyduğumuz durum."
+
+    İrtifa ayrımı güvenlik için: kaçınma yalnız yatay çalışıyor, o yüzden
+    iki uçağı farklı irtifada tutmak testi bozmaz ama çarpışmayı imkânsız
+    kılar.
+    """
+    did = DRONELAR[0]
+    d = t[did]
+    return [(f"ASILI DUR {ASILI_SURE_S:.0f}s (kaçınma testi)",
+             d["yaw_deg"],
+             {did: (d["pos_x"], d["pos_y"], ASILI_IRTIFA_M)},
+             ASILI_SURE_S)]
+
+
 def ucanlar():
     """Komut gonderilecek drone'lar. Lider de dahil — o da kalkiyor."""
     return list(DRONELAR)
@@ -1148,7 +1206,7 @@ def git_ve_bekle(hedefler, heading_deg: float, asim_s: float, kuru: bool,
             if u < en_yakin[did]:
                 en_yakin[did] = u
                 kacis_basladi[did] = None
-            elif u > en_yakin[did] + KACIS_MARJ_M:
+            elif u > en_yakin[did] + _kacis_marj():
                 if kacis_basladi[did] is None:
                     kacis_basladi[did] = simdi
             else:
@@ -1307,7 +1365,14 @@ def gorev(kuru: bool) -> int:
 
     baslangic = {did: (t[did]["pos_x"], t[did]["pos_y"], KALKIS_IRTIFA_M)
                  for did in DRONELAR if did in t} or None
-    if _SENARYO == "tekli":
+    if _SENARYO == "asili":
+        did = DRONELAR[0]
+        if did not in t:
+            print(f"Telemetride yok: drone {did} — asılı senaryosu ölçülen "
+                  "konuma dayanır, başlatılamaz.")
+            return 1
+        plan = plan_kur_asili(t)
+    elif _SENARYO == "tekli":
         did = DRONELAR[0]
         if did in t:
             plan = plan_kur_tekli(t)
@@ -1352,7 +1417,8 @@ def gorev(kuru: bool) -> int:
     # ARM TEYİDİ BEKLENİR: px4_bridge önce OFFBOARD'a geçip sonra arm ediyor
     # (PX4 yerde armlıyken OFFBOARD'a girmiyor). Teyit beklemeden takeoff
     # yollamak, komutun hâlâ disarm uçağa gitmesi ve sessizce düşmesi demek.
-    kalkis_irt = (TEKLI_IRTIFA_M if _SENARYO == "tekli"
+    kalkis_irt = (ASILI_IRTIFA_M if _SENARYO == "asili"
+                  else TEKLI_IRTIFA_M if _SENARYO == "tekli"
                   else FORMASYON_TEST_IRTIFA_M if _SENARYO in ("formasyon", "lider")
                   else KALKIS_IRTIFA_M)
     print(f"\n=== ARM + KALKIŞ {kalkis_irt:.0f} m ===")
@@ -1569,7 +1635,28 @@ def gorev(kuru: bool) -> int:
             # diye secilmis bir sayi degil.
             bekle_s = YERLESME_S if beklet is True else float(beklet)
             print(f"    bekleme {bekle_s:.0f}s")
-            time.sleep(bekle_s)
+            # BEKLEME SIRASINDA DA DENETLE. Onceki hali duz time.sleep idi:
+            # 5 sn'lik yerlesmede zararsizdi ama --senaryo asili 60 sn tutuyor
+            # ve o sure boyunca kill/failsafe/egim/pilot denetimi KOR kalirdi.
+            # Bekleme sirasinda gorev komut gondermiyor; setpoint'i drone
+            # kendi tazeliyor (esp32_bridge 10 Hz yerel tekrar), yani ucak
+            # yerinde durmaya devam eder.
+            _bekle_basla = time.time()
+            while time.time() - _bekle_basla < bekle_s:
+                time.sleep(min(0.5, bekle_s))
+                _t = durum()
+                _ihlal = guvenlik_ihlali(_t)
+                if _ihlal:
+                    print(f"\n    !!! {_ihlal} — görev durduruluyor")
+                    indir(kuru)
+                    return 1
+                _pilot = [d for d in ucanlar()
+                          if _t.get(d, {}).get("flight_mode", 0) in _PILOT_MODLARI]
+                if _pilot:
+                    print(f"\n    !!! drone {_pilot} PİLOT KONTROLÜNDE — "
+                          f"görev durduruluyor")
+                    indir(kuru)
+                    return 1
         if kalan() < 40:
             print(f"\n    GÖREV SÜRE TAVANI ({kalan():.0f}s) — iniliyor")
             break
@@ -1585,8 +1672,17 @@ def main() -> int:
     global DRONELAR
     ap = argparse.ArgumentParser(description="Kanıt uçuşu görev koşucusu")
     ap.add_argument("--kuru", action="store_true", help="komut gönderme; planı kur ve doğrula")
+    ap.add_argument("--sure", type=float, default=None,
+                    help="--senaryo asili icin asili kalma suresi (sn)")
+    ap.add_argument("--irtifa", type=float, default=None,
+                    help="--senaryo asili icin kalkis/asili irtifasi (m)")
+    ap.add_argument("--kacinma", action="store_true",
+                    help="carpisma kacinmasi ACIK (drone'da /ws/kacinma var). "
+                         "Kacis kesicisinin marjini genisletir, yoksa kesici "
+                         "kacinma manevrasini kacis sanip gorevi iptal eder.")
     ap.add_argument("--senaryo",
-                    choices=("kanit", "test", "formasyon", "lider", "tekli"),
+                    choices=("kanit", "test", "formasyon", "lider", "tekli",
+                             "asili"),
                     default="kanit",
                     help="kanit = tam koreografi; test = kuzeybati/bekle/"
                          "irtifa/don; formasyon = rastgele yerlesimden cizgi "
@@ -1611,6 +1707,14 @@ def main() -> int:
     a = ap.parse_args()
     DRONELAR = [int(x) for x in a.dronelar.split(",") if x.strip()]
     global ROTA_YONU_DEG, _HARITA_DOSYA, _SENARYO, LIDER, HARITA_OFSET_KD
+    global _KACINMA_ACIK, ASILI_SURE_S, ASILI_IRTIFA_M
+    _KACINMA_ACIK = a.kacinma
+    if a.sure is not None:
+        ASILI_SURE_S = a.sure
+    if a.irtifa is not None:
+        ASILI_IRTIFA_M = a.irtifa
+    if a.senaryo == "asili" and len(DRONELAR) != 1:
+        ap.error("--senaryo asili TAM OLARAK bir drone ister (or. --dronelar 3)")
     if a.harita_ofset:
         try:
             k, _, d = a.harita_ofset.partition(",")
@@ -1642,14 +1746,22 @@ def main() -> int:
     signal.signal(signal.SIGTERM, _kesildi)
 
     print("=" * 72)
-    print("  TEK UÇAK TESTİ — kalkış yönünde 7 m, bekle, 5 m tırman, bekle, in"
+    print(f"  KAÇINMA TESTİ — {ASILI_IRTIFA_M:.0f} m'de {ASILI_SURE_S:.0f}s "
+          f"ASILI DUR (yatayda komut YOK)"
+          if a.senaryo == "asili" else
+          "  TEK UÇAK TESTİ — kalkış yönünde 7 m, bekle, 5 m tırman, bekle, in"
           if a.senaryo == "tekli" else
           "  LİDER YANINA GEÇİŞ — lider yerinde asılı, takipçi sağına gelir"
           if a.senaryo == "lider" else
           "  BASİT İKİ DRONE TESTİ — kuzeybatı, bekle, irtifa, dönüş"
           if a.senaryo == "test"
           else "  KANIT UÇUŞU — ok başı, roll, formasyon değişimi, irtifa değişimi")
-    if a.senaryo == "tekli":
+    if a.senaryo == "asili":
+        print(f"  drone: {DRONELAR[0]}   irtifa {ASILI_IRTIFA_M:.0f} m   "
+              f"süre {ASILI_SURE_S:.0f}s")
+        print(f"  kaçınma {'AÇIK' if _KACINMA_ACIK else 'KAPALI'}   "
+              f"kaçış marjı {_kacis_marj():.0f} m")
+    elif a.senaryo == "tekli":
         print(f"  drone: {DRONELAR[0]}   kalkış {TEKLI_IRTIFA_M:.0f} m -> "
               f"{TEKLI_IRTIFA_M + TEKLI_IRTIFA_ARTIS_M:.0f} m   "
               f"ileri {TEKLI_ILERLEME_M:.0f} m   bekleme {TEKLI_BEKLEME_S:.0f}s")
