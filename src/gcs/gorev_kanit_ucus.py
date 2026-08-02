@@ -201,7 +201,22 @@ DONUS_IRTIFA_M = 10.0
 #   hedef hep onde kalir
 #   3.0 m'de yurutucunun fren hizi sqrt(2*1.5*3.0) = 3.0 m/s > 2.0 tavan
 #   => hicbir noktada yavaslamaya baslamaz
-DONUS_ROTASYON_ADIM_DEG = 7.5       # 180/7.5 = 24 dilim, kiris 1.31 m
+# 3. DENEME (24 dilim, kiris 1.31 m) DE YETMEZDI. Ucurmadan once hesabi
+# yapinca goruldu: dilimlemek KIRILMAYI azaltiyor ama ZIPLAMAYI bitirmiyor.
+# Hedef bir plan adimi boyunca SABIT duruyor, sonra bir anda kiris kadar
+# sicriyor. Ucagi tasiyan sey konum terimi (MPC_XY_P x mesafe) oldugu icin:
+#     mesafe 3.31 <-> 2.00 m arasi gidip geliyor
+#     hiz    3.14 <-> 1.90 m/s   -> ~%25 nabiz, ~1.4 Hz
+# Ne kadar sik dilim koyulursa koyulsun sicrama boyu KIRISE esit kalir.
+#
+# 4. DENEME — SICRAMA BOYUNU DONGU PERIYODUNA ESITLE:
+#     adim boyu = hiz x dongu periyodu = 1.9 m/s x 0.2 sn = 0.38 m
+# Her tikte hedef tam bir adim ilerler; sicrama diye bir sey kalmaz, hedef
+# yay boyunca SUREKLI kayar. R=10 m'de bu 2.25 derecelik dilim demek:
+#     kiris 0.39 m · yon kirilmasi 2.25 derece · sapma 0.2 cm · 80 nokta
+# Nokta sayisi cok ama her biri tek dongu tiki tuketiyor: 80 x 0.2 = 16 sn,
+# yayin 1.9 m/s'te suresiyle (31.4/1.9 = 16.5 sn) birebir ortusuyor.
+DONUS_ROTASYON_ADIM_DEG = 2.25      # 180/2.25 = 80 nokta, kiris 0.39 m
 # ONDEN BAKIS MESAFESI. Kiristen BUYUK olmasi ARTIK KASITLI: birden fazla
 # nokta ayni anda kabul edilir ve hedef ucagin hep ~bu kadar onunde, yay
 # boyunca surekli kayan bir noktaya donusur. Kendini ayarlar — ucak
@@ -1187,7 +1202,19 @@ def plan_kur_formasyon(merkez0, baslangic=None):
 
 def plan_yaz(plan):
     print("\n=== GÖREV PLANI ===")
-    for etiket, heading, hedefler, *_ in plan:
+    # GECIS NOKTALARI TEK SATIRDA. Yay 80 noktaya bolununce her birini uc
+    # satirla basmak plani okunmaz yapiyor; onemli olan yayin varligi ve
+    # kac noktadan olustugu.
+    gecis_sayisi = 0
+    for _adim in plan:
+        if len(_adim) > 4 and _adim[4] is not None:
+            gecis_sayisi += 1
+    if gecis_sayisi:
+        print(f"  ({gecis_sayisi} geçiş noktası özetlendi — yay, durak değil)")
+    for adim in plan:
+        if len(adim) > 4 and adim[4] is not None:
+            continue
+        etiket, heading, hedefler = adim[0], adim[1], adim[2]
         print(f"  {etiket}   (yön {heading:.0f}°)")
         for did in DRONELAR:
             k, d, i = hedefler[did]
