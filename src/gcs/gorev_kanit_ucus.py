@@ -185,11 +185,45 @@ DONUS_IRTIFA_M = 10.0
 #   2) Burun donusu ayri faz olarak yapilmiyor; yon konumla birlikte
 #      degisiyor ve PX4 MPC_YAWRAUTO_MAX ile zaten yumusatiyor.
 # Durmak gerekmedigi icin dilim sayisi ARTIRILDI: daha yuvarlak yay, ayni sure.
-DONUS_ROTASYON_ADIM_DEG = 22.5      # 180/22.5 = 8 dilim, kiris 3.9 m
-# Gecis yaricapi kiristen KUCUK olmali, yoksa adimlar pes pese kabul edilir
-# ve hedef ucagin cok onune kacar. Kirisin ~yarisi: 3.9/2 ~ 2.0.
-# Ayrica 2.0 m'de yurutucunun fren hizi sqrt(2*1.5*2.0) = 2.45 m/s > 2.0,
-# yani bu yaricapta HENUZ yavaslamaya baslamamis olur — hareket surekli kalir.
+# 2. DENEME de yetmedi (8 dilim x 22.5, gecis yaricapi 2.0). Ucak artik
+# DURMUYORDU — log: mesafe 5.0 -> 1.5 arasi ortalama 2.2 m/s, sifira inmiyor.
+# Ama operator yine "taksit taksit" dedi ve yine hakliydi: sorun duraklama
+# DEGIL, YON KIRILMASI. Her dilimde hedef 22.5 derece yana ziplıyor ve hiz
+# vektoru o kadar donmek zorunda kaliyor — sekiz dilim, sekiz keskin kose.
+#
+# 3. DENEME: dilimler DURAK degil, ONDEN BAKIS noktalari. Cok sik nokta +
+# noktalardan buyuk gecis yaricapi => hedef her zaman ucagin ~3 m onunde
+# yay boyunca SUREKLI kayar (saf takip / pure pursuit). Ucak sabit hizla
+# onu izler; ne durur ne sert doner.
+#   7.5 derece -> 24 dilim, kiris 1.31 m, yon kirilmasi 7.5 derece
+#   yay-cokgen sapmasi (sagitta) = R(1-cos(3.75)) = 0.02 m — olculemez
+#   gecis yaricapi 3.0 m > kiris => ayni anda ~2 nokta kabul edilir,
+#   hedef hep onde kalir
+#   3.0 m'de yurutucunun fren hizi sqrt(2*1.5*3.0) = 3.0 m/s > 2.0 tavan
+#   => hicbir noktada yavaslamaya baslamaz
+DONUS_ROTASYON_ADIM_DEG = 7.5       # 180/7.5 = 24 dilim, kiris 1.31 m
+# ONDEN BAKIS MESAFESI. Kiristen BUYUK olmasi ARTIK KASITLI: birden fazla
+# nokta ayni anda kabul edilir ve hedef ucagin hep ~bu kadar onunde, yay
+# boyunca surekli kayan bir noktaya donusur. Kendini ayarlar — ucak
+# yaklastikca sonraki noktalar kabul edilir, hedef ilerler.
+#
+# 2. denemede 2.0 idi ve kiristen (3.9) KUCUKTU; o yuzden her nokta ayri bir
+# durak gibi davrandi ve yon 22.5 derece zipladi. Artik tersi.
+#
+# DEGERI 2.0 SECERKEN DIKKAT — once 3.0 yazmistim, gerekcem YANLISTI.
+# "Yurutucu frene basmasin" diye buyuk sectim; oysa hedef surekli onde
+# oldugu icin yurutucu ona ZATEN yetisiyor ve hiz ileri-beslemesi sifirlaniyor.
+# O halde ucagi tasiyan sey KONUM terimi oluyor ve hizi MPC_XY_P x mesafe
+# belirliyor:
+#     onden bakis 3.0 m -> 0.95 x 3.0 = 2.85 m/s   (istedigimiz degil)
+#     onden bakis 2.0 m -> 0.95 x 2.0 = 1.90 m/s   (hedef hizimiz)
+# Yani bu sayi ayni zamanda YAY BOYUNCA HIZI belirliyor.
+#
+# 2. denemede de 2.0 idi ama o zaman KIRIS 3.9 m ile bu mesafeden BUYUKTU;
+# noktalar tek tek durak gibi tuketiliyordu. Simdi kiris 1.31 m, yani
+# mesafeden kucuk — birden fazla nokta ayni anda kabul ediliyor ve hedef
+# gercekten surekli kayan bir noktaya donusuyor. Belirleyici olan sey
+# yaricapin kendisi degil, KIRIS < YARICAP olmasi.
 DONUS_GECIS_R_M = 2.0
 DONUS_BEKLEME_S = 3.0
 
