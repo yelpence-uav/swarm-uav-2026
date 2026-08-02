@@ -148,6 +148,24 @@ class BasitKacinmaNode(Node):
         # yönü radyalden ~39° sapar, yani uçak geri geri kaçmak yerine
         # belirgin şekilde KENARA çekilir.
         self.declare_parameter('k_tan', 0.8)
+        # HAM SETPOINT TAZELIK SINIRI — 2 Agustos'ta EKSIKTI ve bir ucusu bozdu.
+        #
+        # _on_raw gelen setpoint'i sakliyordu ama ZAMAN DAMGASI YOKTU ve _tik
+        # onu her tik'te SONSUZA KADAR yayinliyordu. Sonucu: gorev 'land' ile
+        # bitip esp32_bridge hedefi temizledikten sonra bile bu dugum ESKI
+        # hedefi yayinlamaya devam ediyor, px4_bridge "taze setpoint var"
+        # goruyor ve BIR SONRAKI KALKISTA yatay kilit acilir acilmaz ucagi
+        # onceki gorevin hedefine goturuyor.
+        #
+        # Olculdu (ylp02, iki dronlu prova): kalkis hedefi 10 m iken komut
+        # 9.96'dan baslayip 1 m/s rampayla 7.80'e indi ve orada dondu — 7.80,
+        # bir onceki kacinma testinin hedefiydi. Ucak komutu birebir izledi
+        # (fark 0.00-0.05 m), yani ucak degil KOMUT yanlisti. ylp01'de kacinma
+        # kapali oldugu icin ayni ucusta 10.0 m'ye dogru cikti.
+        #
+        # px4_bridge'in kendi bayatlama korumasi (_setpoint_timeout_s = 0.5)
+        # tam da bunun icin var; bu dugum onu ETKISIZ KILIYORDU.
+        self.declare_parameter('ham_bayat_s', 0.5)
 
         self._aid = int(self.get_parameter('agent_id').value)
         self._d0 = float(self.get_parameter('d0_m').value)
@@ -174,6 +192,8 @@ class BasitKacinmaNode(Node):
         self._kapanma = {}            # id -> yaklaşma hızı (m/s)
         self._son_itme = (0.0, 0.0)
         self._ham = None              # son gelen ham setpoint
+        self._ham_ts = 0.0            # ne zaman geldi (bayatlama icin)
+        self._ham_bayat = float(self.get_parameter('ham_bayat_s').value)
 
         self._pub = self.create_publisher(
             AgentSetpoint, f'/drone_{self._aid}/control/setpoint', kontrol_qos)
@@ -242,6 +262,7 @@ class BasitKacinmaNode(Node):
     def _on_raw(self, msg: AgentSetpoint) -> None:
         """Ham hedefi saklar. İşi zamanlayıcı yapar — sebebi aşağıda."""
         self._ham = msg
+        self._ham_ts = self._simdi()
 
     def _tik(self) -> None:
         """Kaçınmayı SÜREKLİ hesaplar ve yayınlar.
@@ -260,6 +281,20 @@ class BasitKacinmaNode(Node):
         msg = self._ham
         if msg is None:
             return                    # henüz hedef yok; px4_bridge kendi tutuyor
+
+        # BAYAT HAM HEDEF YAYINLANMAZ. Yukarıdaki "her tik bir setpoint" kuralı
+        # YUKARI AKIŞ CANLIYKEN geçerli. Yukarı akış susmuşsa (görev bitti,
+        # esp32_bridge hedefi temizledi) burada da susmak DOĞRU davranış:
+        # px4_bridge'in kendi bayatlama koruması devreye girip konum tutar.
+        # Eski hâli sonsuza kadar yayınlıyordu ve bir sonraki kalkışı ele
+        # geçiriyordu — bkz. ham_bayat_s parametresindeki ölçüm.
+        if self._simdi() - self._ham_ts > self._ham_bayat:
+            if self._ham is not None:
+                self.get_logger().warn(
+                    f'ham setpoint bayatladı ({self._ham_bayat:.1f}s) — '
+                    f'yayın durduruldu, px4_bridge konum tutacak')
+            self._ham = None
+            return
 
         cik = msg
         itme = (0.0, 0.0)

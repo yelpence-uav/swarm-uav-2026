@@ -143,6 +143,23 @@ TEKLI_BEKLEME_S = 5.0         # her adimda yerinde bekleme
 ASILI_IRTIFA_M = 8.0
 ASILI_SURE_S = 60.0
 
+# --- --senaryo takip (IKI DRONLU PROVA) -------------------------------------
+# Kanit videosu koreografisinin ONCESINDE yapilan prova: roll YOK, formasyon
+# degisimi YOK, irtifa degisimi YOK. Yalniz "formasyonu kur, git, bekle, don".
+# Amac ilk kez IKI ucagi bu kodla birlikte havada tutmak.
+#
+# LIDER OPERATORUN SECTIGI ucaktir ve slot 0'a SABITLENIR — "en yakin slot"
+# atamasi kullanilmaz. Formasyon merkezi, LIDER istenen noktada olacak sekilde
+# geri hesaplanir (okbasi ofsetleri merkezlenmis geldigi icin lider merkezde
+# DEGILDIR; n=2'de merkezin 3.54 m onunde ve 3.54 m solundadir).
+#
+# BURUN DONMEZ: gidiste de doniste de heading = liderin kalkis yonu. Ucaklar
+# geri geri doner. Boylece yaw dilimleme hic devreye girmez — ilk iki dronlu
+# ucusta bir degisken daha az.
+TAKIP_MESAFE_M = 15.0
+TAKIP_IRTIFA_M = 10.0
+TAKIP_BEKLEME_S = 3.0
+
 # --- Manevra ----------------------------------------------------------------
 # Şartname: sürü merkezi sabit, sağa/sola yatış. 30° seçildi çünkü 20°'de
 # kanatlar merkezden yalnız ±2.7 m ayrılıyor ve yerden çekimde sınırda
@@ -864,6 +881,55 @@ def _kacis_marj() -> float:
     return KACIS_MARJ_KACINMA_M if _KACINMA_ACIK else KACIS_MARJ_M
 
 
+def plan_kur_takip(t):
+    """İKİ DRONLU PROVA — ok başı kur, 15 m ileri, bekle, eve dön.
+
+    Lider OPERATÖRÜN SEÇTİĞİ uçak ve slot 0'a sabitlenir. Formasyon merkezi,
+    liderin istenen noktada olması için geri hesaplanır: ok başı ofsetleri
+    _merkezle() ile merkezlendiği için lider merkezde DEĞİLDİR (n=2'de
+    merkezin 3.54 m önünde, 3.54 m solunda).
+
+    Bu yüzden "lider kalkış noktasına dönsün" demek, formasyon merkezini
+    kalkış noktasına göndermek DEĞİLDİR — aradaki ofset kadar kaydırmak
+    gerekir. Yoksa lider kendi kalkış noktasının 5 m ötesine iner.
+
+    Yön SABİT: gidişte de dönüşte de liderin kalkış yönü. Uçaklar geri geri
+    döner; formasyon yönelimi hiç değişmez ve yaw dilimleme devreye girmez.
+    """
+    lider = LIDER
+    l = t[lider]
+    lk, ld, lyaw = l["pos_x"], l["pos_y"], l["yaw_deg"]
+    h = math.radians(lyaw)
+
+    # Liderin baktığı yöne TAKIP_MESAFE_M
+    hedef_k = lk + TAKIP_MESAFE_M * math.cos(h)
+    hedef_d = ld + TAKIP_MESAFE_M * math.sin(h)
+
+    ofs = formasyon_ofsetleri("okbasi", len(DRONELAR))
+    # SLOT SABİT: lider 0, diğerleri sırayla. "En yakın slot" ataması
+    # kullanılmıyor çünkü lideri operatör seçti.
+    slot = {lider: 0}
+    for i, did in enumerate([d for d in DRONELAR if d != lider], start=1):
+        slot[did] = i
+
+    def _hedefler(nokta):
+        """Lider 'nokta'da olacak şekilde bütün slotların dünya konumu."""
+        o_i, o_s = ofs[0]
+        merkez = (nokta[0] - (o_i * math.cos(h) + o_s * (-math.sin(h))),
+                  nokta[1] - (o_i * math.sin(h) + o_s * math.cos(h)))
+        noktalar = [slot_dunya(merkez, lyaw, *o) + (TAKIP_IRTIFA_M,)
+                    for o in ofs]
+        return {did: noktalar[slot[did]] for did in DRONELAR}
+
+    return [
+        (f"ok başı dizilişi (lider d{lider})", lyaw, _hedefler((lk, ld)), True),
+        (f"-> {TAKIP_MESAFE_M:.0f} m ileri (yön {lyaw:.0f}°)", lyaw,
+         _hedefler((hedef_k, hedef_d)), TAKIP_BEKLEME_S),
+        (f"-> EV (lider d{lider} kalkış noktası)", lyaw,
+         _hedefler((lk, ld)), True),
+    ]
+
+
 def plan_kur_asili(t):
     """KAÇINMA TESTİ — tek uçak kendi yerinin üstünde asılı durur.
 
@@ -1365,7 +1431,14 @@ def gorev(kuru: bool) -> int:
 
     baslangic = {did: (t[did]["pos_x"], t[did]["pos_y"], KALKIS_IRTIFA_M)
                  for did in DRONELAR if did in t} or None
-    if _SENARYO == "asili":
+    if _SENARYO == "takip":
+        eksik = [d for d in DRONELAR if d not in t]
+        if eksik:
+            print(f"Telemetride yok: drone {eksik} — takip senaryosu konum ve "
+                  "yön ölçümüne dayanır, başlatılamaz.")
+            return 1
+        plan = plan_kur_takip(t)
+    elif _SENARYO == "asili":
         did = DRONELAR[0]
         if did not in t:
             print(f"Telemetride yok: drone {did} — asılı senaryosu ölçülen "
@@ -1417,7 +1490,8 @@ def gorev(kuru: bool) -> int:
     # ARM TEYİDİ BEKLENİR: px4_bridge önce OFFBOARD'a geçip sonra arm ediyor
     # (PX4 yerde armlıyken OFFBOARD'a girmiyor). Teyit beklemeden takeoff
     # yollamak, komutun hâlâ disarm uçağa gitmesi ve sessizce düşmesi demek.
-    kalkis_irt = (ASILI_IRTIFA_M if _SENARYO == "asili"
+    kalkis_irt = (TAKIP_IRTIFA_M if _SENARYO == "takip"
+                  else ASILI_IRTIFA_M if _SENARYO == "asili"
                   else TEKLI_IRTIFA_M if _SENARYO == "tekli"
                   else FORMASYON_TEST_IRTIFA_M if _SENARYO in ("formasyon", "lider")
                   else KALKIS_IRTIFA_M)
@@ -1487,6 +1561,21 @@ def gorev(kuru: bool) -> int:
     # kayar, duzeltmek icin egilir, pervane yere vurur.
     ERKEN_KES_S = 8.0
     ERKEN_KES_IRTIFA_M = 1.5
+    # PLATO TESPITI — 2 Agustos'ta EKSIKTI. O ucusta ylp02 7.8 m'de takildi
+    # (sebebi kacinma dugumunun bayat setpoint'i idi) ve kosul "hepsi %90'a
+    # ciksin" oldugu icin hicbir zaman saglanmadi: iki ucak 40 SANIYE havada
+    # bosuna bekledi, pil yandi, operator elle indirdi. Artik irtifa
+    # PLATO_S boyunca PLATO_TOLERANS_M'den fazla artmiyorsa ve hedefin
+    # altindaysak temiz bir mesajla kesiyoruz.
+    PLATO_S = 12.0
+    PLATO_TOLERANS_M = 0.5
+    plato_t = {d: time.time() for d in ucanlar()}
+    plato_alt = {d: 0.0 for d in ucanlar()}
+    # KALKTI MI — erken kesme kontrolu YALNIZ hic kalkamamis ucaga uygulanir.
+    # Onceki hali 60 sn'lik pencerede HER AN gecerliydi ve o ucusta operator
+    # elle indirirken 53. saniyede "1.5 m'ye cikamadi, YERDEN KESILEMIYOR"
+    # diye YANLIS teshis bastirdi — oysa ucak 7.8 m'ye cikmisti.
+    kalkti = {d: False for d in ucanlar()}
     print(f"    irtifa bekleniyor...")   # (ofset asagida olculuyor)
     t0 = time.time()
     while time.time() - t0 < KALKIS_ASIM_S:
@@ -1498,9 +1587,32 @@ def gorev(kuru: bool) -> int:
             indir(kuru)
             return 1
         gecen = time.time() - t0
+        simdi_t = time.time()
+        for d in ucanlar():
+            a = t.get(d, {}).get("alt_m", 0.0)
+            if a >= ERKEN_KES_IRTIFA_M:
+                kalkti[d] = True
+            if a > plato_alt[d] + PLATO_TOLERANS_M:
+                plato_alt[d] = a
+                plato_t[d] = simdi_t
+        takilan_plato = [d for d in ucanlar()
+                         if kalkti[d]
+                         and simdi_t - plato_t[d] > PLATO_S
+                         and t.get(d, {}).get("alt_m", 0.0) < kalkis_irt * 0.9]
+        if takilan_plato:
+            print(f"\n    !!! drone {takilan_plato} irtifada TAKILDI: "
+                  + "  ".join(f"d{d}={t.get(d,{}).get('alt_m',0.0):.1f}m"
+                              for d in takilan_plato)
+                  + f" (hedef {kalkis_irt:.1f} m, {PLATO_S:.0f} sn'dir "
+                    f"yükselmiyor) — iniliyor")
+            print("      Not: uçak komutu izliyorsa sorun İTKİ değil KOMUTTUR "
+                  "— px4b logundaki setpoint'e bak.")
+            indir(kuru)
+            return 1
         if gecen > ERKEN_KES_S:
             takilan = [d for d in ucanlar()
-                       if t.get(d, {}).get("alt_m", 0.0) < ERKEN_KES_IRTIFA_M]
+                       if not kalkti[d]
+                       and t.get(d, {}).get("alt_m", 0.0) < ERKEN_KES_IRTIFA_M]
             if takilan:
                 print(f"\n    !!! drone {takilan} {gecen:.0f} sn'de "
                       f"{ERKEN_KES_IRTIFA_M:.1f} m'ye çıkamadı — YERDEN "
@@ -1682,7 +1794,7 @@ def main() -> int:
                          "kacinma manevrasini kacis sanip gorevi iptal eder.")
     ap.add_argument("--senaryo",
                     choices=("kanit", "test", "formasyon", "lider", "tekli",
-                             "asili"),
+                             "asili", "takip"),
                     default="kanit",
                     help="kanit = tam koreografi; test = kuzeybati/bekle/"
                          "irtifa/don; formasyon = rastgele yerlesimden cizgi "
@@ -1721,6 +1833,14 @@ def main() -> int:
             HARITA_OFSET_KD = (float(k), float(d))
         except ValueError:
             ap.error("--harita-ofset 'KUZEY,DOGU' metre olmali (or. '4,-2')")
+    if a.senaryo == "takip":
+        if a.lider is None:
+            ap.error("--senaryo takip icin --lider N gerekli (lider ucak)")
+        if a.lider not in DRONELAR:
+            ap.error(f"--lider {a.lider} --dronelar listesinde yok")
+        if len(DRONELAR) < 2:
+            ap.error("--senaryo takip en az iki drone ister")
+        LIDER = a.lider
     if a.senaryo == "lider":
         if a.lider is None:
             ap.error("--senaryo lider icin --lider N gerekli")
@@ -1746,7 +1866,10 @@ def main() -> int:
     signal.signal(signal.SIGTERM, _kesildi)
 
     print("=" * 72)
-    print(f"  KAÇINMA TESTİ — {ASILI_IRTIFA_M:.0f} m'de {ASILI_SURE_S:.0f}s "
+    print(f"  İKİ DRONLU PROVA — ok başı, {TAKIP_MESAFE_M:.0f} m ileri, "
+          f"bekle, eve dön"
+          if a.senaryo == "takip" else
+          f"  KAÇINMA TESTİ — {ASILI_IRTIFA_M:.0f} m'de {ASILI_SURE_S:.0f}s "
           f"ASILI DUR (yatayda komut YOK)"
           if a.senaryo == "asili" else
           "  TEK UÇAK TESTİ — kalkış yönünde 7 m, bekle, 5 m tırman, bekle, in"
@@ -1756,7 +1879,11 @@ def main() -> int:
           "  BASİT İKİ DRONE TESTİ — kuzeybatı, bekle, irtifa, dönüş"
           if a.senaryo == "test"
           else "  KANIT UÇUŞU — ok başı, roll, formasyon değişimi, irtifa değişimi")
-    if a.senaryo == "asili":
+    if a.senaryo == "takip":
+        print(f"  dronelar: {DRONELAR}   LİDER: d{LIDER}   formasyon ok başı")
+        print(f"  irtifa {TAKIP_IRTIFA_M:.0f} m   aralık {ARALIK_M:.0f} m   "
+              f"bekleme {TAKIP_BEKLEME_S:.0f}s")
+    elif a.senaryo == "asili":
         print(f"  drone: {DRONELAR[0]}   irtifa {ASILI_IRTIFA_M:.0f} m   "
               f"süre {ASILI_SURE_S:.0f}s")
         print(f"  kaçınma {'AÇIK' if _KACINMA_ACIK else 'KAPALI'}   "

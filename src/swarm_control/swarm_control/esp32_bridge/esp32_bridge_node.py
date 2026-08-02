@@ -1084,6 +1084,12 @@ class Esp32BridgeNode(Node):
             irtifa = k.throttle_x100 / 100.0
             if irtifa <= 0.0:
                 irtifa = 10.0
+            # ESKI HEDEFI TEMIZLE — disarm/land/rtl temizliyordu, takeoff
+            # TEMIZLEMIYORDU. Kalan bir hedef, yatay kilit acilir acilmaz
+            # px4_bridge'e "taze setpoint" gibi gorunup kalkisi ele gecirir:
+            # ucak yeni kalkis irtifasina degil ONCEKI gorevin hedefine gider.
+            # Kalkis boyunca otorite kalkis komutunda olmali.
+            self._guided_hedef = None
             self._guided_string('offboard')
             self._guided_string(f'takeoff:{irtifa:.1f}')
         elif k.flags & pp.KOMUT_FLAG_LAND:
