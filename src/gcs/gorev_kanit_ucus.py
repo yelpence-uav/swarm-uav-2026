@@ -160,6 +160,39 @@ TAKIP_MESAFE_M = 15.0
 TAKIP_IRTIFA_M = 10.0
 TAKIP_BEKLEME_S = 3.0
 
+# --- --senaryo donus (CIZGI + 180 ROTASYON + EVE DONUS) ---------------------
+# Kalkis -> cizgi formasyonu -> liderin baktigi yone DONUS_MESAFE_M ->
+# 180 ROTASYON (lider YERINDE, takipci onun etrafinda yay cizer) -> eve don.
+#
+# ROTASYON NEDEN DILIMLENIYOR: 180'i tek adimda vermek, takipcinin baslangic
+# ve bitis noktalarini liderin IKI YANINA koyar ve aradaki DUZ CIZGI tam
+# liderin uzerinden gecer. Setpoint duz gider, yay cizmez — yani carpisma.
+# plan_dogrula bunu zaten reddederdi.
+#
+# 30 derecelik dilimlerde: kiris boyu 2*R*sin(15) = 5.2 m ve takipci lidere
+# en fazla R*cos(15) = 9.7 m'ye kadar yaklasir. Yani ARALIK_M'nin altina hic
+# inmez ve hareket gercekten yay olur.
+DONUS_MESAFE_M = 20.0
+DONUS_IRTIFA_M = 10.0
+# 2 Agustos ilk denemesi: 6 dilim (30 derece) ve her dilimde TAM VARIS
+# bekleniyordu. Sonuc "taksit taksit" bir hareketti — ucak her dilimde
+# sifirdan hizlanip duruyor, varis duzeltmesini yapiyor, sonra yeniden
+# hizlaniyordu. Operator "cok kotu gorundu, asiri cirkin" dedi ve haklıydı.
+#
+# Duzeltme iki parcali:
+#   1) Ara noktalar artik GECIS NOKTASI (bkz. DONUS_GECIS_R_M): tam varis
+#      beklenmiyor, ucak yavaslamadan bir sonrakine geciyor.
+#   2) Burun donusu ayri faz olarak yapilmiyor; yon konumla birlikte
+#      degisiyor ve PX4 MPC_YAWRAUTO_MAX ile zaten yumusatiyor.
+# Durmak gerekmedigi icin dilim sayisi ARTIRILDI: daha yuvarlak yay, ayni sure.
+DONUS_ROTASYON_ADIM_DEG = 22.5      # 180/22.5 = 8 dilim, kiris 3.9 m
+# Gecis yaricapi kiristen KUCUK olmali, yoksa adimlar pes pese kabul edilir
+# ve hedef ucagin cok onune kacar. Kirisin ~yarisi: 3.9/2 ~ 2.0.
+# Ayrica 2.0 m'de yurutucunun fren hizi sqrt(2*1.5*2.0) = 2.45 m/s > 2.0,
+# yani bu yaricapta HENUZ yavaslamaya baslamamis olur — hareket surekli kalir.
+DONUS_GECIS_R_M = 2.0
+DONUS_BEKLEME_S = 3.0
+
 # --- Manevra ----------------------------------------------------------------
 # Şartname: sürü merkezi sabit, sağa/sola yatış. 30° seçildi çünkü 20°'de
 # kanatlar merkezden yalnız ±2.7 m ayrılıyor ve yerden çekimde sınırda
@@ -505,7 +538,7 @@ def plan_dogrula(plan, baslangic=None) -> bool:
     if baslangic:
         plan = [("YER (gerçek konum)", 0.0, baslangic, False)] + list(plan)
 
-    for i, (etiket, _heading, hedefler, _b) in enumerate(plan):
+    for i, (etiket, _heading, hedefler, *_) in enumerate(plan):
         for a, b in itertools.combinations(DRONELAR, 2):
             m = math.dist(hedefler[a], hedefler[b])
             if m < en_kotu[0]:
@@ -670,7 +703,7 @@ def _plan_noktalari(plan, merkez0):
     kontrolumuz oldugu icin bu kabul edilemez.
     """
     noktalar = [("KALKIS/EV", merkez0)]
-    for etiket, _h, hedefler, _b in plan:
+    for etiket, _h, hedefler, *_ in plan:
         n = len(hedefler)
         merkez = (sum(v[0] for v in hedefler.values()) / n,
                   sum(v[1] for v in hedefler.values()) / n)
@@ -825,9 +858,9 @@ def ayak_izi_yaz(plan, merkez0):
     "18 m'lik ucgen" demek yetmiyor cunku formasyon sapmasi ve rotasyon
     ucaklari noktalarin OTESINE tasiyor.
     """
-    k = [h[0] - merkez0[0] for _e, _h, hed, _b in plan for h in hed.values()]
-    d = [h[1] - merkez0[1] for _e, _h, hed, _b in plan for h in hed.values()]
-    z = [h[2] for _e, _h, hed, _b in plan for h in hed.values()]
+    k = [h[0] - merkez0[0] for _e, _h, hed, *_ in plan for h in hed.values()]
+    d = [h[1] - merkez0[1] for _e, _h, hed, *_ in plan for h in hed.values()]
+    z = [h[2] for _e, _h, hed, *_ in plan for h in hed.values()]
     print("\n=== GEREKEN ALAN (kalkış noktasına göre) ===")
     print(f"  kuzey  : {max(k):+6.1f} m        güney  : {min(k):+6.1f} m")
     print(f"  doğu   : {max(d):+6.1f} m        batı   : {min(d):+6.1f} m")
@@ -879,6 +912,75 @@ def plan_kur_test(merkez0, baslangic=None):
 def _kacis_marj() -> float:
     """Kaçış kesicisinin marjı — kaçınma açıkken geniş."""
     return KACIS_MARJ_KACINMA_M if _KACINMA_ACIK else KACIS_MARJ_M
+
+
+def plan_kur_donus(t):
+    """ÇİZGİ formasyonu, 20 m ileri, 180° rotasyon, eve dönüş.
+
+    ROTASYONDA LİDER YERİNDE DURUR, takipçi onun etrafında yay çizer.
+    Formasyon merkezi her ara yön için, lider sabit kalacak şekilde geri
+    hesaplanır — merkez etrafında döndürseydik lider de 10 m kayardı.
+
+    ROTASYON DİLİMLENİR — bu şart, tercih değil. 180°'yi tek adımda vermek
+    takipçinin başlangıç ve bitiş noktalarını liderin İKİ YANINA koyar;
+    aradaki düz çizgi tam liderin üzerinden geçer. Setpoint düz gider, yay
+    çizmez. plan_dogrula bunu zaten reddeder (ve etmeliydi).
+
+    30°'lik dilimlerde takipçi lidere en yakın R*cos(15°) = 9.7 m'ye
+    yaklaşır — ARALIK_M'nin (10 m) pratikte altına inmez.
+
+    Dönüş yönü, dilimler boyunca KISA TARAFTAN gidilecek şekilde seçilir.
+    """
+    lider = LIDER
+    l = t[lider]
+    lk, ld, lyaw = l["pos_x"], l["pos_y"], l["yaw_deg"]
+
+    ofs = formasyon_ofsetleri("cizgi", len(DRONELAR))
+    slot = {lider: 0}
+    for i, did in enumerate([d for d in DRONELAR if d != lider], start=1):
+        slot[did] = i
+
+    def _hedefler(nokta, yon):
+        """Lider 'nokta'da, formasyon 'yon'a bakacak şekilde hedefler."""
+        h = math.radians(yon)
+        o_i, o_s = ofs[0]
+        merkez = (nokta[0] - (o_i * math.cos(h) + o_s * (-math.sin(h))),
+                  nokta[1] - (o_i * math.sin(h) + o_s * math.cos(h)))
+        noktalar = [slot_dunya(merkez, yon, *o) + (DONUS_IRTIFA_M,)
+                    for o in ofs]
+        return {did: noktalar[slot[did]] for did in DRONELAR}
+
+    h0 = math.radians(lyaw)
+    ileri = (lk + DONUS_MESAFE_M * math.cos(h0),
+             ld + DONUS_MESAFE_M * math.sin(h0))
+    eve_yon = (lyaw + 180.0) % 360.0
+
+    plan = [
+        (f"çizgi dizilişi (lider d{lider})", lyaw, _hedefler((lk, ld), lyaw),
+         True),
+        (f"-> {DONUS_MESAFE_M:.0f} m ileri (yön {lyaw:.0f}°)", lyaw,
+         _hedefler(ileri, lyaw), DONUS_BEKLEME_S),
+    ]
+
+    # 180° ROTASYON — dilim dilim. Lider sabit, takipçi yay çizer.
+    n_dilim = max(1, int(round(180.0 / DONUS_ROTASYON_ADIM_DEG)))
+    for i in range(1, n_dilim + 1):
+        ara = (lyaw + 180.0 * i / n_dilim) % 360.0
+        son = (i == n_dilim)
+        if son:
+            # SON dilimde tam varış istiyoruz: buradan eve uçulacak,
+            # formasyonun oturmuş olması lazım.
+            plan.append((f"rotasyon {i}/{n_dilim} -> {ara:.0f}° (eve bakıyor)",
+                         ara, _hedefler(ileri, ara), True))
+        else:
+            # ARA NOKTA — 5. eleman geçiş yarıçapı. Uçak durmaz, yavaşlamaz,
+            # burnunu ayrı bir fazda çevirmez; yay sürekli akar.
+            plan.append((f"rotasyon {i}/{n_dilim} -> {ara:.0f}°",
+                         ara, _hedefler(ileri, ara), False, DONUS_GECIS_R_M))
+
+    plan.append((f"-> EV (lider d{lider} kalkış noktası)", eve_yon,
+                 _hedefler((lk, ld), eve_yon), True))
+    return plan
 
 
 def plan_kur_takip(t):
@@ -1051,7 +1153,7 @@ def plan_kur_formasyon(merkez0, baslangic=None):
 
 def plan_yaz(plan):
     print("\n=== GÖREV PLANI ===")
-    for etiket, heading, hedefler, _b in plan:
+    for etiket, heading, hedefler, *_ in plan:
         print(f"  {etiket}   (yön {heading:.0f}°)")
         for did in DRONELAR:
             k, d, i = hedefler[did]
@@ -1111,7 +1213,7 @@ def guvenlik_ihlali(t) -> str | None:
 
 
 def git_ve_bekle(hedefler, heading_deg: float, asim_s: float, kuru: bool,
-                 t_baslangic) -> bool:
+                 t_baslangic, tolerans: float | None = None) -> bool:
     """Hedefi gönderir, uçağın varışını bekler ve uçuşu denetler.
 
     YÖRÜNGE ARTIK BURADA ÜRETİLMİYOR (2 Ağustos, adım 1). Üç aşamadan geçti:
@@ -1295,7 +1397,8 @@ def git_ve_bekle(hedefler, heading_deg: float, asim_s: float, kuru: bool,
         # "vardi" sayilabiliyordu. Yurutme px4_bridge'e tasindi: artik ucak
         # hedefe TAM olarak yuruyor, yarim kalma ihtimali yapisal olarak yok.
         # Burada bakilacak tek sey ucagin gercekten varip varmadigi.
-        if uzak and all(u <= TOLERANS_M for u in uzak.values()):
+        _tol = TOLERANS_M if tolerans is None else tolerans
+        if uzak and all(u <= _tol for u in uzak.values()):
             print("      vardı: " + "  ".join(
                 f"d{k}={v:.1f}m" for k, v in sorted(uzak.items())))
             return True
@@ -1431,7 +1534,14 @@ def gorev(kuru: bool) -> int:
 
     baslangic = {did: (t[did]["pos_x"], t[did]["pos_y"], KALKIS_IRTIFA_M)
                  for did in DRONELAR if did in t} or None
-    if _SENARYO == "takip":
+    if _SENARYO == "donus":
+        eksik = [d for d in DRONELAR if d not in t]
+        if eksik:
+            print(f"Telemetride yok: drone {eksik} — dönüş senaryosu konum ve "
+                  "yön ölçümüne dayanır, başlatılamaz.")
+            return 1
+        plan = plan_kur_donus(t)
+    elif _SENARYO == "takip":
         eksik = [d for d in DRONELAR if d not in t]
         if eksik:
             print(f"Telemetride yok: drone {eksik} — takip senaryosu konum ve "
@@ -1490,7 +1600,8 @@ def gorev(kuru: bool) -> int:
     # ARM TEYİDİ BEKLENİR: px4_bridge önce OFFBOARD'a geçip sonra arm ediyor
     # (PX4 yerde armlıyken OFFBOARD'a girmiyor). Teyit beklemeden takeoff
     # yollamak, komutun hâlâ disarm uçağa gitmesi ve sessizce düşmesi demek.
-    kalkis_irt = (TAKIP_IRTIFA_M if _SENARYO == "takip"
+    kalkis_irt = (DONUS_IRTIFA_M if _SENARYO == "donus"
+                  else TAKIP_IRTIFA_M if _SENARYO == "takip"
                   else ASILI_IRTIFA_M if _SENARYO == "asili"
                   else TEKLI_IRTIFA_M if _SENARYO == "tekli"
                   else FORMASYON_TEST_IRTIFA_M if _SENARYO in ("formasyon", "lider")
@@ -1674,9 +1785,12 @@ def gorev(kuru: bool) -> int:
             if abs(irtifa_ofset) > 0.15:
                 print(f"    irtifa ofseti {irtifa_ofset:+.2f} m "
                       f"(zemin origin'in z=0'inda değil) — plana ekleniyor")
-                plan = [(et, hd, {k: (v[0], v[1], v[2] + irtifa_ofset)
-                                  for k, v in hf.items()}, bk)
-                        for et, hd, hf, bk in plan]
+                # 5. eleman (gecis yaricapi) KORUNUR — dusurulurse ara
+                # noktalar tekrar "tam varis" bekler ve yay taksitlenir.
+                plan = [(a[0], a[1],
+                         {k: (v[0], v[1], v[2] + irtifa_ofset)
+                          for k, v in a[2].items()}, *a[3:])
+                        for a in plan]
             break
         print("    ... " + "  ".join(f"d{d}={t.get(d,{}).get('alt_m',0.0):.1f}m"
                                      for d in ucanlar()), end="\r")
@@ -1699,7 +1813,12 @@ def gorev(kuru: bool) -> int:
     # yon her ucak icin AYRI dilimlenir ve adimlar birlikte yurutulur.
     t_yaw = durum_toleransli(kuru) or {}
     onceki_heading = {d: t_yaw[d]["yaw_deg"] for d in ucanlar() if d in t_yaw}
-    for i, (etiket, heading, hedefler, beklet) in enumerate(plan):
+    for i, _adim in enumerate(plan):
+        # 5. eleman OPSIYONEL: gecis yaricapi. Verilirse bu adim bir HEDEF
+        # degil GECIS NOKTASIDIR — tam varis beklenmez ve burun donusu ayri
+        # bir faz olarak yapilmaz. Bkz. plan_kur_donus'taki rotasyon.
+        etiket, heading, hedefler, beklet = _adim[:4]
+        gecis_r = _adim[4] if len(_adim) > 4 else None
         print(f"\n=== [{i+1}/{len(plan)}] {etiket}   yön {heading:.0f}°   "
               f"(kalan {kalan():.0f}s) ===")
         t_durum = durum()
@@ -1710,7 +1829,13 @@ def gorev(kuru: bool) -> int:
         # hedefler[did] (YENI nokta) veriliyordu: yorum "konum degismez"
         # derken kod ucagi doner donmez yola cikariyordu, ustelik yurutulmemis
         # tek sicrama olarak. Ikisi bir arada donuse ek bir savrulma katiyordu.
-        if onceki_heading and not kuru:
+        # GECIS NOKTASINDA BURUN AYRI DONDURULMEZ. Ayri faz, konumu sabit
+        # tutup yaw'i dilimliyor ve dilim basina ~1.6 sn duruyor. Bir yay
+        # boyunca bu, her ara noktada "dur, burnunu cevir, git" demek —
+        # 2 Agustos'ta operator "taksit taksit, cok cirkin" diye bildirdi.
+        # Gecis noktalarinda yon, konumla BIRLIKTE degisir; PX4 zaten
+        # MPC_YAWRAUTO_MAX (25 derece/sn) ile sinirliyor, sert donus olmaz.
+        if onceki_heading and not kuru and gecis_r is None:
             dilimler = {did: yon_dilimle(onceki_heading[did], heading)
                         for did in ucanlar() if did in onceki_heading}
             en_uzun = max((len(v) for v in dilimler.values()), default=0)
@@ -1737,7 +1862,8 @@ def gorev(kuru: bool) -> int:
             print(f"      drone {did}: ({h[0]:+7.1f},{h[1]:+7.1f}) "
                   f"irtifa {h[2]:5.1f} m yön {heading:5.1f}°{etiket_s}")
         if not git_ve_bekle(hedefler, heading,
-                            min(ADIM_ASIM_S, max(kalan(), 5)), kuru, t_durum):
+                            min(ADIM_ASIM_S, max(kalan(), 5)), kuru, t_durum,
+                            tolerans=gecis_r):
             indir(kuru)
             return 1
         if beklet:
@@ -1794,7 +1920,7 @@ def main() -> int:
                          "kacinma manevrasini kacis sanip gorevi iptal eder.")
     ap.add_argument("--senaryo",
                     choices=("kanit", "test", "formasyon", "lider", "tekli",
-                             "asili", "takip"),
+                             "asili", "takip", "donus"),
                     default="kanit",
                     help="kanit = tam koreografi; test = kuzeybati/bekle/"
                          "irtifa/don; formasyon = rastgele yerlesimden cizgi "
@@ -1833,13 +1959,13 @@ def main() -> int:
             HARITA_OFSET_KD = (float(k), float(d))
         except ValueError:
             ap.error("--harita-ofset 'KUZEY,DOGU' metre olmali (or. '4,-2')")
-    if a.senaryo == "takip":
+    if a.senaryo in ("takip", "donus"):
         if a.lider is None:
-            ap.error("--senaryo takip icin --lider N gerekli (lider ucak)")
+            ap.error(f"--senaryo {a.senaryo} icin --lider N gerekli")
         if a.lider not in DRONELAR:
             ap.error(f"--lider {a.lider} --dronelar listesinde yok")
         if len(DRONELAR) < 2:
-            ap.error("--senaryo takip en az iki drone ister")
+            ap.error(f"--senaryo {a.senaryo} en az iki drone ister")
         LIDER = a.lider
     if a.senaryo == "lider":
         if a.lider is None:
@@ -1866,7 +1992,9 @@ def main() -> int:
     signal.signal(signal.SIGTERM, _kesildi)
 
     print("=" * 72)
-    print(f"  İKİ DRONLU PROVA — ok başı, {TAKIP_MESAFE_M:.0f} m ileri, "
+    print(f"  ÇİZGİ + 180° ROTASYON — {DONUS_MESAFE_M:.0f} m ileri, dön, eve"
+          if a.senaryo == "donus" else
+          f"  İKİ DRONLU PROVA — ok başı, {TAKIP_MESAFE_M:.0f} m ileri, "
           f"bekle, eve dön"
           if a.senaryo == "takip" else
           f"  KAÇINMA TESTİ — {ASILI_IRTIFA_M:.0f} m'de {ASILI_SURE_S:.0f}s "
@@ -1879,7 +2007,11 @@ def main() -> int:
           "  BASİT İKİ DRONE TESTİ — kuzeybatı, bekle, irtifa, dönüş"
           if a.senaryo == "test"
           else "  KANIT UÇUŞU — ok başı, roll, formasyon değişimi, irtifa değişimi")
-    if a.senaryo == "takip":
+    if a.senaryo == "donus":
+        print(f"  dronelar: {DRONELAR}   LİDER: d{LIDER}   formasyon ÇİZGİ")
+        print(f"  irtifa {DONUS_IRTIFA_M:.0f} m   aralık {ARALIK_M:.0f} m   "
+              f"rotasyon dilimi {DONUS_ROTASYON_ADIM_DEG:.0f}°")
+    elif a.senaryo == "takip":
         print(f"  dronelar: {DRONELAR}   LİDER: d{LIDER}   formasyon ok başı")
         print(f"  irtifa {TAKIP_IRTIFA_M:.0f} m   aralık {ARALIK_M:.0f} m   "
               f"bekleme {TAKIP_BEKLEME_S:.0f}s")
