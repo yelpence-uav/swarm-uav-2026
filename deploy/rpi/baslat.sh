@@ -110,11 +110,28 @@ GUIDED_TASMA="${GUIDED_TASMA:-3.0}"
 # Asimin gercek kaldiraci GECIKME TELAFISI (bkz. _yurutucu_ilerlet).
 GUIDED_IVME_YATAY="${GUIDED_IVME_YATAY:-1.5}"
 GUIDED_IVME_DIKEY="${GUIDED_IVME_DIKEY:-1.0}"
-# Gecikme telafisi: PX4'un ileri-beslemenin ustune ekledigi MPC_XY_P x gecikme
-# teriminin bu orani geri cikarilir. KP UCAKTAKI MPC_XY_P ILE AYNI OLMALI.
-# Tam telafi (1.0) konum duzeltmesini sifirlar — bilerek 0.7.
+# GECIKME TELAFISI — DENENDI, KAPATILDI (2 Agustos, 4. ucus).
+#
+# Fikir: PX4 toplam talebi "ileri-besleme + MPC_XY_P x gecikme" seklinde
+# kuruyor; o ikinci terimi ileri-beslemeden geri cikarirsak toplam istedigimiz
+# hiz kalir. Kod calisti, KOMUT tepesi 2.00 -> 1.43 indi. Ama:
+#
+#     telafisiz:  KOMUT 2.00  OLCULEN 2.42   (PX4 ekledi 0.42 -> gecikme 0.44 m)
+#     telafili :  KOMUT 1.43  OLCULEN 2.24   (PX4 ekledi 0.81 -> gecikme 0.85 m)
+#
+# GECIKME IKIYE KATLANDI. Sebep: yuruyen nokta hala 2.0 m/s ilerliyor ama
+# ucaga 1.43 deniyor; ucak yavas kalinca nokta daha cok one geciyor, PX4'un
+# ekledigi terim buyuyor ve kaybedilen hizin cogu geri geliyor. Telafi kendi
+# kendini yiyor.
+#
+# Bilanco: kazanc %7 (2.42 -> 2.24). Bedel: MPC_XY_P'ye gizli bagimlilik,
+# konum dongusunun %70'inin iptali (ruzgar direnci ucte bire iner) ve ucus
+# 33 -> 35 sn. Takas savunulamaz -> oran 0.0.
+#
+# Kod DURUYOR: tekrar denenecekse yuruyen noktanin hizi da ucagin gercek
+# hizina baglanmali, yoksa ayni geri besleme dongusune girilir.
 GUIDED_KONUM_KP="${GUIDED_KONUM_KP:-0.95}"
-GUIDED_TELAFI_ORANI="${GUIDED_TELAFI_ORANI:-0.7}"
+GUIDED_TELAFI_ORANI="${GUIDED_TELAFI_ORANI:-0.0}"
 ros2 run swarm_control px4_bridge --ros-args -p agent_id:=${AGENT_ID} \
     -p guided_hiz_yatay_mps:=${GUIDED_HIZ_YATAY} \
     -p guided_hiz_dikey_mps:=${GUIDED_HIZ_DIKEY} \

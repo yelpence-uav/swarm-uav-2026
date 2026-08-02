@@ -1,6 +1,6 @@
 # Bekleyen İşler — Yapılmayanlar ve İleride Yapılacaklar
 
-**Son güncelleme:** 1 Ağustos 2026 (bkz. `31temmuz-1agustos.md`)
+**Son güncelleme:** 2 Ağustos 2026 (bkz. `31temmuz-1agustos.md`, `kanit_videosu_plani.md`)
 **Takım:** Yelpence (752825) — ylp00, ylp01, ylp02
 
 Bu belge "neyi henüz yapmadık" sorusunun tek cevabı olsun diye tutuluyor.
@@ -11,6 +11,24 @@ Durum işaretleri:
 `[ ]` yapılmadı · `[~]` kısmen · `[B]` başka bir şeye bağlı · `[!]` uçuş izni engeli
 
 ---
+
+## 0.0. KANIT VİDEOSU — görev planı ayrı belgede
+
+Operatörün tarif ettiği tam koreografi (iki drone, lider seçimi, formasyon,
+roll, roll'lu geçiş, irtifa değişimi, formasyon değişimi, eve dönüş) ve
+mevcut kodun bunun ne kadarını karşıladığı **`kanit_videosu_plani.md`**
+içinde. Özet: `--senaryo kanit` koreografinin çoğunu zaten kuruyor, üç küçük
+değişiklik gerekiyor (lider seçimi, irtifa sırası, nokta parametreleri).
+
+Uçuşu engelleyen şey KOD DEĞİL:
+
+- `[!]` **ylp00 ağ dışı ve 2 Ağustos'un hiçbir kodu onda yok** — iki dronlu
+  uçuşta ikisi aynı kodda olmalı
+- `[!]` **`kanit` senaryosu hiç uçmadı** — 2 Ağustos'un sekiz uçuşu da tek drone
+- `[!]` **ylp00'ın kalibrasyon sonrası EKF uyarıları doğrulanmadı**
+  ("high accelerometer bias", "vertical velocity unstable")
+- `[ ]` **çarpışma önleme asimetrik** — ylp00'da açık, ylp01'de kapalı
+
 
 ## 0. 1 Ağustos gecesinden kalanlar — **en yüksek öncelik**
 
