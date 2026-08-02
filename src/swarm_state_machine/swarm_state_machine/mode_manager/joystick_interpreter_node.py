@@ -18,7 +18,7 @@ node tarafından SwarmControlCommand'a gömülür.
 
 from collections import namedtuple
 
-from mavros_msgs.msg import ManualControl
+from mavros_msgs.msg import ManualControl, RCIn
 from sensor_msgs.msg import Joy
 
 import rclpy
@@ -60,7 +60,8 @@ class JoystickInterpreterNode(Node):
     AUX_TAKEOFF_LAND_CHANNEL = 'aux4'  # Kalkış / İniş (SwD)
 
     # AUX 1 Emniyet Kilidi Eşik Değeri
-    AUX_SAFETY_THRESH = 300            # >300  -> Emniyet AKTİF (komutlar çalışır)
+    # >300  -> Emniyet AKTİF (komutlar çalışır)
+    AUX_SAFETY_THRESH = 300
 
     # AUX 3 Formasyon Seçimi Eşik Değerleri (-1000..+1000 MAVROS aralığı)
     AUX_FORMATION_THRESH_LOW = -300    # <-300 -> Ok Başı (1)
@@ -162,7 +163,7 @@ class JoystickInterpreterNode(Node):
         )
 
     def _setup_subscribers(self) -> None:
-        """MAVROS joystick ve ROS2 Joy girdi aboneliğini oluşturur."""
+        """MAVROS joystick, ROS2 Joy ve GERÇEK DRONE girdi abonelikleri."""
         self.create_subscription(
             ManualControl,
             '/mavros/manual_control/control',
@@ -174,6 +175,14 @@ class JoystickInterpreterNode(Node):
             '/joy',
             self._on_joy,
             10,
+        )
+        # Gerçek fiziksel drone kumanda bağlantısı (RC receiver -> PX4 ->
+        # MAVROS)
+        self.create_subscription(
+            RCIn,
+            '/mavros/rc/in',
+            self._on_mavros_rc_in,
+            _PX4_QOS,
         )
 
     def _on_manual_control(self, msg: '_MavrosManual') -> None:
@@ -203,11 +212,13 @@ class JoystickInterpreterNode(Node):
             # Aux durumlarını güncelle ama komut gönderme
             self._last_aux4 = aux4_val
             if aux3_val < self.AUX_FORMATION_THRESH_LOW:
-                self._last_aux3_formation = SwarmControlCommand.FORMATION_OKBASI
+                self._last_aux3_formation = \
+                    SwarmControlCommand.FORMATION_OKBASI
             elif aux3_val > self.AUX_FORMATION_THRESH_HIGH:
                 self._last_aux3_formation = SwarmControlCommand.FORMATION_CIZGI
             else:
-                self._last_aux3_formation = SwarmControlCommand.FORMATION_UNKNOWN
+                self._last_aux3_formation = \
+                    SwarmControlCommand.FORMATION_UNKNOWN
 
             cmd.command_valid = False
             cmd.deadman_pressed = False
@@ -247,7 +258,8 @@ class JoystickInterpreterNode(Node):
         elif aux3_val > self.AUX_FORMATION_THRESH_HIGH:
             current_aux3_formation = SwarmControlCommand.FORMATION_CIZGI
         else:
-            current_aux3_formation = SwarmControlCommand.FORMATION_UNKNOWN  # ORTA = Formasyonsuz (0)
+            # ORTA = Formasyonsuz (0)
+            current_aux3_formation = SwarmControlCommand.FORMATION_UNKNOWN
 
         if self._last_aux3_formation != current_aux3_formation:
             self._last_aux3_formation = current_aux3_formation
@@ -265,7 +277,7 @@ class JoystickInterpreterNode(Node):
         cmd.emergency_stop = False
 
         # Kalkış / İniş Tetikleme (AUX 4 - SwD)
-        # Şalteri AŞAĞI indirince (>300) KALKIŞ (Mission 1), YUKARI kaldırınca (<-300) İNİŞ (Mission 6)
+        # Şalter AŞAĞI (>300) KALKIŞ (Mission 1), YUKARI (<-300) İNİŞ (Miss. 6)
         # aux4_val yukarıda okundu
         if aux4_val > self.AUX_TAKEOFF_THRESH and (
             self._last_aux4 <= self.AUX_TAKEOFF_THRESH
@@ -347,8 +359,67 @@ class JoystickInterpreterNode(Node):
         )
         self._on_manual_control(norm)
 
+    def _on_mavros_rc_in(self, msg: RCIn) -> None:
+        """GERÇEK DRONE: MAVROS RCIn sinyalini normalize edip işler.
+
+        Pixhawk üzerindeki fiziksel SBUS/PPM alıcısından gelen veriler.
+        Kanal aralığı tipik olarak [1000, 2000].
+        Orta nokta 1500. _MavrosManual'a [-1, 1] veya raw aux [-1000, 1000]
+        olacak şekilde ölçeklenir.
+        """
+        if len(msg.channels) < 8:
+            return
+
+        def map_channel_to_axis(pwm: int) -> float:
+            return self._clamp((pwm - 1500.0) / 500.0)
+
+        def map_channel_to_aux(pwm: int) -> int:
+            # 1000 -> -1000, 1500 -> 0, 2000 -> 1000
+            return int((pwm - 1500.0) * 2.0)
+
+        # FlySky varsayılan Mod2: CH1:Roll, CH2:Pitch, CH3:Throttle, CH4:Yaw
+        roll_pwm = msg.channels[0]
+        pitch_pwm = msg.channels[1]
+        throttle_pwm = msg.channels[2]
+        yaw_pwm = msg.channels[3]
+
+        aux1_pwm = msg.channels[4]  # SwA (Emniyet)
+        aux2_pwm = msg.channels[5]  # SwB (Mod)
+        aux3_pwm = msg.channels[6]  # SwC (Formasyon)
+        aux4_pwm = msg.channels[7]  # SwD (Kalkış/İniş)
+
+        # Gaz [1000, 2000] -> [0.0, 1.0]
+        throttle_norm = self._clamp((throttle_pwm - 1000.0) / 1000.0, 0.0, 1.0)
+
+        # Pitch, Roll, Yaw'da FlySky yönünü Gazebo ile uyumlu tutmak için
+        # invert gerekebilir. Genellikle RCIn pitch ileri itince pwm düşer
+        # (1000), geri çekince artar (2000).
+        # Gazebo ManualControl x ekseninde ileri = 1000.
+        # Bu yüzden Pitch_axis = -map_channel_to_axis(pitch_pwm)
+        pitch_axis = -map_channel_to_axis(pitch_pwm)
+        roll_axis = map_channel_to_axis(roll_pwm)
+        yaw_axis = map_channel_to_axis(yaw_pwm)
+
+        norm = _MavrosManual(
+            pitch=self._clamp(pitch_axis),
+            roll=self._clamp(roll_axis),
+            yaw=self._clamp(yaw_axis),
+            throttle=throttle_norm,
+            aux1=map_channel_to_aux(aux1_pwm),
+            aux2=map_channel_to_aux(aux2_pwm),
+            aux3=map_channel_to_aux(aux3_pwm),
+            aux4=map_channel_to_aux(aux4_pwm),
+            aux5=map_channel_to_aux(
+                msg.channels[8]) if len(
+                msg.channels) > 8 else 0,
+            aux6=map_channel_to_aux(
+                msg.channels[9]) if len(
+                    msg.channels) > 9 else 0,
+        )
+        self._on_manual_control(norm)
+
     def _on_joy(self, msg: Joy) -> None:
-        """ROS2 sensor_msgs/Joy mesajını normalize edip _on_manual_control'a verir.
+        """ROS2 Joy mesajını normalize edip _on_manual_control'a verir.
 
         FlySky FS-i6X Dongle Channel Mapping (DOĞRULANMIŞ):
         - axes[0]: Roll (Sağ stick LR)
@@ -365,8 +436,8 @@ class JoystickInterpreterNode(Node):
         throttle = msg.axes[2] if len(msg.axes) > 2 else 0.0
         yaw = msg.axes[3] if len(msg.axes) > 3 else 0.0
 
-        # SwA (Emniyet Kilidi): Yukarı = Buton 1 (idx 0) veya axis 4 < -0.2 -> KİLİTLİ (-1000)
-        #                        Aşağı  = Buton 2 (idx 1) veya axis 4 > 0.2 -> EMNİYET AÇIK (1000)
+        # SwA (Emniyet Kilidi): Yukarı = Buton 1 veya axis 4 < -0.2 (KİLİTLİ)
+        # Aşağı  = Buton 2 (idx 1) veya axis 4 > 0.2 -> EMNİYET AÇIK (1000)
         btn_swa_up = bool(msg.buttons[0]) if len(msg.buttons) > 0 else False
         btn_swa_down = bool(msg.buttons[1]) if len(msg.buttons) > 1 else False
         axis_swa = msg.axes[4] if len(msg.axes) > 4 else 0.0
@@ -378,11 +449,13 @@ class JoystickInterpreterNode(Node):
         else:
             aux1 = -1000
 
-        # SwB (Sürü Modu): Buton 2 (idx 2) = Yukarı (Movement), Buton 3 (idx 3) = Aşağı (Maneuver)
+        # SwB (Sürü Modu): Buton 2 (idx 2) = Yukarı (Movement), Buton 3 (idx 3)
+        # = Aşağı (Maneuver)
         btn_swb_down = bool(msg.buttons[3]) if len(msg.buttons) > 3 else False
         aux2 = 1000 if btn_swb_down else -1000
 
-        # SwC (Formasyon 3-pos): Buton 4 (idx 4) = Yukarı (Ok Başı), Buton 5 (idx 5) = Aşağı (Çizgi), Hiçbiri = Ortada (V)
+        # SwC (Formasyon 3-pos): Buton 4 (idx 4) = Yukarı (Ok Başı), Buton 5
+        # (idx 5) = Aşağı (Çizgi), Hiçbiri = Ortada (V)
         btn_swc_top = bool(msg.buttons[4]) if len(msg.buttons) > 4 else False
         btn_swc_bot = bool(msg.buttons[5]) if len(msg.buttons) > 5 else False
         if btn_swc_top and not btn_swc_bot:
@@ -392,7 +465,8 @@ class JoystickInterpreterNode(Node):
         else:
             aux3 = 0       # ORTA = V Formasyonu
 
-        # SwD (Kalkış / İniş): Buton 6 (idx 6) = Yukarı (İniş), Buton 7 (idx 7) = Aşağı (Kalkış)
+        # SwD (Kalkış / İniş): Buton 6 (idx 6) = Yukarı (İniş), Buton 7 (idx 7)
+        # = Aşağı (Kalkış)
         btn_swd_down = bool(msg.buttons[7]) if len(msg.buttons) > 7 else False
         aux4 = 1000 if btn_swd_down else -1000
 
