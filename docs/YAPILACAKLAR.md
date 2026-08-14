@@ -1,6 +1,6 @@
 # YAPILACAKLAR
 
-**Son güncelleme:** 15 Ağustos 2026, 02:35
+**Son güncelleme:** 15 Ağustos 2026, 03:10
 
 ## Önem dereceleri
 
@@ -86,6 +86,16 @@ tek sayı 7 m'lik bir bacaktan geldi, yani geçici rejimi ölçüyor.
 - `[ ]` 🔴 **`cv2` + `pyzbar` konteynerde YOK** — canlı denendi,
   `ModuleNotFoundError`. Görü zinciri hiç çalışamaz. Kamera gelmeden önce
   imaja eklenmeli
+- `[ ]` 🔴 **`agent_fsm` preflight pil tuzağı** — `run_preflight_checks`'te
+  `battery_min_voltage=13.60` **gömülü**, üç çağrı yerinin hiçbiri
+  parametre geçmiyor. `battery_critical_voltage_v:=0.0` oraya ULAŞMIYOR →
+  3.1 V okuyan uçakta **IDLE → ARMING hiç olmaz**. Bugüne kadar patlamadı
+  çünkü YKİ arm'ı doğrudan px4_bridge'e yolluyor, FSM yolunu kullanmıyor.
+  Sürü akışında duracak. **Adım 1'den ÖNCE düzeltilmeli** (~3 satır)
+- `[ ]` 🟠 **`formation_node.rel_enable` iki özelliği birden kapatıyor** —
+  dağıtık slot ataması (`NeighborInfo` gerekir) ve göreli düzeltme (tehlikeli,
+  0.28 m yakınlaşma ölçülmüş). Bayrağı ikiye ayır: abonelik hep kurulsun,
+  düzeltme bayrağa bağlı kalsın (~2 satır)
 - `[ ]` 🔴 **`consensus.battery_min_v = 14.0`** → uçaklar 3.1 V okuyor →
   **hiç lider seçilmez, formasyon hiç çıkmaz**. `0.0` verilmeli
 - `[ ]` 🔴 **`swarm_fsm.agent_count = 3`** → `formation_reached` şartı

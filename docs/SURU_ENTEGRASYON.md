@@ -1,6 +1,6 @@
 # SÜRÜ ENTEGRASYONU — yol haritası
 
-**Son güncelleme:** 15 Ağustos 2026, 02:35
+**Son güncelleme:** 15 Ağustos 2026, 03:10
 
 **Hedef:** Final görevini yapabilir hâle gelmek.
 **Kısıt:** Simülasyon yok. Her adım gerçek uçakta, ölçerek, geri alınabilir.
@@ -471,65 +471,83 @@ koştuğu için mümkün).
 
 ---
 
-## ENTEGRASYON SIRASI — doğrulanmış
+## ENTEGRASYON SIRASI — 20 düğümün tamamı
 
-### 1 · `consensus_node`
-**Neden ilk:** `esp32_bridge` formasyonu **yalnız lider** mesh'e yazıyor.
-Lider yoksa `FormationCommand` hiç çıkmaz. Kodun kendi uyarısı:
-*"LİDER BİLİNMİYOR — consensus_node çalışıyor mu?"*
-**Girdi:** `AgentStatus` (agent_fsm zaten üretiyor) ✅
-**Şart:** `battery_min_v:=0.0`, `agent_count:=2`, uçaklar **ARM'lı**
-**Test (Y):** pervanesiz arm → lider seçiliyor mu, log `[CONSENSUS] Lider:`
+Koşmakta olan dördü de listede. "Zaten var" bir düğümü listeden çıkarmak
+yanlış olurdu — ikisinde düzeltme gerekiyor.
 
-### 2 · `swarm_fsm_node`
-**Girdi:** `AgentStatus` + consensus çıktısı
+### ADIM 0 · Zaten koşan temel — ama düzeltmesiz ilerlenemez
+
+| Düğüm | Durum | Gereken |
+|-------|-------|---------|
+| `px4_bridge` | ✅ koşuyor | Adım 3'te `velocity_only:=True` |
+| `esp32_bridge` | ✅ koşuyor | Değişiklik yok — lider kapısı doğru çalışıyor |
+| `basit_kacinma` | ✅ koşuyor | Adım 4'te `collision_avoidance` ile değişecek, **silinmeyecek** |
+| **`agent_fsm_node`** | ✅ koşuyor | 🔴 **preflight pil düzeltmesi — Adım 1'DEN ÖNCE** |
+
+🔴 **`agent_fsm` preflight tuzağı (yeni bulgu):**
+`preflight_checker.run_preflight_checks(ctx, battery_min_voltage=13.60)` —
+varsayılan **gömülü** ve üç çağrı yerinin **hiçbiri** onu geçmiyor
+(`agent_transitions.py:119`, `:404`, `agent_fsm_node.py:325`).
+Verdiğimiz `battery_critical_voltage_v:=0.0` oraya **ulaşmıyor**.
+
+Uçaklar 3.1 V okuduğu için `0 < 3.1 < 13.6` → *"Batarya voltajı düşük"* →
+**IDLE → ARMING hiç olmaz.**
+
+Bugüne kadar patlamadı çünkü YKİ arm'ı `/api/guided/{id}/arm` ile
+**doğrudan** px4_bridge'e yolluyor; `agent_fsm` yalnız gözlemliyor. Sürü
+akışında (tek kalkış komutu) FSM yolu kullanılacak ve **orada duracak**.
+
+**Çözüm (~3 satır):** `battery_min_voltage`'ı `ctx.battery_critical_voltage_v`
+ile besle ve aynı `<= 0 → izleme yok` guard'ını uygula. Böylece üç yer
+(health_monitor, `context.healthy`, preflight) tutarlı olur.
+
+### ADIM 1 · `consensus_node`
+`esp32_bridge` formasyonu **yalnız lidere** yazıyor; lider yoksa
+`FormationCommand` mesh'e hiç çıkmaz.
+**Şart:** `battery_min_v:=0.0`, `agent_count:=2`, uçaklar ARM'lı
+**Test (Y):** pervanesiz arm → `[CONSENSUS] Lider:` logu
+**Not:** heartbeat yalnız AIRBORNE'da, ama `ElectionResult` yerde de
+yayınlanıyor ve `esp32_bridge` lideri ondan da öğreniyor → **yer testi mümkün**
+
+### ADIM 2 · `swarm_fsm_node`
 **Şart:** `agent_count:=2`, `SwarmState` remap'i
-**Bilinen kusur:** sabit formasyon ofsetleri (C) → `formation_reached`
-güvenilmez; düzeltilmeli
-**Test (Y):** yerde saatlerce koştur, kendiliğinden FAILSAFE'e giden yol var mı
+🔴 **Düzeltilmeli:** sabit formasyon ofsetleri, tek global election seq
 
-### 3 · `path_planner` + `formation_node`
-**Girdi:** `FormationCommand`. Geçici kaynak: `/swarm/path_planning/target`'a
-elle/betikle hedef yayınla → `path_planner` yörüngeyi üretir.
-`mission1` sonra bu kaynağın yerini alır.
-**Şart:** `px4_bridge velocity_only:=True`, `spacing_m` komuta 12 m konmalı
-**Test:** Y (slot doğru mu) → G (havada gözlem, sapma ölç) → K tek uçak → K iki uçak
+### ADIM 3 · `path_planner` + `formation_node`
+**Şart:** `px4_bridge velocity_only:=True`, `spacing_m` komutta 12 m
+`compute_slot_offsets(tip, n, spacing, alpha)` — spacing komuttan geliyor ✅
 
-### 4 · `collision_avoidance` — KARAR-01
-Adaptör: `AgentStatus` → `NeighborObs` (`link_active` set edilmeli).
-`d0=8.0 / hard=4.0` ile başla.
+### ADIM 4 · `collision_avoidance` — KARAR-01
+`basit_kacinma` kapanır (aynı yuva), **silinmez**.
 
-### 5 · `camera_driver` + `vision_node` — **paralel kol**
-🔴 **Önce `cv2` + `pyzbar` konteynere kurulmalı.**
-Çoğu test yerde: 120×120 QR hangi mesafeden okunuyor, kırmızı/mavi bölge.
+### ADIM 5 · `camera_driver` + `vision_node` — paralel
+🔴 **Önce `cv2` + `pyzbar` konteynere kurulmalı** (canlı denendi, yok)
 
-### 6 · `mission_fsm_node`
-`vision`'a bağlı. `team_id` üç yerde de `752825`. `MissionTarget` remap'i.
+### ADIM 6 · `mission_fsm_node`
+**Her iki görevi de o sürüyor** — `MissionType.DYNAMIC_SWARM` ve
+`SEMI_AUTONOMOUS`. Yani Görev 2 de buna bağlı.
 
-### 7 · `mission1_dynamic_swarm` — **YKİ'nin yerini alır**
-`if not self._have_swarm_state: return` → 2 şart. `is_leader` → yalnız lider
-hedef yayınlar. `default_spacing_m:=12.0`.
+### ADIM 7 · `mission1_dynamic_swarm` — YKİ'nin yerini alır
+### ADIM 8 · `swarm_origin_publisher` — YKİ kesilince
+### ADIM 9 · `maneuver_executor` — Action, mesh'ten geçmiyor
+### ADIM 10 · `precision_landing_node` — `ZoneMap` gerekli (5'e bağlı)
+### ADIM 11 · `task_reallocator_node` — `min_active_for_formation:=2`, 3 uçak
+### ADIM 12 · `joystick_interpreter` + `mode_manager` — Görev 2
+`mode_manager` `/swarm/internal/mission/state` dinliyor (yerel, mesh yok) ✅
 
-### 8 · `swarm_origin_publisher`
-YKİ kesildiğinde origin uçakta üretilmeli. 7'den sonra, "YKİ'siz uçuş"
-testinden önce.
+### Kullanılmayacak
+`kinematic_fusion` · `network_proxy` · `sim_rtcm_source`
 
-### 9 · `maneuver_executor` — pitch/roll (QR görevi)
-Action ile tetikleniyor; `formation_node` o adımda zaten susuyor.
+⚠️ **`kinematic_fusion` için tek çekince:** `formation_node`'un **dağıtık
+slot ataması** `NeighborInfo` istiyor (`_peer_positions`), o da fusion'dan
+geliyor. Ama abonelik `rel_enable` bayrağına bağlı ve o bayrak aynı zamanda
+**göreli düzeltmeyi** de açıyor — kodun notu: rel açıkken en yakın mesafe
+**0.28 m** ölçülmüş (near-collision), kapalıyken 2.68 m.
 
-### 10 · `precision_landing_node`
-Yalnız `STATE_PRECISION_LANDING`'de yazıyor — çakışma yok.
-Renkli bölge `vision`'ın `ZoneMap`'inden geliyor → 5 şart.
-
-### 11 · `task_reallocator_node` — **3 uçak ister**
-`min_active_for_formation:=2`.
-
-### 12 · `joystick_interpreter` + `mode_manager` — Görev 2
-`mode_manager` PX4 moduna **yazmıyor** (doğrulandı).
-`joystick_interpreter` remap gerektiriyor.
-
-**Kullanılmayacak:** `kinematic_fusion` (KARAR-01), `network_proxy`,
-`sim_rtcm_source`.
+**Çözüm (~2 satır):** bayrağı ikiye ayır — `NeighborInfo` aboneliği her zaman
+kurulsun (atama için), `_compute_relative_correction` `rel_enable`'a bağlı
+kalsın. Böylece dağıtık atama açılır, tehlikeli düzeltme kapalı kalır.
 
 ---
 
