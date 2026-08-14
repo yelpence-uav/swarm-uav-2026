@@ -90,19 +90,49 @@ def _titresim_topla(kul, ip, kap, aid, sure, cikti):
 
 
 def _coz(ham):
-    """echo ciktisindan (titresim_xyz, clipping) kayitlarini cikarir."""
+    """echo ciktisindan (zaman, titresim_xyz, clipping) kayitlarini cikarir."""
     kayitlar = []
     for blok in ham.split("---"):
+        t = re.search(r"sec:\s*(\d+)", blok)
         v = re.search(r"vibration:\s*\n\s*x:\s*([-\d.e+]+)\s*\n\s*y:\s*([-\d.e+]+)"
                       r"\s*\n\s*z:\s*([-\d.e+]+)", blok)
         c = re.search(r"clipping:\s*\n-\s*([\d.e+]+)\s*\n-\s*([\d.e+]+)\s*\n-\s*([\d.e+]+)",
                       blok)
         if v and c:
             kayitlar.append((
+                float(t.group(1)) if t else 0.0,
                 tuple(float(v.group(i)) for i in (1, 2, 3)),
                 tuple(float(c.group(i)) for i in (1, 2, 3)),
             ))
     return kayitlar
+
+
+def _zaman_serisi_yaz(kayitlar):
+    """Saniye saniye titresim/doyma — hangi anda ne oldugunu gormek icin.
+
+    NEDEN: ozet "80 doyma oldu" der ama NEREDE oldugunu soylemez. QGC'nin
+    Motor Test'iyle motorlar TEK TEK dondurulunce bu seri hangi motorun
+    titresimi urettigini dogrudan gosterir — arizali motoru tahminle degil
+    olcumle bulmanin yolu bu.
+    """
+    if len(kayitlar) < 2:
+        return
+    print("\n=== ZAMAN SERİSİ (saniye saniye) ===")
+    print("  sn   titreşim z      yeni doyma   çubuk")
+    t0 = kayitlar[0][0]
+    onceki_clip = kayitlar[0][2][0]
+    kova: dict = {}
+    for t, v, c in kayitlar:
+        kova.setdefault(int(t - t0), []).append((abs(v[2]), c[0]))
+    for sn in sorted(kova):
+        zler = [x[0] for x in kova[sn]]
+        son_clip = kova[sn][-1][1]
+        yeni = son_clip - onceki_clip
+        onceki_clip = son_clip
+        tepe = max(zler)
+        cubuk = "#" * min(40, int(tepe / 1.5))
+        isaret = f"  +{yeni:.0f}" if yeni > 0 else "    ."
+        print(f"  {sn:3d}  {tepe:7.2f} m/s²  {isaret:>10}   {cubuk}")
 
 
 def main() -> int:
@@ -120,6 +150,11 @@ def main() -> int:
     print("    2. Arm et")
     print("    3. Gazı YAVAŞÇA kaldır, uçağı KALDIRMA (kalkış eşiğinin altında tut)")
     print("    4. ~5 sn tut, gazı kes, disarm et")
+    print("")
+    print("  HANGİ MOTOR olduğunu bulmak istersen bunun yerine:")
+    print("    QGC > Vehicle Setup > Motors > her motoru TEK TEK ~5 sn döndür")
+    print("    (1, bekle, 2, bekle, 3, bekle, 4). Zaman serisi hangisinin")
+    print("    titrettiğini gösterir.")
     print(f"  Ölçüm {a.sure:.0f} sn sürecek. Başlıyor...\n")
 
     ham = []
@@ -179,13 +214,13 @@ def main() -> int:
     if not kayitlar:
         print("  okunamadı (topic akmıyor olabilir)")
     else:
-        eks = list(zip(*[k[0] for k in kayitlar]))
+        eks = list(zip(*[k[1] for k in kayitlar]))
         for ad, seri in zip("xyz", eks):
             tepe = max(abs(v) for v in seri)
             hukum = "iyi" if tepe < ESIK_TITRESIM else "YÜKSEK"
             print(f"  {ad}: tepe {tepe:7.2f} m/s²   ort {sum(map(abs, seri))/len(seri):6.2f}"
                   f"   {hukum}  (eşik {ESIK_TITRESIM:.0f})")
-        ilk, son = kayitlar[0][1], kayitlar[-1][1]
+        ilk, son = kayitlar[0][2], kayitlar[-1][2]
         artis = [son[i] - ilk[i] for i in range(3)]
         print(f"  clipping (ivmeölçer doyması): {ilk} -> {son}")
         if any(x > 0 for x in artis):
@@ -193,6 +228,7 @@ def main() -> int:
                   "giriyor, EKF'e giren veri zaten bozuk.")
         else:
             print("  ölçüm sırasında yeni doyma YOK")
+        _zaman_serisi_yaz(kayitlar)
 
     print("\n" + "=" * 74)
     print("  Sıçrama > 0.25 m ise bu uçakta OFFBOARD kalkış güvenli değil:")
