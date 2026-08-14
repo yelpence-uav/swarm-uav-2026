@@ -124,9 +124,15 @@ class AgentContext:
     @property
     def healthy(self) -> bool:
         """Drone ucus icin guvenli mi?."""
+        # esik <= 0 => batarya izleme YOK (bkz. agent_health_monitor).
+        # Burasi da atlanmali, yoksa health_check bataryayi umursamazken
+        # `healthy` hala False doner ve ajan sessizce "ucusa uygun degil"
+        # sayilir. 2 Agustos'ta ikisi ayni anda gerekti.
+        batarya_izleniyor = self.battery_critical_voltage_v > 0.0
         is_sim_bat = self.battery_voltage_v <= 0.0
         battery_ok = (
-            is_sim_bat
+            not batarya_izleniyor
+            or is_sim_bat
             or self.battery_voltage_v > self.battery_critical_voltage_v
         )
         return (

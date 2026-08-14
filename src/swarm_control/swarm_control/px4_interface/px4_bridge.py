@@ -31,6 +31,7 @@ from rclpy.qos import (
 )
 
 # Komut için basit string (FSM) ve RTCM bayt akışı (mesh -> RTK)
+from rcl_interfaces.msg import SetParametersResult
 from std_msgs.msg import String, UInt8MultiArray
 
 # Bizim mesaj formatımız
@@ -207,6 +208,9 @@ class Px4BridgeNode(Node):
         # yatay KONUM tutulmaz, yatay HIZ SIFIRLANIR.
         self._takeoff_baslangic_z: float | None = None
         self._kalkis_kilidi_acildi = False
+        # Yatay kilidin arm anindaki referans irtifasi (NED z). Takeoff
+        # komutu gelene kadar kilit BUNU kullanir; bkz. _kalkis_kilidi_aktif.
+        self._arm_z: float | None = None
         self.declare_parameter('kalkis_kilit_irtifa_m', 2.5)
         self._kalkis_kilit_irtifa_m = float(
             self.get_parameter('kalkis_kilit_irtifa_m').value)
@@ -277,6 +281,9 @@ class Px4BridgeNode(Node):
         self._yur_v_yatay: float = 0.0           # yurutucunun ANLIK hizi
         self._yur_v_dikey: float = 0.0
 
+        # CANLI PARAMETRE — bkz. _on_parametre_degisti.
+        self.add_on_set_parameters_callback(self._on_parametre_degisti)
+
         # PX4'e komut gönderen yardımcı — MAVROS servis/topic'lerine yazar.
         self._cmd_sender = MavrosCommandSender(
             self,
@@ -333,6 +340,12 @@ class Px4BridgeNode(Node):
 
         # RTK/RTCM köprüsü (eski rtk_bridge node'undan taşındı)
         self._setup_rtk()
+
+        # KURULUM BITTI — canli parametre kapisi BURADAN SONRA acilir.
+        # Bunun oncesinde her declare_parameter geri cagriyi tetikliyor ve
+        # beyaz listede olmayan her parametre reddedilirdi. Bkz.
+        # _on_parametre_degisti.
+        self._parametre_kurulumu_bitti = True
 
         self.get_logger().info(
             f'Px4BridgeNode başlatıldı: agent_id={self._agent_id}, '
@@ -666,7 +679,30 @@ class Px4BridgeNode(Node):
             sp = self._latest_setpoint
             target_x = float(sp.x)
             target_y = float(sp.y)
+            # IRTIFA REFERANSI KALKISLA AYNI OLMALI (2 Agustos).
+            #
+            # takeoff YERE GORELI calisiyor:
+            #     _target_altitude_ned = _cached_pos_z - altitude
+            # cunku origin dunya orijinine senkronken zemin z=0 DEGIL.
+            # Ama goto MUTLAK geliyordu (sp.z = -irtifa). Ikisi ayni frame'de
+            # olmayinca ucak kalkistan sonra aradaki fark kadar ALCALIYOR.
+            #
+            # OLCULDU (ylp00, 2 Agustos): zemin NED z = -1.4. takeoff 8.0 m ->
+            # hedef -9.4 (yerden 8 m, dogru). Ardindan ilk goto mutlak -8.0
+            # deyince ucak 1.4 m alcaldi, mesh alt_m 8.0'dan 6.6'ya dustu.
+            # YKI'nin plan hedefi 8.0 oldugu icin uzaklik 1.3-1.4 m'de
+            # DONDU KALDI (TOLERANS_M=1.0) ve gorev adim 1'de sonsuza kadar
+            # bekledi. Operator uc kez elle indirmek zorunda kaldi.
+            #
+            # Onceki sahada zemin z=0'a denk geliyordu, fark sifirdi ve hata
+            # gorunmuyordu — saha degisince ortaya cikti.
+            #
+            # Kalkis referansi VARSA (takeoff ile land/rtl/disarm arasi) goto
+            # da ona gore yorumlanir: "8 m" = kalkis zemininden 8 m. Referans
+            # yoksa (havada baslatilan guided) eski mutlak davranis korunur.
             target_z = float(sp.z)
+            if self._takeoff_baslangic_z is not None:
+                target_z = self._takeoff_baslangic_z + float(sp.z)
             if sp.heading_valid:
                 # Yön açıkça verildi (formasyon her zaman verir) → onu kullan.
                 _yaw = math.radians(float(sp.heading_deg))
@@ -717,8 +753,16 @@ class Px4BridgeNode(Node):
         # hatası olmadığı için eğim küçük kalır. Kilit irtifasını geçince
         # normal konum kontrolüne dönülür.
         if self._kalkis_kilidi_aktif():
+            # Takeoff HENUZ gelmediyse hedef irtifa yok — o zaman MEVCUT
+            # irtifayi tut. Yani "arm oldun ama kalkis komutu gelmedi"
+            # penceresinde ucak yerde kalir, sadece yatayda konum tutmaz.
+            # Buraya self._target_altitude_ned'i dogrudan vermek None
+            # yayinlamak olurdu.
+            hedef_z = (self._target_altitude_ned
+                       if self._target_altitude_ned is not None
+                       else self._cached_pos_z)
             self._cmd_sender.publish_kalkis_setpoint(
-                self._target_altitude_ned, yaw_rad=self._cached_yaw_rad)
+                hedef_z, yaw_rad=self._cached_yaw_rad)
             # Kilit boyunca yurutucu SIFIRDA tutulur. Kilit acildiginda
             # ucagin O ANKI yerinden baslasin; yoksa kilit oncesindeki
             # bayat bir noktadan devam eder ve kilit biter bitmez sicrama
@@ -760,6 +804,88 @@ class Px4BridgeNode(Node):
                 target_x, target_y, target_z,
                 yaw_rad=target_yaw,
             )
+
+    # CANLI DEGISTIRILEBILEN PARAMETRELER: ad -> (ornek degiskeni, alt, ust)
+    #
+    # Yalniz YURUTUCU ayarlari burada. Kimlik (agent_id), guvenlik kablolamasi
+    # (kill/arm kanallari) ve kalkis kilidi BILEREK DISARIDA: ucus ortasinda
+    # degismeleri ya anlamsiz ya tehlikeli.
+    #
+    # Sinirlar kaza eseri sifir/negatif/absurt deger girilmesini engelliyor.
+    # Ust sinirlar cömert — amac hata yakalamak, ayari kisitlamak degil.
+    _CANLI_PARAMETRELER = {
+        'guided_hiz_yatay_mps':   ('_hiz_yatay',        0.1, 10.0),
+        'guided_hiz_dikey_mps':   ('_hiz_dikey',        0.1,  5.0),
+        'guided_ivme_yatay_mps2': ('_ivme_yatay',       0.1,  5.0),
+        'guided_ivme_dikey_mps2': ('_ivme_dikey',       0.1,  5.0),
+        'guided_tasma_m':         ('_yurutucu_tasma_m', 0.5, 20.0),
+        'guided_konum_kp':        ('_konum_kp',         0.1,  3.0),
+        'guided_telafi_orani':    ('_telafi_orani',     0.0,  1.0),
+    }
+
+    def _on_parametre_degisti(self, parametreler):
+        """Yurutucu ayarlarini UCAK HAVADAYKEN degistirebilmek icin.
+
+        NEDEN VAR: bu degerler eskiden yalnizca __init__'te okunuyordu ve
+        ornek degiskenine yaziliyordu. 'ros2 param set' calisir gorunuyor
+        ("Set parameter successful"), 'ros2 param get' yeni degeri gosteriyor,
+        ama ucak ESKI hizda ucmaya devam ediyordu — cunku kod self._hiz_yatay
+        okuyor. Komut basarili, gosterge dogru, davranis yanlis: sahada saat
+        yakan cinsten bir tuzak.
+        Tek cikis yolu baslat.sh'i degistirip konteyneri yeniden baslatmakti
+        (~40 sn; MAVROS FCU el sikismasi, EKF oturmasi, RTK yeniden fix).
+
+        ASIL IHTIYAC: kayma olcumu (docs/NAVIGASYON_KAYMA.md Adim 1) ayni
+        oturumda 2/3/4 m/s denemeyi gerektiriyor. Canli parametre olmadan her
+        hiz icin ucagi indirip yigini yeniden baslatmak gerekirdi.
+
+        HIZ DEGISIMI GUVENLI: yurutucu hedefe dogru IVME SINIRLI ilerliyor,
+        yani yeni hiz basamak degil rampa olarak uygulanir. Ivme siniri da
+        canli degistirilebilir ve o da yalnizca bir hiz limiti.
+
+        HEPSI YA DA HICBIRI: once tumu dogrulanir, sonra uygulanir. Yarim
+        uygulanmis bir kume (orn. hiz gecti ivme reddedildi) tutarsiz bir
+        yurutucu birakirdi.
+
+        KURULUM KAPISI — BU GERI CAGRI declare_parameter'DA DA TETIKLENIYOR.
+        Ilk surumde kapi yoktu ve dugum ACILISTA COKTU: geri cagri __init__'in
+        ortasinda kaydediliyordu, ardindan _setup_rtk() 'rtk_makul_payload'
+        tanimliyordu, beyaz listede olmadigi icin reddediliyor ve rclpy
+        InvalidParameterValueException atiyordu. Bayrak __init__'in SONUNDA
+        aciliyor; boylece ileride biri yeni bir declare_parameter eklerse de
+        kirilmaz.
+        """
+        if not getattr(self, '_parametre_kurulumu_bitti', False):
+            return SetParametersResult(successful=True)   # kurulum surüyor
+
+        for p in parametreler:
+            if p.name not in self._CANLI_PARAMETRELER:
+                return SetParametersResult(
+                    successful=False,
+                    reason=(f"'{p.name}' ucus sirasinda degistirilemez. "
+                            f"Canli olanlar: "
+                            f"{', '.join(sorted(self._CANLI_PARAMETRELER))}"))
+            _ozellik, alt, ust = self._CANLI_PARAMETRELER[p.name]
+            try:
+                deger = float(p.value)
+            except (TypeError, ValueError):
+                return SetParametersResult(
+                    successful=False, reason=f"'{p.name}' sayi olmali")
+            if not (alt <= deger <= ust):
+                return SetParametersResult(
+                    successful=False,
+                    reason=f"'{p.name}' {alt}-{ust} araliginda olmali "
+                           f"(verilen {deger})")
+
+        for p in parametreler:
+            ozellik = self._CANLI_PARAMETRELER[p.name][0]
+            eski = getattr(self, ozellik)
+            setattr(self, ozellik, float(p.value))
+            # YUKSEK SESLE: ucus kaydinda bu satir, "o ucusta hiz neydi"
+            # sorusunun tek cevabi olacak.
+            self.get_logger().warn(
+                f'CANLI PARAMETRE: {p.name} {eski} -> {float(p.value)}')
+        return SetParametersResult(successful=True)
 
     def _yurutucu_sifirla(self) -> None:
         """Yürütücüyü sıfırlar; bir sonraki çağrıda uçağın yerinden başlar."""
@@ -919,13 +1045,27 @@ class Px4BridgeNode(Node):
         Çapanın kilit dışında yenilenmemesi ayrı bir karar — bkz. takeoff
         komutunun işlendiği yer.
         """
-        if self._target_altitude_ned is None:
-            return False
-        if self._takeoff_baslangic_z is None:
+        # KILIT ARM'DAN BASLAR, TAKEOFF'TAN DEGIL (2 Agustos).
+        #
+        # Eski hali "self._target_altitude_ned is None -> return False" idi,
+        # yani kilit ancak takeoff komutu islendikten SONRA devreye giriyordu.
+        # ARM ile TAKEOFF arasi acikta kaldi ve bu pencere kisa degil: YKI
+        # kosucusu once bir ucagi armlayip teyidini bekliyor, sonra digerini
+        # armlayip onun teyidini bekliyor, ANCAK ondan sonra takeoff yolluyor.
+        # Olculdu (2 Agustos, ylp00): arm 683.76, takeoff 689.93 -> 6.2 saniye
+        # boyunca ucak OFFBOARD'da, armli, YERDE ve PX4 yatay KONUM tutuyor.
+        # Operator "kalkarken yan yattı" diye bildirdi ve kill switch'e basti.
+        #
+        # Bu, 1 Agustos'ta pervane kiran arizanin AYNISI — kilit tam onun icin
+        # eklenmisti ama deligi kapatmiyordu. Referansi arm irtifasina tasidik:
+        # arm anindan itibaren, 2.5 m'yi gecene kadar yatayda konum tutulmaz.
+        ref_z = (self._takeoff_baslangic_z if self._takeoff_baslangic_z
+                 is not None else self._arm_z)
+        if ref_z is None:
             return False
         if self._kalkis_kilidi_acildi:
             return False
-        yukseklik = self._takeoff_baslangic_z - self._cached_pos_z
+        yukseklik = ref_z - self._cached_pos_z
         if yukseklik >= self._kalkis_kilit_irtifa_m:
             self._kalkis_kilidi_acildi = True
             self._takeoff_anchor_x = self._cached_pos_x
@@ -1103,8 +1243,15 @@ class Px4BridgeNode(Node):
             self._cmd_sender.set_offboard_mode()
             self._arm_bekliyor = True
             self._arm_istek_t = self.get_clock().now().nanoseconds * 1e-9
+            # YATAY KILIDIN REFERANSI BURADA KURULUR. Takeoff komutu bundan
+            # saniyeler sonra gelebiliyor (kosucu once digerini armliyor) ve o
+            # boslukta ucak yerde, armli, konum tutuyor durumda kaliyordu.
+            # Bkz. _kalkis_kilidi_aktif.
+            self._arm_z = self._cached_pos_z
+            self._kalkis_kilidi_acildi = False
             self.get_logger().info(
-                'OFFBOARD isteniyor; aktifleşince ARM gönderilecek'
+                f'OFFBOARD isteniyor; aktifleşince ARM gönderilecek '
+                f'(yatay kilit kuruldu, arm z={self._arm_z:.2f})'
             )
         elif cmd == 'disarm':
             self._offboard_streaming = False
@@ -1121,6 +1268,7 @@ class Px4BridgeNode(Node):
             self._kalkis_kilidi_acildi = False
             self._takeoff_anchor_x = None
             self._takeoff_anchor_y = None
+            self._arm_z = None
             self._cmd_sender.disarm()
         elif cmd.startswith('takeoff'):
             # "takeoff:10.0" → altitude=10.0; sadece "takeoff" → 10.0 default
@@ -1175,6 +1323,7 @@ class Px4BridgeNode(Node):
             self._kalkis_kilidi_acildi = False
             self._takeoff_anchor_x = None
             self._takeoff_anchor_y = None
+            self._arm_z = None
             self._cmd_sender.land()
         elif cmd == 'rtl':
             self._offboard_streaming = False
@@ -1184,6 +1333,7 @@ class Px4BridgeNode(Node):
             self._kalkis_kilidi_acildi = False
             self._takeoff_anchor_x = None
             self._takeoff_anchor_y = None
+            self._arm_z = None
             self._cmd_sender.return_home()
         elif cmd == 'offboard':
             # Önce streaming başlar, ardından mod değiştirilir.
