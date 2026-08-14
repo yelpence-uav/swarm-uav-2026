@@ -1,5 +1,7 @@
 # SÜRÜ ENTEGRASYONU — yol haritası
 
+**Son güncelleme:** 15 Ağustos 2026, 01:28
+
 **Hedef:** Final görevini yapabilir hâle gelmek.
 **Kısıt:** Simülasyon yok. Her adım gerçek uçakta, ölçerek, geri alınabilir.
 

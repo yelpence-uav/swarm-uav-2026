@@ -1,5 +1,7 @@
 # Yelpençe — TEKNOFEST 2026 Sürü İHA
 
+**Son güncelleme:** 15 Ağustos 2026, 01:28
+
 > Bu dosyayı Claude Code her oturumda **kendiliğinden okur**. Yeni bir sohbet
 > açan kişinin hiçbir şey söylemesine gerek yok; buradan projeyi anlar.
 > Kısa tutuluyor — ayrıntı `docs/` altında, aşağıda haritası var.
@@ -244,6 +246,31 @@ Sorunları mutlaka söyle — operatör hangi hatanın çıkacağını önceden 
 Çözülemeyecek bir şey değilse **kara haber gibi verme.** "Şu çakışma var,
 çözümü şu, maliyeti şu kadar" — bu doğru biçim. Sadece "şu çakışma var"
 demek işi operatöre yıkmaktır.
+
+### 📅 Her .md değişikliğinde en üste tarih-saat
+
+Bir `.md` dosyasında değişiklik yaptıysan, **dosyanın en başına**
+(başlıktan hemen sonra) güncelleme damgasını yaz veya güncelle:
+
+```markdown
+# <Başlık>
+
+**Son güncelleme:** 15 Ağustos 2026, 01:28
+```
+
+**Neden:** tek bilgisayarda sırayla çalışıyoruz. Bir belgeyi açan kişinin
+ilk sorusu "bu ne kadar taze?" oluyor. Saat-dakika olmadan aynı günün
+sabahı ile gecesi ayırt edilemiyor — ve bu projede bir gün içinde çok şey
+değişiyor.
+
+**Kural:**
+- **Her canlı belge** (`PLAN`, `DURUM`, `GUNLUK`, `YAPILACAKLAR`,
+  `KARARLAR`, `RPI_ESITLEME`, `SURU_ENTEGRASYON`, `NAVIGASYON_KAYMA`,
+  `COP_TEMIZLIK`, `CLAUDE.md`, `README.md`) bu damgayı taşır
+- **Arşiv belgelerine dokunma** — onlar zaten donduruldu
+- Saat **Europe/Istanbul**
+- Damgayı güncellemeyi unutma: içerik değişti ama tarih eskiyse belge
+  olduğundan taze görünür, bu yanıltıcıdır
 
 ### Karar verildiyse hatırlat, sıfırdan tartışma
 

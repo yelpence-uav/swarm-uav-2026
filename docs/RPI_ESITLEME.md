@@ -1,6 +1,6 @@
 # RPİ EŞİTLEME DEFTERİ — geri gelen drone'u hizaya getirme
 
-**Son güncelleme:** 14 Ağustos 2026
+**Son güncelleme:** 15 Ağustos 2026, 01:28
 
 ## Bu belge ne için
 

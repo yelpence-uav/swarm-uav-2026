@@ -1,5 +1,7 @@
 # GÜNLÜK — oturum devir teslim kaydı
 
+**Son güncelleme:** 15 Ağustos 2026, 01:28
+
 Tek bilgisayar, sırayla çalışıyoruz. Biri kalkıp diğeri oturduğunda **hem
 kişi hem Claude** nerede kalındığını buradan anlar.
 

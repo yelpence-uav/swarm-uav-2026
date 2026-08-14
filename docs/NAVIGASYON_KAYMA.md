@@ -1,5 +1,7 @@
 # NAVİGASYON — kaymayı sıfırlama planı
 
+**Son güncelleme:** 15 Ağustos 2026, 01:28
+
 **Hedef:** Uçak, yürüyen setpoint'in **arkasında kalmasın.** Ne seyirde,
 ne hızlanırken. Hız arttıkça da bozulmasın.
 

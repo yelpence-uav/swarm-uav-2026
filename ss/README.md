@@ -1,5 +1,7 @@
 # Ekran görüntüleri
 
+**Son güncelleme:** 15 Ağustos 2026, 01:28
+
 Claude'a göstermek istediğin her görsel buraya atılır. Sonra sohbette
 **"ss'e yeni görsel attım"** demen yeterli — Claude bu klasöre bakar.
 

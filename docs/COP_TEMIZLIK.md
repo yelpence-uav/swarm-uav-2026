@@ -1,6 +1,6 @@
 # ÇÖP TESPİTİ — sim döneminden kalanlar ve dağınıklık
 
-**Tarih:** 14 Ağustos 2026
+**Son güncelleme:** 15 Ağustos 2026, 01:28
 
 Son haftalarda simülasyon sürü kodları yerine uçuş kanıtını geçirecek kodlar
 yazıldı. Bu belge, geride ne kaldığını **gerekçesiyle** listeliyor.

@@ -1,6 +1,6 @@
 # PLAN — buradan finale
 
-**Son güncelleme:** 15 Ağustos 2026
+**Son güncelleme:** 15 Ağustos 2026, 01:28
 
 Bu belge **tüm takımın ortak resmi**. Teknik ayrıntı diğer belgelerde;
 burada *ne yapıyoruz, neredeyiz, nasıl gideceğiz* var.

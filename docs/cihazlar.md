@@ -1,5 +1,7 @@
 # Cihaz ve erişim tablosu
 
+**Son güncelleme:** 15 Ağustos 2026, 01:28
+
 Sahada IP'ler DHCP ile değişir (29 Tem `10.207.118.x` → 30 Tem `10.158.16.x`
 → 14 Ağu `10.188.209.x`; her seferinde bütün SSH komutları kırıldı).
 **Değişmeyen kimlik MAC adresidir** — IP'yi ezberleme, buldur.

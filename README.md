@@ -1,5 +1,7 @@
 # Yelpençe — TEKNOFEST 2026 Sürü İHA
 
+**Son güncelleme:** 15 Ağustos 2026, 01:28
+
 Takım **Yelpençe** · Takım no **752825**
 
 Üç çok rotorlu İHA'nın sürü hâlinde otonom görev yaptığı sistem: uçuş
