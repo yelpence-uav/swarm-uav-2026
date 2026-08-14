@@ -39,7 +39,7 @@ fi
 KULLANICI="${SUDO_USER:-$(logname 2>/dev/null || echo '')}"
 
 # ---------------------------------------------------------------- 1) saat ---
-echo "--- 1/6  saat dilimi ---"
+echo "--- 1/7  saat dilimi ---"
 timedatectl set-timezone Europe/Istanbul
 echo "    $(timedatectl show -p Timezone --value)"
 
@@ -56,7 +56,7 @@ echo "    $(timedatectl show -p Timezone --value)"
 # Maliyeti: radyo uyanık kalır, birkaç yüz mW fazla çeker. Motorların yanında
 # ölçülemeyecek kadar küçük. WiFi zaten uçuş için kritik hat değil (mesh var),
 # yer tarafındaki bakım/hata ayıklama yolu — orada gecikme gerçek zaman kaybı.
-echo "--- 2/6  wifi power save ---"
+echo "--- 2/7  wifi power save ---"
 if systemctl is-active --quiet NetworkManager; then
     nmcli -t -f NAME,TYPE connection show 2>/dev/null \
       | awk -F: '$2=="802-11-wireless"{print $1}' \
@@ -70,7 +70,7 @@ fi
 echo -n "    su anki durum : "; /usr/sbin/iw dev wlan0 get power_save 2>/dev/null || echo "?"
 
 # ------------------------------------------------------------- 2) journal ---
-echo "--- 3/6  kalıcı journal + okuma yetkisi ---"
+echo "--- 3/7  kalıcı journal + okuma yetkisi ---"
 # DOSYA ADI ÖNEMLİ — "10-" ile başlarsa İŞE YARAMAZ.
 # Raspberry Pi OS, SD kartı yıpratmamak için journald'ı bilerek RAM'e sabitleyen
 # kendi dosyasını koyuyor:
@@ -112,7 +112,7 @@ sleep 2
 journalctl --flush 2>/dev/null || true
 
 # --------------------------------------------------------------- 3) izle ---
-echo "--- 4/6  izleme scripti ---"
+echo "--- 4/7  izleme scripti ---"
 cat > /usr/local/bin/yelpence_izle.sh <<'BETIK'
 #!/bin/bash
 # Dakikada bir sistem durumunu tek satır yazar. Arıza görürse ayrıca
@@ -192,7 +192,7 @@ rm -f /etc/systemd/system/guc-izle.service /etc/systemd/system/guc-izle.timer
 systemctl disable --now guc-izle.timer 2>/dev/null || true
 
 # --------------------------------------------------------------- 4) timer ---
-echo "--- 5/6  timer ---"
+echo "--- 5/7  timer ---"
 cat > /etc/systemd/system/yelpence-izle.service <<'EOF'
 [Unit]
 Description=Yelpence drone Pi durum kaydi
@@ -237,7 +237,7 @@ systemctl enable --now yelpence-izle.timer
 # baslat.sh'e DOKUNULMUYOR: Pi'deki surum repodakinden ayrismis durumda ve
 # ucus zinciri orada. Kayit ayri bir servis olarak disaridan docker exec ile
 # baglaniyor; konteyner yeniden baslatmaya gerek yok, ucus yigini etkilenmez.
-echo "--- 6/6  kayit disk bekcisi ---"
+echo "--- 6/7  kayit disk bekcisi ---"
 # NOT: ucus kaydini (ros2 bag) BU script kurmaz — o /ws/baslat.sh icinde,
 # konteynerin icinde calisir. Sebebi: docker exec ile disaridan baglanirsak
 # systemd'nin gonderdigi sinyal konteynerin ICINE ulasmaz (Docker iletmez),
@@ -294,6 +294,37 @@ systemctl disable --now yelpence-kayit.service 2>/dev/null || true
 rm -f /etc/systemd/system/yelpence-kayit.service /usr/local/bin/yelpence_kayit.sh
 systemctl daemon-reload
 systemctl enable --now yelpence-kayit-temizlik.timer
+
+# ------------------------------------------------- 7) yazma geri yazimi ---
+# GUC KESINTISINDE VERI KAYBININ UCUNCU KATMANI.
+#
+# Uygulama write() cagirdiginda veri karta INMEZ, cekirdegin sayfa
+# onbellegine yazilir ve orada KIRLI (dirty) bekler. Ne kadar? Olculdu
+# (ylp02, 2 Agustos): vm.dirty_expire_centisecs = 3000, yani 30 SANIYE.
+# Guc o arada giderse o veri yoktur.
+#
+# 2 Agustos kazasinda ylp01'in son parcasi tam bu yuzden 0 bayt kaldi
+# (rosbag2/mcap tamponlariyla birlikte; onlar baslat.sh'te kapatildi).
+# Burasi kapatilmazsa oradaki duzeltmelerin anlami kalmaz: veri sadece
+# kullanici alanindan cekirdek alanina taser, yine RAM'de olur.
+#
+# 1 sn secildi: kayit hizi ~40 KB/s, yani saniyede ~40 KB'lik geri yazim.
+# SD kart icin onemsiz bir yuk; yazma birlestirmesini (write coalescing)
+# bir miktar azaltir ama kart asinmasi acisindan bu boyutta fark etmez.
+# Daha agresif gitmedik (0 = surekli senkron) cunku o gercekten kart omru
+# ve gecikme demek.
+#
+# Bu SISTEM GENELI bir ayar; /proc/sys/vm ad alanina alinmaz, konteynerden
+# yazilmaz. Bu yuzden burada, host tarafinda.
+echo "--- 7/7  sayfa onbellegi geri yazimi ---"
+cat > /etc/sysctl.d/60-yelpence-writeback.conf <<'EOF'
+# Ucus kaydinin karta inmesini 30 sn'den 1 sn'ye cek (bkz. izleme_kur.sh 7).
+vm.dirty_expire_centisecs = 100
+vm.dirty_writeback_centisecs = 100
+EOF
+sysctl -q --load=/etc/sysctl.d/60-yelpence-writeback.conf
+echo "    dirty_expire=$(cat /proc/sys/vm/dirty_expire_centisecs) cs" \
+     "writeback=$(cat /proc/sys/vm/dirty_writeback_centisecs) cs"
 
 # ------------------------------------------------------------ dogrulama ---
 echo
