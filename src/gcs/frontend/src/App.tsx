@@ -5,6 +5,7 @@ import { AppHeader } from "./components/AppShell/AppHeader";
 import { DroneControlPanel } from "./components/DroneControlPanel/DroneControlPanel";
 import { JoystickPanel } from "./components/JoystickPanel/JoystickPanel";
 import { MapView } from "./components/Map/Map";
+import { KosucuPanel } from "./components/KosucuPanel/KosucuPanel";
 import { MissionControl } from "./components/MissionControl/MissionControl";
 import { MissionPanel } from "./components/MissionPanel/MissionPanel";
 import { QRPanel } from "./components/QRPanel/QRPanel";
@@ -137,6 +138,7 @@ export default function App() {
           />
         ) : (
           <>
+            <KosucuPanel />
             <MissionPanel
               missionActive={missionActive}
               missionId={selectedMissionId}

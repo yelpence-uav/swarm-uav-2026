@@ -36,3 +36,13 @@ server:
 
 # Terminal'e debug print sıklığı (saniye). 0 ise basmaz.
 print_interval_sec: 1.0
+
+# Susturulacak uyari kodlari (YKI ekrani kanit videosuna giriyor).
+# Gecerli kodlar: link_timeout, low_battery, critical_battery, weak_gps, rtk_lost
+# Bosaltirsan hepsi yeniden gorunur. Batarya uyarisi susturulsa bile kalan
+# yuzde drone kartindaki gostergede DURMAYA DEVAM EDER.
+alerts:
+  susturulan:
+    - link_timeout
+    - low_battery
+    - critical_battery

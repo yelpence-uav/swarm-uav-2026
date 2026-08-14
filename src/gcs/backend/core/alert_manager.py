@@ -35,7 +35,29 @@ class AlertManager:
     EVENT_TTL_SEC = 10.0
     RTK_FIX_MIN = 5
 
-    def __init__(self) -> None:
+    # SUSTURULABILIR UYARILAR — kanit videosu icin.
+    #
+    # Yonerge YKI ekraninin videoda gorunmesini SART kosuyor ve videoya
+    # mudahale (kirpma/kesme) YASAK. Yani ekranda ne varsa hakem onu goruyor.
+    # Ucus sirasinda "Baglanti koptu" ve "Dusuk batarya" kutulari surekli
+    # aciIip kapaniyor (mesh %30 paket kaybi yasiyor, tek bir bosluk bile
+    # link_timeout uretiyor) ve ekrani ariza gorunumune sokuyor.
+    #
+    # SILMIYORUZ, SUSTURUYORUZ: kod tarafinda uyari yine uretiliyor, yalniz
+    # listeye konmuyor. config.yaml -> alerts.susturulan ile ac/kapa.
+    #
+    # DIKKAT: batarya uyarisini susturmak, pilin bittigini EKRANDAN
+    # ogrenmeyecegin anlamina gelir. Kalan yuzdeyi drone kartlarindaki
+    # BatteryGauge gostermeye devam ediyor — ucustan once oraya bak.
+    SUSTURULABILIR = frozenset(
+        {"link_timeout", "low_battery", "critical_battery", "weak_gps",
+         "rtk_lost"}
+    )
+
+    def __init__(self, susturulan: Iterable[str] = ()) -> None:
+        self.susturulan = {
+            k for k in susturulan if k in self.SUSTURULABILIR
+        }
         self._active: dict[tuple[int, str], Alert] = {}
         self._events: list[Alert] = []
         self._events_lock = threading.Lock()
@@ -159,7 +181,10 @@ class AlertManager:
             current_events = list(self._events)
 
         order = {SEVERITY_CRITICAL: 0, SEVERITY_WARNING: 1, SEVERITY_INFO: 2}
+        hepsi = list(self._active.values()) + current_events
+        if self.susturulan:
+            hepsi = [a for a in hepsi if a.code not in self.susturulan]
         return sorted(
-            list(self._active.values()) + current_events,
+            hepsi,
             key=lambda a: (order.get(a.severity, 3), -a.timestamp),
         )

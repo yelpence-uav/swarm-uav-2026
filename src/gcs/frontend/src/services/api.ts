@@ -247,3 +247,64 @@ export const swarmApi = {
       body,
     ),
 };
+
+// --- Kanit ucusu kosucusu (gorev_kanit_ucus.py) -----------------------------
+// Backend bu betigi ayri bir surec olarak calistiriyor; buradan yalnizca
+// baslat / durdur / durum sorulur. Durdur = SIGINT = ucaklar INER.
+
+export interface KosucuVarsayilan {
+  senaryo: string;
+  dronelar: string;
+  lider: number;
+}
+
+export interface KosucuDurum {
+  varsayilan?: KosucuVarsayilan;
+  calisiyor: boolean;
+  kuru: boolean;
+  durduruluyor: boolean;
+  komut: string;
+  gecen_s: number;
+  cikis_kodu: number | null;
+  satirlar: string[];
+  mesaj?: string;
+}
+
+export interface KosucuBaslatBody {
+  senaryo?: string;
+  dronelar?: string;
+  lider?: number;
+  kuru: boolean;
+  kacinma?: boolean;
+  harita?: boolean;
+}
+
+export const kosucuApi = {
+  /**
+   * FİLO VARSAYILANLARI BİLEREK BURADA YOK — verilmeyen alan hiç
+   * gönderilmez, backend kendi varsayılanını uygular (kosucu.py BaslatBody).
+   *
+   * 2 AĞUSTOS: burada `dronelar ?? "2,3"` ve `lider ?? 2` sabitlenmişti.
+   * Filo 1,3'e döndüğünde backend güncellendi ama BU SATIRLAR onu eziyordu:
+   * düğmeye basınca görev düşmüş olan d2'yi çağırıp ön kontrolde patlıyordu.
+   * Aynı bilgi iki yerde durduğu için biri güncellenip diğeri unutulmuştu.
+   * Tek kaynak backend olsun diye alanlar koşullu gönderiliyor.
+   */
+  baslat: (body: KosucuBaslatBody) =>
+    postJson<KosucuDurum>(`/kosucu/baslat`, {
+      ...(body.senaryo !== undefined && { senaryo: body.senaryo }),
+      ...(body.dronelar !== undefined && { dronelar: body.dronelar }),
+      ...(body.lider !== undefined && { lider: body.lider }),
+      kuru: body.kuru,
+      ...(body.kacinma !== undefined && { kacinma: body.kacinma }),
+      ...(body.harita !== undefined && { harita: body.harita }),
+    }),
+
+  durdur: () => postJson<KosucuDurum>(`/kosucu/durdur`, {}),
+
+  durum: async (satir = 60): Promise<KosucuDurum> => {
+    const r = await fetch(`${API_BASE}/kosucu/durum?satir=${satir}`);
+    if (!r.ok) throw new Error(`kosucu/durum HTTP ${r.status}`);
+    return (await r.json()) as KosucuDurum;
+  },
+};

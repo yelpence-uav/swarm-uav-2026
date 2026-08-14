@@ -4,6 +4,7 @@ import L from "leaflet";
 import type { QRPosition } from "../../hooks/useQRPositions";
 import { isQRPositionSet } from "../../hooks/useQRPositions";
 import type { FlightParams, GotoTarget } from "../../services/api";
+import { PIL_GOSTER } from "../../services/gorunum";
 import type { DroneState } from "../../types/telemetry";
 import { droneIcon } from "./droneIcon";
 import { qrIcon } from "./qrIcon";
@@ -491,7 +492,7 @@ function buildPopup(d: DroneState): string {
       <div>alt: ${d.alt_m.toFixed(1)} m</div>
       <div>hız: ${d.groundspeed_mps.toFixed(1)} m/s</div>
       <div>yaw: ${d.yaw_deg.toFixed(1)}°</div>
-      <div>bat: %${d.battery_percent.toFixed(0)} (${d.battery_voltage.toFixed(1)} V)</div>
+      ${PIL_GOSTER ? `<div>bat: %${d.battery_percent.toFixed(0)} (${d.battery_voltage.toFixed(1)} V)</div>` : ""}
       <div>gps: fix=${d.gps_fix_type} sat=${d.gps_satellites}</div>
       <div>${d.lat.toFixed(5)}, ${d.lon.toFixed(5)}</div>
     </div>
