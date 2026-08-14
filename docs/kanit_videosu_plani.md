@@ -1,5 +1,18 @@
 # Kanıt uçuşu videosu — görev planı ve hazırlık durumu
 
+> ## ⚠️ ARŞİV — GÜNCEL DEĞİL, buraya yazma
+>
+> **Kanıt videosu koreografi planı.** Tarihsel kayıt; **bugünün durumunu anlatmaz.**
+>
+> **Güncel durum:** [`DURUM.md`](DURUM.md) ·
+> **Güncel plan:** [`PLAN.md`](PLAN.md) ·
+> **Güncel iş listesi:** [`YAPILACAKLAR.md`](YAPILACAKLAR.md)
+>
+> Hâlâ değerli olan: Video çekildi ve GEÇİLDİ. Buradan bir bilgi kullanacaksan
+> **önce koda bakıp doğrula** — o gün doğru olan bugün yanlış olabilir.
+> Çelişki varsa **canlı belge kazanır**.
+
+
 **2 Ağustos 2026.** Operatörün tarif ettiği koreografi, mevcut kodun ne kadarını
 karşıladığı, neyin değişmesi gerektiği ve uçuştan önce kapatılması gereken
 engeller.

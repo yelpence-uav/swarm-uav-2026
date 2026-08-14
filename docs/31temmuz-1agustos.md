@@ -1,5 +1,18 @@
 # 31 Temmuz – 1 Ağustos gecesi — kanıt uçuşu hazırlığı
 
+> ## ⚠️ ARŞİV — GÜNCEL DEĞİL, buraya yazma
+>
+> **31 Temmuz - 1 Ağustos saha günlüğü.** Tarihsel kayıt; **bugünün durumunu anlatmaz.**
+>
+> **Güncel durum:** [`DURUM.md`](DURUM.md) ·
+> **Güncel plan:** [`PLAN.md`](PLAN.md) ·
+> **Güncel iş listesi:** [`YAPILACAKLAR.md`](YAPILACAKLAR.md)
+>
+> Hâlâ değerli olan: Devrilme ve titreşim zinciri analizi. Buradan bir bilgi kullanacaksan
+> **önce koda bakıp doğrula** — o gün doğru olan bugün yanlış olabilir.
+> Çelişki varsa **canlı belge kazanır**.
+
+
 **Takım:** Yelpence (752825) · ylp00, ylp01, ylp02
 **Yazıldığı an:** 1 Ağustos 2026, 04:20
 

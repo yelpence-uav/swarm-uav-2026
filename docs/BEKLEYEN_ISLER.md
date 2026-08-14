@@ -1,5 +1,17 @@
 # Bekleyen İşler — Yapılmayanlar ve İleride Yapılacaklar
 
+> ## ⚠️ ARŞİV — buraya artık yazma
+>
+> Bu belge **uçuş kanıtı dönemine** aittir ve 2 Ağustos'ta donduruldu.
+> Uçuş kanıtı geçildi; buradaki maddelerin çoğu artık geçersiz.
+>
+> **Güncel iş listesi: [`YAPILACAKLAR.md`](YAPILACAKLAR.md)**
+> **Güncel durum: [`DURUM.md`](DURUM.md)**
+>
+> Yine de okunmaya değer iki bölüm var, ikisi de hâlâ geçerli:
+> **§4 Tuzaklar** (aynı yere iki kez düşmemek için) ve
+> **§5 Doğrulanmış olanlar** (tekrar denenmesin diye).
+
 **Son güncelleme:** 2 Ağustos 2026 (bkz. `31temmuz-1agustos.md`, `kanit_videosu_plani.md`)
 **Takım:** Yelpence (752825) — ylp00, ylp01, ylp02
 

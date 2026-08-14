@@ -1,5 +1,18 @@
 # 28–29 Temmuz 2026 — RTCM Dağıtım Zinciri Saha Günlüğü
 
+> ## ⚠️ ARŞİV — GÜNCEL DEĞİL, buraya yazma
+>
+> **28-29 Temmuz saha günlüğü.** Tarihsel kayıt; **bugünün durumunu anlatmaz.**
+>
+> **Güncel durum:** [`DURUM.md`](DURUM.md) ·
+> **Güncel plan:** [`PLAN.md`](PLAN.md) ·
+> **Güncel iş listesi:** [`YAPILACAKLAR.md`](YAPILACAKLAR.md)
+>
+> Hâlâ değerli olan: Ölçümler ve kaza analizleri. Buradan bir bilgi kullanacaksan
+> **önce koda bakıp doğrula** — o gün doğru olan bugün yanlış olabilir.
+> Çelişki varsa **canlı belge kazanır**.
+
+
 RTK düzeltme verisinin (RTCM3) YKİ'den mesh üzerinden her iki İHA'nın
 Pixhawk'ına kadar taşınması. Başlangıçta zincirin ~%85'i yazılmıştı ama
 **hiç uçtan uca çalıştırılmamıştı**; çalıştırınca arka arkaya on bir kusur

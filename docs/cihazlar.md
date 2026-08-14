@@ -1,15 +1,31 @@
 # Cihaz ve erişim tablosu
 
-Sahada IP'ler DHCP ile değişir (29 Temmuz'da ağ `10.207.118.x`'ten `10.158.16.x`'e
-kaydı ve bütün SSH komutları kırıldı). **Değişmeyen kimlik MAC adresidir** —
-IP'yi her seferinde MAC'ten bul, ezberleme.
+Sahada IP'ler DHCP ile değişir (29 Tem `10.207.118.x` → 30 Tem `10.158.16.x`
+→ 14 Ağu `10.188.209.x`; her seferinde bütün SSH komutları kırıldı).
+**Değişmeyen kimlik MAC adresidir** — IP'yi ezberleme, buldur.
 
-IP'yi MAC'ten bulmak için:
+## ✅ Bunun için betik var: `deploy/yki/drone_bul.sh`
 
-    sudo arp-scan --localnet --interface=wlan0     # ya da laptopta wlp0s20f3
-    # arp-scan yoksa, 22. portu tara:
-    for i in $(seq 1 254); do (timeout 1 bash -c "echo > /dev/tcp/10.158.16.$i/22" \
-      2>/dev/null && echo "SSH: 10.158.16.$i") & done; wait
+```bash
+./deploy/yki/drone_bul.sh                 # menü açar, seç, bağlanır
+./deploy/yki/drone_bul.sh ylp00           # doğrudan bağlanır
+./deploy/yki/drone_bul.sh ylp00 'komut'   # komut çalıştırır (Claude bunu kullanır)
+./deploy/yki/drone_bul.sh --liste         # tabloyu basar, bağlanmaz
+./deploy/yki/drone_bul.sh --durum         # hepsinin sağlık durumu (disk, konteyner, bayraklar)
+./deploy/yki/drone_bul.sh --ip ylp02      # yalnız IP
+./deploy/yki/drone_bul.sh --yenile        # önbelleği atla, yeniden tara
+```
+
+Üç yolu sırayla dener: **önbellek** → **mDNS** (`ylp00.local`) → **MAC taraması**
+(22. porta bak, ARP tablosundan MAC oku, tabloyla eşleştir). Sonuncusu her zaman
+çalışır ve internet gerektirmez.
+
+**14 Ağustos ölçümü:** mDNS bu hotspot'ta çalışıyor, tarama bile gerekmedi.
+Multicast'i engelleyen bir hotspot'ta MAC taramasına düşer — o da doğrulandı.
+
+Elle yapmak gerekirse:
+
+    sudo arp-scan --localnet --interface=wlp0s20f3
 
 ## Raspberry Pi 5 (drone bilgisayarları)
 
