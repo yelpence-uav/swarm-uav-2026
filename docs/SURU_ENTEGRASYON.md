@@ -1,6 +1,6 @@
 # SÜRÜ ENTEGRASYONU — yol haritası
 
-**Son güncelleme:** 15 Ağustos 2026, 01:28
+**Son güncelleme:** 15 Ağustos 2026, 01:42
 
 **Hedef:** Final görevini yapabilir hâle gelmek.
 **Kısıt:** Simülasyon yok. Her adım gerçek uçakta, ölçerek, geri alınabilir.
@@ -356,7 +356,7 @@ Yük 0.95 (4 çekirdek) · 55 °C · düğüm başına ~190-218 MB RSS
 
 19 düğüm kâğıt üstünde sığar ama **RSS paylaşılan kütüphaneleri sayıyor**;
 gerçek artış çok daha az. Asıl darboğaz muhtemelen **CPU ve DDS trafiği**.
-G0 taramasında ölç, tahmin etme.
+Her aşamada, o aşamanın düğümleri için ölç — tahmin etme.
 
 ---
 
@@ -377,17 +377,16 @@ Bunlar sonraki her şeyi güvenli kılıyor; atlanırsa üstüne bir şey konmaz
 | 0.2 | `/ws/suru_dugumleri` dosyadan okunsun (env yerine) | ~10 satır `baslat.sh` |
 | 0.3 | Kayıt filtresine `/gozlem/` ekle | 1 satır |
 | 0.4 | İki remap (Engel 1) | 2 satır |
-| 0.5 | **G0 taraması:** 19 düğümü tek tek Pi'de başlat | ~1 saat |
 
 **Test (Y):** 0.1 için yerde iki sahte yayıncı — biri `priority=10`, biri
 `priority=80`. `px4_bridge` hangisini seçiyor, logdan bak. Uçuş yok.
 
 **Bilinen tuzak:** `path_planner`, `task_reallocator`, `swarm_fsm`,
 `mission_fsm`, `mode_manager` **`agent_id` kabul etmiyor** (`baslat.sh`'te
-not edilmiş). G0'da çıkacak.
+not edilmiş). Sırası gelince çıkacak.
 
-**Çıkış şartı:** 19 düğüm de açılışta çökmüyor, RAM/CPU ölçüldü, hakemlik
-çalışıyor.
+**Çıkış şartı:** Hakemlik çalışıyor, remap'ler yerinde, `/ws/suru_dugumleri`
+dosyadan okunuyor. RAM/CPU her aşamada **o aşamanın düğümleri için** ölçülür.
 
 ---
 
@@ -531,7 +530,7 @@ Görev 1'den bağımsız; istenirse Aşama 4 ile paralel yürütülebilir.
 ## Bağımlılık haritası
 
 ```
-AŞAMA 0  zemin (hakemlik, remap, G0 taraması)
+AŞAMA 0  zemin (hakemlik, remap, düğüm aç/kapa altyapısı)
    |
 AŞAMA 1  origin + consensus + swarm_fsm + mission_fsm ...... komut yolu değişmez
    |

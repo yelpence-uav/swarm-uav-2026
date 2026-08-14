@@ -1,6 +1,6 @@
 # ÇÖP TESPİTİ — sim döneminden kalanlar ve dağınıklık
 
-**Son güncelleme:** 15 Ağustos 2026, 01:28
+**Son güncelleme:** 15 Ağustos 2026, 01:42
 
 Son haftalarda simülasyon sürü kodları yerine uçuş kanıtını geçirecek kodlar
 yazıldı. Bu belge, geride ne kaldığını **gerekçesiyle** listeliyor.
@@ -62,6 +62,9 @@ Aşağıdakiler yalnız simülasyon için var.
 
 ### B1. `sim/` klasörü — Gazebo dünyaları ve modelleri
 
+> ✅ **KARAR (15 Ağustos, operatör): SİM VERİLERİ KALSIN.** Şu an hiçbir
+> zararları yok. Aşağıdaki arşivleme önerisi uygulanmayacak.
+
 ```
 sim/worlds/base_world.sdf
 sim/models/x500/          (mesh, texture, thumbnail)
@@ -89,7 +92,7 @@ daldan çıkar. Sim'e dönme ihtimali sıfır değil; LFS geçmişi zaten kalır
 → **Öneri:** `generate_qr_content.py` hariç hepsini `arsiv/sim` dalına.
 **Ama önce oku**: `launch_swarm.py` ve `video_scenario_director.py`, sürü
 düğümlerinin hangi parametrelerle ve hangi sırayla başlatılacağını biliyor.
-Bu bilgi Faz 0'ın G0 taramasında işe yarar — silmeden önce çıkar.
+Bu bilgi düğümleri ilk kez açarken işe yarar — silmeden önce çıkar.
 
 ### B3. Sim ROS paketleri
 

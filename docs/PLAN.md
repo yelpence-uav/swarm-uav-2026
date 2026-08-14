@@ -1,6 +1,6 @@
 # PLAN — buradan finale
 
-**Son güncelleme:** 15 Ağustos 2026, 01:28
+**Son güncelleme:** 15 Ağustos 2026, 01:42
 
 Bu belge **tüm takımın ortak resmi**. Teknik ayrıntı diğer belgelerde;
 burada *ne yapıyoruz, neredeyiz, nasıl gideceğiz* var.
@@ -82,7 +82,7 @@ geri dönülür (`/ws/suru_dugumleri` boşalt + `docker restart`).
 
 | # | Aşama | Ne yapıyor | Risk | Test |
 |---|-------|-----------|------|------|
-| **0** | Zemin | Öncelik hakemliği, remap'ler, 19 düğümü tek tek açma denemesi | Yok | Yerde |
+| **0** | Zemin | Öncelik hakemliği, remap'ler, düğüm aç/kapa altyapısı | Yok | Yerde |
 | **1** | Bilgi katmanı | Origin, lider seçimi, sürü durumu, görev durumu | ~Yok | Yerde + 1 uçuş |
 | **1B** | Kaçınma değişimi | Sürünün kaçınma algoritmasına geçiş | Orta | 2 uçuş |
 | **2** | **Formasyon** 🔴 | Formasyonu uçak kendi hesaplar — **merkeziden dağıtığa** | Yüksek | 3 uçuş |

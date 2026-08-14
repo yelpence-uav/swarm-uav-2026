@@ -1,6 +1,6 @@
 # YAPILACAKLAR
 
-**Son güncelleme:** 15 Ağustos 2026, 01:28
+**Son güncelleme:** 15 Ağustos 2026, 01:42
 
 ## Önem dereceleri
 
@@ -168,8 +168,6 @@ Tamamı `SURU_ENTEGRASYON.md`'de. Uçuşsuz hazırlık:
 - `[ ]` 🟡 Kayıt filtresine `/gozlem/` ekle (`baslat.sh`)
 - `[ ]` 🟡 `SURU_DUGUMLERI`'ni `/ws/suru_dugumleri` dosyasından okunur yap
   (env değiştirmek konteyneri yeniden yaratmak demek; `/ws/kacinma` gibi olsun)
-- `[ ]` 🟡 **G0 taraması:** 14 sürü düğümünü Pi'de tek tek başlat —
-  çöküyor mu, RAM/CPU ne kadar, parametreleri kabul ediyor mu
 - `[B]` 🟡 Faz 1 (`kinematic_fusion`) — Faz 0'a bağlı
 
 ### P2.4 Güvenlik ve dayanıklılık
