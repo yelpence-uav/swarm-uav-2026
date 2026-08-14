@@ -1,6 +1,6 @@
 # YAPILACAKLAR
 
-**Son güncelleme:** 15 Ağustos 2026, 01:42
+**Son güncelleme:** 15 Ağustos 2026, 02:35
 
 ## Önem dereceleri
 
@@ -79,7 +79,30 @@ tek sayı 7 m'lik bir bacaktan geldi, yani geçici rejimi ölçüyor.
 - `[ ]` 🟡 **ylp01** — final görevinde **3 İHA şart**, ama entegrasyonu
   engellemiyor. Yalnız Aşama 5'teki üyelik testi üç uçak istiyor
 
-### P0.6 Sürü entegrasyonunun iki yapısal engeli
+### P0.6a Kod okuma bulguları — entegrasyondan önce düzeltilecek
+
+19 düğümün tamamı okundu (15 Ağustos). Tam liste: `SURU_ENTEGRASYON.md`.
+
+- `[ ]` 🔴 **`cv2` + `pyzbar` konteynerde YOK** — canlı denendi,
+  `ModuleNotFoundError`. Görü zinciri hiç çalışamaz. Kamera gelmeden önce
+  imaja eklenmeli
+- `[ ]` 🔴 **`consensus.battery_min_v = 14.0`** → uçaklar 3.1 V okuyor →
+  **hiç lider seçilmez, formasyon hiç çıkmaz**. `0.0` verilmeli
+- `[ ]` 🔴 **`swarm_fsm.agent_count = 3`** → `formation_reached` şartı
+  `active >= expected`; 2 uçakla **asla true olmaz**, FORMING'den çıkılamaz.
+  Ayrıca bir uçak bayatlarsa `1/3 < 0.5` → FAILSAFE. `2` verilmeli
+- `[ ]` 🔴 **`swarm_fsm` sabit formasyon ofsetleri** (OKBASI 3 m, CIZGI 4 m,
+  ajan 1/2/3 gömülü, heading'e göre döndürülmüyor) → bizim 12 m aralıkta
+  `formation_stable`/`formation_reached` **yanlış**. Ofsetler
+  `FormationCommand`'dan alınmalı
+- `[ ]` 🟠 **`swarm_fsm._on_election` tek global seq sayacı** — `consensus`'ta
+  düzeltilmiş hata burada duruyor; lider değişince seçim mesajları sessizce düşer
+- `[ ]` 🟠 **`px4_bridge velocity_only:=True`** — `formation_node` C modu için
+  tasarlanmış, varsayılan `False` → kazançlar toplanır (0.8 + 0.95)
+- `[ ]` 🟠 `consensus.agent_count:=2`, `task_reallocator.min_active_for_formation:=2`,
+  `mission1.default_spacing_m:=12.0`, `joystick_interpreter` remap
+
+### P0.6 Sürü entegrasyonunun yapısal engelleri
 
 Tam analiz: `SURU_ENTEGRASYON.md` §2 ve §3.
 
@@ -90,10 +113,12 @@ Tam analiz: `SURU_ENTEGRASYON.md` §2 ve §3.
   `esp32_bridge` tarafından **taşınmıyor** → `swarm_fsm` ve `mission_fsm`
   çıktıları boşluğa yayınlanıyor, `mission1` onları asla göremiyor.
   Karar: yerel remap mı, mesh'e eklemek mi?
-- `[ ]` 🔴 **`px4_bridge` öncelik hakemliği yok.** `AgentSetpoint`'te
-  `priority` alanı var (FAILSAFE 100 > CA 80 > POSITION 30 > MANEUVER 20 >
-  FORMATION 10) ama `px4_bridge` **kullanmıyor** — son geleni alıyor.
-  Dört ayrı düğüm setpoint yazacak; hakemlik olmadan hiçbiri güvenle açılamaz.
+- `[ ]` 🟡 **`px4_bridge` öncelik hakemliği** — `priority` alanı var ama
+  kullanılmıyor. **Aciliyeti düştü:** kod okununca görüldü ki çakışma zaten
+  **susturma** ile çözülmüş (`formation_node` MANEUVER adımında ve
+  DETACHED/PRECISION_LANDING durumlarında susuyor; `precision_landing` yalnız
+  kendi durumunda yazıyor). Hakemlik yine de güvenlik ağı olarak değerli —
+  bir kapı kaçarsa sessiz çakışma yerine belirli davranış.
 
 ---
 

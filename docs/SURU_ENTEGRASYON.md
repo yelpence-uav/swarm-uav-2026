@@ -1,6 +1,6 @@
 # SÜRÜ ENTEGRASYONU — yol haritası
 
-**Son güncelleme:** 15 Ağustos 2026, 01:42
+**Son güncelleme:** 15 Ağustos 2026, 02:35
 
 **Hedef:** Final görevini yapabilir hâle gelmek.
 **Kısıt:** Simülasyon yok. Her adım gerçek uçakta, ölçerek, geri alınabilir.
@@ -360,206 +360,176 @@ Her aşamada, o aşamanın düğümleri için ölç — tahmin etme.
 
 ---
 
-## SIRA — neden bu sırayla
+## TÜM DÜĞÜMLER OKUNDU — bulgular
 
-İlke: **her adımda çalışan bir sistem kalsın.** Komut yoluna dokunmayanlar
-önce, üretici değiştirenler sonra, en riskli en sona.
+15 Ağustos'ta 19 düğümün tamamı okundu. Aşağıdakiler **koddan doğrulandı**,
+tahmin değil.
 
----
+### A. Ortam engeli — görü hiç çalışamaz
 
-### AŞAMA 0 — Zemin (uçuş yok)
+🔴 **`cv2` (OpenCV) ve `pyzbar` konteynerde KURULU DEĞİL.**
+Canlı denendi: `ModuleNotFoundError`. `numpy` var (1.26.4).
 
-Bunlar sonraki her şeyi güvenli kılıyor; atlanırsa üstüne bir şey konmaz.
+`qr_detector.py` → `from pyzbar.pyzbar import decode`
+`landing_zone_detector.py` + `frame_grabber.py` → `cv2`
 
-| # | İş | Maliyet |
-|---|----|---------|
-| 0.1 | **`px4_bridge` öncelik hakemliği** (Engel 2) | ~30 satır |
-| 0.2 | `/ws/suru_dugumleri` dosyadan okunsun (env yerine) | ~10 satır `baslat.sh` |
-| 0.3 | Kayıt filtresine `/gozlem/` ekle | 1 satır |
-| 0.4 | İki remap (Engel 1) | 2 satır |
+Kamera gelmeden önce bu ikisi konteyner imajına eklenmeli.
 
-**Test (Y):** 0.1 için yerde iki sahte yayıncı — biri `priority=10`, biri
-`priority=80`. `px4_bridge` hangisini seçiyor, logdan bak. Uçuş yok.
+### B. Parametre tuzakları — varsayılanlar bizim kuruluma uymuyor
 
-**Bilinen tuzak:** `path_planner`, `task_reallocator`, `swarm_fsm`,
-`mission_fsm`, `mode_manager` **`agent_id` kabul etmiyor** (`baslat.sh`'te
-not edilmiş). Sırası gelince çıkacak.
+| Düğüm | Parametre | Varsayılan | Bizde olmalı | Olmazsa |
+|-------|-----------|-----------|--------------|---------|
+| `consensus` | `battery_min_v` | **14.0** | **0.0** | Uçaklar 3.1 V okuyor → `battery_v > 0 and < 14` → **hiç kimse lider adayı olamaz, formasyon hiç çıkmaz** |
+| `consensus` | `agent_count` | 3 | 2 | `full_field` hiç sağlanmaz; `bootstrap_grace_s` (1.5 sn) ile yine seçilir, ama gecikir |
+| `swarm_fsm` | `agent_count` | 3 | **2** | 🔴 `formation_reached` şartı `active >= expected` → **2 uçakla ASLA true olmaz**, FORMING'den çıkılamaz. Ayrıca bir uçak bayatlarsa `1/3 < 0.5` → **FAILSAFE** |
+| `task_reallocator` | `min_active_for_formation` | 3 | 2 | Formasyon kararı bloke |
+| `mission1` | `default_spacing_m` | 5.0 | 12.0 | Aralık uyuşmazlığı |
+| `joystick_interpreter` | — | `/mavros/manual_control/control` | remap gerek | Bizimki `/drone_N/mavros/...`, **namespace'siz dinliyor** |
 
-**Çıkış şartı:** Hakemlik çalışıyor, remap'ler yerinde, `/ws/suru_dugumleri`
-dosyadan okunuyor. RAM/CPU her aşamada **o aşamanın düğümleri için** ölçülür.
+### C. Kod kusurları
 
----
+🔴 **`swarm_fsm.compute_formation_quality` sabit ofset kullanıyor:**
+```python
+OKBASI: 1:(0,0,0)  2:(-3,-3,0)  3:(-3,3,0)
+CIZGI:  1:(0,0,0)  2:(0,-4,0)   3:(0,4,0)
+```
+3 m / 4 m aralık ve ajan id 1/2/3 varsayımı **gömülü**. Bizim aralık 12 m,
+üstelik ofsetler **heading'e göre döndürülmüyor**. Sonuç:
+`formation_max_error_m` daima büyük → `formation_stable` ve
+`formation_reached` **yanlış**. Gerçek ofsetler `FormationCommand`'dan
+alınmalı.
 
-### AŞAMA 1 — Bilgi katmanı (komut yolu DEĞİŞMEZ)
+🔴 **`swarm_fsm._on_election` tek global seq sayacı kullanıyor:**
+```python
+if msg.sequence_num <= self._max_election_seq: return
+```
+Bu tam olarak `consensus`'ta **düzeltilmiş** olan hata (kaynak başına +
+incarnation). `swarm_fsm`'de düzeltilmemiş → lider değişince ya da bir düğüm
+yeniden başlayınca seçim mesajları **sessizce düşer**.
 
-`swarm_origin_publisher` · `consensus_node` · `swarm_fsm` · `mission_fsm`
+### D. Önceki iki iddiamın düzeltmesi
 
-Bu dördü **setpoint üretmiyor** — sadece durum yayınlıyor. Yani açmak komut
-yolunu değiştirmiyor. Sıfıra yakın risk, ve Aşama 2'nin girdisini hazırlıyor.
+**1. "Çoklu üretici çakışması var, öncelik hakemliği şart" — abartılıydı.**
+Çakışma **zaten çözülmüş**, ama `priority` alanıyla değil, **susturma**yla:
+- `formation_node`, QR adımı MANEUVER iken **susuyor** → o an yalnız
+  `maneuver_executor` yazar
+- `formation_node`, kendi durumu DETACHED/PRECISION_LANDING/WAITING_REJOIN/
+  REJOINING iken **susuyor**
+- `precision_landing` yalnız `STATE_PRECISION_LANDING` iken yazıyor
 
-**Dikkat edilecek tek şey:** `consensus` açılınca `esp32_bridge`'in **lider
-kapısı** davranışı değişebilir (seçim/heartbeat görmeden formasyon
-yayınlamıyor). "Açınca hiçbir şey değişmez" varsayımının en zayıf olduğu yer.
+Yani tasarım tek-yazıcıyı durum kapılarıyla garanti ediyor. Öncelik
+hakemliği **acil değil**; yine de güvenlik ağı olarak değerli (bir kapı
+kaçarsa sessiz çakışma yerine belirli davranış).
 
-**Test**
-- **Y:** dördü açılıyor mu; `consensus` bir lider seçiyor mu; `swarm_fsm`
-  mantıklı `SwarmState` üretiyor mu (uçak sayısı, centroid doğru mu)
-- **G:** normal bir görev uçuşu, dördü arka planda. Kayıttan bak: lider
-  seçimi uçuş boyunca stabil mi, formasyon yayını bozuldu mu
+**2. "`formation_node`'un SVT'si saf oransal, ileri-besleme yok" — YANLIŞ.**
+`_vff_x/y/z` var: rampanın 50 Hz hızından türetiliyor, LPF'den geçiyor ve
+komuta ekleniyor (`svx + rvx + vff_x`). Yani **Durum 2**, kayma ≈ 0.
 
-**Çıkış şartı:** İki uçak havadayken lider seçimi kararlı, `SwarmState`
-akıyor, kanıtlanmış zincir etkilenmemiş.
+**Asıl kip sorunu başka:** `formation_node` C modu (saf hız,
+`position_valid=False`) için tasarlanmış, ama **`px4_bridge._velocity_only`
+varsayılanı `False`** → A modunda çalışır, PX4 de konum kontrolü yapar,
+kazançlar toplanır (SVT 0.8 + MPC_XY_P 0.95).
+**Çözüm: `velocity_only:=True`** — `baslat.sh`'te tek satır.
 
----
+**3. `rel_enable = False` varsayılan** → `NeighborInfo` aboneliği hiç
+kurulmuyor → `_peer_positions` None → **dağıtık slot ataması devre dışı**,
+liderin ataması kullanılıyor. Kodun kendi notu: rel açıkken en yakın mesafe
+**0.28 m** ölçülmüş (near-collision), kapatınca 2.68 m.
+⚠️ Şartnamenin "dağıtık" puanı açısından tartışılmalı: mimari zaten dağıtık
+(her uçak kendi setpoint'ini hesaplıyor), ama slot ataması liderden geliyor.
 
-### AŞAMA 1B — Kaçınma değişimi
-
-📋 **KARAR VERİLDİ** — `docs/KARARLAR.md` → **KARAR-01**.
-Bu aşamaya gelince operatöre hatırlat ve önerilen seçeneği söyle.
-
-**Karar özeti:** `collision_avoidance`, **ham `AgentStatus`'tan** beslenerek
-(`kinematic_fusion` atlanır). `basit_kacinma` kapatılır ama **silinmez**.
-
-**Parametreler — operatör talimatı:** `d0_m = 8.0`, `hard_m = 4.0` ile başla
-(varsayılan 4.5/2.0 bizim geometrimize göre çok dar). Güven oluştukça kısılır.
-
-⚠️ Aralık 12 m'de planlanan en yakın yaklaşma **8.41 m**; `d0=8.0` ile pay
-yalnız 0.49 m. İlk uçuşta kaçınmanın **ne zaman** tetiklendiğine bak —
-her formasyon geçişinde tetikleniyorsa `d0` 7.0'a inecek.
-
-**Neden Aşama 2'den önce:** kaçınma değişimi **kanıtlanmış komut zinciri
-uçarken** test edilir. Bir şey ters giderse sebebi tektir. Aşama 2 ile
-birleştirmek "bir aşamada bir üretici değişir" kuralını bozardı.
-
-**Test (KARAR-01'de ayrıntılı, zorunlu):**
-- **Y:** adaptör doğru mu — 10 m'de itme 0, 6 m'de doğru yönde
-- **G:** ikisi yan yana, `collision_avoidance` gözlem modunda, çıktılar karşılaştırılır
-- **K:** `--senaryo asili` + operatör kumandayla yaklaştırır
-- **K2:** iki uçak, saha senaryosu
-
----
-
-### AŞAMA 2 — Formasyon üreticisi değişimi 🔴 EN BÜYÜK
-
-`formation_node` — setpoint kaynağı YKİ'den uçağa geçiyor.
-
-Bu, **görevi merkeziden dağıtığa çeviren adım.** Şartnamenin asıl istediği şey.
-
-**Ön koşullar:** Aşama 0.1 (hakemlik) + Aşama 1 (lider seçimi) +
-Engel 3 çözümü (konum kipine al).
-
-**Test**
-- **Y:** `formation_node` gözlem modunda, uçaklar yerde. Ürettiği slot
-  konumları mantıklı mı (aralık 12 m, doğru geometri)
-- **G:** normal görev uçuşu, `formation_node` gözlem modunda.
-  **Kayıttan karşılaştır:** onun ürettiği slot ile YKİ'nin gönderdiği hedef
-  arasındaki sapma kaç metre. Bu sayı Aşama 2'nin geçme kriteri
-- **K1:** tek uçak, alçak (5 m), kısa. Setpoint kaynağı `formation_node`
-- **K2:** iki uçak, tam saha senaryosu
-
-**Çıkış şartı:** İki uçak, formasyon onboard hesaplanarak, formasyon
-rotasyonu dahil bir rotayı uçtu. Kritik ayrım eşiğin üstünde kaldı.
-
----
-
-### AŞAMA 3 — Görü (PARALEL KOL, komut yolu dışında)
-
-`camera_driver` · `vision_node`
-
-Aşama 1-2 ile **aynı anda** ilerleyebilir; kimseyi beklemiyor. Ama Aşama 4'ün
-ön koşulu.
-
-**Test — çoğu yerde yapılır, uçuş gerekmez**
-- **Y1:** kamera açılıyor mu, görüntü akıyor mu
-- **Y2:** **QR'ı elde tutup okut.** 120×120 cm QR'ı hangi mesafeden
-  okuyabiliyoruz — ölç. Bu sayı görev irtifasını belirleyecek
-- **Y3:** kırmızı/mavi bölge tespiti, gerçek zeminde, gerçek ışıkta
-- **G:** bir uçuşta kamera açık, QR üzerinden geç, kayıttan doğrula
-
-**Kritik ayar:** `team_id` üç yerde de `752825` olmalı (`esp32_bridge`,
-`mission_fsm`, `mission1`) — ayrışırsa gelen her QR reddedilir.
-
----
-
-### AŞAMA 4 — Görev mantığı
-
-`path_planner` · `mission1_dynamic_swarm`
-
-Artık YKİ "başlat" der, gerisini uçak yapar. Görev 1'in kendisi.
-
-**Test**
-- **Y:** kuru koşum — orkestratör adım üretiyor mu, sıra şartnameye uygun mu
-  (formasyon → pitch/roll → irtifa → üyelik → sonraki QR)
-- **G:** iki QR'lık kısa rota, gözlem modunda
-- **K:** iki QR'lık rota, gerçek. Sonra dört, sonra tamamı
-
-**Adım adım:** tüm görevi tek seferde denemek yerine iki QR ile başla.
-
----
-
-### AŞAMA 5 — Manevra, hassas iniş, üyelik
-
-`maneuver_executor` · `precision_landing_node` · `task_reallocator_node`
-
-Bunlar QR görevlerinin kendisi. En riskli olan hassas iniş — yere temas var.
-
-**Test**
-- **Y:** `precision_landing` gözlem modunda, uçak yerde, renkli hedef önünde.
-  Ürettiği düzeltme doğru yöne mi
-- **K (kademeli):** önce 3 m'den renkli bölgeye iniş denemesi, tek uçak.
-  Sonra tam senaryo: ayrıl → in → disarm → bekle → arm → katıl
-
-**`task_reallocator` üç uçak gerektiriyor** — ylp01 dönmeden tam denenemez.
-
----
-
-### AŞAMA 6 — Görev 2: yarı otonom kumanda
-
-`joystick_interpreter_node` · `mode_manager_node`
-
-Görev 1'den bağımsız; istenirse Aşama 4 ile paralel yürütülebilir.
-
-**Test**
-- **Y:** kumandayı oynat, `SwarmControlCommand` üretiliyor mu, mesh'e çıkıyor mu
-- **K1:** tek uçak, kumandayla sürü hareket modu
-- **K2:** iki uçak, senkron tepki. Hakem direktiflerinden birkaçını dene
-  (3 sn ileri pitch, çizgi formasyonuna geç, yaw manevrası)
-
----
-
-## Bağımlılık haritası
+### E. Doğrulanmış bağımlılık zinciri
 
 ```
-AŞAMA 0  zemin (hakemlik, remap, düğüm aç/kapa altyapısı)
-   |
-AŞAMA 1  origin + consensus + swarm_fsm + mission_fsm ...... komut yolu değişmez
-   |
-AŞAMA 1B kaçınma değişimi (KARAR-01) ...................... komut yolunda, izole
-   |
-AŞAMA 2  formation_node ................................... MERKEZİ -> DAĞITIK
-   |
-AŞAMA 4  path_planner + mission1 .......................... GÖREV 1
-   |
-AŞAMA 5  manevra + hassas iniş + üyelik ................... GÖREV 1 tamamlanır
+px4_bridge ──telemetri (offboard_active dahil, YEREL doğru)──► agent_fsm
+     agent_fsm ──AgentStatus (DURUM ekler)──► esp32_bridge ──mesh──► herkes
+          │
+          ├─► consensus ─── lider seçer (ARMED+ şart, pil şartı)
+          │        │
+          │        ├─ ElectionResult ──► esp32_bridge LİDER KAPISI açılır
+          │        │                     (yerde armlıyken DE olur)
+          │        └─ LeaderHeartbeat ── yalnız AIRBORNE iken
+          │
+          └─► swarm_fsm ──SwarmState──► mission1, mode_manager
 
-AŞAMA 3  görü ............... PARALEL, Aşama 4'ün ön koşulu
-AŞAMA 6  görev 2 ............ PARALEL, Aşama 2'den sonra
-
+vision ──QRMissionData──► mission_fsm ──MissionTarget──► mission1
+                                                   (SwarmState + lider şart)
+                                                            │
+                                            path_planner ◄──┘ (yörünge)
+                                                  │
+                              FormationCommand ──► esp32_bridge (lider kapısı)
+                                                  ──mesh──► formation_node
+                                                              │
+                                          (origin_synced, xy/z_valid şart)
+                                                              ▼
+                                              kaçınma ──► px4_bridge
 ```
 
-**Kaba bütçe:** aşama başına 2-3 uçuş → toplam ~15 uçuş. Aşama 0 ve 3'ün
-çoğu yerde yapılıyor.
+**Not:** `maneuver_executor` bir **ROS Action** ile tetikleniyor ve action
+mesh'ten geçmiyor — her uçak kendi yerelini çağırır (mission1 her uçakta
+koştuğu için mümkün).
 
 ---
 
-## Her aşamada uyulacak kurallar
+## ENTEGRASYON SIRASI — doğrulanmış
 
-1. **Bir aşamada bir üretici değişir.** İki değişiklik aynı uçuşa girmez
-2. **Y → G → K sırası atlanmaz.** Özellikle G
-3. **Her kademe ölçümle kapanır.** "Çalıştı" değil, sayı
-4. **Geri dönüş aşamaya başlamadan önce bir kez gösterilir**
-5. **Uçuştan önce:** `param_karsilastir.py` + kuru test
-6. **Aşama sonunda** `DURUM.md` + `GUNLUK.md` + `RPI_ESITLEME.md` güncellenir
+### 1 · `consensus_node`
+**Neden ilk:** `esp32_bridge` formasyonu **yalnız lider** mesh'e yazıyor.
+Lider yoksa `FormationCommand` hiç çıkmaz. Kodun kendi uyarısı:
+*"LİDER BİLİNMİYOR — consensus_node çalışıyor mu?"*
+**Girdi:** `AgentStatus` (agent_fsm zaten üretiyor) ✅
+**Şart:** `battery_min_v:=0.0`, `agent_count:=2`, uçaklar **ARM'lı**
+**Test (Y):** pervanesiz arm → lider seçiliyor mu, log `[CONSENSUS] Lider:`
+
+### 2 · `swarm_fsm_node`
+**Girdi:** `AgentStatus` + consensus çıktısı
+**Şart:** `agent_count:=2`, `SwarmState` remap'i
+**Bilinen kusur:** sabit formasyon ofsetleri (C) → `formation_reached`
+güvenilmez; düzeltilmeli
+**Test (Y):** yerde saatlerce koştur, kendiliğinden FAILSAFE'e giden yol var mı
+
+### 3 · `path_planner` + `formation_node`
+**Girdi:** `FormationCommand`. Geçici kaynak: `/swarm/path_planning/target`'a
+elle/betikle hedef yayınla → `path_planner` yörüngeyi üretir.
+`mission1` sonra bu kaynağın yerini alır.
+**Şart:** `px4_bridge velocity_only:=True`, `spacing_m` komuta 12 m konmalı
+**Test:** Y (slot doğru mu) → G (havada gözlem, sapma ölç) → K tek uçak → K iki uçak
+
+### 4 · `collision_avoidance` — KARAR-01
+Adaptör: `AgentStatus` → `NeighborObs` (`link_active` set edilmeli).
+`d0=8.0 / hard=4.0` ile başla.
+
+### 5 · `camera_driver` + `vision_node` — **paralel kol**
+🔴 **Önce `cv2` + `pyzbar` konteynere kurulmalı.**
+Çoğu test yerde: 120×120 QR hangi mesafeden okunuyor, kırmızı/mavi bölge.
+
+### 6 · `mission_fsm_node`
+`vision`'a bağlı. `team_id` üç yerde de `752825`. `MissionTarget` remap'i.
+
+### 7 · `mission1_dynamic_swarm` — **YKİ'nin yerini alır**
+`if not self._have_swarm_state: return` → 2 şart. `is_leader` → yalnız lider
+hedef yayınlar. `default_spacing_m:=12.0`.
+
+### 8 · `swarm_origin_publisher`
+YKİ kesildiğinde origin uçakta üretilmeli. 7'den sonra, "YKİ'siz uçuş"
+testinden önce.
+
+### 9 · `maneuver_executor` — pitch/roll (QR görevi)
+Action ile tetikleniyor; `formation_node` o adımda zaten susuyor.
+
+### 10 · `precision_landing_node`
+Yalnız `STATE_PRECISION_LANDING`'de yazıyor — çakışma yok.
+Renkli bölge `vision`'ın `ZoneMap`'inden geliyor → 5 şart.
+
+### 11 · `task_reallocator_node` — **3 uçak ister**
+`min_active_for_formation:=2`.
+
+### 12 · `joystick_interpreter` + `mode_manager` — Görev 2
+`mode_manager` PX4 moduna **yazmıyor** (doğrulandı).
+`joystick_interpreter` remap gerektiriyor.
+
+**Kullanılmayacak:** `kinematic_fusion` (KARAR-01), `network_proxy`,
+`sim_rtcm_source`.
 
 ---
 
