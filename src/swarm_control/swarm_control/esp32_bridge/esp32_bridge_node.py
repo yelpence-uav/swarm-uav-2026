@@ -947,6 +947,37 @@ class Esp32BridgeNode(Node):
             # ORIGIN_SYNCED ARTIK DRONE'UN KENDI OLCUMUNDEN. Onceden
             # _isle_pose bunu UYDURUYORDU (bkz. oradaki not).
             status.origin_synced = durum.origin_synced
+
+            # HEALTHY TURETILIYOR — mesh'te ayri bit YOK.
+            #
+            # 15 Agustos, ADIM 1 yer testinde olculdu: ylp00 ARMED iken
+            # ylp02 onu mesh'ten `healthy: false` goruyordu, cunku bu alan
+            # hic doldurulmuyordu ve AgentStatus varsayilani False.
+            # election.is_eligible `healthy` sart kostugu icin HICBIR uzak
+            # ajan lider adayi olamiyordu: her ucak yalniz kendini uygun
+            # goruyor ve kendini secip SPLIT-BRAIN uretiyordu.
+            #
+            # Neden bit eklemedik: DURUM paketinin bayrak bayti 8/8 DOLU
+            # (ARMED, EKF_OK, IMU_OK, MAG_OK, BARO_OK, MESH_LINK, KILL,
+            # RC_LINK). Paketi buyutmek ESP32 firmware'ini de degistirmek
+            # demekti. Gerek yok: AgentContext.healthy'nin girdilerinin
+            # karsiligi paket icinde ZATEN var —
+            #   ¬kill_switch  -> durum.kill_switch_active   (birebir)
+            #   ¬failsafe     -> state != STATE_FAILSAFE    (birebir)
+            #   konum tahmini -> durum.ekf_ok               (ayni kaynak)
+            #   px4_link_ok   -> paketi almis olmamiz ima ediyor
+            #
+            # ⚠️ Bu bir TURETIM, gonderenin kendi `healthy` degeri degil.
+            # Gonderen tarafta pil izleme acilirsa (KARAR-03) ve pil
+            # dususu healthy'yi dusururse burasi onu GORMEZ. O gun ya
+            # pakete bit eklenmeli ya da pil esigi burada da uygulanmali.
+            status.healthy = (
+                bool(durum.ekf_ok)
+                and not durum.kill_switch_active
+                and state != AgentStatus.STATE_FAILSAFE
+            )
+            # Paketi aldiysak gonderenin PX4 baglantisi calisiyordu.
+            status.px4_link_ok = True
             # mesh_link_ok ve mesh_node_count henüz AgentStatus.msg'de yok;
             # eklenince hasattr otomatik doldurur, o zamana kadar
             # status_text taşır. AgentStatus.msg ile teyit edilmesi gerekir.
