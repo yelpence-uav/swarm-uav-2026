@@ -1,6 +1,6 @@
 # GÜNLÜK — oturum devir teslim kaydı
 
-**Son güncelleme:** 15 Ağustos 2026, 17:19
+**Son güncelleme:** 15 Ağustos 2026, 20:15
 
 Tek bilgisayar, sırayla çalışıyoruz. Biri kalkıp diğeri oturduğunda **hem
 kişi hem Claude** nerede kalındığını buradan anlar.
@@ -104,11 +104,34 @@ Claude'a **"oturumu kapat"** dersen bu kaydı o yazar.
   çalışıp 0.0 hata döndürüyor. "Hiç ajan yoksa formasyon mükemmel"
   davranışı ileride tuzak olabilir.
 
+**Akşam eklenenler (17:19 → 20:15)**
+
+- ✅ **YKİ ilk kez açıldı.** Base ESP mesh'te (`agent_id=10`), backend
+  drone 1 ve 3'ü bağlı görüyor. Açar açmaz bir QoS hatası daha çıkardı:
+  backend `qr_data`'yı **kasıtlı** RELIABLE dinliyordu (*"QR mesajı en az
+  1 kez görünmeli, −20 ceza"*) — niyet doğru, etki tam tersi; BEST_EFFORT
+  yayıncıdan **hiçbir şey** almıyordu. Sınıf hatası 6'ya çıktı.
+- ✅ **Origin tek kaynağa bağlandı** — `deploy/saha_origin.env`.
+  Bugün ben uçaklara ayrı bir origin koymuştum; YKİ'ninkiyle **18.2 m**
+  farklıydı ve ikisi birlikte çalışsa `origin_synced` düşüp arm'ı
+  engelleyecekti. Artık `yki_baslat.sh` ve `dagit.sh` aynı dosyadan besleniyor.
+- ✅ **ADIM 3 dağıtık atama sahada doğrulandı:**
+  ```
+  dagitik atama: yerel hesap lider ile UYUSTU -> yerel kullaniliyor
+  TAM ATAMA: a1->(+0.0,+0.0)  a3->(+0.0,+12.0)
+  ```
+  `rel_enable` ikiye ayrıldı, komşu konumu mesh `AgentStatus`'tan geliyor.
+  Öncesinde yerel hesap hiç çalışmıyordu → düğüm lideri kopyalıyordu →
+  fiilen **merkezi**. Şartname merkezi olanı eksik puan sayıyor.
+
 **Sıradaki adım**
 
-`formation_node.rel_enable` bayrağını ikiye ayır (abonelik hep kurulsun,
-göreli düzeltme bayrağa bağlı kalsın) → dağıtık slot ataması çalışsın →
-ADIM 3 G1'i gömülü ofset olmadan tekrarla. Sonra G2 (havada gözlem).
+ADIM 3 **G2** — havada gözlem. `formation_node` uçarken arka planda koşar,
+çıktısı `/gozlem/`'e gider, kanıtlanmış zincir uçurur. Öncesinde karara
+bağlanacak: `position_valid: false` (saf hız kipi) + `px4_bridge
+velocity_only` — bkz. `NAVIGASYON_KAYMA.md`.
+
+> ⚠️ **KARAR-02:** G2'den önce operatöre çok ajanlı denetim önerilecek.
 
 > ⚠️ **KARAR-02:** ADIM 3'ü **havaya** çıkarmadan önce operatöre çok ajanlı
 > denetim önerilecek — mesaja `ultracode` yazması istenecek.
