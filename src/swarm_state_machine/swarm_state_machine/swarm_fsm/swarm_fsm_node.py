@@ -259,11 +259,21 @@ class SwarmFsmNode(Node):
         # 12 m aralikta hata ~6 m cikiyordu. Esikler 1.5 / 1.0 m oldugu icin
         # formation_stable ve formation_reached HER ZAMAN False'ti — yani
         # suru FORMING'den hic cikamiyordu.
+        # BEST_EFFORT — RELIABLE DEGIL. Kural: /swarm/public/... dinleyen
+        # herkes BEST_EFFORT olmali, cunku o konularin mesh kaynagi
+        # esp32_bridge ve o _MESH_QOS ile yani BEST_EFFORT yayinliyor.
+        # RELIABLE abone + BEST_EFFORT yayinci ESLESMEZ ve konu SESSIZCE bos
+        # kalir. Bu abonelik once RELIABLE yazildi ve uctaki tarama tam bunu
+        # yakaladi (15 Agustos):
+        #   "'/swarm/public/formation/target' offering incompatible QoS.
+        #    No messages will be received from it. policy: RELIABILITY"
+        # Ters yon sorunsuz: RELIABLE yayinci + BEST_EFFORT abone uyumlu,
+        # o yuzden ic_dis_kopru RELIABLE yayinlamaya devam ediyor.
         self.create_subscription(
             FormationCommand,
             '/swarm/public/formation/target',
             self._on_formation_command,
-            _RELIABLE_QOS,
+            _STATUS_QOS,
         )
 
     def _on_formation_command(self, msg: FormationCommand) -> None:
