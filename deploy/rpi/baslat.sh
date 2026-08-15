@@ -588,19 +588,40 @@ if [ -n "$SURU_DUGUMLERI" ]; then
     # Koordinat /ws/origin dosyasindan: tek satir "lat lon alt".
     #     echo "38.6905999 39.1611543 1216.03" > ~/yelpence_ws/origin
     # Iki ucakta da AYNI olmali, yoksa formasyonlar birbirine gore kayar.
+    # IC->DIS KOPRUSU — EN ONCE acilmali.
+    #
+    # Suru dugumleri kendi ciktilarini /swarm/internal/... a yazar, ama
+    # BASKALARININ ciktilarini /swarm/public/... tan okur. Sahada
+    # esp32_bridge yalnizca mesh yonunu tasiyordu; ayni ucagin kendi
+    # ciktisini kendi public'ine tasiyan YEREL DONGU yoktu. Yani her dugum
+    # kendi yanindaki dugumun ciktisini goremiyordu.
+    # Ayrinti ve olculen ornekler: ic_dis_kopru.py basligi.
+    #
+    # Kapatilamaz degil ama kapatilirsa suru dugumleri birbirini gormez;
+    # bu yuzden 'origin'/'consensus' gibi ayri bir anahtara BAGLANMADI —
+    # herhangi bir suru dugumu aciksa o da acilir.
+    ros2 run swarm_control ic_dis_kopru \
+        >> "$GUNLUK/ic_dis_kopru.log" 2>&1 &
+    sleep 1
+    echo "[baslat] ic_dis_kopru basladi (internal -> public yerel dongu)"
+
     if acik origin; then
         if [ -f /ws/origin ]; then
             read -r O_LAT O_LON O_ALT _ < /ws/origin
+            # REMAP KALDIRILDI (15 Agustos): dugum artik sozlesmeye uygun
+            # sekilde /swarm/internal/origin'a yaziyor, ic_dis_kopru onu
+            # /swarm/public/origin'e tasiyor. Boylece origin AYNI ANDA hem
+            # yerel dugumlere hem de esp32_bridge uzerinden mesh'e gidiyor —
+            # remap varken mesh yolu tamamen kapaliydi.
             ros2 run swarm_control swarm_origin_publisher --ros-args \
                 -p origin_source:=fixed \
                 -p fixed_lat:=${O_LAT} \
                 -p fixed_lon:=${O_LON} \
                 -p fixed_alt:=${O_ALT:-0.0} \
-                -r /swarm/internal/origin:=/swarm/public/origin \
                 >> "$GUNLUK/origin.log" 2>&1 &
             sleep 2
             echo "[baslat] swarm_origin_publisher: sabit origin" \
-                 "lat=$O_LAT lon=$O_LON alt=${O_ALT:-0.0} (yerel remap)"
+                 "lat=$O_LAT lon=$O_LON alt=${O_ALT:-0.0}"
         else
             echo "[baslat] UYARI: origin istendi ama /ws/origin YOK —" \
                  "dugum acilmadi, preflight ARMING'i REDDEDECEK"
