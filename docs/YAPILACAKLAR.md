@@ -1,6 +1,6 @@
 # YAPILACAKLAR
 
-**Son güncelleme:** 15 Ağustos 2026, 17:05
+**Son güncelleme:** 15 Ağustos 2026, 17:19
 
 ## Önem dereceleri
 
@@ -137,10 +137,54 @@ kapısı açıldı. Lider arıza devri de gözlendi (`1 -> 3`, 82 ms).
 - `[ ]` 🟡 **Sentinel 65.535 "pil harika" diye yorumlanıyor.** Eşik 13.6
   olduğunda `65.535 > 13.6` geçer — veri yokken sistem pili sağlıklı sanır.
   Pil modülü gelince (KARAR-03) sentinel açıkça "veri yok" sayılmalı
-- `[ ]` 🟠 **`formation_node.rel_enable` iki özelliği birden kapatıyor** —
-  dağıtık slot ataması (`NeighborInfo` gerekir) ve göreli düzeltme (tehlikeli,
-  0.28 m yakınlaşma ölçülmüş). Bayrağı ikiye ayır: abonelik hep kurulsun,
-  düzeltme bayrağa bağlı kalsın (~2 satır)
+- `[ ]` 🔴 **`formation_node.rel_enable` iki özelliği birden kapatıyor** —
+  **sahada üredi (15 Ağustos, ADIM 3 G1).** Log: *"slot ofseti yok
+  (yerel/komut); setpoint atlandı"*. Bayrak kapalı → komşu konumları yok →
+  dağıtık slot ataması yapılamıyor. Komuta gömülü ofset verilince çalışıyor,
+  yani başka her şey sağlam. **ADIM 3'ü şu an kilitleyen tek madde.**
+  Bayrağı ikiye ayır: `NeighborInfo` aboneliği **hep** kurulsun, tehlikeli
+  göreli düzeltme (0.28 m yakınlaşma ölçülmüş) bayrağa bağlı kalsın.
+  Şartnamenin "dağıtık" puanı da buna bağlı.
+
+### ✅ QoS sınıf hatası — 5 abonelik düzeltildi (15 Ağustos)
+
+`esp32_bridge` **dört** konuyu `_MESH_QOS` yani **BEST_EFFORT** yayınlıyor:
+`formation/target`, `perception/qr_data`, `control/command`,
+`drone{N}/status`. RELIABLE abone + BEST_EFFORT yayıncı **eşleşmez** ve konu
+**sessizce boş kalır** — düğüm mesh'ten gelen veriyi hiç almaz.
+
+- `[x]` 🔴 `formation_node` → `formation/target` (ADIM 3'ü kilitliyordu)
+- `[x]` 🔴 `collision_avoidance` → `formation/target` (ADIM 4'te patlardı)
+- `[x]` 🟠 `maneuver_executor` → `formation/target` (ADIM 9)
+- `[x]` 🟠 `mission1_node` → `perception/qr_data` (ADIM 7)
+- `[x]` 🟠 `mission_fsm_node` → `perception/qr_data` (ADIM 6)
+
+> **Kural:** `/swarm/public/…` dinleyen herkes **BEST_EFFORT** olmalı.
+> Ters yön sorunsuz (RELIABLE yayıncı + BEST_EFFORT abone uyumlu), o yüzden
+> `ic_dis_kopru` RELIABLE yayınlamaya devam ediyor.
+>
+> Bulunuş yolu: `formation_node` açılınca ROS'un kendi uyarısı çıktı, sonra
+> **bütün** public abonelikleri ve `esp32_bridge` yayıncıları tarandı.
+> Adım adım gidilseydi beşi ayrı ayrı, sahada aranacaktı.
+
+### ✅ `baslat.sh` toplu anahtarları ayrıldı (15 Ağustos)
+
+- `[x]` 🔴 `formasyon` anahtarı `collision_avoidance`'ı **da** açıyordu —
+  `basit_kacinma` ile aynı topic yuvası, yani ADIM 3'ü açarken
+  `CLAUDE.md` §4 çakışması kendi elimizle kurulacaktı. Ayrı anahtar `ca`,
+  üstelik `/ws/kacinma` varken **açmayı reddediyor** ve uyarı basıyor.
+- `[x]` 🟡 `fsm` anahtarı üç düğümü birden açıyordu (ADIM 2/6/12) →
+  `fsm` / `gorevfsm` / `mod`
+
+### ✅ Gözlem modu kuruldu (15 Ağustos) — `SURU_ENTEGRASYON.md` §4
+
+- `[x]` 🟡 `/ws/gozlem` bayrağı: `formation_node` setpoint'i
+  `/gozlem/drone_N/formation/raw`'a gider, **uçağa ulaşmaz**
+- `[x]` 🟡 Kayıt include regex'ine `/gozlem/` eklendi — önceden yalnız
+  `^(/drone_N/|/swarm/)` kaydediliyordu, yani gözlem çıktısı **hiçbir yere
+  yazılmıyordu** ve gözlemin anlamı kalmazdı
+- İlk kullanımda değerini kanıtladı: `formation_node` yerdeki uçak için
+  `vz = 1.51 m/s` üretti. Gözlem modu olmasaydı bu tırmanma komutuydu.
 - `[x]` 🔴 ~~**`consensus.battery_min_v = 14.0`**~~ → **düzeltildi (15 Ağu).**
   `baslat.sh` artık `battery_min_v`'i **`BATARYA_KRITIK_V`'den** geçiyor —
   `agent_fsm` ile aynı değişken. Pil ölçer modül gelince (KARAR-03) tek
@@ -333,7 +377,7 @@ WiFi düşünce MAVROS `gcs_url` uçnoktasına her MAVLink mesajı için
 
 Tamamı `SURU_ENTEGRASYON.md`'de. Uçuşsuz hazırlık:
 
-- `[ ]` 🟡 Kayıt filtresine `/gozlem/` ekle (`baslat.sh`)
+- `[x]` 🟡 ~~Kayıt filtresine `/gozlem/` ekle~~ → yapıldı (yukarıda)
 - `[x]` 🟡 ~~`SURU_DUGUMLERI` dosyadan okunsun~~ → **yapıldı (15 Ağu).**
   `/ws/suru_dugumleri` varsa env'i ezer; yorum satırı ve çok satır destekli,
   6 senaryoda test edildi. Düğüm açmak artık:

@@ -1,6 +1,6 @@
 # DURUM — şu an ne çalışıyor, ne bozuk
 
-**Son güncelleme:** 15 Ağustos 2026, 17:05
+**Son güncelleme:** 15 Ağustos 2026, 17:19
 
 > Bu belge **şimdiki hâli** anlatır, tarihçe değil. Bir şey değişince burayı
 > güncelle, eskisini sil. Ne olduğunun hikâyesi `GUNLUK.md`'de kalır.
@@ -106,13 +106,14 @@ Bunlar **dosya varlığıyla** çalışıyor; uçağı bulan kişi böyle bulaca
 | `~/yelpence_ws/suru_dugumleri` | **`origin consensus`** | **`origin consensus`** | Varsa `SURU_DUGUMLERI` env'ini ezer. Düğüm açmak: `echo ... > dosya` + `docker restart` |
 | `~/yelpence_ws/origin` | **var** | **var** | `38.6905999 39.1611543 1216.03` — **iki uçakta AYNI olmalı** |
 | `~/yelpence_ws/yer_testi` | **VAR** ⚠️ | **VAR** ⚠️ | Uçak ARM olur ama **KALKMAZ**. Uçuştan önce SİL + restart |
+| `~/yelpence_ws/gozlem` | **VAR** ⚠️ | **VAR** ⚠️ | `formation_node` setpoint'i `/gozlem/...`'e gidiyor, **uçağa ULAŞMIYOR**. Uçuştan önce SİL + restart |
 | `~/yelpence_ws/gps_saat_kapali` | yok | yok | Varsa GPS'ten saat düzeltmesi yapılmaz |
 
 ### 🔴 UÇMADAN ÖNCE: `yer_testi` bayrağını kaldır
 
 ```bash
-./deploy/yki/drone_bul.sh ylp00 'rm -f ~/yelpence_ws/yer_testi && docker restart drone1'
-./deploy/yki/drone_bul.sh ylp02 'rm -f ~/yelpence_ws/yer_testi && docker restart drone3'
+./deploy/yki/drone_bul.sh ylp00 'rm -f ~/yelpence_ws/yer_testi ~/yelpence_ws/gozlem && docker restart drone1'
+./deploy/yki/drone_bul.sh ylp02 'rm -f ~/yelpence_ws/yer_testi ~/yelpence_ws/gozlem && docker restart drone3'
 ```
 
 Açık kaldığı sürece "görev başladı" komutu uçağı ARM eder ve **orada
@@ -163,8 +164,12 @@ geçiren kodun tamamı, takım belge sistemi ve 15 Ağustos düzeltmeleri git'te
 
 ```
 mavros_node · px4_bridge · agent_fsm_node · esp32_bridge · basit_kacinma
-+ ic_dis_kopru · swarm_origin_publisher · consensus_node   (15 Ağustos)
++ ic_dis_kopru · swarm_origin_publisher · consensus_node
++ swarm_fsm_node · formation_node · path_planner           (15 Ağustos)
 ```
+
+`collision_avoidance` **kapalı** — `basit_kacinma` ile aynı topic yuvası,
+ikisi birden açılmaz (`CLAUDE.md` §4). ADIM 4'te değişecek.
 
 **İlk sürü düğümleri sahada koşuyor.** `ic_dis_kopru` herhangi bir sürü
 düğümü açıksa kendiliğinden açılıyor — sözleşmenin `internal → public`

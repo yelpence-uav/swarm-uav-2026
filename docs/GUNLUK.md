@@ -1,6 +1,6 @@
 # GÜNLÜK — oturum devir teslim kaydı
 
-**Son güncelleme:** 15 Ağustos 2026, 16:10
+**Son güncelleme:** 15 Ağustos 2026, 17:19
 
 Tek bilgisayar, sırayla çalışıyoruz. Biri kalkıp diğeri oturduğunda **hem
 kişi hem Claude** nerede kalındığını buradan anlar.
@@ -35,6 +35,88 @@ Claude'a **"oturumu kapat"** dersen bu kaydı o yazar.
 - ylp00: (kill switch? pil? nerede? konteyner ayakta mı?)
 - ylp02:
 ```
+
+---
+
+## 2026-08-15 17:19 — Eyüp + Claude (ikinci yarı: ADIM 2 + ADIM 3)
+
+**Ne yapıldı**
+
+- ✅ **ADIM 2 açıldı ve kararlı.** `swarm_fsm` iki uçakta koşuyor:
+  ```
+  SwarmFsmNode baslatildi: kimlik araligi 1..3, beklenen ucak 2
+  swarm_state: 1 (IDLE)   active_agent_count: 2   ← IKI UCAGI DA GORUYOR
+  60 sn gozlem: FAILSAFE 0 · QoS uyusmazligi 0 · durum degisimi 1
+  ```
+- ✅ **`ic_dis_kopru` yazıldı — internal/public köprüsü kalıcı çözüldü.**
+  12 konu taşıyor. `drone{N}/status` **bilerek hariç** (uçak kendini komşu
+  sanıp kendinden kaçardı). Doğrulandı: `state=1027` (5 Hz, kesintisiz),
+  `/swarm/public/state` yayıncı sayısı 0 → 1. Origin'in geçici remap'i
+  kaldırıldı; origin artık hem yerel düğümlere hem mesh'e gidiyor.
+- ✅ **ADIM 3: G0 + G1 geçti.** `formation_node` + `path_planner` gözlem
+  modunda açıldı, gerçek telemetriyle gerçek setpoint üretti:
+  ```
+  vx: 2.048  vy: 1.589  vz: 1.510   position_valid: false
+  ```
+  **`vz = 1.51 m/s` — uçak YERDE.** Gerçek olsaydı tırmanma komutuydu.
+  Gözlem modunun neden zorunlu olduğu tek ölçümle görüldü.
+
+**Ne değişti**
+
+- kod:
+  - `swarm_control/ic_dis_kopru.py` **yeni**
+  - `swarm_fsm_node.py`: `agent_count` ikiye ayrıldı · `FormationCommand`
+    aboneliği + sıfır ortalamalı ofsetler · kaynak başına election seq ·
+    `agent_id` ile kendi durumunu okuma
+  - `esp32_bridge_node.py`: `healthy` türetimi (sabahki)
+  - **QoS sınıf hatası: 5 abonelik** `_RELIABLE_QOS` → `_BEST_EFFORT_QOS`
+    (`formation_node`, `collision_avoidance`, `maneuver_executor`,
+    `mission1_node`, `mission_fsm_node`)
+  - `baslat.sh`: `fsm` → `fsm`/`gorevfsm`/`mod` · `formasyon` → `formasyon`/`ca`
+    · gözlem modu · `/gozlem/` kayda eklendi · `ic_dis_kopru` en önce
+- **uçakta (SONRAKİ KİŞİ ÖYLE BULACAK):**
+  ```
+  bayraklar : gcs_url gozlem kacinma origin suru_dugumleri yer_testi
+              (ylp02'de ayrica tgt_system)
+  dugumler  : origin consensus fsm formasyon
+  origin    : 38.6905999 39.1611543 1216.03
+  surum     : 18679dc
+  ```
+  Koşan sürü düğümleri: `ic_dis_kopru · swarm_origin_publisher ·
+  consensus_node · swarm_fsm_node · formation_node · path_planner`
+  (+ eski beşli). `collision_avoidance` **kapalı** — `basit_kacinma` açık.
+
+**Yarım kalan / tuzak**
+
+- 🔴 **`yer_testi` ve `gozlem` bayrakları AÇIK.** Uçuştan önce ikisi de
+  silinmeli + `docker restart`. `gozlem` açıkken `formation_node`'un
+  setpoint'i uçağa **ulaşmıyor**; `yer_testi` açıkken uçak arm olur ama
+  **kalkmaz**.
+- 🔴 **`formation_node` slot ofseti çözemiyor:** *"slot ofseti yok
+  (yerel/komut); setpoint atlandı"*. Sebep `rel_enable` kapalı → komşu
+  konumları yok → dağıtık atama yapılamıyor. Komuta gömülü ofset verilince
+  çalışıyor (G1 böyle geçti). **Sıradaki iş bu bayrağı ikiye ayırmak.**
+- 🟠 `formation_node` **saf hız kipinde** (`position_valid: false`).
+  G3'e (komuta) geçmeden `px4_bridge velocity_only` ile birlikte
+  karara bağlanmalı — bkz. `NAVIGASYON_KAYMA.md`.
+- 🟡 `formation_stable: true` şu an **boş bir doğruluk** — uçaklar
+  `FORMATION_ACTIVE_STATES` dışında olduğu için kalite hesabı boş kümede
+  çalışıp 0.0 hata döndürüyor. "Hiç ajan yoksa formasyon mükemmel"
+  davranışı ileride tuzak olabilir.
+
+**Sıradaki adım**
+
+`formation_node.rel_enable` bayrağını ikiye ayır (abonelik hep kurulsun,
+göreli düzeltme bayrağa bağlı kalsın) → dağıtık slot ataması çalışsın →
+ADIM 3 G1'i gömülü ofset olmadan tekrarla. Sonra G2 (havada gözlem).
+
+> ⚠️ **KARAR-02:** ADIM 3'ü **havaya** çıkarmadan önce operatöre çok ajanlı
+> denetim önerilecek — mesaja `ultracode` yazması istenecek.
+
+**Uçakların bırakıldığı hâl**
+
+- ylp00: IDLE, disarm, kill switch serbest, kumanda HOLD, atölyede
+- ylp02: aynı
 
 ---
 
