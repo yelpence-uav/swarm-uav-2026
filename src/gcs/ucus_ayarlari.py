@@ -218,6 +218,40 @@ TIPIK_BACAK_M = 20.0
 # Devrilme dedektoru esigi. gorev_kanit_ucus.py bunu MAKS_EGIM_DEG olarak alir.
 MAKS_EGIM_DEG = EGIM_TAVANI_DEG + DEDEKTOR_PAY_DEG
 
+# ---------------------------------------------------------------------------
+# ROTA SEKILLENDIRME (path_planner) — 15 Agustos'ta buraya baglandi
+#
+# path_planner "en kisa yol" bulmuyor; rota zaten belli. Yaptigi is hedefi
+# ucagin izleyebilecegi hiza YAYMAK: merkez rampasi + donus rampasi. Bu
+# olmadan formation_node her yeni hedefte buyuk bir konum hatasi gorur ve
+# hiz komutunu tavana dayar.
+#
+# NEDEN BURADA: baslat.sh path_planner'a HIC parametre gecmiyordu, dugum
+# kendi gomulu varsayilanlariyla kosuyordu. Ayni sinifin hatasi 2 Agustos'ta
+# yasanmisti — merkez 3.0 ile kosarken formation_node'un slot rampasi 1.0'da
+# tavan yapiyordu, iki sayi birbirinden habersizdi ve suru merkezin gerisinde
+# kaliyordu (bacak basina 5 -> 12.5 -> 20.4 m).
+
+# Donus sirasinda KANATTAKI ucagin tegetsel hizi. Formasyon donerken en hizli
+# hareket eden odur: hiz = aci_hizi x kanat_yaricapi. Seyrin YARISI seciliyor;
+# kalan yari donus sirasinda formasyonu tutan duzeltmelere (ruzgar, komsu,
+# carpisma kacinma) pay birakiyor.
+ROT_TEGET_HIZ_MPS = GOREV_HIZ_MPS / 2.0
+
+# Ayni mantik ivme icin. Donus yumusak baslasin/bitsin diye (ease-in/out).
+ROT_TEGET_IVME_MPS2 = GOREV_IVME_MPS2 / 2.0
+
+# Formasyon heading'inin en hizli donus hizi. Ust sinir; asil sinir yukaridaki
+# tegetsel hizdan formasyon boyutuna gore turetiliyor (buyuk formasyon -> daha
+# yavas donus). Burada PX4'un kendi yaw tavanini asmiyoruz: uclar donus
+# sirasinda burnunu da cevirmek zorunda kalirsa PX4 yetisemezse formasyon
+# bozulur.
+MAKS_HEADING_DONUS_DEG_S = PX4_DONUS_HIZI_DEG_S
+
+# Rota adim hizi (path_planner ara nokta uretim frekansi). formation_node
+# 20 Hz'de setpoint uretiyor; 5 Hz ara nokta yeterli, arasini SVT dolduruyor.
+ROTA_ADIM_HZ = 5.0
+
 # Ok basi geciside iki ucak en cok bu kadar yaklasir.
 KRITIK_AYRIM_M = ARALIK_M * math.cos(math.radians(KANAT_ACISI_DEG))
 CARPISMA_PAYI_M = KRITIK_AYRIM_M - MIN_AYRIM_M
@@ -322,6 +356,23 @@ def _cozumleme() -> int:
     print(f'  frenleme (kacinma)    {FRENLEME_TAVAN_M:6.2f} m'
           f'   (PX4 tavaninda, kacis manevrasi icin)')
 
+    # ROTA SEKILLENDIRME — fiili donus hizi formasyon BOYUTUNDAN turiyor.
+    # Kanattaki ucak en hizli hareket eden; aci_hizi = teget_hiz / yaricap.
+    # Bu yuzden ayni ayarla 12 m formasyon 4 m'lik olandan cok daha yavas
+    # doner. Operatorun gorecegi sayi bu, parametre degil.
+    _yaricap = ARALIK_M
+    _fiili_donus = min(MAKS_HEADING_DONUS_DEG_S,
+                       math.degrees(ROT_TEGET_HIZ_MPS / _yaricap))
+    print(f'\n{kl}ROTA SEKILLENDIRME{z}  (path_planner)')
+    print(f'  merkez rampa hizi     {GOREV_HIZ_MPS:6.2f} m/s')
+    print(f'  teget hiz (kanat)     {ROT_TEGET_HIZ_MPS:6.2f} m/s'
+          f'   (seyrin yarisi, kalan yari duzeltmelere pay)')
+    print(f'  donus tavani          {MAKS_HEADING_DONUS_DEG_S:6.1f} deg/s'
+          f'   (PX4 yaw tavaniyla ayni)')
+    print(f'  FIILI donus hizi      {_fiili_donus:6.2f} deg/s'
+          f'   ({ARALIK_M:.0f} m yaricapta)')
+    print(f'  180 derece donus      {180.0 / _fiili_donus:6.1f} s')
+
     print(f'\n{kl}HIZ SECENEKLERI{z}  (aralik {ARALIK_M:.0f} m)')
     print(f'  {"hiz":>5}  {"gecikme":>8}  {"gereken aralik":>15}  durum')
     for v in (2.0, 3.0, 4.0, 5.0, 6.0):
@@ -361,6 +412,12 @@ def _kabuk():
     print(f'GUIDED_IVME_YATAY={GOREV_IVME_MPS2}')
     print(f'GUIDED_IVME_DIKEY={GOREV_DIKEY_IVME_MPS2}')
     print(f'KANAT_ALFA_DEG={KANAT_ACISI_DEG}')
+    # path_planner (rota sekillendirme)
+    print(f'ROTA_MAKS_HIZ={GOREV_HIZ_MPS}')
+    print(f'ROTA_ADIM_HZ={ROTA_ADIM_HZ}')
+    print(f'ROTA_DONUS_TAVANI_DEG_S={MAKS_HEADING_DONUS_DEG_S}')
+    print(f'ROTA_TEGET_HIZ={ROT_TEGET_HIZ_MPS}')
+    print(f'ROTA_TEGET_IVME={ROT_TEGET_IVME_MPS2}')
 
 
 def _px4():

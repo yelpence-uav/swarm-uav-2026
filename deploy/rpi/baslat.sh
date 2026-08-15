@@ -239,6 +239,14 @@ fi
 GUIDED_HIZ_YATAY="${GUIDED_HIZ_YATAY:-2.0}"
 GUIDED_HIZ_DIKEY="${GUIDED_HIZ_DIKEY:-1.0}"
 GUIDED_TASMA="${GUIDED_TASMA:-3.0}"
+# Rota sekillendirme varsayilanlari — ucus_ayarlari.env yoksa devreye girer.
+# Degerler config'in URETTIGI ile AYNI olmali; ayrisirsa env dosyasi olan ve
+# olmayan ucak farkli ucar.
+ROTA_MAKS_HIZ="${ROTA_MAKS_HIZ:-3.0}"
+ROTA_ADIM_HZ="${ROTA_ADIM_HZ:-5.0}"
+ROTA_DONUS_TAVANI_DEG_S="${ROTA_DONUS_TAVANI_DEG_S:-25.0}"
+ROTA_TEGET_HIZ="${ROTA_TEGET_HIZ:-1.5}"
+ROTA_TEGET_IVME="${ROTA_TEGET_IVME:-0.75}"
 # IVME SINIRI: ilk surumde yoktu ve hiz ileri-beslemesi BASAMAK gidiyordu —
 # hareket baslarken bir tik'te 0'dan tam hiza. Ucus kaydinda olculdu: yatayda
 # %28 (2.57 m/s), dikeyde %18 (1.18 m/s) asim. Operator "once asiri hizli,
@@ -682,9 +690,26 @@ if [ -n "$SURU_DUGUMLERI" ]; then
         # path_planner agent_id KABUL ETMIYOR (olculdu) - lider kapisi
         # kopruden isliyor (KARAR 11), dugum her dronda kosuyor.
         # NOT: path_planner URETICI DEGIL, SEKILLENDIRICI — gelen
-        # FormationCommand'in heading'ini yumusatiyor. Komutu mission1 ya da
-        # mode_manager uretir; ikisi de kapaliyken bu zincir sessiz kalir.
-        ros2 run swarm_core path_planner \
+        # FormationCommand'i ucagin izleyebilecegi hiza YAYIYOR (merkez
+        # rampasi + donus rampasi). Komutu mission1 ya da mode_manager
+        # uretir; ikisi de kapaliyken bu zincir sessiz kalir.
+        #
+        # PARAMETRELER 15 AGUSTOS'TA BAGLANDI. Onceden HIC parametre
+        # gecilmiyordu ve dugum kendi gomulu varsayilanlariyla kosuyordu —
+        # ucus_ayarlari.py'deki seyir hizindan habersiz. Ayni sinifin hatasi
+        # 2 Agustos'ta yasanmisti: merkez 3.0 ile kosarken formation_node'un
+        # slot rampasi 1.0'da tavan yapiyordu ve suru merkezin gerisinde
+        # kaliyordu (bacak basina 5 -> 12.5 -> 20.4 m).
+        #
+        # ⚠️ Donus tavani 90 -> 25 deg/s dustu (PX4 yaw tavaniyla ayni).
+        # Buyuk formasyonda zaten tegetsel hiz baskin: 12 m yaricapta fiili
+        # donus 7.16 deg/s, yani 180 derece 25 saniye suruyor.
+        ros2 run swarm_core path_planner --ros-args \
+            -p max_speed_mps:=${ROTA_MAKS_HIZ} \
+            -p control_rate_hz:=${ROTA_ADIM_HZ} \
+            -p max_heading_slew_deg_s:=${ROTA_DONUS_TAVANI_DEG_S} \
+            -p rot_tangential_speed_mps:=${ROTA_TEGET_HIZ} \
+            -p rot_tangential_accel_mps2:=${ROTA_TEGET_IVME} \
             >> "$GUNLUK/planner.log" 2>&1 &
         sleep 1
         echo "[baslat] formation_node + path_planner basladi"
