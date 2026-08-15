@@ -306,9 +306,33 @@ sleep 5
 #   frontend/src/services/gorunum.ts -> PIL_GOSTER = true
 #   backend/config.yaml -> alerts.susturulan'dan batarya kodlarini cikar
 BATARYA_KRITIK_V="${BATARYA_KRITIK_V:-0.0}"
+
+# YER TESTI BAYRAGI — /ws/yer_testi dosyasi varsa acilir.
+#
+# Acikken "gorev basladi" olayi FSM'i IDLE -> ARMING -> ARMED yolundan normal
+# yurutur (gercek preflight, gercek arm, gercek AgentStatus) ama ARMED'da
+# DURDURUR: kalkis komutu hic gonderilmez.
+#
+# NEDEN (15 Agustos): consensus'un lider secebilmesi icin ajanin
+# ELIGIBLE_STATES'te olmasi gerekiyor ve IDLE o kumede YOK; en dusuk uygun
+# durum ARMED. ARMED'a cikmanin tek yolu EVENT_MISSION_STARTED, ama o olay
+# ayni zamanda kalkisi tetikliyor. Pervanesiz yer testinde bu, motorlari
+# ~30 sn bosta TAM GAZDA tutup FAILSAFE'e dusuruyordu — ESC'leri pisirir.
+#
+#     touch ~/yelpence_ws/yer_testi   # ac
+#     rm    ~/yelpence_ws/yer_testi   # kapat (UCUSTAN ONCE ZORUNLU)
+#
+# drone_bul.sh --durum bayraklari listeliyor, orada gorunur.
+YER_TESTI=false
+if [ -f /ws/yer_testi ]; then
+    YER_TESTI=true
+    echo "[baslat] *** YER TESTI ACIK *** kalkis komutu GONDERILMEYECEK (/ws/yer_testi)"
+fi
+
 ros2 run swarm_state_machine agent_fsm_node --ros-args \
     -p agent_id:=${AGENT_ID} \
-    -p battery_critical_voltage_v:=${BATARYA_KRITIK_V} >> "$GUNLUK/fsm.log" 2>&1 &
+    -p battery_critical_voltage_v:=${BATARYA_KRITIK_V} \
+    -p yer_testi:=${YER_TESTI} >> "$GUNLUK/fsm.log" 2>&1 &
 sleep 5
 # MAVLink yayin hizlari: FCU her resetlendiginde sifirlanir, her aciliste yeniden istenir
 python3 /ws/mesaj_hizlari.py >> "$GUNLUK/hizlar.log" 2>&1

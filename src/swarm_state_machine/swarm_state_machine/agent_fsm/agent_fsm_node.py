@@ -75,6 +75,9 @@ class AgentFsmNode(Node):
         self.declare_parameter('battery_critical_voltage_v', 13.6)
         self.declare_parameter('tick_hz', 10.0)
         self.declare_parameter('target_altitude_m', 10.0)
+        # YER TESTI: gorev basladi olayi ARMED'a kadar goturur, TAKEOFF'a
+        # GOTURMEZ. Pervanesiz yer testleri icin (bkz. asagida _on_event).
+        self.declare_parameter('yer_testi', False)
 
         self._agent_id = self.get_parameter('agent_id').value
         self._sitl_mode = self.get_parameter('sitl_mode').value
@@ -85,6 +88,13 @@ class AgentFsmNode(Node):
         self._target_altitude_m = (
             self.get_parameter('target_altitude_m').value
         )
+        self._yer_testi = bool(self.get_parameter('yer_testi').value)
+        if self._yer_testi:
+            self.get_logger().warn(
+                '*** YER TESTI ACIK *** Gorev basladi olayi ARMED e kadar '
+                'goturur, KALKIS KOMUTU GONDERILMEZ. Ucus icin '
+                '/ws/yer_testi dosyasini SIL ve konteyneri yeniden baslat.'
+            )
 
     def _setup_publishers(self) -> None:
         """Publisher'lari olusturur."""
@@ -277,11 +287,28 @@ class AgentFsmNode(Node):
         is_mine = tgt == 0 or tgt == aid
 
         if eid == SystemEvent.EVENT_MISSION_STARTED:
+            # YER TESTI: mission_start_sequence_active KALKIS kapisidir.
+            #   _from_armed: (mission_start_sequence_active and offboard_active
+            #                 and stabilize suresi) -> TAKEOFF
+            # Bayrak acikken bunu set ETMIYORUZ; FSM IDLE -> ARMING -> ARMED
+            # yolunu normal yurutur (gercek preflight, gercek arm, gercek
+            # AgentStatus) ama ARMED'da DURUR ve 'takeoff' komutu hic gitmez.
+            #
+            # Neden gerekli (15 Agustos): consensus lider secimi icin
+            # ELIGIBLE_STATES sarti var ve IDLE o kumede yok; en dusuk uygun
+            # durum ARMED. ARMED'a cikmanin tek yolu bu olay. Bayrak olmadan
+            # olay ayni zamanda kalkisi tetikliyor ve pervanesiz yer testinde
+            # motorlar ~30 sn bosta tam gazda kalip FAILSAFE'e dusuyordu.
             if ctx.state == AgentState.IDLE:
-                ctx.mission_start_sequence_active = True
+                ctx.mission_start_sequence_active = not self._yer_testi
                 ctx.pending_state = AgentState.ARMING
             elif ctx.state == AgentState.ARMED:
-                ctx.mission_start_sequence_active = True
+                ctx.mission_start_sequence_active = not self._yer_testi
+            if self._yer_testi:
+                self.get_logger().warn(
+                    f'[agent {aid}] YER TESTI: ARMED e kadar gidilecek, '
+                    f'kalkis komutu GONDERILMEYECEK.'
+                )
 
         elif eid == SystemEvent.EVENT_RTL_TRIGGERED and is_mine:
             ctx.pending_state = AgentState.RETURN_HOME
