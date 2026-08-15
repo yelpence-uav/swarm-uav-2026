@@ -1,6 +1,6 @@
 # YAPILACAKLAR
 
-**Son güncelleme:** 15 Ağustos 2026, 14:20
+**Son güncelleme:** 15 Ağustos 2026, 15:35
 
 ## Önem dereceleri
 
@@ -182,6 +182,36 @@ gerekmiyor.
 ### ✅ P1.3 — TAMAMLANDI (15 Ağustos)
 
 Her şey `feature/dagitik-suru` dalında commit'li ve push'lu.
+
+### P1.5 Konteyner ağdan önce kalkıyor → QGC bağlantısı ölü kalıyor
+
+**15 Ağustos'ta yaşandı ve teşhisi ~yarım saat aldı.** ylp02 sahaya
+götürüldü, WiFi koptu, atölyeye dönünce bağlanmadı, Pi tuşla yeniden
+başlatıldı. Ağa girdi ama **QGC'de görünmedi**. Konteyner `docker restart`
+edilince düzeldi.
+
+Sebep: konteyner `--restart unless-stopped` ile Pi açılır açılmaz kalkıyor,
+WiFi henüz hazır değilken MAVROS'un `gcs_url` UDP ucu düzgün kurulamıyor.
+Logdaki izi: `link[1000] removed stale remote address ...`.
+
+Ölçülenler — **hiçbiri suçlu değildi**, hepsi sağlıklı çıktı:
+seri çerçeveleme @921600 (67 ardışık geçerli çerçeve) · FCU `sysid=3
+compid=1` · sıcaklık 54.3 °C, throttle `0x0` · UDP tekil **ve** yayın.
+
+- `[ ]` 🟠 `baslat.sh`, `gcs_url` ile mavros'u başlatmadan önce ağın hazır
+  olmasını beklesin (wlan0'da IP var mı / ağ geçidine ping, en fazla ~30 sn).
+  **Ağ yoksa yine devam etsin** — mesh ve uçuş WiFi'ye bağlı değil, yalnız
+  QGC bağlı. ~10 satır
+- `[ ]` 🟡 `drone_bul.sh --durum`'a "QGC akışı canlı mı" satırı ekle, bu
+  belirti tek komutla görünsün
+
+> 💡 **Teşhis notu — iki kez düştüğüm tuzak:**
+> 1. `ros2 topic echo/hz` **QoS eşleşmesi** ister. BEST_EFFORT yayıncıya
+>    varsayılan RELIABLE ile bakınca "yayınlanmıyor" der. `topic info -v`
+>    QoS'tan bağımsız, önce ona bak.
+> 2. Konteyner içinde `source /opt/ros/jazzy/setup.bash` **yetmez**;
+>    `/ws/install/setup.bash` de gerekiyor, yoksa
+>    `swarm_interfaces/msg/... is invalid` der ve boş sanırsın.
 
 ### P1.4 Pi saati — sahada doğrulanmadı
 
