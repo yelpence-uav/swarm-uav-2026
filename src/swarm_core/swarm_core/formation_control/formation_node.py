@@ -2,6 +2,7 @@
 """Dagitik formasyon kontrol node'u."""
 
 import math
+import time
 
 import rclpy
 from rclpy.node import Node
@@ -112,6 +113,17 @@ class FormationControlNode(Node):
         self._neighbors = {}
         self._neighbor_rx_time = {}
         self._neighbor_subs = {}
+        # Komsu konumunun IKINCI kaynagi: mesh'ten gelen AgentStatus.
+        # NeighborInfo'yu yalniz kinematic_fusion yayinliyor ve o KARAR-01
+        # geregi acilmiyor (EMA yumusatmasi mesh hizinda 0.35-0.47 s gecikme
+        # ekliyor). AgentStatus ise pos_x/pos_y/pos_z'yi ORTAK NED'de zaten
+        # tasiyor — esp32_bridge mesh GPS'ini yerel origin'le cevirip
+        # dolduruyor. Olculdu (15 Agustos): ylp00, drone3'u mesh'ten
+        # pos=(5.90, 7.17) olarak goruyor; mesh lat/lon'u 1e-7 derece yani
+        # ~1.1 cm cozunurlukte tasiyor, niceleme kaybi yok.
+        self._peer_status: dict[int, AgentStatus] = {}
+        self._peer_status_rx: dict[int, float] = {}
+        self._peer_status_subs: dict[int, object] = {}
 
         self._setup_publishers()
         self._setup_subscribers()
@@ -165,6 +177,12 @@ class FormationControlNode(Node):
         self.declare_parameter('rel_k', 0.2)
         self.declare_parameter('rel_threshold_m', 0.2)
         self.declare_parameter('rel_stale_s', 0.5)
+        # Mesh AgentStatus bayatlik esigi. rel_stale_s'ten (0.5 s) GENIS
+        # bilerek: NeighborInfo yerel ve hizli, AgentStatus ise ~%30 kayipli
+        # mesh'ten geliyor ve 5-7 Hz'de. 0.5 s eslesirse arka arkaya iki
+        # paket kaybinda konum "bayat" sayilip atama dusrdu. 1.5 s, mesh
+        # hizinda ~8-10 pakete karsilik geliyor.
+        self.declare_parameter('peer_stale_s', 1.5)
         self.declare_parameter('keeping_enter_m', 1.2)
         self.declare_parameter('keeping_exit_m', 1.8)
         self.declare_parameter('vff_lpf_alpha', 0.3)
@@ -204,6 +222,9 @@ class FormationControlNode(Node):
         self._svt_damp = float(self.get_parameter('svt_damp').value)
         self._target_ramp_mps = float(
             self.get_parameter('target_ramp_mps').value
+        )
+        self._peer_stale_s = float(
+            self.get_parameter('peer_stale_s').value
         )
         self._rel_enable = bool(
             self.get_parameter('rel_enable').value
@@ -303,10 +324,46 @@ class FormationControlNode(Node):
             _RELIABLE_QOS,
         )
 
+    def _ensure_peer_status_subs(self, agent_ids) -> None:
+        """Atamadaki her komsunun mesh AgentStatus'una abone olur.
+
+        BAYRAKSIZ — her zaman kurulur. Dagitik slot atamasinin komsu
+        konumuna ihtiyaci var ve o sartnamenin "dagitik" puanina dogrudan
+        bagli. Bu abonelik hicbir sey KOMUT ETMIYOR, yalnizca okuyor.
+        """
+        for nid in agent_ids:
+            nid = int(nid)
+            if nid == self._agent_id or nid in self._peer_status_subs:
+                continue
+            self._peer_status_subs[nid] = self.create_subscription(
+                AgentStatus,
+                f'/swarm/public/drone{nid}/status',
+                self._peer_status_cb(nid),
+                _BEST_EFFORT_QOS,
+            )
+
+    def _peer_status_cb(self, nid: int):
+        """Komsu icin AgentStatus geri cagirmasi uretir."""
+        def _cb(msg: AgentStatus) -> None:
+            self._peer_status[nid] = msg
+            self._peer_status_rx[nid] = time.time()
+        return _cb
+
     def _ensure_neighbor_subs(self, agent_ids) -> None:
-        """Atamadaki her komsu icin abonelik kurar."""
-        if not self._rel_enable:
-            return
+        """Atamadaki her komsu icin NeighborInfo aboneligi kurar.
+
+        ⚠️ rel_enable ARTIK YALNIZ GORELI DUZELTMEYI kapatiyor, bu
+        aboneligi DEGIL. Onceden tek bayrak IKI isi birden kesiyordu:
+        (1) komsu verisi aboneligi ve (2) tehlikeli goreli duzeltme.
+        Bayrak kapali oldugu icin dagitik slot atamasi da calismiyordu ve
+        15 Agustos ADIM 3 G1 testinde "slot ofseti yok (yerel/komut);
+        setpoint atlandi" diye kendini gosterdi.
+
+        Yine de bu abonelik NeighborInfo'ya bagli ve onu yalniz
+        kinematic_fusion yayinliyor (KARAR-01 geregi kapali). Dolayisiyla
+        pratikte konum ikinci kaynaktan geliyor: _ensure_peer_status_subs.
+        Fusion ileride acilirsa burasi kendiliginden devreye girer.
+        """
         for nid in agent_ids:
             nid = int(nid)
             if nid == self._agent_id or nid in self._neighbor_subs:
@@ -349,6 +406,8 @@ class FormationControlNode(Node):
         self._prev_cmd_time = self.get_clock().now().nanoseconds * 1e-9
 
         self._ensure_neighbor_subs(msg.agent_ids)
+        # Konumun ikinci (ve pratikte TEK calisan) kaynagi.
+        self._ensure_peer_status_subs(msg.agent_ids)
 
         # DAĞITIK ATAMA (çıpalı): reshape'te (tip değişince) kendi atamamı peer
         # konumlarından yerel hesapla, liderin gömdüğüyle karşılaştır. Aynıysa
@@ -606,16 +665,41 @@ class FormationControlNode(Node):
             if a == self._agent_id:
                 pos[a] = (my_n, my_e, 0.0)
                 continue
+            # 1. KAYNAK — NeighborInfo (goreli, kinematic_fusion uretir).
             info = self._neighbors.get(a)
-            if info is None or not info.link_active:
+            taze = (now - self._neighbor_rx_time.get(a, 0.0)
+                    <= self._rel_stale_s)
+            if info is not None and info.link_active and taze:
+                pos[a] = (
+                    my_n + float(info.relative_x),
+                    my_e + float(info.relative_y),
+                    0.0,
+                )
+                continue
+
+            # 2. KAYNAK — mesh AgentStatus (MUTLAK, ortak NED'de).
+            #
+            # Bu geri dusus 15 Agustos'ta eklendi. Onceden yalniz 1. kaynak
+            # vardi ve NeighborInfo'yu SADECE kinematic_fusion yayinliyor;
+            # o da KARAR-01 geregi acilmiyor (EMA yumusatmasi mesh hizinda
+            # 0.35-0.47 s gecikme ekliyor). Sonuc: komsu konumu HIC gelmiyor,
+            # _peer_positions None donuyor, dagitik atama calismiyor ve
+            # ADIM 3 G1 testinde su satiri veriyordu:
+            #     "slot ofseti yok (yerel/komut); setpoint atlandi"
+            #
+            # AgentStatus.pos_* zaten ORTAK NED — esp32_bridge mesh GPS'ini
+            # yerel origin'le cevirip dolduruyor. Yumusatma yok, ek dugum
+            # yok, ek gecikme yok. KARAR-01'in kacinma icin verdigi kararin
+            # aynisi: ham AgentStatus yeter, fusion'a gerek yok.
+            st = self._peer_status.get(a)
+            if st is None:
                 return None
-            if now - self._neighbor_rx_time.get(a, 0.0) > self._rel_stale_s:
+            if now - self._peer_status_rx.get(a, 0.0) > self._peer_stale_s:
                 return None
-            pos[a] = (
-                my_n + float(info.relative_x),
-                my_e + float(info.relative_y),
-                0.0,
-            )
+            # origin_synced false ise pos_* ortak cerceveye oturmamis olur.
+            if not st.origin_synced:
+                return None
+            pos[a] = (float(st.pos_x), float(st.pos_y), float(st.pos_z))
         return pos
 
     def _compute_local_offsets(
