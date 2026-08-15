@@ -123,8 +123,13 @@ class SwarmFsmNode(Node):
             1.0 / self._tick_hz, self._tick
         )
 
+        # IKISI BIRDEN yaziliyor: 15 Agustos'ta bu iki sayinin ayni
+        # parametreden gelmesi FORMING'de kalici takilma uretti ve logda
+        # yalniz biri gorundugu icin teshis uzadi.
         self.get_logger().info(
-            f'SwarmFsmNode baslatildi: {self._agent_count}'
+            f'SwarmFsmNode baslatildi: kimlik araligi 1..'
+            f'{self._agent_count}, beklenen ucak '
+            f'{self._expected_agent_count}'
         )
 
     def _declare_params(self) -> None:

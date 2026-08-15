@@ -652,19 +652,51 @@ if [ -n "$SURU_DUGUMLERI" ]; then
     fi
 
     # Suru/gorev FSM'leri. KARAR 1/2: her dronda kosar, SwarmState yerel uretilir.
+    # UC DUGUM AYRILDI (15 Agustos). Onceden 'fsm' anahtari swarm_fsm,
+    # mission_fsm ve mode_manager'i BIRLIKTE aciyordu — ama entegrasyon
+    # sirasinda bunlar ADIM 2, ADIM 6 ve ADIM 12. Ucunu birden acmak, bir
+    # tuhaflik ciktiginda hangisinden geldigini ayirt edilemez yapiyordu ki
+    # bu dosyanin en basindaki opt-in kuralinin tam olarak onlemek istedigi
+    # sey. Artik ayri anahtarlar: fsm / gorevfsm / mod.
+    #
+    # DIKKAT: ucu de agent_id KABUL ETMIYOR (olculdu). Gecirmek zararsiz ama
+    # yaniltici olurdu - "id gecti sanip" yanlis yerde aranir.
     if acik fsm; then
-        # DIKKAT: bu ucu agent_id KABUL ETMIYOR (olculdu). Gecirmek zararsiz
-        # ama yaniltici olurdu - "id gecti sanip" yanlis yerde aranir.
-        ros2 run swarm_state_machine swarm_fsm_node \
+        # SURU_AJAN_SAYISI  = kimlik araligi (1..N), abonelikler bundan
+        # SURU_BEKLENEN_UCAK = kac ucak GERCEKTEN uculuyor
+        #
+        # Ikisi ayri olmak ZORUNDA (15 Agustos'ta olculdu): tek deger
+        # kullanilinca celisiyorlardi —
+        #   formation_reached: active >= expected -> 2 >= 3 FALSE, FORMING'de takilir
+        #   saglik orani     : healthy/expected < 0.5 -> 1/3 = 0.33 ile
+        #                      iki ucaktan biri bozulunca TUM SURUYE acil inis
+        # Uc ucak birden ucmaya baslayinca SURU_BEKLENEN_UCAK=3 yapilacak.
+        SURU_BEKLENEN_UCAK="${SURU_BEKLENEN_UCAK:-2}"
+        ros2 run swarm_state_machine swarm_fsm_node --ros-args \
+            -p agent_count:=${SURU_AJAN_SAYISI} \
+            -p expected_agent_count:=${SURU_BEKLENEN_UCAK} \
+            -p wing_alpha_deg:=${KANAT_ALFA_DEG} \
             >> "$GUNLUK/swarm_fsm.log" 2>&1 &
         sleep 1
+        echo "[baslat] swarm_fsm_node basladi" \
+             "(kimlik araligi=$SURU_AJAN_SAYISI, beklenen ucak=$SURU_BEKLENEN_UCAK)"
+    fi
+
+    # ADIM 6 — gorev durum makinesi. Her IKI gorevi de bu suruyor.
+    if acik gorevfsm; then
         # team_id: kopru ve mission1 ile AYNI olmali (QR filtresi).
         ros2 run swarm_state_machine mission_fsm_node --ros-args \
             -p team_id:="'${TAKIM_ID}'" >> "$GUNLUK/mission_fsm.log" 2>&1 &
         sleep 1
+        echo "[baslat] mission_fsm_node basladi (team_id=$TAKIM_ID)"
+    fi
+
+    # ADIM 12 — Gorev 2 (yari otonom) mod yoneticisi.
+    if acik mod; then
         ros2 run swarm_state_machine mode_manager_node \
             >> "$GUNLUK/mode_manager.log" 2>&1 &
         sleep 1
+        echo "[baslat] mode_manager_node basladi"
     fi
 
     # Gorev 1 orkestratoru. KARAR 10: her dronda kosar (sicak yedek).
