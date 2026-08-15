@@ -1,6 +1,6 @@
 # YAPILACAKLAR
 
-**Son güncelleme:** 15 Ağustos 2026, 20:15
+**Son güncelleme:** 15 Ağustos 2026, 20:40
 
 ## Önem dereceleri
 
@@ -169,6 +169,34 @@ kapısı açıldı. Lider arıza devri de gözlendi (`1 -> 3`, 82 ms).
   doğrulama". Sebebi: iki uçak komşu verisini farklı anlarda alırsa farklı
   sonuç bulabilir ve ikisi de kendini aynı slotta sanabilir → çarpışma.
   Lider mesajı artık doğruluk kaynağı değil, **doğrulama aracı**.
+- `[ ]` 🟠 **`path_planner`'da yavaşlama rampası YOK** — ivmelenme var,
+  yavaşlama yok. `generate_waypoints` çıktısı ölçüldü (40 m bacak, 3 m/s):
+  ```
+  adim  1: 0.06 m -> 0.30 m/s   ← ease-in rampasi
+  adim 10: 0.60 m -> 3.00 m/s   ← 2 sn'de seyir hizi
+  adim 11..71: 0.60 m -> 3.00 m/s SABIT
+  adim 72: 0.10 m               ← artan, sonra ANIDEN bitiyor
+  ```
+  Hedef tam hızda gidip aniden duruyor. Uçak `MPC_ACC_HOR=2.0` ile durmak
+  zorunda: **aşım = 3.0²/(2×2.0) = 2.25 m**, oturma 1.5 s.
+
+  Bu, kodun kendi düzelttiği hatanın **simetriği**. Yorumda yazıyor:
+  *"merkez de dron gibi yumuşak hızlansın"* — yavaşlama tarafı yapılmamış.
+  Başta 0'dan tam hıza sıçrayınca uçak geride kalıyordu; sonda tam hızdan
+  0'a düşünce ileri taşıyor.
+
+  **Neden acil değil:** üç uçak da aynı anda aynı miktar taşar, aralarındaki
+  mesafe korunur — çarpışma riski yok.
+  **Neden yine de önemli:** `TOLERANS_M = 1.0` yani "vardı" yarıçapımız 1 m,
+  aşım onun iki katı → "vardım" kararı gecikiyor. QR noktalarında hassasiyet
+  gerekiyorsa sorun. Her bacak sonunda 1.5 s oturma video bütçesine ekleniyor.
+
+  - `[ ]` 🟠 **G2'de ÖLÇ:** bacak sonunda gerçek aşım kaç metre, oturma kaç
+    saniye? Kayıttan `setpoint_raw/local` ile `local_position/pose` farkı.
+    Hesap 2.25 m diyor ama PX4'ün kendi frenlemesi devrede — ölçmeden
+    düzeltme yazılmayacak.
+  - `[ ]` 🟡 Ölçüm doğrularsa: `generate_waypoints`'e simetrik ease-out
+    (~10 satır). Aynı ivme, ters yön.
 - `[ ]` 🟡 Saf dağıtığa geçilsin mi (liderin ataması hiç kullanılmasın)?
   Şartname puanlaması için gerekli olup olmadığı yorum meselesi. Aşama 5
   üyelik testinde konuşulacak — şimdiki hâli hem puanı hem güvenliği veriyor.
