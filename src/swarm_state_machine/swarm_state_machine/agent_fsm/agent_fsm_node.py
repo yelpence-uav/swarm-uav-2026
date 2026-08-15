@@ -201,6 +201,25 @@ class AgentFsmNode(Node):
                 throttle_duration_sec=3.0,
             )
 
+        # IDLE'da ARMING reddi TEAMAMEN SESSIZDI (15 Agustos).
+        #
+        # _from_idle preflight'i cagirip hatalari `_` ile atiyor, ve tick
+        # sonunda pending_state KOSULSUZ temizleniyor — yani istek tek tick
+        # sans aliyor ve reddedilirse hicbir iz birakmadan kayboluyor.
+        # ADIM 1 yer testinde "gorev basladi" uc kez yollandi, ucunde de olay
+        # ulasti ama ucak IDLE'da kaldi ve NEDENI hicbir yerde yazmiyordu.
+        # ARMED durumunun zaten boyle bir teshisi vardi (asagida), ayni seyi
+        # burada da yapiyoruz.
+        if (ctx.state == AgentState.IDLE
+                and ctx.pending_state == AgentState.ARMING
+                and next_s is None):
+            _, sebepler = run_preflight_checks(ctx)
+            self.get_logger().warn(
+                f'[agent {ctx.agent_id}] ARMING REDDEDILDI — preflight: '
+                f'{sebepler if sebepler else "(hata yok, baska bir sart)"}',
+                throttle_duration_sec=2.0,
+            )
+
         if next_s is not None and next_s != ctx.state:
             self._transition(next_s)
 
