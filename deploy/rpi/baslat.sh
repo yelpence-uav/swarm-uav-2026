@@ -568,6 +568,45 @@ if [ -n "$SURU_DUGUMLERI" ]; then
     # Eksik kadro secimi engellemez: election.py:101 tam kadro yoksa
     # bootstrap_grace_s (1.5 sn) sonrasi yine secim yapiyor.
     SURU_AJAN_SAYISI="${SURU_AJAN_SAYISI:-3}"
+    # ORIGIN — surunun ortak sifir noktasi. consensus'tan ONCE acilmali.
+    #
+    # NEDEN ONCE (15 Agustos'ta ogrenildi): preflight_checker
+    #     if not ctx.sitl_mode and not ctx.origin_synced:
+    #         failures.append('Swarm origin senkronize degil')
+    # diyor. Yani origin gelmeden IDLE -> ARMING OLMUYOR; ARMING olmadan
+    # ARMED olmuyor; ARMED olmadan ajan ELIGIBLE_STATES'e girmiyor ve
+    # consensus HIC lider secemiyor. Bu dugum SURU_ENTEGRASYON.md'de
+    # ADIM 8'de yaziliydi — yanlisti, ADIM 1'in on kosulu.
+    #
+    # ⚠️ REMAP GECICI: dugum normalde /swarm/internal/origin'a yazar ve
+    # esp32_bridge onu mesh'e verir. AMA esp32_bridge yerel olarak
+    # /swarm/public/origin'e GERI KOYMUYOR — yani ucak kendi origin'ini
+    # goremiyor (YAPILACAKLAR P0.6 "internal/public koprusu eksik").
+    # Cozulene kadar dogrudan /public'e yaziyoruz: yerel, mesh'ten
+    # bagimsiz, deterministik. Koprü duzelince bu remap KALDIRILACAK.
+    #
+    # Koordinat /ws/origin dosyasindan: tek satir "lat lon alt".
+    #     echo "38.6905999 39.1611543 1216.03" > ~/yelpence_ws/origin
+    # Iki ucakta da AYNI olmali, yoksa formasyonlar birbirine gore kayar.
+    if acik origin; then
+        if [ -f /ws/origin ]; then
+            read -r O_LAT O_LON O_ALT _ < /ws/origin
+            ros2 run swarm_control swarm_origin_publisher --ros-args \
+                -p origin_source:=fixed \
+                -p fixed_lat:=${O_LAT} \
+                -p fixed_lon:=${O_LON} \
+                -p fixed_alt:=${O_ALT:-0.0} \
+                -r /swarm/internal/origin:=/swarm/public/origin \
+                >> "$GUNLUK/origin.log" 2>&1 &
+            sleep 2
+            echo "[baslat] swarm_origin_publisher: sabit origin" \
+                 "lat=$O_LAT lon=$O_LON alt=${O_ALT:-0.0} (yerel remap)"
+        else
+            echo "[baslat] UYARI: origin istendi ama /ws/origin YOK —" \
+                 "dugum acilmadi, preflight ARMING'i REDDEDECEK"
+        fi
+    fi
+
     if acik consensus; then
         ros2 run swarm_core consensus_node --ros-args \
             -p agent_id:=${AGENT_ID} \
