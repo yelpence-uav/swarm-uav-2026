@@ -1,6 +1,6 @@
 # YAPILACAKLAR
 
-**Son güncelleme:** 15 Ağustos 2026, 17:19
+**Son güncelleme:** 15 Ağustos 2026, 20:15
 
 ## Önem dereceleri
 
@@ -137,14 +137,41 @@ kapısı açıldı. Lider arıza devri de gözlendi (`1 -> 3`, 82 ms).
 - `[ ]` 🟡 **Sentinel 65.535 "pil harika" diye yorumlanıyor.** Eşik 13.6
   olduğunda `65.535 > 13.6` geçer — veri yokken sistem pili sağlıklı sanır.
   Pil modülü gelince (KARAR-03) sentinel açıkça "veri yok" sayılmalı
-- `[ ]` 🔴 **`formation_node.rel_enable` iki özelliği birden kapatıyor** —
-  **sahada üredi (15 Ağustos, ADIM 3 G1).** Log: *"slot ofseti yok
-  (yerel/komut); setpoint atlandı"*. Bayrak kapalı → komşu konumları yok →
-  dağıtık slot ataması yapılamıyor. Komuta gömülü ofset verilince çalışıyor,
-  yani başka her şey sağlam. **ADIM 3'ü şu an kilitleyen tek madde.**
-  Bayrağı ikiye ayır: `NeighborInfo` aboneliği **hep** kurulsun, tehlikeli
-  göreli düzeltme (0.28 m yakınlaşma ölçülmüş) bayrağa bağlı kalsın.
-  Şartnamenin "dağıtık" puanı da buna bağlı.
+- `[x]` 🔴 ~~**`formation_node.rel_enable` iki özelliği birden kapatıyor**~~
+  → **düzeltildi ve sahada doğrulandı (15 Ağustos).**
+
+  > ⚠️ **"ADIM 3'ü kilitleyen tek madde" demiştim, yanlıştı.** Zincir gerçek
+  > üreticiyle zaten çalışıyordu (`mission1_node.py:349` ofsetleri gömüyor);
+  > benim test komutumda ofset yoktu ve `formation_node` onu **doğru şekilde**
+  > reddetti. Gerçek sorun başkaydı — aşağıda.
+
+  **Asıl kusur:** bayrak kapalıyken komşu konumu hiç gelmiyordu → yerel slot
+  hesabı **hiç çalışmıyordu** → `formation_node` her zaman liderin atamasını
+  kopyalıyordu, yani fiilen **merkezi** çalışıyordu. Şartname merkezi olanı
+  "eksik puan" sayıyor.
+
+  **Yapılanlar:** `rel_enable` artık yalnız göreli düzeltmeyi kapatıyor
+  (0.28 m yakınlaşma koruması duruyor); abonelikler bayraktan bağımsız
+  kuruluyor. `_peer_positions`'a **ikinci kaynak** eklendi: mesh
+  `AgentStatus.pos_*` zaten ortak NED'de (`esp32_bridge` GPS'i origin'le
+  çeviriyor). `NeighborInfo`'yu yalnız `kinematic_fusion` yayınlıyor ve o
+  KARAR-01 gereği kapalı — yani bayrağı açmak tek başına yetmezdi.
+
+  **Sahada doğrulandı:**
+  ```
+  dagitik atama: yerel hesap lider ile UYUSTU -> yerel kullaniliyor
+  TAM ATAMA: a1->(+0.0,+0.0)  a3->(+0.0,+12.0)
+  /gozlem/drone_1/formation/raw: vx=-2.068 vy=-1.719 vz=1.330
+  ```
+
+  **Tasarım notu — sigorta:** yerel hesap ancak liderinkiyle **uyuşursa**
+  kabul ediliyor, uyuşmazsa lidere düşülüyor. Yani "dağıtık hesap + merkezi
+  doğrulama". Sebebi: iki uçak komşu verisini farklı anlarda alırsa farklı
+  sonuç bulabilir ve ikisi de kendini aynı slotta sanabilir → çarpışma.
+  Lider mesajı artık doğruluk kaynağı değil, **doğrulama aracı**.
+- `[ ]` 🟡 Saf dağıtığa geçilsin mi (liderin ataması hiç kullanılmasın)?
+  Şartname puanlaması için gerekli olup olmadığı yorum meselesi. Aşama 5
+  üyelik testinde konuşulacak — şimdiki hâli hem puanı hem güvenliği veriyor.
 
 ### ✅ QoS sınıf hatası — 5 abonelik düzeltildi (15 Ağustos)
 

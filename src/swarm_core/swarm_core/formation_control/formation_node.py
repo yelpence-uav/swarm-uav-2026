@@ -346,7 +346,11 @@ class FormationControlNode(Node):
         """Komsu icin AgentStatus geri cagirmasi uretir."""
         def _cb(msg: AgentStatus) -> None:
             self._peer_status[nid] = msg
-            self._peer_status_rx[nid] = time.time()
+            # ROS saati — _peer_positions da bunu kullaniyor.
+            # time.time() ile karistirmak iki farkli saat demek olurdu.
+            self._peer_status_rx[nid] = (
+                self.get_clock().now().nanoseconds * 1e-9
+            )
         return _cb
 
     def _ensure_neighbor_subs(self, agent_ids) -> None:
@@ -655,6 +659,13 @@ class FormationControlNode(Node):
         origin_lon = getattr(self, '_origin_lon', None)
         if (not getattr(self, '_gps_valid', False)
                 or origin_lat is None or origin_lon is None):
+            # SESSIZ KALMASIN: 15 Agustos ADIM 3 G1'de "slot ofseti yok"
+            # uyarisi geliyordu ama SEBEBI hicbir yere yazilmiyordu ve
+            # teshis uzadi. Hangi kapinin kapattigi artik goruniyor.
+            self._neden_yok(
+                f'gps_valid={getattr(self, "_gps_valid", False)} '
+                f'origin={"var" if origin_lat is not None else "YOK"}'
+            )
             return None
         my_n, my_e = latlon_to_ned(
             self._current_lat, self._current_lon, origin_lat, origin_lon
@@ -693,14 +704,27 @@ class FormationControlNode(Node):
             # aynisi: ham AgentStatus yeter, fusion'a gerek yok.
             st = self._peer_status.get(a)
             if st is None:
+                self._neden_yok(f'drone{a}: mesh AgentStatus HIC gelmedi')
                 return None
-            if now - self._peer_status_rx.get(a, 0.0) > self._peer_stale_s:
+            yas = now - self._peer_status_rx.get(a, 0.0)
+            if yas > self._peer_stale_s:
+                self._neden_yok(
+                    f'drone{a}: status bayat ({yas:.1f}s > '
+                    f'{self._peer_stale_s}s)')
                 return None
             # origin_synced false ise pos_* ortak cerceveye oturmamis olur.
             if not st.origin_synced:
+                self._neden_yok(f'drone{a}: origin_synced false')
                 return None
             pos[a] = (float(st.pos_x), float(st.pos_y), float(st.pos_z))
         return pos
+
+    def _neden_yok(self, sebep: str) -> None:
+        """Komsu konumu neden kurulamadi — kisilmis uyari."""
+        self.get_logger().warn(
+            f'komsu konumu kurulamadi: {sebep}',
+            throttle_duration_sec=5.0,
+        )
 
     def _compute_local_offsets(
         self,
