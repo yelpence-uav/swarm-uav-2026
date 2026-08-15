@@ -1,6 +1,6 @@
 # RPİ EŞİTLEME DEFTERİ — geri gelen drone'u hizaya getirme
 
-**Son güncelleme:** 15 Ağustos 2026, 01:28
+**Son güncelleme:** 15 Ağustos 2026, 14:05
 
 ## Bu belge ne için
 
@@ -295,6 +295,56 @@ ssh-copy-id <KULLANICI>@<ip>           # parolayla girer, anahtarını ekler
 ## 8. DEĞİŞİKLİK DEFTERİ
 
 Her Pi değişikliği buraya, en yeni en üste.
+
+### 2026-08-15 — konteyner YENİDEN YARATILDI (`--cap-add SYS_TIME`) + GPS saat
+
+⚠️ **Bu, `docker restart` değil `docker rm -f` + `run_drone.sh` gerektirir.**
+ylp01 döndüğünde konteyneri yeniden yaratmadan `SYS_TIME` gelmez ve saat
+düzeltmesi sessizce çalışmaz (betik "IZIN YOK" yazıp çıkar).
+
+**Yapılan:**
+
+1. **Kod dağıtıldı** — `dagit.sh`, commit `857db32`. Yeni: `gps_saat.py`,
+   düzeltilmiş `preflight_checker.py`, dosyadan düğüm açan `baslat.sh`.
+2. **`run_drone.sh` artık Pi'lere dağıtılıyor.** 15 Ağustos'ta görüldü ki
+   Pi'lerde **hiç yoktu** — konteyner yaratma tarifi yalnız dizüstündeki
+   repoda duruyordu. Sahada dizüstü olmadan konteyner yaratılamazdı.
+3. **Konteynerler yeniden yaratıldı**, `--cap-add SYS_TIME` ile.
+4. **ylp00'a açık `AGENT_ID=1` verildi.** Önceden env'de hiç yoktu;
+   `baslat.sh`'in varsayılanı (1) sayesinde doğru çalışıyordu ama örtüktü.
+
+| Uçak | Durum |
+|------|-------|
+| ylp00 | ✅ `CAPADD=[SYS_TIME]`, `AGENT_ID=1`, `.surum` `857db32`, 5 düğüm |
+| ylp01 | ❌ yerde — **döndüğünde 1-4'ün hepsi gerekli** |
+| ylp02 | ✅ `CAPADD=[SYS_TIME]`, `AGENT_ID=3`, `tgt_system=3` korundu, `.surum` `857db32` |
+
+**Yeni bayrak dosyaları** (ikisinde de şu an **yok** = varsayılan davranış):
+
+| Dosya | Etkisi |
+|-------|--------|
+| `~/yelpence_ws/suru_dugumleri` | Varsa `SURU_DUGUMLERI` env'ini **ezer**. Düğüm açmak: `echo consensus > ...` + `docker restart` |
+| `~/yelpence_ws/gps_saat_kapali` | Varsa açılışta GPS'ten saat düzeltmesi yapılmaz |
+
+**Açılış logunda görülmesi gerekenler** (ikisinde de doğrulandı):
+
+```
+[baslat] AGENT_ID=<1|3>
+[gps_saat] GPS(FCU)=...  sistem=...  fark=+0.125 sn
+[gps_saat] fark esigin (3.0 sn) altinda — saate dokunulmadi.
+[baslat] ucus ayarlari dosyadan: yatay=3.0 dikey=1.0
+[baslat] suru dugumleri KAPALI (SURU_DUGUMLERI bos)
+```
+
+**Neden GPS saat:** Pi 5'in RTC'sinde yedek pil yok, açılışta saat ~11 saat
+geriden geliyor. Ayrıntı ve ölçüm `cihazlar.md` ⏰ bölümünde.
+
+**Ölçüm:** `ylp00 − ylp02 = +0.121 sn` (ölçüm gürültüsü ±0.3 sn, SSH gidiş
+dönüşünden). Yani hassasiyet içinde uyuşuyorlar.
+
+⚠️ **Sahada doğrulanmadı:** internetsiz açılışta saatin gerçekten
+düzeldiği henüz görülmedi — NTP her seferinde önce yetişti. İlk saha
+çıkışında `gunluk/son/gps_saat.log`'a bak.
 
 ### 2026-08-14 (3) — canlı parametre + günlük bekçisi büyütüldü
 
