@@ -128,10 +128,15 @@ dagit_bir() {
     log "kaynak senkronu tamam (${#PAKETLER[@]} paket)"
 
     # baslat.sh ve mesaj_hizlari.py ws kokunde duruyor (konteyner /ws goruyor)
+    # run_drone.sh de gidiyor: 15 Agustos'ta goruldu ki Pi'de HIC YOKTU.
+    # Yani konteyneri yaratma tarifi yalnizca dizustundeki repoda duruyordu —
+    # sahada dizustu olmadan (ya da baska birinin bilgisayariyla) konteyner
+    # yeniden yaratilamazdi. Konteyner bir kez yaratilip unutuldugu icin bu
+    # aylarca fark edilmedi; --cap-add gibi bir ayar degisince ortaya cikti.
     rsync -a "$REPO/deploy/rpi/baslat.sh" "$REPO/deploy/rpi/mesaj_hizlari.py" \
-          "$REPO/deploy/rpi/gps_saat.py" \
+          "$REPO/deploy/rpi/gps_saat.py" "$REPO/deploy/rpi/run_drone.sh" \
           "$kul@$ip:$hedef/" || { log "baslat.sh rsync BASARISIZ"; return 1; }
-    log "baslat.sh + mesaj_hizlari.py + gps_saat.py tamam"
+    log "baslat.sh + mesaj_hizlari.py + gps_saat.py + run_drone.sh tamam"
 
     # --- 2) konteynerde derleme -------------------------------------------
     # colcon build OLMADAN rsync HICBIR SEY yapmaz: dugumler install/ altindan
