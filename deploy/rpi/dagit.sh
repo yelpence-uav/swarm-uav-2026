@@ -138,6 +138,18 @@ dagit_bir() {
           "$kul@$ip:$hedef/" || { log "baslat.sh rsync BASARISIZ"; return 1; }
     log "baslat.sh + mesaj_hizlari.py + gps_saat.py + run_drone.sh tamam"
 
+    # ORIGIN — deploy/saha_origin.env TEK KAYNAK, /ws/origin ondan uretilir.
+    # Elle yazilirsa YKI'ninkiyle ayrisir; 15 Agustos'ta 18.2 m fark olustu
+    # ve iki kaynak birlikte calisinca origin_synced duserek arm'i engelledi.
+    if [ -f "$REPO/deploy/saha_origin.env" ]; then
+        # shellcheck disable=SC1091
+        ( . "$REPO/deploy/saha_origin.env"
+          echo "$ORIGIN_LAT $ORIGIN_LON $ORIGIN_ALT" ) \
+            | ssh -o ConnectTimeout=5 "$kul@$ip" "cat > $hedef/origin" \
+            && log "origin dagitildi (saha_origin.env)" \
+            || log "origin dagitilamadi"
+    fi
+
     # --- 2) konteynerde derleme -------------------------------------------
     # colcon build OLMADAN rsync HICBIR SEY yapmaz: dugumler install/ altindan
     # kosuyor, src/ yalnizca kaynak.

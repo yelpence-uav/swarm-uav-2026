@@ -34,52 +34,29 @@
 
 import argparse
 import math
+import pathlib
 import struct
 import sys
 import time
 
 import serial
 
+# ORTAK MODUL — RTCM cerceve ayiklama, CRC24Q ve 1005 cozumu artik
+# swarm_control/rtcm_1005.py'de. Bu dosyada YAZILDI ve sahada calisti;
+# drone tarafi da ayni koda ihtiyac duyunca kopyalamak yerine oraya
+# TASINDI (CLAUDE.md §9: ayni sabiti/mantigi iki yere yazma).
+# Fark: ortak surumde CRC24Q dogrulamasi VAR — mesh'ten gelen bozuk
+# cerceveler elensin diye.
+sys.path.insert(
+    0, str(pathlib.Path(__file__).resolve().parents[2] / 'src' / 'swarm_control'))
+from swarm_control.rtcm_1005 import (          # noqa: E402
+    AyiklaRTCM, coz_1005, uzaklik_m,
+)
+
 VARSAYILAN_PORT = "/dev/ttyACM0"
 # RAM (0x01) + BBR (0x02) + Flash (0x04). Kalici olmasi sart: USB kopmasi
 # 2 Agustos'ta yasandi ve her kopus aliciyi yeniden baslatiyor.
 KATMAN = 0x07
-
-A = 6378137.0
-F = 1 / 298.257223563
-E2 = F * (2 - F)
-
-
-def ecef_to_lla(x, y, z):
-    """ECEF metre -> (enlem, boylam, elipsoit yukseklik)."""
-    lon = math.atan2(y, x)
-    p = math.hypot(x, y)
-    lat = math.atan2(z, p * (1 - E2))
-    for _ in range(8):
-        n = A / math.sqrt(1 - E2 * math.sin(lat) ** 2)
-        alt = p / math.cos(lat) - n
-        lat = math.atan2(z, p * (1 - E2 * n / (n + alt)))
-    n = A / math.sqrt(1 - E2 * math.sin(lat) ** 2)
-    alt = p / math.cos(lat) - n
-    return math.degrees(lat), math.degrees(lon), alt
-
-
-class Bit:
-    """RTCM govdesi bit hizali degil; bit bit okumak sart."""
-
-    def __init__(self, b):
-        self.b, self.i = b, 0
-
-    def u(self, n):
-        v = 0
-        for _ in range(n):
-            v = (v << 1) | ((self.b[self.i >> 3] >> (7 - (self.i & 7))) & 1)
-            self.i += 1
-        return v
-
-    def s(self, n):
-        v = self.u(n)
-        return v - (1 << n) if v & (1 << (n - 1)) else v
 
 
 def ubx(cls, mid, payload=b""):
@@ -125,53 +102,16 @@ class Ayikla:
             del self.b[:son]
 
 
-class AyiklaRTCM:
-    """Akistan RTCM3 cerceveleri ayikla (D3 + 10 bit uzunluk + 3 bayt CRC)."""
-
-    def __init__(self):
-        self.b = bytearray()
-
-    def besle(self, veri):
-        self.b += veri
-        out = []
-        while True:
-            i = self.b.find(b"\xd3")
-            if i < 0 or len(self.b) < i + 3:
-                del self.b[:max(0, i if i >= 0 else len(self.b) - 1)]
-                return out
-            ln = ((self.b[i + 1] & 0x03) << 8) | self.b[i + 2]
-            son = i + 3 + ln + 3
-            if len(self.b) < son:
-                del self.b[:i]
-                return out
-            out.append(bytes(self.b[i + 3:i + 3 + ln]))
-            del self.b[:son]
-
-
 def baz_bas(gov, karsilastir=None):
     """RTCM 1005/1006 govdesinden baz koordinatini coz ve ekrana bas."""
-    if len(gov) < 19:
+    cozum = coz_1005(gov)
+    if cozum is None:
         return False
-    tip = (gov[0] << 4) | (gov[1] >> 4)
-    if tip not in (1005, 1006):
-        return False
-    b = Bit(gov)
-    b.u(12)
-    ref = b.u(12)
-    b.u(6); b.u(1); b.u(1); b.u(1); b.u(1)
-    x = b.s(38) * 1e-4
-    b.u(1); b.u(1)
-    y = b.s(38) * 1e-4
-    b.u(2)
-    z = b.s(38) * 1e-4
-    lat, lon, alt = ecef_to_lla(x, y, z)
+    tip, ref, lat, lon, alt = cozum
     print(f"RTCM {tip} · istasyon {ref}")
     print(f"  BAZ KONUMU  lat={lat:.7f}  lon={lon:.7f}  elipsoit={alt:.2f} m")
     if karsilastir:
-        kl, ko = karsilastir
-        dk = (lat - kl) * 111320.0
-        dd = (lon - ko) * 111320.0 * math.cos(math.radians(kl))
-        d = math.hypot(dk, dd)
+        d = uzaklik_m(lat, lon, karsilastir[0], karsilastir[1])
         print(f"  verilen noktaya uzaklik: {d:.1f} m"
               + ("   <-- BU YANLIS, baz orada degil!" if d > 50 else "   (makul)"))
     return True

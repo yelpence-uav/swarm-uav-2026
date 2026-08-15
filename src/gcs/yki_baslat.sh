@@ -38,6 +38,11 @@ BASE_ESP_BAUD=460800
 # base esp32_bridge public'i mesh'e İLETMEZ (yalnız /internal dinler) -> İKİ yayıncı gerekir.
 # Değeri sahanın referans noktasıyla değiştir (env ile: ORIGIN_LAT=... ./yki_baslat.sh).
 # RTK baz istasyonu gelince: swarm_origin_publisher'ı origin_source:=rtk_base'e çevir.
+# TEK KAYNAK: deploy/saha_origin.env. Ucaklardaki /ws/origin de AYNI
+# dosyadan uretiliyor (dagit.sh) — 15 Agustos'ta ikisi ayrisip 18.2 m fark
+# olusmustu, o yuzden artik tek yerden besleniyor.
+# shellcheck disable=SC1091
+[ -f "$REPO/deploy/saha_origin.env" ] && . "$REPO/deploy/saha_origin.env"
 ORIGIN_LAT="${ORIGIN_LAT:-38.6904758}"
 ORIGIN_LON="${ORIGIN_LON:-39.1610188}"
 # ORIGIN_ALT ZEMİNİN AMSL YÜKSEKLİĞİ OLMALI — 1218.5 idi, 1.54 m fazlaydı.
