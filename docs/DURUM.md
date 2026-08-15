@@ -1,6 +1,6 @@
 # DURUM — şu an ne çalışıyor, ne bozuk
 
-**Son güncelleme:** 15 Ağustos 2026, 13:54
+**Son güncelleme:** 15 Ağustos 2026, 16:10
 
 > Bu belge **şimdiki hâli** anlatır, tarihçe değil. Bir şey değişince burayı
 > güncelle, eskisini sil. Ne olduğunun hikâyesi `GUNLUK.md`'de kalır.
@@ -103,8 +103,27 @@ Bunlar **dosya varlığıyla** çalışıyor; uçağı bulan kişi böyle bulaca
 | `SURU_DUGUMLERI` | boş | boş | 14 sürü düğümünün hiçbiri açık değil |
 | `BATARYA_KRITIK_V` | `0.0` | `0.0` | FSM bataryaya bakmıyor (regülatörden besleme) |
 | `~/yelpence_ws/ucus_ayarlari.env` | **var** | **var** | seyir 3.0 m/s, ivme 1.5 — `ucus_ayarlari.py --kabuk` üretti |
-| `~/yelpence_ws/suru_dugumleri` | yok | yok | **yeni (15 Ağu)** — varsa `SURU_DUGUMLERI` env'ini ezer. Düğüm açmak: `echo consensus > ...` + `docker restart` |
-| `~/yelpence_ws/gps_saat_kapali` | yok | yok | **yeni (15 Ağu)** — varsa GPS'ten saat düzeltmesi yapılmaz |
+| `~/yelpence_ws/suru_dugumleri` | **`origin consensus`** | **`origin consensus`** | Varsa `SURU_DUGUMLERI` env'ini ezer. Düğüm açmak: `echo ... > dosya` + `docker restart` |
+| `~/yelpence_ws/origin` | **var** | **var** | `38.6905999 39.1611543 1216.03` — **iki uçakta AYNI olmalı** |
+| `~/yelpence_ws/yer_testi` | **VAR** ⚠️ | **VAR** ⚠️ | Uçak ARM olur ama **KALKMAZ**. Uçuştan önce SİL + restart |
+| `~/yelpence_ws/gps_saat_kapali` | yok | yok | Varsa GPS'ten saat düzeltmesi yapılmaz |
+
+### 🔴 UÇMADAN ÖNCE: `yer_testi` bayrağını kaldır
+
+```bash
+./deploy/yki/drone_bul.sh ylp00 'rm -f ~/yelpence_ws/yer_testi && docker restart drone1'
+./deploy/yki/drone_bul.sh ylp02 'rm -f ~/yelpence_ws/yer_testi && docker restart drone3'
+```
+
+Açık kaldığı sürece "görev başladı" komutu uçağı ARM eder ve **orada
+bırakır** — kalkış komutu gönderilmez. Yer testleri için var.
+
+### Yer testinden çıkış: **kumandadan kill switch**
+
+Yazılım disarm'ı OFFBOARD'dayken PX4 tarafından reddediliyor (`result=1`).
+Sebep ölçüldü: pervanesiz OFFBOARD'da konum denetleyicisi irtifayı tutmaya
+çalışıp integrali sarıyor, gaz tırmanıyor ve PX4 kendini "yerde" saymıyor.
+**Armlı bekleme süresini kısa tut.**
 
 ⚠️ `ucus_ayarlari.env` **dosya öncelikli** — `docker run -e` ile verilen
 değeri **ezer**. (`baslat.sh`'te bunun tersi yazıyordu, 15 Ağustos'ta ölçülüp
@@ -144,9 +163,25 @@ geçiren kodun tamamı, takım belge sistemi ve 15 Ağustos düzeltmeleri git'te
 
 ```
 mavros_node · px4_bridge · agent_fsm_node · esp32_bridge · basit_kacinma
++ swarm_origin_publisher · consensus_node          (15 Ağustos'ta açıldı)
 ```
 
-Doğrulandı (14 Ağu, ylp00 `ps` çıktısı). Sürü düğümleri kapalı.
+**İlk iki sürü düğümü sahada koşuyor.** Kalan 12'si kapalı.
+
+### ✅ ADIM 1 geçti — consensus çalışıyor (15 Ağustos)
+
+Pervanesiz, yerde, ARM'lı yapılan testte iki uçak da **aynı lideri** seçti:
+
+```
+ylp00: [CONSENSUS] Lider: 0 -> 1 (round=1, ben=1)
+ylp02: [CONSENSUS] Lider: 0 -> 1 (round=1, ben=3)      101 ms arayla
+ylp00: esp32_bridge  lider 0 -> 1 (BEN)   ← formasyon kapisi ACIK
+```
+
+Ayrıca **lider arıza devri** gözlendi: kill switch ylp00'ı FAILSAFE'e
+düşürdükten 82 ms sonra `Lider: 1 -> 3 (round=2)`.
+
+Ayrıntı ve sınırlar: `SURU_ENTEGRASYON.md` ADIM 1.
 
 ---
 

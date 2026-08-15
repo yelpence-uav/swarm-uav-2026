@@ -1,6 +1,6 @@
 # YAPILACAKLAR
 
-**Son güncelleme:** 15 Ağustos 2026, 15:35
+**Son güncelleme:** 15 Ağustos 2026, 16:10
 
 ## Önem dereceleri
 
@@ -79,6 +79,36 @@ tek sayı 7 m'lik bir bacaktan geldi, yani geçici rejimi ölçüyor.
 - `[ ]` 🟡 **ylp01** — final görevinde **3 İHA şart**, ama entegrasyonu
   engellemiyor. Yalnız Aşama 5'teki üyelik testi üç uçak istiyor
 
+### ✅ ADIM 1 GEÇTİ (15 Ağustos) — ve iki engel yolda düzeltildi
+
+İki uçak yerde, pervanesiz, ARM'lı: ikisi de **aynı lideri** seçti
+(`Lider: 0 -> 1`, 101 ms arayla). `esp32_bridge` lideri öğrendi, formasyon
+kapısı açıldı. Lider arıza devri de gözlendi (`1 -> 3`, 82 ms).
+
+- `[x]` 🔴 ~~mesh `AgentStatus` `healthy` taşımıyor~~ → **düzeltildi.**
+  Alıcı varsayılan `false` bırakıyordu; `is_eligible` bunu şart koştuğu için
+  hiçbir uzak ajan aday olamıyor, her uçak kendini seçip **split-brain**
+  üretiyordu. `esp32_bridge` decode'unda artık türetiliyor
+  (`ekf_ok` ∧ ¬`kill_switch` ∧ state≠FAILSAFE). Paket ve firmware değişmedi
+  (bayrak baytı 8/8 dolu).
+- `[x]` 🔴 ~~`swarm_origin_publisher` ADIM 8'de~~ → **ADIM 0.5'e alındı.**
+  `preflight` `origin_synced` şart koşuyor; origin gelmeden ARMING olmuyor,
+  dolayısıyla consensus hiç lider seçemiyor.
+- `[x]` 🟡 `agent_fsm`: IDLE'da ARMING reddi artık **loglanıyor** — eskiden
+  tamamen sessizdi ve testte yarım saat kaybettirdi
+
+**Kalan iş:**
+
+- `[ ]` 🟠 **İki uçaklı tam devir teslim testi** — birini kill'le, diğerini
+  armlı bırak; ikincisi liderliği devralıyor mu? Bugün tek taraflı gözlendi
+- `[ ]` 🟡 Origin şu an `/public`'e **remap** ile gidiyor; mesh yolu
+  denenmedi. Köprü (P0.6) düzelince remap kaldırılacak
+- `[ ]` 🟡 Mesh `healthy` bir **türetim**, gönderenin kendi değeri değil.
+  Pil izleme açılınca (KARAR-03) pil düşüşü buraya yansımaz — o gün ya
+  pakete bit eklenecek ya da eşik burada da uygulanacak
+- `[ ]` 🟡 `ARMED → KALKIS(2) → TAKEOFF(4)`: yerde armlı uçak komşularına
+  **havada** görünüyor (`AIRBORNE_STATES`). Kaçınma ve formasyon buna bakıyor
+
 ### P0.6a Kod okuma bulguları — entegrasyondan önce düzeltilecek
 
 19 düğümün tamamı okundu (15 Ağustos). Tam liste: `SURU_ENTEGRASYON.md`.
@@ -91,8 +121,16 @@ tek sayı 7 m'lik bir bacaktan geldi, yani geçici rejimi ölçüyor.
   guard'ı eklendi; `agent_health_monitor:234` ve `AgentContext.healthy` ile
   üçü de tutarlı. 9/9 test geçti, 2 yeni test eklendi
   (`test_izleme_kapali_gercek_voltaj_gecis`, `test_esik_baglamdan_gelir`).
-  Doğrulama: saha senaryosu (eşik 0.0 / 3.1 V) artık geçiyor, eski hâli
-  taklit edilince aynı senaryo düşüyor. **Uçaklara dağıtılması bekliyor.**
+  Uçaklara dağıtıldı.
+  > ⚠️ **Bunu "P0 uçuş engeli" diye sunmak yanlıştı.** Gerekçe "uçaklar
+  > 3.1 V okuyor" idi ve **canlıda doğrulanmadı**. Gerçek okuma **65.535 V**
+  > (MAVLink "veri yok" sentineli), yani `65.535 < 13.6` yanlış → hata hiç
+  > üretilmiyordu, preflight zaten geçiyordu. **Uykuda bir tuzaktı, aktif
+  > engel değildi.** 3.1 V uydurma değil (`baslat.sh:300` yorumunda d3 için
+  > geçmişte ölçülmüş) ama bugünkü durum o değil.
+- `[ ]` 🟡 **Sentinel 65.535 "pil harika" diye yorumlanıyor.** Eşik 13.6
+  olduğunda `65.535 > 13.6` geçer — veri yokken sistem pili sağlıklı sanır.
+  Pil modülü gelince (KARAR-03) sentinel açıkça "veri yok" sayılmalı
 - `[ ]` 🟠 **`formation_node.rel_enable` iki özelliği birden kapatıyor** —
   dağıtık slot ataması (`NeighborInfo` gerekir) ve göreli düzeltme (tehlikeli,
   0.28 m yakınlaşma ölçülmüş). Bayrağı ikiye ayır: abonelik hep kurulsun,

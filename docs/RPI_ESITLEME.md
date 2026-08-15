@@ -1,6 +1,6 @@
 # RPİ EŞİTLEME DEFTERİ — geri gelen drone'u hizaya getirme
 
-**Son güncelleme:** 15 Ağustos 2026, 14:05
+**Son güncelleme:** 15 Ağustos 2026, 16:10
 
 ## Bu belge ne için
 
@@ -295,6 +295,26 @@ ssh-copy-id <KULLANICI>@<ip>           # parolayla girer, anahtarını ekler
 ## 8. DEĞİŞİKLİK DEFTERİ
 
 Her Pi değişikliği buraya, en yeni en üste.
+
+### 2026-08-15 (2) — ilk iki sürü düğümü açıldı (ADIM 1 geçti)
+
+**Yeni bayrak dosyaları** — ylp01 döndüğünde bunlar da gerekli:
+
+| Dosya | İçerik | ylp00 | ylp01 | ylp02 |
+|-------|--------|-------|-------|-------|
+| `~/yelpence_ws/suru_dugumleri` | `origin consensus` | ✅ | ❌ | ✅ |
+| `~/yelpence_ws/origin` | `38.6905999 39.1611543 1216.03` | ✅ | ❌ | ✅ |
+| `~/yelpence_ws/yer_testi` | (boş) ⚠️ | ✅ | ❌ | ✅ |
+
+⚠️ **`origin` üç uçakta da AYNI değer olmalı** — farklı olursa formasyonlar
+uçaktan uçağa kayar. Saha değişirse üçünde birden güncelle.
+
+⚠️ **`yer_testi` uçuştan önce SİLİNMELİ** (`rm` + `docker restart`). Açıkken
+uçak ARM olur ama kalkmaz.
+
+Kod tarafı `dagit.sh` ile geliyor (commit `712f933` ve sonrası):
+`esp32_bridge` `healthy` türetimi, `agent_fsm` `yer_testi` + ARMING reddi
+logu, `baslat.sh` origin düğümü ve consensus parametreleri.
 
 ### 2026-08-15 — konteyner YENİDEN YARATILDI (`--cap-add SYS_TIME`) + GPS saat
 

@@ -1,6 +1,6 @@
 # SÜRÜ ENTEGRASYONU — yol haritası
 
-**Son güncelleme:** 15 Ağustos 2026, 03:10
+**Son güncelleme:** 15 Ağustos 2026, 16:10
 
 **Hedef:** Final görevini yapabilir hâle gelmek.
 **Kısıt:** Simülasyon yok. Her adım gerçek uçakta, ölçerek, geri alınabilir.
@@ -485,30 +485,84 @@ yanlış olurdu — ikisinde düzeltme gerekiyor.
 | `basit_kacinma` | ✅ koşuyor | Adım 4'te `collision_avoidance` ile değişecek, **silinmeyecek** |
 | **`agent_fsm_node`** | ✅ koşuyor | 🔴 **preflight pil düzeltmesi — Adım 1'DEN ÖNCE** |
 
-🔴 **`agent_fsm` preflight tuzağı (yeni bulgu):**
-`preflight_checker.run_preflight_checks(ctx, battery_min_voltage=13.60)` —
-varsayılan **gömülü** ve üç çağrı yerinin **hiçbiri** onu geçmiyor
-(`agent_transitions.py:119`, `:404`, `agent_fsm_node.py:325`).
-Verdiğimiz `battery_critical_voltage_v:=0.0` oraya **ulaşmıyor**.
+✅ **`agent_fsm` preflight eşiği — düzeltildi (15 Ağustos).** Eşik artık
+`ctx.battery_critical_voltage_v`'den geliyor, `≤ 0 → izleme yok` guard'ı
+health_monitor ve `context.healthy` ile tutarlı.
 
-Uçaklar 3.1 V okuduğu için `0 < 3.1 < 13.6` → *"Batarya voltajı düşük"* →
-**IDLE → ARMING hiç olmaz.**
+⚠️ **Ama bunu "P0 uçuş engeli" diye sunmak yanlıştı.** Gerekçe olarak
+"uçaklar 3.1 V okuyor" denmişti; **canlıda ölçülmedi**. Gerçek okuma
+**65.535 V** — MAVLink'in "veri yok" sentineli (UINT16_MAX mV). Eski kodla
+`65.535 < 13.6` yanlış olduğu için hata **hiç üretilmiyordu**; preflight
+zaten geçiyordu. 3.1 V uydurma değil (`baslat.sh:300` yorumunda d3 için
+geçmişte ölçülmüş) ama **bugünkü durum o değil**.
 
-Bugüne kadar patlamadı çünkü YKİ arm'ı `/api/guided/{id}/arm` ile
-**doğrudan** px4_bridge'e yolluyor; `agent_fsm` yalnız gözlemliyor. Sürü
-akışında (tek kalkış komutu) FSM yolu kullanılacak ve **orada duracak**.
+Yani bu **uykuda bir tuzaktı**, aktif bir engel değil. Düzeltme yine de
+doğru: gömülü sabiti kaldırdı ve KARAR-03'te pil modülü gelince açmayı tek
+parametreye indirdi.
 
-**Çözüm (~3 satır):** `battery_min_voltage`'ı `ctx.battery_critical_voltage_v`
-ile besle ve aynı `<= 0 → izleme yok` guard'ını uygula. Böylece üç yer
-(health_monitor, `context.healthy`, preflight) tutarlı olur.
+> 📌 **Ders:** bir sayıyı önceki bağlamdan taşıyıp canlıda doğrulamadan
+> teşhis kurma. `CLAUDE.md` §9 bunu zaten yasaklıyordu.
 
-### ADIM 1 · `consensus_node`
+### ADIM 0.5 · `swarm_origin_publisher` — **ADIM 1'İN ÖN KOŞULU**
+
+> Bu düğüm bu belgede **ADIM 8**'de yazıyordu. **Yanlıştı**, 15 Ağustos'ta
+> yer testinde çıktı: `preflight_checker` `origin_synced` şart koşuyor —
+> ```python
+> if not ctx.sitl_mode and not ctx.origin_synced:
+>     failures.append('Swarm origin senkronize değil')
+> ```
+> Origin gelmeden `IDLE → ARMING` **olmuyor**; ARMING olmadan ARMED
+> olmuyor; ARMED olmadan ajan `ELIGIBLE_STATES`'e girmiyor ve consensus
+> **hiç lider seçemiyor.** Sıra bu yüzden değişti.
+
+**Nasıl açılır:** `echo "38.6905999 39.1611543 1216.03" > ~/yelpence_ws/origin`
+ve `suru_dugumleri`'ne `origin` ekle. `fixed` modda yayınlanır.
+**İki uçakta da AYNI koordinat** olmalı.
+
+⚠️ **Geçici remap:** düğüm normalde `/swarm/internal/origin`'a yazar ve
+`esp32_bridge` onu mesh'e verir — ama **yerel olarak `/public`'e geri
+koymuyor**, yani uçak kendi origin'ini göremiyor (§2 Engel 1'in aynısı).
+Köprü düzelene kadar `baslat.sh` doğrudan `/public`'e remap ediyor.
+
+### ADIM 1 · `consensus_node` — ✅ **GEÇTİ (15 Ağustos, yer testi)**
+
 `esp32_bridge` formasyonu **yalnız lidere** yazıyor; lider yoksa
 `FormationCommand` mesh'e hiç çıkmaz.
-**Şart:** `battery_min_v:=0.0`, `agent_count:=2`, uçaklar ARM'lı
-**Test (Y):** pervanesiz arm → `[CONSENSUS] Lider:` logu
-**Not:** heartbeat yalnız AIRBORNE'da, ama `ElectionResult` yerde de
-yayınlanıyor ve `esp32_bridge` lideri ondan da öğreniyor → **yer testi mümkün**
+
+**Şart:** `battery_min_v:=0.0` (→ `BATARYA_KRITIK_V`), `agent_count:=3`,
+origin senkron, uçaklar ARM'lı, `yer_testi` açık.
+
+> ⚠️ **`agent_count` 2 DEĞİL 3.** Önceki not "2 verilmeli" diyordu ve
+> uygulansaydı ylp02 sürüden tamamen düşerdi: `consensus_node.py:133`
+> `for aid in range(1, agent_count+1)` ile `drone1..droneN`'e abone oluyor,
+> yani sayı "kaç uçak uçuyor" değil **"kimlikler 1..N"** demek. Uçaklarımız
+> 1 ve 3. Eksik kadro seçimi engellemiyor (`election.py:101`,
+> `bootstrap_grace_s` 1.5 sn).
+
+**Ölçülen sonuç:**
+
+```
+ylp00: [CONSENSUS] Lider: 0 -> 1 (round=1, ben=1)
+ylp02: [CONSENSUS] Lider: 0 -> 1 (round=1, ben=3)      101 ms arayla
+ylp00: esp32_bridge  lider 0 -> 1 (BEN)   ← formasyon kapisi ACIK
+ylp02: esp32_bridge  lider 0 -> 1
+FSM (ikisinde de): ARMING -> ARMED -> (kill) FAILSAFE -> IDLE
+```
+
+**Bonus — lider arıza devri gözlendi:** kill switch ylp00'ı FAILSAFE'e
+düşürdükten **82 ms sonra** kendi consensus'u
+`Lider: 1 -> 3 (round=2)` dedi. `REASON_LEADER_FAULT` yolu çalışıyor.
+ylp02 ikinci turu görmedi çünkü 784 ms sonra o da kill'lendi — **iki uçaklı
+tam devir teslim testi ayrıca yapılmalı** (birini kill, diğerini armlı bırak).
+
+**🔴 Test sırasında bulunan ve düzeltilen engel:** mesh `AgentStatus`
+paketi `healthy` taşımıyordu; alıcı varsayılan `false` bırakıyordu ve
+`is_eligible` bunu şart koştuğu için **hiçbir uzak ajan aday olamıyordu**
+→ her uçak kendini seçerdi = **split-brain**. Ölçüm:
+`ylp02 → mesh'ten drone1: state=4 healthy=FALSE`.
+`esp32_bridge` decode'unda `healthy` artık **türetiliyor** (`ekf_ok` ∧
+¬`kill_switch` ∧ state≠FAILSAFE); paket biçimi ve firmware değişmedi
+(bayrak baytı 8/8 dolu).
 
 ### ADIM 2 · `swarm_fsm_node`
 **Şart:** `agent_count:=2`, `SwarmState` remap'i

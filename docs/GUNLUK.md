@@ -1,6 +1,6 @@
 # GÜNLÜK — oturum devir teslim kaydı
 
-**Son güncelleme:** 15 Ağustos 2026, 01:28
+**Son güncelleme:** 15 Ağustos 2026, 16:10
 
 Tek bilgisayar, sırayla çalışıyoruz. Biri kalkıp diğeri oturduğunda **hem
 kişi hem Claude** nerede kalındığını buradan anlar.
@@ -35,6 +35,74 @@ Claude'a **"oturumu kapat"** dersen bu kaydı o yazar.
 - ylp00: (kill switch? pil? nerede? konteyner ayakta mı?)
 - ylp02:
 ```
+
+---
+
+## 2026-08-15 16:10 — Eyüp + Claude
+
+**Ne yapıldı**
+
+- 🎉 **ADIM 1 GEÇTİ — sürü kodlarının ilk düğümü sahada çalıştı.**
+  İki uçak pervanesiz, ARM'lı, yerde: ikisi de **aynı lideri** seçti.
+  ```
+  ylp00: [CONSENSUS] Lider: 0 -> 1 (round=1, ben=1)
+  ylp02: [CONSENSUS] Lider: 0 -> 1 (round=1, ben=3)     101 ms arayla
+  ylp00: esp32_bridge  lider 0 -> 1 (BEN)  ← formasyon kapisi ACIK
+  ```
+- **Lider arıza devri gözlendi (planlanmamıştı):** kill switch ylp00'ı
+  FAILSAFE'e düşürdükten **82 ms sonra** kendi consensus'u
+  `Lider: 1 -> 3 (round=2)` dedi. `REASON_LEADER_FAULT` çalışıyor.
+- **ylp02 QGC'ye gelmiyordu, çözüldü.** Sahaya götürülüp WiFi kopunca
+  Pi tuştan yeniden başlatıldı; konteyner ağdan önce kalktı ve MAVROS'un
+  `gcs_url` ucu kurulamadı. `docker restart` düzeltti.
+  **Ölçülüp elenen suçlular:** seri çerçeveleme @921600 (67 ardışık geçerli
+  çerçeve), FCU `sysid=3 compid=1`, sıcaklık 54.3 °C / throttle `0x0`,
+  UDP tekil **ve** yayın. Hiçbiri arızalı değildi.
+- Sabah: `agent_fsm` preflight eşiği, GPS'ten saat düzeltme,
+  `/ws/suru_dugumleri` dosya anahtarı, `dagit.sh` IP tablosu, `run_drone.sh`
+  dağıtımı, konteynerlere `--cap-add SYS_TIME`.
+
+**Ne değişti**
+
+- kod: `preflight_checker.py` (eşik bağlamdan) · `agent_fsm_node.py`
+  (`yer_testi` bayrağı + ARMING reddi artık loglanıyor) ·
+  `esp32_bridge_node.py` (`healthy` türetiliyor) · `baslat.sh`
+  (origin düğümü, consensus parametreleri, dosyadan düğüm açma, GPS saat) ·
+  `dagit.sh` · `run_drone.sh` · yeni `deploy/rpi/gps_saat.py`
+- **uçakta (SONRAKİ KİŞİ ÖYLE BULACAK):**
+  - `~/yelpence_ws/yer_testi` — **AÇIK** ⚠️
+  - `~/yelpence_ws/suru_dugumleri` = `origin consensus`
+  - `~/yelpence_ws/origin` = `38.6905999 39.1611543 1216.03`
+  - konteynerler **yeniden yaratıldı** (`--cap-add SYS_TIME`)
+- belge: `SURU_ENTEGRASYON` (sıra düzeltildi), `DURUM`, `YAPILACAKLAR`,
+  `KARARLAR` (KARAR-02, KARAR-03), `cihazlar.md`, `RPI_ESITLEME`
+
+**Yarım kalan / tuzak**
+
+- 🔴 **`yer_testi` iki uçakta da AÇIK.** Bu haldeyken uçak arm olur ama
+  **kalkmaz**. Uçuştan önce `rm ~/yelpence_ws/yer_testi` + `docker restart`.
+- **Yazılım disarm'ı OFFBOARD'dayken reddediliyor** (`result=1`).
+  Sebep ölçüldü: pervanesiz OFFBOARD'da PX4 irtifayı tutmaya çalışıp
+  integrali sarıyor, gaz tırmanıyor, PX4 kendini "yerde" saymıyor.
+  **Yer testinden çıkış: kumandadan kill switch.** Ayrıca armlı bekleme
+  süresini kısa tut — 140 sn bekletildi, gereksizdi.
+- **İki uçaklı tam devir teslim testi yapılmadı** — birini kill'leyip
+  diğerini armlı bırakmak gerekiyor.
+- Origin şu an `/public`'e **remap** ile gidiyor; mesh yolu denenmedi.
+- `mesh healthy` **türetim**, gönderenin kendi değeri değil. Pil izleme
+  açılınca (KARAR-03) pil düşüşü buraya yansımaz.
+
+**Sıradaki adım**
+
+ADIM 2 — `swarm_fsm_node`. Ama önce P0.6a'daki iki düzeltme:
+sabit formasyon ofsetleri ve tek global election seq sayacı. **`agent_count`
+için "2 yap" notuna uymadan önce kodu oku** — consensus'ta aynı not
+yanlıştı ve uygulansaydı ylp02 sürüden düşerdi.
+
+**Uçakların bırakıldığı hâl**
+
+- ylp00: IDLE, disarm, kill switch serbest, kumanda HOLD, atölyede
+- ylp02: aynı — bugün sahaya çıkıp döndü, QGC bağlantısı çalışıyor
 
 ---
 
