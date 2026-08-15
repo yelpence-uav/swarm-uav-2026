@@ -101,8 +101,14 @@ kapısı açıldı. Lider arıza devri de gözlendi (`1 -> 3`, 82 ms).
 
 - `[ ]` 🟠 **İki uçaklı tam devir teslim testi** — birini kill'le, diğerini
   armlı bırak; ikincisi liderliği devralıyor mu? Bugün tek taraflı gözlendi
-- `[ ]` 🟡 Origin şu an `/public`'e **remap** ile gidiyor; mesh yolu
-  denenmedi. Köprü (P0.6) düzelince remap kaldırılacak
+- `[x]` 🟡 ~~Origin `/public`'e remap ile gidiyor~~ → **remap kaldırıldı.**
+  `ic_dis_kopru` gelince (P0.6) düğüm sözleşmeye uygun şekilde
+  `/swarm/internal/origin`'a yazmaya döndü; origin artık **hem** yerel
+  düğümlere **hem de** `esp32_bridge` üzerinden mesh'e gidiyor. Remap
+  varken mesh yolu tamamen kapalıydı.
+- `[ ]` 🟡 Origin'in **mesh yolu** hâlâ denenmedi — bir uçağın origin'i
+  diğerine ulaşıyor mu? Şu an ikisi de aynı sabit değeri yayınladığı için
+  fark görünmez; test için birini kapatıp diğerininkini bekle
 - `[ ]` 🟡 Mesh `healthy` bir **türetim**, gönderenin kendi değeri değil.
   Pil izleme açılınca (KARAR-03) pil düşüşü buraya yansımaz — o gün ya
   pakete bit eklenecek ya da eşik burada da uygulanacak
