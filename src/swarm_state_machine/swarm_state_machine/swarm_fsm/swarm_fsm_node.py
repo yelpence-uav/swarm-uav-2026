@@ -138,6 +138,20 @@ class SwarmFsmNode(Node):
         #   for aid in range(1, agent_count + 1) -> /swarm/public/drone{aid}/status
         # Ucaklarimiz 1 ve 3 (ylp01 yerde ama kimligi 2), yani yerde ucak
         # olsa bile 3 KALMALI — 2 yazilsa drone3 HIC dinlenmezdi.
+        # agent_id = BU ucagin kimligi. 15 Agustos'a kadar bu dugumde YOKTU
+        # ve sonucu tehlikeliydi: swarm_fsm yalniz /swarm/public/... dinliyor,
+        # ucagin KENDI durumu ise oraya (bilerek) tasinmiyor — cunku kendi
+        # status'unu kendi public konusuna dusurmek, kacinmanin ucagi komsu
+        # sanip KENDINDEN kacmasina yol acardi (bkz. ic_dis_kopru.py).
+        # Yani swarm_fsm yalnizca KOMSULARI goruyordu. Iki ucakla bu demek ki
+        # tek komsu; o komsu 3 sn bayatlayinca (mesh ~%30 kayipli)
+        #     active_agent_count == 0 and total > 0
+        # dali tetikleniyor ve TUM SURUYE EVENT_EMERGENCY_LAND yayinlaniyor.
+        # O dalin havada olma sarti da YOK. Kopru acilinca bu olay artik
+        # agent_fsm'e gercekten ULASIYOR, yani zararsiz gurultu olmaktan
+        # cikti. consensus ayni sorunu zaten kendi kaydini internal'dan
+        # okuyarak cozmustu (consensus_node.py:139); ayni yol.
+        self.declare_parameter('agent_id', 0)
         self.declare_parameter('agent_count', 3)
         # expected_agent_count = KAC UCAK GERCEKTEN UCUYOR. Ayri parametre
         # olmasinin sebebi (15 Agustos'ta olculdu): tek deger iki isi birden
@@ -156,6 +170,7 @@ class SwarmFsmNode(Node):
         # dugum ayni formasyonu farkli yerde sanir.
         self.declare_parameter('wing_alpha_deg', 45.0)
 
+        self._agent_id = int(self.get_parameter('agent_id').value)
         self._agent_count = self.get_parameter('agent_count').value
         _beklenen = int(self.get_parameter('expected_agent_count').value)
         self._expected_agent_count = (
@@ -193,6 +208,19 @@ class SwarmFsmNode(Node):
                 AgentStatus,
                 f'/swarm/public/drone{aid}/status',
                 self._make_agent_cb(aid),
+                _STATUS_QOS,
+            )
+
+        # KENDI durumu AYRICA internal'dan. Yukaridaki dongu yalniz komsulari
+        # getirir; kendi status'umuz public'e tasinmiyor (kacinma bizi komsu
+        # sanmasin diye). Bu abonelik olmadan iki ucakli surude tek komsu
+        # bayatlayinca active_agent_count 0 oluyor ve tum suruye acil inis
+        # yayinlaniyordu. agent_id verilmezse (0) atlanir — eski davranis.
+        if self._agent_id > 0:
+            self.create_subscription(
+                AgentStatus,
+                f'/swarm/internal/drone{self._agent_id}/status',
+                self._make_agent_cb(self._agent_id),
                 _STATUS_QOS,
             )
 

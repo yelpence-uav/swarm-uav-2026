@@ -680,8 +680,11 @@ if [ -n "$SURU_DUGUMLERI" ]; then
     # bu dosyanin en basindaki opt-in kuralinin tam olarak onlemek istedigi
     # sey. Artik ayri anahtarlar: fsm / gorevfsm / mod.
     #
-    # DIKKAT: ucu de agent_id KABUL ETMIYOR (olculdu). Gecirmek zararsiz ama
-    # yaniltici olurdu - "id gecti sanip" yanlis yerde aranir.
+    # DIKKAT: mission_fsm ve mode_manager agent_id KABUL ETMIYOR (olculdu).
+    # swarm_fsm ise 15 Agustos'ta agent_id ALIR HALE GELDI — kendi ucaginin
+    # durumunu /swarm/internal/drone{id}/status'tan okuyabilsin diye. Bkz.
+    # swarm_fsm_node.py'deki agent_id yorumu: bu olmadan iki ucakli suruda
+    # tek komsu bayatlayinca TUM SURUYE acil inis yayinlaniyordu.
     if acik fsm; then
         # SURU_AJAN_SAYISI  = kimlik araligi (1..N), abonelikler bundan
         # SURU_BEKLENEN_UCAK = kac ucak GERCEKTEN uculuyor
@@ -694,6 +697,7 @@ if [ -n "$SURU_DUGUMLERI" ]; then
         # Uc ucak birden ucmaya baslayinca SURU_BEKLENEN_UCAK=3 yapilacak.
         SURU_BEKLENEN_UCAK="${SURU_BEKLENEN_UCAK:-2}"
         ros2 run swarm_state_machine swarm_fsm_node --ros-args \
+            -p agent_id:=${AGENT_ID} \
             -p agent_count:=${SURU_AJAN_SAYISI} \
             -p expected_agent_count:=${SURU_BEKLENEN_UCAK} \
             -p wing_alpha_deg:=${KANAT_ALFA_DEG} \
