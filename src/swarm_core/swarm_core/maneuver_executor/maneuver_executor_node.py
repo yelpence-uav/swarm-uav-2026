@@ -159,7 +159,11 @@ class ManeuverExecutorNode(Node):
             FormationCommand,
             '/swarm/public/formation/target',
             self._on_formation_command,
-            _RELIABLE_QOS,
+            # BEST_EFFORT SART — bu konunun mesh kaynagi esp32_bridge ve o
+            # _MESH_QOS ile, yani BEST_EFFORT yayinliyor. RELIABLE abone +
+            # BEST_EFFORT yayinci ESLESMEZ; konu SESSIZCE bos kalir ve dugum
+            # mesh'ten gelen formasyon komutlarini HIC almaz.
+            _BEST_EFFORT_QOS,
         )
         self.create_subscription(
             AgentStatus,

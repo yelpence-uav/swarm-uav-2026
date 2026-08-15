@@ -155,7 +155,9 @@ class Mission1Node(Node):
         )
         self.create_subscription(
             QRMissionData, '/swarm/public/perception/qr_data',
-            self._on_qr_data, _RELIABLE_QOS,
+            # BEST_EFFORT SART — mesh kaynagi esp32_bridge _MESH_QOS ile
+            # yayinliyor; RELIABLE abone QR verisini HIC almaz.
+            self._on_qr_data, _BEST_EFFORT_QOS,
         )
         self.create_subscription(
             SwarmState, '/swarm/public/state',
