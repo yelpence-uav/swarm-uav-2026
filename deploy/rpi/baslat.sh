@@ -524,10 +524,35 @@ if [ -n "$SURU_DUGUMLERI" ]; then
 
     # Lider secimi. Formasyon yayini buna BAGLI: esp32_bridge'in lider kapisi
     # (KARAR 11) secim/heartbeat gormeden formasyon yayinlamaz.
+    # PIL ESIGI agent_fsm ile AYNI degiskenden gelir (BATARYA_KRITIK_V).
+    #
+    # Neden zorunlu (15 Agustos): consensus'un kendi varsayilani 14.0 V.
+    # Ucaklar regulatorden beslendigi icin 3.1 V okuyor ve election.py:29
+    #   if rec.battery_v > 0.0 and rec.battery_v < battery_min_v: -> UYGUN DEGIL
+    # diyor. Yani HICBIR ajan lider adayi olamaz, secim hic yapilmaz ve
+    # esp32_bridge'in lider kapisi acilmadigi icin FORMASYON MESH'E HIC CIKMAZ.
+    #
+    # Iki yerde ayri sabit tutmamak onemli: pil olcer modul gelince
+    # (KARARLAR.md KARAR-03) tek degiskeni 13.6 yapmak ikisini birden acar.
+    #
+    # AGENT_COUNT "kac ucak ucuyor" DEGIL, "ajan kimlikleri 1..N" demek:
+    # consensus_node.py:133  for aid in range(1, agent_count + 1)
+    # ile drone1..droneN'in status konularina abone oluyor. Bizim ucaklar
+    # 1 ve 3 (ylp01 yerde ama kimligi 2) — 2 yazarsak drone3 HIC DINLENMEZ.
+    # Bu yuzden yerde ucak olsa bile 3 kalmali.
+    #
+    # Eksik kadro secimi engellemez: election.py:101 tam kadro yoksa
+    # bootstrap_grace_s (1.5 sn) sonrasi yine secim yapiyor.
+    SURU_AJAN_SAYISI="${SURU_AJAN_SAYISI:-3}"
     if acik consensus; then
         ros2 run swarm_core consensus_node --ros-args \
-            -p agent_id:=${AGENT_ID} >> "$GUNLUK/consensus.log" 2>&1 &
+            -p agent_id:=${AGENT_ID} \
+            -p agent_count:=${SURU_AJAN_SAYISI} \
+            -p battery_min_v:=${BATARYA_KRITIK_V} \
+            >> "$GUNLUK/consensus.log" 2>&1 &
         sleep 2
+        echo "[baslat] consensus_node basladi" \
+             "(agent_count=$SURU_AJAN_SAYISI, battery_min_v=$BATARYA_KRITIK_V)"
     fi
 
     # Komsu telemetrisini yumusatir (EMA). Formasyon oncesi acilmasi mantikli:

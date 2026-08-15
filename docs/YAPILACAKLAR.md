@@ -1,6 +1,6 @@
 # YAPILACAKLAR
 
-**Son güncelleme:** 15 Ağustos 2026, 13:54
+**Son güncelleme:** 15 Ağustos 2026, 14:20
 
 ## Önem dereceleri
 
@@ -97,8 +97,18 @@ tek sayı 7 m'lik bir bacaktan geldi, yani geçici rejimi ölçüyor.
   dağıtık slot ataması (`NeighborInfo` gerekir) ve göreli düzeltme (tehlikeli,
   0.28 m yakınlaşma ölçülmüş). Bayrağı ikiye ayır: abonelik hep kurulsun,
   düzeltme bayrağa bağlı kalsın (~2 satır)
-- `[ ]` 🔴 **`consensus.battery_min_v = 14.0`** → uçaklar 3.1 V okuyor →
-  **hiç lider seçilmez, formasyon hiç çıkmaz**. `0.0` verilmeli
+- `[x]` 🔴 ~~**`consensus.battery_min_v = 14.0`**~~ → **düzeltildi (15 Ağu).**
+  `baslat.sh` artık `battery_min_v`'i **`BATARYA_KRITIK_V`'den** geçiyor —
+  `agent_fsm` ile aynı değişken. Pil ölçer modül gelince (KARAR-03) tek
+  değeri 13.6 yapmak ikisini birden açacak.
+- `[!]` 🔴 **`consensus.agent_count` 3 KALMALI — önceki not yanlıştı.**
+  `agent_count` "kaç uçak uçuyor" değil, **"ajan kimlikleri 1..N"** demek:
+  `consensus_node.py:133` → `for aid in range(1, agent_count+1)` ile
+  `drone1..droneN` status konularına abone oluyor. Uçaklarımız **1 ve 3**
+  (ylp01 yerde ama kimliği 2), yani `2` yazılsaydı **drone3 hiç
+  dinlenmezdi**. Eksik kadro seçimi engellemiyor: `election.py:101` tam
+  kadro yoksa `bootstrap_grace_s` (1.5 sn) sonrası yine seçim yapıyor.
+  `SURU_AJAN_SAYISI` env'i eklendi, varsayılan 3.
 - `[ ]` 🔴 **`swarm_fsm.agent_count = 3`** → `formation_reached` şartı
   `active >= expected`; 2 uçakla **asla true olmaz**, FORMING'den çıkılamaz.
   Ayrıca bir uçak bayatlarsa `1/3 < 0.5` → FAILSAFE. `2` verilmeli
@@ -110,8 +120,16 @@ tek sayı 7 m'lik bir bacaktan geldi, yani geçici rejimi ölçüyor.
   düzeltilmiş hata burada duruyor; lider değişince seçim mesajları sessizce düşer
 - `[ ]` 🟠 **`px4_bridge velocity_only:=True`** — `formation_node` C modu için
   tasarlanmış, varsayılan `False` → kazançlar toplanır (0.8 + 0.95)
-- `[ ]` 🟠 `consensus.agent_count:=2`, `task_reallocator.min_active_for_formation:=2`,
+- `[ ]` 🟠 `task_reallocator.min_active_for_formation:=2`,
   `mission1.default_spacing_m:=12.0`, `joystick_interpreter` remap
+
+> ⚠️ **Yukarıdaki "N'i 2 yap" maddelerini uygulamadan önce KODU OKU.**
+> `consensus.agent_count` için "2 yapılmalı" yazıyordu ve **yanlıştı** —
+> uygulansaydı ylp02 sürüden tamamen düşerdi. Aynı şüphe
+> `swarm_fsm.agent_count` ve `task_reallocator.min_active_for_formation`
+> için de geçerli: her birinin o sayıyı **ne anlamda** kullandığı
+> (kimlik aralığı mı, canlı sayı mı, çoğunluk eşiği mi) sırası gelince
+> tek tek doğrulanacak.
 
 ### P0.6 Sürü entegrasyonunun yapısal engelleri
 
