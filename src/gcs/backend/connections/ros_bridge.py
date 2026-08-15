@@ -616,6 +616,12 @@ class RosBridge:
         # SwarmState — kontrata göre RELIABLE, 1-10 Hz. swarm_fsm yayıncı.
         # Mesaj gelmezse latest_swarm_state None kalır (frontend bunu handle eder).
         reliable_qos = QoSProfile(depth=10, reliability=QoSReliabilityPolicy.RELIABLE)
+        # MESH KAYNAKLI konular icin. esp32_bridge _MESH_QOS ile, yani
+        # BEST_EFFORT yayinliyor; RELIABLE abone onunla ESLESMEZ ve konu
+        # sessizce bos kalir. BEST_EFFORT abone ise her iki yayinciyla da
+        # uyumlu — bu yuzden /swarm/public/... dinlerken varsayilan bu olmali.
+        best_effort_qos = QoSProfile(
+            depth=10, reliability=QoSReliabilityPolicy.BEST_EFFORT)
         self._node.create_subscription(
             SwarmState, "/swarm/public/state", self._on_swarm_state, reliable_qos
         )
@@ -627,14 +633,27 @@ class RosBridge:
         )
         logger.info("subscribe → /swarm/public/events/system")
 
-        # QRMissionData — çözülmüş QR görev içeriği. qr_detector yayıncı,
-        # proxy /swarm/public/perception/qr_data'ya relay eder. RELIABLE:
-        # QR mesajı GCS'te en az 1 kez görünmeli (şartname V2, -20 ceza).
+        # QRMissionData — çözülmüş QR görev içeriği.
+        #
+        # BEST_EFFORT — ÖNCEDEN RELIABLE'DI VE TERS TEPİYORDU (15 Ağustos).
+        # Gerekçe "QR mesajı GCS'te en az 1 kez görünmeli (şartname V2,
+        # -20 ceza)" idi; niyet doğru ama etkisi TAM TERSİ. Bu konunun mesh
+        # kaynağı esp32_bridge ve o _MESH_QOS ile, yani BEST_EFFORT
+        # yayınlıyor. RELIABLE abone + BEST_EFFORT yayıncı EŞLEŞMEZ:
+        #
+        #   [esp32_base] '/swarm/public/perception/qr_data' requesting
+        #   incompatible QoS. No messages will be sent to it. RELIABILITY
+        #
+        # Yani "hiç kaçırmayalım" diye konan ayar, HER ZAMAN hepsini
+        # kaçırıyordu. Aynı dosyanın aşağısında doğru not zaten var:
+        # "BEST_EFFORT bilerek: yayıncı RELIABLE olsa bile uyumlu, tersi
+        # değil." Kayıp riski mesh'in kendisinde (~%30) ve yerel DDS hop'unu
+        # RELIABLE yapmak onu geri getirmiyor.
         self._node.create_subscription(
             QRMissionData,
             "/swarm/public/perception/qr_data",
             self._on_qr_data,
-            reliable_qos,
+            best_effort_qos,
         )
         logger.info("subscribe → /swarm/public/perception/qr_data")
 

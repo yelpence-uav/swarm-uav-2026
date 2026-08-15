@@ -158,6 +158,13 @@ kapısı açıldı. Lider arıza devri de gözlendi (`1 -> 3`, 82 ms).
 - `[x]` 🟠 `maneuver_executor` → `formation/target` (ADIM 9)
 - `[x]` 🟠 `mission1_node` → `perception/qr_data` (ADIM 7)
 - `[x]` 🟠 `mission_fsm_node` → `perception/qr_data` (ADIM 6)
+- `[x]` 🔴 **`gcs/backend/ros_bridge.py` → `perception/qr_data`** — YKİ
+  tarafında, 15 Ağustos akşamı YKİ ilk kez açılınca çıktı. Burada özellikle
+  ironikti: **kasıtlı RELIABLE yapılmıştı**, gerekçesi *"QR mesajı GCS'te en
+  az 1 kez görünmeli (şartname V2, −20 ceza)"*. Niyet doğru, etki tam tersi —
+  BEST_EFFORT yayıncıdan **hiçbir şey almıyordu**, yani "hiç kaçırmayalım"
+  ayarı her zaman hepsini kaçırıyordu. Aynı dosyanın 40 satır altında doğru
+  not zaten yazılıydı.
 
 > **Kural:** `/swarm/public/…` dinleyen herkes **BEST_EFFORT** olmalı.
 > Ters yön sorunsuz (RELIABLE yayıncı + BEST_EFFORT abone uyumlu), o yüzden
