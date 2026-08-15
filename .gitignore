@@ -132,3 +132,6 @@ src/gcs/saha_rota.html
 src/gcs/nokta_sec.html
 src/gcs/nokta3_secenekleri.html
 /tmp/yelpence_gorev.html
+
+# Claude Code kisisel izin dosyasi (makineye ozel, paylasilmaz)
+.claude/settings.local.json

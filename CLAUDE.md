@@ -1,6 +1,6 @@
 # Yelpençe — TEKNOFEST 2026 Sürü İHA
 
-**Son güncelleme:** 15 Ağustos 2026, 01:28
+**Son güncelleme:** 15 Ağustos 2026, 12:46
 
 > Bu dosyayı Claude Code her oturumda **kendiliğinden okur**. Yeni bir sohbet
 > açan kişinin hiçbir şey söylemesine gerek yok; buradan projeyi anlar.
@@ -246,6 +246,25 @@ Sorunları mutlaka söyle — operatör hangi hatanın çıkacağını önceden 
 Çözülemeyecek bir şey değilse **kara haber gibi verme.** "Şu çakışma var,
 çözümü şu, maliyeti şu kadar" — bu doğru biçim. Sadece "şu çakışma var"
 demek işi operatöre yıkmaktır.
+
+### 🧠 Effort daima `max` (KARAR-02)
+
+`/effort` menüsü **hep `max`** kalır; ultracode menüden açılmaz. İkisi aynı
+listede ve birbirini dışlıyor — ultracode seçilince effort `xhigh`'a düşüyor.
+
+Çok ajanlı denetim gerektiğinde operatör **o mesajın içine `ultracode`
+kelimesini yazar**; sonraki tur kendiliğinden `max`'a döner.
+
+**Claude'un görevi:**
+
+- Effortunu okuyabilirsin: `echo $CLAUDE_EFFORT`. **`max` değilse operatöre
+  hemen söyle.** (`.claude/settings.json`'daki hook bunu zaten uyarıyor, ama
+  uyarıyı gördüğünde sen de yaz.)
+- **ADIM 1 (`consensus`), ADIM 3 (`formation_node`), ADIM 4
+  (`collision_avoidance`)** — bu düğümler ilk kez havaya kalkmadan önce
+  operatöre "bu mesaja `ultracode` yazar mısın?" diye sor. Gerekçe ve diğer
+  seçenekler `docs/KARARLAR.md` **KARAR-02**'de.
+- Belge, config, kurulum işlerinde **önerme** — orada israf.
 
 ### 📅 Her .md değişikliğinde en üste tarih-saat
 

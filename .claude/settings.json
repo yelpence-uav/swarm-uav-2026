@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "B=\"${CLAUDE_PROJECT_DIR:-$PWD}/.claude/effort_bekcisi.sh\"; [ -f \"$B\" ] && bash \"$B\" || true",
+            "timeout": 10,
+            "statusMessage": "effort bekcisi"
+          }
+        ]
+      }
+    ]
+  }
+}

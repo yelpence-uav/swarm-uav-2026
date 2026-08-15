@@ -1,6 +1,6 @@
 # KARARLAR — verilmiş ama henüz uygulanmamış kararlar
 
-**Son güncelleme:** 15 Ağustos 2026, 01:28
+**Son güncelleme:** 15 Ağustos 2026, 12:46
 
 Sohbette verilen kararlar oturum bitince kayboluyor. Bu defter onları
 tutuyor: **ne karar verildi, neden, ne zaman uygulanacak, nasıl test edilecek.**
@@ -135,6 +135,106 @@ kaçınma normal formasyon geçişlerinde tetiklendi mi.
 
 `basit_kacinma` **silinmeyecek** — C beklenmedik davranırsa tek dosya
 değişikliğiyle geri dönülür.
+
+---
+
+# KARAR-02 — Claude effort seviyesi: hep `max`, ultracode noktasal
+
+**Durum:** 🟡 BEKLİYOR — kural yürürlükte, hatırlatma anları henüz gelmedi
+**Ne zaman:** Her oturum (kural) + `SURU_ENTEGRASYON.md` **ADIM 1, 3, 4** (hatırlatma)
+**Karar veren:** Operatör (15 Ağustos 2026)
+
+## Karar
+
+**`/effort` menüsü daima `max` kalır. Ultracode menüden AÇILMAZ.**
+
+Çok ajanlı denetim gerektiğinde operatör **o mesajın içine `ultracode`
+kelimesini yazar** — o tur çok ajanlı çalışılır, sonraki tur kendiliğinden
+`max`'a döner. Menü hiç kurcalanmaz.
+
+## Neden
+
+`/effort` menüsünde ikisi **aynı listede ve birbirini dışlıyor.** Ultracode
+seçilince effort `xhigh`'a düşüyor (ayar şemasındaki tanımı birebir:
+*"xhigh effort plus standing dynamic-workflow orchestration"*). Yani ultracode
+açmak, düşünme derinliğinden bir kademe feragat etmek demek.
+
+| | Düşünme derinliği | Ajan sayısı |
+|---|---|---|
+| `max` | en derin | 1 |
+| `ultracode` | xhigh (bir kademe altı) | çok + karşıt doğrulama |
+
+**Günlük iş neden `max`:** entegrasyon işi sıralı ve cerrahi — üç satırlık
+düzeltme, telemetriden teşhis, komut çalıştırma. Bunlar *derinlik* problemi.
+Ayrıca ultracode arka planda dakikalarca sürüyor; sahada pervaneler dönerken
+beklenecek şey değil, ve alt ajanlar sohbet bağlamını görmüyor.
+
+**Denetimler neden ultracode:** "%30 paket kaybında hangi senaryoda iki lider
+çıkar" bir *kapsama* problemi. Orada 8 bağımsız avcı, 1 derin düşünenden iyi.
+Gerekçe somut: Claude bu depoda üç kez çapalama hatası yaptı —
+`formation_node`'da ileri-besleme yok dedi (vardı), ylp02'nin eğim değerleri
+PX4 varsayılanı dedi (tersiydi), çoklu üretici çakışması çözülmemiş dedi
+(susturma ile çözülmüştü). Üçü de tek kanalda bulunamadı. Onu hiç duymamış
+bağımsız bir ajan o çapayı miras almıyor.
+
+## 🔴 Claude'un yapacağı — hatırlatma anları
+
+Şu üç adıma gelindiğinde, **uçmadan önce** operatöre söyle:
+
+| Adım | Düğüm | Neden fan-out gerekli |
+|------|-------|------------------------|
+| **ADIM 1** | `consensus_node` | Kayıplı mesh'te lider seçimi; iki lider senaryosu aranmalı |
+| **ADIM 3** | `formation_node` | 50 Hz'de uçağa setpoint yazıyor |
+| **ADIM 4** | `collision_avoidance` | İki uçak arasındaki tek koruma katmanı |
+
+Söylenecek cümle: *"Bu düğüm ilk kez havaya kalkacak. KARAR-02 gereği burada
+çok ajanlı denetim öneriliyor — bu mesaja `ultracode` yazar mısın?"*
+
+Operatör istemezse tartışılmaz, tek kanalda ilerlenir.
+
+**Genel kural:** havaya kalkacak bir düğüm **ilk kez** açılmadan önce denetim
+önerilir. Belge, config, kurulum, düzeltme işlerinde önerilmez — orada israf.
+
+## Ayrıca — Claude effort'unu kendi okuyabilir
+
+```bash
+echo $CLAUDE_EFFORT      # max / xhigh / high / ...
+```
+
+Ultracode'un açık olup olmadığı Claude'a zaten her turda sistem tarafından
+bildiriliyor, komut gerekmiyor.
+
+## ✅ Uygulandı — otomatik uyarı (Claude'un hatırlamasına bağlı değil)
+
+`.claude/settings.json` → `UserPromptSubmit` hook'u → `.claude/effort_bekcisi.sh`.
+Effort `max` değilse **her mesajda** operatöre uyarı basıyor, `max` iken
+tamamen sessiz. Dosya repoda, yani takımdaki herkeste çalışıyor.
+
+**15 Ağustos'ta ölçülenler** (betiğin başında da yazılı, silme):
+
+| Bulgu | Sonuç |
+|-------|-------|
+| `$CLAUDE_EFFORT` hook ortamında **yok** (68 değişkene bakıldı) | Oradan okunamaz. İlk deneme bunu varsaymıştı ve max'tayken bile bağırıyordu |
+| `$CLAUDE_EFFORT` **Bash aracında canlı ve doğru** | Kesin doğrulama yolu bu |
+| Seviye transkriptte her `assistant` kaydında yazılı | Hook oradan okuyor |
+| Transkript **bir tur geriden** geliyor | Uyarı bir mesaj gecikmeli çıkabilir |
+| Hook'ta `$CLAUDE_PROJECT_DIR` ve `$CLAUDE_CODE_SESSION_ID` **var** | Transkript tahminle değil kesin bulunuyor |
+
+Bu yüzden iki katmanlı: **hook** hızlı ama gecikmeli tripwire (operatöre
+ekranda uyarı), **Claude** `echo $CLAUDE_EFFORT` ile kesin doğrulama.
+Betik okuyamadığında operatörü rahatsız etmiyor, yalnız Claude'a
+"doğrula ve bildir" diyor — bozuk okuma kurt masalına dönüşmesin.
+
+Hook çalışmıyorsa: bir kez `/hooks` menüsünü aç (ayar dosyasını yeniden
+okutuyor) ya da oturumu yeniden başlat.
+
+## Diğer seçenekler (operatör isterse)
+
+| | Ne | Neden seçilmedi |
+|---|----|-----------------|
+| A | Menüde hep ultracode | Her turda xhigh; sahada arka plan beklemesi; belge işinde israf |
+| B | Aşamaya göre menüden gidip gel | Aynı sonucu veriyor ama elle iş; tek kelime yazmak daha ucuz |
+| C | Hiç fan-out yok | Denetimler tek kanalda kalır — çapalama riski karşılıksız |
 
 ---
 
