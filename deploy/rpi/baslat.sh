@@ -473,7 +473,7 @@ KAYIT_HARIC="/mavros/(sim_state/|hil/|px4flow/|optical_flow/|gimbal_control/|mou
 
 KAYIT_DIZIN="/ws/kayit/$(hostname)_$(date +%Y%m%d_%H%M%S)"
 ros2 bag record \
-    -e "^(/drone_${AGENT_ID}/|/swarm/)" \
+    -e "^(/drone_${AGENT_ID}/|/swarm/|/gozlem/)" \
     --exclude-regex "$KAYIT_HARIC" \
     -o "$KAYIT_DIZIN" \
     --max-bag-duration 30 \
@@ -648,21 +648,60 @@ if [ -n "$SURU_DUGUMLERI" ]; then
     fi
 
     # Formasyon zinciri — UCU BIRLIKTE acilir, tek basina anlamsizlar.
+    # GOZLEM MODU — /ws/gozlem dosyasi varsa formation_node'un setpoint
+    # ciktisi /gozlem/... a yonlendirilir ve UCAGA ULASMAZ.
+    #
+    # Neden var (SURU_ENTEGRASYON.md §4): simulasyon kullanmiyoruz. Onun
+    # yerine dugum GERCEK telemetriyle GERCEK kararlar uretir ama cikisi
+    # hicbir yere bagli degildir. Sonra kayittan "uretilen" ile "ucrulan"
+    # karsilastirilir. G1 (yerde gozlem) ve G2 (havada gozlem) kademeleri
+    # bunun uzerine kurulu; G2 ATLANMAZ.
+    #
+    # /gozlem/ konulari kayit include regex'ine eklendi — yoksa uretilen
+    # veri hicbir yere yazilmaz ve gozlemin anlami kalmazdi.
+    GOZLEM_REMAP=""
+    if [ -f /ws/gozlem ]; then
+        GOZLEM_REMAP="-r /drone_${AGENT_ID}/control/setpoint/raw:=/gozlem/drone_${AGENT_ID}/formation/raw"
+        echo "[baslat] *** GOZLEM MODU *** formation_node ciktisi" \
+             "/gozlem/drone_${AGENT_ID}/formation/raw a yonlendirildi — UCAGA ULASMIYOR"
+    fi
+
+    # ADIM 3 — formasyon zinciri. collision_avoidance BU ANAHTARDAN CIKARILDI:
+    # o ADIM 4 ve `basit_kacinma` ile AYNI topic yuvasini kullaniyor
+    # (/control/setpoint/raw -> /control/setpoint). Ikisi birden acilirsa
+    # px4_bridge 50 Hz'de iki farkli algoritmadan celiskili setpoint alir —
+    # CLAUDE.md §4'un yasakladigi sey. Artik ayri anahtar: 'ca'.
     if acik formasyon; then
-        # wing_alpha_deg: kopru ve mission1 ile AYNI deger sart, yoksa slot
-        # geometrisi sessizce ayrisir.
+        # wing_alpha_deg: kopru, swarm_fsm ve mission1 ile AYNI deger sart,
+        # yoksa slot geometrisi sessizce ayrisir.
         ros2 run swarm_core formation_node --ros-args \
             -p agent_id:=${AGENT_ID} -p wing_alpha_deg:=${KANAT_ALFA_DEG} \
+            ${GOZLEM_REMAP} \
             >> "$GUNLUK/formation.log" 2>&1 &
-        sleep 1
-        ros2 run swarm_core collision_avoidance --ros-args \
-            -p agent_id:=${AGENT_ID} >> "$GUNLUK/ca.log" 2>&1 &
         sleep 1
         # path_planner agent_id KABUL ETMIYOR (olculdu) - lider kapisi
         # kopruden isliyor (KARAR 11), dugum her dronda kosuyor.
+        # NOT: path_planner URETICI DEGIL, SEKILLENDIRICI — gelen
+        # FormationCommand'in heading'ini yumusatiyor. Komutu mission1 ya da
+        # mode_manager uretir; ikisi de kapaliyken bu zincir sessiz kalir.
         ros2 run swarm_core path_planner \
             >> "$GUNLUK/planner.log" 2>&1 &
         sleep 1
+        echo "[baslat] formation_node + path_planner basladi"
+    fi
+
+    # ADIM 4 — KARAR-01. basit_kacinma ile AYNI yuva; ikisi birden ACILMAZ.
+    if acik ca; then
+        if [ -f /ws/kacinma ]; then
+            echo "[baslat] UYARI: 'ca' istendi ama /ws/kacinma da var —" \
+                 "basit_kacinma ile AYNI yuva. collision_avoidance ACILMADI." \
+                 "Once /ws/kacinma dosyasini sil."
+        else
+            ros2 run swarm_core collision_avoidance --ros-args \
+                -p agent_id:=${AGENT_ID} >> "$GUNLUK/ca.log" 2>&1 &
+            sleep 1
+            echo "[baslat] collision_avoidance basladi (basit_kacinma KAPALI)"
+        fi
     fi
 
     # Manevra (pitch/roll/yaw) — formasyon zinciri acikken anlamli.
