@@ -1,6 +1,6 @@
 # YAPILACAKLAR
 
-**Son güncelleme:** 15 Ağustos 2026, 03:10
+**Son güncelleme:** 15 Ağustos 2026, 13:54
 
 ## Önem dereceleri
 
@@ -86,12 +86,13 @@ tek sayı 7 m'lik bir bacaktan geldi, yani geçici rejimi ölçüyor.
 - `[ ]` 🔴 **`cv2` + `pyzbar` konteynerde YOK** — canlı denendi,
   `ModuleNotFoundError`. Görü zinciri hiç çalışamaz. Kamera gelmeden önce
   imaja eklenmeli
-- `[ ]` 🔴 **`agent_fsm` preflight pil tuzağı** — `run_preflight_checks`'te
-  `battery_min_voltage=13.60` **gömülü**, üç çağrı yerinin hiçbiri
-  parametre geçmiyor. `battery_critical_voltage_v:=0.0` oraya ULAŞMIYOR →
-  3.1 V okuyan uçakta **IDLE → ARMING hiç olmaz**. Bugüne kadar patlamadı
-  çünkü YKİ arm'ı doğrudan px4_bridge'e yolluyor, FSM yolunu kullanmıyor.
-  Sürü akışında duracak. **Adım 1'den ÖNCE düzeltilmeli** (~3 satır)
+- `[x]` 🔴 ~~**`agent_fsm` preflight pil tuzağı**~~ → **düzeltildi (15 Ağu).**
+  Eşik artık `ctx.battery_critical_voltage_v`'den geliyor, `≤ 0 → izleme yok`
+  guard'ı eklendi; `agent_health_monitor:234` ve `AgentContext.healthy` ile
+  üçü de tutarlı. 9/9 test geçti, 2 yeni test eklendi
+  (`test_izleme_kapali_gercek_voltaj_gecis`, `test_esik_baglamdan_gelir`).
+  Doğrulama: saha senaryosu (eşik 0.0 / 3.1 V) artık geçiyor, eski hâli
+  taklit edilince aynı senaryo düşüyor. **Uçaklara dağıtılması bekliyor.**
 - `[ ]` 🟠 **`formation_node.rel_enable` iki özelliği birden kapatıyor** —
   dağıtık slot ataması (`NeighborInfo` gerekir) ve göreli düzeltme (tehlikeli,
   0.28 m yakınlaşma ölçülmüş). Bayrağı ikiye ayır: abonelik hep kurulsun,
@@ -160,14 +161,22 @@ gerekmiyor.
 - `[ ]` 🟡 Anahtarlar dağıtıldıktan sonra parola girişini kapatmayı düşün
   (ama sahada kilitli kalma riskine karşı acil çıkış olarak bırakmak da savunulabilir)
 
-### P1.3 Repo commit edilmemiş
+### ✅ P1.3 — TAMAMLANDI (15 Ağustos)
 
-Uçuş kanıtını geçiren kodun **tamamı** tek diskte, git'te değil.
-Disk arızası = her şey gider.
+Her şey `feature/dagitik-suru` dalında commit'li ve push'lu.
 
-- `[ ]` 🟠 Anlamlı parçalara böl ve commit et: px4_bridge irtifa düzeltmesi /
-  FSM pil guard'ı / kayıt sertleştirme + günlük bekçisi / YKİ koşucu paneli /
-  saha senaryosu / takım belge sistemi
+### P1.4 Pi saati — sahada doğrulanmadı
+
+Pi 5'in RTC'sinde yedek pil yok; açılışta saat ~11 saat geriden geliyor
+(ölçüldü). `gps_saat.py` PX4'ün GPS zamanından düzeltiyor, internet
+gerekmiyor. Ayrıntı `cihazlar.md` ⏰ bölümü.
+
+- `[ ]` 🟠 **İlk saha çıkışında doğrula:** internetsiz açılışta
+  `gunluk/son/gps_saat.log` ne diyor — saat düzeldi mi, fark kaçtı
+- `[ ]` 🟡 İki uçağın saatini uçuştan önce karşılaştırmayı alışkanlık yap
+  (`drone_bul.sh --durum`'a eklenebilir)
+- `[ ]` ⚪ Kalıcı donanım çözümü: Pi 5 RTC konnektörüne düğme pil.
+  Operatör "pil bağlayamam" dedi (15 Ağu) — GPS yolu bu yüzden seçildi
 
 ---
 
@@ -201,8 +210,14 @@ WiFi düşünce MAVROS `gcs_url` uçnoktasına her MAVLink mesajı için
 Tamamı `SURU_ENTEGRASYON.md`'de. Uçuşsuz hazırlık:
 
 - `[ ]` 🟡 Kayıt filtresine `/gozlem/` ekle (`baslat.sh`)
-- `[ ]` 🟡 `SURU_DUGUMLERI`'ni `/ws/suru_dugumleri` dosyasından okunur yap
-  (env değiştirmek konteyneri yeniden yaratmak demek; `/ws/kacinma` gibi olsun)
+- `[x]` 🟡 ~~`SURU_DUGUMLERI` dosyadan okunsun~~ → **yapıldı (15 Ağu).**
+  `/ws/suru_dugumleri` varsa env'i ezer; yorum satırı ve çok satır destekli,
+  6 senaryoda test edildi. Düğüm açmak artık:
+  `echo consensus > ~/yelpence_ws/suru_dugumleri && docker restart drone1`
+  — yeniden **yaratma** değil, **restart**; mavros/RTK korunuyor
+- `[x]` 🟡 ~~`dagit.sh` eski subnet'i tarıyordu~~ → **düzeltildi (15 Ağu).**
+  IP tablosu iki yerdeydi (`dagit.sh` 10.158.16.x, gerçek ağ 10.188.209.x);
+  artık `drone_bul.sh --ip`'ye delege ediyor, kendi taraması kaldırıldı
 - `[B]` 🟡 Faz 1 (`kinematic_fusion`) — Faz 0'a bağlı
 
 ### P2.4 Güvenlik ve dayanıklılık
@@ -212,6 +227,8 @@ Tamamı `SURU_ENTEGRASYON.md`'de. Uçuşsuz hazırlık:
   bilerek tutuyor, veri akınca otomatik kaydedilir.
 - `[ ]` 🟡 Kill switch kontrolünü ön kontrole taşı — şu an operatör bunu
   ancak arm denemesinde görüyor
+- `[ ]` 🟡 **Pil failsafe'i** — LiPo pil ölçer modül alınınca. Karar ve
+  5 adımlı uygulama listesi: `KARARLAR.md` **KARAR-03**
 
 ### P2.5 Belge borcu
 

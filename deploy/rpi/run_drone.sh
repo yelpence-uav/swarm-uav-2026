@@ -41,6 +41,7 @@ docker run -d --name "$NAME" \
   --restart unless-stopped \
   --device /dev/ttyAMA0 \
   --device /dev/ttyAMA4 \
+  --cap-add SYS_TIME \
   -v "$WS_DIR:/ws" \
   -e ROS_DOMAIN_ID=0 \
   -e AGENT_ID="$AGENT_ID" \

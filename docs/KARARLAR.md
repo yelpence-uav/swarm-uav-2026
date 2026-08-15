@@ -1,6 +1,6 @@
 # KARARLAR — verilmiş ama henüz uygulanmamış kararlar
 
-**Son güncelleme:** 15 Ağustos 2026, 12:46
+**Son güncelleme:** 15 Ağustos 2026, 13:47
 
 Sohbette verilen kararlar oturum bitince kayboluyor. Bu defter onları
 tutuyor: **ne karar verildi, neden, ne zaman uygulanacak, nasıl test edilecek.**
@@ -235,6 +235,53 @@ okutuyor) ya da oturumu yeniden başlat.
 | A | Menüde hep ultracode | Her turda xhigh; sahada arka plan beklemesi; belge işinde israf |
 | B | Aşamaya göre menüden gidip gel | Aynı sonucu veriyor ama elle iş; tek kelime yazmak daha ucuz |
 | C | Hiç fan-out yok | Denetimler tek kanalda kalır — çapalama riski karşılıksız |
+
+---
+
+# KARAR-03 — Pil failsafe'i, ölçer modül gelince açılacak
+
+**Durum:** 🟡 BEKLİYOR — donanım alınmadı
+**Ne zaman:** LiPo pil ölçer modül alınıp RPi'ye bağlandığında
+**Karar veren:** Operatör (15 Ağustos 2026)
+
+## Karar
+
+**Pil failsafe'i şimdi açılmayacak.** İleride bir **LiPo pil ölçer modül**
+alınacak, voltaj verisi doğrudan **RPi'ye** verilecek. O zaman:
+
+1. Pil değerleri YKİ arayüzünde görünecek
+2. Pil failsafe'i o zaman devreye alınacak
+
+## Neden şimdi değil
+
+Uçaklar **regülatörden** besleniyor, PX4'te `BAT1_SOURCE` disabled. Okunan
+3.1 V gerçek pil voltajı değil. Bu yüzden pil izleme **üç yerde birden**
+kapalı (`BATARYA_KRITIK_V=0.0`). Olmayan bir ölçüme dayanarak failsafe
+açmak, uçağı yerde tutan sahte bir alarm üretir.
+
+## Nasıl uygulanacak — açılması artık TEK parametre
+
+15 Ağustos'taki `preflight_checker` düzeltmesinden sonra eşik üç yerde de
+`ctx.battery_critical_voltage_v`'den geliyor. Modül gelince yapılacak:
+
+| Adım | Ne |
+|------|-----|
+| 1 | Modülün voltajını yayınlayan küçük bir düğüm (I2C/UART, ~60 satır) |
+| 2 | `AgentStatus.battery_voltage_v` bu kaynaktan beslensin (şu an MAVROS'tan) |
+| 3 | `deploy/rpi/baslat.sh` → `BATARYA_KRITIK_V=13.6` |
+| 4 | `src/gcs/frontend/src/services/gorunum.ts` → `PIL_GOSTER = true` |
+| 5 | `src/gcs/backend/config.yaml` → `alerts.susturulan`'dan batarya kodlarını çıkar |
+
+⚠️ **3, 4, 5 birlikte yapılmazsa** sistem tutarsız davranır: biri pili
+umursar, diğeri umursamaz. `DURUM.md` §3'te de yazılı.
+
+## Test
+
+- **Yerde:** modül takılı, pil takılı → okunan voltaj çok metreyle uyuşuyor mu
+- **Yerde:** eşiği geçici olarak okunan voltajın üstüne çek → preflight
+  arming'i engelliyor mu (`test_esik_baglamdan_gelir` bunu zaten kilitliyor)
+- **Yerde:** eşiği 0.0'a çek → engel kalkıyor mu
+- Uçuş testi **gerekmiyor**; failsafe yolu zaten ölçülmüş kod
 
 ---
 

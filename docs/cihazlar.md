@@ -1,6 +1,6 @@
 # Cihaz ve erişim tablosu
 
-**Son güncelleme:** 15 Ağustos 2026, 01:28
+**Son güncelleme:** 15 Ağustos 2026, 13:54
 
 Sahada IP'ler DHCP ile değişir (29 Tem `10.207.118.x` → 30 Tem `10.158.16.x`
 → 14 Ağu `10.188.209.x`; her seferinde bütün SSH komutları kırıldı).
@@ -44,6 +44,55 @@ kullanıcı adını doğrula.
 Not: ylp01'in wlan0 MAC öneki diğer ikisinden farklı (`da:04:2d` ↔ `71:60:xx`) —
 farklı parti Raspberry Pi. Yine de `88:a2:9e` (Raspberry Pi Trading) önekiyle
 bulunur.
+
+### ⏰ Pi'lerin saati açılışta ~11 saat geriden geliyor
+
+Pi 5'te RTC var (`/dev/rtc0`) ama **yedek pili yok**. Açılışta kernel RTC'yi
+`1970-01-01` okuyor, systemd son bilinen saati geri yüklüyor, ağ gelince NTP
+saati öne atlatıyor. 15 Ağustos ölçümü:
+
+```
+Aug 15 02:25:40  kernel: rpi-rtc: setting system clock to 1970-01-01
+konteyner "basladi" damgasi : 2026-08-14T23:25 UTC   (= 02:25 yerel)
+Pi gercek acilisi           : 2026-08-15 13:18 yerel
+```
+
+`docker ps` "Up 11 hours" derken Pi'nin 12 dakikadır açık olması bundandır —
+tutarsızlık değil, saat atlaması.
+
+**Neden önemli:** iki uçağın saati o pencerede birbirinden farklı olur ve
+çapraz uçak kayıt karşılaştırması (kim önce lider oldu, kaçınma ne zaman
+tetiklendi) yapılamaz. Yarışma günü sahada internet olmayabilir.
+
+**Çözüm devrede:** `deploy/rpi/gps_saat.py` açılışta PX4'ün GPS zamanından
+saati düzeltiyor (`/drone_N/mavros/time_reference`, 1 Hz). İnternet
+gerekmiyor. Konteyner `--cap-add SYS_TIME` ile koşuyor.
+Kapatmak için: `touch ~/yelpence_ws/gps_saat_kapali`.
+
+## Uçuş kontrolcüsü
+
+**Pixhawk 2.4.8** (Pixhawk 1 donanımı, FMUv3 hedefi), PX4 **1.16.1**.
+
+Bu donanımın iki pratik sonucu var:
+
+- **RAM 192 KB, sınırda.** "Pixhawk'ta log açma" kuralının sebebi bu; kayıt
+  Pi'de tutuluyor (rosbag2/mcap).
+- UTC'yi **GPS'ten** alıyor (Here4 → DroneCAN → PX4 RTC) ve MAVLink
+  `SYSTEM_TIME` ile yayınlıyor. Pi'nin saat düzeltmesi buna dayanıyor.
+
+MAVROS zaman eklentisi ölçüldü (`/drone_N/mavros/time` düğümü):
+
+| Parametre | Değer | Anlamı |
+|-----------|-------|--------|
+| `time_ref_source` | `fcu` | Yayınlanan zaman FCU'nun kendi saati |
+| `system_time_rate` | `0.0` | MAVROS Pi'nin saatini FCU'ya **hiç göndermiyor** |
+
+İkincisi kritik: akış tek yönlü (FCU → Pi), yani bayat Pi saatinin FCU'nun
+GPS saatini bozma yolu yok.
+
+⚠️ `time_reference` **BEST_EFFORT** yayınlıyor. `ros2 topic echo` varsayılan
+RELIABLE ile bakar ve **hiçbir şey görmez** — "eklenti kapalı" sanılır.
+`--qos-reliability best_effort` ekle.
 
 **Pi bir süre boşta kalınca SSH'a cevap vermiyorsa** sebebi Wi-Fi güç
 tasarrufudur (uyanması için ~30 sn ping gerekiyordu). Üçünde de kapatıldı:

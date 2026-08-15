@@ -1,6 +1,6 @@
 # DURUM — şu an ne çalışıyor, ne bozuk
 
-**Son güncelleme:** 15 Ağustos 2026, 01:28
+**Son güncelleme:** 15 Ağustos 2026, 13:54
 
 > Bu belge **şimdiki hâli** anlatır, tarihçe değil. Bir şey değişince burayı
 > güncelle, eskisini sil. Ne olduğunun hikâyesi `GUNLUK.md`'de kalır.
@@ -103,6 +103,13 @@ Bunlar **dosya varlığıyla** çalışıyor; uçağı bulan kişi böyle bulaca
 | `SURU_DUGUMLERI` | boş | boş | 14 sürü düğümünün hiçbiri açık değil |
 | `BATARYA_KRITIK_V` | `0.0` | `0.0` | FSM bataryaya bakmıyor (regülatörden besleme) |
 | `~/yelpence_ws/ucus_ayarlari.env` | **var** | **var** | seyir 3.0 m/s, ivme 1.5 — `ucus_ayarlari.py --kabuk` üretti |
+| `~/yelpence_ws/suru_dugumleri` | yok | yok | **yeni (15 Ağu)** — varsa `SURU_DUGUMLERI` env'ini ezer. Düğüm açmak: `echo consensus > ...` + `docker restart` |
+| `~/yelpence_ws/gps_saat_kapali` | yok | yok | **yeni (15 Ağu)** — varsa GPS'ten saat düzeltmesi yapılmaz |
+
+⚠️ `ucus_ayarlari.env` **dosya öncelikli** — `docker run -e` ile verilen
+değeri **ezer**. (`baslat.sh`'te bunun tersi yazıyordu, 15 Ağustos'ta ölçülüp
+düzeltildi.) Tek uçakta hızlı deneme için `-e` değil, canlı parametre yolunu
+kullan — bkz. `CLAUDE.md` §8.
 
 ### Pil izleme KAPALI — üç yerde birden
 
@@ -128,8 +135,8 @@ takılınca **üçünü birden** aç, biri unutulursa tutarsız davranır:
 2 Ağu tarihli commit yazıyor ama dosyalar sonra güncellendi. Senkron kontrolü
 için `.surum`'a **güvenme**, md5 karşılaştır.
 
-⚠️ **Repodaki değişiklikler commit edilmemiş.** 14 dosyada +1135/−51 satır ve
-8 yeni dosya git'te yok. Uçuş kanıtını geçiren kodun tamamı bu durumda.
+✅ **Repo commit'li** (15 Ağustos). Dal `feature/dagitik-suru`. Uçuş kanıtını
+geçiren kodun tamamı, takım belge sistemi ve 15 Ağustos düzeltmeleri git'te.
 
 ---
 
@@ -167,7 +174,7 @@ Bunlar sahada ölçüldü, tekrar sorgulanmasın:
 | # | Sorun | Etki | Nerede |
 |---|-------|------|--------|
 | 1 | `iPhone` SSID'si doğrulanmadı | Telefon açılınca teyit gerekir | `RPI_ESITLEME.md` §7 |
-| 2 | Repo commit'siz ve **push'suz** | Uzakta son commit 1 Ağustos | `YAPILACAKLAR.md` P1.3 |
+| 2 | ~~Repo commit'siz ve push'suz~~ | ✅ 15 Ağu commit'lendi | — |
 | 3 | ylp01 yerde | Üç değil iki uçakla çalışıyoruz | bu belge §1 |
 | 4 | Sürü düğümleri hiç uçmadı | Final görevi bunlara bağlı | `SURU_ENTEGRASYON.md` |
 | 5 | Drone'larda repoda olmayan 21 betik | Bilgi versiyonsuz, kaybolabilir | `COP_TEMIZLIK.md` |
@@ -175,6 +182,16 @@ Bunlar sahada ölçüldü, tekrar sorgulanmasın:
 | 7 | ESC telemetrisi kapalı | Kaza sebebini doğrudan verirdi | `YAPILACAKLAR.md` P2.4 |
 | 8 | `ARCHITECTURE.md` sim dönemine ait | Kodla çelişiyor, yanıltır | `COP_TEMIZLIK.md` |
 | 9 | Wi-Fi düşünce MAVROS log patlıyor | Bekçi kırpıyor ama kök neden duruyor | `RPI_ESITLEME.md` §8 |
+| 10 | Pi saati açılışta ~11 saat geriden | Çapraz uçak log karşılaştırması bozulur | `cihazlar.md` ⏰ |
+
+### 🟠 #10 — Pi saati (çözüm yazıldı, sahada doğrulanmadı)
+
+Pi 5'in RTC'sinde yedek pil yok; açılışta saat bayat geliyor, NTP gelince
+atlıyor. `gps_saat.py` açılışta PX4'ün GPS zamanından düzeltiyor —
+internet gerekmiyor, iki uçak aynı UTC'ye kilitleniyor.
+
+**Doğrulanmadı:** internetsiz açılışta gerçekten çalıştığı henüz sahada
+görülmedi. İlk saha çıkışında `gunluk/son/gps_saat.log`'a bak.
 
 ### ✅ #6 — Parametre ayrışması giderildi (14 Ağustos)
 

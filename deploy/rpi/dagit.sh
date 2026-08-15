@@ -47,27 +47,33 @@ PAKETLER=(swarm_interfaces swarm_core swarm_control swarm_state_machine
 log()  { printf '   %s\n' "$*"; }
 bas()  { printf '\n==== %s ====\n' "$*"; }
 
+# IP cozumlemesinin TEK KAYNAGI: deploy/yki/drone_bul.sh
+#
+# 15 Agustos'ta bulundu: buradaki SON_IP tablosu ve SUBNET hala 10.158.16.x
+# yaziyordu, sahadaki ag ise 10.188.209.x idi. Yani dagit.sh once olmayan bir
+# adrese baglanmayi denyor, sonra YANLIS subnet'i 254 kez tariyor ve
+# "ULASILAMADI" diyordu — kod dagitilmadigi halde uc dakika bekletiyordu.
+#
+# Adres tablosu iki yerde durdugu surece bu tekrar edecek (CLAUDE.md §9:
+# "Ayni sabiti iki yere yazma"). drone_bul.sh onbellek -> mDNS -> MAC taramasi
+# sirasiyla deniyor ve MAC degismedigi icin sonuncusu her agda calisiyor.
 ip_bul() {
-    local ad="$1" ip="${SON_IP[$1]}"
-    if timeout 2 bash -c "echo > /dev/tcp/$ip/22" 2>/dev/null; then
+    local ad="$1"
+    local bulucu="$REPO/deploy/yki/drone_bul.sh"
+    local ip=""
+
+    if [ -x "$bulucu" ]; then
+        ip="$("$bulucu" --ip "$ad" 2>/dev/null | tr -d '[:space:]')"
+        if [ -n "$ip" ]; then echo "$ip"; return 0; fi
+    fi
+
+    # Yedek: betik yoksa son bilinen adresi bir kere dene. Subnet taramasi
+    # BILEREK kaldirildi — yanlis subnet'i taramak dakikalarca surup yine
+    # bulamiyordu, drone_bul.sh bu isi zaten dogru yapiyor.
+    ip="${SON_IP[$ad]:-}"
+    if [ -n "$ip" ] && timeout 2 bash -c "echo > /dev/tcp/$ip/22" 2>/dev/null; then
         echo "$ip"; return 0
     fi
-    # DHCP kaymis olabilir; subnet'i tara.
-    local i
-    for i in $(seq 1 254); do
-        ( timeout 1 bash -c "echo > /dev/tcp/$SUBNET.$i/22" 2>/dev/null \
-          && echo "$SUBNET.$i" ) &
-    done | head -20 > /tmp/dagit_tarama.txt
-    wait 2>/dev/null
-    # Dogru makineyi hostname ile ayirt et — port acik olan her sey drone degil.
-    local aday
-    while read -r aday; do
-        [ -z "$aday" ] && continue
-        if [ "$(timeout 5 ssh -o ConnectTimeout=3 -o BatchMode=yes \
-                "${KULLANICI[$ad]}@$aday" hostname 2>/dev/null)" = "$ad" ]; then
-            echo "$aday"; return 0
-        fi
-    done < /tmp/dagit_tarama.txt
     return 1
 }
 
@@ -123,8 +129,9 @@ dagit_bir() {
 
     # baslat.sh ve mesaj_hizlari.py ws kokunde duruyor (konteyner /ws goruyor)
     rsync -a "$REPO/deploy/rpi/baslat.sh" "$REPO/deploy/rpi/mesaj_hizlari.py" \
+          "$REPO/deploy/rpi/gps_saat.py" \
           "$kul@$ip:$hedef/" || { log "baslat.sh rsync BASARISIZ"; return 1; }
-    log "baslat.sh + mesaj_hizlari.py tamam"
+    log "baslat.sh + mesaj_hizlari.py + gps_saat.py tamam"
 
     # --- 2) konteynerde derleme -------------------------------------------
     # colcon build OLMADAN rsync HICBIR SEY yapmaz: dugumler install/ altindan

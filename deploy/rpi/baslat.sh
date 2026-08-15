@@ -173,6 +173,29 @@ ros2 run mavros mavros_node --ros-args -r __ns:=/drone_${AGENT_ID}/mavros \
     >> "$GUNLUK/mavros.log" 2>&1 &
 [ -n "$GCS_URL" ] && echo "[baslat] MAVLink QGC'ye iletiliyor: $GCS_URL"
 sleep 15
+
+# --- GPS'ten saat duzeltme (15 Agustos) -------------------------------------
+# Pi 5'te RTC yedek pili yok: acilista saat ~11 saat GERIDEN geliyor ve ancak
+# ag gelince NTP one atlatiyor (olculdu, ayrinti gps_saat.py basinda). Iki
+# ucagin saati o pencerede birbirinden farkli olur; capraz ucak kayit
+# karsilastirmasi (kim once lider oldu, kacinma ne zaman tetiklendi) imkansiz
+# hale gelir. Yarisma gunu sahada internet olmayabilir — NTP hic gelmez.
+#
+# PX4 UTC'yi GPS'ten aliyor, MAVROS 1 Hz'de yayinliyor. Internet gerekmiyor.
+#
+# NEDEN TAM BURASI: mavros ayakta ama diger dugumler HENUZ ACILMADI. Saati bir
+# dugum kostuktan sonra atlatmak ROS zamanlayicilarini ve kayit damgalarini
+# bozar. Bu yuzden bir kez, burada, dugumlerden once.
+#
+# GPS 25 sn icinde kilitlenmezse saat DEGISMEZ ve olculen fark loga yazilir —
+# o boot'un kayitlari sonradan o farkla duzeltilebilir. Acilis bloke olmaz.
+# Kapatmak icin: touch ~/yelpence_ws/gps_saat_kapali
+if [ -f /ws/gps_saat_kapali ]; then
+    echo "[baslat] gps saat duzeltmesi KAPALI (/ws/gps_saat_kapali)"
+elif [ -f /ws/gps_saat.py ]; then
+    python3 /ws/gps_saat.py --ns "/drone_${AGENT_ID}" --bekle 25 2>&1 \
+        | tee -a "$GUNLUK/gps_saat.log"
+fi
 # GUIDED YORUNGE HIZLARI — yorunge 2 Agustos'ta px4_bridge'e tasindi
 # (bkz. _yurutucu_ilerlet). Onceden gorev betigi setpoint'i kendi yurutuyor ve
 # her ara noktayi mesh'ten yolluyordu; mesh'te ~%30 paket kaybi oldugu icin
@@ -193,8 +216,21 @@ sleep 15
 # 2.0 ucar, YKI ekraninda 3.0 yazardi ve varis zamanlamasi kayardi.
 # Dosya yoksa asagidaki varsayilanlar gecerli — eski davranis korunur.
 #
-# ENV ONCELIKLI: docker run -e ile verilen deger dosyayi EZER. Sahada tek
-# ucakta hizli deneme yapmak icin.
+# DOSYA ONCELIKLI — `. dosya` env'i EZER.
+#
+# 15 Agustos'ta olculdu: burada onceden "ENV ONCELIKLI, -e dosyayi ezer"
+# yaziyordu ve YANLISTI. `GUIDED_HIZ_YATAY=9.9` env'iyle girip dosyayi
+# source edince sonuc 3.0 cikiyor, yani -e SESSIZCE yok sayiliyor. Ucus hizi
+# degiskeninde bu tehlikeli bir yalan: operator 1.0 verdigini sanip 3.0
+# ucabilirdi.
+#
+# Davranis BILEREK boyle birakildi: 14 Agustos'ta hiz/ivme tek kaynaga
+# (ucus_ayarlari.py) baglandi ve dosyanin kazanmasi tam olarak kaymayi
+# onleyen sey. Duzeltilen yorumdur.
+#
+# Tek ucakta hizli deneme icin -e degil, CANLI parametre yolu var
+# (konteyner yeniden baslamadan, CLAUDE.md §8):
+#     python3 - --ns /px4_bridge --yaz guided_hiz_yatay_mps=4.0  < src/gcs/px4_param.py
 if [ -f /ws/ucus_ayarlari.env ]; then
     # shellcheck disable=SC1091
     . /ws/ucus_ayarlari.env
@@ -448,6 +484,31 @@ trap kapat TERM INT
 # formation_node -> collision_avoidance -> px4_bridge seklinde akiyor ve
 # collision_avoidance ZORUNLU HALKA (setpoint/raw -> setpoint donusumu onda).
 # Yalniz formation_node acilirsa setpoint PX4'e HIC ulasmaz.
+# CANLI ANAHTAR: /ws/suru_dugumleri dosyasi VARSA env'i EZER.
+#
+# NEDEN dosya (15 Agustos): env degistirmek konteyneri yeniden YARATMAK
+# demek (docker run -e ...). O da mavros'u sifirdan baslatir -> FCU yeniden
+# baglanir, RTK yeniden kilitlenir; sahada 1-2 dakika ve bir belirsizlik
+# penceresi. Entegrasyon boyunca dugumleri surekli acip kapatacagiz, yani bu
+# bedel onlarca kez odenecekti. Dosyaya baglayinca islem sadece:
+#
+#     echo "consensus" > ~/yelpence_ws/suru_dugumleri && docker restart drone1
+#
+# yani yeniden YARATMA degil, RESTART. /ws/kacinma ve /ws/ucus_ayarlari.env
+# ile ayni deyim — uc bayrak da ayni sekilde davraniyor.
+#
+# Dosya bicimi: adlar bosluk ya da satirla ayrilir, '#' ile yorum yazilabilir.
+#     echo "consensus"            > ~/yelpence_ws/suru_dugumleri
+#     echo "consensus formasyon"  > ~/yelpence_ws/suru_dugumleri
+#     rm ~/yelpence_ws/suru_dugumleri     # hepsini kapat (env'e geri doner)
+#
+# Bos dosya = "hicbiri" demek ve env'i yine ezer. Boylece env'de bir sey
+# yazsa bile dosyayla hepsini kapatmak mumkun (acil durumda gerekli).
+if [ -f /ws/suru_dugumleri ]; then
+    SURU_DUGUMLERI="$(sed 's/#.*//' /ws/suru_dugumleri | tr '\n' ' ' \
+                      | tr -s '[:space:]' ' ' | sed 's/^ *//; s/ *$//')"
+    echo "[baslat] suru dugumleri DOSYADAN: '${SURU_DUGUMLERI}' (/ws/suru_dugumleri)"
+fi
 SURU_DUGUMLERI="${SURU_DUGUMLERI:-}"
 
 acik() {
