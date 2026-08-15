@@ -1,6 +1,6 @@
 # DURUM — şu an ne çalışıyor, ne bozuk
 
-**Son güncelleme:** 15 Ağustos 2026, 16:10
+**Son güncelleme:** 15 Ağustos 2026, 17:05
 
 > Bu belge **şimdiki hâli** anlatır, tarihçe değil. Bir şey değişince burayı
 > güncelle, eskisini sil. Ne olduğunun hikâyesi `GUNLUK.md`'de kalır.
@@ -163,10 +163,12 @@ geçiren kodun tamamı, takım belge sistemi ve 15 Ağustos düzeltmeleri git'te
 
 ```
 mavros_node · px4_bridge · agent_fsm_node · esp32_bridge · basit_kacinma
-+ swarm_origin_publisher · consensus_node          (15 Ağustos'ta açıldı)
++ ic_dis_kopru · swarm_origin_publisher · consensus_node   (15 Ağustos)
 ```
 
-**İlk iki sürü düğümü sahada koşuyor.** Kalan 12'si kapalı.
+**İlk sürü düğümleri sahada koşuyor.** `ic_dis_kopru` herhangi bir sürü
+düğümü açıksa kendiliğinden açılıyor — sözleşmenin `internal → public`
+yerel döngüsünü o kuruyor (bkz. `YAPILACAKLAR` P0.6).
 
 ### ✅ ADIM 1 geçti — consensus çalışıyor (15 Ağustos)
 

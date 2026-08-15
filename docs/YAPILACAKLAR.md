@@ -1,6 +1,6 @@
 # YAPILACAKLAR
 
-**Son güncelleme:** 15 Ağustos 2026, 16:10
+**Son güncelleme:** 15 Ağustos 2026, 17:05
 
 ## Önem dereceleri
 
@@ -147,15 +147,37 @@ kapısı açıldı. Lider arıza devri de gözlendi (`1 -> 3`, 82 ms).
   dinlenmezdi**. Eksik kadro seçimi engellemiyor: `election.py:101` tam
   kadro yoksa `bootstrap_grace_s` (1.5 sn) sonrası yine seçim yapıyor.
   `SURU_AJAN_SAYISI` env'i eklendi, varsayılan 3.
-- `[ ]` 🔴 **`swarm_fsm.agent_count = 3`** → `formation_reached` şartı
-  `active >= expected`; 2 uçakla **asla true olmaz**, FORMING'den çıkılamaz.
-  Ayrıca bir uçak bayatlarsa `1/3 < 0.5` → FAILSAFE. `2` verilmeli
-- `[ ]` 🔴 **`swarm_fsm` sabit formasyon ofsetleri** (OKBASI 3 m, CIZGI 4 m,
-  ajan 1/2/3 gömülü, heading'e göre döndürülmüyor) → bizim 12 m aralıkta
-  `formation_stable`/`formation_reached` **yanlış**. Ofsetler
-  `FormationCommand`'dan alınmalı
-- `[ ]` 🟠 **`swarm_fsm._on_election` tek global seq sayacı** — `consensus`'ta
-  düzeltilmiş hata burada duruyor; lider değişince seçim mesajları sessizce düşer
+- `[x]` 🔴 ~~**`swarm_fsm.agent_count`**~~ → **ikiye ayrıldı (15 Ağu).**
+  Tek parametre iki işi yapıyordu ve **çelişiyorlardı**: abonelik kimlik
+  aralığı (`range(1, N+1)` → **3 olmalı**, yoksa drone3 hiç dinlenmez) ve
+  filo büyüklüğü (**2 olmalı**). Tek değerken `formation_reached` için
+  `2 >= 3` false (FORMING'de kalıcı takılma) **ve** sağlık oranı
+  `1/3 = 0.33 < 0.5` (bir uçak bozulunca tüm sürüye acil iniş).
+  Artık `agent_count` + `expected_agent_count`; `baslat.sh`
+  `SURU_AJAN_SAYISI` / `SURU_BEKLENEN_UCAK` ile geçiyor.
+  **Üç uçak birden uçulunca `SURU_BEKLENEN_UCAK=3` yapılacak.**
+- `[x]` 🔴 ~~**`swarm_fsm` sabit formasyon ofsetleri**~~ → **düzeltildi.**
+  Not eksikti: o ofsetler zaten **hiç çalışmıyordu** (ölü kod), çünkü
+  `ctx.active_formation` bu düğümde **hiçbir yerde atanmıyordu** ve
+  `FormationCommand` aboneliği yoktu. Kalite metriği her ajanı merkeze göre
+  ölçüyor, 12 m aralıkta hata ~6 m çıkıyor, eşikler 1.5/1.0 m — yani
+  `formation_stable`/`formation_reached` **her zaman false**.
+  Artık `/swarm/public/formation/target` dinleniyor; ofsetler liderin
+  gömdüğü atamadan (yoksa `compute_slot_offsets`), heading kadar döndürülüp
+  **ortalaması çıkarılıyor**. Sonuncusu şart: slotlar lider merkezli, sıfır
+  ortalamalı değil — 12 m'de **6 m sabit yanlılık**, eşiği kıran sayı o.
+  Doğrulandı: 2 uçak çizgi → `(0,-6)`/`(0,+6)`, heading=90 → `(+6,0)`/`(-6,0)`,
+  ofset toplamı heading=33'te bile tam sıfır.
+- `[x]` 🟠 ~~**`swarm_fsm._on_election` tek global seq sayacı**~~ →
+  **düzeltildi.** `consensus_node` her yeniden başladığında `sequence_num`
+  1'e döner, `1 <= max` olduğu için **bütün** seçim mesajları bayat sayılıp
+  düşüyordu — `docker restart` sonrası `swarm_fsm` lider değişimlerine
+  kalıcı sağır kalıyordu. Artık kaynak başına `(incarnation, seq)` ve
+  consensus'un kendi `election.seq_kabul` fonksiyonu.
+- `[x]` 🟡 ~~`baslat.sh` `fsm` anahtarı~~ → **ayrıldı.** Üç düğümü birden
+  açıyordu (`swarm_fsm` ADIM 2, `mission_fsm` ADIM 6, `mode_manager`
+  ADIM 12) ve `swarm_fsm_node`'a **hiç parametre geçmiyordu**. Artık
+  `fsm` / `gorevfsm` / `mod`.
 - `[ ]` 🟠 **`px4_bridge velocity_only:=True`** — `formation_node` C modu için
   tasarlanmış, varsayılan `False` → kazançlar toplanır (0.8 + 0.95)
 - `[ ]` 🟠 `task_reallocator.min_active_for_formation:=2`,
@@ -176,10 +198,20 @@ Tam analiz: `SURU_ENTEGRASYON.md` §2 ve §3.
 - `[x]` ✅ **Çarpışma önleme seçimi KARARA BAĞLANDI** → `KARARLAR.md` KARAR-01
   (Seçenek C: `collision_avoidance` + ham `AgentStatus`, `d0=8 m` ile başla).
   Uygulama Aşama 1B'de.
-- `[?]` 🔴 **internal/public köprüsü eksik.** `SwarmState` ve `MissionTarget`
-  `esp32_bridge` tarafından **taşınmıyor** → `swarm_fsm` ve `mission_fsm`
-  çıktıları boşluğa yayınlanıyor, `mission1` onları asla göremiyor.
-  Karar: yerel remap mı, mesh'e eklemek mi?
+- `[x]` 🔴 ~~**internal/public köprüsü eksik**~~ → **kalıcı çözüldü (15 Ağu).**
+  Yeni düğüm: `swarm_control/ic_dis_kopru.py`, **12 konu** taşıyor.
+  Sözleşme gereği düğümler kendi çıktısını `internal`'a yazıp
+  başkalarınınkini `public`'ten okuyor; simülasyonda bu köprüyü
+  `network_proxy` kuruyordu ve **iki** işi yapıyordu (yerel döngü +
+  ajanlar arası). Sahada `esp32_bridge` yalnız ikincisini yapıyordu.
+  Ölçülen sonuçlar: `swarm_fsm` kendi consensus'unun seçimini hiç
+  görmüyordu · `agent_fsm` origin'i göremiyordu (ADIM 1'de geçici remap
+  ile aşılmıştı, o remap artık **kaldırıldı**) · `swarm_fsm`'in
+  `SwarmState` çıktısı kimseye ulaşmıyordu.
+  Doğrulandı: `kopru gecen: events/system=60 origin=59` (60 sn),
+  `/swarm/public/state` yayıncı sayısı 0 → 1.
+  ⚠️ `drone{N}/status` **bilerek taşınmıyor** — uçak kendini komşu sanıp
+  kendinden kaçmaya çalışırdı.
 - `[ ]` 🟡 **`px4_bridge` öncelik hakemliği** — `priority` alanı var ama
   kullanılmıyor. **Aciliyeti düştü:** kod okununca görüldü ki çakışma zaten
   **susturma** ile çözülmüş (`formation_node` MANEUVER adımında ve
