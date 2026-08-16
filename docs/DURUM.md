@@ -1,6 +1,6 @@
 # DURUM — şu an ne çalışıyor, ne bozuk
 
-**Son güncelleme:** 16 Ağustos 2026, 21:28
+**Son güncelleme:** 16 Ağustos 2026, 21:32
 
 > Bu belge **şimdiki hâli** anlatır, tarihçe değil. Bir şey değişince burayı
 > güncelle, eskisini sil. Ne olduğunun hikâyesi `GUNLUK.md`'de kalır.
@@ -156,6 +156,16 @@ Yeni repoda olmayanlar: `sim/`, `docker/`, `network_proxy`,
 Hepsi eski repoda ve git geçmişinde duruyor.
 
 ⚠️ **`dagit.sh` ile kod dağıtmadan önce hangi repoda olduğunu doğrula.**
+
+### Belge düzeni sadeleşti (16 Ağustos akşamı)
+
+Temmuz–Ağustos saha günlükleri (`docs/arsiv/`, 5 dosya) **silindi**; hâlâ
+geçerli olan her şey yeni **`docs/TUZAKLAR.md`**'ye çıkarıldı ve koda
+bakılarak doğrulandı. `docs/`: 17 md → **12 md**.
+
+🔴 `TUZAKLAR.md` **§0'da durumu bilinmeyen üç güvenlik maddesi** var
+(ylp00 clipping ölçüm kuralı, alıcı failsafe'inin kill tetiklemesi,
+hover gazı %66). Uçuş öncesi cevaplanmalı — `YAPILACAKLAR.md` P1.6.
 
 ---
 

@@ -1,6 +1,6 @@
 # YAPILACAKLAR
 
-**Son güncelleme:** 16 Ağustos 2026, 21:28
+**Son güncelleme:** 16 Ağustos 2026, 21:32
 
 ## Önem dereceleri
 
@@ -405,6 +405,28 @@ gerekmiyor. Ayrıntı `cihazlar.md` ⏰ bölümü.
 - `[ ]` ⚪ Kalıcı donanım çözümü: Pi 5 RTC konnektörüne düğme pil.
   Operatör "pil bağlayamam" dedi (15 Ağu) — GPS yolu bu yüzden seçildi
 
+### P1.6 Durumu bilinmeyen üç güvenlik maddesi — `TUZAKLAR.md` §0
+
+Arşiv sadeleştirilirken çıktılar (16 Ağu). Üçü de **hiçbir canlı belgede
+yoktu**, o yüzden bugünkü halleri bilinmiyor. Uçuş kanıtı geçildiğine göre
+bir kısmı düzelmiş olabilir — ama bunu kimse yazmamış.
+
+- `[?]` 🟠 **ylp00 clipping ölçüm kuralı hâlâ geçerli mi?** 1 Ağu'da uçağı
+  deviren zincirin göstergesiydi (`clipping +80`, titreşim z tepe
+  33.84 m/s²). Kural şuydu: her uçuştan önce `titresim_olc.py`, clipping
+  artıyorsa **UÇMA**. Araç repoda duruyor, kural hiçbir ön kontrol
+  listesinde yok. Geçerliyse uçuş öncesi listesine gir (bkz. P3 otomatik
+  ön kontrol maddesi)
+- `[?]` 🟠 **ylp00'ın alıcı failsafe'i hâlâ kill mi tetikliyor?** 29 Tem'de
+  ölçüldü: kumanda kapalıyken CH5=2000 → kill açık, yani havada RC kaybı
+  RTL değil **motor kesme** demekti. Uçuş izninin kapısıydı. Ayar alıcının
+  flash'ında — QGC göstermez, parametre karşılaştırması bulamaz
+- `[?]` 🟡 **ylp00 hover gazı %66 mı?** İtki payı yok; motor yakan ve
+  devrilmeyi kolaylaştıran yapısal sorun olarak yazılmıştı
+
+Cevap "düzeldi" ise `TUZAKLAR.md` §0'dan silinir; "hâlâ açık" ise buraya
+somut madde olarak açılır.
+
 ---
 
 ## 🟡 P2 — ÖNEMLİ
@@ -463,6 +485,20 @@ Tamamı `SURU_ENTEGRASYON.md`'de. Uçuşsuz hazırlık:
   teşhis araçları — versiyonsuz, kaybolabilir, kimse ne olduklarını bilmiyor.
   ⚠️ Listeleri `COP_TEMIZLIK.md` §D'deydi, **o belge silindi** — hangi 21 betik
   olduğu artık hiçbir yerde yazmıyor. İlk adım listeyi uçaktan çekmek.
+- `[ ]` 🟡 **Kalan kırık referanslar.** 16 Ağu'da tarama yapıldı, yalnız
+  `COP_TEMIZLIK.md` temizlendi; şunlar duruyor:
+  - `ARCHITECTURE.md` (5 atıf) ve `qgc_proxy.py` (3) — dosyalar depo
+    ayrımında gitti, atıflar kaldı
+  - `INTERFACE_CONTRACT.md` — `maneuver_executor` `formation_control/`
+    içinde, `precision_landing` `swarm_missions/` altında gösteriliyor;
+    **ikisi de gerçekte başka pakette** (12 atıf). Ayrıca `member_manager`,
+    `neighbor_monitor`, `failsafe_handler` depoda **hiç yok** — sözleşmede
+    tasarım niyeti olarak duruyorlar, akış şemalarını okuyan yanılıyor
+  - `YELPENCE_RTCM_SPEC.md` — §3.1.1 ve §3.4 planlanan modül adlarını
+    kullanıyor (`uart_framer.py`, `rtcm_parser.py`, `mavlink_injector.py`);
+    hiçbiri o adla yazılmadı. Spec'in kendi kuralı: **kod kazanır**
+- `[x]` 🟡 ~~Arşiv belgeleri güncel değil, kimse okumuyor~~ → 16 Ağu'da
+  silindi; geçerli içerik `TUZAKLAR.md`'ye çıkarıldı (`docs/`: 17 → 12 md)
 - `[x]` 🟡 ~~`README.md` sim kurulumu anlatıyor~~ → giriş noktası olarak yeniden yazıldı
 - `[x]` 🟡 ~~`ARCHITECTURE.md` yanıltıcı~~ → başına uyarı kondu
 

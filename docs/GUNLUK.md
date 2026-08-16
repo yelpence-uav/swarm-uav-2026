@@ -1,6 +1,6 @@
 # GÜNLÜK — oturum devir teslim kaydı
 
-**Son güncelleme:** 16 Ağustos 2026, 19:50
+**Son güncelleme:** 16 Ağustos 2026, 21:32
 
 Tek bilgisayar, sırayla çalışıyoruz. Biri kalkıp diğeri oturduğunda **hem
 kişi hem Claude** nerede kalındığını buradan anlar.
@@ -38,29 +38,55 @@ Claude'a **"oturumu kapat"** dersen bu kaydı o yazar.
 
 ---
 
-## 2026-08-16 19:50 — Beyza + Claude (depo devri + sim temizligi)
+## 2026-08-16 21:32 — Beyza + Osman + Claude (depo devri, sim temizliği, belge sadeleştirme)
+
+> Aynı günün iki oturumu (19:50 ve 21:32) **tek kayıtta birleştirildi** —
+> ikisi de belge/depo düzeni işiydi, uçağa dokunulmadı.
 
 **Ne yapıldı**
+
+*Depo devri ve sim temizliği (Beyza)*
 
 - ✅ **PR #118 merge edildi** (squash). Eyüp'ün 121 commit'i `main`'de.
   Çakışmalar `-X ours` ile çözüldü — uçuş kodunda Eyüp'ün tarafı kazandı,
   #117'nin Görev 2 katkısı çakışmayan yerlerden geldi.
 - ✅ **Yeni repo: `yelpence-2026-saha`** (kaptan kararı). Sim'siz saha
-  sürümü. Eski repo arşiv, dokunulmadı.
+  sürümü. Eski repo (`yelpence-2026-swarm`) arşiv, dokunulmadı.
 - ✅ **83 dosya kaldırıldı**, 427 → 344. `sim/` (27 MB), `docker/`,
   `network_proxy`, `sim_rtcm_source`, `scripts/`, `qgc_proxy.py`,
   `gorev1.launch.py`, `ARCHITECTURE.md`, `COP_TEMIZLIK.md`.
-- ✅ 5 arşiv belgesi `docs/arsiv/` altına alındı. `docs/` kökünde 12 canlı
-  belge kaldı.
 - ✅ CI sadeleştirildi: Bandit ve docker testi kaldırıldı, `colcon test`
   flake8'i atlıyor. Derleme + ~340 birim test kapı olarak duruyor.
 - ✅ README yeniden yazıldı — ölü atıflar gitti, mesh/WiFi ayrımı eklendi.
 
+*Belge sadeleştirme (Osman)*
+
+- ✅ **Arşiv tamamen silindi.** 5 saha günlüğü, 2322 satır. Silmeden önce
+  içindekiler madde madde tarandı: 16 bilgi kaleminin tamamı başka yerde
+  çıktı (`cihazlar.md`, `MESH_PROTOKOL_KARARLARI.md`, `kur_yki.sh`,
+  `izleme_kur.sh`, `YUKLEME_PROSEDURU.md`…). Geriye benzersiz bilgi kalmadı.
+- ✅ **`docs/TUZAKLAR.md` doğdu** (638 satır) — arşivdeki hâlâ geçerli her
+  şey: 30+ tuzak (ölçüm aracı yalan söylüyor / ROS-DDS / PX4 / mesh-ESP32 /
+  Pi-seri / RTK), ölçülmüş referans sayılar, ve **§0'da çözülmemiş üç
+  güvenlik maddesi**. Maddelerin tamamı koda bakılarak doğrulandı;
+  **7 tanesinin geçersizleştiği ölçüldü** ve alınmadı (`/tools` gitignore,
+  `tsbuildinfo`, rosbag reindex, `MAKS_EGIM` sabiti, `gunluk/son` bağı,
+  `ORIGIN_ALT` 1218.5, ylp01 durumu).
+- ✅ **Arşive giden 15 `git show` işaretçisi 8 dosyadan tamamen kaldırıldı.**
+  Gerekçe: commit hash'i kırılgan (depo zaten bir kez bölündü, ikincisinde
+  işaretçi yalana döner) ve dostane bir komut bayat malzemeyi okumaya
+  davettir. Köken bildirimleri düz tarihe çevrildi ("28 Temmuz'da ölçüldü").
+- ✅ **`COP_TEMIZLIK.md`'nin 7 kırık referansı** temizlendi (`CLAUDE.md`,
+  `PLAN.md`, `DURUM.md` ×2, `RPI_ESITLEME.md`, `YAPILACAKLAR.md` ×2).
+- 📉 `docs/`: **17 md → 12 md.**
+
 **Ne değişti**
 
-- kod: yok. Yalnız dosya silme ve belge düzeni.
+- kod: yok. İki oturumda da yalnız dosya silme ve belge düzeni.
 - uçakta: **hiçbir şey.** Saha çalışması yapılmadı, dronlara bağlanılmadı.
-- belge: `README.md`, `docs/arsiv/`, `INTERFACE_CONTRACT.md` §3.0.
+- belge: `README.md`, `CLAUDE.md`, `PLAN.md`, `DURUM.md`, `YAPILACAKLAR.md`,
+  `RPI_ESITLEME.md`, `INTERFACE_CONTRACT.md` §3.0.
+  **YENİ:** `docs/TUZAKLAR.md`. **SİLİNDİ:** `docs/arsiv/` (5 dosya).
 
 **Yarım kalan / tuzak**
 
@@ -72,13 +98,28 @@ Claude'a **"oturumu kapat"** dersen bu kaydı o yazar.
 
   `gozlem` açık olduğu için şimdilik zararsız. **G3'te canlı olur** —
   1 Ağustos'ta ylp00'ı deviren zincir buydu.
+- 🔴 **`TUZAKLAR.md` §0 — durumu BİLİNMEYEN üç güvenlik maddesi.** Arşivden
+  çıktılar, hiçbir canlı belgede yoklardı, bugünkü halleri bilinmiyor:
+  ylp00'ın **clipping ölçüm kuralı** (`titresim_olc.py` repoda duruyor ama
+  hiçbir uçuş öncesi listesinde yok), ylp00 **alıcı failsafe'inin kill
+  tetiklemesi** (uçuş izninin kapısıydı), **hover gazı %66**.
+  Cevaplanınca doğru bölüme taşınacak ya da `YAPILACAKLAR`'a girecek.
 - ⚠️ **`px4_bridge.py:528`** — `if sitl_mode or battery_percent <= 0.0:`
   `or`'un ikinci yarısı sahada **aktif** (BAT1_SOURCE kapalı). Temizlik
   yapan biri satırı silerse sahayı bozar.
+- 🟡 **21 teşhis betiğinin listesi kayboldu.** `COP_TEMIZLIK.md` §D'deydi,
+  belge silinince gitti; hangi betikler olduğu artık hiçbir yerde yazmıyor.
+  `YAPILACAKLAR` P2.5 — ilk adım listeyi uçaktan çekmek.
+- 🟡 **Kırık referans taraması yapıldı, tamamı temizlenmedi.** `ARCHITECTURE.md`
+  (5), `qgc_proxy.py` (3), `INTERFACE_CONTRACT.md`'de iki düğümün yanlış
+  pakette gösterilmesi (12), `YELPENCE_RTCM_SPEC.md`'de hiç yazılmamış modül
+  adları (5) hâlâ kırık. Kapsam bilerek dar tutuldu.
 - 🟡 `sitl_mode` hâlâ 58 yerde, 20 dosyada. G2 öncesi dokunulmadı.
 - 🟡 2 stil hatası (`formation_node.py:5` ölü `import time`;
   `swarm_state_machine` import sırası). CI'da atlanıyor.
 - 🟡 Eyüp'ün dalına merge commit gitti — **`git pull` yapmadan push edemez.**
+- ℹ️ Arşiv silindi ve **depoda ona giden hiçbir işaretçi bırakılmadı** —
+  bilinçli karar. Ham günlükler git geçmişinde duruyor.
 
 **Sıradaki adım**
 
