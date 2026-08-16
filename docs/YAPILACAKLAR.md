@@ -1,6 +1,6 @@
 # YAPILACAKLAR
 
-**Son güncelleme:** 16 Ağustos 2026, 20:57
+**Son güncelleme:** 16 Ağustos 2026, 21:28
 
 ## Önem dereceleri
 
@@ -459,9 +459,10 @@ Tamamı `SURU_ENTEGRASYON.md`'de. Uçuşsuz hazırlık:
 
 ### P2.5 Belge borcu
 
-- `[ ]` 🟡 Drone'lardaki **21 betiği** repoya al ya da sil
-  (`COP_TEMIZLIK.md` §D). Sahada yazılmış teşhis araçları — versiyonsuz,
-  kaybolabilir, kimse ne olduklarını bilmiyor.
+- `[ ]` 🟡 Drone'lardaki **21 betiği** repoya al ya da sil. Sahada yazılmış
+  teşhis araçları — versiyonsuz, kaybolabilir, kimse ne olduklarını bilmiyor.
+  ⚠️ Listeleri `COP_TEMIZLIK.md` §D'deydi, **o belge silindi** — hangi 21 betik
+  olduğu artık hiçbir yerde yazmıyor. İlk adım listeyi uçaktan çekmek.
 - `[x]` 🟡 ~~`README.md` sim kurulumu anlatıyor~~ → giriş noktası olarak yeniden yazıldı
 - `[x]` 🟡 ~~`ARCHITECTURE.md` yanıltıcı~~ → başına uyarı kondu
 
@@ -474,8 +475,8 @@ Tamamı `SURU_ENTEGRASYON.md`'de. Uçuşsuz hazırlık:
   `param_karsilastir.py`), birleştirilmedi.
 - `[ ]` ⚪ Uçuş kaydı çözümleme aracı (rosbag2 → grafik). Her kazadan sonra
   elle sorgu yazılıyor.
-- `[?]` ⚪ `sim/` klasörü ve `scripts/` sim betikleri — sil mi, arşiv dalına mı
-  (`COP_TEMIZLIK.md` §B). **Karar operatörün.**
+- `[?]` ⚪ `sim/` klasörü ve `scripts/` sim betikleri — sil mi, arşiv dalına mı?
+  **Karar operatörün.**
 - `[ ]` ⚪ `src/gcs/qgc_proxy.py` sil — `cihazlar.md` "KULLANILMIYOR" diyor
 - `[ ]` ⚪ Kök dizindeki 4 görsel ve 2 PDF'i yerleştir (`ss/` ve `docs/sartname/`)
 - `[ ]` ⚪ `.surum` dosyasını güvenilir yap — `dagit.sh` senkron sonrası yazmıyor,

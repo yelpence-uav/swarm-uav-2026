@@ -1,6 +1,6 @@
 # PLAN — buradan finale
 
-**Son güncelleme:** 16 Ağustos 2026, 20:57
+**Son güncelleme:** 16 Ağustos 2026, 21:28
 
 Bu belge **tüm takımın ortak resmi**. Teknik ayrıntı diğer belgelerde;
 burada *ne yapıyoruz, neredeyiz, nasıl gideceğiz* var.
@@ -184,7 +184,6 @@ Claude'a **"oturumu kapat"** de. Şunları o yazar:
 | `SURU_ENTEGRASYON.md` | Aşamaların **teknik** ayrıntısı |
 | `NAVIGASYON_KAYMA.md` | Uçak hedefinin arkasında kalıyor mu |
 | `cihazlar.md` | SSH, IP, MAC, portlar, QGC |
-| `COP_TEMIZLIK.md` | Sim döneminden ne kaldı |
 
 **Ekran görüntüsü:** `ss/` klasörüne at, Claude'a "ss'e attım" de.
 

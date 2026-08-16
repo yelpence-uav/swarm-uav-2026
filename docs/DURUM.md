@@ -1,6 +1,6 @@
 # DURUM — şu an ne çalışıyor, ne bozuk
 
-**Son güncelleme:** 16 Ağustos 2026, 19:50
+**Son güncelleme:** 16 Ağustos 2026, 21:28
 
 > Bu belge **şimdiki hâli** anlatır, tarihçe değil. Bir şey değişince burayı
 > güncelle, eskisini sil. Ne olduğunun hikâyesi `GUNLUK.md`'de kalır.
@@ -237,10 +237,10 @@ Bunlar sahada ölçüldü, tekrar sorgulanmasın:
 | 2 | ~~Repo commit'siz ve push'suz~~ | ✅ 15 Ağu commit'lendi | — |
 | 3 | ylp01 yerde | Üç değil iki uçakla çalışıyoruz | bu belge §1 |
 | 4 | Sürü düğümleri hiç uçmadı | Final görevi bunlara bağlı | `SURU_ENTEGRASYON.md` |
-| 5 | Drone'larda repoda olmayan 21 betik | Bilgi versiyonsuz, kaybolabilir | `COP_TEMIZLIK.md` |
+| 5 | Drone'larda repoda olmayan 21 betik | Bilgi versiyonsuz, kaybolabilir | `YAPILACAKLAR.md` P2.5 |
 | 6 | ~~PX4 parametreleri ayrışmış~~ | ✅ 14 Ağu eşitlendi | `RPI_ESITLEME.md` §8 |
 | 7 | ESC telemetrisi kapalı | Kaza sebebini doğrudan verirdi | `YAPILACAKLAR.md` P2.4 |
-| 8 | `ARCHITECTURE.md` sim dönemine ait | Kodla çelişiyor, yanıltır | `COP_TEMIZLIK.md` |
+| 8 | `ARCHITECTURE.md` sim dönemine ait | Kodla çelişiyor, yanıltır | `YAPILACAKLAR.md` P2.5 |
 | 9 | Wi-Fi düşünce MAVROS log patlıyor | Bekçi kırpıyor ama kök neden duruyor | `RPI_ESITLEME.md` §8 |
 | 10 | Pi saati açılışta ~11 saat geriden | Çapraz uçak log karşılaştırması bozulur | `cihazlar.md` ⏰ |
 

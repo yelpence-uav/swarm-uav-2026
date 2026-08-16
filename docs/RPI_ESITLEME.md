@@ -1,6 +1,6 @@
 # RPİ EŞİTLEME DEFTERİ — geri gelen drone'u hizaya getirme
 
-**Son güncelleme:** 15 Ağustos 2026, 16:10
+**Son güncelleme:** 16 Ağustos 2026, 21:28
 
 ## Bu belge ne için
 
@@ -96,7 +96,7 @@ sudo sysctl -q --load=/etc/sysctl.d/60-yelpence-writeback.conf
 | B4 | `gcs_url` = `udp-b://:14555@14550` | ✅ | ❓ | ✅ | `echo 'udp-b://:14555@14550' > ~/yelpence_ws/gcs_url` |
 | B5 | `tgt_system` | yok | `2` | `3` | tabloya bak — **ylp00'da dosya OLMAMALI** |
 | B6 | `kacinma` (boş dosya) | ✅ | ❓ | ✅ | `touch ~/yelpence_ws/kacinma` |
-| B7 | Teşhis betikleri (21 adet) | ✅ | ❌ | ❓ | repoda yok — `COP_TEMIZLIK.md` §D |
+| B7 | Teşhis betikleri (21 adet) | ✅ | ❌ | ❓ | repoda yok, **listesi de yok** — `YAPILACAKLAR.md` P2.5 |
 
 **B3 doğrulama** (`.surum`'a güvenme, eskiyor):
 

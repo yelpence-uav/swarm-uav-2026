@@ -1,6 +1,6 @@
 # Yelpençe — TEKNOFEST 2026 Sürü İHA
 
-**Son güncelleme:** 16 Ağustos 2026, 20:40
+**Son güncelleme:** 16 Ağustos 2026, 21:28
 
 > Bu dosyayı Claude Code her oturumda **kendiliğinden okur**. Yeni bir sohbet
 > açan kişinin hiçbir şey söylemesine gerek yok; buradan projeyi anlar.
@@ -184,7 +184,6 @@ arayışına dönüşüyor.
 | `docs/MESH_PROTOKOL_KARARLARI.md` | Mesh paket formatının tek kaynağı (1542 satır) |
 | `docs/YELPENCE_RTCM_SPEC.md` | RTK/RTCM zincirinin tek kaynağı (841 satır) |
 | `src/swarm_interfaces/INTERFACE_CONTRACT.md` | ROS mesaj sözleşmesi |
-| `docs/COP_TEMIZLIK.md` | Sim döneminden ne kaldı — temizlik kararları |
 
 ---
 
