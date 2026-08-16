@@ -188,15 +188,7 @@ Claude'a **"oturumu kapat"** de. Şunları o yazar:
 
 **Ekran görüntüsü:** `ss/` klasörüne at, Claude'a "ss'e attım" de.
 
-### 🗄️ Arşiv silindi (16 Ağustos)
-
-Beş saha günlüğü (`20-temmuz`, `28-29-temmuz`, `31temmuz-1agustos`,
-`BEKLEYEN_ISLER`, `kanit_videosu_plani`) silindi. İçlerindeki hâlâ geçerli
-her şey **`TUZAKLAR.md`**'ye çıkarıldı ve koda bakılarak doğrulandı.
-
-Ham kayıt: `git show 94b7d0b:docs/arsiv/<dosya>`
-
-**Çelişirse canlı belge kazanır.**
+**Çelişki varsa:** canlı belge referans belgeyi yener, **kod ikisini de yener.**
 
 ---
 

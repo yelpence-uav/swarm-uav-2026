@@ -4,24 +4,17 @@
 
 > **Bu belge CANLI.** Arşiv değil — buradaki her madde **bugün de geçerli.**
 >
-> 16 Ağustos'ta beş saha günlüğünden çıkarıldı ve maddelerin tamamı **koda
-> bakılarak yeniden doğrulandı**. Geçersizleşenler alınmadı (bkz. en alttaki
-> "Artık geçerli olmayanlar"). Günlükler aynı gün silindi; ham hâlleri
-> `git show 94b7d0b:docs/arsiv/<dosya>` ile açılır.
+> 16 Ağustos'ta Temmuz–Ağustos saha günlüklerinden çıkarıldı ve maddelerin
+> tamamı **koda bakılarak yeniden doğrulandı**; geçersizleşenler alınmadı
+> (bkz. en alttaki "Artık geçerli olmayanlar"). O günlükler artık yok —
+> **bu belge onların yerine geçer.**
 >
 > Buradakiler **hata değil.** Hata verse zaten görürdün. Bunlar hata vermeden,
 > uyarı vermeden, sayaç artırmadan yanlış sonuç üretenler. Her biri en az bir
 > kez saatler yaktı, biri bir uçağı devirdi.
 >
 > **Yeni bir tuzak bulursan buraya yaz.** Parantez içindeki tarih o şeyin
-> ölçüldüğü gündür; ham ölçüm o günün günlüğünde:
->
-> | günlük | komut |
-> |---|---|
-> | 20 Temmuz | `git show 94b7d0b:docs/arsiv/20-temmuz.md` |
-> | 28–30 Temmuz | `git show 94b7d0b:docs/arsiv/28-29-temmuz.md` |
-> | 31 Temmuz – 1 Ağustos | `git show 94b7d0b:docs/arsiv/31temmuz-1agustos.md` |
-> | 2 Ağustos | `git show 94b7d0b:docs/arsiv/BEKLEYEN_ISLER.md` · `…/kanit_videosu_plani.md` |
+> ölçüldüğü gündür — sayı görüyorsan ölçülmüştür, görmüyorsan tahmindir.
 
 ---
 

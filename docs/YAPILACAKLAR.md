@@ -16,9 +16,6 @@ seviyesiz liste bir süre sonra kimsenin okumadığı bir yığına dönüşüyo
 
 Durum: `[ ]` yapılmadı · `[~]` kısmen · `[B]` başka işe bağlı · `[?]` karar bekliyor · `[x]` bitti
 
-> Uçuş kanıtı dönemine ait uzun liste 16 Ağustos'ta silindi; hâlâ geçerli
-> maddeleri `TUZAKLAR.md`'ye taşındı. Ham hâli: `git show 94b7d0b:docs/arsiv/BEKLEYEN_ISLER.md`
-
 ---
 
 ## 🔴 P0 — UÇUŞ ENGELİ

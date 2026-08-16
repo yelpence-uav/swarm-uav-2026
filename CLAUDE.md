@@ -188,31 +188,20 @@ arayışına dönüşüyor.
 
 ---
 
-### 🗄️ ARŞİV — SİLİNDİ, git'te duruyor
+### Nereye bakmalı
 
-Temmuz – 2 Ağustos saha günlükleri (`20-temmuz`, `28-29-temmuz`,
-`31temmuz-1agustos`, `BEKLEYEN_ISLER`, `kanit_videosu_plani`) **16 Ağustos'ta
-silindi.**
+| Soru | Belge |
+|------|-------|
+| Sıradaki iş ne? | `YAPILACAKLAR.md` |
+| "Çalışıyor ama hata da vermiyor" | `TUZAKLAR.md` — önce buraya bak |
+| Mimari nasıl? | `PLAN.md` + `SURU_ENTEGRASYON.md` |
+| Uçakta ne var, ne değişti? | `DURUM.md` + `RPI_ESITLEME.md` |
 
-Silinmeden önce içlerindeki hâlâ geçerli her şey — 30'dan fazla tuzak, ölçüm
-tabloları, çözülmemiş üç güvenlik maddesi — **`docs/TUZAKLAR.md`'ye çıkarıldı**,
-tek tek koda bakılarak doğrulandı ve geçersizleşen 7 madde ayıklandı. Geriye
-yalnız anlatı kaldığı için dosyalar tutulmadı.
+**Çelişki varsa:** canlı belge referans belgeyi yener, **kod ikisini de yener.**
 
-Hepsi `94b7d0b` commit'inde ve `origin/main`'de duruyor:
-
-```bash
-git show 94b7d0b:docs/arsiv/28-29-temmuz.md      # bir günlüğü oku
-git show 94b7d0b --stat -- docs/arsiv/           # hepsini listele
-```
-
-**Bir tuzağın ham ölçüm kaydını görmek istersen** oraya bak — `TUZAKLAR.md`'de
-her maddenin sonunda hangi gün ölçüldüğü yazıyor, o günün günlüğü yukarıdaki
-komutla açılır.
-
-`ARCHITECTURE.md` (sim dönemi mimarisi) bu depoda **yok**, eski depoda
-(`yelpence-2026-swarm`) duruyor ve sahadaki yapıyı anlatmıyor. Mimari
-soruyorsan `PLAN.md` + `SURU_ENTEGRASYON.md`.
+⚠️ `ARCHITECTURE.md` bu depoda **yok** — sim dönemine ait, eski depoda
+(`yelpence-2026-swarm`) duruyor ve sahadaki yapıyı anlatmıyor. Birisi ondan
+bahsederse `PLAN.md`'ye yönlendir.
 
 **Ekran görüntüsü**: `ss/` klasörüne at, sohbette söyle. Bkz. `ss/README.md`.
 

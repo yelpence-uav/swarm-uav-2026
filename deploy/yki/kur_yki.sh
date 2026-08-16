@@ -2,7 +2,7 @@
 # =============================================================================
 # YKİ laptopu sıfırdan kurulum — Ubuntu 24.04 (noble) / ROS 2 Jazzy
 #
-# 20 Temmuz saha günlüğündeki (git show 94b7d0b:docs/arsiv/20-temmuz.md §2) kurulumun tekrarlanabilir
+# 20 Temmuz'da elle yapılan saha kurulumunun tekrarlanabilir
 # hali. Tek fark: ROS apt deposu HTTP üzerinden eklenir, çünkü packages.ros.org
 # şu an adını kapsamayan bir sertifika sunuyor (*.osuosl.org). Paketler GPG ile
 # imzalı olduğu için bütünlük/kimlik doğrulaması aynen korunur; HTTPS'in tek
@@ -72,7 +72,7 @@ mavi "6/8  Python venv (GCS backend)"
 "$VENV/bin/pip" install --quiet --upgrade pip
 "$VENV/bin/pip" install --quiet -r "$REPO/src/gcs/backend/requirements.txt"
 # numpy<2 ve lark backend requirements'ta yok, projenin genel src/requirements.txt'inden
-# geliyorlar (bkz git show 94b7d0b:docs/arsiv/20-temmuz.md §2). Native kurulumda elle ekleniyor.
+# geliyorlar (20 Temmuz'da saptandı). Native kurulumda elle ekleniyor.
 "$VENV/bin/pip" install --quiet "numpy<2.0.0" pytest lark flake8 pyserial
 yesil "  venv hazır: $VENV"
 

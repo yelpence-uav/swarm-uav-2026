@@ -25,9 +25,6 @@ Diğer belgeler: `KARARLAR.md` (verilmiş kararlar), `SURU_ENTEGRASYON.md`
 `docs/TUZAKLAR.md` — sahada acıyla öğrenilenler. Bir şey "çalışmıyor ama hata
 da vermiyor" diyorsa önce oraya bak.
 
-Temmuz–Ağustos saha günlükleri 16 Ağustos'ta silindi; geçerli olan her şey
-`TUZAKLAR.md`'ye çıkarıldı. Ham kayıt: `git show 94b7d0b:docs/arsiv/`.
-
 Claude Code kullanıyorsan [`CLAUDE.md`](CLAUDE.md) kendiliğinden okunur.
 
 > **Kalkarken `docs/GUNLUK.md`'ye devir teslim kaydı yaz** — şablon dosyanın

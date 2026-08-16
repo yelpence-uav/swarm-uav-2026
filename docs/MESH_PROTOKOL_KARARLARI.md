@@ -277,8 +277,7 @@ bir formasyon hatası; şartname çarpışmama şartı koyuyor.
 750 B/s → **%17'si.** Drone-drone yolunda, base UART'a dokunmuyor.
 
 **Yayın broadcast olacak, unicast değil.** RTCM'de unicast'e geçme gerekçesi
-"tek parça kaybı mesajın tamamını öldürüyor"du (28 Temmuz kararı;
-`git show 94b7d0b:docs/arsiv/28-29-temmuz.md` §2). Formasyon
+"tek parça kaybı mesajın tamamını öldürüyor"du (28 Temmuz kararı). Formasyon
 periyodik: kaybolan paket 200 ms sonra kendini kapatır, tıpkı POSE gibi. Tek
 iletim üç drona ulaşır.
 
