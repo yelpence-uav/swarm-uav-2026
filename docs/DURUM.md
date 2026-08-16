@@ -1,6 +1,6 @@
 # DURUM — şu an ne çalışıyor, ne bozuk
 
-**Son güncelleme:** 15 Ağustos 2026, 17:19
+**Son güncelleme:** 16 Ağustos 2026, 19:50
 
 > Bu belge **şimdiki hâli** anlatır, tarihçe değil. Bir şey değişince burayı
 > güncelle, eskisini sil. Ne olduğunun hikâyesi `GUNLUK.md`'de kalır.
@@ -141,6 +141,24 @@ takılınca **üçünü birden** aç, biri unutulursa tutarsız davranır:
 3. `src/gcs/backend/config.yaml` → `alerts.susturulan`'dan batarya kodlarını çıkar
 
 ---
+
+## 🔴 DEPO DEĞİŞTİ (16 Ağustos)
+
+Sim'siz saha sürümü ayrı bir repoya taşındı:
+
+| Repo | İçerik | Rol |
+|------|--------|-----|
+| **`yelpence-2026-saha`** | Sim'siz, 344 dosya | **Çalışılacak repo** |
+| `yelpence-2026-swarm` | Her şey, sim dahil | Arşiv — dokunulmadı |
+
+Yeni repoda olmayanlar: `sim/`, `docker/`, `network_proxy`,
+`sim_rtcm_source`, `scripts/`, `ARCHITECTURE.md`, `COP_TEMIZLIK.md`.
+Hepsi eski repoda ve git geçmişinde duruyor.
+
+⚠️ **`dagit.sh` ile kod dağıtmadan önce hangi repoda olduğunu doğrula.**
+
+---
+
 
 ## 4. Kod senkronu
 

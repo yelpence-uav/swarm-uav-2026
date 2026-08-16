@@ -1,6 +1,6 @@
 # GÜNLÜK — oturum devir teslim kaydı
 
-**Son güncelleme:** 15 Ağustos 2026, 20:15
+**Son güncelleme:** 16 Ağustos 2026, 19:50
 
 Tek bilgisayar, sırayla çalışıyoruz. Biri kalkıp diğeri oturduğunda **hem
 kişi hem Claude** nerede kalındığını buradan anlar.
@@ -37,6 +37,59 @@ Claude'a **"oturumu kapat"** dersen bu kaydı o yazar.
 ```
 
 ---
+
+## 2026-08-16 19:50 — Beyza + Claude (depo devri + sim temizligi)
+
+**Ne yapıldı**
+
+- ✅ **PR #118 merge edildi** (squash). Eyüp'ün 121 commit'i `main`'de.
+  Çakışmalar `-X ours` ile çözüldü — uçuş kodunda Eyüp'ün tarafı kazandı,
+  #117'nin Görev 2 katkısı çakışmayan yerlerden geldi.
+- ✅ **Yeni repo: `yelpence-2026-saha`** (kaptan kararı). Sim'siz saha
+  sürümü. Eski repo arşiv, dokunulmadı.
+- ✅ **83 dosya kaldırıldı**, 427 → 344. `sim/` (27 MB), `docker/`,
+  `network_proxy`, `sim_rtcm_source`, `scripts/`, `qgc_proxy.py`,
+  `gorev1.launch.py`, `ARCHITECTURE.md`, `COP_TEMIZLIK.md`.
+- ✅ 5 arşiv belgesi `docs/arsiv/` altına alındı. `docs/` kökünde 12 canlı
+  belge kaldı.
+- ✅ CI sadeleştirildi: Bandit ve docker testi kaldırıldı, `colcon test`
+  flake8'i atlıyor. Derleme + ~340 birim test kapı olarak duruyor.
+- ✅ README yeniden yazıldı — ölü atıflar gitti, mesh/WiFi ayrımı eklendi.
+
+**Ne değişti**
+
+- kod: yok. Yalnız dosya silme ve belge düzeni.
+- uçakta: **hiçbir şey.** Saha çalışması yapılmadı, dronlara bağlanılmadı.
+- belge: `README.md`, `docs/arsiv/`, `INTERFACE_CONTRACT.md` §3.0.
+
+**Yarım kalan / tuzak**
+
+- 🔴 **`formation_node.py:189` — `sitl_mode` varsayılanı `True`,
+  `baslat.sh` geçmiyor.** İki kapı sahada atlanıyor:
+
+      if not self._sitl_mode and not self._origin_synced:
+      if not self._sitl_mode and not (self._xy_valid and self._z_valid):
+
+  `gozlem` açık olduğu için şimdilik zararsız. **G3'te canlı olur** —
+  1 Ağustos'ta ylp00'ı deviren zincir buydu.
+- ⚠️ **`px4_bridge.py:528`** — `if sitl_mode or battery_percent <= 0.0:`
+  `or`'un ikinci yarısı sahada **aktif** (BAT1_SOURCE kapalı). Temizlik
+  yapan biri satırı silerse sahayı bozar.
+- 🟡 `sitl_mode` hâlâ 58 yerde, 20 dosyada. G2 öncesi dokunulmadı.
+- 🟡 2 stil hatası (`formation_node.py:5` ölü `import time`;
+  `swarm_state_machine` import sırası). CI'da atlanıyor.
+- 🟡 Eyüp'ün dalına merge commit gitti — **`git pull` yapmadan push edemez.**
+
+**Sıradaki adım**
+
+`ADIM 3 · G2` — öncesinde `formation_node` kip kararı
+(`NAVIGASYON_KAYMA.md`).
+
+**Uçakların bırakıldığı hâl**
+
+- ylp00: dokunulmadı (15 Ağu'daki gibi — IDLE, disarm, atölyede)
+- ylp02: dokunulmadı
+
 
 ## 2026-08-15 17:19 — Eyüp + Claude (ikinci yarı: ADIM 2 + ADIM 3)
 
