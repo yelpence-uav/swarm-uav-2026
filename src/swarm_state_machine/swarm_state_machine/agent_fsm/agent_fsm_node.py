@@ -132,6 +132,12 @@ class AgentFsmNode(Node):
             10,
         )
         self.create_subscription(
+            SystemEvent,
+            '/swarm/internal/events/system',
+            self._on_event,
+            10,
+        )
+        self.create_subscription(
             SwarmOrigin,
             '/swarm/public/origin',
             self._on_origin,

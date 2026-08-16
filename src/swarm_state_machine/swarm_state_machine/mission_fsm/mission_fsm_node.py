@@ -19,6 +19,7 @@ from swarm_interfaces.msg import (
     MissionTarget,
     QRCoordinates,
     QRMissionData,
+    SwarmControlCommand,
     SystemEvent,
 )
 from swarm_interfaces.srv import TriggerMission
@@ -104,6 +105,8 @@ class MissionFsmNode(Node):
         self._sitl_mode = bool(
             self.get_parameter('sitl_mode').value
         )
+        self._start_qr = int(self.get_parameter('start_qr').value)
+        self._deadman_pressed = False
         self._max_restarts: int = int(
             self.get_parameter('max_restarts').value
         )
@@ -126,13 +129,18 @@ class MissionFsmNode(Node):
             _RELIABLE_QOS,
         )
 
+    def _make_agent_cb(self, aid: int):
+        def cb(msg: AgentStatus) -> None:
+            self._on_agent_status(msg, aid)
+        return cb
+
     def _setup_subscribers(self) -> None:
         """Abone kanallarını oluşturur."""
         for aid in self._agent_ids:
             self.create_subscription(
                 AgentStatus,
                 f'/swarm/public/drone{aid}/status',
-                lambda msg, a=aid: self._on_agent_status(msg, a),
+                self._make_agent_cb(aid),
                 _BEST_EFFORT_QOS,
             )
 
@@ -158,6 +166,17 @@ class MissionFsmNode(Node):
             self._on_qr_coords,
             _LATCHED_QOS,
         )
+
+        self.create_subscription(
+            SwarmControlCommand,
+            '/swarm/public/control/command',
+            self._on_control_command,
+            _BEST_EFFORT_QOS,
+        )
+
+    def _on_control_command(self, msg: SwarmControlCommand) -> None:
+        """Sürü kontrol komutundan emniyet anahtarı durumunu günceller."""
+        self._deadman_pressed = bool(msg.deadman_pressed and msg.command_valid)
 
     def _setup_service(self) -> None:
         """Servis sunucusunu oluşturur."""
@@ -518,11 +537,10 @@ class MissionFsmNode(Node):
 
         if cmd == TriggerMission.Request.COMMAND_START:
             if ctx.state != MissionState.IDLE:
-                response.success = False
-                response.message = (
-                    f'START reddedildi: durum={ctx.state.name}'
-                )
-                return response
+                ctx.set_state(MissionState.IDLE)
+                ctx.abort_reason = ''
+                if hasattr(self, '_timer') and self._timer.is_canceled():
+                    self._timer.reset()
 
             try:
                 mission_type = MissionType(request.mission_id)

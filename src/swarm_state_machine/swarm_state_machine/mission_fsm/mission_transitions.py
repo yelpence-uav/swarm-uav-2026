@@ -13,7 +13,7 @@ _CMD_RESUME = 4
 _CMD_RTL = 5
 _CMD_LAND = 6
 
-_PREFLIGHT_TIMEOUT_S = 60.0
+_PREFLIGHT_TIMEOUT_S = 3600.0
 _TAKEOFF_TIMEOUT_S = 90.0
 _NAVIGATE_TIMEOUT_S = 300.0
 # Ayrılan ajanın sürüye dönmesi için QR'da beklenecek üst sınır (NAVIGATE'e

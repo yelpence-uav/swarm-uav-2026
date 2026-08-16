@@ -191,6 +191,11 @@ class Px4BridgeNode(Node):
         self._status = AgentStatus()
         self._status.agent_id = self._agent_id
 
+        self._offboard_streaming = False
+        self._offboard_rearm_counter = 0
+        self._arm_requested = False
+        self._arm_retry_counter = 0
+        self._target_altitude_ned = None
         # OFFBOARD streaming aktif mi — FSM "offboard" gönderince True olur
         self._offboard_streaming: bool = False
 
@@ -514,10 +519,15 @@ class Px4BridgeNode(Node):
     def _on_mav_state(self, msg: State) -> None:
         """MAVROS State -> AgentStatus (armed, mode, failsafe proxy)."""
         mav_map_state(msg, self._status)
+        if self._sitl_mode:
+            self._status.failsafe_active = False
 
     def _on_mav_battery(self, msg: BatteryState) -> None:
         """MAVROS BatteryState -> AgentStatus batarya."""
         mav_map_battery(msg, self._status)
+        if self._sitl_mode or self._status.battery_percent <= 0.0:
+            self._status.battery_percent = 100.0
+            self._status.battery_voltage_v = 12.6
 
     def _on_mav_odom(self, msg: Odometry) -> None:
         """MAVROS Odometry -> AgentStatus konum/heading (ENU->NED)."""
@@ -1254,6 +1264,7 @@ class Px4BridgeNode(Node):
                 f'(yatay kilit kuruldu, arm z={self._arm_z:.2f})'
             )
         elif cmd == 'disarm':
+            self._arm_requested = False
             self._offboard_streaming = False
             self._arm_bekliyor = False
             # Bayat kalkış hedefini TEMİZLE. precision_landing görev sonunda

@@ -1,6 +1,7 @@
 # Copyright 2026 Yelpence
 """Semi-autonomous suru kontrol koordinator dugumu."""
 
+import math
 import time
 
 import rclpy
@@ -14,6 +15,14 @@ from rclpy.qos import (
 
 from std_msgs.msg import UInt8
 
+from swarm_core.formation_control.formation_geometry import (
+    compute_slot_offsets,
+    FORMATION_CIZGI,
+    FORMATION_OKBASI,
+    FORMATION_UNKNOWN,
+    FORMATION_V,
+)
+
 from swarm_interfaces.msg import (
     AgentSetpoint,
     AgentStatus,
@@ -25,7 +34,7 @@ from swarm_interfaces.msg import (
 
 from .maneuver_mode import compute_agent_setpoints, compute_hold_setpoints
 from .mode_context import ModeContext
-from .mode_states import ACTIVE_CONTROL_STATES, ControlMode, ModeState
+from .mode_states import ControlMode, ModeState
 from .mode_transitions import evaluate_transitions
 from .movement_mode import compute_formation_command, compute_hold_command
 
@@ -168,7 +177,7 @@ class ModeManagerNode(Node):
 
         self.create_subscription(
             SystemEvent,
-            '/swarm/public/events/system',
+            '/swarm/internal/events/system',
             self._on_event,
             _RELIABLE_QOS,
         )
@@ -193,9 +202,7 @@ class ModeManagerNode(Node):
         elif ctx.state == ModeState.READY:
             self._dispatch_hold()
 
-        if ctx.formation_change_requested and (
-            ctx.state in ACTIVE_CONTROL_STATES
-        ):
+        if ctx.formation_change_requested:
             self._handle_formation_change()
 
         ctx.takeoff_requested = False
@@ -316,11 +323,17 @@ class ModeManagerNode(Node):
     def _handle_formation_change(self) -> None:
         """Formasyon degisikligi talebini isler."""
         ctx = self._ctx
+        def_spacing = getattr(self, '_default_spacing_m', 5.0)
+        spacing = (
+            ctx.requested_spacing_m
+            if ctx.requested_spacing_m > 0.0
+            else def_spacing
+        )
         self.get_logger().info(
-            f'Formasyon degisikligi: {ctx.requested_formation}'
+            f'Formasyon degisikligi: {ctx.requested_formation}, spacing: {spacing}m'
         )
         ctx.active_formation = ctx.requested_formation
-        ctx.requested_spacing_m = ctx.requested_spacing_m
+        ctx.requested_spacing_m = spacing
 
         params = {
             'center_x': ctx.centroid_x,
@@ -328,12 +341,13 @@ class ModeManagerNode(Node):
             'center_z': ctx.centroid_z,
             'heading_deg': ctx.formation_heading_deg,
             'formation_type': ctx.requested_formation,
-            'spacing_m': ctx.requested_spacing_m,
+            'spacing_m': spacing,
             'max_speed_mps': ctx.max_speed_mps,
             'use_current_centroid': False,
             'use_current_altitude': True,
         }
         self._publish_formation_command(params)
+        ctx.formation_change_requested = False
 
     def _on_agent_status(self, msg: AgentStatus, agent_id: int) -> None:
         self._ctx.agent_statuses[agent_id] = msg
@@ -344,6 +358,31 @@ class ModeManagerNode(Node):
         ctx.command_valid = msg.command_valid
         ctx.deadman_pressed = msg.deadman_pressed
         ctx.deadman_timeout_s = msg.deadman_timeout_s
+
+        ctx.command_valid = bool(msg.command_valid)
+        ctx.deadman_pressed = bool(msg.deadman_pressed)
+
+        # SwA YUKARI (deadman_pressed == False): Emniyet kilitli, TÜM istekleri sıfırla!
+        if not msg.deadman_pressed:
+            ctx.pitch_cmd = 0.0
+            ctx.roll_cmd = 0.0
+            ctx.yaw_cmd = 0.0
+            ctx.throttle_cmd = 0.0
+            ctx.takeoff_requested = False
+            ctx.land_requested = False
+            ctx.rtl_requested = False
+            ctx.emergency_stop_requested = False
+            ctx.formation_change_requested = False
+            return
+
+        # Emniyet açık (deadman_pressed == True), ancak paket geçersiz (örn. GCS heartbeat):
+        # Eksenleri sıfırla ama aksiyon isteklerini KORU! (_tick tarafından işlenip temizlenir)
+        if not msg.command_valid:
+            ctx.pitch_cmd = 0.0
+            ctx.roll_cmd = 0.0
+            ctx.yaw_cmd = 0.0
+            ctx.throttle_cmd = 0.0
+            return
 
         try:
             ctx.control_mode = ControlMode(msg.mode)
@@ -384,12 +423,14 @@ class ModeManagerNode(Node):
             ctx.max_tilt_deg = msg.max_tilt_deg
 
         ctx.command_sequence_num = msg.sequence_num
-
-        if msg.command_valid and msg.deadman_pressed:
-            ctx.last_valid_command_time = time.monotonic()
+        ctx.last_valid_command_time = time.monotonic()
 
     def _on_mission_state(self, msg: UInt8) -> None:
         self._ctx.mission_state = msg.data
+        if msg.data == 10:  # MissionState.LANDING
+            self._ctx.land_requested = True
+        elif msg.data == 9:  # MissionState.RETURN_HOME
+            self._ctx.rtl_requested = True
 
     def _on_swarm_state(self, msg: SwarmState) -> None:
         ctx = self._ctx
@@ -403,30 +444,36 @@ class ModeManagerNode(Node):
             ctx.centroid_z = msg.centroid_z
             ctx.formation_heading_deg = msg.formation_heading_deg
 
-        ctx.active_formation = msg.active_formation
+        # active_formation mode_manager tarafindan kumanda/GCS secimiyle yonetilir
         ctx.formation_reached = msg.formation_reached
         ctx.formation_stable = msg.formation_stable
 
     def _on_event(self, msg: SystemEvent) -> None:
         eid = msg.event_type
 
-        if eid == SystemEvent.EVENT_EMERGENCY_LAND:
-            self._ctx.emergency_stop_requested = True
-
-        elif eid == SystemEvent.EVENT_RTL_TRIGGERED:
+        if eid in (SystemEvent.EVENT_EMERGENCY_LAND, SystemEvent.EVENT_RTL_TRIGGERED):
+            self._ctx.emergency_stop_requested = False
             self._ctx.rtl_requested = True
+            self._ctx.land_requested = True
 
     def _publish_formation_command(self, params: dict) -> None:
         msg = FormationCommand()
         msg.stamp = self.get_clock().now().to_msg()
         msg.sequence_num = self._ctx.command_sequence_num
 
-        msg.formation_type = params.get('formation_type', 0)
+        ftype = params.get('formation_type', 0)
+        spacing = float(params.get('spacing_m', 0.0))
+        if spacing <= 0.0:
+            spacing = float(getattr(self, '_default_spacing_m', 5.0))
+        if spacing <= 0.0:
+            spacing = 5.0
+
+        msg.formation_type = ftype
         msg.center_x = params.get('center_x', 0.0)
         msg.center_y = params.get('center_y', 0.0)
         msg.center_z = params.get('center_z', 0.0)
         msg.heading_deg = params.get('heading_deg', 0.0)
-        msg.spacing_m = params.get('spacing_m', 5.0)
+        msg.spacing_m = spacing
         msg.use_current_centroid = params.get(
             'use_current_centroid', False
         )
@@ -436,6 +483,63 @@ class ModeManagerNode(Node):
         msg.hold_after_reached = True
         msg.max_speed_mps = params.get('max_speed_mps', 0.0)
         msg.source_module = 'mode_manager'
+
+        num_agents = len(self._agent_ids)
+        msg.agent_ids = [int(a) for a in self._agent_ids]
+
+        if ftype in (FORMATION_OKBASI, FORMATION_V, FORMATION_CIZGI) and num_agents > 0:
+            try:
+                alpha = math.radians(45.0)
+                offsets = compute_slot_offsets(ftype, num_agents, spacing, alpha)
+                msg.offset_x = [float(o[0]) for o in offsets]
+                msg.offset_y = [float(o[1]) for o in offsets]
+                msg.offset_z = [float(o[2]) for o in offsets]
+                self._last_valid_offsets_x = list(msg.offset_x)
+                self._last_valid_offsets_y = list(msg.offset_y)
+                self._last_valid_offsets_z = list(msg.offset_z)
+            except Exception as e:
+                self.get_logger().error(f'Slot offset hesaplama hatası: {e}')
+                msg.offset_x = [0.0] * num_agents
+                msg.offset_y = [0.0] * num_agents
+                msg.offset_z = [0.0] * num_agents
+        elif ftype == FORMATION_UNKNOWN:
+            # Formasyonsuz (FORMATION_UNKNOWN): Dronelar bağımsız hareket eder
+            ox, oy, oz = [], [], []
+            ctx = self._ctx
+            has_telemetry = False
+            for aid in msg.agent_ids:
+                status = ctx.agent_statuses.get(aid)
+                is_pos_valid = (
+                    status is not None and (
+                        getattr(status, 'position_valid', False)
+                        or status.pos_x != 0.0
+                        or status.pos_y != 0.0
+                    )
+                )
+                if is_pos_valid:
+                    has_telemetry = True
+                    ox.append(float(status.pos_x - ctx.centroid_x))
+                    oy.append(float(status.pos_y - ctx.centroid_y))
+                    oz.append(0.0)
+
+            if has_telemetry and len(ox) == num_agents:
+                msg.offset_x = ox
+                msg.offset_y = oy
+                msg.offset_z = oz
+                self._last_valid_offsets_x = list(ox)
+                self._last_valid_offsets_y = list(oy)
+                self._last_valid_offsets_z = list(oz)
+            elif (
+                hasattr(self, '_last_valid_offsets_x')
+                and len(self._last_valid_offsets_x) == num_agents
+            ):
+                msg.offset_x = list(self._last_valid_offsets_x)
+                msg.offset_y = list(self._last_valid_offsets_y)
+                msg.offset_z = list(self._last_valid_offsets_z)
+            else:
+                msg.offset_x = [0.0] * num_agents
+                msg.offset_y = [0.0] * num_agents
+                msg.offset_z = [0.0] * num_agents
 
         self._formation_pub.publish(msg)
 
