@@ -83,19 +83,20 @@ GCS/RViz ENU kullanan taraflarda dönüşüm açıkça yapılmalıdır.
 
 ## 3. Topic Tablosu
 
-### 3.0 Network Proxy Adlandırma Kuralı (ZORUNLU)
+### 3.0 Mesh Adlandırma Kuralı (ZORUNLU)
 
-Sürü içi haberleşme `network_proxy` üzerinden geçer (gerçek donanımda ESP-NOW Mesh).
-Proxy 250 byte sınırı, mesafeye bağlı paket kaybı ve gecikme uygular. Bu yüzden
+Sürü içi haberleşme ESP-NOW mesh üzerinden geçer. Uçaklar arası taşımayı
+`esp32_bridge`, uçak içi internal→public döngüsünü `ic_dis_kopru` yapar.
+Mesh 16 baytlık paketler taşır ve tip başına hız sınırı uygular. Bu yüzden
 **havadan iletilen** her topic için iki ayrı isim vardır:
 
 | Yön | Topic prefix | Anlamı |
 |---|---|---|
-| Yayıncı (publisher) | `/swarm/internal/...` | Drone bu topic'e yazar; proxy süzgeçten geçirip iletir |
-| Abone (subscriber) | `/swarm/public/...` | Drone bu topic'i dinler; proxy'nin süzdüğü mesajları alır |
+| Yayıncı (publisher) | `/swarm/internal/...` | Drone bu topic'e yazar; köprü paketleyip mesh'e verir |
+| Abone (subscriber) | `/swarm/public/...` | Drone bu topic'i dinler; mesh'ten gelen mesajları alır |
 
 **Kural 3 — Lokal topic'ler dokunulmaz.** Aynı drone içindeki node'lar arası
-(RPi ↔ PX4, formation_control → px4_interface) topic'ler proxy'den geçmez ve
+(RPi ↔ PX4, formation_control → px4_interface) topic'ler mesh'ten geçmez ve
 `/drone_{id}/...` ya da `/swarm/agent/drone{id}/...` formatında kalır.
 
 Aşağıdaki tabloda **Yayın** sütunu publisher'ın yazdığı topic'i, **Abone**

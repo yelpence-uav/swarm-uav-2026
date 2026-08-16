@@ -1408,7 +1408,7 @@ o iş `feature/rpi-gunlukleme` dalında, bu dal ise main'den çıkmış. Pi'nin
 önündeydi. Fark edilmese uçuş kaydı sessizce kaybolurdu.
 
 Çözüm: iki dal birleştirildi. Dosya kesişimi **boş** olduğu için temiz geçti
-(`rpi-gunlukleme` → `deploy/`, `docs/28-29-temmuz.md`; mesh dalı → `firmware/`,
+(`rpi-gunlukleme` → `deploy/`, `docs/arsiv/28-29-temmuz.md`; mesh dalı → `firmware/`,
 `src/`). Artık tek dal "dronlarda olması gereken kod"u temsil ediyor.
 
 **2. Parametre adlarını uydurmuşum — sessiz hata sınıfı.** ROS 2 bildirilmemiş

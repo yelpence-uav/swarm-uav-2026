@@ -195,11 +195,11 @@ mimari tarifi **artık geçerli değil**.
 
 | Dosya | Neye ait | Neden güncel değil | Hâlâ değerli olan |
 |-------|----------|--------------------|-------------------|
-| `docs/BEKLEYEN_ISLER.md` | Uçuş kanıtı dönemi iş listesi | 2 Ağustos'ta donduruldu; uçuş kanıtı geçildi, maddelerin çoğu geçersiz | §4 **Tuzaklar**, §5 **Doğrulanmış olanlar** |
-| `docs/kanit_videosu_plani.md` | Kanıt videosu koreografisi | Video çekildi ve geçildi | — |
-| `docs/20-temmuz.md` | Saha günlüğü | Tarihsel kayıt | Ölçümler, kaza analizleri |
-| `docs/28-29-temmuz.md` | Saha günlüğü | Tarihsel kayıt | Ölçümler, kaza analizleri |
-| `docs/31temmuz-1agustos.md` | Saha günlüğü | Tarihsel kayıt | Devrilme ve titreşim zinciri analizi |
+| `docs/arsiv/BEKLEYEN_ISLER.md` | Uçuş kanıtı dönemi iş listesi | 2 Ağustos'ta donduruldu; uçuş kanıtı geçildi, maddelerin çoğu geçersiz | §4 **Tuzaklar**, §5 **Doğrulanmış olanlar** |
+| `docs/arsiv/kanit_videosu_plani.md` | Kanıt videosu koreografisi | Video çekildi ve geçildi | — |
+| `docs/arsiv/20-temmuz.md` | Saha günlüğü | Tarihsel kayıt | Ölçümler, kaza analizleri |
+| `docs/arsiv/28-29-temmuz.md` | Saha günlüğü | Tarihsel kayıt | Ölçümler, kaza analizleri |
+| `docs/arsiv/31temmuz-1agustos.md` | Saha günlüğü | Tarihsel kayıt | Devrilme ve titreşim zinciri analizi |
 | `ARCHITECTURE.md` | Sim dönemi mimarisi | **Sahadaki yapıyı anlatmıyor**; var olmayan dosyalardan bahsediyor (`launch_real_hardware.py`) | Sürü yazılımının **tasarım niyeti** |
 | `README.md` eski hâli | — | Giriş noktası olarak yeniden yazıldı | — |
 

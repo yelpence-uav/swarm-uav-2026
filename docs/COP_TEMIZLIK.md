@@ -177,8 +177,8 @@ altına al**, gerisini sil. Bir oturumluk iş ve bilgi kaybını önler.
 
 | Şey | Neden kalmalı |
 |-----|---------------|
-| `docs/20-temmuz.md`, `28-29-temmuz.md`, `31temmuz-1agustos.md` | Saha günlükleri — ölçümler ve kaza analizleri burada |
-| `docs/BEKLEYEN_ISLER.md` | Arşiv; §4 "Tuzaklar" ve §5 "Doğrulanmış olanlar" hâlâ değerli |
+| `docs/arsiv/20-temmuz.md`, `28-29-temmuz.md`, `31temmuz-1agustos.md` | Saha günlükleri — ölçümler ve kaza analizleri burada |
+| `docs/arsiv/BEKLEYEN_ISLER.md` | Arşiv; §4 "Tuzaklar" ve §5 "Doğrulanmış olanlar" hâlâ değerli |
 | `docs/MESH_PROTOKOL_KARARLARI.md` | Mesh paket formatının tek kaynağı |
 | `docs/YELPENCE_RTCM_SPEC.md` | RTK zincirinin tek kaynağı |
 | `src/gcs/*.py` teşhis araçları | `titresim_olc.py`, `pusula_olc.py`, `rtk_baz_survey.py`, `on_ucus_kontrol.py` — hepsi sahada kullanılıyor |

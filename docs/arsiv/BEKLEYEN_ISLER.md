@@ -44,7 +44,7 @@ Uçuşu engelleyen şey KOD DEĞİL:
 
 ## 0. 1 Ağustos gecesinden kalanlar — **en yüksek öncelik**
 
-Ayrıntı ve ölçümler: `docs/31temmuz-1agustos.md`
+Ayrıntı ve ölçümler: `docs/arsiv/31temmuz-1agustos.md`
 
 - `[!]` **ylp00 titreşimi ARALIKLI.** Kalkışta devrildi, pervaneleri kırıldı.
   Zincir ölçüldü: titreşim → ivmeölçer doyması → EKF konum sıçraması →

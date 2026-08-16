@@ -176,7 +176,7 @@ Alıcı "son değerleri tut" failsafe'inde, dolayısıyla PX4 kumandanın kapand
 `kill_switch_active`, `rc_signal_failsafe_active`, `failsafe_active`. O anki
 durumda doğru çalıştı — ylp00 KILL, ikisi de ARM'A HAZIR DEĞİL.
 
-> Not: bu, `docs/28-29-temmuz.md §7.1`'de yazılan "alıcı failsafe'i kill
+> Not: bu, `docs/arsiv/28-29-temmuz.md §7.1`'de yazılan "alıcı failsafe'i kill
 > switch'i tetikliyor" bulgusuyla aynı kökten. Alıcı failsafe davranışı hâlâ
 > düzeltilmedi.
 

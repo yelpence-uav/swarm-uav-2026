@@ -390,7 +390,7 @@ yanlıştı ve uygulansaydı ylp02 sürüden düşerdi.
 ## 2026-08-02 — Eyüp (kanıt uçuşu, geriye dönük yazıldı)
 
 > Bu kayıt sonradan, sohbet özetinden derlendi. Ayrıntı:
-> `docs/31temmuz-1agustos.md` ve `docs/BEKLEYEN_ISLER.md`.
+> `docs/arsiv/31temmuz-1agustos.md` ve `docs/arsiv/BEKLEYEN_ISLER.md`.
 
 **Ne yapıldı**
 - **Uçuş kanıtı videosu çekildi ve geçildi.**
