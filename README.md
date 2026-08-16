@@ -38,6 +38,7 @@ Claude Code kullanıyorsan [`CLAUDE.md`](CLAUDE.md) kendiliğinden okunur.
 Uçak ile yer istasyonu **iki ayrı yoldan** konuşur — karıştırması kolay:
 
 
+```
     LAPTOP (YKİ)                              İHA
 ┌──────────────────┐                  ┌──────────────────────┐
 │ Arayüz  :5173    │                  │ Raspberry Pi 5       │
@@ -49,6 +50,7 @@ Uçak ile yer istasyonu **iki ayrı yoldan** konuşur — karıştırması kolay
 │                  │  + RTCM düzeltme │                      │
 │            WiFi ─┼─── SSH, QGC ─────┤                      │
 └──────────────────┘                  └──────────────────────┘
+```
 
 
 
@@ -81,6 +83,7 @@ telefon hotspot'u. Şifreler repoda yok, takım içinde paylaşılıyor.
 ./deploy/yki/drone_bul.sh              # menü: bul, seç, bağlan
 ./deploy/yki/drone_bul.sh --durum      # disk, konteyner, açık bayraklar
 ./deploy/yki/drone_bul.sh ylp00 'komut'
+```
 IP'ler her ağda değişir — ezberleme, betiği kullan.
 SSH kullanıcıları drone başına ayrı: yelpence00, yelpence02.
 
@@ -89,6 +92,7 @@ kalkmıştır. ./deploy/yki/drone_bul.sh ylp00 'docker restart drone1' çözer.
 
 Sık kullanılanlar
 
+```bash
 # Uçuştan ÖNCE — ikisi de bedava, saniyeler sürer, atlanmaz
 ./deploy/yki/param_karsilastir.py         # uçaklar aynı ayarda mı
 python3 src/gcs/gorev_kanit_ucus.py --kuru --senaryo saha --dronelar 1,3 --lider 3
@@ -101,8 +105,10 @@ python3 src/gcs/ucus_ayarlari.py
 
 # Yer istasyonu
 src/gcs/yki_baslat.sh · src/gcs/yki_durdur.sh
+```
 Depo düzeni
 
+```
 src/swarm_control/        px4_bridge, esp32_bridge, kaçınma, mesh köprüsü
 src/swarm_core/           formasyon, konsensüs, manevra, hassas iniş, rota
 src/swarm_state_machine/  ajan / sürü / görev durum makineleri
@@ -114,6 +120,7 @@ deploy/rpi/               dronlara dağıtım (baslat.sh, dagit.sh)
 deploy/yki/               yer istasyonu araçları
 firmware/esp32_mesh/      ESP-NOW mesh firmware
 docs/                     belgeler — PLAN.md ile başla
+```
 Kurulum
 Simülasyon kullanılmıyor. Geliştirme ve test doğrudan sahada,
 gerçek uçaklarla yapılıyor.
