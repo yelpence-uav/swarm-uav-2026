@@ -135,3 +135,4 @@ src/gcs/nokta3_secenekleri.html
 
 # Claude Code kisisel izin dosyasi (makineye ozel, paylasilmaz)
 .claude/settings.local.json
+src/gcs/frontend/tsconfig.tsbuildinfo
