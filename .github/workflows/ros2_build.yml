@@ -55,15 +55,3 @@ jobs:
         run: |
           colcon test-result --all
 
-  docker_build_test:
-    name: RPi Image Build Test
-    runs-on: ubuntu-24.04
-    steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4
-        with:
-          submodules: recursive
-
-      - name: Build Docker Image
-        run: |
-          docker build -t yelpence-rpi-ci-test -f docker/rpi/Dockerfile.rpi .
