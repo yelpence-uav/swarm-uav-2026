@@ -35,6 +35,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from backend.api.commands import router as commands_router
 from backend.api.guided import router as guided_router
+from backend.api.kosucu import router as kosucu_router
 from backend.api.mission import router as mission_router
 from backend.api.params import router as params_router
 from backend.api.telemetry import router as telemetry_router
@@ -122,7 +123,12 @@ async def lifespan(app: FastAPI):
     cfg = load_config()
     mode = cfg.get("connection_mode", "ros2")
     store = StateStore(offline_timeout_sec=cfg.get("offline_timeout_sec", 3.0))
-    alerts = AlertManager()
+    # config.yaml -> alerts.susturulan: ["link_timeout", "low_battery", ...]
+    # Kanit videosunda YKI ekrani kayda giriyor; surekli acilip kapanan uyari
+    # kutulari orada ariza gorunumu yaratiyor. Bkz. AlertManager.SUSTURULABILIR.
+    alerts = AlertManager(
+        susturulan=cfg.get("alerts", {}).get("susturulan", [])
+    )
 
     sysid_map: dict[int, int] = {}              # sysid -> drone_id
     drone_id_to_sysid: dict[int, int] = {}      # drone_id -> sysid
@@ -234,6 +240,7 @@ def create_app() -> FastAPI:
     app.include_router(mission_router)
     app.include_router(guided_router)
     app.include_router(params_router)
+    app.include_router(kosucu_router)
 
     @app.websocket("/ws/telemetry")
     async def ws_telemetry(websocket: WebSocket):

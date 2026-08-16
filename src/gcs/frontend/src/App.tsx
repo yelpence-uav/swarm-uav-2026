@@ -5,6 +5,7 @@ import { AppHeader } from "./components/AppShell/AppHeader";
 import { DroneControlPanel } from "./components/DroneControlPanel/DroneControlPanel";
 import { JoystickPanel } from "./components/JoystickPanel/JoystickPanel";
 import { MapView } from "./components/Map/Map";
+import { KosucuPanel } from "./components/KosucuPanel/KosucuPanel";
 import { MissionControl } from "./components/MissionControl/MissionControl";
 import { MissionPanel } from "./components/MissionPanel/MissionPanel";
 import { QRPanel } from "./components/QRPanel/QRPanel";
@@ -34,6 +35,8 @@ const EMPTY_PAYLOAD: TelemetryPayload = {
   alerts: [],
   swarm_state: null,
   qr: null,
+  rtk: null,
+  mesafeler: [],
 };
 
 const DEFAULT_PARAMS: FlightParams = {
@@ -100,6 +103,8 @@ export default function App() {
         status={status}
         drones={payload.drones}
         swarmState={payload.swarm_state}
+        rtk={payload.rtk ?? null}
+        mesafeler={payload.mesafeler ?? []}
         selectedMissionId={selectedMissionId}
         onOpenSettings={() => setSettingsOpen(true)}
       />
@@ -133,6 +138,7 @@ export default function App() {
           />
         ) : (
           <>
+            <KosucuPanel />
             <MissionPanel
               missionActive={missionActive}
               missionId={selectedMissionId}

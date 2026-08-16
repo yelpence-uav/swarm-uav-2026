@@ -118,3 +118,20 @@ id_ed25519*
 mesh-firmware.zip
 src/network_proxy/DESIGN.md
 src/swarm_core/test/test_ca_core.py
+
+# --- Ekran goruntuleri (ss/) --------------------------------------------------
+# Claude'a gosterilen gecici gorseller. README disinda hicbiri git'e girmez;
+# bunlar pano, arsiv degil. Kalici kanit gerekiyorsa docs/ altina adiyla koy.
+ss/*
+!ss/README.md
+
+# --- Uretilen haritalar -------------------------------------------------------
+# gorev_kanit_ucus.py --harita ciktisi. Her kosuda yeniden uretiliyor ve
+# ucaklarin O ANKI konumuna bagli; commit'lemek yaniltici olur.
+src/gcs/saha_rota.html
+src/gcs/nokta_sec.html
+src/gcs/nokta3_secenekleri.html
+/tmp/yelpence_gorev.html
+
+# Claude Code kisisel izin dosyasi (makineye ozel, paylasilmaz)
+.claude/settings.local.json

@@ -72,6 +72,18 @@
 // GOTO ona carpmasin diye 0x10'dan devam; 0x10 rate tablosunun (16) disina
 // dustugu icin MESH_TIP_TABLO_BOYU 24'e buyutuldu (asagi).
 #define TIP_GOTO        0x10   // YKİ->drone tekil nokta-git (guided, goto_veri_t)
+// 0x11-0x15: suru koordinasyonu (30 Temmuz, docs/MESH_PROTOKOL_KARARLARI.md).
+// Struct tanimlari dosyanin sonunda, goto_veri_t'den hemen sonra.
+// YENI TIP EKLERKEN UC YERI BIRDEN GUNCELLE, yoksa cerceve SESSIZCE duser:
+//   1) buradaki sabit + struct + static_assert
+//   2) RX BASE/src/main.cpp whitelist'i   (§1.1 kusuru tam buydu)
+//   3) TX DRONE/src/main.cpp whitelist'i
+// Ayrica MESH_TIP_TABLO_BOYU en buyuk TIP'ten buyuk kalmali (asagidaki assert).
+#define TIP_FORMASYON        0x11   // lider -> suru: formasyon tarifi (5 Hz)
+#define TIP_FORMASYON_DEVAM  0x12   // 5-8 ajan icin slot listesi devami
+#define TIP_FORM_OFSET       0x13   // yalniz CUSTOM: acik slot offsetleri
+#define TIP_QR_GOREV         0x14   // QR'i okuyan drone -> suru: cozulmus gorev
+#define TIP_QR_HAM           0x15   // yalniz ayristirma hatasinda: ham metin dilimi
 
 // Dikkat: iki ayri isim uzayi, karistirma:
 //
@@ -208,9 +220,20 @@ struct __attribute__((packed)) election_veri_t {
     uint8_t  election_round;
     uint8_t  reason;              // 0=UNKNOWN 1=TIMEOUT 2=FAULT 3=MANUAL
     uint8_t  triggered_by;        // election'i baslatan ajan ID (0=sistem)
-    uint32_t sequence_num;
+    uint32_t sequence_num;        // yayinci omru boyunca monoton artar
     uint8_t  confirmed_ids[4];    // onay veren ilk 4 ID (0=bos)
-    uint8_t  rezerv[4];
+    // incarnation: yayinci dugumun O ACILISINA ozgu rastgele kimlik.
+    // sequence_num dugum yeniden baslayinca 0'a doner; alici max_seen_seq'i
+    // korudugu icin yeniden baslayan liderin butun secimleri SESSIZCE
+    // dusuyordu (30 Temmuz, iki kollu deneyle olculdu). Alici incarnation
+    // degistigini gorunce o kaynagin sayacini sifirlar. 0 = bilinmiyor.
+    //
+    // rezerv[4] -> incarnation(2) + rezerv[2]: struct HALA 16 BAYT, yani
+    // firmware'in sizeof(election_veri_t) kullanimi degismiyor ve ESP'lerin
+    // yeniden flaslanmasi GEREKMIYOR (firmware bu alanlarin icine bakmiyor,
+    // yalniz uzunluk hesabinda kullaniyor).
+    uint16_t incarnation;
+    uint8_t  rezerv[2];
 };   // 16 byte
 
 struct __attribute__((packed)) version_veri_t {
@@ -547,7 +570,11 @@ static inline void mesh_gonder(const uint8_t* veri, uint8_t tip,
 // 24: TIP_GOTO=0x10 tablonun 16'lik eski sinirinin ustunde kaliyordu; index=TIP
 // oldugundan boyut en buyuk TIP'ten buyuk olmali. +8 slot x 2 dizi x 4B = +64B RAM.
 #define MESH_TIP_TABLO_BOYU 24
-static_assert(TIP_GOTO < MESH_TIP_TABLO_BOYU,
+// 30 Temmuz: en buyuk TIP artik TIP_QR_HAM = 0x15 (21). Tablo 24, yeterli.
+// Assert en buyuk tipe bakmali — TIP_GOTO'da kalsaydi 0x11-0x15 sessizce
+// tablonun disina tasabilirdi ve mesh_tip_gecebilir() fail-closed dalina
+// dusup o tipleri KOMPLE reddederdi.
+static_assert(TIP_QR_HAM < MESH_TIP_TABLO_BOYU,
               "En buyuk TIP hiz-limiti tablosuna sigmiyor: MESH_TIP_TABLO_BOYU'nu buyut.");
 
 static uint32_t _son_tip_gonderim_ms[MESH_TIP_TABLO_BOYU] = {};
@@ -875,7 +902,25 @@ struct __attribute__((packed)) komut_veri_t {
     int16_t  pitch_x100;
     int16_t  yaw_x100;
     int16_t  throttle_x100;
-    uint8_t  rezerv[6];    // toplam 16 byte
+    // 30 Temmuz: rezervin ilk uc bayti isimlendirildi. ESP payload'i OPAK
+    // tasiyor (bu struct'i hic okumuyor, yalniz sizeof ile uzunluk dogruluyor
+    // — TX DRONE/src/main.cpp:167), o yuzden isimlendirme davranis degistirmez;
+    // iki tarafin sozlesmesini gorunur kilar.
+    //
+    // target_id zaten packet_parser.py tarafindan offset 10'da kullaniliyordu
+    // ama burada "rezerv[0]" olarak duruyordu — belge kayması giderildi.
+    //
+    // talep_formasyon / talep_spacing_dm NEDEN EKLENDI (kusur duzeltmesi):
+    // SwarmControlCommand.requested_formation ve requested_spacing_m mesh'ten
+    // GECMIYORDU. esp32_bridge yalniz KOMUT_FLAG_FORMATION_CHANGE bayragini
+    // set ediyordu; alici tarafta iki alan ROS varsayilaninda (0) kaliyordu.
+    // Sonuc: "formasyon degistir" gidiyor, HANGI formasyon bilgisi kayboluyor
+    // ve spacing=0.0 ile compute_slot_offsets() "spacing > 0 olmali" diye
+    // ValueError atiyordu. Yani YKI/kumanda formasyon secimi sessizce kirikti.
+    uint8_t  target_id;         // offset 10: guided hedef drone (0 = tumu)
+    uint8_t  talep_formasyon;   // offset 11: requested_formation (1/2/3/99)
+    uint8_t  talep_spacing_dm;  // offset 12: requested_spacing_m * 10 (0-25.5 m)
+    uint8_t  rezerv[3];         // toplam 16 byte
 };
 
 // pi_bridge::packet_parser.py KOMUT_FLAG_* ile BIREBIR ayni degerler.
@@ -906,6 +951,12 @@ static_assert(offsetof(komut_veri_t, roll_x100) == 2,
               "roll_x100 offset 2 OLMALI — pi_bridge _KOMUT_FMT ile uyum");
 static_assert(offsetof(komut_veri_t, throttle_x100) == 8,
               "throttle_x100 offset 8 OLMALI — pi_bridge _KOMUT_FMT ile uyum");
+static_assert(offsetof(komut_veri_t, target_id) == 10,
+              "target_id offset 10 OLMALI — packet_parser.py _KOMUT_FMT ile uyum");
+static_assert(offsetof(komut_veri_t, talep_formasyon) == 11,
+              "talep_formasyon offset 11 OLMALI — packet_parser.py _KOMUT_FMT ile uyum");
+static_assert(offsetof(komut_veri_t, talep_spacing_dm) == 12,
+              "talep_spacing_dm offset 12 OLMALI — packet_parser.py _KOMUT_FMT ile uyum");
 
 // GOTO bayrak bitleri (goto_veri_t.bayraklar).
 #define GOTO_BAYRAK_YAW_GECERLI  0x01   // yaw_ddeg gecerli; yoksa drone yaw'u serbest birakir
@@ -927,3 +978,144 @@ static_assert(sizeof(goto_veri_t) == 16,
               "goto_veri_t 16 byte OLMALI — bridge govde[2:18] ile sabit 16B diliyor");
 static_assert(offsetof(goto_veri_t, bayraklar) == 8,
               "bayraklar offset 8 OLMALI — packet_parser.py _GOTO_FMT ile uyum");
+
+// ===========================================================================
+// SURU KOORDINASYONU (30 Temmuz)
+// Tam gerekce, olcumler ve etki zinciri: docs/MESH_PROTOKOL_KARARLARI.md
+//
+// Tasarim ilkesi goto_veri_t ile AYNI: mesh TARIFI tasir, akisi uc uretir.
+// formation_node 20 Hz setpoint uretir ama mesh'e yalniz 5 Hz tarif cikar
+// (olculdu: 125 B/s = mevcut POSE trafiginin %17'si).
+// ===========================================================================
+
+// --- TIP_FORMASYON: liderin yayinladigi formasyon hedefi -------------------
+//
+// OFFSETLER BILEREK TASINMIYOR. Ayrim kritik:
+//   compute_slot_offsets(tip, n, spacing, alfa)  -> SAF fonksiyon
+//        (formation_geometry.py; sadece math import ediyor). Her dronda
+//        birebir ayni sonucu verir, tasimaya gerek yok.
+//   hungarian_assignment(cost)                   -> KONUM BAGIMLI
+//        Iki drone farkli anda/farkli kestirimle hesaplarsa FARKLI atama
+//        cikar -> ikisi ayni slotu hedefler -> CARPISMA.
+// Yani tasinmasi gereken sey offsetler degil ATAMA, ve atama zaten
+// slot_ajan[] SIRASINDA kodlu: slot_ajan[i] = i numarali slottaki ajan ID.
+// Kazanc: 3 ajan icin 30 bayt yerine 16 bayt.
+//
+// kanat_alfa_deg NEDEN PAKETTE: wing_alpha_deg su an formation_node ve
+// mission1_node'da AYRI parametre (ikisinde de varsayilan 45.0) ve esitligi
+// hicbir sey zorlamiyor. Biri farkli kalirsa slot geometrisi SESSIZCE ayrisir
+// — yerde fark edilmez, ucusta edilir. 1 bayt bu riski kapatiyor.
+//
+// CUSTOM (99) tarifle anlatilamaz (juri dizilisi snapshot'i); offsetler
+// form_ofset_veri_t ile ayrica gelir. Bkz. sartname 5.1.2 "baslangic
+// formasyonunu koruyarak".
+#define FORMASYON_BAYRAK_DEVAM  0x80   // formasyon_tipi bit7: devam paketi var
+
+struct __attribute__((packed)) formasyon_veri_t {
+    uint8_t  formasyon_tipi;    // 1=OKBASI 2=V 3=CIZGI 99=CUSTOM | bit7=DEVAM
+    int16_t  merkez_kuzey_dm;   // NED, desimetre (+-3276.7 m)
+    int16_t  merkez_dogu_dm;
+    int16_t  merkez_asagi_dm;   // pozitif = asagi (irtifa = -merkez_asagi_dm)
+    int16_t  heading_ddeg;      // desi-derece (0.1 deg)
+    uint8_t  spacing_dm;        // 0.1 m adim, 0-25.5 m; kopru tavani KIRPAR+UYARIR
+    uint8_t  maks_hiz_x10;      // 0.1 m/s; 0 = alici yerel varsayilanini kullanir
+    uint8_t  kanat_alfa_deg;    // 1 derece adim; yalniz OKBASI/V icin anlamli
+    uint8_t  slot_ajan[4];      // slot sirasi = ATAMA; 0 = bos slot
+};
+static_assert(sizeof(formasyon_veri_t) == 16,
+              "formasyon_veri_t 16 byte OLMALI — bridge sabit 16B diliyor");
+static_assert(offsetof(formasyon_veri_t, merkez_kuzey_dm) == 1,
+              "merkez_kuzey_dm offset 1 OLMALI — packet_parser.py _FORMASYON_FMT ile uyum");
+static_assert(offsetof(formasyon_veri_t, spacing_dm) == 9,
+              "spacing_dm offset 9 OLMALI — packet_parser.py _FORMASYON_FMT ile uyum");
+static_assert(offsetof(formasyon_veri_t, slot_ajan) == 12,
+              "slot_ajan offset 12 OLMALI — packet_parser.py _FORMASYON_FMT ile uyum");
+
+// --- TIP_FORMASYON_DEVAM: 5-8 arasi ajan icin slot listesinin devami -------
+// 3 drone ile HIC gonderilmez. Sartname 5.3 "istenilen sayida IHA'yi
+// yonetebilme" geregi protokolde tanimli, sahada bedava.
+struct __attribute__((packed)) formasyon_devam_veri_t {
+    uint8_t  slot_ajan[4];      // slot 4..7
+    uint8_t  rezerv[12];
+};
+static_assert(sizeof(formasyon_devam_veri_t) == 16,
+              "formasyon_devam_veri_t 16 byte OLMALI");
+
+// --- TIP_FORM_OFSET: YALNIZ CUSTOM formasyonda, kalkista bir kez -----------
+// Paket basina 2 slot. 3 ajan -> 2 paket. Periyodik DEGIL.
+struct __attribute__((packed)) form_ofset_veri_t {
+    uint8_t  slot_bas;          // bu paketteki ilk slot indeksi
+    uint8_t  slot_sayisi;       // 1 veya 2
+    int16_t  ofset_dm[6];       // slot0: kuzey,dogu,asagi | slot1: kuzey,dogu,asagi
+    uint8_t  rezerv[2];
+};
+static_assert(sizeof(form_ofset_veri_t) == 16,
+              "form_ofset_veri_t 16 byte OLMALI");
+static_assert(offsetof(form_ofset_veri_t, ofset_dm) == 2,
+              "ofset_dm offset 2 OLMALI — packet_parser.py _FORM_OFSET_FMT ile uyum");
+
+// --- TIP_QR_GOREV: QR'i okuyan dronun cozdugu gorev paketi -----------------
+// QRMissionData 37 alan; saha kontrol mantiginin GERCEKTEN okudugu alanlar
+// satir referansiyla cikarildi (bkz. belge KARAR 6). Gecmeyenler:
+//   team_id      -> okuyan drone yerelde filtreler (alici kopru DOLDURUR!)
+//   raw_text     -> YKI metni yapisal alanlardan yerel kurar (0 ekstra bayt)
+//   command_type -> hicbir saha mantigi okumuyor; bayraklar kullaniliyor
+//   target_x/y   -> yanlis pozitifti; inis hedefi kameradan (zone_map)
+//   confidence, image_* -> hicbir uculus karari okumuyor
+//
+// qr_seq uint8: hicbir yerde KARSILASTIRILMIYOR (yalniz orchestrator'un
+// emit-once anahtarinda degisim tespiti). UYARI: QRMissionData.msg
+// "monotonically increasing / drops stale" IDDIA EDIYOR ama uygulanmamis;
+// biri o karsilastirmayi eklerse uint8 sarmasi (255->0) her seyi bayat sayar.
+#define QR_BAYRAK_VALID        0x01
+#define QR_BAYRAK_DECODED      0x02
+#define QR_BAYRAK_FORMASYON    0x04   // formation_active
+#define QR_BAYRAK_MANEVRA      0x08   // maneuver_active
+#define QR_BAYRAK_IRTIFA       0x10   // altitude_active
+#define QR_BAYRAK_AYRILMA      0x20   // detach_active
+#define QR_BAYRAK_GOREV_BITTI  0x40   // complete_mission
+
+struct __attribute__((packed)) qr_gorev_veri_t {
+    uint8_t  qr_id;
+    uint8_t  qr_seq;
+    uint8_t  sonraki_qr;        // 0 = gorev bitti
+    uint8_t  bayraklar;         // QR_BAYRAK_*
+    uint8_t  formasyon_tipi;
+    uint8_t  spacing_dm;
+    int8_t   pitch_deg;         // tam derece (+-127); manevra acisi
+    int8_t   roll_deg;
+    int8_t   yaw_deg;
+    uint8_t  irtifa_m;          // AGL metre; orchestrator bandi 5-30
+    uint8_t  bekleme_s;         // wait_s, tam saniye
+    uint8_t  ayrilan_ajan;      // target_agent_id
+    uint8_t  renk_ve_bekleme;   // bit0-1 detach_color, bit2-7 detach_wait_s (0-63)
+    uint8_t  rezerv[3];
+};
+static_assert(sizeof(qr_gorev_veri_t) == 16,
+              "qr_gorev_veri_t 16 byte OLMALI");
+static_assert(offsetof(qr_gorev_veri_t, pitch_deg) == 6,
+              "pitch_deg offset 6 OLMALI — packet_parser.py _QR_GOREV_FMT ile uyum");
+static_assert(offsetof(qr_gorev_veri_t, renk_ve_bekleme) == 12,
+              "renk_ve_bekleme offset 12 OLMALI — packet_parser.py _QR_GOREV_FMT ile uyum");
+
+// --- TIP_QR_HAM: YALNIZ ayristirma hatasinda, QR basina bir kez ------------
+// Neden var: sartname "QR icerigi ORNEKTIR, nihai format sonrasinda
+// paylasilacaktir" diyor. qr_detector.py'deki JSON semasi bir TAHMIN. Nihai
+// format farkli gelirse json.loads patlar, yapisal alanlar bos kalir ve
+// sahada elinde hicbir sey olmaz. En fazla 4 paket = 52 karakter, formati
+// teshis etmeye yeter ({"QR": mi {"qr": mi).
+#define QR_HATA_JSON   1   // json.loads patladi
+#define QR_HATA_SEMA   2   // zorunlu alanlar eksik (qr/w/mis/team)
+#define QR_HATA_SLOT   3   // takim slotu tabloda yok
+#define QR_HATA_TABLO  4   // takim tablosu girdisi bozuk
+#define QR_HATA_PAKET  5   // paket numarasi listede yok
+#define QR_HATA_KOMUT  6   // _apply_command hatasi
+
+struct __attribute__((packed)) qr_ham_veri_t {
+    uint8_t  hata_kodu;         // QR_HATA_*
+    uint8_t  parca_no;          // 0..3
+    uint8_t  toplam_parca;
+    char     dilim[13];         // ham metnin UTF-8 dilimi; SONLANDIRICI YOK
+};
+static_assert(sizeof(qr_ham_veri_t) == 16,
+              "qr_ham_veri_t 16 byte OLMALI");

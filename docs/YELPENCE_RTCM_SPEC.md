@@ -531,8 +531,66 @@ Görev: İHA-ESP'den UART çerçevelerini çöz → §2.5 kurallarıyla Pixhawk'
   tam-kat durumları ve 181 byte sınır durumu).
 - `main.py`: CLI: `--esp-port`, `--mav-port`, `--mav-baud`. Loglama: enjekte edilen
   mesaj/sn, düşen mesaj, son mesajdan bu yana geçen süre (staleness uyarısı >2 sn).
-- ArduPilot parametre notu (koda değil README'ye): `GPS_TYPE=9` (DroneCAN/Here4),
-  `CAN_P1_DRIVER=1`, `CAN_D1_PROTOCOL=1`, `GPS_INJECT_TO=127`.
+- **Uçuş kontrolcüsü parametre notu — DÜZELTİLDİ (30 Temmuz).**
+
+  Burada önce **ArduPilot** parametreleri yazıyordu (`GPS_TYPE=9`,
+  `CAN_P1_DRIVER=1`, `CAN_D1_PROTOCOL=1`, `GPS_INJECT_TO=127`). **Bu filo için
+  geçersiz:** ölçüldü, kartlar **PX4 Pro 1.16.1** koşuyor (params dosyası
+  başlığı: `Stack: PX4 Pro`). O parametreler PX4'te yok; arayan kişi hiçbirini
+  bulamaz ve yanlış yerde arar.
+
+  PX4 karşılıkları (Here4 = DroneCAN GPS):
+
+  | parametre | değer | ne yapar |
+  |---|---|---|
+  | `UAVCAN_ENABLE` | 2 | DroneCAN açık (sensör + ESC) |
+  | `UAVCAN_SUB_GPS` | 1 | Here4'ten GPS alınır |
+  | `UAVCAN_SUB_GPS_R` | 1 | GPS relative/RTK aboneliği |
+  | **`UAVCAN_PUB_RTCM`** | **1** | **PX4'ün MAVLink'ten aldığı RTCM'i DroneCAN veriyoluna yayınlaması** |
+  | `GPS_1_CONFIG` / `GPS_2_CONFIG` | 0 | seri GPS kapalı (GPS DroneCAN'de) |
+  | `UAVCAN_BITRATE` | 1000000 | CAN hızı |
+
+  **`UAVCAN_PUB_RTCM` bu zincirin son halkası ve sessizce kopuyor.** 0 iken:
+
+      u-blox -> YKİ -> mesh -> RPi -> MAVROS -> PX4     buraya kadar AKAR
+      PX4 -> DroneCAN -> Here4                          AKMAZ
+
+  Semptomu sinsi: `px4_bridge` "RTCM enjekte ettim" der, sayaçlar artar, hiçbir
+  hata çıkmaz — yalnızca `gps_fix_type` 5/6'ya (Float/Fixed) çıkmaz. 30 Temmuz'da
+  ölçüldü: ylp00'da 1, **ylp02'de 0**; ylp02'nin RTCM'i Here4'e hiç ulaşmıyordu.
+  ylp02'de 1 yazıldı, FCU rebootlandı, reboot sonrası değer korundu (flash'ta).
+
+  > PX4'te `UAVCAN_*` parametrelerinin çoğu **reboot ister** — UAVCAN sürücüsü
+  > yayıncılarını açılışta kurar. Değiştirdikten sonra FCU yeniden başlatılmalı.
+  > FCU reboot'u MAVLink yayın hızlarını da sıfırlar, o yüzden
+  > `mesaj_hizlari.py` tekrar çalıştırılmalı (ya da konteyner yeniden
+  > başlatılmalı — `baslat.sh` bunu sırayla yapıyor).
+
+- **TUZAK: `fix_type=4` (DGPS) RTK'nın çalıştığının kanıtı DEĞİLDİR — ölçüldü
+  (30 Temmuz).**
+
+  YKİ'de veya `gpsstatus/gps1/raw`'da `fix_type: 4` gören biri doğal olarak
+  "düzeltme uygulanıyor" sanır. **Yanlış.** u-blox/Here4 alıcıları **SBAS**'tan
+  (Avrupa'da EGNOS) da DGPS bildirir ve bunun RTCM ile ilgisi yoktur.
+
+  ylp00'da nedensellik deneyi yapıldı — RTCM akışı kesilip `fix_type` izlendi:
+
+  | durum | fix_type | h_acc | px4_bridge sayacı |
+  |---|---|---|---|
+  | RTCM açık | 4 | 2189 mm | 5 msg/s artıyor |
+  | kesik +45 s | 4 | 2198 mm | **donmuş** (4930) |
+  | kesik +95 s | 4 | 2228 mm | **donmuş** (4930) |
+  | tekrar açık | 4 | 2274 mm | 5 msg/s artıyor |
+
+  `fix_type` hiç değişmedi. `h_acc` ise RTCM durumundan bağımsız olarak tek yönde
+  kaydı (kapalı mekân multipath'i) — düzeltme kaybı değil.
+
+  **Sonuç:** bu filodaki `fix_type=4` SBAS kaynaklıdır. Zincirin son halkasını
+  (`MAVROS -> PX4 -> DroneCAN -> Here4`) doğrulamak için `fix_type` kullanılamaz;
+  yalnızca **5 (Float) veya 6 (Fixed)** kanıt sayılır. O da baz istasyonu
+  konumu (**1005**) akmadan imkânsızdır — MSM gözlemleri tek başına baseline
+  kuramaz. 1005 yalnız survey-in tamamlanınca çıkar, survey-in de açık gökyüzü
+  ister. **Yani RTK doğrulaması kapalı mekânda yapılamaz; sahada yapılacak.**
 
 ### 3.5 `common/` — Paylaşılan Python kodu
 

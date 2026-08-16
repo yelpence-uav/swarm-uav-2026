@@ -2,6 +2,8 @@
 
 import asyncio
 import dataclasses
+
+from backend.core.state_store import ikili_mesafeler
 import json
 import logging
 
@@ -35,11 +37,17 @@ async def telemetry_ws(
                 bridge.get_swarm_state() if bridge is not None else None
             )
             qr = bridge.get_qr_data() if bridge is not None else None
+            # RTK: REST snapshot ile AYNI alanlar. Arayuz canli veriyi
+            # BURADAN aliyor; REST'e eklenip buraya eklenmezse gosterge
+            # hic guncellenmez (31 Temmuz'da tam bu oldu).
+            rtk = bridge.get_rtk_status() if bridge is not None else None
             payload = {
                 "drones": [dataclasses.asdict(d) for d in snap],
                 "alerts": [dataclasses.asdict(a) for a in active_alerts],
                 "swarm_state": swarm_state,
                 "qr": qr,
+                "rtk": rtk,
+                "mesafeler": ikili_mesafeler(snap),
                 "connection_mode": connection_mode,
             }
             await ws.send_text(json.dumps(payload))

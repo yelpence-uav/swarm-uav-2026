@@ -181,6 +181,25 @@ void mesh_veri_al(const uint8_t* kaynak_mac, const mesh_paket_t* p) {
     // komsu POSE -> NED donusumu buna bagli. Iletilmezse follower'da _son_origin
     // None kalir ve tum komsu konumlari pos=0/valid=false olur.
     else if (p->tip == TIP_ORIGIN)      uzunluk = sizeof(origin_veri_t);
+    // --- Suru koordinasyonu (30 Temmuz, docs/MESH_PROTOKOL_KARARLARI.md) -----
+    // Bunlar TAKIPCI Pi'sine ulasmak ZORUNDA; aksi halde paket mesh'i gecer,
+    // ESP'ye varir ve BURADA sessizce olur. Formasyon hic olusmaz ve sebebi
+    // hicbir gunlukte gorunmez (bkz. §1.1: TIP_RTK tam boyle kayboluyordu).
+    //
+    // TIP_FORMASYON  -> bridge FormationCommand'a acar (compute_slot_offsets ile
+    //                   offsetleri dolduracak) -> formation_node/maneuver_executor
+    // TIP_..._DEVAM  -> 5+ ajanda slot listesinin devami
+    // TIP_FORM_OFSET -> yalniz CUSTOM (juri dizilisi) offsetleri
+    // TIP_QR_GOREV   -> bridge QRMissionData'ya acar -> mission_fsm/mission1/
+    //                   precision_landing
+    else if (p->tip == TIP_FORMASYON)       uzunluk = sizeof(formasyon_veri_t);
+    else if (p->tip == TIP_FORMASYON_DEVAM) uzunluk = sizeof(formasyon_devam_veri_t);
+    else if (p->tip == TIP_FORM_OFSET)      uzunluk = sizeof(form_ofset_veri_t);
+    else if (p->tip == TIP_QR_GOREV)        uzunluk = sizeof(qr_gorev_veri_t);
+    // TIP_QR_HAM BILEREK YOK: ham QR metni yalniz YKI teshisi icin (KARAR 8).
+    // Broadcast oldugu icin takipciler de alir ama Pi'sine iletmiyoruz - hicbir
+    // ucus karari okumuyor, iletmek bosa UART trafigi olurdu. Bu bir ATLAMA
+    // DEGIL, bilincli karar; RX BASE tarafinda ise ILETILIYOR.
     else return; // bilinmeyen tip, gonderme
     uart_gonder(p->tip, kaynak_id, payload, uzunluk);
 }
@@ -324,6 +343,12 @@ void loop() {
             // paylasimi (carpisma onleme) korlesir. TIP_LEADER_HB ve TIP_ELECTION
             // dahil (aksi halde her drone kendi consensus mesajini gonderemez ->
             // split-brain).
+            // Suru koordinasyonu (30 Temmuz): formasyon paketlerini LIDERIN
+            // Pi'si uretir, ama ayni firmware her dronda kosuyor ve lider
+            // calisma zamaninda degisiyor -> whitelist tum dronlarda izin
+            // vermeli. "Su an lider miyim" kapisi Pi tarafinda (esp32_bridge,
+            // KARAR 11). Firmware'e lider bilgisi tasimak gereksiz karmasiklik
+            // olurdu ve lider degisiminde iki tarafi senkron tutmak gerekirdi.
             const bool izinli = (tip_byte == TIP_KOMUT  ||
                                   tip_byte == TIP_POSE   ||
                                   tip_byte == TIP_GOREV  ||
@@ -333,7 +358,12 @@ void loop() {
                                   tip_byte == TIP_SWARM_STATE ||
                                   tip_byte == TIP_QR_DATA ||
                                   tip_byte == TIP_LEADER_HB ||
-                                  tip_byte == TIP_ELECTION);
+                                  tip_byte == TIP_ELECTION ||
+                                  tip_byte == TIP_FORMASYON ||
+                                  tip_byte == TIP_FORMASYON_DEVAM ||
+                                  tip_byte == TIP_FORM_OFSET ||
+                                  tip_byte == TIP_QR_GOREV ||
+                                  tip_byte == TIP_QR_HAM);
             // Hiz limiti tip basina (bkz mesh_config.h::mesh_tip_gecebilir). Tek
             // paylasilan damga olsaydi TIP_QR_DATA, 50ms icinde cikan bir POSE/
             // LEADER_HB yuzunden sessizce dusebilirdi; QR tek atimlik ve cezali.

@@ -1,3 +1,4 @@
+import { PIL_GOSTER } from "../../services/gorunum";
 import type { DroneState } from "../../types/telemetry";
 import { AGENT_STATE_LABELS } from "../../types/telemetry";
 import { BatteryGauge } from "./BatteryGauge";
@@ -141,7 +142,9 @@ export function DroneCard({ drone, onSelect, selected = false }: DroneCardProps)
         <span className="drone-card__state-label">{stateLabel}</span>
       </div>
 
-      <BatteryGauge percent={drone.battery_percent} voltage={drone.battery_voltage} />
+      {PIL_GOSTER && (
+        <BatteryGauge percent={drone.battery_percent} voltage={drone.battery_voltage} />
+      )}
 
       <dl className="drone-card__stats">
         <Stat label="ALT" value={`${drone.alt_m.toFixed(1)} m`} />

@@ -123,3 +123,33 @@ class StateStore:
                 ):
                     d.connected = False
             return list(self._drones.values())
+
+
+def ikili_mesafeler(snap) -> list[dict]:
+    """Bagli drone ciftleri arasi mesafe (metre).
+
+    NEDEN VAR: RTK'nin gercekten dogru olup olmadigini sahada seritmetreyle
+    sinamak icin. Telemetri "1.3 cm dogruluk" diyor; iki drone'u yan yana
+    koyup hem burada okunan mesafeyi hem elle olculeni karsilastirmak, bu
+    iddiayi dogrulamanin en dogrudan yolu.
+
+    NED (kuzey, dogu, asagi) uzerinden hesaplanir; ayni origin'e gore
+    oldugu icin fark dogrudan metre verir.
+    """
+    bagli = [d for d in snap if d.connected]
+    cikti = []
+    for i in range(len(bagli)):
+        for j in range(i + 1, len(bagli)):
+            a, b = bagli[i], bagli[j]
+            dk = a.pos_x - b.pos_x
+            dd = a.pos_y - b.pos_y
+            dz = a.pos_z - b.pos_z
+            yatay = (dk * dk + dd * dd) ** 0.5
+            cikti.append({
+                "a": a.drone_id,
+                "b": b.drone_id,
+                "yatay_m": round(yatay, 2),
+                "dikey_m": round(-dz, 2),          # NED asagi-pozitif -> yukari
+                "mesafe_m": round((yatay * yatay + dz * dz) ** 0.5, 2),
+            })
+    return cikti

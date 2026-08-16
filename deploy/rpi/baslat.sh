@@ -6,15 +6,825 @@ AGENT_ID="${AGENT_ID:-1}"
 echo "[baslat] AGENT_ID=$AGENT_ID"
 source /opt/ros/jazzy/setup.bash && source /ws/install/setup.bash
 export ROS_DOMAIN_ID=0 RMW_IMPLEMENTATION=rmw_cyclonedds_cpp ROS_LOCALHOST_ONLY=1  # saha: DDS loopback-only, dis ag bagimsiz
-ros2 run mavros mavros_node --ros-args -r __ns:=/drone_${AGENT_ID}/mavros -p fcu_url:=/dev/ttyAMA0:921600 > /tmp/mavros.log 2>&1 &
+
+# --- Dugum ciktilari nereye yazilir ------------------------------------------
+# Onceden hepsi '> /tmp/X.log' idi ve '>' her aciliste dosyayi TRUNCATE
+# ediyordu: bir dugum cokup yigin yeniden basladiginda cokme mesaji
+# kayboluyordu. Sistem gunlugu journald'da, telemetri ros2 bag'de duruyordu
+# ama "hangi dugum neden oldu" sorusunun cevabi hicbir yerde kalmiyordu.
+#
+# Artik /ws/gunluk/<damga>/ altina yaziliyor. Uc kazanc:
+#   - /ws host'ta ~/yelpence_ws demek — konteyner silinip yeniden kurulsa kalir
+#   - host'tan 'docker exec' olmadan okunur
+#   - klasor adi Istanbul damgali, journald ile ayni saatte hizalanir
+# TZ burada set ediliyor cunku damga hemen asagida kullaniliyor: konteyner
+# UTC'de calisir, host Europe/Istanbul'da; verilmezse gunlukler sistem
+# gunlukleriyle 3 saat kayar (tzdata konteynerde mevcut, dogrulandi).
+# En yeni 5 acilis tutulur. ONCE 10 IDI ve "dosyalar kucuk, ayri disk tavani
+# gerekmiyor" yaziyordu — YANLISTI, 14 Agustos'ta iki dronun da diski
+# %100 doldu. Bkz. asagidaki gunluk bekcisi.
+# Budama -type d ile yapiliyor, boylece asagidaki 'son' sembolik bagi
+# hedefiyle birlikte silinmiyor.
+export TZ=Europe/Istanbul
+GUNLUK="/ws/gunluk/$(date +%Y%m%d_%H%M%S)"
+mkdir -p "$GUNLUK"
+find /ws/gunluk -maxdepth 1 -mindepth 1 -type d -printf '%T@ %p\n' 2>/dev/null \
+    | sort -rn | tail -n +6 | cut -d' ' -f2- | xargs -r rm -rf
+# Bag GORELI olmak zorunda: mutlak verilirse '/ws/gunluk/<damga>'i gosterir ve
+# host'ta /ws diye bir yol olmadigi icin ~/yelpence_ws/gunluk/son KIRIK cikar
+# (olculdu). Sadece dizin adi verilince iki taraftan da cozuluyor.
+ln -sfn "$(basename "$GUNLUK")" /ws/gunluk/son   # ~/yelpence_ws/gunluk/son/mavros.log
+echo "[baslat] gunlukler: $GUNLUK"
+
+# --- GUNLUK BOYUT BEKCISI ---------------------------------------------------
+# 14 AGUSTOS: IKI DRONUN DA DISKI %100 DOLDU. Olculdu:
+#   ylp00  gunluk/ 19 GB   (mavros.log tek basina 18.64 GB)
+#   ylp02  gunluk/ 22 GB   (mavros.log tek basina 21.57 GB)
+# Ucus kayitlari (kayit/) sucsuzdu: 4.6 ve 3.0 GB. Disk dolunca 'ros2 bag'
+# yazamaz — yani BIR SONRAKI UCUS KAYDEDILMEZ. 2 Agustos kazasini cozen sey
+# o kayitti.
+#
+# KOK NEDEN — bir tek satir:
+#     Warning: mavconn: udp1: sendto: Network is unreachable, retrying
+# 200 bin satirlik ornekte 99.760 tanesi buydu, yani logun YARISI. 'udp1',
+# GCS_URL ile QGC'ye MAVLink ileten ucnokta. WiFi dustugunde MAVROS her
+# MAVLink mesaji icin bir uyari basiyor; yayin hizlari 20 Hz oldugu icin
+# saniyede yuzlerce satir, saatte GB'lar. Yani patlama sahada WiFi
+# kopmasiyla birebir ortusuyor. Bu satirlar ROS logger'indan degil mavconn
+# kutuphanesinin kendi stderr'inden geliyor, --log-level ile susmuyor.
+#
+# COZUM: dosyayi kirp, SONUNU koru. Son taraf onemli olan taraf — hata
+# aninda ne oldugunu o anlatir.
+#
+# NEDEN YUKARIDAKI BUTUN YONLENDIRMELER '>>' : bash '>' dosyayi O_APPEND
+# OLMADAN aciyor. Oyle bir dosyayi kirparsak yazan surec kendi eski
+# ofsetinden yazmaya devam eder ve SEYREK (sparse) dosya olusur — 'ls' buyuk
+# gorunur, 'du' kucuk, ve kimse ne oldugunu anlamaz. '>>' ile O_APPEND set
+# edilir; kirptiktan sonra bir sonraki yazma yeni EOF'a gider. Dogru davranis
+# bu tek karaktere bagli, degistirme.
+# TAVAN NEDEN 500 MB (once 100 idi):
+#
+# Normal isleyiste log KB mertebesinde — saglikli bir aciliste mavros.log
+# 37 KB olculdu. Yani tavan YALNIZCA patlama aninda devreye giriyor.
+# Patlamada ~25 MB/dk yaziliyor; 25 MB korumak elde ~1 DAKIKALIK gecmis
+# birakiyordu ve kirpmadan 3 dk once olan bir arizanin kaniti gidiyordu.
+#
+# KORUNAN ORANI %25'TE TUTULUYOR, bu bilincli: kirpma her seferinde korunan
+# kadar okuyup yaziyor, yani I/O yuku korunan/(tavan-korunan) oraniyla
+# belirleniyor. 125/500 ile 25/100 AYNI I/O yukunu veriyor (8.3 MB/dk) ama
+# bes kat gecmis birakiyor. 250/500 secseydik yuk uc katina cikardi.
+#
+# Disk tarafi rahat: 5 acilis x 500 MB = 2.5 GB, diskte 19-21 GB bos.
+GUNLUK_TAVAN_MB="${GUNLUK_TAVAN_MB:-500}"
+GUNLUK_KORUNAN_MB="${GUNLUK_KORUNAN_MB:-125}"
+# DIZIN GENELI TAVAN — dosya basina tavan TEK BASINA YETMEZ.
+#
+# Su an buyuyen tek dosya mavros.log. Ama SURU DUGUMLERI acilinca 14 log
+# daha olacak (formation, collision_avoidance, mission1, vision...) ve
+# herhangi biri spam yapabilir. O zaman en kotu hal:
+#     14 dosya x 500 MB x 5 acilis = 35 GB   ->  disk YINE dolar
+# Bu yuzden ikinci bir kapi: dizin bu tavani asarsa EN ESKI acilis dizinleri
+# silinir (en yeni ikisi her zaman korunur — biri calisan, biri onceki).
+GUNLUK_DIZIN_TAVAN_MB="${GUNLUK_DIZIN_TAVAN_MB:-3000}"
+gunluk_bekcisi() {
+    local tavan=$((GUNLUK_TAVAN_MB * 1024 * 1024))
+    local korunan=$((GUNLUK_KORUNAN_MB * 1024 * 1024))
+    local f boyut dizin_mb eskiler
+    while true; do
+        sleep 60
+
+        # 1) DIZIN GENELI: tavani asiyorsa en eski acilislari at.
+        dizin_mb=$(du -sm /ws/gunluk 2>/dev/null | cut -f1)
+        if [ -n "$dizin_mb" ] && [ "$dizin_mb" -gt "$GUNLUK_DIZIN_TAVAN_MB" ]; then
+            # En yeni IKI dizin her zaman kalir; gerisi en eskiden silinir.
+            eskiler=$(find /ws/gunluk -maxdepth 1 -mindepth 1 -type d \
+                        -printf '%T@ %p\n' 2>/dev/null \
+                      | sort -rn | tail -n +3 | cut -d' ' -f2-)
+            if [ -n "$eskiler" ]; then
+                echo "$eskiler" | xargs -r rm -rf
+                echo "[$(date +%H:%M:%S)] dizin ${dizin_mb} MB > ${GUNLUK_DIZIN_TAVAN_MB} MB" \
+                     "-> eski acilislar silindi, kalan $(du -sm /ws/gunluk | cut -f1) MB" \
+                     >> "$GUNLUK/bekci.log"
+            fi
+        fi
+
+        # 2) DOSYA BASINA: tavani asani kirp, SONUNU koru.
+        for f in "$GUNLUK"/*.log; do
+            [ -f "$f" ] || continue
+            case "$f" in *bekci.log) continue ;; esac
+            boyut=$(stat -c %s "$f" 2>/dev/null) || continue
+            [ "$boyut" -gt "$tavan" ] || continue
+            # tail -> gecici -> cp: cp AYNI inode'a yazar, dosya kuculur,
+            # yazan surec O_APPEND sayesinde yeni sonundan devam eder.
+            tail -c "$korunan" "$f" > "$f.kirp" 2>/dev/null || continue
+            cp "$f.kirp" "$f" 2>/dev/null
+            rm -f "$f.kirp"
+            # BU SATIR BIR SINYALDIR, gurultu degil: kirpma olduysa o dugum
+            # saniyede yuzlerce satir basiyor demektir. Sik kirpma = arayacagin
+            # arizanin kendisi. Zaman damgasi hangi ucus anina denk geldigini
+            # soyler.
+            echo "[$(date +%H:%M:%S)] $(basename "$f") ${GUNLUK_TAVAN_MB}MB asti -> son ${GUNLUK_KORUNAN_MB}MB korundu" \
+                >> "$GUNLUK/bekci.log"
+        done
+    done
+}
+gunluk_bekcisi &
+echo "[baslat] gunluk bekcisi: dosya ${GUNLUK_TAVAN_MB} MB (son ${GUNLUK_KORUNAN_MB} MB korunur)," \
+     "dizin ${GUNLUK_DIZIN_TAVAN_MB} MB"
+
+# GCS_URL: MAVROS'un MAVLink'i AYNEN ilettigi ikinci ucnokta (QGroundControl).
+# NEDEN VAR: kanit videosu yonergesi "ucus modunun ve yonelimlerin acikca
+# gorundugu Mission Planner veya QGroundControl ekran goruntusu" istiyor.
+# Telemetri normalde ESP mesh'ten YKI'ye gidiyor ama mesh 16 baytlik ozet
+# tasiyor — QGC'nin HUD'u icin tam MAVLink akisi gerekir. Bos birakilirsa
+# eski davranis aynen korunur (hicbir yere iletmez).
+#   ornek: GCS_URL=udp://@10.158.16.115:14550
+#
+# Env DISINDA /ws/gcs_url dosyasindan da okunur. Sebep pratik: konteynerler
+# 'docker run -e AGENT_ID=N' ile yaratildi ve env eklemek konteyneri YENIDEN
+# YARATMAK demek — sahada gereksiz risk. Dosya birakip 'docker restart' yeter.
+GCS_URL="${GCS_URL:-}"
+if [ -z "$GCS_URL" ] && [ -f /ws/gcs_url ]; then
+    GCS_URL="$(tr -d '[:space:]' < /ws/gcs_url)"
+fi
+# TGT_SYSTEM: MAVROS'un konusacagi PX4 sistem kimligi.
+#
+# Varsayilan 1'dir ve cogu PX4'umuz fabrika ayari MAV_SYS_ID=1 ile geliyor.
+# AMA ylp02'nin FCU'su 31 Temmuz'da 3'e gecti: MAV_SYS_ID=3 yazilmisti,
+# PX4 bu parametreyi ancak YENIDEN BASLATMADA uyguluyor, ve FCU o gun
+# yeniden basladi. MAVROS 1'i hedeflemeye devam edince FCU ile hic
+# konusamadi — dugumler ayakta, port acik, ama 'connected: false' ve
+# YKI'de butun alanlar sifir. Teshisi zor bir hal; ipucu mavros.log'daki
+# 'detected remote address 3.125' satiri (saglamda '1.1' olur).
+#
+# Bu yuzden AGENT_ID'den TUREMEZ — o, FCU'su hala 1 olan drone'lari bozar.
+# /ws/tgt_system dosyasindan okunur; yoksa MAVROS varsayilani kullanilir.
+TGT_SYSTEM=""
+if [ -f /ws/tgt_system ]; then
+    TGT_SYSTEM="$(tr -d '[:space:]' < /ws/tgt_system)"
+    echo "[baslat] MAVROS tgt_system=$TGT_SYSTEM (PX4 MAV_SYS_ID ile ayni olmali)"
+fi
+# Suanki durum: ylp00 -> dosya YOK (FCU sysid 1, MAVROS varsayilani 1)
+#               ylp02 -> /ws/tgt_system = 3 (FCU sysid 3)
+ros2 run mavros mavros_node --ros-args -r __ns:=/drone_${AGENT_ID}/mavros \
+    -p fcu_url:=/dev/ttyAMA0:921600 \
+    ${TGT_SYSTEM:+-p tgt_system:=$TGT_SYSTEM} \
+    ${GCS_URL:+-p gcs_url:="$GCS_URL"} \
+    >> "$GUNLUK/mavros.log" 2>&1 &
+[ -n "$GCS_URL" ] && echo "[baslat] MAVLink QGC'ye iletiliyor: $GCS_URL"
 sleep 15
-ros2 run swarm_control px4_bridge --ros-args -p agent_id:=${AGENT_ID} > /tmp/px4b.log 2>&1 &
+
+# --- GPS'ten saat duzeltme (15 Agustos) -------------------------------------
+# Pi 5'te RTC yedek pili yok: acilista saat ~11 saat GERIDEN geliyor ve ancak
+# ag gelince NTP one atlatiyor (olculdu, ayrinti gps_saat.py basinda). Iki
+# ucagin saati o pencerede birbirinden farkli olur; capraz ucak kayit
+# karsilastirmasi (kim once lider oldu, kacinma ne zaman tetiklendi) imkansiz
+# hale gelir. Yarisma gunu sahada internet olmayabilir — NTP hic gelmez.
+#
+# PX4 UTC'yi GPS'ten aliyor, MAVROS 1 Hz'de yayinliyor. Internet gerekmiyor.
+#
+# NEDEN TAM BURASI: mavros ayakta ama diger dugumler HENUZ ACILMADI. Saati bir
+# dugum kostuktan sonra atlatmak ROS zamanlayicilarini ve kayit damgalarini
+# bozar. Bu yuzden bir kez, burada, dugumlerden once.
+#
+# GPS 25 sn icinde kilitlenmezse saat DEGISMEZ ve olculen fark loga yazilir —
+# o boot'un kayitlari sonradan o farkla duzeltilebilir. Acilis bloke olmaz.
+# Kapatmak icin: touch ~/yelpence_ws/gps_saat_kapali
+if [ -f /ws/gps_saat_kapali ]; then
+    echo "[baslat] gps saat duzeltmesi KAPALI (/ws/gps_saat_kapali)"
+elif [ -f /ws/gps_saat.py ]; then
+    python3 /ws/gps_saat.py --ns "/drone_${AGENT_ID}" --bekle 25 2>&1 \
+        | tee -a "$GUNLUK/gps_saat.log"
+fi
+# GUIDED YORUNGE HIZLARI — yorunge 2 Agustos'ta px4_bridge'e tasindi
+# (bkz. _yurutucu_ilerlet). Onceden gorev betigi setpoint'i kendi yurutuyor ve
+# her ara noktayi mesh'ten yolluyordu; mesh'te ~%30 paket kaybi oldugu icin
+# her kayip ucakta bir sicrama uretiyordu ("gaz bas-cek"). Artik YKI yalniz
+# hedefi gonderiyor, ara degerleri drone 50 Hz'de kendi uretiyor.
+#
+# Bu degerler gorev betigindeki GOREV_HIZ_MPS / GOREV_DIKEY_HIZ_MPS ile AYNI
+# olmali — ayrisirsa ucus dogru hizda olur ama YKI ekranindaki sayi yalan
+# soyler. Betikteki degerler artik yalniz bilgi amacli.
+# UCUS AYARLARI DOSYASI — hiz/ivme TEK KAYNAKTAN.
+#
+# /ws/ucus_ayarlari.env varsa buradan okunur. O dosyayi YKI uretir:
+#     python3 src/gcs/ucus_ayarlari.py --kabuk > ucus_ayarlari.env
+# ve dagit.sh ucaklara kopyalar.
+#
+# NEDEN: ayni hiz uc yerde duruyordu — gorev kosucusu, burasi ve PX4.
+# 14 Agustos'ta gorev kosucusu 3.0'a gecti ama burasi 2.0'da kaldi; ucak
+# 2.0 ucar, YKI ekraninda 3.0 yazardi ve varis zamanlamasi kayardi.
+# Dosya yoksa asagidaki varsayilanlar gecerli — eski davranis korunur.
+#
+# DOSYA ONCELIKLI — `. dosya` env'i EZER.
+#
+# 15 Agustos'ta olculdu: burada onceden "ENV ONCELIKLI, -e dosyayi ezer"
+# yaziyordu ve YANLISTI. `GUIDED_HIZ_YATAY=9.9` env'iyle girip dosyayi
+# source edince sonuc 3.0 cikiyor, yani -e SESSIZCE yok sayiliyor. Ucus hizi
+# degiskeninde bu tehlikeli bir yalan: operator 1.0 verdigini sanip 3.0
+# ucabilirdi.
+#
+# Davranis BILEREK boyle birakildi: 14 Agustos'ta hiz/ivme tek kaynaga
+# (ucus_ayarlari.py) baglandi ve dosyanin kazanmasi tam olarak kaymayi
+# onleyen sey. Duzeltilen yorumdur.
+#
+# Tek ucakta hizli deneme icin -e degil, CANLI parametre yolu var
+# (konteyner yeniden baslamadan, CLAUDE.md §8):
+#     python3 - --ns /px4_bridge --yaz guided_hiz_yatay_mps=4.0  < src/gcs/px4_param.py
+if [ -f /ws/ucus_ayarlari.env ]; then
+    # shellcheck disable=SC1091
+    . /ws/ucus_ayarlari.env
+    echo "[baslat] ucus ayarlari dosyadan: yatay=${GUIDED_HIZ_YATAY} dikey=${GUIDED_HIZ_DIKEY}"
+fi
+GUIDED_HIZ_YATAY="${GUIDED_HIZ_YATAY:-2.0}"
+GUIDED_HIZ_DIKEY="${GUIDED_HIZ_DIKEY:-1.0}"
+GUIDED_TASMA="${GUIDED_TASMA:-3.0}"
+# Rota sekillendirme varsayilanlari — ucus_ayarlari.env yoksa devreye girer.
+# Degerler config'in URETTIGI ile AYNI olmali; ayrisirsa env dosyasi olan ve
+# olmayan ucak farkli ucar.
+ROTA_MAKS_HIZ="${ROTA_MAKS_HIZ:-3.0}"
+ROTA_ADIM_HZ="${ROTA_ADIM_HZ:-5.0}"
+ROTA_DONUS_TAVANI_DEG_S="${ROTA_DONUS_TAVANI_DEG_S:-25.0}"
+ROTA_TEGET_HIZ="${ROTA_TEGET_HIZ:-1.5}"
+ROTA_TEGET_IVME="${ROTA_TEGET_IVME:-0.75}"
+# IVME SINIRI: ilk surumde yoktu ve hiz ileri-beslemesi BASAMAK gidiyordu —
+# hareket baslarken bir tik'te 0'dan tam hiza. Ucus kaydinda olculdu: yatayda
+# %28 (2.57 m/s), dikeyde %18 (1.18 m/s) asim. Operator "once asiri hizli,
+# sonra olmasi gereken hizda" diye bildirdi. MPC_ACC_HOR ucakta 2.0; altinda.
+#
+# 2. TUR (2 Agustos, ikinci ucus): rampa geldi, KOMUT tepe artik tam 2.00 /
+# 1.00 — basamak yok. Ama OLCULEN hala asiyor: yatay 2.51 (%25),
+# dikey 1.42 (%42). Sebep artik farkli: rampa sirasinda ucak yurutucunun
+# GERISINDE kaliyor, konum hatasi birikiyor ve PX4 onu ileri-beslemenin
+# USTUNE ekliyor (MPC_XY_P x hata). Olculen gecikme ~0.5 m -> ~0.5 m/s fazla.
+# Operator "varinca biraz geri geldi, sonradan bir duzeltme yapti" dedi.
+#
+# Tek gercek kaldirac IVME: yurutucu ucagin yetisebileceginden hizli
+# rampalarsa gecikme birikir. Yariya indiriyoruz. Bedeli 7 m'lik gecisin
+# ~4.7 -> ~6 sn'ye cikmasi.
+#
+# 3. TUR: ivmeyi yariya indirmek ISE YARAMADI. Olculdu: 1.5 -> 0.8 yapinca
+# yatay asim %25'ten sadece %21'e indi (2.51 -> 2.42), bedeli 3 sn. Sebep:
+# 7 m'lik gecis neredeyse tamamen gecici rejim; gecikmenin sonumlenme zaman
+# sabiti 1/MPC_XY_P ~ 1.05 sn ve seyir fazi zaten ~1 sn. Ivme geri alindi.
+# Asimin gercek kaldiraci GECIKME TELAFISI (bkz. _yurutucu_ilerlet).
+GUIDED_IVME_YATAY="${GUIDED_IVME_YATAY:-1.5}"
+GUIDED_IVME_DIKEY="${GUIDED_IVME_DIKEY:-1.0}"
+# GECIKME TELAFISI — DENENDI, KAPATILDI (2 Agustos, 4. ucus).
+#
+# Fikir: PX4 toplam talebi "ileri-besleme + MPC_XY_P x gecikme" seklinde
+# kuruyor; o ikinci terimi ileri-beslemeden geri cikarirsak toplam istedigimiz
+# hiz kalir. Kod calisti, KOMUT tepesi 2.00 -> 1.43 indi. Ama:
+#
+#     telafisiz:  KOMUT 2.00  OLCULEN 2.42   (PX4 ekledi 0.42 -> gecikme 0.44 m)
+#     telafili :  KOMUT 1.43  OLCULEN 2.24   (PX4 ekledi 0.81 -> gecikme 0.85 m)
+#
+# GECIKME IKIYE KATLANDI. Sebep: yuruyen nokta hala 2.0 m/s ilerliyor ama
+# ucaga 1.43 deniyor; ucak yavas kalinca nokta daha cok one geciyor, PX4'un
+# ekledigi terim buyuyor ve kaybedilen hizin cogu geri geliyor. Telafi kendi
+# kendini yiyor.
+#
+# Bilanco: kazanc %7 (2.42 -> 2.24). Bedel: MPC_XY_P'ye gizli bagimlilik,
+# konum dongusunun %70'inin iptali (ruzgar direnci ucte bire iner) ve ucus
+# 33 -> 35 sn. Takas savunulamaz -> oran 0.0.
+#
+# Kod DURUYOR: tekrar denenecekse yuruyen noktanin hizi da ucagin gercek
+# hizina baglanmali, yoksa ayni geri besleme dongusune girilir.
+GUIDED_KONUM_KP="${GUIDED_KONUM_KP:-0.95}"
+GUIDED_TELAFI_ORANI="${GUIDED_TELAFI_ORANI:-0.0}"
+ros2 run swarm_control px4_bridge --ros-args -p agent_id:=${AGENT_ID} \
+    -p guided_hiz_yatay_mps:=${GUIDED_HIZ_YATAY} \
+    -p guided_hiz_dikey_mps:=${GUIDED_HIZ_DIKEY} \
+    -p guided_ivme_yatay_mps2:=${GUIDED_IVME_YATAY} \
+    -p guided_ivme_dikey_mps2:=${GUIDED_IVME_DIKEY} \
+    -p guided_konum_kp:=${GUIDED_KONUM_KP} \
+    -p guided_telafi_orani:=${GUIDED_TELAFI_ORANI} \
+    -p guided_tasma_m:=${GUIDED_TASMA} >> "$GUNLUK/px4b.log" 2>&1 &
 sleep 5
-ros2 run swarm_state_machine agent_fsm_node --ros-args -p agent_id:=${AGENT_ID} > /tmp/fsm.log 2>&1 &
+# BATARYA KRITIK ESIGI — 0 ise FSM bataryaya HIC BAKMAZ.
+#
+# 2 AGUSTOS: ucaklar regulatorden besleniyor, PX4'te BAT1_SOURCE disabled.
+# Telemetrideki gerilim gercek bir olcum degil; d3'un FCU'su yapilandirilmamis
+# ADC'den 3.1 V okuyordu. Varsayilan esik 13.6 V oldugu icin FSM 3 saniyede bir
+# IDLE <-> FAILSAFE zipladi, her seferinde EMERGENCY olayi yayinladi, kacinma
+# d3'u disladi ve YKI ekraninda "Failsafe" yazdi.
+#
+# PIL GERI TAKILINCA: bu degeri 13.6 yap (ya da BATARYA_KRITIK_V ile gec).
+# Ayrica YKI tarafinda iki yer daha var, ucu birden acilmali:
+#   frontend/src/services/gorunum.ts -> PIL_GOSTER = true
+#   backend/config.yaml -> alerts.susturulan'dan batarya kodlarini cikar
+BATARYA_KRITIK_V="${BATARYA_KRITIK_V:-0.0}"
+
+# YER TESTI BAYRAGI — /ws/yer_testi dosyasi varsa acilir.
+#
+# Acikken "gorev basladi" olayi FSM'i IDLE -> ARMING -> ARMED yolundan normal
+# yurutur (gercek preflight, gercek arm, gercek AgentStatus) ama ARMED'da
+# DURDURUR: kalkis komutu hic gonderilmez.
+#
+# NEDEN (15 Agustos): consensus'un lider secebilmesi icin ajanin
+# ELIGIBLE_STATES'te olmasi gerekiyor ve IDLE o kumede YOK; en dusuk uygun
+# durum ARMED. ARMED'a cikmanin tek yolu EVENT_MISSION_STARTED, ama o olay
+# ayni zamanda kalkisi tetikliyor. Pervanesiz yer testinde bu, motorlari
+# ~30 sn bosta TAM GAZDA tutup FAILSAFE'e dusuruyordu — ESC'leri pisirir.
+#
+#     touch ~/yelpence_ws/yer_testi   # ac
+#     rm    ~/yelpence_ws/yer_testi   # kapat (UCUSTAN ONCE ZORUNLU)
+#
+# drone_bul.sh --durum bayraklari listeliyor, orada gorunur.
+YER_TESTI=false
+if [ -f /ws/yer_testi ]; then
+    YER_TESTI=true
+    echo "[baslat] *** YER TESTI ACIK *** kalkis komutu GONDERILMEYECEK (/ws/yer_testi)"
+fi
+
+ros2 run swarm_state_machine agent_fsm_node --ros-args \
+    -p agent_id:=${AGENT_ID} \
+    -p battery_critical_voltage_v:=${BATARYA_KRITIK_V} \
+    -p yer_testi:=${YER_TESTI} >> "$GUNLUK/fsm.log" 2>&1 &
 sleep 5
 # MAVLink yayin hizlari: FCU her resetlendiginde sifirlanir, her aciliste yeniden istenir
-python3 /ws/mesaj_hizlari.py > /tmp/hizlar.log 2>&1
+python3 /ws/mesaj_hizlari.py >> "$GUNLUK/hizlar.log" 2>&1
 sleep 2
-ros2 run swarm_control esp32_bridge --ros-args -p serial_port:=/dev/ttyAMA4 -p baud:=460800 -p agent_id:=${AGENT_ID} > /tmp/esp.log 2>&1 &
-echo 'tum dugumler basladi'
+# TAKIM_ID -> team_id: QR'in takim filtresi mesh'te TASINMIYOR (metin, 16 bayta sigmaz).
+# QR'i okuyan drone yerelde filtreliyor; alici kopru bu alani DOLDURMAK ZORUNDA.
+# Bos kalirsa mission_fsm_node:336 ve mission1_node:205 gelen HER QR'i reddeder
+# ve semptom "QR gorevleri hic islenmiyor" olur. Kopru bos gorurse uyariyor.
+# Varsayilan mission1_node:122 / mission_fsm_node:89 ile AYNI olmali;
+# ucu ayrisirsa mission_fsm gelen her QR'i reddeder.
+# TEK TIRNAK SART. ROS 2 "-p ad:=deger" degerini YAML olarak ayristiriyor:
+# 752825 -> INTEGER sanilir, parametre STRING bildirildigi icin
+# InvalidParameterTypeException atar ve DUGUM COKER (yasandi 30 Tem).
+# team_id:='752825' seklinde gecmek gerekiyor.
+TAKIM_ID="${TAKIM_ID:-752825}"
+# KANAT_ALFA_DEG -> wing_alpha_deg: OKBASI/V kanat acisi. FormationCommand bu alani TASIMIYOR, o
+# yuzden lider parametreden okuyup pakete koyuyor, alici paketten okuyor —
+# boylece butun suru LIDERIN degerini kullanir. formation_node ve mission1_node
+# da ayni isimli parametreyi kullaniyor; UCU AYNI OLMALI yoksa slot geometrisi
+# sessizce ayrisir.
+KANAT_ALFA_DEG="${KANAT_ALFA_DEG:-45.0}"
+# --- CARPISMA KACINMASI (opt-in) --------------------------------------------
+# /ws/kacinma dosyasi VARSA devreye girer. Opt-in olmasi bilerek: kacinma
+# ucus komut yolunun ICINE giriyor, habersiz bir dagitimin bunu sessizce
+# aktiflestirmesi istenmez.
+#
+# Devredeyken zincir soyle olur:
+#   esp32_bridge -> /control/setpoint/RAW -> basit_kacinma -> /control/setpoint
+# Yani esp32_bridge'in cikisi yeniden yonlendiriliyor ve kacinma araya
+# giriyor. Dosya yoksa esp32_bridge dogrudan /control/setpoint'e yazar,
+# yani bugune kadarki davranis aynen korunur.
+#
+# NOT: kacinma dugumu calissa bile remap YOKSA zararsizdir — /raw'a kimse
+# yazmadigi icin hicbir setpoint yayinlamaz (Asama-1 gozlem modu boyleydi).
+KACINMA=0
+[ -f /ws/kacinma ] && KACINMA=1
+SP_REMAP=""
+if [ "$KACINMA" = "1" ]; then
+    SP_REMAP="-r /drone_${AGENT_ID}/control/setpoint:=/drone_${AGENT_ID}/control/setpoint/raw"
+    echo "[baslat] CARPISMA KACINMASI ACIK — esp32_bridge cikisi /raw'a yonlendirildi"
+else
+    echo "[baslat] carpisma kacinmasi kapali (/ws/kacinma yok)"
+fi
+
+ros2 run swarm_control esp32_bridge --ros-args -p serial_port:=/dev/ttyAMA4 -p baud:=460800 -p agent_id:=${AGENT_ID} -p team_id:="'${TAKIM_ID}'" -p wing_alpha_deg:=${KANAT_ALFA_DEG} $SP_REMAP >> "$GUNLUK/esp.log" 2>&1 &
+
+if [ "$KACINMA" = "1" ]; then
+    sleep 2
+    # komsu_idler: kendisi haric butun filo. Olmayan drone'a abone olmak
+    # zararsiz — veri gelmezse komsu yok sayilir.
+    KOMSULAR=$(echo "1 2 3" | tr ' ' '\n' | grep -v "^${AGENT_ID}$" | paste -sd, -)
+    ros2 run swarm_control basit_kacinma --ros-args \
+        -p agent_id:=${AGENT_ID} -p komsu_idler:="[$KOMSULAR]" \
+        -p d0_m:=${KACINMA_D0:-6.0} -p hard_m:=${KACINMA_HARD:-3.0} \
+        >> "$GUNLUK/kacinma.log" 2>&1 &
+    echo "[baslat] basit_kacinma basladi (komsular: $KOMSULAR)"
+fi
+
+# --- Ucus kaydi (PX4 ULog'unun yerine gecen kayit) --------------------------
+# Pixhawk'ta RAM sinirda oldugu icin FCU tarafinda logger ACILMIYOR. Onun
+# yerine MAVROS'un ZATEN aldigi veriyi burada diske yaziyoruz: Pixhawk'a ek
+# yuk binmez, veri hatta nasilsa akiyor.
+#
+# ULog'dan eksigi: PX4'un ic uORB konulari (kestirimci innovation'lari,
+# aktuator ciktilari, ham sensor 250 Hz+) MAVLink'ten gecmez. Mevcut yayin
+# hizlariyla (ATTITUDE_QUAT 20 Hz, ODOMETRY 20 Hz) 10 Hz'e kadar olan olaylar
+# yakalanir — kaza/olay analizi icin yeter, EKF/kontrol ayari icin yetmez.
+#
+# 30 sn'lik parcalar: ucus 13-14 dk suruyor. ros2 bag klasorun tamamini
+# metadata.yaml uzerinden TEK kayit olarak gorur, parcalanma analizi
+# zorlastirmaz.
+#
+# "30 sn'de en fazla 30 sn kaybedilir" DIYORDU; yanlisti, 2 Agustos kazasi
+# gosterdi. Parca sinirinda kayip olmuyor — parca sinirinda TEK YAZMA oluyor.
+# Dosya icinde veri diske HIC inmiyordu. Olculdu (ylp02, 2 Agustos):
+# 3 konuluk kayitta dosya 30 sn boyunca 0 BAYT kaldi, split anida 114 KB'a
+# firladi. ylp01'in enkazinda da son parca 0 bayttir ve kayip 14.65 sn =
+# son split (13:47:18.85) ile yere carpma (13:47:33.5) arasi. Birebir.
+#
+# UC AYRI TAMPON vardi, ucu de kapatildi:
+#   1) rosbag2 mesaj onbellegi — --max-cache-size varsayilani 104857600
+#      (100 MiB) ve CIFT tamponlu. 40 KB/s'te bu tampon uctan uca ~40 dakikada
+#      dolar, yani ucus boyunca hic bosalmaz. 100 KB'a cekildi -> ~1 sn.
+#      NOT: RSS'i dusurmuyor (tembel ayriliyor, iki testte de ~200 MB olculdu);
+#      kazanc RAM degil, DAYANIKLILIK.
+#   2) mcap chunk — varsayilan 768 KiB, 40 KB/s'te ~17 sn. chunkSize 32768
+#      yapildi -> tam yukte ~0.4 sn. Anahtar kabul ediliyor, dogrulandi.
+#   3) cekirdek sayfa onbellegi — vm.dirty_expire_centisecs 3000 (30 SANIYE).
+#      Yukaridaki ikisi duzelse bile veri bu kadar RAM'de bekler. Host
+#      tarafinda izleme_kur.sh 7) bolumunde 1 sn'ye cekiliyor.
+# Toplam en kotu kayip: ~14.7 sn -> ~2-3 sn.
+#
+# PARCAYI 1 SN YAPMAK COZUM DEGIL, olculdu: her dosyanin basina 113 sema +
+# 160 kanal tanimi yeniden yaziliyor = 307 KB SABIT yuk (30 sn'lik 1.31 MB'lik
+# dosyanin %23'u). 1 sn parcada yazma hizi 44 -> ~340 KB/s (7.8 kat), 14 dk
+# ucusta 840 dosya / ~286 MB. Asagidaki konu filtresinden sonra bile 185 KB/s.
+# Tamponlari kapatmak ayni kazanci bedelsiz veriyor.
+#
+# KONU FILTRESI (--exclude-regex): bu ucakta FIZIKSEL OLARAK OLMAYAN donanimin
+# konulari
+# (gimbal, px4flow, optical_flow, wheel_odometry, adsb, rangefinder, ikinci
+# GPS...) ve simulasyon/HIL konulari. Olculdu: 117 konudan 74'u hic mesaj
+# yayinlamiyor ama semalari her dosyaya yaziliyordu. Bu liste 52 konu atiyor,
+# dosya basina 102 KB kazandiriyor; atilanlarin HICBIRINDE veri olmadigi
+# dogrulandi.
+#   BILEREK TUTULANLAR: esc_status/*, esc_telemetry/* (su an bos, ama ESC
+#   telemetrisi acilirsa "ESC'ler elektrigi mi kaybetti" sorusunu TAM bunlar
+#   cevaplar — 2 Agustos kazasinda en cok bunlar arandi), butun /swarm/*
+#   (surunun kendi trafigi), statustext/recv, status_event, param/event.
+#
+# SIKISTIRMA mcap'in ICINDE yapilir, rosbag2'nin dosya duzeyinde DEGIL.
+# Sebebi olculdu (30 Temmuz): --compression-mode file ile parcalar .mcap.zstd
+# olur ve `ros2 bag reindex` bu dosyalari HIC gormez -> "No storage files
+# found for reindexing. Abort". metadata.yaml ise yalniz bag DUZGUN kapaninca
+# yaziliyor. Ucus her zaman guc kesilerek bittigi icin sonuc su: kayit
+# acilamaz. 29 Temmuz kaydinda tam bu oldu — 113 saglam parca, okunamiyor.
+# mcap ic sikistirmasiyla parcalar gecerli .mcap dosyasi kalir. Dogrulandi:
+# 20 sn kayit + SIGKILL (guc kesintisi taklidi) -> reindex "Reindexing
+# complete", yarim kalan son parca dahil 3680 mesaj okundu. Ayni test eski
+# ayarla Abort veriyordu.
+# Bedeli olculdu: 22 KB/s -> 42 KB/s (1.9 kat). 14 dk ucus ~35 MB, 5 GB
+# tavana ~140 ucus sigar. Seviye "Default" secildi; "Fastest" ile yapilan tek
+# olcum daha kotu oran verdi (50 KB/s, ama filtre farkliydi — kontrollu
+# karsilastirma YAPILMADI). Diskte sikinti cikarsa once burasi denenir.
+#
+# Kayit klasorunun adi da Istanbul damgali olsun diye TZ gerekiyor; yukarida
+# gunluk dizini icin zaten set edildi, burada tekrar edilmiyor.
+mkdir -p /ws/kayit
+cat > /tmp/mcap_zstd.yaml <<'YAML'
+compression: "Zstd"
+compressionLevel: "Default"
+chunkSize: 32768
+YAML
+
+# Bu ucakta olmayan donanim + simulasyon konulari. Tek satirda tutuluyor ki
+# rosbag2'ye giden regex'te kaza eseri bosluk olmasin.
+KAYIT_HARIC="/mavros/(sim_state/|hil/|px4flow/|optical_flow/|gimbal_control/|mount_control/|landing_target/|camera/|cam_imu_sync/|wheel_odometry/|adsb/|terrain/|rangefinder/|wind_estimation|log_transfer/|mag_calibration/|geofence/|rallypoint/|mission/|debug_value/|gpsstatus/gps2/|imu/diff_pressure|imu/temperature_baro|trajectory/desired|setpoint_trajectory/|nav_controller_output/|target_actuator_control|tunnel/|manual_control/|radio_status|timesync_status)"
+
+KAYIT_DIZIN="/ws/kayit/$(hostname)_$(date +%Y%m%d_%H%M%S)"
+ros2 bag record \
+    -e "^(/drone_${AGENT_ID}/|/swarm/|/gozlem/)" \
+    --exclude-regex "$KAYIT_HARIC" \
+    -o "$KAYIT_DIZIN" \
+    --max-bag-duration 30 \
+    --max-cache-size 100000 \
+    --storage-config-file /tmp/mcap_zstd.yaml \
+    >> "$GUNLUK/kayit.log" 2>&1 &
+KAYIT_PID=$!
+
+# Konteyner durdurulurken bag'i DUZGUN kapat.
+# Docker yalniz PID 1'e (bu script) SIGTERM yollar, cocuklara yollamaz; ayrica
+# ros2 bag'in bag'i kapatip indekslemesi icin SIGINT gerekir. Ikisi de
+# yapilmazsa kayit yarim/indekssiz kalir ve acilmaz.
+kapat() {
+    kill -INT "$KAYIT_PID" 2>/dev/null
+    wait "$KAYIT_PID" 2>/dev/null
+    kill -TERM 0 2>/dev/null
+}
+trap kapat TERM INT
+
+# --- Suru dugumleri: BILEREK OPT-IN ----------------------------------------
+# Bunlar simulasyon icin yazildi ve sahada HIC kosmadilar. On dortunu birden
+# acmak, bir tuhaflik ciktiginda hangisinden geldigini ayirt edilemez hale
+# getirir. Bu yuzden varsayilan olarak HICBIRI acilmiyor; hangisi acilacaksa
+# SURU_DUGUMLERI ile ADI verilir:
+#
+#   SURU_DUGUMLERI="consensus"                       # yalniz lider secimi
+#   SURU_DUGUMLERI="consensus fusion"                # + komsu yumusatma
+#   SURU_DUGUMLERI="consensus fusion formasyon"      # + formasyon zinciri
+#   SURU_DUGUMLERI="hepsi"                           # tumu (dikkatli)
+#
+# run_drone.sh bunu -e ile gecirir. Sira onemli: formasyon zinciri
+# formation_node -> collision_avoidance -> px4_bridge seklinde akiyor ve
+# collision_avoidance ZORUNLU HALKA (setpoint/raw -> setpoint donusumu onda).
+# Yalniz formation_node acilirsa setpoint PX4'e HIC ulasmaz.
+# CANLI ANAHTAR: /ws/suru_dugumleri dosyasi VARSA env'i EZER.
+#
+# NEDEN dosya (15 Agustos): env degistirmek konteyneri yeniden YARATMAK
+# demek (docker run -e ...). O da mavros'u sifirdan baslatir -> FCU yeniden
+# baglanir, RTK yeniden kilitlenir; sahada 1-2 dakika ve bir belirsizlik
+# penceresi. Entegrasyon boyunca dugumleri surekli acip kapatacagiz, yani bu
+# bedel onlarca kez odenecekti. Dosyaya baglayinca islem sadece:
+#
+#     echo "consensus" > ~/yelpence_ws/suru_dugumleri && docker restart drone1
+#
+# yani yeniden YARATMA degil, RESTART. /ws/kacinma ve /ws/ucus_ayarlari.env
+# ile ayni deyim — uc bayrak da ayni sekilde davraniyor.
+#
+# Dosya bicimi: adlar bosluk ya da satirla ayrilir, '#' ile yorum yazilabilir.
+#     echo "consensus"            > ~/yelpence_ws/suru_dugumleri
+#     echo "consensus formasyon"  > ~/yelpence_ws/suru_dugumleri
+#     rm ~/yelpence_ws/suru_dugumleri     # hepsini kapat (env'e geri doner)
+#
+# Bos dosya = "hicbiri" demek ve env'i yine ezer. Boylece env'de bir sey
+# yazsa bile dosyayla hepsini kapatmak mumkun (acil durumda gerekli).
+if [ -f /ws/suru_dugumleri ]; then
+    SURU_DUGUMLERI="$(sed 's/#.*//' /ws/suru_dugumleri | tr '\n' ' ' \
+                      | tr -s '[:space:]' ' ' | sed 's/^ *//; s/ *$//')"
+    echo "[baslat] suru dugumleri DOSYADAN: '${SURU_DUGUMLERI}' (/ws/suru_dugumleri)"
+fi
+SURU_DUGUMLERI="${SURU_DUGUMLERI:-}"
+
+acik() {
+    case " $SURU_DUGUMLERI " in
+        *" hepsi "*) return 0 ;;
+        *" $1 "*)    return 0 ;;
+        *)           return 1 ;;
+    esac
+}
+
+if [ -n "$SURU_DUGUMLERI" ]; then
+    echo "[baslat] suru dugumleri: $SURU_DUGUMLERI"
+
+    # Lider secimi. Formasyon yayini buna BAGLI: esp32_bridge'in lider kapisi
+    # (KARAR 11) secim/heartbeat gormeden formasyon yayinlamaz.
+    # PIL ESIGI agent_fsm ile AYNI degiskenden gelir (BATARYA_KRITIK_V).
+    #
+    # Neden zorunlu (15 Agustos): consensus'un kendi varsayilani 14.0 V.
+    # Ucaklar regulatorden beslendigi icin 3.1 V okuyor ve election.py:29
+    #   if rec.battery_v > 0.0 and rec.battery_v < battery_min_v: -> UYGUN DEGIL
+    # diyor. Yani HICBIR ajan lider adayi olamaz, secim hic yapilmaz ve
+    # esp32_bridge'in lider kapisi acilmadigi icin FORMASYON MESH'E HIC CIKMAZ.
+    #
+    # Iki yerde ayri sabit tutmamak onemli: pil olcer modul gelince
+    # (KARARLAR.md KARAR-03) tek degiskeni 13.6 yapmak ikisini birden acar.
+    #
+    # AGENT_COUNT "kac ucak ucuyor" DEGIL, "ajan kimlikleri 1..N" demek:
+    # consensus_node.py:133  for aid in range(1, agent_count + 1)
+    # ile drone1..droneN'in status konularina abone oluyor. Bizim ucaklar
+    # 1 ve 3 (ylp01 yerde ama kimligi 2) — 2 yazarsak drone3 HIC DINLENMEZ.
+    # Bu yuzden yerde ucak olsa bile 3 kalmali.
+    #
+    # Eksik kadro secimi engellemez: election.py:101 tam kadro yoksa
+    # bootstrap_grace_s (1.5 sn) sonrasi yine secim yapiyor.
+    SURU_AJAN_SAYISI="${SURU_AJAN_SAYISI:-3}"
+    # ORIGIN — surunun ortak sifir noktasi. consensus'tan ONCE acilmali.
+    #
+    # NEDEN ONCE (15 Agustos'ta ogrenildi): preflight_checker
+    #     if not ctx.sitl_mode and not ctx.origin_synced:
+    #         failures.append('Swarm origin senkronize degil')
+    # diyor. Yani origin gelmeden IDLE -> ARMING OLMUYOR; ARMING olmadan
+    # ARMED olmuyor; ARMED olmadan ajan ELIGIBLE_STATES'e girmiyor ve
+    # consensus HIC lider secemiyor. Bu dugum SURU_ENTEGRASYON.md'de
+    # ADIM 8'de yaziliydi — yanlisti, ADIM 1'in on kosulu.
+    #
+    # ⚠️ REMAP GECICI: dugum normalde /swarm/internal/origin'a yazar ve
+    # esp32_bridge onu mesh'e verir. AMA esp32_bridge yerel olarak
+    # /swarm/public/origin'e GERI KOYMUYOR — yani ucak kendi origin'ini
+    # goremiyor (YAPILACAKLAR P0.6 "internal/public koprusu eksik").
+    # Cozulene kadar dogrudan /public'e yaziyoruz: yerel, mesh'ten
+    # bagimsiz, deterministik. Koprü duzelince bu remap KALDIRILACAK.
+    #
+    # Koordinat /ws/origin dosyasindan: tek satir "lat lon alt".
+    #     echo "38.6905999 39.1611543 1216.03" > ~/yelpence_ws/origin
+    # Iki ucakta da AYNI olmali, yoksa formasyonlar birbirine gore kayar.
+    # IC->DIS KOPRUSU — EN ONCE acilmali.
+    #
+    # Suru dugumleri kendi ciktilarini /swarm/internal/... a yazar, ama
+    # BASKALARININ ciktilarini /swarm/public/... tan okur. Sahada
+    # esp32_bridge yalnizca mesh yonunu tasiyordu; ayni ucagin kendi
+    # ciktisini kendi public'ine tasiyan YEREL DONGU yoktu. Yani her dugum
+    # kendi yanindaki dugumun ciktisini goremiyordu.
+    # Ayrinti ve olculen ornekler: ic_dis_kopru.py basligi.
+    #
+    # Kapatilamaz degil ama kapatilirsa suru dugumleri birbirini gormez;
+    # bu yuzden 'origin'/'consensus' gibi ayri bir anahtara BAGLANMADI —
+    # herhangi bir suru dugumu aciksa o da acilir.
+    ros2 run swarm_control ic_dis_kopru \
+        >> "$GUNLUK/ic_dis_kopru.log" 2>&1 &
+    sleep 1
+    echo "[baslat] ic_dis_kopru basladi (internal -> public yerel dongu)"
+
+    if acik origin; then
+        if [ -f /ws/origin ]; then
+            read -r O_LAT O_LON O_ALT _ < /ws/origin
+            # REMAP KALDIRILDI (15 Agustos): dugum artik sozlesmeye uygun
+            # sekilde /swarm/internal/origin'a yaziyor, ic_dis_kopru onu
+            # /swarm/public/origin'e tasiyor. Boylece origin AYNI ANDA hem
+            # yerel dugumlere hem de esp32_bridge uzerinden mesh'e gidiyor —
+            # remap varken mesh yolu tamamen kapaliydi.
+            ros2 run swarm_control swarm_origin_publisher --ros-args \
+                -p origin_source:=fixed \
+                -p fixed_lat:=${O_LAT} \
+                -p fixed_lon:=${O_LON} \
+                -p fixed_alt:=${O_ALT:-0.0} \
+                >> "$GUNLUK/origin.log" 2>&1 &
+            sleep 2
+            echo "[baslat] swarm_origin_publisher: sabit origin" \
+                 "lat=$O_LAT lon=$O_LON alt=${O_ALT:-0.0}"
+        else
+            echo "[baslat] UYARI: origin istendi ama /ws/origin YOK —" \
+                 "dugum acilmadi, preflight ARMING'i REDDEDECEK"
+        fi
+    fi
+
+    if acik consensus; then
+        ros2 run swarm_core consensus_node --ros-args \
+            -p agent_id:=${AGENT_ID} \
+            -p agent_count:=${SURU_AJAN_SAYISI} \
+            -p battery_min_v:=${BATARYA_KRITIK_V} \
+            >> "$GUNLUK/consensus.log" 2>&1 &
+        sleep 2
+        echo "[baslat] consensus_node basladi" \
+             "(agent_count=$SURU_AJAN_SAYISI, battery_min_v=$BATARYA_KRITIK_V)"
+    fi
+
+    # Komsu telemetrisini yumusatir (EMA). Formasyon oncesi acilmasi mantikli:
+    # slot atamasi komsu konumlarina bakiyor.
+    if acik fusion; then
+        ros2 run swarm_perception kinematic_fusion --ros-args \
+            -p agent_id:=${AGENT_ID} >> "$GUNLUK/fusion.log" 2>&1 &
+        sleep 2
+    fi
+
+    # Formasyon zinciri — UCU BIRLIKTE acilir, tek basina anlamsizlar.
+    # GOZLEM MODU — /ws/gozlem dosyasi varsa formation_node'un setpoint
+    # ciktisi /gozlem/... a yonlendirilir ve UCAGA ULASMAZ.
+    #
+    # Neden var (SURU_ENTEGRASYON.md §4): simulasyon kullanmiyoruz. Onun
+    # yerine dugum GERCEK telemetriyle GERCEK kararlar uretir ama cikisi
+    # hicbir yere bagli degildir. Sonra kayittan "uretilen" ile "ucrulan"
+    # karsilastirilir. G1 (yerde gozlem) ve G2 (havada gozlem) kademeleri
+    # bunun uzerine kurulu; G2 ATLANMAZ.
+    #
+    # /gozlem/ konulari kayit include regex'ine eklendi — yoksa uretilen
+    # veri hicbir yere yazilmaz ve gozlemin anlami kalmazdi.
+    GOZLEM_REMAP=""
+    if [ -f /ws/gozlem ]; then
+        GOZLEM_REMAP="-r /drone_${AGENT_ID}/control/setpoint/raw:=/gozlem/drone_${AGENT_ID}/formation/raw"
+        echo "[baslat] *** GOZLEM MODU *** formation_node ciktisi" \
+             "/gozlem/drone_${AGENT_ID}/formation/raw a yonlendirildi — UCAGA ULASMIYOR"
+    fi
+
+    # ADIM 3 — formasyon zinciri. collision_avoidance BU ANAHTARDAN CIKARILDI:
+    # o ADIM 4 ve `basit_kacinma` ile AYNI topic yuvasini kullaniyor
+    # (/control/setpoint/raw -> /control/setpoint). Ikisi birden acilirsa
+    # px4_bridge 50 Hz'de iki farkli algoritmadan celiskili setpoint alir —
+    # CLAUDE.md §4'un yasakladigi sey. Artik ayri anahtar: 'ca'.
+    if acik formasyon; then
+        # wing_alpha_deg: kopru, swarm_fsm ve mission1 ile AYNI deger sart,
+        # yoksa slot geometrisi sessizce ayrisir.
+        ros2 run swarm_core formation_node --ros-args \
+            -p agent_id:=${AGENT_ID} -p wing_alpha_deg:=${KANAT_ALFA_DEG} \
+            ${GOZLEM_REMAP} \
+            >> "$GUNLUK/formation.log" 2>&1 &
+        sleep 1
+        # path_planner agent_id KABUL ETMIYOR (olculdu) - lider kapisi
+        # kopruden isliyor (KARAR 11), dugum her dronda kosuyor.
+        # NOT: path_planner URETICI DEGIL, SEKILLENDIRICI — gelen
+        # FormationCommand'i ucagin izleyebilecegi hiza YAYIYOR (merkez
+        # rampasi + donus rampasi). Komutu mission1 ya da mode_manager
+        # uretir; ikisi de kapaliyken bu zincir sessiz kalir.
+        #
+        # PARAMETRELER 15 AGUSTOS'TA BAGLANDI. Onceden HIC parametre
+        # gecilmiyordu ve dugum kendi gomulu varsayilanlariyla kosuyordu —
+        # ucus_ayarlari.py'deki seyir hizindan habersiz. Ayni sinifin hatasi
+        # 2 Agustos'ta yasanmisti: merkez 3.0 ile kosarken formation_node'un
+        # slot rampasi 1.0'da tavan yapiyordu ve suru merkezin gerisinde
+        # kaliyordu (bacak basina 5 -> 12.5 -> 20.4 m).
+        #
+        # ⚠️ Donus tavani 90 -> 25 deg/s dustu (PX4 yaw tavaniyla ayni).
+        # Buyuk formasyonda zaten tegetsel hiz baskin: 12 m yaricapta fiili
+        # donus 7.16 deg/s, yani 180 derece 25 saniye suruyor.
+        ros2 run swarm_core path_planner --ros-args \
+            -p max_speed_mps:=${ROTA_MAKS_HIZ} \
+            -p control_rate_hz:=${ROTA_ADIM_HZ} \
+            -p max_heading_slew_deg_s:=${ROTA_DONUS_TAVANI_DEG_S} \
+            -p rot_tangential_speed_mps:=${ROTA_TEGET_HIZ} \
+            -p rot_tangential_accel_mps2:=${ROTA_TEGET_IVME} \
+            >> "$GUNLUK/planner.log" 2>&1 &
+        sleep 1
+        echo "[baslat] formation_node + path_planner basladi"
+    fi
+
+    # ADIM 4 — KARAR-01. basit_kacinma ile AYNI yuva; ikisi birden ACILMAZ.
+    if acik ca; then
+        if [ -f /ws/kacinma ]; then
+            echo "[baslat] UYARI: 'ca' istendi ama /ws/kacinma da var —" \
+                 "basit_kacinma ile AYNI yuva. collision_avoidance ACILMADI." \
+                 "Once /ws/kacinma dosyasini sil."
+        else
+            ros2 run swarm_core collision_avoidance --ros-args \
+                -p agent_id:=${AGENT_ID} >> "$GUNLUK/ca.log" 2>&1 &
+            sleep 1
+            echo "[baslat] collision_avoidance basladi (basit_kacinma KAPALI)"
+        fi
+    fi
+
+    # Manevra (pitch/roll/yaw) — formasyon zinciri acikken anlamli.
+    if acik manevra; then
+        ros2 run swarm_core maneuver_executor --ros-args \
+            -p agent_id:=${AGENT_ID} >> "$GUNLUK/manevra.log" 2>&1 &
+        sleep 1
+    fi
+
+    # Suru/gorev FSM'leri. KARAR 1/2: her dronda kosar, SwarmState yerel uretilir.
+    # UC DUGUM AYRILDI (15 Agustos). Onceden 'fsm' anahtari swarm_fsm,
+    # mission_fsm ve mode_manager'i BIRLIKTE aciyordu — ama entegrasyon
+    # sirasinda bunlar ADIM 2, ADIM 6 ve ADIM 12. Ucunu birden acmak, bir
+    # tuhaflik ciktiginda hangisinden geldigini ayirt edilemez yapiyordu ki
+    # bu dosyanin en basindaki opt-in kuralinin tam olarak onlemek istedigi
+    # sey. Artik ayri anahtarlar: fsm / gorevfsm / mod.
+    #
+    # DIKKAT: mission_fsm ve mode_manager agent_id KABUL ETMIYOR (olculdu).
+    # swarm_fsm ise 15 Agustos'ta agent_id ALIR HALE GELDI — kendi ucaginin
+    # durumunu /swarm/internal/drone{id}/status'tan okuyabilsin diye. Bkz.
+    # swarm_fsm_node.py'deki agent_id yorumu: bu olmadan iki ucakli suruda
+    # tek komsu bayatlayinca TUM SURUYE acil inis yayinlaniyordu.
+    if acik fsm; then
+        # SURU_AJAN_SAYISI  = kimlik araligi (1..N), abonelikler bundan
+        # SURU_BEKLENEN_UCAK = kac ucak GERCEKTEN uculuyor
+        #
+        # Ikisi ayri olmak ZORUNDA (15 Agustos'ta olculdu): tek deger
+        # kullanilinca celisiyorlardi —
+        #   formation_reached: active >= expected -> 2 >= 3 FALSE, FORMING'de takilir
+        #   saglik orani     : healthy/expected < 0.5 -> 1/3 = 0.33 ile
+        #                      iki ucaktan biri bozulunca TUM SURUYE acil inis
+        # Uc ucak birden ucmaya baslayinca SURU_BEKLENEN_UCAK=3 yapilacak.
+        SURU_BEKLENEN_UCAK="${SURU_BEKLENEN_UCAK:-2}"
+        ros2 run swarm_state_machine swarm_fsm_node --ros-args \
+            -p agent_id:=${AGENT_ID} \
+            -p agent_count:=${SURU_AJAN_SAYISI} \
+            -p expected_agent_count:=${SURU_BEKLENEN_UCAK} \
+            -p wing_alpha_deg:=${KANAT_ALFA_DEG} \
+            >> "$GUNLUK/swarm_fsm.log" 2>&1 &
+        sleep 1
+        echo "[baslat] swarm_fsm_node basladi" \
+             "(kimlik araligi=$SURU_AJAN_SAYISI, beklenen ucak=$SURU_BEKLENEN_UCAK)"
+    fi
+
+    # ADIM 6 — gorev durum makinesi. Her IKI gorevi de bu suruyor.
+    if acik gorevfsm; then
+        # team_id: kopru ve mission1 ile AYNI olmali (QR filtresi).
+        ros2 run swarm_state_machine mission_fsm_node --ros-args \
+            -p team_id:="'${TAKIM_ID}'" >> "$GUNLUK/mission_fsm.log" 2>&1 &
+        sleep 1
+        echo "[baslat] mission_fsm_node basladi (team_id=$TAKIM_ID)"
+    fi
+
+    # ADIM 12 — Gorev 2 (yari otonom) mod yoneticisi.
+    if acik mod; then
+        ros2 run swarm_state_machine mode_manager_node \
+            >> "$GUNLUK/mode_manager.log" 2>&1 &
+        sleep 1
+        echo "[baslat] mode_manager_node basladi"
+    fi
+
+    # Gorev 1 orkestratoru. KARAR 10: her dronda kosar (sicak yedek).
+    if acik gorev1; then
+        ros2 run swarm_missions mission1_dynamic_swarm --ros-args \
+            -p agent_id:=${AGENT_ID} -p team_id:="'${TAKIM_ID}'" \
+            -p wing_alpha_deg:=${KANAT_ALFA_DEG} \
+            >> "$GUNLUK/mission1.log" 2>&1 &
+        sleep 1
+    fi
+
+    # Kamera + goru. Kamera donanimi olmayan dronda camera_driver hata dongusune
+    # girer, o yuzden ayri anahtar.
+    if acik goru; then
+        ros2 run swarm_perception camera_driver --ros-args \
+            -p agent_id:=${AGENT_ID} >> "$GUNLUK/kamera.log" 2>&1 &
+        sleep 2
+        ros2 run swarm_perception vision_node --ros-args \
+            -p agent_id:=${AGENT_ID} >> "$GUNLUK/goru.log" 2>&1 &
+        sleep 1
+    fi
+
+    # Hassas inis — goru acikken anlamli (inis bolgesi kameradan geliyor).
+    if acik inis; then
+        ros2 run swarm_core precision_landing_node --ros-args \
+            -p agent_id:=${AGENT_ID} >> "$GUNLUK/inis.log" 2>&1 &
+        sleep 1
+    fi
+
+    # Rol yeniden dagitim.
+    if acik rol; then
+        # task_reallocator agent_id KABUL ETMIYOR (olculdu).
+        ros2 run swarm_core task_reallocator_node \
+            >> "$GUNLUK/rol.log" 2>&1 &
+        sleep 1
+    fi
+else
+    echo "[baslat] suru dugumleri KAPALI (SURU_DUGUMLERI bos)"
+fi
+
+echo "tum dugumler basladi (kayit: $KAYIT_DIZIN)"
 wait

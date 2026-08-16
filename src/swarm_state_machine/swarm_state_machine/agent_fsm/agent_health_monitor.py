@@ -216,7 +216,25 @@ def _check_critical_faults(ctx: AgentContext) -> HealthCheckResult:
             reason='OFFBOARD modu kayboldu',
         )
 
-    if ctx.sitl_mode or ctx.battery_voltage_v <= 0.0:
+    # BATARYA DENETIMI KAPALI MI?
+    #
+    # esik <= 0 => "bu araca batarya izleme takili degil, hic bakma".
+    # Voltajin 0 olmasi TEK BASINA yetmiyordu ve 2 Agustos'ta sahada su
+    # olduna: ucaklar regulatorden besleniyordu, PX4'te BAT1_SOURCE disabled
+    # idi ve d3'un FCU'su yapilandirilmamis ADC'den 3.1 V okuyordu. 3.1 > 0
+    # oldugu icin asagidaki koruma devreye girmedi, 3.1 < 13.6 oldugu icin
+    # KRITIK BATARYA ilan edildi: FSM 3 saniyede bir IDLE <-> FAILSAFE
+    # zipladi, her seferinde EMERGENCY olayi yayinladi, kacinma d3'u
+    # AVOIDANCE_EXCLUDE_STATES uzerinden disladi ve YKI ekraninda "Failsafe"
+    # yazdi (kanit videosunda gorunecekti).
+    #
+    # "3.1 V mantiksiz, yok say" gibi bir sezgisel kural KOYMADIK: gercek bir
+    # sensor arizasini sessizce yutar. Bunun yerine karar ACIK olsun istedik —
+    # bataryayi izlemiyorsan esigi 0 yaparsin ve kod bunu bilerek atlar.
+    if ctx.battery_critical_voltage_v <= 0.0:
+        return HealthCheckResult()
+
+    if ctx.battery_voltage_v <= 0.0:
         return HealthCheckResult()
 
     if ctx.battery_voltage_v < ctx.battery_critical_voltage_v:

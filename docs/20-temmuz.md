@@ -1,5 +1,18 @@
 # 20 Temmuz 2026 — Saha Kurulum Günlüğü
 
+> ## ⚠️ ARŞİV — GÜNCEL DEĞİL, buraya yazma
+>
+> **20 Temmuz saha günlüğü.** Tarihsel kayıt; **bugünün durumunu anlatmaz.**
+>
+> **Güncel durum:** [`DURUM.md`](DURUM.md) ·
+> **Güncel plan:** [`PLAN.md`](PLAN.md) ·
+> **Güncel iş listesi:** [`YAPILACAKLAR.md`](YAPILACAKLAR.md)
+>
+> Hâlâ değerli olan: Ölçümler ve o günün kararları. Buradan bir bilgi kullanacaksan
+> **önce koda bakıp doğrula** — o gün doğru olan bugün yanlış olabilir.
+> Çelişki varsa **canlı belge kazanır**.
+
+
 Yeni YKİ laptopunun sıfırdan kurulması, ESP32 mesh'in iki kartla ayağa
 kaldırılması ve Pixhawk'tan YKİ arayüzüne kadar uçtan uca telemetri zincirinin
 kanıtlanması.

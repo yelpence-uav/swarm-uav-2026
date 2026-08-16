@@ -16,10 +16,20 @@ from rclpy.qos import (
 from swarm_interfaces.msg import (
     AgentStatus,
     ElectionResult,
+    FormationCommand,
     LeaderHeartbeat,
     SwarmOrigin,
     SwarmState as SwarmStateMsg,
     SystemEvent,
+)
+
+# swarm_core'dan geliyor: formasyon geometrisi ve secim sirasi TEK kaynakta
+# dursun. Kopyalamak CLAUDE.md §9'un yasakladigi sey — formation_node ile
+# swarm_fsm ayni formasyonu farkli hesaplarsa metrik sessizce yalan soyler.
+from swarm_core.consensus.election import seq_kabul
+from swarm_core.formation_control.formation_geometry import (
+    compute_slot_offsets,
+    rotate_offset,
 )
 
 from .swarm_context import AgentStatusCache, SwarmContext
@@ -85,13 +95,24 @@ class SwarmFsmNode(Node):
         self._declare_params()
 
         self._ctx = SwarmContext(
-            expected_agent_count=self._agent_count,
+            expected_agent_count=self._expected_agent_count,
             sitl_mode=self._sitl_mode,
             heartbeat_timeout_s=self._heartbeat_timeout_ms / 1000.0,
             min_healthy_ratio=self._min_healthy_ratio,
         )
 
-        self._max_election_seq = 0
+        # KAYNAK BASINA secim sirasi: {ajan: (incarnation, en_yuksek_seq)}.
+        #
+        # Onceden tek global sayac vardi ve su hataya aciti: consensus_node
+        # yeniden baslayinca sequence_num 1'e doner, `1 <= max` oldugu icin
+        # BUTUN secim mesajlari "bayat" sayilip sessizce dusuyordu —
+        # swarm_fsm lider degisimlerine kalici olarak sagir kaliyordu.
+        # `docker restart` sonrasi her seferinde olusan gercek bir durum.
+        # consensus'ta bu zaten cozulmustu (election.seq_kabul); ayni
+        # fonksiyon burada da kullaniliyor, iki yerde iki mantik olmasin.
+        self._election_seen: dict[int, tuple[int, int]] = {}
+        # Son gorulen formasyon komutu — kalite metriginin hedef kaynagi.
+        self._son_formasyon: FormationCommand | None = None
         self._origin_lat = None
         self._origin_lon = None
 
@@ -102,19 +123,62 @@ class SwarmFsmNode(Node):
             1.0 / self._tick_hz, self._tick
         )
 
+        # IKISI BIRDEN yaziliyor: 15 Agustos'ta bu iki sayinin ayni
+        # parametreden gelmesi FORMING'de kalici takilma uretti ve logda
+        # yalniz biri gorundugu icin teshis uzadi.
         self.get_logger().info(
-            f'SwarmFsmNode baslatildi: {self._agent_count}'
+            f'SwarmFsmNode baslatildi: kimlik araligi 1..'
+            f'{self._agent_count}, beklenen ucak '
+            f'{self._expected_agent_count}'
         )
 
     def _declare_params(self) -> None:
         """ROS 2 parametrelerini tanımlar ve okur."""
+        # agent_count = KIMLIK ARALIGI (1..N). Abonelikler bundan turuyor:
+        #   for aid in range(1, agent_count + 1) -> /swarm/public/drone{aid}/status
+        # Ucaklarimiz 1 ve 3 (ylp01 yerde ama kimligi 2), yani yerde ucak
+        # olsa bile 3 KALMALI — 2 yazilsa drone3 HIC dinlenmezdi.
+        # agent_id = BU ucagin kimligi. 15 Agustos'a kadar bu dugumde YOKTU
+        # ve sonucu tehlikeliydi: swarm_fsm yalniz /swarm/public/... dinliyor,
+        # ucagin KENDI durumu ise oraya (bilerek) tasinmiyor — cunku kendi
+        # status'unu kendi public konusuna dusurmek, kacinmanin ucagi komsu
+        # sanip KENDINDEN kacmasina yol acardi (bkz. ic_dis_kopru.py).
+        # Yani swarm_fsm yalnizca KOMSULARI goruyordu. Iki ucakla bu demek ki
+        # tek komsu; o komsu 3 sn bayatlayinca (mesh ~%30 kayipli)
+        #     active_agent_count == 0 and total > 0
+        # dali tetikleniyor ve TUM SURUYE EVENT_EMERGENCY_LAND yayinlaniyor.
+        # O dalin havada olma sarti da YOK. Kopru acilinca bu olay artik
+        # agent_fsm'e gercekten ULASIYOR, yani zararsiz gurultu olmaktan
+        # cikti. consensus ayni sorunu zaten kendi kaydini internal'dan
+        # okuyarak cozmustu (consensus_node.py:139); ayni yol.
+        self.declare_parameter('agent_id', 0)
         self.declare_parameter('agent_count', 3)
+        # expected_agent_count = KAC UCAK GERCEKTEN UCUYOR. Ayri parametre
+        # olmasinin sebebi (15 Agustos'ta olculdu): tek deger iki isi birden
+        # yapamiyordu ve ikisi CELISIYORDU —
+        #   formation_reached: active_agent_count >= expected  -> 2 >= 3 FALSE
+        #   saglik orani     : healthy / expected < 0.5 -> SWARM FAILSAFE
+        # Ilki FORMING'den cikmayi imkansiz kiliyor, ikincisi iki ucaktan
+        # biri bozulunca (1/3 = 0.33) tum suruye ACIL INIS yayinliyordu.
+        # 0 = "agent_count'u kullan" (eski davranis).
+        self.declare_parameter('expected_agent_count', 0)
         self.declare_parameter('tick_hz', 5.0)
         self.declare_parameter('sitl_mode', False)
         self.declare_parameter('heartbeat_timeout_ms', 300.0)
         self.declare_parameter('min_healthy_ratio', 0.5)
+        # Okbasi/V kanat acisi — formation_node ile AYNI olmali, yoksa iki
+        # dugum ayni formasyonu farkli yerde sanir.
+        self.declare_parameter('wing_alpha_deg', 45.0)
 
+        self._agent_id = int(self.get_parameter('agent_id').value)
         self._agent_count = self.get_parameter('agent_count').value
+        _beklenen = int(self.get_parameter('expected_agent_count').value)
+        self._expected_agent_count = (
+            _beklenen if _beklenen > 0 else self._agent_count
+        )
+        self._wing_alpha_rad = math.radians(
+            float(self.get_parameter('wing_alpha_deg').value)
+        )
         self._tick_hz = self.get_parameter('tick_hz').value
         self._sitl_mode = self.get_parameter('sitl_mode').value
         self._heartbeat_timeout_ms = (
@@ -147,6 +211,19 @@ class SwarmFsmNode(Node):
                 _STATUS_QOS,
             )
 
+        # KENDI durumu AYRICA internal'dan. Yukaridaki dongu yalniz komsulari
+        # getirir; kendi status'umuz public'e tasinmiyor (kacinma bizi komsu
+        # sanmasin diye). Bu abonelik olmadan iki ucakli surude tek komsu
+        # bayatlayinca active_agent_count 0 oluyor ve tum suruye acil inis
+        # yayinlaniyordu. agent_id verilmezse (0) atlanir — eski davranis.
+        if self._agent_id > 0:
+            self.create_subscription(
+                AgentStatus,
+                f'/swarm/internal/drone{self._agent_id}/status',
+                self._make_agent_cb(self._agent_id),
+                _STATUS_QOS,
+            )
+
         self.create_subscription(
             SystemEvent,
             '/swarm/public/events/system',
@@ -174,6 +251,103 @@ class SwarmFsmNode(Node):
             self._on_swarm_origin,
             _ORIGIN_QOS,
         )
+
+        # FORMASYON KOMUTU — 15 Agustos'a kadar bu abonelik YOKTU ve
+        # ctx.active_formation hicbir yerde ATANMIYORDU. Sonucu: sabit
+        # ofset bloklari (OKBASI 3 m / CIZGI 4 m) hic calismiyordu (olu kod),
+        # compute_formation_quality her ajani MERKEZE gore olcuyordu ve
+        # 12 m aralikta hata ~6 m cikiyordu. Esikler 1.5 / 1.0 m oldugu icin
+        # formation_stable ve formation_reached HER ZAMAN False'ti — yani
+        # suru FORMING'den hic cikamiyordu.
+        # BEST_EFFORT — RELIABLE DEGIL. Kural: /swarm/public/... dinleyen
+        # herkes BEST_EFFORT olmali, cunku o konularin mesh kaynagi
+        # esp32_bridge ve o _MESH_QOS ile yani BEST_EFFORT yayinliyor.
+        # RELIABLE abone + BEST_EFFORT yayinci ESLESMEZ ve konu SESSIZCE bos
+        # kalir. Bu abonelik once RELIABLE yazildi ve uctaki tarama tam bunu
+        # yakaladi (15 Agustos):
+        #   "'/swarm/public/formation/target' offering incompatible QoS.
+        #    No messages will be received from it. policy: RELIABILITY"
+        # Ters yon sorunsuz: RELIABLE yayinci + BEST_EFFORT abone uyumlu,
+        # o yuzden ic_dis_kopru RELIABLE yayinlamaya devam ediyor.
+        self.create_subscription(
+            FormationCommand,
+            '/swarm/public/formation/target',
+            self._on_formation_command,
+            _STATUS_QOS,
+        )
+
+    def _on_formation_command(self, msg: FormationCommand) -> None:
+        """Aktif formasyon komutunu saklar (kalite metrigi bunu kullanir)."""
+        self._son_formasyon = msg
+        try:
+            self._ctx.active_formation = FormationType(int(msg.formation_type))
+        except ValueError:
+            self._ctx.active_formation = FormationType.UNKNOWN
+
+    def _formasyon_ofsetleri(
+        self,
+    ) -> dict[int, tuple[float, float, float]] | None:
+        """Aktif komuttan ajan basina hedef ofseti uretir (NED, merkeze gore).
+
+        Iki kaynak, sirayla:
+          1. Liderin komuta GOMDUGU atama (offset_x/y/z) — otoriter olan bu,
+             cunku formation_node da onu kullaniyor (_leader_offsets).
+          2. Yoksa formation_geometry.compute_slot_offsets ile agent_ids
+             sirasina gore uret (fallback).
+
+        Sonra iki islem:
+          * heading kadar DONDUR — slot ofsetleri govde cercevesinde,
+            formation_node da dunyaya cevirirken rotate_offset kullaniyor.
+          * ORTALAMAYI CIKAR — slotlar lider merkezli (ilk slot 0,0,0),
+            sifir ortalamali DEGIL. Iki ucaklik cizgide ortalama (0, s/2),
+            yani 12 m aralikta 6 m SABIT YANLILIK. compute_formation_quality
+            hedefi centroid + ofset olarak kurdugu icin bu yanlilik dogrudan
+            hataya yaziliyordu. Ortalamayi cikarinca metrik saf SEKIL olcusu
+            olur: "ajanlar birbirine gore dogru yerde mi" — mutlak konum
+            hatasi navigasyonun isi, formasyon kalitesinin degil.
+        """
+        msg = self._son_formasyon
+        if msg is None:
+            return None
+        ids = [int(a) for a in msg.agent_ids]
+        if not ids:
+            return None
+
+        ham: list[tuple[float, float, float]] | None = None
+        if (len(msg.offset_x) >= len(ids)
+                and len(msg.offset_y) >= len(ids)
+                and len(msg.offset_z) >= len(ids)):
+            ham = [
+                (float(msg.offset_x[i]),
+                 float(msg.offset_y[i]),
+                 float(msg.offset_z[i]))
+                for i in range(len(ids))
+            ]
+        else:
+            try:
+                ham = list(compute_slot_offsets(
+                    int(msg.formation_type), len(ids),
+                    float(msg.spacing_m), self._wing_alpha_rad,
+                ))
+            except ValueError:
+                return None
+
+        heading_rad = math.radians(float(msg.heading_deg))
+        donmus = []
+        for (ox, oy, oz) in ham:
+            wx, wy = rotate_offset(ox, oy, heading_rad)
+            donmus.append((wx, wy, float(oz)))
+
+        n = len(donmus)
+        mx = sum(o[0] for o in donmus) / n
+        my = sum(o[1] for o in donmus) / n
+        mz = sum(o[2] for o in donmus) / n
+        return {
+            ids[i]: (donmus[i][0] - mx,
+                     donmus[i][1] - my,
+                     donmus[i][2] - mz)
+            for i in range(n)
+        }
 
     def _tick(self) -> None:
         """FSM ana dongusu."""
@@ -279,25 +453,11 @@ class SwarmFsmNode(Node):
         ctx = self._ctx
         ctx.compute_centroid()
 
-        offsets = None
-        if ctx.active_formation == FormationType.OKBASI:
-            offsets = {
-                1: (0.0, 0.0, 0.0),
-                2: (-3.0, -3.0, 0.0),
-                3: (-3.0, 3.0, 0.0),
-            }
-        elif ctx.active_formation == FormationType.V:
-            offsets = {
-                1: (0.0, 0.0, 0.0),
-                2: (-3.0, -3.0, 0.0),
-                3: (-3.0, 3.0, 0.0),
-            }
-        elif ctx.active_formation == FormationType.CIZGI:
-            offsets = {
-                1: (0.0, 0.0, 0.0),
-                2: (0.0, -4.0, 0.0),
-                3: (0.0, 4.0, 0.0),
-            }
+        # Ofsetler artik AKTIF KOMUTTAN geliyor (aralik, heading ve atama
+        # dahil). Onceki sabit sozlukler (OKBASI 3 m / CIZGI 4 m, ajan 1/2/3
+        # gomulu) silindi: hem aralikimiz 12 m, hem de active_formation hic
+        # atanmadigi icin o bloklar zaten HIC CALISMIYORDU.
+        offsets = self._formasyon_ofsetleri()
 
         ctx.compute_formation_quality(target_offsets=offsets)
 
@@ -479,13 +639,24 @@ class SwarmFsmNode(Node):
         """Secim sonucunu isler."""
         ctx = self._ctx
 
-        if msg.sequence_num <= self._max_election_seq:
+        kaynak = int(msg.triggered_by_agent_id)
+        inc = int(msg.incarnation)
+        kabul, inc_degisti = seq_kabul(
+            self._election_seen, kaynak, inc, int(msg.sequence_num)
+        )
+        if inc_degisti:
+            self.get_logger().info(
+                f'[SWARM] ajan {kaynak} yeniden başlamış '
+                f'(incarnation -> {inc}), seq sayacı sıfırlandı'
+            )
+        if not kabul:
             self.get_logger().warn(
-                f'[SWARM] Stale election mesajı: {msg.sequence_num}'
+                f'[SWARM] Bayat election mesajı: kaynak={kaynak} '
+                f'seq={msg.sequence_num}'
             )
             return
 
-        self._max_election_seq = msg.sequence_num
+        self._election_seen[kaynak] = (inc, int(msg.sequence_num))
 
         old_leader = ctx.leader_id
         ctx.leader_id = msg.new_leader_id

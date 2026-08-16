@@ -1,4 +1,17 @@
 # Architecture Overview
+
+> ## ⚠️ BU BELGE SİMÜLASYON MİMARİSİNİ ANLATIR — sahadaki yapı FARKLI
+>
+> Burada anlatılan akış (Gazebo, `launch_swarm.py`, 14 sürü düğümünün birlikte
+> koşması) **sahada hiç çalışmadı**. Belge ayrıca var olmayan bir dosyadan
+> bahsediyor (`scripts/launch_real_hardware.py`).
+>
+> **Sahada gerçekten koşan yapı için:** [`../CLAUDE.md`](../CLAUDE.md) §3
+> ve [`DURUM.md`](docs/DURUM.md).
+> **Sürü kodlarının sahaya alınma planı:** [`SURU_ENTEGRASYON.md`](docs/SURU_ENTEGRASYON.md).
+>
+> Belge yine de değerli: sürü yazılımının **tasarım niyetini** anlatıyor.
+> Tarihsel/tasarım referansı olarak oku, sahanın tarifi olarak değil.
 Bu doküman, geliştiricilerin kod tabanının mimarisini hızlı ve kapsamlı bir şekilde anlamalarını sağlamak, ilk günden itibaren projede verimli bir şekilde gezinmeyi ve etkili katkıda bulunmayı mümkün kılmak için tasarlanmış kritik ve sürekli güncellenen bir rehber görevi görür. Kod tabanı ve sistem geliştikçe bu dokümanın güncel tutulması esastır.
 
 Ayrıca bu doküman, Yelpençe Sürü İHA projesinin yazılım mimarisini, dizin hiyerarşisini ve her bir bileşenin sistem içerisindeki operasyonel görevlerini detaylandırmaktadır. Projemiz; ROS 2 Jazzy, Eclipse CycloneDDS ve ESP-NOW protokolleri üzerinde koşan hiyerarşik ve dağıtık bir yapıya sahiptir.

@@ -230,10 +230,30 @@ export interface Alert {
 
 export type ConnectionMode = "ros2" | "mavlink-sim";
 
+// RTCM/RTK akis durumu — backend ros_bridge.get_rtk_status() ile birebir.
+export interface RtkStatus {
+  bagli: boolean;          // son 3 sn icinde RTCM geldi mi
+  msg_hz: number;
+  bayt_s: number;
+  toplam: number;
+  son_paket_s: number | null;
+}
+
+// Drone'lar arasi mesafe — RTK dogrulugunu seritmetreyle sinamak icin.
+export interface IkiliMesafe {
+  a: number;
+  b: number;
+  yatay_m: number;
+  dikey_m: number;
+  mesafe_m: number;
+}
+
 export interface TelemetryPayload {
   drones: DroneState[];
   alerts: Alert[];
   swarm_state: SwarmState | null;   // mavlink-sim modunda veya henüz mesaj gelmediyse null
   qr?: QRMissionData | null;        // çözülmüş son QR - henüz okunmadıysa null
+  rtk?: RtkStatus | null;           // RTK düzeltmesi akıyor mu
+  mesafeler?: IkiliMesafe[];        // drone'lar arası mesafe
   connection_mode?: ConnectionMode; // backend hangi yolda - UI yarışma-dışı butonları gizler
 }

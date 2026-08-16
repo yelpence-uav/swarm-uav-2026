@@ -21,6 +21,7 @@ Aşama 2'de StateStore beslemesi, Aşama 3'te service client + publisher eklenir
 import logging
 import math
 import threading
+import time
 from typing import Callable, Optional
 
 import rclpy
@@ -33,6 +34,7 @@ from rclpy.qos import (
     QoSReliabilityPolicy,
 )
 
+from std_msgs.msg import UInt8MultiArray
 from swarm_interfaces.msg import (
     AgentStatus,
     GuidedCommand,
@@ -326,6 +328,13 @@ class RosBridge:
         self.latest_qr: Optional[dict] = None
         self._qr_lock = threading.Lock()
 
+        # RTCM izleme: akis var mi, ne hizda. Veriyi saklamiyoruz, sadece olcuyoruz.
+        self._rtk_lock = threading.Lock()
+        self._rtk_toplam = 0
+        self._rtk_bayt = 0
+        self._rtk_son_t = 0.0
+        self._rtk_pencere = []   # (zaman, bayt) — son birkac saniye
+
         self._node: Optional[Node] = None
         self._executor: Optional[SingleThreadedExecutor] = None
         self._thread: Optional[threading.Thread] = None
@@ -344,6 +353,47 @@ class RosBridge:
     def get_swarm_state(self) -> Optional[dict]:
         with self._swarm_state_lock:
             return self.latest_swarm_state
+
+    def _on_rtcm(self, msg) -> None:
+        t = time.time()
+        n = len(msg.data)
+        with self._rtk_lock:
+            self._rtk_toplam += 1
+            self._rtk_bayt += n
+            self._rtk_son_t = t
+            self._rtk_pencere.append((t, n))
+            # 5 sn'lik kayan pencere — anlik hiz icin
+            kesme = t - 5.0
+            while self._rtk_pencere and self._rtk_pencere[0][0] < kesme:
+                self._rtk_pencere.pop(0)
+
+    def get_rtk_status(self) -> dict:
+        """RTCM akisinin durumu — arayuzdeki RTK gostergesi bunu okur.
+
+        'bagli' = son 3 sn icinde RTCM geldi mi. u-blox cikarilirsa ya da
+        okuyucu coker/hic baslamazsa bu alan false'a duser ve arayuzde
+        gorunur. Onceden bunu anlamanin tek yolu drone'a SSH atip
+        px4_bridge logundaki 'rtk: msg=' sayacina bakmakti.
+        """
+        t = time.time()
+        with self._rtk_lock:
+            yas = (t - self._rtk_son_t) if self._rtk_son_t else None
+            pencere = list(self._rtk_pencere)
+            toplam = self._rtk_toplam
+        if pencere:
+            aralik = max(0.001, t - pencere[0][0])
+            hz = len(pencere) / aralik
+            bps = sum(n for _, n in pencere) / aralik
+        else:
+            hz = 0.0
+            bps = 0.0
+        return {
+            "bagli": yas is not None and yas < 3.0,
+            "msg_hz": round(hz, 1),
+            "bayt_s": int(bps),
+            "toplam": toplam,
+            "son_paket_s": round(yas, 1) if yas is not None else None,
+        }
 
     def get_qr_data(self) -> Optional[dict]:
         with self._qr_lock:
@@ -566,6 +616,12 @@ class RosBridge:
         # SwarmState — kontrata göre RELIABLE, 1-10 Hz. swarm_fsm yayıncı.
         # Mesaj gelmezse latest_swarm_state None kalır (frontend bunu handle eder).
         reliable_qos = QoSProfile(depth=10, reliability=QoSReliabilityPolicy.RELIABLE)
+        # MESH KAYNAKLI konular icin. esp32_bridge _MESH_QOS ile, yani
+        # BEST_EFFORT yayinliyor; RELIABLE abone onunla ESLESMEZ ve konu
+        # sessizce bos kalir. BEST_EFFORT abone ise her iki yayinciyla da
+        # uyumlu — bu yuzden /swarm/public/... dinlerken varsayilan bu olmali.
+        best_effort_qos = QoSProfile(
+            depth=10, reliability=QoSReliabilityPolicy.BEST_EFFORT)
         self._node.create_subscription(
             SwarmState, "/swarm/public/state", self._on_swarm_state, reliable_qos
         )
@@ -577,16 +633,45 @@ class RosBridge:
         )
         logger.info("subscribe → /swarm/public/events/system")
 
-        # QRMissionData — çözülmüş QR görev içeriği. qr_detector yayıncı,
-        # proxy /swarm/public/perception/qr_data'ya relay eder. RELIABLE:
-        # QR mesajı GCS'te en az 1 kez görünmeli (şartname V2, -20 ceza).
+        # QRMissionData — çözülmüş QR görev içeriği.
+        #
+        # BEST_EFFORT — ÖNCEDEN RELIABLE'DI VE TERS TEPİYORDU (15 Ağustos).
+        # Gerekçe "QR mesajı GCS'te en az 1 kez görünmeli (şartname V2,
+        # -20 ceza)" idi; niyet doğru ama etkisi TAM TERSİ. Bu konunun mesh
+        # kaynağı esp32_bridge ve o _MESH_QOS ile, yani BEST_EFFORT
+        # yayınlıyor. RELIABLE abone + BEST_EFFORT yayıncı EŞLEŞMEZ:
+        #
+        #   [esp32_base] '/swarm/public/perception/qr_data' requesting
+        #   incompatible QoS. No messages will be sent to it. RELIABILITY
+        #
+        # Yani "hiç kaçırmayalım" diye konan ayar, HER ZAMAN hepsini
+        # kaçırıyordu. Aynı dosyanın aşağısında doğru not zaten var:
+        # "BEST_EFFORT bilerek: yayıncı RELIABLE olsa bile uyumlu, tersi
+        # değil." Kayıp riski mesh'in kendisinde (~%30) ve yerel DDS hop'unu
+        # RELIABLE yapmak onu geri getirmiyor.
         self._node.create_subscription(
             QRMissionData,
             "/swarm/public/perception/qr_data",
             self._on_qr_data,
-            reliable_qos,
+            best_effort_qos,
         )
         logger.info("subscribe → /swarm/public/perception/qr_data")
+
+        # RTCM (RTK düzeltmesi) — YALNIZ İZLEME AMAÇLI.
+        #
+        # NEDEN VAR: 31 Temmuz'da u-blox sonradan takıldı, yki_baslat.sh açılışta
+        # portu göremeyip RTCM okuyucusunu HİÇ başlatmamıştı. Arayüzde bunu
+        # gösteren hiçbir şey yoktu; RTK'nın akmadığı ancak drone'a SSH atıp
+        # px4_bridge logundaki 'rtk: msg=0' sayacına bakınca anlaşıldı.
+        # Artık YKİ'de görünüyor.
+        #
+        # BEST_EFFORT bilerek: yayıncı RELIABLE olsa bile uyumlu, tersi değil.
+        # Burada tek bir RTCM paketini kaçırmak zararsız — sayaç zaten akışı
+        # ölçüyor, veriyi biz kullanmıyoruz.
+        self._node.create_subscription(
+            UInt8MultiArray, "/swarm/internal/rtcm", self._on_rtcm, sensor_qos
+        )
+        logger.info("subscribe → /swarm/internal/rtcm (RTK izleme)")
 
         # TriggerMission service client — GCS'in tek müdahale noktası.
         # mission_fsm_node karşı tarafta server (doğrulandı: /swarm/mission/trigger).

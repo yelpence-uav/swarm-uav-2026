@@ -25,6 +25,10 @@ setup(
             'swarm_control.swarm_origin_publisher:main',
             'esp32_bridge = '
             'swarm_control.esp32_bridge.esp32_bridge_node:main',
+            'basit_kacinma = '
+            'swarm_control.kacinma.basit_kacinma_node:main',
+            'ic_dis_kopru = '
+            'swarm_control.ic_dis_kopru:main',
         ],
     },
 )

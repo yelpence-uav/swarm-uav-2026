@@ -32,6 +32,11 @@ _ORIGIN_QOS = QoSProfile(
 
 _GROUND_VEL_THR = 0.3
 
+# Pilot override status_text'i sabit: yazan ve TEMIZLEYEN aynı metni
+# kullanmalı. Elle iki yere yazılırsa biri değişince metin asla temizlenmez
+# ve sahada bayat kalır (30 Temmuz'da tam bu yaşandı).
+_PILOT_OVERRIDE_METNI = 'Pilot override active'
+
 
 class AgentFsmNode(Node):
     """Tek bir drone'un FSM node'u."""
@@ -70,6 +75,9 @@ class AgentFsmNode(Node):
         self.declare_parameter('battery_critical_voltage_v', 13.6)
         self.declare_parameter('tick_hz', 10.0)
         self.declare_parameter('target_altitude_m', 10.0)
+        # YER TESTI: gorev basladi olayi ARMED'a kadar goturur, TAKEOFF'a
+        # GOTURMEZ. Pervanesiz yer testleri icin (bkz. asagida _on_event).
+        self.declare_parameter('yer_testi', False)
 
         self._agent_id = self.get_parameter('agent_id').value
         self._sitl_mode = self.get_parameter('sitl_mode').value
@@ -80,6 +88,13 @@ class AgentFsmNode(Node):
         self._target_altitude_m = (
             self.get_parameter('target_altitude_m').value
         )
+        self._yer_testi = bool(self.get_parameter('yer_testi').value)
+        if self._yer_testi:
+            self.get_logger().warn(
+                '*** YER TESTI ACIK *** Gorev basladi olayi ARMED e kadar '
+                'goturur, KALKIS KOMUTU GONDERILMEZ. Ucus icin '
+                '/ws/yer_testi dosyasini SIL ve konteyneri yeniden baslat.'
+            )
 
     def _setup_publishers(self) -> None:
         """Publisher'lari olusturur."""
@@ -192,6 +207,25 @@ class AgentFsmNode(Node):
                 throttle_duration_sec=3.0,
             )
 
+        # IDLE'da ARMING reddi TEAMAMEN SESSIZDI (15 Agustos).
+        #
+        # _from_idle preflight'i cagirip hatalari `_` ile atiyor, ve tick
+        # sonunda pending_state KOSULSUZ temizleniyor — yani istek tek tick
+        # sans aliyor ve reddedilirse hicbir iz birakmadan kayboluyor.
+        # ADIM 1 yer testinde "gorev basladi" uc kez yollandi, ucunde de olay
+        # ulasti ama ucak IDLE'da kaldi ve NEDENI hicbir yerde yazmiyordu.
+        # ARMED durumunun zaten boyle bir teshisi vardi (asagida), ayni seyi
+        # burada da yapiyoruz.
+        if (ctx.state == AgentState.IDLE
+                and ctx.pending_state == AgentState.ARMING
+                and next_s is None):
+            _, sebepler = run_preflight_checks(ctx)
+            self.get_logger().warn(
+                f'[agent {ctx.agent_id}] ARMING REDDEDILDI — preflight: '
+                f'{sebepler if sebepler else "(hata yok, baska bir sart)"}',
+                throttle_duration_sec=2.0,
+            )
+
         if next_s is not None and next_s != ctx.state:
             self._transition(next_s)
 
@@ -278,19 +312,28 @@ class AgentFsmNode(Node):
         is_mine = tgt == 0 or tgt == aid
 
         if eid == SystemEvent.EVENT_MISSION_STARTED:
-            _idle_states = (
-                AgentState.IDLE,
-                AgentState.LANDED,
-                AgentState.FAILSAFE,
-                AgentState.UNKNOWN,
-            )
-            if ctx.state in _idle_states:
-                ctx.set_state(AgentState.IDLE)
-                ctx.failsafe_active = False
-                ctx.mission_start_sequence_active = True
+            # YER TESTI: mission_start_sequence_active KALKIS kapisidir.
+            #   _from_armed: (mission_start_sequence_active and offboard_active
+            #                 and stabilize suresi) -> TAKEOFF
+            # Bayrak acikken bunu set ETMIYORUZ; FSM IDLE -> ARMING -> ARMED
+            # yolunu normal yurutur (gercek preflight, gercek arm, gercek
+            # AgentStatus) ama ARMED'da DURUR ve 'takeoff' komutu hic gitmez.
+            #
+            # Neden gerekli (15 Agustos): consensus lider secimi icin
+            # ELIGIBLE_STATES sarti var ve IDLE o kumede yok; en dusuk uygun
+            # durum ARMED. ARMED'a cikmanin tek yolu bu olay. Bayrak olmadan
+            # olay ayni zamanda kalkisi tetikliyor ve pervanesiz yer testinde
+            # motorlar ~30 sn bosta tam gazda kalip FAILSAFE'e dusuyordu.
+            if ctx.state == AgentState.IDLE:
+                ctx.mission_start_sequence_active = not self._yer_testi
                 ctx.pending_state = AgentState.ARMING
             elif ctx.state == AgentState.ARMED:
-                ctx.mission_start_sequence_active = True
+                ctx.mission_start_sequence_active = not self._yer_testi
+            if self._yer_testi:
+                self.get_logger().warn(
+                    f'[agent {aid}] YER TESTI: ARMED e kadar gidilecek, '
+                    f'kalkis komutu GONDERILMEYECEK.'
+                )
 
         elif eid == SystemEvent.EVENT_RTL_TRIGGERED and is_mine:
             ctx.pending_state = AgentState.RETURN_HOME
@@ -537,8 +580,12 @@ class AgentFsmNode(Node):
 
         if ctx.pilot_override_active and not prev_pilot:
             ctx.autonomous_control_paused = True
-            ctx.status_text = (
-                'Pilot override active'
+            ctx.status_text = _PILOT_OVERRIDE_METNI
+            self.get_logger().warn(
+                f'[agent {ctx.agent_id}] PILOT OVERRIDE: '
+                f'mod={ctx.flight_mode.name} — otonom geçişler DURDU '
+                f'(evaluate_transitions autonomous_control_paused ile '
+                f'None dönüyor)'
             )
             self._pub_event(
                 SystemEvent.EVENT_AGENT_PILOT_OVERRIDE,
@@ -546,7 +593,17 @@ class AgentFsmNode(Node):
                 'Manuel mod tespit edildi',
             )
         elif not ctx.pilot_override_active:
+            if ctx.autonomous_control_paused:
+                self.get_logger().info(
+                    f'[agent {ctx.agent_id}] pilot override kalktı '
+                    f'(mod={ctx.flight_mode.name}) — otonomi devam ediyor'
+                )
             ctx.autonomous_control_paused = False
+            # Metni SADECE kendi yazdığımızsa temizliyoruz. Koşulsuz
+            # temizlemek safety hold / sağlık uyarısı gibi daha önemli
+            # mesajları ezerdi (status_text'in 20'den fazla yazarı var).
+            if ctx.status_text == _PILOT_OVERRIDE_METNI:
+                ctx.status_text = ''
 
         self._prev_pilot_override = ctx.pilot_override_active
 

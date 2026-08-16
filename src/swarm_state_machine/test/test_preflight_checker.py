@@ -104,6 +104,33 @@ class TestPreflightBatarya(unittest.TestCase):
         passed, failures = run_preflight_checks(ctx)
         self.assertTrue(passed)
 
+    def test_izleme_kapali_gercek_voltaj_gecis(self):
+        """Eşik 0 ise düşük voltaj arming'i engellememeli.
+
+        Sahadaki tam senaryo: uçaklar regülatörden besleniyor, `baslat.sh`
+        `battery_critical_voltage_v:=0.0` veriyor ve uçak 3.1 V okuyor.
+        Düzeltmeden önce eşik gömülü 13.6 olduğu için burada
+        "Batarya voltajı düşük" çıkıyor ve IDLE -> ARMING hiç olmuyordu.
+        """
+        ctx = _sitl_ctx()
+        ctx.battery_critical_voltage_v = 0.0
+        ctx.battery_voltage_v = 3.1
+        passed, failures = run_preflight_checks(ctx)
+        self.assertTrue(passed, failures)
+
+    def test_esik_baglamdan_gelir(self):
+        """Çağıran değer geçmezse eşik bağlamdan gelmeli, sabitten değil.
+
+        16.0 V, eski gömülü eşiğin (13.6) üstünde ama bağlamdakinin (20.0)
+        altında. Eşik bağlamdan okunmuyorsa bu test geçer ve hatayı kaçırır.
+        """
+        ctx = _sitl_ctx()
+        ctx.battery_critical_voltage_v = 20.0
+        ctx.battery_voltage_v = 16.0
+        passed, failures = run_preflight_checks(ctx)
+        self.assertFalse(passed)
+        self.assertTrue(any('voltaj' in f.lower() for f in failures))
+
 
 if __name__ == '__main__':
     unittest.main()

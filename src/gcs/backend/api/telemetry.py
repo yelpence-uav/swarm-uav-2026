@@ -3,6 +3,8 @@
 
 import dataclasses
 
+from backend.core.state_store import ikili_mesafeler
+
 from fastapi import APIRouter, Request
 
 router = APIRouter(prefix="/api", tags=["telemetry"])
@@ -22,6 +24,10 @@ def get_snapshot(request: Request):
             bridge.get_swarm_state() if bridge is not None else None
         ),
         "qr": bridge.get_qr_data() if bridge is not None else None,
+        # RTK/RTCM akis durumu — arayuzdeki RTK gostergesi bunu okur.
+        "rtk": bridge.get_rtk_status() if bridge is not None else None,
+        # Drone'lar arasi mesafe — RTK dogrulugunu seritmetreyle sinamak icin.
+        "mesafeler": ikili_mesafeler(snap),
         "connection_mode": request.app.state.connection_mode,
     }
 

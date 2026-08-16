@@ -38,9 +38,32 @@ BASE_ESP_BAUD=460800
 # base esp32_bridge public'i mesh'e İLETMEZ (yalnız /internal dinler) -> İKİ yayıncı gerekir.
 # Değeri sahanın referans noktasıyla değiştir (env ile: ORIGIN_LAT=... ./yki_baslat.sh).
 # RTK baz istasyonu gelince: swarm_origin_publisher'ı origin_source:=rtk_base'e çevir.
+# TEK KAYNAK: deploy/saha_origin.env. Ucaklardaki /ws/origin de AYNI
+# dosyadan uretiliyor (dagit.sh) — 15 Agustos'ta ikisi ayrisip 18.2 m fark
+# olusmustu, o yuzden artik tek yerden besleniyor.
+# shellcheck disable=SC1091
+[ -f "$REPO/deploy/saha_origin.env" ] && . "$REPO/deploy/saha_origin.env"
 ORIGIN_LAT="${ORIGIN_LAT:-38.6904758}"
 ORIGIN_LON="${ORIGIN_LON:-39.1610188}"
-ORIGIN_ALT="${ORIGIN_ALT:-1218.5}"
+# ORIGIN_ALT ZEMİNİN AMSL YÜKSEKLİĞİ OLMALI — 1218.5 idi, 1.54 m fazlaydı.
+#
+# Bu sayı PX4'ün yerel z=0 düzlemini nereye koyacağını belirler. Zeminden
+# farklıysa "irtifa 5 m" komutu uçağı 5 m'ye ÇIKARMAZ: origin düzlemi 1.54 m
+# yukarıdaysa uçak zeminden 3.46 m'de kalır. Operatörün birden çok görevde
+# bildirdiği "irtifa sıçraması" buydu; kalkış sonrası ölçülen irtifa_ofset
+# semptomu soğuruyordu ama sebep duruyordu.
+#
+# 1 Ağustos'ta ölçüldü, aritmetik birebir oturdu:
+#   GPS AMSL (yerde)     1216.96 m
+#   PX4 yerel z (ENU up)   -1.542 m
+#   1218.5 - 1.542 = 1216.96  -> PX4 1218.5'i DOĞRU uygulamış, sayı yanlışmış.
+# Doğrusu zeminin kendi AMSL'i: 1216.96.
+#
+# BAŞKA SAHADA: drone'u yere koy, GPS'in AMSL'ini oku, buraya yaz —
+#   ros2 topic echo --once /drone_N/mavros/global_position/global | grep altitude
+# Yanlış bırakılırsa px4_bridge._origin_dogrula dikey sapmayı yakalar,
+# origin_synced false olur ve ön kontrol görevi BAŞLATMAZ.
+ORIGIN_ALT="${ORIGIN_ALT:-1216.96}"
 
 # --- DDS: loopback (WiFi'den bağımsız) — tek kesin mekanizma ---
 DDS_URI="file://$REPO/src/gcs/cyclonedds_yki.xml"
@@ -52,7 +75,7 @@ DDS_URI="file://$REPO/src/gcs/cyclonedds_yki.xml"
 # saniyede bir "Device or resource busy" döngüsüne girer. Ölçüldü: art arda
 # birkaç başlatmadan sonra 12 esp32_base, 22 origin yayıncısı.
 # Sahada bu, teşhisi çok zor bir "bazen çalışıyor" arızası olurdu.
-if pgrep -f "esp32_base|swarm_origin_pub|yki_rtcm_reader|uvicorn backend" > /dev/null 2>&1; then
+if pgrep -f "esp32_base|swarm_origin_pub|yki_rtcm_reader|qgc_proxy|uvicorn backend" > /dev/null 2>&1; then
   echo "[YKİ] çalışan örnekler bulundu, önce durduruluyor..."
   bash "$(dirname "${BASH_SOURCE[0]}")/yki_durdur.sh"
   sleep 2
@@ -97,20 +120,42 @@ disown
 # RTCM doğrudan porta değil ROS topic'ine gider. Okuyucu AYRI süreç: çökerse
 # telemetri ve komut yolu etkilenmez.
 # GPS portu takılı değilse okuyucu 2 sn'de bir yeniden dener, YKİ'yi bloke etmez.
+#
+# BU YÜZDEN KOŞULSUZ BAŞLATILIYOR. Eskiden "port var mı" diye bakılıp yoksa
+# HİÇ başlatılmıyordu — okuyucunun kendi tekrar-deneme yeteneğine sıra bile
+# gelmiyordu. 31 Temmuz'da tam bu ısırdı: u-blox YKİ açıldıktan SONRA takıldı,
+# RTCM hiç akmadı, ve bu ancak drone'a SSH atıp px4_bridge logundaki
+# 'rtk: msg=0' sayacına bakınca fark edildi. Artık okuyucu her hâlükârda
+# başlar, port gelince kendiliğinden bağlanır.
 RTK_GPS_PORT="${RTK_GPS_PORT:-/dev/serial/by-id/usb-u-blox_AG_-_www.u-blox.com_u-blox_GNSS_receiver-if00}"
 RTK_TOPIC="${RTK_TOPIC:-/swarm/internal/rtcm}"
 if [ -e "$RTK_GPS_PORT" ]; then
   echo "[YKİ] RTK okuyucu başlatılıyor ($RTK_GPS_PORT -> $RTK_TOPIC)..."
-  setsid bash -c "source /opt/ros/jazzy/setup.bash && source '$REPO/install/setup.bash' && \
-    source '$VENV/bin/activate' && \
-    export ROS_DOMAIN_ID=0 RMW_IMPLEMENTATION=rmw_cyclonedds_cpp CYCLONEDDS_URI='$DDS_URI' && \
-    exec python3 '$REPO/src/gcs/backend/rtcm/yki_rtcm_reader.py' \
-      --gps-port '$RTK_GPS_PORT' --ros-topic '$RTK_TOPIC'" \
-    > /tmp/yki_rtcm.log 2>&1 < /dev/null &
-  disown
 else
-  echo "[YKİ] RTK okuyucu ATLANDI — GPS portu yok ($RTK_GPS_PORT)"
+  echo "[YKİ] RTK okuyucu başlatılıyor — GPS portu HENÜZ YOK, takılınca bağlanacak"
 fi
+setsid bash -c "source /opt/ros/jazzy/setup.bash && source '$REPO/install/setup.bash' && \
+  source '$VENV/bin/activate' && \
+  export ROS_DOMAIN_ID=0 RMW_IMPLEMENTATION=rmw_cyclonedds_cpp CYCLONEDDS_URI='$DDS_URI' && \
+  exec python3 '$REPO/src/gcs/backend/rtcm/yki_rtcm_reader.py' \
+    --gps-port '$RTK_GPS_PORT' --ros-topic '$RTK_TOPIC'" \
+  > /tmp/yki_rtcm.log 2>&1 < /dev/null &
+disown
+
+# --- QGC BAGLANTISI (proxy YOK, bilerek) ---------------------------------
+# QGC dogrudan UDP 14550'ye baglanir. Her PX4'un MAV_SYS_ID'si AYRI oldugu
+# surece QGC onlari ayri arac gorur ve cift yonlu konusur (parametre indirme,
+# kalibrasyon, komut hepsi calisir).
+#   ylp00 -> 1   ylp01 -> 2   ylp02 -> 3
+#
+# BURAYA PROXY KOYMAYIN. 31 Temmuz'da sysid cakismasi icin qgc_proxy
+# denendi ve ISI BOZDU: MAVROS'un udp-b ucnoktasi bir karsi taraf KESFEDINCE
+# yayini birakip o adrese tekil gonderime geciyor. Proxy drone'a paket
+# yollayinca MAVROS ona kilitlendi, proxy olunce de telemetri tamamen kesildi
+# (olculdu: 14550'de ylp00'dan sifir paket, konteyner restarti gerekti).
+# Dogru cozum sysid'leri FCU'da ayirmaktir — PX4 MAV_SYS_ID'yi ancak YENIDEN
+# BASLATMADA uyguluyor, o yuzden ilk denemede "yazilmadi" sanilmisti.
+# Ayrinti: src/gcs/qgc_proxy.py basligi.
 
 # --- 2) Backend (REST + WebSocket, ros2 modu) ---
 echo "[YKİ] backend başlatılıyor (:8000)..."

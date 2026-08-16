@@ -1,15 +1,33 @@
 # Cihaz ve erişim tablosu
 
-Sahada IP'ler DHCP ile değişir (29 Temmuz'da ağ `10.207.118.x`'ten `10.158.16.x`'e
-kaydı ve bütün SSH komutları kırıldı). **Değişmeyen kimlik MAC adresidir** —
-IP'yi her seferinde MAC'ten bul, ezberleme.
+**Son güncelleme:** 15 Ağustos 2026, 13:54
 
-IP'yi MAC'ten bulmak için:
+Sahada IP'ler DHCP ile değişir (29 Tem `10.207.118.x` → 30 Tem `10.158.16.x`
+→ 14 Ağu `10.188.209.x`; her seferinde bütün SSH komutları kırıldı).
+**Değişmeyen kimlik MAC adresidir** — IP'yi ezberleme, buldur.
 
-    sudo arp-scan --localnet --interface=wlan0     # ya da laptopta wlp0s20f3
-    # arp-scan yoksa, 22. portu tara:
-    for i in $(seq 1 254); do (timeout 1 bash -c "echo > /dev/tcp/10.158.16.$i/22" \
-      2>/dev/null && echo "SSH: 10.158.16.$i") & done; wait
+## ✅ Bunun için betik var: `deploy/yki/drone_bul.sh`
+
+```bash
+./deploy/yki/drone_bul.sh                 # menü açar, seç, bağlanır
+./deploy/yki/drone_bul.sh ylp00           # doğrudan bağlanır
+./deploy/yki/drone_bul.sh ylp00 'komut'   # komut çalıştırır (Claude bunu kullanır)
+./deploy/yki/drone_bul.sh --liste         # tabloyu basar, bağlanmaz
+./deploy/yki/drone_bul.sh --durum         # hepsinin sağlık durumu (disk, konteyner, bayraklar)
+./deploy/yki/drone_bul.sh --ip ylp02      # yalnız IP
+./deploy/yki/drone_bul.sh --yenile        # önbelleği atla, yeniden tara
+```
+
+Üç yolu sırayla dener: **önbellek** → **mDNS** (`ylp00.local`) → **MAC taraması**
+(22. porta bak, ARP tablosundan MAC oku, tabloyla eşleştir). Sonuncusu her zaman
+çalışır ve internet gerektirmez.
+
+**14 Ağustos ölçümü:** mDNS bu hotspot'ta çalışıyor, tarama bile gerekmedi.
+Multicast'i engelleyen bir hotspot'ta MAC taramasına düşer — o da doğrulandı.
+
+Elle yapmak gerekirse:
+
+    sudo arp-scan --localnet --interface=wlp0s20f3
 
 ## Raspberry Pi 5 (drone bilgisayarları)
 
@@ -17,15 +35,84 @@ Kullanıcı adı **drone başına ayrı** — hepsi `yelpence` değil. Karışt�
 `Permission denied (publickey,password)` alırsın; anahtar sorunu sanma, önce
 kullanıcı adını doğrula.
 
-| Drone | Hostname | SSH kullanıcı | wlan0 MAC          | eth0 MAC           | Docker konteyner | IP (29 Tem) |
+| Drone | Hostname | SSH kullanıcı | wlan0 MAC          | eth0 MAC           | Docker konteyner | IP (30 Tem) |
 |-------|----------|---------------|--------------------|--------------------|------------------|-------------|
 | ylp00 | `ylp00`  | `yelpence00`  | `88:a2:9e:71:60:ed`| `88:a2:9e:71:60:ec`| `drone1`         | 10.158.16.134 |
-| ylp01 | —        | —             | —                  | —                  | —                | (hiç ayağa kalkmadı) |
+| ylp01 | `ylp01`  | `yelpence01`  | `88:a2:9e:da:04:2d`| (bilinmiyor)       | `drone2` (kurulacak) | 10.158.16.211 |
 | ylp02 | `ylp02`  | `yelpence02`  | `88:a2:9e:71:60:24`| `88:a2:9e:71:60:23`| `drone3`         | 10.158.16.189 |
 
-SSH anahtarı (`~/.ssh/id_ed25519`) ikisinde de kurulu — parola sorulmaz.
+Not: ylp01'in wlan0 MAC öneki diğer ikisinden farklı (`da:04:2d` ↔ `71:60:xx`) —
+farklı parti Raspberry Pi. Yine de `88:a2:9e` (Raspberry Pi Trading) önekiyle
+bulunur.
+
+### ⏰ Pi'lerin saati açılışta ~11 saat geriden geliyor
+
+Pi 5'te RTC var (`/dev/rtc0`) ama **yedek pili yok**. Açılışta kernel RTC'yi
+`1970-01-01` okuyor, systemd son bilinen saati geri yüklüyor, ağ gelince NTP
+saati öne atlatıyor. 15 Ağustos ölçümü:
+
+```
+Aug 15 02:25:40  kernel: rpi-rtc: setting system clock to 1970-01-01
+konteyner "basladi" damgasi : 2026-08-14T23:25 UTC   (= 02:25 yerel)
+Pi gercek acilisi           : 2026-08-15 13:18 yerel
+```
+
+`docker ps` "Up 11 hours" derken Pi'nin 12 dakikadır açık olması bundandır —
+tutarsızlık değil, saat atlaması.
+
+**Neden önemli:** iki uçağın saati o pencerede birbirinden farklı olur ve
+çapraz uçak kayıt karşılaştırması (kim önce lider oldu, kaçınma ne zaman
+tetiklendi) yapılamaz. Yarışma günü sahada internet olmayabilir.
+
+**Çözüm devrede:** `deploy/rpi/gps_saat.py` açılışta PX4'ün GPS zamanından
+saati düzeltiyor (`/drone_N/mavros/time_reference`, 1 Hz). İnternet
+gerekmiyor. Konteyner `--cap-add SYS_TIME` ile koşuyor.
+Kapatmak için: `touch ~/yelpence_ws/gps_saat_kapali`.
+
+## Uçuş kontrolcüsü
+
+**Pixhawk 2.4.8** (Pixhawk 1 donanımı, FMUv3 hedefi), PX4 **1.16.1**.
+
+Bu donanımın iki pratik sonucu var:
+
+- **RAM 192 KB, sınırda.** "Pixhawk'ta log açma" kuralının sebebi bu; kayıt
+  Pi'de tutuluyor (rosbag2/mcap).
+- UTC'yi **GPS'ten** alıyor (Here4 → DroneCAN → PX4 RTC) ve MAVLink
+  `SYSTEM_TIME` ile yayınlıyor. Pi'nin saat düzeltmesi buna dayanıyor.
+
+MAVROS zaman eklentisi ölçüldü (`/drone_N/mavros/time` düğümü):
+
+| Parametre | Değer | Anlamı |
+|-----------|-------|--------|
+| `time_ref_source` | `fcu` | Yayınlanan zaman FCU'nun kendi saati |
+| `system_time_rate` | `0.0` | MAVROS Pi'nin saatini FCU'ya **hiç göndermiyor** |
+
+İkincisi kritik: akış tek yönlü (FCU → Pi), yani bayat Pi saatinin FCU'nun
+GPS saatini bozma yolu yok.
+
+⚠️ `time_reference` **BEST_EFFORT** yayınlıyor. `ros2 topic echo` varsayılan
+RELIABLE ile bakar ve **hiçbir şey görmez** — "eklenti kapalı" sanılır.
+`--qos-reliability best_effort` ekle.
+
+**Pi bir süre boşta kalınca SSH'a cevap vermiyorsa** sebebi Wi-Fi güç
+tasarrufudur (uyanması için ~30 sn ping gerekiyordu). Üçünde de kapatıldı:
+
+    nmcli connection modify rpissid 802-11-wireless.powersave disable
+
+Yeni bir Pi kurarken bunu ve diğer bütün adımları
+`deploy/rpi/pi_hazirla.sh` yapıyor (Pi üzerinde `sudo bash pi_hazirla.sh <id>`).
+
+YKİ dizüstü: `10.158.16.115`, MAC `5c:b4:7e:af:b3:83`, arayüz `wlp0s20f3`.
+
+SSH anahtarı (`~/.ssh/id_ed25519`) ylp00 ve ylp02'de kurulu — parola sorulmaz.
+**ylp01'de kurulmadıysa** bir kez:
+
+    ssh-copy-id -i ~/.ssh/id_ed25519.pub yelpence01@<ylp01-ip>
+
+Kullanım:
 
     ssh yelpence00@<ylp00-ip>      # ylp00
+    ssh yelpence01@<ylp01-ip>      # ylp01
     ssh yelpence02@<ylp02-ip>      # ylp02
 
 Konteyner içinde ROS komutu:
@@ -70,6 +157,46 @@ kalır ve "kart bozuk" sanırsın (bkz. saha günlüğü §5.6):
 
     s = serial.Serial(port, baud, timeout=0.4)
     s.setDTR(False); s.setRTS(False)
+
+## QGroundControl bağlantısı
+
+Kanıt videosu yönergesi "uçuş modunun ve yönelimlerin açıkça göründüğü"
+QGC/Mission Planner ekranını şart koşuyor. Mesh 16 baytlık özet taşır ve
+QGC'nin HUD'una yetmez — tam MAVLink gerekir. Yol WiFi üzerinden:
+
+1. Her Pi'de `~/yelpence_ws/gcs_url` → `udp-b://:14555@14550`
+2. QGC → Comm Links → Add → **UDP, port 14550** → Connect
+   (**AutoConnect UDP kapalı** olsun; açıksa QGC portu iki kez almaya çalışır)
+
+**MAV_SYS_ID her drone'da AYRI olmak zorunda.** QGC araçları sysid ile ayırır;
+ikisi de 1 olursa QGC bunları **tek araç** sanar ve iki uçağın telemetrisi
+aynı araca akar — HUD arada git gel yapar (30 Tem'de yaşandı, ölçüldü:
+14550'ye iki farklı IP'den ~2350'şer paket, hepsi sysid=1).
+
+| Drone | MAV_SYS_ID | `/ws/tgt_system` |
+|-------|-----------|------------------|
+| ylp00 | 1         | (dosya yok, MAVROS varsayılanı 1) |
+| ylp01 | 2         | `2` |
+| ylp02 | 3         | `3` |
+
+Değiştirme yordamı — **üçü birden yapılmazsa drone sessizce kopar**:
+
+    ros2 param set /drone_N/mavros/param MAV_SYS_ID <N>
+    # FCU'yu YENIDEN BASLAT — PX4 bu parametreyi ancak boyle uygular.
+    # (ilk denemede "yazilmadi" sanilmasinin sebebi budur)
+    ros2 service call /drone_N/mavros/cmd/command mavros_msgs/srv/CommandLong \
+      "{command: 246, param1: 1.0}"
+    echo <N> > ~/yelpence_ws/tgt_system    # MAVROS da ayni sistemi hedeflesin
+    docker restart <konteyner>
+
+`tgt_system` FCU ile uyuşmazsa semptom aldatıcıdır: paketler akmaya devam
+eder ama **içerik boşalır** — `mod=?`, `sat=0`, `pil %0`, arayüzde FAILSAFE.
+İpucu `mavros.log`'daki `detected remote address <sysid>.1` satırıdır.
+
+**`src/gcs/qgc_proxy.py` KULLANILMIYOR.** sysid çakışması için yazılmıştı ama
+MAVROS'un `udp-b` uçnoktası bir karşı taraf keşfedince yayını bırakıp o adrese
+tekil gönderime geçiyor; proxy'ye kilitlenip proxy ölünce telemetri tamamen
+kesiliyor. Ayrıntı dosyanın başlığında.
 
 ## Yerel servisler
 
