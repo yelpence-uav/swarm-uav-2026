@@ -1,6 +1,6 @@
 # Yelpençe — TEKNOFEST 2026 Sürü İHA
 
-**Son güncelleme:** 15 Ağustos 2026, 12:46
+**Son güncelleme:** 16 Ağustos 2026, 20:40
 
 > Bu dosyayı Claude Code her oturumda **kendiliğinden okur**. Yeni bir sohbet
 > açan kişinin hiçbir şey söylemesine gerek yok; buradan projeyi anlar.
@@ -174,6 +174,7 @@ arayışına dönüşüyor.
 | `docs/KARARLAR.md` | **Verilmiş ama henüz uygulanmamış kararlar** — sırası gelince operatöre hatırlat |
 | `docs/SURU_ENTEGRASYON.md` | Sürü kodlarını sahaya alma yol haritası |
 | `docs/NAVIGASYON_KAYMA.md` | Kaymayı sıfırlama planı — ileri-besleme, ölçüm, doygunluk payı |
+| **`docs/TUZAKLAR.md`** | **Hata vermeden yanlış sonuç üretenler** — sahada acıyla öğrenilenler. Bir şey "çalışmıyor ama hata da vermiyor" ise ÖNCE buraya bak |
 
 **Referans** (güvenilir, nadiren değişir):
 
@@ -187,32 +188,31 @@ arayışına dönüşüyor.
 
 ---
 
-### ⚠️ ARŞİV — GÜNCEL DEĞİL, buralara YAZMA
+### 🗄️ ARŞİV — SİLİNDİ, git'te duruyor
 
-Bu dosyalar **geçmiş dönemlere** ait. Okumak için değerliler, ama
-**bugünün durumunu anlatmıyorlar** ve içlerindeki iş listeleri, plan ve
-mimari tarifi **artık geçerli değil**.
+Temmuz – 2 Ağustos saha günlükleri (`20-temmuz`, `28-29-temmuz`,
+`31temmuz-1agustos`, `BEKLEYEN_ISLER`, `kanit_videosu_plani`) **16 Ağustos'ta
+silindi.**
 
-| Dosya | Neye ait | Neden güncel değil | Hâlâ değerli olan |
-|-------|----------|--------------------|-------------------|
-| `docs/arsiv/BEKLEYEN_ISLER.md` | Uçuş kanıtı dönemi iş listesi | 2 Ağustos'ta donduruldu; uçuş kanıtı geçildi, maddelerin çoğu geçersiz | §4 **Tuzaklar**, §5 **Doğrulanmış olanlar** |
-| `docs/arsiv/kanit_videosu_plani.md` | Kanıt videosu koreografisi | Video çekildi ve geçildi | — |
-| `docs/arsiv/20-temmuz.md` | Saha günlüğü | Tarihsel kayıt | Ölçümler, kaza analizleri |
-| `docs/arsiv/28-29-temmuz.md` | Saha günlüğü | Tarihsel kayıt | Ölçümler, kaza analizleri |
-| `docs/arsiv/31temmuz-1agustos.md` | Saha günlüğü | Tarihsel kayıt | Devrilme ve titreşim zinciri analizi |
-| `ARCHITECTURE.md` | Sim dönemi mimarisi | **Sahadaki yapıyı anlatmıyor**; var olmayan dosyalardan bahsediyor (`launch_real_hardware.py`) | Sürü yazılımının **tasarım niyeti** |
-| `README.md` eski hâli | — | Giriş noktası olarak yeniden yazıldı | — |
+Silinmeden önce içlerindeki hâlâ geçerli her şey — 30'dan fazla tuzak, ölçüm
+tabloları, çözülmemiş üç güvenlik maddesi — **`docs/TUZAKLAR.md`'ye çıkarıldı**,
+tek tek koda bakılarak doğrulandı ve geçersizleşen 7 madde ayıklandı. Geriye
+yalnız anlatı kaldığı için dosyalar tutulmadı.
 
-**Kurallar:**
+Hepsi `94b7d0b` commit'inde ve `origin/main`'de duruyor:
 
-- **Bu dosyalara yazma.** Yeni bilgi canlı belgelere gider.
-- **Bir bilgi çelişirse CANLI BELGE kazanır.** Arşivdeki bir cümle
-  `DURUM.md` ile çelişiyorsa arşiv yanlıştır, `DURUM.md` doğrudur.
-- **İş listesi arıyorsan `YAPILACAKLAR.md`'ye bak**, `BEKLEYEN_ISLER.md`'ye değil.
-- **Mimari soruyorsan `PLAN.md` + `SURU_ENTEGRASYON.md`'ye bak**,
-  `ARCHITECTURE.md`'ye değil.
-- Arşivden bir bilgi kullanacaksan **önce koda bakıp doğrula** — o gün doğru
-  olan bugün yanlış olabilir.
+```bash
+git show 94b7d0b:docs/arsiv/28-29-temmuz.md      # bir günlüğü oku
+git show 94b7d0b --stat -- docs/arsiv/           # hepsini listele
+```
+
+**Bir tuzağın ham ölçüm kaydını görmek istersen** oraya bak — `TUZAKLAR.md`'de
+her maddenin sonunda hangi gün ölçüldüğü yazıyor, o günün günlüğü yukarıdaki
+komutla açılır.
+
+`ARCHITECTURE.md` (sim dönemi mimarisi) bu depoda **yok**, eski depoda
+(`yelpence-2026-swarm`) duruyor ve sahadaki yapıyı anlatmıyor. Mimari
+soruyorsan `PLAN.md` + `SURU_ENTEGRASYON.md`.
 
 **Ekran görüntüsü**: `ss/` klasörüne at, sohbette söyle. Bkz. `ss/README.md`.
 
@@ -285,7 +285,7 @@ değişiyor.
 **Kural:**
 - **Her canlı belge** (`PLAN`, `DURUM`, `GUNLUK`, `YAPILACAKLAR`,
   `KARARLAR`, `RPI_ESITLEME`, `SURU_ENTEGRASYON`, `NAVIGASYON_KAYMA`,
-  `COP_TEMIZLIK`, `CLAUDE.md`, `README.md`) bu damgayı taşır
+  `TUZAKLAR`, `CLAUDE.md`, `README.md`) bu damgayı taşır
 - **Arşiv belgelerine dokunma** — onlar zaten donduruldu
 - Saat **Europe/Istanbul**
 - Damgayı güncellemeyi unutma: içerik değişti ama tarih eskiyse belge

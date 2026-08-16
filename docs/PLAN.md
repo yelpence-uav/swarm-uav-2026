@@ -1,6 +1,6 @@
 # PLAN — buradan finale
 
-**Son güncelleme:** 15 Ağustos 2026, 01:42
+**Son güncelleme:** 16 Ağustos 2026, 20:57
 
 Bu belge **tüm takımın ortak resmi**. Teknik ayrıntı diğer belgelerde;
 burada *ne yapıyoruz, neredeyiz, nasıl gideceğiz* var.
@@ -188,14 +188,13 @@ Claude'a **"oturumu kapat"** de. Şunları o yazar:
 
 **Ekran görüntüsü:** `ss/` klasörüne at, Claude'a "ss'e attım" de.
 
-### ⚠️ Bunlar ARŞİV — güncel değil, yazma
+### 🗄️ Arşiv silindi (16 Ağustos)
 
-`BEKLEYEN_ISLER.md` · `kanit_videosu_plani.md` · `20-temmuz.md` ·
-`28-29-temmuz.md` · `31temmuz-1agustos.md` · `ARCHITECTURE.md`
+Beş saha günlüğü (`20-temmuz`, `28-29-temmuz`, `31temmuz-1agustos`,
+`BEKLEYEN_ISLER`, `kanit_videosu_plani`) silindi. İçlerindeki hâlâ geçerli
+her şey **`TUZAKLAR.md`**'ye çıkarıldı ve koda bakılarak doğrulandı.
 
-Geçmiş dönemlere ait. Okumak değerli (ölçümler, kaza analizleri, tuzaklar)
-ama **bugünün durumunu anlatmıyorlar**. İş listesi arıyorsan
-`YAPILACAKLAR.md`, mimari arıyorsan `PLAN.md` — eski dosyalar değil.
+Ham kayıt: `git show 94b7d0b:docs/arsiv/<dosya>`
 
 **Çelişirse canlı belge kazanır.**
 

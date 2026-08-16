@@ -89,7 +89,7 @@ geneldir, başka tipe bağlanabilir; ama şu an RTK'ye kilitli.
 
 Mesh gecikmesi ölçüldü (29 Tem): iki peer için **67 ms** ve **42 ms**.
 Drone tarafı UART 460800 baud = 46 kB/s. Base UART'ın YKİ→base yönündeki
-~35 çerçeve/sn sınırı (§3, 28-29-temmuz.md) **drone-drone trafiğini
+~35 çerçeve/sn sınırı (28-29 Temmuz'da ölçüldü, `TUZAKLAR.md` §7) **drone-drone trafiğini
 etkilemez** — o yol base UART'a girmiyor.
 
 ### 1.7 Zarfı büyütme seçeneği — ERTELENDİ, analizi hazır
@@ -277,7 +277,8 @@ bir formasyon hatası; şartname çarpışmama şartı koyuyor.
 750 B/s → **%17'si.** Drone-drone yolunda, base UART'a dokunmuyor.
 
 **Yayın broadcast olacak, unicast değil.** RTCM'de unicast'e geçme gerekçesi
-"tek parça kaybı mesajın tamamını öldürüyor"du (§2, 28-29-temmuz.md). Formasyon
+"tek parça kaybı mesajın tamamını öldürüyor"du (28 Temmuz kararı;
+`git show 94b7d0b:docs/arsiv/28-29-temmuz.md` §2). Formasyon
 periyodik: kaybolan paket 200 ms sonra kendini kapatır, tıpkı POSE gibi. Tek
 iletim üç drona ulaşır.
 
@@ -1408,7 +1409,7 @@ o iş `feature/rpi-gunlukleme` dalında, bu dal ise main'den çıkmış. Pi'nin
 önündeydi. Fark edilmese uçuş kaydı sessizce kaybolurdu.
 
 Çözüm: iki dal birleştirildi. Dosya kesişimi **boş** olduğu için temiz geçti
-(`rpi-gunlukleme` → `deploy/`, `docs/arsiv/28-29-temmuz.md`; mesh dalı → `firmware/`,
+(`rpi-gunlukleme` → `deploy/`, o günün günlüğü; mesh dalı → `firmware/`,
 `src/`). Artık tek dal "dronlarda olması gereken kod"u temsil ediyor.
 
 **2. Parametre adlarını uydurmuşum — sessiz hata sınıfı.** ROS 2 bildirilmemiş

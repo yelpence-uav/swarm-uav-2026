@@ -1,6 +1,6 @@
 # YAPILACAKLAR
 
-**Son güncelleme:** 15 Ağustos 2026, 20:40
+**Son güncelleme:** 16 Ağustos 2026, 20:57
 
 ## Önem dereceleri
 
@@ -16,8 +16,8 @@ seviyesiz liste bir süre sonra kimsenin okumadığı bir yığına dönüşüyo
 
 Durum: `[ ]` yapılmadı · `[~]` kısmen · `[B]` başka işe bağlı · `[?]` karar bekliyor · `[x]` bitti
 
-> Uçuş kanıtı dönemine ait uzun liste `BEKLEYEN_ISLER.md`'de **arşiv**.
-> Oraya artık yazma.
+> Uçuş kanıtı dönemine ait uzun liste 16 Ağustos'ta silindi; hâlâ geçerli
+> maddeleri `TUZAKLAR.md`'ye taşındı. Ham hâli: `git show 94b7d0b:docs/arsiv/BEKLEYEN_ISLER.md`
 
 ---
 

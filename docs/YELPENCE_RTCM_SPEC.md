@@ -7,7 +7,8 @@
 ## ⚠ REV C — ÖNCE BUNU OKU
 
 REV B yazıldığında sistem **hiç uçtan uca çalıştırılmamıştı**. 28–29 Temmuz
-2026'da çalıştırıldı (bkz `docs/arsiv/28-29-temmuz.md`) ve aşağıdaki bölümlerin
+2026'da çalıştırıldı (o günün günlüğü: `git show 94b7d0b:docs/arsiv/28-29-temmuz.md`)
+ve aşağıdaki bölümlerin
 bir kısmı gerçeği yansıtmaz hale geldi. Spec'in kendi kuralı geçerli:
 **kod kazanır.**
 
