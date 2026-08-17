@@ -186,7 +186,30 @@ class FormationControlNode(Node):
         self.declare_parameter('keeping_enter_m', 1.2)
         self.declare_parameter('keeping_exit_m', 1.8)
         self.declare_parameter('vff_lpf_alpha', 0.3)
-        self.declare_parameter('sitl_mode', True)
+        # SITL MODU — VARSAYILAN False OLMAK ZORUNDA (17 Agustos 2026'da
+        # duzeltildi, oncesinde True idi).
+        #
+        # Bu bayrak IKI GUVENLIK KAPISINI atlatiyor (bkz. _publish_setpoint):
+        #     if not self._sitl_mode and not self._origin_synced: ...
+        #     if not self._sitl_mode and not (self._xy_valid and self._z_valid): ...
+        # Yani True iken dugum, origin senkronlanmadan ve EKF konum tahmini
+        # gecersizken de setpoint uretiyor.
+        #
+        # NEDEN TUZAKTI: depodaki butun dugumlerde bu parametrenin varsayilani
+        # False; yalniz burada True'ydu. baslat.sh de parametreyi HIC gecmiyor
+        # (597. satirda yalnizca yorumda aniliyor), dolayisiyla sahada varsayilan
+        # gecerliydi. 15 Agustos'a kadar ucaklarda kosan surumde (bugun
+        # saha/pi-kod-15agustos dalinda) ayni kapilar KOSULSUZDU — yani main
+        # bunlari zayiflatmisti.
+        #
+        # Ne kadar onemli: 15 Agustos'ta 18.2 m'lik bir origin ayrismasi arm'i
+        # engellemisti ve bu DOGRU davranisti. Kapali kapi onun tersi yon —
+        # ayrismis origin'le setpoint uretmek demek. Gozlem modu bugun cikisi
+        # /gozlem/'e surdugu icin ucaga ulasmiyor, ama ADIM 3 tam da o remap'i
+        # kaldirmak.
+        #
+        # SITL gerekirse acikca istenir: -p sitl_mode:=true
+        self.declare_parameter('sitl_mode', False)
         # v_ff bayatlık süresi: bu kadar süredir yeni FormationCommand
         # gelmediyse merkez artık HAREKET ETMİYOR demektir → v_ff sıfırlanır.
         # Yoksa son komuttaki hız donup kalır ve her tick'te komuta eklenir;

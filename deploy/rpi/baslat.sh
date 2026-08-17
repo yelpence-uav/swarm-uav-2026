@@ -697,8 +697,16 @@ if [ -n "$SURU_DUGUMLERI" ]; then
     if acik formasyon; then
         # wing_alpha_deg: kopru, swarm_fsm ve mission1 ile AYNI deger sart,
         # yoksa slot geometrisi sessizce ayrisir.
+        # sitl_mode:=false ACIKCA geciliyor (17 Agustos). Dugumun kendi
+        # varsayilani da False'a cekildi ama IKI YERDEN baglaniyor: biri
+        # unutulursa digeri tutar. Bu bayrak formation_node'da iki guvenlik
+        # kapisini atlatiyor — origin_synced ve (xy_valid ve z_valid). True
+        # iken dugum origin senkronsuz ve EKF gecersizken de setpoint uretir.
+        # 17 Agustos'a kadar depodaki varsayilan True'ydu ve buradan da
+        # gecilmiyordu, yani sahada kapilar KAPALI kosuyordu.
         ros2 run swarm_core formation_node --ros-args \
             -p agent_id:=${AGENT_ID} -p wing_alpha_deg:=${KANAT_ALFA_DEG} \
+            -p sitl_mode:=false \
             ${GOZLEM_REMAP} \
             >> "$GUNLUK/formation.log" 2>&1 &
         sleep 1
