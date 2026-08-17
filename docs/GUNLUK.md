@@ -1,6 +1,6 @@
 # GÜNLÜK — oturum devir teslim kaydı
 
-**Son güncelleme:** 17 Ağustos 2026, 04:11
+**Son güncelleme:** 17 Ağustos 2026, 15:53
 
 Tek bilgisayar, sırayla çalışıyoruz. Biri kalkıp diğeri oturduğunda **hem
 kişi hem Claude** nerede kalındığını buradan anlar.
@@ -38,11 +38,15 @@ Claude'a **"oturumu kapat"** dersen bu kaydı o yazar.
 
 ---
 
-## 2026-08-17 04:11 — Beyza + Osman + Claude (depo devri, belge sadeleştirme, YKİ Arch kurulumu, ağ teşhisi)
+## 2026-08-17 15:53 — Beyza + Osman + Claude (depo devri, belge sadeleştirme, YKİ Arch kurulumu, ağ teşhisi, **uçaklar `main`'e alındı**)
 
-> **Üç oturum tek kayıtta birleştirildi:** 16 Ağustos 19:50 ve 21:32 (depo ve
+> **Dört oturum tek kayıtta birleştirildi:** 16 Ağustos 19:50 ve 21:32 (depo ve
 > belge düzeni, uçağa dokunulmadı) + 16/17 Ağustos gecesi (YKİ laptopunun
-> sıfırdan kurulumu ve "RPi bağlanınca internet kopuyor" arızasının teşhisi).
+> sıfırdan kurulumu ve "RPi bağlanınca internet kopuyor" arızasının teşhisi)
+> + 17 Ağustos gündüz (SSH, saat teşhisi, uçakların `main`'e alınması, P0.8).
+>
+> **En taze bilgi için doğrudan aşağıdaki 17 Ağustos gündüz bölümlerine bak** —
+> gecenin bazı bulguları gündüz değişti, değişenler yerinde işaretlendi.
 
 **Ne yapıldı**
 
@@ -144,20 +148,167 @@ Claude'a **"oturumu kapat"** dersen bu kaydı o yazar.
   olay çıkaran eski değeri gösteriyordu (18.2 m yatay, 0.93 m dikey fark).
   ylp00 `deploy/saha_origin.env` ile **birebir aynı**: uçak doğru, belge
   yanlıştı. Düzeltildi.
+- ⛔ *Bu maddedeki "Pi saat düzeltmesi sahada ilk kez çalışırken görüldü"
+  sonucu **gündüz çürütüldü** — `gps_saat.log` okunmamıştı, okununca
+  düzeltmenin aslında **çalışmadığı** çıktı. Aşağıya bak.*
+
+---
+
+### 🌤 17 Ağustos gündüz — SSH, saat teşhisi, uçaklar `main`'e alındı (Osman)
+
+*İki uçağa da SSH*
+
+- ✅ ylp02'nin **host key**'i `known_hosts`'ta hiç yoktu; `BatchMode` soru
+  soramadığı için `--durum` "SSH cevap vermedi" diyordu — **anahtar sorunu
+  değil**. ARP'taki MAC (`88:a2:9e:71:60:24`) `cihazlar.md` ile doğrulanıp
+  eklendi, sonra `ssh-copy-id` ile Osman'ın anahtarı kuruldu. **P1.2 kapandı**
+  (ylp01 dönünce tekrarlanacak).
+- ✅ `tgt_system` farkı (ylp02'de `3`, ylp00'da yok) **doğru** —
+  `baslat.sh:168` zaten öyle olmasını yazıyor. Ayrışma değil.
+
+*🔴 Uçak saatleri tutmuyordu — kök neden bulundu ve düzeltildi*
+
+- Ölçüm (GPS Pixhawk'tan, dizüstü Cloudflare `Date` başlığıyla doğrulandı):
+  **ylp00 7 sa 58 dk, ylp02 10 sa 15 dk geride, aralarında 2 sa 17 dk fark.**
+- Sebep, ikisinin de son açılış logunda aynı satır:
+  `[gps_saat] GPS zamani 25 sn icinde gelmedi. Saat DEGISMEDI.`
+  Zincir: Pi açılışı `01:52:36` → konteyner `01:52:49` → mavros + `sleep 15`
+  → `gps_saat --bekle 25` pes ediyor `~01:53:30`. GPS'e güç verildikten sonra
+  topu topu **~54 sn** tanınıyor; Here4 soğuk başlangıçta o sürede
+  kilitlenmiyor. **Sıcak açılışta çalıştığı için aylarca görülmedi**
+  (bir önceki açılışın logunda `fark=+0.151 sn`).
+- **Uçuşu bozmuyor** — `consensus_node` bütün tazelik/zaman aşımı hesabını
+  `time.monotonic()` ile ve komşunun **yerel alım anına** göre yapıyor
+  (`consensus_context.py:29`). Bozduğu şey çapraz uçak kayıt karşılaştırması,
+  yani `gps_saat.py`'nin var olma sebebi.
+- ✅ **Düzeltildi:** `baslat.sh` → `--bekle 150`. Bedeli yok, betik ilk geçerli
+  örneği alınca hemen çıkıyor; 150 sn yalnız gerçekten soğuksa harcanır.
+  (`gps_saat.py`'nin kendi varsayılanı zaten 40'tı, `baslat.sh` 25'e kısmıştı.)
+- ⚠️ **Hâlâ sınanmadı.** Gün içinde saatler düzeldi ama düzelten **NTP** oldu,
+  GPS değil (o sırada Pi'lerin interneti gelmişti). Asıl sınav **internetsiz
+  soğuk açılış** — `YAPILACAKLAR` P1.4.
+
+*🔴 P0.7 — uçaklardaki kod bu depodan üretilemiyordu, kapandı*
+
+- İki Pi'nin de `.surum` dosyası: `commit=0dfa0ad +KIRLI`,
+  `dal=feature/dagitik-suru`, `dagitan=egUbuntu`. `git cat-file -t 0dfa0ad`
+  → **yok**; `git ls-remote --heads origin` → **yalnız `main`**. Yani uçan
+  yazılımı okuyabildiğimiz tek yer Pi'lerin SD kartlarıydı ve `dagit.sh`
+  `--delete` ile çalıştığı için dağıtım onu geri dönüşsüz silecekti.
+- ✅ **Silinmeden önce git'e alındı:** **`saha/pi-kod-15agustos`** (`52ff027`,
+  `origin`'de) — uçaklarda gerçekten koşan `src/` ağacının birebir kopyası
+  (176 dosya). ylp00'dan alındı, ylp02 ile md5'i aynı çıktı. Çalıştırılabilir
+  sürüm değil, **karşılaştırma referansı**.
+- Operatörün açıklaması ölçümle doğrulandı: o dal eski depoda `main`'e
+  alınmış, oradan yeni bir dal açılmış ve bu depo onunla kurulmuş. `main`
+  her dosyada daha uzun; Pi'deki fazlalıklar eski sürüm kalıntısı — en net
+  kanıtı `INTERFACE_CONTRACT.md`'de duran sim dönemi "Network Proxy" bölümü.
+- ✅ `dagit.sh ylp00 ylp02` → `.surum` = `e012dba (main)`, **`+KIRLI` yok**;
+  `src/` 176 dosya `main` ile birebir (md5). Konteynerler yeniden başlatıldı;
+  sonrasında ikisinde de 11 düğüm ayakta, setpoint konularında **tek üretici**,
+  MAVROS `connected:true` / `armed:false`.
+
+*Dağıtım araçlarında iki tuzak çıktı*
+
+- 🔴 **`dagit.sh` derleme çökse bile "başarılı" diyor.** `swarm_missions`
+  **iki uçakta da çöktü**, betik `basarili: 2` yazdı ve `.surum`'u yine de
+  güncelledi. Sebep `colcon build ... | tail -15` — boru hattının çıkış kodu
+  `tail`'inki, `if ! ssh` hiç tetiklenmiyor. Çıktıyı okumasaydık bir paket
+  **eski `install/`** ile kalacaktı ve `.surum` "main" dediği için kimse
+  sorgulamayacaktı. → `TUZAKLAR.md` §1.14
+- 🔴 Çökmenin sebebi **bayat `build/` dizini**: `gorev1.launch.py` `main`'den
+  silinmişti ama `--symlink-install` ile oluşan `build/swarm_missions/` hâlâ
+  kaydını tutup kopyalamaya çalışıyordu. `setup.py` glob kullandığı için
+  **depoda hata yok**. İkisinde de temizlenip derlendi. → `TUZAKLAR.md` §2.8
+- 🟡 `dagitan=$(hostname)` Arch'ta **sessizce boş** kalıyor (`hostname` kurulu
+  değil). → `TUZAKLAR.md` §1.15
+
+*🔴 P0.8 — `formation_node` güvenlik kapıları varsayılan kapalıydı, düzeltildi*
+
+- `main` dağıtılınca `declare_parameter('sitl_mode', True)` uçaklara girdi —
+  depodaki **tek** `True`. O bayrak iki kapıyı atlatıyor:
+  `origin_synced` ve `(xy_valid ve z_valid)`. `baslat.sh` parametreyi
+  **hiç geçmiyordu**. 15 Ağustos'a kadar koşan sürümde (bugünkü yedek dalda)
+  aynı kapılar **koşulsuzdu** — yani `main` onları zayıflatmıştı.
+- ✅ **İki yerden bağlandı:** `formation_node.py` varsayılanı `False`,
+  `baslat.sh:707` ayrıca `-p sitl_mode:=false`. Dağıtıldı (`600ca65`) ve
+  uçtan uca doğrulandı: repo = Pi `src/` = konteynerdeki `build/` kopyası,
+  üçü de md5 `bd40492c`; komut satırında `sitl_mode:=false`; gözlem remap
+  yerinde.
+- 🔎 Yan bulgu: `--symlink-install`'a rağmen Python kaynağı `build/` altına
+  **kopyalanıyor**, sembolik bağ değil → `rsync` tek başına koşan kodu
+  değiştirmiyor, `colcon build` şart.
+
+*İnternet — Pi'lerde gerçekten yoktu, gün içinde kendiliğinden düzeldi*
+
+- Sabah ölçüm: **TCP el sıkışması dizüstü kadar hızlı tamamlanıyor
+  (0.06–0.24 sn, RTT 102 ms) ama tek bayt veri gelmiyor.** Soket
+  istatistiği: `bytes_sent:164 bytes_retrans:123 bytes_acked:1 cwnd:1
+  backoff:2`. TLS, UDP DNS, UDP NTP — hepsi zaman aşımı. Aynısı iki Pi'de
+  birebir; dizüstü aynı ağda, aynı geçitte kusursuz.
+- **Ölçümle elenenler** (bir daha araştırılmasın): Pi ağ yapılandırması
+  (IP/rota/geçit/DNS doğru, DHCP'den) · yerel güvenlik duvarı (`iptables`
+  ve `nft` **kurulu bile değil**) · yerel proxy · MTU (düşen paket 41 bayt,
+  `pmtu:1500`) · araya giren sahte cevaplayıcı (yönlendirilemez adresler ve
+  kapalı portlar **doğru şekilde** zaman aşımına düşüyor) · TTL tabanlı
+  tethering tespiti (dizüstünün TTL'i de 64 ve çalışıyor) · **MAVLink
+  yayını** (tekil dinleyici ile hepsini dinleyen birebir aynı: 324 vs 325
+  pkt/s → broadcast **yok**, MAVROS iki uçakta da QGC'yi eş olarak öğrenmiş).
+- 11:35'te tekrar ölçüldü: **ikisinde de tam çalışıyor**, DNS çözüyor,
+  `NTPSynchronized=yes` (`194.27.222.5`). Pi'nin ağ yapılandırmasında hiçbir
+  şey değiştirilmedi → değişen şey **Pi'nin dışında**, telefonda ya da
+  operatörde. **Sebep bilinmiyor, uydurulmadı.**
+- Tekrarlarsa aranacak parmak izi: *TCP el sıkışması tamam, sıfır veri.*
+
+*Sıradaki aşama belirlendi*
+
+- Belgeler okundu (`PLAN`, `SURU_ENTEGRASYON`, `KARARLAR`, `YAPILACAKLAR`) ve
+  uçakta koşan düğümlerle çakıştırıldı: `suru_dugumleri` =
+  `origin consensus fsm formasyon`, yani ADIM 0/0.5/1/2/3'ün düğümleri açık
+  — **ama hepsi yalnız yerde sınandı.** Merdivende G0 ✅ · G1 ✅ ·
+  **G2 ❌ buradayız** · G3 = ADIM 3.
+- ✅ `PLAN.md` §10 gerçek duruma getirildi (eskiden hâlâ "Aşama 0" diyordu).
+
+*Gün sonu*
+
+- Plan pil değişimi + dışarıda GPS kilidi + iki yer testiydi;
+  **yağmur nedeniyle iptal edildi.** Uçaklara dokunulmadı.
 
 **Ne değişti**
 
-- kod: yok. Üç oturumda da yalnız dosya silme, belge düzeni ve laptop kurulumu.
-- **uçakta (ylp00):** yalnız **SSH anahtarı** eklendi. `gcs_url` denendi ve
-  **eski hâline geri alındı**; diğer bayrakların (`yer_testi`, `gozlem`,
-  `kacinma`, `origin`, `suru_dugumleri`) hiçbirine dokunulmadı, uçak
-  bulunduğu gibi bırakıldı. **ylp02'ye hiç bağlanılmadı.**
+*16 Ağustos + gece*
+
+- kod: yok. O üç oturumda yalnız dosya silme, belge düzeni ve laptop kurulumu.
 - laptopta (depo dışı): YKİ konteyneri `yki`, `arch-docker/`, QGC v5.0.8,
   `yki`/`ykidur` alias'ları.
 - belge: `README.md`, `CLAUDE.md`, `PLAN.md`, `DURUM.md`, `YAPILACAKLAR.md`,
   `RPI_ESITLEME.md`, `INTERFACE_CONTRACT.md` §3.0, `GUNLUK.md`.
   **YENİ:** `docs/TUZAKLAR.md`. **SİLİNDİ:** `docs/arsiv/` (5 dosya).
   `.gitignore`'a `arch-docker/` eklendi.
+
+*17 Ağustos gündüz*
+
+- kod: `deploy/rpi/baslat.sh` — `gps_saat --bekle` **25 → 150**, ve
+  `formation_node` çağrısına **`-p sitl_mode:=false`**.
+  `src/swarm_core/.../formation_node.py:189` — `sitl_mode` varsayılanı
+  **`True` → `False`**.
+- **uçakta (ylp00 VE ylp02, ikisi de):**
+  - `~/yelpence_ws/src/` **tamamen yenilendi** — artık repo `main`'i
+    (`600ca65`), `.surum` doğru ve **`+KIRLI` değil**. Öncesi eski depodan
+    kalma erişilemez bir daldı.
+  - `baslat.sh` yeni sürüm (md5 `0dacdf44` → sonra `dagit.sh` ile `600ca65`).
+  - `swarm_missions`'ın `build/` + `install/` dizinleri **elle silinip**
+    yeniden derlendi (bayat `gorev1.launch.py` kaydı yüzünden).
+  - Konteynerler yeniden başlatıldı (11:35 / 11:41, sonra 14:30 civarı).
+  - ylp02'ye **Osman'ın SSH anahtarı** eklendi.
+  - **Bayraklara dokunulmadı:** `yer_testi`, `gozlem`, `kacinma`, `origin`,
+    `suru_dugumleri`, `gcs_url` hepsi bulundukları gibi.
+- git: **yeni dal `saha/pi-kod-15agustos`** (`52ff027`, `origin`'de) —
+  uçaklarda koşan eski kodun yedeği. Silme, karşılaştırma referansı.
+- laptopta: `~/.ssh/known_hosts`'a ylp02'nin host key'i (IP tabanlı —
+  IP değişirse `ssh-keygen -R <ip>` gerekir).
+- belge: `DURUM.md`, `YAPILACAKLAR.md`, `TUZAKLAR.md`, `RPI_ESITLEME.md`,
+  `PLAN.md` §10, `GUNLUK.md`.
 
 **Yarım kalan / tuzak**
 
@@ -179,14 +330,24 @@ Claude'a **"oturumu kapat"** dersen bu kaydı o yazar.
   infinity` ve çocuklarını toplamıyor; her başlat/durdur çevrimi bir zombi
   bırakıyor. Zararsız. Düzgün çözümü konteyneri `docker run --init` ile
   yaratmak (`arch-docker/README.md`).
-- 🔴 **`formation_node.py:189` — `sitl_mode` varsayılanı `True`,
-  `baslat.sh` geçmiyor.** İki kapı sahada atlanıyor:
-
-      if not self._sitl_mode and not self._origin_synced:
-      if not self._sitl_mode and not (self._xy_valid and self._z_valid):
-
-  `gozlem` açık olduğu için şimdilik zararsız. **G3'te canlı olur** —
-  1 Ağustos'ta ylp00'ı deviren zincir buydu.
+- ✅ ~~🔴 `formation_node.py:189` — `sitl_mode` varsayılanı `True`~~ →
+  **17 Ağustos gündüz DÜZELTİLDİ** (P0.8), iki yerden bağlandı ve iki uçağa
+  dağıtıldı. Kalan tek doğrulama G2 uçuşunda: origin senkronsuzken
+  `/gozlem/…/formation/raw` **susmalı**.
+- 🟠 **`--bekle 150` daha sınanmadı.** Gün içinde saatleri NTP düzeltti, GPS
+  değil. Asıl sınav **internetsiz soğuk açılış**: bir sonraki sıfırdan
+  açılışta `gunluk/son/gps_saat.log` **"kaydirildi"** demeli. Demezse sıradaki
+  seçenek GPS kilidini beklemek. → `YAPILACAKLAR` P1.4
+- 🔴 **`dagit.sh` çıktısını GÖZLE OKU.** Derleme çökse bile `basarili` diyor
+  ve `.surum`'u güncelliyor (`TUZAKLAR.md` §1.14). `Summary:` satırında
+  `failed` varsa dağıtım tamam **değildir** — o paket eski `install/` ile
+  kalır. Kalıcı düzeltme (`PIPESTATUS`) yapılmadı → `YAPILACAKLAR` P0.7 son
+  maddesi.
+- 🟠 **Pi internetinin neden kesildiği bilinmiyor.** Sabah iki Pi'de de veri
+  hiç akmıyordu, 11:35'te kendiliğinden düzeldi; Pi tarafında hiçbir şey
+  değişmedi. Tekrarlarsa parmak izi: *TCP el sıkışması tamam, sıfır veri.*
+  Ölçüm betiği oturumla birlikte kayboldu, yeniden yazılabilir (~80 satır).
+  Kesin deney: dizüstünü hotspottan düşür, Pi'den dene.
 - 🔴 **`TUZAKLAR.md` §0 — durumu BİLİNMEYEN üç güvenlik maddesi.** Arşivden
   çıktılar, hiçbir canlı belgede yoklardı, bugünkü halleri bilinmiyor:
   ylp00'ın **clipping ölçüm kuralı** (`titresim_olc.py` repoda duruyor ama
@@ -212,20 +373,47 @@ Claude'a **"oturumu kapat"** dersen bu kaydı o yazar.
 
 **Sıradaki adım**
 
-`ADIM 3 · G2` — öncesinde `formation_node` kip kararı
-(`NAVIGASYON_KAYMA.md`). YKİ laptopu artık hazır: `yki` yazıp arayüzü açmak
-yetiyor.
+**G2 — havada gözlem uçuşu.** `PLAN.md` §10 bu tabloyla güncellendi.
+Aşama 1'in **uçuş yarısı**; yer yarısı 15 Ağustos'ta geçti. Uçaklarda
+ADIM 0/0.5/1/2/3'ün düğümleri açık ama hepsi yalnız yerde sınandı
+(G0 ✅ · G1 ✅ · **G2 ❌** · G3 = ADIM 3).
+
+**Uçmadan önce iki iş — ikisi de yerde, uçuş yok, ~10'ar dakika:**
+
+1. **Devir teslim testi** (ADIM 1'in kalanı, operatör bununla başlamak
+   istiyor): iki uçak yerde **pervanesiz**, ARM'lı; birini kill'le,
+   **diğerini armlı bırak** — ikincisi liderliği devralıyor mu?
+   15 Ağustos'ta ylp02 ikinci turu göremeden o da kill'lenmişti.
+   *Artık iki uçağın saati aynı, yani çapraz uçak log karşılaştırması
+   bu testte ilk kez gerçekten çalışacak.*
+2. **`TUZAKLAR.md` §0** — üç bilinmeyenden ikisi doğrudan uçuş izni kapısı:
+   ylp00 clipping kuralı (`titresim_olc.py`, ~10 dk) ve alıcı failsafe'i
+   (kumanda kapalıyken CH5=2000 → **kill**).
+
+Aynı uçuşa **P0.4 navigasyon kayması ölçümü** binebilir (≥40 m düz bacak,
+2 ve 4 m/s) — komut yolunda hiçbir şey değiştirmiyor. ADIM 3'e geçerken
+`KARARLAR.md` **KARAR-02** gereği `ultracode` istenecek.
+
+⚠️ **Güç verirken: önce QGC'yi aç** (aşağıdaki kural hâlâ geçerli).
 
 **Uçakların bırakıldığı hâl**
 
-- ylp00: **açık bırakıldı**, konteyner ayakta. Bayraklar bulunduğu gibi —
-  `yer_testi` VAR (ARM olur, **KALKMAZ**) · `gozlem` VAR · `kacinma` VAR ·
+Bugün **ikisi de açık ve ayakta**, ikisi de aynı yapılandırmada:
+
+- **ylp00 ve ylp02** — konteynerler ayakta, `.surum` = **`600ca65` / `main`**
+  (`+KIRLI` yok), `src/` repo ile birebir, 11 düğüm koşuyor, setpoint
+  konularında **tek üretici**, MAVROS bağlı ve **disarm**, saatler doğru
+  (`NTPSynchronized=yes`). Disk ~%41-42.
+- Bayraklar (ikisinde de, **değiştirilmedi**): `yer_testi` VAR (ARM olur,
+  **KALKMAZ**) · `gozlem` VAR (formasyon çıktısı uçağa **ulaşmıyor**) ·
+  `kacinma` VAR · `suru_dugumleri` = `origin consensus fsm formasyon` ·
+  `origin` = `38.6904758 39.1610188 1216.96` (repo ile aynı) ·
   `gcs_url` = `udp-b://:14555@14550` (**yayın** — QGC açık değilse laptopun
-  interneti ölür) · `suru_dugumleri` = `origin consensus fsm formasyon` ·
-  `origin` = `38.6904758 39.1610188 1216.96` (repo ile aynı). Disk %41 dolu.
-  Tek kalıcı değişiklik: Osman'ın SSH anahtarı eklendi.
-- ylp02: kapalı, **hiç bağlanılmadı.**
-- ylp01: yerde (2 Ağustos'ta düştü), değişiklik yok.
+  interneti ölebilir). ylp02'de ayrıca `tgt_system` = `3` (doğru, uçağa özgü).
+- Kalıcı elle değişiklikler: Osman'ın SSH anahtarı **ikisinde de** ·
+  `swarm_missions` `build/`+`install/` elle temizlenip derlendi.
+- **ylp01:** yerde (2 Ağustos'ta düştü), değişiklik yok. Dönünce
+  `RPI_ESITLEME.md` §8'deki üç kaydı da yürüt.
 
 
 ## 2026-08-15 17:19 — Eyüp + Claude (ikinci yarı: ADIM 2 + ADIM 3)

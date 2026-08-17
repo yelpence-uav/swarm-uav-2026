@@ -1,6 +1,6 @@
 # YAPILACAKLAR
 
-**Son güncelleme:** 17 Ağustos 2026, 14:36
+**Son güncelleme:** 17 Ağustos 2026, 15:53
 
 ## Önem dereceleri
 
@@ -544,6 +544,29 @@ somut madde olarak açılır.
 ---
 
 ## 🟡 P2 — ÖNEMLİ
+
+### P2.6 Pi'lerin interneti bir sabah tamamen kesildi, sebebi bilinmiyor
+
+17 Ağustos sabahı iki Pi'de de veri **hiç akmıyordu**; 11:35'te kendiliğinden
+düzeldi. Pi tarafında hiçbir şey değiştirilmedi, yani değişen şey **Pi'nin
+dışında** — telefonda ya da operatörde.
+
+**Parmak izi (tekrarlarsa buna bak):** TCP el sıkışması dizüstü kadar hızlı
+tamamlanıyor (0.06–0.24 sn, RTT 102 ms) ama **tek bayt veri gelmiyor** —
+`bytes_sent:164 bytes_retrans:123 bytes_acked:1 cwnd:1 backoff:2`. TLS,
+UDP DNS, UDP NTP hepsi zaman aşımı. `ping` bu ağda hüküm veremez
+(`TUZAKLAR.md` §1.2), `ss -tin` ile bak.
+
+**Ölçümle elenenler** (bir daha araştırılmasın): Pi ağ yapılandırması ·
+yerel güvenlik duvarı (`iptables`/`nft` kurulu bile değil) · yerel proxy ·
+MTU · araya giren sahte cevaplayıcı · TTL tabanlı tethering tespiti ·
+MAVLink yayını (trafik %100 tekil ölçüldü).
+
+- `[ ]` 🟡 Tekrarlarsa **kesin deney:** dizüstünü hotspottan düşür, Pi'den
+  dene. Çalışırsa sebep "aynı anda kaç cihaz internet alabiliyor" sınırıdır;
+  çalışmazsa telefonun cihaz bazlı engellemesine bakılır.
+- ℹ️ **Görevi engellemiyor** — `gps_saat.py` zaten "sahada internet
+  olmayabilir" diye yazıldı. Etkilediği şey `apt` ve NTP.
 
 ### P2.1 Log patlamasının kök nedeni duruyor
 

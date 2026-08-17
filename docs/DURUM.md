@@ -1,6 +1,6 @@
 # DURUM — şu an ne çalışıyor, ne bozuk
 
-**Son güncelleme:** 17 Ağustos 2026, 11:41
+**Son güncelleme:** 17 Ağustos 2026, 15:53
 
 > Bu belge **şimdiki hâli** anlatır, tarihçe değil. Bir şey değişince burayı
 > güncelle, eskisini sil. Ne olduğunun hikâyesi `GUNLUK.md`'de kalır.
@@ -63,13 +63,18 @@ ylp00: 19 GB boş (%34)      ylp02: 21 GB boş (%27)
 
 ## 2. Ağ ve erişim
 
-**14 Ağustos itibarıyla ağ `10.188.209.x`** (telefon hotspot'u).
+**IP'ler her ağda değişiyor — bu tabloyu ezberleme, `drone_bul.sh` kullan.**
+Son ölçülen (17 Ağustos, telefon hotspot'u `172.19.167.x`):
 
-| Cihaz | IP (14 Ağu) | Kullanıcı |
+| Cihaz | IP (17 Ağu) | Kullanıcı |
 |-------|-------------|-----------|
-| ylp00 | `10.188.209.134` | `yelpence00` |
-| ylp02 | `10.188.209.189` | `yelpence02` |
-| YKİ laptop | `10.188.209.115` | — |
+| ylp00 | `172.19.167.134` | `yelpence00` |
+| ylp02 | `172.19.167.189` | `yelpence02` |
+| YKİ laptop | `172.19.167.178` | — |
+| ağ geçidi (telefon) | `172.19.167.123` | — |
+
+Son eki değişse de **MAC'ler sabit** ve betik onlardan buluyor:
+ylp00 `88:a2:9e:71:60:ed` · ylp02 `88:a2:9e:71:60:24`.
 
 ### IP ezberleme — betik var
 
@@ -79,16 +84,25 @@ ylp00: 19 GB boş (%34)      ylp02: 21 GB boş (%27)
 ./deploy/yki/drone_bul.sh --durum    # disk, konteyner, bayraklar
 ```
 
-Önbellek → mDNS (`ylp00.local`) → MAC taraması sırasıyla dener. Dördü de
-14 Ağustos'ta test edildi ve çalışıyor. **mDNS bu hotspot'ta çalışıyor.**
+Önbellek → mDNS (`ylp00.local`) → MAC taraması sırasıyla dener.
+
+⚠️ **mDNS makineye bağlı.** Eyüp'ün Ubuntu'sunda çalışıyordu; Osman'ın
+Arch'ında **çalışmıyor** (`nss-mdns` kurulu değil, avahi kapalı). MAC
+taraması yedeği her iki makinede de sorunsuz — engel değil, sadece birkaç
+saniye yavaş. İstenirse: `sudo pacman -S nss-mdns avahi` +
+`nsswitch.conf`'a `mdns_minimal`.
 
 **Kayıtlı Wi-Fi ağları** (ikisinde de): `rpissid` (öncelik 10, tercih edilen)
 ve `iPhone` (öncelik 0, yedek). İkisinde de güç tasarrufu kapalı.
 ⚠️ `iPhone` SSID'si henüz **doğrulanmadı** — eklerken telefon kapalıydı.
 
 **Parola girişi AÇIK** (sshd varsayılanı, override yok) → arkadaşlar kendi
-anahtarlarını kendileri kurabilir. ylp00'ın `authorized_keys`'inde **iki
-satır** var (Osman'ınki 17 Ağustos'ta eklendi); ylp02'de hâlâ tek satır.
+anahtarlarını kendileri kurabilir. **Osman'ın anahtarı 17 Ağustos'ta ikisine
+de kuruldu.**
+
+⚠️ ylp02 **mDNS'e cevap vermiyor** ve host key'i IP tabanlı kaydedildi. IP
+değişip aynı adresi başka cihaz alırsa SSH *"REMOTE HOST IDENTIFICATION HAS
+CHANGED"* diye bağırır — panik yapma, `ssh-keygen -R <ip>` ile temizlenir.
 
 ### 🔴 Dronlara güç vermeden ÖNCE QGC'yi aç
 
@@ -121,10 +135,9 @@ Bunlar **dosya varlığıyla** çalışıyor; uçağı bulan kişi böyle bulaca
 | `~/yelpence_ws/kacinma` | **var** | **var** | `basit_kacinma` açık, esp32_bridge çıkışı `/raw`'a yönlendirilmiş |
 | `~/yelpence_ws/gcs_url` | var | var | MAVLink QGC'ye iletiliyor (`udp-b://:14555@14550`) |
 | `~/yelpence_ws/tgt_system` | yok | `3` | ylp02'nin FCU sysid'i 3 |
-| `SURU_DUGUMLERI` | boş | boş | 14 sürü düğümünün hiçbiri açık değil |
 | `BATARYA_KRITIK_V` | `0.0` | `0.0` | FSM bataryaya bakmıyor (regülatörden besleme) |
 | `~/yelpence_ws/ucus_ayarlari.env` | **var** | **var** | seyir 3.0 m/s, ivme 1.5 — `ucus_ayarlari.py --kabuk` üretti |
-| `~/yelpence_ws/suru_dugumleri` | **`origin consensus fsm formasyon`** | `origin consensus` (16 Ağu bilgisi) | Varsa `SURU_DUGUMLERI` env'ini ezer. Düğüm açmak: `echo ... > dosya` + `docker restart` |
+| `~/yelpence_ws/suru_dugumleri` | **`origin consensus fsm formasyon`** | **`origin consensus fsm formasyon`** | 17 Ağu'da ikisinde de ölçüldü, **aynı**. Varsa `SURU_DUGUMLERI` env'ini ezer. Düğüm açmak: `echo ... > dosya` + `docker restart` |
 | `~/yelpence_ws/origin` | **var** | **var** | `38.6904758 39.1610188 1216.96` — tek kaynak `deploy/saha_origin.env`, ylp00'da doğrulandı (17 Ağu). Elle yazma, `dagit.sh` dağıtır |
 | `~/yelpence_ws/yer_testi` | **VAR** ⚠️ | **VAR** ⚠️ | Uçak ARM olur ama **KALKMAZ**. Uçuştan önce SİL + restart |
 | `~/yelpence_ws/gozlem` | **VAR** ⚠️ | **VAR** ⚠️ | `formation_node` setpoint'i `/gozlem/...`'e gidiyor, **uçağa ULAŞMIYOR**. Uçuştan önce SİL + restart |
@@ -193,13 +206,16 @@ hover gazı %66). Uçuş öncesi cevaplanmalı — `YAPILACAKLAR.md` P1.6.
 
 ## 4. Kod senkronu
 
-### ✅ Uçaklar `main`'de — 17 Ağustos 11:35'te dağıtıldı ve doğrulandı
+### ✅ Uçaklar `main`'de — 17 Ağustos'ta dağıtıldı ve doğrulandı
 
 ```
-ylp00 / ylp02   .surum:  commit=e012dba   dal=main   (+KIRLI YOK)
+ylp00 / ylp02   .surum:  commit=600ca65   dal=main   (+KIRLI YOK)
                 src/  :  176 dosya, repo main ile BIREBIR (md5)
                 install/: 6 paketin hepsi
 ```
+
+İki dağıtım yapıldı: `e012dba` (11:35, kod devri) ve `600ca65` (14:30,
+P0.8 `sitl_mode` düzeltmesi). İkisinde de konteynerler yeniden başlatıldı.
 
 Bundan önce iki Pi de `commit=0dfa0ad +KIRLI dal=feature/dagitik-suru`
 diyordu; o commit ve dal bu depoda **yoktu** (eski depodan, Eyüp'ün
