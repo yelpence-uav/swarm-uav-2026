@@ -1,6 +1,6 @@
 # YAPILACAKLAR
 
-**Son güncelleme:** 16 Ağustos 2026, 21:32
+**Son güncelleme:** 17 Ağustos 2026, 04:11
 
 ## Önem dereceleri
 
@@ -350,17 +350,39 @@ parola takım içinde paylaşılıyor (**repoya yazılmadı, yazılmayacak**).
 Yani her üye kendi anahtarını **kendisi** kurabilir, Eyüp'ün orada olması
 gerekmiyor.
 
-- `[ ]` 🟠 Her üye kendi bilgisayarında bir kez:
+- `[~]` 🟠 Her üye kendi bilgisayarında bir kez:
   ```bash
   ssh-keygen -t ed25519
   ssh-copy-id yelpence00@<ip>    # üç drone için de
   ```
+  **Osman → ylp00 yapıldı (17 Ağu).** ylp02 o gece kapalıydı, kalan iş o.
 - `[ ]` 🟡 Anahtarlar dağıtıldıktan sonra parola girişini kapatmayı düşün
   (ama sahada kilitli kalma riskine karşı acil çıkış olarak bırakmak da savunulabilir)
 
 ### ✅ P1.3 — TAMAMLANDI (15 Ağustos)
 
 Her şey `feature/dagitik-suru` dalında commit'li ve push'lu.
+
+### P1.7 `gcs_url` yayını YKİ ağını boğuyor — çözümü tek satır, uygulanmadı
+
+**17 Ağustos'ta ölçüldü ve iki yönlü doğrulandı** (ayrıntı `GUNLUK.md`).
+`udp-b://:14555@14550` **yayın** demek; QGC açık değilken MAVROS durmadan
+`255.255.255.255:14550`'ye yayın yapıyor ve telefon hotspot'u tüm
+istemcilere teslimatı saniyede ~1.25 pakete düşürüyor — ağ geçidine ping
+14 sn, laptopta internet ölü. Radyo boş, tıkanıklık yok; sorun trafiğin
+hacmi değil **yayın olması** (14 paket/s yetiyor).
+
+Şu an **kural olarak yaşıyoruz**: *dronlara güç vermeden önce QGC'yi aç.*
+Bu tutuyor (MAVROS keşfettiği karşı tarafı unutmuyor, ölçüldü) ama her
+`docker restart droneN` pencereyi yeniden açıyor.
+
+- `[ ]` 🟠 **Karar ver:** `gcs_url` → `udp://:14555@` (uçak yayın yapmaz,
+  sadece dinler; bağlantıyı QGC kurar, uçakta IP yazılı olmaz). ylp00'da
+  denendi: 100 sn'de 31779 tekil paket, **0 yayın**, ping 200/200,
+  ortanca 5.2 ms. Sonra operatör kararıyla geri alındı.
+  Uygulanırsa **iki uçakta da** yapılmalı + `RPI_ESITLEME.md`'ye yazılmalı.
+- `[ ]` 🟡 Uygulanmazsa kuralı uçuş öncesi listesine gir — yazılı olmadığı
+  için bir gece kaybedildi
 
 ### P1.5 Konteyner ağdan önce kalkıyor → QGC bağlantısı ölü kalıyor
 
@@ -376,6 +398,10 @@ Logdaki izi: `link[1000] removed stale remote address ...`.
 Ölçülenler — **hiçbiri suçlu değildi**, hepsi sağlıklı çıktı:
 seri çerçeveleme @921600 (67 ardışık geçerli çerçeve) · FCU `sysid=3
 compid=1` · sıcaklık 54.3 °C, throttle `0x0` · UDP tekil **ve** yayın.
+
+> 💡 **P1.7 bunu kendiliğinden çözebilir:** `udp://:14555@` ile başlangıçta
+> kurulacak bir karşı taraf yok, dolayısıyla `removed stale remote address`
+> da olmaz. Doğrulanmadı — P1.7 uygulanırsa bu maddeyi tekrar sına.
 
 - `[ ]` 🟠 `baslat.sh`, `gcs_url` ile mavros'u başlatmadan önce ağın hazır
   olmasını beklesin (wlan0'da IP var mı / ağ geçidine ping, en fazla ~30 sn).
@@ -398,8 +424,12 @@ Pi 5'in RTC'sinde yedek pil yok; açılışta saat ~11 saat geriden geliyor
 (ölçüldü). `gps_saat.py` PX4'ün GPS zamanından düzeltiyor, internet
 gerekmiyor. Ayrıntı `cihazlar.md` ⏰ bölümü.
 
-- `[ ]` 🟠 **İlk saha çıkışında doğrula:** internetsiz açılışta
-  `gunluk/son/gps_saat.log` ne diyor — saat düzeldi mi, fark kaçtı
+- `[~]` 🟠 **İlk saha çıkışında doğrula:** internetsiz açılışta
+  `gunluk/son/gps_saat.log` ne diyor — saat düzeldi mi, fark kaçtı.
+  **17 Ağu'da dolaylı olarak çalışırken görüldü:** ylp00 ~1 saat geriden
+  açıldı (konteyner damgası 23:53, gerçek saat 00:57), sonra düzeldi ve
+  laptopla saniyesi saniyesine aynı oldu. `gps_saat.log` okunmadı — asıl
+  doğrulama (fark kaç, NTP mi GPS mi düzeltti) hâlâ açık.
 - `[ ]` 🟡 İki uçağın saatini uçuştan önce karşılaştırmayı alışkanlık yap
   (`drone_bul.sh --durum`'a eklenebilir)
 - `[ ]` ⚪ Kalıcı donanım çözümü: Pi 5 RTC konnektörüne düğme pil.

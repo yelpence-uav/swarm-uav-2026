@@ -1,6 +1,6 @@
 # RPİ EŞİTLEME DEFTERİ — geri gelen drone'u hizaya getirme
 
-**Son güncelleme:** 16 Ağustos 2026, 21:28
+**Son güncelleme:** 17 Ağustos 2026, 04:11
 
 ## Bu belge ne için
 
@@ -282,7 +282,8 @@ sudo nmcli connection modify <ad> 802-11-wireless.powersave 2
 
 ### SSH anahtarları
 
-`authorized_keys`'te şu an **tek satır** var. Parola girişi **açık**
+**ylp00'da iki satır, ylp02'de tek satır** (Osman'ınki 17 Ağustos'ta yalnız
+ylp00'a kuruldu — ylp02 o gece kapalıydı). Parola girişi **açık**
 (doğrulandı), yani her üye kendi anahtarını **kendisi** kurabilir:
 
 ```bash
@@ -295,6 +296,20 @@ ssh-copy-id <KULLANICI>@<ip>           # parolayla girer, anahtarını ekler
 ## 8. DEĞİŞİKLİK DEFTERİ
 
 Her Pi değişikliği buraya, en yeni en üste.
+
+### 2026-08-17 — ylp00'a SSH anahtarı (tek kalıcı değişiklik)
+
+| Ne | ylp00 | ylp02 |
+|----|-------|-------|
+| Osman'ın `id_ed25519.pub` → `authorized_keys` | **VAR** | yok |
+
+ylp02 açıldığında: `ssh-copy-id yelpence02@<ip>`.
+
+⚠️ Aynı gece `gcs_url` = `udp://:14555@` **denendi ve doğrulandı**, sonra
+operatör kararıyla **geri alındı** — iki uçak da `udp-b://:14555@14550`'de,
+yani bu konuda ayrışma **yok**. Ölçüm ve gerekçe: `YAPILACAKLAR.md` P1.7.
+Uygulanmasına karar verilirse **iki uçakta birden** yapılmalı, yoksa
+düzeltilmemiş olan yayın yapıp ağı boğmaya devam eder.
 
 ### 2026-08-15 (2) — ilk iki sürü düğümü açıldı (ADIM 1 geçti)
 

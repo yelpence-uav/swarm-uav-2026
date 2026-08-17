@@ -1,6 +1,6 @@
 # TUZAKLAR — hata vermeden yanlış sonuç üretenler
 
-**Son güncelleme:** 16 Ağustos 2026, 20:40
+**Son güncelleme:** 17 Ağustos 2026, 04:11
 
 > **Bu belge CANLI.** Arşiv değil — buradaki her madde **bugün de geçerli.**
 >
@@ -602,7 +602,61 @@ Modun doğası bu, ve **survey bitmeden 1005 yayınlanmaz.** Survey bitince
 
 ---
 
-## 7. Ölçülmüş referans sayılar — tahmin etme, buradan bak
+## 7. YKİ ağı ve WiFi
+
+### 7.1 `gcs_url` yayını telefon hotspot'unu boğuyor — internet "kopar", wifi kopmaz
+
+Semptom: dron ağa girdikten ~10 sn sonra laptopta internet ölür, wifi
+simgesinde soru işareti çıkar. Dronun gücü kesilince anında düzelir.
+**Wifi hiç kopmaz** — teşhisi zorlaştıran şey bu.
+
+Sebep: `~/yelpence_ws/gcs_url` = `udp-b://…` **yayın** demek. QGC açık
+değilken MAVROS karşı taraf keşfedemez ve durmadan `255.255.255.255:14550`'ye
+yayın yapar. Telefon hotspot'u bu akış altında **tüm istemcilere** teslimatı
+saniyede ~1.25 pakete düşürür; ağ geçidine (telefonun kendisine, tek atlama)
+ping 3→6→9→14 sn diye büyüyüp tavan yapar.
+
+**Yanlış yola sapmamak için — bunlar ölçüldü ve hepsi TEMİZ çıktı:**
+
+| Baktığın yer | Kopma anındaki değer |
+|---|---|
+| NetworkManager | tek olay: rutin DHCP yenilemesi (kopma yok) |
+| IP / rota / ARP tablosu | hiç değişmedi |
+| `iw … station dump` | hava %0.1-2.8, yeniden gönderim 0-3/s, **72.2 Mbit sabit** |
+| sinyal | -35…-43 dBm |
+| ARP fırtınası | yok (tüm yakalamada 52 istek) |
+| laptop wifi güç tasarrufu | kapatıldı, **birebir aynı koptu** |
+
+Yani "tıkanıklık" arayan kaybeder: **radyo boştur.** Trafik de küçüktür
+(14 paket/s, 0.8 KB/s) — sorun hacim değil, **yayın olması**.
+
+Kanıt iki yönlü: QGC açılıp MAVROS tekil gönderime geçince, **20 kat daha
+fazla veriyle** (320 paket/s) sorun anında biter.
+
+**Kural:** dronlara güç vermeden **önce** QGC'yi aç. MAVROS keşfettiği karşı
+tarafı unutmaz, o yüzden sonradan kapatmak sorun değil — ama her
+`docker restart droneN` pencereyi yeniden açar.
+
+Kalıcı çözüm `gcs_url` = `udp://:14555@` (denendi, doğrulandı, uygulanmadı):
+`YAPILACAKLAR.md` P1.7. *(17 Ağustos 2026)*
+
+### 7.2 `mt7921e` kanal meşguliyeti sayaçlarını doldurmuyor
+
+`iw dev <arayuz> survey dump` bu sürücüde **hep 0** verir — "kanal boş"
+sanırsın, ölçüm yoktur. Hava kullanımını `station dump`'ın `tx duration` /
+`rx duration` alanlarından hesapla. *(17 Ağustos 2026)*
+
+### 7.3 Konteynerden `iw` ile ayar yazmak `-u 0` ister
+
+`--network host` konteyner host'un kablosuz arayüzünü **görür**, ama
+`iw … set` için hem `--cap-add=NET_ADMIN` hem **kök** gerekir. İmajın
+varsayılan kullanıcısı kök değilse `Operation not permitted` alırsın ve
+ayarın değiştiğini sanıp yanlış sonuç çıkarırsın — okuma çalıştığı için
+tuzak sinsi. *(17 Ağustos 2026)*
+
+---
+
+## 8. Ölçülmüş referans sayılar — tahmin etme, buradan bak
 
 Bunlar bir kez ölçüldü ve tekrar ölçmeye değmez.
 

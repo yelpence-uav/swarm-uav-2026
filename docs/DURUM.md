@@ -1,6 +1,6 @@
 # DURUM — şu an ne çalışıyor, ne bozuk
 
-**Son güncelleme:** 16 Ağustos 2026, 21:32
+**Son güncelleme:** 17 Ağustos 2026, 04:11
 
 > Bu belge **şimdiki hâli** anlatır, tarihçe değil. Bir şey değişince burayı
 > güncelle, eskisini sil. Ne olduğunun hikâyesi `GUNLUK.md`'de kalır.
@@ -87,7 +87,28 @@ ve `iPhone` (öncelik 0, yedek). İkisinde de güç tasarrufu kapalı.
 ⚠️ `iPhone` SSID'si henüz **doğrulanmadı** — eklerken telefon kapalıydı.
 
 **Parola girişi AÇIK** (sshd varsayılanı, override yok) → arkadaşlar kendi
-anahtarlarını kendileri kurabilir. `authorized_keys`'te şu an tek satır var.
+anahtarlarını kendileri kurabilir. ylp00'ın `authorized_keys`'inde **iki
+satır** var (Osman'ınki 17 Ağustos'ta eklendi); ylp02'de hâlâ tek satır.
+
+### 🔴 Dronlara güç vermeden ÖNCE QGC'yi aç
+
+**17 Ağustos'ta ölçüldü.** `gcs_url` = `udp-b://…` **yayın** demek ve QGC
+açık değilken MAVROS durmadan `255.255.255.255:14550`'ye yayın yapıyor.
+Telefon hotspot'u bu akış altında **tüm istemcilere** teslimatı saniyede
+~1.25 pakete düşürüyor: ağ geçidine ping 14 saniyeye çıkıyor, laptopta
+internet ölüyor. Trafik küçük (14 paket/s) — sorun hacim değil, **yayın
+olması**. Radyo tarafı tamamen sağlıklıydı: hava %0-3, yeniden gönderim ~0,
+hız sabit 72.2 Mbit.
+
+QGC bağlanınca MAVROS **tekil** gönderime geçiyor ve sorun anında bitiyor.
+Keşfettiği karşı tarafı unutmadığı için QGC'yi **sonradan kapatmak sorun
+değil** (ölçüldü). Ama her `docker restart droneN` MAVROS'u yeniden başlatıp
+pencereyi tekrar açıyor.
+
+Kalıcı çözüm tek satır — `gcs_url` = `udp://:14555@` (uçak yayın yapmaz,
+sadece dinler; bağlantıyı QGC kurar, uçakta IP yazılı olmaz). Denendi ve
+doğrulandı, **uygulanmadı**: operatör kararıyla uçak `udp-b`'de bırakıldı.
+Ayrıntı: `GUNLUK.md` 17 Ağustos kaydı.
 
 ---
 
@@ -103,8 +124,8 @@ Bunlar **dosya varlığıyla** çalışıyor; uçağı bulan kişi böyle bulaca
 | `SURU_DUGUMLERI` | boş | boş | 14 sürü düğümünün hiçbiri açık değil |
 | `BATARYA_KRITIK_V` | `0.0` | `0.0` | FSM bataryaya bakmıyor (regülatörden besleme) |
 | `~/yelpence_ws/ucus_ayarlari.env` | **var** | **var** | seyir 3.0 m/s, ivme 1.5 — `ucus_ayarlari.py --kabuk` üretti |
-| `~/yelpence_ws/suru_dugumleri` | **`origin consensus`** | **`origin consensus`** | Varsa `SURU_DUGUMLERI` env'ini ezer. Düğüm açmak: `echo ... > dosya` + `docker restart` |
-| `~/yelpence_ws/origin` | **var** | **var** | `38.6905999 39.1611543 1216.03` — **iki uçakta AYNI olmalı** |
+| `~/yelpence_ws/suru_dugumleri` | **`origin consensus fsm formasyon`** | `origin consensus` (16 Ağu bilgisi) | Varsa `SURU_DUGUMLERI` env'ini ezer. Düğüm açmak: `echo ... > dosya` + `docker restart` |
+| `~/yelpence_ws/origin` | **var** | **var** | `38.6904758 39.1610188 1216.96` — tek kaynak `deploy/saha_origin.env`, ylp00'da doğrulandı (17 Ağu). Elle yazma, `dagit.sh` dağıtır |
 | `~/yelpence_ws/yer_testi` | **VAR** ⚠️ | **VAR** ⚠️ | Uçak ARM olur ama **KALKMAZ**. Uçuştan önce SİL + restart |
 | `~/yelpence_ws/gozlem` | **VAR** ⚠️ | **VAR** ⚠️ | `formation_node` setpoint'i `/gozlem/...`'e gidiyor, **uçağa ULAŞMIYOR**. Uçuştan önce SİL + restart |
 | `~/yelpence_ws/gps_saat_kapali` | yok | yok | Varsa GPS'ten saat düzeltmesi yapılmaz |
@@ -292,5 +313,11 @@ Doğrulama: *"Uçaklar arası ayrışma yok (16 parametre)"* — yalnız
 
 Başlat/durdur: `src/gcs/yki_baslat.sh` · `src/gcs/yki_durdur.sh`
 **Elle başlatma** — ROS ortamı kaybolur, backend telemetri alamaz.
+
+Kurulum `deploy/yki/kur_yki.sh`, **Ubuntu 24.04 (noble) ister** ve başka
+dağıtımda bilerek durur. Ubuntu olmayan bir laptopta çalışıyorsan yol,
+`ros:jazzy` konteynerinin içinde aynı betiği koşturmak — ikinci bir kurulum
+betiği yazma. (17 Ağustos'ta Arch'ta yapıldı ve çalıştı; o makinenin
+konteyner dosyaları kişisel olduğu için depoya girmiyor.)
 
 Telemetri: `curl -s http://localhost:8000/api/telemetry/snapshot`

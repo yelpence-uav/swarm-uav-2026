@@ -136,3 +136,8 @@ src/gcs/nokta3_secenekleri.html
 # Claude Code kisisel izin dosyasi (makineye ozel, paylasilmaz)
 .claude/settings.local.json
 src/gcs/frontend/tsconfig.tsbuildinfo
+
+# YKI'yi Ubuntu olmayan dagitimda kosturan konteyner (kisisel, makineye ozel).
+# Takimin geri kalani Ubuntu 24.04'te; onlar icin deploy/yki/kur_yki.sh dogrudan
+# calisiyor. Ayrinti: arch-docker/README.md
+arch-docker/

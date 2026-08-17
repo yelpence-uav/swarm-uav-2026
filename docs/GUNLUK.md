@@ -1,6 +1,6 @@
 # GÜNLÜK — oturum devir teslim kaydı
 
-**Son güncelleme:** 16 Ağustos 2026, 21:32
+**Son güncelleme:** 17 Ağustos 2026, 04:11
 
 Tek bilgisayar, sırayla çalışıyoruz. Biri kalkıp diğeri oturduğunda **hem
 kişi hem Claude** nerede kalındığını buradan anlar.
@@ -38,10 +38,11 @@ Claude'a **"oturumu kapat"** dersen bu kaydı o yazar.
 
 ---
 
-## 2026-08-16 21:32 — Beyza + Osman + Claude (depo devri, sim temizliği, belge sadeleştirme)
+## 2026-08-17 04:11 — Beyza + Osman + Claude (depo devri, belge sadeleştirme, YKİ Arch kurulumu, ağ teşhisi)
 
-> Aynı günün iki oturumu (19:50 ve 21:32) **tek kayıtta birleştirildi** —
-> ikisi de belge/depo düzeni işiydi, uçağa dokunulmadı.
+> **Üç oturum tek kayıtta birleştirildi:** 16 Ağustos 19:50 ve 21:32 (depo ve
+> belge düzeni, uçağa dokunulmadı) + 16/17 Ağustos gecesi (YKİ laptopunun
+> sıfırdan kurulumu ve "RPi bağlanınca internet kopuyor" arızasının teşhisi).
 
 **Ne yapıldı**
 
@@ -80,16 +81,104 @@ Claude'a **"oturumu kapat"** dersen bu kaydı o yazar.
   `PLAN.md`, `DURUM.md` ×2, `RPI_ESITLEME.md`, `YAPILACAKLAR.md` ×2).
 - 📉 `docs/`: **17 md → 12 md.**
 
+*YKİ laptopu sıfırdan kuruldu — makine **Arch Linux**, Ubuntu değil (Osman)*
+
+- ✅ `deploy/yki/kur_yki.sh` 26. satırda Ubuntu (noble) değilse **bilerek
+  duruyor**. İkinci bir kurulum betiği yazılmadı: `ros:jazzy` imajı zaten
+  noble olduğu için depo bir konteynere bağlanıp `kur_yki.sh` **içeride,
+  değişmeden** koşturuldu. `colcon build` ✓ `node_modules` ✓ `venv` ✓
+  `mavros_msgs` ✓. Konteynerden seri porta erişim de doğrulandı (host'un
+  `uucp` gid'i 984 `--group-add` ile geçiriliyor).
+- ✅ Konteyner dosyaları **`arch-docker/`** altında ve **`.gitignore`'da** —
+  kişisel, depoya girmiyor. Neden ve nasıl: `arch-docker/README.md`.
+- ✅ `~/.zshrc`'ye alias: **`yki`** (başlatır) ve **`ykidur`** (durdurur).
+  `yki` önce `docker start yki` çağırıyor — konteyner `--restart` almadığı
+  için makine yeniden başlayınca duruyor. Tamamen durmuş konteynerden tek
+  komutla ayağa kalktığı **ölçüldü**: backend 200, arayüz 200, seri port açık.
+- ✅ **QGroundControl v5.0.8** (AppImage, `~/QGroundControl-x86_64.AppImage`)
+  + uygulama menüsü kısayolu. Makinede iki QGC vardı (bir flatpak v4.4.4 +
+  bir AppImage), ikisi de tamamen kaldırılıp tek sürüme indirildi.
+- ✅ **Base ESP ölçüldü, iki hattı da sağlam.** CP2102 = log hattı
+  (`[MESH] Hazir.`, **MAC `A4:F0:0F:64:B5:34`**), CH340 = veri hattı
+  (460800'de COBS+CRC çerçevesi okundu). `yki_baslat.sh`'in beklediği
+  `usb-1a86_USB_Serial-if00-port0` yolu mevcut, ayar değişikliği gerekmedi.
+- ✅ `drone_bul.sh` **Arch'ta çalışıyor** — `arp`/`nmap` gerektirmiyor
+  (`ip neigh` + bash `/dev/tcp` kullanıyor). ⚠️ **mDNS çalışmıyor**
+  (`nss-mdns` yok, avahi kapalı); MAC taraması yedeği sorunsuz, engel değil.
+- ✅ Osman'ın SSH anahtarı **ylp00'a** kuruldu (`YAPILACAKLAR` P1.2).
+
+*🔴 "RPi bağlanınca laptopun interneti kopuyor" — sebep bulundu (Osman)*
+
+- Semptom **üç kez tekrarlandı ve ölçüldü**: dron ağa girdikten ~10 sn sonra
+  ağ geçidine — yani telefonun kendisine, tek wifi atlaması — ping
+  **3 → 6 → 9 → 14 sn** diye doğrusal büyüyüp tavana oturuyor; dronun gücü
+  kesilince anında 3 ms'ye dönüyor.
+- **Ölçümle elenenler** (bir daha araştırılmasın): wifi kopması yok
+  (NetworkManager'da tek olay rutin DHCP yenilemesi) · IP/rota/ARP hiç
+  değişmedi · hava %0.1-2.8, yeniden gönderim 0-3/s, bit hızı sabit
+  72.2 Mbit — **tıkanıklık yok, radyo boştaydı** · sinyal -35…-43 dBm ·
+  ARP fırtınası yok (tüm yakalamada 52 istek) · **laptop wifi güç tasarrufu
+  değil** — kapatılıp tekrar denendi, birebir aynı koptu.
+- **Sebep:** `~/yelpence_ws/gcs_url` = `udp-b://:14555@14550`. `udp-b`
+  **yayın** demek. QGC açık değilken MAVROS karşı taraf keşfedemiyor ve
+  durmadan `255.255.255.255:14550`'ye yayın yapıyor (14 paket/s, 0.8 KB/s).
+  Telefon hotspot'u bu akış altında tüm istemcilere teslimatı **saniyede
+  ~1.25 pakete** düşürüyor; tampon ~18 pakette doluyor. Hız sınırı imzası,
+  tıkanıklık değil — trafiğin **hacmi değil, yayın olması** sorun.
+- **İki yönlü kanıt:** QGC açılıp MAVROS **tekil** gönderime geçince, 20 kat
+  daha fazla veriyle (320 paket/s) sorun **anında** bitiyor. Takımın bunu
+  daha önce yaşamamasının sebebi de bu: hep QGC açık çalışılmış.
+- **Denenen çözüm:** `gcs_url` = `udp://:14555@` — uçak kimseye yayın yapmaz,
+  **sadece dinler**; bağlantıyı QGC kurar. Doğrulandı (dron açık + QGC bağlı,
+  100 sn): 31779 paket tekil, **0 yayın**; ping 200/200, ağ geçidi ortanca
+  **5.2 ms**, 1 sn üstü hiç yok. **Sonra operatör kararıyla GERİ ALINDI** —
+  uçak `udp-b`'de bırakıldı (aşağıya bak).
+
+*Yan bulgular*
+
+- ✅ **Pi saat düzeltmesi sahada ilk kez çalışırken görüldü** (`YAPILACAKLAR`
+  P1.4). `docker inspect` konteyner başlangıcını 23:53 gösterdi ama komut
+  00:57'de çalıştırılmıştı: Pi ~1 saat geriden açılmış, `gps_saat.py` sonra
+  düzeltmiş. Ölçüm sonrası Pi saati laptopla saniyesi saniyesine aynı.
+- 🔴 **`DURUM.md` origin satırı bir sürüm geriydi** — tam da 15 Ağustos'ta
+  olay çıkaran eski değeri gösteriyordu (18.2 m yatay, 0.93 m dikey fark).
+  ylp00 `deploy/saha_origin.env` ile **birebir aynı**: uçak doğru, belge
+  yanlıştı. Düzeltildi.
+
 **Ne değişti**
 
-- kod: yok. İki oturumda da yalnız dosya silme ve belge düzeni.
-- uçakta: **hiçbir şey.** Saha çalışması yapılmadı, dronlara bağlanılmadı.
+- kod: yok. Üç oturumda da yalnız dosya silme, belge düzeni ve laptop kurulumu.
+- **uçakta (ylp00):** yalnız **SSH anahtarı** eklendi. `gcs_url` denendi ve
+  **eski hâline geri alındı**; diğer bayrakların (`yer_testi`, `gozlem`,
+  `kacinma`, `origin`, `suru_dugumleri`) hiçbirine dokunulmadı, uçak
+  bulunduğu gibi bırakıldı. **ylp02'ye hiç bağlanılmadı.**
+- laptopta (depo dışı): YKİ konteyneri `yki`, `arch-docker/`, QGC v5.0.8,
+  `yki`/`ykidur` alias'ları.
 - belge: `README.md`, `CLAUDE.md`, `PLAN.md`, `DURUM.md`, `YAPILACAKLAR.md`,
-  `RPI_ESITLEME.md`, `INTERFACE_CONTRACT.md` §3.0.
+  `RPI_ESITLEME.md`, `INTERFACE_CONTRACT.md` §3.0, `GUNLUK.md`.
   **YENİ:** `docs/TUZAKLAR.md`. **SİLİNDİ:** `docs/arsiv/` (5 dosya).
+  `.gitignore`'a `arch-docker/` eklendi.
 
 **Yarım kalan / tuzak**
 
+- 🔴 **Dronlara güç vermeden ÖNCE QGC açık olsun** — yoksa YKİ laptopunun
+  interneti ölür (yukarıdaki teşhis). Sebep düzeltilmedi, **kural olarak
+  yaşıyoruz**: MAVROS karşı tarafı bir kez keşfettikten sonra unutmuyor,
+  yani QGC'yi sonradan kapatmak sorun çıkarmıyor — **ölçüldü**. Ama her
+  `docker restart droneN` MAVROS'u yeniden başlatıp pencereyi tekrar açıyor,
+  ve ikinci uçak sonradan açılırsa o yayın yapıyor. Kalıcı çözüm tek satır
+  (`gcs_url` = `udp://:14555@`), denendi ve çalıştı, uygulanmadı.
+- 🟡 `YAPILACAKLAR` P1.5 (konteyner ağdan önce kalkıyor → QGC bağlantısı ölü
+  kalıyor) yukarıdaki tek satırlık değişiklikle **kendiliğinden çözülebilir**:
+  `udp://:14555@` ile başlangıçta kurulacak bir karşı taraf yok, dolayısıyla
+  `removed stale remote address` de olmaz. Doğrulanmadı.
+- 🟡 **Laptopta mDNS kapalı** (`nss-mdns` yok, avahi kapalı) — `ylp00.local`
+  çözülmüyor. `drone_bul.sh` MAC taramasıyla buluyor, engel değil.
+  İstenirse: `sudo pacman -S nss-mdns avahi` + `nsswitch.conf`'a `mdns_minimal`.
+- 🟡 **YKİ konteynerinde `<defunct>` uvicorn birikiyor** — PID 1 `sleep
+  infinity` ve çocuklarını toplamıyor; her başlat/durdur çevrimi bir zombi
+  bırakıyor. Zararsız. Düzgün çözümü konteyneri `docker run --init` ile
+  yaratmak (`arch-docker/README.md`).
 - 🔴 **`formation_node.py:189` — `sitl_mode` varsayılanı `True`,
   `baslat.sh` geçmiyor.** İki kapı sahada atlanıyor:
 
@@ -124,12 +213,19 @@ Claude'a **"oturumu kapat"** dersen bu kaydı o yazar.
 **Sıradaki adım**
 
 `ADIM 3 · G2` — öncesinde `formation_node` kip kararı
-(`NAVIGASYON_KAYMA.md`).
+(`NAVIGASYON_KAYMA.md`). YKİ laptopu artık hazır: `yki` yazıp arayüzü açmak
+yetiyor.
 
 **Uçakların bırakıldığı hâl**
 
-- ylp00: dokunulmadı (15 Ağu'daki gibi — IDLE, disarm, atölyede)
-- ylp02: dokunulmadı
+- ylp00: **açık bırakıldı**, konteyner ayakta. Bayraklar bulunduğu gibi —
+  `yer_testi` VAR (ARM olur, **KALKMAZ**) · `gozlem` VAR · `kacinma` VAR ·
+  `gcs_url` = `udp-b://:14555@14550` (**yayın** — QGC açık değilse laptopun
+  interneti ölür) · `suru_dugumleri` = `origin consensus fsm formasyon` ·
+  `origin` = `38.6904758 39.1610188 1216.96` (repo ile aynı). Disk %41 dolu.
+  Tek kalıcı değişiklik: Osman'ın SSH anahtarı eklendi.
+- ylp02: kapalı, **hiç bağlanılmadı.**
+- ylp01: yerde (2 Ağustos'ta düştü), değişiklik yok.
 
 
 ## 2026-08-15 17:19 — Eyüp + Claude (ikinci yarı: ADIM 2 + ADIM 3)
