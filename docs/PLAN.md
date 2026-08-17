@@ -1,6 +1,6 @@
 # PLAN — buradan finale
 
-**Son güncelleme:** 16 Ağustos 2026, 21:28
+**Son güncelleme:** 17 Ağustos 2026, 14:36
 
 Bu belge **tüm takımın ortak resmi**. Teknik ayrıntı diğer belgelerde;
 burada *ne yapıyoruz, neredeyiz, nasıl gideceğiz* var.
@@ -215,16 +215,56 @@ src/gcs/yki_baslat.sh · src/gcs/yki_durdur.sh
 
 ## 10. Şu an sırada ne var
 
-**Aşama 0 — tamamı uçuşsuz, tamamı yazılım:**
+> **Aşama 0 bitti.** Öncelik hakemliği hariç maddelerin tamamı yapıldı:
+> remap'ler, `/ws/suru_dugumleri` dosyadan okunuyor, kayıt filtresinde
+> `/gozlem/` var, düğümler Pi'de tek tek denendi. Hakemliğin aciliyeti
+> düştü — çakışma zaten susturma ile çözülmüş (`YAPILACAKLAR` P0.6).
+> **Aşama 1'in yer yarısı da geçti** (ADIM 1, 15 Ağustos, lider seçimi).
 
-1. `px4_bridge`'e **öncelik hakemliği** (~30 satır) — bu olmadan ikinci bir
-   komut üreticisi güvenle açılamaz
-2. İki **remap** satırı (sürü durumu ve görev hedefi yerinde kalsın)
-3. `/ws/suru_dugumleri` dosyadan okunsun (konteyner yeniden yaratmadan
-   düğüm açıp kapatabilmek için)
-4. Kayıt filtresine `/gozlem/` eklensin
-5. **19 düğümü tek tek Pi'de başlat** — hangisi çöküyor, ne kadar RAM/CPU
-   yiyor, gör
+### 🔵 SIRADAKİ İŞ: G2 — havada gözlem uçuşu
 
-Ayrıca beklemede: **ylp01 onarımı** (ESC güç hattı) ve **kamera montajı**.
-İkisi de entegrasyonu durdurmuyor ama finalde şart.
+Aşama 1'in **uçuş yarısı**. Uçaklarda `suru_dugumleri` = `origin consensus
+fsm formasyon`, yani ADIM 0/0.5/1/2/3'ün düğümleri **açık ve koşuyor** —
+ama hepsi yalnız **yerde** sınandı. Merdivenin (`SURU_ENTEGRASYON.md` §4)
+neresindeyiz:
+
+| | | |
+|---|---|---|
+| G0 | yerde açılıyor mu | ✅ |
+| G1 | yerde gözlem | ✅ (`formation_node` yerdeki uçak için `vz=1.51 m/s` üretti — yakalandı) |
+| **G2** | **havada gözlem** | ❌ **buradasın** |
+| G3 | havada komutta | ❌ ADIM 3 |
+
+Uçuş şöyle: kanıtlanmış komut yolu uçağı uçurur, sürü düğümleri arka planda
+gerçek telemetriyle gerçek kararlar üretir, `formation_node`'un çıkışı
+`/gozlem/`'e gider ve **uçağa ulaşmaz**. Sonra kayıttan "ne yapardı" ile
+"ne oldu" karşılaştırılır.
+
+**Alınacak cevaplar:** havada lider seçimi kararlı mı · `swarm_fsm` sürü
+durumunu doğru üretiyor mu · `formation_node` uçulan yola yakın bir şey mi
+hesaplıyor · 11 düğüm havadayken RAM/CPU ne.
+
+### Uçmadan önce kapatılacaklar
+
+| | Ne | Maliyet |
+|---|----|---------|
+| ✅ | ~~**P0.8** `formation_node` `sitl_mode` varsayılanı `True`~~ → **düzeltildi (17 Ağu)**, iki yerden bağlandı ve uçaklara dağıtıldı | — |
+| `[ ]` | **P1.6** — `TUZAKLAR.md` §0'daki üç bilinmeyen. İkisi doğrudan uçuş izni kapısı: ylp00 clipping kuralı ve alıcı failsafe'i (kumanda kapalıyken CH5=2000 → **kill**) | clipping ~10 dk yerde |
+| `[ ]` | **ADIM 1'in kalanı** — iki uçaklı **tam devir teslim**: birini kill'le, diğerini armlı bırak. 15 Ağustos'ta yalnız tek taraflı gözlendi | ~10 dk, uçuş yok |
+
+### Aynı uçuşa binebilecek ölçüm
+
+**P0.4 navigasyon kayması 🔴 hâlâ ölçülmedi** ve tek ihtiyacı bir uçuş:
+en az 40 m düz bacak, 2 ve 4 m/s. Komut yolunda **hiçbir şey
+değiştirmiyor**, yani "bir uçuşta tek değişiklik" kuralını çiğnemiyor.
+Not: P0.4 *tek uçak* diyor, G2 ise iki uçakla anlamlı (lider seçimi) —
+ya aynı seansta iki sorti ya da ayrı günler.
+
+### Sonraki aşamaya not
+
+**ADIM 3'e (formasyon komutta) geçerken:** `KARARLAR.md` **KARAR-02** gereği
+operatörden o mesaja `ultracode` yazması istenecek. Ayrıca `px4_bridge
+velocity_only:=True` ADIM 3'ün şartı — **G2'nin değil**, şimdi dokunma.
+
+Beklemede: **ylp01 onarımı** (ESC güç hattı) ve **kamera montajı**. İkisi de
+entegrasyonu durdurmuyor ama finalde şart.

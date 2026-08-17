@@ -1,6 +1,6 @@
 # YAPILACAKLAR
 
-**Son güncelleme:** 17 Ağustos 2026, 11:41
+**Son güncelleme:** 17 Ağustos 2026, 14:36
 
 ## Önem dereceleri
 
@@ -20,9 +20,26 @@ Durum: `[ ]` yapılmadı · `[~]` kısmen · `[B]` başka işe bağlı · `[?]` 
 
 ## 🔴 P0 — UÇUŞ ENGELİ
 
-### 🆕 P0.8 `formation_node` güvenlik kapıları varsayılan olarak KAPALI
+### ✅ P0.8 — TAMAMLANDI (17 Ağustos 14:30)
 
-`main` dağıtıldı, yani bu artık **uçaklarda duruyor**.
+`formation_node` güvenlik kapıları varsayılan olarak kapalıydı; **iki yerden
+bağlandı**, dağıtıldı ve uçtan uca doğrulandı.
+
+- `[x]` 🔴 `formation_node.py` → `declare_parameter('sitl_mode', False)`
+- `[x]` 🔴 `baslat.sh:707` → `-p sitl_mode:=false` açıkça geçiliyor
+- `[x]` 🔴 `dagit.sh` ile iki uçağa dağıtıldı (`600ca65`), konteynerler
+  yeniden başlatıldı. Doğrulama: repo = Pi `src/` = konteynerdeki `build/`
+  kopyası, üçü de md5 `bd40492c`; komut satırında `sitl_mode:=false`;
+  gözlem remap yerinde.
+- `[ ]` 🟠 **G2 uçuşunda doğrula:** origin senkronsuzken
+  `/gozlem/…/formation/raw` **susmalı** (log: *"origin senkronlanmadi;
+  setpoint bekletiliyor"*)
+
+> 🔎 Yan bulgu: `--symlink-install`'a rağmen Python kaynağı `build/` altına
+> **kopyalanıyor**, sembolik bağ değil. Yani `rsync` tek başına koşan kodu
+> değiştirmiyor — `colcon build` şart. (`dagit.sh` bunu zaten yazıyor.)
+
+**Sorunun neydi** (kayıt için):
 
 ```python
 declare_parameter('sitl_mode', True)   # depodaki TEK True; digerleri hep False
@@ -30,25 +47,22 @@ if not self._sitl_mode and not self._origin_synced:              # kapi atlanir
 if not self._sitl_mode and not (self._xy_valid and self._z_valid):  # kapi atlanir
 ```
 
-`baslat.sh` bu parametreyi **hiç geçmiyor** (597. satırda yalnız yorumda
-anılıyor), dolayısıyla varsayılan `True` geçerli: `formation_node` origin
-senkronu ve konum tahmini geçerliliği denetimlerini **atlayarak** koşuyor.
+`baslat.sh` bu parametreyi **hiç geçmiyordu** (597. satırda yalnız yorumda
+anılıyordu), dolayısıyla varsayılan `True` geçerliydi: `formation_node`
+origin senkronu ve konum tahmini geçerliliği denetimlerini **atlayarak**
+koşuyordu.
 
-Karşılaştırma — 15 Ağustos'a kadar uçaklarda koşan sürümde (bugün
-`saha/pi-kod-15agustos` dalında) aynı kapılar **koşulsuzdu**:
+Karşılaştırma — 15 Ağustos'a kadar uçaklarda koşan sürümde
+(`saha/pi-kod-15agustos` dalında) aynı kapılar **koşulsuzdu**:
 `if not self._origin_synced:` / `if not (self._xy_valid and self._z_valid):`.
-Yani `main` bu kapıları zayıflatmış.
+Yani `main` bu kapıları zayıflatmıştı ve 17 Ağustos dağıtımıyla uçaklara
+girmişti.
 
-**Bugün zararsız**, çünkü gözlem modu çıktıyı `/gozlem/…`'e sürüyor ve uçağa
-ulaşmıyor. **ADIM 3 tam da o remap'i kaldırmak demek** — o gün bu düğüm,
-origin ayrışmış ya da EKF hazır değilken setpoint üretebilir. 15 Ağustos'ta
-18.2 m'lik origin ayrışması arm'ı engellemişti; bu onun tersi yön.
-
-- `[ ]` 🔴 `formation_node.py:189` → `declare_parameter('sitl_mode', False)`
-- `[ ]` 🔴 `baslat.sh` → `formation_node` çağrısına `-p sitl_mode:=false` ekle
-  (iki yerden bağla; biri unutulursa diğeri tutar)
-- `[ ]` 🟠 Dağıttıktan sonra doğrula: gözlem modunda `/gozlem/…/formation/raw`
-  origin senkronsuzken **susmalı**
+Gözlem modu çıktıyı `/gozlem/…`'e sürdüğü için uçağa ulaşmıyordu, ama **G2
+gözlem uçuşunun verisini bozardı** — düğüm, düzeltilmiş hâlinin susacağı
+koşullarda çıktı üretir. Ayrıca ADIM 3 tam da o remap'i kaldırmak demek.
+15 Ağustos'ta 18.2 m'lik origin ayrışması arm'ı engellemişti ve bu **doğru**
+davranıştı; kapalı kapı onun tersi yön.
 
 ### ✅ P0.7 — TAMAMLANDI (17 Ağustos 11:35)
 
