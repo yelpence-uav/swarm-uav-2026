@@ -1,6 +1,6 @@
 # YAPILACAKLAR
 
-**Son güncelleme:** 17 Ağustos 2026, 10:21
+**Son güncelleme:** 17 Ağustos 2026, 11:41
 
 ## Önem dereceleri
 
@@ -20,36 +20,60 @@ Durum: `[ ]` yapılmadı · `[~]` kısmen · `[B]` başka işe bağlı · `[?]` 
 
 ## 🔴 P0 — UÇUŞ ENGELİ
 
-### 🆕 P0.7 Uçaklardaki kod bu depodan üretilemiyor (17 Ağustos, ölçüldü)
+### 🆕 P0.8 `formation_node` güvenlik kapıları varsayılan olarak KAPALI
 
-İki Pi'nin de `~/yelpence_ws/.surum` dosyası şunu diyor:
+`main` dağıtıldı, yani bu artık **uçaklarda duruyor**.
 
+```python
+declare_parameter('sitl_mode', True)   # depodaki TEK True; digerleri hep False
+if not self._sitl_mode and not self._origin_synced:              # kapi atlanir
+if not self._sitl_mode and not (self._xy_valid and self._z_valid):  # kapi atlanir
 ```
-commit=0dfa0ad +KIRLI   dal=feature/dagitik-suru
-dagitan=egUbuntu        15 Ağustos 20:34
-```
 
-`git cat-file -t 0dfa0ad` → **yok.** `git ls-remote --heads origin` →
-**yalnız `main`.** Yani hem commit hem dal erişilemez; üstelik `+KIRLI`,
-commit elimizde olsa bile birebir yeniden üretilemezdi.
+`baslat.sh` bu parametreyi **hiç geçmiyor** (597. satırda yalnız yorumda
+anılıyor), dolayısıyla varsayılan `True` geçerli: `formation_node` origin
+senkronu ve konum tahmini geçerliliği denetimlerini **atlayarak** koşuyor.
 
-**Neden P0:** şu an uçan yazılımı okuyabildiğimiz tek yer Pi'lerin kendisi.
-Bir Pi'nin SD kartı ölürse ya da biri `dagit.sh` çalıştırırsa o kod gider ve
-**geri getirilemez** — uçuş kanıtını geçiren sürüm dahil. Ayrıca "sahadaki
-davranış repodaki koddan mı geliyor" sorusuna bugün **hayır** diyoruz, yani
-her teşhis şüpheli.
+Karşılaştırma — 15 Ağustos'a kadar uçaklarda koşan sürümde (bugün
+`saha/pi-kod-15agustos` dalında) aynı kapılar **koşulsuzdu**:
+`if not self._origin_synced:` / `if not (self._xy_valid and self._z_valid):`.
+Yani `main` bu kapıları zayıflatmış.
 
-- `[ ]` 🔴 **Eyüp'ten `feature/dagitik-suru` dalını iste ve `origin`'e it.**
-  Kirli ağaç da dahil — `git stash` değil, commit'lensin. En hızlısı:
-  `git push origin feature/dagitik-suru` + kirli değişiklikler için ek commit.
-- `[ ]` 🔴 Dal gelene kadar **`dagit.sh` ÇALIŞTIRMA** — `src/`'yi `main` ile
-  ezer ve uçan kodu değiştirir. Tek dosyalık acil değişiklikler `rsync` +
-  md5 doğrulamasıyla yapılır (örnek: 17 Ağu `baslat.sh`, `RPI_ESITLEME.md` §8).
-- `[ ]` 🟠 Dal geldikten sonra: Pi'deki `src/` ile dalın ağacını md5 ile
-  karşılaştır — `.surum` "KIRLI" dediği için eşleşmeme ihtimali yüksek,
-  fark neyse commit'lensin.
-- `[ ]` 🟡 `dagit.sh`'a koruma ekle: dağıtılacak commit `origin`'de yoksa
-  ya da ağaç kirliyse **sor/dur**. Bu durumun tekrarını engeller.
+**Bugün zararsız**, çünkü gözlem modu çıktıyı `/gozlem/…`'e sürüyor ve uçağa
+ulaşmıyor. **ADIM 3 tam da o remap'i kaldırmak demek** — o gün bu düğüm,
+origin ayrışmış ya da EKF hazır değilken setpoint üretebilir. 15 Ağustos'ta
+18.2 m'lik origin ayrışması arm'ı engellemişti; bu onun tersi yön.
+
+- `[ ]` 🔴 `formation_node.py:189` → `declare_parameter('sitl_mode', False)`
+- `[ ]` 🔴 `baslat.sh` → `formation_node` çağrısına `-p sitl_mode:=false` ekle
+  (iki yerden bağla; biri unutulursa diğeri tutar)
+- `[ ]` 🟠 Dağıttıktan sonra doğrula: gözlem modunda `/gozlem/…/formation/raw`
+  origin senkronsuzken **susmalı**
+
+### ✅ P0.7 — TAMAMLANDI (17 Ağustos 11:35)
+
+Uçaklardaki kod artık bu deponun `main`'i: `.surum` → `commit=e012dba`,
+`dal=main`, **`+KIRLI` yok**; `src/` 176 dosya `main` ile birebir (md5).
+
+Öncesinde iki Pi de `commit=0dfa0ad +KIRLI dal=feature/dagitik-suru`
+diyordu ve ne o commit ne o dal bu depoda vardı. Operatörün açıklaması:
+eski depoda (`yelpence-2026-swarm`) o dal `main`'e alınmış, oradan yeni bir
+dal açılmış ve bu depo (`yelpence-2026-saha`) onunla kurulmuştu — ölçüm de
+bunu doğruladı (`main` her dosyada daha uzun, Pi'deki fazlalıklar eski sürüm
+kalıntısı; en net kanıtı `INTERFACE_CONTRACT.md`'de duran sim dönemi
+"Network Proxy" bölümü).
+
+- `[x]` 🔴 Silinmeden önce uçan kod git'e alındı → **`saha/pi-kod-15agustos`**
+  (`52ff027`, `origin`'de). `dagit.sh` `--delete` ile çalışıyor, yoksa geri
+  dönüşsüz giderdi.
+- `[x]` 🔴 `dagit.sh ylp00 ylp02` → `.surum` = `e012dba (main)`
+- `[x]` 🔴 Konteynerler yeniden başlatıldı, 11 düğüm ayakta, setpoint
+  konularında **tek üretici**, MAVROS bağlı/disarm
+- `[ ]` 🟡 `dagit.sh`'a koruma ekle: (a) `colcon build ... | tail` boru hattı
+  çıkış kodunu yutuyor, **derleme çökse de "başarılı" diyor** — `PIPESTATUS`
+  ile denetle; (b) dağıtılacak commit `origin`'de yoksa ya da ağaç kirliyse
+  sor/dur; (c) `dagitan=$(hostname)` Arch'ta boş kalıyor (`hostname` kurulu
+  değil) → `${HOSTNAME:-$(uname -n)}`
 
 ### ✅ P0.1 — TAMAMLANDI (14 Ağustos)
 

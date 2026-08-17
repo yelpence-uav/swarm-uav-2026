@@ -1,6 +1,6 @@
 # RPİ EŞİTLEME DEFTERİ — geri gelen drone'u hizaya getirme
 
-**Son güncelleme:** 17 Ağustos 2026, 10:21
+**Son güncelleme:** 17 Ağustos 2026, 11:41
 
 ## Bu belge ne için
 
@@ -296,6 +296,38 @@ ssh-copy-id <KULLANICI>@<ip>           # parolayla girer, anahtarını ekler
 ## 8. DEĞİŞİKLİK DEFTERİ
 
 Her Pi değişikliği buraya, en yeni en üste.
+
+### 2026-08-17 (3) — uçaklar `main`'e alındı (`dagit.sh`, e012dba)
+
+| Ne | ylp00 | ylp02 | ylp01 (dönünce) |
+|----|-------|-------|-----------------|
+| `src/` = repo `main` (176 dosya, md5) | **VAR** | **VAR** | gerekli |
+| `.surum` = `e012dba` / `main` / `+KIRLI` yok | **VAR** | **VAR** | gerekli |
+| `swarm_missions` `build/` temizlenip yeniden derlendi | **VAR** | **VAR** | gerekebilir |
+| Konteyner yeniden başlatıldı (yeni kod yüklendi) | 11:35 | 11:41 | — |
+
+**Öncesi:** iki Pi de `commit=0dfa0ad +KIRLI dal=feature/dagitik-suru`
+diyordu; o commit ve dal bu depoda yoktu. Eski depodan (`yelpence-2026-swarm`)
+Eyüp'ün makinesinden dağıtılmıştı.
+
+> 🗄️ **Silinmeden önce yedeklendi:** `saha/pi-kod-15agustos` (`52ff027`,
+> `origin`'de) — uçaklarda gerçekten koşan `src/` ağacının birebir kopyası.
+> `dagit.sh` `--delete` ile çalışıyor; yedek olmasa geri dönüşsüz giderdi.
+> ylp00'dan alındı, ylp02 ile md5'i aynı çıktı.
+
+**İki tuzak çıktı, ikisi de yazıldı:** `dagit.sh` derleme çökse bile
+"başarılı" diyor (`TUZAKLAR.md` §1.14) · depodan silinen dosya bayat `build/`
+dizinini kırıyor (§2.8). İkincisi `swarm_missions`'ı ikisinde de çökertti;
+elle temizlenip derlendi.
+
+**Dağıtım sonrası doğrulandı (ikisinde de):** 11 düğüm ayakta ·
+`/drone_N/control/setpoint[/raw]` konularında **tek üretici** · MAVROS
+`connected: true`, `armed: false`, `AUTO.LOITER` · saat dizüstüyle aynı.
+
+⚠️ Bu dağıtımla birlikte `formation_node`'un `sitl_mode` varsayılanı `True`
+olarak uçaklara girdi — origin ve konum kapıları atlanıyor. Gözlem modu
+sakladığı için bugün zararsız, ADIM 3'ten **önce** düzeltilmeli:
+`YAPILACAKLAR.md` **P0.8**.
 
 ### 2026-08-17 (2) — GPS saat beklemesi 25 → 150 sn + ylp02'ye SSH anahtarı
 

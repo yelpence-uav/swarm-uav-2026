@@ -1,6 +1,6 @@
 # TUZAKLAR — hata vermeden yanlış sonuç üretenler
 
-**Son güncelleme:** 17 Ağustos 2026, 10:21
+**Son güncelleme:** 17 Ağustos 2026, 11:41
 
 > **Bu belge CANLI.** Arşiv değil — buradaki her madde **bugün de geçerli.**
 >
@@ -240,6 +240,30 @@ docker inspect -f '{{.State.StartedAt}}' drone1   # dizin adiyla eslestir
 
 *(17 Ağustos 2026)*
 
+### 1.14 `dagit.sh` derleme çökse bile "başarılı" der
+
+17 Ağustos'ta iki uçakta da `swarm_missions` derlemesi **çöktü**, betik
+`basarili: 2` yazdı ve `.surum` dosyasını yine de güncelledi. Sebep:
+
+```bash
+colcon build ... 2>&1 | tail -15     # boru hattinin cikis kodu = tail'inki = 0
+```
+
+`if ! ssh ...` bu yüzden hiç tetiklenmiyor. Çıktıyı okumasaydık uçakta bir
+paketin **eski install/** ile koştuğunu bilmeden uçacaktık — ve `.surum`
+"e012dba (main)" diyeceği için sonraki kişi de sorgulamayacaktı.
+
+**Kural:** `dagit.sh` çıktısında `Summary:` satırını gözünle oku; `failed`
+geçiyorsa `.surum`'a rağmen dağıtım tamam DEĞİLDİR. Kalıcı düzeltme
+`PIPESTATUS` ile — `YAPILACAKLAR.md` P0.7 son madde. *(17 Ağustos 2026)*
+
+### 1.15 `hostname` Arch'ta kurulu değil — `.surum`'un `dagitan` alanı boşalır
+
+`dagit.sh:169` `dagitan=$(hostname)` kullanıyor; Arch'ta `inetutils` varsayılan
+gelmiyor, komut bulunamıyor ve alan **sessizce boş** kalıyor. Kim dağıttı
+bilgisi kayboluyor. `${HOSTNAME:-$(uname -n)}` her yerde çalışır.
+*(17 Ağustos 2026)*
+
 ---
 
 ## 2. ROS 2 / DDS / kabuk
@@ -298,6 +322,34 @@ done
 `mysql`, `docker exec -i` için de geçerli.
 
 **Çözüm:** `ssh -n` (stdin'i `/dev/null`'a bağlar) ya da `ssh ... < /dev/null`.
+*(17 Ağustos 2026)*
+
+### 2.8 Depodan dosya silinince bayat `build/` dizini derlemeyi kırar
+
+`main` dağıtıldığında iki uçakta da:
+
+```
+error: can't copy '/ws/build/swarm_missions/launch/gorev1.launch.py':
+       doesn't exist or not a regular file
+```
+
+`setup.py` glob kullanıyor (`glob('launch/*.launch.py')`), yani **depoda hata
+yok**. Hata Pi'de: `rsync --delete` kaynağı sildi ama `--symlink-install` ile
+oluşmuş `build/swarm_missions/` hâlâ o dosyanın kaydını tutuyordu ve yeniden
+kopyalamaya çalıştı.
+
+**Kural:** depodan bir dosya silindikten sonraki ilk dağıtımda o paketin
+`build/` + `install/` dizinini temizle:
+
+```bash
+docker exec <KONTEYNER> bash -lc \
+  'rm -rf /ws/build/<paket> /ws/install/<paket> &&
+   source /opt/ros/jazzy/setup.bash && cd /ws &&
+   colcon build --symlink-install --packages-select <paket>'
+```
+
+`dagit.sh` bunu kendiliğinden yapmıyor ve §1.14 yüzünden çöküşü de
+yutuyor — ikisi birleşince paket sessizce **eski install/** ile kalır.
 *(17 Ağustos 2026)*
 
 ---

@@ -1,6 +1,6 @@
 # DURUM — şu an ne çalışıyor, ne bozuk
 
-**Son güncelleme:** 17 Ağustos 2026, 10:21
+**Son güncelleme:** 17 Ağustos 2026, 11:41
 
 > Bu belge **şimdiki hâli** anlatır, tarihçe değil. Bir şey değişince burayı
 > güncelle, eskisini sil. Ne olduğunun hikâyesi `GUNLUK.md`'de kalır.
@@ -193,34 +193,33 @@ hover gazı %66). Uçuş öncesi cevaplanmalı — `YAPILACAKLAR.md` P1.6.
 
 ## 4. Kod senkronu
 
-### 🔴 Uçaklardaki ROS kodu bu depodan üretilemiyor (17 Ağustos, ölçüldü)
-
-İki Pi'nin de `~/yelpence_ws/.surum` dosyası:
+### ✅ Uçaklar `main`'de — 17 Ağustos 11:35'te dağıtıldı ve doğrulandı
 
 ```
-commit=0dfa0ad +KIRLI   dal=feature/dagitik-suru
-dagitan=egUbuntu        15 Ağustos 20:34
+ylp00 / ylp02   .surum:  commit=e012dba   dal=main   (+KIRLI YOK)
+                src/  :  176 dosya, repo main ile BIREBIR (md5)
+                install/: 6 paketin hepsi
 ```
 
-`git cat-file -t 0dfa0ad` → **yok.** `git ls-remote --heads origin` →
-**yalnız `main`.** Dal ve commit erişilemez, üstelik `+KIRLI` olduğu için
-commit elimizde olsa bile birebir üretilemezdi. **Şu an uçan yazılımı
-okuyabildiğimiz tek yer Pi'lerin kendisi.**
+Bundan önce iki Pi de `commit=0dfa0ad +KIRLI dal=feature/dagitik-suru`
+diyordu; o commit ve dal bu depoda **yoktu** (eski depodan, Eyüp'ün
+makinesinden). Yani uçan yazılımı okuyabildiğimiz tek yer Pi'lerin SD
+kartlarıydı. `dagit.sh` `--delete` ile çalıştığı için dağıtım o kodu geri
+dönüşsüz silecekti.
 
-> ⛔ **`dagit.sh` ÇALIŞTIRMA.** `src/`'yi `main` ile ezer, uçan kodu
-> değiştirir. Dal Eyüp'ten alınıp `origin`'e itilene kadar geçerli.
-> Tek dosyalık acil değişiklik: `rsync` + md5 doğrulaması.
-> Takip: `YAPILACAKLAR.md` **P0.7**.
+> 🗄️ **Silinmeden önce git'e alındı:** `saha/pi-kod-15agustos` dalı
+> (`52ff027`, `origin`'de). 17 Ağustos sabahı uçaklarda **gerçekten koşan**
+> `src/` ağacının birebir kopyası — ylp00'dan alındı, ylp02 ile md5'i aynı.
+> Çalıştırılabilir sürüm değil, **karşılaştırma referansı**: "saha böyle
+> davranıyordu" sorusunun cevabı burada.
 
-### `baslat.sh` — repo ile birebir
-
-md5 `0dacdf44...` : repo = ylp00 = ylp02 (17 Ağustos 10:21'de doğrulandı,
-`--bekle 150` değişikliğinden sonra).
+`baslat.sh` md5 `0dacdf44...` : repo = ylp00 = ylp02.
 
 `/ws/src`'te 6 paket var; `network_proxy` ve `sim_rtcm_source` **bilerek yok**
 (ikisi de simülasyon bileşeni, bkz. `deploy/rpi/dagit.sh`).
 
-⚠️ Senkron kontrolü için `.surum`'a **güvenme**, md5 karşılaştır.
+⚠️ Senkron kontrolü için `.surum`'a tek başına **güvenme**, md5 karşılaştır —
+`dagit.sh` derleme başarısız olsa bile `.surum` yazıyor (bkz. `TUZAKLAR.md` §1.14).
 
 ---
 
@@ -308,12 +307,16 @@ kilitlenmiyor. Sonuç: **ylp00 7 sa 58 dk, ylp02 10 sa 15 dk geride, aralarında
 (`consensus_context.py:29`). Bozduğu şey çapraz uçak kayıt karşılaştırması.
 
 **Yapıldı:** `baslat.sh` → `--bekle 150`, iki uçağa da dağıtıldı, md5
-doğrulandı.
+doğrulandı, konteynerler 11:35–11:41'de yeniden başlatıldı.
 
-> ⏳ **Henüz etkin değil.** `baslat.sh` yalnız konteyner açılışında okunuyor.
-> Şu anda ayakta olan konteynerler hâlâ eski değerle koştu, yani **iki uçağın
-> saati şu an hâlâ yanlış.** Etkin olması ve saatlerin GPS'e oturması için:
-> `docker restart drone1` / `drone3` (QGC yeniden bağlanmalı — §2 kuralı).
+**Şu anki hâl (11:41):** her iki uçağın saati dizüstüyle **saniyesi saniyesine
+aynı**, `NTPSynchronized=yes`. Yeni açılış logları:
+`fark=+0.487 sn` (ylp00) / `+0.438 sn` (ylp02) → eşiğin altında, `gps_saat`
+saate haklı olarak dokunmadı.
+
+⚠️ Bu sefer saati NTP düzeltti, GPS değil — o sırada Pi'lerin interneti
+gelmişti. **`--bekle 150` hâlâ sınanmadı:** asıl sınav internetsiz bir soğuk
+açılış. Takip: `YAPILACAKLAR.md` P1.4.
 
 ### ✅ #6 — Parametre ayrışması giderildi (14 Ağustos)
 
