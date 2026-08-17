@@ -1,6 +1,6 @@
 # TUZAKLAR — hata vermeden yanlış sonuç üretenler
 
-**Son güncelleme:** 17 Ağustos 2026, 04:11
+**Son güncelleme:** 17 Ağustos 2026, 10:21
 
 > **Bu belge CANLI.** Arşiv değil — buradaki her madde **bugün de geçerli.**
 >
@@ -202,6 +202,44 @@ Uydu sayısı ve HDOP **ikisinde de aynı.** Stand uydu görüşünü değil sin
 kalitesini iyileştiriyor. HDOP 0.58 iken alıcının kendi doğruluk tahmini
 4.42 m — baraj 3.0 m. *(29 Temmuz 2026)*
 
+### 1.12 `ros2 node list` EKSİK liste döndürür ve hata vermez
+
+Uçakta düğümlerin ayakta olup olmadığına bakarken ilk çağrı **tek bir düğüm**
+döndürdü; aynı konteynerde `--spin-time 12` ile aynı komut **11 düğüm + 68
+mavros alt düğümü** listeledi. Hiçbir uyarı yok, çıkış kodu 0.
+
+Sebep: `ros2` CLI kendi DDS katılımcısını yeni yaratıyor ve keşif oturmadan
+listeyi basıyor. Varsayılan bekleme, 11 düğümlü bir grafiğe yetmiyor.
+
+**Kural:** uçakta düğüm sayarken **her zaman** `--spin-time` ver:
+
+```bash
+ros2 node list --spin-time 12
+```
+
+Bu tuzak "düğüm ölmüş / sürü düğümleri açılmamış" teşhisi koydurur ve o
+teşhis yanlıştır. *(17 Ağustos 2026, ylp00)*
+
+### 1.13 Açılış logu dizinlerinde `mtime` sıralaması YALAN söyler
+
+`gunluk/` altındaki dizinler açılış anındaki saatle **adlandırılıyor**, ama
+`gps_saat.py` açılışın ortasında saati ileri atlatabiliyor. Sonuç: dizin
+**adı** ile `mtime` birbirini tutmuyor, `ls -t` yanlış dizini "en yeni"
+gösteriyor. 17 Ağustos'ta tam bu yüzden **başka bir açılışın** logu okundu ve
+"saat düzelmiş" sanıldı; gerçekte o açılışta düzelmemişti.
+
+Aynı hatanın ikinci yolu: `find ... -name gps_saat.log | head -1` — `find`
+sıralama yapmaz, rastgele birini verir.
+
+**Doğrusu — ikisinden birini kullan:**
+
+```bash
+~/yelpence_ws/gunluk/son/            # baslat.sh'in baktigi isaretci
+docker inspect -f '{{.State.StartedAt}}' drone1   # dizin adiyla eslestir
+```
+
+*(17 Ağustos 2026)*
+
 ---
 
 ## 2. ROS 2 / DDS / kabuk
@@ -243,6 +281,24 @@ için kabuk ölüyor. Köşeli parantez numarası: `pkill -f "esp32[_]base"`.
 `deploy/rpi/baslat.sh` hâlâ `ROS_LOCALHOST_ONLY=1` veriyor ve her düğüm
 açılışta uyarı basıyor. **Çalışıyor**, sadece gürültü. İleride
 `ROS_AUTOMATIC_DISCOVERY_RANGE` + `ROS_STATIC_PEERS`'a geçilmeli.
+
+### 2.7 `while read` döngüsünün içindeki `ssh` döngüyü SESSİZCE bitirir
+
+İki uçağa sırayla dosya göndermek için yazılan döngü **yalnız ilkini** işledi,
+hata vermeden:
+
+```bash
+drone_bul.sh --tablo | while read -r isim ip kul kon aid; do
+    ssh "$kul@$ip" 'md5sum ...'      # <-- kalan satirlari YUTAR
+done
+```
+
+`ssh` stdin'i okur ve döngüyü besleyen borudaki kalan satırları tüketir.
+Çıktıya bakan kişi "ikinci uçak ağda değilmiş" sanır. Aynısı `ffmpeg`,
+`mysql`, `docker exec -i` için de geçerli.
+
+**Çözüm:** `ssh -n` (stdin'i `/dev/null`'a bağlar) ya da `ssh ... < /dev/null`.
+*(17 Ağustos 2026)*
 
 ---
 

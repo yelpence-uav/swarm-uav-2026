@@ -1,6 +1,6 @@
 # RPİ EŞİTLEME DEFTERİ — geri gelen drone'u hizaya getirme
 
-**Son güncelleme:** 17 Ağustos 2026, 04:11
+**Son güncelleme:** 17 Ağustos 2026, 10:21
 
 ## Bu belge ne için
 
@@ -282,9 +282,9 @@ sudo nmcli connection modify <ad> 802-11-wireless.powersave 2
 
 ### SSH anahtarları
 
-**ylp00'da iki satır, ylp02'de tek satır** (Osman'ınki 17 Ağustos'ta yalnız
-ylp00'a kuruldu — ylp02 o gece kapalıydı). Parola girişi **açık**
-(doğrulandı), yani her üye kendi anahtarını **kendisi** kurabilir:
+**İkisinde de Osman'ın anahtarı var** (ylp00 → 17 Ağustos gecesi, ylp02 →
+17 Ağustos sabahı, uçak açılır açılmaz). Parola girişi **açık** (doğrulandı),
+yani her üye kendi anahtarını **kendisi** kurabilir:
 
 ```bash
 ssh-keygen -t ed25519                  # kendi bilgisayarında, bir kez
@@ -296,6 +296,52 @@ ssh-copy-id <KULLANICI>@<ip>           # parolayla girer, anahtarını ekler
 ## 8. DEĞİŞİKLİK DEFTERİ
 
 Her Pi değişikliği buraya, en yeni en üste.
+
+### 2026-08-17 (2) — GPS saat beklemesi 25 → 150 sn + ylp02'ye SSH anahtarı
+
+| Ne | ylp00 | ylp02 | ylp01 (dönünce) |
+|----|-------|-------|-----------------|
+| `baslat.sh` → `gps_saat.py --bekle 150` | **VAR** | **VAR** | gerekli |
+| Osman'ın `id_ed25519.pub` → `authorized_keys` | **VAR** | **VAR** | gerekli |
+
+**Neden.** Her iki uçağın son açılış logunda aynı satır vardı:
+
+```
+[gps_saat] GPS zamani 25 sn icinde gelmedi. Saat DEGISMEDI.
+```
+
+Ölçülen zincir: Pi açılışı `01:52:36` → konteyner `01:52:49` → mavros +
+`sleep 15` → `gps_saat --bekle 25` pes ediyor `~01:53:30`. Yani GPS'e güç
+verildikten sonra topu topu **~54 sn** tanınıyor; Here4 soğuk başlangıçta o
+sürede kilitlenmiyor. Sonuç: **ylp00 7 sa 58 dk, ylp02 10 sa 15 dk geride,
+ikisi arasında 2 sa 17 dk fark.** Uçuşu bozmuyor (`consensus_node` bütün
+tazelik hesabını `time.monotonic()` ile ve yerel alım anına göre yapıyor —
+`consensus_context.py:29`), ama çapraz uçak kayıt karşılaştırmasını —
+`gps_saat.py`'nin var olma sebebini — imkânsız kılıyor.
+
+Uzatmanın bedeli yok: `gps_saat.py` ilk geçerli örneği alınca hemen çıkıyor,
+yani sıcak GPS'te gene saniyeler sürer.
+
+**Nasıl dağıtıldı — `dagit.sh` KULLANILMADI, bilerek.** Yalnız `baslat.sh`
+rsync'lendi ve md5 ile doğrulandı (`0dacdf44…`, repo ile birebir). Sebep bir
+sonraki maddede.
+
+> ⚠️ **Uçaklardaki ROS kodu bu depodan üretilemiyor.** İki Pi'nin de
+> `~/yelpence_ws/.surum` dosyası şunu diyor:
+>
+> ```
+> commit=0dfa0ad +KIRLI   dal=feature/dagitik-suru
+> dagitan=egUbuntu        15 Ağustos 20:34
+> ```
+>
+> `0dfa0ad` bu depoda **yok**, `feature/dagitik-suru` dalı da yok —
+> `git ls-remote origin` yalnızca `main` döndürüyor. Üstelik `+KIRLI`, yani
+> commit elimizde olsa bile birebir yeniden üretilemezdi. Şu an uçan kodu
+> okuyabildiğimiz tek yer Pi'lerin kendisi.
+>
+> **Sonuç: `dagit.sh` çalıştırmak `src/`'yi `main` ile ezer ve uçan kodu
+> değiştirir.** Bu dal Eyüp'ten alınana kadar `dagit.sh` çalıştırma. Takip:
+> `YAPILACAKLAR.md` P0.
 
 ### 2026-08-17 — ylp00'a SSH anahtarı (tek kalıcı değişiklik)
 

@@ -1,6 +1,6 @@
 # DURUM — şu an ne çalışıyor, ne bozuk
 
-**Son güncelleme:** 17 Ağustos 2026, 04:11
+**Son güncelleme:** 17 Ağustos 2026, 10:21
 
 > Bu belge **şimdiki hâli** anlatır, tarihçe değil. Bir şey değişince burayı
 > güncelle, eskisini sil. Ne olduğunun hikâyesi `GUNLUK.md`'de kalır.
@@ -193,19 +193,34 @@ hover gazı %66). Uçuş öncesi cevaplanmalı — `YAPILACAKLAR.md` P1.6.
 
 ## 4. Kod senkronu
 
-**14 Ağustos'ta doğrulandı — drift YOK.**
+### 🔴 Uçaklardaki ROS kodu bu depodan üretilemiyor (17 Ağustos, ölçüldü)
 
-- `deploy/rpi/baslat.sh` md5 `614b19a3...` : repo = ylp00 = ylp02, birebir
-- Python kaynakları: 131/131 dosya repo ile aynı (ylp00), 132/132 (ylp02)
-- `/ws/src`'te 6 paket var; `network_proxy` ve `sim_rtcm_source` **bilerek yok**
-  (ikisi de simülasyon bileşeni, bkz. `deploy/rpi/dagit.sh`)
+İki Pi'nin de `~/yelpence_ws/.surum` dosyası:
 
-⚠️ **`~/yelpence_ws/.surum` dosyası eskimiş** — ylp00'da 1 Ağu, ylp02'de
-2 Ağu tarihli commit yazıyor ama dosyalar sonra güncellendi. Senkron kontrolü
-için `.surum`'a **güvenme**, md5 karşılaştır.
+```
+commit=0dfa0ad +KIRLI   dal=feature/dagitik-suru
+dagitan=egUbuntu        15 Ağustos 20:34
+```
 
-✅ **Repo commit'li** (15 Ağustos). Dal `feature/dagitik-suru`. Uçuş kanıtını
-geçiren kodun tamamı, takım belge sistemi ve 15 Ağustos düzeltmeleri git'te.
+`git cat-file -t 0dfa0ad` → **yok.** `git ls-remote --heads origin` →
+**yalnız `main`.** Dal ve commit erişilemez, üstelik `+KIRLI` olduğu için
+commit elimizde olsa bile birebir üretilemezdi. **Şu an uçan yazılımı
+okuyabildiğimiz tek yer Pi'lerin kendisi.**
+
+> ⛔ **`dagit.sh` ÇALIŞTIRMA.** `src/`'yi `main` ile ezer, uçan kodu
+> değiştirir. Dal Eyüp'ten alınıp `origin`'e itilene kadar geçerli.
+> Tek dosyalık acil değişiklik: `rsync` + md5 doğrulaması.
+> Takip: `YAPILACAKLAR.md` **P0.7**.
+
+### `baslat.sh` — repo ile birebir
+
+md5 `0dacdf44...` : repo = ylp00 = ylp02 (17 Ağustos 10:21'de doğrulandı,
+`--bekle 150` değişikliğinden sonra).
+
+`/ws/src`'te 6 paket var; `network_proxy` ve `sim_rtcm_source` **bilerek yok**
+(ikisi de simülasyon bileşeni, bkz. `deploy/rpi/dagit.sh`).
+
+⚠️ Senkron kontrolü için `.surum`'a **güvenme**, md5 karşılaştır.
 
 ---
 
@@ -275,14 +290,30 @@ Bunlar sahada ölçüldü, tekrar sorgulanmasın:
 | 9 | Wi-Fi düşünce MAVROS log patlıyor | Bekçi kırpıyor ama kök neden duruyor | `RPI_ESITLEME.md` §8 |
 | 10 | Pi saati açılışta ~11 saat geriden | Çapraz uçak log karşılaştırması bozulur | `cihazlar.md` ⏰ |
 
-### 🟠 #10 — Pi saati (çözüm yazıldı, sahada doğrulanmadı)
+### 🟠 #10 — Pi saati: kök neden bulundu, düzeltme dağıtıldı, **henüz etkin değil**
 
-Pi 5'in RTC'sinde yedek pil yok; açılışta saat bayat geliyor, NTP gelince
-atlıyor. `gps_saat.py` açılışta PX4'ün GPS zamanından düzeltiyor —
-internet gerekmiyor, iki uçak aynı UTC'ye kilitleniyor.
+Pi 5'in RTC'sinde yedek pil yok; açılışta saat bayat geliyor. `gps_saat.py`
+açılışta PX4'ün GPS zamanından düzeltiyor — internet gerekmiyor.
 
-**Doğrulanmadı:** internetsiz açılışta gerçekten çalıştığı henüz sahada
-görülmedi. İlk saha çıkışında `gunluk/son/gps_saat.log`'a bak.
+**17 Ağustos'ta ölçüldü:** iki uçakta da düzeltme **çalışmamıştı**. Her
+ikisinin son açılış logunda aynı satır:
+`[gps_saat] GPS zamani 25 sn icinde gelmedi. Saat DEGISMEDI.`
+GPS'e güç verildikten sonra topu topu ~54 sn tanınıyor (Pi açılışı → konteyner
+13 sn → mavros + `sleep 15` → bekleme 25 sn) ve Here4 soğukta o sürede
+kilitlenmiyor. Sonuç: **ylp00 7 sa 58 dk, ylp02 10 sa 15 dk geride, aralarında
+2 sa 17 dk fark.**
+
+**Uçuşu bozmuyor** — `consensus_node` bütün tazelik hesabını
+`time.monotonic()` ile ve komşunun yerel alım anına göre yapıyor
+(`consensus_context.py:29`). Bozduğu şey çapraz uçak kayıt karşılaştırması.
+
+**Yapıldı:** `baslat.sh` → `--bekle 150`, iki uçağa da dağıtıldı, md5
+doğrulandı.
+
+> ⏳ **Henüz etkin değil.** `baslat.sh` yalnız konteyner açılışında okunuyor.
+> Şu anda ayakta olan konteynerler hâlâ eski değerle koştu, yani **iki uçağın
+> saati şu an hâlâ yanlış.** Etkin olması ve saatlerin GPS'e oturması için:
+> `docker restart drone1` / `drone3` (QGC yeniden bağlanmalı — §2 kuralı).
 
 ### ✅ #6 — Parametre ayrışması giderildi (14 Ağustos)
 

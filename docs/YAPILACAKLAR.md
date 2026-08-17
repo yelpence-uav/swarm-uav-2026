@@ -1,6 +1,6 @@
 # YAPILACAKLAR
 
-**Son güncelleme:** 17 Ağustos 2026, 04:11
+**Son güncelleme:** 17 Ağustos 2026, 10:21
 
 ## Önem dereceleri
 
@@ -19,6 +19,37 @@ Durum: `[ ]` yapılmadı · `[~]` kısmen · `[B]` başka işe bağlı · `[?]` 
 ---
 
 ## 🔴 P0 — UÇUŞ ENGELİ
+
+### 🆕 P0.7 Uçaklardaki kod bu depodan üretilemiyor (17 Ağustos, ölçüldü)
+
+İki Pi'nin de `~/yelpence_ws/.surum` dosyası şunu diyor:
+
+```
+commit=0dfa0ad +KIRLI   dal=feature/dagitik-suru
+dagitan=egUbuntu        15 Ağustos 20:34
+```
+
+`git cat-file -t 0dfa0ad` → **yok.** `git ls-remote --heads origin` →
+**yalnız `main`.** Yani hem commit hem dal erişilemez; üstelik `+KIRLI`,
+commit elimizde olsa bile birebir yeniden üretilemezdi.
+
+**Neden P0:** şu an uçan yazılımı okuyabildiğimiz tek yer Pi'lerin kendisi.
+Bir Pi'nin SD kartı ölürse ya da biri `dagit.sh` çalıştırırsa o kod gider ve
+**geri getirilemez** — uçuş kanıtını geçiren sürüm dahil. Ayrıca "sahadaki
+davranış repodaki koddan mı geliyor" sorusuna bugün **hayır** diyoruz, yani
+her teşhis şüpheli.
+
+- `[ ]` 🔴 **Eyüp'ten `feature/dagitik-suru` dalını iste ve `origin`'e it.**
+  Kirli ağaç da dahil — `git stash` değil, commit'lensin. En hızlısı:
+  `git push origin feature/dagitik-suru` + kirli değişiklikler için ek commit.
+- `[ ]` 🔴 Dal gelene kadar **`dagit.sh` ÇALIŞTIRMA** — `src/`'yi `main` ile
+  ezer ve uçan kodu değiştirir. Tek dosyalık acil değişiklikler `rsync` +
+  md5 doğrulamasıyla yapılır (örnek: 17 Ağu `baslat.sh`, `RPI_ESITLEME.md` §8).
+- `[ ]` 🟠 Dal geldikten sonra: Pi'deki `src/` ile dalın ağacını md5 ile
+  karşılaştır — `.surum` "KIRLI" dediği için eşleşmeme ihtimali yüksek,
+  fark neyse commit'lensin.
+- `[ ]` 🟡 `dagit.sh`'a koruma ekle: dağıtılacak commit `origin`'de yoksa
+  ya da ağaç kirliyse **sor/dur**. Bu durumun tekrarını engeller.
 
 ### ✅ P0.1 — TAMAMLANDI (14 Ağustos)
 
@@ -350,12 +381,13 @@ parola takım içinde paylaşılıyor (**repoya yazılmadı, yazılmayacak**).
 Yani her üye kendi anahtarını **kendisi** kurabilir, Eyüp'ün orada olması
 gerekmiyor.
 
-- `[~]` 🟠 Her üye kendi bilgisayarında bir kez:
+- `[x]` 🟠 Her üye kendi bilgisayarında bir kez:
   ```bash
   ssh-keygen -t ed25519
   ssh-copy-id yelpence00@<ip>    # üç drone için de
   ```
-  **Osman → ylp00 yapıldı (17 Ağu).** ylp02 o gece kapalıydı, kalan iş o.
+  **Osman → ylp00 ve ylp02 tamam (17 Ağu).** Kalan: ylp01 dönünce, ve
+  Osman dışındaki üyeler kendi anahtarlarını kursun.
 - `[ ]` 🟡 Anahtarlar dağıtıldıktan sonra parola girişini kapatmayı düşün
   (ama sahada kilitli kalma riskine karşı acil çıkış olarak bırakmak da savunulabilir)
 
@@ -424,12 +456,26 @@ Pi 5'in RTC'sinde yedek pil yok; açılışta saat ~11 saat geriden geliyor
 (ölçüldü). `gps_saat.py` PX4'ün GPS zamanından düzeltiyor, internet
 gerekmiyor. Ayrıntı `cihazlar.md` ⏰ bölümü.
 
-- `[~]` 🟠 **İlk saha çıkışında doğrula:** internetsiz açılışta
-  `gunluk/son/gps_saat.log` ne diyor — saat düzeldi mi, fark kaçtı.
-  **17 Ağu'da dolaylı olarak çalışırken görüldü:** ylp00 ~1 saat geriden
-  açıldı (konteyner damgası 23:53, gerçek saat 00:57), sonra düzeldi ve
-  laptopla saniyesi saniyesine aynı oldu. `gps_saat.log` okunmadı — asıl
-  doğrulama (fark kaç, NTP mi GPS mi düzeltti) hâlâ açık.
+- `[x]` 🟠 ~~İlk saha çıkışında doğrula~~ → **17 Ağustos sabahı ölçüldü ve
+  kök neden bulundu.** İki uçağın da `gunluk/son/gps_saat.log` dosyasında
+  aynı satır vardı:
+  `[gps_saat] GPS zamani 25 sn icinde gelmedi. Saat DEGISMEDI.`
+  Zincir: Pi açılışı `01:52:36` → konteyner `01:52:49` → mavros + `sleep 15`
+  → `gps_saat --bekle 25` pes ediyor `~01:53:30`. GPS'e güç verildikten sonra
+  **~54 sn** tanınıyor, Here4 soğuk başlangıçta o sürede kilitlenmiyor.
+  Sonuç: ylp00 **7 sa 58 dk**, ylp02 **10 sa 15 dk** geride, aralarında
+  **2 sa 17 dk** fark. Sıcak açılışta çalıştığı için aylarca görülmedi
+  (önceki açılışın logunda `fark=+0.151 sn`).
+  **Düzeltildi:** `baslat.sh` → `--bekle 150`, iki uçağa da dağıtıldı ve
+  md5 ile doğrulandı (`RPI_ESITLEME.md` §8). Uzatmanın bedeli yok —
+  `gps_saat.py` ilk geçerli örneği alınca hemen çıkıyor.
+- `[ ]` 🟠 **Soğuk açılışta doğrula:** uçaklar bir sonraki kez sıfırdan
+  açıldığında `gunluk/son/gps_saat.log` "kaydirildi" demeli. 150 sn de
+  yetmezse sıradaki seçenek GPS kilidini beklemek (fix alınana kadar).
+- `[ ]` 🟡 Not: saat kayması **uçuşu bozmuyor** — `consensus_node` bütün
+  tazelik/zaman aşımı hesabını `time.monotonic()` ile ve komşunun *yerel
+  alım anına* göre yapıyor (`consensus_context.py:29`). Bozduğu şey çapraz
+  uçak kayıt karşılaştırması.
 - `[ ]` 🟡 İki uçağın saatini uçuştan önce karşılaştırmayı alışkanlık yap
   (`drone_bul.sh --durum`'a eklenebilir)
 - `[ ]` ⚪ Kalıcı donanım çözümü: Pi 5 RTC konnektörüne düğme pil.

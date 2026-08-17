@@ -187,13 +187,28 @@ sleep 15
 # dugum kostuktan sonra atlatmak ROS zamanlayicilarini ve kayit damgalarini
 # bozar. Bu yuzden bir kez, burada, dugumlerden once.
 #
-# GPS 25 sn icinde kilitlenmezse saat DEGISMEZ ve olculen fark loga yazilir —
+# GPS bu sure icinde kilitlenmezse saat DEGISMEZ ve olculen fark loga yazilir —
 # o boot'un kayitlari sonradan o farkla duzeltilebilir. Acilis bloke olmaz.
 # Kapatmak icin: touch ~/yelpence_ws/gps_saat_kapali
+#
+# BEKLEME NEDEN 150 SN (17 Agustos'ta olculdu, onceden 25'ti)
+# 25 sn SOGUK BASLANGICTA yetmiyor. Olcum, iki ucakta da ayni:
+#     Pi acilis 01:52:36 -> konteyner 01:52:49 -> mavros + sleep 15
+#     -> gps_saat --bekle 25 pes ediyor ~01:53:30
+# Yani GPS'e guc verildikten sonra topu topu ~54 sn taniniyor. Here4 o surede
+# efemeris almadan kilitlenmiyor; sonuc "[gps_saat] GPS zamani 25 sn icinde
+# gelmedi" ve iki ucagin saati BIRBIRINDEN 2 sa 17 dk farkli kaldi. Sicak
+# baslangicta sorun cikmadigi icin aylarca fark edilmedi.
+#
+# Uzatmanin bedeli YOK: gps_saat.py ilk gecerli ornegi alinca hemen cikiyor
+# (bkz. while dongusu, gps_saat.py). Yani sicak GPS'te gene saniyeler surer;
+# 150 sn yalnizca gercekten soguksa — yani tam da beklemek istedigimiz anda —
+# harcanir. Ust sinir bilincli: kilitlenmeyen bir GPS acilisi 2.5 dk'dan fazla
+# geciktirmesin.
 if [ -f /ws/gps_saat_kapali ]; then
     echo "[baslat] gps saat duzeltmesi KAPALI (/ws/gps_saat_kapali)"
 elif [ -f /ws/gps_saat.py ]; then
-    python3 /ws/gps_saat.py --ns "/drone_${AGENT_ID}" --bekle 25 2>&1 \
+    python3 /ws/gps_saat.py --ns "/drone_${AGENT_ID}" --bekle 150 2>&1 \
         | tee -a "$GUNLUK/gps_saat.log"
 fi
 # GUIDED YORUNGE HIZLARI — yorunge 2 Agustos'ta px4_bridge'e tasindi
