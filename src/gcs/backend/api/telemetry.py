@@ -37,8 +37,25 @@ def health(request: Request):
     """Sağlık kontrolü."""
     store = request.app.state.store
     snap = store.snapshot()
+
+    # origin: harita tıklamasının çalışıp çalışmayacağı.
+    #
+    # NEDEN EKLENDİ (18 Ağustos 2026): `ros_bridge.has_origin()` yazılmıştı ama
+    # HİÇBİR YERDEN çağrılmıyordu ve origin durumunu gösteren uç nokta yoktu.
+    # Sonuç: operatör "harita hedefi çalışacak mı"yı ancak haritaya tıklayıp
+    # 409 "Origin henüz yok" yiyerek öğreniyordu. Aynı gün gerçek bir arıza
+    # bunun arkasına saklandı: `yki_baslat.sh`'in iki origin yayıncısı da
+    # /internal'a yazıyordu ve /swarm/public/origin BOŞTU — telemetri normal
+    # aktığı için hiçbir şey belirti vermedi.
+    #
+    # bridge yoksa (mavlink-sim modu) alan None döner; "false" demek yanlış
+    # olurdu çünkü o modda origin kavramı zaten yok.
+    bridge = getattr(request.app.state, "bridge", None)
+    origin_var = bridge.has_origin() if bridge is not None else None
+
     return {
         "ok": True,
         "drone_count": len(snap),
         "connected": sum(1 for d in snap if d.connected),
+        "origin": origin_var,
     }
