@@ -195,6 +195,31 @@ TAKIP_MESAFE_M = 15.0
 TAKIP_IRTIFA_M = 10.0
 TAKIP_BEKLEME_S = 3.0
 
+# --- --senaryo g2 (GOZLEM UCUSU — KISA) -------------------------------------
+# 18 Agustos 2026'da operator istegiyle yazildi. AMAC ucmak degil, SURU
+# DUGUMLERINI HAVADA GOZLEMLEMEK: consensus lideri kararli tutuyor mu,
+# swarm_fsm dogru durum uretiyor mu, formation_node ne hesapliyor, 11 dugum
+# kaynak olarak ne yiyor. Cikti /gozlem/... a gidiyor, UCAGA ULASMIYOR.
+#
+# NEDEN 'saha' DEGIL: o kanit videosunun koreografisi — 103 m yol, roll,
+# rotasyonlar, irtifa degisimi, ~187 sn. Gozlem sorularinin hicbiri bunlari
+# istemiyor ve pil bosuna yaniyor. Bu senaryo ayni sorulari ~90 saniyede
+# cevapliyor.
+#
+# KOREOGRAFI: kalkis -> 15 m ileri -> kendi kalkis noktasina don.
+#   * FORMASYON YOK (operator karari). Her ucak kendi konumundan gidip kendi
+#     yerine donuyor; yerdeki dizilim aynen korunuyor.
+#   * Burun HIC donmuyor (yon = liderin kalkis yonu), yaw dilimleme devre disi.
+#   * NEDEN FORMASYONSUZ YETIYOR: formation_node'u besleyen sey YKI'nin
+#     plani DEGIL, ucakta kosan form_yayinla.sh'in bastigi FormationCommand.
+#     Ikisi ayri kanal; plandan formasyonu cikarmak gozlem sorularindan
+#     hicbir sey eksiltmiyor.
+#   * ⚠️ Ayrim artik YERDEKI DIZILIME esit. Formasyonlu senaryolarda kod
+#     araligi 12 m'ye aciyordu, burada acmiyor — ucaklari ayri diz.
+G2_IRTIFA_M = 20.0
+G2_MESAFE_M = 15.0
+G2_BEKLEME_S = 3.0
+
 # --- --senaryo donus (CIZGI + 180 ROTASYON + EVE DONUS) ---------------------
 # Kalkis -> cizgi formasyonu -> liderin baktigi yone DONUS_MESAFE_M ->
 # 180 ROTASYON (lider YERINDE, takipci onun etrafinda yay cizer) -> eve don.
@@ -1831,6 +1856,47 @@ def plan_kur_takip(t):
     ]
 
 
+def plan_kur_g2(t):
+    """GÖZLEM UÇUŞU — kalk, 15 m git, kendi yerine dön.
+
+    FORMASYON YOK. Her uçak KENDİ ölçülen konumundan yola çıkar, ortak yönde
+    G2_MESAFE_M gider ve KENDİ kalkış noktasına döner. Yerdeki dizilim aynen
+    korunur; slot ataması, formasyon merkezi, yeniden atama — hiçbiri yok.
+
+    NEDEN FORMASYONSUZ (18 Ağustos, operatör kararı): bu uçuşun amacı sürü
+    düğümlerini gözlemlemek ve **YKİ'nin uçurduğu formasyon ile düğümlerin
+    hesapladığı formasyon ayrı şeyler**. `formation_node`'u besleyen şey bu
+    plan değil, uçakta koşan form_yayinla.sh'ın bastığı FormationCommand
+    (aynı gün ölçüldü). Dolayısıyla formasyonu plandan çıkarmak gözlem
+    sorularından hiçbir şey eksiltmiyor, ama uçuşu kısaltıyor ve slot
+    atamasıyla ilgili bütün riski ortadan kaldırıyor.
+
+    ⚠️ BEDELİ: uçaklar arası ayrım artık YERDEKİ DİZİLİME eşit ve uçuş boyunca
+    öyle kalır. Formasyonlu senaryolarda kod aralığı 12 m'ye açıyordu; burada
+    açmıyor. Uçakları en az MIN_AYRIM_M kadar (tercihen 8+ m) ayrı diz —
+    kuru test bunu denetliyor ve geçmezse görev başlamaz.
+
+    Yön ortak ve LİDERİN bakışından alınır; uçaklar burunlarını hiç çevirmez,
+    dönüşte geri geri gelirler. Böylece yaw dilimleme devreye girmez.
+    """
+    yon = t[LIDER]["yaw_deg"]
+    h = math.radians(yon)
+
+    baslangic = {did: (t[did]["pos_x"], t[did]["pos_y"], G2_IRTIFA_M)
+                 for did in DRONELAR}
+    ileri = {did: (p[0] + G2_MESAFE_M * math.cos(h),
+                   p[1] + G2_MESAFE_M * math.sin(h),
+                   G2_IRTIFA_M)
+             for did, p in baslangic.items()}
+
+    return [
+        (f"kalkış noktasında otur ({G2_IRTIFA_M:.0f} m)", yon, baslangic, True),
+        (f"-> {G2_MESAFE_M:.0f} m ileri (yön {yon:.0f}°)", yon, ileri,
+         G2_BEKLEME_S),
+        ("-> EV (herkes kendi kalkış noktasına)", yon, baslangic, True),
+    ]
+
+
 def plan_kur_asili(t):
     """KAÇINMA TESTİ — tek uçak kendi yerinin üstünde asılı durur.
 
@@ -2386,6 +2452,13 @@ def gorev(kuru: bool) -> int:
                   "yön ölçümüne dayanır, başlatılamaz.")
             return 1
         plan = plan_kur_takip(t)
+    elif _SENARYO == "g2":
+        eksik = [d for d in DRONELAR if d not in t]
+        if eksik:
+            print(f"Telemetride yok: drone {eksik} — g2 senaryosu konum ve "
+                  "yön ölçümüne dayanır, başlatılamaz.")
+            return 1
+        plan = plan_kur_g2(t)
     elif _SENARYO == "asili":
         did = DRONELAR[0]
         if did not in t:
@@ -2443,6 +2516,7 @@ def gorev(kuru: bool) -> int:
                   else FINAL_IRTIFA_M if _SENARYO == "final"
                   else DONUS_IRTIFA_M if _SENARYO == "donus"
                   else TAKIP_IRTIFA_M if _SENARYO == "takip"
+                  else G2_IRTIFA_M if _SENARYO == "g2"
                   else ASILI_IRTIFA_M if _SENARYO == "asili"
                   else TEKLI_IRTIFA_M if _SENARYO == "tekli"
                   else FORMASYON_TEST_IRTIFA_M if _SENARYO in ("formasyon", "lider")
@@ -2792,7 +2866,8 @@ def main() -> int:
                          "kacinma manevrasini kacis sanip gorevi iptal eder.")
     ap.add_argument("--senaryo",
                     choices=("kanit", "test", "formasyon", "lider", "tekli",
-                             "asili", "takip", "donus", "tam", "final", "saha"),
+                             "asili", "takip", "g2", "donus", "tam", "final",
+                             "saha"),
                     default="kanit",
                     help="kanit = tam koreografi; test = kuzeybati/bekle/"
                          "irtifa/don; formasyon = rastgele yerlesimden cizgi "
@@ -2890,7 +2965,7 @@ def main() -> int:
             HARITA_OFSET_KD = (float(k), float(d))
         except ValueError:
             ap.error("--harita-ofset 'KUZEY,DOGU' metre olmali (or. '4,-2')")
-    if a.senaryo in ("takip", "donus", "tam", "final", "saha"):
+    if a.senaryo in ("takip", "g2", "donus", "tam", "final", "saha"):
         if a.lider is None:
             ap.error(f"--senaryo {a.senaryo} icin --lider N gerekli")
         if a.lider not in DRONELAR:
@@ -2933,6 +3008,8 @@ def main() -> int:
           if a.senaryo == "tam" else
           f"  ÇİZGİ + 180° ROTASYON — {DONUS_MESAFE_M:.0f} m ileri, dön, eve"
           if a.senaryo == "donus" else
+          f"  GÖZLEM UÇUŞU — kalk, {G2_MESAFE_M:.0f} m ileri, kendi yerine dön (formasyonsuz)"
+          if a.senaryo == "g2" else
           f"  İKİ DRONLU PROVA — ok başı, {TAKIP_MESAFE_M:.0f} m ileri, "
           f"bekle, eve dön"
           if a.senaryo == "takip" else
@@ -2976,6 +3053,14 @@ def main() -> int:
         print(f"  dronelar: {DRONELAR}   LİDER: d{LIDER}   formasyon ÇİZGİ")
         print(f"  irtifa {DONUS_IRTIFA_M:.0f} m   aralık {ARALIK_M:.0f} m   "
               f"rotasyon dilimi {DONUS_ROTASYON_ADIM_DEG:.0f}°")
+    elif a.senaryo == "g2":
+        print(f"  dronelar: {DRONELAR}   LİDER: d{LIDER}")
+        print(f"  irtifa {G2_IRTIFA_M:.0f} m   ileri {G2_MESAFE_M:.0f} m   "
+              f"aralık {ARALIK_M:.0f} m   bekleme {G2_BEKLEME_S:.0f}s")
+        print(f"  kalk -> {G2_MESAFE_M:.0f} m ileri -> kendi yerine dön   "
+              f"(FORMASYON YOK, roll YOK, irtifa değişimi YOK)")
+        print(f"  ⚠ ayrım = yerdeki dizilim; uçakları en az "
+              f"{MIN_AYRIM_M:.0f} m (tercihen 8+ m) ayrı diz")
     elif a.senaryo == "takip":
         print(f"  dronelar: {DRONELAR}   LİDER: d{LIDER}   formasyon ok başı")
         print(f"  irtifa {TAKIP_IRTIFA_M:.0f} m   aralık {ARALIK_M:.0f} m   "
