@@ -1,6 +1,6 @@
 # GÜNLÜK — oturum devir teslim kaydı
 
-**Son güncelleme:** 17 Ağustos 2026, 15:53
+**Son güncelleme:** 19 Ağustos 2026, 00:12
 
 Tek bilgisayar, sırayla çalışıyoruz. Biri kalkıp diğeri oturduğunda **hem
 kişi hem Claude** nerede kalındığını buradan anlar.
@@ -35,6 +35,295 @@ Claude'a **"oturumu kapat"** dersen bu kaydı o yazar.
 - ylp00: (kill switch? pil? nerede? konteyner ayakta mı?)
 - ylp02:
 ```
+
+---
+
+## 2026-08-18 → 19 00:12 — Berk + Claude (YKİ macOS'ta ayağa kalktı, G2 uçuşu yapıldı, sürü yığınının FSM kopukluğu bulundu)
+
+> Uçuş **yapılmadı**, uçak yazılımına **dokunulmadı**. Gün YKİ tarafında geçti
+> ama uçakları ilgilendiren üç ölçüm çıktı — biri uçuş engeli.
+
+**Ne yapıldı**
+
+*YKİ ilk kez macOS'ta çalıştı*
+
+- Base ESP ve RTK bazı Berk'in MacBook'una takılıydı, ama YKİ yazılımı ROS 2
+  istiyor ve macOS'ta apt yok. Üç yol araştırıldı, **ölçümle** karar verildi:
+  - UTM sanal makine + USB passthrough → **elendi.** UTM belgesi: macOS
+    çekirdeğinin sahiplendiği cihazlarda düzgün reset yapılamıyor; CH340'ı
+    Mojave'den beri Apple sürücüsü sahipleniyor. Üstelik makine 8 GB M1,
+    VM 3-4 GB alıp QGC + tarayıcı + Vite + backend'e yer bırakmıyor.
+  - Colima + konteyner + seri köprü → çalışır ama üç fazladan parça.
+  - **RoboStack/pixi ile native ROS 2 → seçildi.** Gerekli paketlerin hepsi
+    osx-arm64'te var (`ros-base` 0.11.0, `mavros-msgs` 2.14.0,
+    `rmw-cyclonedds-cpp` 2.2.3) ve YKİ yolunda `numpy` hiç kullanılmıyor.
+- **Seri port native ölçüldü:** CH340 @460800, ROS'suz ham mesh çözümü —
+  6 saniyede **79 POSE + 12 DURUM, 0 bozuk çerçeve**. Köprüye gerek kalmadı.
+- `colcon build` macOS'ta **48 saniyede** geçti (3 paket). `swarm_control`
+  testleri: **140 geçti**, 1 atlandı.
+- `yki_baslat.sh` env ile parametrelendi (`ROS_SETUP`, `DDS_URI`,
+  `BASE_ESP_PORT`, `RTK_GPS_PORT`) — **ikinci betik yazılmadı**, Ubuntu
+  davranışı birebir aynı. macOS'a özgü dosyalar `~/yelpence-yki-mac/`
+  altında ve depoya girmiyor (Osman'ın `arch-docker/`'ı gibi).
+
+*🔴 Dört sessiz arıza*
+
+1. **QGC, RTK bazının portunu kapıyordu.** `AutoConnect → RTK GPS` açıkken
+   QGC u-blox'u tutuyor, `yki_rtcm_reader` `Resource busy` alıyor ve **RTCM
+   hiç akmıyor**. Belirti sessiz: telemetri normal, tek işaret `fix_type`'ın
+   6 yerine 3-5'te takılması. Port sahibi `lsof` ile bulundu
+   (`QGroundControl PID 6245`). Kapatılınca akış 9-10 msg/s'e döndü, iki uçak
+   da **RTK-FIXED**. → `TUZAKLAR` §6.6, `DURUM` §2
+2. **YKİ'de `/swarm/public/origin`'e kimse yazmıyordu.** Haritaya tıklayınca
+   backend 409 *"Origin henüz yok"* dönüyordu. Kök neden: 15 Ağustos'ta
+   `swarm_origin_publisher`'ın varsayılan konusu `/public` → `/internal`
+   değiştirilmiş, uçaktaki `baslat.sh` güncellenmiş ama **`yki_baslat.sh`
+   atlanmış**. İki yayıncı da `internal`'a yazıyordu (`Publisher count: 2`),
+   `public` boştu. **Bu macOS'a özgü değil — Ubuntu YKİ'de de vardı.**
+   ✅ Düzeltildi, doğrulandı: `seq=1 lat=38.6904758 lon=39.1610188 alt=1216.96`.
+3. **`drone_bul.sh` macOS'ta ylp01'i sessizce kaçıracaktı.** `arp -an`
+   MAC sekizlilerinin baştaki sıfırını atıyor (`…:da:04:2d` → `…:da:4:2d`);
+   ylp00/ylp02'de sıfırlı sekizli yok, o yüzden **yalnız ylp01** etkilenecek
+   ve ancak o dönünce fark edilecekti. → `TUZAKLAR` §9.1
+4. **`yki_baslat.sh` macOS'ta yarım YKİ bırakıyordu.** ROS bulunamıyor,
+   `source` sessizce düşüyor, betik dört düğüm başlatmaya devam ediyor ve
+   ekran normal görünüyor. ✅ Erken-patlama kapısı eklendi.
+
+*🔴 ylp02'nin alıcı failsafe'i kill tetikliyor — `TUZAKLAR` §0.2 CEVAPLANDI*
+
+Kumanda kapalı/açık iki kez ölçüldü:
+
+```
+                 ylp00 (drone1)            ylp02 (drone3)
+kumanda kapalı   kill=False healthy=True   kill=True  healthy=False
+kumanda açık     kill=False healthy=True   kill=False healthy=True
+```
+
+`rc_link_ok` iki durumda da `True`, diğer bütün sağlık bayrakları temiz.
+Belgede sanık **ylp00**'dı; ölçüm **ylp02**'yi gösteriyor. Havada karşılığı:
+RC kaybı → RTL değil **anında motor kesme**. Ayrıca `healthy=False` olan ajan
+`election.py`'de lider adayı olamıyor — G2'nin tek sorusu tam da bu.
+→ `YAPILACAKLAR` **P0.9**
+
+*🔴 G2 bu hâliyle boş kayıt üretecekti — ve YKİ'den beslemek firmware'de kapalı*
+
+- `formation_node` uçaklarda koşuyor ama **girdisi yok**: tarifi üreten
+  `mission1_node` kapalı. Girdi olmadan hiçbir şey yayınlamıyor
+  (`formation_node.py:878`). Gözlem uçuşu boş kayıt üretirdi.
+- Denendi: YKİ tarifi mesh'ten yollasın. ROS tarafı yazıldı, uçtan uca
+  çalıştı — base `form_tx=4`, `gonderim_drop=0`; ofset matematiği gerçek
+  `rotate_offset` ile gidiş-dönüş test edildi (**hata 0.00e+00 m**), codec
+  kuantizasyonu ölçüldü (**merkez ≤4 cm, ofset ≤5 cm**).
+- **Ama uçak `form_rx=0`.** Sebep RX BASE firmware whitelist'i: 0x11-0x15
+  **bilerek** dışarıda — *"formasyonu LİDER üretir (KARAR 3); YKİ'nin aynı
+  tipi yayınlaması ÇİFT KAYNAK olur"*. Firmware doğru yolu da yazmış:
+  YKİ **talep** gönderir, lider tarifi üretir.
+- **Yazılan kod tamamen geri alındı** (operatör kararı). Çalışmayan bir
+  `--gozlem-formasyon` bayrağı bırakmak, sonraki kişi için tuzak olurdu.
+  → `YAPILACAKLAR` **P0.10**
+
+*✅ `formation_node` ilk kez gerçek komutla ölçüldü — ve çözüm uçakta hazırmış*
+
+- P0.10 için `mission1_node`'u açmaya hazırlanırken ylp00'daki betikler
+  listelendi ve **`form_yayinla.sh`** bulundu: bir takım arkadaşı, formasyon
+  komutunu **uçakta** üretip mesh'e veren betiği çoktan yazmış. Lideri
+  `/swarm/internal/election/result`'a bildirip formasyonu
+  `/swarm/internal/formation/target`'a basıyor; köprü loopback ile yerel
+  `/swarm/public/formation/target`'a koyuyor. **Firmware whitelist sorununa
+  hiç çarpmıyor**, çünkü yer→hava yönünü kullanmıyor. Bugün YKİ'den zorlamaya
+  çalıştığım şeyin doğru katmandaki hâli buymuş.
+- Konteyner yeniden başlatılmadan, yeni düğüm açılmadan ölçüm yapıldı
+  (`gozlem` bayrağı açık, çıktı uçağa ulaşmıyor). 383 örnek ≈ 14 Hz:
+  ```
+  komut : merkez 12.3 / -45.6 / -8.0  heading 137.5  max_speed 3.5
+  cikti : x=12.2990 y=-45.6019 z=-8.000   (merkeze 0.9 mm)
+          |v| = 3.500 m/s  (tam tavan)    position_valid: FALSE
+  ```
+  Slot hesabı doğru (V'de ajan 1 tepe), rampa oturuyor, hız doygunlukta —
+  uçak yerde olduğu için 44 m hata var, beklenen davranış.
+  **`position_valid=false`** yani saf hız kipi; ADIM 3'ün açık maddesi ilk kez
+  gerçek telemetriyle doğrulandı.
+- Gözlem modu bir kez daha kendini ödedi: bağlı olsaydı yerdeki uçağa 3.5 m/s
+  ile 44 m ötesine gitme komutu giderdi.
+- Betiğin içinde belgelerde olmayan bir QoS tuzağı da yazılıydı →
+  `TUZAKLAR` §2.9. Kayıp betik listesi de geri çekildi → `YAPILACAKLAR` P2.5.
+
+*Akşam — kurtarma ve küçük düzeltmeler*
+
+- ✅ **21 saha teşhis betiği repoya alındı** → `deploy/rpi/teshis/` + README.
+  Yalnız ylp00'ın SD kartında, versiyonsuz duruyorlardı; listeleri
+  `COP_TEMIZLIK.md` silinince kaybolmuştu (P2.5). Parola/anahtar/sabit IP
+  taraması yapıldı, temiz. README onları **ARM eden / sahte veri enjekte eden /
+  güvenli** diye ayırıyor — sekizi gerçekten motor döndürüyor.
+- ✅ `dagit.sh` artık bu betikleri de dağıtıyor (uçağın `~/yelpence_ws/`
+  köküne, alt dizine değil ki iki kopya oluşmasın). ⚠️ **Uçakta sınanmadı**,
+  sebebi aşağıda.
+- ✅ **`has_origin()` ölü koddan çıkarıldı** — `/api/health` artık
+  `origin: true/false` döndürüyor. Bugün gerçek bir arıza (origin remap hatası)
+  tam bunun arkasına saklanmıştı: telemetri normal akarken harita 409 veriyordu.
+- 🔴 **`dagit.sh` bu Mac'te ÇALIŞMIYOR — ve sessizce yanlış uçağa eşliyor.**
+  macOS bash 3.2 ile geliyor, `declare -A` yok; "invalid option" deyip
+  **devam ediyor**, sonra `[ylp00]`/`[ylp02]` aritmetik olarak ikisi de `0`'a
+  çözülüp aynı indise yazıyor:
+  ```
+  ${x[ylp00]}  ->  "yelpence02"      ← ylp00 soruldu, ylp02 geldi
+  ```
+  Bugün `set -u` kurtardı. Olmasaydı ylp00'a ylp02'nin kullanıcı adıyla
+  bağlanmaya çalışacak, "Permission denied" anahtar sorunu sanılacaktı.
+  Çözüm `brew install bash` + `/opt/homebrew/bin/bash`. → `TUZAKLAR` §9.6
+- `[!]` **`mission1_node` yerde test EDİLEMEZ** (kod okundu): tarif üretmesi
+  için `mission_fsm`'in `ROTATE_TO_NEXT`'e gelmesi, o da uçağın gerçekten
+  kalkıp sürüde olması gerekiyor. `PREFLIGHT` ayrıca `home_set` istiyor (arm
+  anında set ediliyor) ve tek uçakla `all_agents_seen` sağlanmıyor.
+  → P0.10'a yazıldı; bu adım **2 uçak + uçuş** ister.
+
+*🟠 QR koordinat zinciri uçtan uca kopuk (firmware işi)*
+
+`mesh_config.h`: *"0x0F: TIP_QR_COORDS'a rezerve"* — **rezerve edilmiş, hiç
+tanımlanmamış.** Arayüz ✅, backend ✅, uçak ROS tarafı ✅; ama base bridge'in
+gönderim yolu **yok** ve RX BASE whitelist'inde 0x0F **yok**. İki ucu yazılmış,
+ortası yazılmamış. Kamera takılıp Aşama 3'e geçilince çıkacak.
+→ `YAPILACAKLAR` **P1.8**
+
+*Yapılan düzeltmeler ve yeni özellik*
+
+- `dagit.sh`: `set -o pipefail` — derleme çökse bile "başarılı" diyordu
+  (`TUZAKLAR` §1.14). Mekanizma kabukta doğrulandı. + `hostname` yedeği (§1.15).
+- `drone_bul.sh`: macOS desteği (`getent`/`ip`/`timeout`/`/dev/tcp` yok) ve
+  MAC normalizasyonu. Linux yolu değişmedi.
+- **u-blox reset butonu** (operatör isteği): `⚙ Ayarlar → RTK baz istasyonu`,
+  iki adımlı onaylı. Komut seri porta doğrudan gitmiyor — port tek sahipli,
+  sahibi `yki_rtcm_reader`; komut ROS'tan ona gidiyor, UBX-CFG-RST'i o yazıyor.
+  UBX baytları ve Fletcher sağlaması doğrulandı, uçlar sınandı
+  (`kipler` ✅, geçersiz kip → 400 ✅, konu Publisher 1/Subscription 1 ✅).
+  **Gerçek reset atılmadı** — baz survey-in modundaysa toparlanma dakikalar
+  sürebilir, operatör kararına bırakıldı.
+- SSH: Berk'in anahtarı iki uçağa kuruldu (`YAPILACAKLAR` P1.2).
+
+*🔴 G2 GÖZLEM UÇUŞU YAPILDI (21:45) — 62 saniye, ve baş soruyu cevaplayamadı*
+
+- Operatör `saha`'nın 187 saniyelik koreografisini reddetti (pil). Yerine
+  **yeni `--senaryo g2`** yazıldı: formasyonsuz, kalk 20 m → 15 m ileri →
+  herkes kendi kalkış noktasına → in. `takip`'e dokunulmadı.
+  Kuru test: en kritik ayrım **9.63 m** (eşik 4.0) — GEÇTİ.
+- **Uçuş kusursuz:** 62 s, üç adım da tamam, dört noktada da varış hatası
+  **< 1 m**, ölçülen en dar ayrım **9.41 m** (kuru testin öngördüğü 9.63 ile
+  birebir). Pilot müdahalesi yok, kill yok, eğim yok, kaçış kesicisi
+  tetiklenmedi. Kayıt: ylp00 288.427 / ylp02 234.460 mesaj,
+  `~/yelpence-kayitlar/g2_20260818/` (26 + 21 MB, yerel).
+- 🔴 **AMA: `/swarm/*/election/result` = 0, `/swarm/*/leader/heartbeat` = 0**
+  — iki uçakta da, 638 saniyede. **consensus hiç lider seçmedi.**
+- **Kök neden ölçüldü:** ajan durumu uçuş boyunca **IDLE(1)**, armed=True
+  olan 90 saniye dahil.
+  ```
+  state=1 IDLE armed=True   899 mesaj (ylp00)   880 (ylp02)   <- ucus
+  ELIGIBLE_STATES = { ARMED, TAKEOFF, IN_SWARM, EXECUTING_TASK }   IDLE YOK
+  ```
+  `IDLE → ARMING` geçişi `EVENT_MISSION_STARTED` istiyor
+  (`agent_fsm_node.py:314`); YKİ'nin guided yolu (`/api/guided/arm` → mesh →
+  `px4_bridge` → MAVROS) `agent_fsm`'i **hiç görmüyor**.
+- **Anlamı:** kanıtlanmış komut yolu ile sürü yığını **FSM katmanında kopuk**.
+  Guided uçuşta consensus'un çalışması yapısal olarak imkânsız — bu uçuşu on
+  kez tekrarlasak sonuç değişmezdi. → `YAPILACAKLAR` **P0.11** (yeni P0)
+- **Uçuş boşa gitmedi, tersine:** gözlem uçuşunun yakalaması gereken tam da
+  buydu. G3'te keşfedilseydi uçak formasyon düğümünün emrindeyken
+  "lider yok" durumuyla karşılaşacaktık.
+- **Çözüm aracı elimizde:** bugün kurtarılan `deploy/rpi/teshis/tam_kalkis.sh`
+  — *"TAM AKIS: EVENT_MISSION_STARTED → ARMING → ARMED → TAKEOFF"*. Önce
+  yerde, pervanesiz denenecek.
+- ✅ Yan doğrulama: `swarm_fsm` çalıştı (3154 / 2559 `SwarmState`), mesh komşu
+  telemetrisi akıyor (ylp00 ylp02'yi 4309, ylp02 ylp00'ı 3712 kez gördü),
+  `ros2 bag reindex` **çalışıyor** (metadata'sız kayıt okunabildi).
+
+**Ne değişti**
+
+- kod: `deploy/rpi/dagit.sh` · `deploy/yki/drone_bul.sh` · `src/gcs/yki_baslat.sh`
+  · `src/gcs/backend/connections/ros_bridge.py` · **yeni** `src/gcs/backend/api/rtk.py`
+  · `src/gcs/backend/main.py` · `src/gcs/backend/rtcm/yki_rtcm_reader.py`
+  · `src/gcs/frontend/src/services/api.ts` · `SettingsPanel.tsx` + `.css`
+  · `src/gcs/gorev_kanit_ucus.py` (**yeni `--senaryo g2`**)
+  · `src/gcs/backend/api/telemetry.py` (`/api/health` → `origin`)
+  · **yeni** `deploy/rpi/teshis/` — 21 kurtarılmış saha betiği + README
+- **uçakta:**
+  - `~/.ssh/authorized_keys` — Berk'in anahtarı (iki uçak)
+  - 🔴 **`~/yelpence_ws/yer_testi` SİLİNDİ** (iki uçak) + konteynerler yeniden
+    başlatıldı. **Uçaklar artık kalkış komutunu alıyor.** → `RPI_ESITLEME`
+  - ylp02'nin **alıcı failsafe'i** iki kez elle değiştirildi (düzeltildi →
+    kumanda sıfırlaması geri aldı → operatör tekrar düzelttiğini bildirdi,
+    **doğrulanmadı**)
+  - `gozlem` ve `kacinma` bayraklarına dokunulmadı
+- laptopta (depo dışı): `~/.pixi`, `~/yelpence-yki-mac/` (pixi ortamı, mac DDS
+  config, `port_bul.py`, `yki_mac.sh`, README).
+- belge: `DURUM`, `YAPILACAKLAR`, `TUZAKLAR` (§6.6 + yeni §9), `RPI_ESITLEME`, `GUNLUK`.
+
+**Yarım kalan / tuzak**
+
+- 🔴 **ylp02 kill failsafe'i GERİ GELDİ — uçak bu hâlde bırakıldı.** 17:30'da
+  düzeltildi ve doğrulandı; 18:40'ta operatör kumandayı **fabrika ayarlarına
+  döndürünce** alıcıya varsayılan failsafe geri yazıldı ve `CH5` tekrar `2000`
+  oldu. Ayrıca kumandanın model ayarlarının tamamı (reverse, End Points, switch
+  atamaları) sıfırlandı — PX4'ün RC kalibrasyonu eskisine göreydi, uçuştan önce
+  çubuk yönleri / ARM / KILL / gaz uçları `rc/in`'den doğrulanmalı.
+  → `YAPILACAKLAR` **P0.9** (yeniden açıldı)
+- ✅ ~~ylp02'nin alıcı failsafe'i~~ → **aynı gün 17:30'da düzeltildi.**
+  Kumandada `RX Setup → Failsafe → Ch5` **`+100%`** yazılıydı (failsafe kapalı
+  değil, kill değeriyle kayıtlı); `-100%` yapıldı. Kumanda kapalıyken
+  `CH5: 2001 → 1000`, `kill=False`, `healthy=True`. Uçuş gerekmedi.
+  **Kalan:** CH6 hâlâ 2000 (Görev 2 öncesi), ve ylp00'ınki tanımlı mı
+  tesadüfen mi emniyetli — bilinmiyor.
+- 🟠 **Bazın anteni son survey'den beri taşındı mı bilinmiyor.** Taşındıysa
+  bütün uçaklar haritada aynı yöne kayar. Operatöre soruldu, cevap gelmedi.
+  Ölçülen: baz `38.6905395 39.1610681 1217.58`, origin'den 8.29 m.
+- 🟠 **u-blox reset butonu gerçek donanımda hiç ateşlenmedi.** Uçlar ve UBX
+  paketi doğrulandı ama alıcı hiç resetlenmedi.
+- 🟡 `ros_bridge.py:527` `has_origin()` **hiçbir yerde kullanılmıyor** ve
+  origin durumunu gösteren uç nokta yok — operatör "harita çalışacak mı"yı
+  ancak tıklayıp 409 yiyerek öğreniyor. ~3 satırlık iş.
+- 🟡 macOS'ta `pytest` **7.x'e sabitlendi**; 9.x ROS'un `launch_testing`
+  eklentisiyle uyumsuz (eski hook imzası).
+- ℹ️ Bugün `docs/YAPILACAKLAR.md`'de istemsiz bir karakter değişikliği oldu
+  (`[ ]` → `[a]`), fark edildi ve geri alındı. Sebebi bulunamadı.
+
+**Sıradaki adım**
+
+🔴 **P0.11 — `agent_fsm`'i sürü yolundan ARMED'a sürmek.** G2 uçtu ama baş
+sorusunu cevaplayamadı: guided yol `agent_fsm`'i atladığı için ajan IDLE'da
+kalıyor ve consensus hiç seçim yapmıyor. Araç elimizde:
+`deploy/rpi/teshis/tam_kalkis.sh`. **Önce yerde, pervanesiz** — ajan ARMED'a
+geçiyor mu, consensus lider seçiyor mu. Geçerse **G2 tekrar uçulur** ve bu
+sefer lider seçimi gerçekten ölçülür.
+
+Bekleyen diğerleri: **ylp02 failsafe doğrulaması** (operatör düzelttiğini
+söyledi, ölçülmedi), **ylp00 clipping ölçümü**, ve `formation_node`'un havada
+gözlemi için `form_yayinla.sh` ile besleme. Paralelde `mission1_node` yerde açılıp ne ürettiğine
+bakılacak.
+
+**Uçakların bırakıldığı hâl**
+
+- **İkisi de AÇIK ve yerde, disarm.** 21:45'te G2 uçuşu yapıldı (62 s),
+  ikisi de kendi kalkış noktasına inip disarm oldu. Pil %100 okunuyor ama
+  bu ölçüm anlamsız — uçaklar regülatörden besleniyor, `BAT1_SOURCE` kapalı.
+- **ylp00:** kod `600ca65`, 11 düğüm ayaktaydı, bayraklar 17 Ağustos'taki gibi
+  (`yer_testi`, `gozlem`, `kacinma`, `origin`, `suru_dugumleri`, `gcs_url`).
+  Uçuş sonrası `kill=False`, `healthy=True`, RTK-FIXED, 32 uydu.
+  Alıcı failsafe'i **tanımlı ve emniyetli** (`CH5=1000` ölçüldü).
+  🔴 **`yer_testi` bayrağı SİLİNDİ** — uçak kalkış komutunu alır durumda.
+  ⚠️ `~/yelpence_ws/core.50` — **353 MB core dump**, silinmeli.
+- **ylp02:** 🔴 **`yer_testi` SİLİNDİ**, kalkış komutunu alır durumda.
+  Alıcı failsafe'i gün içinde iki kez ele alındı: düzeltildi → kumanda
+  fabrika sıfırlaması geri aldı → operatör **tekrar düzelttiğini bildirdi
+  ama doğrulama ölçümü YAPILMADI**. Sonraki kişi kumandayı kapatıp
+  `rc/in`'den `CH5`'i okusun: `1000` ise tamam, `2000` ise P0.9 hâlâ açık. Ayrıca kumandanın model
+  ayarlarının tamamı sıfırlandı — çubuk yönleri, ARM (CH8), KILL (CH5) ve gaz
+  uçları uçuştan önce `rc/in`'den doğrulanmalı.
+- **YKİ:** Berk'in MacBook'unda koşuyor (`bash ~/yelpence-yki-mac/yki_mac.sh`),
+  base ESP + RTK bazı ona takılı, RTCM 6 msg/s akıyor (MSM4, `crc_err=0`).
+  QGC açık; **UDP ve RTK GPS oto-bağlanması kapalı** — RTK GPS açılırsa
+  u-blox portunu kapıyor ve RTCM kesiliyor (`TUZAKLAR` §6.6).
+- **Depoda commit YOK** — bugünkü değişiklikler (6 düzeltme, u-blox reset
+  butonu, `--senaryo g2`, 21 kurtarılmış betik, 5 belge) çalışma ağacında
+  duruyor. Sonraki kişi `git status` ile görür.
+- **Uçuş kayıtları** `~/yelpence-kayitlar/g2_20260818/` — depoda değil, yerel.
 
 ---
 

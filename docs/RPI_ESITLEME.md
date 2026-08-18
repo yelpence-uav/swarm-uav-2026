@@ -1,6 +1,6 @@
 # RPİ EŞİTLEME DEFTERİ — geri gelen drone'u hizaya getirme
 
-**Son güncelleme:** 17 Ağustos 2026, 11:41
+**Son güncelleme:** 19 Ağustos 2026, 00:12
 
 ## Bu belge ne için
 
@@ -69,7 +69,7 @@ olduğu** yazıyor.
 | A7 | Kayıt disk temizlik timer'ı | ✅ | ❓ | ✅ | `izleme_kur.sh` 6/7 |
 | A8 | **sysctl writeback (1 sn)** | ✅ | ❌ | ✅ | `izleme_kur.sh` 7/7 → `/etc/sysctl.d/60-yelpence-writeback.conf` |
 | A9 | **Wi-Fi ağları (SSID/şifre)** | ✅ 2 ağ | ❌ | ✅ 2 ağ | aşağıda §7 |
-| A10 | **SSH authorized_keys** | ⚠️ tek satır | ❌ | ⚠️ tek satır | aşağıda §7 |
+| A10 | **SSH authorized_keys** | ✅ Osman+Berk | ❌ | ✅ Osman+Berk | aşağıda §7 |
 
 **A8 açıklama:** güç kesintisinde veri kaybının üçüncü katmanı. Bu ayar
 olmadan `baslat.sh`'teki kayıt sertleştirmesi anlamsız — veri kullanıcı
@@ -282,9 +282,19 @@ sudo nmcli connection modify <ad> 802-11-wireless.powersave 2
 
 ### SSH anahtarları
 
-**İkisinde de Osman'ın anahtarı var** (ylp00 → 17 Ağustos gecesi, ylp02 →
-17 Ağustos sabahı, uçak açılır açılmaz). Parola girişi **açık** (doğrulandı),
-yani her üye kendi anahtarını **kendisi** kurabilir:
+**İkisinde de Osman'ın ve Berk'in anahtarı var:**
+
+| Anahtar | ylp00 | ylp01 | ylp02 |
+|---------|-------|-------|-------|
+| Osman | ✅ 17 Ağu gecesi | ❌ | ✅ 17 Ağu sabahı |
+| Berk (MacBook) `berk@github` | ✅ 18 Ağu | ❌ | ✅ 18 Ağu |
+
+🔴 **ylp01 döndüğünde İKİSİNİ BİRDEN kur** — yoksa aynı "bağlanamıyorum"
+turu üçüncü uçakta baştan yaşanır. Berk'in parmak izi:
+`SHA256:ADq8YfUQqzqkKQC+4FXkBf8AmQbyCPsn5BgpI+FvXi0`
+
+Parola girişi **açık** (doğrulandı), yani her üye kendi anahtarını
+**kendisi** kurabilir:
 
 ```bash
 ssh-keygen -t ed25519                  # kendi bilgisayarında, bir kez
@@ -296,6 +306,27 @@ ssh-copy-id <KULLANICI>@<ip>           # parolayla girer, anahtarını ekler
 ## 8. DEĞİŞİKLİK DEFTERİ
 
 Her Pi değişikliği buraya, en yeni en üste.
+
+### 2026-08-18 (2) — `yer_testi` bayrağı SİLİNDİ (ylp00 + ylp02)
+
+G2 gözlem uçuşu için iki uçaktan da `~/yelpence_ws/yer_testi` **silindi** ve
+konteynerler yeniden başlatıldı.
+
+🔴 **Uçaklar bu hâlde bırakıldı: kalkış komutunu artık alıyorlar.** Yer testi
+(arm olup kalkmama) yapılacaksa geri konmalı:
+
+```bash
+./deploy/yki/drone_bul.sh ylp00 'touch ~/yelpence_ws/yer_testi && docker restart drone1'
+./deploy/yki/drone_bul.sh ylp02 'touch ~/yelpence_ws/yer_testi && docker restart drone3'
+```
+
+`gozlem` ve `kacinma` bayraklarına dokunulmadı — ikisi de duruyor.
+
+### 2026-08-18 — Berk'in SSH anahtarı (ylp00 + ylp02)
+
+Uçak yazılımına **dokunulmadı**; yalnız `~/.ssh/authorized_keys`'e bir satır
+eklendi (`ssh-copy-id`, parolayla). Konteynerler yeniden başlatılmadı,
+bayraklar değişmedi. ylp01 için bekliyor.
 
 ### 2026-08-17 (3) — uçaklar `main`'e alındı (`dagit.sh`, e012dba)
 

@@ -1,6 +1,6 @@
 # TUZAKLAR — hata vermeden yanlış sonuç üretenler
 
-**Son güncelleme:** 17 Ağustos 2026, 11:41
+**Son güncelleme:** 19 Ağustos 2026, 00:12
 
 > **Bu belge CANLI.** Arşiv değil — buradaki her madde **bugün de geçerli.**
 >
@@ -34,7 +34,9 @@
 
 ## 🔴 0. Durumu BİLİNMİYOR — uçuştan önce cevaplanmalı
 
-Bu üçü arşivde "çözülmedi" diye duruyor ve **hiçbir canlı belgede yok.**
+Bu üçü arşivde "çözülmedi" diye duruyor ve hiçbir canlı belgede yoktu.
+**18 Ağustos'ta biri (0.2) cevaplandı** — cevabı beklenenin tersi çıktı.
+Kalan ikisi hâlâ bilinmiyor.
 Uçuş kanıtı geçildiğine göre bir kısmı düzelmiş olabilir — ama bunu kimse
 yazmamış. Cevaplanınca ya buradan silinir ya doğru bölüme taşınır.
 
@@ -69,7 +71,52 @@ arızadan tehlikelidir — uçarken geri gelebilir. O günün kuralı:
 öncesi listesinde yok. `DURUM.md` §7 yalnız `param_karsilastir.py` diyor.
 *(1 Ağustos 2026'da ölçüldü)*
 
-### 0.2 ylp00'ın alıcı failsafe'i kill tetikliyor muydu — düzeldi mi?
+### ✅ 0.2 CEVAPLANDI (18 Ağustos) — sorun ylp00'da DEĞİL, **ylp02'de**
+
+YKİ telemetrisinden ölçüldü, iki kez tekrarlandı:
+
+| | ylp00 (drone1) | ylp02 (drone3) |
+|---|---|---|
+| kumanda **kapalı** | `kill=False` `healthy=True` | **`kill=True` `healthy=False`** |
+| kumanda **açık** | `kill=False` `healthy=True` | `kill=False` `healthy=True` |
+
+`rc_link_ok` iki durumda da `True`; diğer bütün sağlık bayrakları temiz.
+Yani ylp00 bir noktada düzelmiş (kimse yazmamış), **ylp02 bozuk**.
+
+**✅ ylp02 aynı gün düzeltildi (17:30).** Kumandanın `RX Setup → Failsafe`
+ekranında **Ch5 `+100%`** yazılıydı — failsafe kapalı değil, **kill değeriyle
+kayıtlı**. `-100%`'e çevrilip kaydedildi:
+
+```
+önce : 1488 1496 1017 1500  2001  2000 1000 1000     ← kumanda KAPALI
+sonra: 1488 1496 1018 1500  1000  2000 1000 1000     ← kumanda KAPALI
+```
+
+⚠️ Dikkat çekici: 29 Temmuz'da "ylp00" diye kaydedilen sekiz kanal, bugün
+ylp02'de **birebir** çıktı (`1488 1496 1017 1500 200x 2000 1000 1000`).
+Ya o gün ölçüm ylp02'de yapılıp nota yanlış uçak yazıldı, ya da iki alıcı da
+aynı ayarlıydı ve ylp00 sonradan düzeltildi. Ayırt edilemedi.
+
+**Düzeltmeden sonraki kill semantiği** (18 Ağu'da ölçüldü, LED ile de görüldü):
+
+| Durum | PX4 | Pixhawk LED |
+|-------|-----|-------------|
+| Kumanda AÇIK + SwA kill konumunda | kill aktif | kırmızı |
+| Kumanda KAPALI (failsafe `CH5=1000`) | kill **bırakılır** | yeşil |
+
+Yani kill artık **yalnız kumanda açıkken** var. `COM_KILL_DISARM=5.0` sayesinde
+kill 5 sn'den uzun tutulursa PX4 kendiliğinden **disarm** ediyor; kill sonradan
+kalksa bile motorlar geri gelmiyor.
+⚠️ **Uç durum:** kill 5 sn'den KISA tutulup bırakılırsa uçak hâlâ armlı olduğu
+için motorlar geri gelir ("pilot kill'ledi, 2 sn sonra kumanda öldü").
+Bilerek kabul edildi — alternatifi kumanda ölünce garantili kill'di.
+
+⚠️ **CH6 hâlâ 2000** (aux2 = Görev 2 mod seçimi) — bugün zararsız,
+`mode_manager` kapalı. Görev 2 öncesi kaydedilmeli.
+Kalan maddeler: `YAPILACAKLAR.md` **P0.9**.
+
+Aşağıdaki 29 Temmuz ölçümü tarihçe olarak duruyor — mekanizma aynı, yalnız
+uçak farklı:
 
 Kumanda **kapalıyken** ylp00'ın alıcısı susmuyor, hafızasındaki failsafe
 değerlerini göndermeye devam ediyordu; içlerinden biri CH5'i kill'e atıyordu:
@@ -94,6 +141,30 @@ Ch5/6/7 Off → %100'e dön → `RC_FAILS_THR=960`). ylp02'de %120 uygulandı,
 908 ölçüldü. **Açık soru:** alıcı 908'i ham PWM olarak mı yüzde olarak mı
 saklıyor? Yüzde ise End Points geri alınınca numara boşa gider.
 *(29 Temmuz 2026'da ölçüldü)*
+
+### 0.4 Kumandayı fabrika ayarlarına döndürmek ALICININ failsafe'ini de bozar
+
+18 Ağustos'ta yaşandı: ylp02'nin CH5 failsafe'i düzeltildi ve doğrulandı,
+sonra kumanda sıfırlandı ve düzeltme **geri gitti**.
+
+```
+duzeltilmis : 1488 1496 1017 1500  1000  2000 1000 1000
+sifirlama sonrasi: 1501 1501  964 1499  2000  1000 1000 1000
+                                        ^^^^ kill geri geldi
+```
+
+Failsafe değerleri kumandada değil **alıcının flash'ında** durur; sıfırlama
+onları temizlemez, bağlantı kurulunca **varsayılanları geri yazar**. FlySky'ın
+switch kanalları için varsayılanı `+100%`, yani **kill**. ylp02'nin en baştaki
+bozukluğunun sebebi de büyük olasılıkla eski bir sıfırlama/model kurulumu.
+
+⚠️ Sıfırlama yalnız failsafe'i bozmaz: reverse, End Points ve switch atamaları
+da varsayılana döner, oysa **PX4'ün RC kalibrasyonu eski ayarlara göre**
+yapılmıştır. Sıfırlama sonrası uçmadan önce `rc/in` okunarak doğrulanacaklar:
+çubuk yönleri · ARM switch'i (CH8) · KILL switch'i (CH5) · gaz alt/üst uçları.
+
+**Kural: kumanda sıfırlandıysa alıcı failsafe'i de yeniden kurulmadan uçulmaz.**
+*(18 Ağustos 2026'da ölçüldü)*
 
 ### 0.3 ylp00 hover gazı %66 — hâlâ öyle mi?
 
@@ -253,16 +324,21 @@ colcon build ... 2>&1 | tail -15     # boru hattinin cikis kodu = tail'inki = 0
 paketin **eski install/** ile koştuğunu bilmeden uçacaktık — ve `.surum`
 "e012dba (main)" diyeceği için sonraki kişi de sorgulamayacaktı.
 
-**Kural:** `dagit.sh` çıktısında `Summary:` satırını gözünle oku; `failed`
-geçiyorsa `.surum`'a rağmen dağıtım tamam DEĞİLDİR. Kalıcı düzeltme
-`PIPESTATUS` ile — `YAPILACAKLAR.md` P0.7 son madde. *(17 Ağustos 2026)*
+✅ **18 Ağustos'ta düzeltildi:** uzak `bash -lc` içine `set -o pipefail`
+eklendi; boru hattı artık `colcon`'un çıkış kodunu taşıyor ve derleme
+çökerse `.surum` da yazılmıyor. Mekanizma kabukta doğrulandı — pipefail
+kapalı → çıkış 0, açık → 1.
+
+**Kural yine de geçerli:** `dagit.sh` çıktısındaki `Summary:` satırını gözünle
+oku. *(17 Ağustos 2026'da ölçüldü, 18 Ağustos'ta düzeltildi)*
 
 ### 1.15 `hostname` Arch'ta kurulu değil — `.surum`'un `dagitan` alanı boşalır
 
 `dagit.sh:169` `dagitan=$(hostname)` kullanıyor; Arch'ta `inetutils` varsayılan
 gelmiyor, komut bulunamıyor ve alan **sessizce boş** kalıyor. Kim dağıttı
-bilgisi kayboluyor. `${HOSTNAME:-$(uname -n)}` her yerde çalışır.
-*(17 Ağustos 2026)*
+bilgisi kayboluyor.
+✅ **18 Ağustos'ta düzeltildi:** `hostname → /etc/hostname → "bilinmiyor"`
+zinciri. *(17 Ağustos 2026'da ölçüldü)*
 
 ---
 
@@ -277,6 +353,24 @@ hiçbir yerde bir satır çıkmaz.
 Bu projede en az üç kez yaşandı: `SwarmState` publisher'ı (YKİ paneli boş
 kalıyordu), yük testi üreteci, RTCM okuyucusu. Yeni bir publisher/subscriber
 eklerken **karşı ucun QoS'unu oku.** *(20 ve 28 Temmuz 2026)*
+
+### 2.9 `ros2 topic pub` VOLATILE yayınlar — TRANSIENT_LOCAL abone HİÇ almaz
+
+`/swarm/internal/election/result` aboneliği `_ELECTION_QOS` = **RELIABLE +
+TRANSIENT_LOCAL** (`esp32_bridge_node.py:110`; `consensus_node.py:118` de aynı).
+`ros2 topic pub`'ın varsayılanı **VOLATILE**, yani bayraksız elle yayın
+DURABILITY uyumsuzluğundan **hiç ulaşmıyor** ve hata da vermiyor.
+
+Sahada ölçülen belirti: `form_lider_degil=9  lider=0` — köprü "lider bilinmiyor"
+diyor, oysa yayın yapılıyor sanılıyor.
+
+```bash
+ros2 topic pub --qos-reliability reliable --qos-durability transient_local ...
+```
+
+⚠️ Bu yalnız **elle yayında** çıkan bir tuzak; gerçek düğümler arasında
+uyumsuzluk yok. `~/yelpence_ws/form_yayinla.sh` içinde yazılı — o betik
+repoya alınmalı (`YAPILACAKLAR` P2.5). *(18 Ağustos 2026'da bulundu)*
 
 ### 2.2 `RMW_IMPLEMENTATION` + `CYCLONEDDS_URI` vermeden düğüm başlatma
 
@@ -676,6 +770,33 @@ Kalıcı katmanlar bozulmuyor → **u-blox'u çıkarıp takmak düzeltir.** Kal�
 > o ölçüm tam bu 40 msg/s seline denk geliyormuş. 1 Hz'e dönünce iki uçak da
 > `crc_fail=0`. **Anten şüphesi desteklenmiyor.** *(30 Temmuz 2026)*
 
+### 6.6 QGC'nin `AutoConnect → RTK GPS`'i u-blox PORTUNU kapıyor — RTCM hiç akmaz
+
+§6.1 QGC'nin ayarları bozmasını anlatıyor; bu ondan **ayrı** ve daha sinsi:
+QGC seri portu **açık tutuyor**, dolayısıyla `yki_rtcm_reader` portu hiç
+açamıyor. Seri port tek sahipli.
+
+```
+$ lsof /dev/cu.usbmodem1301
+COMMAND     PID USER   FD   TYPE  NAME
+QGroundCo  6245 berk   72u   CHR  /dev/cu.usbmodem1301     ← QGC tutuyor
+
+/tmp/yki_rtcm.log:
+⚠ GPS PORTU AÇILAMADI — [Errno 16] Resource busy
+```
+
+**Belirti sessiz:** telemetri normal akıyor, YKİ arayüzü sağlıklı görünüyor,
+tek işaret uçakların `gps_fix_type`'ının 6 (RTK-FIXED) yerine **3-5'te
+takılması** ve kimsenin bakmadığı `/tmp/yki_rtcm.log`.
+
+**Çözüm:** QGC → Application Settings → General → *AutoConnect to the
+following devices* → **RTK GPS kapalı**. Okuyucu 2 sn'de bir yeniden deniyor,
+kapatır kapatmaz kendiliğinden bağlanıyor.
+
+⚠️ Bu, QGC'yi kapatmakla çözülmez sanılmasın — QGC **açık kalmalı** (§7.1:
+`udp-b` yayın tuzağı). İkisi birlikte: QGC açık, RTK GPS oto-bağlanması
+kapalı. *(18 Ağustos 2026'da ölçüldü; port sahibi `lsof` ile bulundu)*
+
 ### 6.2 Katman kontrolü RAM/FLASH ile YETMEZ — BBR de okunmalı
 
 F9P açılışta `Default → Flash → BBR` sırasıyla yükler, yani **BBR Flash'ı
@@ -782,6 +903,94 @@ Bunlar bir kez ölçüldü ve tekrar ölçmeye değmez.
 
 **Not:** hız/ivme/aralık gibi *ayarlanabilir* sayılar burada değil —
 tek kaynak `src/gcs/ucus_ayarlari.py` (bkz. `CLAUDE.md` §8).
+
+---
+
+## 9. YKİ makinesi — platform farkları (Ubuntu / Arch / macOS)
+
+18 Ağustos'ta YKİ ilk kez bir **macOS** makinede (Apple Silicon) çalıştırıldı.
+Aşağıdakiler o gün ölçüldü; hepsi **hata vermeden yanlış sonuç** üreten türden.
+
+### 9.1 `arp -an` macOS'ta MAC sekizlilerinin baştaki sıfırını ATIYOR
+
+```
+gerçek MAC : 88:a2:9e:da:04:2d          ← docs/cihazlar.md (ylp01)
+arp -an    : 88:a2:9e:da:4:2d           ← macOS böyle yazıyor
+```
+
+Düz metin karşılaştırması yapan bir betik o cihazı **sessizce kaçırır**:
+"ağda yok" der, oysa vardır. `drone_bul.sh` bundan etkileniyordu ve
+**yalnız ylp01'i** kaçıracaktı — ylp00/ylp02'nin MAC'inde sıfırlı sekizli
+yok, o yüzden ylp01 onarılıp dönene kadar kimse fark etmeyecekti.
+✅ Düzeltildi: iki taraf da normalize ediliyor (`mac_sadelestir`).
+
+### 9.2 `/dev/tcp` **zsh'te YOKTUR** — port testi yanlış "kapalı" der
+
+`/dev/tcp/host/port` bash'e özgü bir sanal cihaz. macOS'un varsayılan kabuğu
+zsh ve orada bu yol yok; test sessizce başarısız olur.
+
+```
+zsh  : (echo > /dev/tcp/172.20.10.2/22)  → "kapali"   ← YALAN
+nc   : nc -z -G 3 172.20.10.2 22         → "SSH ACIK" ← doğru
+```
+
+Bu tam olarak §1'in konusu: **ölçüm aracının kendisi yalan söylüyor.**
+`drone_bul.sh` macOS'ta `nc` kullanıyor artık.
+
+### 9.3 Loopback arayüzünün adı `lo` değil `lo0`
+
+CycloneDDS yapılandırmasında `<NetworkInterface name="lo">` macOS'ta arayüzü
+bulamaz → laptop-içi DDS hiç kurulmaz → base_bridge veri okur ama backend'e
+ulaşmaz. Sessiz arıza. macOS için ayrı config kullanılıyor
+(`DDS_URI` env ile). `name` yerine `address="127.0.0.1"` iki platformda da
+çalışır ama saha makinesinde sınanmadan değiştirilmedi.
+
+### 9.4 `setsid` ve `getent` macOS'ta yok, `ip` komutu da yok
+
+`yki_baslat.sh` ve `drone_bul.sh` bunların hepsini kullanıyordu. Karşılıkları:
+`setsid → nohup`, `getent hosts → dscacheutil -q host`, `ip route → route -n
+get default` + `ipconfig getifaddr`, `ip neigh → arp -an`, `timeout → gtimeout`
+(yoksa çıplak çalıştır). Hepsi tek yerden sarmalandı; Linux yolu değişmedi.
+
+### 9.6 macOS'un bash'i 3.2 — `declare -A` SESSİZCE yanlış uçağa eşler
+
+`dagit.sh` ve benzeri betikler drone tablosunu **ilişkisel dizi** ile tutuyor.
+macOS hâlâ **bash 3.2** ile geliyor (2007 sürümü, lisans yüzünden) ve orada
+`declare -A` yok. Kötüsü: sessizce yanlış sonuç veriyor.
+
+```
+$ /bin/bash -c 'declare -A x=([ylp00]="yelpence00" [ylp02]="yelpence02")
+                echo "${x[ylp00]}"'
+declare: -A: invalid option          ← uyarı basar ama DEVAM EDER
+yelpence02                            ← ylp00 soruldu, ylp02 geldi
+```
+
+Sebep: `[ylp00]` ve `[ylp02]` **aritmetik** değerlendiriliyor, ikisi de `0`
+çıkıyor, ikisi de aynı indise yazıyor ve **sonuncusu kazanıyor**.
+
+**Bugün bizi `set -u` kurtardı** (`ylp00: unbound variable` deyip durdu). O
+olmasaydı `dagit.sh` **ylp00'a bağlanmaya çalışırken ylp02'nin kullanıcı adını**
+kullanacaktı — ve "Permission denied" hatası anahtar sorunu sanılacaktı.
+
+**Çözüm:** `brew install bash` (bash 5 `/opt/homebrew/bin/bash`'e kurulur;
+sistemdeki 3.2 yerinde kalır) ve betiği onunla çalıştır:
+
+```bash
+/opt/homebrew/bin/bash deploy/rpi/dagit.sh ylp00
+```
+
+Kalıcı düzeltme, tabloyu `drone_bul.sh`'e (düz dizi kullanıyor) delege etmek
+olurdu — `dagit.sh` IP aramasını zaten oraya delege ediyor.
+*(18 Ağustos 2026'da ölçüldü)*
+
+### 9.5 ROS 2 Jazzy macOS'ta apt'ta değil — pixi/RoboStack ortamında
+
+`/opt/ros/jazzy/setup.bash` yok. `yki_baslat.sh` doğrudan çalıştırılırsa
+`source` sessizce başarısız oluyor ve betik **düğümleri ROS'suz başlatmaya
+devam ediyordu**: ekranda bir hata satırı, arkasından normal görünen dört
+satır. Sonraki kişi YKİ'yi ayakta sanıyor.
+✅ Düzeltildi: `ROS_SETUP` yoksa betik **erken patlıyor** ve macOS'ta
+sarmalayıcıyı (`yki_mac.sh`) gösteriyor.
 
 ---
 

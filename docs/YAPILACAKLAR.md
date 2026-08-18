@@ -1,6 +1,6 @@
 # YAPILACAKLAR
 
-**Son güncelleme:** 17 Ağustos 2026, 15:53
+**Son güncelleme:** 19 Ağustos 2026, 00:12
 
 ## Önem dereceleri
 
@@ -83,11 +83,13 @@ kalıntısı; en net kanıtı `INTERFACE_CONTRACT.md`'de duran sim dönemi
 - `[x]` 🔴 `dagit.sh ylp00 ylp02` → `.surum` = `e012dba (main)`
 - `[x]` 🔴 Konteynerler yeniden başlatıldı, 11 düğüm ayakta, setpoint
   konularında **tek üretici**, MAVROS bağlı/disarm
-- `[ ]` 🟡 `dagit.sh`'a koruma ekle: (a) `colcon build ... | tail` boru hattı
-  çıkış kodunu yutuyor, **derleme çökse de "başarılı" diyor** — `PIPESTATUS`
-  ile denetle; (b) dağıtılacak commit `origin`'de yoksa ya da ağaç kirliyse
-  sor/dur; (c) `dagitan=$(hostname)` Arch'ta boş kalıyor (`hostname` kurulu
-  değil) → `${HOSTNAME:-$(uname -n)}`
+- `[x]` 🟡 ~~(a) `colcon build ... | tail` çıkış kodunu yutuyor~~ →
+  **düzeltildi (18 Ağu):** uzak `bash -lc` içine `set -o pipefail` eklendi.
+  Mekanizma kabukta doğrulandı: pipefail kapalı → çıkış 0, açık → 1. Artık
+  derleme çökerse `.surum` da yazılmıyor (`return 1` önce geliyor).
+- `[x]` 🟡 ~~(c) `dagitan=$(hostname)` Arch'ta boş kalıyor~~ →
+  **düzeltildi (18 Ağu):** `hostname → /etc/hostname → "bilinmiyor"` zinciri.
+- `[ ]` 🟡 (b) dağıtılacak commit `origin`'de yoksa ya da ağaç kirliyse sor/dur
 
 ### ✅ P0.1 — TAMAMLANDI (14 Ağustos)
 
@@ -109,6 +111,147 @@ PX4 parametreleri eşitlendi ve uçuş ayarları tek kaynağa bağlandı.
 - `[x]` 🔴 `baslat.sh` artık `/ws/ucus_ayarlari.env` okuyor; hız 3.0 canlıda
 - `[x]` 🔴 Konteynerler yeniden başlatıldı, günlük bekçisi de devrede
 - `[ ]` 🟠 **ylp01 döndüğünde aynısını uygula** — `RPI_ESITLEME.md` §8
+
+### 🔴 P0.11 Guided yol `agent_fsm`'i ATLIYOR — sürü yığını hiç etkinleşmiyor
+
+**G2 gözlem uçuşunda ölçüldü (18 Ağustos 21:45).** Uçuşun kendisi kusursuz
+geçti ama asıl soruyu cevaplayamadı, ve sebebi yapısal.
+
+**Ölçüm** (`/swarm/internal/droneN/status`, iki uçakta da aynı):
+
+```
+state=1 (IDLE)  armed=False   5476 mesaj (ylp00)  3478 (ylp02)
+state=1 (IDLE)  armed=True     899 mesaj ( 90 s)   880 ( 88 s)   <- UCUS
+```
+
+Uçak arm oldu, 20 m'ye kalktı, 15 m gitti, döndü, indi — `agent_fsm_node`
+**hiç IDLE'dan çıkmadı**.
+
+**Zincir:**
+
+```
+ELIGIBLE_STATES = { ARMED, TAKEOFF, IN_SWARM, EXECUTING_TASK }   (IDLE YOK)
+        v
+ajan IDLE'da  ->  hicbir aday yok  ->  consensus HIC secim yapmiyor
+        v
+lider yok  ->  esp32_bridge'in formasyon kapisi hic acilmiyor
+```
+
+Kayıtta karşılığı: `/swarm/*/election/result` **0**,
+`/swarm/*/leader/heartbeat` **0** — iki uçakta da, 638 saniyede.
+
+**Neden:** `IDLE → ARMING` geçişi `EVENT_MISSION_STARTED` istiyor
+(`agent_fsm_node.py:314`). YKİ'nin guided yolu
+(`/api/guided/arm` → mesh → `px4_bridge` → MAVROS) `agent_fsm`'i **hiç
+görmüyor**. Yani kanıtlanmış komut yolu ile sürü yığını **FSM katmanında
+kopuk**; guided uçuşta consensus'un çalışması imkânsız — bu uçuşu on kez
+tekrarlasak sonuç değişmezdi.
+
+**Neden bu kadar önemli:** ADIM 3'te (`formation_node` komutta) formasyon
+yayını liderin varlığına bağlı. Lider hiç seçilmezse formasyon mesh'e çıkmaz
+ve bu, uçak formasyon düğümünün emrindeyken keşfedilirdi.
+
+- `[ ]` 🔴 **Ajanı sürü yolundan ARMED'a sür.** Araç zaten var ve bugün
+  kurtarıldı: `deploy/rpi/teshis/tam_kalkis.sh` — başlığı *"TAM AKIS:
+  EVENT_MISSION_STARTED → ARMING → ARMED → TAKEOFF"*. Önce **yerde,
+  pervanesiz** denenmeli: ajan ARMED'a geçiyor mu, consensus lider seçiyor mu.
+- `[ ]` 🔴 **Sonra G2 tekrar** — bu sefer lider seçimi gerçekten ölçülebilir.
+- `[ ]` 🟠 **Karar gerekiyor:** guided yol ile sürü yolu kalıcı olarak nasıl
+  birleşecek? Finalde kalkışı `mission1` + `agent_fsm` yapacak; ama geçiş
+  döneminde ikisi bir arada mı koşacak, yoksa G3'te guided tamamen mi
+  bırakılacak? `SURU_ENTEGRASYON.md`'de bu soru yok.
+
+---
+
+### ✅ G2 gözlem uçuşu YAPILDI (18 Ağustos 21:45) — 62 saniye
+
+Yeni senaryo: **`--senaryo g2`** (`gorev_kanit_ucus.py`'ye eklendi).
+Formasyonsuz: kalk 20 m → 15 m ileri → herkes kendi kalkış noktasına → in.
+Operatör kararıyla `saha`'nın 187 saniyelik koreografisi yerine yazıldı —
+pil için ve gözlem soruları roll/formasyon istemediği için.
+
+```
+Görev         62 s, üç adım da tamam, iptal yok
+Varış hatası  dört noktada da < 1 m
+Ayrım         en dar 9.41 m (esik 4.0) — kuru testin ongordugu 9.63 ile birebir
+Kayıt         ylp00 288.427 mesaj / ylp02 234.460 mesaj
+              ~/yelpence-kayitlar/g2_20260818/ (26 + 21 MB, yerel)
+```
+
+| G2 sorusu | Sonuç |
+|-----------|-------|
+| Havada lider seçimi kararlı mı | ❌ **seçim hiç yapılmadı** → P0.11 |
+| `swarm_fsm` çalışıyor mu | ✅ 3154 / 2559 `SwarmState` yayınladı |
+| Mesh komşu telemetrisi | ✅ ylp00 ylp02'yi 4309, ylp02 ylp00'ı 3712 kez gördü |
+| `formation_node` ne hesaplıyor | ❌ girdi yok, sessiz (beklenen — P0.10) |
+| Kaynak kullanımı | ⏳ uçuş sırasında ölçülmedi, kayıttan çıkarılabilir |
+
+- `[ ]` 🟡 Kayıttan `swarm_fsm`'in ürettiği durumları incele — geçişler gerçek
+  uçuşla uyuşuyor mu.
+- `[ ]` 🟡 Uçuş sırasında RAM/CPU ölçümü atlandı; sonraki sortide `--durum`
+  ile paralel ölçüm alınmalı.
+
+---
+
+### 🔴 P0.9 ylp02'nin alıcı failsafe'i KILL tetikliyor — ÖLÇÜLDÜ (18 Ağustos)
+
+`TUZAKLAR.md` §0.2'nin cevabı çıktı ve **beklenenin tersi**: sorun ylp00'da
+değil, **ylp02'de**. YKİ telemetrisinden ölçüldü, iki kez tekrarlandı:
+
+| | ylp00 (drone1) | ylp02 (drone3) |
+|---|---|---|
+| kumanda **kapalı** | `kill=False` `healthy=True` | **`kill=True` `healthy=False`** |
+| kumanda **açık** | `kill=False` `healthy=True` | `kill=False` `healthy=True` |
+
+`rc_link_ok` iki durumda da `True` — alıcı susmuyor, hafızasındaki failsafe
+değerlerini yayınlamaya devam ediyor ve ylp02'de bunlardan biri CH5'i kill'e
+atıyor. Diğer bütün sağlık bayrakları (`estimator_ok`, `xy/z_valid`, `imu`,
+`mag`, `baro`) temiz; `healthy=False`'un **tek** sebebi kill.
+
+**Neden uçuş engeli:** havada kumanda kapanır ya da pili biterse sonuç RTL
+değil **anında motor kesme** olur. `NAV_RCL_ACT=2` bunu kurtarmaz, çünkü
+alıcı yayına devam ettiği için PX4 kaybı hiç görmez.
+
+**İkinci etkisi:** `healthy=False` olan ajan `election.py`'de lider adayı
+**olamıyor** (`if not rec.healthy: return False`). G2'nin tek sorusu havada
+lider seçimi — kumanda bir an kapanırsa ylp02 seçimden düşer.
+
+> 🔴 **YENİDEN AÇILDI (18 Ağustos 18:40).** Düzeltme yapıldı ve doğrulandı,
+> ama sonra **ylp02'nin kumandası fabrika ayarlarına döndürüldü** ve alıcıya
+> varsayılan failsafe geri yazıldı. Ölçüm:
+> ```
+> ylp02 (kumanda KAPALI): 1501 1501 964 1499  2000  1000 1000 1000
+>                                              ^^^^ CH5 = 2000 = KILL
+> ```
+> **Uçak bu hâlde bırakıldı.** Uçuştan önce yeniden yapılmalı.
+> Sıfırlama sonrası FlySky varsayılan failsafe çerçevesi (bilinsin diye):
+> `1501 1501 964 1499 2000 1000 1000 1000` — switch kanallarının varsayılanı
+> `+100%`, yani kill. ylp02'nin en baştaki bozukluğunun sebebi de bu olabilir.
+>
+> ⚠️ **Sıfırlama yalnız failsafe'i bozmadı:** kumandanın model ayarlarının
+> tamamı (reverse, End Points, switch atamaları) varsayılana döndü, oysa
+> PX4'ün RC kalibrasyonu eskisine göre yapılmıştı. Uçuştan önce **çubuk
+> yönleri, ARM (CH8) ve KILL (CH5) switch'leri, gaz uçları** tek tek
+> doğrulanmalı — hepsi `rc/in` okunarak, uçuş gerekmeden yapılabilir.
+
+- `[x]` ~~**DÜZELTİLDİ (18 Ağustos 17:30).**~~ Kumandanın `RX Setup → Failsafe`
+  ekranında **Ch5 `+100%` yazılıydı** — yani failsafe kapalı değil, **açık ve
+  kill değeriyle kayıtlıydı**. `-100%`'e çevrilip kaydedildi.
+  Ölçüm (kumanda KAPALI, `/drone_3/mavros/rc/in`):
+  ```
+  önce : 1488 1496 1017 1500  2001  2000 1000 1000   → CH5 2001 = KILL
+  sonra: 1488 1496 1018 1500  1000  2000 1000 1000   → CH5 1000 = kill kapalı
+  ```
+  Telemetri: `kill=False  rc_link=True  healthy=True`. Uçuş gerekmedi.
+- `[ ]` 🟡 **CH6 hâlâ 2000 dönüyor** (aux2 = Görev 2 mod seçimi). Bugün
+  zararsız — `mode_manager` kapalı. **Görev 2'ye (ADIM 12) geçmeden önce**
+  CH6/CH7/CH8'in failsafe'leri de emniyetli konumda kaydedilmeli.
+- `[ ]` 🟡 **ylp00'ın failsafe'i TANIMLI mı, tesadüfen mi emniyetli?**
+  Kumanda kapalıyken `CH5=1000` ölçüldü (18 Ağu) — sonuç doğru. Ama bunun
+  açıkça `-100%` kayıtlı olmasından mı yoksa "son değeri tut" davranışından mı
+  geldiği bilinmiyor. Kumanda menüsünden 2 dakikada bakılır.
+
+---
 
 ### P0.4 Navigasyon kayması — ölçülmedi
 
@@ -132,6 +275,77 @@ tek sayı 7 m'lik bir bacaktan geldi, yani geçici rejimi ölçüyor.
   saf oransal (`v = −0.8 × hata`), yani ileri-besleme YOK. Kalıcı kayma
   `v/0.8`, PX4'ün 0.95'inden bile kötü. Çözüm: `formation_node`'u
   konum kipine al (`position_valid=True`).
+
+---
+
+### 🔴 P0.10 G2 gözlem uçuşu bu hâliyle BOŞ kayıt üretir — kaynak yok
+
+18 Ağustos'ta kod okunarak bulundu, ölçümle doğrulandı.
+
+`formation_node` bir **hesap makinesi**: "merkez şurada, yön şu, formasyon şu"
+tarifini alır ve kendi slot hedefini hesaplar. Tarif gelmezse hiçbir şey
+yayınlamaz — `formation_node.py:878` → `if msg is None: return`.
+
+**Tarifi üreten tek düğüm `mission1_node` ve o KAPALI** (`gorev1` anahtarı;
+`mode_manager` da kapalı). Yani G2'ye bu hâliyle çıkılırsa
+`/gozlem/drone_N/formation/raw` **boş kaydedilir** ve uçuşun asıl sorusu
+cevapsız kalır.
+
+**Denendi ve ELENDİ — YKİ'den tarif enjekte etmek:** ROS tarafı yazıldı ve
+uçtan uca çalıştı (base `form_tx=4`), ama uçak `form_rx=0`. Sebep RX BASE
+firmware whitelist'i: 0x11-0x15 **bilerek** dışarıda bırakılmış (KARAR 3) —
+formasyonu lider üretir, YKİ aynı tipi yayınlarsa çift kaynak olur. Yazılan
+kod **geri alındı**; ayrıntı `GUNLUK.md` 18 Ağustos kaydı.
+
+**Karar (operatör, 18 Ağustos):**
+
+- `[ ]` 🔵 **G2 yine de uçulacak** — 4 sorudan 2'si cevaplanıyor (havada
+  lider seçimi kararlılığı, 11 düğümle RAM/CPU). Bedeli sıfır, bugün hazır.
+- `[x]` ✅ **`formation_node` yerde GERÇEK komutla ölçüldü (18 Ağu 19:10).**
+  Konteyner yeniden başlatılmadı, yeni düğüm açılmadı: uçakta zaten duran
+  **`~/yelpence_ws/form_yayinla.sh`** kullanıldı (bir takım arkadaşı yazmış,
+  P2.5'teki "listesi kayboldu" denen betiklerden). O betik komutu **uçakta**
+  üretiyor — lideri `/swarm/internal/election/result`'a bildirip formasyonu
+  `/swarm/internal/formation/target`'a basıyor, köprü loopback ile
+  `/swarm/public/formation/target`'a koyuyor. **Firmware whitelist'ine
+  takılmıyor** çünkü yer→hava yönü kullanılmıyor.
+
+  Ölçüm (`/gozlem/drone_1/formation/raw`, 383 örnek ≈ 14 Hz):
+  ```
+  komut : merkez 12.3 / -45.6 / -8.0   heading 137.5   max_speed 3.5
+  cikti : x=12.2990  y=-45.6019  z=-8.000   -> merkeze 0.9 mm hata
+          vx=0.3749  vy=-3.2972  vz=-1.1125  -> |v| = 3.500 m/s (tam tavan)
+          heading_deg=137.5  max_speed_mps=3.5  priority=10
+          position_valid: FALSE   velocity_valid: true
+  ```
+  **Sonuç:** düğüm komutu doğru çözüyor, slot hesabı doğru (V'de ajan 1 tepe),
+  rampa hedefe oturuyor, hız oransal düzeltmede tavana dayanıyor. Uçak yerde
+  olduğu için 44 m'lik hata doygunluk üretiyor — beklenen davranış.
+  ⚠️ `position_valid=false`, yani **saf hız kipi** — ADIM 3'ün açık maddesi
+  (`px4_bridge velocity_only`) ilk kez gerçek telemetriyle doğrulandı.
+  ⚠️ Gözlem modu olmasaydı yerdeki uçağa 3.5 m/s ile 44 m ötesine gitme komutu
+  gidecekti — 15 Ağustos'taki `vz=1.51` olayının aynısı.
+
+- `[!]` 🔴 **`mission1_node` YERDE TEST EDİLEMEZ — 18 Ağustos'ta kod okundu.**
+  Bağımlılık zinciri:
+  ```
+  IDLE --(START)--> PREFLIGHT --(tum ajanlar: seen+healthy+gps+origin+home_set)-->
+  SYNCHRONIZED_TAKEOFF --(tum ajanlar IN_SWARM)--> ROTATE_TO_NEXT
+                                                   ^ formasyon komutu ANCAK burada
+  ```
+  `orchestrator.decide()` yalnız `NAVIGATE_TO_QR / ROTATE_TO_NEXT /
+  EXECUTE_QR_TASK / RETURN_HOME` durumlarında komut üretiyor; `mission1_node`
+  durum 0'da başlıyor ve durumu `mission_fsm` veriyor.
+  **Yani tarif üretmesi için uçağın gerçekten kalkmış ve sürüde olması gerek.**
+  Ek engeller: `PREFLIGHT` `home_set` istiyor (arm anında set ediliyor;
+  ylp00'da şu an `false`) ve tek uçak açıkken `all_agents_seen` sağlanmıyor.
+  → **Bu adım en az 2 uçakla ve UÇUŞLA yapılır.** Yerde yapılabilecek tek şey
+  G0: düğüm açılıyor mu, RAM/CPU ne.
+- `[ ]` 🟠 **Ara çözüm var:** `deploy/rpi/teshis/form_yayinla.sh` formasyon
+  tarifini uçakta üretiyor ve `formation_node`'u besliyor (18 Ağu'da ölçüldü).
+  G2 gözlem uçuşunda `formation_node`'a girdi vermek için `mission1`
+  beklemeden bu kullanılabilir — tarif sabit olur, uçulan yolu takip etmez,
+  ama düğümün havada ne ürettiği yine de görülür.
 
 ---
 
@@ -412,7 +626,7 @@ Tam analiz: `SURU_ENTEGRASYON.md` §2 ve §3.
   wifi.ssid "..."`
 - `[ ]` 🟠 ylp01 döndüğünde aynısını uygula
 
-### P1.2 SSH anahtarları
+### P1.2 SSH anahtarları — Berk'inki de kuruldu (18 Ağustos)
 
 Parola girişi **açık** (doğrulandı), kullanıcı adları `yelpence00/01/02`,
 parola takım içinde paylaşılıyor (**repoya yazılmadı, yazılmayacak**).
@@ -424,8 +638,11 @@ gerekmiyor.
   ssh-keygen -t ed25519
   ssh-copy-id yelpence00@<ip>    # üç drone için de
   ```
-  **Osman → ylp00 ve ylp02 tamam (17 Ağu).** Kalan: ylp01 dönünce, ve
-  Osman dışındaki üyeler kendi anahtarlarını kursun.
+  **Osman → ylp00 ve ylp02 tamam (17 Ağu).**
+  **Berk (MacBook) → ylp00 ve ylp02 tamam (18 Ağu)**, parmak izi
+  `SHA256:ADq8YfUQqzqkKQC+4FXkBf8AmQbyCPsn5BgpI+FvXi0` (`berk@github`).
+  Kalan: **ylp01 dönünce ikisini birden kur** (→ `RPI_ESITLEME.md`), ve
+  Osman/Berk dışındaki üyeler kendi anahtarlarını kursun.
 - `[ ]` 🟡 Anahtarlar dağıtıldıktan sonra parola girişini kapatmayı düşün
   (ama sahada kilitli kalma riskine karşı acil çıkış olarak bırakmak da savunulabilir)
 
@@ -519,6 +736,84 @@ gerekmiyor. Ayrıntı `cihazlar.md` ⏰ bölümü.
 - `[ ]` ⚪ Kalıcı donanım çözümü: Pi 5 RTC konnektörüne düğme pil.
   Operatör "pil bağlayamam" dedi (15 Ağu) — GPS yolu bu yüzden seçildi
 
+### 🟠 P1.9 Kumanda kapalıyken PX4 "uçuşa hazır" diyor — RC kaybını GÖREMİYOR
+
+18 Ağustos'ta operatör fark etti: iki kumanda da kapalıyken Pixhawk **yeşil**
+yanıyor ve arm'a izin veriyor. Alıcının kırmızı LED'i yanıp sönüyor, yani
+**alıcı kaybı biliyor** — ama PPM kablosundan söyleyemiyor.
+
+**Kök neden (ölçüldü, tahmin değil):**
+
+- `COM_RC_IN_MODE=3` PX4'ün **dokunulmamış varsayılanı** ("RC or Joystick keep
+  first"), yani RC girişi açık — suçlu bu değil.
+- PX4 RC kaybını yalnız **`RC_MAP_FAILSAFE` kanalı `RC_FAILS_THR`'ın ALTINA
+  düştüğünde** anlıyor (v1.16 kaynağından doğrulandı).
+- FS-iA6B kumanda ölünce **susmuyor**, hafızasındaki failsafe değerlerini
+  basıyor. Ölçülen tabloda **hiçbir kanalın failsafe değeri normal alt ucunun
+  altında değil**, yani `RC_FAILS_THR`'a hangi değer yazılırsa yazılsın ya hiç
+  tetiklenmez ya da pilot çubuğu oynattığında yanlış tetiklenir:
+
+| kanal | ylp00 canlı | ylp00 failsafe | ylp02 canlı | ylp02 failsafe |
+|---|---|---|---|---|
+| CH3 gaz | 909 | 1005 | ~1003 | 1017 |
+| CH5 kill | 1000 | 1000/**2000** | 1000 | **2000** |
+| CH6 (PX4'te BOŞ) | 1000 | 1000 | 1000 | 2000 |
+
+**Çözüm seçenekleri:**
+
+- `[ ]` 🟠 **A — CH6'yı "kumanda canlı" işaret kanalı yap.** PX4'te CH6 hiçbir
+  şeye bağlı değil (`RC_MAP_*` okundu: CH5=kill, CH7=fltmode, CH8=arm).
+  Kumanda açıkken `CH6=2000`, alıcı failsafe'inde `CH6=1000`, sonra
+  `RC_MAP_FAILSAFE=6`, `RC_FAILS_THR=1500`. Payı ±500 µs, iki uçakta aynı
+  parametre. Pilot switch'i kaldırmayı unutursa **arm reddedilir** — hata
+  güvenli yöne düşer. ~20 dk, donanım gerekmez.
+- `[ ]` ⚪ **B — SBUS/CRSF alıcıya geç.** O protokoller kaybı çerçevede
+  bildiriyor; PX4 hiçbir ayar olmadan kendiliğinden görür. Kalıcı ve temiz
+  çözüm ama donanım + yeniden RC kalibrasyonu.
+- `[ ]` 🟡 Uygulanırsa `COM_RC_LOSS_T` 0.5 → **2.0 sn** düşünülmeli: anlık
+  parazit sürüden bir uçağı RTL'e göndermesin.
+
+⚠️ Bu çalışınca havada da devreye girer: RC kaybı → `NAV_RCL_ACT=2` → RTL.
+Görev ortasında istenip istenmediği **operatör kararı**.
+
+**18 Ağustos'ta ES GEÇİLDİ** (operatör kararı) — G2'yi engellemiyor.
+
+---
+
+### 🟠 P1.8 QR koordinat tablosu YKİ→uçak zinciri KOPUK — firmware gerekiyor
+
+18 Ağustos'ta firmware okunurken çıktı. `mesh_config.h`'te şu satır var:
+
+```c
+// 0x0F: packet_parser.py::TIP_QR_COORDS'a rezerve (YKİ->drone QR konumlari).
+```
+
+**Rezerve edilmiş ama hiç tanımlanmamış.** Zincirin iki ucu yazılmış, ortası
+yazılmamış — o yüzden bugüne kadar kimse fark etmemiş:
+
+| Katman | Durum |
+|--------|-------|
+| YKİ arayüzü (`QRPositionForm`) | ✅ var |
+| backend (`/swarm/internal/mission/qr_coords`) | ✅ yayınlıyor |
+| uçak ROS tarafı (`_isle_qr_coords`) | ✅ alıp işliyor |
+| **base bridge → UART** | ❌ **gönderim yolu hiç yazılmamış** |
+| **RX BASE firmware whitelist** | ❌ **0x0F yok, çerçeve sessizce atılıyor** |
+
+**Neden P1:** kamera takılıp Aşama 3'e (görü) geçildiği gün karşımıza çıkacak
+ve o an firmware yüklemek zorunda kalacağız. Şimdiden planlanmalı.
+
+- `[ ]` 🟠 `mesh_config.h`'e `TIP_QR_COORDS 0x0F` tanımı + `qr_koord_veri_t`
+- `[ ]` 🟠 RX BASE whitelist'ine 0x0F (YKİ→mesh yönü)
+- `[ ]` 🟠 TX DRONE alış tarafına boyut eşlemesi
+- `[ ]` 🟠 `esp32_bridge`'e `/swarm/internal/mission/qr_coords` aboneliği +
+  `_uart_yaz(TIP_QR_COORDS, ...)` gönderim yolu
+- `[ ]` 🟠 İki ESP'ye de yükleme (`firmware/esp32_mesh/YUKLEME_PROSEDURU.md`)
+
+⚠️ Alternatif: QR konumlarını uçağa **dosyayla** vermek (origin gibi).
+Firmware'e dokunmaz ama YKİ'den canlı değiştirilemez. Sırası gelince karar.
+
+---
+
 ### P1.6 Durumu bilinmeyen üç güvenlik maddesi — `TUZAKLAR.md` §0
 
 Arşiv sadeleştirilirken çıktılar (16 Ağu). Üçü de **hiçbir canlı belgede
@@ -531,7 +826,10 @@ bir kısmı düzelmiş olabilir — ama bunu kimse yazmamış.
   artıyorsa **UÇMA**. Araç repoda duruyor, kural hiçbir ön kontrol
   listesinde yok. Geçerliyse uçuş öncesi listesine gir (bkz. P3 otomatik
   ön kontrol maddesi)
-- `[?]` 🟠 **ylp00'ın alıcı failsafe'i hâlâ kill mi tetikliyor?** 29 Tem'de
+- `[x]` ✅ **CEVAPLANDI (18 Ağustos) — sorun ylp00'da DEĞİL, ylp02'de.**
+  Ölçüm ve yapılacaklar: **P0.9**. ylp00 kumanda kapalıyken temiz çıktı.
+  Aşağıdaki eski madde tarihçe olarak duruyor:
+- `[?]` 🟠 ~~**ylp00'ın alıcı failsafe'i hâlâ kill mi tetikliyor?**~~ 29 Tem'de
   ölçüldü: kumanda kapalıyken CH5=2000 → kill açık, yani havada RC kaybı
   RTL değil **motor kesme** demekti. Uçuş izninin kapısıydı. Ayar alıcının
   flash'ında — QGC göstermez, parametre karşılaştırması bulamaz
@@ -618,10 +916,37 @@ Tamamı `SURU_ENTEGRASYON.md`'de. Uçuşsuz hazırlık:
 
 ### P2.5 Belge borcu
 
-- `[ ]` 🟡 Drone'lardaki **21 betiği** repoya al ya da sil. Sahada yazılmış
-  teşhis araçları — versiyonsuz, kaybolabilir, kimse ne olduklarını bilmiyor.
-  ⚠️ Listeleri `COP_TEMIZLIK.md` §D'deydi, **o belge silindi** — hangi 21 betik
-  olduğu artık hiçbir yerde yazmıyor. İlk adım listeyi uçaktan çekmek.
+- `[x]` ✅ **Drone'lardaki betikler repoya alındı (18 Ağustos):**
+  `deploy/rpi/teshis/` — 21 betik + README (hangisi ARM eder, hangisi sahte veri
+  enjekte eder, hangisi güvenli; kategorilere ayrıldı). Parola/anahtar/sabit IP
+  taraması yapıldı, temiz. **Liste ylp00'dan geri çekildi** (`COP_TEMIZLIK.md` silinince kaybolmuştu):
+  ```
+  arm_dene.sh  arm_secim.sh  consensus_baslat.sh  durum_enjekte.sh
+  form_izle.sh  form_sayac.sh  form_yayinla.sh  gorev_baslat.sh
+  gps_led_teshis.sh  gps_ornek.sh  inc_dogrula.sh  inc_kanit.sh
+  offboard_armed.sh  offboard_deney.sh  offboard_once.sh  prearm_teshis.sh
+  rtk_param.sh  rtk_zincir.sh  seq_deney.sh  tam_kalkis.sh  tam_zincir.sh
+  mesaj_hizlari.py  gps_saat.py  run_drone.sh  Dockerfile
+  + baslat.sh.yedek_20260802_184714  baslat.sh.yedek_20260814_212708
+  + bozuk_223218  core.50   (ikisi de artık gereksiz, silinebilir)
+  ```
+  🔴 **`form_yayinla.sh` en değerlisi** — `formation_node`'u uçakta gerçek
+  komutla besleyen tek araç; 18 Ağustos'taki ölçüm onunla yapıldı. İçindeki
+  QoS tuzağı `TUZAKLAR.md` §2.9'a geçti.
+- `[x]` ✅ ~~Uçaktaki kopyalar dağıtım yolunun dışında~~ → **`dagit.sh`'e
+  eklendi (18 Ağu):** `deploy/rpi/teshis/*.sh` uçağın `~/yelpence_ws/` köküne
+  yazılıyor (alt dizine değil — mevcut kopyaların üzerine geçsin, iki kopya
+  olmasın). `--delete` yok, bayrak dosyaları korunuyor.
+  ⚠️ **Bu Mac'ten dağıtım yapılamıyor:** `dagit.sh` `declare -A` kullanıyor,
+  macOS'un bash 3.2'si desteklemiyor ve **sessizce yanlış uçağa eşliyor**
+  (`TUZAKLAR` §9.6). `brew install bash` + `/opt/homebrew/bin/bash` ile
+  çalıştırılmalı; değişiklik **henüz uçakta sınanmadı**.
+- `[ ]` 🟡 ~~Uçaktaki kopyalar dağıtım yolunun DIŞINDA~~ (eski hâli) `dagit.sh`
+  `deploy/rpi/teshis/`'i uçağa yazmıyor; depodaki ve uçaktaki kopyalar
+  ayrışabilir. Ya dağıtıma eklenmeli ya da "tek kaynak depo" kuralı yazılmalı.
+- `[ ]` 🟡 **ylp00'da `core.50` — 353 MB core dump, silinmeli.** Disk 14
+  Ağustos'ta %100 dolmuştu; bu dosya boşuna yer kaplıyor. Yanında
+  `bozuk_223218/` (303 KB bozuk mcap) ve iki eski `baslat.sh.yedek_*` var.
 - `[ ]` 🟡 **Kalan kırık referanslar.** 16 Ağu'da tarama yapıldı, yalnız
   `COP_TEMIZLIK.md` temizlendi; şunlar duruyor:
   - `ARCHITECTURE.md` (5 atıf) ve `qgc_proxy.py` (3) — dosyalar depo

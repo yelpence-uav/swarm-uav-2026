@@ -1,6 +1,6 @@
 # KARARLAR — verilmiş ama henüz uygulanmamış kararlar
 
-**Son güncelleme:** 15 Ağustos 2026, 16:10
+**Son güncelleme:** 19 Ağustos 2026, 00:12
 
 Sohbette verilen kararlar oturum bitince kayboluyor. Bu defter onları
 tutuyor: **ne karar verildi, neden, ne zaman uygulanacak, nasıl test edilecek.**
@@ -92,8 +92,19 @@ tek kattığı yumuşatma, o da gecikme.
 | `hard_m` (doyum) | 2.0 | **4.0** |
 
 Varsayılan 4.5 m bizim geometrimize göre **çok dar** — `MIN_AYRIM_M` zaten
-4.0. `basit_kacinma`'nın sahada kullandığı 8.0/4.0 ile başlanacak; güven
-oluştukça kısılabilir.
+4.0.
+
+> 🔴 **DÜZELTME (18 Ağustos 2026):** yukarıdaki tabloda "sahada 8.0/4.0"
+> yazıyordu, **yanlış**. `baslat.sh:412` sahada `d0_m=6.0`, `hard_m=3.0`
+> geçiyor (`KACINMA_D0` / `KACINMA_HARD` env'leri hiçbir yerde üretilmiyor,
+> varsayılanlar geçerli). Bu kararın "d0=8.0 ile başla" gerekçesi yanlış bir
+> ölçüme dayanıyordu.
+>
+> İyi tarafı: **6.0 daha güvenli.** Aşağıdaki uyarıda 8.41 m'lik planlı
+> yaklaşmayla 8.0 arasında yalnız 0.49 m pay kaldığı yazıyor; 6.0 ile pay
+> **2.41 m**. Yani kaçınma normal formasyon geçişlerinde tetiklenmiyor.
+> 1B'ye gelince `collision_avoidance` için başlangıç değeri **6.0/3.0**
+> olmalı, 8.0/4.0 değil.
 
 > ⚠️ **Dikkat — d0 ile formasyon geometrisi çakışabilir.**
 > Aralık 12 m'de planlanan **en yakın yaklaşma 8.41 m**. `d0 = 8.0` bunun

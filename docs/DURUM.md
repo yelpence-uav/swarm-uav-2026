@@ -1,6 +1,6 @@
 # DURUM — şu an ne çalışıyor, ne bozuk
 
-**Son güncelleme:** 17 Ağustos 2026, 15:53
+**Son güncelleme:** 19 Ağustos 2026, 00:12
 
 > Bu belge **şimdiki hâli** anlatır, tarihçe değil. Bir şey değişince burayı
 > güncelle, eskisini sil. Ne olduğunun hikâyesi `GUNLUK.md`'de kalır.
@@ -11,9 +11,9 @@
 
 | İHA | agent_id | Durum | Not |
 |-----|----------|-------|-----|
-| ylp00 | 1 | **Uçar** | Repo ile %100 senkron (doğrulandı 14 Ağu) |
+| ylp00 | 1 | **Uçar** | Repo ile %100 senkron (`600ca65`, 17 Ağu). 18 Ağu akşamı **şarjda**. Alıcı failsafe'i tanımlı ve emniyetli (ölçüldü). ⚠️ `core.50` 353 MB silinmeli |
 | ylp01 | 2 | **YERDE** | 2 Ağustos'ta 20 m'den düştü, RPi açılmıyor |
-| ylp02 | 3 | **Uçar** | Repo ile %100 senkron (doğrulandı 14 Ağu) |
+| ylp02 | 3 | **Uçar** | Repo ile %100 senkron (doğrulandı 14 Ağu). ⚠️ Alıcı failsafe'i 18 Ağu'da iki kez ele alındı: düzeltildi → kumanda sıfırlaması geri aldı → operatör tekrar düzelttiğini bildirdi ama **doğrulama ölçümü YAPILMADI**. `YAPILACAKLAR` P0.9 |
 
 **Uçuş yapılandırması:** drone **1 ve 3**, lider **3**.
 YKİ koşucu paneli varsayılanı buna ayarlı (`backend/api/kosucu.py`).
@@ -97,12 +97,26 @@ ve `iPhone` (öncelik 0, yedek). İkisinde de güç tasarrufu kapalı.
 ⚠️ `iPhone` SSID'si henüz **doğrulanmadı** — eklerken telefon kapalıydı.
 
 **Parola girişi AÇIK** (sshd varsayılanı, override yok) → arkadaşlar kendi
-anahtarlarını kendileri kurabilir. **Osman'ın anahtarı 17 Ağustos'ta ikisine
-de kuruldu.**
+anahtarlarını kendileri kurabilir. **Osman'ın anahtarı 17 Ağustos'ta, Berk'in (MacBook)
+anahtarı 18 Ağustos'ta ikisine de kuruldu.**
 
 ⚠️ ylp02 **mDNS'e cevap vermiyor** ve host key'i IP tabanlı kaydedildi. IP
 değişip aynı adresi başka cihaz alırsa SSH *"REMOTE HOST IDENTIFICATION HAS
 CHANGED"* diye bağırır — panik yapma, `ssh-keygen -R <ip>` ile temizlenir.
+
+### 🔴 QGC'de `AutoConnect → RTK GPS` KAPALI olmalı
+
+**18 Ağustos'ta ölçüldü.** QGC'nin RTK oto-bağlanması u-blox baz istasyonunun
+seri portunu **kapıyor**; `yki_rtcm_reader` portu açamıyor (`Resource busy`)
+ve **RTCM hiç akmıyor**. Belirti sessiz: telemetri normal, arayüz sağlıklı,
+tek işaret uçakların `fix_type`'ının 6 yerine 3-5'te takılması.
+
+Port sahibi `lsof` ile bulundu (`QGroundControl PID 6245`). Kapatılınca RTCM
+9-10 msg/s'e döndü ve iki uçak da **RTK-FIXED (fix=6)** oldu.
+
+QGC → Application Settings → General → *AutoConnect* → **RTK GPS kapalı**,
+**UDP kapalı**. MAVLink bağlantısı elle eklenen 14550 UDP link'inden.
+Ayrıntı: `TUZAKLAR.md` §6.6.
 
 ### 🔴 Dronlara güç vermeden ÖNCE QGC'yi aç
 
@@ -139,7 +153,7 @@ Bunlar **dosya varlığıyla** çalışıyor; uçağı bulan kişi böyle bulaca
 | `~/yelpence_ws/ucus_ayarlari.env` | **var** | **var** | seyir 3.0 m/s, ivme 1.5 — `ucus_ayarlari.py --kabuk` üretti |
 | `~/yelpence_ws/suru_dugumleri` | **`origin consensus fsm formasyon`** | **`origin consensus fsm formasyon`** | 17 Ağu'da ikisinde de ölçüldü, **aynı**. Varsa `SURU_DUGUMLERI` env'ini ezer. Düğüm açmak: `echo ... > dosya` + `docker restart` |
 | `~/yelpence_ws/origin` | **var** | **var** | `38.6904758 39.1610188 1216.96` — tek kaynak `deploy/saha_origin.env`, ylp00'da doğrulandı (17 Ağu). Elle yazma, `dagit.sh` dağıtır |
-| `~/yelpence_ws/yer_testi` | **VAR** ⚠️ | **VAR** ⚠️ | Uçak ARM olur ama **KALKMAZ**. Uçuştan önce SİL + restart |
+| `~/yelpence_ws/yer_testi` | **YOK** 🔴 | **YOK** 🔴 | 18 Ağu'da G2 uçuşu için **SİLİNDİ** + restart. Uçak artık kalkış komutunu ALIR. Yer testi yapacaksan `touch` ile geri koy |
 | `~/yelpence_ws/gozlem` | **VAR** ⚠️ | **VAR** ⚠️ | `formation_node` setpoint'i `/gozlem/...`'e gidiyor, **uçağa ULAŞMIYOR**. Uçuştan önce SİL + restart |
 | `~/yelpence_ws/gps_saat_kapali` | yok | yok | Varsa GPS'ten saat düzeltmesi yapılmaz |
 
@@ -254,7 +268,16 @@ ikisi birden açılmaz (`CLAUDE.md` §4). ADIM 4'te değişecek.
 düğümü açıksa kendiliğinden açılıyor — sözleşmenin `internal → public`
 yerel döngüsünü o kuruyor (bkz. `YAPILACAKLAR` P0.6).
 
-### ✅ ADIM 1 geçti — consensus çalışıyor (15 Ağustos)
+### 🔴 ADIM 1'in HAVADAKİ karşılığı çalışmıyor — G2'de ölçüldü (18 Ağustos)
+
+15 Ağustos'taki test uçakları **elle ARM ederek** yapılmıştı. G2 gözlem
+uçuşunda ölçüldü ki **guided uçuşta ajan durumu IDLE'da kalıyor**;
+`ELIGIBLE_STATES` IDLE'ı içermediği için consensus hiç seçim yapmıyor.
+638 saniyelik kayıtta iki uçakta da `election/result` = 0,
+`leader/heartbeat` = 0. Sebep: YKİ'nin guided yolu `agent_fsm`'i atlıyor.
+Ayrıntı ve çözüm: `YAPILACAKLAR.md` **P0.11**. ADIM 3'ün ön koşulu.
+
+### ✅ ADIM 1 YERDE geçti — consensus çalışıyor (15 Ağustos)
 
 Pervanesiz, yerde, ARM'lı yapılan testte iki uçak da **aynı lideri** seçti:
 
@@ -280,7 +303,17 @@ Bunlar sahada ölçüldü, tekrar sorgulanmasın:
   değişimi, rotasyonlar, 135° güneydoğuya dönüp iniş. ~187 s görev / ~222 s video.
 - **Kuru test** kritik ayrım **8.41 m** (eşik 4.0 m) — `SONUÇ: GEÇTİ`
   (aralık 12 m'ye çıkınca 7.07'den yükseldi)
-- **RTK-FIX** iki uçakta 32 uydu; baz `1005` dahil tam RTCM seti yayınlıyor
+- **RTK-FIX** iki uçakta 32 uydu; baz `1005` dahil tam RTCM seti yayınlıyor.
+  **18 Ağustos'ta baz MSM4'e alındı** — akış artık `1005, 1074, 1084, 1094,
+  1124, 1230` @ ~1 Hz, `crc_err=0` (öncesinde MSM7 vardı ve okuyucu uyarıyordu;
+  `YELPENCE_RTCM_SPEC.md` §401 MSM4 bekliyor). İki uçak da `fix=6` (RTK-FIXED).
+- **Bazın kendi konumu** RTCM 1005'ten okundu (18 Ağu):
+  `38.6905395 39.1610681 1217.58` — origin'den **8.29 m yatay, +0.62 m dikey**.
+  Fiziksel ayrım olarak makul. ⚠️ Ama RTK, **bazın mutlak konum hatasını
+  bütün uçaklara aynen aktarır**: harita üzerinde hepsi aynı yöne kayar.
+  Anten son survey'den beri taşındıysa `src/gcs/rtk_baz_survey.py` çalıştırılmalı
+  (betiğin başlığı: *"anteni her taşıdığında bunu koştur"*). **Bugün taşınıp
+  taşınmadığı bilinmiyor — operatöre soruldu, cevap bekleniyor.**
 - **Kalkış irtifa çerçevesi** düzeltildi: goto artık kalkış zeminine göreli
 - **Yatay kilit** arm'dan başlıyor (2.5 m'ye kadar yatay konum tutma yok)
 - **Uçuş kaydı sertleştirildi**: en kötü kayıp ~14.7 sn → ~2-3 sn
@@ -364,6 +397,24 @@ Doğrulama: *"Uçaklar arası ayrışma yok (16 parametre)"* — yalnız
 Başlat/durdur: `src/gcs/yki_baslat.sh` · `src/gcs/yki_durdur.sh`
 **Elle başlatma** — ROS ortamı kaybolur, backend telemetri alamaz.
 
+### YKİ üç makinede koşuyor — kurulum yolu makineye göre değişiyor
+
+| Makine | ROS nereden | Başlatma |
+|--------|-------------|----------|
+| Ubuntu 24.04 | apt (`/opt/ros/jazzy`) | `src/gcs/yki_baslat.sh` |
+| Arch | `ros:jazzy` konteyneri | `yki` alias (bkz. `arch-docker/`) |
+| **macOS (Apple Silicon)** | **pixi/RoboStack** | **`~/yelpence-yki-mac/yki_mac.sh`** |
+
+**macOS 18 Ağustos'ta eklendi.** Sanal makine/konteyner **kullanılmadı**:
+makine 8 GB M1, VM 3-4 GB RAM alıp QGC + tarayıcı + Vite + backend'e yer
+bırakmıyordu. Seri port native çalışıyor — CH340 @460800'de 6 saniyede
+79 POSE + 12 DURUM çerçevesi, **0 bozuk**. Kurulum, ölçümler ve geri alma
+adımları makinedeki `~/yelpence-yki-mac/README.md`'de (kişisel, depoya girmiyor).
+
+`yki_baslat.sh` bunun için **env ile parametrelendi** (`ROS_SETUP`, `DDS_URI`,
+`BASE_ESP_PORT`, `RTK_GPS_PORT`) — ikinci bir başlatma betiği yazılmadı,
+Ubuntu davranışı birebir aynı kaldı. Platform tuzakları: `TUZAKLAR.md` §9.
+
 Kurulum `deploy/yki/kur_yki.sh`, **Ubuntu 24.04 (noble) ister** ve başka
 dağıtımda bilerek durur. Ubuntu olmayan bir laptopta çalışıyorsan yol,
 `ros:jazzy` konteynerinin içinde aynı betiği koşturmak — ikinci bir kurulum
@@ -371,3 +422,17 @@ betiği yazma. (17 Ağustos'ta Arch'ta yapıldı ve çalıştı; o makinenin
 konteyner dosyaları kişisel olduğu için depoya girmiyor.)
 
 Telemetri: `curl -s http://localhost:8000/api/telemetry/snapshot`
+
+### 🛰 u-blox reset butonu (18 Ağustos)
+
+Arayüzde `⚙ Ayarlar` → **RTK baz istasyonu** bölümünde, iki adımlı onaylı.
+Komut seri porta doğrudan gitmiyor — port tek sahipli ve sahibi
+`yki_rtcm_reader.py`; komut ROS'tan (`/swarm/internal/rtk/komut`) ona gidiyor,
+UBX-CFG-RST'i o yazıyor.
+
+⚠️ **Reset RTCM'i keser**, uçaklar RTK-FIX düşürüp yeniden yakalar. Baz
+survey-in modundaysa toparlanma **dakikalar** sürebilir. Havadayken kullanma.
+
+```bash
+curl -X POST 'http://localhost:8000/api/rtk/reset?kip=sicak'   # ilik | soguk
+```
