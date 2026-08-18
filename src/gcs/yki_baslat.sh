@@ -22,6 +22,26 @@
 # eyup, ...) elle duzenleme gerekmesin. Ikisi de env ile ezilebilir.
 REPO="${REPO:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
 VENV="${VENV:-$HOME/gcs-venv}"
+
+# ROS ortami NEREDEN geliyor — Ubuntu'da apt (/opt/ros/jazzy), macOS'ta ise
+# RoboStack/pixi conda ortami (18 Agustos 2026'da eklendi). Tek yerden
+# parametreleniyor ki iki ayri baslatma betigi tutmayalim.
+#   Ubuntu : (bir sey yapma, varsayilan dogru)
+#   macOS  : ROS_SETUP=~/yelpence-yki-mac/.pixi/envs/default/setup.bash ./yki_baslat.sh
+ROS_SETUP="${ROS_SETUP:-/opt/ros/jazzy/setup.bash}"
+
+# setsid macOS'ta YOK (util-linux'a ait, Darwin'de gelmiyor). Isi surecleri
+# kontrol terminalinden koparmak; nohup + disown ayni sonucu veriyor.
+if command -v setsid > /dev/null 2>&1; then ARKAPLAN=setsid; else ARKAPLAN=nohup; fi
+
+# venv KOSULLU: Ubuntu'da kur_yki.sh ~/gcs-venv uretiyor. macOS'ta backend
+# bagimliliklari dogrudan pixi ortaminda duruyor, ayri venv yok — yoksa
+# atlanir, "No such file" ile backend'i dusurmez.
+if [ -f "$VENV/bin/activate" ]; then
+  VENV_KAYNAK="source '$VENV/bin/activate' &&"
+else
+  VENV_KAYNAK=""
+fi
 # base ESP VERI portu — kalici by-id yolu (ttyUSB numarasi degisir, by-id degismez).
 # RX BASE 'esp32dev' (default/loglu) env: VERI Serial2 -> USB-TTL (CH340) @460800.
 #   LOG hatti ayri: ESP'nin CP2102'si @115200 ([MESH] ciktilari) — izlemek icin:
@@ -66,7 +86,8 @@ ORIGIN_LON="${ORIGIN_LON:-39.1610188}"
 ORIGIN_ALT="${ORIGIN_ALT:-1216.96}"
 
 # --- DDS: loopback (WiFi'den bağımsız) — tek kesin mekanizma ---
-DDS_URI="file://$REPO/src/gcs/cyclonedds_yki.xml"
+# macOS'ta loopback arayuzunun adi lo DEGIL lo0 — o yuzden env ile ezilebilir.
+DDS_URI="${DDS_URI:-file://$REPO/src/gcs/cyclonedds_yki.xml}"
 
 # --- Önce çalışan örnekleri durdur (IDEMPOTENT) ---
 # Bu script eskiden mevcut süreçleri kontrol etmiyordu: her çalıştırmada
@@ -82,7 +103,28 @@ if pgrep -f "esp32_base|swarm_origin_pub|yki_rtcm_reader|qgc_proxy|uvicorn backe
 fi
 
 # --- ROS 2 ortamı ---
-source /opt/ros/jazzy/setup.bash
+#
+# ERKEN PATLA (18 Agustos 2026). Onceden bu satir sessizce basarisiz oluyor,
+# betik devam ediyor ve dugumler ROS olmadan baslatilmaya calisiliyordu:
+# ekranda 'No such file or directory' + arkasindan normal gorunen dort satir.
+# Sonraki kisi YKI'yi ayakta saniyordu. macOS'ta bu HER SEFERINDE oluyor,
+# cunku orada ROS apt'ta degil pixi ortaminda.
+if [ ! -f "$ROS_SETUP" ]; then
+  echo "[YKI] HATA: ROS ortami bulunamadi: $ROS_SETUP" >&2
+  if [ "$(uname -s)" = "Darwin" ]; then
+    echo "" >&2
+    echo "  macOS'tasin. Bu betik dogrudan calistirilmaz; sarmalayiciyi kullan:" >&2
+    echo "      bash ~/yelpence-yki-mac/yki_mac.sh" >&2
+    echo "" >&2
+    echo "  O betik ROS_SETUP / DDS_URI / seri portlari macOS'a gore doldurup" >&2
+    echo "  bu dosyayi cagiriyor. Ayrinti: ~/yelpence-yki-mac/README.md" >&2
+  else
+    echo "  ROS 2 kurulu mu? Kurulum: deploy/yki/kur_yki.sh" >&2
+    echo "  Farkli bir yerdeyse: ROS_SETUP=/yol/setup.bash $0" >&2
+  fi
+  exit 1
+fi
+source "$ROS_SETUP"
 source "$REPO/install/setup.bash"
 export ROS_DOMAIN_ID=0
 export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
@@ -90,7 +132,7 @@ export CYCLONEDDS_URI="$DDS_URI"
 
 # --- 1) Base bridge (mesh <-> ROS): telemetri alır, guided komut gönderir ---
 echo "[YKİ] base bridge başlatılıyor ($BASE_ESP_PORT @ $BASE_ESP_BAUD)..."
-setsid bash -c "source /opt/ros/jazzy/setup.bash && source '$REPO/install/setup.bash' && \
+$ARKAPLAN bash -c "source '$ROS_SETUP' && source '$REPO/install/setup.bash' && \
   export ROS_DOMAIN_ID=0 RMW_IMPLEMENTATION=rmw_cyclonedds_cpp CYCLONEDDS_URI='$DDS_URI' && \
   exec ros2 run swarm_control esp32_bridge --ros-args -r __node:=esp32_base \
   -p serial_port:=$BASE_ESP_PORT -p baud:=$BASE_ESP_BAUD -p agent_id:=10" \
@@ -100,17 +142,29 @@ disown
 # --- 1.5) Ortak origin yayıncıları — İKİ tane (bkz. yukarıdaki açıklama) ---
 echo "[YKİ] origin yayıncıları başlatılıyor (lat=$ORIGIN_LAT lon=$ORIGIN_LON alt=$ORIGIN_ALT)..."
 # (a) public -> backend harita->NED
-setsid bash -c "source /opt/ros/jazzy/setup.bash && source '$REPO/install/setup.bash' && \
+#
+# REMAP ZORUNLU (18 Agustos 2026'da olculdu). swarm_origin_publisher'in
+# varsayilan konusu 15 Agustos'ta /swarm/public/origin -> /swarm/internal/origin
+# olarak degistirildi (sozlesmeye uyum). Ucaktaki baslat.sh o gun guncellendi,
+# BU DOSYA GUNCELLENMEDI: (a) remapsiz kalinca o da internal'a yaziyordu ve
+# /swarm/public/origin'e YKI'de HIC KIMSE yazmiyordu.
+#
+# Belirti sessizdi: telemetri normal akiyor, ama haritaya tiklayinca backend
+#   "Origin henuz yok - harita hedefi NED'e cevrilemiyor"  (guided.py:175)
+# donuyordu. Ucakta bu bosluğu ic_dis_kopru kapatiyor; YKI'de o dugum kosmuyor.
+$ARKAPLAN bash -c "source '$ROS_SETUP' && source '$REPO/install/setup.bash' && \
   export ROS_DOMAIN_ID=0 RMW_IMPLEMENTATION=rmw_cyclonedds_cpp CYCLONEDDS_URI='$DDS_URI' && \
   exec ros2 run swarm_control swarm_origin_publisher --ros-args -r __node:=swarm_origin_pub_public \
+  -r /swarm/internal/origin:=/swarm/public/origin \
   -p origin_source:=fixed -p fixed_lat:=$ORIGIN_LAT -p fixed_lon:=$ORIGIN_LON -p fixed_alt:=$ORIGIN_ALT -p rate_hz:=1.0" \
   > /tmp/yki_origin_public.log 2>&1 < /dev/null &
 disown
 # (b) internal -> base bridge -> mesh -> drone (SET_GPS_GLOBAL_ORIGIN)
-setsid bash -c "source /opt/ros/jazzy/setup.bash && source '$REPO/install/setup.bash' && \
+# Remap YOK: dugumun varsayilani zaten /swarm/internal/origin. Eskiden buradaki
+# '-r /swarm/public/origin:=/swarm/internal/origin' satiri BOSA calisiyordu.
+$ARKAPLAN bash -c "source '$ROS_SETUP' && source '$REPO/install/setup.bash' && \
   export ROS_DOMAIN_ID=0 RMW_IMPLEMENTATION=rmw_cyclonedds_cpp CYCLONEDDS_URI='$DDS_URI' && \
   exec ros2 run swarm_control swarm_origin_publisher --ros-args -r __node:=swarm_origin_pub_internal \
-  -r /swarm/public/origin:=/swarm/internal/origin \
   -p origin_source:=fixed -p fixed_lat:=$ORIGIN_LAT -p fixed_lon:=$ORIGIN_LON -p fixed_alt:=$ORIGIN_ALT -p rate_hz:=1.0" \
   > /tmp/yki_origin_internal.log 2>&1 < /dev/null &
 disown
@@ -134,8 +188,8 @@ if [ -e "$RTK_GPS_PORT" ]; then
 else
   echo "[YKİ] RTK okuyucu başlatılıyor — GPS portu HENÜZ YOK, takılınca bağlanacak"
 fi
-setsid bash -c "source /opt/ros/jazzy/setup.bash && source '$REPO/install/setup.bash' && \
-  source '$VENV/bin/activate' && \
+$ARKAPLAN bash -c "source '$ROS_SETUP' && source '$REPO/install/setup.bash' && \
+  $VENV_KAYNAK \
   export ROS_DOMAIN_ID=0 RMW_IMPLEMENTATION=rmw_cyclonedds_cpp CYCLONEDDS_URI='$DDS_URI' && \
   exec python3 '$REPO/src/gcs/backend/rtcm/yki_rtcm_reader.py' \
     --gps-port '$RTK_GPS_PORT' --ros-topic '$RTK_TOPIC'" \
@@ -159,8 +213,8 @@ disown
 
 # --- 2) Backend (REST + WebSocket, ros2 modu) ---
 echo "[YKİ] backend başlatılıyor (:8000)..."
-setsid bash -c "source /opt/ros/jazzy/setup.bash && source '$REPO/install/setup.bash' && \
-  source '$VENV/bin/activate' && cd '$REPO/src/gcs' && \
+$ARKAPLAN bash -c "source '$ROS_SETUP' && source '$REPO/install/setup.bash' && \
+  $VENV_KAYNAK cd '$REPO/src/gcs' && \
   export ROS_DOMAIN_ID=0 RMW_IMPLEMENTATION=rmw_cyclonedds_cpp CYCLONEDDS_URI='$DDS_URI' && \
   exec uvicorn backend.main:app --host 0.0.0.0 --port 8000" \
   > /tmp/yki_backend.log 2>&1 < /dev/null &
@@ -168,7 +222,7 @@ disown
 
 # --- 3) Frontend (Vite dev server) ---
 echo "[YKİ] frontend başlatılıyor (:5173)..."
-setsid bash -c "cd '$REPO/src/gcs/frontend' && exec npm run dev" \
+$ARKAPLAN bash -c "cd '$REPO/src/gcs/frontend' && exec npm run dev" \
   > /tmp/yki_frontend.log 2>&1 < /dev/null &
 disown
 
