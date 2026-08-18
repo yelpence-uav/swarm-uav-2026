@@ -69,16 +69,78 @@ drone_satiri() {
     return 1
 }
 
+# --- PLATFORM FARKLARI (Linux / macOS) --------------------------------------
+#
+# YKI laptopu Ubuntu ya da Arch'ti; 18 Agustos 2026'da bir de macOS eklendi.
+# Bu betigin dayandigi dort komut Linux'a OZGU ve Darwin'de HIC YOK:
+#     ip route · ip neigh · getent · timeout
+# Asagidaki dort sarmalayici ayni isi iki platformda da yapiyor. Linux yolu
+# BIREBIR eskisi gibi kaldi — Darwin dali yalnizca uname Darwin ise devreye
+# giriyor.
+if [ "$(uname -s)" = "Darwin" ]; then YKI_MACOS=1; else YKI_MACOS=0; fi
+
+# `timeout` Darwin'de yok. Varsa kullan, yoksa (brew coreutils) gtimeout,
+# o da yoksa komutu ciplak calistir — ssh'in kendi ConnectTimeout'u var.
+zaman_asimi() {
+    local sn="$1"; shift
+    if command -v timeout > /dev/null 2>&1; then timeout "$sn" "$@"
+    elif command -v gtimeout > /dev/null 2>&1; then gtimeout "$sn" "$@"
+    else "$@"; fi
+}
+
 # Yerel /24 agini varsayilan rotadan turetir. Birden fazla arayuz varsa
 # varsayilan rotayi tasiyani seceriz — drone'lar oradan erisilir.
 ag_oneki() {
-    ip -4 route get 1.1.1.1 2>/dev/null \
-        | awk '{for(i=1;i<=NF;i++) if($i=="src") {print $(i+1); exit}}' \
-        | awk -F. '{print $1"."$2"."$3}'
+    local adres
+    if [ "$YKI_MACOS" = 1 ]; then
+        local arayuz
+        arayuz=$(route -n get default 2>/dev/null | awk '/interface:/{print $2; exit}')
+        [ -n "$arayuz" ] && adres=$(ipconfig getifaddr "$arayuz" 2>/dev/null)
+    else
+        adres=$(ip -4 route get 1.1.1.1 2>/dev/null \
+            | awk '{for(i=1;i<=NF;i++) if($i=="src") {print $(i+1); exit}}')
+    fi
+    [ -n "$adres" ] && echo "$adres" | awk -F. '{print $1"."$2"."$3}'
 }
 
 ssh_acik_mi() {
-    timeout "${2:-2}" bash -c "echo > /dev/tcp/$1/22" 2>/dev/null
+    if [ "$YKI_MACOS" = 1 ]; then
+        # zsh'te /dev/tcp YOK (bash'e ozgu) ve `timeout` da yok — nc ikisini de
+        # cozer. -G baglanti kurma, -w veri bekleme zaman asimi.
+        nc -z -G "${2:-2}" -w "${2:-2}" "$1" 22 > /dev/null 2>&1
+    else
+        timeout "${2:-2}" bash -c "echo > /dev/tcp/$1/22" 2>/dev/null
+    fi
+}
+
+# MAC'i karsilastirilabilir hale getirir: kucuk harf + sekizlilerden bastaki
+# sifiri at.
+#
+# NEDEN SADELESTIRME (18 Agustos 2026): macOS'un `arp -an` ciktisi sekizlileri
+# SIFIRSIZ yaziyor — 88:a2:9e:da:04:2d yerine 88:a2:9e:da:4:2d. Duz metin
+# karsilastirmasi ylp01'i (tek sifirli sekizlisi olan drone) sessizce
+# KACIRIRDI: cihaz agda olur, betik "bulunamadi" derdi.
+mac_sadelestir() {
+    echo "$1" | tr 'A-Z' 'a-z' | awk -F: \
+        '{s=""; for(i=1;i<=NF;i++){o=$i; sub(/^0+/,"",o); if(o=="")o="0";
+          s = s (i>1?":":"") o} print s}'
+}
+
+# ARP/komsu tablosunu "ip mac" satirlarina indirger; MAC sadelestirilmis.
+arp_tablosu() {
+    if [ "$YKI_MACOS" = 1 ]; then
+        # "? (172.20.10.2) at 88:a2:9e:71:60:ed on en0 ifscope [ethernet]"
+        arp -an 2>/dev/null \
+            | sed -n 's/^.*(\([0-9.][0-9.]*\)) at \([0-9a-fA-F:][0-9a-fA-F:]*\).*$/\1 \2/p'
+    else
+        # "172.19.167.134 dev wlan0 lladdr 88:a2:9e:71:60:ed REACHABLE"
+        # lladdr'i ADIYLA ariyoruz: girdi FAILED ise o alan hic olmuyor ve
+        # sabit sutun numarasi yanlis seyi okurdu.
+        ip -4 neigh show 2>/dev/null \
+            | awk '{for(i=1;i<=NF;i++) if($i=="lladdr"){print $1, $(i+1); break}}'
+    fi | while read -r a m; do
+            [ -n "$m" ] && echo "$a $(mac_sadelestir "$m")"
+         done
 }
 
 # --- Bulma yontemleri --------------------------------------------------------
@@ -86,7 +148,16 @@ ssh_acik_mi() {
 # 1) mDNS. Hotspot multicast'i engelliyorsa sessizce basarisiz olur.
 mdns_ile() {
     local ip
-    ip=$(getent hosts "$1.local" 2>/dev/null | awk '{print $1; exit}')
+    if [ "$YKI_MACOS" = 1 ]; then
+        # getent Darwin'de yok. dscacheutil Bonjour'u sorguluyor.
+        # NOT: macOS bazen yalniz IPv6 link-local donuyor (fe80::...) — ondan
+        # SSH kurulamaz, o yuzden yalniz ip_address (IPv4) satirini aliyoruz;
+        # bos donerse MAC taramasina dusuyor.
+        ip=$(dscacheutil -q host -a name "$1.local" 2>/dev/null \
+             | awk '/^ip_address:/{print $2; exit}')
+    else
+        ip=$(getent hosts "$1.local" 2>/dev/null | awk '{print $1; exit}')
+    fi
     [ -n "$ip" ] && ssh_acik_mi "$ip" 2 && { echo "$ip"; return 0; }
     return 1
 }
@@ -112,13 +183,13 @@ mac_tarama() {
     wait
 
     # ARP tablosu: IP -> MAC. Taramadan hemen sonra okunmali, girdiler eskir.
-    local arp; arp=$(ip -4 neigh show 2>/dev/null)
+    local arp; arp=$(arp_tablosu)
 
     local satir isim mac ip bulunan=""
     for satir in "${DRONELAR[@]}"; do
         isim=$(alan_al "$satir" 1)
-        mac=$(alan_al "$satir" 2 | tr 'A-Z' 'a-z')
-        ip=$(echo "$arp" | grep -i " $mac " | awk '{print $1; exit}')
+        mac=$(mac_sadelestir "$(alan_al "$satir" 2)")
+        ip=$(echo "$arp" | awk -v m="$mac" '$2==m {print $1; exit}')
         [ -n "$ip" ] && bulunan+="$isim $ip"$'\n'
     done
     rm -f /tmp/.yelpence_tarama_$$
@@ -210,7 +281,7 @@ durum_yaz() {
         ip=$(echo "$liste" | awk -v n="$isim" '$1==n {print $2; exit}')
         [ -n "$ip" ] || continue
         printf '%s%s%s (%s)\n' "$K_KALIN" "$isim" "$K_SIFIR" "$ip"
-        timeout 20 ssh -o ConnectTimeout=6 -o BatchMode=yes "$kul@$ip" \
+        zaman_asimi 20 ssh -o ConnectTimeout=6 -o BatchMode=yes "$kul@$ip" \
             "printf '  calisma suresi : '; uptime -p 2>/dev/null || uptime
              printf '  konteyner      : '; docker ps --filter name=$kon --format '{{.Names}} {{.Status}}' 2>/dev/null | head -1
              printf '  bayraklar      : '
