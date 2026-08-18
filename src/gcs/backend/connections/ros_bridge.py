@@ -34,7 +34,7 @@ from rclpy.qos import (
     QoSReliabilityPolicy,
 )
 
-from std_msgs.msg import UInt8MultiArray
+from std_msgs.msg import String, UInt8MultiArray
 from swarm_interfaces.msg import (
     AgentStatus,
     GuidedCommand,
@@ -524,6 +524,19 @@ class RosBridge:
         m.heading_valid = bool(heading_valid)
         self._guided_pub.publish(m)
 
+    def publish_rtk_reset(self, kip: str) -> None:
+        """u-blox baz alıcısına reset komutu gönderir (sicak|ilik|soguk).
+
+        Komutu yki_rtcm_reader.py alır ve UBX-CFG-RST olarak seri porta yazar.
+        Kip anlamları orada tanımlı; burada doğrulama YAPILMAZ ki iki yerde
+        iki ayrı liste tutulmasın — okuyucu bilinmeyen kipi reddedip loglar.
+        """
+        if self._rtk_komut_pub is None:
+            raise RuntimeError("RTK komut publisher hazır değil")
+        m = String()
+        m.data = str(kip)
+        self._rtk_komut_pub.publish(m)
+
     def has_origin(self) -> bool:
         """Harita→NED çevirisi için origin hazır mı."""
         return self._son_origin is not None
@@ -700,6 +713,20 @@ class RosBridge:
             GuidedCommand, "/swarm/internal/guided/command", guided_qos
         )
         logger.info("publisher → /swarm/internal/guided/command")
+
+        # RTK baz reset komutu (18 Ağustos 2026).
+        #
+        # Doğrudan seri porta yazmıyoruz: u-blox portunun sahibi
+        # yki_rtcm_reader.py ve seri port TEK SAHİPLİ — ikinci bir açan
+        # "Resource busy" alır. Komut bu topic'ten okuyucuya gider, yazmayı o
+        # yapar. QGC'nin aynı portu kapması da bu sınıftan bir arızaydı
+        # (17 Ağustos'ta ölçüldü, AutoConnect→RTK GPS kapatılarak çözüldü).
+        #
+        # RELIABLE: operatör butona bir kez basar, komut kaybolmamalı.
+        self._rtk_komut_pub = self._node.create_publisher(
+            String, "/swarm/internal/rtk/komut", guided_qos
+        )
+        logger.info("publisher → /swarm/internal/rtk/komut (u-blox reset)")
 
         # SwarmOrigin aboneliği — harita tıklaması (lat/lon) → yerel NED çevirisi
         # için gerekli. Latched (TRANSIENT_LOCAL) ki sonradan başlasak da son

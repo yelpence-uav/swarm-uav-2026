@@ -106,6 +106,27 @@ export const params = {
   update: (patch: Partial<FlightParams>) => reqJson<FlightParams>("/params", "PUT", patch),
 };
 
+export interface RtkResetSonuc {
+  status: string;
+  action: string;
+  kip: string;
+  uyari: string;
+}
+
+/** RTK baz istasyonu bakımı.
+ *
+ * reset: u-blox alıcısını yeniden başlatır. Komut seri porta doğrudan
+ * gitmez — portun sahibi yki_rtcm_reader.py, komut ona ROS üzerinden
+ * iletilir ve UBX-CFG-RST'i o yazar.
+ *
+ * ⚠️ RTCM akışı birkaç saniye kesilir, uçaklar RTK-FIX düşürür.
+ * Havadayken çağırma.
+ */
+export const rtk = {
+  reset: (kip: "sicak" | "ilik" | "soguk" = "sicak") =>
+    reqJson<RtkResetSonuc>(`/rtk/reset?kip=${kip}`, "POST"),
+};
+
 export const api = {
   takeoff: (droneId: number, altitude?: number) =>
     postCommand(

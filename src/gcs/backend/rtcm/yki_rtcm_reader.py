@@ -34,6 +34,7 @@ Kullanım:
 
 import argparse
 import signal
+import struct
 import sys
 import time
 
@@ -130,6 +131,52 @@ def msg_type(frame: bytes) -> int:
     return (frame[3] << 4) | (frame[4] >> 4)
 
 
+# ---------------------------------------------------------------------------
+# U-BLOX RESET — YKİ arayüzündeki butonun ucu burada
+# ---------------------------------------------------------------------------
+#
+# NEDEN BURADA: seri port TEK SAHİPLİ. Bu süreç GPS portunu açık tutuyor;
+# başka bir süreç aynı porta yazamaz ("Resource busy"). O yüzden reset komutu
+# ROS üzerinden BURAYA gelir ve yazmayı port sahibi yapar. Alternatifi
+# (okuyucuyu durdur → resetle → yeniden başlat) sahada üç adım ve YKİ'yi
+# saniyelerce kör bırakıyor.
+#
+# UBX-CFG-RST (sinif 0x06, id 0x04, 4 bayt):
+#     navBbrMask (u2) · resetMode (u1) · reserved (u1)
+#
+# ⚠️ RESET RTCM AKIŞINI KESER. Alıcı yeniden açılana kadar (tipik 5-15 sn)
+# baz düzeltme yayınlamaz ve UÇAKLAR RTK-FIX'İ DÜŞÜRÜR. Havadayken çağırma.
+_UBX_BBR = {
+    'sicak': 0x0000,   # hot  — hafızadaki her şey korunur, en hızlı toparlar
+    'ilik': 0x0001,    # warm — efemeris silinir, uydu takibi baştan
+    'soguk': 0xFFFF,   # cold — tüm yardımcı veri silinir, en uzun toparlama
+}
+_UBX_RESET_MODU = 0x01   # kontrollü yazılım reseti (donanım watchdog'u DEĞİL)
+
+
+def _ubx(sinif: int, mid: int, govde: bytes = b"") -> bytes:
+    """UBX çerçevesi kurar (8-bit Fletcher sağlaması).
+
+    rtk_baz_survey.py'deki ubx() ile AYNI hesap — orası ayrı bir süreç ve
+    seri portu o açıyor, ortak modüle çıkarmak import zinciri getirirdi.
+    Değiştirirsen İKİSİNİ birden değiştir.
+    """
+    g = bytes([sinif, mid]) + struct.pack("<H", len(govde)) + govde
+    a = b = 0
+    for x in g:
+        a = (a + x) & 0xFF
+        b = (b + a) & 0xFF
+    return b"\xb5\x62" + g + bytes([a, b])
+
+
+def ubx_reset(kip: str = 'sicak') -> bytes:
+    """UBX-CFG-RST paketi döner. kip: sicak | ilik | soguk."""
+    if kip not in _UBX_BBR:
+        raise ValueError(f"bilinmeyen reset kipi: {kip} (sicak|ilik|soguk)")
+    govde = struct.pack("<HBB", _UBX_BBR[kip], _UBX_RESET_MODU, 0x00)
+    return _ubx(0x06, 0x04, govde)
+
+
 def _try_open(port: str, baud: int):
     """Seri portu açmayı dene; (Serial|None, hata_metni) döndür."""
     import serial
@@ -155,6 +202,11 @@ def main() -> None:
                     help="ÜRETİM YOLU. RTCM3 mesajlarını bu ROS topic'ine "
                          "yayınlar; esp32_bridge abone olup çerçeveleyerek "
                          "baz ESP'ye yazar. Örn: /swarm/internal/rtcm")
+    ap.add_argument("--ros-komut-topic", default="/swarm/internal/rtk/komut",
+                    metavar="TOPIC",
+                    help="u-blox reset komutlarinin dinlendigi ROS konusu "
+                         "(std_msgs/String: sicak|ilik|soguk). Yalniz "
+                         "--ros-topic verildiyse acilir.")
     ap.add_argument("--self-test", action="store_true",
                     help="Donanımsız öz-testleri çalıştır ve çık")
     args = ap.parse_args()
@@ -189,6 +241,22 @@ def main() -> None:
         ros_pub = ros_node.create_publisher(UInt8MultiArray, args.ros_topic, qos)
         _ROS_MSG = UInt8MultiArray
 
+        # --- u-blox reset komut kanali (18 Agustos 2026) ------------------
+        # Callback DOGRUDAN porta YAZMIYOR: bu anda port kapali olabilir
+        # (USB cekilmis, yeniden acilmayi bekliyor). Komut kuyruga girer,
+        # ana dongu portun acik oldugu anda isler. Boylece "butona bastim,
+        # hicbir sey olmadi ve hicbir yerde yazmiyor" durumu olusmuyor.
+        from std_msgs.msg import String as _RosString
+        komut_qos = QoSProfile(reliability=QoSReliabilityPolicy.RELIABLE,
+                               durability=QoSDurabilityPolicy.VOLATILE,
+                               history=QoSHistoryPolicy.KEEP_LAST, depth=10)
+        ros_node.create_subscription(
+            _RosString, args.ros_komut_topic,
+            lambda m: _reset_kuyrugu.append(m.data.strip().lower()),
+            komut_qos)
+        print(f"[YKİ-RTCM] reset komut kanali: {args.ros_komut_topic} "
+              f"(sicak|ilik|soguk)")
+
     gps = esp = None
     gps_err = esp_err = ""
     next_gps_try = next_esp_try = 0.0
@@ -202,6 +270,7 @@ def main() -> None:
     print(f"[YKİ-RTCM] başladı · GPS {args.gps_port}@{args.gps_baud} · {mode}")
 
     parser = RTCMStreamParser()
+    _reset_kuyrugu: list[str] = []
     start = time.monotonic()
     last_valid: float | None = None        # son GEÇERLİ RTCM zamanı
     next_summary = start + SUMMARY_PERIOD_SEC
@@ -216,6 +285,30 @@ def main() -> None:
 
     while not _dur_istendi:
         now = time.monotonic()
+
+        # ROS geri cagrilarini isle (abonelik olmadan da zararsiz, 0 sn bekler)
+        if ros_node is not None:
+            rclpy.spin_once(ros_node, timeout_sec=0.0)
+
+        # --- bekleyen u-blox reset komutlari ------------------------------
+        while _reset_kuyrugu:
+            kip = _reset_kuyrugu.pop(0)
+            if gps is None:
+                print(f"[YKİ-RTCM] reset ({kip}) ISTENDI ama GPS portu KAPALI "
+                      f"— komut DUSURULDU, port acilinca tekrar dene")
+                continue
+            try:
+                paket = ubx_reset(kip)
+            except ValueError as e:
+                print(f"[YKİ-RTCM] reset komutu REDDEDILDI: {e}")
+                continue
+            try:
+                gps.write(paket)
+                gps.flush()
+                print(f"[YKİ-RTCM] *** U-BLOX RESET GONDERILDI ({kip}) *** "
+                      f"RTCM birkac saniye kesilecek, ucaklar RTK-FIX dusurur")
+            except Exception as e:                       # noqa: BLE001
+                print(f"[YKİ-RTCM] reset YAZILAMADI: {e}")
 
         # --- port sağlığı: kopanı 2 sn'de bir yeniden dene -----------------
         if gps is None and now >= next_gps_try:

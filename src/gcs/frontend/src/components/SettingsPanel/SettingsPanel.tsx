@@ -1,6 +1,6 @@
 import { useState } from "react";
 
-import { CommandFailure, FlightParams, params as paramsApi } from "../../services/api";
+import { CommandFailure, FlightParams, params as paramsApi, rtk as rtkApi } from "../../services/api";
 import "./SettingsPanel.css";
 
 interface SettingsPanelProps {
@@ -30,6 +30,28 @@ export function SettingsPanel({ params, onSaved, onClose }: SettingsPanelProps) 
   });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // RTK reset — İKİ ADIMLI onay. Tek tıkla resetlenmesin: komut RTCM akışını
+  // kesiyor ve uçaklar RTK-FIX düşürüyor. window.confirm KULLANILMADI; sahada
+  // tarayıcı diyalogları tabletlerde bazen engelleniyor ve buton sessizce
+  // hiçbir şey yapmıyormuş gibi görünüyor.
+  const [rtkOnay, setRtkOnay] = useState(false);
+  const [rtkBusy, setRtkBusy] = useState(false);
+  const [rtkSonuc, setRtkSonuc] = useState<string | null>(null);
+
+  const rtkReset = async () => {
+    setRtkBusy(true);
+    setRtkSonuc(null);
+    try {
+      const r = await rtkApi.reset("sicak");
+      setRtkSonuc(`Reset gönderildi (${r.kip}). ${r.uyari}`);
+      setRtkOnay(false);
+    } catch (e) {
+      setRtkSonuc(e instanceof CommandFailure ? `HATA: ${e.message}` : "Reset gönderilemedi");
+    } finally {
+      setRtkBusy(false);
+    }
+  };
 
   const save = async () => {
     const patch: Partial<FlightParams> = {};
@@ -73,6 +95,43 @@ export function SettingsPanel({ params, onSaved, onClose }: SettingsPanelProps) 
             </label>
           ))}
           {error && <div className="settings-modal__error">{error}</div>}
+
+          <div className="settings-bakim">
+            <h3 className="settings-bakim__baslik">🛰 RTK baz istasyonu</h3>
+            <p className="settings-bakim__not">
+              u-blox alıcısını yeniden başlatır. <strong>RTCM akışı birkaç saniye
+              kesilir</strong> ve uçaklar RTK-FIX'i düşürüp yeniden yakalar.
+              Uçuş sırasında kullanma.
+            </p>
+            {!rtkOnay ? (
+              <button
+                className="settings-btn settings-btn--uyari"
+                onClick={() => { setRtkOnay(true); setRtkSonuc(null); }}
+                disabled={rtkBusy}
+              >
+                u-blox'u resetle
+              </button>
+            ) : (
+              <div className="settings-bakim__onay">
+                <span>Emin misin?</span>
+                <button
+                  className="settings-btn settings-btn--tehlike"
+                  onClick={rtkReset}
+                  disabled={rtkBusy}
+                >
+                  {rtkBusy ? "…" : "Evet, resetle"}
+                </button>
+                <button
+                  className="settings-btn settings-btn--ghost"
+                  onClick={() => setRtkOnay(false)}
+                  disabled={rtkBusy}
+                >
+                  Vazgeç
+                </button>
+              </div>
+            )}
+            {rtkSonuc && <div className="settings-bakim__sonuc">{rtkSonuc}</div>}
+          </div>
         </div>
         <footer className="settings-modal__foot">
           <button className="settings-btn settings-btn--ghost" onClick={onClose} disabled={busy}>

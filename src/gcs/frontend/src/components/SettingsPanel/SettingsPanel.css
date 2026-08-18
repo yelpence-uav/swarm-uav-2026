@@ -113,3 +113,52 @@
   border-color: var(--color-border);
 }
 .settings-btn:disabled { opacity: 0.5; cursor: default; }
+
+/* --- RTK bakım bölümü (18 Ağustos 2026) ----------------------------------
+   Parametre alanlarından GÖRSEL OLARAK ayrıldı: buradaki tek eylem geri
+   alınamaz ve uçuşu etkiliyor, yanlışlıkla tıklanmamalı. */
+.settings-bakim {
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.settings-bakim__baslik {
+  margin: 0 0 6px;
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+.settings-bakim__not {
+  margin: 0 0 10px;
+  font-size: 0.8rem;
+  line-height: 1.45;
+  opacity: 0.75;
+}
+
+.settings-bakim__onay {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 0.85rem;
+}
+
+.settings-bakim__sonuc {
+  margin-top: 10px;
+  font-size: 0.8rem;
+  line-height: 1.4;
+  opacity: 0.9;
+}
+
+.settings-btn--uyari {
+  background: #7a5200;
+  color: #fff;
+  border: 1px solid #a06c00;
+}
+
+.settings-btn--tehlike {
+  background: #8c1d1d;
+  color: #fff;
+  border: 1px solid #b32626;
+}
