@@ -138,6 +138,28 @@ dagit_bir() {
           "$kul@$ip:$hedef/" || { log "baslat.sh rsync BASARISIZ"; return 1; }
     log "baslat.sh + mesaj_hizlari.py + gps_saat.py + run_drone.sh tamam"
 
+    # SAHA TESHIS BETIKLERI (18 Agustos 2026'da eklendi).
+    #
+    # NEDEN DAGITIMA GIRDI: bu 21 betik sahada yazilmisti ve YALNIZ ylp00'in
+    # SD kartinda duruyordu — versiyonsuz, yedeksiz, tek kopya. Listeleri
+    # COP_TEMIZLIK.md'deydi, o belge silinince hangi betikler oldugu hicbir
+    # yerde kalmadi (YAPILACAKLAR P2.5). 18 Agustos'ta geri cekilip depoya
+    # alindilar; dagitima da girmezlerse depo ile ucak sessizce ayrisirdi.
+    #
+    # NEDEN ALT DIZINE DEGIL KOKE: ucaktaki mevcut kopyalar zaten kokte
+    # (~/yelpence_ws/form_izle.sh -> konteynerde /ws/form_izle.sh) ve README
+    # o yollari kullaniyor. Alt dizine yazsaydik IKI kopya olur ve zamanla
+    # ayrisirdi. Koke yazinca depo mevcut dosyalarin uzerine gecer ve tek
+    # kaynak olur.
+    #
+    # --delete YOK: kokte bayrak dosyalari (yer_testi, gozlem, origin...) ve
+    # eski yedekler var; onlari silmek dagitim betiginin isi degil.
+    if compgen -G "$REPO/deploy/rpi/teshis/*.sh" > /dev/null; then
+        rsync -a "$REPO"/deploy/rpi/teshis/*.sh "$kul@$ip:$hedef/" \
+            || { log "teshis betikleri rsync BASARISIZ"; return 1; }
+        log "teshis betikleri tamam ($(ls -1 "$REPO"/deploy/rpi/teshis/*.sh | wc -l | tr -d ' ') adet)"
+    fi
+
     # ORIGIN — deploy/saha_origin.env TEK KAYNAK, /ws/origin ondan uretilir.
     # Elle yazilirsa YKI'ninkiyle ayrisir; 15 Agustos'ta 18.2 m fark olustu
     # ve iki kaynak birlikte calisinca origin_synced duserek arm'i engelledi.
@@ -154,8 +176,15 @@ dagit_bir() {
     # colcon build OLMADAN rsync HICBIR SEY yapmaz: dugumler install/ altindan
     # kosuyor, src/ yalnizca kaynak.
     log "colcon build (konteyner: $kap) — bir kac dakika surebilir..."
+    # set -o pipefail ZORUNLU (17 Agustos'ta isirdi, TUZAKLAR §1.14).
+    # Onceden yoktu: 'colcon build ... | tail -15' boru hattinin cikis kodu
+    # TAIL'inki, yani her zaman 0. swarm_missions IKI UCAKTA DA derlenemedi,
+    # bu betik 'basarili: 2' yazdi ve .surum'u yine de guncelledi. O paket
+    # eski install/ ile kalmisti ve .surum 'main' dedigi icin kimse
+    # sorgulamayacakti. Ciktiyi gozle okumak tek savunmaydi.
     if ! ssh -o ConnectTimeout=15 "$kul@$ip" \
         "docker exec $kap bash -lc '
+            set -o pipefail &&
             source /opt/ros/jazzy/setup.bash &&
             cd /ws &&
             colcon build --symlink-install --packages-select $(printf '%s ' "${PAKETLER[@]}") \
@@ -170,7 +199,7 @@ dagit_bir() {
 commit=$surum$kirli
 dal=$dal
 tarih=\$(date -Is)
-dagitan=$(hostname)
+dagitan=$(hostname 2>/dev/null || cat /etc/hostname 2>/dev/null || echo bilinmiyor)
 paketler=${PAKETLER[*]}
 EOF
 "
