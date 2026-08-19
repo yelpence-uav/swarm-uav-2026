@@ -1,6 +1,6 @@
 # RPİ EŞİTLEME DEFTERİ — geri gelen drone'u hizaya getirme
 
-**Son güncelleme:** 19 Ağustos 2026, 20:10
+**Son güncelleme:** 19 Ağustos 2026, 23:45
 
 ## Bu belge ne için
 
@@ -223,7 +223,7 @@ Uyuşmazlığın belirtisi aldatıcı: paketler akar ama **içerik boşalır** �
 `mod=?`, `sat=0`, arayüzde FAILSAFE. İpucu `mavros.log`'daki
 `detected remote address <sysid>.1` satırı.
 
-### 🟠 RC-kayıp tespiti (19 Ağustos) — YALNIZ ylp00'da var, HAVADA DOĞRULANDI
+### ✅ RC-kayıp tespiti (19 Ağustos) — İKİ UÇAKTA DA KURULU (ylp00 havada, ylp02 yerde doğrulandı)
 
 Kumanda kapanınca FS-iA6B **susmuyor**, failsafe çerçevesini basmaya devam
 ediyor; PX4 kaybı göremiyordu (`YAPILACAKLAR` P1.9). Gün içinde iki yöntem
@@ -255,9 +255,14 @@ tutar) → üst ucu **100%'e GERİ AL**. Ölçülen: failsafe 2100, canlı tavan
 
 | Uçak | Alıcı Ch3 failsafe (2100) | PX4 parametreleri |
 |------|---------------------------|-------------------|
-| ylp00 | ✅ 19 Ağu | ✅ 19 Ağu — havada doğrulandı |
-| ylp02 | ❌ yapılmadı | ❌ yapılmadı |
+| ylp00 | ✅ 19 Ağu | ✅ 19 Ağu — HAVADA doğrulandı (kumanda kapandı → 1-2 sn'de RTL) |
+| ylp02 | ✅ 19 Ağu gece (2101; **CH5 kill'i de -100'e kaydedildi** — fabrika +100 bırakmıştı, P0.9) | ✅ 19 Ağu gece — bit iki yönde ölçüldü (0x1320C83F ↔ 0x1321C83F) |
 | ylp01 | ❌ (yerde) | ❌ (yerde) |
+
+Not: ylp02'de yalnız 2 parametre yazıldı (`RC_FAILS_THR=2050`,
+`RC_MAP_FAILSAFE=3`) — `RC6_*` orada zaten fabrika değerindeydi (CH6
+denemesi yalnız ylp00'a yazılmıştı). İki uçağın canlı gaz tavanı da
+ölçüldü: 2000-2001 < 2050 ✓.
 
 **Doğrulama:** kumanda kapalı → `/drone_N/mavros/sys_status` →
 `sensors_health`'ta RC_RECEIVER biti (`0x10000`) düşer, QGC üst barı **SARI**

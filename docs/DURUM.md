@@ -1,6 +1,6 @@
 # DURUM — şu an ne çalışıyor, ne bozuk
 
-**Son güncelleme:** 19 Ağustos 2026, 22:50
+**Son güncelleme:** 19 Ağustos 2026, 23:55
 
 > Bu belge **şimdiki hâli** anlatır, tarihçe değil. Bir şey değişince burayı
 > güncelle, eskisini sil. Ne olduğunun hikâyesi `GUNLUK.md`'de kalır.
@@ -11,9 +11,9 @@
 
 | İHA | agent_id | Durum | Not |
 |-----|----------|-------|-----|
-| ylp00 | 1 | **Uçar** | Kod **`b33e878`** (19 Ağu 22:00 dağıtımı — kalp atışı yerde değişikliği dahil). **RC-kayıp tespiti kuruldu ve HAVADA doğrulandı (19 Ağu):** kumanda kapanınca 1-2 sn'de RTL — Ch3 üst-uç yöntemi, bkz. `RPI_ESITLEME.md` §5. **P0.11 yer testi GEÇTİ:** sürü yolundan ARMED + lider seçimi + kalp atışı 399 msj @ 10 Hz. 🔴 `yer_testi` bayrağı GERİ KONDU (yer testleri için). ⚠️ 19 Ağu'da kill-failsafe kazasıyla alçaktan düştü (sonra uçtu) — pervane/GPS/titreşim kontrolü bekliyor. ⚠️ RC kalibrasyonu yenilendi (`RC3_MIN` 1016→906). ⚠️ `core.50` silinmeli |
+| ylp00 | 1 | **Uçar** | Kod **`c6c75b2`** (19 Ağu 23:00 dağıtımı — yerde kalp atışı + guided köprüsü dahil). **RC-kayıp tespiti kuruldu ve HAVADA doğrulandı (19 Ağu):** kumanda kapanınca 1-2 sn'de RTL — Ch3 üst-uç yöntemi, bkz. `RPI_ESITLEME.md` §5. **P0.11 yer testi GEÇTİ:** sürü yolundan ARMED + lider seçimi + kalp atışı 399 msj @ 10 Hz. 🔴 `yer_testi` bayrağı GERİ KONDU (yer testleri için). ✅ Düşme (19 Ağu kill kazası) sonrası kontrol TAMAM (23:50): pervane/gövde/motorlar elle temiz, GPS ölçüldü — **RTK-FIXED, 30 uydu, sensör bitleri tam** (akşamki "bit yok" okuması geçiciymiş). ⏳ Titreşim ölçümü uçuş sabahı pervane takılınca (`titresim_olc.py` — pervanesiz ölçüm yanıltır). ⚠️ RC kalibrasyonu yenilendi (`RC3_MIN` 1016→906). ✅ `core.50` silindi (20 Ağu 00:05, 337 MB; disk %40) |
 | ylp01 | 2 | **YERDE** | 2 Ağustos'ta 20 m'den düştü, RPi açılmıyor |
-| ylp02 | 3 | **Uçar** | Kod **`b33e878`** (19 Ağu 22:35 dağıtımı). **İki uçaklı P0.11 yer testi GEÇTİ:** sürü yolundan ARMED + lider mutabakatı + mesh'ten 499 kalp atışı aldı. 🔴 `yer_testi` bayrağı GERİ KONDU. ⚠️ Alıcı failsafe'i 18 Ağu'dan beri **doğrulanmadı** (P0.9). RC-kayıp tespiti **YOK** (yalnız ylp00'da — P1.9) |
+| ylp02 | 3 | **Uçar** | Kod **`c6c75b2`** (19 Ağu 23:00 dağıtımı — köprü dahil; köprü doğrulaması ylp00'da yapıldı, ylp02'ninki G2 günü). **İki uçaklı P0.11 yer testi GEÇTİ:** sürü yolundan ARMED + lider mutabakatı + mesh'ten 499 kalp atışı aldı. 🔴 `yer_testi` bayrağı GERİ KONDU. ✅ Alıcı failsafe'i düzeltildi ve ölçüldü (**P0.9 KAPANDI**, 19 Ağu gece: kayıtlı +100 bulundu → -100 kaydedildi → `CH5=1000`). ✅ RC-kayıp tespiti KURULU, bit iki yönde doğrulandı — kumanda kaybında RTL |
 
 **Uçuş yapılandırması:** drone **1 ve 3**, lider **3**.
 YKİ koşucu paneli varsayılanı buna ayarlı (`backend/api/kosucu.py`).
@@ -153,7 +153,7 @@ Bunlar **dosya varlığıyla** çalışıyor; uçağı bulan kişi böyle bulaca
 | `~/yelpence_ws/ucus_ayarlari.env` | **var** | **var** | seyir 3.0 m/s, ivme 1.5 — `ucus_ayarlari.py --kabuk` üretti |
 | `~/yelpence_ws/suru_dugumleri` | **`origin consensus fsm formasyon`** | **`origin consensus fsm formasyon`** | 17 Ağu'da ikisinde de ölçüldü, **aynı**. Varsa `SURU_DUGUMLERI` env'ini ezer. Düğüm açmak: `echo ... > dosya` + `docker restart` |
 | `~/yelpence_ws/origin` | **var** | **var** | `38.6904758 39.1610188 1216.96` — tek kaynak `deploy/saha_origin.env`, ylp00'da doğrulandı (17 Ağu). Elle yazma, `dagit.sh` dağıtır |
-| `~/yelpence_ws/yer_testi` | **VAR** | **VAR** | 19 Ağu gece yer testleri için **GERİ KONDU** (ikisine de). Açıkken "görev başladı" ARM eder ama kalkış komutu gitmez. **UÇMADAN ÖNCE SİL** + restart |
+| `~/yelpence_ws/yer_testi` | **YOK** | **YOK** | 19 Ağu 23:57'de ikisinden de silindi — **uçaklar kalkış komutunu ALIR.** Yer testine dönüş: `touch` + restart. (Not: yeni `kalkis_olayla=false` sayesinde "görev başladı" olayı tek başına kalkış tetiklemez; kalkış yalnız guided takeoff'la) |
 | `~/yelpence_ws/gozlem` | **VAR** ⚠️ | **VAR** ⚠️ | `formation_node` setpoint'i `/gozlem/...`'e gidiyor, **uçağa ULAŞMIYOR**. Uçuştan önce SİL + restart |
 | `~/yelpence_ws/gps_saat_kapali` | yok | yok | Varsa GPS'ten saat düzeltmesi yapılmaz |
 
@@ -268,12 +268,14 @@ ikisi birden açılmaz (`CLAUDE.md` §4). ADIM 4'te değişecek.
 düğümü açıksa kendiliğinden açılıyor — sözleşmenin `internal → public`
 yerel döngüsünü o kuruyor (bkz. `YAPILACAKLAR` P0.6).
 
-> ✅ **19 Ağu gece — YER AYAĞI ÇÖZÜLDÜ (iki uçakla ölçüldü):** olay
-> (`EVENT_MISSION_STARTED`) verilince zincir uçtan uca çalışıyor: iki ajan
-> da ARMED, lider mutabakatı tam, kalp atışı artık **yerde de** yayınlanıyor
-> (`c3068c8`) ve **mesh üzerinden komşuya ulaşıyor** (499 msj). Kalan: YKİ
-> guided yolu bu olayı hâlâ vermiyor — köprü kararı + G2 tekrarı
-> (`YAPILACAKLAR` P0.11).
+> ✅ **19 Ağu gece — P0.11 YER AYAĞI TAMAMEN KAPANDI:** ① olay verilince
+> zincir çalışıyor (iki uçakla: ikisi de ARMED, lider mutabakatı, mesh'ten
+> 499 kalp atışı); ② **uçak-içi köprü kuruldu ve YKİ'nin GERÇEK guided
+> arm'ıyla doğrulandı** (`b469871`): API → mesh → köprü olayı → ARMED →
+> seçim → 535 hb. Ajan TAKEOFF'a geçmiyor (`kalkis_olayla=false`) — kalkış
+> guided'da. **G2 tekrarının önünde yazılım engeli yok**; kalan uçuş-öncesi
+> işler: `yer_testi` bayraklarını SİL, ylp02 RC-kayıp kurulumu + P0.9,
+> ylp00 düşme kontrolü. Ayrıntı: `YAPILACAKLAR` P0.11.
 
 ### 🔴 ADIM 1'in HAVADAKİ karşılığı çalışmıyor — G2'de ölçüldü (18 Ağustos)
 

@@ -1,6 +1,6 @@
 # YAPILACAKLAR
 
-**Son güncelleme:** 19 Ağustos 2026, 22:50
+**Son güncelleme:** 19 Ağustos 2026, 23:55
 
 ## Önem dereceleri
 
@@ -180,15 +180,31 @@ ve bu, uçak formasyon düğümünün emrindeyken keşfedilirdi.
 - `[ ]` 🔴 **Sonra G2 tekrar** — artık lider seçimi VE kalp atışı havada
   ölçülebilir. ⚠️ KARAR-02: consensus ilk gerçek hava görevi — uçuştan önce
   operatöre `ultracode` önerilecek.
-- `[ ]` 🟠 **Karar gerekiyor (G2 tekrarının ÖN KOŞULU):** guided yol ile sürü
-  yolu nasıl birleşecek? G2 koşucusu guided yolu kullandığı sürece ajan yine
-  IDLE kalır ve seçim yine olmaz — 19 Ağu yer testi bunu kesinleştirdi:
-  zincir ancak `EVENT_MISSION_STARTED` verilince çalışıyor. En basit köprü
-  adayı: YKİ "görev başlat"ta mesh'e bu olayı da yaymak (ajanlar ARMED'a
-  sürü yolundan gelir, uçuşu guided sürdürür). Alternatif: kalkışı tamamen
-  sürü yoluna devretmek (finaldeki hâl; `mission1` henüz sahada değil).
-  Finalde kalkışı `mission1` + `agent_fsm` yapacak; geçiş dönemi kararı
-  operatörün. `SURU_ENTEGRASYON.md`'de bu soru yok.
+
+  **G2 sabahı kontrol listesi (19 Ağu gece hazırlandı, her şey hazır):**
+  1. Pervaneleri tak (ikisi de sökük bırakıldı) → hemen ardından
+     `titresim_olc.py` (STABILIZED + arm + gaz eşik altı ~5 sn; clipping
+     artıyorsa UÇMA — TUZAKLAR §0.1)
+  2. `yer_testi` bayraklarını SİL + `docker restart` (ikisinde de VAR)
+  3. `./deploy/yki/param_karsilastir.py` (her uçuş öncesi standart)
+  4. İki kumandada "kapat → QGC SARI" kontrolü (RC-kayıp tespiti canlı mı)
+  5. Baz anteni taşındıysa `rtk_baz_survey.py` (18 Ağu'dan beri cevapsız soru)
+  6. Uçuş mesajına `ultracode` (KARAR-02)
+- `[x]` 🟠 ~~Karar gerekiyor: guided yol ile sürü yolu nasıl birleşecek~~ →
+  **KARAR VERİLDİ ve UYGULANDI (19 Ağu gece, operatör: uçak-içi köprü).**
+  `esp32_bridge` guided ARM'ı işlerken yerel `EVENT_MISSION_STARTED` üretiyor
+  (`b469871`) — firmware'e dokunmadan, teslimatı kanıtlanmış guided yolun
+  aynısı. `agent_fsm`'e `kalkis_olayla` parametresi eklendi (sahada `false`):
+  olay ajanı yalnız **ARMED'a taşır, TAKEOFF'u tetiklemez** — takeoff
+  komutunun tek kaynağı guided yolda kalıyor. `mission1` kalkışı
+  devraldığında `SURU_KALKIS_OLAYLA=true` yapılacak (baslat.sh'te yorumlu).
+
+  **Uçtan uca DOĞRULANDI (23:00, ylp00, elle olay YOK):** YKİ API
+  `POST /api/guided/1/arm` → mesh → köprü **4 olay** üretti (4-kopya
+  teslimat) → `IDLE→ARMING→ARMED` (TAKEOFF'a geçmedi ✓) → **lider seçildi**
+  → **535 kalp atışı**. Çıkış: kill → FAILSAFE → IDLE (belgeli yol).
+  ylp02'de aynı kod dağıtılı (`c6c75b2`); onun köprü doğrulaması G2 günü
+  yapılır. **G2 tekrarının önünde yazılım engeli kalmadı.**
 
 ---
 
@@ -222,7 +238,17 @@ Kayıt         ylp00 288.427 mesaj / ylp02 234.460 mesaj
 
 ---
 
-### 🔴 P0.9 ylp02'nin alıcı failsafe'i KILL tetikliyor — ÖLÇÜLDÜ (18 Ağustos)
+### ✅ P0.9 KAPANDI (19 Ağustos gece, ölçümle) — ylp02'nin kill failsafe'i düzeltildi
+
+> Fabrika sıfırlamasının bıraktığı +100% kayıt yerinde duruyordu — deneyle
+> kanıtlandı: kill switch'in konumundan BAĞIMSIZ `CH5=2000` basıyordu
+> ("off/tut" değil, KAYITLI kill). Kumandada `Ch5 → -100%` (ve `Ch7 → -100%`)
+> kaydedildi; kumanda kapalıyken ölçüm: **`CH5=1000`** ✓. Üstüne ylp02'ye
+> RC-kayıp tespiti de kuruldu (Ch3 üst-uç, `RPI_ESITLEME` §5) ve RC sağlık
+> biti iki yönde doğrulandı — **kumanda kaybında artık kill değil RTL.**
+> Aşağıdaki blok tarihçe olarak duruyor:
+
+### ~~🔴 P0.9 ylp02'nin alıcı failsafe'i KILL tetikliyor~~ — ÖLÇÜLDÜ (18 Ağustos)
 
 `TUZAKLAR.md` §0.2'nin cevabı çıktı ve **beklenenin tersi**: sorun ylp00'da
 değil, **ylp02'de**. YKİ telemetrisinden ölçüldü, iki kez tekrarlandı:
@@ -789,11 +815,10 @@ modu Hold'a düşürüp otonom kiplerle uçuşa-hazır sayıyor. YKİ'nin
 
 - `[x]` 🟠 ylp00: Ch3 üst-uç kurulumu (`RC_FAILS_THR=2050`,
   `RC_MAP_FAILSAFE=3`) + hava testi — kumanda kapandı, 1-2 sn'de RTL (19 Ağu)
-- `[ ]` 🟠 **ylp02'ye aynısı** — kumandasında Ch3 üst-uç dansı (uç 120 →
-  gaz yukarı → failsafe kaydet → uç 100'e geri) + `RC_FAILS_THR=2050`,
-  `RC_MAP_FAILSAFE=3` + bit testi. Oradaki **P0.9 CH5 doğrulaması da hâlâ
-  açık** — aynı oturumda, her menü değişikliğinden sonra `rc/in` ölçerek
-  (`TUZAKLAR` §0.4 — bu kural 19 Ağu'da ihlal edildi ve ylp00 düştü)
+- `[x]` 🟠 ~~ylp02'ye aynısı~~ → **KURULDU ve DOĞRULANDI (19 Ağu gece).**
+  Ch3 failsafe 2101, canlı tavan 2000, 2 parametre yazıldı, bit iki yönde
+  ölçüldü. P0.9 da aynı oturumda kapandı (CH5 kayıtlı +100 çıktı → -100'e
+  kaydedildi → `CH5=1000` ölçüldü). İki uçağın failsafe davranışı artık AYNI.
 - `[ ]` 🟠 **Açıklanamayan yanlış-kayıp (bir kez görüldü):** kumanda AÇIKKEN
   RC biti "kayıp"ta takılı kaldı (CH3=1296'da bile), güç çevrimiyle geçti,
   sonraki uçuş normaldi. Şüpheli: `COM_RC_IN_MODE=3` "ilk kaynağı tut"
