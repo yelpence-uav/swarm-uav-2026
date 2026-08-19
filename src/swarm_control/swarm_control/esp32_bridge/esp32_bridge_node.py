@@ -1107,6 +1107,17 @@ class Esp32BridgeNode(Node):
         (metre*100) taşınır. FSM'i baypas eder — guided modda operatör otoritesi.
         """
         if k.flags & pp.KOMUT_FLAG_ARM:
+            # UCAK-ICI KOPRU (19 Agustos 2026, P0.11): YKI'nin guided yolu
+            # agent_fsm'i hic gormuyordu ve ajan IDLE'da kaliyordu — G2'de
+            # olculdu: 638 sn'de sifir secim. Guided ARM ayni zamanda "gorev
+            # basliyor" demek; olay BURADA, ucak icinde uretiliyor ki
+            # agent_fsm IDLE->ARMING->ARMED yurusun ve consensus secim
+            # yapabilsin (ELIGIBLE_STATES en dusuk ARMED ister). Mesh'e yeni
+            # paket tipi eklemek yerine ucak-ici uretim secildi: firmware
+            # whitelist'ine carpmaz, teslimati kanitlanmis guided yolun
+            # aynisi. ARMED->TAKEOFF'u tetiklemez: agent_fsm gecis doneminde
+            # kalkis_olayla=false ile kaliyor, kalkis guided yoldan gelir.
+            self._gorev_basladi_olayi_yayinla()
             self._guided_string('arm')
         elif k.flags & pp.KOMUT_FLAG_DISARM:
             self._guided_hedef = None
@@ -1136,6 +1147,32 @@ class Esp32BridgeNode(Node):
         m.data = komut
         self._guided_cmd_pub.publish(m)
         self.get_logger().info(f'[GUIDED] px4 komut: {komut}')
+
+    def _gorev_basladi_olayi_yayinla(self) -> None:
+        """Guided ARM'ı EVENT_MISSION_STARTED'a çevirir (uçak-içi köprü).
+
+        target_agent_id = KENDİ kimliğimiz: her uçak yalnız kendi ajanını
+        tetikler (guided arm zaten uçak başına geliyor; broadcast arm'da da
+        her bridge kendi olayını üretir). Guided komut mesh'te 4 kopya
+        geldiği için olay da tekrar üretilebilir — agent_fsm için zararsız:
+        IDLE değilse yalnız mission_start bayrağına bakar, o da geçiş
+        döneminde kalkis_olayla=false ile kapalı.
+        """
+        ev = SystemEvent()
+        ev.stamp = self.get_clock().now().to_msg()
+        ev.event_type = SystemEvent.EVENT_MISSION_STARTED
+        ev.severity = SystemEvent.SEVERITY_INFO
+        ev.source_agent_id = self._agent_id
+        ev.target_agent_id = self._agent_id
+        ev.source_module = 'esp32_bridge_guided_koprusu'
+        ev.message = 'guided arm -> gorev basladi'
+        ev.value = 0.0
+        ev.has_position = False
+        # Kendi event'imiz: /swarm/internal/events/system (köprü public'e döngüler)
+        self._event_pub_internal.publish(ev)
+        self.get_logger().info(
+            '[GUIDED] gorev-basladi olayi yayinlandi (ucak-ici kopru)'
+        )
 
     def _isle_goto(self, source_id: int, payload: bytes) -> None:
         """TIP_GOTO -> hedef bizsek AgentSetpoint (NED) olarak px4_bridge'e.

@@ -352,9 +352,15 @@ if [ -f /ws/yer_testi ]; then
     echo "[baslat] *** YER TESTI ACIK *** kalkis komutu GONDERILMEYECEK (/ws/yer_testi)"
 fi
 
+# kalkis_olayla=false: GECIS DONEMI (19 Agustos 2026, P0.11 kopru karari).
+# esp32_bridge guided ARM'da EVENT_MISSION_STARTED uretir; ajan ARMED'a
+# cikar (consensus secim yapabilir) ama kalkisi TETIKLEMEZ — 'takeoff'
+# komutunun tek kaynagi guided yol. mission1+agent_fsm kalkisi
+# devraldiginda SURU_KALKIS_OLAYLA=true yapilacak.
 ros2 run swarm_state_machine agent_fsm_node --ros-args \
     -p agent_id:=${AGENT_ID} \
     -p battery_critical_voltage_v:=${BATARYA_KRITIK_V} \
+    -p kalkis_olayla:=${SURU_KALKIS_OLAYLA:-false} \
     -p yer_testi:=${YER_TESTI} >> "$GUNLUK/fsm.log" 2>&1 &
 sleep 5
 # MAVLink yayin hizlari: FCU her resetlendiginde sifirlanir, her aciliste yeniden istenir

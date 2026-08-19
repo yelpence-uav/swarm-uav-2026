@@ -78,6 +78,14 @@ class AgentFsmNode(Node):
         # YER TESTI: gorev basladi olayi ARMED'a kadar goturur, TAKEOFF'a
         # GOTURMEZ. Pervanesiz yer testleri icin (bkz. asagida _on_event).
         self.declare_parameter('yer_testi', False)
+        # kalkis_olayla=False: EVENT_MISSION_STARTED ajani yalniz ARMED'a
+        # tasir, TAKEOFF'u TETIKLEMEZ — kalkis guided yoldan beklenir.
+        # Gecis donemi ayari (19 Agustos 2026, P0.11 kopru karari): kalkis
+        # otoritesi tek kaynakta kalsin diye (bkz. CLAUDE.md bolum 4 kurali:
+        # bir konuya tek uretici; 'takeoff' komutunun da tek kaynagi olmali).
+        # mission1 + agent_fsm kalkisi devraldiginda True yapilacak.
+        # Varsayilan True = eski davranis; sahada baslat.sh False geciyor.
+        self.declare_parameter('kalkis_olayla', True)
 
         self._agent_id = self.get_parameter('agent_id').value
         self._sitl_mode = self.get_parameter('sitl_mode').value
@@ -89,6 +97,9 @@ class AgentFsmNode(Node):
             self.get_parameter('target_altitude_m').value
         )
         self._yer_testi = bool(self.get_parameter('yer_testi').value)
+        self._kalkis_olayla = bool(
+            self.get_parameter('kalkis_olayla').value
+        )
         if self._yer_testi:
             self.get_logger().warn(
                 '*** YER TESTI ACIK *** Gorev basladi olayi ARMED e kadar '
@@ -256,8 +267,10 @@ class AgentFsmNode(Node):
 
         # Rejoin: WAITING_REJOIN'den tekrar arm'a geçerken kalkış sekansını
         # yeniden etkinleştir (ARMED→TAKEOFF bu bayrağı bekler).
+        # kalkis_olayla=False (geçiş dönemi) ise rejoin de kalkışı AÇMAZ —
+        # kalkış otoritesi guided yolda kalır.
         if old == AgentState.WAITING_REJOIN and new_state == AgentState.ARMING:
-            self._ctx.mission_start_sequence_active = True
+            self._ctx.mission_start_sequence_active = self._kalkis_olayla
 
         self._dispatch_px4_command(new_state)
 
@@ -324,11 +337,20 @@ class AgentFsmNode(Node):
             # durum ARMED. ARMED'a cikmanin tek yolu bu olay. Bayrak olmadan
             # olay ayni zamanda kalkisi tetikliyor ve pervanesiz yer testinde
             # motorlar ~30 sn bosta tam gazda kalip FAILSAFE'e dusuyordu.
+            # kalkis_olayla=False (gecis donemi): olay ajani ARMED'a tasir
+            # ama kalkis kapisini ACMAZ — 'takeoff' komutunun tek kaynagi
+            # guided yol kalir (cift kalkis kaynagi = bolum-4 cakismasi).
+            kalkis_izni = (not self._yer_testi) and self._kalkis_olayla
             if ctx.state == AgentState.IDLE:
-                ctx.mission_start_sequence_active = not self._yer_testi
+                ctx.mission_start_sequence_active = kalkis_izni
                 ctx.pending_state = AgentState.ARMING
             elif ctx.state == AgentState.ARMED:
-                ctx.mission_start_sequence_active = not self._yer_testi
+                ctx.mission_start_sequence_active = kalkis_izni
+            if not self._kalkis_olayla and not self._yer_testi:
+                self.get_logger().info(
+                    f'[agent {aid}] gecis modu: ARMED e kadar gidilecek, '
+                    f'kalkis guided yoldan (kalkis_olayla=false)'
+                )
             if self._yer_testi:
                 self.get_logger().warn(
                     f'[agent {aid}] YER TESTI: ARMED e kadar gidilecek, '
