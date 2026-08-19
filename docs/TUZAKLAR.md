@@ -1,6 +1,6 @@
 # TUZAKLAR — hata vermeden yanlış sonuç üretenler
 
-**Son güncelleme:** 19 Ağustos 2026, 00:12
+**Son güncelleme:** 19 Ağustos 2026, 20:10
 
 > **Bu belge CANLI.** Arşiv değil — buradaki her madde **bugün de geçerli.**
 >
@@ -165,6 +165,40 @@ yapılmıştır. Sıfırlama sonrası uçmadan önce `rc/in` okunarak doğrulana
 
 **Kural: kumanda sıfırlandıysa alıcı failsafe'i de yeniden kurulmadan uçulmaz.**
 *(18 Ağustos 2026'da ölçüldü)*
+
+⚠️ **Sıfırlama olmasa bile: failsafe menüsündeki düzenleme YANLIŞ KANALA
+inebilir.** 19 Ağustos'ta ylp00'ın kumandasında niyet "CH6 → +100%" idi;
+ölçümde CH6 hiç değişmemiş, **CH5 +100% (= KILL) ve CH7 0% olmuş** çıktı.
+QGC'nin "Not Ready" gibi görünmesi de bu yüzdendi (kill tetiklenmişti) ve
+bir an "sorun çözüldü" sanıldı — tespit değil, kill'di. **Kural: failsafe
+menüsüne HER dokunuştan sonra kumanda kapatılıp `rc/in` çerçevesi 8 kanal
+birden ölçülür.** *(19 Ağustos 2026'da ölçüldü)*
+
+🔴 **Aynı gün bu kural ihlal edildi ve bedeli düşen uçak oldu:** CH5=+100%
+duran kumanda, yerde ölçüm yapılmadan HAVADA kapatıldı → alıcı "kill'e bas"
+çerçevesi bastı → **bütün motorlar anında kesildi, ylp00 alçak irtifadan
+düştü.** RTL ayarlı olması kurtarmadı — kill her şeyi ezer. Yerdeki 2
+dakikalık `rc/in` ölçümü bu düşüşü engellerdi. *(19 Ağustos 2026, ~17:30)*
+
+### 0.5 FlySky hattı 900-2100 dışına ÇIKAMAZ; failsafe kaydı MUTLAK saklanır
+
+19 Ağustos'ta ölçüldü (ylp00, iki uçta da):
+
+- Telsiz protokolünün (AFHDS-2A) taşıma bandı **1500±600 = [900, 2100]**,
+  yani tam ±120%. Uç noktalar 120'ye açılınca QGC'de 2100 ve 900 görülür;
+  ötesi **hattan geçmez** (kumanda ekranı ne derse desin — ekran niyeti
+  gösterir, hattı değil).
+- Bu yüzden klasik "gaz failsafe'i canlı dibin altına" numarası bu takımda
+  **çalışmaz**: canlı gaz dibi ~906-908'de (taban 900'ün 8 µs üstü), araya
+  eşik sığmaz. Çalışan varyant ÜST uçtur: canlı tavan 2000 < eşik 2050 <
+  failsafe 2100 (`RPI_ESITLEME` §5).
+- Failsafe kaydı **mutlak değer** olarak saklanır: uç nokta 120'deyken
+  yakalanan 2100, uç nokta 100'e geri alınsa da 2100 kalır. Dans şu: uç
+  120 → çubuk uca → failsafe kaydet → uç 100'e geri (geri almayı unutursan
+  canlı tavan 2100'e çıkar ve uçuşta tam gazda yanlış "kayıp" tetiklenir).
+- QGC Radio kalibrasyonu `RC*_MIN/MAX/TRIM`'i yeniden yazar (19 Ağu'da
+  `RC3_MIN` 1016→906 oldu). Her kalibrasyondan sonra failsafe eşiklerinin
+  hâlâ aralığın DIŞINDA kaldığı denetlenmeli.
 
 ### 0.3 ylp00 hover gazı %66 — hâlâ öyle mi?
 
@@ -339,6 +373,31 @@ gelmiyor, komut bulunamıyor ve alan **sessizce boş** kalıyor. Kim dağıttı
 bilgisi kayboluyor.
 ✅ **18 Ağustos'ta düzeltildi:** `hostname → /etc/hostname → "bilinmiyor"`
 zinciri. *(17 Ağustos 2026'da ölçüldü)*
+
+### 1.16 YKİ'deki `rc_link_ok` ve `ready_to_arm` PX4'ün RC-kayıp kararını GÖSTERMEZ
+
+P1.9 doğrulanırken çıktı: parametreler yazıldı, PX4 kaybı görmeye başladı,
+ama YKİ telemetrisi hiç kıpırdamadı.
+
+- `rc_link_ok` = "RCIn mesajında kanal var mı" (`mavros_telemetry_mapper.py:299`).
+  FS-iA6B kumanda kapalıyken de failsafe çerçevesi bastığı için **hep True**.
+- `ready_to_arm` = SYS_STATUS'un PREARM biti; RC kaybında **düşmediği ölçüldü**.
+- `rc_signal_failsafe_active` yalnız armlıyken anlam taşıyor.
+- (`kill_switch_active` ise doğrudan CH5 değerinden türetiliyor — o doğru çalışıyor.)
+
+PX4'ün RC-kayıp kararının gerçek göstergeleri:
+
+- `/drone_N/mavros/sys_status` → `sensors_health` içindeki **RC_RECEIVER
+  biti (`0x10000`)**: kayıpta 0 (19 Ağu'da iki yönde de ölçüldü)
+- QGC üst barı **SARI** + tıklayınca *Vehicle Messages*'ta **"Manual control
+  lost / regained"** çiftleri, *Overall Status*'ta **"No manual control
+  input"** (her aç-kapada düştüğü ölçüldü)
+- Yazı "Ready To Fly" kalır çünkü PX4 kayıpta modu **PosCtl → Hold'a
+  düşürüyor** ve otonom kipler RC istemediği için uçuşa-hazırlık geçiyor.
+  Bu, "arm reddedilir" demek DEĞİL — pervanesiz arm testi ayrıca yapılacak
+  (`YAPILACAKLAR` P1.9)
+
+*(19 Ağustos 2026'da ölçüldü)*
 
 ---
 

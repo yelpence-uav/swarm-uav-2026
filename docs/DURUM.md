@@ -1,6 +1,6 @@
 # DURUM — şu an ne çalışıyor, ne bozuk
 
-**Son güncelleme:** 19 Ağustos 2026, 00:12
+**Son güncelleme:** 19 Ağustos 2026, 20:10
 
 > Bu belge **şimdiki hâli** anlatır, tarihçe değil. Bir şey değişince burayı
 > güncelle, eskisini sil. Ne olduğunun hikâyesi `GUNLUK.md`'de kalır.
@@ -11,9 +11,9 @@
 
 | İHA | agent_id | Durum | Not |
 |-----|----------|-------|-----|
-| ylp00 | 1 | **Uçar** | Repo ile %100 senkron (`600ca65`, 17 Ağu). 18 Ağu akşamı **şarjda**. Alıcı failsafe'i tanımlı ve emniyetli (ölçüldü). ⚠️ `core.50` 353 MB silinmeli |
+| ylp00 | 1 | **Uçar** | Repo ile %100 senkron (`600ca65`, 17 Ağu). **RC-kayıp tespiti kuruldu ve HAVADA doğrulandı (19 Ağu):** kumanda kapanınca 1-2 sn'de RTL — Ch3 üst-uç yöntemi, bkz. `RPI_ESITLEME.md` §5. ⚠️ 19 Ağu'da kill-failsafe kazasıyla alçaktan düştü (sonra uçtu) — pervane/GPS/titreşim kontrolü bekliyor. ⚠️ RC kalibrasyonu 19 Ağu'da yenilendi (`RC3_MIN` 1016→906). ⚠️ `core.50` 353 MB silinmeli |
 | ylp01 | 2 | **YERDE** | 2 Ağustos'ta 20 m'den düştü, RPi açılmıyor |
-| ylp02 | 3 | **Uçar** | Repo ile %100 senkron (doğrulandı 14 Ağu). ⚠️ Alıcı failsafe'i 18 Ağu'da iki kez ele alındı: düzeltildi → kumanda sıfırlaması geri aldı → operatör tekrar düzelttiğini bildirdi ama **doğrulama ölçümü YAPILMADI**. `YAPILACAKLAR` P0.9 |
+| ylp02 | 3 | **Uçar** | Repo ile %100 senkron (doğrulandı 14 Ağu). ⚠️ Alıcı failsafe'i 18 Ağu'da iki kez ele alındı: düzeltildi → kumanda sıfırlaması geri aldı → operatör tekrar düzelttiğini bildirdi ama **doğrulama ölçümü YAPILMADI**. `YAPILACAKLAR` P0.9. RC-kayıp tespiti **YOK** (19 Ağu'da yalnız ylp00'a kuruldu — P1.9) |
 
 **Uçuş yapılandırması:** drone **1 ve 3**, lider **3**.
 YKİ koşucu paneli varsayılanı buna ayarlı (`backend/api/kosucu.py`).

@@ -1,6 +1,6 @@
 # RPİ EŞİTLEME DEFTERİ — geri gelen drone'u hizaya getirme
 
-**Son güncelleme:** 19 Ağustos 2026, 00:12
+**Son güncelleme:** 19 Ağustos 2026, 20:10
 
 ## Bu belge ne için
 
@@ -222,6 +222,59 @@ docker restart <KONTEYNER>
 Uyuşmazlığın belirtisi aldatıcı: paketler akar ama **içerik boşalır** —
 `mod=?`, `sat=0`, arayüzde FAILSAFE. İpucu `mavros.log`'daki
 `detected remote address <sysid>.1` satırı.
+
+### 🟠 RC-kayıp tespiti (19 Ağustos) — YALNIZ ylp00'da var, HAVADA DOĞRULANDI
+
+Kumanda kapanınca FS-iA6B **susmuyor**, failsafe çerçevesini basmaya devam
+ediyor; PX4 kaybı göremiyordu (`YAPILACAKLAR` P1.9). Gün içinde iki yöntem
+denendi: CH6 işaret kanalı (çalıştı ama kanal harcıyordu) → **CH3 üst-uç
+yöntemi** (nihai). Mantık: kayıpta alıcı gaz kanalına **2100** basar — canlı
+uçuşta ulaşılamaz bir değer (tavan 2000):
+
+```
+canlı gaz tavanı 2000  <  eşik 2050  <  failsafe 2100
+```
+
+**Hava testi (19 Ağu ~19:45, ylp00):** alçak askıda kumanda kapatıldı →
+**1-2 sn içinde RTL**. Motor kesilmedi. Uçtan uca doğrulandı.
+
+**1) Alıcı tarafı** (kumanda menüsünden, alıcının flash'ına yazılır):
+`End points → Ch3` üst ucu **geçici 120%** → gaz çubuğu TAM YUKARI →
+`RX Setup → Failsafe → Ch3` kaydet (2100 yakalanır; FlySky kaydı **mutlak**
+tutar) → üst ucu **100%'e GERİ AL**. Ölçülen: failsafe 2100, canlı tavan
+2000-2001. ⚠️ Menü düzenlemesi yanlış kanala inebilir — sonrasında MUTLAKA
+`rc/in` ölç (`TUZAKLAR` §0.4; bugün CH5=+100% kazası uçak düşürdü).
+
+**2) PX4 parametreleri** (`px4_param.py --yaz` ile, tek toplu istek):
+
+| Parametre | Değer | Neden |
+|-----------|-------|-------|
+| `RC_MAP_FAILSAFE` | `3` | işaret kanalı = gaz (CH3) |
+| `RC_FAILS_THR` | `2050` | CH3 > 2050 → sinyal kayıp (v1.16.1 iki yönlü koşulun ÜST dalı, `rc_update.cpp:437`; eşik `RC3_MAX`'ın üstünde olmalı) |
+| `RC6_MAX` / `RC6_TRIM` | `2001` / `1500` | CH6 denemesinden kalan değerler fabrikaya döndü; CH6 artık boş |
+
+| Uçak | Alıcı Ch3 failsafe (2100) | PX4 parametreleri |
+|------|---------------------------|-------------------|
+| ylp00 | ✅ 19 Ağu | ✅ 19 Ağu — havada doğrulandı |
+| ylp02 | ❌ yapılmadı | ❌ yapılmadı |
+| ylp01 | ❌ (yerde) | ❌ (yerde) |
+
+**Doğrulama:** kumanda kapalı → `/drone_N/mavros/sys_status` →
+`sensors_health`'ta RC_RECEIVER biti (`0x10000`) düşer, QGC üst barı **SARI**
+olur; açık → bit 1, yeşil. (Disarmed'da yazı "Ready To Fly" kalır — normal,
+`TUZAKLAR` §1.16.)
+
+**Kalıcı kurallar:**
+- **Ch3 üst ucu daima 100'de kalmalı** — 120 yapılırsa canlı tam gaz 2100'e
+  ulaşır ve uçuşta yanlış "kayıp" (=habersiz RTL) tetikler
+- RC yeniden kalibrasyonu `RC3_MAX`'ı canlı tavana (~2000) yazdığı sürece
+  yöntem **kalibrasyona dayanıklı** (eşik 2050 üstte kalır)
+- Uçuş öncesi: kumanda kapat → QGC SARI olmalı (tespit canlı mı denetimi)
+
+⚠️ **Açık pürüz:** 19 Ağu'da bir kez, kumanda AÇIKKEN bit "kayıp"ta takılı
+kaldı (CH3=1296'da bile) ve güç çevrimi ile temizlendi. Şüpheli:
+`COM_RC_IN_MODE=3`'ün "ilk kaynağı tut" kilidi. Tekrar ederse QGC konsolunda
+`commander check` çıktısı alınmalı — `YAPILACAKLAR` P1.9.
 
 ---
 

@@ -1,6 +1,6 @@
 # YAPILACAKLAR
 
-**Son güncelleme:** 19 Ağustos 2026, 00:12
+**Son güncelleme:** 19 Ağustos 2026, 20:10
 
 ## Önem dereceleri
 
@@ -736,47 +736,68 @@ gerekmiyor. Ayrıntı `cihazlar.md` ⏰ bölümü.
 - `[ ]` ⚪ Kalıcı donanım çözümü: Pi 5 RTC konnektörüne düğme pil.
   Operatör "pil bağlayamam" dedi (15 Ağu) — GPS yolu bu yüzden seçildi
 
-### 🟠 P1.9 Kumanda kapalıyken PX4 "uçuşa hazır" diyor — RC kaybını GÖREMİYOR
+### 🟠 P1.9 Kumanda kapalıyken PX4 "uçuşa hazır" diyordu — ylp00'da ÇÖZÜLDÜ (19 Ağu), ylp02 BEKLİYOR
 
-18 Ağustos'ta operatör fark etti: iki kumanda da kapalıyken Pixhawk **yeşil**
-yanıyor ve arm'a izin veriyor. Alıcının kırmızı LED'i yanıp sönüyor, yani
-**alıcı kaybı biliyor** — ama PPM kablosundan söyleyemiyor.
+FS-iA6B kumanda ölünce **susmuyor**, failsafe çerçevesini basmaya devam
+ediyor; PX4 bağlantıyı sağlıklı sanıyordu. 19 Ağustos'ta ylp00'a **Ch3
+üst-uç yöntemi** kuruldu (gün içinde önce CH6 işaret kanalı denendi ve iki
+yönde çalıştı; kanalı boşaltmak için nihai yöntem CH3 üst ucuna taşındı) ve
+**hava testiyle doğrulandı: alçak askıda kumanda kapatıldı → 1-2 sn'de RTL,
+motor kesilmedi.** Kurulum, değerler, kalıcı kurallar ve uçak tablosu:
+`RPI_ESITLEME.md` §5. Donanım tabanı ve mutlak failsafe kaydı: `TUZAKLAR` §0.5.
 
-**Kök neden (ölçüldü, tahmin değil):**
+**Doğrulama zinciri (19 Ağu, ylp00):** `sys_status.sensors_health`
+RC_RECEIVER biti kumanda kapalıyken 0, açıkken 1 · QGC sarı ↔ yeşil ·
+*Vehicle Messages*'ta "Manual control lost / regained" çiftleri · hava
+testi (RTL). ⚠️ Disarmed'da yazı **"Ready To Fly" kalıyor** — PX4 kayıpta
+modu Hold'a düşürüp otonom kiplerle uçuşa-hazır sayıyor. YKİ'nin
+`rc_link_ok`/`ready_to_arm` alanları tespiti GÖSTERMİYOR → `TUZAKLAR` §1.16.
 
-- `COM_RC_IN_MODE=3` PX4'ün **dokunulmamış varsayılanı** ("RC or Joystick keep
-  first"), yani RC girişi açık — suçlu bu değil.
-- PX4 RC kaybını yalnız **`RC_MAP_FAILSAFE` kanalı `RC_FAILS_THR`'ın ALTINA
-  düştüğünde** anlıyor (v1.16 kaynağından doğrulandı).
-- FS-iA6B kumanda ölünce **susmuyor**, hafızasındaki failsafe değerlerini
-  basıyor. Ölçülen tabloda **hiçbir kanalın failsafe değeri normal alt ucunun
-  altında değil**, yani `RC_FAILS_THR`'a hangi değer yazılırsa yazılsın ya hiç
-  tetiklenmez ya da pilot çubuğu oynattığında yanlış tetiklenir:
+**Havadaki zincir (koddan doğrulandı):** `signal_lost` → `rc_update`,
+`manual_control_input` yayınını keser (`rc_update.cpp:484`) →
+`COM_RC_LOSS_T` (0.5 sn) sonra manuel kontrol kayıp → `NAV_RCL_ACT=2` → RTL.
+`COM_RCL_EXCEPT=0` olduğu için **OFFBOARD'da (görevde) da** tetiklenir.
+
+- `[x]` 🟠 ylp00: Ch3 üst-uç kurulumu (`RC_FAILS_THR=2050`,
+  `RC_MAP_FAILSAFE=3`) + hava testi — kumanda kapandı, 1-2 sn'de RTL (19 Ağu)
+- `[ ]` 🟠 **ylp02'ye aynısı** — kumandasında Ch3 üst-uç dansı (uç 120 →
+  gaz yukarı → failsafe kaydet → uç 100'e geri) + `RC_FAILS_THR=2050`,
+  `RC_MAP_FAILSAFE=3` + bit testi. Oradaki **P0.9 CH5 doğrulaması da hâlâ
+  açık** — aynı oturumda, her menü değişikliğinden sonra `rc/in` ölçerek
+  (`TUZAKLAR` §0.4 — bu kural 19 Ağu'da ihlal edildi ve ylp00 düştü)
+- `[ ]` 🟠 **Açıklanamayan yanlış-kayıp (bir kez görüldü):** kumanda AÇIKKEN
+  RC biti "kayıp"ta takılı kaldı (CH3=1296'da bile), güç çevrimiyle geçti,
+  sonraki uçuş normaldi. Şüpheli: `COM_RC_IN_MODE=3` "ilk kaynağı tut"
+  kilidi. Tekrar ederse QGC konsolunda `commander check` çıktısı al.
+  **Operatör kararı:** `COM_RC_IN_MODE` 3→0 (yalnız RC) yapılsın mı —
+  YKİ joystick kullanmıyor, kaynak karmaşasını kökten keser.
+- `[x]` 🟠 ~~Pervanesiz arm-reddi testi~~ → **CEVAPLANDI (19 Ağu): PX4
+  kumandasız arm'ı KABUL EDİYOR.** QGC'den ölçüldü — kayıpta mod Hold'a
+  düşüyor, otonom kipler RC istemediği için arm geçiyor; v1.16.1'de bunu
+  yasaklayan parametre YOK (1007 parametrelik döküm tarandı).
+- `[ ]` 🟡 **Yazılımsal arm kapısı: yazıldı, operatör kararıyla GERİ ALINDI
+  (19 Ağu, commit'lenmedi).** `px4_bridge`'in `arm` dalına SYS_STATUS
+  RC_RECEIVER bitine bakan fail-closed kapı + 9 test yazılmıştı;
+  dağıtılmadan geri alındı, repoda izi yok. İstenirse yeniden yazılır
+  (~1 saat). Bilinen tek PX4-yerlisi alternatif `COM_ARM_AUTH_*`
+  (arm yetkilendirme) — mavros'ta cevaplayıcı yazmayı gerektirir.
+- `[ ]` 🟠 **Operatör kararı (bir sonraki uçuştan önce):** `COM_RC_LOSS_T`
+  0.5 → 2.0 sn (anlık parazit sürüden uçak koparmasın) ve OFFBOARD istisnası
+  (`COM_RCL_EXCEPT`) istenip istenmediği — sürü uçuşunda ani RTL,
+  formasyonun içinden geçmek demek
+- `[ ]` 🟡 Uçuş öncesi listesine iki madde: "kumandayı kapat → QGC SARI
+  olmalı" (tespit canlı mı) · "Ch3 üst ucu 100'de mi + kalibrasyon
+  yenilendiyse eşik (2050) hâlâ `RC3_MAX`'ın üstünde mi"
+- `[ ]` ⚪ **B — SBUS/CRSF alıcıya geç.** Kaybı çerçevede bildirir, bu hilelere
+  gerek kalmaz. Kalıcı ve temiz çözüm ama donanım + yeniden RC kalibrasyonu.
+
+18 Ağustos ölçüm tablosu (tarihçe; ylp00 CH6 failsafe artık **2000**):
 
 | kanal | ylp00 canlı | ylp00 failsafe | ylp02 canlı | ylp02 failsafe |
 |---|---|---|---|---|
 | CH3 gaz | 909 | 1005 | ~1003 | 1017 |
-| CH5 kill | 1000 | 1000/**2000** | 1000 | **2000** |
-| CH6 (PX4'te BOŞ) | 1000 | 1000 | 1000 | 2000 |
-
-**Çözüm seçenekleri:**
-
-- `[ ]` 🟠 **A — CH6'yı "kumanda canlı" işaret kanalı yap.** PX4'te CH6 hiçbir
-  şeye bağlı değil (`RC_MAP_*` okundu: CH5=kill, CH7=fltmode, CH8=arm).
-  Kumanda açıkken `CH6=2000`, alıcı failsafe'inde `CH6=1000`, sonra
-  `RC_MAP_FAILSAFE=6`, `RC_FAILS_THR=1500`. Payı ±500 µs, iki uçakta aynı
-  parametre. Pilot switch'i kaldırmayı unutursa **arm reddedilir** — hata
-  güvenli yöne düşer. ~20 dk, donanım gerekmez.
-- `[ ]` ⚪ **B — SBUS/CRSF alıcıya geç.** O protokoller kaybı çerçevede
-  bildiriyor; PX4 hiçbir ayar olmadan kendiliğinden görür. Kalıcı ve temiz
-  çözüm ama donanım + yeniden RC kalibrasyonu.
-- `[ ]` 🟡 Uygulanırsa `COM_RC_LOSS_T` 0.5 → **2.0 sn** düşünülmeli: anlık
-  parazit sürüden bir uçağı RTL'e göndermesin.
-
-⚠️ Bu çalışınca havada da devreye girer: RC kaybı → `NAV_RCL_ACT=2` → RTL.
-Görev ortasında istenip istenmediği **operatör kararı**.
-
-**18 Ağustos'ta ES GEÇİLDİ** (operatör kararı) — G2'yi engellemiyor.
+| CH5 kill | 1000 | 1000 | 1000 | **2000** |
+| CH6 | 1000 | ~~1000~~ **2000** (19 Ağu) | 1000 | 2000 |
 
 ---
 
