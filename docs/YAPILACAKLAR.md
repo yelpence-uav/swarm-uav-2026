@@ -1,6 +1,6 @@
 # YAPILACAKLAR
 
-**Son güncelleme:** 19 Ağustos 2026, 23:55
+**Son güncelleme:** 20 Ağustos 2026, 01:29
 
 ## Önem dereceleri
 
@@ -189,7 +189,12 @@ ve bu, uçak formasyon düğümünün emrindeyken keşfedilirdi.
   3. `./deploy/yki/param_karsilastir.py` (her uçuş öncesi standart)
   4. İki kumandada "kapat → QGC SARI" kontrolü (RC-kayıp tespiti canlı mı)
   5. Baz anteni taşındıysa `rtk_baz_survey.py` (18 Ağu'dan beri cevapsız soru)
-  6. Uçuş mesajına `ultracode` (KARAR-02)
+  6. Uçuş mesajına `ultracode` (KARAR-02) — **yapıldı, 20 Ağu 01:00:**
+     denetim kaydı `WORKFLOW_BULGULAR.md`'de (42 bulgu). Uçuştan önce oradaki
+     açık P0/P1'lere bir göz at.
+  7. İki uçakta `ros2 param get /agent_fsm_node kalkis_olayla` → **False**
+     olmalı (kalkış otoritesi guided yolda kalsın; 20 Ağu 01:40'ta ikisinde
+     de doğrulandı, kod varsayılanı da artık False)
 - `[x]` 🟠 ~~Karar gerekiyor: guided yol ile sürü yolu nasıl birleşecek~~ →
   **KARAR VERİLDİ ve UYGULANDI (19 Ağu gece, operatör: uçak-içi köprü).**
   `esp32_bridge` guided ARM'ı işlerken yerel `EVENT_MISSION_STARTED` üretiyor
