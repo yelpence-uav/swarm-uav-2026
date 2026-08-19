@@ -170,7 +170,17 @@ class ConsensusNode(Node):
         if change is not None:
             self._set_leader(*change)
 
-        if ctx.is_leader and own_airborne:
+        # KALP ATISI: lider oldugu surece her tick yayinlanir.
+        # 19 Agustos 2026'ya kadar 'own_airborne' sarti vardi (yalniz havada).
+        # Kaldirildi, cunku:
+        #  1) P0.11 yer testinde lider secildi ama kalp atisi hic
+        #     gorulemedi — dogrulama kor kaldi (olculdu). Lider yalniz
+        #     ARMED+ durumlarda var olabildigi icin (ELIGIBLE_STATES)
+        #     yerdeki yayin penceresi zaten kisa: arm-kalkis arasi +
+        #     yer testleri. Mesh maliyeti ucustakiyle ayni (tick_hz).
+        #  2) task_reallocator'in hb zaman asimi 0.5 sn; yerde yayin
+        #     olmamasi, o dugum acildiginda sahte "lider kayip" uretirdi.
+        if ctx.is_leader:
             self._publish_heartbeat(len(elig))
 
     def _set_leader(self, new_id: int, reason: int) -> None:
