@@ -1,6 +1,6 @@
 # NAVİGASYON — kaymayı sıfırlama planı
 
-**Son güncelleme:** 15 Ağustos 2026, 01:28
+**Son güncelleme:** 20 Ağustos 2026, 02:28
 
 **Hedef:** Uçak, yürüyen setpoint'in **arkasında kalmasın.** Ne seyirde,
 ne hızlanırken. Hız arttıkça da bozulmasın.
@@ -267,3 +267,42 @@ tamamen uçağın kendi içinde geçiyor; paket kaybı buraya karışmıyor.
 **Kısa cevap:** Hızı yükseltmek kaymayı büyütmez — sistem zaten Durum 2'de.
 Yeter ki (a) hız tavanına pay kalsın, (b) sürü kodları bizi Durum 1'e
 düşürmesin. İkisi de yukarıda maddelendi.
+
+---
+
+## ✅ ADIM 1 ÖLÇÜLDÜ — 20 Ağustos 2026, 30 m bacak, iki uçak
+
+**Uçuş:** `--senaryo g2 --irtifa 10 --mesafe 30 --dronelar 1,3`, seyir 3.0 m/s,
+59 sn, iki uçak. Kayıttan `setpoint_raw/local` (nereye dedik) ile
+`local_position/pose` (nereye gitti) yatay farkı çıkarıldı; bacak başına
+566 örnek, %74'ü seyir fazında (komut tepe hızı tam 3.00 m/s).
+
+| | ylp00 gidiş | ylp00 dönüş | ylp02 gidiş | ylp02 dönüş | **ortalama** |
+|---|---|---|---|---|---|
+| **Kalıcı kayma** | 0.130 m | 0.102 m | 0.063 m | 0.112 m | **≈ 0.10 m** |
+| **Tepe geçici hata** | 1.223 m | 1.013 m | 1.173 m | 1.053 m | **≈ 1.12 m** |
+| **Oturma süresi** | 3.52 s | 3.16 s | 3.72 s | 3.42 s | **≈ 3.5 s** |
+
+### Ne öğrendik
+
+1. **Kalıcı kayma pratikte YOK (≈10 cm).** Teorinin öngörüsü doğrulandı:
+   konum + hız ileri-beslemesi kalıcı gecikmeyi kaldırıyor. **Eski 0.44 m
+   rakamı geçersizdi** — 7 m'lik bacakta alınmıştı ve aslında geçici rejimi
+   ölçüyordu. Bu belgenin ana şüphesi kapandı.
+2. **Asıl hata geçici rejimde: ~1.1 m**, hızlanmanın ilk ~1.8 saniyesinde.
+   İvme ileri-beslemesinin (`IGNORE_AFX|AFY|AFZ` kaldırılması) kazandıracağı
+   pay işte bu — artık sayısı var, "değer mi" sorusu ölçüyle tartışılabilir.
+3. **Oturma 3.5 s** — teori 4τ ≈ 4.2 s diyordu, gerçek biraz daha iyi.
+4. **İki uçak birbirini doğruluyor** (0.06-0.13 m aralığı), yani sonuç tek
+   uçağın tesadüfü değil.
+
+### Hız artırmaya etkisi
+
+Kalıcı kayma hızdan bağımsız ve zaten ihmal edilebilir; **hız artırmanın
+önündeki engel kayma DEĞİL.** Sınırlayıcılar başka: geçici rejim tepe hatası
+(hızla büyür), `path_planner`'daki yavaşlama rampası eksiği (aşım ~2.25 m
+hesaplanmıştı) ve formasyon ayrım payı.
+
+**Kalan:** ikinci hızda tekrar (plan 2 ve 4 m/s diyor). 30 m bacak 4 m/s için
+28 m oturma istiyor — ölçüm penceresi 2 m'ye düşer, yani 4 m/s için **40 m**
+bacak gerekiyor. 2 m/s ise bu bacakta rahat ölçülür.

@@ -1,6 +1,6 @@
 # YAPILACAKLAR
 
-**Son güncelleme:** 20 Ağustos 2026, 01:29
+**Son güncelleme:** 20 Ağustos 2026, 02:30
 
 ## Önem dereceleri
 
@@ -321,10 +321,15 @@ Sistem teorik olarak doğru yerde (konum + hız ileri-beslemesi → kalıcı
 kayma ≈ 0, hızla büyümez). **Ama bunu doğrulayan ölçüm yok.** Elimizdeki
 tek sayı 7 m'lik bir bacaktan geldi, yani geçici rejimi ölçüyor.
 
-- `[ ]` 🔴 **ÖLÇ:** tek uçak, **en az 40 m düz bacak**, iki hızda (2 ve 4 m/s).
-  Kayıttan `setpoint_raw/local` ile `local_position/pose` farkını çıkar.
-  Üç sayı: kalıcı kayma · tepe geçici hata · oturma süresi.
-  Bu ölçüm hızı yükseltmenin önünü açar ya da kapatır.
+- `[x]` 🔴 ~~ÖLÇ~~ → **ÖLÇÜLDÜ (20 Ağustos 02:15, 30 m bacak, İKİ uçak,
+  3.0 m/s).** Sonuç `NAVIGASYON_KAYMA.md` §ADIM 1 ÖLÇÜLDÜ'de:
+  **kalıcı kayma ≈ 0.10 m · tepe geçici hata ≈ 1.12 m (t+1.8s) ·
+  oturma ≈ 3.5 s.** İki uçak birbirini doğruladı (0.06-0.13 m).
+  **Eski 0.44 m rakamı geçersizdi** (7 m'lik bacakta geçici rejim ölçülmüş).
+  Sonuç: kalıcı kayma pratikte yok → **hız artırmanın önündeki engel kayma
+  değil**; sınırlayıcı geçici rejim ve yavaşlama rampası eksiği.
+- `[ ]` 🟠 **İkinci hızda tekrarla.** 2 m/s bu 30 m bacakta ölçülebilir;
+  **4 m/s için 40 m bacak şart** (28 m oturma + ölçüm penceresi).
 - `[x]` 🔴 ~~Doygunluk payı denetimi~~ → `ucus_ayarlari.py` artık
   `tavan ≥ seyir × 1.5` şartını **hata** olarak veriyor
 - `[ ]` 🟠 **İvme ileri-beslemesini aç** — kanal mesajda var
