@@ -2858,6 +2858,11 @@ def main() -> int:
     ap.add_argument("--kuru", action="store_true", help="komut gönderme; planı kur ve doğrula")
     ap.add_argument("--sure", type=float, default=None,
                     help="--senaryo asili icin asili kalma suresi (sn)")
+    ap.add_argument("--mesafe", type=float, default=None,
+                    metavar="M",
+                    help="g2 senaryosunda ileri gidilecek mesafe (m). "
+                         "Kayma olcumu icin >=40 m ister "
+                         "(docs/NAVIGASYON_KAYMA.md Adim 1).")
     ap.add_argument("--irtifa", type=float, default=None,
                     help="--senaryo asili icin kalkis/asili irtifasi (m)")
     ap.add_argument("--kacinma", action="store_true",
@@ -2910,6 +2915,7 @@ def main() -> int:
     DRONELAR = [int(x) for x in a.dronelar.split(",") if x.strip()]
     global ROTA_YONU_DEG, _HARITA_DOSYA, _SENARYO, LIDER, HARITA_OFSET_KD
     global _KACINMA_ACIK, ASILI_SURE_S, ASILI_IRTIFA_M, _SAHTE_TELEMETRI
+    global G2_MESAFE_M
     if a.sahte:
         # CANLI MODDA ASLA. Sahte konumla gercek komut gondermek, ucaklari
         # olmadiklari yere gore hesaplanmis hedeflere yollamak demektir —
@@ -2957,6 +2963,15 @@ def main() -> int:
         ASILI_SURE_S = a.sure
     if a.irtifa is not None:
         ASILI_IRTIFA_M = a.irtifa
+    if a.mesafe is not None:
+        # Kayma olcumu icin uzun DUZ BACAK gerekiyor (NAVIGASYON_KAYMA Adim 1:
+        # rampa + 4tau oturma + olcum penceresi). Tavan MAX_GOTO_M ile ayni
+        # kelepcede: tek goto icin mesafe siniri zaten orada.
+        if a.senaryo != "g2":
+            ap.error("--mesafe yalniz --senaryo g2 icin")
+        if not 1.0 <= a.mesafe <= MAX_GOTO_M:
+            ap.error(f"--mesafe 1..{MAX_GOTO_M:.0f} m araliginda olmali")
+        G2_MESAFE_M = a.mesafe
     if a.senaryo == "asili" and len(DRONELAR) != 1:
         ap.error("--senaryo asili TAM OLARAK bir drone ister (or. --dronelar 3)")
     if a.harita_ofset:
