@@ -188,8 +188,11 @@ Kod yazıldı, birim testleri geçiyor, ama **gerçek meshte/donanımda hiç
   kod yolu ölü kalıyor.
 - `[ ]` **`TIP_FORM_OFSET` (CUSTOM formasyon).** Jüri dizilişi bu yoldan
   taşınacak. Hiç gönderilmedi.
-- `[ ]` **QR yolu (`TIP_QR_GOREV`, `TIP_QR_HAM`).** Kod ve testler var, gerçek
-  meshte hiç denenmedi. Kamera + QR okuma da denenmedi.
+- `[~]` **QR yolu (`TIP_QR_GOREV`, `TIP_QR_HAM`).** Kod ve testler var, gerçek
+  meshte hiç denenmedi. **Kamera + QR okuma 19 Ağustos'ta DENENDİ** (deneme
+  Pi'sinde: yarışma QR5 okundu + `qr_detector` parse doğru; renk/HSV de ölçüldü
+  — bkz. `docs/19-agustosQRHSV.md`). Kalan: mesh yolu (TIP_QR_GOREV/HAM) hâlâ
+  denenmedi + gerçek drone (ylp00) kamerasıyla test henüz yapılmadı.
 - `[ ]` **RC ile formasyon değiştirme.** Görev 2 şartı. 4 açık nokta
   belgelenmiş durumda (`MESH_PROTOKOL_KARARLARI.md`), hiçbiri kapatılmadı.
 - `[ ]` **YKİ'den formasyon seçme.** Köprü tarafı hazır (`talep_formasyon`,

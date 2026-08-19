@@ -18,18 +18,22 @@
     gaussian_blur_kernel: 5
 
     # ── Renk Eşikleri (HSV Uzayı) ──
-    # [H_min, S_min, V_min, H_max, S_max, V_max]
-    # GERÇEK DONANIM: Sahada ışık koşullarına göre mutlaka kalibre edin!
+    # [H_min, S_min, V_min] / [H_max, S_max, V_max]
+    # 2026-08-19 CANLI KAMERADA ölçüldü (deneme Pi, IMX477 — bkz. docs/19-agustosQRHSV.md):
+    #   mavi pad    H 120-128  S 90-131  V 91-124  → blue S_min 70 (beyaz S~50 elenir)
+    #   kırmızı pad H 0-12 ve ~170-177  S 74-208  V 96-171
+    # GERÇEK DONANIM: yarışma pad tonu farklıysa gerçek pad'i ölçüp aşağıdaki 6 satırı
+    # güncelleyin, sonra vision_node'u yeniden başlatın.
     color_ranges:
-      # Kırmızı renk HSV'de genellikle 0 ve 180 etrafında iki parçadır
-      red_lower_1: [0, 100, 100]
-      red_upper_1: [10, 255, 255]
-      red_lower_2: [160, 100, 100]
+      # Kırmızı: HSV'de 0 ve 180 etrafında iki parça
+      red_lower_1: [0, 60, 60]
+      red_upper_1: [12, 255, 255]
+      red_lower_2: [160, 60, 60]
       red_upper_2: [180, 255, 255]
 
-      # Mavi renk
-      blue_lower: [100, 150, 50]
-      blue_upper: [140, 255, 255]
+      # Mavi (mor-lacivert tonlu pad)
+      blue_lower: [100, 70, 40]
+      blue_upper: [135, 255, 255]
 
     # ── Test & Debug ──
     # Eğer true ise, tespit edilen hedefler görsel olarak işaretlenir.
