@@ -1,6 +1,6 @@
 # DURUM — şu an ne çalışıyor, ne bozuk
 
-**Son güncelleme:** 19 Ağustos 2026, 20:10
+**Son güncelleme:** 19 Ağustos 2026, 22:50
 
 > Bu belge **şimdiki hâli** anlatır, tarihçe değil. Bir şey değişince burayı
 > güncelle, eskisini sil. Ne olduğunun hikâyesi `GUNLUK.md`'de kalır.
@@ -11,9 +11,9 @@
 
 | İHA | agent_id | Durum | Not |
 |-----|----------|-------|-----|
-| ylp00 | 1 | **Uçar** | Repo ile %100 senkron (`600ca65`, 17 Ağu). **RC-kayıp tespiti kuruldu ve HAVADA doğrulandı (19 Ağu):** kumanda kapanınca 1-2 sn'de RTL — Ch3 üst-uç yöntemi, bkz. `RPI_ESITLEME.md` §5. ⚠️ 19 Ağu'da kill-failsafe kazasıyla alçaktan düştü (sonra uçtu) — pervane/GPS/titreşim kontrolü bekliyor. ⚠️ RC kalibrasyonu 19 Ağu'da yenilendi (`RC3_MIN` 1016→906). ⚠️ `core.50` 353 MB silinmeli |
+| ylp00 | 1 | **Uçar** | Kod **`b33e878`** (19 Ağu 22:00 dağıtımı — kalp atışı yerde değişikliği dahil). **RC-kayıp tespiti kuruldu ve HAVADA doğrulandı (19 Ağu):** kumanda kapanınca 1-2 sn'de RTL — Ch3 üst-uç yöntemi, bkz. `RPI_ESITLEME.md` §5. **P0.11 yer testi GEÇTİ:** sürü yolundan ARMED + lider seçimi + kalp atışı 399 msj @ 10 Hz. 🔴 `yer_testi` bayrağı GERİ KONDU (yer testleri için). ⚠️ 19 Ağu'da kill-failsafe kazasıyla alçaktan düştü (sonra uçtu) — pervane/GPS/titreşim kontrolü bekliyor. ⚠️ RC kalibrasyonu yenilendi (`RC3_MIN` 1016→906). ⚠️ `core.50` silinmeli |
 | ylp01 | 2 | **YERDE** | 2 Ağustos'ta 20 m'den düştü, RPi açılmıyor |
-| ylp02 | 3 | **Uçar** | Repo ile %100 senkron (doğrulandı 14 Ağu). ⚠️ Alıcı failsafe'i 18 Ağu'da iki kez ele alındı: düzeltildi → kumanda sıfırlaması geri aldı → operatör tekrar düzelttiğini bildirdi ama **doğrulama ölçümü YAPILMADI**. `YAPILACAKLAR` P0.9. RC-kayıp tespiti **YOK** (19 Ağu'da yalnız ylp00'a kuruldu — P1.9) |
+| ylp02 | 3 | **Uçar** | Kod **`b33e878`** (19 Ağu 22:35 dağıtımı). **İki uçaklı P0.11 yer testi GEÇTİ:** sürü yolundan ARMED + lider mutabakatı + mesh'ten 499 kalp atışı aldı. 🔴 `yer_testi` bayrağı GERİ KONDU. ⚠️ Alıcı failsafe'i 18 Ağu'dan beri **doğrulanmadı** (P0.9). RC-kayıp tespiti **YOK** (yalnız ylp00'da — P1.9) |
 
 **Uçuş yapılandırması:** drone **1 ve 3**, lider **3**.
 YKİ koşucu paneli varsayılanı buna ayarlı (`backend/api/kosucu.py`).
@@ -153,7 +153,7 @@ Bunlar **dosya varlığıyla** çalışıyor; uçağı bulan kişi böyle bulaca
 | `~/yelpence_ws/ucus_ayarlari.env` | **var** | **var** | seyir 3.0 m/s, ivme 1.5 — `ucus_ayarlari.py --kabuk` üretti |
 | `~/yelpence_ws/suru_dugumleri` | **`origin consensus fsm formasyon`** | **`origin consensus fsm formasyon`** | 17 Ağu'da ikisinde de ölçüldü, **aynı**. Varsa `SURU_DUGUMLERI` env'ini ezer. Düğüm açmak: `echo ... > dosya` + `docker restart` |
 | `~/yelpence_ws/origin` | **var** | **var** | `38.6904758 39.1610188 1216.96` — tek kaynak `deploy/saha_origin.env`, ylp00'da doğrulandı (17 Ağu). Elle yazma, `dagit.sh` dağıtır |
-| `~/yelpence_ws/yer_testi` | **YOK** 🔴 | **YOK** 🔴 | 18 Ağu'da G2 uçuşu için **SİLİNDİ** + restart. Uçak artık kalkış komutunu ALIR. Yer testi yapacaksan `touch` ile geri koy |
+| `~/yelpence_ws/yer_testi` | **VAR** | **VAR** | 19 Ağu gece yer testleri için **GERİ KONDU** (ikisine de). Açıkken "görev başladı" ARM eder ama kalkış komutu gitmez. **UÇMADAN ÖNCE SİL** + restart |
 | `~/yelpence_ws/gozlem` | **VAR** ⚠️ | **VAR** ⚠️ | `formation_node` setpoint'i `/gozlem/...`'e gidiyor, **uçağa ULAŞMIYOR**. Uçuştan önce SİL + restart |
 | `~/yelpence_ws/gps_saat_kapali` | yok | yok | Varsa GPS'ten saat düzeltmesi yapılmaz |
 
@@ -267,6 +267,13 @@ ikisi birden açılmaz (`CLAUDE.md` §4). ADIM 4'te değişecek.
 **İlk sürü düğümleri sahada koşuyor.** `ic_dis_kopru` herhangi bir sürü
 düğümü açıksa kendiliğinden açılıyor — sözleşmenin `internal → public`
 yerel döngüsünü o kuruyor (bkz. `YAPILACAKLAR` P0.6).
+
+> ✅ **19 Ağu gece — YER AYAĞI ÇÖZÜLDÜ (iki uçakla ölçüldü):** olay
+> (`EVENT_MISSION_STARTED`) verilince zincir uçtan uca çalışıyor: iki ajan
+> da ARMED, lider mutabakatı tam, kalp atışı artık **yerde de** yayınlanıyor
+> (`c3068c8`) ve **mesh üzerinden komşuya ulaşıyor** (499 msj). Kalan: YKİ
+> guided yolu bu olayı hâlâ vermiyor — köprü kararı + G2 tekrarı
+> (`YAPILACAKLAR` P0.11).
 
 ### 🔴 ADIM 1'in HAVADAKİ karşılığı çalışmıyor — G2'de ölçüldü (18 Ağustos)
 

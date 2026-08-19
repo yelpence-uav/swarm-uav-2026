@@ -1,6 +1,6 @@
 # YAPILACAKLAR
 
-**Son güncelleme:** 19 Ağustos 2026, 20:10
+**Son güncelleme:** 19 Ağustos 2026, 22:50
 
 ## Önem dereceleri
 
@@ -151,15 +151,44 @@ tekrarlasak sonuç değişmezdi.
 yayını liderin varlığına bağlı. Lider hiç seçilmezse formasyon mesh'e çıkmaz
 ve bu, uçak formasyon düğümünün emrindeyken keşfedilirdi.
 
-- `[ ]` 🔴 **Ajanı sürü yolundan ARMED'a sür.** Araç zaten var ve bugün
-  kurtarıldı: `deploy/rpi/teshis/tam_kalkis.sh` — başlığı *"TAM AKIS:
-  EVENT_MISSION_STARTED → ARMING → ARMED → TAKEOFF"*. Önce **yerde,
-  pervanesiz** denenmeli: ajan ARMED'a geçiyor mu, consensus lider seçiyor mu.
-- `[ ]` 🔴 **Sonra G2 tekrar** — bu sefer lider seçimi gerçekten ölçülebilir.
-- `[ ]` 🟠 **Karar gerekiyor:** guided yol ile sürü yolu kalıcı olarak nasıl
-  birleşecek? Finalde kalkışı `mission1` + `agent_fsm` yapacak; ama geçiş
-  döneminde ikisi bir arada mı koşacak, yoksa G3'te guided tamamen mi
-  bırakılacak? `SURU_ENTEGRASYON.md`'de bu soru yok.
+- `[x]` 🔴 ~~Ajanı sürü yolundan ARMED'a sür~~ → **YERDE GEÇTİ (19 Ağu
+  akşamı, ylp00, pervanesiz, `yer_testi` bayraklı).** `EVENT_MISSION_STARTED`
+  yayınlanınca: durum izi `IDLE→ARMING→ARMED`, PX4 OFFBOARD+armlı,
+  **consensus lider seçti** (`Lider: 0 -> 1, round=1`) ve — kalp atışı yerde
+  de yayınlansın değişikliğinden sonra (`c3068c8`) — **lider kalp atışı İLK
+  KEZ ölçüldü: 399 mesaj @ ~10 Hz**, seq düzgün artıyor, `active_agent_count=1`.
+  Not: `yer_testi` bayrağı ARMED'da bilerek durduruyor (kalkış komutu
+  gitmez, `agent_fsm_node.py:314` — 15 Ağu emniyeti); yer testi çıkışı
+  kumandadan kill + `docker restart`.
+- `[x]` 🔴 **İKİ UÇAKLI yer testi de GEÇTİ (19 Ağu gece, ikisi de `b33e878`):**
+  olay iki uçakta da yerel verildi; ikisi de `IDLE→ARMING→ARMED` yürüdü,
+  lider mutabakatı tam — ylp02 logu `Lider: 0 -> 1 (round=1, ben=3)`,
+  split-brain yok. **Mesh kalp atışı yolu İLK KEZ ölçüldü:** ylp00 439 hb
+  yayınladı, ylp02 mesh'ten **499 hb aldı** (`leader_id=1`).
+  `active_agent_count` ylp02 armlanınca **1→2** — mesh AgentStatus ile
+  kadro sayımı çalışıyor.
+- `[ ]` 🟡 Yan gözlem: ylp02'de `election/result` izleyicisi mesaj
+  yakalamadı ama consensus logu lideri benimsediğini gösteriyor — yayının
+  zamanlaması/QoS'u sırası gelince netleştirilecek (davranışsal sorun yok,
+  iki ajan aynı liderde).
+- `[ ]` 🟡 **`tam_kalkis.sh`'te iki kusur bulundu (19 Ağu):** ① consensus'u
+  **parametresiz** yeniden başlatıyor → `battery_min_v` varsayılana (14.0)
+  dönüyor ve 12.6 V okuyan ajan seçime giremiyor (ilk koşuda seçim bu yüzden
+  olmadı; yönetilen consensus ile anında seçildi). ② Kapanış disarm'ı FSM'e
+  yenik: FSM ARMED'dayken zorla disarm bile tutmuyor (ölçüldü: `armed:true`
+  kaldı) — temizlik kill switch + konteyner restart ister. Betiğe not/düzeltme.
+- `[ ]` 🔴 **Sonra G2 tekrar** — artık lider seçimi VE kalp atışı havada
+  ölçülebilir. ⚠️ KARAR-02: consensus ilk gerçek hava görevi — uçuştan önce
+  operatöre `ultracode` önerilecek.
+- `[ ]` 🟠 **Karar gerekiyor (G2 tekrarının ÖN KOŞULU):** guided yol ile sürü
+  yolu nasıl birleşecek? G2 koşucusu guided yolu kullandığı sürece ajan yine
+  IDLE kalır ve seçim yine olmaz — 19 Ağu yer testi bunu kesinleştirdi:
+  zincir ancak `EVENT_MISSION_STARTED` verilince çalışıyor. En basit köprü
+  adayı: YKİ "görev başlat"ta mesh'e bu olayı da yaymak (ajanlar ARMED'a
+  sürü yolundan gelir, uçuşu guided sürdürür). Alternatif: kalkışı tamamen
+  sürü yoluna devretmek (finaldeki hâl; `mission1` henüz sahada değil).
+  Finalde kalkışı `mission1` + `agent_fsm` yapacak; geçiş dönemi kararı
+  operatörün. `SURU_ENTEGRASYON.md`'de bu soru yok.
 
 ---
 
