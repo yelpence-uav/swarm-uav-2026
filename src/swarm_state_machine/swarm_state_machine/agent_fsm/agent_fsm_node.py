@@ -84,8 +84,16 @@ class AgentFsmNode(Node):
         # otoritesi tek kaynakta kalsin diye (bkz. CLAUDE.md bolum 4 kurali:
         # bir konuya tek uretici; 'takeoff' komutunun da tek kaynagi olmali).
         # mission1 + agent_fsm kalkisi devraldiginda True yapilacak.
-        # Varsayilan True = eski davranis; sahada baslat.sh False geciyor.
-        self.declare_parameter('kalkis_olayla', True)
+        #
+        # VARSAYILAN False (20 Agustos 2026, denetim bulgusu): once True idi
+        # ("eski davranis" gerekcesiyle) ve guvenli deger YALNIZ baslat.sh
+        # argumanindan geliyordu. Parametre ulasmazsa (ucaktaki baslat.sh
+        # eski kalmis, restart yapilmamis, dugum elle/teshis betiginden
+        # baslatilmis) guided ARM komutsuz kalkis tetikliyordu; ustelik FSM
+        # 'takeoff:10.0' capalayinca guided'in 20 m'lik kalkisi px4_bridge'de
+        # SESSIZCE yutuluyordu (px4_bridge.py:1309-1311). Emniyet varsayilani
+        # guvenli tarafta olmali: parametre kaybolursa kalkis KAPALI kalir.
+        self.declare_parameter('kalkis_olayla', False)
 
         self._agent_id = self.get_parameter('agent_id').value
         self._sitl_mode = self.get_parameter('sitl_mode').value
