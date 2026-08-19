@@ -272,6 +272,12 @@ class Px4BridgeNode(Node):
         # guided_konum_kp UCAKTAKI MPC_XY_P ILE AYNI OLMALI (olculdu: 0.95).
         self.declare_parameter('guided_konum_kp', 0.95)
         self.declare_parameter('guided_telafi_orani', 0.7)
+        # IVME ILERI-BESLEMESI (20 Agustos 2026) — 0.0 kapali, 1.0 acik.
+        # VARSAYILAN KAPALI: bugunku ucuslarin kanitladigi davranis bu.
+        # 30 m bacakta olculen hizlanma tepe hatasi 1.12 m ve frenleme asimi
+        # 1.18 m'yi kucultmek icin yazildi; A/B olcumu yapilmadan varsayilan
+        # DEGISMEZ. Canli parametre oldugu icin testte tek komutla acilir.
+        self.declare_parameter('guided_ivme_ff', 0.0)
         self._hiz_yatay = float(self.get_parameter('guided_hiz_yatay_mps').value)
         self._hiz_dikey = float(self.get_parameter('guided_hiz_dikey_mps').value)
         self._ivme_yatay = float(
@@ -280,6 +286,7 @@ class Px4BridgeNode(Node):
             self.get_parameter('guided_ivme_dikey_mps2').value)
         self._konum_kp = float(self.get_parameter('guided_konum_kp').value)
         self._telafi_orani = float(self.get_parameter('guided_telafi_orani').value)
+        self._ivme_ff = float(self.get_parameter('guided_ivme_ff').value)
         self._yurutucu_tasma_m = float(self.get_parameter('guided_tasma_m').value)
         self._yurutulen: list | None = None      # [kuzey, dogu, asagi] NED
         self._yurutucu_son_t: float | None = None
@@ -799,11 +806,15 @@ class Px4BridgeNode(Node):
         elif yurutucu_aktif:
             # C: YEREL YÜRÜTÜCÜ — hedefe 50 Hz'de yürür, PX4'e konum + hız
             # ileri-beslemesi verir. Mesh kontrol döngüsünden çıkar.
-            yur, vel = self._yurutucu_ilerlet(
+            yur, vel, ivme = self._yurutucu_ilerlet(
                 (target_x, target_y, target_z), now)
+            # Ivme ileri-beslemesi parametreyle kapili (guided_ivme_ff).
+            # Kapaliyken None gecilir ve maske eski hâlinde kalir.
+            _ff = ivme if self._ivme_ff >= 0.5 else (None, None, None)
             self._cmd_sender.publish_position_velocity_setpoint(
                 yur[0], yur[1], yur[2], vel[0], vel[1], vel[2],
                 yaw_rad=target_yaw,
+                ax=_ff[0], ay=_ff[1], az=_ff[2],
             )
         else:
             # Stale/yok → pozisyon-hold (failsafe, flyaway önler).
@@ -831,6 +842,7 @@ class Px4BridgeNode(Node):
         'guided_tasma_m':         ('_yurutucu_tasma_m', 0.5, 20.0),
         'guided_konum_kp':        ('_konum_kp',         0.1,  3.0),
         'guided_telafi_orani':    ('_telafi_orani',     0.0,  1.0),
+        'guided_ivme_ff':         ('_ivme_ff',          0.0,  1.0),
     }
 
     def _on_parametre_degisti(self, parametreler):
@@ -951,6 +963,13 @@ class Px4BridgeNode(Node):
         # Tik atlanirsa (yuk, GC) tek adimda sicramasin diye tavan.
         dt = max(1e-3, min(dt, 0.2))
 
+        # IVME ILERI-BESLEMESI icin profil hizinin ONCEKI degerleri.
+        # Ivme HAM profilden turetilir, gecikme telafisinden ONCE: telafi bir
+        # duzeltme terimi, yorunge ivmesi degil. Turevini almak PX4'e
+        # olmayan bir ivme bildirirdi.
+        _v_yatay_onceki = self._yur_v_yatay
+        _v_dikey_onceki = self._yur_v_dikey
+
         hx, hy, hz = hedef
 
         # --- YATAY: yamuk (trapez) hiz profili -----------------------------
@@ -1042,7 +1061,27 @@ class Px4BridgeNode(Node):
                 nvx = nvy = 0.0          # ters yone dondu -> sifirla
             vx, vy = nvx, nvy
 
-        return tuple(self._yurutulen), (vx, vy, vz)
+        # --- IVME (yamuk profilin turevi) ---------------------------------
+        # Buyukluk: profil hizinin bu tikteki degisimi. Varista hiz TEK
+        # ADIMDA sifirlaniyor (snap); turevi -v/dt olur ve dt kucukse absurt
+        # buyur. O yuzden yapilandirilmis ivme tavaniyla kelepceleniyor —
+        # PX4'e uygulanamayacak bir ivme bildirmek onu yanlis yone iter.
+        if yatay > 1e-6 and (vx or vy):
+            _a = (self._yur_v_yatay - _v_yatay_onceki) / dt
+            _a = max(-self._ivme_yatay, min(self._ivme_yatay, _a))
+            ax, ay = dx / yatay * _a, dy / yatay * _a
+        else:
+            ax = ay = 0.0
+        if abs(dz) > 1e-6 and vz:
+            _az = (self._yur_v_dikey - _v_dikey_onceki) / dt
+            _az = max(-self._ivme_dikey, min(self._ivme_dikey, _az))
+            # vz = sign(dz) * hiz  oldugu icin  az = sign(dz) * d(hiz)/dt.
+            # (copysign KULLANILMAZ: yavaslarken isareti ters cevirirdi.)
+            az = math.copysign(1.0, dz) * _az
+        else:
+            az = 0.0
+
+        return tuple(self._yurutulen), (vx, vy, vz), (ax, ay, az)
 
     def _kalkis_kilidi_aktif(self) -> bool:
         """İlk tırmanışta yatay konum kontrolü kilitli mi?

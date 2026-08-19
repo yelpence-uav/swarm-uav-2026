@@ -46,6 +46,17 @@ _MASK_POS_VEL = (
     _PT.IGNORE_AFX | _PT.IGNORE_AFY | _PT.IGNORE_AFZ
     | _PT.IGNORE_YAW_RATE
 )
+
+# POS + VEL + IVME ileri-beslemesi (20 Agustos 2026).
+# NEDEN: 30 m bacakta olculdu — seyirde takip hatasi 0.05 m, ama HIZLANMADA
+# tepe 1.12 m ve FRENLEMEDE asim 1.18 m. Ikisi de ayni sebepten: PX4 komut
+# hizinin DEGISECEGINI bilmiyor, yalnizca anlik hizi goruyor ve farki konum
+# terimiyle kapatmaya calisiyor. Yamuk profilin ivmesini dogrudan vermek tam
+# bu bosluga karsilik geliyor.
+# IGNORE_AF* bitleri YOK; digerleri _MASK_POS_VEL ile ayni.
+_MASK_POS_VEL_ACC = (
+    _PT.IGNORE_YAW_RATE
+)
 # KALKIS MASKESI — yatayda HIZ, dikeyde POZISYON.
 #
 # NEDEN AYRI BIR MASKE VAR (1 Agustos, ylp00 kalkista devrildi):
@@ -342,8 +353,11 @@ class MavrosCommandSender:
         vy: float,
         vz: float,
         yaw_rad: float = 0.0,
+        ax: float | None = None,
+        ay: float | None = None,
+        az: float | None = None,
     ) -> None:
-        """Pozisyon + hiz feedforward (NED girdi) + yaw yayinlar.
+        """Pozisyon + hiz (+ istege bagli IVME) feedforward + yaw yayinlar.
 
         Args:
             x (float): NED X (Kuzey), metre.
@@ -353,16 +367,28 @@ class MavrosCommandSender:
             vy (float): NED Y hizi, m/s.
             vz (float): NED Z hizi, m/s.
             yaw_rad (float): NED yaw, radyan.
+            ax, ay, az (float | None): NED ivme ileri-beslemesi, m/s^2.
+                Ucu de verilirse IGNORE_AF* bitleri kalkar ve PX4 ivmeyi
+                ileri-besleme olarak kullanir. None ise eski davranis.
         """
+        ivme_var = ax is not None and ay is not None and az is not None
         e_x, e_y, e_z = _ned_to_enu(x, y, z)
         e_vx, e_vy, e_vz = _ned_to_enu(vx, vy, vz)
-        msg = self._make_target(_MASK_POS_VEL)
+        msg = self._make_target(
+            _MASK_POS_VEL_ACC if ivme_var else _MASK_POS_VEL)
         msg.position.x = e_x
         msg.position.y = e_y
         msg.position.z = e_z
         msg.velocity.x = e_vx
         msg.velocity.y = e_vy
         msg.velocity.z = e_vz
+        if ivme_var:
+            # Ivme de bir VEKTOR — konum/hizla ayni NED->ENU donusumu.
+            # (Isaret hatasi burada frenlemesi gereken ucagi hizlandirirdi.)
+            e_ax, e_ay, e_az = _ned_to_enu(ax, ay, az)
+            msg.acceleration_or_force.x = e_ax
+            msg.acceleration_or_force.y = e_ay
+            msg.acceleration_or_force.z = e_az
         msg.yaw = _yaw_ned_to_enu(yaw_rad)
         self._setpoint_pub.publish(msg)
 
