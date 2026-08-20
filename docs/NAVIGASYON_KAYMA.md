@@ -1,6 +1,6 @@
 # NAVİGASYON — kaymayı sıfırlama planı
 
-**Son güncelleme:** 20 Ağustos 2026, 03:15
+**Son güncelleme:** 20 Ağustos 2026, 03:45
 
 **Hedef:** Uçak, yürüyen setpoint'in **arkasında kalmasın.** Ne seyirde,
 ne hızlanırken. Hız arttıkça da bozulmasın.
@@ -342,8 +342,14 @@ uçuş yolunun varsayılanı değiştirilmez.
 
 ### Kalan
 
-- `[ ]` İkinci doğrulama uçuşu; sonra `guided_ivme_ff` varsayılanı **1.0**
-  yapılabilir (ve `baslat.sh`'e env olarak eklenir).
+- `[x]` **Operatör kararıyla varsayılan 1.0 yapıldı (20 Ağu 03:45)** —
+  ikinci doğrulama uçuşu beklenmeden. Gerekçe: A/B aynı uçuşta kontrol
+  uçağıyla yapıldı, referans kendi tabanını birebir tekrarladı ve kazanç
+  büyük (%60). `baslat.sh`'e `GUIDED_IVME_FF` env'i eklendi, iki uçakta
+  restart sonrası `1.0` doğrulandı. **Geri alma tek satır:**
+  `GUIDED_IVME_FF=0.0`.
+- `[ ]` Yine de bir sonraki uçuşta kayıttan tepe hata / aşım tekrar
+  ölçülmeli — tek uçuşluk kanıtın teyidi.
 - `[ ]` 4 m/s ölçümü hâlâ yapılmadı — 40 m bacak ister.
 - Kalıcı kayma zaten ihmal edilebilirdi (≈0.1 m); bu düzeltme onu değil
   **geçici rejimi** hedefliyordu ve tam orada kazandırdı.

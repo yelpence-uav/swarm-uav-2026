@@ -1,6 +1,6 @@
 # GÜNLÜK — oturum devir teslim kaydı
 
-**Son güncelleme:** 20 Ağustos 2026, 03:21
+**Son güncelleme:** 20 Ağustos 2026, 03:45
 
 Tek bilgisayar, sırayla çalışıyoruz. Biri kalkıp diğeri oturduğunda **hem
 kişi hem Claude** nerede kalındığını buradan anlar.
@@ -127,8 +127,10 @@ Claude'a **"oturumu kapat"** dersen bu kaydı o yazar.
     dosyadandı, o da artık commit'li)
   - 🔴 **`yer_testi` bayrağı İKİSİNDEN DE SİLİNDİ** — uçaklar kalkış
     komutunu alır durumda
-  - 🔴 **ylp00'da `guided_ivme_ff=1.0` CANLI** — **kalıcı DEĞİL**, konteyner
-    yeniden başlayınca 0.0'a döner (ylp02 zaten 0.0)
+  - ✅ **`guided_ivme_ff=1.0` İKİ UÇAKTA DA ve KALICI** (03:45, operatör
+    kararı): varsayılan 1.0 yapıldı + `baslat.sh`'e `GUIDED_IVME_FF` env'i
+    eklendi; restart sonrası ikisinde de doğrulandı. Uçaklardaki kod
+    **`d9be7c9`**. Geri alma tek satır: `GUIDED_IVME_FF=0.0`
   - PX4: `RC_FAILS_THR=2050`, `RC_MAP_FAILSAFE=3` (ikisinde de);
     ylp00'da `RC6_MAX/TRIM` fabrikaya döndü; **ylp00'ın RC kalibrasyonu
     yenilendi** (`RC3_MIN` 1016→906)
@@ -142,9 +144,10 @@ Claude'a **"oturumu kapat"** dersen bu kaydı o yazar.
 
 **Yarım kalan / tuzak**
 
-- 🔴 **`guided_ivme_ff` ylp00'da açık ama KALICI DEĞİL.** Konteyner restart'ı
-  onu 0.0'a döndürür. Kalıcı istenirse: ikinci doğrulama uçuşundan sonra
-  varsayılan 1.0 yapılıp `baslat.sh`'e env eklenmeli.
+- 🟡 **İvme FF artık varsayılan AÇIK ve iki uçakta kalıcı** — ikinci
+  doğrulama uçuşu beklenmeden, operatör kararıyla. Bir sonraki uçuşta
+  kayıttan tepe hata/aşım teyit edilmeli (0.44 / 0.46 m civarı).
+  Geri alma tek satır: `GUIDED_IVME_FF=0.0`.
 - 🟠 **4 m/s kayma ölçümü yapılmadı** — 40 m bacak ister (28 m oturma +
   pencere). Kuru testi geçmişti, pil bitti.
 - 🟠 **Denetimin doğrulama aşaması yarım** — 42 bulgunun 7'si karara

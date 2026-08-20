@@ -1,6 +1,6 @@
 # YAPILACAKLAR
 
-**Son güncelleme:** 20 Ağustos 2026, 03:15
+**Son güncelleme:** 20 Ağustos 2026, 03:45
 
 ## Önem dereceleri
 
@@ -339,8 +339,12 @@ tek sayı 7 m'lik bir bacaktan geldi, yani geçici rejimi ölçüyor.
   tekrarladı, yani fark koddan. Ayrıntı `NAVIGASYON_KAYMA.md` §ADIM 2.
   `guided_ivme_ff` **varsayılan 0.0 (kapalı)** — tek uçuşluk kanıtla uçuş
   yolunun varsayılanı değiştirilmez.
-- `[ ]` 🟠 **İkinci doğrulama uçuşu**, sonra `guided_ivme_ff` varsayılanı
-  1.0 yapılıp `baslat.sh`'e env olarak eklenebilir.
+- `[x]` 🟠 ~~İkinci doğrulama uçuşu, sonra varsayılan~~ → **operatör
+  kararıyla varsayılan 1.0 YAPILDI (20 Ağu 03:45)**, `baslat.sh`'e
+  `GUIDED_IVME_FF` env'i eklendi, iki uçakta restart sonrası doğrulandı.
+- `[ ]` 🟡 **Bir sonraki uçuşta teyit et:** kayıttan tepe hata ve aşım
+  yeniden ölçülsün (0.44 / 0.46 m civarında kalmalı). Bozulursa geri alma
+  tek satır: `GUIDED_IVME_FF=0.0`.
 - `[ ]` 🟠 **Sürü tarafı Durum 1'e düşmesin** — `formation_node`'un SVT'si
   saf oransal (`v = −0.8 × hata`), yani ileri-besleme YOK. Kalıcı kayma
   `v/0.8`, PX4'ün 0.95'inden bile kötü. Çözüm: `formation_node`'u
