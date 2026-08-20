@@ -103,3 +103,29 @@ ikisini de güncelle ya da dağıtım yoluna ekle.
 | `bozuk_223218/` | 31 Temmuz'a ait 303 KB'lık bozuk `.mcap` kaydı |
 | `baslat.sh.yedek_20260802_184714`, `..._20260814_212708` | Eski `baslat.sh` yedekleri; güncel sürüm depoda |
 | `baslat.sh`, `run_drone.sh`, `gps_saat.py`, `mesaj_hizlari.py`, `Dockerfile` | Zaten `deploy/rpi/` altında |
+
+## Kayıt çözümleme betikleri (20 Ağustos 2026)
+
+Uçuş kayıtlarından navigasyon kaymasını çıkarır. **Uçakta, konteyner içinde**
+koşarlar; `setpoint_raw/local` (nereye dedik) ile `local_position/pose`
+(nereye gitti) farkını çözerler.
+
+```bash
+./deploy/yki/drone_bul.sh ylp00 \
+  'docker exec -i drone1 bash -lc "source /opt/ros/jazzy/setup.bash && \
+   source /ws/install/setup.bash && python3 - /ws/kayit/<DIZIN> 1"' \
+  < deploy/rpi/teshis/kayma_coz.py
+```
+
+| Betik | Ne verir |
+|-------|----------|
+| `kayma_coz.py` | Bacak bacak: **kalıcı kayma · tepe geçici hata · oturma süresi** |
+| `varis_izi.py` | Bacak sonundaki **aşım** ve düzelme süresi (satır satır iz) |
+| `kalkis_izi.py` | Kalkış fazının izi — çapa/komut sıçramaları burada görünür |
+
+⚠️ **İki tuzak (20 Ağustos'ta ikisine de düşüldü):**
+1. Kayıt **hâlâ yazılıyorsa** `metadata.yaml` kapanmamıştır ve dizin
+   açılamaz (`Could not open ... read failed`). Betikler bu yüzden parça
+   `.mcap` dosyalarını **tek tek** okuyor — `ros2 bag reindex` gerekmiyor.
+2. Bu yerel çerçevede **yer seviyesi z ≈ 1.17 m**, sıfır değil. "z > 1"
+   ölçütü yerdeki uçağı da havada sanır; kalkış eşiği en az 4 m olmalı.

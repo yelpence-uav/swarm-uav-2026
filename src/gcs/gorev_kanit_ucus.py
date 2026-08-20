@@ -2915,7 +2915,7 @@ def main() -> int:
     DRONELAR = [int(x) for x in a.dronelar.split(",") if x.strip()]
     global ROTA_YONU_DEG, _HARITA_DOSYA, _SENARYO, LIDER, HARITA_OFSET_KD
     global _KACINMA_ACIK, ASILI_SURE_S, ASILI_IRTIFA_M, _SAHTE_TELEMETRI
-    global G2_MESAFE_M
+    global G2_MESAFE_M, G2_IRTIFA_M
     if a.sahte:
         # CANLI MODDA ASLA. Sahte konumla gercek komut gondermek, ucaklari
         # olmadiklari yere gore hesaplanmis hedeflere yollamak demektir —
@@ -2962,7 +2962,15 @@ def main() -> int:
     if a.sure is not None:
         ASILI_SURE_S = a.sure
     if a.irtifa is not None:
-        ASILI_IRTIFA_M = a.irtifa
+        # --irtifa iki senaryoda da gecerli: asili (tek ucak) ve g2.
+        # g2'nin sabiti 20 m idi ve override yoktu; kisa dogrulama
+        # ucuslarinda (or. lider secimi olcumu) daha alcak istenebiliyor.
+        if a.senaryo == "g2":
+            if not 3.0 <= a.irtifa <= 30.0:
+                ap.error("--irtifa g2 icin 3..30 m araliginda olmali")
+            G2_IRTIFA_M = a.irtifa
+        else:
+            ASILI_IRTIFA_M = a.irtifa
     if a.mesafe is not None:
         # Kayma olcumu icin uzun DUZ BACAK gerekiyor (NAVIGASYON_KAYMA Adim 1:
         # rampa + 4tau oturma + olcum penceresi). Tavan MAX_GOTO_M ile ayni
