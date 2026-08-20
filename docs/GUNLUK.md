@@ -1,6 +1,6 @@
 # GÜNLÜK — oturum devir teslim kaydı
 
-**Son güncelleme:** 19 Ağustos 2026, 00:12
+**Son güncelleme:** 20 Ağustos 2026, 03:21
 
 Tek bilgisayar, sırayla çalışıyoruz. Biri kalkıp diğeri oturduğunda **hem
 kişi hem Claude** nerede kalındığını buradan anlar.
@@ -35,6 +35,155 @@ Claude'a **"oturumu kapat"** dersen bu kaydı o yazar.
 - ylp00: (kill switch? pil? nerede? konteyner ayakta mı?)
 - ylp02:
 ```
+
+---
+
+## 2026-08-20 03:21 — Berk + Claude (RC failsafe HAVADA, P0.9 + P0.11 kapandı, kayma ÖLÇÜLDÜ, ivme ileri-beslemesi A/B)
+
+> Uzun bir gece: **bir düşüş**, üç uçuş, iki P0 kapanışı ve ölçülmüş bir
+> kontrol iyileştirmesi. Sıra önemli — düşüş, failsafe işini yarıda
+> yakaladı ve dersi belgeye girdi.
+
+**Ne yapıldı**
+
+*🔴 RC-kayıp failsafe'i — ve yolda bir düşüş*
+
+- Sorun: FS-iA6B kumanda kapanınca **susmuyor**, failsafe çerçevesi basıyor;
+  PX4 kaybı göremiyordu. Gün içinde iki yöntem denendi, **Ch3 üst-uç** tuttu:
+  alıcı kayıpta gaz kanalına **2100** basar, canlı tavan 2000, eşik **2050**.
+  Parametreler: `RC_FAILS_THR=2050`, `RC_MAP_FAILSAFE=3` (iki uçakta da).
+- **HAVADA doğrulandı (ylp00):** alçak askıda kumanda kapatıldı →
+  **1-2 sn içinde RTL**, motor kesilmedi.
+- 🔴 **DÜŞÜŞ:** ölçüm yapılmadan yapılan bir hava denemesinde kumandanın
+  CH5 (kill) failsafe'i **+100%** kayıtlıydı → kumanda kapanınca alıcı
+  "kill'e bas" çerçevesi bastı → **motorlar anında kesildi, ylp00 alçaktan
+  düştü.** RTL ayarlı olması kurtarmadı: kill her şeyi ezer. Hasar kontrolü
+  yapıldı — pervane/gövde/motor temiz, GPS **RTK-FIXED 30 uydu**,
+  clipping **0/0/0**. Ders `TUZAKLAR` §0.4'e yazıldı.
+- **P0.9 KAPANDI:** ylp02'nin kill failsafe'i deneyle kanıtlandı (switch
+  konumundan bağımsız `CH5=2000` → kayıtlı kill), `-100%`'e çekildi,
+  `CH5=1000` ölçüldü. İki uçağın failsafe davranışı artık aynı.
+
+*🔴 P0.11 — sürü yığını guided uçuşta ölüydü, KAPANDI*
+
+- **Uçak-içi köprü yazıldı:** `esp32_bridge` guided ARM'ı işlerken yerel
+  `EVENT_MISSION_STARTED` üretiyor. Firmware'e dokunulmadı (mesh whitelist'e
+  çarpmaz), teslimatı kanıtlanmış guided yolun aynısı.
+- `agent_fsm`'e **`kalkis_olayla`** parametresi: olay ajanı yalnız ARMED'a
+  taşır, TAKEOFF'u tetiklemez — kalkış otoritesi guided yolda kalır.
+- **Yerde iki uçakla geçti**, sonra **HAVADA ölçüldü:** iki uçak
+  **251 ms** arayla aynı lideri seçti (`0→1`, round=1); ylp00 inip IDLE'a
+  düşünce liderlik **749 ms** içinde ajan 3'e devredildi. Split-brain yok.
+  Kalp atışı yerde de yayınlansın diye `own_airborne` şartı kaldırıldı;
+  mesh üzerinden komşuya ulaştığı ölçüldü (499 mesaj).
+  ⚠️ Devir **düzgün** devirdi (ayrılan lider duyurdu). **Ani** lider kaybı
+  hâlâ sınanmadı — o yol kalp atışı zaman aşımına dayanıyor ve denetim onun
+  `own_airborne=false` iken ölü olduğunu 2/2 onayla gösterdi.
+
+*🧠 Çok ajanlı denetim (KARAR-02 `ultracode`)*
+
+- 5 avcı, **42 bulgu** → yeni belge **`docs/WORKFLOW_BULGULAR.md`**.
+  Doğrulama aşaması operatör kararıyla yarıda kesildi (7 karar tamamlandı).
+- **En değerli sonuç bir ÇÜRÜTME:** "her GOTO çerçevesi RC failsafe RTL'ini
+  geri alıyor" iddiası yanlış çıktı — görev koşucusu her tikte `flight_mode`
+  denetliyor ve OFFBOARD dışında görevi kesiyor
+  (`gorev_kanit_ucus.py:2177-2186`). Tek kanalda kalsaydı bu "uçuş engeli"
+  diye yazılacaktı.
+- Bulgu üzerine **`kalkis_olayla` varsayılanı `True → False`** yapıldı
+  (emniyet varsayılanı güvenli tarafta olmalı), dağıtıldı, iki uçakta da
+  `ros2 param get` ile doğrulandı.
+
+*📏 Navigasyon kayması ÖLÇÜLDÜ (P0.4 Adım 1) — ve düzeltildi*
+
+- **30 m bacak, iki uçak, 3.0 m/s:** kalıcı kayma **≈0.10 m**, tepe geçici
+  hata **≈1.12 m**, oturma **≈3.5 s**. **Eski 0.44 m rakamı geçersizdi**
+  (7 m'lik bacakta geçici rejim ölçülmüş). Sonuç: hız artırmanın önündeki
+  engel kayma DEĞİL.
+- Operatör iki davranış fark etti, ikisi de ölçümle doğrulandı:
+  (a) kalkıştan sonra ~0.5 m geri hareket — plan anındaki konum ile ARM
+  anındaki çapa arasındaki EKF kayması (1 Ağustos'ta 1.42 m'ydi);
+  (b) bacak sonunda **1.18 m aşım**, ~3 sn'de düzeliyor.
+- **İvme ileri-beslemesi yazıldı** (`guided_ivme_ff`, varsayılan KAPALI) ve
+  **aynı uçuşta A/B ölçüldü** — ylp00 açık, ylp02 kapalı:
+
+  | | FF kapalı | FF açık | kazanç |
+  |---|---|---|---|
+  | tepe geçici hata | 1.177 / 1.026 m | 0.551 / 0.324 m | **−60 %** |
+  | varış aşımı | 1.18 m | 0.46 m | **−61 %** |
+  | oturma | 3.88 / 3.36 s | 3.1 / 1.0 s | daha hızlı |
+
+  ylp02 kendi tabanını birebir tekrarladı (1.173/1.053 → 1.177/1.026),
+  yani fark **koddan** geliyor.
+
+**Ne değişti**
+
+- kod (8 commit, `3547d7b`…`c1e3f27`): `agent_fsm_node` (kalkis_olayla) ·
+  `esp32_bridge_node` (guided köprüsü) · `consensus_node` (kalp atışı yerde
+  de) · `px4_bridge` + `mavros_command_sender` (ivme ileri-beslemesi, 12 test)
+  · `baslat.sh` · `gorev_kanit_ucus.py` (`--mesafe`, g2 için `--irtifa`) ·
+  `deploy/rpi/teshis/` (3 kayıt çözümleme betiği)
+- **uçakta:**
+  - kod **`b46a258`** (ikisinde de; `.surum`'daki `+KIRLI` YKİ tarafındaki
+    dosyadandı, o da artık commit'li)
+  - 🔴 **`yer_testi` bayrağı İKİSİNDEN DE SİLİNDİ** — uçaklar kalkış
+    komutunu alır durumda
+  - 🔴 **ylp00'da `guided_ivme_ff=1.0` CANLI** — **kalıcı DEĞİL**, konteyner
+    yeniden başlayınca 0.0'a döner (ylp02 zaten 0.0)
+  - PX4: `RC_FAILS_THR=2050`, `RC_MAP_FAILSAFE=3` (ikisinde de);
+    ylp00'da `RC6_MAX/TRIM` fabrikaya döndü; **ylp00'ın RC kalibrasyonu
+    yenilendi** (`RC3_MIN` 1016→906)
+  - **kumandalar:** ikisinde de `Ch3` failsafe 2100'e kaydedildi;
+    ylp02'de `Ch5` +100 → **-100** (kill kapatıldı), `Ch7` -100
+  - ylp00'da **`core.50` silindi** (337 MB), disk %40
+- belge: `DURUM` · `YAPILACAKLAR` · `RPI_ESITLEME` · `TUZAKLAR` (§0.4 düşüş
+  dersi, §0.5 FlySky 900-2100 tabanı, §1.16 YKİ rc_link_ok tuzağı) ·
+  `NAVIGASYON_KAYMA` (Adım 1 ölçüm + Adım 2 A/B) · **yeni**
+  `WORKFLOW_BULGULAR.md`
+
+**Yarım kalan / tuzak**
+
+- 🔴 **`guided_ivme_ff` ylp00'da açık ama KALICI DEĞİL.** Konteyner restart'ı
+  onu 0.0'a döndürür. Kalıcı istenirse: ikinci doğrulama uçuşundan sonra
+  varsayılan 1.0 yapılıp `baslat.sh`'e env eklenmeli.
+- 🟠 **4 m/s kayma ölçümü yapılmadı** — 40 m bacak ister (28 m oturma +
+  pencere). Kuru testi geçmişti, pil bitti.
+- 🟠 **Denetimin doğrulama aşaması yarım** — 42 bulgunun 7'si karara
+  bağlandı. Etiketsiz bulgular *iddia* düzeyinde; uygulamadan önce koddan
+  teyit edilmeli (`WORKFLOW_BULGULAR.md` başındaki uyarı).
+- 🟠 **"Bayat GOTO iniş komutunu geri alıyor" bulgusu doğrulanmadı.**
+  Mekanizmayı ben koddan gördüm (`esp32_bridge_node.py:1204` her GOTO'da
+  koşulsuz `offboard` yolluyor; kuyruk ayıklaması LAND'de GOTO kopyalarını
+  temizlemiyor) ama penceresi dar (~0.75 sn) ve ikinci `land` ile kurtarılıyor.
+- 🟡 **`titresim_olc.py` hiç koşulmadı** — operatör kararıyla atlandı.
+  Clipping sayaçları uçuşlardan sonra yine de **0/0/0** ölçüldü.
+- 🟡 **ylp02 her inişte PosCtl'e geçiyor** (ylp00 Auto.Land'de kalırken).
+  Pilot son metrelerde devralıyor olabilir; doğrulanmadı, zararsız görünüyor.
+- 🟡 `ros2 bag info` çalışmıyor (kayıt hâlâ yazılıyor, metadata kapanmamış).
+  Çözümleme betikleri parça `.mcap`'leri tek tek okuyor — `deploy/rpi/teshis/`.
+- 🟡 **Bazın anteni** son survey'den beri taşındı mı hâlâ bilinmiyor
+  (18 Ağustos'tan kalan soru).
+
+**Sıradaki adım**
+
+1. 🟠 **İkinci ivme-FF doğrulama uçuşu** → geçerse `guided_ivme_ff`
+   varsayılanı 1.0 + `baslat.sh` env. Kazanç ölçüldü, kalan iş tekrar.
+2. 🟠 **4 m/s kayma ölçümü** (40 m bacak) — hız artışının bedelini
+   sayıyla verir.
+3. 🟠 `WORKFLOW_BULGULAR.md`'deki açık P0/P1'leri koddan teyit et; özellikle
+   bayat-GOTO maddesi.
+4. ⚪ Ani lider kaybı senaryosu (kalp atışı zaman aşımı) — ADIM 3 işi,
+   `kalkis_olayla=true` ister.
+
+**Uçakların bırakıldığı hâl**
+
+- **İkisi de yerde, disarm, kill yok, sağlıklı**, RTK-FIXED 32 uydu,
+  konteynerler ayakta, kod `b46a258` (senkron).
+- **Pervaneler TAKILI** (son uçuştan sonra sökülmedi).
+- `yer_testi` **YOK** (kalkış komutunu alırlar) · `gozlem` ve `kacinma`
+  bayrakları **VAR** (ikisinde de).
+- ylp00'da `guided_ivme_ff=1.0` canlı — restart'ta sıfırlanır.
+- Uçuş kayıtları uçaklarda: `ylp00_20260820_025641`, `ylp02_20260820_025701`
+  (ivme FF A/B) ve bir önceki 30 m kayma uçuşununkiler.
 
 ---
 
