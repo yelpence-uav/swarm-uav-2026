@@ -5,8 +5,13 @@ Taze bir Raspberry Pi 5'i (Debian 13 trixie) sürü drone'una çevirir.
 kod ise host'ta bind-mount ile gelir. Böylece kod değişince image rebuild gerekmez.
 
 > Neden Dockerfile'dan build etmiyoruz? Aktif geliştirmedeyiz; kod image'a gömülü
-> olsaydı her değişiklikte Pi'de ~15 dk build gerekirdi. Kod donunca `docker/rpi/`
-> altındaki Dockerfile üretim imajı için düzeltilip kullanılacak.
+> olsaydı her değişiklikte Pi'de ~15 dk build gerekirdi.
+>
+> ⚠️ **16 Ağustos'ta `docker/` komple silindi** (`87e95c2`) — imajın tek tarifi
+> oydu. Bugün sorun değil (iki Pi'de imaj hazır), ama **ylp01 dönünce** ve
+> **`cv2`+`pyzbar` eklenirken** gerekecek. O zamana kadar tek yol aşağıdaki
+> `docker save` yöntemi. Karar `YAPILACAKLAR.md`'ye açılmadı — operatör
+> henüz karar vermedi.
 
 ## Katmanlar
 - **Image `yelpence-ros`** = sadece ORTAM (ROS Jazzy + mavros + geographiclib +

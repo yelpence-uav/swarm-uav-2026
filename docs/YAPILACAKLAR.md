@@ -1,6 +1,6 @@
 # YAPILACAKLAR
 
-**Son güncelleme:** 20 Ağustos 2026, 17:20
+**Son güncelleme:** 20 Ağustos 2026, 17:40
 
 ## Önem dereceleri
 
@@ -68,6 +68,54 @@ olur**, üstelik `px4_bridge`'in 0.5 s bayatlama koruması hiç tetiklenmez
 - `[ ]` 🟡 İkinci kapı olarak `_isle_goto`, son `land`'den sonra gelen GOTO'yu
   yok sayabilir (zaman damgası karşılaştırması) — kuşak ve pantolon askısı.
 
+### 🔴 P0.14 Lider kaybı tespiti tamamen ölü — denetimde 2/2 DOĞRULANDI
+
+`WORKFLOW_BULGULAR.md`'deki 42 bulgunun yalnız 7'si doğrulanabildi. Bu ikisi
+**iki bağımsız doğrulayıcının da onayladığı** tek P0 çiftidir ve
+**birbirini büyütüyorlar** — üstelik hiçbir iş listesine girmemişlerdi.
+
+**(a) 300 ms'lik lider kaybı yolu hiç çalışmıyor** — `election.py:47`
+
+```python
+if not ctx.is_leader and ctx.leader_id != 0 and own_airborne:   # <- hep False
+```
+
+`own_airborne = own.state in AIRBORNE_STATES` ve `AIRBORNE_STATES =
+{TAKEOFF, IN_SWARM, EXECUTING_TASK}`. Ama `kalkis_olayla=false` olduğu için
+FSM **uçuş boyunca ARMED'da kalıyor** ve ARMED o kümede yok. Yani
+`heartbeat_timeout_ms = 300` hiçbir kararda kullanılmıyor — `hb_timeout_s`'in
+repoda başka tüketicisi de yok.
+
+**(b) Yedek olan bayatlık denetimi YANLIŞ AKIŞI ölçüyor** — `consensus_context.py:93`
+
+`update_status` her `AgentStatus`'ta `last_update`'i yazıyor. Ama komşunun
+`AgentStatus`'unun **iki ayrı mesh kaynağı** var:
+
+```
+TIP_POSE   10 Hz  -> yalniz konum/hiz tasir, AMA tum kaydi yeniden yayinliyor
+TIP_DURUM   1 Hz  -> state/healthy/estimator_ok BURADAN gelir, tekrari YOK
+```
+
+Yani `rec.is_stale(now, 3.0)` **POSE akışının** tazeliğini ölçüyor, koruduğu
+alanlarınkini değil. Liderin DURUM paketleri mesh'te düşerse (broadcast'te
+~%30 kayıp) POSE geçmeye devam eder ve takipçiler onu **süresiz "taze + ARMED
++ healthy"** görür.
+
+**Birleşik sonuç:** lider FAILSAFE'e düşse, disarm olsa, IDLE'a dönse bile
+takipçiler bunu **hiç fark etmez**. Birincil yol (300 ms) ölü, yedek yol
+(3 sn) yanlış akışı ölçüyor. **Düşmüş bir lider süresiz olarak sürünün lideri
+kalır** ve kimse yeni seçim yapmaz.
+
+- `[ ]` 🔴 `AgentRec`'e **alan başına tazelik** ekle: `last_status_update`
+  (DURUM'dan) ile `last_update` (POSE dahil) ayrılsın; `is_stale` sağlık
+  alanları için birincisine baksın.
+- `[ ]` 🔴 `own_airborne` yerine **armlı-ve-havada türevi** kullan
+  (`armed and -pos_z > 1.5`), ya da geçiş döneminde ARMED'ı `AIRBORNE_STATES`
+  yerine ayrı bir "uçuşta" kümesine bağla. ⚠️ Bu küme kaçınma ve formasyon
+  tarafından da okunuyor — bkz. P0.6a'daki `ARMED → KALKIS → TAKEOFF` maddesi.
+- `[ ]` 🟠 Düzeltmeden sonra yer testinde doğrula: liderin `consensus_node`'unu
+  öldür, takipçi **3 sn içinde** yeni seçim yapmalı.
+
 ### 🔴 P0.13 Uçaklar ağdan önce kalkınca ROS yığını sakat kalıyor — ÖLÇÜLDÜ (20 Ağustos)
 
 P1.5'in gerçek kapsamı belgelenenden geniş: semptom "QGC bağlantısı ölü
@@ -99,98 +147,6 @@ agent_fsm yok, yalnız mavros vardı. `docker restart` ikisini de düzeltti
   `timeout` ile sar. Bugün tek bir takılan süreç bütün yığını durduruyor.
 - `[ ]` 🟠 Uçuş öncesi listesine: `docker exec droneN ps | grep -c "ros2 run"`
   → **12 olmalı**. Bugün bu tek komut, bir sabahı kurtarırdı.
-
-### ✅ P0.8 — TAMAMLANDI (17 Ağustos 14:30)
-
-`formation_node` güvenlik kapıları varsayılan olarak kapalıydı; **iki yerden
-bağlandı**, dağıtıldı ve uçtan uca doğrulandı.
-
-- `[x]` 🔴 `formation_node.py` → `declare_parameter('sitl_mode', False)`
-- `[x]` 🔴 `baslat.sh:707` → `-p sitl_mode:=false` açıkça geçiliyor
-- `[x]` 🔴 `dagit.sh` ile iki uçağa dağıtıldı (`600ca65`), konteynerler
-  yeniden başlatıldı. Doğrulama: repo = Pi `src/` = konteynerdeki `build/`
-  kopyası, üçü de md5 `bd40492c`; komut satırında `sitl_mode:=false`;
-  gözlem remap yerinde.
-- `[ ]` 🟠 **G2 uçuşunda doğrula:** origin senkronsuzken
-  `/gozlem/…/formation/raw` **susmalı** (log: *"origin senkronlanmadi;
-  setpoint bekletiliyor"*)
-
-> 🔎 Yan bulgu: `--symlink-install`'a rağmen Python kaynağı `build/` altına
-> **kopyalanıyor**, sembolik bağ değil. Yani `rsync` tek başına koşan kodu
-> değiştirmiyor — `colcon build` şart. (`dagit.sh` bunu zaten yazıyor.)
-
-**Sorunun neydi** (kayıt için):
-
-```python
-declare_parameter('sitl_mode', True)   # depodaki TEK True; digerleri hep False
-if not self._sitl_mode and not self._origin_synced:              # kapi atlanir
-if not self._sitl_mode and not (self._xy_valid and self._z_valid):  # kapi atlanir
-```
-
-`baslat.sh` bu parametreyi **hiç geçmiyordu** (597. satırda yalnız yorumda
-anılıyordu), dolayısıyla varsayılan `True` geçerliydi: `formation_node`
-origin senkronu ve konum tahmini geçerliliği denetimlerini **atlayarak**
-koşuyordu.
-
-Karşılaştırma — 15 Ağustos'a kadar uçaklarda koşan sürümde
-(`saha/pi-kod-15agustos` dalında) aynı kapılar **koşulsuzdu**:
-`if not self._origin_synced:` / `if not (self._xy_valid and self._z_valid):`.
-Yani `main` bu kapıları zayıflatmıştı ve 17 Ağustos dağıtımıyla uçaklara
-girmişti.
-
-Gözlem modu çıktıyı `/gozlem/…`'e sürdüğü için uçağa ulaşmıyordu, ama **G2
-gözlem uçuşunun verisini bozardı** — düğüm, düzeltilmiş hâlinin susacağı
-koşullarda çıktı üretir. Ayrıca ADIM 3 tam da o remap'i kaldırmak demek.
-15 Ağustos'ta 18.2 m'lik origin ayrışması arm'ı engellemişti ve bu **doğru**
-davranıştı; kapalı kapı onun tersi yön.
-
-### ✅ P0.7 — TAMAMLANDI (17 Ağustos 11:35)
-
-Uçaklardaki kod artık bu deponun `main`'i: `.surum` → `commit=e012dba`,
-`dal=main`, **`+KIRLI` yok**; `src/` 176 dosya `main` ile birebir (md5).
-
-Öncesinde iki Pi de `commit=0dfa0ad +KIRLI dal=feature/dagitik-suru`
-diyordu ve ne o commit ne o dal bu depoda vardı. Operatörün açıklaması:
-eski depoda (`yelpence-2026-swarm`) o dal `main`'e alınmış, oradan yeni bir
-dal açılmış ve bu depo (`yelpence-2026-saha`) onunla kurulmuştu — ölçüm de
-bunu doğruladı (`main` her dosyada daha uzun, Pi'deki fazlalıklar eski sürüm
-kalıntısı; en net kanıtı `INTERFACE_CONTRACT.md`'de duran sim dönemi
-"Network Proxy" bölümü).
-
-- `[x]` 🔴 Silinmeden önce uçan kod git'e alındı → **`saha/pi-kod-15agustos`**
-  (`52ff027`, `origin`'de). `dagit.sh` `--delete` ile çalışıyor, yoksa geri
-  dönüşsüz giderdi.
-- `[x]` 🔴 `dagit.sh ylp00 ylp02` → `.surum` = `e012dba (main)`
-- `[x]` 🔴 Konteynerler yeniden başlatıldı, 11 düğüm ayakta, setpoint
-  konularında **tek üretici**, MAVROS bağlı/disarm
-- `[x]` 🟡 ~~(a) `colcon build ... | tail` çıkış kodunu yutuyor~~ →
-  **düzeltildi (18 Ağu):** uzak `bash -lc` içine `set -o pipefail` eklendi.
-  Mekanizma kabukta doğrulandı: pipefail kapalı → çıkış 0, açık → 1. Artık
-  derleme çökerse `.surum` da yazılmıyor (`return 1` önce geliyor).
-- `[x]` 🟡 ~~(c) `dagitan=$(hostname)` Arch'ta boş kalıyor~~ →
-  **düzeltildi (18 Ağu):** `hostname → /etc/hostname → "bilinmiyor"` zinciri.
-- `[ ]` 🟡 (b) dağıtılacak commit `origin`'de yoksa ya da ağaç kirliyse sor/dur
-
-### ✅ P0.1 — TAMAMLANDI (14 Ağustos)
-
-`MAKS_EGIM_DEG` artık sabit değil, `ucus_ayarlari.py`'de **ivmeden
-türetiliyor** (`MPC_TILTMAX_AIR + 5°`). Ayrıca `MPC_TILTMAX_AIR` iki uçakta
-da 30'a eşitlendi, yani eşik (35°) tavanın 5° üstünde — dedektör geçerli.
-
-- `[x]` 🔴 `gorev_kanit_ucus.py` sabiti kaldırıldı, config'den okuyor
-- `[x]` 🔴 `MPC_TILTMAX_AIR` ylp00'da 45 → 30
-
-### ✅ P0.2 / P0.3 — TAMAMLANDI (14 Ağustos)
-
-PX4 parametreleri eşitlendi ve uçuş ayarları tek kaynağa bağlandı.
-`param_karsilastir.py` → *"Uçaklar arası ayrışma yok"*. Ayrıntı:
-`RPI_ESITLEME.md` §8.
-
-- `[x]` 🔴 `MPC_TILTMAX_AIR` 45→30, `MPC_YAWRAUTO_MAX` 45→25,
-  `MPC_VEL_MANUAL` 4/2→3.0, `MPC_XY_VEL_MAX` 4.0→5.0 (iki uçakta da)
-- `[x]` 🔴 `baslat.sh` artık `/ws/ucus_ayarlari.env` okuyor; hız 3.0 canlıda
-- `[x]` 🔴 Konteynerler yeniden başlatıldı, günlük bekçisi de devrede
-- `[ ]` 🟠 **ylp01 döndüğünde aynısını uygula** — `RPI_ESITLEME.md` §8
 
 ### 🔴 P0.11 Guided yol `agent_fsm`'i ATLIYOR — sürü yığını hiç etkinleşmiyor
 
@@ -260,6 +216,9 @@ ve bu, uçak formasyon düğümünün emrindeyken keşfedilirdi.
 - `[ ]` 🔴 **Sonra G2 tekrar** — artık lider seçimi VE kalp atışı havada
   ölçülebilir. ⚠️ KARAR-02: consensus ilk gerçek hava görevi — uçuştan önce
   operatöre `ultracode` önerilecek.
+- `[ ]` 🟡 **İlk G2 kaydından `swarm_fsm`'in ürettiği durumları incele** —
+  geçişler gerçek uçuşla uyuşuyor mu. Veri elde: ilk G2'de 3154 / 2559
+  `SwarmState` yayınlandı, kayıtlar `~/yelpence-kayitlar/g2_20260818/`.
 
   **G2 sabahı kontrol listesi (19 Ağu gece hazırlandı, her şey hazır):**
   1. Pervaneleri tak (ikisi de sökük bırakıldı) → hemen ardından
@@ -275,6 +234,14 @@ ve bu, uçak formasyon düğümünün emrindeyken keşfedilirdi.
   7. İki uçakta `ros2 param get /agent_fsm_node kalkis_olayla` → **False**
      olmalı (kalkış otoritesi guided yolda kalsın; 20 Ağu 01:40'ta ikisinde
      de doğrulandı, kod varsayılanı da artık False)
+  8. 🟠 **`formation_node`'un origin kapısını DOĞRULA** — origin senkronsuzken
+     `/gozlem/…/formation/raw` **susmalı**. Kayıtta aranacak dize:
+     `origin senkronlanmadi; setpoint bekletiliyor` (`formation_node.py:887`).
+     ⚠️ İlk G2'de bu **ölçülmedi**: düğüm zaten girdisiz olduğu için (P0.10)
+     sustu, yani kapının çalıştığı gösterilmedi. `sitl_mode` düzeltmesinin
+     (17 Ağu) tek doğrulanmamış ayağı bu.
+  9. 🟡 **Uçuş sırasında RAM/CPU ölç** — ilk G2'de atlandı. Paralel
+     `drone_bul.sh --durum`, ya da mevcut kayıttan çıkar.
 - `[x]` 🟠 ~~Karar gerekiyor: guided yol ile sürü yolu nasıl birleşecek~~ →
   **KARAR VERİLDİ ve UYGULANDI (19 Ağu gece, operatör: uçak-içi köprü).**
   `esp32_bridge` guided ARM'ı işlerken yerel `EVENT_MISSION_STARTED` üretiyor
@@ -293,47 +260,14 @@ ve bu, uçak formasyon düğümünün emrindeyken keşfedilirdi.
 
 ---
 
-### ✅ G2 gözlem uçuşu YAPILDI (18 Ağustos 21:45) — 62 saniye
+### ~~🔴 P0.9 ylp02'nin alıcı failsafe'i KILL tetikliyor~~ — ✅ **KAPANDI**
 
-Yeni senaryo: **`--senaryo g2`** (`gorev_kanit_ucus.py`'ye eklendi).
-Formasyonsuz: kalk 20 m → 15 m ileri → herkes kendi kalkış noktasına → in.
-Operatör kararıyla `saha`'nın 187 saniyelik koreografisi yerine yazıldı —
-pil için ve gözlem soruları roll/formasyon istemediği için.
-
-```
-Görev         62 s, üç adım da tamam, iptal yok
-Varış hatası  dört noktada da < 1 m
-Ayrım         en dar 9.41 m (esik 4.0) — kuru testin ongordugu 9.63 ile birebir
-Kayıt         ylp00 288.427 mesaj / ylp02 234.460 mesaj
-              ~/yelpence-kayitlar/g2_20260818/ (26 + 21 MB, yerel)
-```
-
-| G2 sorusu | Sonuç |
-|-----------|-------|
-| Havada lider seçimi kararlı mı | ❌ **seçim hiç yapılmadı** → P0.11 |
-| `swarm_fsm` çalışıyor mu | ✅ 3154 / 2559 `SwarmState` yayınladı |
-| Mesh komşu telemetrisi | ✅ ylp00 ylp02'yi 4309, ylp02 ylp00'ı 3712 kez gördü |
-| `formation_node` ne hesaplıyor | ❌ girdi yok, sessiz (beklenen — P0.10) |
-| Kaynak kullanımı | ⏳ uçuş sırasında ölçülmedi, kayıttan çıkarılabilir |
-
-- `[ ]` 🟡 Kayıttan `swarm_fsm`'in ürettiği durumları incele — geçişler gerçek
-  uçuşla uyuşuyor mu.
-- `[ ]` 🟡 Uçuş sırasında RAM/CPU ölçümü atlandı; sonraki sortide `--durum`
-  ile paralel ölçüm alınmalı.
-
----
-
-### ✅ P0.9 KAPANDI (19 Ağustos gece, ölçümle) — ylp02'nin kill failsafe'i düzeltildi
-
-> Fabrika sıfırlamasının bıraktığı +100% kayıt yerinde duruyordu — deneyle
-> kanıtlandı: kill switch'in konumundan BAĞIMSIZ `CH5=2000` basıyordu
-> ("off/tut" değil, KAYITLI kill). Kumandada `Ch5 → -100%` (ve `Ch7 → -100%`)
-> kaydedildi; kumanda kapalıyken ölçüm: **`CH5=1000`** ✓. Üstüne ylp02'ye
-> RC-kayıp tespiti de kuruldu (Ch3 üst-uç, `RPI_ESITLEME` §5) ve RC sağlık
-> biti iki yönde doğrulandı — **kumanda kaybında artık kill değil RTL.**
-> Aşağıdaki blok tarihçe olarak duruyor:
-
-### ~~🔴 P0.9 ylp02'nin alıcı failsafe'i KILL tetikliyor~~ — ÖLÇÜLDÜ (18 Ağustos)
+> **19 Ağustos gece kapandı, ölçümle:** kumandada kayıtlı `+100%` bulundu →
+> `-100%`'e çevrildi → kumanda kapalıyken **`CH5=1000`** ölçüldü. Üstüne
+> ylp02'ye RC-kayıp tespiti kuruldu (Ch3 üst-uç, `RPI_ESITLEME` §5) —
+> **kumanda kaybında artık kill değil RTL.** İki uçağın failsafe davranışı
+> aynı. **Aşağısı TARİHÇE**, açık bir uçuş engeli değil; içindeki iki 🟡
+> madde (CH6 hâlâ 2000 · ylp00'ın failsafe'i tanımlı mı) hâlâ açık.
 
 `TUZAKLAR.md` §0.2'nin cevabı çıktı ve **beklenenin tersi**: sorun ylp00'da
 değil, **ylp02'de**. YKİ telemetrisinden ölçüldü, iki kez tekrarlandı:
@@ -395,14 +329,14 @@ lider seçimi — kumanda bir an kapanırsa ylp02 seçimden düşer.
 
 ### P0.4 Navigasyon kayması — ölçülmedi
 
-Tam plan: **`NAVIGASYON_KAYMA.md`**. Özet:
+Tam plan: **`PLAN.md` §9**. Özet:
 
 Sistem teorik olarak doğru yerde (konum + hız ileri-beslemesi → kalıcı
 kayma ≈ 0, hızla büyümez). **Ama bunu doğrulayan ölçüm yok.** Elimizdeki
 tek sayı 7 m'lik bir bacaktan geldi, yani geçici rejimi ölçüyor.
 
 - `[x]` 🔴 ~~ÖLÇ~~ → **ÖLÇÜLDÜ (20 Ağustos 02:15, 30 m bacak, İKİ uçak,
-  3.0 m/s).** Sonuç `NAVIGASYON_KAYMA.md` §ADIM 1 ÖLÇÜLDÜ'de:
+  3.0 m/s).** Sonuç `PLAN.md` §9'da:
   **kalıcı kayma ≈ 0.10 m · tepe geçici hata ≈ 1.12 m (t+1.8s) ·
   oturma ≈ 3.5 s.** İki uçak birbirini doğruladı (0.06-0.13 m).
   **Eski 0.44 m rakamı geçersizdi** (7 m'lik bacakta geçici rejim ölçülmüş).
@@ -416,7 +350,7 @@ tek sayı 7 m'lik bir bacaktan geldi, yani geçici rejimi ölçüyor.
   (20 Ağustos 03:00).** Aynı uçuşta ylp00 açık / ylp02 kapalı:
   **tepe geçici hata −60 % (1.10 → 0.44 m), varış aşımı −61 %
   (1.18 → 0.46 m), oturma 3.6 → 2.1 s.** ylp02 kendi tabanını birebir
-  tekrarladı, yani fark koddan. Ayrıntı `NAVIGASYON_KAYMA.md` §ADIM 2.
+  tekrarladı, yani fark koddan. Ayrıntı `PLAN.md` §9.
   `guided_ivme_ff` **varsayılan 0.0 (kapalı)** — tek uçuşluk kanıtla uçuş
   yolunun varsayılanı değiştirilmez.
 - `[x]` 🟠 ~~İkinci doğrulama uçuşu, sonra varsayılan~~ → **operatör
@@ -513,45 +447,18 @@ kod **geri alındı**; ayrıntı `GUNLUK.md` 18 Ağustos kaydı.
 - `[ ]` 🟡 **ylp01** — final görevinde **3 İHA şart**, ama entegrasyonu
   engellemiyor. Yalnız Aşama 5'teki üyelik testi üç uçak istiyor
 
-### ✅ ADIM 1 GEÇTİ (15 Ağustos) — ve iki engel yolda düzeltildi
+### 🟡 P0.7-kalan · `dagit.sh` dağıtılacak commit'i doğrulamıyor
 
-İki uçak yerde, pervanesiz, ARM'lı: ikisi de **aynı lideri** seçti
-(`Lider: 0 -> 1`, 101 ms arayla). `esp32_bridge` lideri öğrendi, formasyon
-kapısı açıldı. Lider arıza devri de gözlendi (`1 -> 3`, 82 ms).
+`dagit.sh` kirli ağacı yalnız **uyarıyor**; `git cat-file` / `git ls-remote`
+denetimi betikte **hiç yok**. P0.7'yi doğuran hatanın (uçaklarda `origin`'de
+bulunmayan, `+KIRLI` bir kodun aylarca koşması) tek korkuluğu bu olurdu.
 
-- `[x]` 🔴 ~~mesh `AgentStatus` `healthy` taşımıyor~~ → **düzeltildi.**
-  Alıcı varsayılan `false` bırakıyordu; `is_eligible` bunu şart koştuğu için
-  hiçbir uzak ajan aday olamıyor, her uçak kendini seçip **split-brain**
-  üretiyordu. `esp32_bridge` decode'unda artık türetiliyor
-  (`ekf_ok` ∧ ¬`kill_switch` ∧ state≠FAILSAFE). Paket ve firmware değişmedi
-  (bayrak baytı 8/8 dolu).
-- `[x]` 🔴 ~~`swarm_origin_publisher` ADIM 8'de~~ → **ADIM 0.5'e alındı.**
-  `preflight` `origin_synced` şart koşuyor; origin gelmeden ARMING olmuyor,
-  dolayısıyla consensus hiç lider seçemiyor.
-- `[x]` 🟡 `agent_fsm`: IDLE'da ARMING reddi artık **loglanıyor** — eskiden
-  tamamen sessizdi ve testte yarım saat kaybettirdi
-
-**Kalan iş:**
-
-- `[ ]` 🟠 **İki uçaklı tam devir teslim testi** — birini kill'le, diğerini
-  armlı bırak; ikincisi liderliği devralıyor mu? Bugün tek taraflı gözlendi
-- `[x]` 🟡 ~~Origin `/public`'e remap ile gidiyor~~ → **remap kaldırıldı.**
-  `ic_dis_kopru` gelince (P0.6) düğüm sözleşmeye uygun şekilde
-  `/swarm/internal/origin`'a yazmaya döndü; origin artık **hem** yerel
-  düğümlere **hem de** `esp32_bridge` üzerinden mesh'e gidiyor. Remap
-  varken mesh yolu tamamen kapalıydı.
-- `[ ]` 🟡 Origin'in **mesh yolu** hâlâ denenmedi — bir uçağın origin'i
-  diğerine ulaşıyor mu? Şu an ikisi de aynı sabit değeri yayınladığı için
-  fark görünmez; test için birini kapatıp diğerininkini bekle
-- `[ ]` 🟡 Mesh `healthy` bir **türetim**, gönderenin kendi değeri değil.
-  Pil izleme açılınca (KARAR-03) pil düşüşü buraya yansımaz — o gün ya
-  pakete bit eklenecek ya da eşik burada da uygulanacak
-- `[ ]` 🟡 `ARMED → KALKIS(2) → TAKEOFF(4)`: yerde armlı uçak komşularına
-  **havada** görünüyor (`AIRBORNE_STATES`). Kaçınma ve formasyon buna bakıyor
+- `[ ]` 🟡 Dağıtılacak commit `origin`'de yoksa **ya da** ağaç kirliyse
+  betik **sorsun ya da dursun**. İlgili tuzak: `TUZAKLAR.md` §1.14.
 
 ### P0.6a Kod okuma bulguları — entegrasyondan önce düzeltilecek
 
-19 düğümün tamamı okundu (15 Ağustos). Tam liste: `SURU_ENTEGRASYON.md`.
+19 düğümün tamamı okundu (15 Ağustos). Tam liste: `PLAN.md` §6.
 
 - `[ ]` 🔴 **`cv2` + `pyzbar` konteynerde YOK** — canlı denendi,
   `ModuleNotFoundError`. Görü zinciri hiç çalışamaz. Kamera gelmeden önce
@@ -634,112 +541,43 @@ kapısı açıldı. Lider arıza devri de gözlendi (`1 -> 3`, 82 ms).
 - `[ ]` 🟡 Saf dağıtığa geçilsin mi (liderin ataması hiç kullanılmasın)?
   Şartname puanlaması için gerekli olup olmadığı yorum meselesi. Aşama 5
   üyelik testinde konuşulacak — şimdiki hâli hem puanı hem güvenliği veriyor.
+- `[ ]` 🟠 **`px4_bridge velocity_only:=True`** — `formation_node` C modu (saf
+  hız) için tasarlanmış, varsayılan `False` → ikisi de konum kontrolü yapıyor
+  ve kazançlar toplanıyor (SVT 0.8 + `MPC_XY_P` 0.95). **ADIM 3'ün şartı**,
+  `baslat.sh`'te tek satır. Ayrıntı: `PLAN.md` §7 Engel 3.
+- `[ ]` 🟠 `task_reallocator.min_active_for_formation:=2` ·
+  `mission1.default_spacing_m:=12.0` · `joystick_interpreter` remap
+  (bizimki `/drone_N/mavros/...`, düğüm **namespace'siz** dinliyor).
+  ⚠️ **Uygulamadan önce KODU OKU** — `consensus.agent_count` için "2 olmalı"
+  yazılmıştı ve **yanlıştı**; uygulansaydı ylp02 sürüden tamamen düşerdi. Her
+  parametrenin o sayıyı hangi anlamda kullandığı (kimlik aralığı · canlı sayı ·
+  çoğunluk eşiği) tek tek doğrulanacak. Bkz. `KARARLAR.md` **KARAR-04**.
+- `[ ]` 🟡 **`ARMED → KALKIS(2) → TAKEOFF(4)` eşlemesi — ADIM 3/4 ön koşulu.**
+  Yerde armlı uçak komşularına **havada** görünüyor (`AIRBORNE_STATES`).
+  Tüketicileri yalnız lider seçimi değil: **kaçınma ve formasyon da** buna
+  bakıyor, yani ADIM 3/4 açıldığında doğrudan aktüatör yoluna bağlanır.
+  Olgu ve yan etkileri: `TUZAKLAR.md` §4.9.
 
-### ✅ QoS sınıf hatası — 5 abonelik düzeltildi (15 Ağustos)
+### 🟠 ADIM 1 kalanları — consensus yerde geçti, bunlar açık
 
-`esp32_bridge` **dört** konuyu `_MESH_QOS` yani **BEST_EFFORT** yayınlıyor:
-`formation/target`, `perception/qr_data`, `control/command`,
-`drone{N}/status`. RELIABLE abone + BEST_EFFORT yayıncı **eşleşmez** ve konu
-**sessizce boş kalır** — düğüm mesh'ten gelen veriyi hiç almaz.
+ADIM 1 (lider seçimi) 15 Ağustos'ta yerde geçti (`PLAN.md` §8 ADIM 1).
+Kapanmayanlar:
 
-- `[x]` 🔴 `formation_node` → `formation/target` (ADIM 3'ü kilitliyordu)
-- `[x]` 🔴 `collision_avoidance` → `formation/target` (ADIM 4'te patlardı)
-- `[x]` 🟠 `maneuver_executor` → `formation/target` (ADIM 9)
-- `[x]` 🟠 `mission1_node` → `perception/qr_data` (ADIM 7)
-- `[x]` 🟠 `mission_fsm_node` → `perception/qr_data` (ADIM 6)
-- `[x]` 🔴 **`gcs/backend/ros_bridge.py` → `perception/qr_data`** — YKİ
-  tarafında, 15 Ağustos akşamı YKİ ilk kez açılınca çıktı. Burada özellikle
-  ironikti: **kasıtlı RELIABLE yapılmıştı**, gerekçesi *"QR mesajı GCS'te en
-  az 1 kez görünmeli (şartname V2, −20 ceza)"*. Niyet doğru, etki tam tersi —
-  BEST_EFFORT yayıncıdan **hiçbir şey almıyordu**, yani "hiç kaçırmayalım"
-  ayarı her zaman hepsini kaçırıyordu. Aynı dosyanın 40 satır altında doğru
-  not zaten yazılıydı.
-
-> **Kural:** `/swarm/public/…` dinleyen herkes **BEST_EFFORT** olmalı.
-> Ters yön sorunsuz (RELIABLE yayıncı + BEST_EFFORT abone uyumlu), o yüzden
-> `ic_dis_kopru` RELIABLE yayınlamaya devam ediyor.
->
-> Bulunuş yolu: `formation_node` açılınca ROS'un kendi uyarısı çıktı, sonra
-> **bütün** public abonelikleri ve `esp32_bridge` yayıncıları tarandı.
-> Adım adım gidilseydi beşi ayrı ayrı, sahada aranacaktı.
-
-### ✅ `baslat.sh` toplu anahtarları ayrıldı (15 Ağustos)
-
-- `[x]` 🔴 `formasyon` anahtarı `collision_avoidance`'ı **da** açıyordu —
-  `basit_kacinma` ile aynı topic yuvası, yani ADIM 3'ü açarken
-  `CLAUDE.md` §4 çakışması kendi elimizle kurulacaktı. Ayrı anahtar `ca`,
-  üstelik `/ws/kacinma` varken **açmayı reddediyor** ve uyarı basıyor.
-- `[x]` 🟡 `fsm` anahtarı üç düğümü birden açıyordu (ADIM 2/6/12) →
-  `fsm` / `gorevfsm` / `mod`
-
-### ✅ Gözlem modu kuruldu (15 Ağustos) — `SURU_ENTEGRASYON.md` §4
-
-- `[x]` 🟡 `/ws/gozlem` bayrağı: `formation_node` setpoint'i
-  `/gozlem/drone_N/formation/raw`'a gider, **uçağa ulaşmaz**
-- `[x]` 🟡 Kayıt include regex'ine `/gozlem/` eklendi — önceden yalnız
-  `^(/drone_N/|/swarm/)` kaydediliyordu, yani gözlem çıktısı **hiçbir yere
-  yazılmıyordu** ve gözlemin anlamı kalmazdı
-- İlk kullanımda değerini kanıtladı: `formation_node` yerdeki uçak için
-  `vz = 1.51 m/s` üretti. Gözlem modu olmasaydı bu tırmanma komutuydu.
-- `[x]` 🔴 ~~**`consensus.battery_min_v = 14.0`**~~ → **düzeltildi (15 Ağu).**
-  `baslat.sh` artık `battery_min_v`'i **`BATARYA_KRITIK_V`'den** geçiyor —
-  `agent_fsm` ile aynı değişken. Pil ölçer modül gelince (KARAR-03) tek
-  değeri 13.6 yapmak ikisini birden açacak.
-- `[!]` 🔴 **`consensus.agent_count` 3 KALMALI — önceki not yanlıştı.**
-  `agent_count` "kaç uçak uçuyor" değil, **"ajan kimlikleri 1..N"** demek:
-  `consensus_node.py:133` → `for aid in range(1, agent_count+1)` ile
-  `drone1..droneN` status konularına abone oluyor. Uçaklarımız **1 ve 3**
-  (ylp01 yerde ama kimliği 2), yani `2` yazılsaydı **drone3 hiç
-  dinlenmezdi**. Eksik kadro seçimi engellemiyor: `election.py:101` tam
-  kadro yoksa `bootstrap_grace_s` (1.5 sn) sonrası yine seçim yapıyor.
-  `SURU_AJAN_SAYISI` env'i eklendi, varsayılan 3.
-- `[x]` 🔴 ~~**`swarm_fsm.agent_count`**~~ → **ikiye ayrıldı (15 Ağu).**
-  Tek parametre iki işi yapıyordu ve **çelişiyorlardı**: abonelik kimlik
-  aralığı (`range(1, N+1)` → **3 olmalı**, yoksa drone3 hiç dinlenmez) ve
-  filo büyüklüğü (**2 olmalı**). Tek değerken `formation_reached` için
-  `2 >= 3` false (FORMING'de kalıcı takılma) **ve** sağlık oranı
-  `1/3 = 0.33 < 0.5` (bir uçak bozulunca tüm sürüye acil iniş).
-  Artık `agent_count` + `expected_agent_count`; `baslat.sh`
-  `SURU_AJAN_SAYISI` / `SURU_BEKLENEN_UCAK` ile geçiyor.
-  **Üç uçak birden uçulunca `SURU_BEKLENEN_UCAK=3` yapılacak.**
-- `[x]` 🔴 ~~**`swarm_fsm` sabit formasyon ofsetleri**~~ → **düzeltildi.**
-  Not eksikti: o ofsetler zaten **hiç çalışmıyordu** (ölü kod), çünkü
-  `ctx.active_formation` bu düğümde **hiçbir yerde atanmıyordu** ve
-  `FormationCommand` aboneliği yoktu. Kalite metriği her ajanı merkeze göre
-  ölçüyor, 12 m aralıkta hata ~6 m çıkıyor, eşikler 1.5/1.0 m — yani
-  `formation_stable`/`formation_reached` **her zaman false**.
-  Artık `/swarm/public/formation/target` dinleniyor; ofsetler liderin
-  gömdüğü atamadan (yoksa `compute_slot_offsets`), heading kadar döndürülüp
-  **ortalaması çıkarılıyor**. Sonuncusu şart: slotlar lider merkezli, sıfır
-  ortalamalı değil — 12 m'de **6 m sabit yanlılık**, eşiği kıran sayı o.
-  Doğrulandı: 2 uçak çizgi → `(0,-6)`/`(0,+6)`, heading=90 → `(+6,0)`/`(-6,0)`,
-  ofset toplamı heading=33'te bile tam sıfır.
-- `[x]` 🟠 ~~**`swarm_fsm._on_election` tek global seq sayacı**~~ →
-  **düzeltildi.** `consensus_node` her yeniden başladığında `sequence_num`
-  1'e döner, `1 <= max` olduğu için **bütün** seçim mesajları bayat sayılıp
-  düşüyordu — `docker restart` sonrası `swarm_fsm` lider değişimlerine
-  kalıcı sağır kalıyordu. Artık kaynak başına `(incarnation, seq)` ve
-  consensus'un kendi `election.seq_kabul` fonksiyonu.
-- `[x]` 🟡 ~~`baslat.sh` `fsm` anahtarı~~ → **ayrıldı.** Üç düğümü birden
-  açıyordu (`swarm_fsm` ADIM 2, `mission_fsm` ADIM 6, `mode_manager`
-  ADIM 12) ve `swarm_fsm_node`'a **hiç parametre geçmiyordu**. Artık
-  `fsm` / `gorevfsm` / `mod`.
-- `[ ]` 🟠 **`px4_bridge velocity_only:=True`** — `formation_node` C modu için
-  tasarlanmış, varsayılan `False` → kazançlar toplanır (0.8 + 0.95)
-- `[ ]` 🟠 `task_reallocator.min_active_for_formation:=2`,
-  `mission1.default_spacing_m:=12.0`, `joystick_interpreter` remap
-
-> ⚠️ **Yukarıdaki "N'i 2 yap" maddelerini uygulamadan önce KODU OKU.**
-> `consensus.agent_count` için "2 yapılmalı" yazıyordu ve **yanlıştı** —
-> uygulansaydı ylp02 sürüden tamamen düşerdi. Aynı şüphe
-> `swarm_fsm.agent_count` ve `task_reallocator.min_active_for_formation`
-> için de geçerli: her birinin o sayıyı **ne anlamda** kullandığı
-> (kimlik aralığı mı, canlı sayı mı, çoğunluk eşiği mi) sırası gelince
-> tek tek doğrulanacak.
+- `[ ]` 🟠 **İki uçaklı tam devir teslim testi** — birini kill'le, diğerini
+  armlı bırak; ikincisi liderliği devralıyor mu? 15 Ağustos'ta yalnız **tek
+  taraflı** gözlendi: ylp00 FAILSAFE'e düştü, 82 ms sonra `Lider: 1 -> 3`;
+  ylp02 ikinci turu görmedi çünkü 784 ms sonra o da kill'lendi.
+  ⚠️ **P0.14 düzeltilmeden bu test yanlış "geçti" verebilir** — lider kaybı
+  tespiti şu an ölü.
+- `[ ]` 🟡 **Origin'in MESH yolu hâlâ denenmedi** — bir uçağın origin'i
+  diğerine ulaşıyor mu? Şu an ikisi de **aynı sabit değeri** yayınladığı için
+  fark görünmez; mesh yolu tamamen kopuk olsa bile her şey çalışıyor görünür.
+  **Test:** birinin `origin` düğümünü kapat, diğerininkini bekle.
+  Tarife ve tuzak: `PLAN.md` §8 ADIM 0.5 · `TUZAKLAR.md` §2.12.
 
 ### P0.6 Sürü entegrasyonunun yapısal engelleri
 
-Tam analiz: `SURU_ENTEGRASYON.md` §2 ve §3.
+Tam analiz: `PLAN.md` §7.
 
 - `[x]` ✅ **Çarpışma önleme seçimi KARARA BAĞLANDI** → `KARARLAR.md` KARAR-01
   (Seçenek C: `collision_avoidance` + ham `AgentStatus`, `d0=8 m` ile başla).
@@ -769,18 +607,19 @@ Tam analiz: `SURU_ENTEGRASYON.md` §2 ve §3.
 
 ## 🟠 P1 — ACİL
 
-### ✅ P1.1 — TAMAMLANDI (15 Ağustos)
+### P1.2 Takım erişimi — SSH anahtarları ve Wi-Fi
 
-`iPhone` hotspot'u iki uçağa da eklendi, güç tasarrufu kapalı,
-`rpissid` öncelikli (10) kalacak şekilde. Ayrıntı: `RPI_ESITLEME.md` §7.
+- `[ ]` 🟠 **`iPhone` SSID'si doğrulanmadı** — eklerken telefon kapalıydı,
+  tarayıp teyit edilemedi. iPhone hotspot'ları **cihaz adını** alır
+  (Ayarlar → Genel → Hakkında → Ad) ve SSID'ler **büyük/küçük harfe
+  duyarlıdır**. Telefon açılınca bir kez bağlan; farklıysa:
+  `sudo nmcli connection modify iphone-hotspot wifi.ssid "GERÇEK AD"`
+- `[ ]` 🟠 **ylp01 döndüğünde:** iki Wi-Fi ağı + iki SSH anahtarı + **PX4
+  parametreleri** (`ucus_ayarlari.py --px4` çıktısı) + `ucus_ayarlari.env` +
+  RC-kayıp failsafe kurulumu. **`RPI_ESITLEME.md` baştan sona yürütülür** —
+  tek tek hatırlamaya çalışılmaz, belgenin tek işi bu.
 
-- `[x]` 🟠 iPhone hotspot eklendi (ylp00 + ylp02)
-- `[ ]` 🟠 **SSID doğrulanmadı** — telefon kapalıydı. Açıldığında bir kez
-  bağlanıp teyit et; farklıysa `nmcli connection modify iphone-hotspot
-  wifi.ssid "..."`
-- `[ ]` 🟠 ylp01 döndüğünde aynısını uygula
-
-### P1.2 SSH anahtarları — Berk'inki de kuruldu (18 Ağustos)
+#### SSH anahtarları — Berk'inki de kuruldu (18 Ağustos)
 
 Parola girişi **açık** (doğrulandı), kullanıcı adları `yelpence00/01/02`,
 parola takım içinde paylaşılıyor (**repoya yazılmadı, yazılmayacak**).
@@ -799,10 +638,6 @@ gerekmiyor.
   Osman/Berk dışındaki üyeler kendi anahtarlarını kursun.
 - `[ ]` 🟡 Anahtarlar dağıtıldıktan sonra parola girişini kapatmayı düşün
   (ama sahada kilitli kalma riskine karşı acil çıkış olarak bırakmak da savunulabilir)
-
-### ✅ P1.3 — TAMAMLANDI (15 Ağustos)
-
-Her şey `feature/dagitik-suru` dalında commit'li ve push'lu.
 
 ### P1.7 `gcs_url` yayını YKİ ağını boğuyor — çözümü tek satır, uygulanmadı
 
@@ -1065,7 +900,7 @@ WiFi düşünce MAVROS `gcs_url` uçnoktasına her MAVLink mesajı için
 
 ### P2.3 Sürü entegrasyonu — Faz 0
 
-Tamamı `SURU_ENTEGRASYON.md`'de. Uçuşsuz hazırlık:
+Tamamı `PLAN.md` §8'de. Uçuşsuz hazırlık:
 
 - `[x]` 🟡 ~~Kayıt filtresine `/gozlem/` ekle~~ → yapıldı (yukarıda)
 - `[x]` 🟡 ~~`SURU_DUGUMLERI` dosyadan okunsun~~ → **yapıldı (15 Ağu).**
@@ -1123,8 +958,6 @@ Tamamı `SURU_ENTEGRASYON.md`'de. Uçuşsuz hazırlık:
   `bozuk_223218/` (303 KB bozuk mcap) ve iki eski `baslat.sh.yedek_*` var.
 - `[ ]` 🟡 **Kalan kırık referanslar.** 16 Ağu'da tarama yapıldı, yalnız
   `COP_TEMIZLIK.md` temizlendi; şunlar duruyor:
-  - `ARCHITECTURE.md` (5 atıf) ve `qgc_proxy.py` (3) — dosyalar depo
-    ayrımında gitti, atıflar kaldı
   - `INTERFACE_CONTRACT.md` — `maneuver_executor` `formation_control/`
     içinde, `precision_landing` `swarm_missions/` altında gösteriliyor;
     **ikisi de gerçekte başka pakette** (12 atıf). Ayrıca `member_manager`,
@@ -1149,7 +982,6 @@ Tamamı `SURU_ENTEGRASYON.md`'de. Uçuşsuz hazırlık:
   elle sorgu yazılıyor.
 - `[?]` ⚪ `sim/` klasörü ve `scripts/` sim betikleri — sil mi, arşiv dalına mı?
   **Karar operatörün.**
-- `[ ]` ⚪ `src/gcs/qgc_proxy.py` sil — `cihazlar.md` "KULLANILMIYOR" diyor
 - `[ ]` ⚪ Kök dizindeki 4 görsel ve 2 PDF'i yerleştir (`ss/` ve `docs/sartname/`)
 - `[ ]` ⚪ `.surum` dosyasını güvenilir yap — `dagit.sh` senkron sonrası yazmıyor,
   bu yüzden senkron kontrolü md5 gerektiriyor
@@ -1165,3 +997,32 @@ Tamamı `SURU_ENTEGRASYON.md`'de. Uçuşsuz hazırlık:
   `deploy/yki/param_karsilastir.py`. Sorun `param/get` servisinin var
   olmamasıydı; doğrusu yerel `ros2 param get`, ama tek tek çağırınca zaman
   aşımına düşüyor — araç toplu `get_parameters` kullanıyor.
+
+---
+
+## ✅ Kapananlar — tam kayıt `GUNLUK.md`'de
+
+Bu maddeler bitti ve **anlatıları `GUNLUK.md`'de duruyor** (tarih tarih).
+İçlerinde kalan açık işler yukarıdaki canlı bölümlere taşındı; buradan
+silinmeleri onları kapatmıyor.
+
+| Ne | Kapandı | Anlatı |
+|---|---|---|
+| P0.1 `MAKS_EGIM_DEG` ivmeden türetiliyor | 14 Ağu | `GUNLUK` 14 Ağu · `PLAN` §9 |
+| P0.2 / P0.3 PX4 parametreleri eşitlendi | 14 Ağu | `GUNLUK` 14 Ağu · `RPI_ESITLEME` §5 |
+| P1.1 iPhone hotspot iki uçağa eklendi | 15 Ağu | `RPI_ESITLEME` §7 |
+| P1.3 Repo commit'lendi ve push'landı | 15 Ağu | `GUNLUK` 15 Ağu |
+| ADIM 1 — consensus lider seçimi yerde geçti | 15 Ağu | `PLAN` §8 ADIM 1 |
+| QoS sınıf hatası — 5 abonelik + YKİ düzeltildi | 15 Ağu | **`TUZAKLAR` §2.10** |
+| `baslat.sh` toplu anahtarları ayrıldı (`ca`/`fsm`) | 15 Ağu | `KARARLAR` KARAR-01 |
+| Gözlem modu kuruldu (`/ws/gozlem`) | 15 Ağu | `PLAN` §5 |
+| P0.7 uçaklar `main`'e alındı | 17 Ağu | `GUNLUK` 17 Ağu · `RPI_ESITLEME` §8 |
+| P0.8 `formation_node sitl_mode` düzeltildi | 17 Ağu | `formation_node.py:189` yorumu |
+| G2 gözlem uçuşu yapıldı (62 sn) | 18 Ağu | `GUNLUK` 18→19 Ağu |
+| P0.9 ylp02 kill failsafe'i düzeltildi | 19 Ağu | `TUZAKLAR` §0.2 · `RPI_ESITLEME` §5 |
+
+> 🔎 **20 Ağustos budaması:** bu 12 bölüm 285 satırdı ve içlerinde
+> **10 işaretlenmemiş açık iş** saklıydı. Çok ajanlı bir koruma denetimi
+> (12 bağımsız kontrol) her bölümün içeriğinin başka belgede durup durmadığını
+> tek tek doğruladı; **8 madde başka hiçbir yerde yoktu** ve silinmeden önce
+> taşındı. Başlığa bakıp silmek onları sessizce düşürecekti.

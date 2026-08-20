@@ -1,6 +1,6 @@
 # Cihaz ve erişim tablosu
 
-**Son güncelleme:** 15 Ağustos 2026, 13:54
+**Son güncelleme:** 20 Ağustos 2026, 17:40
 
 Sahada IP'ler DHCP ile değişir (29 Tem `10.207.118.x` → 30 Tem `10.158.16.x`
 → 14 Ağu `10.188.209.x`; her seferinde bütün SSH komutları kırıldı).
@@ -35,11 +35,27 @@ Kullanıcı adı **drone başına ayrı** — hepsi `yelpence` değil. Karışt�
 `Permission denied (publickey,password)` alırsın; anahtar sorunu sanma, önce
 kullanıcı adını doğrula.
 
-| Drone | Hostname | SSH kullanıcı | wlan0 MAC          | eth0 MAC           | Docker konteyner | IP (30 Tem) |
-|-------|----------|---------------|--------------------|--------------------|------------------|-------------|
-| ylp00 | `ylp00`  | `yelpence00`  | `88:a2:9e:71:60:ed`| `88:a2:9e:71:60:ec`| `drone1`         | 10.158.16.134 |
-| ylp01 | `ylp01`  | `yelpence01`  | `88:a2:9e:da:04:2d`| (bilinmiyor)       | `drone2` (kurulacak) | 10.158.16.211 |
-| ylp02 | `ylp02`  | `yelpence02`  | `88:a2:9e:71:60:24`| `88:a2:9e:71:60:23`| `drone3`         | 10.158.16.189 |
+### 🔑 KİMLİK TABLOSU — tek kaynak, her yerden buraya bakılır
+
+**İsimdeki sayı bir eksik: ylp00 → drone1, ylp01 → drone2, ylp02 → drone3.**
+Bu projede en sık yapılan hata; komut yazmadan önce bak.
+
+| İHA | agent_id `<N>` | SSH kullanıcı | Konteyner | ROS ns | Hostname |
+|-----|----------------|---------------|-----------|--------|----------|
+| ylp00 | **1** | `yelpence00` | `drone1` | `/drone_1` | `ylp00` |
+| ylp01 | **2** | `yelpence01` | `drone2` | `/drone_2` | `ylp01` |
+| ylp02 | **3** | `yelpence02` | `drone3` | `/drone_3` | `ylp02` |
+
+| İHA | wlan0 MAC | eth0 MAC | ESP32 mesh MAC | Mesh ID | `MAV_SYS_ID` | `/ws/tgt_system` |
+|-----|-----------|----------|----------------|---------|--------------|------------------|
+| ylp00 | `88:a2:9e:71:60:ed` | `88:a2:9e:71:60:ec` | `B0:CB:D8:C8:A8:30` | 1 | 1 | (dosya yok) |
+| ylp01 | `88:a2:9e:da:04:2d` | (bilinmiyor) | `D4:E9:F4:FB:13:88` | 2 | 2 | `2` |
+| ylp02 | `88:a2:9e:71:60:24` | `88:a2:9e:71:60:23` | `A4:F0:0F:64:A9:90` | 3 | 3 | `3` |
+
+Base ESP mesh ID = **10** (`agent_id:=10`, `yki_baslat.sh`). Firmware'deki
+`BAZ_ID = 99` ayrı bir sentinel — RTK UART yolu için, drone ID'si değil.
+
+**IP sütunu bilerek yok** — her ağda değişiyor, `drone_bul.sh` buluyor.
 
 Not: ylp01'in wlan0 MAC öneki diğer ikisinden farklı (`da:04:2d` ↔ `71:60:xx`) —
 farklı parti Raspberry Pi. Yine de `88:a2:9e` (Raspberry Pi Trading) önekiyle
@@ -131,14 +147,7 @@ değiştirirsen diğerini de değiştir:
 - `firmware/esp32_mesh/RX BASE/src/main.cpp` (~satır 128)
 - `firmware/esp32_mesh/TX DRONE/src/main.cpp` (~satır 71)
 
-| Drone | Mesh ID | ESP32 MAC           |
-|-------|---------|---------------------|
-| ylp00 | 1       | `B0:CB:D8:C8:A8:30` |
-| ylp01 | 2       | `D4:E9:F4:FB:13:88` |
-| ylp02 | 3       | `A4:F0:0F:64:A9:90` |
-
-Base ESP mesh ID = **10** (`agent_id:=10`, `yki_baslat.sh`). Firmware'de `BAZ_ID = 99`
-ayrı bir sentinel'dir — RTK UART yolu için kullanılır, drone ID'si değildir.
+MAC ve mesh ID'ler yukarıdaki **kimlik tablosunda**.
 Tabloda olmayan MAC'ten gelen paket reddedilir (kapı kimliği), yani yeni bir ESP
 takarsan MAC'i buraya eklemeden mesh'e giremez.
 
@@ -173,13 +182,7 @@ ikisi de 1 olursa QGC bunları **tek araç** sanar ve iki uçağın telemetrisi
 aynı araca akar — HUD arada git gel yapar (30 Tem'de yaşandı, ölçüldü:
 14550'ye iki farklı IP'den ~2350'şer paket, hepsi sysid=1).
 
-| Drone | MAV_SYS_ID | `/ws/tgt_system` |
-|-------|-----------|------------------|
-| ylp00 | 1         | (dosya yok, MAVROS varsayılanı 1) |
-| ylp01 | 2         | `2` |
-| ylp02 | 3         | `3` |
-
-Değiştirme yordamı — **üçü birden yapılmazsa drone sessizce kopar**:
+Değerler **kimlik tablosunda**. Değiştirme yordamı — **üçü birden yapılmazsa drone sessizce kopar**:
 
     ros2 param set /drone_N/mavros/param MAV_SYS_ID <N>
     # FCU'yu YENIDEN BASLAT — PX4 bu parametreyi ancak boyle uygular.
@@ -193,10 +196,10 @@ Değiştirme yordamı — **üçü birden yapılmazsa drone sessizce kopar**:
 eder ama **içerik boşalır** — `mod=?`, `sat=0`, `pil %0`, arayüzde FAILSAFE.
 İpucu `mavros.log`'daki `detected remote address <sysid>.1` satırıdır.
 
-**`src/gcs/qgc_proxy.py` KULLANILMIYOR.** sysid çakışması için yazılmıştı ama
-MAVROS'un `udp-b` uçnoktası bir karşı taraf keşfedince yayını bırakıp o adrese
-tekil gönderime geçiyor; proxy'ye kilitlenip proxy ölünce telemetri tamamen
-kesiliyor. Ayrıntı dosyanın başlığında.
+> ℹ️ `src/gcs/qgc_proxy.py` **depoda yok** (16 Ağustos ayrımında gitti). sysid
+> çakışması için yazılmıştı ama MAVROS'un `udp-b` uçnoktası bir karşı taraf
+> keşfedince yayını bırakıp o adrese tekil gönderime geçiyor; proxy'ye
+> kilitlenip proxy ölünce telemetri tamamen kesiliyordu. Gerek yok.
 
 ## Yerel servisler
 

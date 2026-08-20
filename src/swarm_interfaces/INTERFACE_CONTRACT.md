@@ -103,6 +103,23 @@ Aşağıdaki tabloda **Yayın** sütunu publisher'ın yazdığı topic'i, **Abon
 sütunu subscriber'ın dinlediği topic'i gösterir. **LOKAL** etiketi olan
 topic'ler tek bir drone içinde kalır; aynı isimle hem yayın hem dinleme yapılır.
 
+### 🔴 3.0.1 SAHADA DÜZELTME — dört konu BEST_EFFORT, tabloda RELIABLE yazıyor
+
+Aşağıdaki tablo `formation/target`, `perception/qr_data`, `control/command` ve
+`drone{N}/status` için **RELIABLE** diyor. **Sahadaki gerçek bu değil:**
+`esp32_bridge` mesh'ten gelen bu dört konuyu `_MESH_QOS` yani **BEST_EFFORT**
+yayınlıyor.
+
+15 Ağustos'ta bu yüzden **beş abonelik + YKİ köprüsü** sessizce boştu —
+RELIABLE abone BEST_EFFORT yayıncıyla **eşleşmiyor ve hata da vermiyor**.
+
+> **Kural:** `/swarm/public/…` dinleyen **herkes BEST_EFFORT** olmalı.
+> Ters yön sorunsuz (RELIABLE yayıncı + BEST_EFFORT abone uyumlu), o yüzden
+> `ic_dis_kopru` RELIABLE yayınlamaya devam ediyor.
+
+Ayrıntı ve nasıl bulunduğu: `docs/TUZAKLAR.md` §2.10.
+**Bu sözleşme henüz güncellenmedi — çelişkide kod kazanır.**
+
 ### 3.1 Mesaj Topic'leri
 
 | Arayüz | Yayın topic | Abone topic | Yayıncı | Dinleyici | QoS |

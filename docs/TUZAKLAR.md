@@ -1,6 +1,6 @@
 # TUZAKLAR — hata vermeden yanlış sonuç üretenler
 
-**Son güncelleme:** 20 Ağustos 2026, 03:35
+**Son güncelleme:** 20 Ağustos 2026, 17:40
 
 > **Bu belge CANLI.** Arşiv değil — buradaki her madde **bugün de geçerli.**
 >
@@ -437,23 +437,10 @@ Bu projede en az üç kez yaşandı: `SwarmState` publisher'ı (YKİ paneli boş
 kalıyordu), yük testi üreteci, RTCM okuyucusu. Yeni bir publisher/subscriber
 eklerken **karşı ucun QoS'unu oku.** *(20 ve 28 Temmuz 2026)*
 
-### 2.9 `ros2 topic pub` VOLATILE yayınlar — TRANSIENT_LOCAL abone HİÇ almaz
-
-`/swarm/internal/election/result` aboneliği `_ELECTION_QOS` = **RELIABLE +
-TRANSIENT_LOCAL** (`esp32_bridge_node.py:110`; `consensus_node.py:118` de aynı).
-`ros2 topic pub`'ın varsayılanı **VOLATILE**, yani bayraksız elle yayın
-DURABILITY uyumsuzluğundan **hiç ulaşmıyor** ve hata da vermiyor.
-
-Sahada ölçülen belirti: `form_lider_degil=9  lider=0` — köprü "lider bilinmiyor"
-diyor, oysa yayın yapılıyor sanılıyor.
-
-```bash
-ros2 topic pub --qos-reliability reliable --qos-durability transient_local ...
-```
-
-⚠️ Bu yalnız **elle yayında** çıkan bir tuzak; gerçek düğümler arasında
-uyumsuzluk yok. `~/yelpence_ws/form_yayinla.sh` içinde yazılı — o betik
-repoya alınmalı (`YAPILACAKLAR` P2.5). *(18 Ağustos 2026'da bulundu)*
+> ⚠️ **Nüans (15 Ağustos):** "hiçbir yerde bir satır çıkmaz" tam doğru değil —
+> düğüm **açılırken** ROS'un kendi uyarısı çıkabiliyor. Sessiz olan **çalışma
+> zamanı**: bir kez açıldıktan sonra hiçbir sayaç, hiçbir log uyumsuzluğu
+> göstermiyor. Açılış logunu okumak bu yüzden değerli.
 
 ### 2.2 `RMW_IMPLEMENTATION` + `CYCLONEDDS_URI` vermeden düğüm başlatma
 
@@ -530,6 +517,79 @@ yutuyor — ikisi birleşince paket sessizce **eski install/** ile kalır.
 *(17 Ağustos 2026)*
 
 ---
+
+### 2.9 `ros2 topic pub` VOLATILE yayınlar — TRANSIENT_LOCAL abone HİÇ almaz
+
+`/swarm/internal/election/result` aboneliği `_ELECTION_QOS` = **RELIABLE +
+TRANSIENT_LOCAL** (`esp32_bridge_node.py:110`; `consensus_node.py:118` de aynı).
+`ros2 topic pub`'ın varsayılanı **VOLATILE**, yani bayraksız elle yayın
+DURABILITY uyumsuzluğundan **hiç ulaşmıyor** ve hata da vermiyor.
+
+Sahada ölçülen belirti: `form_lider_degil=9  lider=0` — köprü "lider bilinmiyor"
+diyor, oysa yayın yapılıyor sanılıyor.
+
+```bash
+ros2 topic pub --qos-reliability reliable --qos-durability transient_local ...
+```
+
+⚠️ Bu yalnız **elle yayında** çıkan bir tuzak; gerçek düğümler arasında
+uyumsuzluk yok. `~/yelpence_ws/form_yayinla.sh` içinde yazılı — o betik
+repoya alınmalı (`YAPILACAKLAR` P2.5). *(18 Ağustos 2026'da bulundu)*
+
+### 2.10 KURAL: `/swarm/public/…` dinleyen HERKES BEST_EFFORT olmalı
+
+`esp32_bridge` mesh'ten gelen **dört** konuyu `_MESH_QOS` yani **BEST_EFFORT**
+yayınlıyor:
+
+```
+formation/target · perception/qr_data · control/command · drone{N}/status
+```
+
+RELIABLE abone + BEST_EFFORT yayıncı **eşleşmez** ve konu **sessizce boş
+kalır**. Ters yön sorunsuz (RELIABLE yayıncı + BEST_EFFORT abone uyumlu), o
+yüzden `ic_dis_kopru` RELIABLE yayınlamaya devam ediyor.
+
+15 Ağustos'ta **beş abonelik** birden bu yüzden bozuktu: `formation_node`,
+`collision_avoidance`, `maneuver_executor`, `mission1_node`, `mission_fsm_node`
+— artı YKİ tarafında `gcs/backend/ros_bridge.py`. Sonuncusu özellikle ironikti:
+**kasıtlı RELIABLE yapılmıştı**, gerekçesi *"QR mesajı GCS'te en az 1 kez
+görünmeli (şartname V2, −20 ceza)"*. Niyet doğru, etki tam tersi — BEST_EFFORT
+yayıncıdan **hiçbir şey almıyordu**.
+
+> 🔎 **Yöntem dersi:** biri `formation_node` açılınca ROS'un kendi uyarısıyla
+> bulundu, sonra **bütün** public abonelikleri ve `esp32_bridge` yayıncıları
+> tarandı ve dördü daha çıktı. **Bir tane bulduysan hepsini tara** — adım adım
+> gidilseydi beşi ayrı ayrı, sahada aranacaktı.
+
+⚠️ `src/swarm_interfaces/INTERFACE_CONTRACT.md` bu dört konu için hâlâ
+"RELIABLE, event" diyor. **Sözleşme sahadaki gerçeği yansıtmıyor**; kod kazanır.
+
+### 2.11 `--symlink-install`'a rağmen Python kaynağı KOPYALANIYOR
+
+17 Ağustos'ta ölçüldü: `colcon build --symlink-install` kullanılmasına rağmen
+Python dosyaları `build/` altına **kopyalanıyor**, sembolik bağ kurulmuyor.
+
+**Sonucu:** `rsync` ile `src/`'yi güncellemek **koşan kodu değiştirmiyor**.
+`colcon build` şart. `dagit.sh` bunu zaten yapıyor, ama elle dosya kopyalayan
+herkes bu tuzağa düşer — dosya yenidir, koşan kod eskidir, md5 karşılaştırması
+`src/`'ye bakarsa "senkron" der.
+
+İlgili: §1.17 (`build/lib/` bayat kopya tutuyor).
+
+### 2.12 Geçici remap konuyu mesh'ten TAMAMEN koparır
+
+`swarm_origin_publisher` bir süre `/swarm/internal/origin` yerine doğrudan
+`/swarm/public/origin`'e remap ile yazıyordu (uçak kendi origin'ini göremediği
+için konmuş bir yama). Yan etkisi fark edilmemişti: **`esp32_bridge` yalnız
+`/internal`'ı dinliyor**, yani remap açıkken origin mesh'e **hiç çıkmıyordu**.
+
+Yerel sorunu çözen remap, uçaklar arası yolu sessizce kapatmıştı.
+`ic_dis_kopru` gelince remap kaldırıldı ve origin hem yerel düğümlere hem
+mesh'e gitmeye başladı.
+
+> **Kural:** `/internal` → `/public` remap'i koymadan önce sor — o konuyu
+> mesh'e veren bir köprü var mı? Varsa remap onu devre dışı bırakır.
+*(15 Ağustos 2026)*
 
 ## 3. PX4 ve uçuş davranışı
 
@@ -781,6 +841,11 @@ formasyonun `sequence_num`'ını dronlar arası karşılaştırmada kullanmamal�
 **Yan etki:** komşular yerde armlı bir dronu `AIRBORNE_STATES` içinde görür;
 lider yerde armlı, takipçi havadaysa takipçi lideri "havada ama heartbeat
 yok" sayıp düşürür. Savunulabilir ama bilinmesi gerekir.
+
+⚠️ **Sahte TAKEOFF'un tüketicileri yalnız lider seçimi değil:** çarpışma
+kaçınması ve formasyon da komşunun durumuna bakıyor (`AIRBORNE_STATES`).
+ADIM 3/ADIM 4 açıldığında bu doğrudan aktüatör yoluna bağlanır — o yüzden
+`ARMED → KALKIS(2) → TAKEOFF(4)` eşlemesi ikisinin de **ön koşulu** arasında.
 
 ### 4.10 Base ESP'yi çıkarıp taktıysan RESETLE
 

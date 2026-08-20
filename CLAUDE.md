@@ -1,6 +1,6 @@
 # Yelpençe — TEKNOFEST 2026 Sürü İHA
 
-**Son güncelleme:** 20 Ağustos 2026, 16:55
+**Son güncelleme:** 20 Ağustos 2026, 17:40
 
 > Bu dosyayı Claude Code her oturumda **kendiliğinden okur**. Yeni bir sohbet
 > açan kişinin hiçbir şey söylemesine gerek yok; buradan projeyi anlar.
@@ -32,7 +32,7 @@ Bugün YKİ (`gorev_kanit_ucus.py`) her uçağa mesh'ten `goto` gönderiyor —
 rolü "görevi başlat" komutu. `gorev_kanit_ucus.py` bundan sonra **test aracı**
 (kuru test, çarpışma doğrulama, tek uçak ölçümü) — yarışma yolu değil.
 
-Ayrıntı ve düğüm düğüm karar: `docs/SURU_ENTEGRASYON.md`.
+Ayrıntı ve düğüm düğüm karar: `docs/PLAN.md` §6.
 
 Yol şu: repoda finali yapmak için yazılmış tam bir sürü yazılımı var, ama o
 yazılım **simülasyon için yazıldı ve sahada hiç koşmadı**. Uçuş kanıtı için
@@ -41,7 +41,7 @@ sürü kodlarını **kademeli ve canlı testlerle** sahaya almak.
 
 **Simülasyon kullanılmayacak.** Karar operatörün: her şey gerçek uçakta,
 ölçerek, küçük ve geri alınabilir adımlarla. Bu yüzden "sim'de dene" asla
-geçerli bir cevap değil — bkz. `docs/SURU_ENTEGRASYON.md`.
+geçerli bir cevap değil — bkz. `docs/PLAN.md` §5.
 
 ---
 
@@ -132,7 +132,7 @@ kalır. Bu bir teori değil, topic adları birebir aynı — doğrulandı.
 
 **Kural: bir konuya aynı anda tek üretici.** Sürü zincirini açarken karşılığı
 olan mevcut düğümü KAPATMAK zorundasın. Ayrıntı ve geçiş sırası:
-`docs/SURU_ENTEGRASYON.md`.
+`docs/PLAN.md` §7.
 
 ---
 
@@ -173,45 +173,28 @@ arayışına dönüşüyor.
 
 ## 6. Belge haritası
 
-**Canlı belgeler** (sürekli güncellenir):
+**Tam harita `README.md`'de** — hangi soruya hangi belge, tek tabloda.
+Burada yalnız Claude'un sık kullandıkları:
 
 | Dosya | Ne için |
 |-------|---------|
-| **`docs/PLAN.md`** | **Ana plan** — genel resim, 8 aşama, test yöntemi. Yeni gelen buradan başlar |
+| **`docs/PLAN.md`** | **Ana plan + teknik yol haritası** — 8 aşama, düğüm düğüm karar, ADIM 0-12, navigasyon kayması. Yeni gelen buradan başlar |
 | `docs/DURUM.md` | Şu anki durum: ne çalışıyor, ne bozuk, hangi bayrak açık |
 | `docs/GUNLUK.md` | Oturum devir teslim kaydı — kim, ne zaman, ne yaptı |
-| `docs/YAPILACAKLAR.md` | Öncelikli iş listesi |
-| `docs/RPI_ESITLEME.md` | **Pi'lerde ne yapıldı, hangi uçakta var** — geri gelen drone'u hizaya getirme |
+| `docs/YAPILACAKLAR.md` | Öncelikli iş listesi (🔴P0 · 🟠P1 · 🟡P2 · ⚪P3) |
 | `docs/KARARLAR.md` | **Verilmiş ama henüz uygulanmamış kararlar** — sırası gelince operatöre hatırlat |
-| `docs/SURU_ENTEGRASYON.md` | Sürü kodlarını sahaya alma yol haritası |
-| `docs/NAVIGASYON_KAYMA.md` | Kaymayı sıfırlama planı — ileri-besleme, ölçüm, doygunluk payı |
-| **`docs/TUZAKLAR.md`** | **Hata vermeden yanlış sonuç üretenler** — sahada acıyla öğrenilenler. Bir şey "çalışmıyor ama hata da vermiyor" ise ÖNCE buraya bak |
-
-**Referans** (güvenilir, nadiren değişir):
-
-| Dosya | Ne için |
-|-------|---------|
-| `docs/cihazlar.md` | SSH, MAC, IP, port, QGC, sysid |
-| `docs/MESH_PROTOKOL_KARARLARI.md` | Mesh paket formatının tek kaynağı (1542 satır) |
-| `docs/YELPENCE_RTCM_SPEC.md` | RTK/RTCM zincirinin tek kaynağı (841 satır) |
-| `src/swarm_interfaces/INTERFACE_CONTRACT.md` | ROS mesaj sözleşmesi |
-
----
-
-### Nereye bakmalı
-
-| Soru | Belge |
-|------|-------|
-| Sıradaki iş ne? | `YAPILACAKLAR.md` |
-| "Çalışıyor ama hata da vermiyor" | `TUZAKLAR.md` — önce buraya bak |
-| Mimari nasıl? | `PLAN.md` + `SURU_ENTEGRASYON.md` |
-| Uçakta ne var, ne değişti? | `DURUM.md` + `RPI_ESITLEME.md` |
+| **`docs/TUZAKLAR.md`** | **Hata vermeden yanlış sonuç üretenler.** Bir şey "çalışmıyor ama hata da vermiyor" ise ÖNCE buraya bak |
+| `docs/RPI_ESITLEME.md` | Pi'lerde ne yapıldı, hangi uçakta var |
+| `docs/cihazlar.md` | Kimlik tablosu, SSH, MAC, port, QGC, sysid |
 
 **Çelişki varsa:** canlı belge referans belgeyi yener, **kod ikisini de yener.**
 
-⚠️ `ARCHITECTURE.md` bu depoda **yok** — sim dönemine ait, eski depoda
-(`yelpence-2026-swarm`) duruyor ve sahadaki yapıyı anlatmıyor. Birisi ondan
-bahsederse `PLAN.md`'ye yönlendir.
+> 🔀 **20 Ağustos birleştirmesi:** `SURU_ENTEGRASYON.md` ve
+> `NAVIGASYON_KAYMA.md` artık **`PLAN.md`'nin içinde**. O adlarla iki
+> yönlendirme dosyası duruyor (kodda hâlâ atıf var); **oralara yazma.**
+>
+> ⚠️ `ARCHITECTURE.md` bu depoda **yok** — sim dönemine ait. Birisi ondan
+> bahsederse `PLAN.md`'ye yönlendir.
 
 **Ekran görüntüsü**: `ss/` klasörüne at, sohbette söyle. Bkz. `ss/README.md`.
 
@@ -283,8 +266,8 @@ değişiyor.
 
 **Kural:**
 - **Her canlı belge** (`PLAN`, `DURUM`, `GUNLUK`, `YAPILACAKLAR`,
-  `KARARLAR`, `RPI_ESITLEME`, `SURU_ENTEGRASYON`, `NAVIGASYON_KAYMA`,
-  `TUZAKLAR`, `CLAUDE.md`, `README.md`) bu damgayı taşır
+  `KARARLAR`, `TUZAKLAR`, `RPI_ESITLEME`, `cihazlar`, `CLAUDE.md`,
+  `README.md`) bu damgayı taşır
 - **Arşiv belgelerine dokunma** — onlar zaten donduruldu
 - Saat **Europe/Istanbul**
 - Damgayı güncellemeyi unutma: içerik değişti ama tarih eskiyse belge
@@ -311,7 +294,7 @@ gelince"* denilenleri. Kaybolması en kolay olanlar onlar.
 Canlıda test ediyoruz, o yüzden dikkatli olacağız — ama **abartmayacağız.**
 Her aşama için ~2-3 uçuş yeter. "Binlerce test" gerekmiyor.
 Ölçüt: bir sonraki adımın güvenli olduğunu gösterecek **en az** test.
-Test protokolü: `docs/SURU_ENTEGRASYON.md` §Test.
+Test protokolü: `docs/PLAN.md` §5.
 
 ## 8. Uçuş ayarları tek yerden
 

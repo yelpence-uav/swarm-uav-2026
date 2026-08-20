@@ -1,6 +1,6 @@
 # DURUM — şu an ne çalışıyor, ne bozuk
 
-**Son güncelleme:** 20 Ağustos 2026, 03:45
+**Son güncelleme:** 20 Ağustos 2026, 17:40
 
 > Bu belge **şimdiki hâli** anlatır, tarihçe değil. Bir şey değişince burayı
 > güncelle, eskisini sil. Ne olduğunun hikâyesi `GUNLUK.md`'de kalır.
@@ -11,9 +11,16 @@
 
 | İHA | agent_id | Durum | Not |
 |-----|----------|-------|-----|
-| ylp00 | 1 | **Uçar** | Kod **`d9be7c9`** (20 Ağu 03:40 — yerde kalp atışı, guided köprüsü, `kalkis_olayla=False`, **ivme ileri-beslemesi AÇIK ve kalıcı**). Pervaneler **TAKILI**. **RC-kayıp tespiti kuruldu ve HAVADA doğrulandı (19 Ağu):** kumanda kapanınca 1-2 sn'de RTL — Ch3 üst-uç yöntemi, bkz. `RPI_ESITLEME.md` §5. **P0.11 yer testi GEÇTİ:** sürü yolundan ARMED + lider seçimi + kalp atışı 399 msj @ 10 Hz. 🔴 `yer_testi` bayrağı GERİ KONDU (yer testleri için). ✅ Düşme (19 Ağu kill kazası) sonrası kontrol TAMAM (23:50): pervane/gövde/motorlar elle temiz, GPS ölçüldü — **RTK-FIXED, 30 uydu, sensör bitleri tam** (akşamki "bit yok" okuması geçiciymiş). ⏳ Titreşim ölçümü uçuş sabahı pervane takılınca (`titresim_olc.py` — pervanesiz ölçüm yanıltır). ⚠️ RC kalibrasyonu yenilendi (`RC3_MIN` 1016→906). ✅ `core.50` silindi (20 Ağu 00:05, 337 MB; disk %40) |
+| ylp00 | 1 | **Uçar** | Kod **`d9be7c9`** (20 Ağu 03:40 — yerde kalp atışı, guided köprüsü, `kalkis_olayla=False`, **ivme ileri-beslemesi AÇIK ve kalıcı**). Pervaneler **TAKILI**. **RC-kayıp tespiti kuruldu ve HAVADA doğrulandı (19 Ağu):** kumanda kapanınca 1-2 sn'de RTL — Ch3 üst-uç yöntemi, bkz. `RPI_ESITLEME.md` §5. **P0.11 yer testi GEÇTİ:** sürü yolundan ARMED + lider seçimi + kalp atışı 399 msj @ 10 Hz. ✅ `yer_testi` bayrağı **YOK** (20 Ağu 16:20 ölçüldü) — uçak kalkış komutunu ALIR. ✅ Düşme (19 Ağu kill kazası) sonrası kontrol TAMAM (23:50): pervane/gövde/motorlar elle temiz, GPS ölçüldü — **RTK-FIXED, 30 uydu, sensör bitleri tam** (akşamki "bit yok" okuması geçiciymiş). ⏳ Titreşim ölçümü uçuş sabahı pervane takılınca (`titresim_olc.py` — pervanesiz ölçüm yanıltır). ⚠️ RC kalibrasyonu yenilendi (`RC3_MIN` 1016→906). ✅ `core.50` silindi (20 Ağu 00:05, 337 MB; disk %40) |
 | ylp01 | 2 | **YERDE** | 2 Ağustos'ta 20 m'den düştü, RPi açılmıyor |
-| ylp02 | 3 | **Uçar** | Kod **`d9be7c9`** (20 Ağu 03:40, ylp00 ile senkron). `guided_ivme_ff=1.0` — A/B sonrası **ikisinde de açık**. Pervaneler **TAKILI**. **İki uçaklı P0.11 yer testi GEÇTİ:** sürü yolundan ARMED + lider mutabakatı + mesh'ten 499 kalp atışı aldı. 🔴 `yer_testi` bayrağı GERİ KONDU. ✅ Alıcı failsafe'i düzeltildi ve ölçüldü (**P0.9 KAPANDI**, 19 Ağu gece: kayıtlı +100 bulundu → -100 kaydedildi → `CH5=1000`). ✅ RC-kayıp tespiti KURULU, bit iki yönde doğrulandı — kumanda kaybında RTL |
+| ylp02 | 3 | **Uçar** | Kod **`d9be7c9`** (20 Ağu 03:40, ylp00 ile senkron). `guided_ivme_ff=1.0` — A/B sonrası **ikisinde de açık**. Pervaneler **TAKILI**. **İki uçaklı P0.11 yer testi GEÇTİ:** sürü yolundan ARMED + lider mutabakatı + mesh'ten 499 kalp atışı aldı. ✅ `yer_testi` bayrağı **YOK** (20 Ağu 16:20 ölçüldü). ✅ Alıcı failsafe'i düzeltildi ve ölçüldü (**P0.9 KAPANDI**, 19 Ağu gece: kayıtlı +100 bulundu → -100 kaydedildi → `CH5=1000`). ✅ RC-kayıp tespiti KURULU, bit iki yönde doğrulandı — kumanda kaybında RTL |
+
+> 🔄 **20 Ağustos 16:37 — iki konteyner de yeniden başlatıldı.** Sebep: Pi'ler
+> ağdan **önce** kalktı (konteyner 15:52:41, DHCP kirası 15:56:32) ve ROS yığını
+> eski adrese bağlandı; ylp00'da `gps_saat.py` bloke edip `baslat.sh`'in geri
+> kalanını hiç çalıştırmamıştı (yalnız mavros vardı, `mavros.log` 442 MB).
+> Restart sonrası ikisi de **12 düğüm, 0 ddsi hatası, log 20 KB**. Kalıcı
+> düzeltme: `YAPILACAKLAR.md` **P0.13**.
 
 **Uçuş yapılandırması:** drone **1 ve 3**, lider **3**.
 YKİ koşucu paneli varsayılanı buna ayarlı (`backend/api/kosucu.py`).
@@ -63,18 +70,17 @@ ylp00: 19 GB boş (%34)      ylp02: 21 GB boş (%27)
 
 ## 2. Ağ ve erişim
 
-**IP'ler her ağda değişiyor — bu tabloyu ezberleme, `drone_bul.sh` kullan.**
-Son ölçülen (17 Ağustos, telefon hotspot'u `172.19.167.x`):
+**IP'ler her ağda değişiyor — ezberleme, `drone_bul.sh` kullan.**
+Son ölçülen: **20 Ağustos, `10.205.4.x`** — ylp00 `.134`, ylp02 `.189`.
+(17 Ağustos'ta telefon hotspot'u `172.19.167.x` idi.)
 
-| Cihaz | IP (17 Ağu) | Kullanıcı |
-|-------|-------------|-----------|
-| ylp00 | `172.19.167.134` | `yelpence00` |
-| ylp02 | `172.19.167.189` | `yelpence02` |
-| YKİ laptop | `172.19.167.178` | — |
-| ağ geçidi (telefon) | `172.19.167.123` | — |
+**MAC'ler sabit** ve betik onlardan buluyor — 20 Ağustos'ta doğrulandı,
+`cihazlar.md` kimlik tablosundakiyle birebir aynı.
 
-Son eki değişse de **MAC'ler sabit** ve betik onlardan buluyor:
-ylp00 `88:a2:9e:71:60:ed` · ylp02 `88:a2:9e:71:60:24`.
+> ⚠️ **Yeni ağa geçişte SSH host key uyarısı normaldir** — yeni IP,
+> `known_hosts`'ta yok. Panik yapma: canlı anahtarı eski IP kayıtlarıyla
+> karşılaştır (`ssh-keygen -F` hash'li olduğu için anahtar gövdesini
+> `grep -F` ile ara); aynıysa MITM değil, yalnız yeni IP'dir.
 
 ### IP ezberleme — betik var
 
@@ -299,7 +305,7 @@ ylp00: esp32_bridge  lider 0 -> 1 (BEN)   ← formasyon kapisi ACIK
 Ayrıca **lider arıza devri** gözlendi: kill switch ylp00'ı FAILSAFE'e
 düşürdükten 82 ms sonra `Lider: 1 -> 3 (round=2)`.
 
-Ayrıntı ve sınırlar: `SURU_ENTEGRASYON.md` ADIM 1.
+Ayrıntı ve sınırlar: `PLAN.md` §8 ADIM 1.
 
 ---
 
@@ -328,7 +334,7 @@ Bunlar sahada ölçüldü, tekrar sorgulanmasın:
 - **Uçuş kaydı sertleştirildi**: en kötü kayıp ~14.7 sn → ~2-3 sn
 - **Ölçülen hızlar**: yatay 1.83 m/s, dikey 0.85 m/s (komut 2.0/1.0 iken).
   Seyir 14 Ağu'da **3.0**'a çıkarıldı, bu hızda henüz ölçüm YOK —
-  bkz. `NAVIGASYON_KAYMA.md` Adım 1
+  bkz. `PLAN.md` §9
 
 ---
 
@@ -339,11 +345,11 @@ Bunlar sahada ölçüldü, tekrar sorgulanmasın:
 | 1 | `iPhone` SSID'si doğrulanmadı | Telefon açılınca teyit gerekir | `RPI_ESITLEME.md` §7 |
 | 2 | ~~Repo commit'siz ve push'suz~~ | ✅ 15 Ağu commit'lendi | — |
 | 3 | ylp01 yerde | Üç değil iki uçakla çalışıyoruz | bu belge §1 |
-| 4 | Sürü düğümleri hiç uçmadı | Final görevi bunlara bağlı | `SURU_ENTEGRASYON.md` |
+| 4 | Sürü düğümleri hiç uçmadı | Final görevi bunlara bağlı | `PLAN.md` §8 |
 | 5 | Drone'larda repoda olmayan 21 betik | Bilgi versiyonsuz, kaybolabilir | `YAPILACAKLAR.md` P2.5 |
 | 6 | ~~PX4 parametreleri ayrışmış~~ | ✅ 14 Ağu eşitlendi | `RPI_ESITLEME.md` §8 |
 | 7 | ESC telemetrisi kapalı | Kaza sebebini doğrudan verirdi | `YAPILACAKLAR.md` P2.4 |
-| 8 | `ARCHITECTURE.md` sim dönemine ait | Kodla çelişiyor, yanıltır | `YAPILACAKLAR.md` P2.5 |
+| 8 | ~~`ARCHITECTURE.md` yanıltıcı~~ | ✅ depodan kaldırıldı (16 Ağu) | — |
 | 9 | Wi-Fi düşünce MAVROS log patlıyor | Bekçi kırpıyor ama kök neden duruyor | `RPI_ESITLEME.md` §8 |
 | 10 | Pi saati açılışta ~11 saat geriden | Çapraz uçak log karşılaştırması bozulur | `cihazlar.md` ⏰ |
 

@@ -1,6 +1,6 @@
 # KARARLAR — verilmiş ama henüz uygulanmamış kararlar
 
-**Son güncelleme:** 20 Ağustos 2026, 17:05
+**Son güncelleme:** 20 Ağustos 2026, 17:40
 
 Sohbette verilen kararlar oturum bitince kayboluyor. Bu defter onları
 tutuyor: **ne karar verildi, neden, ne zaman uygulanacak, nasıl test edilecek.**
@@ -36,9 +36,8 @@ sırası gelince" denilen şeyleri. Onlar en kolay kaybolanlar.
 
 # KARAR-01 — Çarpışma önleme: Seçenek C
 
-**Durum:** 🟢 **KOD HAZIR** — adaptör yazıldı ve test edildi (20 Ağustos 2026);
-devreye alma `SURU_ENTEGRASYON.md` **AŞAMA 1B**'de, `basit_kacinma` kapatılarak
-**Ne zaman:** `SURU_ENTEGRASYON.md` **AŞAMA 1B**
+**Durum:** 🟢 **KOD HAZIR** — adaptör yazıldı ve test edildi (20 Ağustos 2026)
+**Ne zaman:** `PLAN.md` §4 **Aşama 1B** — `basit_kacinma` kapatılarak
 **Karar veren:** Operatör (15 Ağustos 2026; eşikler 20 Ağustos'ta revize edildi)
 
 ## Karar
@@ -106,6 +105,11 @@ pozisyon-goto yoluna (kanıtlanmış zincir), `collision_avoidance` hız yoluna
    yok; tazelik ölçüsü tek: mesajın bize **ulaştığı** an).
 2. ⬜ `basit_kacinma` **kapatılır** (aynı yuva — ikisi birden koşamaz).
    `/ws/kacinma` silinip `ca` anahtarı açılacak. **Henüz yapılmadı.**
+   > 🛡️ **`baslat.sh` bunu zorluyor:** `ca` anahtarı, `/ws/kacinma` dosyası
+   > **varken `collision_avoidance`'ı açmayı REDDEDER** ve uyarı basar.
+   > Yani ikisini yanlışlıkla birden açmak mümkün değil — `CLAUDE.md` §4
+   > çakışması kod tarafından engelleniyor. (15 Ağustos'ta eklendi; eskiden
+   > `formasyon` anahtarı `collision_avoidance`'ı **da** açıyordu.)
 3. ✅ **Parametreler bağlandı** — `ucus_ayarlari.py` tek kaynak,
    `baslat.sh` hem `basit_kacinma`'yı hem `collision_avoidance`'ı oradan
    besliyor.
@@ -202,7 +206,7 @@ değişikliğiyle geri dönülür.
 # KARAR-02 — Claude effort seviyesi: hep `max`, ultracode noktasal
 
 **Durum:** 🟡 BEKLİYOR — kural yürürlükte, hatırlatma anları henüz gelmedi
-**Ne zaman:** Her oturum (kural) + `SURU_ENTEGRASYON.md` **ADIM 1, 3, 4** (hatırlatma)
+**Ne zaman:** Her oturum (kural) + `PLAN.md` §8 **ADIM 1, 3, 4** (hatırlatma)
 **Karar veren:** Operatör (15 Ağustos 2026)
 
 ## Karar
@@ -332,6 +336,16 @@ açmak, uçağı yerde tutan sahte bir alarm üretir.
 | 3 | `deploy/rpi/baslat.sh` → `BATARYA_KRITIK_V=13.6` |
 | 4 | `src/gcs/frontend/src/services/gorunum.ts` → `PIL_GOSTER = true` |
 | 5 | `src/gcs/backend/config.yaml` → `alerts.susturulan`'dan batarya kodlarını çıkar |
+| 6 | 🔴 **`esp32_bridge`'in `healthy` türetimine pil eşiğini ekle** — aşağıya bak |
+
+> 🔴 **6. adım kolayca atlanır ve sessizce yanlış sonuç verir.** Mesh'te
+> `healthy` bir **bit olarak taşınmıyor**; alıcı tarafta türetiliyor:
+> `ekf_ok ∧ ¬kill_switch ∧ state≠FAILSAFE` (`esp32_bridge_node.py:974`).
+> Pil izleme açıldığında **pil düşüşü bu türetime yansımaz** — komşular pili
+> bitmiş bir uçağı `healthy=True` görmeye devam eder ve o uçak lider adayı
+> kalır. İki seçenek: ya mesh paketine bir bit eklenecek (firmware
+> değişikliği) ya da eşik **alıcı tarafta da** uygulanacak (yalnız ROS,
+> firmware'e dokunmaz — tercih edilen).
 
 ⚠️ **3, 4, 5 birlikte yapılmazsa** sistem tutarsız davranır: biri pili
 umursar, diğeri umursamaz. `DURUM.md` §3'te de yazılı.
@@ -343,6 +357,49 @@ umursar, diğeri umursamaz. `DURUM.md` §3'te de yazılı.
   arming'i engelliyor mu (`test_esik_baglamdan_gelir` bunu zaten kilitliyor)
 - **Yerde:** eşiği 0.0'a çek → engel kalkıyor mu
 - Uçuş testi **gerekmiyor**; failsafe yolu zaten ölçülmüş kod
+
+---
+
+# KARAR-04 — Üç uçak birden uçunca değişecek parametreler
+
+**Durum:** 🟡 BEKLİYOR — ylp01 onarılmadı
+**Ne zaman:** ylp01 dönüp üç uçakla ilk uçuş yapıldığında
+**Karar veren:** Operatör (15 Ağustos 2026, "sırası gelince")
+
+## Karar
+
+Bugün filo **iki uçak** (drone 1 ve 3) ama ajan **kimlikleri 1..3**. Bu ayrım
+üç parametreye yansıyor ve üçüncü uçak katıldığında **elle** değişecek:
+
+| Env / parametre | Bugün | Üç uçakla | Anlamı |
+|---|---|---|---|
+| `SURU_AJAN_SAYISI` → `agent_count` | **3** | 3 (değişmez) | **Kimlik aralığı** `1..N` — abone olunacak `droneN` konuları |
+| `SURU_BEKLENEN_UCAK` → `expected_agent_count` | **2** | **3** | **Filo büyüklüğü** — `formation_reached` ve sağlık oranı |
+| `task_reallocator.min_active_for_formation` | 2 | **3?** | ⚠️ hangi anlamda kullandığı **doğrulanmadı** |
+
+## Neden ayrı bir karar
+
+Tek parametre iki işi yapıyordu ve **çelişiyorlardı**. Tek değerken:
+`formation_reached` için `2 >= 3` false → **FORMING'de kalıcı takılma**; ve
+sağlık oranı `1/3 = 0.33 < 0.5` → **bir uçak bozulunca tüm sürüye acil iniş**.
+15 Ağustos'ta ikiye ayrıldı.
+
+🔴 **`agent_count` 2 YAPILMAZ.** Bir kez "2 olmalı" diye yazılmıştı ve
+uygulansaydı **ylp02 sürüden tamamen düşerdi**: `consensus_node.py:133`
+`for aid in range(1, agent_count+1)` ile `drone1..droneN`'e abone oluyor,
+uçaklarımız **1 ve 3**.
+
+## Nasıl uygulanacak
+
+`deploy/rpi/baslat.sh` → `SURU_BEKLENEN_UCAK=3` (üç uçakta da), konteyner
+restart. `min_active_for_formation` için **önce kodu oku** — o sayının kimlik
+aralığı mı, canlı sayı mı, çoğunluk eşiği mi olduğu doğrulanmadı.
+
+## Test
+
+Üç uçak yerde, pervanesiz, ARM'lı: `swarm_fsm` FORMING'e geçip
+`formation_reached` üretebiliyor mu; bir uçak kill'lenince sağlık oranı
+`2/3 = 0.67 > 0.5` kalıyor mu (acil iniş **tetiklenmemeli**).
 
 ---
 

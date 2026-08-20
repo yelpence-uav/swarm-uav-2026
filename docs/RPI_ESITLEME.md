@@ -1,6 +1,6 @@
 # RPİ EŞİTLEME DEFTERİ — geri gelen drone'u hizaya getirme
 
-**Son güncelleme:** 19 Ağustos 2026, 23:45
+**Son güncelleme:** 20 Ağustos 2026, 17:40
 
 ## Bu belge ne için
 
@@ -19,21 +19,15 @@ listeyi yukarıdan aşağı yürütmek.
 
 ---
 
-## 1. Uçağa özgü değerler — HER ADIMDA BUNLARI YERİNE KOY
+## 1. Uçağa özgü değerler
 
-Aşağıdaki komutlarda `<N>`, `<KULLANICI>`, `<KONTEYNER>` geçen yerlere bu
-tablodan bak. **Karıştırılması en kolay şey bu**, çünkü isim ile numara
-aynı değil:
+Aşağıdaki komutlarda `<N>`, `<KULLANICI>`, `<KONTEYNER>` geçen yerlere
+**`docs/cihazlar.md` kimlik tablosundan** bak — agent_id, SSH kullanıcısı,
+konteyner adı, ROS ns, MAC'ler, mesh ID, `MAV_SYS_ID`, `tgt_system`, hepsi
+orada ve **tek kaynak orası**.
 
-| İHA | `<N>` (agent_id) | `<KULLANICI>` | `<KONTEYNER>` | ROS ns | Mesh ID | MAV_SYS_ID | `/ws/tgt_system` |
-|-----|------------------|---------------|---------------|--------|---------|------------|------------------|
-| ylp00 | **1** | `yelpence00` | `drone1` | `/drone_1` | 1 | 1 | (dosya yok) |
-| ylp01 | **2** | `yelpence01` | `drone2` | `/drone_2` | 2 | 2 | `2` |
-| ylp02 | **3** | `yelpence02` | `drone3` | `/drone_3` | 3 | 3 | `3` |
-
-**ylp00 → drone1, ylp01 → drone2, ylp02 → drone3.** İsimdeki sayı bir eksik.
-
-ESP32 MAC'leri ve Pi MAC'leri: `docs/cihazlar.md`.
+> ⚠️ **ylp00 → drone1, ylp01 → drone2, ylp02 → drone3.** İsimdeki sayı bir
+> eksik ve karıştırılması en kolay şey bu.
 
 ---
 
@@ -208,20 +202,9 @@ yapıyor, 1007 parametreli düğümde yarısı zaman aşımına düşüyor (öl�
 | C8 | `BAT1_SOURCE` | **disabled** | Regülatörden besleme; pil takılınca geri aç |
 | C9 | Pusula + ivmeölçer kalibrasyonu | geçerli | ylp02 31 Tem'de 143 µT okuyordu (sağlamı 48) |
 
-**MAV_SYS_ID değiştirme — üçü birden yapılmazsa drone sessizce kopar:**
-
-```bash
-ros2 param set /drone_<N>/mavros/param MAV_SYS_ID <N>
-# FCU'yu YENIDEN BASLAT — PX4 bu parametreyi ancak boyle uygular
-ros2 service call /drone_<N>/mavros/cmd/command mavros_msgs/srv/CommandLong \
-  "{command: 246, param1: 1.0}"
-echo <N> > ~/yelpence_ws/tgt_system
-docker restart <KONTEYNER>
-```
-
-Uyuşmazlığın belirtisi aldatıcı: paketler akar ama **içerik boşalır** —
-`mod=?`, `sat=0`, arayüzde FAILSAFE. İpucu `mavros.log`'daki
-`detected remote address <sysid>.1` satırı.
+**`MAV_SYS_ID` değiştirme yordamı `docs/cihazlar.md`'de** — üç adım
+(param + FCU reboot + `tgt_system`) birlikte yapılmazsa drone sessizce kopar.
+Belirti aldatıcı: paketler akar ama içerik boşalır (`mod=?`, `sat=0`).
 
 ### ✅ RC-kayıp tespiti (19 Ağustos) — İKİ UÇAKTA DA KURULU (ylp00 havada, ylp02 yerde doğrulandı)
 
@@ -414,9 +397,10 @@ elle temizlenip derlendi.
 `connected: true`, `armed: false`, `AUTO.LOITER` · saat dizüstüyle aynı.
 
 ⚠️ Bu dağıtımla birlikte `formation_node`'un `sitl_mode` varsayılanı `True`
-olarak uçaklara girdi — origin ve konum kapıları atlanıyor. Gözlem modu
-sakladığı için bugün zararsız, ADIM 3'ten **önce** düzeltilmeli:
-`YAPILACAKLAR.md` **P0.8**.
+olarak uçaklara girdi — origin ve konum kapıları atlanıyordu.
+✅ **Aynı gün düzeltildi** (17 Ağu 14:30, `600ca65`): kod varsayılanı `False`
+yapıldı **ve** `baslat.sh` `-p sitl_mode:=false` açıkça geçiyor. İki uçağa
+dağıtıldı, md5 `bd40492c` ile doğrulandı. Tarihçe: `GUNLUK.md` 17 Ağustos.
 
 ### 2026-08-17 (2) — GPS saat beklemesi 25 → 150 sn + ylp02'ye SSH anahtarı
 
@@ -553,8 +537,12 @@ düzeldiği henüz görülmedi — NTP her seferinde önce yetişti. İlk saha
 **Yapılan:**
 - `px4_bridge.py`: **canlı parametre geri çağrısı** eklendi. Yürütücü
   ayarları uçak havadayken değiştirilebiliyor; konteyner yeniden başlatmaya
-  gerek yok. Dosya iki uçağa dağıtıldı (`--symlink-install` sayesinde
-  `/ws/src`'e kopyalamak yeterli, derleme gerekmiyor).
+  gerek yok. Dosya iki uçağa dağıtıldı.
+  > 🔴 **O gün "`--symlink-install` sayesinde `/ws/src`'e kopyalamak yeterli,
+  > derleme gerekmiyor" yazılmıştı — YANLIŞ.** 17 Ağustos'ta ölçüldü: Python
+  > kaynağı `build/` altına **kopyalanıyor**, sembolik bağ kurulmuyor. Yani
+  > `rsync` tek başına **koşan kodu değiştirmiyor**; `colcon build` şart.
+  > `dagit.sh` bunu zaten yapıyor. Ayrıntı: `TUZAKLAR.md` §2.11.
 - Günlük bekçisi 100/25 MB → **500/125 MB** + **dizin geneli 3 GB** tavanı.
 
 | Uçak | Durum |
