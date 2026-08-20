@@ -273,11 +273,20 @@ class Px4BridgeNode(Node):
         self.declare_parameter('guided_konum_kp', 0.95)
         self.declare_parameter('guided_telafi_orani', 0.7)
         # IVME ILERI-BESLEMESI (20 Agustos 2026) — 0.0 kapali, 1.0 acik.
-        # VARSAYILAN KAPALI: bugunku ucuslarin kanitladigi davranis bu.
-        # 30 m bacakta olculen hizlanma tepe hatasi 1.12 m ve frenleme asimi
-        # 1.18 m'yi kucultmek icin yazildi; A/B olcumu yapilmadan varsayilan
-        # DEGISMEZ. Canli parametre oldugu icin testte tek komutla acilir.
-        self.declare_parameter('guided_ivme_ff', 0.0)
+        #
+        # VARSAYILAN 1.0 (ACIK) — A/B UCUSUYLA OLCULDU, tahmin degil:
+        # ayni ucus, ayni rota (30 m, 10 m, 3.0 m/s), ayni hava; ylp00 acik,
+        # ylp02 KAPALI referans:
+        #     tepe gecici hata  1.10 -> 0.44 m   (-60 %)
+        #     varis asimi       1.18 -> 0.46 m   (-61 %)
+        #     oturma suresi     3.6  -> 2.1 s
+        # Referans ucak kendi tabanini birebir tekrarladi (1.173/1.053 ->
+        # 1.177/1.026), yani fark koddan geliyor. Ayrinti:
+        # docs/NAVIGASYON_KAYMA.md §ADIM 2.
+        #
+        # Geri almak icin tek satir: baslat.sh'te GUIDED_IVME_FF=0.0 ya da
+        # canli `--yaz guided_ivme_ff=0.0`.
+        self.declare_parameter('guided_ivme_ff', 1.0)
         self._hiz_yatay = float(self.get_parameter('guided_hiz_yatay_mps').value)
         self._hiz_dikey = float(self.get_parameter('guided_hiz_dikey_mps').value)
         self._ivme_yatay = float(

@@ -307,6 +307,10 @@ GUIDED_IVME_DIKEY="${GUIDED_IVME_DIKEY:-1.0}"
 # hizina baglanmali, yoksa ayni geri besleme dongusune girilir.
 GUIDED_KONUM_KP="${GUIDED_KONUM_KP:-0.95}"
 GUIDED_TELAFI_ORANI="${GUIDED_TELAFI_ORANI:-0.0}"
+# IVME ILERI-BESLEMESI (20 Agustos 2026): 1.0 acik, 0.0 kapali.
+# A/B ucusuyla olculdu — tepe gecici hata -60 %, varis asimi -61 %.
+# Geri almak icin GUIDED_IVME_FF=0.0 (docs/NAVIGASYON_KAYMA.md §ADIM 2).
+GUIDED_IVME_FF="${GUIDED_IVME_FF:-1.0}"
 ros2 run swarm_control px4_bridge --ros-args -p agent_id:=${AGENT_ID} \
     -p guided_hiz_yatay_mps:=${GUIDED_HIZ_YATAY} \
     -p guided_hiz_dikey_mps:=${GUIDED_HIZ_DIKEY} \
@@ -314,6 +318,7 @@ ros2 run swarm_control px4_bridge --ros-args -p agent_id:=${AGENT_ID} \
     -p guided_ivme_dikey_mps2:=${GUIDED_IVME_DIKEY} \
     -p guided_konum_kp:=${GUIDED_KONUM_KP} \
     -p guided_telafi_orani:=${GUIDED_TELAFI_ORANI} \
+    -p guided_ivme_ff:=${GUIDED_IVME_FF} \
     -p guided_tasma_m:=${GUIDED_TASMA} >> "$GUNLUK/px4b.log" 2>&1 &
 sleep 5
 # BATARYA KRITIK ESIGI — 0 ise FSM bataryaya HIC BAKMAZ.
