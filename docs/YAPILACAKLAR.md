@@ -1,6 +1,6 @@
 # YAPILACAKLAR
 
-**Son güncelleme:** 20 Ağustos 2026, 18:45
+**Son güncelleme:** 20 Ağustos 2026, 21:12
 
 ## Önem dereceleri
 
@@ -213,7 +213,7 @@ kalır** ve kimse yeni seçim yapmaz.
   gerçek kalp atışı ve DURUM boşluk dağılımına bak; en büyük boşluğun ~2 katı
   doğru eşiktir.
 
-### 🔴 P0.13 Uçaklar ağdan önce kalkınca ROS yığını sakat kalıyor — ÖLÇÜLDÜ (20 Ağustos)
+### 🟠 P0.13 Uçaklar ağdan önce kalkınca ROS yığını sakat kalıyor — İKİ DÜZELTME YAPILDI (20 Ağustos)
 
 P1.5'in gerçek kapsamı belgelenenden geniş: semptom "QGC bağlantısı ölü
 kalıyor" diye yazılmıştı, **bütün DDS grafiğini** etkiliyor.
@@ -237,13 +237,38 @@ failed`) ve `mavros.log` **442 MB**'a şişti (bekçi tavanı 500 MB).
 agent_fsm yok, yalnız mavros vardı. `docker restart` ikisini de düzeltti
 (0 ddsi hatası, 12 düğüm, log 20 KB).
 
-- `[ ]` 🔴 `baslat.sh`, mavros'tan önce ağın hazır olmasını beklesin
-  (wlan0'da IP var mı, en fazla ~30 sn). **Ağ yoksa yine devam etsin** —
-  mesh ve uçuş WiFi'ye bağlı değil. ~10 satır.
-- `[ ]` 🔴 `gps_saat.py` başlatmayı **bloke etmesin** — arka plana al ya da
-  `timeout` ile sar. Bugün tek bir takılan süreç bütün yığını durduruyor.
-- `[ ]` 🟠 Uçuş öncesi listesine: `docker exec droneN ps | grep -c "ros2 run"`
-  → **12 olmalı**. Bugün bu tek komut, bir sabahı kurtarırdı.
+- `[x]` 🔴 **YAPILDI (20 Ağustos 21:00, `1c8f14e`).** `baslat.sh` mavros'tan
+  önce ağı bekliyor: `AG_BEKLE_SN=30`, gelmezse **uyarıp devam ediyor** —
+  mesh ve uçuş WiFi'ye bağlı değil, beklemede kilitlenmek daha kötü olurdu.
+  Konteynerde `ip` komutu **yok** (ölçüldü), `hostname -I` kullanıldı;
+  loopback ve docker köprüsü (`172.17.x`) dışarılandı. Mantık gerçek saha
+  ağlarına karşı 8/8 doğrulandı (10.x, 172.19.x, 192.168.x, 172.20.x).
+- `[x]` 🔴 **YAPILDI (20 Ağustos 21:00, `1c8f14e`).** `gps_saat.py` artık
+  `timeout -s INT -k 15 200` ile sarılı; kesilirse uyarı basıp devam ediyor.
+
+  **`-k 15` şart, `-s INT` tek başına YETMİYOR** — düzeltme yazılırken denendi
+  ve tam da önlemeye çalıştığı şekilde takıldı: `timeout` sinyali gönderip
+  çıkıyor, ama süreç SIGINT'i yutarsa ölmüyor ve boru `tee`'ye açık kaldığı
+  için `baslat.sh` **yine** bloke oluyor. Üç vakayla doğrulandı: `-k` yokken
+  sonsuz bekleme, `-k` varken 137 ile kesiliyor, normal biten süreç bozulmuyor.
+  `timeout` (coreutils 9.4) iki konteynerde de `-k` destekliyor (ölçüldü).
+
+  Dağıtıldı ve doğrulandı: iki uçak da yeniden başlatıldı, `gps_saat` ~2 sn'de
+  normal bitti, **11 düğüm** ayakta.
+- `[ ]` 🟠 Uçuş öncesi listesine düğüm sayısı denetimi.
+  **Sabit sayı yazma** — `SURU_DUGUMLERI` ile değişiyor: 20 Ağustos'ta
+  `origin consensus fsm formasyon` ile **11** `ros2 run` süreci var, belgede
+  yazan "12" başka bir yapılandırmadan kalmış. Doğrusu ada bakmak:
+
+  ```bash
+  docker exec droneN bash -lc 'source /opt/ros/jazzy/setup.bash; \
+      ROS_LOCALHOST_ONLY=1 ros2 node list' | grep -v mavros | sort
+  ```
+
+  Beklenen (bugünkü yapılandırma): `agent_fsm_node`, `basit_kacinma`,
+  `consensus_node`, `esp32_bridge`, `formation_control`, `ic_dis_kopru`,
+  `path_planner_node`, `px4_bridge`, `rosbag2_recorder`, `swarm_fsm_node`,
+  `swarm_origin_publisher`.
 
 ### 🔴 P0.11 Guided yol `agent_fsm`'i ATLIYOR — sürü yığını hiç etkinleşmiyor
 
