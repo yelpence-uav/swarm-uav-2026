@@ -1,6 +1,6 @@
 # GÜNLÜK — oturum devir teslim kaydı
 
-**Son güncelleme:** 20 Ağustos 2026, 18:05
+**Son güncelleme:** 20 Ağustos 2026, 18:25
 
 Tek bilgisayar, sırayla çalışıyoruz. Biri kalkıp diğeri oturduğunda **hem
 kişi hem Claude** nerede kalındığını buradan anlar.
@@ -175,6 +175,23 @@ Hepsi taşındı. Kendi kontrolümde 4'ü yine de düşmüştü, geri kondu.
 - 🟡 `docker/rpi/` silinmiş ve imajın tek tarifi oydu — **karar verilmedi**,
   YAPILACAKLAR'a madde açılmadı (operatör onaylamadı). ylp01 dönünce ve
   `cv2`+`pyzbar` eklenirken gerekecek. CI'da flake8 kapalı — o da cevapsız.
+
+*Konteyner imajı kararı — KARAR-05 (18:20)*
+
+Operatör kararı: **`docker/rpi/` geri gelmeyecek**, imaj `docker save`
+kopyasıyla korunacak. Gerekçe yeniden üretilebilirlik değil **birebir
+çoğaltma** — yeniden derleme `apt`'tan güncel paket çekip ortamı kaydırırdı,
+oysa elimizdeki bilinen-iyi bir ortam (uçuş kanıtını o geçirdi).
+
+Ölçüldü: `yelpence-ros:latest` **1.26 GB**, ID `661296d759c2`, **iki Pi'de de
+aynı** (ayrışma yok). Yedek alındı, dizüstüne çekildi, doğrulandı:
+378 MB · md5 `98c7f7c9…` · 13 katman · `gzip -t` sağlam · 1m34s.
+Uçaktaki geçici kopya silindi.
+
+> 🔎 **Düzeltme:** "yedek hiç alınmamış, tek risk bu" demiştim — **yanlıştı.**
+> `~/yelpence-yedek/`'te **30 Temmuz'dan** bir kopya zaten varmış ve config
+> hash'i aynı (`661296d…`). İmaj 4 haftadır değişmemiş. Eksik olan yedek
+> değil **kaydıydı** — hiçbir belgede yazmıyordu. Klasöre `README.md` konuldu.
 
 **Sıradaki adım**
 

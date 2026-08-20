@@ -7,11 +7,16 @@ kod ise host'ta bind-mount ile gelir. Böylece kod değişince image rebuild ger
 > Neden Dockerfile'dan build etmiyoruz? Aktif geliştirmedeyiz; kod image'a gömülü
 > olsaydı her değişiklikte Pi'de ~15 dk build gerekirdi.
 >
-> ⚠️ **16 Ağustos'ta `docker/` komple silindi** (`87e95c2`) — imajın tek tarifi
-> oydu. Bugün sorun değil (iki Pi'de imaj hazır), ama **ylp01 dönünce** ve
-> **`cv2`+`pyzbar` eklenirken** gerekecek. O zamana kadar tek yol aşağıdaki
-> `docker save` yöntemi. Karar `YAPILACAKLAR.md`'ye açılmadı — operatör
-> henüz karar vermedi.
+> ✅ **Karar verildi (20 Ağustos, KARAR-05): `docker/rpi/` geri gelmeyecek.**
+> 16 Ağustos'ta silindi (`87e95c2`) ve imajın tek tarifi oydu. Yerine
+> **çalışan imajın `docker save` kopyası** kullanılıyor — yeniden derleme
+> `apt`'tan güncel paketleri çekip ortamı kaydırırdı, oysa elimizdeki
+> **bilinen-iyi** bir ortam. Ölçüldü: `yelpence-ros:latest` **1.26 GB**,
+> ID `661296d759c2`, **iki Pi'de de aynı**.
+>
+> `cv2`+`pyzbar` eklemek gerektiğinde: konteynerin içinde kur → `docker commit`
+> → **ne eklediğini `RPI_ESITLEME.md`'ye yaz.** Gerekçe ve kabul edilen bedel:
+> `docs/KARARLAR.md` **KARAR-05**.
 
 ## Katmanlar
 - **Image `yelpence-ros`** = sadece ORTAM (ROS Jazzy + mavros + geographiclib +

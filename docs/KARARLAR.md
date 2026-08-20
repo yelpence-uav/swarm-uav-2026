@@ -1,6 +1,6 @@
 # KARARLAR — verilmiş ama henüz uygulanmamış kararlar
 
-**Son güncelleme:** 20 Ağustos 2026, 17:40
+**Son güncelleme:** 20 Ağustos 2026, 18:25
 
 Sohbette verilen kararlar oturum bitince kayboluyor. Bu defter onları
 tutuyor: **ne karar verildi, neden, ne zaman uygulanacak, nasıl test edilecek.**
@@ -400,6 +400,112 @@ aralığı mı, canlı sayı mı, çoğunluk eşiği mi olduğu doğrulanmadı.
 Üç uçak yerde, pervanesiz, ARM'lı: `swarm_fsm` FORMING'e geçip
 `formation_reached` üretebiliyor mu; bir uçak kill'lenince sağlık oranı
 `2/3 = 0.67 > 0.5` kalıyor mu (acil iniş **tetiklenmemeli**).
+
+---
+
+# KARAR-05 — Konteyner imajı: Dockerfile geri gelmeyecek, `docker save` yeter
+
+**Durum:** ✅ **UYGULANDI** — yedek alındı ve doğrulandı (20 Ağustos)
+**Ne zaman:** ylp01 döndüğünde · `cv2`+`pyzbar` eklenirken (`PLAN.md` §8 ADIM 5)
+**Karar veren:** Operatör (20 Ağustos 2026)
+
+## Karar
+
+**`docker/rpi/` geri alınmayacak.** 16 Ağustos'ta silindi (`87e95c2`) ve
+`yelpence-ros:latest` imajının tek tarifi oydu. İhtiyaç olduğunda **çalışan
+imajın `docker save` kopyası** kullanılacak.
+
+## Neden — yeniden üretmek değil, birebir çoğaltmak
+
+Dockerfile'dan yeniden derleme `apt`'tan **güncel** paketleri çeker; ortam
+sessizce kayar ve uçan yapılandırmayla aynı olduğu garanti edilemez. Yarışmada
+elimizdeki şey **bilinen-iyi** bir ortam: uçuş kanıtını o geçirdi.
+
+`docker save` onun **donmuş, birebir** kopyası. Bu bağlamda yeniden
+üretilebilirlikten daha değerli.
+
+**Ölçüldü (20 Ağustos):**
+
+```
+yelpence-ros:latest   1.26 GB   ID 661296d759c2
+ylp00 ve ylp02'de AYNI ID -> ayrisma yok, hangisinden alinsa fark etmez
+disk: iki Pi'de de 17 GB bos
+```
+
+İmaj **yalnız ortam**: ROS Jazzy + mavros + geographiclib + python venv.
+**Kod içinde değil** — host'taki `~/yelpence_ws` konteynere `/ws` olarak
+bind-mount ediliyor. Bu yüzden kod değişince imaj yeniden üretilmiyor zaten.
+
+## Nasıl uygulanacak
+
+**Yedek alma** (referans uçaktan, bir kez):
+
+```bash
+./deploy/yki/drone_bul.sh ylp00 \
+  'docker save yelpence-ros:latest | gzip -1 > ~/yelpence-ros-<tarih>.tar.gz'
+# sonra dizustune cek — Pi'de birakmanin anlami yok, ayni ariza alani
+```
+
+**Yeni Pi'ye yükleme:** `docker load < yelpence-ros-<tarih>.tar.gz`
+Gerisi `deploy/rpi/README.md` (provizyon → kod rsync → `run_drone.sh <N>`).
+
+**Paket eklemek** (`cv2`, `pyzbar` — ADIM 5'in ön koşulu):
+
+```bash
+docker run -it --name imaj_yeni yelpence-ros:latest bash
+#   ... apt/pip ile kur ...
+docker commit imaj_yeni yelpence-ros:latest
+```
+
+🔴 **Ne eklediğini `RPI_ESITLEME.md`'ye YAZ.** Dockerfile yokken imajın içinde
+ne olduğunu söyleyen tek kayıt orası olacak. Yazılmazsa altı ay sonra kimse
+bilmiyor.
+
+## Kabul edilen bedel
+
+| Ne kaybediliyor | Karşılığı |
+|---|---|
+| İmajın içeriği koddan okunamıyor | `RPI_ESITLEME` değişiklik defteri |
+| Sıfırdan yeniden üretilemez | Zaten istenmiyor — kayma riski |
+| ~600 MB'lık dosya git'e giremez | Dizüstünde + harici yedek |
+
+🔴 **Bu kararın şartı:** yedek **gerçekten alınmış olmalı.** Alınmazsa imaj
+yalnız SD kartlarda kalır ve ikisi de giderse ortam **ne yeniden üretilebilir
+ne kopyalanabilir**.
+
+## ✅ Yedek alındı ve doğrulandı (20 Ağustos 18:15)
+
+```
+~/yelpence-yedek/yelpence-ros-20260820.tar.gz
+378 MB · md5 98c7f7c92be72e51b2215b552e54e9ce
+13 katman · config 661296d… (ucaklarda kosanla BIREBIR)
+gzip -t: saglam · alma suresi 1m34s (gzip -1, Pi 5)
+```
+
+Uçaktaki geçici kopya silindi — aynı arıza alanında tutmanın anlamı yok.
+
+> 🔎 **Yolda çıkan düzeltme:** *"yedek hiç alınmamış"* demiştim, **yanlıştı.**
+> `~/yelpence-yedek/` içinde **30 Temmuz'dan kalma** bir kopya zaten varmış
+> (`yelpence-ros_20260730.tar.gz`) ve config hash'i aynı: `661296d…`. Yani
+> imaj 30 Temmuz'dan beri değişmemiş ve yedek o gün de alınmış — **hiçbir
+> belgede yazmadığı için kimse bilmiyordu.** Asıl eksik yedek değil, kaydıydı.
+> Klasöre artık `README.md` konuldu.
+
+⚠️ **Bu klasör git'e girmiyor** (378 MB × 2). Harici bir yedeği yok — tek
+kopya bu dizüstünde. Makine giderse imaj yine yalnız SD kartlarda kalır.
+
+## Test
+
+- Yeni bir Pi'de (ya da ylp01 dönünce) `docker load` → `run_drone.sh <N>` →
+  `docker exec droneN ps | grep -c "ros2 run"` **12 olmalı**
+- `cv2`+`pyzbar` eklendikten sonra: `python3 -c "import cv2, pyzbar"` hatasız
+
+## Diğer seçenekler (operatör isterse)
+
+| | Ne | Neden seçilmedi |
+|---|----|-----------------|
+| A | `docker/rpi/Dockerfile.rpi` geri alınsın | Yeniden derleme ortamı kaydırır; uçan yapılandırma birebir korunmaz |
+| B | Hiç yedek yok, gerekince elle kurulur | ROS Jazzy + mavros elle kurulumu saatler sürer ve aynısı çıkmaz |
 
 ---
 

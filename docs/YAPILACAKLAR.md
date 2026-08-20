@@ -1,6 +1,6 @@
 # YAPILACAKLAR
 
-**Son güncelleme:** 20 Ağustos 2026, 18:05
+**Son güncelleme:** 20 Ağustos 2026, 18:25
 
 ## Önem dereceleri
 
@@ -990,6 +990,21 @@ Tamamı `PLAN.md` §8'de. Uçuşsuz hazırlık:
 - `[x]` 🟡 ~~`ARCHITECTURE.md` yanıltıcı~~ → başına uyarı kondu
 
 ---
+
+### 🟡 P2.9 Konteyner imajının harici yedeği yok
+
+KARAR-05 gereği `docker/rpi/` geri gelmiyor; imaj `docker save` kopyasıyla
+korunuyor. Kopya **alındı ve doğrulandı** (`~/yelpence-yedek/`, 378 MB,
+config `661296d…`, `gzip -t` sağlam).
+
+Ama o klasör **git'e girmiyor** ve **tek kopya bu dizüstünde**. Dizüstü
+giderse imaj yine yalnız iki SD kartta kalır — Dockerfile da olmadığı için
+ortam yeniden üretilemez.
+
+- `[ ]` 🟡 Harici bir yere kopyala (USB bellek, bulut, ikinci makine).
+  378 MB, tek `rsync`.
+- `[ ]` ⚪ İmaja `cv2`+`pyzbar` eklendiğinde (ADIM 5) **yeni yedek al** ve
+  ne eklendiğini `RPI_ESITLEME.md`'ye yaz.
 
 ### 🟠 P2.7 Denetim kaydının yarısı yalnız Berk'in Mac'inde
 
