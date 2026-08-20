@@ -256,6 +256,41 @@ ROTA_ADIM_HZ = 5.0
 KRITIK_AYRIM_M = ARALIK_M * math.cos(math.radians(KANAT_ACISI_DEG))
 CARPISMA_PAYI_M = KRITIK_AYRIM_M - MIN_AYRIM_M
 
+# --- KACINMA ESIKLERI -------------------------------------------------------
+# 15 AGUSTOS'TA BULUNDU — dogrudan bu dosyanin basligindaki hatanin ta kendisi.
+# `basit_kacinma` dugumu d0=8.0 / hard=4.0 ile geliyordu, ama `baslat.sh`
+# `${KACINMA_D0:-6.0}` / `${KACINMA_HARD:-3.0}` geciyordu ve bu iki degiskeni
+# HIC KIMSE uretmiyordu. Yani ucaklar 6.0/3.0 ile ucuyordu ve kimse bilmiyordu.
+#
+# NEDEN ONEMLI: hard = tam kuvvet itmenin basladigi mesafe. 3.0 ile bu,
+# MIN_AYRIM_M'in (4.0) ALTINDA kaliyor — koruma devreye girdiginde kabul
+# edilen sinir zaten asilmis oluyor. Dugumun kendi varsayilani (4.0) dogruydu.
+#
+# TUREME: hard tam olarak MIN_AYRIM — sinira degdigi an tam kuvvet.
+#
+# d0 ONCE 2.0 x MIN_AYRIM (8.0) IDI, 1.5'e (6.0) CEKILDI — 20 Agustos 2026,
+# operator karari. Sebep 18 Agustos'ta olculdu: 12 m aralikta formasyonun
+# PLANLI en yakin yaklasmasi 8.49 m. d0=8.0 ile pay yalnizca 0.49 m kaliyor,
+# yani kacinma NORMAL formasyon gecisinde tetiklenir ve formasyonla cekisir.
+# 6.0 ile pay 2.49 m.
+#
+# Iki ayri ariza bicimi var ve ikisi de gercek:
+#   hard < MIN_AYRIM  -> koruma GEC kaliyor (sinir asildiktan sonra tam kuvvet)
+#   d0   ~ formasyon  -> koruma FAZLA calisiyor (normal ucusta tetikleniyor)
+# hard'i MIN_AYRIM'e, d0'i 1.5 katina baglamak ikisini birden cozuyor.
+# Bedeli: rampa 4.0 m yerine 2.0 m (3 m/s'te 1.33 s yerine 0.67 s). Dar ama
+# yeterli; ilk iki ucakli ucusta kayittan itmenin ne zaman basladigi olculecek.
+KACINMA_HARD_M = MIN_AYRIM_M
+KACINMA_D0_M = 1.5 * MIN_AYRIM_M
+
+# Komsu verisi bu suredan eskiyse YOK SAYILIR. Mesh ~5-7 Hz ve ~%30 kayipli;
+# 0.5 s penceresi iki-uc ardisik kayipta komsuyu dusurur ve kacinma SESSIZCE
+# korumasiz kalir. 1.5 s `basit_kacinma`nin sahada kosan degeri
+# (basit_kacinma_node.py:146) — `collision_avoidance` varsayilani 0.5 idi,
+# yani ucte biri. Ikisi ayni degeri kullanmali, yoksa dugum degistirince
+# kacinmanin gorus alani sessizce degisir.
+KACINMA_BAYAT_S = 1.5
+
 FRENLEME_GOREV_M = frenleme_m(GOREV_HIZ_MPS, GOREV_IVME_MPS2)
 FRENLEME_TAVAN_M = frenleme_m(PX4_HIZ_TAVANI_MPS, PX4_IVME_MPS2)
 
@@ -267,6 +302,36 @@ FRENLEME_TAVAN_M = frenleme_m(PX4_HIZ_TAVANI_MPS, PX4_IVME_MPS2)
 def denetle():
     """(uyarilar, hatalar) doner. Hata varsa yapilandirma tutarsiz."""
     uyari, hata = [], []
+
+    # KACINMA ESIKLERI vs FORMASYON GEOMETRISI (KARAR-01 uyarisi)
+    #
+    # d0, itmenin BASLADIGI mesafe. Ok basi geciside iki ucak zaten
+    # KRITIK_AYRIM_M kadar yaklasiyor. d0 ondan buyukse kacinma NORMAL
+    # formasyon geciside tetiklenir ve formasyonla cekisir — carpisma
+    # olmadigi halde surekli itilme olur.
+    if KACINMA_D0_M >= KRITIK_AYRIM_M:
+        uyari.append(
+            f'kacinma d0 ({KACINMA_D0_M:.1f} m) formasyonun en yakin '
+            f'yaklasmasindan ({KRITIK_AYRIM_M:.2f} m) BUYUK — kacinma normal '
+            f'gecislerde tetiklenir. ARALIK_M buyut ya da d0 kucult.')
+    elif KRITIK_AYRIM_M - KACINMA_D0_M < 1.0:
+        uyari.append(
+            f'kacinma d0 ({KACINMA_D0_M:.1f} m) ile formasyonun en yakin '
+            f'yaklasmasi ({KRITIK_AYRIM_M:.2f} m) arasinda yalniz '
+            f'{KRITIK_AYRIM_M - KACINMA_D0_M:.2f} m pay var. Ilk ucusta '
+            f'kayittan kacinmanin NE ZAMAN tetiklendigine bak (KARAR-01).')
+
+    # hard, tam kuvvetin basladigi mesafe. MIN_AYRIM'in altina duserse
+    # koruma ancak sinir asildiktan SONRA tam guce ciker.
+    if KACINMA_HARD_M < MIN_AYRIM_M:
+        hata.append(
+            f'kacinma hard ({KACINMA_HARD_M:.1f} m) MIN_AYRIM_M '
+            f'({MIN_AYRIM_M:.1f} m) ALTINDA — tam kuvvet itme, kabul edilen '
+            f'sinir asildiktan sonra basliyor.')
+    if not KACINMA_HARD_M < KACINMA_D0_M:
+        hata.append(
+            f'kacinma hard ({KACINMA_HARD_M:.1f}) < d0 ({KACINMA_D0_M:.1f}) '
+            f'olmali — collision_avoidance bu sartI kendi de dogruluyor.')
 
     # DOYGUNLUK PAYI — KAYMANIN SIFIR KALMASININ TEK SARTI.
     #
@@ -418,6 +483,11 @@ def _kabuk():
     print(f'ROTA_DONUS_TAVANI_DEG_S={MAKS_HEADING_DONUS_DEG_S}')
     print(f'ROTA_TEGET_HIZ={ROT_TEGET_HIZ_MPS}')
     print(f'ROTA_TEGET_IVME={ROT_TEGET_IVME_MPS2}')
+    # Kacinma — basit_kacinma VE collision_avoidance ayni degerleri alir.
+    # Dugum degistiginde esikler degismesin diye tek kaynak burasi.
+    print(f'KACINMA_D0={KACINMA_D0_M}')
+    print(f'KACINMA_HARD={KACINMA_HARD_M}')
+    print(f'KACINMA_BAYAT_S={KACINMA_BAYAT_S}')
 
 
 def _px4():

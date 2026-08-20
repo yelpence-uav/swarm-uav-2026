@@ -418,9 +418,24 @@ if [ "$KACINMA" = "1" ]; then
     # komsu_idler: kendisi haric butun filo. Olmayan drone'a abone olmak
     # zararsiz — veri gelmezse komsu yok sayilir.
     KOMSULAR=$(echo "1 2 3" | tr ' ' '\n' | grep -v "^${AGENT_ID}$" | paste -sd, -)
+    # ESIKLER — ucus_ayarlari.py TEK KAYNAK (--kabuk uretiyor).
+    #
+    # 15 AGUSTOS'TA BULUNDU: burada yedek deger 6.0/3.0 yaziyordu ve
+    # KACINMA_D0/KACINMA_HARD'i HIC KIMSE uretmiyordu. Yani dugumun kendi
+    # varsayilani (8.0/4.0) her acilista sessizce eziliyor, ucaklar 6.0/3.0
+    # ile uculuyordu. hard=3.0, MIN_AYRIM_M'in (4.0) ALTINDA — koruma tam
+    # guce ancak sinir asildiktan SONRA cikiyordu.
+    #
+    # BUGUNKU DEGER 6.0/4.0 (20 Agustos, operator karari). Ikisi de bilerek:
+    #   hard=4.0 -> MIN_AYRIM_M ile ayni, tam kuvvet TAM SINIRDA basliyor
+    #   d0=6.0   -> formasyonun planli en yakin yaklasmasi 8.49 m; 8.0 ile
+    #               pay 0.49 m kaliyordu ve kacinma NORMAL gecise karisirdi
+    # Turetme ve gerekce: src/gcs/ucus_ayarlari.py (TEK KAYNAK, --kabuk uretir).
+    # Dugum varsayilani hala 8.0/4.0 — env gelmezse burasi onu bilerek eziyor.
     ros2 run swarm_control basit_kacinma --ros-args \
         -p agent_id:=${AGENT_ID} -p komsu_idler:="[$KOMSULAR]" \
-        -p d0_m:=${KACINMA_D0:-6.0} -p hard_m:=${KACINMA_HARD:-3.0} \
+        -p d0_m:=${KACINMA_D0:-6.0} -p hard_m:=${KACINMA_HARD:-4.0} \
+        -p bayat_s:=${KACINMA_BAYAT_S:-1.5} \
         >> "$GUNLUK/kacinma.log" 2>&1 &
     echo "[baslat] basit_kacinma basladi (komsular: $KOMSULAR)"
 fi
@@ -756,10 +771,31 @@ if [ -n "$SURU_DUGUMLERI" ]; then
                  "basit_kacinma ile AYNI yuva. collision_avoidance ACILMADI." \
                  "Once /ws/kacinma dosyasini sil."
         else
+            # Komsu listesi: kendisi haric butun filo — basit_kacinma ile
+            # AYNI mantik. Olmayan drone'a abone olmak zararsiz.
+            CA_KOMSULAR=$(echo "1 2 3" | tr ' ' '\n' \
+                          | grep -v "^${AGENT_ID}$" | paste -sd, -)
+            # ESIKLER basit_kacinma ILE AYNI KAYNAKTAN. Dugum degistiginde
+            # kacinmanin gorus alani sessizce degismesin diye sart.
+            #
+            # neighbor_rx_stale_s: dugum varsayilani 0.5 idi — mesh ~5-7 Hz
+            # ve ~%30 kayipli, iki-uc ardisik kayipta komsu dusuyor ve CA
+            # SESSIZCE korumasiz kaliyor. basit_kacinma sahada 1.5 kullaniyor.
+            #
+            # KARAR-01 Secenek C: komsu verisi kinematic_fusion'dan DEGIL,
+            # mesh'ten gelen ham AgentStatus'tan (komsu_adaptoru.py). Bu
+            # yuzden 'fusion' anahtarini acmaya gerek YOK.
             ros2 run swarm_core collision_avoidance --ros-args \
-                -p agent_id:=${AGENT_ID} >> "$GUNLUK/ca.log" 2>&1 &
+                -p agent_id:=${AGENT_ID} \
+                -p neighbor_ids:="[$CA_KOMSULAR]" \
+                -p d0_m:=${KACINMA_D0:-6.0} \
+                -p hard_m:=${KACINMA_HARD:-4.0} \
+                -p neighbor_rx_stale_s:=${KACINMA_BAYAT_S:-1.5} \
+                >> "$GUNLUK/ca.log" 2>&1 &
             sleep 1
-            echo "[baslat] collision_avoidance basladi (basit_kacinma KAPALI)"
+            echo "[baslat] collision_avoidance basladi (komsular: $CA_KOMSULAR," \
+                 "d0=${KACINMA_D0:-6.0} hard=${KACINMA_HARD:-4.0}," \
+                 "basit_kacinma KAPALI)"
         fi
     fi
 

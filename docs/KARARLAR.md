@@ -1,6 +1,6 @@
 # KARARLAR — verilmiş ama henüz uygulanmamış kararlar
 
-**Son güncelleme:** 19 Ağustos 2026, 00:12
+**Son güncelleme:** 20 Ağustos 2026, 17:05
 
 Sohbette verilen kararlar oturum bitince kayboluyor. Bu defter onları
 tutuyor: **ne karar verildi, neden, ne zaman uygulanacak, nasıl test edilecek.**
@@ -36,9 +36,10 @@ sırası gelince" denilen şeyleri. Onlar en kolay kaybolanlar.
 
 # KARAR-01 — Çarpışma önleme: Seçenek C
 
-**Durum:** 🟡 BEKLİYOR
+**Durum:** 🟢 **KOD HAZIR** — adaptör yazıldı ve test edildi (20 Ağustos 2026);
+devreye alma `SURU_ENTEGRASYON.md` **AŞAMA 1B**'de, `basit_kacinma` kapatılarak
 **Ne zaman:** `SURU_ENTEGRASYON.md` **AŞAMA 1B**
-**Karar veren:** Operatör (15 Ağustos 2026)
+**Karar veren:** Operatör (15 Ağustos 2026; eşikler 20 Ağustos'ta revize edildi)
 
 ## Karar
 
@@ -72,51 +73,100 @@ bir bedel değil.
 **zaten var** — `NeighborInfo`'nun taşıdığı bilgi ham veride mevcut. Fusion'ın
 tek kattığı yumuşatma, o da gecikme.
 
+### 🔴 15 Ağustos 21:30 — ölçüldü: bu bir tercih değil, ÖN KOŞUL
+
+Yukarıdaki tablo seçimi *"`basit_kacinma` daha zayıf"* diye çerçeveliyor.
+Ölçüm bundan sert: **sürü zincirinde `basit_kacinma` hiçbir şey yapmıyor.**
+
+| Ölçüm | Yer |
+|-------|-----|
+| `basit_kacinma` gövdesi `if self._kendi is not None and msg.position_valid:` ile başlıyor | `basit_kacinma_node.py:302` |
+| `formation_node` `position_valid=False` gönderiyor (tasarım: "C MODU: SAF HIZ-TABANLI") | `formation_node.py:928` |
+| `collision_avoidance` girdiyi `if raw.velocity_valid` ile alıyor | `collision_avoidance_node.py:285` |
+
+Yani kapı hiç açılmıyor: düğüm `cik = msg` ile mesajı aynen geçiriyor.
+İki uçakla formasyona `basit_kacinma` ile çıkılırsa **koruma katmanı sıfırdır**
+ve log yine "basit_kacinma basladi" yazar — yanıltıcı olan tam bu.
+
+İkisi rakip değil, **farklı zincirlere göre yazılmışlar**: `basit_kacinma`
+pozisyon-goto yoluna (kanıtlanmış zincir), `collision_avoidance` hız yoluna
+(sürü zinciri). Sürü zinciri açılırken adaptör + geçiş **isteğe bağlı değil**.
+
+**Tek uçakta fark yok** — komşu yokken ikisi de geçirgen (`taze` boş → itme 0;
+`obstacles` boş → risk yok → `_relay`). Bu yüzden tek drone testleri
+`basit_kacinma` ile yapılabilir; sınır **iki uçak havalanınca** başlıyor.
+
 ## Nasıl uygulanacak
 
-1. **Adaptör** (~20 satır): `AgentStatus` → `NeighborObs`
-   (`rel_x/rel_y/rel_z`, `rel_vx/rel_vy/rel_vz`, `distance`).
-   `collision_avoidance_node`'un komşu aboneliği
-   `/swarm/agent/drone{ben}/neighbor/drone{N}` yerine
-   `/swarm/public/drone{N}/status`'a bağlanır.
-2. `basit_kacinma` **kapatılır** (aynı yuva — ikisi birden koşamaz).
-3. Parametreler ayarlanır (aşağı).
+1. ✅ **Adaptör YAZILDI** (15 Ağustos, `saha`'ya alındı 20 Ağustos) —
+   `swarm_core/collision_avoidance/komsu_adaptoru.py`.
+   `collision_avoidance_node`'un komşu aboneliği artık
+   `/swarm/public/drone{N}/status` (BEST_EFFORT, mesh kaynağı).
+   `neighbor_stale_ms` parametresi kaldırıldı (`AgentStatus`ta `data_age_ms`
+   yok; tazelik ölçüsü tek: mesajın bize **ulaştığı** an).
+2. ⬜ `basit_kacinma` **kapatılır** (aynı yuva — ikisi birden koşamaz).
+   `/ws/kacinma` silinip `ca` anahtarı açılacak. **Henüz yapılmadı.**
+3. ✅ **Parametreler bağlandı** — `ucus_ayarlari.py` tek kaynak,
+   `baslat.sh` hem `basit_kacinma`'yı hem `collision_avoidance`'ı oradan
+   besliyor.
+
+### ✅ Test 1 (yerde, işaret yönü) — GEÇTİ, uçuş gerekmedi
+
+`src/swarm_core/test/test_komsu_adaptoru.py`, **10/10**.
+Adaptör `TYPE_CHECKING` importuyla ROS'suz yüklenebilir yazıldı, böylece
+**yön doğrulaması dizüstünde** koşuyor. Ters işaret uçağı komşusunun üstüne
+gönderir; bunu ilk kez havada görmek kabul edilebilir değil.
+
+Kilitlenen davranışlar: `rel = komşu − ben` · itme komşudan uzağa ·
+d0 dışında itme yok · yaklaşan komşuya duran komşudan **sert** tepki ·
+origin ayrışıksa lat/lon yolu doğru cevabı veriyor (pos_x 100 m yanıltıcı
+olsa bile) · çerçeve yoksa komşu atlanıyor · `v_xy_valid` düşükse hız 0
+alınıp sert kabuk çalışmaya devam ediyor.
 
 ## 🔴 Parametreler — operatör talimatı
 
 **Önce güvenli mesafeden başla, sonra kıs.**
 
-| Parametre | `collision_avoidance` varsayılanı | **Başlangıç değeri** |
-|-----------|-----------------------------------|----------------------|
-| `d0_m` (itme başlar) | 4.5 | **8.0** |
-| `hard_m` (doyum) | 2.0 | **4.0** |
+| Parametre | `collision_avoidance` varsayılanı | 15 Ağu | **YÜRÜRLÜKTEKİ (20 Ağu)** |
+|-----------|-----------------------------------|--------|---------------------------|
+| `d0_m` (itme başlar) | 4.5 | 8.0 | **6.0** |
+| `hard_m` (doyum) | 2.0 | 4.0 | **4.0** |
 
 Varsayılan 4.5 m bizim geometrimize göre **çok dar** — `MIN_AYRIM_M` zaten
 4.0.
 
-> 🔴 **DÜZELTME (18 Ağustos 2026):** yukarıdaki tabloda "sahada 8.0/4.0"
-> yazıyordu, **yanlış**. `baslat.sh:412` sahada `d0_m=6.0`, `hard_m=3.0`
-> geçiyor (`KACINMA_D0` / `KACINMA_HARD` env'leri hiçbir yerde üretilmiyor,
-> varsayılanlar geçerli). Bu kararın "d0=8.0 ile başla" gerekçesi yanlış bir
-> ölçüme dayanıyordu.
+> ### ✅ 8.0 mı 6.0 mı — KARARA BAĞLANDI (20 Ağustos 2026, operatör)
 >
-> İyi tarafı: **6.0 daha güvenli.** Aşağıdaki uyarıda 8.41 m'lik planlı
-> yaklaşmayla 8.0 arasında yalnız 0.49 m pay kaldığı yazıyor; 6.0 ile pay
-> **2.41 m**. Yani kaçınma normal formasyon geçişlerinde tetiklenmiyor.
-> 1B'ye gelince `collision_avoidance` için başlangıç değeri **6.0/3.0**
-> olmalı, 8.0/4.0 değil.
+> 15 Ağustos'ta `d0=8.0 / hard=4.0` seçilmişti; 18 Ağustos'ta bu `6.0/3.0`
+> diye düzeltilmişti. **İkisi de ayrı bir arıza biçiminde haklıydı** ve
+> tartışma bu yüzden kapanmıyordu:
+>
+> | Arıza biçimi | Nerede çıkar |
+> |---|---|
+> | `hard` < `MIN_AYRIM_M` | Koruma **geç** — tam kuvvet, kabul edilen sınır zaten aşıldıktan sonra başlıyor |
+> | `d0` ≈ formasyon yaklaşması | Koruma **fazla** — normal formasyon geçişinde tetikleniyor, formasyonla çekişiyor |
+>
+> Çözüm ikisini ayırmak: `hard`'ı sınıra, `d0`'ı formasyona göre seç.
+>
+> ```
+> hard = MIN_AYRIM_M       = 4.0 m   -> tam kuvvet TAM SINIRDA
+> d0   = 1.5 x MIN_AYRIM_M = 6.0 m   -> 8.49 m yaklasmaya 2.49 m pay
+> ```
+>
+> **Bedeli:** rampa 4.0 m yerine **2.0 m** (3 m/s'te 1.33 s yerine 0.67 s).
+> Dar ama yeterli. Türetme `ucus_ayarlari.py`'de, `baslat.sh` `--kabuk`
+> çıktısından besleniyor — değer **tek yerde**.
+>
+> ⚠️ 18 Ağustos notundaki "8.41 m" rakamı bugün **8.49 m**
+> (`ucus_ayarlari.py` denetimi); sonucu değiştirmiyor.
 
-> ⚠️ **Dikkat — d0 ile formasyon geometrisi çakışabilir.**
-> Aralık 12 m'de planlanan **en yakın yaklaşma 8.41 m**. `d0 = 8.0` bunun
-> hemen altında, yani pay **0.49 m**. Gerçek uçuşta yarım metre sapma olursa
-> kaçınma **normal formasyon geçişinde** devreye girer ve formasyonla
-> çekişir.
->
-> Bu bir hata değil, bilinmesi gereken bir denge. İlk uçuşta kayıttan
-> **kaçınmanın ne zaman tetiklendiğine** bak:
-> - Yalnız gerçek yakınlaşmalarda tetikleniyorsa → 8.0 doğru
-> - Her formasyon geçişinde tetikleniyorsa → `d0` 7.0'a indirilir ya da
+> ⚠️ **İlk iki uçaklı uçuşta ÖLÇÜLECEK.**
+> Kayıttan kaçınmanın **ne zaman tetiklendiğine** bak:
+> - Yalnız gerçek yakınlaşmalarda tetikleniyorsa → 6.0 doğru
+> - Her formasyon geçişinde tetikleniyorsa → `d0` 5.0'a indirilir ya da
 >   `ARALIK_M` büyütülür
+> - Hiç tetiklenmiyor ve yakınlaşma oluyorsa → 2.0 m'lik rampa dar kalmış,
+>   `d0` 7.0'a çıkarılır (o zaman `ARALIK_M` de büyümeli)
 
 ## 🔴 Test — zorunlu, atlanmayacak
 

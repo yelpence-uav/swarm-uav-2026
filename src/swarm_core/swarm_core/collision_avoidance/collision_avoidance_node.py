@@ -16,10 +16,13 @@ from swarm_interfaces.msg import (
     AgentSetpoint,
     AgentStatus,
     FormationCommand,
-    NeighborInfo,
 )
 
 from .ca_core import CaParams, CollisionAvoidanceCore, NeighborObs
+# KARAR-01 Secenek C: komsu verisi NeighborInfo/kinematic_fusion yerine ham
+# AgentStatus'tan geliyor. NeighborInfo importu BILEREK kaldirildi — dursaydi
+# "hangi kaynak kullaniliyor" sorusu koda bakinca belirsiz kalirdi.
+from .komsu_adaptoru import agent_status_to_obs
 
 _AVOIDANCE_DISI_STATELER = frozenset({
     AgentStatus.STATE_DETACHED,
@@ -59,8 +62,12 @@ class CollisionAvoidanceNode(Node):
         self._cur_vy = 0.0
         self._cur_vz = 0.0
         self._pos_ok = False
+        # Kendi TAM durumum. Adaptor goreli vektoru hesaplarken kendi
+        # lat/lon ve pos_x/pos_y'ime ihtiyac duyuyor; NeighborInfo yolunda
+        # bu is kinematic_fusion'da yapildigi icin burada saklanmiyordu.
+        self._ben: AgentStatus | None = None
 
-        self._neighbors: dict[int, NeighborInfo] = {}
+        self._neighbors: dict[int, AgentStatus] = {}
         self._neighbor_rx: dict[int, float] = {}
         self._neighbor_subs = {}
 
@@ -70,6 +77,10 @@ class CollisionAvoidanceNode(Node):
         self._n_avoid = 0
         self._n_skip_state = 0
         self._n_skip_stale = 0
+        # Adaptorun atlama nedenleri (gecersiz/cerceve/sayisal). Kacinma
+        # tetiklenmediginde "veri mi yoktu, cerceve mi tutmadi" sorusu
+        # tahminle degil sayacla cevaplansin.
+        self._n_skip_adaptor: dict[str, int] = {}
         self._n_gate_alt = 0
         self._last_active_log = 0.0
 
@@ -106,7 +117,11 @@ class CollisionAvoidanceNode(Node):
         self.declare_parameter('neighbor_ids', [0])
         self.declare_parameter('publish_rate_hz', 20.0)
         self.declare_parameter('raw_timeout_s', 0.5)
-        self.declare_parameter('neighbor_stale_ms', 500)
+        # NOT: 'neighbor_stale_ms' KALDIRILDI (KARAR-01 Secenek C). Gonderenin
+        # kendi beyan ettigi yasa (NeighborInfo.data_age_ms) bakiyordu; ham
+        # AgentStatus'ta oyle bir alan yok. Tazelik olcusu artik tek:
+        # mesajin bize ULASTIGI an -> neighbor_rx_stale_s. Kullanilmayan bir
+        # parametreyi tanimli birakmak "ayarladim ama bir sey olmadi" tuzagi.
         self.declare_parameter('neighbor_rx_stale_s', 0.5)
         self.declare_parameter('altitude_gate_m', 3.0)
         self.declare_parameter('d0_m', 4.5)
@@ -129,7 +144,6 @@ class CollisionAvoidanceNode(Node):
         ]
         self._publish_rate_hz = float(gp('publish_rate_hz').value)
         self._raw_timeout_s = float(gp('raw_timeout_s').value)
-        self._neighbor_stale_ms = int(gp('neighbor_stale_ms').value)
         self._neighbor_rx_stale_s = float(gp('neighbor_rx_stale_s').value)
         self._altitude_gate_m = float(gp('altitude_gate_m').value)
         self._d0_m = float(gp('d0_m').value)
@@ -189,16 +203,21 @@ class CollisionAvoidanceNode(Node):
             nid = int(nid)
             if nid == self._agent_id or nid <= 0 or nid in self._neighbor_subs:
                 continue
-            topic = (
-                f'/swarm/agent/drone{self._agent_id}/neighbor/drone{nid}'
-            )
+            # KARAR-01 Secenek C: kaynak /swarm/agent/.../neighbor/... yerine
+            # mesh'ten gelen HAM durum. Bu topic'i esp32_bridge besliyor ve
+            # _MESH_QOS ile, yani BEST_EFFORT yayinliyor — abone de BEST_EFFORT
+            # olmak ZORUNDA. RELIABLE abone + BEST_EFFORT yayinci ESLESMEZ ve
+            # konu SESSIZCE bos kalir; bu depoda ayni tuzaga birkac kez dusuldu.
+            topic = f'/swarm/public/drone{nid}/status'
             self._neighbor_subs[nid] = self.create_subscription(
-                NeighborInfo,
+                AgentStatus,
                 topic,
                 lambda m, n=nid: self._on_neighbor(n, m),
                 _BEST_EFFORT_QOS,
             )
-            self.get_logger().info(f'NeighborInfo aboneliği: drone{nid}')
+            # Eski satir 'NeighborInfo aboneligi: droneN' yaziyordu — kaynak
+            # degistigi icin YANILTICI oldu, gercek topic basiliyor.
+            self.get_logger().info(f'komsu abonesi: {topic}')
 
     def _on_raw_setpoint(self, msg: AgentSetpoint) -> None:
         self._raw = msg
@@ -210,40 +229,45 @@ class CollisionAvoidanceNode(Node):
         self._cur_vy = float(msg.vel_y)
         self._cur_vz = float(msg.vel_z)
         self._pos_ok = bool(msg.xy_valid and msg.z_valid)
+        self._ben = msg
 
     def _on_formation_command(self, msg: FormationCommand) -> None:
         self._ensure_neighbor_subs(msg.agent_ids)
 
-    def _on_neighbor(self, nid: int, msg: NeighborInfo) -> None:
+    def _on_neighbor(self, nid: int, msg: AgentStatus) -> None:
         self._neighbors[nid] = msg
         self._neighbor_rx[nid] = self.get_clock().now().nanoseconds * 1e-9
 
     def _gather_obstacles(self, now: float) -> list[NeighborObs]:
-        """Geçerli komşulardan gözlem listesi toplar."""
+        """Geçerli komşulardan gözlem listesi toplar.
+
+        KARAR-01 Secenek C: girdi ham `AgentStatus`. `NeighborInfo`nun
+        `link_active` ve `data_age_ms` alanlari burada YOK — tazelik olcusu
+        tek: mesajin bize ULASTIGI an (`_neighbor_rx`). Bu daha durustur,
+        cunku gonderenin kendi yas beyanina degil kendi olcumumuze dayanir.
+        """
         obs: list[NeighborObs] = []
-        for nid, info in self._neighbors.items():
-            if not info.link_active:
-                self._n_skip_stale += 1
-                continue
-            if info.data_age_ms > self._neighbor_stale_ms:
-                self._n_skip_stale += 1
-                continue
+        if self._ben is None:
+            # Kendi durumum gelmeden goreli hesap yapilamaz. Bu bir hata
+            # degil, acilis anindaki normal durum.
+            return obs
+
+        for nid, st in self._neighbors.items():
             rx = self._neighbor_rx.get(nid, 0.0)
             if now - rx > self._neighbor_rx_stale_s:
                 self._n_skip_stale += 1
                 continue
-            if info.neighbor_state in _AVOIDANCE_DISI_STATELER:
+            if st.state in _AVOIDANCE_DISI_STATELER:
                 self._n_skip_state += 1
                 continue
-            obs.append(NeighborObs(
-                rel_x=float(info.relative_x),
-                rel_y=float(info.relative_y),
-                rel_z=float(info.relative_z),
-                rel_vx=float(info.relative_vx),
-                rel_vy=float(info.relative_vy),
-                rel_vz=float(info.relative_vz),
-                distance=float(info.distance_m),
-            ))
+
+            gozlem, neden = agent_status_to_obs(st, self._ben)
+            if gozlem is None:
+                self._n_skip_adaptor[neden] = (
+                    self._n_skip_adaptor.get(neden, 0) + 1
+                )
+                continue
+            obs.append(gozlem)
         return obs
 
     def _tick(self) -> None:
@@ -331,7 +355,10 @@ class CollisionAvoidanceNode(Node):
                 f'gate_alt={self._n_gate_alt} '
                 f'skip_state={self._n_skip_state} '
                 f'skip_stale={self._n_skip_stale} '
-                f'komsu_sub={len(self._neighbor_subs)}'
+                f'skip_adaptor={self._n_skip_adaptor or "-"} '
+                f'komsu_veri={len(self._neighbors)}/'
+                f'{len(self._neighbor_subs)} '
+                f'ben={"var" if self._ben is not None else "YOK"}'
             )
         except Exception as e:  # noqa: BLE001
             self.get_logger().error(f'tani log hata: {e}')
