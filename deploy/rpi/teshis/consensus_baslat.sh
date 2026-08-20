@@ -31,7 +31,12 @@ if [ "$VAR" = 1 ]; then
 fi
 
 LOG="/ws/gunluk/son/consensus.log"
+# battery_min_v:=0.0 SART (21 Agustos'ta olculdu): parametresiz varsayilan
+# 14.0, ama px4_bridge PX4 pil bildirmeyince 12.6 V SAHTESI basiyor ->
+# 12.6 < 14.0 -> HERKES aday disi, sifir secim, sifir hata. baslat.sh:748
+# ile birebir ayni parametreler kullanilmali.
 setsid ros2 run swarm_core consensus_node --ros-args -p agent_id:="${AID}" \
+    -p agent_count:=3 -p battery_min_v:=0.0 \
     > "$LOG" 2>&1 < /dev/null &
 echo "   consensus_node baslatildi (agent_id=$AID), log: $LOG"
 sleep 6

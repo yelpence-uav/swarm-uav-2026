@@ -34,7 +34,12 @@ for p in $(ls /proc | grep -E '^[0-9]+$'); do
 done
 sleep 3
 ISARET=$(wc -l < "$LOG")
+# battery_min_v:=0.0 SART (21 Agustos'ta olculdu): parametresiz varsayilan
+# 14.0, ama px4_bridge PX4 pil bildirmeyince 12.6 V SAHTESI basiyor ->
+# 12.6 < 14.0 -> HERKES aday disi, sifir secim, sifir hata. baslat.sh:748
+# ile birebir ayni parametreler kullanilmali.
 setsid ros2 run swarm_core consensus_node --ros-args -p agent_id:="${AID}" \
+    -p agent_count:=3 -p battery_min_v:=0.0 \
     >> "$LOG" 2>&1 < /dev/null &
 sleep 8
 grep "incarnation=" "$LOG" | tail -1 | sed 's/^/      /'

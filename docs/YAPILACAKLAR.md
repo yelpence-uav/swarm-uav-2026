@@ -1,6 +1,6 @@
 # YAPILACAKLAR
 
-**Son güncelleme:** 20 Ağustos 2026, 23:45
+**Son güncelleme:** 21 Ağustos 2026, 01:15
 
 ## Önem dereceleri
 
@@ -206,12 +206,20 @@ kalır** ve kimse yeni seçim yapmaz.
   `test_durum_bayatligi.py` (6). Bozulmaması gerekenler de kilitli: taze kalp
   atışında lider düşmüyor · aday değilsek karışmıyoruz · kendimiz liderken dal
   çalışmıyor · yerdeki lider düşürülmüyor · eşik altında healthy korunuyor.
-- `[ ]` 🟠 **YER TESTİ:** iki uçak ARM → lider seçilsin → **liderin
-  `consensus_node`'unu öldür** (uçak ayakta kalsın) → takipçi **~1 sn içinde**
-  yeni seçim yapmalı. Eskiden hiç yapmıyordu.
-- `[ ]` 🟡 **İki eşik de sahada ölçülmedi.** İlk iki uçaklı uçuşta kayıttan
-  gerçek kalp atışı ve DURUM boşluk dağılımına bak; en büyük boşluğun ~2 katı
-  doğru eşiktir.
+- `[x]` 🟠 **YER TESTİ GEÇTİ (21 Ağustos 00:59, iki uçak, gerçek arm).**
+  Araç: `deploy/rpi/teshis/lider_kaybi_test.sh` + `lider_kaybi_izle.py`
+  (ölçüm tek uçağın tek saatinde — SSH/ağ gecikmesi ölçüme giremez).
+
+  Zincir: görev olayı → FSM gerçek ARMED → `Lider: 3 -> 1` → liderin
+  consensus'u `kill -9` → takipçi **1.063 sn** sonra kendini seçti
+  (`Lider: 1 -> 3`, sebep=LEADER_FAULT) → ilk kalp atışı **+6 ms**.
+  Bonus kanıtlar: inişle uygunluğunu yitiren lider liderliği BIRAKTI
+  (P0.12 canlı) ve incarnation sıfırlama doğru işledi. Eskiden bu yol
+  hiç çalışmıyordu.
+- `[~]` 🟡 **Eşiklerin yarısı ölçüldü.** Kalp atışı boşlukları (bench,
+  uçaklar yan yana, 61 atış): ortanca 101 ms · p90 104 ms · **maks 301 ms**
+  → 1000 ms eşik en büyük görülen boşluğun **3.3 katı**. Uçuşta ve mesafede
+  yeniden ölçülecek; DURUM bayatlığı (5 sn) hâlâ ölçülmedi.
 
 ### 🟠 P0.13 Uçaklar ağdan önce kalkınca ROS yığını sakat kalıyor — İKİ DÜZELTME YAPILDI (20 Ağustos)
 
@@ -757,6 +765,31 @@ Tam analiz: `PLAN.md` §7.
 ---
 
 ## 🟠 P1 — ACİL
+
+### 🟠 P1.13 PX4 pil telemetrisi YOK ve px4_bridge bunu 12.6 V SAHTESİYLE ÖRTÜYOR
+
+Ölçüldü (21 Ağustos 01:05, bench, iki uçakta birebir aynı):
+
+```
+/mavros/battery         voltage: 65.535   percentage: -0.01   <- PX4: "BILMIYORUM"
+AgentStatus             battery_voltage_v: 12.6  battery_percent: 100  <- SAHTE
+```
+
+`65.535` = UINT16_MAX/1000, MAVLink'in "geçersiz" göstergesi. PX4 pili
+**hiç ölçmüyor** — bu, PX4'ün kendi **düşük pil failsafe'inin de çalışmadığı**
+anlamına gelir. Üstüne `px4_bridge.py:546` sim döneminden kalma bir davranışla
+`percent<=0` görünce **12.6 V / %100 uyduruyor**; YKİ ve sürü katmanı pili
+dolu sanıyor.
+
+Zincirin ölçülmüş bir zararı bugün yaşandı: consensus varsayılan
+`battery_min_v=14.0` ile açılınca sahte 12.6 herkesi aday dışı bıraktı —
+sıfır seçim, sıfır hata (koşu 2). Betikler düzeltildi ama kök iki sorun duruyor:
+
+- `[ ]` 🟠 PX4 pil ölçümü neden yok? `BAT1_*` parametreleri + güç modülü
+  ölçülecek. Uçuş kanıtında pil GÖRÜNÜYOR muydu, QGC kayıtlarına bakılmalı.
+- `[ ]` 🟠 `px4_bridge.py:546` sahtesi kaldırılmalı — bilinmeyen pil
+  "bilinmiyor" olarak akmalı, "dolu" olarak değil. Uçuş yolu kodu: değişiklik
+  ölçülerek ve ayrı uçuş öncesi testle.
 
 ### 🟠 P1.11 `mcap` kurtarma aracı depoda YOK — eksikliği hata vermiyor
 

@@ -1,6 +1,6 @@
 # TUZAKLAR — hata vermeden yanlış sonuç üretenler
 
-**Son güncelleme:** 20 Ağustos 2026, 23:05
+**Son güncelleme:** 21 Ağustos 2026, 01:20
 
 > **Bu belge CANLI.** Arşiv değil — buradaki her madde **bugün de geçerli.**
 >
@@ -556,6 +556,30 @@ ayarlarına (`--max-bag-duration 30`) hiç dokunmadan.
 
 ---
 
+### 1.20 Bench'te AgentStatus pili HEP "12.6 V / %100" der — SAHTE
+
+Ölçüldü (21 Ağustos, iki uçakta birebir aynı):
+
+```
+/mavros/battery      voltage: 65.535  percentage: -0.01   <- PX4: "bilmiyorum"
+AgentStatus          battery_voltage_v: 12.600000381...   <- uydurma sabit
+```
+
+`65.535` = UINT16_MAX/1000, MAVLink'in "geçersiz" değeri. `px4_bridge.py:546`
+sim döneminden kalma bir davranışla `percent<=0` görünce **12.6 V / %100
+basıyor.** İki uçağın da bire bir aynı float'ı göstermesi tek ipucuydu.
+
+**Isırdığı yer (ölçüldü):** consensus varsayılan `battery_min_v=14.0` ile
+elle başlatılınca sahte 12.6 < 14.0 → **iki uçak da aday dışı** → sıfır
+seçim, sıfır hata, sıfır log. Teşhis betikleri bu yüzden consensus'u
+`baslat.sh:748` ile **birebir aynı parametrelerle** başlatmak zorunda
+(`agent_count:=3 battery_min_v:=0.0`) — üçü de düzeltildi.
+
+Kök sorunlar `YAPILACAKLAR.md` P1.13'te: PX4 pili neden ölçmüyor (failsafe
+de yok demek) + sahtenin kaldırılması.
+
+---
+
 ## 2. ROS 2 / DDS / kabuk
 
 ### 2.1 QoS uyumsuzluğu SESSİZDİR — bu belgedeki en pahalı tek kural
@@ -721,6 +745,19 @@ mesh'e gitmeye başladı.
 > **Kural:** `/internal` → `/public` remap'i koymadan önce sor — o konuyu
 > mesh'e veren bir köprü var mı? Varsa remap onu devre dışı bırakır.
 *(15 Ağustos 2026)*
+
+### 2.13 Konteyner açılışından DAKİKALAR sonra bile `agent_fsm` UNKNOWN'da olabilir
+
+Ölçüldü (21 Ağustos): konteyner 00:33'te açıldı, 00:36'daki testte ylp00'un
+`agent_fsm`'i hâlâ `state=0` (UNKNOWN) yayınlıyordu ve ancak ~00:37'de
+IDLE'a geçti. UNKNOWN'dayken **görev olayı sessizce boşa gider**: arm yok,
+adaylık yok, hata yok — test "hiçbir şey olmadı" diye biter.
+
+Aynı anda öteki uçak (ylp02) çoktan hazırdı; yani "biri çalışıyorsa ikisi de
+hazırdır" varsayımı yanlış. Testten önce **kendi iç status'unda** `state=1`
++ `healthy=true` bekle — `lider_kaybi_test.sh`'taki hazırlık kapısı örnek.
+
+---
 
 ## 3. PX4 ve uçuş davranışı
 
@@ -992,6 +1029,8 @@ formasyonun `sequence_num`'ını dronlar arası karşılaştırmada kullanmamal�
 
 `KALKIS`'a eşlenir, karşı tarafta `STATE_TAKEOFF` olarak çözülür. İkisi de
 `ELIGIBLE_STATES` içinde olduğu için uygunluk korunur (split-brain yok).
+*(21 Ağustos'ta canlı doğrulandı: uçak kendine ARMED=3 derken komşu izinde
+state=4 göründü ve yarım saat "hata" diye kovalandı — önce buraya bak.)*
 **Yan etki:** komşular yerde armlı bir dronu `AIRBORNE_STATES` içinde görür;
 lider yerde armlı, takipçi havadaysa takipçi lideri "havada ama heartbeat
 yok" sayıp düşürür. Savunulabilir ama bilinmesi gerekir.
