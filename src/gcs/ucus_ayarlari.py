@@ -166,7 +166,7 @@ def frenleme_m(hiz_mps: float, ivme_mps2: float) -> float:
 # TEORI SIFIR DIYOR: yurutucu PX4'e hiz ileri-beslemesi veriyor, yani
 #     v = Kp x hata + v_ff   ve   v_ff = v   ->   hata = 0
 # Kalici halde kayma olmamali ve hizla BUYUMEMELI.
-# Ayrinti ve olcum plani: docs/NAVIGASYON_KAYMA.md
+# Ayrinti ve olcum sonuclari: docs/PLAN.md §9
 #
 # Bu sabit o olcum yapilana kadar GUVENLI TARAFTA kalmak icin duruyor;
 # ayrim payini gereginden genis tutuyor. Olcum sonrasi guncellenecek.
@@ -341,7 +341,7 @@ def denetle():
     # kayma geri gelir.
     #     seyir 3.0 / tavan 5.0  -> duzeltmeye 2.0 m/s pay   iyi
     #     seyir 5.0 / tavan 5.0  -> duzeltmeye 0 pay         kayma garanti
-    # Bkz. docs/NAVIGASYON_KAYMA.md adim 2. Bu yuzden UYARI degil HATA.
+    # Bkz. docs/PLAN.md §9 (doygunluk payi). Bu yuzden UYARI degil HATA.
     if PX4_HIZ_TAVANI_MPS < GOREV_HIZ_MPS * 1.5:
         hata.append(
             f'PX4 tavani ({PX4_HIZ_TAVANI_MPS}) gorev hizinin '

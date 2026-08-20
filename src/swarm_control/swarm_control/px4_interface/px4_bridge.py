@@ -282,7 +282,7 @@ class Px4BridgeNode(Node):
         #     oturma suresi     3.6  -> 2.1 s
         # Referans ucak kendi tabanini birebir tekrarladi (1.173/1.053 ->
         # 1.177/1.026), yani fark koddan geliyor. Ayrinti:
-        # docs/NAVIGASYON_KAYMA.md §ADIM 2.
+        # docs/PLAN.md §9.
         #
         # Geri almak icin tek satir: baslat.sh'te GUIDED_IVME_FF=0.0 ya da
         # canli `--yaz guided_ivme_ff=0.0`.
@@ -866,7 +866,7 @@ class Px4BridgeNode(Node):
         Tek cikis yolu baslat.sh'i degistirip konteyneri yeniden baslatmakti
         (~40 sn; MAVROS FCU el sikismasi, EKF oturmasi, RTK yeniden fix).
 
-        ASIL IHTIYAC: kayma olcumu (docs/NAVIGASYON_KAYMA.md Adim 1) ayni
+        ASIL IHTIYAC: kayma olcumu (docs/PLAN.md §9) ayni
         oturumda 2/3/4 m/s denemeyi gerektiriyor. Canli parametre olmadan her
         hiz icin ucagi indirip yigini yeniden baslatmak gerekirdi.
 

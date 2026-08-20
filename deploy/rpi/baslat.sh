@@ -309,7 +309,7 @@ GUIDED_KONUM_KP="${GUIDED_KONUM_KP:-0.95}"
 GUIDED_TELAFI_ORANI="${GUIDED_TELAFI_ORANI:-0.0}"
 # IVME ILERI-BESLEMESI (20 Agustos 2026): 1.0 acik, 0.0 kapali.
 # A/B ucusuyla olculdu — tepe gecici hata -60 %, varis asimi -61 %.
-# Geri almak icin GUIDED_IVME_FF=0.0 (docs/NAVIGASYON_KAYMA.md §ADIM 2).
+# Geri almak icin GUIDED_IVME_FF=0.0 (docs/PLAN.md §9).
 GUIDED_IVME_FF="${GUIDED_IVME_FF:-1.0}"
 ros2 run swarm_control px4_bridge --ros-args -p agent_id:=${AGENT_ID} \
     -p guided_hiz_yatay_mps:=${GUIDED_HIZ_YATAY} \
@@ -624,7 +624,7 @@ if [ -n "$SURU_DUGUMLERI" ]; then
     #         failures.append('Swarm origin senkronize degil')
     # diyor. Yani origin gelmeden IDLE -> ARMING OLMUYOR; ARMING olmadan
     # ARMED olmuyor; ARMED olmadan ajan ELIGIBLE_STATES'e girmiyor ve
-    # consensus HIC lider secemiyor. Bu dugum SURU_ENTEGRASYON.md'de
+    # consensus HIC lider secemiyor. Bu dugum docs/PLAN.md §8'de
     # ADIM 8'de yaziliydi — yanlisti, ADIM 1'in on kosulu.
     #
     # ⚠️ REMAP GECICI: dugum normalde /swarm/internal/origin'a yazar ve
@@ -700,7 +700,7 @@ if [ -n "$SURU_DUGUMLERI" ]; then
     # GOZLEM MODU — /ws/gozlem dosyasi varsa formation_node'un setpoint
     # ciktisi /gozlem/... a yonlendirilir ve UCAGA ULASMAZ.
     #
-    # Neden var (SURU_ENTEGRASYON.md §4): simulasyon kullanmiyoruz. Onun
+    # Neden var (docs/PLAN.md §5): simulasyon kullanmiyoruz. Onun
     # yerine dugum GERCEK telemetriyle GERCEK kararlar uretir ama cikisi
     # hicbir yere bagli degildir. Sonra kayittan "uretilen" ile "ucrulan"
     # karsilastirilir. G1 (yerde gozlem) ve G2 (havada gozlem) kademeleri

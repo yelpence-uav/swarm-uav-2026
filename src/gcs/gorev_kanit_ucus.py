@@ -2862,7 +2862,7 @@ def main() -> int:
                     metavar="M",
                     help="g2 senaryosunda ileri gidilecek mesafe (m). "
                          "Kayma olcumu icin >=40 m ister "
-                         "(docs/NAVIGASYON_KAYMA.md Adim 1).")
+                         "(docs/PLAN.md §9).")
     ap.add_argument("--irtifa", type=float, default=None,
                     help="--senaryo asili icin kalkis/asili irtifasi (m)")
     ap.add_argument("--kacinma", action="store_true",
@@ -2972,7 +2972,7 @@ def main() -> int:
         else:
             ASILI_IRTIFA_M = a.irtifa
     if a.mesafe is not None:
-        # Kayma olcumu icin uzun DUZ BACAK gerekiyor (NAVIGASYON_KAYMA Adim 1:
+        # Kayma olcumu icin uzun DUZ BACAK gerekiyor (docs/PLAN.md §9:
         # rampa + 4tau oturma + olcum penceresi). Tavan MAX_GOTO_M ile ayni
         # kelepcede: tek goto icin mesafe siniri zaten orada.
         if a.senaryo != "g2":

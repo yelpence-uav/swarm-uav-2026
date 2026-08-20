@@ -1,4 +1,4 @@
-"""Kayittan navigasyon kaymasi cikarir (NAVIGASYON_KAYMA Adim 1).
+"""Kayittan navigasyon kaymasi cikarir (docs/PLAN.md §9).
 
 setpoint_raw/local (nereye dedik) ile local_position/pose (nereye gitti)
 farkini bacak bacak cozer. Ikisi de ENU; yatay (x,y) farki aliniyor.

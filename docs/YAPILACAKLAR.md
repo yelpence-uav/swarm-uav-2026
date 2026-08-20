@@ -1,6 +1,6 @@
 # YAPILACAKLAR
 
-**Son güncelleme:** 20 Ağustos 2026, 18:25
+**Son güncelleme:** 20 Ağustos 2026, 18:45
 
 ## Önem dereceleri
 
@@ -226,6 +226,17 @@ ve bu, uçak formasyon düğümünün emrindeyken keşfedilirdi.
      artıyorsa UÇMA — TUZAKLAR §0.1)
   2. `yer_testi` bayraklarını SİL + `docker restart` (ikisinde de VAR)
   3. `./deploy/yki/param_karsilastir.py` (her uçuş öncesi standart)
+  3b. 🔴 **KURU TEST + HARİTA** (`CLAUDE.md` §9 madde 5 — atlanamaz):
+     ```bash
+     python3 src/gcs/gorev_kanit_ucus.py --kuru --harita \
+         --senaryo g2 --irtifa 10 --mesafe 30 --dronelar 1,3 --lider 3
+     ```
+     `SONUÇ: GEÇTİ` şart. `/tmp/yelpence_rota.html` **operatöre gösterilir** —
+     mavi noktalar iki uçağın **ineceği** yerler, o alanlar temiz olmalı.
+  3c. 🔴 **Bu uçuş hangi TEK soruyu cevaplıyor?** → *"Havada lider seçimi
+     kararlı mı, kalp atışı sürüyor mu?"* Cevap için **kalk – asılı dur – in**
+     yeterli olabilir; 30 m'lik bacak yalnız **kayma ölçümü de** isteniyorsa
+     eklenir. İki soruyu tek uçuşa bindirmek zorunlu değil (`PLAN.md` §5).
   4. İki kumandada "kapat → QGC SARI" kontrolü (RC-kayıp tespiti canlı mı)
   5. Baz anteni taşındıysa `rtk_baz_survey.py` (18 Ağu'dan beri cevapsız soru)
   6. Uçuş mesajına `ultracode` (KARAR-02) — **yapıldı, 20 Ağu 01:00:**

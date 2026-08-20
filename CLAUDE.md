@@ -1,6 +1,6 @@
 # Yelpençe — TEKNOFEST 2026 Sürü İHA
 
-**Son güncelleme:** 20 Ağustos 2026, 17:40
+**Son güncelleme:** 20 Ağustos 2026, 18:40
 
 > Bu dosyayı Claude Code her oturumda **kendiliğinden okur**. Yeni bir sohbet
 > açan kişinin hiçbir şey söylemesine gerek yok; buradan projeyi anlar.
@@ -190,11 +190,12 @@ Burada yalnız Claude'un sık kullandıkları:
 **Çelişki varsa:** canlı belge referans belgeyi yener, **kod ikisini de yener.**
 
 > 🔀 **20 Ağustos birleştirmesi:** `SURU_ENTEGRASYON.md` ve
-> `NAVIGASYON_KAYMA.md` artık **`PLAN.md`'nin içinde**. O adlarla iki
-> yönlendirme dosyası duruyor (kodda hâlâ atıf var); **oralara yazma.**
+> `NAVIGASYON_KAYMA.md` **SİLİNDİ** — içerikleri `PLAN.md`'nin içinde
+> (§6-§8 entegrasyon sırası, §9 navigasyon kayması). Kodda o adlara yapılan
+> atıflar da `PLAN.md`'ye çevrildi.
 >
-> ⚠️ `ARCHITECTURE.md` bu depoda **yok** — sim dönemine ait. Birisi ondan
-> bahsederse `PLAN.md`'ye yönlendir.
+> ⚠️ `ARCHITECTURE.md` bu depoda **yok** — sim dönemine ait. Birisi bu üç
+> addan birini ararsa `PLAN.md`'ye yönlendir.
 
 **Ekran görüntüsü**: `ss/` klasörüne at, sohbette söyle. Bkz. `ss/README.md`.
 
@@ -289,12 +290,33 @@ Kararı sessizce uygulama, ama her seferinde baştan da tartışma.
 **Yeni önemli karar çıkarsa oraya yaz** — özellikle *"şimdi değil, sırası
 gelince"* denilenleri. Kaybolması en kolay olanlar onlar.
 
-### Test: yeterince, fazlası değil
+### Test: en küçük yeterli manevra
 
-Canlıda test ediyoruz, o yüzden dikkatli olacağız — ama **abartmayacağız.**
-Her aşama için ~2-3 uçuş yeter. "Binlerce test" gerekmiyor.
-Ölçüt: bir sonraki adımın güvenli olduğunu gösterecek **en az** test.
-Test protokolü: `docs/PLAN.md` §5.
+Canlıda test ediyoruz. Ölçüt **bir sonraki adımın güvenli olduğunu gösterecek
+EN AZ test** — ne fazlası ne eksiği.
+
+**Uçuşu tasarlarken sıra:**
+
+1. *Bu uçuş hangi tek soruyu cevaplıyor?* — bir soru, bir uçuş
+2. *Yerde cevaplanabilir mi?* — cevaplanabiliyorsa **uçulmaz** (G0/G1)
+3. *En kısa hangi manevra cevaplar?* — o uçulur
+
+| Soru | Yeten manevra |
+|---|---|
+| Düğüm açılıyor mu, mantıklı değer üretiyor mu | **Uçuş yok** — G0/G1 yerde |
+| Havada ne üretiyor (komuta bağlı değil) | **Kalk – asılı dur – in** |
+| Setpoint takibi, kayma, aşım | **Tek düz bacak, git-gel** |
+| Formasyon doğru mu | **Tek formasyon**, tek geçiş |
+| Lider seçimi/devri | **Kalk – asılı dur**, kill ile devret |
+
+**Uzun uçuş kendi başına bir değer değil, kendi başına bir risktir.** Her ek
+bacak yeni bir arıza yüzeyi açar ve pil yakar. *"Madem havadayız, şunu da
+deneyelim"* **yasak** — o bir sonraki uçuşun işi.
+
+Aynı uçuşta **iki değişiklik denenmez.**
+
+Kademeler ve gözlem modu: `docs/PLAN.md` §5.
+🔴 Uçuş öncesi zorunlu sekiz madde: **§9**.
 
 ## 8. Uçuş ayarları tek yerden
 
@@ -367,15 +389,53 @@ değil. Operatör değişse de, acele olsa da, hava kararıyor olsa da geçerli.
 
 **Claude'un yapmak ZORUNDA olduğu — her uçuştan önce, istisnasız:**
 
-4. **Kuru test.** `--kuru` geçmeden uçulmaz. Atlanamaz, "bu sefer küçük bir
-   test" diye geçilemez.
-5. **Uçakla ilgili her türlü ön testi yap.** Gerekiyorsa operatörden
+4. 🔴 **EN KÜÇÜK YETERLİ TEST.** Bir düğümü sınamak için **soruyu cevaplayan
+   en kısa manevra** uçulur. Basit bir git-gel yetiyorsa git-gel uçulur. Tek
+   bir formasyon yetiyorsa tek formasyon uçulur.
+
+   > **Uzun uçuş kendi başına bir değer değil, kendi başına bir risktir.**
+   > Her ek bacak, her ek manevra yeni bir arıza yüzeyi açar ve pil yakar.
+   > "Madem havadayız, şunu da deneyelim" **yasak** — o "şu" bir sonraki
+   > uçuşun işidir.
+
+   Uçuştan önce Claude şu iki soruyu **yazılı** cevaplar:
+   - *Bu uçuş hangi tek soruyu cevaplıyor?*
+   - *Bu soruyu cevaplayan daha kısa bir manevra var mı?* Varsa **o uçulur.**
+
+   Aynı uçuşta **iki değişiklik denenmez** — bir şey ters giderse hangisi
+   olduğu bilinmeli.
+
+5. 🔴 **KURU TEST + HARİTA.** İkisi birlikte, **tek komutta**, istisnasız:
+
+   ```bash
+   python3 src/gcs/gorev_kanit_ucus.py --kuru --harita \
+       --senaryo <senaryo> --dronelar 1,3 --lider 3
+   ```
+
+   `--kuru` planı kurar, çarpışma denetimi yapar, **hiçbir komut göndermez**;
+   `SONUÇ: GEÇTİ` demezse **uçulmaz.**
+
+   `--harita` uydu görüntüsü üzerine `/tmp/yelpence_rota.html` yazar:
+   **yeşil** = sürü merkezinin geçtiği noktalar · **mavi** = her drone'un
+   kendi son hedefi, yani **inecekleri yer**.
+
+   > 🔴 **Harita operatöre GÖSTERİLİR ve operatör gözüyle doğrular.** Bu adım
+   > devredilemez — kod bina, ağaç, tel, araç **göremez**; harita elimizdeki
+   > **tek engel kontrolüdür.** Claude "harita üretildi" deyip geçemez;
+   > operatörün baktığını teyit etmeden uçuş başlamaz.
+
+6. **Uçakla ilgili her türlü ön testi yap.** Gerekiyorsa operatörden
    kumandayı açmasını iste — istemek yük değil, görev.
-6. **Rotayı doğru tahmin et.** Uçağın izleyeceği yolu Claude **kesinlikle**
+7. **Rotayı doğru tahmin et.** Uçağın izleyeceği yolu Claude **kesinlikle**
    doğru bilmek zorunda. "Sanırım şuraya gider" kabul edilemez; belirsizlik
    varsa uçulmaz, önce ölçülür.
-7. **İrtifadan önce yatay hareket YOK.** Uçak hedef irtifaya ulaşmadan yatay
+8. **İrtifadan önce yatay hareket YOK.** Uçak hedef irtifaya ulaşmadan yatay
    hareket komutu verilmez.
+
+> ### ⛔ Bu sekiz madde tamamlanmadan uçuş BAŞLAMAZ
+>
+> Acele olsa da, hava kararıyor olsa da, "küçük bir test" olsa da geçerli.
+> Biri atlanıyorsa Claude **uçuşu durdurur** ve nedenini söyler.
 
 ### Diğerleri
 

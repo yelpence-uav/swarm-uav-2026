@@ -1,14 +1,14 @@
 # PLAN — buradan finale
 
-**Son güncelleme:** 20 Ağustos 2026, 17:40
+**Son güncelleme:** 20 Ağustos 2026, 18:40
 
 Bu belge **tüm takımın ortak resmi** ve sürü entegrasyonunun **teknik yol
 haritası**. Yeni gelen biri bunu okuyup işe başlayabilir.
 
-> 20 Ağustos'ta `SURU_ENTEGRASYON.md` ve `NAVIGASYON_KAYMA.md` buraya
-> katıldı. Üçü aynı soruyu üç ayrı yerden cevaplıyordu (nereye gidiyoruz,
+> 20 Ağustos'ta `SURU_ENTEGRASYON.md` ve `NAVIGASYON_KAYMA.md` buraya katılıp
+> **silindi.** Üçü aynı soruyu üç ayrı yerden cevaplıyordu (nereye gidiyoruz,
 > nasıl test ediyoruz, hangi düğüm ne zaman) ve gözlem modu merdiveni
-> **üç kez** anlatılıyordu.
+> **üç kez** anlatılıyordu — biri bu belgenin kendi içinde, iki kez.
 
 ---
 
@@ -166,14 +166,55 @@ doğru davranıyor" arasındaki farkın uçakla ödenmesi oldu.
 İlk kullanımında değerini kanıtladı: `formation_node` yerdeki uçak için
 `vz = 1.51 m/s` üretti — gözlem modu olmasaydı bu bir tırmanma komutuydu.
 
-**Her aşama için ~2-3 uçuş yeter.** Ölçüt: bir sonraki adımın güvenli
-olduğunu gösterecek **en az** test.
+### 🔴 En küçük yeterli manevra
+
+Ölçüt **bir sonraki adımın güvenli olduğunu gösterecek EN AZ test.**
+
+Uçuşu tasarlarken sıra: ① *Bu uçuş hangi tek soruyu cevaplıyor?*
+② *Yerde cevaplanabilir mi?* — cevaplanabiliyorsa **uçulmaz.**
+③ *En kısa hangi manevra cevaplar?* — **o uçulur.**
+
+| Soru | Yeten manevra |
+|---|---|
+| Düğüm açılıyor mu, mantıklı değer üretiyor mu | **Uçuş yok** — G0/G1 yerde |
+| Havada ne üretiyor (komuta bağlı değil) | **Kalk – asılı dur – in** |
+| Setpoint takibi, kayma, aşım | **Tek düz bacak, git-gel** |
+| Formasyon doğru mu | **Tek formasyon**, tek geçiş |
+| Lider seçimi / arıza devri | **Kalk – asılı dur**, kill ile devret |
+
+**Uzun uçuş kendi başına bir değer değil, kendi başına bir risktir.** Her ek
+bacak yeni bir arıza yüzeyi açar ve pil yakar. *"Madem havadayız, şunu da
+deneyelim"* **yasak.**
+
+Aynı uçuşta **iki değişiklik denenmez** — ters giderse hangisi olduğu bilinmeli.
+
+Aşama başına kaba bütçe ~2-3 uçuş; ama sayı hedef değil, **soru** hedef.
 
 **Geri dönüş her zaman tek komut:** `/ws/suru_dugumleri` boşalt +
 `docker restart`. Faza başlamadan önce bunun çalıştığı bir kez gösterilir.
 
-> Uçuş öncesi zorunlu kontroller ve kırmızı çizgiler: `CLAUDE.md` §9.
-> Günlük komutlar: `README.md`.
+### 🔴 Her uçuştan önce — kuru test + harita, tek komutta
+
+```bash
+python3 src/gcs/gorev_kanit_ucus.py --kuru --harita \
+    --senaryo <senaryo> --dronelar 1,3 --lider 3
+```
+
+`--kuru` planı kurar ve çarpışma denetimi yapar, **hiçbir komut göndermez**.
+`SONUÇ: GEÇTİ` demezse **uçulmaz.**
+
+`--harita` uydu görüntüsü üzerine `/tmp/yelpence_rota.html` yazar:
+**yeşil** = sürü merkezinin geçtiği noktalar · **mavi** = her drone'un kendi
+son hedefi (= **inecekleri yer**).
+
+> 🔴 **Harita operatöre gösterilir ve operatör gözüyle doğrular.** Kod bina,
+> ağaç, tel, araç **göremez** — harita elimizdeki **tek engel kontrolü.**
+> Formasyonda uçaklar **kalktıkları yere inmez**; mavi noktalar tam bunun
+> içindir.
+
+Ayrıca `./deploy/yki/param_karsilastir.py` — uçaklar aynı ayarda mı.
+
+Uçuş öncesi zorunlu **sekiz madde** ve kırmızı çizgiler: `CLAUDE.md` §9.
 
 ---
 

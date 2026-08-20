@@ -1,6 +1,6 @@
 # Yelpençe — TEKNOFEST 2026 Sürü İHA
 
-**Son güncelleme:** 20 Ağustos 2026, 17:40
+**Son güncelleme:** 20 Ağustos 2026, 18:40
 
 Takım **Yelpençe** · Takım no **752825**
 
@@ -107,9 +107,13 @@ taraması sırasıyla dener; sonuncusu her zaman çalışır.
 ## Sık kullanılan komutlar
 
 ```bash
-# Uçuştan ÖNCE — ikisi de bedava, saniyeler sürer, ATLANMAZ
+# Uçuştan ÖNCE — bedava, saniyeler sürer, ATLANMAZ
 ./deploy/yki/param_karsilastir.py         # uçaklar aynı ayarda mı
-python3 src/gcs/gorev_kanit_ucus.py --kuru --senaryo saha --dronelar 1,3 --lider 3
+python3 src/gcs/gorev_kanit_ucus.py --kuru --harita \
+    --senaryo saha --dronelar 1,3 --lider 3
+#   --kuru   : plan + çarpışma denetimi, HİÇBİR komut gitmez → "SONUÇ: GEÇTİ" şart
+#   --harita : /tmp/yelpence_rota.html — uydu görüntüsünde yeşil=rota,
+#              mavi=her drone'un İNECEĞİ yer. OPERATÖR GÖZÜYLE DOĞRULAR.
 
 # Uçuş ayarları — hız, ivme, formasyon aralığı, açılar (TEK KAYNAK)
 python3 src/gcs/ucus_ayarlari.py          # çözümle + tutarlılık denetle
@@ -123,8 +127,12 @@ python3 src/gcs/ucus_ayarlari.py --kabuk  # baslat.sh için env satırları
 src/gcs/yki_baslat.sh · src/gcs/yki_durdur.sh
 ```
 
-**Uçuş öncesi kırmızı çizgiler** — operatör ve Claude için ayrı ayrı zorunlu
-maddeler: `CLAUDE.md` §9. Harita kontrolü ve iniş yeri güvenliği devredilemez.
+🔴 **Uçuş öncesi zorunlu SEKİZ madde:** `CLAUDE.md` §9. Harita kontrolü ve
+iniş yeri güvenliği **devredilemez** — kod bina/ağaç/tel göremez.
+
+🔴 **En küçük yeterli manevra:** bir düğümü sınamak için soruyu cevaplayan
+**en kısa** uçuş yapılır. Git-gel yetiyorsa git-gel, tek formasyon yetiyorsa
+tek formasyon. Uzun uçuş bir değer değil, bir **risk**. Ayrıntı: `PLAN.md` §5.
 
 ---
 
