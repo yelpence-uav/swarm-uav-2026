@@ -1,6 +1,6 @@
 # DURUM — şu an ne çalışıyor, ne bozuk
 
-**Son güncelleme:** 20 Ağustos 2026, 20:10
+**Son güncelleme:** 20 Ağustos 2026, 23:40
 
 > Bu belge **şimdiki hâli** anlatır, tarihçe değil. Bir şey değişince burayı
 > güncelle, eskisini sil. Ne olduğunun hikâyesi `GUNLUK.md`'de kalır.
@@ -15,12 +15,28 @@
 | ylp01 | 2 | **YERDE** | 2 Ağustos'ta 20 m'den düştü, RPi açılmıyor |
 | ylp02 | 3 | **Uçar** | Kod **`d9be7c9`** (20 Ağu 03:40, ylp00 ile senkron). `guided_ivme_ff=1.0` — A/B sonrası **ikisinde de açık**. Pervaneler **TAKILI**. **İki uçaklı P0.11 yer testi GEÇTİ:** sürü yolundan ARMED + lider mutabakatı + mesh'ten 499 kalp atışı aldı. ✅ `yer_testi` bayrağı **YOK** (20 Ağu 16:20 ölçüldü). ✅ Alıcı failsafe'i düzeltildi ve ölçüldü (**P0.9 KAPANDI**, 19 Ağu gece: kayıtlı +100 bulundu → -100 kaydedildi → `CH5=1000`). ✅ RC-kayıp tespiti KURULU, bit iki yönde doğrulandı — kumanda kaybında RTL |
 
-> 🔄 **20 Ağustos 16:37 — iki konteyner de yeniden başlatıldı.** Sebep: Pi'ler
-> ağdan **önce** kalktı (konteyner 15:52:41, DHCP kirası 15:56:32) ve ROS yığını
-> eski adrese bağlandı; ylp00'da `gps_saat.py` bloke edip `baslat.sh`'in geri
-> kalanını hiç çalıştırmamıştı (yalnız mavros vardı, `mavros.log` 442 MB).
-> Restart sonrası ikisi de **12 düğüm, 0 ddsi hatası, log 20 KB**. Kalıcı
-> düzeltme: `YAPILACAKLAR.md` **P0.13**.
+> 🔄 **20 Ağustos 23:22 — iki konteyner de yeniden başlatıldı, ikisi de
+> 11 düğüm / `armed=false` / `AUTO.LOITER`.** Pervaneler **ÇIKIK** (arm
+> testleri yapıldı, takılmadı).
+>
+> **Bu oturumda uçakta ne değişti — sonraki kişi öyle bulacak:**
+>
+> | | ylp00 | ylp02 |
+> |---|---|---|
+> | açılışta kayıt onarımı (`kayit_onar.sh`) | ✅ aktif | ✅ aktif |
+> | `mcap` kurtarma aracı (`/ws/bin/mcap`) | ✅ | ✅ |
+> | sysctl writeback 1 sn (A8) | ✅ *(23:15 eklendi)* | ✅ |
+> | docker log döndürme (10m × 3) | ✅ | ❌ |
+> | konteyner yeniden **oluşturuldu** | ✅ | ❌ (yalnız restart) |
+>
+> ⚠️ **`mcap` ikilisi `dagit.sh` ile GİTMİYOR**, elle konuldu ve depoda yok.
+> Yeni bir uçakta yoksa onarım **sessizce** eski davranışına döner.
+>
+> ⚠️ **ylp00 kayıt diski tavanda: 4,9 GB / 5,0 GB.** Saatlik timer en eski
+> kaydı sürekli siliyor — saklanacak uçuş varsa dizüstüne kopyala.
+>
+> P0.13 (ağ beklemesi + `gps_saat` sert zaman aşımı) **kapandı**, ikisinde de
+> etkin.
 
 **Uçuş yapılandırması:** drone **1 ve 3**, lider **3**.
 YKİ koşucu paneli varsayılanı buna ayarlı (`backend/api/kosucu.py`).

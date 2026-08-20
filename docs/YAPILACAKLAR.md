@@ -1,6 +1,6 @@
 # YAPILACAKLAR
 
-**Son güncelleme:** 20 Ağustos 2026, 21:12
+**Son güncelleme:** 20 Ağustos 2026, 23:45
 
 ## Önem dereceleri
 
@@ -758,6 +758,39 @@ Tam analiz: `PLAN.md` §7.
 
 ## 🟠 P1 — ACİL
 
+### 🟠 P1.11 `mcap` kurtarma aracı depoda YOK — eksikliği hata vermiyor
+
+20 Ağustos'ta `~/yelpence_ws/bin/mcap` **elle** ylp00 ve ylp02'ye kondu.
+`dagit.sh` taşımıyor, depoda yok. `kayit_onar.sh` aracı bulamazsa **sessizce**
+eski davranışına döner: bozuk son parçayı kurtarmak yerine karantinaya alır
+ve o parçadaki veri okunamaz kalır (ölçüldü: **25,8 saniyelik** uçuş verisi).
+
+Karar verilmedi. Seçenekler ve maliyetleri:
+
+| | depo boyutu | risk |
+|---|---|---|
+| arm64 + amd64 depoya | 17 → ~43 MB | yok |
+| yalnız arm64 depoya | 17 → ~29 MB | dizüstünde gerekirse indirilir |
+| depoya koyma, elle | 17 MB | **yeni uçakta unutulur, hata vermez** |
+
+- `[ ]` 🟠 Operatörle karara bağla, sonucu `KARARLAR.md`'ye yaz.
+- `[ ]` 🟠 ylp01 dönünce kur — `RPI_ESITLEME.md` bölüm 2, adım 2.
+  sha256: `be9734ef63ada9d0cc7a3aa41378ab65fd482601e5f5b3b52098d8e6553deabf`
+
+### 🟠 P1.12 Uçuş kayıtları tavanda — eski kayıtlar SÜREKLİ siliniyor
+
+Ölçüldü (ylp00, 20 Ağustos): `~/yelpence_ws/kayit` **4,9 GB**, tavan
+**5,0 GB** (`yelpence_kayit_temizlik.sh`, saatlik timer). Tavan aşılınca **en
+eski kayıt siliniyor** — ylp00'daki en eski kayıt bu yüzden 15 Ağustos'tan.
+
+Yani **saklanmayan her uçuş kaydı er geç gidiyor** ve bunu haber veren bir
+şey yok. Uçuş kanıtı ve G2 gözlem uçuşlarının kayıtları da bu tavanın altında.
+
+- `[ ]` 🟠 Saklanacak uçuşlar belirlensin ve dizüstüne/harici diske alınsın.
+  Bir kez yapılacak iş; hangi uçuşların önemli olduğunu operatör bilir.
+- `[ ]` 🟡 Tavanı yükseltmek çözüm değil (kart 29 GB, %41 dolu) — asıl soru
+  hangi kaydın saklanacağı. Karar verilene kadar silme sürüyor.
+
 ### P1.2 Takım erişimi — SSH anahtarları ve Wi-Fi
 
 - `[ ]` 🟠 **`iPhone` SSID'si doğrulanmadı** — eklerken telefon kapalıydı,
@@ -1002,6 +1035,33 @@ somut madde olarak açılır.
 ---
 
 ## 🟡 P2 — ÖNEMLİ
+
+### 🟡 P2.10 rosbag2 önbelleği küçük olabilir — ÖLÇÜLMEDİ
+
+Kayıt düğümü **normal çalışırken** her 30 saniyede bir
+`Writing remaining messages from cache to the bag. It may take a while`
+basıyor. Bu satır normalde kapanışta çıkar. `--max-cache-size 100000`
+(100 KB) küçük geliyor olabilir.
+
+Sonucu bilinmiyor: yazma geride kalıyorsa güç kesildiğinde önbellekteki
+veri de gider. **Ölçmeden değiştirme** — önce mesaj hızı ile önbellek
+doluluk oranına bak.
+
+- `[ ]` 🟡 Kayıt sırasında gerçek mesaj hızını ölç, önbelleğin dolma
+  süresini hesapla, gerekiyorsa `--max-cache-size` büyüt.
+
+### 🟡 P2.11 docker log döndürmesi ylp02'de yok
+
+`run_drone.sh`'e eklendi ama docker log ayarları **oluşturma anında**
+sabitleniyor; `docker restart` yetmiyor. ylp00 yeniden oluşturuldu, ylp02
+oluşturulmadı (orada bozukluk yoktu, tek kazanç döndürme).
+
+Döndürme olmadan bozuk bir docker logu konteyner yeniden oluşturulana kadar
+**kalıcı** olur — bkz. `TUZAKLAR.md` §1.18.
+
+- `[ ]` 🟡 Sırası gelince (bir sonraki doğal yeniden oluşturmada):
+  `docker rm -f drone3 && cd ~/yelpence_ws && bash run_drone.sh 3`.
+  **Disarm halde**, ROS yığını ~4 dk kapalı kalır.
 
 ### P2.6 Pi'lerin interneti bir sabah tamamen kesildi, sebebi bilinmiyor
 

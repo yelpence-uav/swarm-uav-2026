@@ -1,6 +1,6 @@
 # GÜNLÜK — oturum devir teslim kaydı
 
-**Son güncelleme:** 20 Ağustos 2026, 18:25
+**Son güncelleme:** 20 Ağustos 2026, 23:40
 
 Tek bilgisayar, sırayla çalışıyoruz. Biri kalkıp diğeri oturduğunda **hem
 kişi hem Claude** nerede kalındığını buradan anlar.
@@ -35,6 +35,118 @@ Claude'a **"oturumu kapat"** dersen bu kaydı o yazar.
 - ylp00: (kill switch? pil? nerede? konteyner ayakta mı?)
 - ylp02:
 ```
+
+---
+
+## 2026-08-20 23:40 — Eyüp + Claude (üç P0 kapandı; **bütün uçuş kayıtları okunamıyormuş**, kurtarıldı)
+
+> Uçuş yok, hepsi yerde. Uçaklar pervanesiz, arm testleri yapıldı.
+> Oturumun yarısı planlanmış işti (P0.12 → P0.14 → P0.13), yarısı bir
+> `docker logs` arızasını kovalarken çıkan **çok daha büyük bir bulguydu.**
+
+**Ne yapıldı**
+
+*P0.12 — hayalet lider ve inişi iptal eden bayat GOTO*
+
+- **Ölçüldü:** 12 saniyelik sahte durum enjeksiyonundan **2,8 dakika sonra**
+  hâlâ 10,0 Hz `LeaderHeartbeat` geliyordu, `state=1 armed=false` iken.
+  Lider hiç bırakmıyordu. `consensus_node`'a `_liderligi_birak()` + histerezis
+  eklendi.
+- **İki uçakla doğrulandı** (tek uçak bunu yapısal olarak sınayamaz):
+  ikisinde de `Lider: 1 -> 3`, **ylp00'da `BIRAKILDI` YOK** — yani yeni dal
+  devir yolunun dışında kalıyor. Kimse uygun değilken `liderlik BIRAKILDI`.
+- İkinci yarısı: `land` sonrası kuyrukta bekleyen `takeoff` uçağı tekrar
+  kaldırıyordu. **Ölçüldü:** `land` 784.475'te, `takeoff` 784.779 ve
+  785.182'de. Düzeltmeden sonra `land` sonrası **sıfır** takeoff.
+
+*P0.14 — lider kaybı tespiti ölüydü*
+
+İki ölü kapı vardı; ikisi de yalnız lider **hâlâ yayın yaparken** çalışıyordu,
+yani gerçek kayıpta hiç tetiklenmiyordu. Eşikler aritmetikle seçildi (mesh
+~%30 paket kaybı): kalp atışı 300 → **1000 ms** (0,3³ = %2,7 yanlış alarm →
+0,3¹⁰ ≈ 6e-6), komşu DURUM bayatlığı **5 sn** (%0,24).
+
+*P0.13 — açılışta iki sessiz takılma*
+
+- mavros'tan önce ağ bekleniyor (en fazla 30 sn, **gelmezse devam**).
+- `gps_saat.py` artık `timeout -s INT -k 15 200` ile sarılı. **`-k 15` şart:**
+  `-s INT` tek başına denendi ve tam da önlemeye çalıştığı şekilde takıldı —
+  süreç SIGINT'i yutunca boru `tee`'ye açık kalıyor ve `baslat.sh` yine
+  bloke oluyor. Üç vakayla doğrulandı.
+
+*🔴 Asıl bulgu — BÜTÜN uçuş kayıtları `ros2 bag` ile açılamıyormuş*
+
+`docker logs`'un çökmesini kovalarken çıktı. Kök neden **pil değişimi**:
+güç kesilince rosbag2 `metadata.yaml`'ı yazamıyor.
+
+**Ölçüldü: ylp00'da 60/60, ylp02'da 50/50 kayıtta metadata YOK.** Yani
+15 Ağustos'tan beri hiçbir uçuş kaydı standart yoldan okunamıyordu ve
+**hiçbir hata vermiyordu.**
+
+Veri kayıp değildi, sarmalayıcı eksikti. `deploy/rpi/teshis/kayit_onar.sh`
+yazıldı: bozuk parçayı reindex'in **hata metninden** buluyor (boyuta bakarak
+elenemiyor — bozuk parça 0 bayt da olabiliyor, 831488 bayt "dolu" da),
+`mcap recover` ile içindekini kurtarıyor, sonra reindex ediyor.
+
+**Sonuç: ylp00 59/60, ylp02 49/50 okunur.** Kalanlar: o an kayıtta olan ve
+16 Ağustos'ta hiç parça yazamamış boş dizin.
+
+*Düşüşte kayıp penceresi ~30 sn → ~4 sn*
+
+`RPI_ESITLEME` tablosu A8 sysctl'i için "ylp00 ✅" diyordu — **ölçtük, yoktu.**
+`dirty_expire_centisecs` 3000 (30 sn) idi. Operatör uyguladı, ikisi de 100.
+Üstüne `mcap recover` bozuk son parçadan **10588 mesaj / 25,8 saniye**
+kurtarıyor. Böylece `--max-bag-duration`'a hiç dokunmadan pencere daraldı.
+
+**Ne değişti**
+
+- kod: `consensus_node.py`, `election.py` — P0.12(a) + P0.14(a)
+- kod: `esp32_bridge_node.py` — P0.12(b), bayat kalkış, P0.14(b)
+- kod: `deploy/rpi/baslat.sh` — ağ beklemesi, `gps_saat` sert zaman aşımı,
+  **sonuna arka planda kayıt onarımı** (üç korumalı: `&`, `timeout 600`,
+  aktif+taze dizin atlanır)
+- kod: `deploy/rpi/teshis/kayit_onar.sh` **yeni**
+- kod: `deploy/rpi/run_drone.sh` — docker log döndürme (`10m × 3`)
+- uçakta: **A8 sysctl** ylp00'a eklendi (writeback 30 sn → 1 sn)
+- uçakta: **`~/yelpence_ws/bin/mcap`** ikisine de kondu — **`dagit.sh`
+  taşımıyor, elle konuldu**, depoda yok
+- uçakta: **ylp00 konteyneri yeniden OLUŞTURULDU** (log döndürmesi ancak
+  öyle devreye giriyor); ylp02'de yapılmadı
+- belge: `TUZAKLAR` §1.18 + §1.19, `RPI_ESITLEME` (A8/A11/A12/B7/B8 +
+  "`dagit.sh` neyi taşır" tablosu + ylp01 için adım adım liste),
+  `YAPILACAKLAR`, `KARARLAR` (KARAR-05), `CLAUDE.md` §9 test kuralları
+
+**Yarım kalan / tuzak**
+
+- 🔴 **`mcap` ikilisi depoda DEĞİL.** Yoksa onarım sessizce eski davranışına
+  döner ve daha çok veri kaybettirir — **hata vermez.** ylp01 dönünce elle
+  konulacak; depoya koyup koymamaya karar verilmedi.
+- **docker log döndürmesi ylp02'de yok** — orada bozukluk olmadığı için
+  yeniden oluşturulmadı.
+- **Kayıt diski tavanda:** ylp00'da 4,9 GB / 5,0 GB. Saatlik timer **en eski
+  kaydı sürekli siliyor.** Saklanacak bir uçuş varsa dizüstüne kopyalanmalı.
+- `mcap recover` **başarılı** kısmi kurtarmada çıkış kodu **3** dönüyor.
+  Koda bakıp elemek kurtarılan veriyi çöpe atar — `kayit_onar.sh` sonuca
+  bakıyor. (İlk yazımda bu hatayı yaptım, test yakaladı.)
+- `sudo` gereken işler `drone_bul.sh <ad> '<komut>'` ile **çalışmaz** (`-t`
+  yok). Komut vermeden çağır, etkileşimli kabuk açılır.
+- Kayıt düğümü normal çalışırken her 30 sn `Writing remaining messages from
+  cache` basıyor — `--max-cache-size 100000` küçük olabilir, **ölçülmedi.**
+
+**Sıradaki adım**
+
+P0.14 yer testi: liderin `consensus_node`'unu öldür (uçak ayakta kalsın),
+takipçi ~1 sn'de yeni seçim yapmalı. Bkz. `YAPILACAKLAR.md` P0.14.
+
+**Uçakların bırakıldığı hâl**
+
+- **ylp00:** konteyner ayakta (23:22 sonrası), **11 düğüm**, `connected=true
+  armed=false`, `AUTO.LOITER`. Pervaneler **ÇIKIK**. A8 var, `mcap` var,
+  log döndürme var. Kayıt diski tavanda (4,9/5,0 GB).
+- **ylp02:** konteyner ayakta (23:22'de yeniden başlatıldı), **11 düğüm**,
+  `connected=true armed=false`, `AUTO.LOITER`. Pervaneler **ÇIKIK**.
+  A8 var, `mcap` var, **log döndürme YOK**.
+- **ylp01:** yerde. `RPI_ESITLEME.md` bölüm 2'de dönünce yapılacak 5 adım.
 
 ---
 
