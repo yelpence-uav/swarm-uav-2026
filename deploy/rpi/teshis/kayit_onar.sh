@@ -51,17 +51,39 @@ set -u
 # Su an KAYIT YAPILAN dizine dokunma — acik dosyayi tasimak kaydi bozar.
 AKTIF=""
 if pgrep -f "ros2 bag record" >/dev/null 2>&1; then
-    AKTIF=$(ls -1dt "$KAYIT"/*/ 2>/dev/null | head -1)
-    echo "[onar] kayit SURUYOR, atlanacak: $(basename "${AKTIF%/}")"
+    # Dizini KOMUT SATIRINDAN al (`-o <dizin>`).
+    #
+    # Onceden "en yeni mtime'li dizin aktiftir" varsayiliyordu ve YANLISTI:
+    # 20 Agustos'ta bir dizine elle dosya tasiyinca betik onu aktif sandi ve
+    # gercek aktif kaydi korumasiz birakti. mtime tahmin, komut satiri olcum.
+    AKTIF=$(pgrep -af "ros2 bag record" \
+            | sed -n 's/.*[ ]-o[ =]\([^ ]*\).*/\1/p' | head -1)
+    AKTIF="${AKTIF%/}"
+    if [ -n "$AKTIF" ]; then
+        echo "[onar] kayit SURUYOR, atlanacak: $(basename "$AKTIF")"
+    else
+        # -o okunamadi: hicbir seye dokunma, yanlis dizini onarmaktansa bekle.
+        echo "[onar] kayit suruyor ama dizini okunamadi — bu tur ATLANIYOR"
+        exit 0
+    fi
 fi
 
-toplam=0; atlandi=0; onarildi=0; basarisiz=0
+# KURTARMA ARACI (istege bagli). Varsa bozuk parca ATILMADAN once icindeki
+# saglam kisim geri alinir — 20 Agustos'ta olculdu: 831488 baytlik bozuk bir
+# parcadan 10588 mesaj / 25.8 SANIYE kurtarildi, yalniz son chunk atildi.
+# Yoksa betik eski davranisina doner (parcayi karantinaya alir) ve calisir.
+MCAP=/ws/bin/mcap
+[ -x "$MCAP" ] || MCAP=""
+[ -n "$MCAP" ] && echo "[onar] kurtarma araci VAR ($MCAP)" \
+                || echo "[onar] kurtarma araci YOK — bozuk parcalar kurtarilmadan karantinaya alinacak"
+
+toplam=0; atlandi=0; onarildi=0; basarisiz=0; kurtarilan=0
 for d in "$KAYIT"/*/; do
     [ -d "$d" ] || continue
     ad=$(basename "${d%/}")
     toplam=$((toplam + 1))
 
-    if [ -n "$AKTIF" ] && [ "${d%/}" = "${AKTIF%/}" ]; then
+    if [ -n "$AKTIF" ] && [ "${d%/}" = "$AKTIF" ]; then
         atlandi=$((atlandi + 1)); continue
     fi
 
@@ -135,10 +157,35 @@ for d in "$KAYIT"/*/; do
             basarisiz=$((basarisiz + 1)); break
         fi
         b=$(stat -c %s "$kotu")
+
+        # ONCE KURTARMAYI DENE. Basarirsa BOZUK olani karantinaya alip
+        # kurtarilmis olani AYNI ADLA yerine koyuyoruz — rosbag2 parcalari
+        # sirayla adlandirdigi icin ad degisirse dizi bozulur.
+        if [ -n "$MCAP" ] && [ "$b" -ge 1024 ]; then
+            # CIKIS KODUNA BAKMA — olculdu (20 Agustos): kismi kurtarmada
+            # `mcap recover` 3 donuyor ("Recovery was lossy: discarded 1
+            # chunk"), ama urettigi dosya KUSURSUZ: 736130 bayt, 10588
+            # mesaj, 25.8 sn. Kod 3'e bakip elemek tam da kurtarmak
+            # istedigimiz veriyi copze atardi. Bunun yerine SONUCU
+            # dogruluyoruz: dosya var mi, dolu mu, mcap acabiliyor mu.
+            timeout 120 "$MCAP" recover "$kotu" -o "$kotu.kurt" >/dev/null 2>&1
+            if [ -s "$kotu.kurt" ] \
+               && timeout 60 "$MCAP" info "$kotu.kurt" >/dev/null 2>&1; then
+                yb=$(stat -c %s "$kotu.kurt")
+                mv "$kotu" "$YARIM/"
+                mv "$kotu.kurt" "$kotu"
+                kurtarilan=$((kurtarilan + 1))
+                echo "[onar] $ad: $(basename "$kotu") KURTARILDI ($b -> $yb bayt)"
+                continue
+            fi
+            rm -f "$kotu.kurt"
+        fi
+
         echo "[onar] $ad: bozuk parca $(basename "$kotu") ($b bayt) kenara aliniyor"
         mv "$kotu" "$YARIM/" && tasinan=$((tasinan + 1))
     done
 done
 
-echo "[onar] OZET: toplam=$toplam onarildi=$onarildi atlandi=$atlandi basarisiz=$basarisiz"
+echo "[onar] OZET: toplam=$toplam onarildi=$onarildi kurtarilan_parca=$kurtarilan" \
+     "atlandi=$atlandi basarisiz=$basarisiz"
 [ "$basarisiz" = 0 ]

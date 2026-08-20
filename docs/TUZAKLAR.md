@@ -1,6 +1,6 @@
 # TUZAKLAR — hata vermeden yanlış sonuç üretenler
 
-**Son güncelleme:** 20 Ağustos 2026, 22:05
+**Son güncelleme:** 20 Ağustos 2026, 23:05
 
 > **Bu belge CANLI.** Arşiv değil — buradaki her madde **bugün de geçerli.**
 >
@@ -521,6 +521,38 @@ docker exec droneN bash /ws/kayit_onar.sh          # onar
 yok, 16 Ağustos'ta iki kesinti arasında açılmış), ylp02 → 49/50 okunur
 (kalan 1 tanesi o an kayıttaydı). Toplam 37 bozuk parça karantinaya alındı,
 hepsi ~4 KB — **anlamlı veri kaybı yok.**
+
+#### Bozuk parça ATILMAK zorunda değil — `mcap recover` içindekini geri alıyor
+
+`/ws/bin/mcap` (MCAP CLI, tek statik dosya, arm64) varsa `kayit_onar.sh`
+parçayı karantinaya almadan **önce** kurtarmayı deniyor. Ölçüldü:
+
+```
+831488 baytlik bozuk parca -> 736130 bayt gecerli mcap
+                              10588 mesaj, 25.8 SANIYE geri geldi
+                              yalniz son chunk atildi
+```
+
+Yani düşüşte kaybedilen pencere **~30 sn değil ~4 sn**, üstelik kayıt
+ayarlarına (`--max-bag-duration 30`) hiç dokunmadan.
+
+> ##### 🔴 `mcap recover` BAŞARILI kurtarmada 3 DÖNÜYOR
+>
+> Kısmi kurtarma "lossy" sayılıyor ve çıkış kodu **3** oluyor — ama üretilen
+> dosya **kusursuz.** Ölçüldü: kod 3, çıktı 736130 bayt, `mcap info` sorunsuz
+> açıyor, 10588 mesaj.
+>
+> Çıkış koduna bakıp elemek, **tam da kurtarmak istediğin veriyi çöpe atar.**
+> `kayit_onar.sh` bu yüzden koda değil **sonuca** bakıyor: dosya var mı, dolu
+> mu, `mcap info` açabiliyor mu.
+
+> ##### ⚠️ "En yeni dizin aktif kayıttır" varsayımı YANLIŞ
+>
+> `kayit_onar.sh` önce aktif kaydı `ls -1dt` ile en yeni mtime'lı dizin
+> sanıyordu. Bir dizine elle dosya taşıyınca betik **onu** aktif sandı ve
+> gerçek aktif kaydı korumasız bıraktı. Şimdi dizin, kayıt sürecinin
+> **komut satırından** (`-o <dizin>`) okunuyor. mtime tahmindir, komut
+> satırı ölçümdür.
 
 ---
 
