@@ -1,6 +1,6 @@
 # RPİ EŞİTLEME DEFTERİ — geri gelen drone'u hizaya getirme
 
-**Son güncelleme:** 20 Ağustos 2026, 18:05
+**Son güncelleme:** 20 Ağustos 2026, 21:22
 
 ## Bu belge ne için
 
@@ -347,6 +347,43 @@ ssh-copy-id <KULLANICI>@<ip>           # parolayla girer, anahtarını ekler
 ## 8. DEĞİŞİKLİK DEFTERİ
 
 Her Pi değişikliği buraya, en yeni en üste.
+
+### 2026-08-20 (3) — 🔴 ylp00 konteyneri YENİDEN OLUŞTURULDU, ylp02 OLUŞTURULMADI
+
+**Tek uçakta yapıldı — ylp02 geride kaldı.** Fark şu: konteyner log
+döndürmesi (`--log-opt max-size=10m --log-opt max-file=3`) **yalnız
+ylp00'da devrede**, çünkü docker log ayarları **oluşturma anında** sabitlenir;
+`docker restart` yetmez.
+
+| | ylp00 (drone1) | ylp02 (drone3) |
+|---|---|---|
+| konteyner kimliği | `931b81f5a62b` (yeni) | `5d5c4915a1b8` (15 Ağu'dan) |
+| log döndürme | **VAR** (10m × 3) | **YOK** (sınırsız) |
+| json log NUL bozukluğu | temizlendi | zaten yoktu (0 NUL) |
+
+**Neden ylp00:** json-file logunda iki NUL koşusu vardı (1602 + 433 bayt,
+16 Ağustos 23:34) ve `docker logs` **tam okumada** çöküyordu. Ayrıntı ve
+tuzağın kendisi: `docs/TUZAKLAR.md` §1.18.
+
+**ylp02'yi hizaya getirmek için** (acil değil — orada bozukluk yok, tek
+kazanç döndürme):
+
+```bash
+./deploy/rpi/dagit.sh ylp02                     # guncel run_drone.sh gitsin
+./deploy/yki/drone_bul.sh ylp02 \
+  'docker rm -f drone3 && cd ~/yelpence_ws && bash run_drone.sh 3'
+```
+
+⚠️ Yeniden oluşturma **disarm halde** yapılır ve ROS yığını ~4 dk kapalı
+kalır (`gps_saat` beklemesi dahil). Yapılandırma kaybolmaz: her şey `/ws`
+bağlamasında (`suru_dugumleri`, `kacinma`, `tgt_system`, `gozlem`);
+yazılabilir katmanda yalnız `.ros`/`.colcon` önbellekleri var (29 MB,
+kendiliğinden yeniden üretilir). Env varsayılanları `run_drone.sh` ile
+birebir aynı — doğrulandı.
+
+**Doğrulandı (ylp00, 21:15):** `docker logs` tam okuma hatasız, `--since`
+çalışıyor, 11 düğüm ayakta, `connected=true armed=false`, açılış
+`/ws/suru_dugumleri`'nden aynı düğümleri açtı.
 
 ### 2026-08-20 — konteynerler yeniden başlatıldı (ylp00 + ylp02)
 
