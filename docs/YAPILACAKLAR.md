@@ -1,6 +1,6 @@
 # YAPILACAKLAR
 
-**Son güncelleme:** 20 Ağustos 2026, 03:45
+**Son güncelleme:** 20 Ağustos 2026, 17:20
 
 ## Önem dereceleri
 
@@ -19,6 +19,86 @@ Durum: `[ ]` yapılmadı · `[~]` kısmen · `[B]` başka işe bağlı · `[?]` 
 ---
 
 ## 🔴 P0 — UÇUŞ ENGELİ
+
+### 🔴 P0.12 Denetimin iki P0'ı doğrulanmadan kalmıştı — İKİSİ DE KODDA DURUYOR
+
+`WORKFLOW_BULGULAR.md`'deki 42 bulgunun yalnız 7'si doğrulanabilmişti
+(denetim maliyet yüzünden kesildi). Bu ikisi **20 Ağustos'ta kod okunarak
+doğrulandı** — iddia değil, mekanizma satırıyla duruyor. İkisi de tek
+dosyada, toplamı ~4 satır, ikisi de geri alınabilir.
+
+**(a) Yerdeki disarm uçak sonsuza kadar "ben liderim" yayınlıyor**
+
+`consensus_node.py:183` — `own_airborne` kapısı `c3068c8` ile kalktı, yayın
+artık yalnız `ctx.is_leader`'a bağlı. Ama `ctx.is_leader` **hiçbir yerde geri
+alınmıyor**. `election.py:decide_change` ilk satırı:
+
+```python
+candidate = min(effective) if effective else 0
+if candidate == 0:
+    return None          # herkes IDLE -> _set_leader HIC cagrilmiyor
+```
+
+İniş sonrası iki uçak da IDLE olunca `effective` boşalır, fonksiyon hemen
+`None` döner, lider bayrağı **True kalır**. Yerde duran disarm uçak mesh'e
+10 Hz `LeaderHeartbeat` basmaya devam eder. İkinci uçuşta konteyner yeniden
+başlatılmadan diğer uçak arm edilirse liderlik 5–10 Hz'de gidip gelir —
+pervaneler dönerken, guided komutlarla **aynı ESP-NOW kanalında**.
+
+- `[ ]` 🔴 **Düzeltme (1 satır):** `if ctx.is_leader and self._agent_id in elig:`
+  — `elig` zaten `_tick` içinde, 165. satırda kapsamda.
+- `[ ]` 🟠 Düzeltildikten sonra yer testinde doğrula: iniş + disarm sonrası
+  `/swarm/*/leader/heartbeat` **susmalı**.
+
+**(b) `land` sonrası kuyrukta kalan GOTO tekrarları inişi iptal ediyor**
+
+`esp32_bridge_node.py:1688` — kuyruk ayıklaması yalnız **aynı hedefe giden
+GOTO** için çalışıyor; `land` bir `TIP_KOMUT` ve bekleyen GOTO tekrarlarını
+temizlemiyor (yorumu da bunu açıkça söylüyor: *"TIP_KOMUT'ta ayiklama YOK"*).
+
+Zincir: `land` gider → uçak AUTO.LAND'e geçer, `_guided_hedef=None` →
+0.25 s sonra bayat GOTO kopyası varır → `_isle_goto` **koşulsuz**
+`_guided_string('offboard')` çağırır (`:1204`) ve `_guided_hedef`'i yeniden
+kurar → 10 Hz `_guided_hedef_tekrar` onu sonsuza kadar tazeler. **İniş iptal
+olur**, üstelik `px4_bridge`'in 0.5 s bayatlama koruması hiç tetiklenmez
+çünkü hedef sürekli tazeleniyor.
+
+- `[ ]` 🔴 **Düzeltme (~3 satır):** `land`/`rtl`/`disarm` kuyruğa girerken o
+  hedefe ait bekleyen `TIP_GOTO` kayıtlarını da at.
+- `[ ]` 🟡 İkinci kapı olarak `_isle_goto`, son `land`'den sonra gelen GOTO'yu
+  yok sayabilir (zaman damgası karşılaştırması) — kuşak ve pantolon askısı.
+
+### 🔴 P0.13 Uçaklar ağdan önce kalkınca ROS yığını sakat kalıyor — ÖLÇÜLDÜ (20 Ağustos)
+
+P1.5'in gerçek kapsamı belgelenenden geniş: semptom "QGC bağlantısı ölü
+kalıyor" diye yazılmıştı, **bütün DDS grafiğini** etkiliyor.
+
+Ölçüm (ylp00, 20 Ağustos 16:00):
+
+```
+Pi acilis            15:51      (/proc/uptime = 1523 s)
+konteyner + mavros   15:52:41
+wlan0 DHCP kirasi    15:56:32   <- 4 DAKIKA SONRA
+```
+
+NetworkManager günlüğü: iki kez `no lease`, sonra
+`new lease, address=10.205.4.134`. ROS ağ yokken kalktı; her düğüm **eski**
+adrese yazmaya çalıştı (`ddsi_udp_conn_write to udp/172.19.167.189:7424
+failed`) ve `mavros.log` **442 MB**'a şişti (bekçi tavanı 500 MB).
+
+Üstüne ylp00'da `baslat.sh:211` `gps_saat.py`'yi **arka plana atmadan**
+çağırıyor; süreç `--bekle 150`'ye rağmen 25+ dakika takılı kaldı ve
+`baslat.sh`'in geri kalanı **hiç çalışmadı** — px4_bridge, esp32_bridge,
+agent_fsm yok, yalnız mavros vardı. `docker restart` ikisini de düzeltti
+(0 ddsi hatası, 12 düğüm, log 20 KB).
+
+- `[ ]` 🔴 `baslat.sh`, mavros'tan önce ağın hazır olmasını beklesin
+  (wlan0'da IP var mı, en fazla ~30 sn). **Ağ yoksa yine devam etsin** —
+  mesh ve uçuş WiFi'ye bağlı değil. ~10 satır.
+- `[ ]` 🔴 `gps_saat.py` başlatmayı **bloke etmesin** — arka plana al ya da
+  `timeout` ile sar. Bugün tek bir takılan süreç bütün yığını durduruyor.
+- `[ ]` 🟠 Uçuş öncesi listesine: `docker exec droneN ps | grep -c "ros2 run"`
+  → **12 olmalı**. Bugün bu tek komut, bir sabahı kurtarırdı.
 
 ### ✅ P0.8 — TAMAMLANDI (17 Ağustos 14:30)
 
