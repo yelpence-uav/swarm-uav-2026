@@ -1,6 +1,6 @@
 # RPİ EŞİTLEME DEFTERİ — geri gelen drone'u hizaya getirme
 
-**Son güncelleme:** 20 Ağustos 2026, 23:15
+**Son güncelleme:** 20 Ağustos 2026, 23:30
 
 ## Bu belge ne için
 
@@ -48,6 +48,64 @@ md5sum deploy/rpi/baslat.sh          # ikisi ayni olmali
 Sonra aşağıdaki bölümleri sırayla geç. Her satırın yanında **hangi uçaklarda
 olduğu** yazıyor.
 
+### 🔴 En çok atlanan ayrım: `dagit.sh` neyi taşır, neyi taşımaz
+
+Bu belgenin var olma sebebi tam olarak bu. `dagit.sh` çoğu şeyi taşıyor, o
+yüzden "dağıttım, tamamdır" hissi oluşuyor — ama **dört şey elle yapılıyor**
+ve hiçbiri eksikken hata vermiyor.
+
+| | `dagit.sh` taşır mı? | etkin olması için |
+|---|---|---|
+| ROS paketleri, `baslat.sh`, `run_drone.sh`, teşhis betikleri | ✅ **evet** | konteyner **yeniden başlat** |
+| PX4 parametreleri | ❌ hayır | `param_karsilastir.py`, bölüm C |
+| **`mcap` kurtarma aracı** (A11) | ❌ **hayır** | elle kopyala, bölüm 8 |
+| **sysctl writeback** (A8) | ❌ **hayır** | elle + `sudo`, bölüm 3 |
+| **docker log döndürme** (A12) | ❌ **hayır** | konteyneri **yeniden OLUŞTUR** |
+| Wi-Fi ağları, SSH anahtarları (A9/A10) | ❌ hayır | bölüm 7 |
+
+> **"Yeniden başlat" ile "yeniden oluştur" aynı şey değil.**
+> `docker restart` çalışan konteyneri döndürür — kod ve betik değişiklikleri
+> için bu yeter. Ama docker'ın **log ayarları oluşturma anında sabitlenir**;
+> onları değiştirmek için `docker rm -f <ad>` + `run_drone.sh <N>` gerekir.
+> 20 Ağustos'ta ylp00'da yapıldı, ylp02'de yapılmadı.
+
+### ylp01 döndüğünde — 20 Ağustos işlerinin listesi
+
+Sırayla, yukarıdan aşağı:
+
+```bash
+# 1) Kod, betikler, paketler  (otomatik)
+./deploy/rpi/dagit.sh ylp01
+
+# 2) mcap kurtarma araci  (ELLE — dagit tasimaz, bkz. A11 / bolum 8)
+./deploy/yki/drone_bul.sh ylp01 \
+  'mkdir -p ~/yelpence_ws/bin && cat > ~/yelpence_ws/bin/mcap \
+   && chmod +x ~/yelpence_ws/bin/mcap && sha256sum ~/yelpence_ws/bin/mcap' \
+  < mcap-linux-arm64
+#    be9734ef63ada9d0cc7a3aa41378ab65fd482601e5f5b3b52098d8e6553deabf gormeli
+
+# 3) sysctl writeback  (ELLE + root, ETKILESIMLI baglanti sart)
+./deploy/yki/drone_bul.sh ylp01        # komut vermeden -> kabuk acilir
+#    Pi'de: bolum 3'teki A8 komutlari, sonra `cat /proc/sys/vm/dirty_expire_centisecs` -> 100
+
+# 4) Konteyneri YENIDEN OLUSTUR  (log dondurmesi ancak boyle devreye girer)
+./deploy/yki/drone_bul.sh ylp01 'docker rm -f drone2 && cd ~/yelpence_ws && bash run_drone.sh 2'
+#    ONCE DISARM oldugundan emin ol. ROS yigini ~4 dk kapali kalir.
+
+# 5) Dogrula
+./deploy/yki/drone_bul.sh ylp01 \
+  'docker exec drone2 bash -lc "source /opt/ros/jazzy/setup.bash; \
+   ROS_LOCALHOST_ONLY=1 ros2 node list" | grep -v mavros | sort'
+```
+
+**Neden bu sıra:** 2 ve 3 konteynerden bağımsız (host tarafı), 4 onları
+kapsayan yeniden oluşturma. 4'ü önce yaparsan 2 ve 3 yine gerekir.
+
+**Hepsinin ortak özelliği: eksikken HATA VERMEZ.** `mcap` yoksa onarım
+betiği sessizce eski davranışına döner ve daha çok veri kaybettirir; sysctl
+yoksa düşüşte son ~30 saniye gider; log döndürme yoksa bozuk bir docker logu
+kalıcı olur. Üçü de ancak **ölçerek** görülür.
+
 ---
 
 ## 3. A — Pi ana sistem (konteyner dışı)
@@ -61,7 +119,9 @@ olduğu** yazıyor.
 | A5 | Kalıcı journald | ✅ | ❓ | ✅ | `izleme_kur.sh` 3/7 — dosya adı `10-` ile başlarsa İŞE YARAMAZ |
 | A6 | `yelpence-izle` servis + timer | ✅ | ❓ | ✅ | `izleme_kur.sh` 4-5/7 |
 | A7 | Kayıt disk temizlik timer'ı | ✅ | ❓ | ✅ | `izleme_kur.sh` 6/7 |
-| A8 | **sysctl writeback (1 sn)** | 🔴 **YOK** | ❌ | ✅ | `izleme_kur.sh` 7/7 → `/etc/sysctl.d/60-yelpence-writeback.conf` |
+| A8 | **sysctl writeback (1 sn)** | ✅ *(20 Ağu 23:15)* | ❌ | ✅ | `izleme_kur.sh` 7/7 → `/etc/sysctl.d/60-yelpence-writeback.conf` · **elle, root** |
+| A11 | **`mcap` kurtarma aracı** | ✅ | ❌ | ✅ | `~/yelpence_ws/bin/mcap` · **elle kopyalanır, `dagit.sh` taşımaz** |
+| A12 | **docker log döndürme** | ✅ | ❌ | ❌ | `run_drone.sh` içinde — **yalnız konteyner YENİDEN OLUŞTURULUNCA** devreye girer |
 | A9 | **Wi-Fi ağları (SSID/şifre)** | ✅ 2 ağ | ❌ | ✅ 2 ağ | aşağıda §7 |
 | A10 | **SSH authorized_keys** | ✅ Osman+Berk | ❌ | ✅ Osman+Berk | aşağıda §7 |
 
@@ -87,9 +147,20 @@ alanından çekirdek alanına taşınır, yine RAM'de bekler.
 > uygulanmamış (ya da sonradan eklenip bir daha koşulmamış). Bu tablo o
 > yüzden ✅ diyordu; **tablo doğrulanmadan yazılmıştı.**
 >
-> Düzeltmek için ylp00'da (root gerekiyor):
+> **✅ 20 Ağustos 23:15'te operatör uyguladı ve doğrulandı** — ylp00 ve
+> ylp02'de `dirty_expire_centisecs = 100`. **ylp01'de HÂLÂ YOK.**
+>
+> Dersi kalıcı: bu satır ✅ diyordu ama **ölçülmemişti.** Bu tabloda bir
+> hücreyi ✅ yapmadan önce uçakta doğrula, yoksa defter kendi kendini
+> yanıltıyor.
+>
+> `sudo` parola sorduğu için **etkileşimli** bağlanmak gerekiyor;
+> `drone_bul.sh <ad> '<komut>'` biçimi `-t` vermediği için ÇALIŞMAZ
+> ("sudo: a password is required"). Doğrusu:
 >
 > ```bash
+> ./deploy/yki/drone_bul.sh ylp01          # komut vermeden -> etkilesimli kabuk
+> # sonra Pi'de:
 > sudo tee /etc/sysctl.d/60-yelpence-writeback.conf <<'EOF'
 > vm.dirty_expire_centisecs = 100
 > vm.dirty_writeback_centisecs = 100
@@ -119,7 +190,8 @@ sudo sysctl -q --load=/etc/sysctl.d/60-yelpence-writeback.conf
 | B4 | `gcs_url` = `udp-b://:14555@14550` | ✅ | ❓ | ✅ | `echo 'udp-b://:14555@14550' > ~/yelpence_ws/gcs_url` |
 | B5 | `tgt_system` | yok | `2` | `3` | tabloya bak — **ylp00'da dosya OLMAMALI** |
 | B6 | `kacinma` (boş dosya) | ✅ | ❓ | ✅ | `touch ~/yelpence_ws/kacinma` |
-| B7 | Teşhis betikleri (21 adet) | ✅ | ❌ | ❓ | repoda yok, **listesi de yok** — `YAPILACAKLAR.md` P2.5 |
+| B7 | Teşhis betikleri (**22 adet**) | ✅ | ❌ | ✅ | `deploy/rpi/teshis/*.sh` → `dagit.sh` **kendiliğinden taşır**, `/ws/` köküne |
+| B8 | `kayit_onar.sh` + açılışta çağrısı | ✅ | ❌ | ✅ | `dagit.sh` taşır; **etkin olması için konteyner yeniden başlatılmalı** |
 
 **B3 doğrulama** (`.surum`'a güvenme, eskiyor):
 
@@ -376,6 +448,40 @@ ssh-copy-id <KULLANICI>@<ip>           # parolayla girer, anahtarını ekler
 ## 8. DEĞİŞİKLİK DEFTERİ
 
 Her Pi değişikliği buraya, en yeni en üste.
+
+### 2026-08-20 (5) — açılış sertleştirmesi + kayıt onarımı (ylp00 + ylp02)
+
+Kod tarafı, `dagit.sh` ile gitti. **Etkin olması için konteyner yeniden
+başlatıldı** — ikisi de yapıldı, doğrulandı: 11 düğüm, `disarm`,
+`gunluk/son/kayit_onar.log` var.
+
+| ne | ylp00 | ylp01 | ylp02 |
+|---|---|---|---|
+| `baslat.sh` ağ beklemesi (P0.13) | ✅ | ❌ | ✅ |
+| `baslat.sh` `gps_saat` sert zaman aşımı (P0.13) | ✅ | ❌ | ✅ |
+| `kayit_onar.sh` + açılışta arka planda çağrısı | ✅ | ❌ | ✅ |
+| sysctl writeback 1 sn (A8) | ✅ | ❌ | ✅ |
+| `mcap` kurtarma aracı (A11) | ✅ | ❌ | ✅ |
+| docker log döndürme (A12) | ✅ | ❌ | ❌ |
+
+**A12 neden ylp02'de yok:** docker'ın log ayarları oluşturma anında
+sabitleniyor; `docker restart` yetmiyor, `docker rm -f` + `run_drone.sh`
+gerekiyor. ylp02'de bozukluk olmadığı için o adım atlandı — tek kazanç
+döndürme. Sırası gelince bölüm 2'deki 4. adım.
+
+**Ölçülen sonuç:** düşüşte kaybedilen uçuş verisi penceresi
+**~30 saniyeden ~4 saniyeye** indi. Üç katman birlikte çalışıyor:
+
+```
+dugum yazar -> cekirdek RAM'de tutar -> karta yazar
+                      ^
+               A8: 30 sn yerine 1 sn        <- kapanmis .mcap dosyalari kurtuldu
+
+acilista: kayit_onar.sh -> bozuk son parcayi mcap recover ile kurtar
+                        -> reindex ile metadata.yaml'i yeniden uret
+```
+
+Ayrıntı, sayılar ve tuzaklar: `docs/TUZAKLAR.md` §1.18 ve §1.19.
 
 ### 2026-08-20 (4) — `mcap` kurtarma aracı ylp00 + ylp02'ye kondu, DEPODA YOK
 
