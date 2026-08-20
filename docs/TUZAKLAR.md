@@ -1,6 +1,6 @@
 # TUZAKLAR — hata vermeden yanlış sonuç üretenler
 
-**Son güncelleme:** 20 Ağustos 2026, 21:40
+**Son güncelleme:** 20 Ağustos 2026, 22:05
 
 > **Bu belge CANLI.** Arşiv değil — buradaki her madde **bugün de geçerli.**
 >
@@ -439,13 +439,21 @@ docker logs            drone1   ->  BOZUK
 Hata metni: `error from daemon in stream: Error grabbing logs: invalid
 character '\x00' looking for beginning of value`.
 
-**Neden:** json-file sürücüsünün dosyasında **NUL boşluğu** var. Ölçüldü:
-iki koşu, 1602 + 433 bayt, `d8673388...-json.log`'un %7'sinde, ikisi de
-**16 Ağustos 23:34**. Boşluktan sonraki zaman damgası öncekinden **15 sn
-geriye** gidiyor ve hemen ardından `[baslat] AGENT_ID=1` geliyor — yani o
-noktada konteyner yeniden başlamış ve saat geri alınmış. Temiz kapanışta
-böyle bir boşluk oluşmaz; ext4 gecikmeli ayırma + ani güç kesintisi
-imzası. **Aynı gün oluşturulan drone3'te 0 NUL** — sistemik değil.
+**Neden — ve bu SİSTEMİK:** json-file sürücüsünün dosyasında **NUL boşluğu**
+var. Ölçüldü: iki koşu, 1602 + 433 bayt, `d8673388...-json.log`'un %7'sinde,
+ikisi de **16 Ağustos 23:34**. Boşluktan sonraki zaman damgası öncekinden
+**15 sn geriye** gidiyor (RTC pili yok, saat kayıtlı damgadan geri dönüyor)
+ve hemen ardından `[baslat] AGENT_ID=1` geliyor.
+
+Sebep **pil değişimi**. Operatör doğruladı (20 Ağustos): pil değiştirmek
+için güç kesiliyor, sayfa önbelleğindeki veri diske hiç yazılmıyor, ext4
+dosya boyutunu uzatmış ama blokları boş — okununca sıfır geliyor. Bu
+projede pil değişimi günde defalarca oluyor, **yani kural dışı değil,
+normal yol.** Aynı gün 20 Ağustos 21:30'daki pil değişimi ylp00'da dört
+log dosyasında daha aynı boşluğu açtı (`gunluk/20260820_211430/`).
+
+İlk yazımda "drone3'te 0 NUL, sistemik değil" demiştim — **yanlıştı**;
+drone3 yalnızca kötü ana denk gelmemişti.
 
 **Tuzağın kendisi:** `--tail` çalıştığı için araç "sağlam" görünüyor, ama
 `--since` **boş dönüyor**. Boş çıktıya bakıp "konteyner hiçbir şey basmamış"
@@ -468,6 +476,51 @@ sormuştum, boş döndü.
   önbellekleri var, 29 MB, kendiliğinden yeniden üretilir).
 - `run_drone.sh`'e `--log-opt max-size=10m --log-opt max-file=3` eklendi:
   döndürme olmadan bozuk parça **sonsuza kadar** kalıyordu.
+
+### 1.19 Uçuş kayıtlarının HEPSİ `ros2 bag` ile açılamıyordu — veri duruyordu, sarmalayıcı yoktu
+
+**En pahalıya patlayabilecek olanı buydu ve tamamen sessizdi.** Ölçüldü
+(20 Ağustos): ylp00'da **60 kayıttan 60'ında**, ylp02'de **50'den 50'sinde**
+`metadata.yaml` yok. `ros2 bag info` hepsine aynı şeyi diyor:
+
+```
+Could not find metadata in bag directory /ws/kayit/ylp00_20260820_211501
+```
+
+Yani 15 Ağustos'tan beri **hiçbir uçuş kaydı standart yoldan okunamıyordu**
+ve kimse fark etmemişti — kayıt sırasında hiçbir hata yok, dizin dolu
+görünüyor, `.mcap` dosyaları yerinde.
+
+**Neden:** rosbag2 `metadata.yaml`'ı kayıt düğümü **temiz kapandığında**
+yazıyor. Pil değişiminde güç kesiliyor, düğüm SIGINT bile almıyor —
+metadata hiç yazılmıyor. Bkz. §1.18, aynı kök neden.
+
+**Veri kayıp DEĞİL.** `.mcap` kendi kendini tanımlıyor; `ros2 bag reindex`
+metadata'yı yeniden üretiyor. Tek engel şu: güç kesilirken yazılan **son
+parça** bozuk kalıyor ve **tek bozuk parça bütün reindex'i iptal ediyor.**
+İki ayrı biçimde görülüyor:
+
+| durum | boyut | reindex hatası |
+|---|---|---|
+| yeni açılmış parça | **0 bayt** | `file too small` |
+| yazılırken kesilen parça | **831488 bayt** (dolu görünür) | `zstd ... Data corruption detected` |
+
+İkincisi önemli: **boyuta bakarak eleyemezsin.** Bu yüzden onarım betiği
+parçayı boyutundan değil, **reindex'in hata metninden** buluyor.
+
+**Araç:** `deploy/rpi/teshis/kayit_onar.sh` — konteyner içinde koşar
+(dosyalar root'a ait), bozuk parçaları `/ws/kayit_yarim/` altına **taşır
+(silmez)**, reindex eder. Aktif kaydı atlar.
+
+```bash
+docker exec droneN bash /ws/kayit_onar.sh --kuru   # ne yapacagini goster
+docker exec droneN bash /ws/kayit_onar.sh          # onar
+```
+
+**Uygulandı (20 Ağustos):** ylp00 → 59/60 okunur (kalan 1 dizinde hiç parça
+yok, 16 Ağustos'ta iki kesinti arasında açılmış), ylp02 → 49/50 okunur
+(kalan 1 tanesi o an kayıttaydı). Toplam 37 bozuk parça karantinaya alındı,
+hepsi ~4 KB — **anlamlı veri kaybı yok.**
 
 ---
 
