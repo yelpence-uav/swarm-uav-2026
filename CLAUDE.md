@@ -1,6 +1,6 @@
 # Yelpençe — TEKNOFEST 2026 Sürü İHA
 
-**Son güncelleme:** 16 Ağustos 2026, 21:28
+**Son güncelleme:** 20 Ağustos 2026, 16:55
 
 > Bu dosyayı Claude Code her oturumda **kendiliğinden okur**. Yeni bir sohbet
 > açan kişinin hiçbir şey söylemesine gerek yok; buradan projeyi anlar.
@@ -84,8 +84,19 @@ mavros_node          MAVLink <-> ROS
 px4_bridge           setpoint yürütücü + OFFBOARD  (swarm_control)
 agent_fsm_node       ajan durum makinesi           (swarm_state_machine)
 esp32_bridge         mesh <-> ROS köprüsü          (swarm_control)
-basit_kacinma        APF çarpışma kaçınması        (swarm_control)
+basit_kacinma        APF çarpışma kaçınması        (swarm_control)  ← GEÇİCİ
 ```
+
+> **`basit_kacinma` yarışmada kullanılmayacak.** Test için yazılmış bir
+> çarpışma önleme algoritması; asıl sürü algoritması değil. Yerine
+> `collision_avoidance` geçecek (KARAR-01) ve **`basit_kacinma` o zaman
+> iptal edilip çıkarılacak.** Bugün duruyor olması bir tercih değil, henüz
+> sırası gelmemiş bir geçiş.
+>
+> Dikkat: o yuva aynı zamanda **zorunlu bir aktarım katı** —
+> `/control/setpoint/raw` ile `/control/setpoint` arasındaki tek köprü orası.
+> "Kaçınmayı kaldır" diye bir seçenek yok; yalnızca *değiştir* var. Boş
+> bırakılırsa `formation_node`'un setpoint'leri px4_bridge'e hiç ulaşmaz.
 
 Diğer **14 sürü düğümü kapalı**. `deploy/rpi/baslat.sh` içindeki
 `SURU_DUGUMLERI` değişkeniyle adı verilerek açılırlar; varsayılan boş.
@@ -344,6 +355,46 @@ ylp00'da 45'ti, yani dedektör eşiği kontrol tavanının altında kalmıştı 
 normal uçuş "devrilme" sayılıp görev havada kendini iptal edebilirdi.
 
 ## 9. Asla yapılmayacaklar
+
+### 🔴🔴 UÇUŞ ÖNCESİ KIRMIZI ÇİZGİLER — operatör kim olursa olsun
+
+**Bunlara uyulmadan drone testi TAMAMEN YASAKTIR.** Bu bir öneri listesi
+değil. Operatör değişse de, acele olsa da, hava kararıyor olsa da geçerli.
+(15 Ağustos 2026, operatör talimatı.)
+
+**Operatörün yapmak ZORUNDA olduğu — Claude devralamaz:**
+
+1. **Harita kontrolü.** Drone'ların gideceği **tüm** noktalar, kalkış noktası
+   ve **iniş noktaları** bir harita üzerinde gösterilmeli ve operatör bunu
+   gözüyle doğrulamalı. Bu adım devredilemez.
+2. **İniş yeri güvenliği.** Hiçbir drone bahçe teline, çite, ağaca, araca ya
+   da yanlış başka bir yere indirilmez.
+3. **Bilmiyorsan sor.** Operatör bu maddelerden birini bilmiyorsa, uçmadan
+   önce **bilen birine sormak zorundadır.** Bilmeden uçmak seçenek değil.
+
+> #### ⚠️ Formasyonda uçaklar kalktıkları yere İNMEZ
+>
+> En kolay gözden kaçan ve en pahalı madde. **Lider** kalktığı yere iner, ama
+> **komşu uçaklar formasyonun o anki dönüş açısına göre bambaşka yerlere
+> inebilir.** Formasyon döndüyse slot ofsetleri de dönmüştür; 12 m aralıkta
+> bir uçak kalkış noktasından on metrelerce uzağa inebilir.
+>
+> Yani "kalktığı yer boştu" **yeterli değil**. Her uçağın *muhtemel iniş
+> noktası* ayrı ayrı haritada işaretlenmeli ve o alanların hepsi temiz olmalı.
+
+**Claude'un yapmak ZORUNDA olduğu — her uçuştan önce, istisnasız:**
+
+4. **Kuru test.** `--kuru` geçmeden uçulmaz. Atlanamaz, "bu sefer küçük bir
+   test" diye geçilemez.
+5. **Uçakla ilgili her türlü ön testi yap.** Gerekiyorsa operatörden
+   kumandayı açmasını iste — istemek yük değil, görev.
+6. **Rotayı doğru tahmin et.** Uçağın izleyeceği yolu Claude **kesinlikle**
+   doğru bilmek zorunda. "Sanırım şuraya gider" kabul edilemez; belirsizlik
+   varsa uçulmaz, önce ölçülür.
+7. **İrtifadan önce yatay hareket YOK.** Uçak hedef irtifaya ulaşmadan yatay
+   hareket komutu verilmez.
+
+### Diğerleri
 
 - **Havadaki uçağa `disarm` gönderme.** Motoru kesmek düşmek demektir.
   İptal her zaman `land`. Kod bunu zorluyor, sen de zorla.
