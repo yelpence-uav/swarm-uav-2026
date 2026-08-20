@@ -149,6 +149,26 @@ _FRAME_DELIM = 0x00
 #     TIP_GOTO  -> RX BASE/src/main.cpp:187  MESH_GONDERIM_MIN_MS   =  50
 # Bu degerleri firmware'deki sinirin ALTINA cekme: cerceve sessizce duser,
 # hicbir hata donmez ve teshis "drone komutu almadi"ya kadar uzar.
+# IPTAL BAYRAKLARI — bu komutlar geldiginde ayni ucagin bekleyen
+# GOTO ve ARM/TAKEOFF cerceveleri kuyruktan dusurulur.
+#
+# NEDEN (20 Agustos 2026'da SAHADA olculdu, ylp00, pervanesiz):
+#   784.475  land
+#   784.779  takeoff:10.0     <- LAND'den 0.3 sn SONRA
+#   785.182  takeoff:10.0     <- LAND'den 0.7 sn SONRA
+# Guided komutlar 4 kopya gonderiliyor ve TIP_KOMUT kapisi 0.30 sn; iptal
+# aninda kuyrukta bekleyen kalkis cerceveleri land'den SONRA ucaga variyor.
+# Havadaki karsiligi: operator inis komutu verir, ucak alcalmaya baslar,
+# bayat takeoff varir ve ucak GERI TIRMANIR.
+_IPTAL_BAYRAKLARI = (pp.KOMUT_FLAG_LAND
+                     | pp.KOMUT_FLAG_RTL
+                     | pp.KOMUT_FLAG_DISARM)
+
+# Iptal komutunun gecersiz kildigi kalkis niyetleri.
+# DIKKAT: iptal komutlari BIRBIRINI ayiklamaz — land/rtl/disarm farkli
+# niyetler ve her biri ucaga ULASMALI.
+_KALKIS_BAYRAKLARI = pp.KOMUT_FLAG_ARM | pp.KOMUT_FLAG_TAKEOFF
+
 _GUIDED_TEKRAR = 4                  # cerceve basina kopya sayisi
 _GUIDED_TEKRAR_ARALIK_S = 0.25      # ayni komutun iki kopyasi arasi en az
 _GUIDED_TICK_S = 0.05               # kuyruk bosaltma zamanlayicisi
@@ -1650,7 +1670,7 @@ class Esp32BridgeNode(Node):
         self._uart_yaz(pp.TIP_KOMUT, self._agent_id, payload)
 
     def _guided_gonder(self, tip: int, hedef: int, payload: bytes,
-                       goto_iptal: bool = False) -> None:
+                       bayrak: int = 0) -> None:
         """Guided komutu tekrar kuyruğuna koyar (4 kopya, TEK ortak zamanlayıcı).
 
         ESKI HALI IKI DRONE'DA BOZUKTU — 1 Agustos'ta olculdu. Her komut kendi
@@ -1690,9 +1710,10 @@ class Esp32BridgeNode(Node):
         if tip == pp.TIP_GOTO:
             self._guided_kuyruk = [k for k in self._guided_kuyruk
                                    if not (k['tip'] == tip and k['hedef'] == hedef)]
-        elif goto_iptal:
-            # LAND / RTL / DISARM bekleyen GOTO'lari GECERSIZ KILAR.
-            # P0.12(b), 20 Agustos 2026.
+        elif bayrak & _IPTAL_BAYRAKLARI:
+            # IPTAL KOMUTU (LAND / RTL / DISARM) o ucagin bekleyen
+            # GOTO ve ARM/TAKEOFF cercevelerini GECERSIZ KILAR.
+            # P0.12(b) + bayat-takeoff, 20 Agustos 2026.
             #
             # ESKI HALI UCAGI HEDEFE GERI CEKIYORDU. Zincir:
             #   1. Gorev kosucusu 0.2 sn'de bir goto POST ediyor; her goto
@@ -1716,17 +1737,23 @@ class Esp32BridgeNode(Node):
             # KAPSAM: yalniz AYNI HEDEFE ait GOTO'lar atiliyor. Diger ucagin
             # kuyrugu dokunulmadan kaliyor — bir ucagi indirmek digerinin
             # gorevini kesmez.
+            def _bayat(k):
+                if k['hedef'] != hedef:
+                    return False                      # diger ucaga dokunma
+                if k['tip'] == pp.TIP_GOTO:
+                    return True                       # bayat hedef
+                return bool(k.get('bayrak', 0) & _KALKIS_BAYRAKLARI)
+
             onceki = len(self._guided_kuyruk)
             self._guided_kuyruk = [
-                k for k in self._guided_kuyruk
-                if not (k['tip'] == pp.TIP_GOTO and k['hedef'] == hedef)
+                k for k in self._guided_kuyruk if not _bayat(k)
             ]
             dusen = onceki - len(self._guided_kuyruk)
             if dusen:
                 self.get_logger().info(
                     f'[GUIDED] iptal komutu: drone{hedef} icin bekleyen '
-                    f'{dusen} GOTO cercevesi kuyruktan dusuruldu '
-                    f'(bayat hedef inisi iptal etmesin)')
+                    f'{dusen} cerceve (GOTO/ARM/TAKEOFF) kuyruktan '
+                    f'dusuruldu — bayat komut inisi iptal etmesin')
         if len(self._guided_kuyruk) >= _GUIDED_KUYRUK_MAKS:
             atilan = self._guided_kuyruk.pop(0)
             self.get_logger().warning(
@@ -1734,6 +1761,7 @@ class Esp32BridgeNode(Node):
                 f"tip=0x{atilan['tip']:02X} hedef={atilan['hedef']} atildi")
         self._guided_kuyruk.append({
             'tip': tip, 'hedef': hedef, 'payload': payload,
+            'bayrak': bayrak,            # iptal ayiklamasi bunu okuyor
             'kalan': _GUIDED_TEKRAR, 'en_erken': 0.0,
         })
 
@@ -1811,19 +1839,10 @@ class Esp32BridgeNode(Node):
             throttle_x100=throttle,
             target_id=hedef,
         )
-        # LAND / RTL / DISARM: bu ucagin bekleyen GOTO'lari gecersiz.
-        # Ayrinti ve olculen zincir: _guided_gonder icindeki goto_iptal dali.
-        #
-        # NOT (henuz yapilmadi): ayni mekanizma DISARM icin bekleyen
-        # ARM/TAKEOFF kayitlarina da uygulanabilir — 18 Agustos'ta olculen
-        # "disarm kavgasi" onlardan geliyor (WORKFLOW_BULGULAR, P1). Bilerek
-        # ayri birakildi: o bulgu dogrulanmadi ve bu duzeltmeyle ayni ucusta
-        # iki degisiklik denenmesin.
-        iptal_eder = bool(flag & (pp.KOMUT_FLAG_LAND
-                                  | pp.KOMUT_FLAG_RTL
-                                  | pp.KOMUT_FLAG_DISARM))
-        self._guided_gonder(pp.TIP_KOMUT, hedef, payload,
-                            goto_iptal=iptal_eder)
+        # Bayraklar kuyruga da gidiyor: iptal komutlari bekleyen GOTO ve
+        # ARM/TAKEOFF cercevelerini ayiklarken bunlari okuyor.
+        # Ayrinti: _guided_gonder icindeki iptal dali.
+        self._guided_gonder(pp.TIP_KOMUT, hedef, payload, bayrak=flag)
 
     # =================================================================
     # SÜRÜ KOORDİNASYONU (30 Temmuz) — docs/MESH_PROTOKOL_KARARLARI.md
