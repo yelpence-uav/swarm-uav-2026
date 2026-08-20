@@ -1,6 +1,6 @@
 # RPİ EŞİTLEME DEFTERİ — geri gelen drone'u hizaya getirme
 
-**Son güncelleme:** 20 Ağustos 2026, 21:22
+**Son güncelleme:** 20 Ağustos 2026, 22:30
 
 ## Bu belge ne için
 
@@ -61,13 +61,42 @@ olduğu** yazıyor.
 | A5 | Kalıcı journald | ✅ | ❓ | ✅ | `izleme_kur.sh` 3/7 — dosya adı `10-` ile başlarsa İŞE YARAMAZ |
 | A6 | `yelpence-izle` servis + timer | ✅ | ❓ | ✅ | `izleme_kur.sh` 4-5/7 |
 | A7 | Kayıt disk temizlik timer'ı | ✅ | ❓ | ✅ | `izleme_kur.sh` 6/7 |
-| A8 | **sysctl writeback (1 sn)** | ✅ | ❌ | ✅ | `izleme_kur.sh` 7/7 → `/etc/sysctl.d/60-yelpence-writeback.conf` |
+| A8 | **sysctl writeback (1 sn)** | 🔴 **YOK** | ❌ | ✅ | `izleme_kur.sh` 7/7 → `/etc/sysctl.d/60-yelpence-writeback.conf` |
 | A9 | **Wi-Fi ağları (SSID/şifre)** | ✅ 2 ağ | ❌ | ✅ 2 ağ | aşağıda §7 |
 | A10 | **SSH authorized_keys** | ✅ Osman+Berk | ❌ | ✅ Osman+Berk | aşağıda §7 |
 
 **A8 açıklama:** güç kesintisinde veri kaybının üçüncü katmanı. Bu ayar
 olmadan `baslat.sh`'teki kayıt sertleştirmesi anlamsız — veri kullanıcı
 alanından çekirdek alanına taşınır, yine RAM'de bekler.
+
+> ### 🔴 20 Ağustos 2026 — ylp00'da A8 YOK, bu tablo yanlış diyordu
+>
+> Ölçüldü: `/etc/sysctl.d/60-yelpence-writeback.conf` ylp00'da **mevcut
+> değil** ve canlı değerler varsayılanda:
+>
+> | | ylp00 | ylp02 |
+> |---|---|---|
+> | `vm.dirty_expire_centisecs` | **3000 (30 sn)** | 100 (1 sn) |
+> | `vm.dirty_writeback_centisecs` | **500** | 100 |
+>
+> **Sonucu somut:** İHA düşüp güç anında giderse, **ylp00'da son ~30
+> saniyelik uçuş verisi RAM'de olduğu için kaybolur** — yani kaza
+> analizinde bakacağın tam o kısım. ylp02'de bu ~1 saniye.
+>
+> ylp00'da A5, A6, A7 **var** — `izleme_kur.sh` koşmuş, yalnız 7/7 adımı
+> uygulanmamış (ya da sonradan eklenip bir daha koşulmamış). Bu tablo o
+> yüzden ✅ diyordu; **tablo doğrulanmadan yazılmıştı.**
+>
+> Düzeltmek için ylp00'da (root gerekiyor):
+>
+> ```bash
+> sudo tee /etc/sysctl.d/60-yelpence-writeback.conf <<'EOF'
+> vm.dirty_expire_centisecs = 100
+> vm.dirty_writeback_centisecs = 100
+> EOF
+> sudo sysctl -q --load=/etc/sysctl.d/60-yelpence-writeback.conf
+> cat /proc/sys/vm/dirty_expire_centisecs      # 100 gormeli
+> ```
 
 ```bash
 # A8 tek başına:
