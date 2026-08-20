@@ -169,6 +169,34 @@ class ConsensusNode(Node):
         change = election.decide_change(ctx, effective, now)
         if change is not None:
             self._set_leader(*change)
+        elif ctx.is_leader and self._agent_id not in elig:
+            # LIDERLIGI BIRAK — P0.12(a), 20 Agustos 2026.
+            #
+            # decide_change devralacak biri VARSA liderligi zaten devrediyor
+            # (election.py:112 `ctx.leader_id not in effective` ->
+            # REASON_LEADER_FAULT). Bozuk olan tek durum kimsenin uygun
+            # OLMAMASI: election.py:98-99
+            #     candidate = min(effective) if effective else 0
+            #     if candidate == 0: return None
+            # ile fonksiyon hemen cikiyor, _set_leader HIC cagrilmiyor ve
+            # ctx.is_leader True TAKILI KALIYOR.
+            #
+            # Somut zinciri: inis sonrasi iki ucak da IDLE olur, IDLE
+            # ELIGIBLE_STATES'te yok, effective bosalir. Yerde duran, disarm
+            # olmus ucak mesh'e 10 Hz LeaderHeartbeat basmaya DEVAM eder
+            # (19 Agustos'ta 'own_airborne' kapisi kalkinca yayin yalniz
+            # ctx.is_leader'a baglandi). Ikinci ucusta konteyner yeniden
+            # baslatilmazsa: diger ucak arm olur, kendini secer, sonra
+            # yerdeki hayalet kalp atisi gelir (leader_id 1 < 3),
+            # _adopt_leader liderligi olu ucaga GERI verir, bir sonraki tick
+            # geri alir -> saniyede 5-10 lider degisimi, pervaneler donerken,
+            # guided komutlarla AYNI ESP-NOW kanalinda.
+            #
+            # NEDEN BURADA (decide_change'DEN SONRA): devir yolu oncelikli
+            # kalsin. Bu dal yalniz "devralacak kimse yok AMA biz de uygun
+            # degiliz" durumunu yakalar, yani havada calisan lider degisimi
+            # mantigina dokunmaz.
+            self._liderligi_birak()
 
         # KALP ATISI: lider oldugu surece her tick yayinlanir.
         # 19 Agustos 2026'ya kadar 'own_airborne' sarti vardi (yalniz havada).
@@ -180,8 +208,42 @@ class ConsensusNode(Node):
         #     yer testleri. Mesh maliyeti ucustakiyle ayni (tick_hz).
         #  2) task_reallocator'in hb zaman asimi 0.5 sn; yerde yayin
         #     olmamasi, o dugum acildiginda sahte "lider kayip" uretirdi.
-        if ctx.is_leader:
+        #  3) 20 Agustos 2026: uygunluk kapisi eklendi. Yukaridaki
+        #     _liderligi_birak() bayragi zaten indiriyor, ama bu ikinci
+        #     kapi baska bir yol (_adopt_leader / _on_election) bayragi
+        #     uygun DEGILKEN kaldirirsa mesh'e hayalet kalp atisi
+        #     cikmasini engelliyor. Ucuz ve geri alinabilir.
+        if ctx.is_leader and self._agent_id in elig:
             self._publish_heartbeat(len(elig))
+
+    def _liderligi_birak(self) -> None:
+        """Kendi uygunlugunu yitiren lider liderligi birakir (P0.12a).
+
+        `_set_leader` ile ayni islerin bir kismini yapar ama BILEREK farkli:
+        - `election_round` ARTIRILMAZ. Bu bir SECIM degil, bir cekilme;
+          turu artirmak komsularin mesru seciminin `msg.election_round <
+          ctx.election_round` filtresine takilmasina yol acardi.
+        - `ElectionResult` YAYINLANMAZ. Yeni lider yok, duyurulacak sonuc
+          da yok. `_pub_leader_changed(0)` ile yalnizca "lider kalmadi"
+          bilgisi veriliyor.
+
+        Sonraki arm'da normal yol isler: effective dolar, bootstrap saati
+        kurulur, grace sonrasi secim yapilir.
+        """
+        ctx = self._ctx
+        eski = ctx.leader_id
+        ctx.is_leader = False
+        ctx.leader_id = 0
+        ctx.last_hb_time = 0.0
+        ctx.bootstrap_since = 0.0
+
+        self.get_logger().info(
+            f'[CONSENSUS] liderlik BIRAKILDI (eski lider {eski}, ben='
+            f'{self._agent_id}): kendi uygunlugumu yitirdim ve devralacak '
+            f'uygun ajan yok. Kalp atisi kesildi.'
+        )
+        self._pub_leader_changed(0)
+        self._apply_role()
 
     def _set_leader(self, new_id: int, reason: int) -> None:
         """Yeni lider durumunu uygular."""
@@ -331,7 +393,12 @@ class ConsensusNode(Node):
         m.source_agent_id = self._agent_id
         m.source_module = 'consensus'
         m.value = float(leader_id)
-        m.message = f'Yeni lider: drone{leader_id}'
+        # leader_id = 0 -> lider YOK. `_liderligi_birak` bunu kullaniyor;
+        # 'Yeni lider: drone0' yaniltici olurdu (drone0 diye bir ucak yok).
+        m.message = (
+            f'Yeni lider: drone{leader_id}' if leader_id
+            else 'Lider kalmadi (uygun ajan yok)'
+        )
         self._event_pub.publish(m)
 
 

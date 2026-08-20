@@ -20,7 +20,7 @@ Durum: `[ ]` yapılmadı · `[~]` kısmen · `[B]` başka işe bağlı · `[?]` 
 
 ## 🔴 P0 — UÇUŞ ENGELİ
 
-### 🔴 P0.12 Denetimin iki P0'ı doğrulanmadan kalmıştı — İKİSİ DE KODDA DURUYOR
+### ✅ P0.12 KOD DÜZELTİLDİ (20 Ağustos 18:55) — yer testi bekliyor
 
 `WORKFLOW_BULGULAR.md`'deki 42 bulgunun yalnız 7'si doğrulanabilmişti
 (denetim maliyet yüzünden kesildi). Bu ikisi **20 Ağustos'ta kod okunarak
@@ -45,10 +45,24 @@ if candidate == 0:
 başlatılmadan diğer uçak arm edilirse liderlik 5–10 Hz'de gidip gelir —
 pervaneler dönerken, guided komutlarla **aynı ESP-NOW kanalında**.
 
-- `[ ]` 🔴 **Düzeltme (1 satır):** `if ctx.is_leader and self._agent_id in elig:`
-  — `elig` zaten `_tick` içinde, 165. satırda kapsamda.
-- `[ ]` 🟠 Düzeltildikten sonra yer testinde doğrula: iniş + disarm sonrası
-  `/swarm/*/leader/heartbeat` **susmalı**.
+- `[x]` 🔴 ~~Düzeltme~~ → **YAPILDI.** Bir satırlık kapı yetmedi: bayrağı
+  susturmak uçağın kendini lider **sanmasını** engellemiyordu. Kök nedene
+  gidildi — `_tick`'e `_liderligi_birak()` dalı eklendi:
+  `decide_change` devralacak birini bulamadıysa **ve** biz uygun değilsek
+  liderlik bırakılır (`is_leader=False`, `leader_id=0`, kalp atışı kesilir).
+  > **Yerleşim bilinçli:** dal `decide_change`'den **sonra**, yani normal
+  > devir yolu öncelikli kalıyor — havada çalışan lider değişimi mantığına
+  > dokunulmadı. Ayrıca `election_round` **artırılmıyor**: çekilme bir seçim
+  > değil; turu artırmak komşunun meşru seçimini `msg.election_round <
+  > ctx.election_round` filtresine takardı.
+  > İkinci kapı olarak kalp atışına da `self._agent_id in elig` şartı kondu.
+- `[x]` 🔴 **Test: 8/8** — `swarm_core/test/test_lider_birakma.py`.
+  Kilitlenenler: iniş sonrası bırakma · tekrar tick'te olay yayılmaması ·
+  round artmaması · **uygun liderin liderliği KORUMASI** · devralacak biri
+  varsa normal devir yolunun çalışması · yeniden seçilebilme.
+- `[ ]` 🟠 **YER TESTİ (uçuş yok):** iki uçak ARM → lider seçilsin → ikisini
+  de disarm et → `/swarm/*/leader/heartbeat` **susmalı** ve logda
+  `liderlik BIRAKILDI` görülmeli. Sonra tekrar ARM → yeniden seçim olmalı.
 
 **(b) `land` sonrası kuyrukta kalan GOTO tekrarları inişi iptal ediyor**
 
@@ -63,10 +77,22 @@ kurar → 10 Hz `_guided_hedef_tekrar` onu sonsuza kadar tazeler. **İniş iptal
 olur**, üstelik `px4_bridge`'in 0.5 s bayatlama koruması hiç tetiklenmez
 çünkü hedef sürekli tazeleniyor.
 
-- `[ ]` 🔴 **Düzeltme (~3 satır):** `land`/`rtl`/`disarm` kuyruğa girerken o
-  hedefe ait bekleyen `TIP_GOTO` kayıtlarını da at.
+- `[x]` 🔴 ~~Düzeltme~~ → **YAPILDI.** `_guided_gonder`'e `goto_iptal`
+  parametresi eklendi; `land`/`rtl`/`disarm` kuyruğa girerken **o hedefe ait**
+  bekleyen `TIP_GOTO` kayıtları düşürülüyor ve kaç tane düştüğü loglanıyor.
+  > **Kapsam dar tutuldu:** yalnız aynı hedefin GOTO'ları. Diğer uçağın
+  > kuyruğuna dokunulmuyor — bir uçağı indirmek diğerinin görevini kesmez.
+  > `TIP_KOMUT`'ta genel ayıklama hâlâ YOK (arm/takeoff/land birbirini ezmez).
+- `[x]` 🔴 **Test: 9/9** — `swarm_control/test/test_guided_kuyruk_iptal.py`.
+  Kilitlenenler: land/rtl/disarm düşürüyor · **diğer uçağa dokunmuyor** ·
+  takeoff/arm **düşürmüyor** · eski davranış (yeni GOTO eskisini ezer) korundu.
 - `[ ]` 🟡 İkinci kapı olarak `_isle_goto`, son `land`'den sonra gelen GOTO'yu
-  yok sayabilir (zaman damgası karşılaştırması) — kuşak ve pantolon askısı.
+  yok sayabilir (zaman damgası) — mesh yeniden sıralaması için kuşak ve
+  pantolon askısı. Baz tarafı ayıklama gerçekçi durumu zaten kapatıyor.
+- `[ ]` 🟠 **Aynı mekanizma DISARM → bekleyen ARM/TAKEOFF için de gerekli.**
+  18 Ağustos'ta ölçülen "disarm kavgası" oradan geliyor
+  (`WORKFLOW_BULGULAR`, P1 — doğrulanmadı). **Bilerek ayrı bırakıldı:** o
+  bulgu teyit edilmedi ve bir uçuşta iki değişiklik denenmez.
 
 ### 🔴 P0.14 Lider kaybı tespiti tamamen ölü — denetimde 2/2 DOĞRULANDI
 

@@ -1649,7 +1649,8 @@ class Esp32BridgeNode(Node):
         )
         self._uart_yaz(pp.TIP_KOMUT, self._agent_id, payload)
 
-    def _guided_gonder(self, tip: int, hedef: int, payload: bytes) -> None:
+    def _guided_gonder(self, tip: int, hedef: int, payload: bytes,
+                       goto_iptal: bool = False) -> None:
         """Guided komutu tekrar kuyruğuna koyar (4 kopya, TEK ortak zamanlayıcı).
 
         ESKI HALI IKI DRONE'DA BOZUKTU — 1 Agustos'ta olculdu. Her komut kendi
@@ -1684,11 +1685,48 @@ class Esp32BridgeNode(Node):
         """
         # Ayni hedefe yeni GOTO gelince eskisinin bekleyen tekrarlari
         # anlamsizlasir (yeni hedef eskisini gecersiz kilar) — atilir.
-        # TIP_KOMUT'ta ayiklama YOK: arm/takeoff/land birbirinin yerine
-        # gecmez, her biri ulasmali.
+        # TIP_KOMUT'ta genel ayiklama YOK: arm/takeoff/land birbirinin
+        # yerine gecmez, her biri ulasmali. TEK ISTISNA goto_iptal, asagida.
         if tip == pp.TIP_GOTO:
             self._guided_kuyruk = [k for k in self._guided_kuyruk
                                    if not (k['tip'] == tip and k['hedef'] == hedef)]
+        elif goto_iptal:
+            # LAND / RTL / DISARM bekleyen GOTO'lari GECERSIZ KILAR.
+            # P0.12(b), 20 Agustos 2026.
+            #
+            # ESKI HALI UCAGI HEDEFE GERI CEKIYORDU. Zincir:
+            #   1. Gorev kosucusu 0.2 sn'de bir goto POST ediyor; her goto
+            #      kuyruga 4 KOPYA giriyor (_GUIDED_TEKRAR).
+            #   2. Iptal/varis olunca hemen land gonderiliyor. TIP_KOMUT
+            #      ayri kapidan (0.30 s) cikiyor, ilk kopyasi ~0.05 sn'de.
+            #   3. AMA kuyrukta o hedefe ait 3-4 GOTO kopyasi KALIYOR ve
+            #      sonraki ~0.75 sn boyunca ucaga varmaya devam ediyor.
+            #   4. Ucakta sira: land -> AUTO.LAND, _guided_hedef=None;
+            #      sonra bayat goto -> _isle_goto KOSULSUZ
+            #      _guided_string('offboard') yolluyor ve _guided_hedef'i
+            #      YENIDEN kuruyor -> PX4 AUTO.LAND'dan cikip OFFBOARD'a
+            #      donuyor ve yurutucu ucagi eski hedefe geri suruyor.
+            #   5. 10 Hz'lik _guided_hedef_tekrar o hedefi surekli
+            #      tazeledigi icin px4_bridge'in 0.5 sn bayatlama korumasi
+            #      da HIC tetiklenmiyor — ucak bayat hedefte asili kaliyor.
+            #
+            # En kotu hali kill/iptal aninda: operator kesmek istiyor, boru
+            # hatti ucagi hedefe geri cekiyor.
+            #
+            # KAPSAM: yalniz AYNI HEDEFE ait GOTO'lar atiliyor. Diger ucagin
+            # kuyrugu dokunulmadan kaliyor — bir ucagi indirmek digerinin
+            # gorevini kesmez.
+            onceki = len(self._guided_kuyruk)
+            self._guided_kuyruk = [
+                k for k in self._guided_kuyruk
+                if not (k['tip'] == pp.TIP_GOTO and k['hedef'] == hedef)
+            ]
+            dusen = onceki - len(self._guided_kuyruk)
+            if dusen:
+                self.get_logger().info(
+                    f'[GUIDED] iptal komutu: drone{hedef} icin bekleyen '
+                    f'{dusen} GOTO cercevesi kuyruktan dusuruldu '
+                    f'(bayat hedef inisi iptal etmesin)')
         if len(self._guided_kuyruk) >= _GUIDED_KUYRUK_MAKS:
             atilan = self._guided_kuyruk.pop(0)
             self.get_logger().warning(
@@ -1773,7 +1811,19 @@ class Esp32BridgeNode(Node):
             throttle_x100=throttle,
             target_id=hedef,
         )
-        self._guided_gonder(pp.TIP_KOMUT, hedef, payload)
+        # LAND / RTL / DISARM: bu ucagin bekleyen GOTO'lari gecersiz.
+        # Ayrinti ve olculen zincir: _guided_gonder icindeki goto_iptal dali.
+        #
+        # NOT (henuz yapilmadi): ayni mekanizma DISARM icin bekleyen
+        # ARM/TAKEOFF kayitlarina da uygulanabilir — 18 Agustos'ta olculen
+        # "disarm kavgasi" onlardan geliyor (WORKFLOW_BULGULAR, P1). Bilerek
+        # ayri birakildi: o bulgu dogrulanmadi ve bu duzeltmeyle ayni ucusta
+        # iki degisiklik denenmesin.
+        iptal_eder = bool(flag & (pp.KOMUT_FLAG_LAND
+                                  | pp.KOMUT_FLAG_RTL
+                                  | pp.KOMUT_FLAG_DISARM))
+        self._guided_gonder(pp.TIP_KOMUT, hedef, payload,
+                            goto_iptal=iptal_eder)
 
     # =================================================================
     # SÜRÜ KOORDİNASYONU (30 Temmuz) — docs/MESH_PROTOKOL_KARARLARI.md
