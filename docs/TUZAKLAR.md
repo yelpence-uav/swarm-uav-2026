@@ -1,6 +1,6 @@
 # TUZAKLAR — hata vermeden yanlış sonuç üretenler
 
-**Son güncelleme:** 20 Ağustos 2026, 17:40
+**Son güncelleme:** 20 Ağustos 2026, 20:10
 
 > **Bu belge CANLI.** Arşiv değil — buradaki her madde **bugün de geçerli.**
 >
@@ -656,6 +656,29 @@ kullanmıyor.
 > hızlanır, disarm tutmaz. Kumandayı elde tut.
 
 Bugünkü yer testi çıkışı: **kumandadan kill switch** (`DURUM.md` §3).
+
+### 3.11 GUIDED arm eden uçak OFFBOARD'a girer — GUIDED disarm ARTIK TUTMAZ
+
+20 Ağustos yer testinde yaşandı: `POST /api/guided/3/disarm` gönderildi,
+uçak **disarm olmadı**, operatör kumandadan kesmek zorunda kaldı.
+
+Zincir: `guided arm` yalnız arm etmiyor — `esp32_bridge` önce
+`_guided_string('offboard')` yolluyor. PX4 OFFBOARD'da konum tutmak için
+hover gazı ister; iniş dedektörü "havadayım" der ve **normal disarm'ı
+reddeder** (§3.4). Pervanesiz tezgâhta bu daha da belirgin: konum
+denetleyicisi irtifayı tutmaya çalışıp integrali sarıyor.
+
+> **Kural: guided ile arm ettiysen yer testinden çıkış KUMANDADAN KILL.**
+> Yazılım disarm'ını dene, ama ona güvenme ve **operatörden kill switch'i
+> elinde tutmasını iste.** `DURUM.md` §3 bunu zaten söylüyordu; 20 Ağustos'ta
+> uyulmadı ve bedeli operatörün kumandaya koşması oldu.
+
+⚠️ **İkinci ders — komutun CEVABINI OKU.** O gün disarm `curl ... >/dev/null`
+ile gönderildi, yani PX4'ün reddi hiç görülmedi ve test "disarm oldu"
+varsayımıyla sürdü. Aynı oturumda üç kez araç çıktısı gizlendi ve üçünde de
+yanlış sonuca gidildi (`ros2 topic hz`, `durum_enjekte.sh`, bu). Bu belgenin
+§1'i tam olarak bunun için var: **ölçüm aracının kendisi yalan söyler —
+susturursan hep yalan söyler.**
 
 ### 3.5 PX4 ARMLIYKEN yerde OFFBOARD'a geçmez
 

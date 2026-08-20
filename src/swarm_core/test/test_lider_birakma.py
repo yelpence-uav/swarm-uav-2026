@@ -97,7 +97,9 @@ def test_birakma_sonrasi_tekrar_tick_sessiz():
     n = _dugum(agent_id=1, lider_id=1, agents={
         1: _rec(1, AgentStatus.STATE_IDLE),
     })
-    n._tick(); _grace_doldur(n); n._tick()
+    n._tick()
+    _grace_doldur(n)
+    n._tick()
     cagri = n._pub_leader_changed.call_count
     n._tick()
     n._tick()
@@ -115,7 +117,9 @@ def test_birakmada_secim_turu_ARTIRILMAZ():
         1: _rec(1, AgentStatus.STATE_IDLE),
     })
     once = n._ctx.election_round
-    n._tick(); _grace_doldur(n); n._tick()
+    n._tick()
+    _grace_doldur(n)
+    n._tick()
     assert n._ctx.election_round == once
 
 
@@ -164,7 +168,9 @@ def test_birakma_sonrasi_yeniden_secilebilir():
     n = _dugum(agent_id=1, lider_id=1, agents={
         1: _rec(1, AgentStatus.STATE_IDLE),
     })
-    n._tick(); _grace_doldur(n); n._tick()
+    n._tick()
+    _grace_doldur(n)
+    n._tick()
     assert n._ctx.is_leader is False
 
     # tekrar arm: uygun hale geldik, bootstrap grace'i dolmus varsayalim
@@ -188,7 +194,9 @@ def test_uygun_degilken_bayrak_elle_kaldirilsa_bile_kalp_atisi_cikmaz():
     n = _dugum(agent_id=1, lider_id=1, agents={
         1: _rec(1, AgentStatus.STATE_IDLE),
     })
-    n._tick(); _grace_doldur(n); n._tick()
+    n._tick()
+    _grace_doldur(n)
+    n._tick()
     n._ctx.is_leader = True          # baska bir yol bayragi geri kaldirdi
     n._publish_heartbeat.reset_mock()
     n._tick()

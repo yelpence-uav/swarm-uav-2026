@@ -20,7 +20,7 @@ Durum: `[ ]` yapılmadı · `[~]` kısmen · `[B]` başka işe bağlı · `[?]` 
 
 ## 🔴 P0 — UÇUŞ ENGELİ
 
-### ✅ P0.12 KOD DÜZELTİLDİ (20 Ağustos 18:55) — yer testi bekliyor
+### ✅ P0.12(a) SAHADA DOĞRULANDI (20 Ağustos 20:05) — (b) uçuşa kaldı
 
 `WORKFLOW_BULGULAR.md`'deki 42 bulgunun yalnız 7'si doğrulanabilmişti
 (denetim maliyet yüzünden kesildi). Bu ikisi **20 Ağustos'ta kod okunarak
@@ -60,9 +60,33 @@ pervaneler dönerken, guided komutlarla **aynı ESP-NOW kanalında**.
   Kilitlenenler: iniş sonrası bırakma · tekrar tick'te olay yayılmaması ·
   round artmaması · **uygun liderin liderliği KORUMASI** · devralacak biri
   varsa normal devir yolunun çalışması · yeniden seçilebilme.
-- `[ ]` 🟠 **YER TESTİ (uçuş yok):** iki uçak ARM → lider seçilsin → ikisini
-  de disarm et → `/swarm/*/leader/heartbeat` **susmalı** ve logda
-  `liderlik BIRAKILDI` görülmeli. Sonra tekrar ARM → yeniden seçim olmalı.
+- `[x]` 🔴 **YER TESTİ GEÇTİ — iki uçak, pervanesiz, 20 Ağustos 20:05.**
+  Sıfır sahte veri; komut zinciri gerçek (YKİ → mesh → köprü → FSM →
+  consensus).
+
+  **Önce hata mevcut kodda gösterildi:** 12 sn sahte ARMED enjeksiyonundan
+  **2.8 DAKİKA** sonra ylp00 `state=1` (IDLE), `armed=false` iken mesh'e
+  **10.0 Hz** `LeaderHeartbeat(leader_id=1)` basıyordu.
+
+  **Düzeltme sonrası, iki uçakla:**
+
+  ```
+  ylp00                                  ylp02
+  Lider: 0 -> 1  (secildi, HB 10.2 Hz)   Lider: 0 -> 1 (takip, kendi yayini 0,
+                                                        mesh'ten 40 HB aldi)
+  --- yalniz ylp00 disarm ---
+  Lider: 1 -> 3  (DEVRETTI)              Lider: 1 -> 3 (DEVRALDI, HB 41)
+  BIRAKILDI satiri YOK  <-- kritik
+  --- ylp02 de disarm ---
+  HB = 0                                 liderlik BIRAKILDI · HB = 0
+  ```
+
+  🔴 **En önemli satır: ylp00'da `BIRAKILDI` YOK.** Devralacak biri varken
+  yeni dal **devreye girmiyor**, `decide_change`'in normal devir yolu
+  çalışıyor — dalın `decide_change`'den sonraya konmasının sebebi buydu ve
+  sahada doğrulandı. Tek uçakla bu ölçülemezdi.
+
+  Tek `BIRAKILDI` satırı — histerezis çalışıyor, seç-bırak döngüsü yok.
 
 **(b) `land` sonrası kuyrukta kalan GOTO tekrarları inişi iptal ediyor**
 
@@ -83,6 +107,11 @@ olur**, üstelik `px4_bridge`'in 0.5 s bayatlama koruması hiç tetiklenmez
   > **Kapsam dar tutuldu:** yalnız aynı hedefin GOTO'ları. Diğer uçağın
   > kuyruğuna dokunulmuyor — bir uçağı indirmek diğerinin görevini kesmez.
   > `TIP_KOMUT`'ta genel ayıklama hâlâ YOK (arm/takeoff/land birbirini ezmez).
+- `[ ]` 🟠 **SAHA DOĞRULAMASI YAPILAMADI (20 Ağustos).** Yerdeki uçağa
+  `goto` gönderilince YKİ `"oto-kalkis-sonra-git"` moduna geçip `goto`'yu
+  bekletiyor; uçağa **hiç GOTO çerçevesi ulaşmadı** (sayaç: 0), yani ayıklama
+  sınanamadı. Uçuşta doğrulanacak: bir bacak sürerken `land` gönder, uçak
+  bayat hedefe geri dönmemeli.
 - `[x]` 🔴 **Test: 9/9** — `swarm_control/test/test_guided_kuyruk_iptal.py`.
   Kilitlenenler: land/rtl/disarm düşürüyor · **diğer uçağa dokunmuyor** ·
   takeoff/arm **düşürmüyor** · eski davranış (yeni GOTO eskisini ezer) korundu.
@@ -618,12 +647,12 @@ Gerekçe: `KARARLAR.md` KARAR-01.
 ADIM 1 (lider seçimi) 15 Ağustos'ta yerde geçti (`PLAN.md` §8 ADIM 1).
 Kapanmayanlar:
 
-- `[ ]` 🟠 **İki uçaklı tam devir teslim testi** — birini kill'le, diğerini
-  armlı bırak; ikincisi liderliği devralıyor mu? 15 Ağustos'ta yalnız **tek
-  taraflı** gözlendi: ylp00 FAILSAFE'e düştü, 82 ms sonra `Lider: 1 -> 3`;
-  ylp02 ikinci turu görmedi çünkü 784 ms sonra o da kill'lendi.
-  ⚠️ **P0.14 düzeltilmeden bu test yanlış "geçti" verebilir** — lider kaybı
-  tespiti şu an ölü.
+- `[x]` 🟠 ~~İki uçaklı tam devir teslim testi~~ → **GEÇTİ (20 Ağustos 20:05,
+  pervanesiz).** ylp00 disarm → `Lider: 1 -> 3` ikisinde de; ylp02 liderliği
+  devraldı ve yayına başladı (HB 41), ylp00 sustu. 15 Ağustos'ta yalnız tek
+  taraflı gözlenebilmişti. Ayrıntı: P0.12(a).
+  ⚠️ Not: bu test **devir** yolunu doğruluyor; **lider KAYBI** tespiti
+  (heartbeat zaman aşımı) hâlâ ölü — P0.14.
 - `[ ]` 🟡 **Origin'in MESH yolu hâlâ denenmedi** — bir uçağın origin'i
   diğerine ulaşıyor mu? Şu an ikisi de **aynı sabit değeri** yayınladığı için
   fark görünmez; mesh yolu tamamen kopuk olsa bile her şey çalışıyor görünür.

@@ -1,6 +1,6 @@
 # DURUM — şu an ne çalışıyor, ne bozuk
 
-**Son güncelleme:** 20 Ağustos 2026, 17:40
+**Son güncelleme:** 20 Ağustos 2026, 20:10
 
 > Bu belge **şimdiki hâli** anlatır, tarihçe değil. Bir şey değişince burayı
 > güncelle, eskisini sil. Ne olduğunun hikâyesi `GUNLUK.md`'de kalır.
@@ -173,9 +173,12 @@ Bunlar **dosya varlığıyla** çalışıyor; uçağı bulan kişi böyle bulaca
 Açık kaldığı sürece "görev başladı" komutu uçağı ARM eder ve **orada
 bırakır** — kalkış komutu gönderilmez. Yer testleri için var.
 
-### Yer testinden çıkış: **kumandadan kill switch**
+### 🔴 Yer testinden çıkış: **kumandadan kill switch** — 20 Ağu'da yeniden yaşandı
 
 Yazılım disarm'ı OFFBOARD'dayken PX4 tarafından reddediliyor (`result=1`).
+**20 Ağustos yer testinde tekrar oldu:** `guided/3/disarm` tuttu sanıldı,
+ylp02 disarm olmadı, operatör kumandadan kesti. `guided arm` uçağı OFFBOARD'a
+sokuyor — ayrıntı `TUZAKLAR.md` §3.11.
 Sebep ölçüldü: pervanesiz OFFBOARD'da konum denetleyicisi irtifayı tutmaya
 çalışıp integrali sarıyor, gaz tırmanıyor ve PX4 kendini "yerde" saymıyor.
 **Armlı bekleme süresini kısa tut.**
