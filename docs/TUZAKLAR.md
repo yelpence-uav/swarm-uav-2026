@@ -1,6 +1,6 @@
 # TUZAKLAR — hata vermeden yanlış sonuç üretenler
 
-**Son güncelleme:** 19 Ağustos 2026, 20:10
+**Son güncelleme:** 20 Ağustos 2026, 03:35
 
 > **Bu belge CANLI.** Arşiv değil — buradaki her madde **bugün de geçerli.**
 >
@@ -398,6 +398,30 @@ PX4'ün RC-kayıp kararının gerçek göstergeleri:
   (`YAPILACAKLAR` P1.9)
 
 *(19 Ağustos 2026'da ölçüldü)*
+
+### 1.17 `build/lib/` BAYAT kopya tutuyor — senkron kontrolünü yanıltır
+
+20 Ağustos'ta "ylp02'ye yeni kod gitti mi" sorusunda çıktı. Konteynerde
+`px4_bridge.py`'nin **iki** kopyası var ve md5'leri FARKLI:
+
+```
+/ws/build/swarm_control/build/lib/swarm_control/... -> BAYAT, kimse yuklemiyor
+/ws/build/swarm_control/swarm_control/...           -> GERCEKTEN YUKLENEN
+```
+
+Yanlış olana bakan "kod eski kalmış" sanır ve dağıtımı boşuna tekrarlar.
+`find ... -name px4_bridge.py` ikisini birden döndürür, hangisinin
+koştuğunu söylemez.
+
+**Kesin yol — Python'un kendisine sor:**
+
+```bash
+docker exec drone1 bash -lc 'source /opt/ros/jazzy/setup.bash && \
+  source /ws/install/setup.bash && python3 -c \
+  "import swarm_control.px4_interface.px4_bridge as m; print(m.__file__)"'
+```
+
+Dönen yolu md5'le, repo ile karşılaştır. *(20 Ağustos 2026'da ölçüldü)*
 
 ---
 
