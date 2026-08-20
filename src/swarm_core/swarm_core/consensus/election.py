@@ -4,7 +4,6 @@
 from swarm_interfaces.msg import ElectionResult
 
 from .consensus_states import (
-    AIRBORNE_STATES,
     ELIGIBLE_STATES,
     INELIGIBLE_ROLES,
 )
@@ -40,19 +39,56 @@ def eligible_ids(ctx, now: float) -> set:
 
 
 def effective_set(
-    ctx, now: float, own_airborne: bool, eligible: set
+    ctx, now: float, own_aday: bool, eligible: set
 ) -> set:
-    """Follower isek hb alamadigimiz lideri haric tutan kume."""
+    """Follower isek hb alamadigimiz lideri haric tutan kume.
+
+    `own_aday`: BIZ lider adayi miyiz (ELIGIBLE_STATES icinde miyiz).
+
+    20 AGUSTOS 2026'DA DUZELTILDI — P0.14(a). Bu parametre eskiden
+    `own_airborne` idi ve YOL TAMAMEN OLUYDU:
+
+        own_airborne = own.state in AIRBORNE_STATES
+        AIRBORNE_STATES = {TAKEOFF, IN_SWARM, EXECUTING_TASK}
+
+    ama gecis doneminde `kalkis_olayla=false` oldugu icin FSM UCUS BOYUNCA
+    ARMED'da kaliyor (agent_transitions.py:160-163 kapisi hic acilmiyor) ve
+    ARMED o kumede YOK. Yani `heartbeat_timeout_ms` hicbir kararda
+    kullanilmiyordu; cok ajanli denetimde 2/2 dogrulandi.
+
+    Somut sonucu: liderin consensus'u coker ama agent_fsm + esp32_bridge
+    calismaya devam ederse takipci lider kaybini ASLA fark etmez. Tek yedek
+    3 sn'lik bayatlik ve o da yanlis akisi olcuyordu (P0.14b).
+
+    `own_aday` dogru sarttir: lider kaybiyla ilgilenmemizin sebebi havada
+    olmamiz degil, ADAY olmamiz — uygun degilsek zaten secim yapamayiz.
+    """
     effective = set(eligible)
-    if not ctx.is_leader and ctx.leader_id != 0 and own_airborne:
+    if not ctx.is_leader and ctx.leader_id != 0 and own_aday:
+        # LIDER YAYIN YAPMALI MIYDI? — P0.14(a), 20 Agustos 2026.
+        #
+        # Bu kapi eskiden `lrec.state in AIRBORNE_STATES` idi ve `own_airborne`
+        # ile AYNI hastaligi tasiyordu: ARMED o kumede yok. Bugun tesadufen
+        # calisiyordu, cunku mesh ARMED'i KALKIS'a esleyip karsi tarafta
+        # STATE_TAKEOFF'a cozuyor (TUZAKLAR 4.9) — yani uzak ARMED lider
+        # "havada" gorunuyor. O esleme ADIM 3/4 on kosullari arasinda
+        # DEGISECEK; degistigi gun bu kapi sessizce kapanirdi.
+        #
+        # Dayandigi varsayim da artik gecersiz: "yerdeki lider kalp atisi
+        # yayinlamaz" idi, ama 19 Agustos'tan beri (c3068c8) lider oldugu
+        # surece YERDE DE yayinliyor. Ustelik P0.12(a) ile uygunlugunu
+        # yitiren lider liderligi BIRAKIYOR ve yayini kendisi kesiyor.
+        #
+        # Dogru sart: lider YAYIN YAPMASI GEREKEN bir durumda mi
+        # (ELIGIBLE_STATES). Oyleyse ve kalp atisi gelmiyorsa KAYIPTIR.
         lrec = ctx.agents.get(ctx.leader_id)
-        leader_airborne = (
-            lrec is not None and lrec.state in AIRBORNE_STATES
+        lider_yayinlamali = (
+            lrec is not None and lrec.state in ELIGIBLE_STATES
         )
         hb_age = (
             (now - ctx.last_hb_time) if ctx.last_hb_time > 0 else 1e9
         )
-        if leader_airborne and hb_age > ctx.hb_timeout_s:
+        if lider_yayinlamali and hb_age > ctx.hb_timeout_s:
             effective.discard(ctx.leader_id)
     return effective
 

@@ -247,6 +247,9 @@ class Esp32BridgeNode(Node):
         super().__init__('esp32_bridge')
 
         self.declare_parameter('agent_id', 1)
+        # P0.14(b): komsunun DURUM paketi bu suredir gelmediyse `healthy`
+        # dusurulur. Gerekce ve 5.0'in nereden geldigi: _yayinla_status.
+        self.declare_parameter('komsu_durum_bayat_s', 5.0)
         self.declare_parameter('serial_port', '/dev/ttyUSB0')
         self.declare_parameter('baud', 460800)
         # Boş bırakılırsa agent_id'den türetilir: /drone_{id}/rtcm/in
@@ -288,6 +291,8 @@ class Esp32BridgeNode(Node):
         self.declare_parameter('wing_alpha_deg', 45.0)
 
         self._agent_id = int(self.get_parameter('agent_id').value)
+        self._komsu_durum_bayat_s = float(
+            self.get_parameter('komsu_durum_bayat_s').value)
         self._takim_id = str(self.get_parameter('team_id').value)
         self._kanat_alfa_deg = float(
             self.get_parameter('wing_alpha_deg').value
@@ -309,6 +314,10 @@ class Esp32BridgeNode(Node):
 
         # Komşu drone başına AgentStatus cache'i (POSE + DURUM birleşir)
         self._komsu_durum: dict[int, AgentStatus] = {}
+        # P0.14(b): komsu basina SON DURUM PAKETININ gelis ani. POSE bu
+        # damgayi tazelemez — saglik alanlarinin tazeligi buradan olculuyor.
+        self._komsu_durum_ts: dict[int, float] = {}
+        self._durum_bayat_uyarildi: dict[int, bool] = {}
         self._cache_lock = threading.Lock()
 
         # Komşu status yayıncıları drone_id'ye göre tembel oluşturulur
@@ -996,6 +1005,10 @@ class Esp32BridgeNode(Node):
                 and not durum.kill_switch_active
                 and state != AgentStatus.STATE_FAILSAFE
             )
+            # P0.14(b): saglik alanlarinin tazeligi BURADAN olculuyor —
+            # POSE'un 10 Hz akisi bu damgayi tazelemez.
+            self._komsu_durum_ts[drone_id] = time.monotonic()
+            self._durum_bayat_uyarildi[drone_id] = False
             # Paketi aldiysak gonderenin PX4 baglantisi calisiyordu.
             status.px4_link_ok = True
             # mesh_link_ok ve mesh_node_count henüz AgentStatus.msg'de yok;
@@ -1017,6 +1030,46 @@ class Esp32BridgeNode(Node):
 
         Not: _cache_lock tutulurken çağrılır.
         """
+        # DURUM BAYATSA healthy DUSURULUR — P0.14(b), 20 Agustos 2026.
+        #
+        # OLCULEN ARIZA (cok ajanli denetimde 2/2 dogrulandi): komsunun
+        # AgentStatus'unun IKI ayri mesh kaynagi var ve tazelikleri farkli:
+        #
+        #   TIP_POSE   10 Hz  -> yalniz konum/hiz tasir AMA bu fonksiyonu
+        #                        cagirip ONBELLEKTEKI TUM kaydi yeniden
+        #                        yayinliyor
+        #   TIP_DURUM   1 Hz  -> state/healthy/estimator_ok BURADAN gelir,
+        #                        tekrari YOK
+        #
+        # Tuketici tarafta `consensus_context.update_status` her mesajda
+        # `last_update`i yaziyordu, yani `is_stale()` POSE akisinin
+        # tazeligini olcuyor, korudugu SAGLIK alanlarininkini degil.
+        # Sonucu: liderin DURUM paketleri mesh'te duserse (broadcast'te ~%30
+        # kayip) POSE gecmeye devam eder ve takipciler onu SURESIZ
+        # "taze + ARMED + healthy" gorur. Lider FAILSAFE'e dusse, disarm
+        # olsa, IDLE'a donse bile kimse fark etmez.
+        #
+        # Kok neden BURADA: hangi alanin hangi akistan geldigini yalnizca
+        # kopru biliyor. `healthy` zaten bir TURETIM (asagida), tazelik
+        # sartini o turetime eklemek dogru yer.
+        #
+        # ESIK NEDEN 3.0 DEGIL: DURUM 1 Hz ve tekrarsiz; 3 sn = 3 ardisik
+        # kayip, olasiligi 0.3^3 = %2.7 -> DAKIKADA BIR yanlis alarm.
+        # 5 sn = 5 ardisik kayip, %0.24 -> ~7 dakikada bir. Kalp atisi yolu
+        # (1 sn) artik birincil dedektor oldugu icin bu YEDEK yol muhafazakar
+        # olabilir. ⚠️ Sahada olculmedi; yanlis alarm gorulurse 6.0 yapilir.
+        if status.healthy:
+            yas = time.monotonic() - self._komsu_durum_ts.get(drone_id, 0.0)
+            if yas > self._komsu_durum_bayat_s:
+                status.healthy = False
+                if not self._durum_bayat_uyarildi.get(drone_id):
+                    self._durum_bayat_uyarildi[drone_id] = True
+                    self.get_logger().warning(
+                        f'drone{drone_id}: DURUM paketi {yas:.1f} sn'
+                        f'dir gelmedi (esik {self._komsu_durum_bayat_s:.1f}) '
+                        f'— healthy DUSURULDU. POSE akiyor olabilir ama '
+                        f'saglik bilgisi bayat.')
+
         status.stamp = self.get_clock().now().to_msg()
         pub = self._status_pubs.get(drone_id)
         if pub is None:

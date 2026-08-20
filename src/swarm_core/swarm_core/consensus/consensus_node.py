@@ -23,7 +23,7 @@ from swarm_interfaces.srv import AssignRole
 
 from . import election
 from .consensus_context import ConsensusContext
-from .consensus_states import AIRBORNE_STATES, ELIGIBLE_STATES
+from .consensus_states import ELIGIBLE_STATES
 
 _HEARTBEAT_QOS = QoSProfile(
     reliability=ReliabilityPolicy.RELIABLE,
@@ -99,7 +99,24 @@ class ConsensusNode(Node):
         self.declare_parameter('agent_id', 1)
         self.declare_parameter('agent_count', 3)
         self.declare_parameter('tick_hz', 10.0)
-        self.declare_parameter('heartbeat_timeout_ms', 300.0)
+        # LIDER KALP ATISI ZAMAN ASIMI — 300 -> 1000 ms (20 Agustos 2026).
+        #
+        # P0.14(a) ile bu yol ILK KEZ gercekten devreye giriyor; oncesinde
+        # `own_airborne` kapisi yuzunden hicbir kararda kullanilmiyordu, yani
+        # 300 degeri hic SINANMADI.
+        #
+        # NEDEN 300 KULLANILAMAZ: kalp atisi 10 Hz ve ESP-NOW broadcast'te
+        # kayip ~%30 olculdu. 300 ms = 3 ARDISIK kayip demek; olasiligi
+        # 0.3^3 = %2.7 ve 10 Hz'de bu birkac saniyede bir yanlis "lider
+        # kayip" uretir — lider yalpasi.
+        #
+        # 1000 ms = 10 ardisik kayip, 0.3^10 ~ 6e-6: pratikte hic olmaz.
+        # Yine de mevcut YEDEK yoldan (3 sn'lik bayatlik) UC KAT hizli.
+        #
+        # ⚠️ SAYI SAHADA OLCULMEDI. Ilk iki ucakli ucusta kayittan gercek
+        # kalp atisi bosluk dagilimina bakilip ayarlanacak — en buyuk boslugu
+        # gorup esigi onun ~2 katina koymak dogru yol.
+        self.declare_parameter('heartbeat_timeout_ms', 1000.0)
         self.declare_parameter('agent_stale_timeout_s', 3.0)
         self.declare_parameter('battery_min_v', 14.0)
         self.declare_parameter('bootstrap_grace_s', 1.5)
@@ -161,11 +178,12 @@ class ConsensusNode(Node):
         """Periyodik degerlendirme yapar."""
         now = time.monotonic()
         ctx = self._ctx
-        own = ctx.own()
-        own_airborne = own is not None and own.state in AIRBORNE_STATES
-
         elig = election.eligible_ids(ctx, now)
-        effective = election.effective_set(ctx, now, own_airborne, elig)
+        # P0.14(a): eskiden `own_airborne` geciliyordu ve yol tamamen oluydu —
+        # gecis doneminde FSM ucus boyunca ARMED'da kaliyor, ARMED ise
+        # AIRBORNE_STATES'te yok. Dogru sart ADAY olmak.
+        own_aday = self._agent_id in elig
+        effective = election.effective_set(ctx, now, own_aday, elig)
 
         if ctx.leader_id == 0 and effective and ctx.bootstrap_since == 0.0:
             ctx.bootstrap_since = now

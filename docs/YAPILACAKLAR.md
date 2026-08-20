@@ -140,7 +140,7 @@ olur**, üstelik `px4_bridge`'in 0.5 s bayatlama koruması hiç tetiklenmez
   dizüstünün de `colcon build` + YKİ restart olması gerekir. Aynı tuzağa iki
   kez düşüldü (bkz. `TUZAKLAR` §2.11).
 
-### 🔴 P0.14 Lider kaybı tespiti tamamen ölü — denetimde 2/2 DOĞRULANDI
+### ✅ P0.14 DÜZELTİLDİ (20 Ağustos 20:45) — yer testi bekliyor
 
 `WORKFLOW_BULGULAR.md`'deki 42 bulgunun yalnız 7'si doğrulanabildi. Bu ikisi
 **iki bağımsız doğrulayıcının da onayladığı** tek P0 çiftidir ve
@@ -178,15 +178,40 @@ takipçiler bunu **hiç fark etmez**. Birincil yol (300 ms) ölü, yedek yol
 (3 sn) yanlış akışı ölçüyor. **Düşmüş bir lider süresiz olarak sürünün lideri
 kalır** ve kimse yeni seçim yapmaz.
 
-- `[ ]` 🔴 `AgentRec`'e **alan başına tazelik** ekle: `last_status_update`
-  (DURUM'dan) ile `last_update` (POSE dahil) ayrılsın; `is_stale` sağlık
-  alanları için birincisine baksın.
-- `[ ]` 🔴 `own_airborne` yerine **armlı-ve-havada türevi** kullan
-  (`armed and -pos_z > 1.5`), ya da geçiş döneminde ARMED'ı `AIRBORNE_STATES`
-  yerine ayrı bir "uçuşta" kümesine bağla. ⚠️ Bu küme kaçınma ve formasyon
-  tarafından da okunuyor — bkz. P0.6a'daki `ARMED → KALKIS → TAKEOFF` maddesi.
-- `[ ]` 🟠 Düzeltmeden sonra yer testinde doğrula: liderin `consensus_node`'unu
-  öldür, takipçi **3 sn içinde** yeni seçim yapmalı.
+- `[x]` 🔴 ~~(a) `own_airborne`~~ → **`own_aday` yapıldı.** Doğru şart havada
+  olmak değil **ADAY** olmak; uygun değilsek zaten seçim yapamayız.
+  > 🔎 **İkinci ölü kapı çıktı:** aynı fonksiyonda `leader_airborne` da vardı
+  > ve o da ARMED'ı dışlıyordu. Bugün **tesadüfen** çalışıyordu, çünkü mesh
+  > ARMED'ı KALKIS'a eşleyip karşı tarafta TAKEOFF'a çözüyor
+  > (`TUZAKLAR` §4.9) — o eşleme ADIM 3/4'te **değişecek** ve değiştiği gün
+  > kapı sessizce kapanırdı. `lider_yayinlamali` (ELIGIBLE_STATES) oldu.
+  > Dayandığı varsayım da geçersizdi: "yerdeki lider yayın yapmaz" — 19
+  > Ağustos'tan beri yapıyor, üstelik P0.12(a) ile uygunluğunu yitiren lider
+  > yayını **kendisi** kesiyor.
+- `[x]` 🔴 **Eşik 300 → 1000 ms.** Bu yol ilk kez gerçekten devreye giriyor,
+  yani 300 hiç **sınanmamıştı**. Kalp atışı 10 Hz ve mesh kaybı ~%30:
+  300 ms = 3 ardışık kayıp, olasılığı `0.3³ = %2.7` → birkaç saniyede bir
+  yanlış "lider kayıp", yani **lider yalpası**. 1000 ms = 10 ardışık kayıp
+  (`6e-6`), yine de yedek yoldan (3 sn) **üç kat hızlı**.
+- `[x]` 🔴 ~~(b) alan başına tazelik~~ → **kök nedende çözüldü.** `AgentRec`'e
+  ikinci damga eklemek yetmezdi: consensus hangi alanın hangi akıştan
+  geldiğini **bilemez**. Onu yalnız köprü bilir. `esp32_bridge` artık komşu
+  başına **son DURUM paketinin** anını tutuyor ve yayınlarken bayatsa
+  `healthy=False` yapıyor. Her tüketici birden faydalanıyor.
+  > Eşik **5.0 sn** (parametre `komsu_durum_bayat_s`). DURUM 1 Hz ve
+  > tekrarsız: 3 sn = 3 ardışık kayıp = **%2.7** → dakikada bir yanlış alarm.
+  > 5 sn = %0.24 → ~7 dakikada bir. Kalp atışı yolu artık birincil dedektör
+  > olduğu için bu **yedek** yol muhafazakâr olabilir.
+- `[x]` 🔴 **Test: 12 yeni** — `test_lider_kaybi.py` (6) +
+  `test_durum_bayatligi.py` (6). Bozulmaması gerekenler de kilitli: taze kalp
+  atışında lider düşmüyor · aday değilsek karışmıyoruz · kendimiz liderken dal
+  çalışmıyor · yerdeki lider düşürülmüyor · eşik altında healthy korunuyor.
+- `[ ]` 🟠 **YER TESTİ:** iki uçak ARM → lider seçilsin → **liderin
+  `consensus_node`'unu öldür** (uçak ayakta kalsın) → takipçi **~1 sn içinde**
+  yeni seçim yapmalı. Eskiden hiç yapmıyordu.
+- `[ ]` 🟡 **İki eşik de sahada ölçülmedi.** İlk iki uçaklı uçuşta kayıttan
+  gerçek kalp atışı ve DURUM boşluk dağılımına bak; en büyük boşluğun ~2 katı
+  doğru eşiktir.
 
 ### 🔴 P0.13 Uçaklar ağdan önce kalkınca ROS yığını sakat kalıyor — ÖLÇÜLDÜ (20 Ağustos)
 
