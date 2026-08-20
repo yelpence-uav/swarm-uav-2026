@@ -1744,16 +1744,21 @@ class Esp32BridgeNode(Node):
                     return True                       # bayat hedef
                 return bool(k.get('bayrak', 0) & _KALKIS_BAYRAKLARI)
 
-            onceki = len(self._guided_kuyruk)
+            atilanlar = [k for k in self._guided_kuyruk if _bayat(k)]
             self._guided_kuyruk = [
                 k for k in self._guided_kuyruk if not _bayat(k)
             ]
-            dusen = onceki - len(self._guided_kuyruk)
-            if dusen:
+            if atilanlar:
+                # KAYIT != CERCEVE: kuyrukta komut basina TEK kayit var ve
+                # 'kalan' sayaciyla _GUIDED_TEKRAR kez gonderiliyor. Bir kayit
+                # dusurmek KALAN KOPYALARIN HEPSINI iptal eder — asil sayi o,
+                # o yuzden ikisi birden basiliyor.
+                kopya = sum(k['kalan'] for k in atilanlar)
                 self.get_logger().info(
                     f'[GUIDED] iptal komutu: drone{hedef} icin bekleyen '
-                    f'{dusen} cerceve (GOTO/ARM/TAKEOFF) kuyruktan '
-                    f'dusuruldu — bayat komut inisi iptal etmesin')
+                    f'{len(atilanlar)} kayit / {kopya} gonderilmemis kopya '
+                    f'(GOTO/ARM/TAKEOFF) dusuruldu — bayat komut inisi '
+                    f'iptal etmesin')
         if len(self._guided_kuyruk) >= _GUIDED_KUYRUK_MAKS:
             atilan = self._guided_kuyruk.pop(0)
             self.get_logger().warning(

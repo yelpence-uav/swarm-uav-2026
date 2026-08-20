@@ -118,10 +118,27 @@ olur**, üstelik `px4_bridge`'in 0.5 s bayatlama koruması hiç tetiklenmez
 - `[ ]` 🟡 İkinci kapı olarak `_isle_goto`, son `land`'den sonra gelen GOTO'yu
   yok sayabilir (zaman damgası) — mesh yeniden sıralaması için kuşak ve
   pantolon askısı. Baz tarafı ayıklama gerçekçi durumu zaten kapatıyor.
-- `[ ]` 🟠 **Aynı mekanizma DISARM → bekleyen ARM/TAKEOFF için de gerekli.**
-  18 Ağustos'ta ölçülen "disarm kavgası" oradan geliyor
-  (`WORKFLOW_BULGULAR`, P1 — doğrulanmadı). **Bilerek ayrı bırakıldı:** o
-  bulgu teyit edilmedi ve bir uçuşta iki değişiklik denenmez.
+- `[x]` 🔴 ~~Aynı mekanizma DISARM → bekleyen ARM/TAKEOFF için de gerekli~~
+  → **YAPILDI ve SAHADA DOĞRULANDI (20 Ağustos 20:16).**
+
+  İki uçaklı yer testi sırasında **ölçüldü** — artık iddia değil:
+
+  ```
+  ONCE (duzeltmesiz)                SONRA (duzeltmeli)
+  784.475  land                     202.975  takeoff:5.0  <- land'den ONCE
+  784.779  takeoff  <- 0.3 sn SONRA 203.280  land
+  785.182  takeoff  <- 0.7 sn SONRA 203.686  land  (takeoff YOK)
+  ```
+
+  Havadaki karşılığı: operatör iniş komutu verir, uçak alçalmaya başlar,
+  bayat `takeoff` varır ve **uçak geri tırmanır.**
+
+  Baz köprüsü logu: *"iptal komutu: drone1 icin bekleyen 1 kayit /
+  3 gonderilmemis kopya (GOTO/ARM/TAKEOFF) dusuruldu"*.
+
+  ⚠️ **Bu düzeltme BAZ tarafında koşuyor** — uçaklara dağıtmak YETMEZ,
+  dizüstünün de `colcon build` + YKİ restart olması gerekir. Aynı tuzağa iki
+  kez düşüldü (bkz. `TUZAKLAR` §2.11).
 
 ### 🔴 P0.14 Lider kaybı tespiti tamamen ölü — denetimde 2/2 DOĞRULANDI
 
