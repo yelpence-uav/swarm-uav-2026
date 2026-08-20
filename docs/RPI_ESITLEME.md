@@ -1,6 +1,6 @@
 # RPİ EŞİTLEME DEFTERİ — geri gelen drone'u hizaya getirme
 
-**Son güncelleme:** 20 Ağustos 2026, 17:40
+**Son güncelleme:** 20 Ağustos 2026, 18:05
 
 ## Bu belge ne için
 
@@ -347,6 +347,42 @@ ssh-copy-id <KULLANICI>@<ip>           # parolayla girer, anahtarını ekler
 ## 8. DEĞİŞİKLİK DEFTERİ
 
 Her Pi değişikliği buraya, en yeni en üste.
+
+### 2026-08-20 — konteynerler yeniden başlatıldı (ylp00 + ylp02)
+
+**Uçak yazılımına dokunulmadı**, bayraklar değişmedi, kod hâlâ `d9be7c9`.
+Yapılan tek şey `docker restart`.
+
+**Neden:** ikisi de **ağdan önce** kalkmıştı ve ROS yığını eski adrese
+bağlanmıştı. Ölçüm (ylp00):
+
+```
+Pi acilis            15:51      (/proc/uptime = 1523 s)
+konteyner + mavros   15:52:41
+wlan0 DHCP kirasi    15:56:32   <- DORT DAKIKA SONRA
+```
+
+Belirti: her düğüm `ddsi_udp_conn_write to udp/172.19.167.x failed` basıyordu
+(bir önceki ağın adresi) ve `mavros.log` **442 MB**'a şişmişti. ylp00 daha
+kötüydü: `baslat.sh:211` `gps_saat.py`'yi arka plana atmadan çağırıyor, süreç
+`--bekle 150`'ye rağmen 25+ dakika takıldı ve **`baslat.sh`'in geri kalanı hiç
+çalışmadı** — yalnız mavros vardı.
+
+**Restart sonrası (ikisinde de):** 12 düğüm ayakta · **0 ddsi hatası** ·
+`mavros.log` 20 KB · disk 17 GB boş.
+
+| Ne | ylp00 | ylp02 | ylp01 (dönünce) |
+|----|-------|-------|-----------------|
+| Konteyner restart (16:37) | **VAR** | **VAR** | — |
+| Bayraklar değişti mi | hayır | hayır | — |
+
+🔴 **Kalıcı düzeltme yapılmadı** — `YAPILACAKLAR.md` **P0.13**: `baslat.sh`
+mavros'tan önce ağın hazır olmasını beklemeli (~10 satır, ağ yoksa yine devam
+etsin) ve `gps_saat.py` başlatmayı **bloke etmemeli**.
+
+> 💡 **Uçuş öncesi tek satırlık kontrol:**
+> `docker exec droneN ps | grep -c "ros2 run"` → **12 olmalı.** Bugün bu komut
+> bir sabahı kurtarırdı.
 
 ### 2026-08-18 (2) — `yer_testi` bayrağı SİLİNDİ (ylp00 + ylp02)
 

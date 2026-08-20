@@ -1,6 +1,6 @@
 # YAPILACAKLAR
 
-**Son güncelleme:** 20 Ağustos 2026, 17:40
+**Son güncelleme:** 20 Ağustos 2026, 18:05
 
 ## Önem dereceleri
 
@@ -558,6 +558,24 @@ bulunmayan, `+KIRLI` bir kodun aylarca koşması) tek korkuluğu bu olurdu.
   bakıyor, yani ADIM 3/4 açıldığında doğrudan aktüatör yoluna bağlanır.
   Olgu ve yan etkileri: `TUZAKLAR.md` §4.9.
 
+### ✅ ADIM 4 kodu HAZIR (20 Ağustos) — devreye alma bekliyor
+
+KARAR-01 Seçenek C'nin uygulaması `saha/main`'de: `komsu_adaptoru.py` (129
+satır) + testi (198 satır, **10/10**) + `collision_avoidance_node` yeniden
+bağlandı + eşikler `ucus_ayarlari.py`'de tek kaynağa.
+
+**Eşikler karara bağlandı:** `hard=4.0` (= `MIN_AYRIM_M`, tam kuvvet tam
+sınırda) + `d0=6.0` (formasyonun 8.49 m yaklaşmasına 2.49 m pay).
+Gerekçe: `KARARLAR.md` KARAR-01.
+
+- `[ ]` 🟠 **Uçaklara dağıt** — `dagit.sh`. Şu an uçaklarda `d9be7c9` var,
+  adaptör **yok**.
+- `[ ]` 🟠 `/ws/kacinma` sil + `ca` anahtarını aç (`baslat.sh` ikisini birden
+  açmayı zaten reddediyor).
+- `[ ]` 🔴 **KARAR-02:** `collision_avoidance` iki uçak arasındaki tek koruma
+  katmanı — ilk kez havaya kalkmadan önce operatöre `ultracode` önerilecek.
+- `[ ]` 🟠 Test sırası Y → G → K, `KARARLAR.md` KARAR-01 §Test.
+
 ### 🟠 ADIM 1 kalanları — consensus yerde geçti, bunlar açık
 
 ADIM 1 (lider seçimi) 15 Ağustos'ta yerde geçti (`PLAN.md` §8 ADIM 1).
@@ -972,6 +990,35 @@ Tamamı `PLAN.md` §8'de. Uçuşsuz hazırlık:
 - `[x]` 🟡 ~~`ARCHITECTURE.md` yanıltıcı~~ → başına uyarı kondu
 
 ---
+
+### 🟠 P2.7 Denetim kaydının yarısı yalnız Berk'in Mac'inde
+
+`WORKFLOW_BULGULAR.md`'deki **16 bulgunun mekanizma metni kesik**
+(`*(tam metin journal.jsonl)*`). O dosya depoda yok:
+`~/.claude/projects/-Users-berk-Desktop-yelpence-2026-saha/.../
+wf_635b637e-bd2/journal.jsonl`.
+
+O makine giderse 16 bulgunun gerekçesi kaybolur — ve bunlar uçuş öncesi
+denetlenmesi gereken iddialar.
+
+- `[ ]` 🟠 **Berk:** `journal.jsonl`'i depoya al ya da kesik metinleri
+  `WORKFLOW_BULGULAR.md`'ye tam hâliyle yapıştır.
+
+### 🟡 P2.8 ylp00'ın 1. bacak kalıcı kayması anormal
+
+20 Ağustos A/B ölçümünde (`PLAN.md` §9) fark edildi:
+
+| | bacak 1 | bacak 2 |
+|---|---|---|
+| ylp00 (FF açık) | **0.254 m** | 0.092 m |
+| ylp02 (FF kapalı) | 0.073 m | 0.083 m |
+
+2. bacakta ikisi eşit, 1. bacakta ylp00 **3.5 kat** kötü. Muhtemelen oturma
+penceresi seyir ortalamasına karışıyor (ylp00'ın oturması 3.1 s, bacak 11.3 s).
+Ama bu sayı Berk'in özetinde yok ve ivme FF'in bir yan etkisi olabilir.
+
+- `[ ]` 🟡 Sonraki uçuşta bacak başına kalıcı kaymayı yeniden çıkar; ylp00'ın
+  1. bacağı yine ayrışıyorsa `kayma_coz.py`'nin seyir penceresi denetlensin.
 
 ## ⚪ P3 — İLERİDE
 

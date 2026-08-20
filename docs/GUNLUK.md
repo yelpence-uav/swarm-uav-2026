@@ -1,6 +1,6 @@
 # GÜNLÜK — oturum devir teslim kaydı
 
-**Son güncelleme:** 20 Ağustos 2026, 03:45
+**Son güncelleme:** 20 Ağustos 2026, 18:05
 
 Tek bilgisayar, sırayla çalışıyoruz. Biri kalkıp diğeri oturduğunda **hem
 kişi hem Claude** nerede kalındığını buradan anlar.
@@ -35,6 +35,165 @@ Claude'a **"oturumu kapat"** dersen bu kaydı o yazar.
 - ylp00: (kill switch? pil? nerede? konteyner ayakta mı?)
 - ylp02:
 ```
+
+---
+
+## 2026-08-20 18:05 — Eyüp + Claude (Berk'in işi ölçümle doğrulandı, ADIM 4 adaptörü saha'ya alındı, belgeler sadeleştirildi)
+
+> Uçuş yok. Üç iş: **arkadaşların 52 commit'ini doğrulamak**, **yetim kalan
+> kendi commit'lerimi `saha`'ya almak**, **belge yığınını sadeleştirmek.**
+
+**Ne yapıldı**
+
+*Uçaklara bağlanma — MAC değişmemiş, `known_hosts` takılmıştı*
+
+- Ağ `10.205.4.x`; ylp00 `.134`, ylp02 `.189`. **MAC'ler tabloyla birebir
+  aynı**, değişen tek şey IP. Bağlantıyı kıran `known_hosts`'tu: yeni IP →
+  `Host key verification failed`. Canlı anahtarlar eski IP kayıtlarıyla
+  karşılaştırıldı (4 ve 3 eşleşme) → aynı Pi'ler, MITM değil. Yeni IP'ler
+  eklendi. **Bu YKİ dizüstünde bir değişiklik, uçakta değil.**
+
+*🔴 İki uçak da ölüydü — ağdan önce kalkmışlar*
+
+Ölçüldü (ylp00): Pi açılış **15:51**, konteyner + mavros **15:52:41**, wlan0
+DHCP kirası **15:56:32** — dört dakika sonra. NetworkManager günlüğünde iki
+kez `no lease`, sonra `new lease, address=10.205.4.134`.
+
+Sonucu: her düğüm **eski** adrese yazmaya çalışıyordu
+(`ddsi_udp_conn_write to udp/172.19.167.x failed`) ve `mavros.log` **442 MB**
+olmuştu. Üstüne ylp00'da `baslat.sh:211` `gps_saat.py`'yi **arka plana
+atmadan** çağırıyor; süreç `--bekle 150`'ye rağmen 25+ dakika takıldı ve
+`baslat.sh`'in geri kalanı **hiç çalışmadı** — yalnız mavros vardı,
+px4_bridge/esp32_bridge/agent_fsm yoktu. ylp02'de yığın ayaktaydı ama o da
+eski adrese yazıyordu.
+
+`docker restart` ikisini de düzeltti: **12 düğüm, 0 ddsi hatası, log 20 KB.**
+Yeni madde **P0.13**.
+
+> ⚠️ Yolda bir teşhis hatası yaptım: `ros2 node list` boş dönünce "DDS keşfi
+> bozuk" dedim. Değildi — benim istemcimde `ROS_LOCALHOST_ONLY` yoktu, düğümler
+> loopback'teydi. Graf sağlamdı, bakışım kördü. Doğru komut:
+> `ROS_LOCALHOST_ONLY=1 ros2 node list --no-daemon`.
+
+*✅ Berk'in işi doğrulandı — belgeye değil ölçüme bakarak*
+
+- **Kod gerçekten uçakta:** beş kritik dosyanın md5'i `d9be7c9` ile **5/5
+  birebir** (`formation_node` = `bd40492c`, YAPILACAKLAR'da yazan değerin aynısı).
+- **Uçuşlar gerçekten olmuş:** kayıtlar duruyor (20 Ağu 01:27 37 MB · 01:47
+  172 MB · 02:57 86 MB · 03:32 15 MB).
+- **A/B ölçümünü kendim tekrarladım** — `kayma_coz.py` ile ham bag'lerden:
+
+  | | ylp02 (FF kapalı) | ylp00 (FF açık) |
+  |---|---|---|
+  | tepe hata | 1.177 / 1.026 m | **0.551 / 0.324 m** |
+  | ortalama | **1.10 m** | **0.44 m → −60 %** |
+
+  Commit mesajındaki "1.10 → 0.44" **birebir çıktı.** Uydurma değil.
+- **Parametreler canlı okundu, ikisinde de:** `guided_ivme_ff=1.0`,
+  `kalkis_olayla=False`, `formation sitl_mode=False`, `yer_testi=False`.
+- Testleri koştu (5 geçti, 7 ROS gerektirdiği için atlandı).
+
+> 🔎 Tek çekince: ylp00'ın 1. bacağında kalıcı kayma 0.254 m, ylp02'de 0.073 m.
+> 2. bacakta ikisi eşit (0.092 / 0.083). Muhtemelen oturma penceresi seyir
+> ortalamasına karışıyor. Özetlerde bu sayı yok — sonraki uçuşta bakılsın.
+
+*Yetim commit'ler `saha/main`'e alındı*
+
+15 Ağustos'ta yazdığım üç commit hiçbir uzakta yoktu (PR #118 squash olduğu
+için dal atası değil; düz push 123 commit gönderirdi). Cherry-pick denendi:
+**beş kod dosyası temiz uyguladı**, yalnız `.md`'ler çakıştı.
+
+- `komsu_adaptoru.py` (129) + testi (198) + `collision_avoidance_node` (85)
+  + `ucus_ayarlari.py` eşikleri + `baslat.sh` → **KARAR-01 Seçenek C'nin
+  uygulaması.** Test 10/10, `saha/main` üzerinde koşturuldu.
+- **Kaçınma eşikleri karara bağlandı.** 15 Ağu `8.0/4.0` demişti, 18 Ağu
+  `6.0/3.0`'a düzeltilmişti; **ikisi de ayrı bir arıza biçiminde haklıydı**
+  (`hard < MIN_AYRIM` → koruma geç · `d0 ≈ formasyon` → koruma fazla).
+  Operatör kararı: **`hard=4.0` (sınıra bağlı) + `d0=6.0` (formasyona bağlı)**.
+  `ucus_ayarlari.py` artık `Yapilandirma tutarli` diyor.
+- `CLAUDE.md` **uçuş öncesi kırmızı çizgiler** geri geldi — saha'da hiç yoktu.
+
+*🔴 Denetimin doğrulanmamış iki P0'ı KODDA DURUYOR*
+
+`WORKFLOW_BULGULAR.md`'de 42 bulgu var, 7'si doğrulanabilmiş. Bu ikisini kod
+okuyarak **ben doğruladım** → **P0.12**:
+
+1. `consensus_node.py:183` — `ctx.is_leader` hiçbir yerde geri alınmıyor
+   (`election.decide_change` `effective` boşsa hemen `None` dönüyor). İniş
+   sonrası yerde duran **disarm uçak 10 Hz kalp atışı basmaya devam eder**.
+2. `esp32_bridge_node.py:1688` — kuyruk ayıklaması yalnız aynı hedefe giden
+   `TIP_GOTO` için; `land` bekleyen GOTO'ları temizlemiyor. **İniş iptal olur**
+   ve 10 Hz tekrar hedefi sonsuza kadar tazeler.
+
+Ayrıca denetimin **2/2 doğrulanmış** iki bulgusu hiçbir iş listesinde yoktu →
+**P0.14**: lider kaybı tespiti tamamen ölü (birincil 300 ms yol `own_airborne`
+hiç true olmadığı için çalışmıyor, yedek 3 sn bayatlık **yanlış akışı**
+ölçüyor). Düşmüş bir lider süresiz olarak sürünün lideri kalabilir.
+
+*Belge sadeleştirmesi (`ultracode` ile korumalı)*
+
+13 canlı belge okundu. Tekrar ölçüldü: `ucus_ayarlari.py` **10 dosyada**,
+gözlem merdiveni **7** — `SURU_ENTEGRASYON` kendi içinde **iki kez**.
+
+`PLAN` + `SURU_ENTEGRASYON` + `NAVIGASYON_KAYMA` → tek `PLAN.md`. Eski iki ad
+**yönlendirme** olarak duruyor (5 koddan atıf var).
+
+🔴 **12 "TAMAMLANDI" bölümü silinmeden önce 12 bağımsız ajan her birinin
+içeriğinin başka belgede durup durmadığını doğruladı.** Sonuç: **3 bölüm
+güvenle silinebilir, 9'unda başka hiçbir yerde olmayan bilgi vardı ve
+10 işaretlenmemiş açık iş "TAMAMLANDI" başlığının altında saklıydı.**
+Hepsi taşındı. Kendi kontrolümde 4'ü yine de düşmüştü, geri kondu.
+
+**Ne değişti**
+
+- kod: **yok** — bu oturumda uçuş koduna hiç dokunulmadı
+- **uçakta:** `docker restart drone1` + `drone3` (16:37). Bayraklar
+  değişmedi (`kacinma` VAR, `gozlem` VAR, `yer_testi` YOK, `ucus_ayarlari.env`
+  VAR). **Kod hâlâ `d9be7c9`** — bugün push edilen 4 commit **dağıtılmadı**.
+- YKİ dizüstü: `~/.ssh/known_hosts`'a iki IP eklendi (yedek:
+  `known_hosts.yedek-20260820-1558`)
+- belge: `PLAN` (birleşik), `README` (bozuk sonu yeniden yazıldı), `CLAUDE`,
+  `DURUM`, `YAPILACAKLAR`, `KARARLAR` (KARAR-04 eklendi), `TUZAKLAR`
+  (§2.10-2.12), `RPI_ESITLEME`, `cihazlar`, `WORKFLOW_BULGULAR`,
+  `INTERFACE_CONTRACT`, `deploy/rpi/README`
+
+**Yarım kalan / tuzak**
+
+- 🔴 **P0.12, P0.13, P0.14 düzeltilmedi** — üçü de bir sonraki uçuştan önce
+  kapanmalı. P0.12'nin ikisi toplam ~4 satır.
+- 🔴 **Uçaklardaki kod bugünkü `main` değil.** `dagit.sh` çalıştırılmadı;
+  ADIM 4 adaptörü uçakta **yok**.
+- 🟠 **`RPI_ESITLEME` yanlış bir olguyu canlı belge olarak yazıyordu:**
+  *"`--symlink-install` sayesinde `/ws/src`'e kopyalamak yeterli"* — **tersi
+  doğru**, `colcon build` şart. Düzeltildi (`TUZAKLAR` §2.11), ama biri o
+  cümleye bakıp yalnız `rsync` ile dağıtmış olabilir.
+- 🟠 **`WORKFLOW_BULGULAR`'da tek nokta arızası:** 16 bulgunun mekanizma metni
+  kesik, tam hâli yalnız **Berk'in Mac'indeki** `journal.jsonl`'de. Depoda yok.
+  **Berk: o dosyayı depoya al.**
+- 🟡 Belge sadeleşmesi %36 hedeflenmişti, **%9 çıktı** (7854 → 7183). Tekrar
+  sanılanın çoğu yanlış yerde duran tek nüsha bilgiymiş.
+- 🟡 `docker/rpi/` silinmiş ve imajın tek tarifi oydu — **karar verilmedi**,
+  YAPILACAKLAR'a madde açılmadı (operatör onaylamadı). ylp01 dönünce ve
+  `cv2`+`pyzbar` eklenirken gerekecek. CI'da flake8 kapalı — o da cevapsız.
+
+**Sıradaki adım**
+
+**P0.12'nin iki düzeltmesini yap (~4 satır), sonra G2 tekrarı** —
+`YAPILACAKLAR` P0.11. ⚠️ KARAR-02: consensus'un ilk gerçek hava görevi,
+uçuştan önce `ultracode` önerilecek.
+
+**Uçakların bırakıldığı hâl**
+
+- **ylp00** (drone1, `10.205.4.134`): konteyner **ayakta** (16:37 restart,
+  12 düğüm, 0 hata). Pervaneler **TAKILI**. Kod `d9be7c9`. Bayraklar:
+  `kacinma` VAR · `gozlem` VAR ⚠️ · `yer_testi` YOK → **kalkış komutunu ALIR**.
+  Disk 17 GB boş.
+- **ylp02** (drone3, `10.205.4.189`): aynısı, kod ylp00 ile senkron.
+  Disk 17 GB boş.
+- **ylp01**: yerde, onarılmadı.
+
+⚠️ **Uçuştan önce `/ws/gozlem` SİLİNMELİ** — duruyorken `formation_node`
+çıktısı uçağa ulaşmıyor.
 
 ---
 
