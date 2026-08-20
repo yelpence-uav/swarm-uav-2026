@@ -166,6 +166,46 @@ if [ -f /ws/tgt_system ]; then
 fi
 # Suanki durum: ylp00 -> dosya YOK (FCU sysid 1, MAVROS varsayilani 1)
 #               ylp02 -> /ws/tgt_system = 3 (FCU sysid 3)
+# --- AG HAZIR MI? (20 Agustos 2026, P0.13) ----------------------------------
+# OLCULDU (ylp00, 20 Agustos):
+#     Pi acilis          15:51
+#     konteyner + mavros 15:52:41
+#     wlan0 DHCP kirasi  15:56:32   <- DORT DAKIKA SONRA
+# Konteyner `--restart unless-stopped` ile Pi acilir acilmaz kalkiyor ve
+# mavros'un gcs_url ucnoktasi ag yokken kuruluyor. Belirtisi mavros.log'daki
+# 'removed stale remote address' ve QGC'nin hic baglanmamasi (P1.5).
+#
+# UCUS BUNA BAGLI DEGIL: mesh seri hat uzerinden, WiFi'siz calisiyor. Bu
+# yuzden ag gelmezse BEKLEMEYE DEVAM ETMEYIZ — uyarip gecicez. Bekleme
+# yalnizca "birazdan gelecek" durumunu kurtarmak icin.
+#
+# NOT: konteynerde `ip` komutu YOK (olculdu), `hostname -I` var. Docker
+# koprusu (172.17.x) ve loopback disariliyor; saha aglari bugune kadar
+# 10.x / 172.19.x / 192.168.x oldu.
+AG_BEKLE_SN="${AG_BEKLE_SN:-30}"
+_ag_var() {
+    for a in $(hostname -I 2>/dev/null); do
+        case "$a" in
+            127.*|172.17.*) continue ;;
+            *.*.*.*) return 0 ;;
+        esac
+    done
+    return 1
+}
+_bekledi=0
+while [ "$_bekledi" -lt "$AG_BEKLE_SN" ]; do
+    _ag_var && break
+    [ "$_bekledi" = 0 ] && echo "[baslat] ag henuz yok, en fazla ${AG_BEKLE_SN} sn bekleniyor..."
+    sleep 2
+    _bekledi=$((_bekledi + 2))
+done
+if _ag_var; then
+    [ "$_bekledi" -gt 0 ] && echo "[baslat] ag geldi (${_bekledi} sn sonra): $(hostname -I)"
+else
+    echo "[baslat] UYARI: ${AG_BEKLE_SN} sn'de ag gelmedi — DEVAM EDILIYOR."
+    echo "[baslat]        Mesh ve ucus WiFi'ye bagli DEGIL; yalniz QGC/SSH etkilenir."
+fi
+
 ros2 run mavros mavros_node --ros-args -r __ns:=/drone_${AGENT_ID}/mavros \
     -p fcu_url:=/dev/ttyAMA0:921600 \
     ${TGT_SYSTEM:+-p tgt_system:=$TGT_SYSTEM} \
@@ -208,8 +248,35 @@ sleep 15
 if [ -f /ws/gps_saat_kapali ]; then
     echo "[baslat] gps saat duzeltmesi KAPALI (/ws/gps_saat_kapali)"
 elif [ -f /ws/gps_saat.py ]; then
-    python3 /ws/gps_saat.py --ns "/drone_${AGENT_ID}" --bekle 150 2>&1 \
-        | tee -a "$GUNLUK/gps_saat.log"
+    # SERT ZAMAN ASIMI — 20 Agustos 2026, P0.13.
+    #
+    # OLCULDU: bu cagri SENKRON (arka plana atilmiyor) ve 20 Agustos'ta
+    # `--bekle 150` olmasina RAGMEN 25+ DAKIKA takildi. Sonucu:
+    # baslat.sh'in GERI KALANI HIC CALISMADI — px4_bridge, esp32_bridge,
+    # agent_fsm yok, yalnizca mavros vardi. Ucak sessizce sakat kaldi.
+    #
+    # Kendi `--bekle` dongusu time.monotonic() ile sinirli, yani takilma
+    # ORADA DEGIL; muhtemelen rclpy/DDS kurulumunda (ag yokken). Nerede
+    # oldugunu KANITLAMADIK, o yuzden noktasal duzeltme yerine DISARIDAN
+    # sert bir tavan koyuyoruz: nerede takilirsa takilsin acilis surer.
+    #
+    # 200 = 150 (kendi beklemesi) + 50 pay.
+    #
+    # `-k 15` SART, `-s INT` TEK BASINA YETMEZ — bu duzeltme yazilirken
+    # denendi ve tam da onlemeye calistigi sekilde takildi: `timeout -s INT`
+    # sinyali gonderip cikar, ama surec SIGINT'i yutar ya da kesilemez bir
+    # bekleyisteyse OLMEZ; boru `tee`'ye acik kaldigi icin baslat.sh YINE
+    # bloke olur. `-k 15` 15 sn sonra SIGKILL yollayip bunu keser.
+    timeout -s INT -k 15 200 python3 /ws/gps_saat.py \
+            --ns "/drone_${AGENT_ID}" --bekle 150 2>&1 \
+            | tee -a "$GUNLUK/gps_saat.log"
+    _gs=${PIPESTATUS[0]}
+    if [ "$_gs" = 124 ] || [ "$_gs" = 137 ]; then
+        echo "[baslat] UYARI: gps_saat 200 sn'de bitmedi, ZORLA kesildi." \
+             "Saat DUZELTILMEDI — capraz ucak kayit karsilastirmasi bozuk" \
+             "olabilir, ama ucus etkilenmez. Bkz. YAPILACAKLAR P1.4." \
+             | tee -a "$GUNLUK/gps_saat.log"
+    fi
 fi
 # GUIDED YORUNGE HIZLARI — yorunge 2 Agustos'ta px4_bridge'e tasindi
 # (bkz. _yurutucu_ilerlet). Onceden gorev betigi setpoint'i kendi yurutuyor ve
