@@ -1,6 +1,6 @@
 # YAPILACAKLAR
 
-**Son güncelleme:** 21 Ağustos 2026, 01:15
+**Son güncelleme:** 21 Ağustos 2026, 01:45
 
 ## Önem dereceleri
 
@@ -766,30 +766,22 @@ Tam analiz: `PLAN.md` §7.
 
 ## 🟠 P1 — ACİL
 
-### 🟠 P1.13 PX4 pil telemetrisi YOK ve px4_bridge bunu 12.6 V SAHTESİYLE ÖRTÜYOR
+### 🟠 P1.13 px4_bridge bilinmeyen pili "12.6 V / %100" SAHTESİYLE örtüyor
 
-Ölçüldü (21 Ağustos 01:05, bench, iki uçakta birebir aynı):
+Pil okuma PX4'te **bilerek kapalı** — operatör kararı, sorunlu okuma;
+kalıcı plan harici LiPo ölçer modül → RPi → YKİ. **Tamamı KARAR-03'te**,
+buradan yönetilmiyor.
 
-```
-/mavros/battery         voltage: 65.535   percentage: -0.01   <- PX4: "BILMIYORUM"
-AgentStatus             battery_voltage_v: 12.6  battery_percent: 100  <- SAHTE
-```
+Bu maddenin konusu yalnız şu: `px4_bridge.py:546`, PX4 "bilmiyorum"
+(`/mavros/battery` = 65.535 V, %-1) derken `AgentStatus`'a **12.6 V / %100
+basıyor** — sim döneminden kalma. Ölçülmüş zararı (21 Ağustos, koşu 2):
+consensus varsayılan `battery_min_v=14.0` ile açılınca sahte 12.6 herkesi
+**sessizce aday dışı** bıraktı. Ayrıca YKİ/sürü katmanı pili "dolu" sanıyor.
 
-`65.535` = UINT16_MAX/1000, MAVLink'in "geçersiz" göstergesi. PX4 pili
-**hiç ölçmüyor** — bu, PX4'ün kendi **düşük pil failsafe'inin de çalışmadığı**
-anlamına gelir. Üstüne `px4_bridge.py:546` sim döneminden kalma bir davranışla
-`percent<=0` görünce **12.6 V / %100 uyduruyor**; YKİ ve sürü katmanı pili
-dolu sanıyor.
+- `[ ]` 🟠 Sahteyi kaldır: bilinmeyen pil "bilinmiyor" olarak aksın
+  (KARAR-03 adım 2 zaten kaynağı değiştirecek; sahtenin kaldırılması o
+  adımın parçası sayılmalı). Uçuş yolu kodu: ölçerek, ayrı yer testiyle.
 
-Zincirin ölçülmüş bir zararı bugün yaşandı: consensus varsayılan
-`battery_min_v=14.0` ile açılınca sahte 12.6 herkesi aday dışı bıraktı —
-sıfır seçim, sıfır hata (koşu 2). Betikler düzeltildi ama kök iki sorun duruyor:
-
-- `[ ]` 🟠 PX4 pil ölçümü neden yok? `BAT1_*` parametreleri + güç modülü
-  ölçülecek. Uçuş kanıtında pil GÖRÜNÜYOR muydu, QGC kayıtlarına bakılmalı.
-- `[ ]` 🟠 `px4_bridge.py:546` sahtesi kaldırılmalı — bilinmeyen pil
-  "bilinmiyor" olarak akmalı, "dolu" olarak değil. Uçuş yolu kodu: değişiklik
-  ölçülerek ve ayrı uçuş öncesi testle.
 
 ### 🟠 P1.11 `mcap` kurtarma aracı depoda YOK — eksikliği hata vermiyor
 

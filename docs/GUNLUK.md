@@ -1,6 +1,6 @@
 # GÜNLÜK — oturum devir teslim kaydı
 
-**Son güncelleme:** 20 Ağustos 2026, 23:40
+**Son güncelleme:** 21 Ağustos 2026, 01:45
 
 Tek bilgisayar, sırayla çalışıyoruz. Biri kalkıp diğeri oturduğunda **hem
 kişi hem Claude** nerede kalındığını buradan anlar.
@@ -35,6 +35,87 @@ Claude'a **"oturumu kapat"** dersen bu kaydı o yazar.
 - ylp00: (kill switch? pil? nerede? konteyner ayakta mı?)
 - ylp02:
 ```
+
+---
+
+## 2026-08-21 01:45 — Eyüp + Claude (P0.14 yer testi GEÇTİ: lider kaybı 1.063 sn'de devralındı)
+
+> Uçuş yok. Tek iş: P0.14 lider kaybı yer testi — dört koşu sürdü, her koşu
+> gerçek bir tuzak çıkardı, dördü de ölçülüp kapatıldı. Ağ koşulu: drone'lar
+> telefona uzak, arada duvar (ylp00 ping ort. 41 ms / tepe 213 ms) — ölçüm
+> bu yüzden bilerek uçağın KENDİ saatine taşındı, SSH gecikmesi sonuca
+> giremedi.
+
+**Ne yapıldı**
+
+*Asıl sonuç (koşu 4, 00:59):* iki uçak görev olayıyla **gerçekten** arm
+oldu (FSM: IDLE→ARMING→ARMED), `Lider: 3 -> 1` seçildi, liderin
+consensus'u `kill -9` ile öldürüldü → takipçi **1.063 sn** sonra kendini
+seçti (`Lider: 1 -> 3`, sebep=LEADER_FAULT), ilk kalp atışı **+6 ms**.
+Bonus: inişle uygunluğunu yitiren yeni lider liderliği **BIRAKTI** (P0.12
+canlı kanıt), incarnation sıfırlama doğru işledi. Mesh HB boşlukları
+(61 atış, bench): ortanca 101 / p90 104 / **maks 301 ms** → 1000 ms eşik
+görülen en büyük boşluğun 3.3 katı. Eskiden bu yol HİÇ çalışmıyordu.
+
+*Koşuların çıkardığı tuzaklar (hepsi ölçüldü):*
+
+1. **Pil sahtesi** — koşu 2'de sıfır seçim/sıfır hata. PX4 pili bildirmiyor
+   (`/mavros/battery` 65.535 V = "geçersiz"; **operatör bilerek kapatmış**,
+   bkz. KARAR-03) ama `px4_bridge.py:546` bunu görünce **12.6 V / %100
+   uyduruyor**; consensus varsayılan `battery_min_v=14.0` ile açılınca
+   sahte 12.6 herkesi aday dışı bıraktı. → TUZAKLAR 1.20, P1.13,
+   KARAR-03 adım 2'ye eklendi. Üç teşhis betiği artık `baslat.sh:748` ile
+   birebir parametre kullanıyor.
+2. **FSM UNKNOWN** — koşu 3 boş geçti: konteyner açılışından ~4 dk sonra
+   bile ylp00 `agent_fsm`'i state=0'daydı; görev olayı UNKNOWN'da sessizce
+   boşa gidiyor. → hazırlık kapısı + TUZAKLAR 2.13.
+3. **OFFBOARD'da disarm reddi** — koşu 2'de `Disarming denied: not landed`;
+   operatör kill switch'le durdurdu, QGC "flight termination active" dedi.
+   Switch kapatılınca temizlendi — **FMU reboot GEREKMEDİ** (Pi'ler hiç
+   yeniden başlamadı, ölçüldü). Bitiş artık önce `land`: iki uçak da
+   `Disarmed by landing` ile kendi kendine temiz kapandı.
+4. **mavros'tan arm FSM'i kımıldatmıyor** — koşu 1 bunun kanıtı: PX4 arm
+   oldu, `agent_fsm` IDLE'da kaldı, IDLE aday değil. ARMED'a tek yol görev
+   olayı (`agent_fsm_node.py:345`).
+
+*Ayrıca:* mesh'in ARMED'ı karşıda TAKEOFF(4) göstermesi yarım saat "hata"
+diye kovalandı — **TUZAKLAR 4.9'da zaten yazılıymış**; ölçüm notu eklendi.
+Önce TUZAKLAR'a bakma dersi bir kez daha.
+
+**Ne değişti**
+
+- kod: `teshis/lider_kaybi_test.sh` + `teshis/lider_kaybi_izle.py` **yeni**
+  (tek saatte ölçüm; hazırlık kapısı; land-önce-disarm; kendi kendini
+  temizleyen consensus geri getirme)
+- kod: `teshis/arm_secim.sh`, `teshis/consensus_baslat.sh` — consensus artık
+  `agent_count:=3 battery_min_v:=0.0` ile (sahte-12.6 tuzağı)
+- kod: `dagit.sh` — teşhisten artık `*.py` de taşınıyor (izle.py yalnız
+  elle konmuştu; ylp01'de test sessizce kırılırdı)
+- uçakta: konteynerler birkaç kez yeniden başlatıldı; son hal temiz
+- belge: TUZAKLAR 1.20 + 2.13 + 4.9 notu · YAPILACAKLAR P0.14 kapandı,
+  eşik maddesi yarı-ölçüldü, P1.13 eklendi · KARAR-03 adım 2 güncellendi
+
+**Yarım kalan / tuzak**
+
+- 🟠 P1.13: sahte 12.6 duruyor (kaldırma = uçuş yolu kodu, ayrı yer testi)
+- 🟡 DURUM bayatlık eşiği (5 sn) hâlâ ölçülmedi; HB eşiği yalnız bench'te
+  ölçüldü — uçuşta/mesafede tekrar
+- 🟡 P0.12(b) uçuş doğrulaması G2'ye kalmış durumda
+- Mod etiketi iki uçakta OFFBOARD kalıntısı — disarm hâlde zararsız,
+  kumandadan mod değişince ya da sonraki açılışta gider
+
+**Sıradaki adım**
+
+P1.13 sahtesinin kaldırılması ya da YAPILACAKLAR'daki sıradaki P0 —
+operatör seçer. Pil izlemenin bütünü modül alınınca KARAR-03'ün altı adımı.
+
+**Uçakların bırakıldığı hâl**
+
+- ylp00: konteyner taze (~01:30), **11 düğüm**, `armed=false`, pervaneler
+  **ÇIKIK**, kill switch kapalı. Kod `db828ab`.
+- ylp02: aynı — 11 düğüm, disarm, pervanesiz, kill switch kapalı. Kod
+  `db828ab`. (docker log döndürmesi hâlâ yalnız ylp00'da — P2.11.)
+- ylp01: yerde; dönünce `RPI_ESITLEME.md` bölüm 2 listesi.
 
 ---
 

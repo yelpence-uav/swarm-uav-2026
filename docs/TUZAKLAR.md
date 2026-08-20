@@ -1,6 +1,6 @@
 # TUZAKLAR — hata vermeden yanlış sonuç üretenler
 
-**Son güncelleme:** 21 Ağustos 2026, 01:20
+**Son güncelleme:** 21 Ağustos 2026, 01:45
 
 > **Bu belge CANLI.** Arşiv değil — buradaki her madde **bugün de geçerli.**
 >
@@ -565,9 +565,12 @@ ayarlarına (`--max-bag-duration 30`) hiç dokunmadan.
 AgentStatus          battery_voltage_v: 12.600000381...   <- uydurma sabit
 ```
 
-`65.535` = UINT16_MAX/1000, MAVLink'in "geçersiz" değeri. `px4_bridge.py:546`
-sim döneminden kalma bir davranışla `percent<=0` görünce **12.6 V / %100
-basıyor.** İki uçağın da bire bir aynı float'ı göstermesi tek ipucuydu.
+`65.535` = UINT16_MAX/1000, MAVLink'in "geçersiz" değeri. Pil okuma PX4'te
+**bilerek kapalı** (operatör kararı — sorunlu okuma; kalıcı plan harici
+modül → RPi → YKİ, **KARAR-03**). Tuzak şurada: `px4_bridge.py:546` sim
+döneminden kalma davranışla `percent<=0` görünce **12.6 V / %100 basıyor**
+— yani "bilerek kapalı" durumu "pil dolu" gibi görünüyor. İki uçağın bire
+bir aynı float'ı göstermesi tek ipucuydu.
 
 **Isırdığı yer (ölçüldü):** consensus varsayılan `battery_min_v=14.0` ile
 elle başlatılınca sahte 12.6 < 14.0 → **iki uçak da aday dışı** → sıfır
@@ -575,8 +578,8 @@ seçim, sıfır hata, sıfır log. Teşhis betikleri bu yüzden consensus'u
 `baslat.sh:748` ile **birebir aynı parametrelerle** başlatmak zorunda
 (`agent_count:=3 battery_min_v:=0.0`) — üçü de düzeltildi.
 
-Kök sorunlar `YAPILACAKLAR.md` P1.13'te: PX4 pili neden ölçmüyor (failsafe
-de yok demek) + sahtenin kaldırılması.
+Sahtenin kaldırılması `YAPILACAKLAR.md` P1.13'te; pil izlemenin bütünü
+**KARAR-03**'te (üç yerde birden kapalı, modül gelince altı adımda açılacak).
 
 ---
 

@@ -154,10 +154,14 @@ dagit_bir() {
     #
     # --delete YOK: kokte bayrak dosyalari (yer_testi, gozlem, origin...) ve
     # eski yedekler var; onlari silmek dagitim betiginin isi degil.
+    # *.py de dahil — 21 Agustos'ta bulundu: lider_kaybi_izle.py yalniz *.sh
+    # tasindigi icin ucaga gitmiyordu ve lider_kaybi_test.sh onu /ws'de ariyor;
+    # elle kopyalanmisti. Geri donen ucakta (ylp01) test sessizce kirilirdi.
     if compgen -G "$REPO/deploy/rpi/teshis/*.sh" > /dev/null; then
-        rsync -a "$REPO"/deploy/rpi/teshis/*.sh "$kul@$ip:$hedef/" \
+        rsync -a "$REPO"/deploy/rpi/teshis/*.sh "$REPO"/deploy/rpi/teshis/*.py \
+              "$kul@$ip:$hedef/" \
             || { log "teshis betikleri rsync BASARISIZ"; return 1; }
-        log "teshis betikleri tamam ($(ls -1 "$REPO"/deploy/rpi/teshis/*.sh | wc -l | tr -d ' ') adet)"
+        log "teshis betikleri tamam ($(ls -1 "$REPO"/deploy/rpi/teshis/*.sh "$REPO"/deploy/rpi/teshis/*.py 2>/dev/null | wc -l | tr -d ' ') adet)"
     fi
 
     # ORIGIN — deploy/saha_origin.env TEK KAYNAK, /ws/origin ondan uretilir.

@@ -1,6 +1,6 @@
 # DURUM — şu an ne çalışıyor, ne bozuk
 
-**Son güncelleme:** 20 Ağustos 2026, 23:40
+**Son güncelleme:** 21 Ağustos 2026, 01:45
 
 > Bu belge **şimdiki hâli** anlatır, tarihçe değil. Bir şey değişince burayı
 > güncelle, eskisini sil. Ne olduğunun hikâyesi `GUNLUK.md`'de kalır.
@@ -15,9 +15,15 @@
 | ylp01 | 2 | **YERDE** | 2 Ağustos'ta 20 m'den düştü, RPi açılmıyor |
 | ylp02 | 3 | **Uçar** | Kod **`d9be7c9`** (20 Ağu 03:40, ylp00 ile senkron). `guided_ivme_ff=1.0` — A/B sonrası **ikisinde de açık**. Pervaneler **TAKILI**. **İki uçaklı P0.11 yer testi GEÇTİ:** sürü yolundan ARMED + lider mutabakatı + mesh'ten 499 kalp atışı aldı. ✅ `yer_testi` bayrağı **YOK** (20 Ağu 16:20 ölçüldü). ✅ Alıcı failsafe'i düzeltildi ve ölçüldü (**P0.9 KAPANDI**, 19 Ağu gece: kayıtlı +100 bulundu → -100 kaydedildi → `CH5=1000`). ✅ RC-kayıp tespiti KURULU, bit iki yönde doğrulandı — kumanda kaybında RTL |
 
-> 🔄 **20 Ağustos 23:22 — iki konteyner de yeniden başlatıldı, ikisi de
-> 11 düğüm / `armed=false` / `AUTO.LOITER`.** Pervaneler **ÇIKIK** (arm
-> testleri yapıldı, takılmadı).
+> 🔄 **21 Ağustos 01:30 — iki konteyner de temiz, 11 düğüm, `armed=false`.**
+> Pervaneler **ÇIKIK**, kill switch'ler kapalı. Mod etiketi ikisinde de
+> OFFBOARD kalıntısı (P0.14 yer testinden; disarm hâlde zararsız, mod
+> değişince gider). **P0.14 sahada doğrulandı:** lider kaybı takipçi
+> tarafından **1.063 sn**'de devralınıyor — `GUNLUK` 01:45 kaydı.
+>
+> ⚠️ **Pil:** PX4 pil okuması **bilerek kapalı** (KARAR-03) ama
+> `px4_bridge` bilinmeyen pili **12.6 V / %100 sahtesiyle** yayınlıyor —
+> YKİ'de pil görürsen inanma (TUZAKLAR 1.20, P1.13).
 >
 > **Bu oturumda uçakta ne değişti — sonraki kişi öyle bulacak:**
 >

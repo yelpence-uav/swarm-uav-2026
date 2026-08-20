@@ -1,6 +1,6 @@
 # KARARLAR — verilmiş ama henüz uygulanmamış kararlar
 
-**Son güncelleme:** 20 Ağustos 2026, 18:25
+**Son güncelleme:** 21 Ağustos 2026, 01:45
 
 Sohbette verilen kararlar oturum bitince kayboluyor. Bu defter onları
 tutuyor: **ne karar verildi, neden, ne zaman uygulanacak, nasıl test edilecek.**
@@ -332,7 +332,7 @@ açmak, uçağı yerde tutan sahte bir alarm üretir.
 | Adım | Ne |
 |------|-----|
 | 1 | Modülün voltajını yayınlayan küçük bir düğüm (I2C/UART, ~60 satır) |
-| 2 | `AgentStatus.battery_voltage_v` bu kaynaktan beslensin (şu an MAVROS'tan) |
+| 2 | `AgentStatus.battery_voltage_v` bu kaynaktan beslensin (şu an MAVROS'tan) — **ve `px4_bridge.py:546`'daki 12.6 V sahtesi kaldırılsın**: 21 Ağustos'ta ölçüldü, PX4 "bilmiyorum" (65.535 V) derken AgentStatus'a 12.6/%100 basılıyor ve pil "dolu" görünüyor (TUZAKLAR 1.20) |
 | 3 | `deploy/rpi/baslat.sh` → `BATARYA_KRITIK_V=13.6` |
 | 4 | `src/gcs/frontend/src/services/gorunum.ts` → `PIL_GOSTER = true` |
 | 5 | `src/gcs/backend/config.yaml` → `alerts.susturulan`'dan batarya kodlarını çıkar |
