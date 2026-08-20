@@ -48,6 +48,11 @@ def _rec(agent_id, state, now=None, healthy=True, ekf=True, batarya=0.0):
     return r
 
 
+def _grace_doldur(n):
+    """Histerezis saatini geriye alir — grace_s (1.5 sn) dolmus sayilir."""
+    n._uygunsuz_since = time.monotonic() - 5.0
+
+
 def _dugum(agent_id=1, lider_id=1, agents=None):
     """ROS'suz minimal ConsensusNode (bkz. test_formation_node.py deseni)."""
     n = object.__new__(ConsensusNode)
@@ -61,6 +66,7 @@ def _dugum(agent_id=1, lider_id=1, agents=None):
     ctx.is_leader = (lider_id == agent_id)
     ctx.last_hb_time = time.monotonic()
     n._ctx = ctx
+    n._uygunsuz_since = 0.0
     n.get_logger = MagicMock()
     n._publish_heartbeat = MagicMock()
     n._pub_leader_changed = MagicMock()
@@ -77,7 +83,10 @@ def test_inis_sonrasi_lider_bayragi_birakiliyor():
         1: _rec(1, AgentStatus.STATE_IDLE),      # biz indik
         3: _rec(3, AgentStatus.STATE_IDLE),      # o da indi
     })
-    n._tick()
+    n._tick()                       # 1. tik: histerezis saati kurulur
+    assert n._ctx.is_leader is True, 'tek tikte birakti — histerezis yok'
+    _grace_doldur(n)
+    n._tick()                       # grace doldu
     assert n._ctx.is_leader is False, 'liderlik birakilmadi'
     assert n._ctx.leader_id == 0
     n._publish_heartbeat.assert_not_called()
@@ -88,7 +97,7 @@ def test_birakma_sonrasi_tekrar_tick_sessiz():
     n = _dugum(agent_id=1, lider_id=1, agents={
         1: _rec(1, AgentStatus.STATE_IDLE),
     })
-    n._tick()
+    n._tick(); _grace_doldur(n); n._tick()
     cagri = n._pub_leader_changed.call_count
     n._tick()
     n._tick()
@@ -106,7 +115,7 @@ def test_birakmada_secim_turu_ARTIRILMAZ():
         1: _rec(1, AgentStatus.STATE_IDLE),
     })
     once = n._ctx.election_round
-    n._tick()
+    n._tick(); _grace_doldur(n); n._tick()
     assert n._ctx.election_round == once
 
 
@@ -155,7 +164,7 @@ def test_birakma_sonrasi_yeniden_secilebilir():
     n = _dugum(agent_id=1, lider_id=1, agents={
         1: _rec(1, AgentStatus.STATE_IDLE),
     })
-    n._tick()
+    n._tick(); _grace_doldur(n); n._tick()
     assert n._ctx.is_leader is False
 
     # tekrar arm: uygun hale geldik, bootstrap grace'i dolmus varsayalim
@@ -179,8 +188,52 @@ def test_uygun_degilken_bayrak_elle_kaldirilsa_bile_kalp_atisi_cikmaz():
     n = _dugum(agent_id=1, lider_id=1, agents={
         1: _rec(1, AgentStatus.STATE_IDLE),
     })
-    n._tick()
+    n._tick(); _grace_doldur(n); n._tick()
     n._ctx.is_leader = True          # baska bir yol bayragi geri kaldirdi
     n._publish_heartbeat.reset_mock()
     n._tick()
     n._publish_heartbeat.assert_not_called()
+
+
+# --- HISTEREZIS (20 Agustos yer testinde olculdu) ---------------------------
+
+def test_tek_tikte_BIRAKMAZ():
+    """Anlik bir uygunsuzluk liderligi dusurmemeli.
+
+    Yer testinde olculdu: tek tiklik kapi, uygunluk titredigi anda
+    sec-birak-sec-birak dongusu uretip her cevrimde EVENT_LEADER_CHANGED
+    yayiyordu.
+    """
+    n = _dugum(agent_id=1, lider_id=1, agents={
+        1: _rec(1, AgentStatus.STATE_IDLE),
+    })
+    n._tick()
+    assert n._ctx.is_leader is True
+    n._pub_leader_changed.assert_not_called()
+
+
+def test_titreme_histerezis_sayacini_SIFIRLAR():
+    """Uygunluga geri donunce saat sifirlanir — yarim kalan sure birikmez."""
+    n = _dugum(agent_id=1, lider_id=1, agents={
+        1: _rec(1, AgentStatus.STATE_IDLE),
+    })
+    n._tick()
+    assert n._uygunsuz_since != 0.0, 'saat kurulmadi'
+
+    # tekrar uygun hale geldik
+    n._ctx.agents[1] = _rec(1, AgentStatus.STATE_ARMED)
+    n._tick()
+    assert n._uygunsuz_since == 0.0, 'saat sifirlanmadi'
+    assert n._ctx.is_leader is True
+
+
+def test_surekli_uygunsuzluk_sonunda_BIRAKIR():
+    """Titreme degil KALICI cekilme ise liderlik birakilir."""
+    n = _dugum(agent_id=1, lider_id=1, agents={
+        1: _rec(1, AgentStatus.STATE_IDLE),
+    })
+    n._tick()
+    _grace_doldur(n)
+    n._tick()
+    assert n._ctx.is_leader is False
+    assert n._uygunsuz_since == 0.0, 'birakma sonrasi saat sifirlanmadi'

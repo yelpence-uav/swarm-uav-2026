@@ -82,6 +82,10 @@ class ConsensusNode(Node):
             grace_s=self._grace_s,
         )
 
+        # Liderligi birakma histerezisi (P0.12a): kendi uygunlugumuzu ilk
+        # yitirdigimiz an. 0.0 = uygunuz ya da lider degiliz.
+        self._uygunsuz_since = 0.0
+
         self._setup_io()
         self._timer = self.create_timer(1.0 / self._tick_hz, self._tick)
 
@@ -181,22 +185,41 @@ class ConsensusNode(Node):
             # ile fonksiyon hemen cikiyor, _set_leader HIC cagrilmiyor ve
             # ctx.is_leader True TAKILI KALIYOR.
             #
-            # Somut zinciri: inis sonrasi iki ucak da IDLE olur, IDLE
-            # ELIGIBLE_STATES'te yok, effective bosalir. Yerde duran, disarm
-            # olmus ucak mesh'e 10 Hz LeaderHeartbeat basmaya DEVAM eder
-            # (19 Agustos'ta 'own_airborne' kapisi kalkinca yayin yalniz
-            # ctx.is_leader'a baglandi). Ikinci ucusta konteyner yeniden
-            # baslatilmazsa: diger ucak arm olur, kendini secer, sonra
-            # yerdeki hayalet kalp atisi gelir (leader_id 1 < 3),
-            # _adopt_leader liderligi olu ucaga GERI verir, bir sonraki tick
-            # geri alir -> saniyede 5-10 lider degisimi, pervaneler donerken,
-            # guided komutlarla AYNI ESP-NOW kanalinda.
+            # SAHADA OLCULDU (20 Agustos, ylp00, pervanesiz): 12 saniyelik
+            # sahte ARMED enjeksiyonundan 2.8 DAKIKA sonra ucak hala
+            # state=1 (IDLE), armed=false iken mesh'e 10.0 Hz
+            # LeaderHeartbeat(leader_id=1) basiyordu.
+            #
+            # Ikinci ucusta konteyner yeniden baslatilmazsa: diger ucak arm
+            # olur, kendini secer, sonra yerdeki hayalet kalp atisi gelir
+            # (leader_id 1 < 3), _adopt_leader liderligi olu ucaga GERI
+            # verir, bir sonraki tick geri alir -> saniyede 5-10 lider
+            # degisimi, pervaneler donerken ve guided komutlarla AYNI
+            # ESP-NOW kanalinda.
             #
             # NEDEN BURADA (decide_change'DEN SONRA): devir yolu oncelikli
             # kalsin. Bu dal yalniz "devralacak kimse yok AMA biz de uygun
-            # degiliz" durumunu yakalar, yani havada calisan lider degisimi
+            # degiliz" durumunu yakalar, havada calisan lider degisimi
             # mantigina dokunmaz.
-            self._liderligi_birak()
+            #
+            # HISTEREZIS — tek tikte birakma YOK. Ayni yer testinde olculdu:
+            # uygunluk TITRERSE (enjeksiyon duzeneginde sahte 20 Hz ARMED ile
+            # gercek 10 Hz IDLE ayni topikte kavga ediyor) tek tiklik kapi
+            # sec-birak-sec-birak dongusu uretiyor ve her cevrimde
+            # EVENT_LEADER_CHANGED yayiliyor. Gercek ucusta bu titreme
+            # beklenmiyor, ama `healthy` bir an dususe gecerse ayni sey
+            # HAVADA olurdu.
+            #
+            # `grace_s` BILEREK yeniden kullanildi (yeni parametre yok):
+            # secilmek icin 1.5 sn uygunluk gerekiyor, birakmak icin de
+            # 1.5 sn UYGUNSUZLUK. Simetrik ve zaten sahada ayarlanmis sayi.
+            if self._uygunsuz_since == 0.0:
+                self._uygunsuz_since = now
+            elif (now - self._uygunsuz_since) >= ctx.grace_s:
+                self._liderligi_birak()
+        else:
+            # Uygunuz ya da lider degiliz -> histerezis sayacini sifirla.
+            self._uygunsuz_since = 0.0
 
         # KALP ATISI: lider oldugu surece her tick yayinlanir.
         # 19 Agustos 2026'ya kadar 'own_airborne' sarti vardi (yalniz havada).
@@ -236,6 +259,7 @@ class ConsensusNode(Node):
         ctx.leader_id = 0
         ctx.last_hb_time = 0.0
         ctx.bootstrap_since = 0.0
+        self._uygunsuz_since = 0.0
 
         self.get_logger().info(
             f'[CONSENSUS] liderlik BIRAKILDI (eski lider {eski}, ben='
