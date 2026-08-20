@@ -1,6 +1,6 @@
 # RPİ EŞİTLEME DEFTERİ — geri gelen drone'u hizaya getirme
 
-**Son güncelleme:** 20 Ağustos 2026, 22:30
+**Son güncelleme:** 20 Ağustos 2026, 23:15
 
 ## Bu belge ne için
 
@@ -376,6 +376,40 @@ ssh-copy-id <KULLANICI>@<ip>           # parolayla girer, anahtarını ekler
 ## 8. DEĞİŞİKLİK DEFTERİ
 
 Her Pi değişikliği buraya, en yeni en üste.
+
+### 2026-08-20 (4) — `mcap` kurtarma aracı ylp00 + ylp02'ye kondu, DEPODA YOK
+
+**Elle kopyalandı, `dagit.sh` taşımıyor.** ylp01 döndüğünde bu adım
+**hatırlanmak zorunda** — depoya koyup koymamaya karar verilmedi.
+
+| | değer |
+|---|---|
+| konum | `~/yelpence_ws/bin/mcap` (konteynerde `/ws/bin/mcap`) |
+| sürüm | MCAP CLI 0.3.0, `mcap-linux-arm64`, 12 733 936 bayt |
+| sha256 | `be9734ef63ada9d0cc7a3aa41378ab65fd482601e5f5b3b52098d8e6553deabf` |
+| kaynak | `https://github.com/foxglove/mcap/releases/download/releases%2Fmcap-cli%2Fv0.3.0/mcap-linux-arm64` |
+| ylp00 | ✅ | 
+| ylp01 | ❌ **dönünce kurulacak** |
+| ylp02 | ✅ |
+
+**Ne işe yarıyor:** güç kesildiğinde yazılmakta olan `.mcap` parçası bozuk
+kalıyor ve `kayit_onar.sh` onu karantinaya alıyordu — yani o parçadaki veri
+okunamıyordu. Bu araçla parça **atılmadan önce kurtarılıyor**: ölçüldü,
+831488 baytlık bozuk parçadan **10588 mesaj / 25.8 saniye** geri geldi.
+Araç yoksa betik eski davranışına döner ve çalışmaya devam eder — yani
+eksikliği **hata vermez**, sessizce daha çok veri kaybettirir.
+
+Ayrıntı ve tuzakları: `docs/TUZAKLAR.md` §1.19.
+
+Kurmak için (dizüstünden, ikili orada mevcut değilse yukarıdaki adresten
+indirilir; sha256 **doğrulanmalı**):
+
+```bash
+./deploy/yki/drone_bul.sh ylp01 \
+  'mkdir -p ~/yelpence_ws/bin && cat > ~/yelpence_ws/bin/mcap \
+   && chmod +x ~/yelpence_ws/bin/mcap && sha256sum ~/yelpence_ws/bin/mcap' \
+  < mcap-linux-arm64
+```
 
 ### 2026-08-20 (3) — 🔴 ylp00 konteyneri YENİDEN OLUŞTURULDU, ylp02 OLUŞTURULMADI
 
