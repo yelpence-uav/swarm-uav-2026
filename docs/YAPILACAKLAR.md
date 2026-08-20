@@ -1,6 +1,6 @@
 # YAPILACAKLAR
 
-**Son güncelleme:** 20 Ağustos 2026, 02:30
+**Son güncelleme:** 20 Ağustos 2026, 03:15
 
 ## Önem dereceleri
 
@@ -332,10 +332,15 @@ tek sayı 7 m'lik bir bacaktan geldi, yani geçici rejimi ölçüyor.
   **4 m/s için 40 m bacak şart** (28 m oturma + ölçüm penceresi).
 - `[x]` 🔴 ~~Doygunluk payı denetimi~~ → `ucus_ayarlari.py` artık
   `tavan ≥ seyir × 1.5` şartını **hata** olarak veriyor
-- `[ ]` 🟠 **İvme ileri-beslemesini aç** — kanal mesajda var
-  (`ax/ay/az`, `acceleration_valid`) ama `mavros_command_sender`'ın
-  **dört type_mask'ında da** `IGNORE_AFX|AFY|AFZ` var. Geçici rejimdeki
-  kaymayı kaldırır. Adım 1'in ölçümü değip değmeyeceğini söyleyecek.
+- `[x]` 🟠 ~~İvme ileri-beslemesini aç~~ → **YAZILDI ve A/B ÖLÇÜLDÜ
+  (20 Ağustos 03:00).** Aynı uçuşta ylp00 açık / ylp02 kapalı:
+  **tepe geçici hata −60 % (1.10 → 0.44 m), varış aşımı −61 %
+  (1.18 → 0.46 m), oturma 3.6 → 2.1 s.** ylp02 kendi tabanını birebir
+  tekrarladı, yani fark koddan. Ayrıntı `NAVIGASYON_KAYMA.md` §ADIM 2.
+  `guided_ivme_ff` **varsayılan 0.0 (kapalı)** — tek uçuşluk kanıtla uçuş
+  yolunun varsayılanı değiştirilmez.
+- `[ ]` 🟠 **İkinci doğrulama uçuşu**, sonra `guided_ivme_ff` varsayılanı
+  1.0 yapılıp `baslat.sh`'e env olarak eklenebilir.
 - `[ ]` 🟠 **Sürü tarafı Durum 1'e düşmesin** — `formation_node`'un SVT'si
   saf oransal (`v = −0.8 × hata`), yani ileri-besleme YOK. Kalıcı kayma
   `v/0.8`, PX4'ün 0.95'inden bile kötü. Çözüm: `formation_node`'u

@@ -1,6 +1,6 @@
 # NAVİGASYON — kaymayı sıfırlama planı
 
-**Son güncelleme:** 20 Ağustos 2026, 02:28
+**Son güncelleme:** 20 Ağustos 2026, 03:15
 
 **Hedef:** Uçak, yürüyen setpoint'in **arkasında kalmasın.** Ne seyirde,
 ne hızlanırken. Hız arttıkça da bozulmasın.
@@ -306,3 +306,44 @@ hesaplanmıştı) ve formasyon ayrım payı.
 **Kalan:** ikinci hızda tekrar (plan 2 ve 4 m/s diyor). 30 m bacak 4 m/s için
 28 m oturma istiyor — ölçüm penceresi 2 m'ye düşer, yani 4 m/s için **40 m**
 bacak gerekiyor. 2 m/s ise bu bacakta rahat ölçülür.
+
+---
+
+## ✅ ADIM 2 UYGULANDI ve A/B ÖLÇÜLDÜ — 20 Ağustos 2026, ivme ileri-beslemesi
+
+**Deney tasarımı:** aynı uçuş, aynı rota (30 m, 10 m irtifa, 3.0 m/s), aynı
+hava. **ylp00 ivme FF AÇIK, ylp02 KAPALI (referans).** Tek değişken: kod.
+
+| Metrik | ylp02 — FF KAPALI | ylp00 — FF AÇIK | Kazanç |
+|---|---|---|---|
+| **Tepe geçici hata** | 1.177 / 1.026 m | **0.551 / 0.324 m** | **−60 %** |
+| **Varış aşımı** | 1.18 m *(ylp00 tabanı)* | **0.46 m** | **−61 %** |
+| **Oturma süresi** | 3.88 / 3.36 s | **3.1 / 1.0 s** | daha hızlı |
+| Kalıcı kayma | 0.073 / 0.083 m | 0.254 / 0.092 m | değişmedi (gürültü) |
+
+### Deneyin güvenilirliği
+
+**ylp02 kendi tabanını birebir tekrarladı:** bir saat önceki uçuşta 1.173 /
+1.053 m, bu uçuşta 1.177 / 1.026 m. Yani ölçüm tekrarlanabilir ve ylp00'daki
+fark gerçekten **koddan** geliyor — rüzgârdan, pilden ya da şanstan değil.
+
+### Ne değişti (kod)
+
+`_yurutucu_ilerlet` yamuk hız profilinin **türevini** de döndürüyor; ivme
+**gecikme telafisinden ÖNCEKİ ham profilden** alınıyor (telafi bir düzeltme
+terimi, yörünge ivmesi değil) ve yapılandırılmış ivme tavanıyla kelepçeleniyor
+(varışta hız tek adımda sıfırlandığı için türev absürt büyük çıkardı).
+`mavros_command_sender` `IGNORE_AF*` bitleri olmayan ikinci bir maske
+kullanıyor; ivme, konum/hızla **aynı NED→ENU dönüşümünden** geçiyor.
+
+`guided_ivme_ff` parametresi — **0.0 = kapalı (varsayılan), 1.0 = açık**, canlı
+değiştirilebilir. Varsayılan bilerek kapalı bırakıldı: tek uçuşluk kanıtla
+uçuş yolunun varsayılanı değiştirilmez.
+
+### Kalan
+
+- `[ ]` İkinci doğrulama uçuşu; sonra `guided_ivme_ff` varsayılanı **1.0**
+  yapılabilir (ve `baslat.sh`'e env olarak eklenir).
+- `[ ]` 4 m/s ölçümü hâlâ yapılmadı — 40 m bacak ister.
+- Kalıcı kayma zaten ihmal edilebilirdi (≈0.1 m); bu düzeltme onu değil
+  **geçici rejimi** hedefliyordu ve tam orada kazandırdı.
