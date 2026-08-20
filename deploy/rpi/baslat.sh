@@ -963,5 +963,27 @@ else
     echo "[baslat] suru dugumleri KAPALI (SURU_DUGUMLERI bos)"
 fi
 
+# --- ACILISTA KAYIT ONARIMI — 20 Agustos 2026 --------------------------------
+#
+# OLCULDU: ylp00'da 60 kayittan 60'inda, ylp02'de 50'den 50'sinde
+# metadata.yaml YOKTU ve `ros2 bag info` hicbirini acamiyordu. Sebep pil
+# degisimi: guc kesilince yukaridaki `kapat` tuzagi HIC calismiyor (sinyal
+# gelmiyor), rosbag2 metadata'yi yazamiyor. Bkz. TUZAKLAR 1.19.
+#
+# Onarim burada, EN SONA konuldu ve UC KORUMASI var — acilis yolunu bozmak
+# P0.13'te tam olarak duzeltilen seydi:
+#   1) arka planda (&)      -> `wait`'e ve dugumlere hic dokunmaz
+#   2) `timeout 600`        -> takilirsa kendi kendini keser
+#   3) betik icinde: aktif kayit ve son 120 sn'de dokunulmus dizin ATLANIR
+#
+# Yani en kotu durumda onarim yapilmaz; ucusu geciktirmesi mumkun degil.
+if [ -f /ws/kayit_onar.sh ]; then
+    (
+        timeout 600 bash /ws/kayit_onar.sh >> "$GUNLUK/kayit_onar.log" 2>&1
+        echo "[onar] cikis=$? ($(date +%H:%M:%S))" >> "$GUNLUK/kayit_onar.log"
+    ) &
+    echo "[baslat] kayit onarimi arka planda basladi -> $GUNLUK/kayit_onar.log"
+fi
+
 echo "tum dugumler basladi (kayit: $KAYIT_DIZIN)"
 wait

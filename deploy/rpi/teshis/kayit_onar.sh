@@ -64,6 +64,18 @@ for d in "$KAYIT"/*/; do
     if [ -n "$AKTIF" ] && [ "${d%/}" = "${AKTIF%/}" ]; then
         atlandi=$((atlandi + 1)); continue
     fi
+
+    # YARIS KORUMASI: acilista bu betik kayit dugumuyle ayni anda kosuyor.
+    # `pgrep` kaydi henuz gormezse taze dizin buraya dusebilir ve YAZILMAKTA
+    # OLAN bir bag'i onarmaya calisirdik. Son 2 dakikada dokunulmus dizine
+    # hic girmiyoruz — bir sonraki aciliste zaten sirasi gelir.
+    #
+    # `-mmin -2` kullaniliyor: `-newermt '-120 seconds'` DENENDI ve sessizce
+    # hata veriyor (her iki dizini de "eski" sayiyor, yani koruma hic
+    # calismiyordu). Olculdu 20 Agustos.
+    if [ -n "$(find "$d" -maxdepth 1 -mmin -2 -print -quit 2>/dev/null)" ]; then
+        atlandi=$((atlandi + 1)); continue
+    fi
     if [ -f "$d/metadata.yaml" ]; then
         atlandi=$((atlandi + 1)); continue
     fi
