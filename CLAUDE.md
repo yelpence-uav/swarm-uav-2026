@@ -1,6 +1,6 @@
 # Yelpençe — TEKNOFEST 2026 Sürü İHA
 
-**Son güncelleme:** 20 Ağustos 2026, 18:40
+**Son güncelleme:** 20 Ağustos 2026, 18:50
 
 > Bu dosyayı Claude Code her oturumda **kendiliğinden okur**. Yeni bir sohbet
 > açan kişinin hiçbir şey söylemesine gerek yok; buradan projeyi anlar.
@@ -188,6 +188,22 @@ Burada yalnız Claude'un sık kullandıkları:
 | `docs/cihazlar.md` | Kimlik tablosu, SSH, MAC, port, QGC, sysid |
 
 **Çelişki varsa:** canlı belge referans belgeyi yener, **kod ikisini de yener.**
+
+> ### 🔒 İKİ BELGE KORUMALI — kendiliğinden OKUMA
+>
+> `docs/MESH_PROTOKOL_KARARLARI.md` (1542 satır) ve
+> `docs/YELPENCE_RTCM_SPEC.md` (841 satır) **yalnız operatör açıkça
+> isteyince** okunur. Keşif sırasında, "bir bakayım" diye, grep sonucu
+> ilginç göründü diye **açılmaz.**
+>
+> **Neden:** ikisi toplam ~2400 satır ve bağlamı doldurup asıl işe yer
+> bırakmıyor. İçerikleri değerli ama **nadiren** gerekli — mesh paket
+> formatı ya da RTCM zinciri üzerinde çalışılmadıkça.
+>
+> Bir soru bu belgelerden birini gerektiriyorsa **operatöre sor**, kendin
+> açma. (`.claude/korumali_belgeler.sh` bekçisi zaten izin sorduruyor;
+> istem çıktığında operatör istemediyse **reddeder** — bu bir hata değil,
+> kuralın çalışması demektir.)
 
 > 🔀 **20 Ağustos birleştirmesi:** `SURU_ENTEGRASYON.md` ve
 > `NAVIGASYON_KAYMA.md` **SİLİNDİ** — içerikleri `PLAN.md`'nin içinde

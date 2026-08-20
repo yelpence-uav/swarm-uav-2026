@@ -1,4 +1,10 @@
 {
+  "permissions": {
+    "ask": [
+      "Read(docs/MESH_PROTOKOL_KARARLARI.md)",
+      "Read(docs/YELPENCE_RTCM_SPEC.md)"
+    ]
+  },
   "hooks": {
     "UserPromptSubmit": [
       {
@@ -8,6 +14,19 @@
             "command": "B=\"${CLAUDE_PROJECT_DIR:-$PWD}/.claude/effort_bekcisi.sh\"; [ -f \"$B\" ] && bash \"$B\" || true",
             "timeout": 10,
             "statusMessage": "effort bekcisi"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Read|Grep|Glob|Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "B=\"${CLAUDE_PROJECT_DIR:-$PWD}/.claude/korumali_belgeler.sh\"; [ -f \"$B\" ] && bash \"$B\" || true",
+            "timeout": 10,
+            "statusMessage": "korumali belge bekcisi"
           }
         ]
       }
