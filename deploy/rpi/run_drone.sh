@@ -36,9 +36,28 @@ if docker ps -a --format '{{.Names}}' | grep -qx "$NAME"; then
 fi
 
 echo "==> $NAME baslatiliyor (agent_id=$AGENT_ID, ws=$WS_DIR, image=$IMAGE)..."
+# LOG DONDURME — 20 Agustos 2026.
+#
+# OLCULDU (ylp00): docker'in json-file logu 16 Agustos 23:34'te iki NUL
+# bosluguna (1602 + 433 bayt) sahip oldu; `docker logs` TAM okumada
+# "invalid character '\x00'" ile cokuyor. `--tail N` calisiyor cunku sondan
+# okuyor, `--since` ve bayraksiz cagri BASTAN tarayip bosluga carpiyor.
+# Ayni gun olusturulan drone3'te 0 NUL — yani sistemik degil, tekil olay.
+#
+# Dondurme olmadan bozuk segment ORADA KALIYOR: dosya hic donmedigi icin
+# konteyner yeniden olusturulana kadar `docker logs` kalici sakat. max-file
+# ile bozuk parca zamanla kendiliginden dusuyor.
+#
+# Yerinde `truncate` COZUM DEGIL, daha kotu: docker dosyayi O_APPEND ile
+# acik tutuyor, kesilince eski ofsetten yazmaya devam eder ve basinda dev
+# bir NUL blogu olan seyrek dosya olusur.
+#
+# 10m x 3 secildi: ylp00'da 5 gunde 693 KB birikti (drone3'te 147 KB), yani
+# 30 MB tavan aylarca yetiyor ve 29 GB kartta yer sorunu degil.
 docker run -d --name "$NAME" \
   --network host \
   --restart unless-stopped \
+  --log-opt max-size=10m --log-opt max-file=3 \
   --device /dev/ttyAMA0 \
   --device /dev/ttyAMA4 \
   --cap-add SYS_TIME \

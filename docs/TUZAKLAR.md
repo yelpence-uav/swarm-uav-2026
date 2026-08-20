@@ -1,6 +1,6 @@
 # TUZAKLAR — hata vermeden yanlış sonuç üretenler
 
-**Son güncelleme:** 20 Ağustos 2026, 20:10
+**Son güncelleme:** 20 Ağustos 2026, 21:40
 
 > **Bu belge CANLI.** Arşiv değil — buradaki her madde **bugün de geçerli.**
 >
@@ -422,6 +422,52 @@ docker exec drone1 bash -lc 'source /opt/ros/jazzy/setup.bash && \
 ```
 
 Dönen yolu md5'le, repo ile karşılaştır. *(20 Ağustos 2026'da ölçüldü)*
+
+### 1.18 `docker logs` tek bir NUL baytıyla ÇÖKÜYOR — `--tail` çalışıyor, gerisi hayır
+
+Konteynerin ne bastığına bakarken en doğal komut bu, ve **sessizce eksik
+cevap veriyor.** ylp00'da ölçüldü (20 Ağustos):
+
+```
+docker logs --tail 5    drone1   ->  OK
+docker logs --tail 3000 drone1   ->  OK
+docker logs --tail 4000 drone1   ->  BOZUK — 61 satir verip kesildi
+docker logs --since 15m drone1   ->  BOZUK (hic satir vermedi)
+docker logs            drone1   ->  BOZUK
+```
+
+Hata metni: `error from daemon in stream: Error grabbing logs: invalid
+character '\x00' looking for beginning of value`.
+
+**Neden:** json-file sürücüsünün dosyasında **NUL boşluğu** var. Ölçüldü:
+iki koşu, 1602 + 433 bayt, `d8673388...-json.log`'un %7'sinde, ikisi de
+**16 Ağustos 23:34**. Boşluktan sonraki zaman damgası öncekinden **15 sn
+geriye** gidiyor ve hemen ardından `[baslat] AGENT_ID=1` geliyor — yani o
+noktada konteyner yeniden başlamış ve saat geri alınmış. Temiz kapanışta
+böyle bir boşluk oluşmaz; ext4 gecikmeli ayırma + ani güç kesintisi
+imzası. **Aynı gün oluşturulan drone3'te 0 NUL** — sistemik değil.
+
+**Tuzağın kendisi:** `--tail` çalıştığı için araç "sağlam" görünüyor, ama
+`--since` **boş dönüyor**. Boş çıktıya bakıp "konteyner hiçbir şey basmamış"
+diye yorumlarsan yanlış yoldasın. 20 Ağustos'ta tam olarak bu oldu: yeniden
+başlatmanın başarılı olup olmadığını `docker logs --since 15m` ile
+sormuştum, boş döndü.
+
+**Ne yapmalı:**
+
+- Tanı için `docker logs --tail N` kullan, `--since` kullanma.
+- **Asıl kaynak zaten `docker logs` değil**: `baslat.sh` her düğümü ayrı
+  dosyaya yazıyor — `~/yelpence_ws/gunluk/<damga>/{mavros,px4b,esp,consensus,
+  formation,...}.log`. Bozulma bunları etkilemedi.
+- Log dosyasını **yerinde `truncate` etme** — daha kötü olur: docker dosyayı
+  `O_APPEND` ile açık tutuyor, kesince eski ofsetten yazmaya devam eder ve
+  başında dev bir NUL bloğu olan seyrek dosya oluşur.
+- Kalıcı çözüm konteyneri **yeniden oluşturmak** (`docker rm -f drone1` +
+  `run_drone.sh 1`); yeni dosya temiz başlar. Bütün durum `/ws` bağlamasında
+  olduğu için kayıp yok (yazılabilir katmanda yalnız `.ros`/`.colcon`
+  önbellekleri var, 29 MB, kendiliğinden yeniden üretilir).
+- `run_drone.sh`'e `--log-opt max-size=10m --log-opt max-file=3` eklendi:
+  döndürme olmadan bozuk parça **sonsuza kadar** kalıyordu.
 
 ---
 
