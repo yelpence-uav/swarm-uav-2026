@@ -78,6 +78,21 @@ DURUM2_BAYRAK_READY_TO_ARM = 0x01
 # Bayrak artık drone'un KENDİ doğrulamasından (px4_bridge._origin_dogrula)
 # geliyor. Firmware bayraklar2'yi opak taşır — flash GEREKMEZ.
 DURUM2_BAYRAK_ORIGIN_SYNCED = 0x02
+# KACINMA KORU — P0.16, 21 Agustos 2026.
+#
+# Bu drone komsularindan EN AZ BIRINI goremiyorsa (mesh tek yonlu olmus
+# olabilir) 1 olur. Anlami: "o komsuya karsi carpisma korumam YOK".
+#
+# NEDEN BAYRAK, NEDEN OLAY DEGIL: mesh protokolunde TIP_EVENT yok ve
+# eklemek uc ESP'yi yeniden flashlamak demek. Oysa DURUM paketini PI
+# olusturuyor (esp32_bridge._yayinla_kendi_durum -> durum_paketle), ESP
+# yalniz bayt tasiyor. Yani bos bir bit kullanmak TAMAMEN ROS TARAFI:
+# firmware degismiyor, paket boyutu ayni (16 bayt), eski alicilar biti
+# yok sayar (geriye uyumlu).
+#
+# Ayrica semantik olarak da DOGRU: "su an koruyamiyorum" bir DURUM,
+# bir olay degil. Kendiliginden temizlenir ve YKI surekli gosterebilir.
+DURUM2_BAYRAK_KACINMA_KORU = 0x04
 _RENK_FMT = '<Bii7x'         # renk, lat, lon, rezerv[7]
 _GOREV_FMT = '<BBbB12x'      # tip, param1, param2, bekleme, rezerv[12]
 _ORIGIN_FMT = '<iiiI'        # lat_1e7, lon_1e7, alt_mm, sequence
@@ -266,6 +281,11 @@ class DurumVeri:
         vermesi gereken NED ile PX4'ün bildirdiği yerel NED karşılaştırılır.
         """
         return bool(self.bayraklar2 & DURUM2_BAYRAK_ORIGIN_SYNCED)
+
+    @property
+    def kacinma_koru(self) -> bool:
+        """Bu drone komsularindan birini goremiyor (P0.16)."""
+        return bool(self.bayraklar2 & DURUM2_BAYRAK_KACINMA_KORU)
 
     @property
     def battery_volt(self) -> float:
@@ -505,7 +525,8 @@ def durum_paketle(drone_id: int, durum: int, armed: int,
                   kill_switch_active: int = 0,
                   rc_link_ok: int = 0,
                   ready_to_arm: int = 0,
-                  origin_synced: int = 0) -> bytes:
+                  origin_synced: int = 0,
+                  kacinma_koru: int = 0) -> bytes:
     """Durum verisi alanlarını 16 baytlık mesh payload'ına paketler (REV C).
 
     RPi kendi durumunu (agent_fsm çıktısı) ESP32'ye gönderirken kullanır.
@@ -557,6 +578,8 @@ def durum_paketle(drone_id: int, durum: int, armed: int,
         bayraklar2 |= DURUM2_BAYRAK_READY_TO_ARM
     if origin_synced:
         bayraklar2 |= DURUM2_BAYRAK_ORIGIN_SYNCED
+    if kacinma_koru:
+        bayraklar2 |= DURUM2_BAYRAK_KACINMA_KORU
 
     # 255 = "bilinmiyor/kötü" sentineli. 25.4'ten büyük HDOP zaten kullanılamaz
     # kalitededir, sentinele kırpmak bilgi kaybetmez.

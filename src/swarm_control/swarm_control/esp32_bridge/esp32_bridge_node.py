@@ -317,6 +317,8 @@ class Esp32BridgeNode(Node):
         # P0.14(b): komsu basina SON DURUM PAKETININ gelis ani. POSE bu
         # damgayi tazelemez — saglik alanlarinin tazeligi buradan olculuyor.
         self._komsu_durum_ts: dict[int, float] = {}
+        # P0.16: komsu basina son gorulen korluk bayragi (kenar tetikleme)
+        self._komsu_korluk: dict[int, bool] = {}
         self._durum_bayat_uyarildi: dict[int, bool] = {}
         self._cache_lock = threading.Lock()
 
@@ -1022,8 +1024,68 @@ class Esp32BridgeNode(Node):
                 f'mesh durum={durum.durum} rssi={durum.rssi} '
                 f'link={durum.mesh_link_ok} komsu={durum.mesh_komsu_sayisi}'
                 + (' KILL' if durum.kill_switch_active else '')
+                + (' KACINMA-KORU' if durum.kacinma_koru else '')
             )
             self._yayinla_status(drone_id, status)
+            # KACINMA KORU -> YKI OLAYI — P0.16, 21 Agustos 2026.
+            #
+            # Mesh'te TIP_EVENT yok, yani ucakta uretilen SystemEvent'ler
+            # ucagin kendi ROS grafiginde KALIYOR ve YKI'ye HIC ULASMIYOR
+            # (21 Agustos gecesi uctan uca olculdu). Bayrak mesh'ten gecti;
+            # burada olaya ceviriyoruz.
+            #
+            # BURASI BAZ KOPRUSUNDE de kosuyor ve baz DIZUSTUNDE, backend
+            # ile AYNI ROS grafiginde — yani buradan yayinlanan olay
+            # dogrudan AlertManager'a ulasir ve KRITIK + SESLI uyari olur.
+            # Ucakta kosarken zararsiz (kendi yerel public konusuna duser).
+            #
+            # KENAR TETIKLI: bayrak 1 Hz geliyor, her pakette olay
+            # yayinlamak uyari panelini bogardi. Yalniz DEGISIMDE.
+            self._korluk_olayi_kenar(drone_id, bool(durum.kacinma_koru))
+
+    def _korluk_olayi_kenar(self, drone_id: int, kor: bool) -> None:
+        """Komsunun korluk bayragi DEGISTIGINDE YKI olayi yayinlar (P0.16)."""
+        onceki = self._komsu_korluk.get(drone_id)
+        if onceki == kor:
+            return
+        self._komsu_korluk[drone_id] = kor
+        if onceki is None and not kor:
+            return              # ilk gorus ve saglikli: olay yok
+        m = SystemEvent()
+        m.stamp = self.get_clock().now().to_msg()
+        m.event_type = SystemEvent.EVENT_COLLISION_RISK
+        m.severity = (SystemEvent.SEVERITY_CRITICAL if kor
+                      else SystemEvent.SEVERITY_INFO)
+        m.source_agent_id = drone_id
+        m.source_module = 'esp32_bridge'
+        m.value = float(drone_id)
+        m.message = (
+            f'drone{drone_id} KOMSUSUNU GOREMIYOR — o komsuya karsi '
+            f'carpisma korumasi YOK (mesh tek yonlu olmus olabilir)'
+            if kor else
+            f'drone{drone_id} komsularini tekrar goruyor, kacinma korlugu bitti'
+        )
+        self._event_pub_public.publish(m)
+        self.get_logger().warning(m.message) if kor else \
+            self.get_logger().info(m.message)
+
+    def _kacinma_koru_var(self) -> bool:
+        """Komsularimdan birini goremiyor muyum — P0.16.
+
+        BIR KEZ gordugumuz komsuyu `komsu_durum_bayat_s` (5.0) suredir
+        goremiyorsak KORUZ. Hic gorulmemis komsu (or. yerdeki ylp01)
+        sayilmaz — o normal hal, alarm degil.
+
+        Ayni olcut `collision_avoidance`in kullandigiyla ayni kaynaktan
+        (`_komsu_durum_ts`), yani iki dugum ayni gercegi soyler.
+        """
+        if not self._komsu_durum_ts:
+            return False
+        simdi = time.monotonic()
+        for ts in self._komsu_durum_ts.values():
+            if ts > 0.0 and (simdi - ts) > self._komsu_durum_bayat_s:
+                return True
+        return False
 
     def _yayinla_status(self, drone_id: int, status: AgentStatus) -> None:
         """Komşu AgentStatus'u /swarm/public/drone{id}/status'a yayınlar.
@@ -1621,6 +1683,12 @@ class Esp32BridgeNode(Node):
                 # GPS ile PX4'un yerel cercevesini KARSILASTIRARAK koyuyor.
                 # Mesh'ten gecmedigi surece baz istasyonu uyduruyordu.
                 origin_synced=1 if msg.origin_synced else 0,
+                # KACINMA KORU — P0.16, 21 Agustos 2026.
+                # Komsularimdan en az birini goremiyorsam 1. Anlami:
+                # "o komsuya karsi carpisma korumam YOK". Bu bilgi YKI'ye
+                # BASKA HICBIR YOLDAN ulasmiyordu: mesh'te TIP_EVENT yok ve
+                # SystemEvent'ler ucagin kendi ROS grafiginde kaliyor.
+                kacinma_koru=1 if self._kacinma_koru_var() else 0,
             )
             self._uart_yaz(pp.TIP_DURUM, self._agent_id, payload)
 
