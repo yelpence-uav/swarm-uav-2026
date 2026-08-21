@@ -1,6 +1,6 @@
 # RPİ EŞİTLEME DEFTERİ — geri gelen drone'u hizaya getirme
 
-**Son güncelleme:** 20 Ağustos 2026, 23:30
+**Son güncelleme:** 22 Ağustos 2026, A13 (çökme kaydı) eklendi
 
 ## Bu belge ne için
 
@@ -122,6 +122,7 @@ kalıcı olur. Üçü de ancak **ölçerek** görülür.
 | A8 | **sysctl writeback (1 sn)** | ✅ *(20 Ağu 23:15)* | ❌ | ✅ | `izleme_kur.sh` 7/7 → `/etc/sysctl.d/60-yelpence-writeback.conf` · **elle, root** |
 | A11 | **`mcap` kurtarma aracı** | ✅ | ❌ | ✅ | `~/yelpence_ws/bin/mcap` · **elle kopyalanır, `dagit.sh` taşımaz** |
 | A12 | **docker log döndürme** | ✅ | ❌ | ❌ | `run_drone.sh` içinde — **yalnız konteyner YENİDEN OLUŞTURULUNCA** devreye girer |
+| A13 | 🔴 **Çökme kaydı (ramoops) + `kernel.panic=10`** | ❌ | ❌ | ❌ | `izleme_kur.sh` **8/8** · **elle, root** · config.txt değişikliği → **yeniden başlatma ister** |
 | A9 | **Wi-Fi ağları (SSID/şifre)** | ✅ 2 ağ | ❌ | ✅ 2 ağ | aşağıda §7 |
 | A10 | **SSH authorized_keys** | ✅ Osman+Berk | ❌ | ✅ Osman+Berk | aşağıda §7 |
 
@@ -444,6 +445,41 @@ ssh-copy-id <KULLANICI>@<ip>           # parolayla girer, anahtarını ekler
 ```
 
 ---
+
+### 🔴 A13 — çökme kaydı ve panik davranışı (HİÇBİR UÇAKTA YOK)
+
+**Neden:** 22 Ağustos'ta ylp00'ın Pi'si uçuştan ~2 dk sonra **öldü ve öyle
+kaldı** (kırmızı ışık, elle açmak gerekti). Sebep **bulunamadı** çünkü:
+
+```
+kernel.panic = 0        -> panikte sonsuza kadar DURUYOR (gozlenen tablo bu)
+pstore BOS              -> panik izi HIC kaydedilmiyor
+```
+
+Ayrıntı ve elenen adaylar: `YAPILACAKLAR.md` **P0.17**.
+
+**Uygulamak için** (her uçakta, `sudo` parola sorduğu için **etkileşimli**
+bağlan — `drone_bul.sh <ad> '<komut>'` biçimi ÇALIŞMAZ, `-t` yok):
+
+```bash
+./deploy/yki/drone_bul.sh ylp00          # komut vermeden -> kabuk acilir
+sudo bash ~/yelpence_ws/izleme_kur.sh    # 8/8 adimi ramoops + panic ayarlar
+sudo reboot                              # ramoops YENIDEN BASLATMA ister
+```
+
+`izleme_kur.sh` uçakta yoksa `./deploy/rpi/dagit.sh <ad>` ile gider.
+
+**Doğrulama (yeniden başlatmadan sonra):**
+
+```bash
+cat /proc/sys/kernel/panic          # 10 gormeli
+grep ramoops /boot/firmware/config.txt
+ls /sys/fs/pstore/                  # ilk acilista bos olmasi NORMAL
+ls /var/lib/systemd/pstore/         # sonraki cokmeler buraya tasinir
+```
+
+⚠️ `config.txt` yedeklenir (`*.yelpence_yedek_<damga>`); betik iki kez
+çalıştırılırsa satırı tekrar eklemez.
 
 ## 8. DEĞİŞİKLİK DEFTERİ
 

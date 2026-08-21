@@ -326,6 +326,55 @@ sysctl -q --load=/etc/sysctl.d/60-yelpence-writeback.conf
 echo "    dirty_expire=$(cat /proc/sys/vm/dirty_expire_centisecs) cs" \
      "writeback=$(cat /proc/sys/vm/dirty_writeback_centisecs) cs"
 
+# --- 8/8  COKME KAYDI VE PANIK DAVRANISI -----------------------------------
+#
+# NEDEN VAR (22 Agustos 2026, ylp00): ucustan ~2 dakika sonra Pi OLDU ve
+# OYLE KALDI — kirmizi isik yaniyordu, elle acmak gerekti. Bilinen
+# adaylarin hepsi elendi (olumden 40 sn once: v=5.18V, 47.2 C, thr=0x0,
+# mem 3.9/8 GB, disk %40, SD hatasi 0, PID 1'den kapatma dizisi yok).
+#
+# Iki eksik yuzunden sebep BULUNAMADI:
+#
+#   kernel.panic = 0       -> panikte sonsuza kadar DURUYOR. Gozlenen tablo
+#                             tam olarak bu. Ucusta olursa ucak failsafe'e
+#                             duser ama Pi GERI GELMEZ: telemetri, kayit ve
+#                             suru katmani biter.
+#   pstore BOS             -> panik aninda cekirdek diske yazamaz (dosya
+#                             sistemi zaten guvenilmez), o yuzden hicbir iz
+#                             kalmiyordu. "Panik yok" DIYEMIYORDUK; "panik
+#                             olsa da goremezdik" diyebiliyorduk.
+#
+# ramoops panik mesajini RAM'in ayrilmis bir bolgesine yaziyor; o bolge
+# yeniden baslatmada silinmiyor ve systemd-pstore acilista
+# /var/lib/systemd/pstore/ altina tasiyor (Raspberry Pi OS'ta hazir gelir).
+#
+# panic=10: sonsuza kadar durmak yerine 10 sn sonra yeniden baslasin.
+# Havada bir sey degistirmez (ucak zaten failsafe'e duser) ama Pi GERI
+# GELIR — kayit surer, tani yapilabilir, ucak sahada olu kalmaz.
+echo "--- 8/8  cokme kaydi (ramoops) + panik davranisi ---"
+cat > /etc/sysctl.d/61-yelpence-panik.conf <<'EOF'
+# Panikte sonsuza kadar durma, 10 sn sonra yeniden basla (bkz izleme_kur 8).
+kernel.panic = 10
+# Oops'u da panik say: sessizce bozuk durumda devam etmektense yeniden basla.
+kernel.panic_on_oops = 1
+EOF
+sysctl -q --load=/etc/sysctl.d/61-yelpence-panik.conf
+echo "    kernel.panic=$(cat /proc/sys/kernel/panic)"      "panic_on_oops=$(cat /proc/sys/kernel/panic_on_oops)"
+
+# ramoops: config.txt'ye BIR KEZ eklenir, YENIDEN BASLATMA ister.
+_CFG=/boot/firmware/config.txt
+[ -f "$_CFG" ] || _CFG=/boot/config.txt
+if [ -f "$_CFG" ] && ! grep -q '^dtoverlay=ramoops' "$_CFG"; then
+    cp "$_CFG" "$_CFG.yelpence_yedek_$(date +%Y%m%d_%H%M%S)"
+    printf '\n# Cokme kaydi — yelpence izleme_kur.sh 8/8 (bkz. YAPILACAKLAR P0.17)\ndtoverlay=ramoops\n' >> "$_CFG"
+    echo "    ramoops config.txt'ye EKLENDI — YENIDEN BASLATMA gerekiyor"
+else
+    echo "    ramoops zaten ekli (ya da config.txt bulunamadi)"
+fi
+echo -n "    pstore kayitlari: "
+ls /sys/fs/pstore/ 2>/dev/null | wc -l
+echo "    NOT: onceki cokmeler /var/lib/systemd/pstore/ altinda birikir."
+
 # ------------------------------------------------------------ dogrulama ---
 echo
 echo "=== KURULDU ==="
