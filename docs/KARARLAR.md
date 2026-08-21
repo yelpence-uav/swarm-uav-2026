@@ -1,6 +1,6 @@
 # KARARLAR — verilmiş ama henüz uygulanmamış kararlar
 
-**Son güncelleme:** 21 Ağustos 2026, ADIM 4 yer gözlemi
+**Son güncelleme:** 21 Ağustos 2026, ADIM 4 tek başına açılabilir
 
 Sohbette verilen kararlar oturum bitince kayboluyor. Bu defter onları
 tutuyor: **ne karar verildi, neden, ne zaman uygulanacak, nasıl test edilecek.**
@@ -117,16 +117,36 @@ pozisyon-goto yoluna (kanıtlanmış zincir), `collision_avoidance` hız yoluna
    >          collision_avoidance /raw'i dinler, oraya kimse yazmaz -> ATIL
    > ```
    >
-   > Üstüne ikinci kilit: `collision_avoidance` girdiyi `velocity_valid` ile
-   > alıyor, guided yol `position_valid=True` üretiyor
-   > (`esp32_bridge_node.py:1271`) — kablolansa bile guided setpoint'lerde
-   > kapısı **hiç açılmaz**.
+   > ### ⚠️ Bu kutunun ikinci yarısı YANLIŞTI — düzeltildi (21 Ağustos, aynı gün)
    >
-   > Yani ADIM 4'ü tek başına açmak yükseltme değil **koruma kaybı**.
-   > Bu kararın "sürü zincirinde `basit_kacinma` hiçbir şey yapmıyor"
-   > tespitinin simetriği de doğru: **guided zincirde `collision_avoidance`
-   > hiçbir şey yapmıyor.** İkisi farklı zincirlerin düğümü — biri
-   > diğerinin yerine geçemez. **ADIM 3 ve ADIM 4 BİRLİKTE açılır.**
+   > İlk yazımda *"`collision_avoidance` girdiyi `velocity_valid` ile alıyor,
+   > guided setpoint'lerde kapısı hiç açılmaz"* demiştim ve bu kararın
+   > yukarıdaki **"`collision_avoidance_node.py:285`"** atfına dayanıyordu.
+   > **O satır artık öyle değil** — adaptör commit'i (`076fc21`) dosyayı
+   > yeniden yapılandırdı. Bugün ölçüldü: `velocity_valid` dosyada **yalnız
+   > iki yerde** geçiyor ve **hiçbiri kapı değil**:
+   >
+   > ```python
+   > 309:  base = (vx,vy,vz) if raw.velocity_valid else (0.0, 0.0, 0.0)
+   > 327:  out.velocity_valid = True        # cikis alani
+   > ```
+   >
+   > Yani `collision_avoidance` konum setpoint'ini **işlemeye devam ediyor**:
+   > taban hızı 0 alıp riski hesaplıyor, risk yoksa `_relay` ile aynen
+   > geçiriyor, **risk varsa hız kaçışıyla eziyor.** Kapı yok.
+   >
+   > | | girdi kapısı | guided (konum) | sürü (hız) |
+   > |---|---|---|---|
+   > | `basit_kacinma` | `position_valid` (`:302`) | ✅ çalışır | ❌ ölü |
+   > | `collision_avoidance` | **yok** | ✅ çalışır | ✅ çalışır |
+   >
+   > **`collision_avoidance` üst küme.** Doğru sonuç şu: ADIM 4 tek başına
+   > açılabilir ve guided yol için bir **yükseltmedir** (mesafeye ek olarak
+   > yaklaşma hızı + dikey bileşen).
+   >
+   > Tek gerçek engel yönlendirmeydi ve **21 Ağustos'ta giderildi**:
+   > `baslat.sh` artık yönlendirmeyi düğüm seçiminden ayırıyor, `ca` açıkken
+   > de esp32_bridge çıkışı `/raw`'a gidiyor. Üstüne boş yuva kapısı eklendi.
    >
    > ⚠️ Birlikte açılınca da bir çakışma kalıyor: `/ws/kacinma` silinince
    > esp32_bridge **doğrudan** `/control/setpoint`'e yazar, `collision_avoidance`
