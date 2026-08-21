@@ -378,7 +378,122 @@ GUIDED_TELAFI_ORANI="${GUIDED_TELAFI_ORANI:-0.0}"
 # A/B ucusuyla olculdu — tepe gecici hata -60 %, varis asimi -61 %.
 # Geri almak icin GUIDED_IVME_FF=0.0 (docs/PLAN.md §9).
 GUIDED_IVME_FF="${GUIDED_IVME_FF:-1.0}"
+# --- SURU DUGUM ANAHTARI — YUKARI TASINDI (21 Agustos 2026) -----------------
+# Eskiden bu blok dosyanin ~648. satirindaydi, yani px4_bridge (velocity_only)
+# ve esp32_bridge yonlendirme karari ALINDIKTAN SONRA. Ikisi de "sürü zinciri
+# acik mi" bilgisine ihtiyac duyuyor, o yuzden cozumleme yukari alindi.
+# Davranis degismedi: ayni dosya, ayni oncelik (dosya env'i ezer).
+if [ -f /ws/suru_dugumleri ]; then
+    SURU_DUGUMLERI="$(sed 's/#.*//' /ws/suru_dugumleri | tr '\n' ' ' \
+                      | tr -s '[:space:]' ' ' | sed 's/^ *//; s/ *$//')"
+    echo "[baslat] suru dugumleri DOSYADAN: '${SURU_DUGUMLERI}' (/ws/suru_dugumleri)"
+fi
+SURU_DUGUMLERI="${SURU_DUGUMLERI:-}"
+
+acik() {
+    case " $SURU_DUGUMLERI " in
+        *" hepsi "*) return 0 ;;
+        *" $1 "*)    return 0 ;;
+        *)           return 1 ;;
+    esac
+}
+
+# NOT (21 Agustos): bu blok VELOCITY_ONLY'den ONCE durmak ZORUNDA.
+# Bos yuva kapisi VELOCITY_ONLY'yi geri false yapabiliyor ve px4_bridge
+# hemen asagida o degerle kalkiyor — blok asagida kalirsa kapi cok gec
+# calisir ve dugum yanlis modda baslar.
+# --- CARPISMA KACINMASI (opt-in) --------------------------------------------
+# /ws/kacinma dosyasi VARSA devreye girer. Opt-in olmasi bilerek: kacinma
+# ucus komut yolunun ICINE giriyor, habersiz bir dagitimin bunu sessizce
+# aktiflestirmesi istenmez.
+#
+# Devredeyken zincir soyle olur:
+#   esp32_bridge -> /control/setpoint/RAW -> basit_kacinma -> /control/setpoint
+# Yani esp32_bridge'in cikisi yeniden yonlendiriliyor ve kacinma araya
+# giriyor. Dosya yoksa esp32_bridge dogrudan /control/setpoint'e yazar,
+# yani bugune kadarki davranis aynen korunur.
+#
+# NOT: kacinma dugumu calissa bile remap YOKSA zararsizdir — /raw'a kimse
+# yazmadigi icin hicbir setpoint yayinlamaz (Asama-1 gozlem modu boyleydi).
+# YONLENDIRME, DUGUM SECIMINDEN AYRILDI — 21 Agustos 2026.
+#
+# Eskiden tek dosya (/ws/kacinma) IKI isi birden yapiyordu: (a) hangi
+# kacinma dugumunun kostugu, (b) esp32_bridge'in ciktisinin nereye gittigi.
+# Sonucu olculdu: `ca` acmak icin /ws/kacinma silinince esp32_bridge
+# DOGRUDAN /setpoint'e yaziyor, collision_avoidance ise /raw'i dinliyor —
+# yani kacinma ucus yolunun TAMAMEN DISINDA kaliyor ve ustelik ikisi ayni
+# konuya yazarak CLAUDE.md bolum 4'u ihlal ediyordu.
+#
+# Artik iki soru ayri:
+#   KACINMA_VAR : herhangi bir kacinma dugumu kosacak mi -> yonlendirme
+#   BASIT_KACINMA / ca : hangisi kosacak
+KACINMA=0
+[ -f /ws/kacinma ] && KACINMA=1
+CA_ACIK=0
+if [ "$KACINMA" = "0" ] && { acik ca || acik hepsi; }; then CA_ACIK=1; fi
+
+SP_REMAP=""
+if [ "$KACINMA" = "1" ] || [ "$CA_ACIK" = "1" ]; then
+    SP_REMAP="-r /drone_${AGENT_ID}/control/setpoint:=/drone_${AGENT_ID}/control/setpoint/raw"
+    if [ "$KACINMA" = "1" ]; then
+        echo "[baslat] CARPISMA KACINMASI ACIK (basit_kacinma) — esp32_bridge cikisi /raw'a yonlendirildi"
+    else
+        echo "[baslat] CARPISMA KACINMASI ACIK (collision_avoidance) — esp32_bridge cikisi /raw'a yonlendirildi"
+    fi
+else
+    echo "[baslat] carpisma kacinmasi kapali (/ws/kacinma yok, 'ca' da istenmedi)"
+fi
+
+# BOS YUVA KAPISI — 21 Agustos 2026.
+#
+# Kacinma yuvasi ayni zamanda ZORUNLU AKTARIM KATI (CLAUDE.md bolum 3):
+# /control/setpoint/raw ile /control/setpoint arasindaki TEK kopru orasi.
+# Formasyon ucagi SURUYORKEN (gozlem kapali) hicbir kacinma dugumu
+# kosmuyorsa formation_node /raw'a yazar, kimse /setpoint'e aktarmaz ve
+# setpoint'ler px4_bridge'e HIC ULASMAZ. Ucak kalkar, komut bekler, hicbir
+# sey gelmez — hata da vermez. Bu sinif hatayi sessiz birakmiyoruz.
+if [ ! -f /ws/gozlem ] && { acik formasyon || acik hepsi; } \
+   && [ "$KACINMA" = "0" ] && [ "$CA_ACIK" = "0" ]; then
+    echo "[baslat] 🔴 HATA: formasyon UCAGI SURECEK (gozlem kapali) ama"
+    echo "[baslat]        hicbir kacinma dugumu yok — /raw ile /setpoint"
+    echo "[baslat]        arasindaki AKTARIM KATI BOS. Setpoint'ler ucaga"
+    echo "[baslat]        ULASMAZ. Ya /ws/kacinma olustur ya SURU_DUGUMLERI'ne"
+    echo "[baslat]        'ca' ekle. Bkz. CLAUDE.md bolum 3, KARAR-01."
+    echo "[baslat]        GUVENLI TARAFA GECILIYOR: gozlem modu zorlaniyor."
+    # `touch` YETIYOR: asagidaki VELOCITY_ONLY blogu tam da bu dosyaya
+    # bakiyor ([ ! -f /ws/gozlem ]), yani B moduna gecis kendiliginden
+    # iptal olur. Burada ayrica VELOCITY_ONLY=false yazmak gereksiz ve
+    # yaniltici olurdu — degisken bu satirdan SONRA kuruluyor.
+    touch /ws/gozlem
+fi
+
+# VELOCITY_ONLY — ADIM 3'un sarti (PLAN.md Engel 3).
+#
+# formation_node C modu icin yazildi (saf hiz, position_valid=False). Bu
+# bayrak False kalirsa px4_bridge A modunda kosar, PX4 de konum kontrolu
+# yapar ve KAZANCLAR TOPLANIR (SVT 0.8 + MPC_XY_P 0.95).
+#
+# GUIDED YOLU BOZMAZ — olculdu (px4_bridge.py:656,672):
+#     use_velocity = setpoint_fresh AND velocity_valid
+#     if use_velocity and velocity_only:  -> B (saf hiz)
+#     elif use_velocity or yurutucu_aktif: -> A (konum + hiz FF)
+# Guided goto yalniz position_valid koyuyor, yani use_velocity=False ve
+# A moduna duser. Anahtar setpoint TIPINE gore calisiyor, global degil:
+# suru zinciri acikken bile kanitlanmis guided yol yedek olarak durur.
+#
+# SART: formasyon zinciri acik VE GOZLEM MODU KAPALI. Gozlemde
+# formation_node'un ciktisi /gozlem'e gidiyor, yani ucagi SURMUYOR — o
+# durumda B moduna gecmenin anlami yok, eski (kanitlanmis) A modu kalsin.
+# Anahtarin "acik mi" degil "SURUYOR mu" sorusuna bagli olmasi kasitli.
+VELOCITY_ONLY=false
+if [ ! -f /ws/gozlem ] && { acik formasyon || acik hepsi; }; then
+    VELOCITY_ONLY=true
+fi
+echo "[baslat] px4_bridge velocity_only=${VELOCITY_ONLY}" \
+     "(formasyon suruyor mu: $([ -f /ws/gozlem ] && echo 'HAYIR-gozlem' || echo evet-veya-kapali))"
+
 ros2 run swarm_control px4_bridge --ros-args -p agent_id:=${AGENT_ID} \
+    -p velocity_only:=${VELOCITY_ONLY} \
     -p guided_hiz_yatay_mps:=${GUIDED_HIZ_YATAY} \
     -p guided_hiz_dikey_mps:=${GUIDED_HIZ_DIKEY} \
     -p guided_ivme_yatay_mps2:=${GUIDED_IVME_YATAY} \
@@ -455,29 +570,6 @@ TAKIM_ID="${TAKIM_ID:-752825}"
 # da ayni isimli parametreyi kullaniyor; UCU AYNI OLMALI yoksa slot geometrisi
 # sessizce ayrisir.
 KANAT_ALFA_DEG="${KANAT_ALFA_DEG:-45.0}"
-# --- CARPISMA KACINMASI (opt-in) --------------------------------------------
-# /ws/kacinma dosyasi VARSA devreye girer. Opt-in olmasi bilerek: kacinma
-# ucus komut yolunun ICINE giriyor, habersiz bir dagitimin bunu sessizce
-# aktiflestirmesi istenmez.
-#
-# Devredeyken zincir soyle olur:
-#   esp32_bridge -> /control/setpoint/RAW -> basit_kacinma -> /control/setpoint
-# Yani esp32_bridge'in cikisi yeniden yonlendiriliyor ve kacinma araya
-# giriyor. Dosya yoksa esp32_bridge dogrudan /control/setpoint'e yazar,
-# yani bugune kadarki davranis aynen korunur.
-#
-# NOT: kacinma dugumu calissa bile remap YOKSA zararsizdir — /raw'a kimse
-# yazmadigi icin hicbir setpoint yayinlamaz (Asama-1 gozlem modu boyleydi).
-KACINMA=0
-[ -f /ws/kacinma ] && KACINMA=1
-SP_REMAP=""
-if [ "$KACINMA" = "1" ]; then
-    SP_REMAP="-r /drone_${AGENT_ID}/control/setpoint:=/drone_${AGENT_ID}/control/setpoint/raw"
-    echo "[baslat] CARPISMA KACINMASI ACIK — esp32_bridge cikisi /raw'a yonlendirildi"
-else
-    echo "[baslat] carpisma kacinmasi kapali (/ws/kacinma yok)"
-fi
-
 ros2 run swarm_control esp32_bridge --ros-args -p serial_port:=/dev/ttyAMA4 -p baud:=460800 -p agent_id:=${AGENT_ID} -p team_id:="'${TAKIM_ID}'" -p wing_alpha_deg:=${KANAT_ALFA_DEG} $SP_REMAP >> "$GUNLUK/esp.log" 2>&1 &
 
 if [ "$KACINMA" = "1" ]; then
@@ -644,21 +736,6 @@ trap kapat TERM INT
 #
 # Bos dosya = "hicbiri" demek ve env'i yine ezer. Boylece env'de bir sey
 # yazsa bile dosyayla hepsini kapatmak mumkun (acil durumda gerekli).
-if [ -f /ws/suru_dugumleri ]; then
-    SURU_DUGUMLERI="$(sed 's/#.*//' /ws/suru_dugumleri | tr '\n' ' ' \
-                      | tr -s '[:space:]' ' ' | sed 's/^ *//; s/ *$//')"
-    echo "[baslat] suru dugumleri DOSYADAN: '${SURU_DUGUMLERI}' (/ws/suru_dugumleri)"
-fi
-SURU_DUGUMLERI="${SURU_DUGUMLERI:-}"
-
-acik() {
-    case " $SURU_DUGUMLERI " in
-        *" hepsi "*) return 0 ;;
-        *" $1 "*)    return 0 ;;
-        *)           return 1 ;;
-    esac
-}
-
 if [ -n "$SURU_DUGUMLERI" ]; then
     echo "[baslat] suru dugumleri: $SURU_DUGUMLERI"
 
