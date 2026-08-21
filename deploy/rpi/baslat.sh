@@ -481,12 +481,26 @@ fi
 # A moduna duser. Anahtar setpoint TIPINE gore calisiyor, global degil:
 # suru zinciri acikken bile kanitlanmis guided yol yedek olarak durur.
 #
-# SART: formasyon zinciri acik VE GOZLEM MODU KAPALI. Gozlemde
-# formation_node'un ciktisi /gozlem'e gidiyor, yani ucagi SURMUYOR — o
-# durumda B moduna gecmenin anlami yok, eski (kanitlanmis) A modu kalsin.
-# Anahtarin "acik mi" degil "SURUYOR mu" sorusuna bagli olmasi kasitli.
+# SART: zincirde HIZ ureten bir dugum var mi. Iki kaynak:
+#   (a) formation_node ucagi SURUYORSA (gozlem kapali)  — ADIM 3
+#   (b) collision_avoidance kosuyorsa                    — ADIM 4
+#
+# (b) 21 Agustos'ta EKLENDI, ilk yazimda ATLANMISTI ve ucmadan once
+# yakalandi. CA kacisi da position_valid=False + velocity_valid=True
+# uretiyor; velocity_only false iken px4_bridge onu A moduna sokuyor:
+#     publish_position_velocity_setpoint(target_x, target_y, target_z, vx,vy,vz)
+# yani PX4'e "ESKI hedefe git" + "su kacis hizi" birden gidiyor ve PX4'un
+# konum kontrolu kacisi GERI CEKIYOR. Kacinma sessizce zayifliyor.
+# Ayni hastalik PLAN.md "Engel 3"te formation_node icin yaziliydi; CA icin
+# de gecerli oldugu gozden kacmis.
+#
+# GUIDED YOLU BOZMAZ (olculdu, px4_bridge.py:656,665,800-812):
+#   guided goto -> velocity_valid=False -> use_velocity=False
+#               -> yurutucu_aktif dali (C) — velocity_only'ye HIC bakmiyor
+#   CA kacisi   -> velocity_valid=True   -> B dali (saf hiz, PX4 konum tutmaz)
 VELOCITY_ONLY=false
-if [ ! -f /ws/gozlem ] && { acik formasyon || acik hepsi; }; then
+if { [ ! -f /ws/gozlem ] && { acik formasyon || acik hepsi; }; } \
+   || [ "$CA_ACIK" = "1" ]; then
     VELOCITY_ONLY=true
 fi
 echo "[baslat] px4_bridge velocity_only=${VELOCITY_ONLY}" \
