@@ -1,6 +1,6 @@
 # TUZAKLAR — hata vermeden yanlış sonuç üretenler
 
-**Son güncelleme:** 21 Ağustos 2026, tek yönlü mesh kopması
+**Son güncelleme:** 22 Ağustos 2026, tek yönlü kayıp benzetimi
 
 > **Bu belge CANLI.** Arşiv değil — buradaki her madde **bugün de geçerli.**
 >
@@ -848,6 +848,39 @@ itmiyor (`neighbor_rx_stale_s=1.5`). Arıza biçimi "yanlış koruma" değil
 "koruma yok". Doğru takas, ama koruma yok yine de koruma yok.
 
 **Ne yapılmalı:** `YAPILACAKLAR.md` P0.15.
+
+---
+
+### 2.16 Bir düğümü öldürmek TEK YÖNLÜ kopmayı taklit ETMEZ
+
+22 Ağustos'ta operatör yakaladı ve haklıydı. Tek yönlü mesh kopmasını
+(§2.15) sınamak için ylp02'nin `esp32_bridge`'ini öldürüyordum. Ama:
+
+| | gerçek arıza (21 Ağu) | düğümü öldürmek |
+|---|---|---|
+| ylp00 → ylp02'yi duyuyor mu | ❌ hayır | ❌ hayır |
+| **YKİ ylp02'yi görüyor mu** | **✅ EVET, sapasağlam** | ❌ ekrandan kayboluyor |
+
+Gerçek arızada ylp02 → baz yönü **çalışmaya devam etti**; operatör onu
+ekranda sağlıklı görüyordu. Alarmın asıl değeri tam orada: *ekranda
+sorunsuz görünen bir uçağa karşı komşusunun koruması yok.* Düğümü
+öldürünce o hâl **hiç oluşmuyor** — uçak zaten kayboluyor, operatör
+"tabii ki göremiyor" diyor.
+
+**Doğru benzetim ALIM tarafında olmalı:** `esp32_bridge`'e
+`sahte_kayip_ajanlar` parametresi eklendi (varsayılan boş = etkisiz).
+Yalnız o uçağın **aldığı** paketleri düşürür; uçak kendi yayınını normal
+sürdürür, baz onu görür.
+
+```bash
+docker exec drone1 ros2 param set /esp32_bridge sahte_kayip_ajanlar "[3]"   # kor
+docker exec drone1 ros2 param set /esp32_bridge sahte_kayip_ajanlar "[0]"   # normal
+```
+
+⚠️ **Parametre çalışma anında okunmalı.** İlk yazımda yalnız açılışta
+okunuyordu: `ros2 param set` *"successful"* diyor, düğüm eski değeri
+kullanmaya devam ediyor ve benzetim **sessizce hiçbir şey yapmıyordu**
+(kanca sayacı 0 kaldı). `add_on_set_parameters_callback` ile düzeltildi.
 
 ---
 

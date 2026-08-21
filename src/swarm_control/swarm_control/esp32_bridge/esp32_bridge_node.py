@@ -250,6 +250,10 @@ class Esp32BridgeNode(Node):
         # P0.14(b): komsunun DURUM paketi bu suredir gelmediyse `healthy`
         # dusurulur. Gerekce ve 5.0'in nereden geldigi: _yayinla_status.
         self.declare_parameter('komsu_durum_bayat_s', 5.0)
+        # TEK YONLU KAYIP BENZETIMI (test kancasi). Bos = etkisiz.
+        # Ornek: ros2 param set /esp32_bridge sahte_kayip_ajanlar "[3]"
+        # Gerekce ve kullanim: yukarida `_isle_cerceve` icindeki not.
+        self.declare_parameter('sahte_kayip_ajanlar', [0])
         self.declare_parameter('serial_port', '/dev/ttyUSB0')
         self.declare_parameter('baud', 460800)
         # Boş bırakılırsa agent_id'den türetilir: /drone_{id}/rtcm/in
@@ -293,6 +297,24 @@ class Esp32BridgeNode(Node):
         self._agent_id = int(self.get_parameter('agent_id').value)
         self._komsu_durum_bayat_s = float(
             self.get_parameter('komsu_durum_bayat_s').value)
+        self._sahte_kayip = {
+            int(a) for a in
+            (self.get_parameter('sahte_kayip_ajanlar').value or [])
+            if int(a) > 0
+        }
+        self._sahte_kayip_sayac = 0
+        # CALISMA ANINDA DEGISEBILMELI — 22 Agustos 2026'da olculdu.
+        # Ilk yazimda parametre yalniz ACILISTA okunuyordu; `ros2 param set`
+        # "successful" diyor ama dugum eski degeri kullanmaya devam ediyordu
+        # ve benzetim SESSIZCE hicbir sey yapmadi (kanca sayaci 0 kaldi).
+        # Testin konteyner yeniden baslatmadan yapilabilmesi sart: gercek
+        # ariza tek yonlu ve gecici, benzetim de oyle olmali.
+        self.add_on_set_parameters_callback(self._param_degisti)
+        if self._sahte_kayip:
+            self.get_logger().warning(
+                f'🧪 TEST KANCASI ACIK: {sorted(self._sahte_kayip)} '
+                f'ajanlarinin paketleri DUSURULECEK. Gercek ucusta BOS olmali.'
+            )
         self._takim_id = str(self.get_parameter('team_id').value)
         self._kanat_alfa_deg = float(
             self.get_parameter('wing_alpha_deg').value
@@ -790,6 +812,35 @@ class Esp32BridgeNode(Node):
         if cerceve.iha_id == 0 or cerceve.iha_id == self._agent_id:
             return
 
+        # TEK YONLU KAYIP BENZETIMI — P0.15/P0.16 testi, 22 Agustos 2026.
+        #
+        # NEDEN GEREKLI: 21 Agustos'ta sahada yasanan ariza TEK YONLUYDU —
+        # ylp02'nin ylp00'a giden yonu 46 sn oldu ama ylp02 -> BAZ yonu
+        # calismaya devam etti, yani YKI ylp02'yi SORUNSUZ goruyordu.
+        # Alarmin asil degeri tam orada: ekranda saglikli gorunen bir ucaga
+        # karsi komsusunun korumasi yok.
+        #
+        # Onceki benzetim (ylp02'nin esp32_bridge'ini oldurmek) bunu
+        # KARSILAMIYORDU: ucak YKI'den de komple kayboluyordu, yani
+        # "komsu ekranda duruyor ama gorulmuyor" hali hic olusmuyordu.
+        # Operator bunu fark etti ve haklıydı.
+        #
+        # Bu kanca YALNIZ ALIM tarafinda ve YALNIZ belirtilen ajanlari
+        # dusuruyor: ucak kendi yayinini normal surdurur, baz onu gorur,
+        # yalniz BU ucak o komsuyu duymaz. Gercek arizanin birebir hali.
+        #
+        # VARSAYILAN BOS = etkisiz. Acikken 10 sn'de bir GURULTULU uyari
+        # basiyor ki ucusa unutulup girilmesin.
+        if self._sahte_kayip and cerceve.iha_id in self._sahte_kayip:
+            self._sahte_kayip_sayac += 1
+            self.get_logger().warning(
+                f'🧪 TEST KANCASI ETKIN: drone{cerceve.iha_id} paketleri '
+                f'DUSURULUYOR (toplam {self._sahte_kayip_sayac}). '
+                f'Bu bir BENZETIM — gercek ucusta parametre BOS olmali.',
+                throttle_duration_sec=10.0,
+            )
+            return
+
         if cerceve.tip == pp.TIP_POSE:
             self._isle_pose(cerceve.iha_id, cerceve.payload)
         elif cerceve.tip == pp.TIP_DURUM:
@@ -1068,6 +1119,24 @@ class Esp32BridgeNode(Node):
         self._event_pub_public.publish(m)
         self.get_logger().warning(m.message) if kor else \
             self.get_logger().info(m.message)
+
+    def _param_degisti(self, params):
+        """Calisma aninda degisen parametreleri uygular (test kancasi)."""
+        from rcl_interfaces.msg import SetParametersResult
+        for p in params:
+            if p.name == 'sahte_kayip_ajanlar':
+                self._sahte_kayip = {int(a) for a in (p.value or []) if int(a) > 0}
+                self._sahte_kayip_sayac = 0
+                if self._sahte_kayip:
+                    self.get_logger().warning(
+                        f'🧪 TEST KANCASI ACILDI: {sorted(self._sahte_kayip)} '
+                        f'ajanlarinin paketleri DUSURULECEK.'
+                    )
+                else:
+                    self.get_logger().warning(
+                        '🧪 TEST KANCASI KAPANDI — normal alim.'
+                    )
+        return SetParametersResult(successful=True)
 
     def _kacinma_koru_var(self) -> bool:
         """Komsularimdan birini goremiyor muyum — P0.16.
