@@ -1,6 +1,6 @@
 # DURUM — şu an ne çalışıyor, ne bozuk
 
-**Son güncelleme:** 21 Ağustos 2026, 15:00
+**Son güncelleme:** 21 Ağustos 2026, ADIM 4 yerde açıldı
 
 > Bu belge **şimdiki hâli** anlatır, tarihçe değil. Bir şey değişince burayı
 > güncelle, eskisini sil. Ne olduğunun hikâyesi `GUNLUK.md`'de kalır.
@@ -14,6 +14,27 @@
 | ylp00 | 1 | **Uçar** | Kod **`d9be7c9`** (20 Ağu 03:40 — yerde kalp atışı, guided köprüsü, `kalkis_olayla=False`, **ivme ileri-beslemesi AÇIK ve kalıcı**). Pervaneler **TAKILI**. **RC-kayıp tespiti kuruldu ve HAVADA doğrulandı (19 Ağu):** kumanda kapanınca 1-2 sn'de RTL — Ch3 üst-uç yöntemi, bkz. `RPI_ESITLEME.md` §5. **P0.11 yer testi GEÇTİ:** sürü yolundan ARMED + lider seçimi + kalp atışı 399 msj @ 10 Hz. ✅ `yer_testi` bayrağı **YOK** (20 Ağu 16:20 ölçüldü) — uçak kalkış komutunu ALIR. ✅ Düşme (19 Ağu kill kazası) sonrası kontrol TAMAM (23:50): pervane/gövde/motorlar elle temiz, GPS ölçüldü — **RTK-FIXED, 30 uydu, sensör bitleri tam** (akşamki "bit yok" okuması geçiciymiş). ⏳ Titreşim ölçümü uçuş sabahı pervane takılınca (`titresim_olc.py` — pervanesiz ölçüm yanıltır). ⚠️ RC kalibrasyonu yenilendi (`RC3_MIN` 1016→906). ✅ `core.50` silindi (20 Ağu 00:05, 337 MB; disk %40) |
 | ylp01 | 2 | **YERDE** | 2 Ağustos'ta 20 m'den düştü, RPi açılmıyor |
 | ylp02 | 3 | **Uçar** | Kod **`d9be7c9`** (20 Ağu 03:40, ylp00 ile senkron). `guided_ivme_ff=1.0` — A/B sonrası **ikisinde de açık**. Pervaneler **TAKILI**. **İki uçaklı P0.11 yer testi GEÇTİ:** sürü yolundan ARMED + lider mutabakatı + mesh'ten 499 kalp atışı aldı. ✅ `yer_testi` bayrağı **YOK** (20 Ağu 16:20 ölçüldü). ✅ Alıcı failsafe'i düzeltildi ve ölçüldü (**P0.9 KAPANDI**, 19 Ağu gece: kayıtlı +100 bulundu → -100 kaydedildi → `CH5=1000`). ✅ RC-kayıp tespiti KURULU, bit iki yönde doğrulandı — kumanda kaybında RTL |
+
+> 🔀 **21 Ağustos akşamı — ADIM 4 AÇILDI (yerde): kaçınma düğümü değişti.**
+>
+> `basit_kacinma` **KAPALI**, yerine **`collision_avoidance`** koşuyor
+> (`d0=6.0 hard=4.0`). Sonraki kişi uçakları böyle bulacak.
+>
+> | | eski | **şimdi** |
+> |---|---|---|
+> | kaçınma düğümü | `basit_kacinma` | **`collision_avoidance`** |
+> | `/ws/kacinma` | vardı | **`kacinma.adim4_oncesi`** (kenara alındı) |
+> | `suru_dugumleri` | `... formasyon` | `... formasyon **ca**` |
+> | `/ws/gozlem` | var | **var** (değişmedi — formasyon hâlâ sürmüyor) |
+> | `velocity_only` | false | **false** (değişmedi) |
+>
+> Tek değişken bilerek kaçınma düğümü. **Uçuşta doğrulanmadı** — ilk uçuşta
+> tek soru: guided yolda şeffaf mı? Geri alma tek komut, `KARAR-01` adım 2.
+>
+> ⚠️ `basit_kacinma` yalnız `position_valid` setpoint'lerde çalışıyordu
+> (sürü zincirinde ölüydü). `collision_avoidance`'ın girdi kapısı **yok** —
+> hem guided hem sürü zincirinde çalışır, üstüne yaklaşma hızı ve dikey
+> bileşen ekler.
 
 > ✈️ **21 Ağustos — İKİ UÇUŞ YAPILDI, ikisi de temiz indi.**
 > **P0.12 kapandı** (bayat komut inişi iptal edemiyor — uçuşta doğrulandı)

@@ -1,6 +1,6 @@
 # KARARLAR — verilmiş ama henüz uygulanmamış kararlar
 
-**Son güncelleme:** 21 Ağustos 2026, ADIM 4 tek başına açılabilir
+**Son güncelleme:** 21 Ağustos 2026, ADIM 4 yerde açıldı
 
 Sohbette verilen kararlar oturum bitince kayboluyor. Bu defter onları
 tutuyor: **ne karar verildi, neden, ne zaman uygulanacak, nasıl test edilecek.**
@@ -103,8 +103,29 @@ pozisyon-goto yoluna (kanıtlanmış zincir), `collision_avoidance` hız yoluna
    `/swarm/public/drone{N}/status` (BEST_EFFORT, mesh kaynağı).
    `neighbor_stale_ms` parametresi kaldırıldı (`AgentStatus`ta `data_age_ms`
    yok; tazelik ölçüsü tek: mesajın bize **ulaştığı** an).
-2. ⬜ `basit_kacinma` **kapatılır** (aynı yuva — ikisi birden koşamaz).
-   `/ws/kacinma` silinip `ca` anahtarı açılacak. **Henüz yapılmadı.**
+2. ✅ **YAPILDI (21 Ağustos, yerde).** `basit_kacinma` kapatıldı,
+   `collision_avoidance` açıldı. İki uçakta da:
+
+   ```
+   CARPISMA KACINMASI ACIK (collision_avoidance) — cikis /raw'a yonlendirildi
+   collision_avoidance basladi (d0=6.0 hard=4.0, basit_kacinma KAPALI)
+   11 dugum · basit_kacinma=0 · collision_avoidance=1
+   raw tek uretici · setpoint tek uretici · velocity_only=False · armed=false
+   tani: skip_adaptor=- komsu_veri=1/2 ben=var
+   ```
+
+   **Tek değişken:** `/ws/gozlem` bilerek **duruyor** — formasyon hâlâ uçağı
+   sürmüyor, `velocity_only` hâlâ `false`. Değişen tek şey kaçınma düğümü.
+   Aynı uçuşta iki değişiklik denenmez (`CLAUDE.md` §9).
+
+   **Geri alma tek komut** — dosyalar silinmedi, kenara alındı:
+   `mv ~/yelpence_ws/kacinma.adim4_oncesi ~/yelpence_ws/kacinma` +
+   `cp ~/yelpence_ws/suru_dugumleri.adim4_oncesi ~/yelpence_ws/suru_dugumleri`
+   + `docker restart droneN`.
+
+   ⏳ **Uçuşta doğrulanmadı.** Sıradaki: KARAR-02 denetimi → kuru test +
+   harita → tek uçak kısa git-gel. Tek soru: *`collision_avoidance` guided
+   yolda `basit_kacinma` gibi şeffaf mı?*
 
    > ### 🔴 21 Ağustos — ADIM 4 TEK BAŞINA AÇILAMAZ (ölçüldü)
    >
