@@ -1,6 +1,6 @@
 # GÜNLÜK — oturum devir teslim kaydı
 
-**Son güncelleme:** 21 Ağustos 2026, 01:45
+**Son güncelleme:** 21 Ağustos 2026, 15:00
 
 Tek bilgisayar, sırayla çalışıyoruz. Biri kalkıp diğeri oturduğunda **hem
 kişi hem Claude** nerede kalındığını buradan anlar.
@@ -35,6 +35,108 @@ Claude'a **"oturumu kapat"** dersen bu kaydı o yazar.
 - ylp00: (kill switch? pil? nerede? konteyner ayakta mı?)
 - ylp02:
 ```
+
+---
+
+## 2026-08-21 15:00 — Eyüp + Claude (İKİ UÇUŞ: P0.12 kapandı, sürü kalbi havada ölçüldü)
+
+> Günün ilk uçuşları. İkisi de yerde hazırlanıp haritayla onaylandı,
+> ikisi de sorunsuz indi. **Sürü yazılımı ilk kez havada aktif çalıştı.**
+
+**Ne yapıldı**
+
+*Sabah hazırlığı — titreşim ölçümü (uçuş yok)*
+
+Operatör STABILIZED'da arm edip gazı kalkış eşiğinin altında tuttu.
+**223 örnek, konum sıçraması 0.000 m — SAĞLAM.** 1 Ağustos'ta ylp00'ı
+deviren hastalık (motorlar dönerken kestirimin sıçraması) yok. OFFBOARD
+kalkış bu uçakta güvenli.
+
+*🔴 Kuru test iki kez uçuşu durdurdu — ikisi de gerçek*
+
+1. ylp02 bacak koridoruna **4,9 m** idi (kaçınmanın itme bölgesi içi).
+   `basit_kacinma` komşunun **yalnız konumuna** bakıyor; disarm, motorsuz,
+   yerde bile **engel sayılıyor** (kodda armed/state kontrolü YOK).
+2. Titreşim testindeki zıplama uçağı **~100° döndürdü** (244° → 344°) ve
+   yeni bacak ucu ylp02'ye **1,2 m** kaldı. Taze kuru test yakaladı.
+
+Ders: **her fiziksel dokunuştan sonra kuru test + harita yeniden.**
+
+*UÇUŞ 1 — P0.12(b) iptal doğrulaması (ylp00, tek bacak)*
+
+İlk deneme **tetikleme hatasıyla** boşa gitti: görev çıktısı dosyaya
+yönlendirilince python **blok tamponluyor**, "bacak başladı" satırı geç
+düştü, iptal ölü sürece gitti. Uçak B planını uygulayıp temiz indi.
+(Ders: dosyadan an yakalayacaksan `python3 -u`.)
+
+İkinci deneme **GEÇTİ** — üç kanıt birden:
+
+```
+KOPRU  : iptal komutu: drone1 icin bekleyen 1 kayit / 3 gonderilmemis
+         kopya (GOTO/ARM/TAKEOFF) dusuruldu
+UCAK   : 818.601 goto -> 818.603 land -> sonra SIFIR goto
+DAVRANIS: AUTO.LAND kesintisiz, t+24 sn yerde ve disarm, geri tirmanma YOK
+```
+
+İlk goto kopyası iptalden **2 ms önce** varmıştı — düşürülen 3 kopya
+gitseydi hata kesin tetiklenirdi. **P0.12 tamamen kapandı.**
+
+*UÇUŞ 2 — sürü kalbi havada (iki uçak, 10 m, g2)*
+
+Uçuş öncesi KARAR-02 denetimi yapıldı (çok ajanlı koşu oturum limitinde
+öldü; tek kanalda tamamlandı). **Git kararı ölçüme dayandı:**
+`setpoint/raw`'ın tek yayıncısı `esp32_bridge`, `formation_control`
+`/gozlem`'e gidiyor, `form_yayinla.sh` koşmuyor → sürünün aktüatöre
+**kablosu yok**. FSM'in gönderebildiği tüm komutlar sayıldı (`arm`
+armlıyken yok sayılıyor, `offboard` no-op, `takeoff` iki kilitle kapalı).
+
+Havada görev olayı gönderildi, **seçim havada oldu**, ikisi de `lider=1`'de
+anlaştı, `Split-brain` **sıfır**, uçuş boyunca **sahte seçim yok**.
+
+| | bench | **UÇUŞTA** | eşik | pay | aşan |
+|---|---|---|---|---|---|
+| HB boşluğu | maks 301 ms | **maks 218 ms** | 1000 ms | 4,6× | **0** |
+| DURUM boşluğu | — | **maks 408 ms** | 5000 ms | 12,3× | **0** |
+
+595 HB / 59,7 sn · 858 DURUM / 119,8 sn. **Uçuştaki boşluklar bench'ten
+daha iyi** — motor ve mesafe eşiği zorlamadı. İki eşik de kalıyor.
+
+Bonus: inişte ylp00 uygunluğunu yitirince `Lider: 1 -> 3` yazdı — P0.12(a)
+liderlik bırakma **hava→yer geçişinde canlı** doğrulandı.
+
+**Ne değişti**
+
+- belge: `YAPILACAKLAR` — P0.12 tamamen kapandı, P0.14 eşikleri uçuşta
+  ölçüldü, **P1.14 eklendi** (tek yönlü kopmada kalıcı iki lider)
+- uçakta: kod/ayar değişmedi; iki uçuş yapıldı, ikisi de temiz indi
+- `/tmp/yelpence_rota.html` son hâli: g2, 10 m
+
+**Yarım kalan / tuzak**
+
+- 🟠 **P1.14** — lider kimliği mesh'e **kalp atışıyla** taşındı (80 ms),
+  seçim çerçevesiyle değil (`election/result` kaydında **0 mesaj**).
+  `_on_heartbeat` split-brain'i yalnız tek yönde çözüyor → asimetrik
+  kopmada iki lider kalıcı olabilir. Bugün zararsız (kablo yok).
+- 🟠 P1.13 pil sahtesi duruyor (KARAR-03 kapsamında)
+- Uçuş öncesi denetim **tek kanalda** yapıldı; çok ajanlı tarama hiç
+  tamamlanmadı — istenirse tekrarlanabilir
+- Mod etiketi iki uçakta OFFBOARD kalıntısı (disarm hâlde zararsız)
+
+**Sıradaki adım**
+
+Operatör seçer: P1.14 düzeltmesi · P1.13 sahtesinin kaldırılması ·
+`PLAN.md` §8 ADIM 3 (formation_node'un gözlemden çıkarılması) yolunda
+bir sonraki kademe.
+
+**Uçakların bırakıldığı hâl**
+
+- ylp00: 11 düğüm, `armed=false`, pervaneler **TAKILI**, disk %43.
+  Kod `db828ab`. İki uçuş yaptı, sağlıklı indi.
+- ylp02: 11 düğüm, `armed=false`, pervaneler **TAKILI**. Bir uçuş yaptı.
+- **Operatör oturum sonunda pilleri değiştiriyor** — güç kesilecek, yani
+  o anki kayıt metadata'sız kalacak. **Açılışta `kayit_onar.sh`
+  kendiliğinden onaracak**, elle bir şey gerekmiyor (TUZAKLAR 1.19).
+- ylp01: yerde; dönünce `RPI_ESITLEME.md` bölüm 2 listesi.
 
 ---
 

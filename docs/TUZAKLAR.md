@@ -1,6 +1,6 @@
 # TUZAKLAR — hata vermeden yanlış sonuç üretenler
 
-**Son güncelleme:** 21 Ağustos 2026, 01:45
+**Son güncelleme:** 21 Ağustos 2026, 15:00
 
 > **Bu belge CANLI.** Arşiv değil — buradaki her madde **bugün de geçerli.**
 >
@@ -555,6 +555,25 @@ ayarlarına (`--max-bag-duration 30`) hiç dokunmadan.
 > satırı ölçümdür.
 
 ---
+
+### 1.19b Kuru testi HER fiziksel dokunuştan sonra TEKRARLA — plan sessizce geçersizleşir
+
+21 Ağustos'ta **iki kez** uçuşu durdurdu, ikisi de gerçek tehlikeydi:
+
+1. Operatör ylp02'yi taşıdı; ylp00'ın bacak koridoruna **4,9 m** kaldı.
+   `basit_kacinma` komşunun **yalnız konumuna** bakıyor — kodda armed/state
+   kontrolü **YOK** (`kacinma/basit_kacinma_node.py` `_on_komsu`). Yani
+   **disarm, motorsuz, yerde duran uçak da engel sayılıyor** ve havadakini
+   iter. Etki eşiği `d0_m=6.0` m; 6 m üstünde sıfır.
+2. Titreşim testindeki zıplama ylp00'ı **~100° döndürdü** (244° → 344°).
+   Bacak yönü uçağın burnundan alınıyor, yani **operatörün gözüyle
+   onayladığı harita geçersizleşti** ve yeni bacak ucu ylp02'ye **1,2 m**
+   kaldı. Uçak kalksa neredeyse üstüne uçacaktı.
+
+İkisi de yalnız **taze** kuru testte göründü; eski harita ikisini de
+"temiz" gösteriyordu. Kural: uçağa dokunulduysa (taşıma, döndürme, arm
+denemesi, pil değişimi) **kuru test + harita yeniden üretilir ve operatör
+yeniden bakar.** Maliyeti 30 saniye.
 
 ### 1.20 Bench'te AgentStatus pili HEP "12.6 V / %100" der — SAHTE
 

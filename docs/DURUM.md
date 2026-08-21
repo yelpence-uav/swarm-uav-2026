@@ -1,6 +1,6 @@
 # DURUM — şu an ne çalışıyor, ne bozuk
 
-**Son güncelleme:** 21 Ağustos 2026, 01:45
+**Son güncelleme:** 21 Ağustos 2026, 15:00
 
 > Bu belge **şimdiki hâli** anlatır, tarihçe değil. Bir şey değişince burayı
 > güncelle, eskisini sil. Ne olduğunun hikâyesi `GUNLUK.md`'de kalır.
@@ -15,6 +15,22 @@
 | ylp01 | 2 | **YERDE** | 2 Ağustos'ta 20 m'den düştü, RPi açılmıyor |
 | ylp02 | 3 | **Uçar** | Kod **`d9be7c9`** (20 Ağu 03:40, ylp00 ile senkron). `guided_ivme_ff=1.0` — A/B sonrası **ikisinde de açık**. Pervaneler **TAKILI**. **İki uçaklı P0.11 yer testi GEÇTİ:** sürü yolundan ARMED + lider mutabakatı + mesh'ten 499 kalp atışı aldı. ✅ `yer_testi` bayrağı **YOK** (20 Ağu 16:20 ölçüldü). ✅ Alıcı failsafe'i düzeltildi ve ölçüldü (**P0.9 KAPANDI**, 19 Ağu gece: kayıtlı +100 bulundu → -100 kaydedildi → `CH5=1000`). ✅ RC-kayıp tespiti KURULU, bit iki yönde doğrulandı — kumanda kaybında RTL |
 
+> ✈️ **21 Ağustos — İKİ UÇUŞ YAPILDI, ikisi de temiz indi.**
+> **P0.12 kapandı** (bayat komut inişi iptal edemiyor — uçuşta doğrulandı)
+> ve **sürü kalbi havada ölçüldü**: seçim havada oldu, split-brain sıfır,
+> HB boşluğu maks **218 ms** (eşik 1000), DURUM maks **408 ms** (eşik 5000).
+> Ayrıntı: `GUNLUK` 15:00 kaydı.
+>
+> Uçakların hâli: ikisi de **11 düğüm**, `armed=false`, **pervaneler TAKILI**.
+> Kod değişmedi (`db828ab`). Mod etiketi OFFBOARD kalıntısı — disarm hâlde
+> zararsız.
+>
+> ⚠️ **Yeni bilinen sorun (P1.14):** lider kimliği mesh'e kalp atışıyla
+> taşınıyor, seçim çerçevesiyle değil; `_on_heartbeat` split-brain'i yalnız
+> tek yönde çözüyor → **asimetrik kopmada iki lider kalıcı olabilir.**
+> Bugün zararsız: sürünün aktüatöre kablosu yok (`setpoint/raw` tek
+> yayıncısı `esp32_bridge` — ölçüldü). Sürü uçakları sürmeden önce çözülmeli.
+>
 > 🔄 **21 Ağustos 01:30 — iki konteyner de temiz, 11 düğüm, `armed=false`.**
 > Pervaneler **ÇIKIK**, kill switch'ler kapalı. Mod etiketi ikisinde de
 > OFFBOARD kalıntısı (P0.14 yer testinden; disarm hâlde zararsız, mod
