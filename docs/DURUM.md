@@ -1,6 +1,6 @@
 # DURUM — şu an ne çalışıyor, ne bozuk
 
-**Son güncelleme:** 21 Ağustos 2026, ADIM 4 yerde açıldı
+**Son güncelleme:** 22 Ağustos 2026, körlük alarmı çalışıyor
 
 > Bu belge **şimdiki hâli** anlatır, tarihçe değil. Bir şey değişince burayı
 > güncelle, eskisini sil. Ne olduğunun hikâyesi `GUNLUK.md`'de kalır.
@@ -202,6 +202,67 @@ Kalıcı çözüm tek satır — `gcs_url` = `udp://:14555@` (uçak yayın yapma
 sadece dinler; bağlantıyı QGC kurar, uçakta IP yazılı olmaz). Denendi ve
 doğrulandı, **uygulanmadı**: operatör kararıyla uçak `udp-b`'de bırakıldı.
 Ayrıntı: `GUNLUK.md` 17 Ağustos kaydı.
+
+---
+
+## 🛡️ KAÇINMA KÖRLÜĞÜ ALARMI — 21-22 Ağustos'ta eklendi, ÇALIŞIYOR
+
+**Ne işe yarıyor:** çarpışma önleme uçağın *gözü değil kulağıdır* — komşusunu
+ancak mesh yayınından bilir. Yayın kesilirse gökyüzü **boş görünür** ve
+kaçınma sessizce devre dışı kalır. Bu alarm o sessizliği bitiriyor.
+
+**Neden var:** 21 Ağustos uçuşunda operatör ylp02'yi ylp00'a **3 metreye**
+kadar yaklaştırdı, kaçınma **hiç tetiklenmedi**. Sebep algoritma değildi:
+ylp00 komşusunu **46,4 saniye** hiç görmedi — mesh linki **tek yönlü** ölmüştü
+(ters yön aynı anda kusursuz çalışıyordu, YKİ ylp02'yi sağlıklı görüyordu).
+O 47 saniye boyunca **hiçbir alarm yoktu.**
+
+**Nasıl çalışıyor:**
+
+```
+komsu 2 sn goremiyor  ->  ucak kendi DURUM paketinde bayragi kurar
+                          (DURUM2_BAYRAK_KACINMA_KORU = 0x04)
+                      ->  baz kopru bayragi cozer, SystemEvent yayinlar
+                      ->  YKI: KRITIK uyari + SESLI alarm + masaustu bildirimi
+```
+
+Ekranda görünen: **"Çarpışma riski: droneN KOMŞUSUNU GÖREMİYOR — o komşuya
+karşı çarpışma koruması YOK"**. Düzelince kendiliğinden temizleniyor.
+
+| ayar | değer | anlamı |
+|---|---|---|
+| `korluk_alarm_s` | **2,0 sn** | bu kadar görmezse alarm |
+| `korluk_tut_s` | **0,0 = KAPALI** | operatör kararı: uçak durmasın, haber versin |
+| `komsu_durum_bayat_s` | 5,0 sn | mesh bayrağının eşiği |
+
+> `korluk_tut_s` açılırsa (örn. `5.0`) uçak körlükte **yatay hareketi
+> durdurur**, dikey serbest kalır. Otonom finalde operatör müdahalesi
+> olmayacaksa düşünülmeli. Mekanizma yazılı ve testli, tek parametre.
+
+**Eşikler ölçümden:** sağlıklı linkte komşu verisi boşluğu maks **0,4 sn**
+(21 Ağustos uçuş kaydı). 2 sn alarm eşiği bunun 5 katı — geçici mesh
+sarsıntısı yanlış alarm üretmez.
+
+### Test etme — uçmadan, konteyner yeniden başlatmadan
+
+```bash
+# ylp00 ylp02'yi DUYMASIN (ylp02 YKİ'de görünmeye devam eder)
+docker exec drone1 ros2 param set /esp32_bridge sahte_kayip_ajanlar "[3]"
+# geri al
+docker exec drone1 ros2 param set /esp32_bridge sahte_kayip_ajanlar "[0]"
+```
+
+🔴 **Bir düğümü öldürmek bu testi KARŞILAMAZ** — uçak YKİ'den de kaybolur ve
+gerçek arızanın en önemli yanı (*ekranda sağlıklı görünen uçak*) hiç oluşmaz.
+Bkz. `TUZAKLAR.md` §2.16.
+
+⚠️ **YKİ tarafında iki şart:** tarayıcı sesi için sayfaya **bir kez tıklamak**
+(otomatik-oynatma politikası), masaüstü bildirimi için **izin vermek**. İkisi
+de 22 Ağustos'ta sahada doğrulandı.
+
+**Sınırı:** bu bayrak yalnız kaçınma körlüğünü taşıyor. Uçakta üretilen diğer
+`SystemEvent`'ler (FSM durum geçişleri, consensus lider değişimi) **hâlâ
+YKİ'ye ulaşmıyor** — mesh'te `TIP_EVENT` yok. Bkz. `YAPILACAKLAR` P0.16 sonu.
 
 ---
 
