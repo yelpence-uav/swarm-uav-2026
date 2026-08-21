@@ -2822,13 +2822,38 @@ def gorev(kuru: bool) -> int:
             # BEKLEME SIRASINDA DA DENETLE. Onceki hali duz time.sleep idi:
             # 5 sn'lik yerlesmede zararsizdi ama --senaryo asili 60 sn tutuyor
             # ve o sure boyunca kill/failsafe/egim/pilot denetimi KOR kalirdi.
-            # Bekleme sirasinda gorev komut gondermiyor; setpoint'i drone
-            # kendi tazeliyor (esp32_bridge 10 Hz yerel tekrar), yani ucak
-            # yerinde durmaya devam eder.
+            #
+            # HEDEF DE TEKRARLANIR — 21 Agustos 2026'da ucusta OLCULDU.
+            #
+            # Eskiden burada komut GONDERILMIYORDU; gerekce "setpoint'i drone
+            # kendi tazeliyor (esp32_bridge 10 Hz yerel tekrar)" idi. Dogru
+            # ama EKSIK: yerel tekrar ancak `_guided_hedef` bir kez KURULMUSSA
+            # calisir, o da en az bir `goto` cercevesinin ulasmasini ister.
+            #
+            # `--senaryo asili`de hedef ucagin KENDI konumu, yani git_ve_bekle
+            # daha ilk turda "vardi" deyip cikiyor ve `git()` HIC cagrilmiyor.
+            # Olculdu (21 Agustos, asili ucusu): esp.log'da o ucus boyunca
+            # goto sayisi SIFIR; collision_avoidance'in passthrough sayaci
+            # 181'de dondu ve `avoid=0` kaldi. Yani kacinma calismadigi icin
+            # degil, GIRDISI OLMADIGI icin sinanamadi.
+            #
+            # 🔴 BU YALNIZ TEST KUSURU DEGIL: kacinma dugumu /raw ile
+            # /setpoint arasinda bir FILTRE. Akis kesilince filtreleyecek bir
+            # sey kalmiyor ve px4_bridge kalkis capasiyla konumu kendi
+            # tutuyor — yani HER bekleme evresinde carpisma onleme ATIL.
+            # Formasyonda "hedefe varildi, bekle" evreleri var; orada da ayni
+            # boslugun olusmamasi icin tekrar buraya kondu.
+            #
+            # Maliyeti yok: ayni hedef tekrar gonderiliyor, px4_bridge zaten
+            # 50 Hz'de kendi yurutuyor ve kaybolan paket ayni hedefi tasiyor.
             _bekle_basla = time.time()
             while time.time() - _bekle_basla < bekle_s:
                 time.sleep(min(0.5, bekle_s))
                 _t = durum()
+                for _did in ucanlar():
+                    _h = hedefler.get(_did)
+                    if _h is not None:
+                        git(_did, _h, heading, kuru, _t)
                 _ihlal = guvenlik_ihlali(_t)
                 if _ihlal:
                     print(f"\n    !!! {_ihlal} — görev durduruluyor")
