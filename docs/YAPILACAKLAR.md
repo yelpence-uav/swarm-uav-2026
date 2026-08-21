@@ -1,6 +1,6 @@
 # YAPILACAKLAR
 
-**Son güncelleme:** 21 Ağustos 2026, 01:45
+**Son güncelleme:** 21 Ağustos 2026, sabah uçuşları
 
 ## Önem dereceleri
 
@@ -20,7 +20,7 @@ Durum: `[ ]` yapılmadı · `[~]` kısmen · `[B]` başka işe bağlı · `[?]` 
 
 ## 🔴 P0 — UÇUŞ ENGELİ
 
-### ✅ P0.12(a) SAHADA DOĞRULANDI (20 Ağustos 20:05) — (b) uçuşa kaldı
+### ✅ P0.12 TAMAMEN KAPANDI — (a) 20 Ağustos yerde, (b) 21 Ağustos uçuşta
 
 `WORKFLOW_BULGULAR.md`'deki 42 bulgunun yalnız 7'si doğrulanabilmişti
 (denetim maliyet yüzünden kesildi). Bu ikisi **20 Ağustos'ta kod okunarak
@@ -107,11 +107,28 @@ olur**, üstelik `px4_bridge`'in 0.5 s bayatlama koruması hiç tetiklenmez
   > **Kapsam dar tutuldu:** yalnız aynı hedefin GOTO'ları. Diğer uçağın
   > kuyruğuna dokunulmuyor — bir uçağı indirmek diğerinin görevini kesmez.
   > `TIP_KOMUT`'ta genel ayıklama hâlâ YOK (arm/takeoff/land birbirini ezmez).
-- `[ ]` 🟠 **SAHA DOĞRULAMASI YAPILAMADI (20 Ağustos).** Yerdeki uçağa
-  `goto` gönderilince YKİ `"oto-kalkis-sonra-git"` moduna geçip `goto`'yu
-  bekletiyor; uçağa **hiç GOTO çerçevesi ulaşmadı** (sayaç: 0), yani ayıklama
-  sınanamadı. Uçuşta doğrulanacak: bir bacak sürerken `land` gönder, uçak
-  bayat hedefe geri dönmemeli.
+- `[x]` 🟠 **UÇUŞTA DOĞRULANDI (21 Ağustos sabahı, ylp00, tek bacak + iptal).**
+  Bacağın 0,7. saniyesinde `land` gönderildi. Üç kanıt birden:
+
+  ```
+  KOPRU : iptal komutu: drone1 icin bekleyen 1 kayit / 3 gonderilmemis
+          kopya (GOTO/ARM/TAKEOFF) dusuruldu
+  UCAK  : 818.601 goto -> 818.603 land -> 818.9/819.3/819.6 land
+          (land'den sonra SIFIR goto cercevesi)
+  DAVRANIS: AUTO.LAND kesintisiz, t+24 sn'de yerde ve disarm, geri
+          tirmanma YOK
+  ```
+
+  Zamanlama şansı da kanıtı güçlendirdi: ilk goto kopyası iptalden 2 ms
+  önce uçağa varmıştı — düşürülen 3 kopya gitseydi hata **kesin**
+  tetiklenirdi.
+
+  > İlk deneme (aynı sabah) tetikleme hatası yüzünden boşa uçtu: görev
+  > çıktısı dosyaya yönlendirilince python blok tamponluyor, "bacak
+  > başladı" satırı dosyaya görev biterken düştü ve iptal ölü sürece
+  > gitti. Ders: dosyadan an yakalayacaksan `python3 -u`. O uçuş da boşa
+  > gitmedi — tekli senaryo zinciri (kalkış-bacak-tırmanış-iniş) temiz
+  > uçtu, varış 0,9 m.
 - `[x]` 🔴 **Test: 9/9** — `swarm_control/test/test_guided_kuyruk_iptal.py`.
   Kilitlenenler: land/rtl/disarm düşürüyor · **diğer uçağa dokunmuyor** ·
   takeoff/arm **düşürmüyor** · eski davranış (yeni GOTO eskisini ezer) korundu.
