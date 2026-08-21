@@ -87,7 +87,7 @@ def test_hic_gorulmemis_komsu_KORLUK_SAYILMAZ():
     n._neighbors = {2: _st()}
     n._neighbor_rx = {2: 0.0}          # hic gorulmedi
     n._ben = _st()
-    n._gather_obstacles(now=100.0)
+    n._korluk_tara(now=100.0)
     assert n._korluk_bildirildi == set(), 'hic gorulmemis komsu alarm uretti'
     assert not n._event_pub.publish.called
 
@@ -98,9 +98,9 @@ def test_gorulmus_komsu_kaybolunca_ALARM():
     n._neighbors = {3: _st()}
     n._ben = _st()
     n._neighbor_rx = {3: 100.0}
-    n._gather_obstacles(now=100.0)     # taze -> gorulmus olarak isaretle
+    n._korluk_tara(now=100.0)     # taze -> gorulmus olarak isaretle
     assert 3 in n._komsu_gorulmus
-    n._gather_obstacles(now=103.0)     # 3 sn sessizlik
+    n._korluk_tara(now=103.0)     # 3 sn sessizlik
     assert 3 in n._korluk_bildirildi, 'korluk bildirilmedi'
     assert n._event_pub.publish.called, 'SystemEvent yayinlanmadi (YKI gormez)'
 
@@ -111,8 +111,8 @@ def test_alarm_esigin_ALTINDA_uretilmez():
     n._neighbors = {3: _st()}
     n._ben = _st()
     n._neighbor_rx = {3: 100.0}
-    n._gather_obstacles(now=100.0)
-    n._gather_obstacles(now=101.7)     # 1.7 sn: stale ama alarm esigi altinda
+    n._korluk_tara(now=100.0)
+    n._korluk_tara(now=101.7)     # 1.7 sn: stale ama alarm esigi altinda
     assert n._korluk_bildirildi == set()
 
 
@@ -121,9 +121,9 @@ def test_alarm_YALNIZ_BIR_KEZ_basilir():
     n._neighbors = {3: _st()}
     n._ben = _st()
     n._neighbor_rx = {3: 100.0}
-    n._gather_obstacles(now=100.0)
+    n._korluk_tara(now=100.0)
     for t in (103.0, 104.0, 105.0, 110.0):
-        n._gather_obstacles(now=t)
+        n._korluk_tara(now=t)
     assert n._n_korluk == 1, 'alarm tekrar tekrar basildi (log bogulur)'
 
 
@@ -132,11 +132,11 @@ def test_komsu_geri_gelince_korluk_BITER():
     n._neighbors = {3: _st()}
     n._ben = _st()
     n._neighbor_rx = {3: 100.0}
-    n._gather_obstacles(now=100.0)
-    n._gather_obstacles(now=105.0)
+    n._korluk_tara(now=100.0)
+    n._korluk_tara(now=105.0)
     assert 3 in n._korluk_bildirildi
     n._neighbor_rx[3] = 106.0          # tekrar veri geldi
-    n._gather_obstacles(now=106.0)
+    n._korluk_tara(now=106.0)
     assert 3 not in n._korluk_bildirildi, 'korluk temizlenmedi'
 
 
@@ -146,11 +146,11 @@ def test_korluk_bitince_YENIDEN_bildirilebilir():
     n._neighbors = {3: _st()}
     n._ben = _st()
     n._neighbor_rx = {3: 100.0}
-    n._gather_obstacles(now=100.0)
-    n._gather_obstacles(now=105.0)     # 1. korluk
+    n._korluk_tara(now=100.0)
+    n._korluk_tara(now=105.0)     # 1. korluk
     n._neighbor_rx[3] = 106.0
-    n._gather_obstacles(now=106.0)     # duzeldi
-    n._gather_obstacles(now=110.0)     # 2. korluk
+    n._korluk_tara(now=106.0)     # duzeldi
+    n._korluk_tara(now=110.0)     # 2. korluk
     assert n._n_korluk == 2
 
 
@@ -208,10 +208,10 @@ def test_korlukte_YATAY_HAREKET_DURUR():
     n._neighbors = {3: _st()}
     n._ben = _st()
     n._neighbor_rx = {3: 100.0}
-    n._gather_obstacles(now=100.0)
+    n._korluk_tara(now=100.0)
     _tik_kur(n, 106.0)
     n.get_clock.return_value.now.return_value.nanoseconds = int(106.0 * 1e9)
-    n._tick_inner()
+    n._tick()
     assert n._setpoint_pub.publish.called, 'setpoint yayinlanmadi'
     cik = n._setpoint_pub.publish.call_args[0][0]
     assert cik.vx == 0.0 and cik.vy == 0.0, 'yatay hareket durmadi'
@@ -227,10 +227,10 @@ def test_korlukte_DIKEY_KORUNUR():
     n._neighbors = {3: _st()}
     n._ben = _st()
     n._neighbor_rx = {3: 100.0}
-    n._gather_obstacles(now=100.0)
+    n._korluk_tara(now=100.0)
     _tik_kur(n, 106.0, ham_vz=-1.5, hiz_var=True)   # 1.5 m/s tirmanis
     n.get_clock.return_value.now.return_value.nanoseconds = int(106.0 * 1e9)
-    n._tick_inner()
+    n._tick()
     cik = n._setpoint_pub.publish.call_args[0][0]
     assert cik.vz == -1.5, 'dikey hiz kesildi — irtifa ayrimi bozulur'
 
@@ -241,10 +241,10 @@ def test_TUTMA_ESIGI_ALTINDA_normal_akis():
     n._neighbors = {3: _st()}
     n._ben = _st()
     n._neighbor_rx = {3: 100.0}
-    n._gather_obstacles(now=100.0)
+    n._korluk_tara(now=100.0)
     _tik_kur(n, 103.0)
     n.get_clock.return_value.now.return_value.nanoseconds = int(103.0 * 1e9)
-    n._tick_inner()
+    n._tick()
     assert 3 in n._korluk_bildirildi, 'alarm basilmali'
     assert n._n_korluk_tut == 0, 'esik altinda tutma tetiklendi'
     assert n._relay.called, 'normal akis kesildi'
@@ -256,10 +256,10 @@ def test_tutma_KAPATILABILIR():
     n._neighbors = {3: _st()}
     n._ben = _st()
     n._neighbor_rx = {3: 100.0}
-    n._gather_obstacles(now=100.0)
+    n._korluk_tara(now=100.0)
     _tik_kur(n, 120.0)
     n.get_clock.return_value.now.return_value.nanoseconds = int(120.0 * 1e9)
-    n._tick_inner()
+    n._tick()
     assert n._n_korluk_tut == 0
     assert n._relay.called
 
@@ -269,16 +269,16 @@ def test_komsu_geri_gelince_tutma_KALKAR():
     n._neighbors = {3: _st()}
     n._ben = _st()
     n._neighbor_rx = {3: 100.0}
-    n._gather_obstacles(now=100.0)
+    n._korluk_tara(now=100.0)
     _tik_kur(n, 106.0)
     n.get_clock.return_value.now.return_value.nanoseconds = int(106.0 * 1e9)
-    n._tick_inner()
+    n._tick()
     assert n._korluk_tut_aktif is True
     n._neighbor_rx[3] = 107.0                  # veri geri geldi
     n._raw_stamp = 107.0                       # ham setpoint de taze
     n._relay.reset_mock()
     n.get_clock.return_value.now.return_value.nanoseconds = int(107.0 * 1e9)
-    n._tick_inner()
+    n._tick()
     assert n._korluk_tut_aktif is False, 'tutma kalkmadi — ucak kilitli kalir'
     assert n._relay.called, 'normal akisa donulmedi'
 
@@ -289,10 +289,10 @@ def test_hic_gorulmemis_komsu_TUTMA_uretmez():
     n._neighbors = {2: _st()}
     n._ben = _st()
     n._neighbor_rx = {2: 0.0}
-    n._gather_obstacles(now=100.0)
+    n._korluk_tara(now=100.0)
     _tik_kur(n, 200.0)
     n.get_clock.return_value.now.return_value.nanoseconds = int(200.0 * 1e9)
-    n._tick_inner()
+    n._tick()
     assert n._n_korluk_tut == 0, 'hic gorulmemis komsu ucagi durdurdu'
     assert n._relay.called
 
@@ -309,12 +309,60 @@ def test_korluk_ciktisi_DOGRU_ONCELIK_ve_KAYNAK_tasir():
     n._neighbors = {3: _st()}
     n._ben = _st()
     n._neighbor_rx = {3: 100.0}
-    n._gather_obstacles(now=100.0)
+    n._korluk_tara(now=100.0)
     _tik_kur(n, 106.0)
     n.get_clock.return_value.now.return_value.nanoseconds = int(106.0 * 1e9)
-    n._tick_inner()
+    n._tick()
     cik = n._setpoint_pub.publish.call_args[0][0]
     assert cik.priority == AgentSetpoint.PRIORITY_COLLISION_AVOIDANCE
     assert cik.source == AgentSetpoint.SOURCE_COLLISION_AVOIDANCE
     assert cik.source_module == 'collision_avoidance:korluk', \
         'kayitta korluk tutmasi normal kacistan ayirt edilemez'
+
+
+# --- KORLUK SETPOINT AKISINDAN BAGIMSIZ (P0.15, ikinci bulgu) --------------
+
+def test_SETPOINT_YOKKEN_de_korluk_tespit_edilir():
+    """21 Agustos aksami YERDE olculdu: setpoint akmayinca korluk gorunmuyordu.
+
+    `_tick_inner` `raw is None` ile erken cikiyor; korluk tespiti onun
+    icindeyse HIC calismiyor. Iki ucak yerde, mesh kesildi, veri gercekten
+    durdu (`ros2 topic hz` bos) ama korluk=0 kaldi ve uyari cikmadi.
+
+    Ucak HAVADA da setpoint akisi kesilebilir (gorev bitti, bekleme evresi,
+    YKI koptu) ve tam o anda komsusunu kaybetmis olabilir.
+    """
+    n = _dugum()
+    n._neighbors = {3: _st()}
+    n._ben = _st()
+    n._neighbor_rx = {3: 100.0}
+    n._raw = None                      # SETPOINT YOK — ucak yerde/bekliyor
+    n._raw_stamp = 0.0
+    n._raw_timeout_s = 0.5
+    n.get_clock.return_value.now.return_value.nanoseconds = int(100.0 * 1e9)
+    n._tick()
+    assert 3 in n._komsu_gorulmus, 'setpoint yokken komsu hic taninmadi'
+    n.get_clock.return_value.now.return_value.nanoseconds = int(105.0 * 1e9)
+    n._tick()
+    assert 3 in n._korluk_bildirildi, \
+        'setpoint akmiyorken korluk tespit edilmedi (asil ariza buydu)'
+    assert n._event_pub.publish.called
+
+
+def test_tick_ISTISNAYI_yutuyor_ama_korluk_ONCE_kosuyor():
+    """`_tick` try/except ile sariyor; korluk taramasi `_tick_inner`den ONCE
+    kosmali ki oradaki bir hata korlugu de sessizce oldurmesin."""
+    n = _dugum()
+    n._neighbors = {3: _st()}
+    n._ben = _st()
+    n._neighbor_rx = {3: 100.0}
+    n.get_clock.return_value.now.return_value.nanoseconds = int(100.0 * 1e9)
+    n._tick()
+    # _tick_inner'i patlat
+    n._raw = object()                  # beklenmedik tip -> iceride hata
+    n._raw_stamp = 105.0
+    n._raw_timeout_s = 0.5
+    n.get_clock.return_value.now.return_value.nanoseconds = int(105.0 * 1e9)
+    n._tick()                          # istisna yutulur
+    assert 3 in n._korluk_bildirildi, \
+        'tick_inner hatasi korlugu de sessizce oldurdu'

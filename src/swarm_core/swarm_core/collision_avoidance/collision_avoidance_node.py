@@ -300,25 +300,11 @@ class CollisionAvoidanceNode(Node):
 
         for nid, st in self._neighbors.items():
             rx = self._neighbor_rx.get(nid, 0.0)
-            yas = now - rx
-            if yas > self._neighbor_rx_stale_s:
+            if now - rx > self._neighbor_rx_stale_s:
                 self._n_skip_stale += 1
-                # KORLUK — P0.15. Daha once GORDUGUMUZ bir komsuyu
-                # kaybettiysek bu bir guvenlik olayidir; hic gorulmemis
-                # komsu (or. yerdeki ylp01) sayilmaz.
-                if nid in self._komsu_gorulmus:
-                    self._korluk_kaydet(nid, yas, now)
+                # Korluk KAYDI burada DEGIL — `_korluk_tara` yapiyor ve o
+                # setpoint akisindan bagimsiz kosuyor. Bkz. oradaki not.
                 continue
-            # Taze veri geldi: komsuyu tanidik ve korluk varsa bitti.
-            self._komsu_gorulmus.add(nid)
-            if nid in self._korluk_bildirildi:
-                self._korluk_bildirildi.discard(nid)
-                self.get_logger().warning(
-                    f'drone{nid} TEKRAR GORULUYOR ({yas:.2f} sn yasinda) — '
-                    f'korluk bitti.'
-                )
-                self._olay(SystemEvent.SEVERITY_INFO, nid,
-                           f'drone{nid} tekrar goruluyor, kacinma korlugu bitti')
             if st.state in _AVOIDANCE_DISI_STATELER:
                 self._n_skip_state += 1
                 continue
@@ -331,6 +317,31 @@ class CollisionAvoidanceNode(Node):
                 continue
             obs.append(gozlem)
         return obs
+
+    def _korluk_tara(self, now: float) -> None:
+        """Komsu tazeligini tarar, korlugu baslatir/bitirir — P0.15.
+
+        `_tick`ten HER TIK'TA cagrilir; setpoint akisina bagli DEGIL
+        (gerekce `_tick` icinde yazili).
+        """
+        for nid in list(self._neighbors.keys()):
+            yas = now - self._neighbor_rx.get(nid, 0.0)
+            if yas > self._neighbor_rx_stale_s:
+                # Daha once GORDUGUMUZ bir komsuyu kaybettiysek bu bir
+                # guvenlik olayidir; hic gorulmemis komsu (or. yerdeki
+                # ylp01) korluk sayilmaz.
+                if nid in self._komsu_gorulmus:
+                    self._korluk_kaydet(nid, yas, now)
+                continue
+            self._komsu_gorulmus.add(nid)
+            if nid in self._korluk_bildirildi:
+                self._korluk_bildirildi.discard(nid)
+                self.get_logger().warning(
+                    f'drone{nid} TEKRAR GORULUYOR ({yas:.2f} sn yasinda) — '
+                    f'korluk bitti.'
+                )
+                self._olay(SystemEvent.SEVERITY_INFO, nid,
+                           f'drone{nid} tekrar goruluyor, kacinma korlugu bitti')
 
     def _korluk_kaydet(self, nid: int, yas: float, now: float) -> None:
         """Kaybolan komsuyu olay olarak bildirir — P0.15, 21 Agustos 2026.
@@ -374,6 +385,27 @@ class CollisionAvoidanceNode(Node):
     def _tick(self) -> None:
         """ROS timer tetiklemesiyle ana döngüyü işletir."""
         try:
+            # KORLUK TARAMASI SETPOINT AKISINDAN BAGIMSIZ — P0.15,
+            # 21 Agustos 2026 aksami, YERDE olculdu.
+            #
+            # Ilk yazimda korluk tespiti `_gather_obstacles` icindeydi, o da
+            # `_tick_inner`in ICINDE cagriliyor. Ama `_tick_inner` iki yerde
+            # ERKEN CIKIYOR:
+            #     if raw is None: return                     <- setpoint yok
+            #     if now - _raw_stamp > _raw_timeout: return  <- bayat
+            # Yani setpoint akmiyorsa korluk HIC TESPIT EDILMIYORDU.
+            #
+            # Sahada yakalandi: iki ucak yerde, ylp02'nin esp32_bridge'i
+            # oldurulup mesh kesildi; komsu verisi gercekten durdu
+            # (`ros2 topic hz` bos dondu) ama ylp00'da korluk=0 kaldi ve
+            # hicbir uyari cikmadi.
+            #
+            # Bu yalniz test kolayligi degil: ucak HAVADA da setpoint akisi
+            # kesilebilir (gorev bitti, bekleme evresi, YKI koptu) ve tam o
+            # anda komsusunu kaybetmis olabilir. Korluk her durumda
+            # bilinmeli — kacinmanin "acik mi" sorusundan bagimsiz bir
+            # GUVENLIK bilgisi.
+            self._korluk_tara(self.get_clock().now().nanoseconds * 1e-9)
             self._tick_inner()
         except Exception as e:  # noqa: BLE001
             self.get_logger().error(
