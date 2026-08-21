@@ -1,6 +1,6 @@
 # YAPILACAKLAR
 
-**Son güncelleme:** 21 Ağustos 2026, sabah uçuşları
+**Son güncelleme:** 21 Ağustos 2026, uçuş 2 sonrası
 
 ## Önem dereceleri
 
@@ -233,10 +233,17 @@ kalır** ve kimse yeni seçim yapmaz.
   Bonus kanıtlar: inişle uygunluğunu yitiren lider liderliği BIRAKTI
   (P0.12 canlı) ve incarnation sıfırlama doğru işledi. Eskiden bu yol
   hiç çalışmıyordu.
-- `[~]` 🟡 **Eşiklerin yarısı ölçüldü.** Kalp atışı boşlukları (bench,
-  uçaklar yan yana, 61 atış): ortanca 101 ms · p90 104 ms · **maks 301 ms**
-  → 1000 ms eşik en büyük görülen boşluğun **3.3 katı**. Uçuşta ve mesafede
-  yeniden ölçülecek; DURUM bayatlığı (5 sn) hâlâ ölçülmedi.
+- `[x]` 🟡 **İKİ EŞİK DE UÇUŞTA ÖLÇÜLDÜ (21 Ağustos, iki uçak, 10 m, g2).**
+  Kayıttan (`mcap`, uçuş penceresi):
+
+  | | bench (yerde) | **UÇUŞTA** | eşik | pay | aşan |
+  |---|---|---|---|---|---|
+  | HB boşluğu | maks 301 ms | ortanca 101 · p99 201 · **maks 218 ms** | 1000 ms | **4.6×** | **0** |
+  | DURUM boşluğu | ölçülmemişti | ortanca 104 · p99 302 · **maks 408 ms** | 5000 ms | **12.3×** | **0** |
+
+  595 kalp atışı / 59,7 sn · 858 DURUM / 119,8 sn. **Uçuştaki boşluklar
+  bench'ten DAHA İYİ çıktı** (218 < 301 ms) — motor gürültüsü ve mesafe
+  eşiği zorlamadı. İki eşik de olduğu gibi kalıyor.
 
 ### 🟠 P0.13 Uçaklar ağdan önce kalkınca ROS yığını sakat kalıyor — İKİ DÜZELTME YAPILDI (20 Ağustos)
 
@@ -782,6 +789,39 @@ Tam analiz: `PLAN.md` §7.
 ---
 
 ## 🟠 P1 — ACİL
+
+### 🟠 P1.14 Tek yönlü kopmada İKİ LİDER kalıcı olabilir — denetim bulgusu
+
+**21 Ağustos uçuş öncesi denetiminde bulundu, uçuş verisiyle önemi arttı.**
+
+`consensus_node._on_heartbeat` split-brain'i **yalnız tek yönde** çözüyor:
+
+```python
+if msg.leader_id == ctx.leader_id:      ctx.last_hb_time = now
+elif ctx.leader_id == 0 or msg.leader_id < ctx.leader_id:
+    self._adopt_leader(...)             # KUCUK id'yi benimse
+```
+
+Yani **büyük id geri çekilir, küçük id asla çekilmez.** Simetrik kopmada
+sorun yok. Ama **tek yönlü** kopmada (drone3, drone1'in HB'sini duyamıyor;
+asimetrik RF gölgelemesi) drone3 sonsuza kadar lider kalır, drone1 da öyle
+— ikisi de "ben liderim" der ve kimse düzeltmez.
+
+**Neden şimdi daha önemli:** 21 Ağustos uçuşunda ölçüldü ki lider kimliği
+mesh'e **kalp atışıyla** taşındı (80 ms'de), seçim çerçevesiyle değil —
+drone3'ün kaydında `/swarm/public/election/result` **0 mesaj**. Yani
+yakınsamanın fiilen tek yolu bu yönlü mekanizma.
+
+Bugün zararsız: sürünün aktüatöre giden kablosu yok (ölçüldü —
+`setpoint/raw` tek yayıncısı `esp32_bridge`). **Sürü uçakları sürmeye
+başlamadan önce çözülmeli.**
+
+- `[ ]` 🟠 Çözüm önerisi: `_on_heartbeat`'e çift yönlü tahkim — kendi
+  liderliğimdeyken **büyük** id'den HB duyarsam, o da benim HB'mi
+  duymuyor demektir; bir tur bekleyip (grace) ya da `election_round`
+  karşılaştırarak deterministik karar. ~15 satır + test.
+- `[ ]` 🟡 Ölçüm: tek yönlü kopma sahada üretilebilir mi (bir ESP'nin TX'ini
+  kapatmak) — üretilebilirse yer testi yazılabilir.
 
 ### 🟠 P1.13 px4_bridge bilinmeyen pili "12.6 V / %100" SAHTESİYLE örtüyor
 
