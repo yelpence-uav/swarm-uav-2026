@@ -67,6 +67,15 @@ def _dugum(agent_id=1, lider_id=1, agents=None):
     ctx.last_hb_time = time.monotonic()
     n._ctx = ctx
     n._uygunsuz_since = 0.0
+    # P1.14 rakip tahkimi alanlari — _tick bunlari okuyor. Uretim kodunda
+    # __init__ kuruyor; burada dugum object.__new__ ile kuruldugu icin elle.
+    n._rakip_id = 0
+    n._rakip_since = 0.0
+    n._rakip_son_hb = 0.0
+    n._rakip_grace_s = 3.0
+    n._onalma_bastir_s = 10.0
+    n._event_pub = MagicMock()
+    n.get_clock = MagicMock()
     n.get_logger = MagicMock()
     n._publish_heartbeat = MagicMock()
     n._pub_leader_changed = MagicMock()

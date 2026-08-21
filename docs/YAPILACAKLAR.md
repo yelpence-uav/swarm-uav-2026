@@ -1,6 +1,6 @@
 # YAPILACAKLAR
 
-**Son güncelleme:** 21 Ağustos 2026, uçuş 2 sonrası
+**Son güncelleme:** 21 Ağustos 2026, P1.14 düzeltildi
 
 ## Önem dereceleri
 
@@ -790,38 +790,65 @@ Tam analiz: `PLAN.md` §7.
 
 ## 🟠 P1 — ACİL
 
-### 🟠 P1.14 Tek yönlü kopmada İKİ LİDER kalıcı olabilir — denetim bulgusu
+### ✅ P1.14 DÜZELTİLDİ (21 Ağustos) — tek yönlü kopmada kalıcı iki lider
 
-**21 Ağustos uçuş öncesi denetiminde bulundu, uçuş verisiyle önemi arttı.**
-
-`consensus_node._on_heartbeat` split-brain'i **yalnız tek yönde** çözüyor:
+**Kusur:** iki lider oluştuğunda **yalnız büyük-id tarafı** fark edip
+çözüyordu. Küçük-id tarafı rakibi tamamen yok sayıyordu — log bile yok:
 
 ```python
-if msg.leader_id == ctx.leader_id:      ctx.last_hb_time = now
 elif ctx.leader_id == 0 or msg.leader_id < ctx.leader_id:
-    self._adopt_leader(...)             # KUCUK id'yi benimse
+    self._adopt_leader(...)      # BUYUK id kucuge uyar
+                                 # kucuk-id tarafi icin DAL YOKTU
 ```
 
-Yani **büyük id geri çekilir, küçük id asla çekilmez.** Simetrik kopmada
-sorun yok. Ama **tek yönlü** kopmada (drone3, drone1'in HB'sini duyamıyor;
-asimetrik RF gölgelemesi) drone3 sonsuza kadar lider kalır, drone1 da öyle
-— ikisi de "ben liderim" der ve kimse düzeltmez.
+İki sonucu vardı: (1) split-brain küçük-id tarafta **görünmez**, uçuş
+kaydında hiç iz yok; (2) çözüm rakibin **bizim** kalp atışımızı duymasına
+bağlı — yani kurtuluş yolu, kopmuş olan yönün ta kendisi. Asimetrik
+linkte kalıcı ve sessiz iki lider.
 
-**Neden şimdi daha önemli:** 21 Ağustos uçuşunda ölçüldü ki lider kimliği
-mesh'e **kalp atışıyla** taşındı (80 ms'de), seçim çerçevesiyle değil —
-drone3'ün kaydında `/swarm/public/election/result` **0 mesaj**. Yani
-yakınsamanın fiilen tek yolu bu yönlü mekanizma.
+21 Ağustos uçuşu bunu büyüttü: lider kimliği mesh'e **kalp atışıyla**
+taşınıyor (seçim çerçevesi hiç gelmedi), yani yakınsamanın fiilî tek
+yolu buydu.
 
-Bugün zararsız: sürünün aktüatöre giden kablosu yok (ölçüldü —
-`setpoint/raw` tek yayıncısı `esp32_bridge`). **Sürü uçakları sürmeye
-başlamadan önce çözülmeli.**
+**Düzeltme — tahkim.** Büyük-id bir rakip, kalp atışlarımıza rağmen
+`rakip_grace_s` (3.0 sn) boyunca iddiada ısrar ederse "kalp atışım ona
+ulaşmıyor" deyip **boyun eğiyoruz.**
 
-- `[ ]` 🟠 Çözüm önerisi: `_on_heartbeat`'e çift yönlü tahkim — kendi
-  liderliğimdeyken **büyük** id'den HB duyarsam, o da benim HB'mi
-  duymuyor demektir; bir tur bekleyip (grace) ya da `election_round`
-  karşılaştırarak deterministik karar. ~15 satır + test.
-- `[ ]` 🟡 Ölçüm: tek yönlü kopma sahada üretilebilir mi (bir ESP'nin TX'ini
-  kapatmak) — üretilebilirse yer testi yazılabilir.
+> **Küçük-id kuralı neden bozuluyor:** o bizi duymuyor ama biz onu
+> **duyuyoruz** — yani çalışan yön O→BİZ. Liderin işi komut *yollamak*;
+> yollaması işe yarayan taraf O. Küçük-id'de ısrar iki lideri **kalıcı**
+> kılar; boyun eğmek bölünmeyi tek lidere indirir ve seçilen lider,
+> komutu fiilen ulaştırabilen taraf olur.
+
+Yanlış tetiklenme payı: normal işleyişte büyük-id taraf **tek** bir kalp
+atışı duyar duymaz uyuyor (~100 ms; 21 Ağustos uçuşunda 80 ms ölçüldü).
+3 sn ≈ 30 atışın ard arda ulaşmaması — ölçülen en büyük gerçek boşluğun
+(218 ms) **13 katı**.
+
+Ardından küçük-id **önalması 10 sn bastırılıyor** (`onalma_bastir_until`),
+yoksa `decide_change` bir sonraki tikte liderliği geri alır ve 10 Hz'de
+titrerdik. 🔴 **`LEADER_FAULT` dalı bilerek bastırma dışında** — orası da
+susturulsaydı boyun eğmenin ardından gelen 10 sn boyunca lider gerçekten
+ölse bile kimse devralmazdı.
+
+- `[x]` 🔴 Kod: `consensus_node._on_heartbeat` (rakip tespiti + uyarı),
+  `_rakip_tahkim` (karar), `consensus_context.onalma_bastir_until`,
+  `election.decide_change` (önalma kapısı). Rakip susarsa izleme
+  **kendiliğinden sıfırlanır** ve boyun eğilmez.
+- `[x]` 🔴 Görünürlük: tahkim `WARNING` log + `SEVERITY_WARNING` SystemEvent
+  basıyor (normal devrin INFO olayından ayrılsın diye) — artık kayıtta iz var.
+- `[x]` 🔴 **Test: 12 yeni** (`test_rakip_lider.py`) + **125/125 paket geçti**.
+  Kilitlenenler: tek atışta boyun eğilmiyor · grace dolunca eğiliyor · rakip
+  susarsa eğilmiyor · büyük-id yolu bozulmadı · takipçiyken tahkim yok ·
+  boyun eğdikten sonra liderlik geri alınmıyor (titreme) · **bastırma
+  `LEADER_FAULT`'u engellemiyor** · bootstrap engellenmiyor.
+- `[x]` 🟠 İki uçağa dağıtıldı ve **yüklü kodda doğrulandı** (`_rakip_tahkim`
+  konteyner içinde görünüyor). Etkin olması için konteyner yeniden başlatılır.
+- `[ ]` 🟡 **Saha doğrulaması yapılmadı.** Tek yönlü kopma üretmek gerekiyor
+  (bir ESP'nin TX'ini kapatmak ya da uçağı gölgeye almak). Üretilebilirse
+  yer testi yazılabilir; üretilemezse tahkim yalnız birim testleriyle
+  doğrulanmış kalır — **bu bilinerek kabul edildi.**
+
 
 ### 🟠 P1.13 px4_bridge bilinmeyen pili "12.6 V / %100" SAHTESİYLE örtüyor
 

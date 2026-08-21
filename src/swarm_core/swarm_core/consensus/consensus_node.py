@@ -120,6 +120,20 @@ class ConsensusNode(Node):
         self.declare_parameter('agent_stale_timeout_s', 3.0)
         self.declare_parameter('battery_min_v', 14.0)
         self.declare_parameter('bootstrap_grace_s', 1.5)
+        # P1.14 — RAKIP LIDER TAHKIMI, 21 Agustos 2026.
+        #
+        # rakip_grace_s: buyuk-id bir rakip liderin, kalp atislarimiza
+        #   RAGMEN liderlik iddiasini surdurme suresi. Bunu asarsa "kalp
+        #   atisim ona ULASMIYOR" sonucuna variriz.
+        #   3.0 sn secildi: normal isleyiste buyuk-id taraf TEK bir kalp
+        #   atisi duyar duymaz (~100 ms) bize uyar; 3 sn ~30 kalp atisinin
+        #   ardi ardina ulasmamasi demek. Bootstrap yarisi da <1 sn'de
+        #   kapaniyor (21 Agustos ucusunda 80 ms olculdu).
+        self.declare_parameter('rakip_grace_s', 3.0)
+        # Boyun egdikten sonra kucuk-id onalmasini bastirma suresi.
+        # 10.0 sn: asimetrik link birkac saniyede duzelmez; bu sure
+        # dolunca durum yeniden degerlendirilir.
+        self.declare_parameter('onalma_bastir_s', 10.0)
 
         self._agent_id = int(self.get_parameter('agent_id').value)
         self._agent_count = int(self.get_parameter('agent_count').value)
@@ -133,6 +147,16 @@ class ConsensusNode(Node):
         self._battery_min_v = float(
             self.get_parameter('battery_min_v').value
         )
+        self._rakip_grace_s = float(
+            self.get_parameter('rakip_grace_s').value
+        )
+        self._onalma_bastir_s = float(
+            self.get_parameter('onalma_bastir_s').value
+        )
+        # Rakip lider izleme (P1.14): kim, ne zamandan beri, son ne zaman.
+        self._rakip_id = 0
+        self._rakip_since = 0.0
+        self._rakip_son_hb = 0.0
         self._grace_s = float(
             self.get_parameter('bootstrap_grace_s').value
         )
@@ -187,6 +211,10 @@ class ConsensusNode(Node):
 
         if ctx.leader_id == 0 and effective and ctx.bootstrap_since == 0.0:
             ctx.bootstrap_since = now
+
+        # RAKIP LIDER TAHKIMI — P1.14. decide_change'ten ONCE, cunku
+        # sonucu (boyun egme) liderlik durumunu degistiriyor.
+        self._rakip_tahkim(now)
 
         change = election.decide_change(ctx, effective, now)
         if change is not None:
@@ -256,6 +284,80 @@ class ConsensusNode(Node):
         #     cikmasini engelliyor. Ucuz ve geri alinabilir.
         if ctx.is_leader and self._agent_id in elig:
             self._publish_heartbeat(len(elig))
+
+    def _rakip_tahkim(self, now: float) -> None:
+        """Rakip lider iddiasini degerlendirir — P1.14, 21 Agustos 2026.
+
+        KURAL: benden BUYUK id'li bir rakip, kalp atislarima RAGMEN
+        liderlik iddiasini `rakip_grace_s` boyunca surduruyorsa, KALP
+        ATISIM ONA ULASMIYOR demektir.
+
+        NEDEN BOYUN EGIYORUZ (kucuk-id kurali bozuluyor gibi gorunse de):
+        o bizi duymuyor ama biz onu DUYUYORUZ, yani calisan yon O->BIZ.
+        Bir liderin isi komut YOLLAMAK; yollamasi ise yarayan taraf O.
+        Kucuk-id'de israr etmek iki lideri KALICI kilar ve hicbir taraf
+        digerine ulasamaz. Boyun egmek bolunmeyi TEK lidere indirir ve
+        secilen lider, komutu fiilen ulastirabilen taraf olur.
+
+        YANLIS TETIKLENME PAYI: normal isleyiste buyuk-id taraf TEK bir
+        kalp atisi duyar duymaz bize uyuyor (_on_heartbeat kucuk-id dali,
+        ~100 ms). Bootstrap yarisi da hizli kapaniyor — 21 Agustos
+        ucusunda 80 ms olculdu. 3 sn ~30 kalp atisinin ard arda
+        ulasmamasi demek; olculen en buyuk gercek boslugun (218 ms)
+        13 katı.
+
+        Rakip susarsa (hb_timeout kadar iddia gelmezse) izleme
+        kendiliginden sifirlanir ve boyun egilmez.
+        """
+        ctx = self._ctx
+        if not self._rakip_id:
+            return
+        if not ctx.is_leader:
+            # Artik lider degiliz; rakiplik sorusu ortadan kalkti.
+            self._rakip_sifirla()
+            return
+        if (now - self._rakip_son_hb) > ctx.hb_timeout_s:
+            # Rakip iddiasini birakti (ya da duyulmaz oldu) — normale don.
+            self.get_logger().info(
+                f'[CONSENSUS] rakip drone{self._rakip_id} iddiasini birakti '
+                f'({now - self._rakip_since:.2f} sn surdu), liderlik bende.'
+            )
+            self._rakip_sifirla()
+            return
+        if (now - self._rakip_since) < self._rakip_grace_s:
+            return
+
+        rakip = self._rakip_id
+        ctx.onalma_bastir_until = now + self._onalma_bastir_s
+        self.get_logger().warning(
+            f'[CONSENSUS] TAHKIM: drone{rakip} {self._rakip_grace_s:.1f} sn '
+            f'boyunca liderlik iddiasini surdurdu -> kalp atisim ona '
+            f'ULASMIYOR (tek yonlu kopma). Liderligi ona birakiyorum; '
+            f'onalma {self._onalma_bastir_s:.0f} sn bastirildi. '
+            f'Bkz. YAPILACAKLAR P1.14.'
+        )
+        # WARNING seviyesi BILEREK: _adopt_leader'in normal INFO olayindan
+        # ayrilsin ki kayitta "bu sira disi bir devir" diye gorunsun.
+        m = SystemEvent()
+        m.stamp = self.get_clock().now().to_msg()
+        m.event_type = SystemEvent.EVENT_LEADER_CHANGED
+        m.severity = SystemEvent.SEVERITY_WARNING
+        m.source_agent_id = self._agent_id
+        m.source_module = 'consensus'
+        m.value = float(rakip)
+        m.message = (
+            f'TEK YONLU KOPMA: drone{self._agent_id} liderligi drone{rakip} '
+            f'lehine birakti — kalp atisi ona ulasmiyor'
+        )
+        self._event_pub.publish(m)
+        self._rakip_sifirla()
+        self._adopt_leader(rakip, ctx.election_round, now)
+
+    def _rakip_sifirla(self) -> None:
+        """Rakip izlemesini temizler."""
+        self._rakip_id = 0
+        self._rakip_since = 0.0
+        self._rakip_son_hb = 0.0
 
     def _liderligi_birak(self) -> None:
         """Kendi uygunlugunu yitiren lider liderligi birakir (P0.12a).
@@ -346,6 +448,35 @@ class ConsensusNode(Node):
             ctx.last_hb_time = now
         elif ctx.leader_id == 0 or msg.leader_id < ctx.leader_id:
             self._adopt_leader(msg.leader_id, msg.election_round, now)
+        elif ctx.is_leader:
+            # RAKIP LIDER — P1.14, 21 Agustos 2026.
+            #
+            # Buraya yalniz "ben liderim ve BENDEN BUYUK id'li baska biri de
+            # lider olduğunu soyluyor" halinde duseriz. Eskiden bu dal HIC
+            # YOKTU: kucuk-id taraf rakibi tamamen yok sayiyor, log bile
+            # basmiyordu. Sonucu iki katliydi:
+            #   1. Split-brain kucuk-id tarafta GORUNMEZ (ucus kaydinda iz yok)
+            #   2. Cozum tek yonluydu — yalniz buyuk-id taraf bize uyarak
+            #      cikabiliyordu, o da BIZIM kalp atisimizi duymasina bagli.
+            #      Yani kurtulus yolu, kopmus olan yonun ta kendisi.
+            #
+            # Asimetrik linkte (biz->o kopuk, o->biz calisiyor) bu KALICI ve
+            # SESSIZ iki lider demek. 21 Agustos ucusunda olculdu ki lider
+            # kimligi mesh'e kalp atisiyla tasiniyor (secim cercevesi hic
+            # gelmedi), yani yakinsamanin fiili tek yolu bu.
+            #
+            # Burada yalniz IZLIYORUZ; karar _tik'te veriliyor (rakip susarsa
+            # kendiliginden sifirlanabilsin diye).
+            if msg.leader_id != self._rakip_id:
+                self._rakip_id = int(msg.leader_id)
+                self._rakip_since = now
+                self.get_logger().warning(
+                    f'[CONSENSUS] RAKIP LIDER: drone{msg.leader_id} de lider '
+                    f'oldugunu soyluyor (ben={self._agent_id}, kucuk id benim). '
+                    f'Kalp atisim ona ulasiyorsa {self._rakip_grace_s:.1f} sn '
+                    f'icinde vazgecmeli.'
+                )
+            self._rakip_son_hb = now
 
     def _adopt_leader(
         self, leader_id: int, election_round: int, now: float,

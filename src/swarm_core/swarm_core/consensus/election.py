@@ -148,5 +148,15 @@ def decide_change(ctx, effective: set, now: float):
     if ctx.leader_id not in effective:
         return (candidate, ElectionResult.REASON_LEADER_FAULT)
     if candidate == ctx.agent_id and candidate < ctx.leader_id:
+        # ONALMA BASTIRMASI — P1.14. Rakibe bilerek boyun egdiysek
+        # (kalp atisimiz ona ulasmiyor) burasi bizi aninda geri lider
+        # yapar ve 10 Hz'lik titreme olusur. Damga dolana kadar sus.
+        #
+        # NOT: yalniz BU dal bastiriliyor. Ustteki `leader_id not in
+        # effective` (LEADER_FAULT) dali bilerek disarida — bastirilsaydi
+        # boyun egmenin ardindan gelen 10 sn boyunca lider GERCEKTEN olse
+        # bile kimse devralmazdi. test_rakip_lider.py bunu kilitliyor.
+        if now < ctx.onalma_bastir_until:
+            return None
         return (candidate, ElectionResult.REASON_UNKNOWN)
     return None

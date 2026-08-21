@@ -57,6 +57,15 @@ class ConsensusContext:
         self.last_hb_time = 0.0
         self.bootstrap_since = 0.0
 
+        # ONALMA BASTIRMASI — P1.14, 21 Agustos 2026.
+        #
+        # Rakip bir lidere BILEREK boyun egdikten sonra `decide_change`in
+        # kucuk-id onalma dali bizi aninda tekrar lider yapardi ve sistem
+        # 10 Hz'de titrerdi. Bu damga dolana kadar onalma yapilmaz.
+        # Gercek lider KAYBI (LEADER_FAULT) bundan ETKILENMEZ — orasi
+        # bastirilirsa lider olunce kimse devralmaz.
+        self.onalma_bastir_until = 0.0
+
         # Mesaj sayaclari
         # seen_seq: KAYNAK BASINA gorulen son sequence_num.
         #   {triggered_by_agent_id: (incarnation, max_seq)}
