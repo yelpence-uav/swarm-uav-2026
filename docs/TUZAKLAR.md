@@ -1,6 +1,6 @@
 # TUZAKLAR — hata vermeden yanlış sonuç üretenler
 
-**Son güncelleme:** 21 Ağustos 2026, ADIM 4 yer gözlemi
+**Son güncelleme:** 21 Ağustos 2026, tek yönlü mesh kopması
 
 > **Bu belge CANLI.** Arşiv değil — buradaki her madde **bugün de geçerli.**
 >
@@ -802,6 +802,52 @@ Normal işleyişte görünmez, çünkü ofsetleri **köprü** hesaplayıp mesh
 paketine koyuyor (`esp32_bridge._on_formation_out`) ve üçünü de doldurur.
 Tuzak yalnız `FormationCommand`'ı **elle** yayınlarken çıkar — teşhis
 betikleri ve gözlem zinciri bunu yapıyor.
+
+---
+
+### 2.15 🔴 Mesh linki TEK YÖNLÜ ölebilir — kaçınma sessizce KÖR kalır
+
+**21 Ağustos akşamı, uçuşta ölçüldü.** Operatör ylp02'yi kumandayla ylp00'a
+**3 metreye** kadar yaklaştırdı (irtifalar 10 m ve 8 m).
+`collision_avoidance` **hiç tetiklenmedi**. Sebep kaçınma algoritması değil —
+**ylp00 komşusunu görmüyordu.**
+
+Kayıttan iki tarafı yan yana koyunca:
+
+| | kendi durumu | komşudan aldığı |
+|---|---|---|
+| **ylp02** | maks 0,2 sn | **maks 0,4 sn** ✅ |
+| **ylp00** | maks 0,2 sn | **MAKS 46,4 sn** 🔴 |
+
+`/swarm/public/drone3/status` ylp00'da normalde 10 Hz akıyor (ortanca
+0,10 sn · p90 0,20 sn), sonra **tek seferde 46,4 saniye** hiçbir şey. Aynı
+anda ters yön (ylp00 → ylp02) **kusursuz** çalışıyordu.
+
+🔴 **Tek yönlü mesh kopmasının sahada kanıtı.** Aynı gün sabah `consensus`
+kodunda teorik olarak bulunmuştu (P1.14: *"asimetrik linkte iki lider kalıcı
+olabilir"*); akşam gerçekleşti ve bu kez **çarpışma önlemeyi** kör etti.
+
+**Neden fark edilmesi zor:** uçan uçağın kendi telemetrisi kusursuz akar, YKİ
+onu sorunsuz görür, komşusu da onu görür. **Yalnız bir yön ölür ve o yönü
+yalnız kör kalan uçak bilir.**
+
+**Yakalayan şey:** `esp32_bridge`'in DURUM bayatlık dedektörü (20 Ağustos'ta
+P0.14(b) için eklendi):
+
+```
+[WARN] drone3: DURUM paketi 46.8 sndir gelmedi (esik 5.0) —
+       healthy DUSURULDU. POSE akiyor olabilir ama saglik bilgisi bayat.
+```
+
+**Yakalamayan şey:** `collision_avoidance` bunu yalnız `skip_stale` sayacında
+**sessizce** sayıyor; 5 saniyede bir basılan tanı satırının içinde kayboluyor.
+47 saniyelik körlük **hiçbir alarm üretmedi**.
+
+**Doğru tarafı:** CA bayat veriyle *yanlış yöne itmedi* — veri yoksa hiç
+itmiyor (`neighbor_rx_stale_s=1.5`). Arıza biçimi "yanlış koruma" değil
+"koruma yok". Doğru takas, ama koruma yok yine de koruma yok.
+
+**Ne yapılmalı:** `YAPILACAKLAR.md` P0.15.
 
 ---
 

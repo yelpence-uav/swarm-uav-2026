@@ -1,6 +1,6 @@
 # YAPILACAKLAR
 
-**Son güncelleme:** 21 Ağustos 2026, P1.14 düzeltildi
+**Son güncelleme:** 21 Ağustos 2026, P0.15 açıldı
 
 ## Önem dereceleri
 
@@ -301,6 +301,36 @@ agent_fsm yok, yalnız mavros vardı. `docker restart` ikisini de düzeltti
   `consensus_node`, `esp32_bridge`, `formation_control`, `ic_dis_kopru`,
   `path_planner_node`, `px4_bridge`, `rosbag2_recorder`, `swarm_fsm_node`,
   `swarm_origin_publisher`.
+
+### 🔴 P0.15 Mesh tek yönlü ölünce kaçınma KÖR kalıyor ve ALARM YOK — UÇUŞTA ÖLÇÜLDÜ
+
+**21 Ağustos akşamı, gerçek uçuşta.** Operatör ylp02'yi ylp00'a **3 metreye**
+kadar yaklaştırdı, `collision_avoidance` hiç tetiklenmedi — çünkü ylp00
+komşusunu **46,4 saniye** hiç görmedi. Ters yön aynı anda kusursuzdu
+(ylp02'nin ylp00'dan aldığı veride maks boşluk **0,4 sn**).
+
+Ayrıntı ve ölçümler: `TUZAKLAR.md` §2.15.
+
+**Neden P0:** çarpışma önleme iki uçak arasındaki tek koruma katmanı ve mesh
+linki tek yönlü ölebiliyor. Sürü uçakları sürmeye başladığında bu doğrudan
+çarpışma riski. Bugün güvenliydi çünkü operatörün gözü ve kumandası vardı,
+ayrıca irtifa ayrımı duruyordu.
+
+- `[ ]` 🔴 **ALARM ŞART.** CA bir komşuyu `neighbor_rx_stale_s`'ten uzun süre
+  göremiyorsa ve biz **havadaysak** bu bir güvenlik olayıdır: `WARNING` log +
+  `SystemEvent` (YKİ görsün) + tanıda ayrı alan. Şu an yalnız `skip_stale`
+  sayacında sessizce sayılıyor. ~15 satır.
+- `[ ]` 🔴 **Körlükte davranış kararı.** Komşu kayıpken "koruma yok" kabul
+  edilebilir mi? (a) olduğu gibi bırak, alarm yeter · (b) son bilinen konumu
+  **büyüyen belirsizlik yarıçapıyla** engel say · (c) körlük X saniyeyi
+  geçerse konum tut / görevi durdur. Operatör kararı.
+- `[ ]` 🟠 **Kök neden ölçülmeli.** Link neden tek yönlü öldü? ylp02
+  kumandayla uçuyordu (değişken motor akımı, farklı anten yönelimi). Ölçüm:
+  iki ESP'nin RSSI/hata sayaçları, anten yerleşimi, ylp02'nin gönderim
+  tarafı. `MESH_PROTOKOL_KARARLARI.md` gerekebilir (korumalı — operatöre sor).
+- `[x]` ✅ Bayatlık dedektörü **çalıştı** — 46,8 sn'yi yakalayıp
+  `healthy=False` yaptı ve uyardı (20 Ağustos'ta P0.14(b) için eklenmişti).
+  Teorik diye eklenen koruma, bir gün sonra gerçek olayı yakaladı.
 
 ### 🔴 P0.11 Guided yol `agent_fsm`'i ATLIYOR — sürü yığını hiç etkinleşmiyor
 
