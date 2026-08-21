@@ -129,7 +129,24 @@ class CollisionAvoidanceCore:
                 _smoothstep((p.d0 - d3) / (p.d0 - p.hard))
                 if p.d0 > p.hard + 1e-6 else 1.0
             )
-            damp = p.c_damp * c * dist_scale
+            # SONUMLEME TABANI — 22 Agustos 2026, olculdu ve duzeltildi.
+            #
+            # `c` kapanma hizi: yaklasirken +, UZAKLASIRKEN -. Tabansiz
+            # birakilinca uzaklasan komsuda damp NEGATIF oluyor ve
+            # `f_radial = mag + damp` isaret degistirip KOMSUYA DOGRU itiyor.
+            #
+            # OLCULDU (d0=10 hard=6): komsu 2 m/s uzaklasirken 6.5 m'de CA
+            # 1.34 m/s KOMSUYA DOGRU komut veriyordu. Yani carpisma onleme
+            # giden komsuyu KOVALIYORDU.
+            #
+            # Klasik yay-sonumleyicide negatif damp dogrudur (mesafeyi
+            # KORUMAK icin), ama burasi mesafe koruma degil CARPISMA
+            # ONLEME: uzaklasmanin bir zarari yok, geri cekmenin anlami yok.
+            # Aralik korumasi formation_node'un isi.
+            #
+            # 21 Agustos ucusunda kayittaki ters yonlu kacis satirlari
+            # (v=(-0.02,0.15), v=(-0.04,0.29)) bunun sahadaki izidir.
+            damp = p.c_damp * max(0.0, c) * dist_scale
             tan_env = (
                 _smoothstep((p.d0 - d3) / (0.5 * (p.d0 - p.hard)))
                 if p.d0 > p.hard + 1e-6 else 1.0

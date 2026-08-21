@@ -986,14 +986,33 @@ class Px4BridgeNode(Node):
         yatay = math.hypot(dx, dy)
         # Hedefe v=0 ile varabilmek icin su anki mesafeden cikarilabilecek
         # en yuksek hiz: v = sqrt(2*a*mesafe). Frenlemeye zamaninda baslatir.
-        v_fren = math.sqrt(2.0 * self._ivme_yatay * yatay)
-        v_hedef = min(self._hiz_yatay, v_fren)
+        # SETPOINT TAVANLARI — 22 Agustos 2026'da BAGLANDI.
+        #
+        # `AgentSetpoint.max_speed_mps` ve `max_acc_mps2` mesajda ACIKCA
+        # "px4_interface'in hiz ve ivme siniri icin" diye tanimli
+        # (AgentSetpoint.msg:68-73) ve dort dugum bunlari DOLDURUYOR
+        # (collision_avoidance, maneuver_executor, formation_node) — ama
+        # px4_bridge HICBIRINI OKUMUYORDU. Yani formasyon "3 m/s'i gecme"
+        # dediginde de kimse dinlemiyordu.
+        #
+        # 0.0 = "gecersiz kilma yok" (mesajin kendi sozlesmesi). Bugun
+        # gelen guided setpoint'lerin hepsi 0.0, yani KANITLANMIS YOL
+        # BIREBIR AYNI KALIYOR. Tavanlar yalniz DUSURULEBILIR, artirilamaz:
+        # `min` ile aliniyor.
+        sp = self._latest_setpoint
+        _sp_hiz = float(getattr(sp, 'max_speed_mps', 0.0) or 0.0)
+        _sp_ivme = float(getattr(sp, 'max_acc_mps2', 0.0) or 0.0)
+        hiz_tavan = (min(self._hiz_yatay, _sp_hiz) if _sp_hiz > 0.0
+                     else self._hiz_yatay)
+        ivme = (min(self._ivme_yatay, _sp_ivme) if _sp_ivme > 0.0
+                else self._ivme_yatay)
+
+        v_fren = math.sqrt(2.0 * ivme * yatay)
+        v_hedef = min(hiz_tavan, v_fren)
         if self._yur_v_yatay < v_hedef:
-            self._yur_v_yatay = min(v_hedef,
-                                    self._yur_v_yatay + self._ivme_yatay * dt)
+            self._yur_v_yatay = min(v_hedef, self._yur_v_yatay + ivme * dt)
         else:
-            self._yur_v_yatay = max(v_hedef,
-                                    self._yur_v_yatay - self._ivme_yatay * dt)
+            self._yur_v_yatay = max(v_hedef, self._yur_v_yatay - ivme * dt)
         adim = self._yur_v_yatay * dt
         if yatay <= max(adim, _YURUTUCU_ADIM_TOLERANS_M):
             self._yurutulen[0], self._yurutulen[1] = hx, hy
