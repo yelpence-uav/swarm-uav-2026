@@ -158,10 +158,21 @@ class CollisionAvoidanceNode(Node):
         # kuresi olusur ve o kureden kacmanin anlamli bir yonu yoktur.
         # Tek muhafazakar davranis: DUR ve bekle.
         #
-        # 5.0 secildi: saglikli linkte maks bosluk 0.4 sn olculdu, yani 5 sn
-        # normal isleyisin 12 kati. Gecici bir mesh sarsintisi ucagi
-        # durdurmaz; gercek bir kopma durdurur.
-        self.declare_parameter('korluk_tut_s', 5.0)
+        # 🔴 VARSAYILAN 0.0 = KAPALI — OPERATOR KARARI (21 Agustos 2026).
+        #
+        # Gerekce operatorun: korlukte ucagin kendi kendine durmasi yerine
+        # OPERATORE haber verilsin, karari o versin. Ucus sirasinda gozu ve
+        # kumandasi zaten ustunde; yazilimin sessizce yatay hareketi kesmesi
+        # beklenmedik bir davranis olur ve pilotu sasirtir.
+        #
+        # Mekanizma DURUYOR ve test edilmis halde: gerekirse tek parametreyle
+        # acilir (or. otonom finalde operator mudahalesi olmayacaksa):
+        #     ros2 param set /collision_avoidance korluk_tut_s 5.0
+        # ya da baslat.sh'e -p korluk_tut_s:=5.0
+        #
+        # 5.0 onerilen deger: saglikli linkte maks bosluk 0.4 sn olculdu,
+        # yani normal isleyisin 12 kati. Gecici sarsinti ucagi durdurmaz.
+        self.declare_parameter('korluk_tut_s', 0.0)
         self.declare_parameter('d0_m', 4.5)
         self.declare_parameter('hard_m', 2.0)
         self.declare_parameter('r_min_m', 1.5)
@@ -366,9 +377,14 @@ class CollisionAvoidanceNode(Node):
             f'(esik {self._korluk_alarm_s:.1f}). Bu komsuya karsi KORUMA YOK. '
             f'Mesh tek yonlu olmus olabilir — bkz. TUZAKLAR 2.15.'
         )
-        self._olay(SystemEvent.SEVERITY_WARNING, nid,
-                   f'KACINMA KORU: drone{nid} {yas:.1f} sndir gorulmuyor, '
-                   f'bu komsuya karsi koruma YOK')
+        # 🔴 SEVERITY_CRITICAL — operator karari (21 Agustos 2026).
+        # YKI'de "KRİTİK" etiketi + SESLI alarm (AlertList.tsx:12,
+        # alert-critical.wav) tetikliyor. Korluk = o komsuya karsi koruma
+        # YOK demek; carpisma onlemenin sessizce devre disi kalmasi sesli
+        # duyulmasi gereken bir seydir. WARNING sarı satirdi, kacabilirdi.
+        self._olay(SystemEvent.SEVERITY_CRITICAL, nid,
+                   f'KACINMA KORU: drone{nid} {yas:.1f} sndir gorulmuyor — '
+                   f'BU KOMSUYA KARSI CARPISMA KORUMASI YOK')
 
     def _olay(self, severity: int, nid: int, mesaj: str) -> None:
         """Korluk olayini yayinlar (YKI gorsun diye)."""

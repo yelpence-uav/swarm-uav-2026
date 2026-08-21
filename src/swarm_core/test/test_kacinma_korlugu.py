@@ -366,3 +366,40 @@ def test_tick_ISTISNAYI_yutuyor_ama_korluk_ONCE_kosuyor():
     n._tick()                          # istisna yutulur
     assert 3 in n._korluk_bildirildi, \
         'tick_inner hatasi korlugu de sessizce oldurdu'
+
+
+# --- OPERATOR KARARI (21 Agustos 2026) -------------------------------------
+
+def test_alarm_KRITIK_seviyede():
+    """YKI'de sesli alarm + KRİTİK etiketi icin CRITICAL sart.
+
+    WARNING sari bir satir olarak gecerdi; korluk = o komsuya karsi koruma
+    YOK demek ve operator bunu DUYMALI (AlertList.tsx:12 alert-critical.wav
+    yalniz `severity === "critical"` icin caliyor).
+    """
+    from swarm_interfaces.msg import SystemEvent
+    SystemEvent.SEVERITY_CRITICAL = 2      # SystemEvent.msg:64
+    SystemEvent.SEVERITY_INFO = 0
+    n = _dugum()
+    n._neighbors = {3: _st()}
+    n._ben = _st()
+    n._neighbor_rx = {3: 100.0}
+    n._korluk_tara(now=100.0)
+    n._korluk_tara(now=103.0)
+    m = n._event_pub.publish.call_args[0][0]
+    assert m.severity == SystemEvent.SEVERITY_CRITICAL, \
+        'korluk alarmi kritik degil — YKI ses calmaz, operator kacirir'
+
+
+def test_VARSAYILAN_tutma_KAPALI_olmali():
+    """Operator karari: korlukte ucak kendi kendine DURMASIN, haber versin.
+
+    Mekanizma duruyor ve testli; gerekirse tek parametreyle acilir. Bu test
+    varsayilanin sessizce degismesini engelliyor — acilirsa ucus davranisi
+    degisir ve pilotu sasirtabilir.
+    """
+    import inspect
+    from swarm_core.collision_avoidance import collision_avoidance_node as m
+    kaynak = inspect.getsource(m.CollisionAvoidanceNode._declare_params)
+    assert "declare_parameter('korluk_tut_s', 0.0)" in kaynak, \
+        'korluk_tut_s varsayilani 0.0 (KAPALI) olmali — operator karari'

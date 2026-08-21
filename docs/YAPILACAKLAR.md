@@ -1,6 +1,6 @@
 # YAPILACAKLAR
 
-**Son güncelleme:** 21 Ağustos 2026, P1.15 (Eyüp) eklendi
+**Son güncelleme:** 21 Ağustos 2026, P0.16 açıldı
 
 ## Önem dereceleri
 
@@ -331,6 +331,59 @@ ayrıca irtifa ayrımı duruyordu.
 - `[x]` ✅ Bayatlık dedektörü **çalıştı** — 46,8 sn'yi yakalayıp
   `healthy=False` yaptı ve uyardı (20 Ağustos'ta P0.14(b) için eklenmişti).
   Teorik diye eklenen koruma, bir gün sonra gerçek olayı yakaladı.
+
+### 🔴 P0.16 SystemEvent MESH'TEN GEÇMİYOR — uçak alarmları YKİ'ye ulaşmıyor
+
+**21 Ağustos gecesi ölçüldü, uçtan uca zincir izlenerek.**
+
+Körlük alarmı (P0.15) uçakta doğru çalışıyor ama **YKİ'ye hiç ulaşmıyor**:
+
+```
+ylp00 ca.log         🔴 KACINMA KORU: drone3 2.0 sndir gorulmuyor   ✅ var
+ylp00 public/events  KACINMA KORU: ...                              ✅ var
+DIZUSTU public/events                                                ❌ BOŞ
+YKI websocket        "alerts": []                                    ❌ BOŞ
+```
+
+**Kök neden:** mesh protokolünde **`TIP_EVENT` diye bir paket tipi YOK**
+(`packet_parser.py:19-41` — 21 tip var, olay yok). `esp32_bridge` olayları
+yalnız **yayınlıyor** (`_event_pub_internal`, `_event_pub_public`), mesh'e
+göndermek için abonelik **hiç kurulmamış**.
+
+> ⚠️ **Kapsamı körlükten geniş.** Uçakta üretilen **hiçbir** `SystemEvent`
+> YKİ'ye ulaşmıyor: `agent_fsm`'in durum olayları, consensus'un lider
+> değişimi (P1.14'te eklediğim tek-yönlü kopma olayı dahil), kaçınma
+> uyarıları. Backend bunları dinliyor ve Türkçe etiket tablosu hazır
+> (`ros_bridge.py:95-130`) — ama akış hiç gelmiyor.
+>
+> Bugüne kadar fark edilmemesinin sebebi: YKİ'nin gördüğü olaylar **baz
+> köprüsünün kendi ürettikleri** (`mesh_diag`, link olayları). Onlar zaten
+> dizüstünde üretiliyor, mesh'ten geçmiyor.
+
+**Çözüm seçenekleri:**
+
+| | ne | maliyet |
+|---|---|---|
+| A | Mesh'e `TIP_EVENT` ekle (16 bayt: tip+severity+ajan+kısa kod) | firmware + parser + **3 ESP flash** |
+| B | Mevcut `DURUM.bayraklar2` bitlerinden birini "kaçınma körü" yap | firmware + flash, ama **paket boyutu değişmez** |
+| C | Yalnız kritik olayları `status_text` içinde taşı (zaten mesh'ten geçiyor) | **YALNIZ ROS, firmware YOK** |
+
+**C hemen yapılabilir** ve körlüğü YKİ'ye taşır: `esp32_bridge` komşu
+`AgentStatus`'una `status_text` yazıyor ve o alan mesh DURUM paketinden
+besleniyor. Kaçınma körlüğü kendi uçağının `status_text`'ine yazılırsa
+komşular ve YKİ görür.
+
+⚠️ Ama C **kör kalan uçağın kendi bilgisini** taşır ve o uçağın YKİ'ye
+giden yolu sağlamsa çalışır. Tek yönlü kopmada (P0.15'in senaryosu) kör
+uçak → YKİ yönü genelde sağlamdır (farklı anten, farklı mesafe), yani
+pratikte işe yarar.
+
+- `[ ]` 🔴 Seçenek belirlenecek (C önerilir — firmware'siz, hemen)
+- `[ ]` 🔴 Uygulanınca **uçtan uca doğrulanacak**: uçakta alarm →
+  dizüstü `public/events` ya da `status_text` → YKİ websocket `alerts`
+  dolu → ekranda KRİTİK + sesli uyarı
+- `[ ]` 🟡 A seçeneği ileride: mesh'te olay taşımak yalnız kaçınma için
+  değil, bütün sürü olayları için doğru altyapı
 
 ### 🟠 P1.15 Mesh RSSI'yi doldur + YKİ arayüzüne komşu sinyal gücü — 👤 **YALNIZ EYÜP**
 
