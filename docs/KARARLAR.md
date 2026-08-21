@@ -1,6 +1,6 @@
 # KARARLAR — verilmiş ama henüz uygulanmamış kararlar
 
-**Son güncelleme:** 21 Ağustos 2026, ADIM 4 yerde açıldı
+**Son güncelleme:** 21 Ağustos 2026, CA algoritma incelemesi
 
 Sohbette verilen kararlar oturum bitince kayboluyor. Bu defter onları
 tutuyor: **ne karar verildi, neden, ne zaman uygulanacak, nasıl test edilecek.**
@@ -224,6 +224,112 @@ d0 dışında itme yok · yaklaşan komşuya duran komşudan **sert** tepki ·
 origin ayrışıksa lat/lon yolu doğru cevabı veriyor (pos_x 100 m yanıltıcı
 olsa bile) · çerçeve yoksa komşu atlanıyor · `v_xy_valid` düşükse hız 0
 alınıp sert kabuk çalışmaya devam ediyor.
+
+## 🔬 ALGORİTMA İNCELEMESİ — 21 Ağustos, uçuş öncesi tam okuma
+
+Operatör talimatı: *"Bu çarpışma önleme algoritması tam iyi olmayabilir,
+tüm bu kodu oku."* Üç dosyanın tamamı okundu (751 satır) ve çekirdek
+**dizüstünde sayısal olarak koşturuldu** (`d0=6.0 hard=4.0`, sahadaki
+değerler). Aşağıdakiler okuma + benzetim sonucudur.
+
+### ✅ Çalışan çekirdek davranış
+
+Benzetimde uçak komşuyu **`hard` kabuğunda (3B ≈ 4,0 m) tutuyor** ve hiçbir
+senaryoda çarpışma olmadı:
+
+| yaklaşma hızı | en yakın 3B mesafe |
+|---|---|
+| 0,5 m/s | 4,00 m |
+| 1,0 m/s | 3,96 m |
+| 2,0 m/s | 3,97 m |
+| 3,0 m/s | 3,90 m |
+| **5,0 m/s** | **2,00 m** ← kaçış tavanı 4 m/s, daha hızlıya yetişemiyor |
+
+### 🔴 B1 — Asılı dururken TEĞET BİLEŞEN ÇALIŞMIYOR
+
+`ca_core._tangent`:
+
+```python
+vf_h = math.sqrt(vfx*vfx + vfy*vfy)
+if vf_h < 1e-3 or mag_rep < 1e-9:
+    return 0.0, 0.0
+```
+
+Teğet, **kendi formasyon hızımıza** kapılı. Asılı duran uçakta `v_form=(0,0,0)`
+→ teğet **sıfır**. Benzetimde doğrulandı: bütün satırlarda `teget vy = 0.00`.
+
+**Bu tam olarak `plan_kur_asili` docstring'inin `basit_kacinma` için
+şikâyet ettiği kusur:** *"biz asılı duruyorsak teğeti hiç açmıyor. Oysa
+asılı dururken üstümüze gelen bir uçak, teğete en çok ihtiyaç duyduğumuz
+durum."* **Aynı kusur `collision_avoidance`'ta da var.**
+
+Sonucu: asılı uçak yalnız **düz geriye** itiliyor. Kovalayan bir uçak
+karşısında en zayıf geometri — sürekli geri iter, hiç yana kaçmaz.
+
+### 🔴 B2 — TAM TEPEDEN yaklaşmada koruma SIFIR
+
+`ca_core.compute`:
+
+```python
+if d_xy < p.xy_guard:   # xy_guard = 0.3 m
+    continue            # komsu TAMAMEN atlanir
+```
+
+Yatay mesafe 0,3 m'nin altındaki komşu **hiç değerlendirilmiyor**. Kaçış
+zaten yalnız yataydır, yani dikey kaçış da yok. Benzetim (1 m üstte,
+1 m/s alçalan komşu):
+
+```
+yatay 0.31 m -> kacis -4.00 m/s   (tam itme)
+yatay 0.29 m -> kacis  0.00 m/s   risk=False   <-- KORUMA YOK
+yatay 0.00 m -> kacis  0.00 m/s   risk=False   <-- KORUMA YOK
+```
+
+Tekillik koruması olarak konmuş (yatay kaçış yönü hesaplanamaz), ama sonucu
+**dikey istiflenmede tam kör nokta**. 🔴 **Uçuş kuralı: asılı uçağa
+TEPEDEN yaklaşılmaz.**
+
+### 🟠 B3 — Uzaklaşan komşu ÇEKİM üretiyor (sönümleme tabanı yok)
+
+```python
+damp = p.c_damp * c * dist_scale     # c < 0 ise damp < 0
+f_radial = mag + damp                # negatif olabilir -> komsuya DOGRU
+```
+
+`c` kapanma hızı; komşu uzaklaşırken negatif. `hard` ile `d0` arasında
+kapanma hızı kapısı `mag`'ı sıfırlıyor, geriye yalnız negatif `damp`
+kalıyor → **net çekim** (2 m/s uzaklaşmada ~1,2 m/s komşuya doğru).
+
+Benzetimde kendini "zıplama" olarak gösteriyor: kaçış `-2,97 → +0,03 →
+-2,97` diye değişiyor, uçak `hard` kabuğunda **titriyor**. Çarpışmaya yol
+açmıyor (kabuğun içinde `mag` baskın) ama temiz bir geri çekilme yerine
+sınır çevrimi üretiyor.
+
+Düzeltmesi tek satır: `damp = max(0.0, ...)` — yalnız yaklaşırken sönümle.
+
+### 🟡 B4 — Yavaş yaklaşmada koruma `d0`'da değil `hard`'da başlıyor
+
+`gate = smoothstep((c - c_dead) / c_ref)`, `c_dead=0.2 c_ref=1.0`. Yavaş
+yaklaşan (0,5 m/s) komşu için `gate ≈ 0,09` → itme neredeyse yok. Gerçek
+koruma ancak `d3 < hard` olunca (`gate=1.0` zorlanıyor) başlıyor.
+
+Yani **`d0=6.0` yalnız hızlı yaklaşmalarda anlamlı**; yavaşta etkin yarıçap
+`hard=4.0`. Benzetim: 4,5 m'de 0,5 m/s yaklaşmada kaçış yalnız **0,21 m/s**.
+
+### 🟡 B5 — `hard` eşiğinde süreksizlik
+
+`d3 <= hard` iken `gate` **1.0'a zorlanıyor**. 4,01 m'de kaçış ~0,2 m/s,
+3,99 m'de 4,0 m/s. Slew (4 m/s²) gerçek ivmeyi sınırlıyor ama niyet
+basamak biçiminde. B3 ile birleşince yukarıdaki titreme çıkıyor.
+
+### ✅ İyi yazılmış olanlar
+
+`lat/lon` birincil (origin ayrışmasından bağışık, gerekçesi yazılı) ·
+adaptör atlama sayaçları (*"neden tetiklenmedi"* ölçümle cevaplanıyor) ·
+mesh kaynağıyla eşleşen BEST_EFFORT QoS (bu depoda birkaç kez düşülen tuzak,
+burada yorumla korunmuş) · `r_min < hard < d0` açılışta doğrulanıyor ·
+`r_min` altında yaklaşma hızını sıfırlayan son çare · her yerde `finite`
+denetimi · muhafazakâr geri düşüşler (`rel_z=0`, hız 0).
 
 ## 🔴 Parametreler — operatör talimatı
 
