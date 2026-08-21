@@ -302,69 +302,70 @@ agent_fsm yok, yalnız mavros vardı. `docker restart` ikisini de düzeltti
   `path_planner_node`, `px4_bridge`, `rosbag2_recorder`, `swarm_fsm_node`,
   `swarm_origin_publisher`.
 
-### 🔴 P0.17 ylp00'ın Pi'si UÇUŞTAN SONRA KENDİLİĞİNDEN SIFIRLANDI — sebep bilinmiyor
+### 🔴 P0.17 ylp00'ın Pi'si UÇUŞTAN SONRA ÖLDÜ ve ÖYLE KALDI — sebep bilinmiyor
 
-**22 Ağustos 02:02, iniş tamamlandıktan ~2 dakika sonra.** ylp00 ağdan
-düştü, mesh'ten de kayboldu, ~4 dakika sonra kendiliğinden açıldı.
+**22 Ağustos 02:02, iniş tamamlandıktan ~2 dakika sonra.** ylp00 ağdan ve
+mesh'ten düştü. **Operatör gidip baktığında Pi kapalıydı, kırmızı ışık
+yanıyordu** ve **elle açmak gerekti.**
 
-**Neden P0:** Pi uçuş sırasında sıfırlanırsa `px4_bridge` ölür, OFFBOARD
-setpoint akışı kesilir ve PX4 failsafe'e düşer. Bugün iniş sonrası oldu;
-30 saniye önce olsaydı uçak havadaydı.
+> ⚠️ İlk yazımda "kendiliğinden sıfırlandı" demiştim — **yanlıştı.**
+> Açılış listesindeki yeni kayda bakıp otomatik yeniden başlama sandım;
+> oysa o kaydı **operatörün elle açması** oluşturmuş. Fark kritik:
+> sıfırlanan Pi ~40 sn'de geri gelir, **ölen Pi hiç gelmez.**
 
-**Ölçülenler — hiçbiri sebebi açıklamıyor.** İzleme logu sıfırlamadan
-**40 saniye önce**:
+**Neden P0:** Pi uçuş sırasında ölürse `px4_bridge` durur, OFFBOARD
+setpoint akışı kesilir, PX4 failsafe'e düşer — ve **Pi kendiliğinden geri
+gelmez.** Uçak iner ama telemetri, kayıt ve sürü katmanı biter. Bugün iniş
+sonrası oldu; 30 saniye önce olsaydı uçak havadaydı.
+
+**Ölçülenler — bilinen adayların hepsi elendi.** Ölümden 40 sn önce:
 
 ```
 02:01:36  v=5.18V  t=47.2°C  thr=0x0  load=1.60  mem=3923MB  disk=40%
 02:02:16  <- log ANIDEN kesiliyor, PID 1'den kapatma dizisi YOK
-02:06:19  up=31 (yeni acilis)
 ```
 
-| olası sebep | ölçüm | sonuç |
+| aday | ölçüm | sonuç |
 |---|---|---|
-| düşük gerilim / brownout | `v=5.18V`, `thr=0x0`, boot -1'de **0** uyarı | ❌ değil |
-| ısınma | 47,2 °C | ❌ değil |
-| bellek (OOM) | 3,9/8 GB kullanımda, OOM kaydı yok | ❌ değil |
-| disk dolması | %40 | ❌ değil |
-| SD kart hatası | `mmc error` / `I/O error`: **0** | ❌ değil |
-| temiz kapatma (biri komut verdi) | PID 1'den shutdown dizisi **yok** | ❌ değil |
+| düşük gerilim | `5.18V`, `thr=0x0`, boot boyunca **0** uyarı | ❌ |
+| ısınma | 47,2 °C | ❌ |
+| bellek (OOM) | 3,9/8 GB, OOM kaydı yok | ❌ |
+| disk | %40 | ❌ |
+| SD kart | `mmc error` / `I/O error`: **0** | ❌ |
+| temiz kapatma | PID 1'den shutdown dizisi **yok** | ❌ |
+| çekirdek paniği | `panic`/`Oops`/`BUG`/`lockup`: **0** kayıt | ⚠️ *aşağı bak* |
 
-**Bilinen tek iz:** donanım bekçisi kurulu ve `EXT4-fs: orphan cleanup`
-temiz olmayan kapanma gösteriyor:
+🔴 **En kritik bulgu — kanıt TOPLANMIYOR:**
 
 ```
-systemd[1]: Using hardware watchdog 'Broadcom BCM2835 Watchdog timer'
-systemd[1]: Watchdog running with a hardware timeout of 1min.
+kernel.panic = 0        -> panik olursa SONSUZA KADAR DURUR (yeniden baslamaz)
+pstore bagli ama BOS    -> panik izi HIC kaydedilmiyor
 ```
 
-Yani Pi **kapanmadı, sıfırlandı** — systemd 60 sn bekçiyi besleyemedi.
-⚠️ Ama bu *belirti*, sebep değil: systemd'yi 60 saniye durduran şeyi
-bilmiyoruz ve yukarıdaki ölçümler bilinen adayların hepsini eliyor.
+`panic=0` tam olarak gözlenen tabloyu üretir: kırmızı ışık yanar, sistem
+ölüdür, kendiliğinden dönmez. Ama panik anında journald diske yazamadığı
+için **hiçbir iz kalmıyor** — yani "panik yok" diyemeyiz, *"panik olsa da
+göremezdik"* diyebiliriz.
 
-**ylp02'de YOK — fark uçağa özgü:**
+**ylp02'de YOK:** ylp00 akşam iki kez öldü (22:56 ve 02:02), ylp02 aynı
+saatlerde kesintisiz koştu. İki uçakta da bekçi ayarı aynı.
 
-| | akşam açılışları |
-|---|---|
-| **ylp00** | 21:53 · **22:56** · **02:05** |
-| **ylp02** | 22:38 (tek, kesintisiz) |
+- `[ ]` 🔴 **`kernel.panic=10`** — panikte sonsuza kadar durmak yerine
+  10 sn sonra yeniden başlasın. Havada Pi ölürse en azından **geri gelir**;
+  kayıt, telemetri ve tanı sürer. Tek satır, `/etc/sysctl.d/`.
+- `[ ]` 🔴 **`ramoops` aç** — `dtoverlay=ramoops` (`.dtbo` uçakta MEVCUT,
+  doğrulandı). Bir sonraki ölümde panik izi RAM'de kalır ve açılışta
+  `/sys/fs/pstore/` altından okunur. **Şu an hiçbir iz kalmıyor**; bu
+  olmadan sebep bulunamaz.
+- `[ ]` 🔴 **Uçuş öncesi kontrol:** kalkıştan önce `uptime -s`. Pi son
+  10 dakikada açılmışsa **uçma**, sebebi anlaşılana kadar.
+- `[ ]` 🟠 **Fiziksel kontrol:** güç kablosu/konnektör, SD kart oturması,
+  kart sağlığı (`fsck`). Gerilim yazılımdan temiz görünüyor ama ani bir
+  kopma yazılıma yansımaz.
+- `[ ]` 🟠 **Desen izle:** her ölümde `journalctl --list-boots` + izleme
+  logunun son satırı kaydedilsin. İki veri noktası az; uçuşla mı, saatle
+  mi, yükle mi ilişkili — ayırt edilemiyor.
 
-ylp00 iki kez kendiliğinden sıfırlandı, ylp02 aynı saatlerde sapasağlam.
-İki uçakta da bekçi ayarı aynı (`RuntimeWatchdogUSec=1min`).
-
-- `[ ]` 🔴 **Uçuş öncesi zorunlu kontrol:** kalkıştan önce
-  `uptime -s` bak — Pi son 10 dakikada açılmışsa **uçma**, sebebi
-  anlaşılana kadar.
-- `[ ]` 🔴 **Kalıcı çekirdek çökme kaydı aç** (`kdump`/`pstore`) — bir
-  sonraki sıfırlamada panik izi kalsın. Şu an hiçbir iz kalmıyor.
-- `[ ]` 🟠 **Fiziksel kontrol:** ylp00'ın Pi güç kablosu/konnektörü,
-  SD kart oturması, kart sağlığı (`fsck`). Gerilim ölçümü *yazılımdan*
-  temiz görünüyor ama ani bir kopma yazılıma yansımaz.
-- `[ ]` 🟠 **Desen izle:** her sıfırlamada `journalctl --list-boots` ve
-  izleme logundan son satır kaydedilsin. İki veri noktası az; uçuşla mı
-  ilişkili, saatle mi, yükle mi — ayırt edilemiyor.
-- `[ ]` 🟡 Bekçi süresini uzatmak **çözüm değil** (belirtiyi gizler) ama
-  sebep bulunana kadar sıfırlamanın uçuşa denk gelme olasılığını azaltır.
-  Operatör kararı.
 
 ### 🔴 P0.15 Mesh tek yönlü ölünce kaçınma KÖR kalıyor ve ALARM YOK — UÇUŞTA ÖLÇÜLDÜ
 
