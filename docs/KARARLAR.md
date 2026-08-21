@@ -1,6 +1,6 @@
 # KARARLAR — verilmiş ama henüz uygulanmamış kararlar
 
-**Son güncelleme:** 21 Ağustos 2026, 01:45
+**Son güncelleme:** 21 Ağustos 2026, ADIM 4 yer gözlemi
 
 Sohbette verilen kararlar oturum bitince kayboluyor. Bu defter onları
 tutuyor: **ne karar verildi, neden, ne zaman uygulanacak, nasıl test edilecek.**
@@ -105,6 +105,38 @@ pozisyon-goto yoluna (kanıtlanmış zincir), `collision_avoidance` hız yoluna
    yok; tazelik ölçüsü tek: mesajın bize **ulaştığı** an).
 2. ⬜ `basit_kacinma` **kapatılır** (aynı yuva — ikisi birden koşamaz).
    `/ws/kacinma` silinip `ca` anahtarı açılacak. **Henüz yapılmadı.**
+
+   > ### 🔴 21 Ağustos — ADIM 4 TEK BAŞINA AÇILAMAZ (ölçüldü)
+   >
+   > `/ws/kacinma` yalnız *hangi düğümün koştuğunu* değil, **esp32_bridge'in
+   > çıkışının nereye gittiğini** de belirliyor (`baslat.sh:471-479`):
+   >
+   > ```
+   > BUGUN  : esp32_bridge -> /raw -> basit_kacinma -> /setpoint   (kacinma CALISIR)
+   > SILINCE: esp32_bridge ---------DOGRUDAN--------> /setpoint    (kacinma YOK)
+   >          collision_avoidance /raw'i dinler, oraya kimse yazmaz -> ATIL
+   > ```
+   >
+   > Üstüne ikinci kilit: `collision_avoidance` girdiyi `velocity_valid` ile
+   > alıyor, guided yol `position_valid=True` üretiyor
+   > (`esp32_bridge_node.py:1271`) — kablolansa bile guided setpoint'lerde
+   > kapısı **hiç açılmaz**.
+   >
+   > Yani ADIM 4'ü tek başına açmak yükseltme değil **koruma kaybı**.
+   > Bu kararın "sürü zincirinde `basit_kacinma` hiçbir şey yapmıyor"
+   > tespitinin simetriği de doğru: **guided zincirde `collision_avoidance`
+   > hiçbir şey yapmıyor.** İkisi farklı zincirlerin düğümü — biri
+   > diğerinin yerine geçemez. **ADIM 3 ve ADIM 4 BİRLİKTE açılır.**
+   >
+   > ⚠️ Birlikte açılınca da bir çakışma kalıyor: `/ws/kacinma` silinince
+   > esp32_bridge **doğrudan** `/control/setpoint`'e yazar, `collision_avoidance`
+   > da oraya yazar (`collision_avoidance_node.py:173`) → **iki üretici**,
+   > `CLAUDE.md` §4 ihlali. `baslat.sh`'te "esp32_bridge → collision_avoidance"
+   > veren bir yapılandırma yok; yönlendirme anahtarı düğüm seçimine bağlı.
+   > **Çözüm:** yönlendirmeyi düğüm seçiminden ayır — esp32_bridge *herhangi
+   > bir* kaçınma düğümü açıksa `/raw`'a yazsın. ~5 satır, yerde doğrulanır.
+   > Pratikte bugün ısırmıyor çünkü esp32_bridge setpoint'i yalnız aktif bir
+   > `goto` varken üretiyor; sürü görevinde goto gönderilmezse sessiz kalır.
    > 🛡️ **`baslat.sh` bunu zorluyor:** `ca` anahtarı, `/ws/kacinma` dosyası
    > **varken `collision_avoidance`'ı açmayı REDDEDER** ve uyarı basar.
    > Yani ikisini yanlışlıkla birden açmak mümkün değil — `CLAUDE.md` §4
@@ -113,6 +145,31 @@ pozisyon-goto yoluna (kanıtlanmış zincir), `collision_avoidance` hız yoluna
 3. ✅ **Parametreler bağlandı** — `ucus_ayarlari.py` tek kaynak,
    `baslat.sh` hem `basit_kacinma`'yı hem `collision_avoidance`'ı oradan
    besliyor.
+
+### ✅ Test 2 (yerde, CANLI mesh) — GEÇTİ, uçuş gerekmedi (21 Ağustos)
+
+Test 1 adaptörün **işaret yönünü** dizüstünde doğruluyordu. Adaptörün
+**gerçek mesh `AgentStatus`'unu** kabul edip etmediği ayrı bir soruydu ve
+ancak uçakta ölçülür. Araç: `deploy/rpi/teshis/ca_gozlem.sh` — uçan yola
+dokunmadan `collision_avoidance` kopyasını gözlem konularına bağlıyor.
+
+```
+tani: passthrough=303 avoid=0 gate_alt=303 skip_state=0
+      skip_stale=0 skip_adaptor=- komsu_veri=1/2 ben=var
+```
+
+| ölçüm | anlamı |
+|---|---|
+| `skip_adaptor=-` | **adaptör canlı mesh verisini hiç reddetmedi** — asıl kanıt |
+| `komsu_veri=1/2` | iki komşuya abone, birinden veri (ylp01 yerde) |
+| `ben=var` | kendi durumu alınıyor |
+| `passthrough=303` | zincir uçtan uca aktı (formation_node → CA) |
+| `gate_alt=303` | 3 m altında kaçınma KAPALI — `altitude_gate_m` tasarımı, arıza değil |
+| `avoid=0` | uçaklar 12,4 m ayrıktı, `d0=6.0`'ın dışı — beklenen |
+
+⚠️ **Ne ölçülmedi:** gerçek bir itme. Uçaklar `d0`'ın dışındaydı ve yerdeki
+irtifa kapısı zaten kapalıydı. İtme davranışı ancak havada, komşu 6 m'nin
+içine girince görülür.
 
 ### ✅ Test 1 (yerde, işaret yönü) — GEÇTİ, uçuş gerekmedi
 

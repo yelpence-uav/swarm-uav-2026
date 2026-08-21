@@ -1,6 +1,6 @@
 # TUZAKLAR — hata vermeden yanlış sonuç üretenler
 
-**Son güncelleme:** 21 Ağustos 2026, 15:00
+**Son güncelleme:** 21 Ağustos 2026, ADIM 4 yer gözlemi
 
 > **Bu belge CANLI.** Arşiv değil — buradaki her madde **bugün de geçerli.**
 >
@@ -778,6 +778,30 @@ adaylık yok, hata yok — test "hiçbir şey olmadı" diye biter.
 Aynı anda öteki uçak (ylp02) çoktan hazırdı; yani "biri çalışıyorsa ikisi de
 hazırdır" varsayımı yanlış. Testten önce **kendi iç status'unda** `state=1`
 + `healthy=true` bekle — `lider_kaybi_test.sh`'taki hazırlık kapısı örnek.
+
+---
+
+### 2.14 `FormationCommand`'da `offset_z`'yi atlamak SESSİZCE setpoint'i öldürür
+
+`formation_node._slot_offset` (`formation_node.py:851`) **üç** ofset dizisini
+birden istiyor ve **uzunluk kontrolü** yapıyor:
+
+```python
+if (i < len(msg.offset_x) and i < len(msg.offset_y)
+        and i < len(msg.offset_z)):
+```
+
+`offset_x` ve `offset_y` doğru, `offset_z` boş bırakılırsa koşul düşer ve
+düğüm `slot ofseti yok (yerel/komut); setpoint atlandi` der. Uyarı **ofsetin
+hiç gelmediğini** ima ediyor, oysa ikisi gelmiştir — üçüncüsü eksiktir.
+21 Ağustos'ta bu ayrım yarım saat kaybettirdi: komut kabul ediliyor
+(`FormationCommand alindi: ... atama=[1, 3]` basılıyor) ama setpoint yine
+çıkmıyordu.
+
+Normal işleyişte görünmez, çünkü ofsetleri **köprü** hesaplayıp mesh
+paketine koyuyor (`esp32_bridge._on_formation_out`) ve üçünü de doldurur.
+Tuzak yalnız `FormationCommand`'ı **elle** yayınlarken çıkar — teşhis
+betikleri ve gözlem zinciri bunu yapıyor.
 
 ---
 
