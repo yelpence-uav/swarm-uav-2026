@@ -361,15 +361,56 @@ EOF
 sysctl -q --load=/etc/sysctl.d/61-yelpence-panik.conf
 echo "    kernel.panic=$(cat /proc/sys/kernel/panic)"      "panic_on_oops=$(cat /proc/sys/kernel/panic_on_oops)"
 
-# ramoops: config.txt'ye BIR KEZ eklenir, YENIDEN BASLATMA ister.
+# ramoops IKI PARCA ISTER — 22 Agustos 2026'da olculdu:
+#
+#   (a) config.txt'deki overlay BELLEGI AYIRIR
+#   (b) cekirdek komut satiri SURUCUYU o bellege baglar
+#
+# (b) SART, cunku Pi 5'te overlay tek basina YETMIYOR. Ilk denemede yalniz
+# overlay konuldu ve dmesg sunu dedi:
+#
+#   OF: reserved mem: invalid reg property size in 'ramoops@b000000'
+#                     - firmware out-of-date?
+#   OF: reserved mem: 0x0b000000..0x0b00ffff (64 KiB) map non-reusable
+#
+# Yani bellek AYRILDI ama surucu BAGLANMADI: /proc/iomem'de ramoops yok,
+# dmesg'de ramoops satiri yok, /sys/fs/pstore bagli ama ARKASINDA DEPO YOK.
+# Sebep: overlay'in `reg` adres bicimi Pi 5'in 64-bit agaciyla uyusmuyor.
+#
+# Surucu cekirdege GOMULU ve parametreleri aciik
+# (/sys/module/ramoops/parameters/), o yuzden cmdline ile dogrudan
+# adreslenebiliyor. Adres overlay'in ayirdigi bolgeyle AYNI olmali.
 _CFG=/boot/firmware/config.txt
 [ -f "$_CFG" ] || _CFG=/boot/config.txt
+_CMD=/boot/firmware/cmdline.txt
+[ -f "$_CMD" ] || _CMD=/boot/cmdline.txt
+_YB=0
+
 if [ -f "$_CFG" ] && ! grep -q '^dtoverlay=ramoops' "$_CFG"; then
     cp "$_CFG" "$_CFG.yelpence_yedek_$(date +%Y%m%d_%H%M%S)"
     printf '\n# Cokme kaydi — yelpence izleme_kur.sh 8/8 (bkz. YAPILACAKLAR P0.17)\ndtoverlay=ramoops\n' >> "$_CFG"
-    echo "    ramoops config.txt'ye EKLENDI — YENIDEN BASLATMA gerekiyor"
+    echo "    (a) ramoops overlay config.txt'ye EKLENDI"
+    _YB=1
 else
-    echo "    ramoops zaten ekli (ya da config.txt bulunamadi)"
+    echo "    (a) ramoops overlay zaten ekli"
+fi
+
+# cmdline.txt TEK SATIR olmali — asla yeni satir ekleme, sonuna EKLE.
+if [ -f "$_CMD" ] && ! grep -q 'ramoops.mem_address' "$_CMD"; then
+    cp "$_CMD" "$_CMD.yelpence_yedek_$(date +%Y%m%d_%H%M%S)"
+    sed -i '1s|$| ramoops.mem_address=0x0b000000 ramoops.mem_size=0x10000 ramoops.record_size=0x2000 ramoops.console_size=0x2000 ramoops.dump_oops=1|' "$_CMD"
+    echo "    (b) ramoops cmdline parametreleri EKLENDI"
+    _YB=1
+else
+    echo "    (b) ramoops cmdline zaten ekli"
+fi
+[ "$_YB" = 1 ] && echo "    🔴 YENIDEN BASLATMA GEREKIYOR (sudo reboot)"
+
+echo -n "    surucu bagli mi (simdi): "
+if dmesg 2>/dev/null | grep -qi 'ramoops.*registered\|pstore: Registered ram'; then
+    echo "EVET"
+else
+    echo "hayir — yeniden baslatmadan sonra kontrol et"
 fi
 echo -n "    pstore kayitlari: "
 ls /sys/fs/pstore/ 2>/dev/null | wc -l
