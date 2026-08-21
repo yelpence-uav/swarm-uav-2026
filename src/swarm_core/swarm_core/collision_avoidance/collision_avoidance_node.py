@@ -16,6 +16,7 @@ from swarm_interfaces.msg import (
     AgentSetpoint,
     AgentStatus,
     FormationCommand,
+    SystemEvent,
 )
 
 from .ca_core import CaParams, CollisionAvoidanceCore, NeighborObs
@@ -83,6 +84,14 @@ class CollisionAvoidanceNode(Node):
         self._n_skip_adaptor: dict[str, int] = {}
         self._n_gate_alt = 0
         self._last_active_log = 0.0
+        # KORLUK IZLEME — P0.15. Bir komsuyu BIR KEZ gordugumuz an
+        # `_komsu_gorulmus`e girer; ondan sonra kaybolmasi bir OLAYDIR.
+        # Hic gorulmemis komsu (or. yerdeki ylp01) korluk sayilmaz.
+        self._komsu_gorulmus: set[int] = set()
+        self._korluk_bildirildi: set[int] = set()
+        self._n_korluk = 0
+        self._n_korluk_tut = 0
+        self._korluk_tut_aktif = False
 
         self._ca = CollisionAvoidanceCore(CaParams(
             dt=1.0 / self._publish_rate_hz,
@@ -124,6 +133,35 @@ class CollisionAvoidanceNode(Node):
         # parametreyi tanimli birakmak "ayarladim ama bir sey olmadi" tuzagi.
         self.declare_parameter('neighbor_rx_stale_s', 0.5)
         self.declare_parameter('altitude_gate_m', 3.0)
+        # KORLUK — P0.15, 21 Agustos 2026, UCUSTA OLCULDU.
+        #
+        # Mesh linki TEK YONLU olebiliyor: ylp02'nin ylp00'a giden yonu
+        # 46.4 sn oldu, ters yon ayni anda kusursuz calisti (TUZAKLAR 2.15).
+        # O sure boyunca operator ucaklari 3 METREYE kadar yaklastirdi ve
+        # kacinma HIC tetiklenmedi — cunku ylp00 icin ortada komsu yoktu.
+        #
+        # Eski davranista bu SESSIZDI: kaybolan komsu yalniz `skip_stale`
+        # sayacinda artiyor, 5 sn'de bir basilan tani satirinin icinde
+        # kayboluyordu. 47 saniyelik korluk hicbir alarm uretmedi.
+        #
+        # korluk_alarm_s: bir komsuyu BIR KEZ gordukten sonra bu kadar sure
+        #   goremezsek olay yayinlanir. 2.0 sn = neighbor_rx_stale_s'in
+        #   (1.5) biraz ustu; normal mesh bosluklarinda (olculdu: p90 0.20 sn,
+        #   maks 0.4 sn saglikli linkte) yanlis alarm uretmez.
+        self.declare_parameter('korluk_alarm_s', 2.0)
+        # korluk_tut_s: korluk bu kadar surerse YATAY HAREKET DURDURULUR.
+        #   0 = kapali (yalniz alarm).
+        #
+        # Gerekcesi: komsuyu kaybetmek "engel yok" DEGIL, "nerede oldugunu
+        # BILMIYORUM" demektir. Son gorulen yerden sonra komsu v_max ile
+        # her yone gidebilir; 4 m/s'te 5 saniyede 20 m'lik bir belirsizlik
+        # kuresi olusur ve o kureden kacmanin anlamli bir yonu yoktur.
+        # Tek muhafazakar davranis: DUR ve bekle.
+        #
+        # 5.0 secildi: saglikli linkte maks bosluk 0.4 sn olculdu, yani 5 sn
+        # normal isleyisin 12 kati. Gecici bir mesh sarsintisi ucagi
+        # durdurmaz; gercek bir kopma durdurur.
+        self.declare_parameter('korluk_tut_s', 5.0)
         self.declare_parameter('d0_m', 4.5)
         self.declare_parameter('hard_m', 2.0)
         self.declare_parameter('r_min_m', 1.5)
@@ -146,6 +184,8 @@ class CollisionAvoidanceNode(Node):
         self._raw_timeout_s = float(gp('raw_timeout_s').value)
         self._neighbor_rx_stale_s = float(gp('neighbor_rx_stale_s').value)
         self._altitude_gate_m = float(gp('altitude_gate_m').value)
+        self._korluk_alarm_s = float(gp('korluk_alarm_s').value)
+        self._korluk_tut_s = float(gp('korluk_tut_s').value)
         self._d0_m = float(gp('d0_m').value)
         self._hard_m = float(gp('hard_m').value)
         self._r_min_m = float(gp('r_min_m').value)
@@ -194,6 +234,12 @@ class CollisionAvoidanceNode(Node):
             # BEST_EFFORT yayinci ESLESMEZ; konu SESSIZCE bos kalir ve dugum
             # mesh'ten gelen formasyon komutlarini HIC almaz.
             _BEST_EFFORT_QOS,
+        )
+        # KORLUK OLAYI — P0.15. Log YETMEZ: 21 Agustos'ta 47 saniyelik
+        # korluk log'a yazildi ama ucus sirasinda kimse gormedi. YKI'nin
+        # gorebilmesi icin olay sart.
+        self._event_pub = self.create_publisher(
+            SystemEvent, '/swarm/internal/events/system', _RELIABLE_QOS,
         )
         self._ensure_neighbor_subs(self._static_neighbor_ids)
 
@@ -254,9 +300,25 @@ class CollisionAvoidanceNode(Node):
 
         for nid, st in self._neighbors.items():
             rx = self._neighbor_rx.get(nid, 0.0)
-            if now - rx > self._neighbor_rx_stale_s:
+            yas = now - rx
+            if yas > self._neighbor_rx_stale_s:
                 self._n_skip_stale += 1
+                # KORLUK — P0.15. Daha once GORDUGUMUZ bir komsuyu
+                # kaybettiysek bu bir guvenlik olayidir; hic gorulmemis
+                # komsu (or. yerdeki ylp01) sayilmaz.
+                if nid in self._komsu_gorulmus:
+                    self._korluk_kaydet(nid, yas, now)
                 continue
+            # Taze veri geldi: komsuyu tanidik ve korluk varsa bitti.
+            self._komsu_gorulmus.add(nid)
+            if nid in self._korluk_bildirildi:
+                self._korluk_bildirildi.discard(nid)
+                self.get_logger().warning(
+                    f'drone{nid} TEKRAR GORULUYOR ({yas:.2f} sn yasinda) — '
+                    f'korluk bitti.'
+                )
+                self._olay(SystemEvent.SEVERITY_INFO, nid,
+                           f'drone{nid} tekrar goruluyor, kacinma korlugu bitti')
             if st.state in _AVOIDANCE_DISI_STATELER:
                 self._n_skip_state += 1
                 continue
@@ -269,6 +331,45 @@ class CollisionAvoidanceNode(Node):
                 continue
             obs.append(gozlem)
         return obs
+
+    def _korluk_kaydet(self, nid: int, yas: float, now: float) -> None:
+        """Kaybolan komsuyu olay olarak bildirir — P0.15, 21 Agustos 2026.
+
+        NEDEN LOG YETMEZ: 21 Agustos ucusunda ylp00, ylp02'yi 46.4 saniye
+        goremedi ve operator o sirada ucaklari 3 metreye kadar yaklastirdi.
+        Kacinma tetiklenmedi cunku ortada komsu YOKTU. `esp32_bridge` durumu
+        loga yazdi ama CA yalniz `skip_stale` sayacinda sessizce sayiyordu;
+        ucus sirasinda bunu gorecek hicbir kanal yoktu.
+
+        Alarm YALNIZ BIR KEZ basilir (komsu basina). Tekrar gorulunce
+        `_korluk_bildirildi`den dusuyor, yani sonraki kopma yeniden bildirilir.
+        """
+        if nid in self._korluk_bildirildi:
+            return
+        if yas < self._korluk_alarm_s:
+            return
+        self._korluk_bildirildi.add(nid)
+        self._n_korluk += 1
+        self.get_logger().warning(
+            f'🔴 KACINMA KORU: drone{nid} {yas:.1f} sndir gorulmuyor '
+            f'(esik {self._korluk_alarm_s:.1f}). Bu komsuya karsi KORUMA YOK. '
+            f'Mesh tek yonlu olmus olabilir — bkz. TUZAKLAR 2.15.'
+        )
+        self._olay(SystemEvent.SEVERITY_WARNING, nid,
+                   f'KACINMA KORU: drone{nid} {yas:.1f} sndir gorulmuyor, '
+                   f'bu komsuya karsi koruma YOK')
+
+    def _olay(self, severity: int, nid: int, mesaj: str) -> None:
+        """Korluk olayini yayinlar (YKI gorsun diye)."""
+        m = SystemEvent()
+        m.stamp = self.get_clock().now().to_msg()
+        m.event_type = SystemEvent.EVENT_COLLISION_RISK
+        m.severity = severity
+        m.source_agent_id = self._agent_id
+        m.source_module = 'collision_avoidance'
+        m.value = float(nid)
+        m.message = mesaj
+        self._event_pub.publish(m)
 
     def _tick(self) -> None:
         """ROS timer tetiklemesiyle ana döngüyü işletir."""
@@ -303,6 +404,61 @@ class CollisionAvoidanceNode(Node):
             return
 
         obstacles = self._gather_obstacles(now)
+
+        # KORLUKTE DUR — P0.15, 21 Agustos 2026.
+        #
+        # Komsuyu kaybetmek "engel yok" DEGIL, "nerede oldugunu BILMIYORUM"
+        # demektir. Son gorulen yerden sonra komsu v_max ile HER YONE
+        # gidebilir; 4 m/s'te 5 saniyede 20 m'lik bir belirsizlik kuresi
+        # olusur ve o kureden kacmanin anlamli bir YONU yoktur — itme yonu
+        # uydurmak, komsunun ustune gitme ihtimalini de tasir.
+        #
+        # Tek muhafazakar davranis: YATAY HAREKETI DURDUR ve bekle. Dikeye
+        # DOKUNULMUYOR (irtifa ayrimi yedek garantimiz; ayrica tirmanis/inis
+        # kesilirse ucak havada asili kalir).
+        #
+        # 21 Agustos'ta bu olmasa ne olurdu: ylp00 46 saniye kor kaldi ve o
+        # sure boyunca hicbir sey degismedi. Formasyonda olsaydi kor uctan
+        # komsusuna dogru YURUMEYE DEVAM ederdi.
+        if self._korluk_tut_s > 0.0 and self._korluk_bildirildi:
+            kor = sorted(self._korluk_bildirildi)
+            yaslar = [now - self._neighbor_rx.get(n, 0.0) for n in kor]
+            if max(yaslar) >= self._korluk_tut_s:
+                if not self._korluk_tut_aktif:
+                    self._korluk_tut_aktif = True
+                    self.get_logger().warning(
+                        f'🔴 KORLUK TUTMASI: drone{kor} {max(yaslar):.1f} '
+                        f'sndir gorulmuyor -> YATAY HAREKET DURDURULDU. '
+                        f'Dikey serbest; komsu tekrar gorulunce serbest kalir.'
+                    )
+                    self._olay(SystemEvent.SEVERITY_WARNING, kor[0],
+                               f'KORLUK TUTMASI: drone{kor} gorulmuyor, '
+                               f'yatay hareket durduruldu')
+                dur = copy.deepcopy(raw)
+                dur.stamp = self.get_clock().now().to_msg()
+                dur.sequence_num = self._sequence_num
+                self._sequence_num += 1
+                dur.source = AgentSetpoint.SOURCE_COLLISION_AVOIDANCE
+                dur.priority = AgentSetpoint.PRIORITY_COLLISION_AVOIDANCE
+                dur.position_valid = False
+                dur.vx = 0.0
+                dur.vy = 0.0
+                # vz KORUNUYOR: tirmanis/inis kesilmesin, irtifa ayrimi
+                # bozulmasin. Ham setpoint hiz vermiyorsa 0 zaten dogru.
+                dur.vz = float(raw.vz) if raw.velocity_valid else 0.0
+                dur.velocity_valid = True
+                dur.acceleration_valid = False
+                dur.max_speed_mps = self._v_max_mps
+                dur.source_module = 'collision_avoidance:korluk'
+                self._setpoint_pub.publish(dur)
+                self._ca.reset((0.0, 0.0, self._cur_vz))
+                self._n_korluk_tut += 1
+                return
+        elif self._korluk_tut_aktif:
+            self._korluk_tut_aktif = False
+            self.get_logger().info(
+                'korluk tutmasi KALKTI — komsular tekrar goruluyor.'
+            )
 
         base = (
             (float(raw.vx), float(raw.vy), float(raw.vz))
@@ -356,6 +512,9 @@ class CollisionAvoidanceNode(Node):
                 f'skip_state={self._n_skip_state} '
                 f'skip_stale={self._n_skip_stale} '
                 f'skip_adaptor={self._n_skip_adaptor or "-"} '
+                f'korluk={self._n_korluk} '
+                f'korluk_tut={self._n_korluk_tut} '
+                f'kor_komsu={sorted(self._korluk_bildirildi) or "-"} '
                 f'komsu_veri={len(self._neighbors)}/'
                 f'{len(self._neighbor_subs)} '
                 f'ben={"var" if self._ben is not None else "YOK"}'

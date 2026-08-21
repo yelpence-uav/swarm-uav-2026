@@ -1,6 +1,6 @@
 # YAPILACAKLAR
 
-**Son güncelleme:** 21 Ağustos 2026, P0.15 açıldı
+**Son güncelleme:** 21 Ağustos 2026, P1.15 (Eyüp) eklendi
 
 ## Önem dereceleri
 
@@ -331,6 +331,48 @@ ayrıca irtifa ayrımı duruyordu.
 - `[x]` ✅ Bayatlık dedektörü **çalıştı** — 46,8 sn'yi yakalayıp
   `healthy=False` yaptı ve uyardı (20 Ağustos'ta P0.14(b) için eklenmişti).
   Teorik diye eklenen koruma, bir gün sonra gerçek olayı yakaladı.
+
+### 🟠 P1.15 Mesh RSSI'yi doldur + YKİ arayüzüne komşu sinyal gücü — 👤 **YALNIZ EYÜP**
+
+> 👤 **Bu maddeyi YALNIZ EYÜP yapacak.** Firmware değişikliği ve üç ESP'nin
+> yeniden flashlanmasını gerektiriyor; başkası girmesin.
+
+**Neden gerekli:** 21 Ağustos'ta mesh linki tek yönlü öldü (P0.15) ve kök
+nedeni **ölçemiyoruz**, çünkü `rssi` alanı boş geliyor:
+
+```
+mesh durum=1 rssi=0 link=True komsu=2      <- rssi HEP 0
+```
+
+**Durum tespiti (21 Ağustos, kod okundu):**
+
+- `rssi` alanı DURUM paketinde **zaten var** (`mesh_config.h:293`,
+  `int8_t`, 16 baytlık sözleşmenin içinde) → **paket boyutu değişmez**,
+  `packet_parser.py::_DURUM_FMT` sözleşmesi bozulmaz.
+- 🔴 **Ama ESP-NOW alım geri çağrısı RSSI VERMİYOR.**
+  `platform = espressif32@6.13.0` → Arduino core 2.x → eski imza:
+  `_esp_now_recv_cb(mac_addr, data, len)` (`mesh_config.h:679`).
+  RSSI alanı yok.
+- Veri **elde edilebilir**: kanal tarama onu promiscuous moddan alıyor —
+  `paket->rx_ctrl.rssi` (`mesh_config.h:800`).
+
+**İki yol var, ikisi de flash gerektirir:**
+
+| yol | ne | risk |
+|---|---|---|
+| A | Promiscuous modu ESP-NOW'la birlikte koştur, paketleri MAC ile eşleştir | orta — iki mod aynı anda, CPU yükü |
+| B | Platformu Arduino core 3.x'e yükselt (`esp_now_recv_info_t` → `rx_ctrl->rssi` verir) | **yüksek** — bütün firmware'i etkiler |
+
+- `[ ]` 🟠 Yol seçilecek (A önerilir), `rssi` doldurulacak, **üç ESP de**
+  yeniden flashlanacak (ylp00, ylp02, baz — hepsi aynı kaynaktan)
+- `[ ]` 🟠 YKİ arayüzü: her uçak için **komşularının RSSI'si** görünsün.
+  Değer zaten `AgentStatus.status_text` içinde taşınıyor
+  (`esp32_bridge_node.py:1022`), doldurulunca arayüz tarafı küçük iş.
+- `[ ]` 🟡 Doldurulduktan sonra P0.15'in kök nedeni ölçülebilir: körlük
+  anında RSSI çöküyor mu, yoksa sinyal iyiyken mi paket kayboluyor?
+
+⚠️ **Bu bir TEŞHİS aracı, çözüm değil.** Çarpışma önlemenin körlüğe karşı
+dayanıklılığı P0.15'te ayrıca çözülüyor ve o firmware gerektirmiyor.
 
 ### 🔴 P0.11 Guided yol `agent_fsm`'i ATLIYOR — sürü yığını hiç etkinleşmiyor
 
