@@ -1,6 +1,6 @@
 # PLAN — buradan finale
 
-**Son güncelleme:** 20 Ağustos 2026, 18:40
+**Son güncelleme:** 21 Ağustos 2026, ADIM 0.5 mesh yolu doğrulandı
 
 Bu belge **tüm takımın ortak resmi** ve sürü entegrasyonunun **teknik yol
 haritası**. Yeni gelen biri bunu okuyup işe başlayabilir.
@@ -348,7 +348,7 @@ Koşmakta olanlar da listede; "zaten var" bir düğümü çıkarmak yanlış olu
 > yanlış → hata hiç üretilmiyordu. **Uykuda bir tuzaktı, aktif engel değildi.**
 > Bir sayıyı önceki bağlamdan taşıyıp canlıda doğrulamadan teşhis kurma.
 
-### ADIM 0.5 · `swarm_origin_publisher` — ADIM 1'İN ÖN KOŞULU
+### ADIM 0.5 · `swarm_origin_publisher` — ✅ GEÇTİ (21 Ağustos, mesh yolu dahil)
 
 > Bu düğüm önce **ADIM 8**'de yazıyordu, **yanlıştı.** `preflight_checker`
 > `origin_synced` şart koşuyor; origin gelmeden `IDLE → ARMING` olmuyor, ARMED
@@ -359,14 +359,24 @@ Koşmakta olanlar da listede; "zaten var" bir düğümü çıkarmak yanlış olu
 `origin` ekle. **Üç uçakta da AYNI koordinat** olmalı — farklı olursa
 formasyonlar uçaktan uçağa kayar.
 
-> 🔴 **Origin'in MESH yolu hâlâ denenmedi.** Bir uçağın origin'i diğerine
-> gerçekten ulaşıyor mu, bilmiyoruz. Şu an ikisi de **aynı sabit değeri**
-> yayınladığı için fark görünmez — mesh yolu tamamen kopuk olsa bile her şey
-> çalışıyor görünür.
+> ✅ **Origin'in MESH yolu DENENDİ ve AÇIK (21 Ağustos, yer testi).**
 >
-> **Test tarifi:** birinin `origin` düğümünü kapat, diğerininkini bekle.
-> Kapalı olan komşusunun origin'ini alıyorsa yol açık. Bu, "aynı sabit değeri
-> yayınlayan iki uçak birbirini doğrulayamaz" sınıfının örneği.
+> Ölçüm: ylp02'nin **kendi** `swarm_origin_publisher`'ı öldürüldü →
+> `/swarm/internal/origin` sustu (yerel `ic_dis_kopru` döngüsü de onunla
+> birlikte) → ama `/swarm/public/origin` **1,265 Hz'de akmaya devam etti**,
+> `valid=true`. Yerel kaynak ölüyken bu veri **yalnızca mesh'ten** gelebilir.
+> Ardından yayıncı geri açıldı; `internal/origin` 1,0 Hz'e döndü ve
+> `Publisher count: 1` — kopya üretici yok.
+>
+> Boşluk dağılımı mesh'e yakışır biçimde düzensiz (min 0,199 s · maks
+> 2,011 s), yani ~%30 kayıp altında beklenen hâl. Origin 1 Hz ve tekrarlı
+> olduğu için bu yeterli.
+>
+> ⚠️ **Neyi kanıtlamadı:** iki uçak da **aynı sabit değeri** yayınladığı için
+> gelen verinin *içeriğinin* ylp00'dan geldiği gösterilemez — kanıtlanan şey
+> **mesajların** mesh üzerinden aktığı. Karar için bu yeterli; içerik ayrımı
+> ancak uçaklara farklı origin verilerek sınanır ve o NED çerçevesini
+> bozacağı için yapılmadı.
 >
 > ⚠️ Bir dönem burada bir **geçici remap** vardı ve mesh yolunu tamamen
 > kapatmıştı — `TUZAKLAR.md` §2.12. `ic_dis_kopru` gelince kaldırıldı.

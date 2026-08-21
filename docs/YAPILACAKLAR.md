@@ -752,11 +752,11 @@ Kapanmayanlar:
   taraflı gözlenebilmişti. Ayrıntı: P0.12(a).
   ⚠️ Not: bu test **devir** yolunu doğruluyor; **lider KAYBI** tespiti
   (heartbeat zaman aşımı) hâlâ ölü — P0.14.
-- `[ ]` 🟡 **Origin'in MESH yolu hâlâ denenmedi** — bir uçağın origin'i
-  diğerine ulaşıyor mu? Şu an ikisi de **aynı sabit değeri** yayınladığı için
-  fark görünmez; mesh yolu tamamen kopuk olsa bile her şey çalışıyor görünür.
-  **Test:** birinin `origin` düğümünü kapat, diğerininkini bekle.
-  Tarife ve tuzak: `PLAN.md` §8 ADIM 0.5 · `TUZAKLAR.md` §2.12.
+- `[x]` 🟡 **Origin'in MESH yolu DENENDİ ve AÇIK (21 Ağustos, yer testi).**
+  ylp02'nin kendi yayıncısı öldürüldü → `internal/origin` sustu ama
+  `public/origin` **1,265 Hz'de akmaya devam etti** (`valid=true`). Yerel
+  kaynak ölüyken bu veri yalnızca mesh'ten gelebilir. Yayıncı geri açıldı,
+  `Publisher count: 1` — kopya yok. Ayrıntı: `PLAN.md` §8 ADIM 0.5.
 
 ### P0.6 Sürü entegrasyonunun yapısal engelleri
 
