@@ -1,6 +1,6 @@
 # YAPILACAKLAR
 
-**Son güncelleme:** 21 Ağustos 2026 gecesi, P0.16 çözüldü
+**Son güncelleme:** 22 Ağustos 2026, P0.17 açıldı
 
 ## Önem dereceleri
 
@@ -301,6 +301,70 @@ agent_fsm yok, yalnız mavros vardı. `docker restart` ikisini de düzeltti
   `consensus_node`, `esp32_bridge`, `formation_control`, `ic_dis_kopru`,
   `path_planner_node`, `px4_bridge`, `rosbag2_recorder`, `swarm_fsm_node`,
   `swarm_origin_publisher`.
+
+### 🔴 P0.17 ylp00'ın Pi'si UÇUŞTAN SONRA KENDİLİĞİNDEN SIFIRLANDI — sebep bilinmiyor
+
+**22 Ağustos 02:02, iniş tamamlandıktan ~2 dakika sonra.** ylp00 ağdan
+düştü, mesh'ten de kayboldu, ~4 dakika sonra kendiliğinden açıldı.
+
+**Neden P0:** Pi uçuş sırasında sıfırlanırsa `px4_bridge` ölür, OFFBOARD
+setpoint akışı kesilir ve PX4 failsafe'e düşer. Bugün iniş sonrası oldu;
+30 saniye önce olsaydı uçak havadaydı.
+
+**Ölçülenler — hiçbiri sebebi açıklamıyor.** İzleme logu sıfırlamadan
+**40 saniye önce**:
+
+```
+02:01:36  v=5.18V  t=47.2°C  thr=0x0  load=1.60  mem=3923MB  disk=40%
+02:02:16  <- log ANIDEN kesiliyor, PID 1'den kapatma dizisi YOK
+02:06:19  up=31 (yeni acilis)
+```
+
+| olası sebep | ölçüm | sonuç |
+|---|---|---|
+| düşük gerilim / brownout | `v=5.18V`, `thr=0x0`, boot -1'de **0** uyarı | ❌ değil |
+| ısınma | 47,2 °C | ❌ değil |
+| bellek (OOM) | 3,9/8 GB kullanımda, OOM kaydı yok | ❌ değil |
+| disk dolması | %40 | ❌ değil |
+| SD kart hatası | `mmc error` / `I/O error`: **0** | ❌ değil |
+| temiz kapatma (biri komut verdi) | PID 1'den shutdown dizisi **yok** | ❌ değil |
+
+**Bilinen tek iz:** donanım bekçisi kurulu ve `EXT4-fs: orphan cleanup`
+temiz olmayan kapanma gösteriyor:
+
+```
+systemd[1]: Using hardware watchdog 'Broadcom BCM2835 Watchdog timer'
+systemd[1]: Watchdog running with a hardware timeout of 1min.
+```
+
+Yani Pi **kapanmadı, sıfırlandı** — systemd 60 sn bekçiyi besleyemedi.
+⚠️ Ama bu *belirti*, sebep değil: systemd'yi 60 saniye durduran şeyi
+bilmiyoruz ve yukarıdaki ölçümler bilinen adayların hepsini eliyor.
+
+**ylp02'de YOK — fark uçağa özgü:**
+
+| | akşam açılışları |
+|---|---|
+| **ylp00** | 21:53 · **22:56** · **02:05** |
+| **ylp02** | 22:38 (tek, kesintisiz) |
+
+ylp00 iki kez kendiliğinden sıfırlandı, ylp02 aynı saatlerde sapasağlam.
+İki uçakta da bekçi ayarı aynı (`RuntimeWatchdogUSec=1min`).
+
+- `[ ]` 🔴 **Uçuş öncesi zorunlu kontrol:** kalkıştan önce
+  `uptime -s` bak — Pi son 10 dakikada açılmışsa **uçma**, sebebi
+  anlaşılana kadar.
+- `[ ]` 🔴 **Kalıcı çekirdek çökme kaydı aç** (`kdump`/`pstore`) — bir
+  sonraki sıfırlamada panik izi kalsın. Şu an hiçbir iz kalmıyor.
+- `[ ]` 🟠 **Fiziksel kontrol:** ylp00'ın Pi güç kablosu/konnektörü,
+  SD kart oturması, kart sağlığı (`fsck`). Gerilim ölçümü *yazılımdan*
+  temiz görünüyor ama ani bir kopma yazılıma yansımaz.
+- `[ ]` 🟠 **Desen izle:** her sıfırlamada `journalctl --list-boots` ve
+  izleme logundan son satır kaydedilsin. İki veri noktası az; uçuşla mı
+  ilişkili, saatle mi, yükle mi — ayırt edilemiyor.
+- `[ ]` 🟡 Bekçi süresini uzatmak **çözüm değil** (belirtiyi gizler) ama
+  sebep bulunana kadar sıfırlamanın uçuşa denk gelme olasılığını azaltır.
+  Operatör kararı.
 
 ### 🔴 P0.15 Mesh tek yönlü ölünce kaçınma KÖR kalıyor ve ALARM YOK — UÇUŞTA ÖLÇÜLDÜ
 
