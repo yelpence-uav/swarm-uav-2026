@@ -1,6 +1,6 @@
 # PLAN — buradan finale
 
-**Son güncelleme:** 21 Ağustos 2026, ADIM 0.5 mesh yolu doğrulandı
+**Son güncelleme:** 22 Ağustos 2026, sıradaki uçuş tanımlandı
 
 Bu belge **tüm takımın ortak resmi** ve sürü entegrasyonunun **teknik yol
 haritası**. Yeni gelen biri bunu okuyup işe başlayabilir.
@@ -39,6 +39,55 @@ YKİ (bilgisayar) → mesh → uçak: "şu noktaya git"
 | RTK, mesh, kayıt, YKİ arayüzü | ✅ çalışıyor |
 | Pilot + kumanda (her uçak için) | ✅ var |
 | Kamera | 🟠 yakında takılacak |
+
+---
+
+## ⏭️ SIRADAKİ UÇUŞ — kaçınma testi, üç düzeltmeyle (22 Ağustos)
+
+Kaçınma **sahada çalıştığı ölçüldü** (operatör 6,5 m'ye yaklaştı, ylp00
+3,88 m kaçtı). Ama aynı uçuşlarda üç kusur bulundu ve düzeltildi;
+**hiçbiri henüz uçmadı.** Sıradaki uçuşun tek işi bunları doğrulamak.
+
+### Bu uçuş hangi tek soruyu cevaplıyor?
+
+> **Kaçınma artık uçağın yapabileceği sınırlar içinde mi kalıyor?**
+
+Ölçüt tek: **eğim genliği.** Önceki uçuşta kaçış evresinde roll
+−24,7°…+28,3° (53° genlik), maks eğim **34°** ölçülmüştü.
+
+| | önceki uçuş | bu uçuşta beklenen |
+|---|---|---|
+| kaçış maks eğim | **34,0°** | **≤ 20°** (`slew_normal=3.58` → 20,1°) |
+| kaçış roll genliği | 53° | belirgin düşüş |
+| dönüş tepe hızı | 3,21 m/s | **~1,73 m/s** (`donus_ivme=0.5`) |
+| dönüş maks eğim | 22,0° | belirgin düşüş |
+| kaçışın **gücü** | 3,88 m kaçtı | **aynı kalmalı** — zayıflarsa düzeltme yanlış |
+
+### Neyi değiştirdik
+
+1. **İvmeler eğim tavanına bağlandı** — `slew_emergency` 30 → **5,66 m/s²**
+   (71,9° → 30°). Kaçınma artık `ucus_ayarlari.py`'den türetiliyor.
+2. **`hard` sınırındaki basamak giderildi** — sıçrama 3,19 → 1,80 m/s.
+3. **Dönüş yumuşatma** — kaçınma sonrası 4 sn `max_acc_mps2=0.5`.
+
+Ayrıca aynı gün: **pilot devraldıysa mod geri alınmaz** (uçak kumandadan
+verilen LAND'i geri alıp tırmanıyordu) ve **körlük alarmı** (kaçınmanın
+kör kaldığı YKİ'de sesli bildiriliyor).
+
+### Uçuş öncesi zorunlu — bu uçuşa özel
+
+- 🔴 **`docker restart drone1`** — ylp00'da yeni parametreler ETKİN DEĞİL.
+  Açılışta `ivme normal=3.58 acil=5.66 donus=0.50` görünmeli.
+- 🔴 **`uptime -s`** — Pi son 10 dk'da açılmışsa uçma (P0.17).
+- 🔴 Kuru test + harita, operatör gözüyle onaylar.
+- Manevra: **tek uçak asılı**, operatör ylp02 ile **yandan** yaklaşır.
+  Tepeden yaklaşılmaz (`xy_guard` kör noktası), altından geçilmez.
+
+### Sonrasında ölçülecek
+
+`/mavros/imu/data` quaternion'undan roll/pitch, **evrelere ayrılmış**
+genlik karşılaştırması (asılı / kaçış / dönüş / asılı). Konum ve hız
+verisi bu sorunu **gizler** — bkz. `TUZAKLAR.md` §2.18.
 
 ---
 

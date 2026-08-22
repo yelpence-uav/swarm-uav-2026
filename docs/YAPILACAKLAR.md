@@ -1,6 +1,6 @@
 # YAPILACAKLAR
 
-**Son güncelleme:** 22 Ağustos 2026, P0.17 açıldı
+**Son güncelleme:** 22 Ağustos 2026, P1.16 açıldı
 
 ## Önem dereceleri
 
@@ -449,6 +449,42 @@ Köprü geri açılınca körlük temizlendi (`kor_komsu=-`).
   lider değişimi (P1.14'ün tek-yönlü kopma olayı dahil) hâlâ YKİ'ye
   ulaşmıyor. Firmware + 3 ESP flash gerektirir — 👤 **Eyüp** (bkz. P1.15).
 
+
+### 🟠 P1.16 YKİ uyarılarının KALICI KAYDI YOK — ekranda kayıp gidiyor
+
+**22 Ağustos'ta bulundu.** Operatör *"benim verdiklerin dışında da bildirim
+geldi"* dedi ve haklıydı — sayınca **~32 bildirim** çıktı, ben 4 sanıyordum.
+
+```
+/tmp/yki_base_bridge.log:
+  KOMSUSUNU GOREMIYOR : 11      (11 korluk dongusu)
+  tekrar goruyor      : 11
+  DURUM paketi bayat  : 21      (ayri kaynak, P0.14b)
+```
+
+**İki ayrı kaynak var** ve ikisi de operatöre bildirim gönderiyor:
+kaçınma körlüğü (P0.15) ve DURUM bayatlığı (P0.14b).
+
+🔴 **Ama `AlertManager` uyarıları YALNIZ BELLEKTE tutuyor:**
+
+```python
+self._events: list[Alert] = []     # diske hicbir sey yazilmiyor
+```
+
+Doğrulandı: `alert_manager.py`'de **sıfır** dosya işlemi, `yki_backend.log`
+içinde 4,6 MB'da **sıfır** uyarı izi. YKİ yeniden başlayınca hepsi gidiyor.
+
+**Neden önemli:** operatör uçuş sırasında bildirimleri görüyor ama sonradan
+*"kaç kez, ne zaman, hangi uçak"* diye bakamıyor. Bugün ancak uçak ve baz
+loglarından geriye dönebildim — o da tesadüfen orada oldukları için.
+
+- `[ ]` 🟠 `AlertManager.push_event` uyarıyı `/tmp/yki_uyarilar.log`'a da
+  yazsın: zaman damgası, drone_id, severity, code, mesaj. Satır başına bir
+  JSON — sonradan sayılabilsin, süzülebilsin.
+- `[ ]` 🟡 Uçuş sonu özeti: görev bitince o uçuşta kaç uyarı, hangi tür.
+- `[ ]` 🟡 `config.yaml`'da susturulan listesi var (`link_timeout`,
+  `low_battery`, `critical_battery`) — **susturulanlar da loga yazılmalı**,
+  yalnız ekrana çıkmasın. Şu an tamamen kayboluyorlar.
 
 ### 🟠 P1.15 Mesh RSSI'yi doldur + YKİ arayüzüne komşu sinyal gücü — 👤 **YALNIZ EYÜP**
 
