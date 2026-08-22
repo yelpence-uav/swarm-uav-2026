@@ -142,6 +142,16 @@ konteyner yeniden başlatma yeterli. ylp01 döndüğünde tek yapılacak
 | K6 | `sahte_kayip_ajanlar` test kancası (tek yönlü kayıp benzetimi) | ✅ | ❌ | ✅ |
 | K7 | **Sönümleme tabanı** — uzaklaşan komşuya çekim YOK | ✅ | ❌ | ✅ |
 | K8 | `px4_bridge` setpoint hız/ivme tavanlarını okuyor | ✅ | ❌ | ✅ |
+| K9 | 🔴 **Pilot devraldıysa mod geri alınmaz** | ✅ | ❌ | ✅ |
+| K10 | 🔴 **Kaçınma ivmeleri eğim tavanına bağlandı** (30→5,66) | ⏳ | ❌ | ✅ |
+| K11 | `hard` sınırındaki süreksizlik giderildi | ⏳ | ❌ | ✅ |
+| K12 | Kaçınma sonrası dönüş yumuşatma (0,5 m/s²) | ⏳ | ❌ | ✅ |
+
+> ⏳ **ylp00'da K10-K12 HENÜZ ETKİN DEĞİL.** Kod dağıtıldı ama konteyner
+> yeniden başlatılmadı (MAVROS cevapsızdı, uçuş pili kapalı olabilir).
+> **Uçuştan önce `docker restart drone1` ŞART**, yoksa eski `30 m/s²`
+> ile uçar. Doğrulama: açılış logunda
+> `ivme normal=3.58 acil=5.66 donus=0.50` görünmeli.
 
 🔴 **K2 GEÇİCİ.** `d0=10 hard=6` yalnız kaçınma testi için; uçaktaki
 `~/yelpence_ws/ucus_ayarlari.env` dosyasının sonuna elle eklendi.

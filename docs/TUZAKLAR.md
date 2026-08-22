@@ -1,6 +1,6 @@
 # TUZAKLAR — hata vermeden yanlış sonuç üretenler
 
-**Son güncelleme:** 22 Ağustos 2026, Pi ölüm teşhisi
+**Son güncelleme:** 22 Ağustos 2026, kaçınma eğim tavanına bağlandı
 
 > **Bu belge CANLI.** Arşiv değil — buradaki her madde **bugün de geçerli.**
 >
@@ -933,6 +933,50 @@ yeniden başlatmayı dene.
 Buradan *"kademeli gerilim düşüşü DEĞİLDİ"* sonucu çıkarılabildi — ama ani
 kesilme mi yazılım mı, ayırt edilemedi. Çökme izi olmadığı için.
 Bkz. `YAPILACAKLAR.md` P0.17.
+
+---
+
+### 2.18 🔴 Kaçınma, uçağın YAPAMAYACAĞI ivme isteyebilir — eğim tavanına bağla
+
+**22 Ağustos 2026, uçuşta.** Operatör: *"baya bildiğin sağ sol yaptı,
+devrilecek gibi."* Konuma ve hıza bakıp "sakin" demiştim — **yanlış yere
+bakmıştım.** Operatör eğim açılarını söyledi ve haklıydı:
+
+| evre | roll aralığı | genlik | **maks eğim** |
+|---|---|---|---|
+| asılı (önce) | −5,0 … +6,1 | 11° | 11,6° |
+| **KAÇIŞ** | **−24,7 … +28,3** | **53°** | **34,0°** |
+| dönüş | −15,7 … +5,2 | 21° | 22,0° |
+| asılı (sonra) | −2,7 … −0,3 | 2° | 4,6° |
+
+🔴 **Kök neden:** `ca_core.CaParams` ivme sınırları `ucus_ayarlari.py`'ye
+**hiç bağlanmamıştı**. Özgün tasarımdan kalma sabitlerdi:
+
+```
+slew_normal    =  4.0 m/s2  ->  22.2 derece
+slew_emergency = 30.0 m/s2  ->  71.9 derece   <-- IMKANSIZ
+```
+
+`slew_emergency`, komşu `hard`ın içine girince devreye giriyor. Operatör
+6,14 m'ye geldi, `hard=6.0` — tam devreye girdi. **Uçak 72 derece
+eğilemez**; elinden geleni yaptı (34°), yetişemedi, komut değişti, ters
+yöne eğildi. Yalpa bu — arıza değil, **imkânsız bir komutu takip etme
+çabası.**
+
+⚠️ **`CLAUDE.md` §8 bunu zaten söylüyordu:** *"Açıları elle ayarlama. Eğim
+tavanı ivmeden türetiliyor (`a = g·tan(θ)`)"*. Hız, ivme, eğim hepsi
+`ucus_ayarlari.py`'de türetiliyordu — **kaçınma hariç.** Bir modülün
+"kendi varsayılanı" olması, o varsayılanın fizikle uyumlu olduğu anlamına
+gelmiyor.
+
+**Ders:** uçağı hareket ettiren **her** düğümün ivme/hız sınırı
+`ucus_ayarlari.py`'den türetilmeli. Yeni bir düğüm açarken ilk soru:
+*"bu düğüm ne kadar ivme isteyebilir ve o kaç derece eğim eder?"*
+
+**Nasıl fark edilir:** konum ve hız verisi bunu **gizler** — uçak yerinde
+durup sallanabilir. `/mavros/imu/data` quaternion'undan roll/pitch çıkar,
+evrelere göre genlik karşılaştır. Asılı evre ile kaçış evresi arasında
+3 kattan fazla fark varsa sorun vardır.
 
 ---
 
