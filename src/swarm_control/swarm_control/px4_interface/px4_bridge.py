@@ -48,6 +48,7 @@ from sensor_msgs.msg import BatteryState, NavSatFix
 # Aynı paket içindeki yardımcılar (MAVROS yolu)
 from .mavros_command_sender import MavrosCommandSender
 from .mavros_telemetry_mapper import (
+    PILOT_FLIGHT_MODES,
     map_battery as mav_map_battery,
     map_estimator_status as mav_map_estimator,
     map_global_position as mav_map_global,
@@ -1414,6 +1415,42 @@ class Px4BridgeNode(Node):
             self._arm_z = None
             self._cmd_sender.return_home()
         elif cmd == 'offboard':
+            # 🔴 PILOT DEVRALDIYSA MODU GERI ALMA — 22 Agustos 2026, UCUSTA
+            # YASANDI. Operator kumandadan LAND dedi; ucak inmeye basladi,
+            # sonra GERI TIRMANDI. Her seferinde.
+            #
+            # ZINCIR: gorev kosucusu bekleme evresinde 0.5 sn'de bir hedefi
+            # tekrarliyor; her goto ile birlikte esp32_bridge kosulsuz
+            # 'offboard' yolluyor (_isle_goto:1408). Burasi da kosulsuz
+            # set_offboard_mode() cagiriyordu. Yani:
+            #     pilot LAND -> AUTO.LAND -> 0.5 sn sonra offboard komutu
+            #     -> OFFBOARD -> yurutucu ucagi 10 m hedefe GERI SURUYOR
+            # Olculdu: 120 goto'ya karsi 124 offboard komutu, ~3-5 Hz.
+            #
+            # Ayni tehlike 20 Agustos'ta P0.12(b) olarak BULUNMUSTU ve
+            # esp32_bridge tarafinda kismen kapatilmisti: YKI'den iptal
+            # gelince o ucagin kuyrugundaki GOTO'lar atiliyor
+            # (esp32_bridge_node.py ~1900). Ama o koruma yalniz YKI
+            # yolundan gelen iptali gorur — PILOT kumandadan mudahale
+            # ettiginde YKI bunu BILMEZ, kuyruk temizlenmez.
+            #
+            # Bu yuzden kapi BURADA olmali: px4_bridge tek PX4 yazicisi ve
+            # pilotun modunu gorebilen tek yer. Kaynak ne olursa olsun
+            # (mesh tekrari, bayat cerceve, gorev kosucusu) pilot moddayken
+            # mod DEGISTIRILMEZ.
+            #
+            # OTOMATIK modlar (AUTO.LAND/RTL/LOITER) BU KAPIYA TAKILMAZ:
+            # onlar gorevin kendi akisinin parcasi ve kalkis dizisi
+            # AUTO.LOITER'dan OFFBOARD'a gecmek zorunda.
+            if self._status.flight_mode in PILOT_FLIGHT_MODES:
+                self.get_logger().warning(
+                    f'offboard komutu REDDEDILDI — pilot kumandada '
+                    f'(mod={self._status.flight_mode}). Ucus kontrolu '
+                    f'pilotta kalir.',
+                    throttle_duration_sec=2.0,
+                )
+                self._offboard_streaming = False
+                return
             # Önce streaming başlar, ardından mod değiştirilir.
             # PX4, OffboardControlMode sinyalini görmeden offboard'a geçmez.
             self._offboard_streaming = True
