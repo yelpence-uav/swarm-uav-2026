@@ -178,6 +178,30 @@ TEKLI_BEKLEME_S = 5.0         # her adimda yerinde bekleme
 ASILI_IRTIFA_M = 8.0
 ASILI_SURE_S = 60.0
 
+# --- --senaryo irtifa (MESH LINKI ~ GORELI IRTIFA TESTI) --------------------
+# 22 Agustos 2026. Soru: mesh linki iki ucagin IRTIFA FARKINA bagli olarak
+# bozuluyor mu? 21 Agustos'ta ylp00 komsusunu 46,4 sn HIC gormedi; o sirada
+# irtifalar 10 m ve 8 m idi ve ariza TEK YONLUYDU (TUZAKLAR §2.15).
+#
+# UC BACAK, HEPSI AYNI SUREDE — esit pencere sart, yoksa "maksimum bosluk"
+# ornek sayisiyla siser ve fazlar kiyaslanamaz (22 Agustos'ta bu hataya
+# dusuldu ve olcum yeniden yapildi):
+#   1) ikisi UST irtifada        -> TEMEL
+#   2) biri ALT irtifaya iner    -> TEK DEGISKEN: goreli irtifa
+#   3) ikisi yine UST irtifada   -> SURUKLENME KONTROLU
+#
+# 3. BACAK EN ONEMLISI. Onsuz, zamanla ilerleyen bir bozulma (dis girisim,
+# pil, isinma) "irtifa etkisi" gibi gorunur. 1. ve 3. bacak birbirini
+# tutmuyorsa 2. bacaktaki fark IRTIFADAN DEGILDIR ve olcum gecersizdir.
+#
+# YATAYDA HICBIR KOMUT YOK: her ucagin hedefi kendi OLCULEN x,y'si. Yani
+# yatayda kimildarlarsa sebep biz degiliz (kacinma ya da ruzgar).
+# ALCALAN UCAK = DRONELAR[0], yani `--dronelar 1,3` ile ylp00 iner.
+# Degistirmek icin sirayi ters yaz: `--dronelar 3,1`.
+IRTIFA_TEST_UST_M = 10.0
+IRTIFA_TEST_ALCAK_M = 5.0
+IRTIFA_TEST_SURE_S = 60.0
+
 # --- --senaryo takip (IKI DRONLU PROVA) -------------------------------------
 # Kanit videosu koreografisinin ONCESINDE yapilan prova: roll YOK, formasyon
 # degisimi YOK, irtifa degisimi YOK. Yalniz "formasyonu kur, git, bekle, don".
@@ -1914,12 +1938,62 @@ def plan_kur_asili(t):
     iki uçağı farklı irtifada tutmak testi bozmaz ama çarpışmayı imkânsız
     kılar.
     """
-    did = DRONELAR[0]
-    d = t[did]
+    # 22 Agustos 2026: TEK ucaktan N ucaga genellestirildi. Niyet degismedi —
+    # her ucagin hedefi KENDI olculen x,y'si, yani yatayda yine HICBIR komut
+    # yok. Tek uçaklı kullanim birebir ayni calisir (N=1).
+    #
+    # YON TEK SKALER: yurutucu bacak basina tek heading aliyor, ucak basina
+    # ayri yon verilemiyor. DRONELAR[0]'in olculen yonu kullaniliyor; ucaklar
+    # bir kez o yone doner ve test boyunca bir daha donmez.
+    yon = t[DRONELAR[0]]["yaw_deg"]
+    hedefler = {}
+    for did in DRONELAR:
+        d = t[did]
+        hedefler[did] = (d["pos_x"], d["pos_y"], ASILI_IRTIFA_M)
     return [(f"ASILI DUR {ASILI_SURE_S:.0f}s (kaçınma testi)",
-             d["yaw_deg"],
-             {did: (d["pos_x"], d["pos_y"], ASILI_IRTIFA_M)},
-             ASILI_SURE_S)]
+             yon, hedefler, ASILI_SURE_S)]
+
+
+def plan_kur_irtifa(t):
+    """MESH ~ GÖRELİ İRTİFA testi — üç eşit bacak, sonuncusu kontrol.
+
+    Sabitlerin gerekçesi yukarıda (IRTIFA_TEST_*). Burada yalnız yapı:
+
+      1) hepsi ÜST      -> TEMEL
+      2) DRONELAR[0] ALÇAK, diğerleri ÜST  -> tek değişken: göreli irtifa
+      3) hepsi ÜST      -> SÜRÜKLENME KONTROLÜ (1 ile aynı çıkmalı)
+
+    YATAYDA HİÇBİR KOMUT YOK: hedef, her uçağın kendi ölçülen x,y'si.
+
+    YÖN TEK SKALER — yürütücü bacak başına tek heading alıyor, uçak başına
+    ayrı yön veremiyor. Bu yüzden ÜÇ BACAKTA DA AYNI yön kullanılıyor
+    (DRONELAR[0]'ın ölçülen yönü): uçaklar bir kez o yöne döner ve test
+    boyunca bir daha dönmez. Yani yön bir DEĞİŞKEN değil, sabit — irtifa
+    ile karışmaz. Bacaklar farklı yön alsaydı her geçişte burun dönerdi ve
+    anten yönelimi irtifayla birlikte değişip ölçümü kirletirdi.
+    """
+    yon = t[DRONELAR[0]]["yaw_deg"]
+    alcalan = DRONELAR[0]
+
+    def hedef(irtifa_alcalan):
+        h = {}
+        for did in DRONELAR:
+            d = t[did]
+            irt = irtifa_alcalan if did == alcalan else IRTIFA_TEST_UST_M
+            h[did] = (d["pos_x"], d["pos_y"], irt)
+        return h
+
+    s = IRTIFA_TEST_SURE_S
+    return [
+        (f"TEMEL — hepsi {IRTIFA_TEST_UST_M:.0f} m, {s:.0f}s",
+         yon, hedef(IRTIFA_TEST_UST_M), s),
+        (f"İRTİFA FARKI — d{alcalan} {IRTIFA_TEST_ALCAK_M:.0f} m, "
+         f"diğerleri {IRTIFA_TEST_UST_M:.0f} m, {s:.0f}s",
+         yon, hedef(IRTIFA_TEST_ALCAK_M), s),
+        (f"KONTROL — hepsi yine {IRTIFA_TEST_UST_M:.0f} m, {s:.0f}s "
+         f"(temelle aynı çıkmalı)",
+         yon, hedef(IRTIFA_TEST_UST_M), s),
+    ]
 
 
 def ucanlar():
@@ -2460,12 +2534,24 @@ def gorev(kuru: bool) -> int:
             return 1
         plan = plan_kur_g2(t)
     elif _SENARYO == "asili":
-        did = DRONELAR[0]
-        if did not in t:
-            print(f"Telemetride yok: drone {did} — asılı senaryosu ölçülen "
+        eksik = [d for d in DRONELAR if d not in t]
+        if eksik:
+            print(f"Telemetride yok: drone {eksik} — asılı senaryosu ölçülen "
                   "konuma dayanır, başlatılamaz.")
             return 1
         plan = plan_kur_asili(t)
+    elif _SENARYO == "irtifa":
+        eksik = [d for d in DRONELAR if d not in t]
+        if eksik:
+            print(f"Telemetride yok: drone {eksik} — irtifa senaryosu her "
+                  "uçağın ÖLÇÜLEN konumuna dayanır, başlatılamaz.")
+            return 1
+        if len(DRONELAR) < 2:
+            print("irtifa senaryosu EN AZ İKİ uçak ister — ölçülen şey iki "
+                  "uçak ARASINDAKİ linkin göreli irtifaya duyarlılığı. "
+                  "Örnek: --dronelar 1,3")
+            return 1
+        plan = plan_kur_irtifa(t)
     elif _SENARYO == "tekli":
         did = DRONELAR[0]
         if did in t:
@@ -2518,6 +2604,7 @@ def gorev(kuru: bool) -> int:
                   else TAKIP_IRTIFA_M if _SENARYO == "takip"
                   else G2_IRTIFA_M if _SENARYO == "g2"
                   else ASILI_IRTIFA_M if _SENARYO == "asili"
+                  else IRTIFA_TEST_UST_M if _SENARYO == "irtifa"
                   else TEKLI_IRTIFA_M if _SENARYO == "tekli"
                   else FORMASYON_TEST_IRTIFA_M if _SENARYO in ("formasyon", "lider")
                   else KALKIS_IRTIFA_M)
@@ -2889,15 +2976,20 @@ def main() -> int:
                          "Kayma olcumu icin >=40 m ister "
                          "(docs/PLAN.md §9).")
     ap.add_argument("--irtifa", type=float, default=None,
-                    help="--senaryo asili icin kalkis/asili irtifasi (m)")
+                    help="--senaryo asili icin kalkis/asili irtifasi (m); "
+                         "--senaryo irtifa icin UST irtifa; g2 icin ucus irtifasi")
+    ap.add_argument("--alcak", type=float, default=None,
+                    help="--senaryo irtifa: 2. bacakta ALCALAN ucagin "
+                         "irtifasi (m). Alcalan ucak = --dronelar listesinin "
+                         "ILKI. Varsayilan 5 m.")
     ap.add_argument("--kacinma", action="store_true",
                     help="carpisma kacinmasi ACIK (drone'da /ws/kacinma var). "
                          "Kacis kesicisinin marjini genisletir, yoksa kesici "
                          "kacinma manevrasini kacis sanip gorevi iptal eder.")
     ap.add_argument("--senaryo",
                     choices=("kanit", "test", "formasyon", "lider", "tekli",
-                             "asili", "takip", "g2", "donus", "tam", "final",
-                             "saha"),
+                             "asili", "irtifa", "takip", "g2", "donus", "tam",
+                             "final", "saha"),
                     default="kanit",
                     help="kanit = tam koreografi; test = kuzeybati/bekle/"
                          "irtifa/don; formasyon = rastgele yerlesimden cizgi "
@@ -2940,6 +3032,7 @@ def main() -> int:
     DRONELAR = [int(x) for x in a.dronelar.split(",") if x.strip()]
     global ROTA_YONU_DEG, _HARITA_DOSYA, _SENARYO, LIDER, HARITA_OFSET_KD
     global _KACINMA_ACIK, ASILI_SURE_S, ASILI_IRTIFA_M, _SAHTE_TELEMETRI
+    global IRTIFA_TEST_UST_M, IRTIFA_TEST_ALCAK_M, IRTIFA_TEST_SURE_S
     global G2_MESAFE_M, G2_IRTIFA_M
     if a.sahte:
         # CANLI MODDA ASLA. Sahte konumla gercek komut gondermek, ucaklari
@@ -2986,16 +3079,34 @@ def main() -> int:
         SAHA_NOKTALAR_GPS[:] = g
     if a.sure is not None:
         ASILI_SURE_S = a.sure
+        # irtifa senaryosunda --sure BACAK BASINA suredir ve ucu de ayni
+        # degeri alir. Esit pencere sart: farkli surelerde "maksimum bosluk"
+        # ornek sayisiyla siser ve fazlar kiyaslanamaz hale gelir.
+        IRTIFA_TEST_SURE_S = a.sure
     if a.irtifa is not None:
-        # --irtifa iki senaryoda da gecerli: asili (tek ucak) ve g2.
+        # --irtifa uc senaryoda gecerli: asili (tek ucak), g2 ve irtifa.
         # g2'nin sabiti 20 m idi ve override yoktu; kisa dogrulama
         # ucuslarinda (or. lider secimi olcumu) daha alcak istenebiliyor.
         if a.senaryo == "g2":
             if not 3.0 <= a.irtifa <= 30.0:
                 ap.error("--irtifa g2 icin 3..30 m araliginda olmali")
             G2_IRTIFA_M = a.irtifa
+        elif a.senaryo == "irtifa":
+            if not 3.0 <= a.irtifa <= 30.0:
+                ap.error("--irtifa 3..30 m araliginda olmali")
+            IRTIFA_TEST_UST_M = a.irtifa
         else:
             ASILI_IRTIFA_M = a.irtifa
+    if a.alcak is not None:
+        if a.senaryo != "irtifa":
+            ap.error("--alcak yalniz --senaryo irtifa icin")
+        # Alt sinir 2 m: daha alcakta yer etkisi (mesh ve EKF) olcumu kirletir
+        # ve inis dedektorune yaklasilir. Ust sinir UST irtifanin ALTI olmali,
+        # yoksa "irtifa farki" bacagi fark uretmez ve test anlamsizlasir.
+        if not 2.0 <= a.alcak < IRTIFA_TEST_UST_M:
+            ap.error(f"--alcak 2.0 ile {IRTIFA_TEST_UST_M:.1f} m arasinda "
+                     "olmali (UST irtifanin ALTINDA)")
+        IRTIFA_TEST_ALCAK_M = a.alcak
     if a.mesafe is not None:
         # Kayma olcumu icin uzun DUZ BACAK gerekiyor (docs/PLAN.md §9:
         # rampa + 4tau oturma + olcum penceresi). Tavan MAX_GOTO_M ile ayni
@@ -3005,8 +3116,14 @@ def main() -> int:
         if not 1.0 <= a.mesafe <= MAX_GOTO_M:
             ap.error(f"--mesafe 1..{MAX_GOTO_M:.0f} m araliginda olmali")
         G2_MESAFE_M = a.mesafe
-    if a.senaryo == "asili" and len(DRONELAR) != 1:
-        ap.error("--senaryo asili TAM OLARAK bir drone ister (or. --dronelar 3)")
+    if a.senaryo == "asili" and len(DRONELAR) < 1:
+        ap.error("--senaryo asili en az bir drone ister (or. --dronelar 1,3)")
+    if a.senaryo == "irtifa" and len(DRONELAR) < 2:
+        # Burada, telemetriye BAGLANMADAN once durur. Ayni kontrol plan
+        # kurulurken de var (gec kalan yedek); ilki kullaniciyi bosuna
+        # bekletmemek icin.
+        ap.error("--senaryo irtifa EN AZ IKI drone ister — olculen sey iki "
+                 "ucak ARASINDAKI link (or. --dronelar 1,3)")
     if a.harita_ofset:
         try:
             k, _, d = a.harita_ofset.partition(",")
@@ -3064,6 +3181,10 @@ def main() -> int:
           f"  KAÇINMA TESTİ — {ASILI_IRTIFA_M:.0f} m'de {ASILI_SURE_S:.0f}s "
           f"ASILI DUR (yatayda komut YOK)"
           if a.senaryo == "asili" else
+          f"  MESH ~ İRTİFA TESTİ — {IRTIFA_TEST_UST_M:.0f} m / "
+          f"d{DRONELAR[0]} {IRTIFA_TEST_ALCAK_M:.0f} m / {IRTIFA_TEST_UST_M:.0f} m, "
+          f"her bacak {IRTIFA_TEST_SURE_S:.0f}s (yatayda komut YOK)"
+          if a.senaryo == "irtifa" else
           "  TEK UÇAK TESTİ — kalkış yönünde 7 m, bekle, 5 m tırman, bekle, in"
           if a.senaryo == "tekli" else
           "  LİDER YANINA GEÇİŞ — lider yerinde asılı, takipçi sağına gelir"
@@ -3114,10 +3235,17 @@ def main() -> int:
         print(f"  irtifa {TAKIP_IRTIFA_M:.0f} m   aralık {ARALIK_M:.0f} m   "
               f"bekleme {TAKIP_BEKLEME_S:.0f}s")
     elif a.senaryo == "asili":
-        print(f"  drone: {DRONELAR[0]}   irtifa {ASILI_IRTIFA_M:.0f} m   "
-              f"süre {ASILI_SURE_S:.0f}s")
+        print(f"  dronelar: {DRONELAR}   irtifa {ASILI_IRTIFA_M:.0f} m   "
+              f"süre {ASILI_SURE_S:.0f}s   (her uçak KENDİ yerinin üstünde)")
         print(f"  kaçınma {'AÇIK' if _KACINMA_ACIK else 'KAPALI'}   "
               f"kaçış marjı {_kacis_marj():.0f} m")
+    elif a.senaryo == "irtifa":
+        print(f"  dronelar: {DRONELAR}   alçalan: d{DRONELAR[0]}")
+        print(f"  bacaklar: {IRTIFA_TEST_UST_M:.0f} m → "
+              f"d{DRONELAR[0]} {IRTIFA_TEST_ALCAK_M:.0f} m → "
+              f"{IRTIFA_TEST_UST_M:.0f} m   (her biri {IRTIFA_TEST_SURE_S:.0f}s)")
+        print("  3. bacak SÜRÜKLENME KONTROLÜ — 1. ile aynı çıkmazsa "
+              "ölçüm geçersiz")
     elif a.senaryo == "tekli":
         print(f"  drone: {DRONELAR[0]}   kalkış {TEKLI_IRTIFA_M:.0f} m -> "
               f"{TEKLI_IRTIFA_M + TEKLI_IRTIFA_ARTIS_M:.0f} m   "
