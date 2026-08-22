@@ -124,7 +124,7 @@ kalıcı olur. Üçü de ancak **ölçerek** görülür.
 | A12 | **docker log döndürme** | ✅ | ❌ | ❌ | `run_drone.sh` içinde — **yalnız konteyner YENİDEN OLUŞTURULUNCA** devreye girer |
 | A13 | 🔴 **Çökme kaydı (ramoops) + `kernel.panic=10`** | ✅ | ❌ | ✅ | `izleme_kur.sh` **8/8** · **sahada sınandı** (sysrq paniği yakalandı) |
 | A14 | **Çökme izlerini okunabilir kopyala** | ✅ | ❌ | ✅ | `yelpence-cokme.service` → `~/yelpence_ws/gunluk/cokme/` |
-| A15 | **İzleme aralığı 60 → 10 sn** | ⏳ | ❌ | ⏳ | `izleme_kur.sh` yeniden çalıştırılınca geçerli |
+| A15 | **İzleme aralığı 60 → 10 sn** | ✅ | ❌ | ✅ | 22 Ağu 03:36'da doğrulandı — `OnUnitActiveSec=10s`, timer aktif |
 
 ### Kod tarafı — 21-22 Ağustos (hepsi `dagit.sh` ile gider)
 
