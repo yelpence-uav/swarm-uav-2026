@@ -1,6 +1,6 @@
 # GÜNLÜK — oturum devir teslim kaydı
 
-**Son güncelleme:** 21 Ağustos 2026, 15:00
+**Son güncelleme:** 22 Ağustos 2026, 03:40
 
 Tek bilgisayar, sırayla çalışıyoruz. Biri kalkıp diğeri oturduğunda **hem
 kişi hem Claude** nerede kalındığını buradan anlar.
@@ -35,6 +35,75 @@ Claude'a **"oturumu kapat"** dersen bu kaydı o yazar.
 - ylp00: (kill switch? pil? nerede? konteyner ayakta mı?)
 - ylp02:
 ```
+
+---
+
+## 2026-08-22 03:40 — Eyüp + Claude
+
+**Ne yapıldı**
+- 🎯 **ÇARPIŞMA ÖNLEME SAHADA ÇALIŞTI, ilk ölçülü kanıt.** Operatör ylp02'yi
+  kumandayla 6,5 m'ye yaklaştırdı → ylp00 kendi noktasından **3,88 m kaçtı**,
+  mesafe 2 saniyede 6,6 → 9,1 m açıldı. `avoid=375`, 20 kaçış satırı.
+  Yatayda hiçbir komut almıyordu; hareket tamamen kaçınmanın eseri.
+- **P0.16 çözüldü** — kaçınma körlüğü artık YKİ'ye ulaşıyor. Uçtan uca
+  doğrulandı: mesh kesildi → 2 sn'de YKİ'de `sev=critical` + sesli alarm +
+  masaüstü bildirimi. Kök neden: mesh'te `TIP_EVENT` **yok**, uçakta üretilen
+  hiçbir `SystemEvent` YKİ'ye ulaşmıyordu.
+- **P0.15 kapatıldı** — körlük artık birinci sınıf durum (alarm + isteğe bağlı
+  yatay tutma). 21 Ağustos'ta 47 saniye sessiz kalan durum artık 2 saniyede
+  haber veriyor.
+- **Çökme kaydı kuruldu ve SAHADA SINANDI** (`sysrq` paniği): Pi 10 sn'de
+  döndü, `dmesg-ramoops-0` (13,3 KB) kopyalandı ve **okundu** — çağrı yığını
+  net. Artık yazılım ölümü ile güç kesilmesi ayırt edilebiliyor.
+- İzleme aralığı 60 → **10 sn** (ylp00'ın ölümünde en yakın ölçüm 40 sn
+  öncesineydi, arası kör kalmıştı).
+
+**Ne değişti**
+- kod: `collision_avoidance_node.py` — körlük taraması (`_korluk_tara`),
+  `SystemEvent` yayını, `korluk_alarm_s=2.0`, `korluk_tut_s=0.0` (operatör
+  kararı: durma, haber ver)
+- kod: `ca_core.py:~123` — **sönümleme tabanı** `max(0.0, c)`. Öncesinde
+  uzaklaşan komşuya **1,34 m/s çekim** üretiyordu (ölçüldü)
+- kod: `px4_bridge.py:_yurutucu_ilerlet` — setpoint `max_speed_mps` /
+  `max_acc_mps2` **bağlandı**. Dört düğüm dolduruyordu, hiçbiri okunmuyordu
+- kod: `packet_parser.py` — `DURUM2_BAYRAK_KACINMA_KORU=0x04` (firmware
+  değişmedi; DURUM paketini Pi kuruyor)
+- kod: `esp32_bridge_node.py` — körlük biti + baz tarafı olay üretimi +
+  `sahte_kayip_ajanlar` test kancası
+- kod: `gorev_kanit_ucus.py` — **bekleme evresinde hedef tekrarlanıyor**
+  (öncesinde `/raw` boş kalıyordu, kaçınma ATIL'dı)
+- kod: `AlertList.tsx` — ses kilidi açma + masaüstü bildirimi
+- uçakta: **`d0=10 hard=6`** (test değerleri, `ucus_ayarlari.env` sonuna elle
+  eklendi) · `korluk_tut_s=0` · `kernel.panic=10` · ramoops · izleme 10 sn ·
+  `yelpence-cokme.service`
+- belge: `TUZAKLAR` 2.15/2.16/2.17 · `YAPILACAKLAR` P0.15/P0.16/P0.17/P1.15 ·
+  `RPI_ESITLEME` A13-A15 + K1-K8 · `KARARLAR` (CA algoritma incelemesi) ·
+  `DURUM` (körlük alarmı bölümü)
+
+**Yarım kalan / tuzak**
+- 🔴 **P0.17 açık:** ylp00'ın Pi'si uçuştan sonra **öldü ve öyle kaldı**
+  (kırmızı ışık, elle açıldı). Sebep bilinmiyor; bilinen adayların hepsi
+  elendi. **Uçuş öncesi `uptime -s` bak** — Pi son 10 dk'da açılmışsa uçma.
+- 🔴 **`d0=10 hard=6` GEÇİCİ.** Formasyon uçuşundan önce geri alınmalı:
+  12 m aralıkta planlı en yakın yaklaşma 8,49 m, `d0=10` normal geçişte
+  tetiklenir. Geri alma komutu `RPI_ESITLEME` K2'de.
+- 🟠 **Sönümleme tabanı ve setpoint tavanları HENÜZ UÇMADI.** Sonraki uçuşta
+  iki soru: kaçış eskisi kadar güçlü mü, sert dönüş yumuşadı mı.
+- Kaçınma algoritmasında bilinen üç zayıflık (`KARARLAR`, CA incelemesi):
+  asılı dururken **teğet bileşen sıfır**, **tepeden yaklaşmada koruma yok**
+  (`xy_guard=0.3`), yavaş yaklaşmada koruma `d0`'da değil `hard`'da başlıyor.
+- Uçakta üretilen diğer `SystemEvent`'ler (FSM, consensus lider değişimi)
+  **hâlâ YKİ'ye ulaşmıyor** — mesh'te `TIP_EVENT` yok (P1.15, 👤 Eyüp).
+
+**Sıradaki adım**
+- Kaçınma testini tekrarla (sönümleme tabanı + setpoint tavanları uçmadı);
+  sonra **P0.15**'in kalan maddesi ve **P0.17** kök neden.
+
+**Uçakların bırakıldığı hâl**
+- ylp00: yerde, disarm, 11 düğüm, `collision_avoidance` (`d0=10 hard=6`),
+  `korluk_tut_s=0`, ramoops+panic=10 aktif, izleme 10 sn, gerilim 5,19 V
+- ylp02: aynı ayarlar, yerde, disarm, gerilim 5,16 V
+- ylp01: yerde (2 Ağustos'tan beri). Dönünce: `RPI_ESITLEME` A13-A15 + K1-K8
 
 ---
 
