@@ -1,6 +1,6 @@
 # GÜNLÜK — oturum devir teslim kaydı
 
-**Son güncelleme:** 22 Ağustos 2026, 03:40
+**Son güncelleme:** 22 Ağustos 2026, 06:40
 
 Tek bilgisayar, sırayla çalışıyoruz. Biri kalkıp diğeri oturduğunda **hem
 kişi hem Claude** nerede kalındığını buradan anlar.
@@ -35,6 +35,75 @@ Claude'a **"oturumu kapat"** dersen bu kaydı o yazar.
 - ylp00: (kill switch? pil? nerede? konteyner ayakta mı?)
 - ylp02:
 ```
+
+---
+
+## 2026-08-22 06:40 — Eyüp + Claude
+
+**Ne yapıldı**
+- 🔴 **Kaçınma, uçağın YAPAMAYACAĞI ivme istiyormuş.** Operatör "devrilecek
+  gibi sağ sol yaptı" dedi; ben konuma/hıza bakıp "sakin" demiştim.
+  **Operatör eğim açılarına bakmamı söyledi ve haklı çıktı:**
+
+  ```
+  asili (once)  roll -5.0..+6.1    MAKS EGIM 11.6 deg
+  KACIS         roll -24.7..+28.3  MAKS EGIM 34.0 deg   <<<
+  DONUS                            MAKS EGIM 22.0 deg
+  ```
+
+  Kök neden: `ca_core` ivme sınırları `ucus_ayarlari.py`'ye **hiç
+  bağlanmamış** — `slew_emergency = 30 m/s²` = **71,9° eğim**, imkânsız.
+- 🔴 **Pilot devralma açığı kapatıldı.** Operatör kumandadan LAND dedi,
+  uçak inip **geri tırmandı** — her seferinde. Ölçüldü: 120 goto'ya karşı
+  124 `offboard` komutu, 3-5 Hz. Benim eklediğim bekleme-tekrarı deliği
+  0,75 sn'den **sürekliye** çıkarmış.
+- **Çökme kaydı kuruldu ve sahada sınandı** (`sysrq` paniği yakalandı,
+  çağrı yığını okundu). İzleme 10 sn'ye çekildi.
+- **Körlük alarmları doğrulandı:** 4 olayın dördü de gerçek — ylp02'nin
+  kapalı olduğu anlarla birebir örtüşüyor, **sıfır yanlış alarm**.
+
+**Ne değişti**
+- kod: `ucus_ayarlari.py` — `KACINMA_IVME_ACIL/NORMAL/DONUS` türetildi
+  (`a = g·tan(θ)`): **30 → 5,66 m/s²**
+- kod: `ca_core.py` — `hard` sınırındaki basamak giderildi (sıçrama
+  3,19 → 1,80 m/s), sönümleme tabanı (uzaklaşan komşuya çekim yok)
+- kod: `collision_avoidance_node.py` — dönüş yumuşatma (4 sn pencerede
+  `max_acc_mps2=0.5`)
+- kod: `px4_bridge.py` — **pilot moddayken mod geri alınmaz** + setpoint
+  hız/ivme tavanları bağlandı
+- kod: `esp32_bridge_node.py` — körlük biti, baz olay üretimi, test kancası
+- uçakta: `ivme normal=3.58 acil=5.66 donus=0.50` · `kernel.panic=10` ·
+  ramoops · izleme 10 sn · `yelpence-cokme.service`
+- belge: `TUZAKLAR` 2.15-2.18 · `YAPILACAKLAR` P0.15-P0.17, P1.15 ·
+  `RPI_ESITLEME` A13-A15 + K1-K12 · `DURUM` · `KARARLAR`
+
+**Yarım kalan / tuzak**
+- 🔴 **ylp00'da K10-K12 ETKİN DEĞİL.** Kod dağıtıldı, konteyner yeniden
+  başlatılmadı (MAVROS cevapsızdı, uçuş pili kapalı olabilir).
+  **Uçuştan önce `docker restart drone1` ŞART** — yoksa eski `30 m/s²`
+  ile uçar. Doğrulama: açılışta `ivme normal=3.58 acil=5.66 donus=0.50`.
+- 🔴 **P0.17 açık:** ylp00'ın Pi'si bir kez öldü ve öyle kaldı. Uçuştan
+  önce `uptime -s` bak; son 10 dk'da açılmışsa uçma.
+- 🔴 **`d0=10 hard=6` GEÇİCİ** — formasyon öncesi geri alınacak
+  (`RPI_ESITLEME` K2).
+- 🟠 Üç düzeltme de **henüz uçmadı**: ivme tavanı, kapı sürekliliği,
+  dönüş yumuşatma.
+- 🟡 Kaçınmanın bilinen iki zayıflığı duruyor: asılı dururken **teğet
+  bileşen sıfır**, **tepeden yaklaşmada koruma yok** (`xy_guard=0.3`).
+- Kumanda ylp00'a bağlı görünüyor (`rc_link_ok: true`). ylp02'yi
+  kaldırırken ylp00'ın modunun alınıp alınmadığı **netleşmedi** — yerde
+  30 saniyelik çubuk testiyle kesinleşir.
+
+**Sıradaki adım**
+- ylp00'ı yeniden başlat, kuru test + harita, kaçınma testini tekrarla:
+  **eğim genliği düştü mü** (34° → beklenen ~20°) ve dönüş yumuşadı mı.
+
+**Uçakların bırakıldığı hâl**
+- ylp00: yerde, konteyner ayakta (11 düğüm) ama **MAVROS cevapsız** —
+  uçuş pili kapalı olabilir. **Yeni kaçınma parametreleri ETKİN DEĞİL.**
+- ylp02: yerde, disarm, 11 düğüm, yeni parametreler **etkin**
+  (`ivme normal=3.58 acil=5.66 donus=0.50`)
+- ylp01: yerde (2 Ağustos'tan beri). Dönünce `RPI_ESITLEME` A13-A15 + K1-K12
 
 ---
 
