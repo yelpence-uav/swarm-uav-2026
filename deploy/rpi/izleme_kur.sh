@@ -209,8 +209,18 @@ cat > /etc/systemd/system/yelpence-izle.timer <<'EOF'
 Description=Durum kaydini dakikada bir calistir
 
 [Timer]
-OnBootSec=30s
-OnUnitActiveSec=60s
+OnBootSec=15s
+# 60 -> 10 sn (22 Agustos 2026, operator karari).
+#
+# NEDEN: ylp00'in Pi'si oldugunde elimizdeki en yakin olcum olumden 40 SANIYE
+# oncesineydi ("v=5.18V t=47.2C thr=0x0 load=1.60") ve aradaki 40 saniye KOR
+# kaldi. Ani bir bozulma (gerilim dususu, isi sicramasi, yuk patlamasi) o
+# pencerede olsa goremezdik.
+#
+# Maliyeti yok: her ornek ~130 bayt, 10 sn'de bir = gunde ~1.1 MB. Gunluk
+# bekcisi zaten dondurme yapiyor. Kart asinmasi ihmal edilebilir (ayni
+# dosyaya ekleme, yeni blok degil).
+OnUnitActiveSec=10s
 AccuracySec=10s
 
 [Install]
@@ -405,6 +415,44 @@ else
     echo "    (b) ramoops cmdline zaten ekli"
 fi
 [ "$_YB" = 1 ] && echo "    🔴 YENIDEN BASLATMA GEREKIYOR (sudo reboot)"
+
+# COKME IZLERINI OKUNABILIR YAP — 22 Agustos 2026.
+#
+# systemd-pstore izleri /var/lib/systemd/pstore/ altina tasiyor ama dosyalar
+# root:root 0600. Sahada teshis yapan sudo parolasi olmadan OKUYAMIYOR —
+# cokme izinin okunamamasi, hic tutulmamasiyla neredeyse ayni sey.
+# Bu birim izleri ucus gunlukleriyle AYNI dizine, okunur kopyalar.
+_KOPYALA=/usr/local/bin/yelpence_cokme_kopyala.sh
+if [ -f "$(dirname "$0")/cokme_kopyala.sh" ]; then
+    install -m 755 "$(dirname "$0")/cokme_kopyala.sh" "$_KOPYALA"
+elif [ -f "$HOME/yelpence_ws/cokme_kopyala.sh" ]; then
+    install -m 755 "$HOME/yelpence_ws/cokme_kopyala.sh" "$_KOPYALA"
+fi
+
+if [ -x "$_KOPYALA" ] && [ -n "$KULLANICI" ]; then
+    cat > /etc/systemd/system/yelpence-cokme.service <<SRV
+[Unit]
+Description=Yelpence cokme izlerini okunabilir kopyala
+After=systemd-pstore.service
+Wants=systemd-pstore.service
+
+[Service]
+Type=oneshot
+ExecStart=$_KOPYALA $KULLANICI
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
+SRV
+    systemctl daemon-reload
+    systemctl enable yelpence-cokme.service >/dev/null 2>&1
+    systemctl start yelpence-cokme.service >/dev/null 2>&1
+    echo -n "    cokme izi kopyalama: "; systemctl is-enabled yelpence-cokme.service 2>/dev/null
+    echo -n "    kopyalanan iz: "
+    ls "$(getent passwd "$KULLANICI" | cut -d: -f6)/yelpence_ws/gunluk/cokme/" 2>/dev/null | wc -l
+else
+    echo "    cokme izi kopyalama: ATLANDI (betik ya da kullanici yok)"
+fi
 
 echo -n "    surucu bagli mi (simdi): "
 if dmesg 2>/dev/null | grep -qi 'ramoops.*registered\|pstore: Registered ram'; then
