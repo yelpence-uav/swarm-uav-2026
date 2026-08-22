@@ -117,12 +117,39 @@ class CollisionAvoidanceCore:
             c = -(n.rel_x * n.rel_vx + n.rel_y * n.rel_vy
                   + n.rel_z * n.rel_vz) / d3
 
-            if d3 <= p.hard:
-                gate = 1.0
-            elif p.c_ref > 1e-6:
-                gate = _smoothstep((c - p.c_dead) / p.c_ref)
+            # KAPI — 22 Agustos 2026'da SUREKLI hale getirildi.
+            #
+            # ESKI HALI BASAMAKLIYDI:
+            #     d3 <= hard  -> gate = 1.0            (tam kuvvet)
+            #     d3 >  hard  -> gate = smoothstep(c)  (yavas yaklasmada ~0)
+            # `hard` sinirini gecerken kapi ANINDA 0'dan 1'e atliyordu.
+            # Ucak itilip disari cikiyor -> kapi kapaniyor -> itme sifir ->
+            # geri yaklasiyor -> kapi aciliyor. Hedef hiz zipliyor, ucak
+            # surekli hizlanip frenliyor.
+            #
+            # UCUSTA OLCULDU (ylp00, 22 Agustos): kacis evresinde roll
+            # -24.7..+28.3 derece (53 derecelik yalpa), maks egim 34 derece.
+            # Asili evrede yalniz 11.6 idi. Operator "devrilecek gibi sag sol
+            # yapti" dedi ve haklıydi.
+            #
+            # YENI HALI: mesafe kapisi ile kapanma hizi kapisinin BUYUGU
+            # aliniyor. Mesafe kapisi `hard + damp_band`ta 0, `hard`ta 1 —
+            # yani kabuga yaklasirken kapi YUMUSAKCA aciliyor, basamak yok.
+            # Icerideki tam kuvvet ve disarideki kapanma hizi mantigi AYNEN
+            # korunuyor; yalniz aradaki sicrama gidiyor.
+            if p.c_ref > 1e-6:
+                gate_c = _smoothstep((c - p.c_dead) / p.c_ref)
             else:
-                gate = 1.0
+                gate_c = 1.0
+            # Rampa genisligi `damp_band`e (0.5 m) baglanmisti; cok dar
+            # kaldi ve 0.2 m'de 3.2 m/s'lik sicrama uretti. Etki alaninin
+            # DORTTE BIRI daha yumusak: d0=10 hard=6 icin 1.0 m.
+            _band = max(0.25 * (p.d0 - p.hard), p.damp_band)
+            if _band > 1e-6:
+                gate_d = _smoothstep((p.hard + _band - d3) / _band)
+            else:
+                gate_d = 1.0 if d3 <= p.hard else 0.0
+            gate = max(gate_c, gate_d)
 
             mag = self._repulsion_magnitude(d3) * gate
             dist_scale = (

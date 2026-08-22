@@ -949,11 +949,15 @@ if [ -n "$SURU_DUGUMLERI" ]; then
                 -p d0_m:=${KACINMA_D0:-6.0} \
                 -p hard_m:=${KACINMA_HARD:-4.0} \
                 -p neighbor_rx_stale_s:=${KACINMA_BAYAT_S:-1.5} \
+                -p slew_normal_mps2:=${KACINMA_IVME_NORMAL:-3.58} \
+                -p slew_emergency_mps2:=${KACINMA_IVME_ACIL:-5.66} \
+                -p donus_ivme_mps2:=${KACINMA_DONUS_IVME:-0.5} \
                 >> "$GUNLUK/ca.log" 2>&1 &
             sleep 1
             echo "[baslat] collision_avoidance basladi (komsular: $CA_KOMSULAR," \
                  "d0=${KACINMA_D0:-6.0} hard=${KACINMA_HARD:-4.0}," \
-                 "basit_kacinma KAPALI)"
+                 "ivme normal=${KACINMA_IVME_NORMAL:-3.58} acil=${KACINMA_IVME_ACIL:-5.66}" \
+                 "donus=${KACINMA_DONUS_IVME:-0.5}, basit_kacinma KAPALI)"
         fi
     fi
 

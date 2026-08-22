@@ -291,6 +291,41 @@ KACINMA_D0_M = 1.5 * MIN_AYRIM_M
 # kacinmanin gorus alani sessizce degisir.
 KACINMA_BAYAT_S = 1.5
 
+# --- KACINMA IVME SINIRLARI --------------------------------------------------
+# 22 AGUSTOS 2026'DA UCUSTA BULUNDU. Operator: "baya bildigin sag sol yapti,
+# devrilecek gibi". Kayittan olculdu (ylp00, kacis evresi):
+#
+#     roll  -24.7 .. +28.3 derece  (53 derecelik yalpa)
+#     MAKS EGIM 34.0 derece        (asili evrede yalniz 11.6 idi)
+#
+# SEBEP: `ca_core.CaParams` ivme sinirlari bu dosyaya HIC BAGLANMAMISTI.
+# Ozgun tasarimdan kalma sabitlerdi:
+#
+#     slew_normal    =  4.0 m/s2  ->  22.2 derece
+#     slew_emergency = 30.0 m/s2  ->  71.9 derece   <-- IMKANSIZ
+#
+# `slew_emergency` komsu `hard`in icine girince devreye giriyor. Operator
+# 6.14 m'ye kadar geldi, hard=6.0 — tam devreye girdi. Ucak 72 derece
+# egilemez; elinden geleni yapti (34 derece), yetisemedi, komut degisti,
+# ters yone egildi. Yalpa BU: imkansiz bir komutu takip etme cabasi.
+#
+# CLAUDE.md 8 zaten diyordu: "Acilari elle ayarlama. Egim tavani ivmeden
+# turetiliyor (a = g*tan(theta))". Hiz, ivme, egim hepsi burada turetiliyordu
+# — kacinma haric. Bu o bosluk.
+#
+# TURETME: kacis bir ACIL manevra, o yuzden egim tavaninin TAMAMINI
+# kullanabilir (guided seyir gibi pay birakmaz). Normal kacis ise seyir
+# ivmesiyle acil arasinda: ikisinin ortasi.
+KACINMA_IVME_ACIL_MPS2 = ivme_icin(EGIM_TAVANI_DEG)
+KACINMA_IVME_NORMAL_MPS2 = 0.5 * (GOREV_IVME_MPS2 + KACINMA_IVME_ACIL_MPS2)
+
+# Kacinma bittikten SONRA eve donus ivmesi. Ayri ve DUSUK olmasi kasitli:
+# tehlike aninda sert olmali, tehlike gecince acele etmenin faydasi yok.
+# 22 Agustos olcumu: 6 m'lik donus 3.21 m/s tepe hizla yapildi
+# (v_tepe = sqrt(a*d) = sqrt(1.5*6) = 3.0) ve donus evresinde 22 derece
+# yalpa olustu. 0.5 m/s2 ile tepe 1.73 m/s'e iner.
+KACINMA_DONUS_IVME_MPS2 = 0.5
+
 FRENLEME_GOREV_M = frenleme_m(GOREV_HIZ_MPS, GOREV_IVME_MPS2)
 FRENLEME_TAVAN_M = frenleme_m(PX4_HIZ_TAVANI_MPS, PX4_IVME_MPS2)
 
@@ -486,6 +521,12 @@ def _kabuk():
     # Kacinma — basit_kacinma VE collision_avoidance ayni degerleri alir.
     # Dugum degistiginde esikler degismesin diye tek kaynak burasi.
     print(f'KACINMA_D0={KACINMA_D0_M}')
+    # Kacinma ivme sinirlari — 22 Agustos 2026'da EKLENDI. Oncesinde
+    # ca_core'daki sabitler kullaniliyordu ve slew_emergency 30 m/s2 idi
+    # (71.9 derece egim = imkansiz). Ucakta 34 derece yalpa olculdu.
+    print(f'KACINMA_IVME_NORMAL={KACINMA_IVME_NORMAL_MPS2:.2f}')
+    print(f'KACINMA_IVME_ACIL={KACINMA_IVME_ACIL_MPS2:.2f}')
+    print(f'KACINMA_DONUS_IVME={KACINMA_DONUS_IVME_MPS2:.2f}')
     print(f'KACINMA_HARD={KACINMA_HARD_M}')
     print(f'KACINMA_BAYAT_S={KACINMA_BAYAT_S}')
 

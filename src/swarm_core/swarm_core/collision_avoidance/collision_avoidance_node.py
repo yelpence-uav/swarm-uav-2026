@@ -91,6 +91,8 @@ class CollisionAvoidanceNode(Node):
         self._korluk_bildirildi: set[int] = set()
         self._n_korluk = 0
         self._n_korluk_tut = 0
+        self._son_kacis_t = 0.0
+        self._n_donus_yumusak = 0
         self._korluk_tut_aktif = False
 
         self._ca = CollisionAvoidanceCore(CaParams(
@@ -185,6 +187,10 @@ class CollisionAvoidanceNode(Node):
         self.declare_parameter('v_max_mps', 4.0)
         self.declare_parameter('slew_normal_mps2', 4.0)
         self.declare_parameter('slew_emergency_mps2', 30.0)
+        # DONUS YUMUSATMA — 22 Agustos 2026. Gerekce `_relay` icinde.
+        # 0 = kapali (ham setpoint dokunulmadan gecer).
+        self.declare_parameter('donus_ivme_mps2', 0.5)
+        self.declare_parameter('donus_soguma_s', 4.0)
 
         gp = self.get_parameter
         self._agent_id = int(gp('agent_id').value)
@@ -209,6 +215,8 @@ class CollisionAvoidanceNode(Node):
         self._v_max_mps = float(gp('v_max_mps').value)
         self._slew_normal = float(gp('slew_normal_mps2').value)
         self._slew_emergency = float(gp('slew_emergency_mps2').value)
+        self._donus_ivme_mps2 = float(gp('donus_ivme_mps2').value)
+        self._donus_soguma_s = float(gp('donus_soguma_s').value)
 
         if not 1 <= self._agent_id <= 254:
             raise ValueError(f'agent_id 1-254 olmalı: {self._agent_id}')
@@ -535,6 +543,8 @@ class CollisionAvoidanceNode(Node):
 
         self._setpoint_pub.publish(out)
         self._n_avoid += 1
+        # Donus yumusatmasinin baslangici: SON kacis ani (bkz. _relay).
+        self._son_kacis_t = self.get_clock().now().nanoseconds * 1e-9
 
         if now - self._last_active_log > 1.0:
             self.get_logger().warn(
@@ -544,10 +554,38 @@ class CollisionAvoidanceNode(Node):
             self._last_active_log = now
 
     def _relay(self, raw: AgentSetpoint, reset_core: bool = True) -> None:
-        """Ham setpoint verisini doğrudan geçirir."""
+        """Ham setpoint verisini geçirir; kaçınma sonrası dönüşü yumuşatır."""
         if reset_core:
             self._ca.reset((self._cur_vx, self._cur_vy, self._cur_vz))
         self._n_passthrough += 1
+
+        # DONUS YUMUSATMA — 22 Agustos 2026, ucusta olculdu.
+        #
+        # Kacinma bitince ham hedef aynen geciyordu ve px4_bridge yurutucusu
+        # onu NORMAL bir "su noktaya git" sanip GOREV IVMESIYLE rampa
+        # yapiyordu. Olculdu: 6 m'lik donus 3.21 m/s tepe hizla yapildi
+        # (v_tepe = sqrt(a*d) = sqrt(1.5*6) = 3.0) ve donus evresinde
+        # 22 derece yalpa olustu.
+        #
+        # Mantik: TEHLIKE ANINDA sert olmali, TEHLIKE GECINCE acele etmenin
+        # faydasi yok. Kacis sertligi HIC degismiyor (o CA'nin kendi slew'i);
+        # yalniz donus sakinlesiyor.
+        #
+        # `max_acc_mps2` alanini px4_bridge 22 Agustos'ta okumaya BASLADI
+        # (oncesinde dort dugum dolduruyor, kimse okumuyordu). 0.5 m/s2 ile
+        # ayni 6 m'lik donus 1.73 m/s tepeyle yapilir.
+        #
+        # SURE SINIRLI: soguma penceresi bitince ham setpoint DOKUNULMADAN
+        # gecer, yani gorev normal hizina doner.
+        now = self.get_clock().now().nanoseconds * 1e-9
+        if (self._donus_ivme_mps2 > 0.0
+                and self._son_kacis_t > 0.0
+                and (now - self._son_kacis_t) < self._donus_soguma_s):
+            yumusak = copy.deepcopy(raw)
+            yumusak.max_acc_mps2 = float(self._donus_ivme_mps2)
+            self._n_donus_yumusak += 1
+            self._setpoint_pub.publish(yumusak)
+            return
         self._setpoint_pub.publish(raw)
 
     def _diag_tick(self) -> None:
