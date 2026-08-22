@@ -1,6 +1,6 @@
 # RPİ EŞİTLEME DEFTERİ — geri gelen drone'u hizaya getirme
 
-**Son güncelleme:** 22 Ağustos 2026, A13 (çökme kaydı) eklendi
+**Son güncelleme:** 22 Ağustos 2026, A13-A15 (çökme kaydı) sahada sınandı
 
 ## Bu belge ne için
 
@@ -122,7 +122,37 @@ kalıcı olur. Üçü de ancak **ölçerek** görülür.
 | A8 | **sysctl writeback (1 sn)** | ✅ *(20 Ağu 23:15)* | ❌ | ✅ | `izleme_kur.sh` 7/7 → `/etc/sysctl.d/60-yelpence-writeback.conf` · **elle, root** |
 | A11 | **`mcap` kurtarma aracı** | ✅ | ❌ | ✅ | `~/yelpence_ws/bin/mcap` · **elle kopyalanır, `dagit.sh` taşımaz** |
 | A12 | **docker log döndürme** | ✅ | ❌ | ❌ | `run_drone.sh` içinde — **yalnız konteyner YENİDEN OLUŞTURULUNCA** devreye girer |
-| A13 | 🔴 **Çökme kaydı (ramoops) + `kernel.panic=10`** | ❌ | ❌ | ❌ | `izleme_kur.sh` **8/8** · **elle, root** · config.txt değişikliği → **yeniden başlatma ister** |
+| A13 | 🔴 **Çökme kaydı (ramoops) + `kernel.panic=10`** | ✅ | ❌ | ✅ | `izleme_kur.sh` **8/8** · **sahada sınandı** (sysrq paniği yakalandı) |
+| A14 | **Çökme izlerini okunabilir kopyala** | ✅ | ❌ | ✅ | `yelpence-cokme.service` → `~/yelpence_ws/gunluk/cokme/` |
+| A15 | **İzleme aralığı 60 → 10 sn** | ⏳ | ❌ | ⏳ | `izleme_kur.sh` yeniden çalıştırılınca geçerli |
+
+### Kod tarafı — 21-22 Ağustos (hepsi `dagit.sh` ile gider)
+
+Bunlar Pi ayarı değil **depo değişikliği**; `./deploy/rpi/dagit.sh <ad>` +
+konteyner yeniden başlatma yeterli. ylp01 döndüğünde tek yapılacak
+`dagit.sh ylp01`.
+
+| | ne | ylp00 | ylp01 | ylp02 |
+|---|---|---|---|---|
+| K1 | **ADIM 4** — `basit_kacinma` KAPALI, `collision_avoidance` açık | ✅ | ❌ | ✅ |
+| K2 | Kaçınma eşikleri **test değerleri** `d0=10 hard=6` (üretim: 6/4) | ✅ | ❌ | ✅ |
+| K3 | `velocity_only` artık CA'yı da kapsıyor | ✅ | ❌ | ✅ |
+| K4 | **Körlük alarmı** — 2 sn'de KRİTİK olay + YKİ sesli uyarı | ✅ | ❌ | ✅ |
+| K5 | Mesh `DURUM2_BAYRAK_KACINMA_KORU` (0x04) | ✅ | ❌ | ✅ |
+| K6 | `sahte_kayip_ajanlar` test kancası (tek yönlü kayıp benzetimi) | ✅ | ❌ | ✅ |
+| K7 | **Sönümleme tabanı** — uzaklaşan komşuya çekim YOK | ✅ | ❌ | ✅ |
+| K8 | `px4_bridge` setpoint hız/ivme tavanlarını okuyor | ✅ | ❌ | ✅ |
+
+🔴 **K2 GEÇİCİ.** `d0=10 hard=6` yalnız kaçınma testi için; uçaktaki
+`~/yelpence_ws/ucus_ayarlari.env` dosyasının sonuna elle eklendi.
+**Formasyon uçuşundan önce geri alınacak** — 12 m aralıkta formasyonun
+planlı en yakın yaklaşması 8,49 m, `d0=10` normal geçişte tetiklenir:
+
+```bash
+python3 src/gcs/ucus_ayarlari.py --kabuk > /tmp/ucus_ayarlari.env
+./deploy/yki/drone_bul.sh <ad> 'cat > ~/yelpence_ws/ucus_ayarlari.env' < /tmp/ucus_ayarlari.env
+# + docker restart
+```
 | A9 | **Wi-Fi ağları (SSID/şifre)** | ✅ 2 ağ | ❌ | ✅ 2 ağ | aşağıda §7 |
 | A10 | **SSH authorized_keys** | ✅ Osman+Berk | ❌ | ✅ Osman+Berk | aşağıda §7 |
 
@@ -446,41 +476,80 @@ ssh-copy-id <KULLANICI>@<ip>           # parolayla girer, anahtarını ekler
 
 ---
 
-### 🔴 A13 — çökme kaydı ve panik davranışı (HİÇBİR UÇAKTA YOK)
+### 🔴 A13-A15 — çökme kaydı, okunabilirlik, izleme sıklığı (22 Ağustos)
 
-**Neden:** 22 Ağustos'ta ylp00'ın Pi'si uçuştan ~2 dk sonra **öldü ve öyle
-kaldı** (kırmızı ışık, elle açmak gerekti). Sebep **bulunamadı** çünkü:
+**Neden:** 21 Ağustos'ta ylp00'ın Pi'si uçuştan ~2 dk sonra **öldü ve öyle
+kaldı** (kırmızı ışık, elle açmak gerekti). Sebep **bulunamadı** çünkü
+çökme izi hiç tutulmuyordu. Ayrıntı: `YAPILACAKLAR.md` **P0.17**,
+teşhis yöntemi: `TUZAKLAR.md` **§2.17**.
+
+**Ne kuruldu:**
+
+| | ne yapar |
+|---|---|
+| `kernel.panic=10` + `panic_on_oops=1` | panikte sonsuza kadar durmak yerine 10 sn'de yeniden başlar |
+| `ramoops` (overlay **+** cmdline) | çekirdeğin son sözünü RAM'de saklar, yeniden başlatmada bulunur |
+| `yelpence-cokme.service` | izleri `~/yelpence_ws/gunluk/cokme/` altına **644** kopyalar |
+| izleme `OnUnitActiveSec` 60 → 10 sn | gerilim/ısı/yük örneklemesi sıklaştı |
+
+⚠️ **Pi 5'te `ramoops` overlay TEK BAŞINA YETMİYOR.** İlk denemede yalnız
+`dtoverlay=ramoops` konuldu, iki uçakta uygulandı, yeniden başlatıldı ve
+ölçüldü: bellek ayrıldı ama **sürücü bağlanmadı**:
 
 ```
-kernel.panic = 0        -> panikte sonsuza kadar DURUYOR (gozlenen tablo bu)
-pstore BOS              -> panik izi HIC kaydedilmiyor
+OF: reserved mem: invalid reg property size in 'ramoops@b000000'
+/proc/iomem'de ramoops: YOK · /sys/fs/pstore bagli ama ARKASINDA DEPO YOK
 ```
 
-Ayrıntı ve elenen adaylar: `YAPILACAKLAR.md` **P0.17**.
+Overlay'in `reg` adres biçimi Pi 5'in 64-bit ağacıyla uyuşmuyor. Sürücü
+çekirdeğe **gömülü**, o yüzden `cmdline.txt`'den doğrudan adreslenmeli:
 
-**Uygulamak için** (her uçakta, `sudo` parola sorduğu için **etkileşimli**
-bağlan — `drone_bul.sh <ad> '<komut>'` biçimi ÇALIŞMAZ, `-t` yok):
+```
+ramoops.mem_address=0x0b000000 ramoops.mem_size=0x10000
+ramoops.record_size=0x2000 ramoops.console_size=0x2000 ramoops.dump_oops=1
+```
+
+`izleme_kur.sh` 8/8 artık **ikisini birden** yapıyor.
+
+**Uygulamak için** (`sudo` parola sorduğu için **etkileşimli** bağlan —
+`drone_bul.sh <ad> '<komut>'` biçimi ÇALIŞMAZ):
 
 ```bash
-./deploy/yki/drone_bul.sh ylp00          # komut vermeden -> kabuk acilir
-sudo bash ~/yelpence_ws/izleme_kur.sh    # 8/8 adimi ramoops + panic ayarlar
-sudo reboot                              # ramoops YENIDEN BASLATMA ister
+./deploy/yki/drone_bul.sh ylp00       # komut vermeden -> kabuk acilir
+sudo bash ~/yelpence_ws/izleme_kur.sh
+sudo reboot                            # ramoops/cmdline degistiyse SART
 ```
 
-`izleme_kur.sh` uçakta yoksa `./deploy/rpi/dagit.sh <ad>` ile gider.
-
-**Doğrulama (yeniden başlatmadan sonra):**
+Betik uçakta yoksa: `./deploy/rpi/dagit.sh <ad>` **taşımaz** —
+`izleme_kur.sh` ve `cokme_kopyala.sh` elle kopyalanır:
 
 ```bash
-cat /proc/sys/kernel/panic          # 10 gormeli
-grep ramoops /boot/firmware/config.txt
-ls /sys/fs/pstore/                  # ilk acilista bos olmasi NORMAL
-ls /var/lib/systemd/pstore/         # sonraki cokmeler buraya tasinir
+./deploy/yki/drone_bul.sh <ad> 'cat > ~/yelpence_ws/izleme_kur.sh'   < deploy/rpi/izleme_kur.sh
+./deploy/yki/drone_bul.sh <ad> 'cat > ~/yelpence_ws/cokme_kopyala.sh' < deploy/rpi/cokme_kopyala.sh
 ```
 
-⚠️ `config.txt` yedeklenir (`*.yelpence_yedek_<damga>`); betik iki kez
-çalıştırılırsa satırı tekrar eklemez.
+**Doğrulama:**
 
+```bash
+cat /proc/sys/kernel/panic                     # 10
+dmesg | grep -i 'Registered ramoops'           # satir CIKMALI
+systemctl cat yelpence-izle.timer | grep OnUnit  # 10s
+ls ~/yelpence_ws/gunluk/cokme/                 # cokme yoksa BOS olmasi normal
+```
+
+> ℹ️ `dmesg`'de `ramoops ...: probe with driver ramoops failed with error -22`
+> görürsen **panik yok**: overlay'in ikinci kez kaydolma denemesi,
+> `already initialized` diyor. Asıl kanıt `Registered ramoops` satırı.
+
+**SAHADA SINANDI (ylp02, 22 Ağustos):** `sudo bash -c 'echo c > /proc/sysrq-trigger'`
+→ Pi paniğe girdi → **10 sn'de kendi döndü** → `console-ramoops-0` (8 KB) ve
+`dmesg-ramoops-0` (13,3 KB) kopyalandı ve **okundu**. Çağrı yığını net:
+`sysrq_handle_crash / write_sysrq_trigger / vfs_write / el0_svc`.
+Gerçek bir ölümde bu yığın asıl suçlu sürücüyü gösterecek.
+
+🔴 **Pi öldüğünde GÜCÜ KESME** — `ramoops` izi RAM'de, güç giderse silinir.
+
+## 8. DEĞİŞİKLİK DEFTERİ
 ## 8. DEĞİŞİKLİK DEFTERİ
 
 Her Pi değişikliği buraya, en yeni en üste.

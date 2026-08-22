@@ -1,6 +1,6 @@
 # TUZAKLAR — hata vermeden yanlış sonuç üretenler
 
-**Son güncelleme:** 22 Ağustos 2026, tek yönlü kayıp benzetimi
+**Son güncelleme:** 22 Ağustos 2026, Pi ölüm teşhisi
 
 > **Bu belge CANLI.** Arşiv değil — buradaki her madde **bugün de geçerli.**
 >
@@ -881,6 +881,58 @@ docker exec drone1 ros2 param set /esp32_bridge sahte_kayip_ajanlar "[0]"   # no
 okunuyordu: `ros2 param set` *"successful"* diyor, düğüm eski değeri
 kullanmaya devam ediyor ve benzetim **sessizce hiçbir şey yapmıyordu**
 (kanca sayacı 0 kaldı). `add_on_set_parameters_callback` ile düzeltildi.
+
+---
+
+### 2.17 🔧 Pi ölü bulunduğunda: ÜÇ YERE BAK, sebep ayırt edilebilir
+
+22 Ağustos'ta kuruldu ve **sahada sınandı** (`sysrq` ile kasıtlı panik).
+Öncesinde yazılım ölümü ile güç kesilmesi **birebir aynı görünüyordu**;
+artık ayırt ediliyor.
+
+**Sırayla üç yere bak:**
+
+```bash
+# 1. Cekirdek son ne dedi  (BOS olmasi da BILGIDIR — asagi bak)
+ls  ~/yelpence_ws/gunluk/cokme/
+tail -25 ~/yelpence_ws/gunluk/cokme/dmesg-ramoops-0
+
+# 2. Gerilim olumden once ne yapiyordu  (10 sn'de bir ornek)
+tail -20 /var/log/yelpence_izle.log
+
+# 3. Sistem gunlugu nerede kesildi
+journalctl -b -1 --no-pager | tail -20
+```
+
+**Tablo:**
+
+| | izleme logu (`v=`, `thr=`) | `gunluk/cokme/` | teşhis |
+|---|---|---|---|
+| Yavaş gerilim düşüşü | `v=` **düşüyor**, `thr` bayrağı yanmış | boş | **güç — kademeli** (BEC, gevşek konnektör, biten pil) |
+| **Ani kesilme** | son örnek **normal**, sonra hiçbir şey | **boş** | **güç — ani** (kopan kablo, çıkan konnektör) |
+| Çekirdek paniği | gerilim **normal** | **yığın izi VAR** | **yazılım** — çağrı yığını suçluyu gösterir |
+| Temiz kapatma | normal | boş | `journalctl`'de PID 1'den shutdown dizisi görünür |
+
+⚠️ **`v=` uydurma değil:** `vcgencmd pmic_read_adc EXT5V_V` — Pi'ye **giren**
+5 V beslemesi, PMIC'in kendi ADC'sinden. `thr` ise
+`vcgencmd get_throttled`: bit 0 = *şu an* düşük gerilim, bit 16 = *açılıştan
+beri oldu mu*. `thr=0x0` → hiç düşük gerilim yaşanmamış.
+
+**Ani kesilmenin doğrudan izi YOKTUR — olamaz da:** işlemci o anda durur,
+yazacak zaman yoktur. Ama **imzası** vardır: gerilim son ana kadar normal +
+çökme izi boş + günlük aniden kesik. Bu üçlü birlikte "güç gitti" demektir.
+**İzin yokluğu da bir bilgidir** — yeter ki iz tutulabiliyor olsun.
+
+🔴 **Pi öldüğünde GÜCÜ KESME.** `ramoops` izi RAM'de duruyor; güç tamamen
+giderse **silinir**. `kernel.panic=10` sayesinde gerçek bir panikse Pi
+10 saniyede kendi döner ve izi getirir. Dönmezse bile önce gücü kesmeden
+yeniden başlatmayı dene.
+
+**Örnek — 21 Ağustos ylp00 ölümü** (bu düzenek kurulmadan önce): son
+örnekte `thr=0x0` idi, yani açılıştan beri hiç düşük gerilim olmamıştı.
+Buradan *"kademeli gerilim düşüşü DEĞİLDİ"* sonucu çıkarılabildi — ama ani
+kesilme mi yazılım mı, ayırt edilemedi. Çökme izi olmadığı için.
+Bkz. `YAPILACAKLAR.md` P0.17.
 
 ---
 
