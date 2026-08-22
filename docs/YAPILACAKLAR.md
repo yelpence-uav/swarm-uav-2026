@@ -1,6 +1,84 @@
 # YAPILACAKLAR
 
-**Son güncelleme:** 22 Ağustos 2026, P1.16 açıldı
+**Son güncelleme:** 22 Ağustos 2026, sonraki operatör bloğu eklendi
+
+## 🚨 SONRAKİ OPERATÖRE — ÖNCE BUNLAR (22 Ağustos gecesi bırakıldı)
+
+> Bu blok bir oturumun sonunda, **uçuş yarıda kalmışken** yazıldı. Aşağıdaki
+> sıra rastgele değil: 1 ve 2 yapılmadan uçulmaz.
+
+### 1. 🔴 `docker restart drone1` — ylp00'da yeni ayarlar ETKİN DEĞİL
+
+Kaçınmanın ivme sınırları düzeltildi (`30 → 5,66 m/s²`) ama **ylp00'ın
+konteyneri yeniden başlatılmadı** — MAVROS cevapsızdı, uçuş pili kapalı
+olabilir. Restart edilmezse ylp00 **eski, imkânsız ivmeyle** uçar.
+
+```bash
+./deploy/yki/drone_bul.sh ylp00 'docker restart drone1'
+# ~4 dk sonra dogrula — acilis logunda SU satir gorunmeli:
+#   ivme normal=3.58 acil=5.66 donus=0.50
+```
+
+ylp02'de **etkin**, doğrulandı.
+
+### 2. 🔴 Uçuş öncesi `uptime -s` (P0.17)
+
+ylp00'ın Pi'si bir kez **öldü ve öyle kaldı** (kırmızı ışık, elle açıldı).
+Sebep bilinmiyor. Pi son 10 dakikada açılmışsa **uçma.** Çökme kaydı artık
+kurulu, bir daha olursa iz bırakacak → `TUZAKLAR.md` §2.17.
+
+🔴 **Pi ölürse GÜCÜ KESME** — iz RAM'de, güç giderse silinir.
+
+### 3. 🔴 Sıradaki uçuş: üç düzeltmenin doğrulanması
+
+Tam tarifi `PLAN.md` **"SIRADAKİ UÇUŞ"** bölümünde. Özet:
+
+| | önceki uçuş | beklenen |
+|---|---|---|
+| kaçış maks eğim | **34,0°** | **≤ 20°** |
+| dönüş tepe hızı | 3,21 m/s | ~1,73 m/s |
+| **kaçışın gücü** | 3,88 m kaçtı | **aynı kalmalı** |
+
+Son satır kritik: kaçış **zayıflarsa düzeltme yanlış** demektir.
+
+Ölçüm `/mavros/imu/data` quaternion'undan roll/pitch, **evrelere ayrılmış**
+(asılı / kaçış / dönüş / asılı). ⚠️ Konum ve hız verisi bu sorunu
+**gizler** — `TUZAKLAR.md` §2.18.
+
+Manevra: tek uçak asılı, ikinci uçak kumandayla **yandan** yaklaşır.
+**Tepeden yaklaşılmaz** (`xy_guard=0.3` kör noktası), **altından geçilmez.**
+
+### 4. 🔴 Formasyon uçuşundan ÖNCE: `d0=10 hard=6` GERİ ALINACAK
+
+Bu değerler yalnız kaçınma testi için, uçaklara **elle** kondu. 12 m
+aralıkta formasyonun planlı en yakın yaklaşması 8,49 m — `d0=10` normal
+formasyon geçişinde tetiklenir ve formasyonla çekişir.
+Geri alma komutu: `RPI_ESITLEME.md` **K2**.
+
+### 5. 🟠 Kumanda hangi uçağa bağlı — NETLEŞMEDİ
+
+ylp00'da `rc_link_ok: true`. İkinci uçağı kumandayla kaldırırken ylp00'ın
+modunun alınıp alınmadığı ölçülmedi. **Uçuşsuz, 30 saniyelik yer testiyle**
+kesinleşir: iki uçak yerde ve disarm dururken çubuğu oynat, ylp00'ın RC
+girişi değişiyor mu bak.
+
+Bu netleşmeden aynı test düzeni üçüncü kez aynı yerde kesilebilir. (Not:
+mod geri alma açığı kapatıldı, yani pilot müdahalesi artık **kalıcı** —
+ama kumandanın hangi uçağı sürdüğü hâlâ bilinmiyor.)
+
+### 6. 🟠 YKİ uyarılarının kalıcı kaydı yok → **P1.16**
+
+Bir oturumda **~32 bildirim** gitti ve **hiçbiri kayıtlı değil**.
+`AlertManager` yalnız bellekte tutuyor. ~20 satırlık iş, uçuş sonrası
+"ne oldu" sorusunu cevaplanabilir kılıyor.
+
+### Bilinmesi gereken, düzeltilmemiş
+- Kaçınma **asılı dururken teğet bileşen üretmiyor** (yalnız düz geriye iter)
+- **Tepeden yaklaşmada koruma YOK** (`xy_guard=0.3` altı komşu tamamen atlanır)
+- Uçakta üretilen `SystemEvent`'lerin çoğu YKİ'ye **ulaşmıyor** (mesh'te
+  `TIP_EVENT` yok) — yalnız kaçınma körlüğü bayrakla taşınıyor → P1.15
+
+---
 
 ## Önem dereceleri
 
