@@ -1,25 +1,24 @@
 # YAPILACAKLAR
 
-**Son güncelleme:** 22 Ağustos 2026, sonraki operatör bloğu eklendi
+**Son güncelleme:** 23 Ağustos 2026, 01:30 — P0.15 KAPANDI (kök neden bulundu)
 
 ## 🚨 SONRAKİ OPERATÖRE — ÖNCE BUNLAR (22 Ağustos gecesi bırakıldı)
 
 > Bu blok bir oturumun sonunda, **uçuş yarıda kalmışken** yazıldı. Aşağıdaki
 > sıra rastgele değil: 1 ve 2 yapılmadan uçulmaz.
 
-### 1. 🔴 `docker restart drone1` — ylp00'da yeni ayarlar ETKİN DEĞİL
+### 1. ✅ `docker restart drone1` — YAPILDI (22 Ağustos 17:31)
 
-Kaçınmanın ivme sınırları düzeltildi (`30 → 5,66 m/s²`) ama **ylp00'ın
-konteyneri yeniden başlatılmadı** — MAVROS cevapsızdı, uçuş pili kapalı
-olabilir. Restart edilmezse ylp00 **eski, imkânsız ivmeyle** uçar.
+Kaçınmanın ivme sınırları (`30 → 5,66 m/s²`) artık **ylp00'da da etkin**.
+Açılış logundan doğrulandı:
 
-```bash
-./deploy/yki/drone_bul.sh ylp00 'docker restart drone1'
-# ~4 dk sonra dogrula — acilis logunda SU satir gorunmeli:
-#   ivme normal=3.58 acil=5.66 donus=0.50
+```
+collision_avoidance basladi (komsular: 2,3, d0=10.0 hard=6.0,
+  ivme normal=3.58 acil=5.66 donus=0.50, basit_kacinma KAPALI)
 ```
 
-ylp02'de **etkin**, doğrulandı.
+11 düğüm ayakta, YKİ drone1'i yeniden görüyor. **İki uçak da aynı
+ivme sınırlarında** — ayrışma kalmadı.
 
 ### 2. 🔴 Uçuş öncesi `uptime -s` (P0.17)
 
@@ -445,35 +444,39 @@ saatlerde kesintisiz koştu. İki uçakta da bekçi ayarı aynı.
   mi, yükle mi ilişkili — ayırt edilemiyor.
 
 
-### 🔴 P0.15 Mesh tek yönlü ölünce kaçınma KÖR kalıyor ve ALARM YOK — UÇUŞTA ÖLÇÜLDÜ
+### ✅ P0.15 KAPANDI — kök neden bulundu ve iki uçuşla doğrulandı (22-23 Ağustos)
 
-**21 Ağustos akşamı, gerçek uçuşta.** Operatör ylp02'yi ylp00'a **3 metreye**
-kadar yaklaştırdı, `collision_avoidance` hiç tetiklenmedi — çünkü ylp00
-komşusunu **46,4 saniye** hiç görmedi. Ters yön aynı anda kusursuzdu
-(ylp02'nin ylp00'dan aldığı veride maks boşluk **0,4 sn**).
+**Neydi:** 21 Ağustos akşamı ylp00, komşusunu **46,4 saniye** hiç görmedi;
+`collision_avoidance` 3 metrede bile tetiklenmedi. Ters yön aynı anda
+kusursuzdu (maks boşluk **0,4 sn**).
 
-Ayrıntı ve ölçümler: `TUZAKLAR.md` §2.15.
+**🔑 Kök neden: ESP32 ↔ Pi UART kablosunun ESP ucundaki JUMPER konnektörü.**
+Marjinal oturuyordu; uçuş titreşiminde kesikli temas yapıp baytları bozuyordu.
 
-**Neden P0:** çarpışma önleme iki uçak arasındaki tek koruma katmanı ve mesh
-linki tek yönlü ölebiliyor. Sürü uçakları sürmeye başladığında bu doğrudan
-çarpışma riski. Bugün güvenliydi çünkü operatörün gözü ve kumandası vardı,
-ayrıca irtifa ayrımı duruyordu.
+```
+ylp00 :  19.007 paket  ->  crc_fail = 868   (hepsi ucus sirasinda)
+ylp02 :  19.505 paket  ->  crc_fail =   0   (ayni ucus, ayni kod)
+yerde :  ~19.000 paket ->  crc_fail =   0   (her iki ucakta)
+```
 
-- `[ ]` 🔴 **ALARM ŞART.** CA bir komşuyu `neighbor_rx_stale_s`'ten uzun süre
-  göremiyorsa ve biz **havadaysak** bu bir güvenlik olayıdır: `WARNING` log +
-  `SystemEvent` (YKİ görsün) + tanıda ayrı alan. Şu an yalnız `skip_stale`
-  sayacında sessizce sayılıyor. ~15 satır.
-- `[ ]` 🔴 **Körlükte davranış kararı.** Komşu kayıpken "koruma yok" kabul
-  edilebilir mi? (a) olduğu gibi bırak, alarm yeter · (b) son bilinen konumu
-  **büyüyen belirsizlik yarıçapıyla** engel say · (c) körlük X saniyeyi
-  geçerse konum tut / görevi durdur. Operatör kararı.
-- `[ ]` 🟠 **Kök neden ölçülmeli.** Link neden tek yönlü öldü? ylp02
-  kumandayla uçuyordu (değişken motor akımı, farklı anten yönelimi). Ölçüm:
-  iki ESP'nin RSSI/hata sayaçları, anten yerleşimi, ylp02'nin gönderim
-  tarafı. `MESH_PROTOKOL_KARARLARI.md` gerekebilir (korumalı — operatöre sor).
+Tek yönlü olmasının sebebi: gevşek pin ESP'nin **TX**'i — uçağın *aldığı*
+bozuluyor, *gönderdiği* sağlam. Üç olayda da aynı yön öldü (**ylp02 → ylp00**).
+
+**Doğrulama:** konnektör oturtuldu → tek uçaklı uçuş **0 hata**, iki uçaklı
+uçuş **0 hata**, `alim_ok` hiç düşmedi (önce 13,5 → 7,6 düşüyordu).
+
+Mekanizma, on elenen hipotez ve neden yerde hiçbir testin üretmediği:
+**`TUZAKLAR.md` §2.19**.
+
+- `[x]` 🔴 Kök neden bulundu, düzeltildi, iki uçuşla doğrulandı
 - `[x]` ✅ Bayatlık dedektörü **çalıştı** — 46,8 sn'yi yakalayıp
   `healthy=False` yaptı ve uyardı (20 Ağustos'ta P0.14(b) için eklenmişti).
   Teorik diye eklenen koruma, bir gün sonra gerçek olayı yakaladı.
+- `[ ]` 🔴 **Körlükte davranış kararı — HÂLÂ AÇIK.** Kök neden kapandı ama
+  mesh her zaman kayıplı; komşu kayıpken "koruma yok" kabul edilebilir mi?
+  (a) olduğu gibi bırak, alarm yeter · (b) son bilinen konumu **büyüyen
+  belirsizlik yarıçapıyla** engel say · (c) körlük X saniyeyi geçerse konum
+  tut / görevi durdur. **Operatör kararı.**
 
 ### ✅ P0.16 ÇÖZÜLDÜ — kaçınma körlüğü artık YKİ'ye ulaşıyor (21 Ağustos gecesi)
 
@@ -563,6 +566,33 @@ loglarından geriye dönebildim — o da tesadüfen orada oldukları için.
 - `[ ]` 🟡 `config.yaml`'da susturulan listesi var (`link_timeout`,
   `low_battery`, `critical_battery`) — **susturulanlar da loga yazılmalı**,
   yalnız ekrana çıkmasın. Şu an tamamen kayboluyorlar.
+
+### 🟠 P1.18 Köprüde ÇERÇEVE-KAYBI sayacı yok — kayıp bayt sessizce yok oluyor
+
+**22 Ağustos'ta bulundu**, P0.15'in kök nedeni aranırken. `esp32_bridge`
+seri hattı şöyle sayıyor:
+
+```
+alim_ok · crc_fail · gonderim_ok · gonderim_drop ·
+rtk_alindi · bilinmeyen_tip · id_uyumsuz
+```
+
+Bayt **bozulursa** `crc_fail` artar. Ama **kaybolursa** COBS bir sonraki
+`0x00` ayracında yeniden senkron olur ve yarım çerçeve **hiçbir sayaca
+yansımadan** yok olur.
+
+**Neden önemli:** iki farklı arıza biçimini ayırt edemiyoruz —
+
+```
+alim_ok duser + crc_fail ARTAR      ->  bozuk bayt   (kablo/konnektor)
+alim_ok duser + crc_fail ARTMAZ     ->  KAYIP bayt   (?) — bugun goremiyoruz
+```
+
+P0.15'te şanslıydık: arıza bozuk-bayt biçimindeydi ve `crc_fail` gösterdi.
+Kayıp-bayt biçiminde olsaydı elimizde hiçbir iz olmazdı.
+
+- `[ ]` 🟠 COBS ayrıştırıcısına çerçeve-kaybı/desync sayacı ekle ve
+  `mesh_diag`'a koy. ~10 satır. Tuzağın kendisi: `TUZAKLAR.md` §1.21.
 
 ### 🟠 P1.15 Mesh RSSI'yi doldur + YKİ arayüzüne komşu sinyal gücü — 👤 **YALNIZ EYÜP**
 
@@ -1236,27 +1266,6 @@ gerekmiyor.
 - `[ ]` 🟡 Anahtarlar dağıtıldıktan sonra parola girişini kapatmayı düşün
   (ama sahada kilitli kalma riskine karşı acil çıkış olarak bırakmak da savunulabilir)
 
-### P1.7 `gcs_url` yayını YKİ ağını boğuyor — çözümü tek satır, uygulanmadı
-
-**17 Ağustos'ta ölçüldü ve iki yönlü doğrulandı** (ayrıntı `GUNLUK.md`).
-`udp-b://:14555@14550` **yayın** demek; QGC açık değilken MAVROS durmadan
-`255.255.255.255:14550`'ye yayın yapıyor ve telefon hotspot'u tüm
-istemcilere teslimatı saniyede ~1.25 pakete düşürüyor — ağ geçidine ping
-14 sn, laptopta internet ölü. Radyo boş, tıkanıklık yok; sorun trafiğin
-hacmi değil **yayın olması** (14 paket/s yetiyor).
-
-Şu an **kural olarak yaşıyoruz**: *dronlara güç vermeden önce QGC'yi aç.*
-Bu tutuyor (MAVROS keşfettiği karşı tarafı unutmuyor, ölçüldü) ama her
-`docker restart droneN` pencereyi yeniden açıyor.
-
-- `[ ]` 🟠 **Karar ver:** `gcs_url` → `udp://:14555@` (uçak yayın yapmaz,
-  sadece dinler; bağlantıyı QGC kurar, uçakta IP yazılı olmaz). ylp00'da
-  denendi: 100 sn'de 31779 tekil paket, **0 yayın**, ping 200/200,
-  ortanca 5.2 ms. Sonra operatör kararıyla geri alındı.
-  Uygulanırsa **iki uçakta da** yapılmalı + `RPI_ESITLEME.md`'ye yazılmalı.
-- `[ ]` 🟡 Uygulanmazsa kuralı uçuş öncesi listesine gir — yazılı olmadığı
-  için bir gece kaybedildi
-
 ### P1.5 Konteyner ağdan önce kalkıyor → QGC bağlantısı ölü kalıyor
 
 **15 Ağustos'ta yaşandı ve teşhisi ~yarım saat aldı.** ylp02 sahaya
@@ -1272,9 +1281,10 @@ Logdaki izi: `link[1000] removed stale remote address ...`.
 seri çerçeveleme @921600 (67 ardışık geçerli çerçeve) · FCU `sysid=3
 compid=1` · sıcaklık 54.3 °C, throttle `0x0` · UDP tekil **ve** yayın.
 
-> 💡 **P1.7 bunu kendiliğinden çözebilir:** `udp://:14555@` ile başlangıçta
+> 💡 **`gcs_url` = `udp://:14555@` bunu kendiliğinden çözebilir:** başlangıçta
 > kurulacak bir karşı taraf yok, dolayısıyla `removed stale remote address`
-> da olmaz. Doğrulanmadı — P1.7 uygulanırsa bu maddeyi tekrar sına.
+> da olmaz. Doğrulanmadı; o değişiklik operatör kararıyla **uygulanmadı**
+> (`TUZAKLAR.md` §7.1). Bir gün uygulanırsa bu maddeyi tekrar sına.
 
 - `[ ]` 🟠 `baslat.sh`, `gcs_url` ile mavros'u başlatmadan önce ağın hazır
   olmasını beklesin (wlan0'da IP var mı / ağ geçidine ping, en fazla ~30 sn).
@@ -1475,6 +1485,47 @@ Döndürme olmadan bozuk bir docker logu konteyner yeniden oluşturulana kadar
 - `[ ]` 🟡 Sırası gelince (bir sonraki doğal yeniden oluşturmada):
   `docker rm -f drone3 && cd ~/yelpence_ws && bash run_drone.sh 3`.
   **Disarm halde**, ROS yığını ~4 dk kapalı kalır.
+
+### 🟡 P2.12 `[SWARM] Stale ajanlar` 5 Hz'de kısıtsız loglanıyor
+
+22 Ağustos'ta tek yönlü körlük benzetimi sırasında ölçüldü: `swarm_fsm_node`
+komşu bayatladığı sürece **her tikte** (5 Hz) uyarı basıyor —
+
+```
+59 saniyelik korlukte  ->  295 satir  "[SWARM] Stale ajanlar: [3]"
+```
+
+Gerçek bir 46 saniyelik kopmada ~230 satır. Bilgi değeri ilk satırdan sonra
+sıfır; log bekçisinin tavanını (500 MB) boşuna yiyor ve asıl satırları
+gömüyor.
+
+- `[ ]` 🟡 `throttle_duration_sec` ekle (10 sn yeterli) ya da yalnız
+  **değişimde** bas — komşu listesi değiştiğinde.
+
+### 🟡 P2.13 Sağlık oranı dalı İKİ UÇAKLA bıçak sırtında
+
+`swarm_fsm_node.py` sağlık kontrolü:
+
+```python
+ratio = healthy / ctx.expected_agent_count      # expected = 2
+if ratio < ctx.min_healthy_ratio:               # 0.5
+    -> SWARM FAILSAFE + EVENT_EMERGENCY_LAND
+```
+
+Bir komşu körleşince `healthy = 1` (yalnız kendisi) → `ratio = 1/2 = 0,50` →
+`0,50 < 0,50` **false** → ateşlemiyor. **Sıfır payla geçiyor.**
+
+🔴 Kendi `healthy`'si bir tikte düşerse (örn. `estimator_ok` kaybı) oran
+`0/2 = 0` olur ve bu dalın **havada olma şartı var** — yani tam uçuşta
+ateşler ve tüm sürüye acil iniş yayınlar.
+
+22 Ağustos'ta ölçüldü: gerçek körlükte `active_agent_count` 2 → 1 → 2 gitti,
+`EVENT_EMERGENCY_LAND` **yayınlanmadı** (15 Ağustos'taki `agent_id`
+düzeltmesi tutuyor). Yani bugün ateşlemiyor — ama payı yok.
+
+- `[ ]` 🟡 İki uçaklı filoda `min_healthy_ratio`'yu gözden geçir, ya da
+  eşiği "en az bir sağlıklı komşu" gibi mutlak bir kurala çevir.
+  Üç uçakla sorun kalmıyor (2/3 = 0,67).
 
 ### P2.6 Pi'lerin interneti bir sabah tamamen kesildi, sebebi bilinmiyor
 

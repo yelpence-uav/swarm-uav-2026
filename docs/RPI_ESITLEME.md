@@ -1,6 +1,6 @@
 # RPİ EŞİTLEME DEFTERİ — geri gelen drone'u hizaya getirme
 
-**Son güncelleme:** 22 Ağustos 2026, A13-A15 (çökme kaydı) sahada sınandı
+**Son güncelleme:** 23 Ağustos 2026, 01:30 — A16 ESP↔Pi jumper (P0.15 kök nedeni)
 
 ## Bu belge ne için
 
@@ -125,6 +125,24 @@ kalıcı olur. Üçü de ancak **ölçerek** görülür.
 | A13 | 🔴 **Çökme kaydı (ramoops) + `kernel.panic=10`** | ✅ | ❌ | ✅ | `izleme_kur.sh` **8/8** · **sahada sınandı** (sysrq paniği yakalandı) |
 | A14 | **Çökme izlerini okunabilir kopyala** | ✅ | ❌ | ✅ | `yelpence-cokme.service` → `~/yelpence_ws/gunluk/cokme/` |
 | A15 | **İzleme aralığı 60 → 10 sn** | ✅ | ❌ | ✅ | 22 Ağu 03:36'da doğrulandı — `OnUnitActiveSec=10s`, timer aktif |
+| A16 | 🔴 **ESP↔Pi UART jumper'ı yeniden oturtuldu** | ✅ *(23 Ağu 00:50, ELLE)* | ❌ | ❔ **bakılmadı** | P0.15'in kök nedeni — `TUZAKLAR` §2.19. **Geçici**: jumper yine gevşer |
+
+> ### 🔴 A16 — konnektör: yapılan iş ve durumu
+>
+> **ylp00:** ESP32 ↔ Pi UART kablosunun **ESP ucundaki jumper** marjinal
+> oturuyordu; uçuş titreşiminde kesikli temas yapıp baytları bozuyordu
+> (uçuşta `crc_fail` 868, yerde 0). Elle kontrol sırasında **iki tel çıktı**,
+> yeniden oturtuldu. Doğrulama: tek uçaklı ve iki uçaklı uçuşta **crc_fail 0**.
+>
+> ⚠️ **Bu geçici bir düzeltme.** Jumper sürtünmeyle tutar — kilit yok, gerilim
+> boşaltma yok. Titreşimde yeniden gevşemesi beklenir.
+>
+> **ylp02 / ylp01:** aynı jumper dizilimi onlarda da var. ylp02 22 Ağustos
+> uçuşunda **0 hata** verdi, ama bu "sağlam" değil **"henüz gevşememiş"**
+> demektir — kontrol edilmedi.
+>
+> Kontrol yolu (uçuş gerekmez, ~1 dk): uçuş sonrası `mesh_diag`'da
+> `crc_fail` bak. **Yerde 0, uçuşta da 0 olmalı.**
 
 ### Kod tarafı — 21-22 Ağustos (hepsi `dagit.sh` ile gider)
 
@@ -143,15 +161,20 @@ konteyner yeniden başlatma yeterli. ylp01 döndüğünde tek yapılacak
 | K7 | **Sönümleme tabanı** — uzaklaşan komşuya çekim YOK | ✅ | ❌ | ✅ |
 | K8 | `px4_bridge` setpoint hız/ivme tavanlarını okuyor | ✅ | ❌ | ✅ |
 | K9 | 🔴 **Pilot devraldıysa mod geri alınmaz** | ✅ | ❌ | ✅ |
-| K10 | 🔴 **Kaçınma ivmeleri eğim tavanına bağlandı** (30→5,66) | ⏳ | ❌ | ✅ |
-| K11 | `hard` sınırındaki süreksizlik giderildi | ⏳ | ❌ | ✅ |
-| K12 | Kaçınma sonrası dönüş yumuşatma (0,5 m/s²) | ⏳ | ❌ | ✅ |
+| K10 | 🔴 **Kaçınma ivmeleri eğim tavanına bağlandı** (30→5,66) | ✅ | ❌ | ✅ |
+| K11 | `hard` sınırındaki süreksizlik giderildi | ✅ | ❌ | ✅ |
+| K12 | Kaçınma sonrası dönüş yumuşatma (0,5 m/s²) | ✅ | ❌ | ✅ |
 
-> ⏳ **ylp00'da K10-K12 HENÜZ ETKİN DEĞİL.** Kod dağıtıldı ama konteyner
-> yeniden başlatılmadı (MAVROS cevapsızdı, uçuş pili kapalı olabilir).
-> **Uçuştan önce `docker restart drone1` ŞART**, yoksa eski `30 m/s²`
-> ile uçar. Doğrulama: açılış logunda
-> `ivme normal=3.58 acil=5.66 donus=0.50` görünmeli.
+> ✅ **ylp00'da K10-K12 ETKİNLEŞTİ (22 Ağustos 17:31).** Bekleyen
+> `docker restart drone1` yapıldı ve açılış logundan doğrulandı:
+>
+> ```
+> collision_avoidance basladi (komsular: 2,3, d0=10.0 hard=6.0,
+>   ivme normal=3.58 acil=5.66 donus=0.50, basit_kacinma KAPALI)
+> ```
+>
+> Sonrasında 11 `ros2 run` süreci ayakta, YKİ drone1'i yeniden gördü.
+> Artık iki uçak da aynı ivme sınırlarında — ayrışma yok.
 
 🔴 **K2 GEÇİCİ.** `d0=10 hard=6` yalnız kaçınma testi için; uçaktaki
 `~/yelpence_ws/ucus_ayarlari.env` dosyasının sonuna elle eklendi.
@@ -815,7 +838,7 @@ ylp02 açıldığında: `ssh-copy-id yelpence02@<ip>`.
 
 ⚠️ Aynı gece `gcs_url` = `udp://:14555@` **denendi ve doğrulandı**, sonra
 operatör kararıyla **geri alındı** — iki uçak da `udp-b://:14555@14550`'de,
-yani bu konuda ayrışma **yok**. Ölçüm ve gerekçe: `YAPILACAKLAR.md` P1.7.
+yani bu konuda ayrışma **yok**. Ölçüm ve gerekçe: `TUZAKLAR.md` §7.1.
 Uygulanmasına karar verilirse **iki uçakta birden** yapılmalı, yoksa
 düzeltilmemiş olan yayın yapıp ağı boğmaya devam eder.
 

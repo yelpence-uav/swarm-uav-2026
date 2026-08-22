@@ -1,6 +1,6 @@
 # TUZAKLAR — hata vermeden yanlış sonuç üretenler
 
-**Son güncelleme:** 22 Ağustos 2026, kaçınma eğim tavanına bağlandı
+**Son güncelleme:** 23 Ağustos 2026, 01:30 — §2.19 jumper konnektör (P0.15 kök nedeni)
 
 > **Bu belge CANLI.** Arşiv değil — buradaki her madde **bugün de geçerli.**
 >
@@ -600,6 +600,44 @@ seçim, sıfır hata, sıfır log. Teşhis betikleri bu yüzden consensus'u
 Sahtenin kaldırılması `YAPILACAKLAR.md` P1.13'te; pil izlemenin bütünü
 **KARAR-03**'te (üç yerde birden kapalı, modül gelince altı adımda açılacak).
 
+### 1.21 `crc_fail = 0` "veri eksiksiz geldi" DEMEK DEĞİL
+
+`esp32_bridge` seri hattı şöyle sayıyor:
+
+```
+alim_ok     COBS+CRC dogrulanmis paket
+crc_fail    CRC eslesmemis paket        <- bayt BOZULDUYSA
+```
+
+Bayt **bozulursa** `crc_fail` artar. Ama **kaybolursa** COBS bir sonraki
+`0x00` ayracında yeniden senkron olur ve yarım çerçeve **sessizce yok olur** —
+hiçbir sayaca yansımaz. Köprüde çerçeve-kayması sayacı **yok** (22 Ağustos'ta
+sayaç listesi tek tek okundu: `alim_ok · crc_fail · gonderim_ok ·
+gonderim_drop · rtk_alindi · bilinmeyen_tip · id_uyumsuz`).
+
+Sonuç: **"CRC sıfır" bir kanıt değil, yarım kanıttır.** Kayıp bayt arıyorsan
+sayaca değil, **beklenen paket hızıyla ölçüleni** karşılaştır (POSE 10 Hz
+yollanır; alınan 5,8/s ise fark oradadır). *(22 Ağustos 2026)*
+
+### 1.22 "DURUM paketi N sn'dir gelmedi" uyarısı YANILTABİLİR
+
+`esp32_bridge_node.py`'de yaş şöyle hesaplanıyor:
+
+```python
+yas = time.monotonic() - self._komsu_durum_ts.get(drone_id, 0.0)
+```
+
+🔴 **Anahtar YOKSA `.get` 0.0 döner** ve `yas` = sürecin çalışma süresi olur.
+Yani uyarı "o komşudan hiç DURUM gelmedi" halinde de çıkar, üstelik
+uydurma bir sayıyla.
+
+22 Ağustos'ta ylp00 *"drone3: DURUM paketi **27.8 sn**dir gelmedi"* dedi ve
+27,8 gerçek bayatlık değil, köprünün o anki çalışma süresiydi. Bu satıra
+bakıp "27 saniyedir kopuk" sonucu çıkarmak yanlış olurdu.
+
+**Kural:** bu uyarıyı görünce önce o komşudan **hiç** DURUM gelip gelmediğini
+doğrula. *(22 Ağustos 2026)*
+
 ---
 
 ## 2. ROS 2 / DDS / kabuk
@@ -977,6 +1015,74 @@ gelmiyor.
 durup sallanabilir. `/mavros/imu/data` quaternion'undan roll/pitch çıkar,
 evrelere göre genlik karşılaştır. Asılı evre ile kaçış evresi arasında
 3 kattan fazla fark varsa sorun vardır.
+
+---
+
+### 2.19 🔴 JUMPER konnektör: YERDE kusursuz, HAVADA bozuk — P0.15'in kök nedeni
+
+**22 Ağustos 2026'da bulundu ve iki uçuşla doğrulandı.** 21 Ağustos'ta
+ylp00'ın komşusunu **46,4 saniye** hiç görmemesinin (§2.15) sebebi buydu:
+ESP32 ile Pi arasındaki UART kablosunun **ESP ucundaki jumper konnektörü**
+marjinal oturuyordu.
+
+```
+ylp00 :  19.007 paket  ->  crc_fail = 868   (hepsi UCUS sirasinda)
+ylp02 :  19.505 paket  ->  crc_fail =   0   (ayni ucus, ayni kod)
+yerde :  ~19.000 paket ->  crc_fail =   0   (her iki ucakta)
+```
+
+**Neden bu kadar sinsi — yerde HİÇBİR test üretmiyor:**
+
+| denenen | sonuç |
+|---|---|
+| kabloyu elle bükmek, konnektörleri kımıldatmak (120 sn) | 0 |
+| pervanesiz motorlar (180 sn) | 0 |
+| **pervaneli**, kalkış eşiği altı gaz (180 sn) | 0 |
+| uçağı eğmek, kolları bükmek, ESP'ye bastırmak | 0 |
+| **UÇUŞ** (motorlar yüklü, titreşim) | **5,95/s** |
+
+Yani rölanti akımı da, elle bükmek de yetmiyor; **yalnız uçuş titreşimi**
+üretiyor. Yerdeki her negatif sonuç yanıltıcıdır.
+
+> #### 🔑 CRC hatası nereden geldiğini KESİN söyler
+>
+> Mesh'te **iki bağımsız CRC katmanı** var ve ikisini de ESP doğruluyor:
+>
+> ```
+> radyo   ESP-NOW / 802.11 FCS  +  mesh CRC16 (_recv_isle)
+>              -> bozuk cerceve ESP'de ATILIR, Pi'ye hic ulasmaz
+> UART    cobs_cerceve_coz — TIP+ID dahil CRC16 (uart_cobs.h)
+>              -> Pi'de sayilan crc_fail YALNIZ BURADAN gelebilir
+> ```
+>
+> Gönderen uçağın Pi→ESP hattı bozulsaydı, o çerçeve **gönderilmeden**
+> reddedilirdi (eksik paket görünürdü, bozuk değil). Havada bozulsaydı alıcı
+> ESP atardı. **Dolayısıyla Pi'de `crc_fail` artıyorsa suçlu, o uçağın KENDİ
+> ESP→Pi UART hattıdır.** Bu çıkarım şüpheliyi tek uçağa ve tek kabloya indirir.
+
+**Neden TEK YÖNLÜ:** gevşek olan tek pin ESP'nin TX'i. Uçağın **aldığı**
+bozuluyor, **gönderdiği** başka telden gidiyor ve sağlam. Üç ayrı olayda
+(21 Ağustos + 22 Ağustos'ta iki uçuş) hep aynı yön öldü: **ylp02 → ylp00**.
+
+**Elenenler — bir daha araştırılmasın** (hepsi ölçüldü):
+anten yönelimi · LiPo pilin araya girmesi (180°'de maks boşluk 0,40 → 0,31,
+yani **iyileşti**) · mesafe (3,7 / 6 / 16 m) · FlySky vericisi (%5-7 gerçek
+ama iki mertebe küçük, kapatınca geri geliyor) · besleme gerilimi (±0,02 V
+düz) · ısınma (uçuşta **düşüyor**) · irtifa farkı · CPU yükü (yerde daha
+yüksekti) · `collision_avoidance` (iki uçakta da aynı kod, birinde 0 hata).
+
+**Doğrulama:** konnektör elle oturtuldu → tek uçaklı uçuş **0**, iki uçaklı
+uçuş **0**, `alim_ok` hiç düşmedi (önce 13,5 → 7,6 düşüyordu).
+
+⚠️ **Elle sıkıştırmak kalıcı çözüm değil** — jumper sürtünmeyle tutar, kilit
+ve gerilim boşaltma yoktur, titreşimde yeniden gevşer. Kalıcı yol: **lehim +
+gerilim boşaltma** ya da **JST-GH** kilitli konnektör. Aynı dizilim diğer
+uçaklarda da var; birinde sıfır hata çıkması "sağlam" değil **"henüz
+gevşememiş"** demektir.
+
+**Teşhis aracı hazır:** `crc_fail`, `mesh_diag` içinde 1 Hz akıyor ve her
+uçuş kaydında duruyor. Uçuş sonrası tek bakışta kontrol edilebilir —
+**yerdeki değeri 0 olmalı, uçuştaki de 0 kalmalı.**
 
 ---
 
@@ -1424,12 +1530,47 @@ Yani "tıkanıklık" arayan kaybeder: **radyo boştur.** Trafik de küçüktür
 Kanıt iki yönlü: QGC açılıp MAVROS tekil gönderime geçince, **20 kat daha
 fazla veriyle** (320 paket/s) sorun anında biter.
 
-**Kural:** dronlara güç vermeden **önce** QGC'yi aç. MAVROS keşfettiği karşı
-tarafı unutmaz, o yüzden sonradan kapatmak sorun değil — ama her
-`docker restart droneN` pencereyi yeniden açar.
+**Kural:** dronlara güç vermeden **önce** QGC'yi aç.
 
-Kalıcı çözüm `gcs_url` = `udp://:14555@` (denendi, doğrulandı, uygulanmadı):
-`YAPILACAKLAR.md` P1.7. *(17 Ağustos 2026)*
+> 🔴 **"QGC açık" YETMEZ — 14550'yi DİNLEYEN bir link olmalı.** 22 Ağustos'ta
+> aynı arıza tekrar yaşandı ve sebebi buydu: QGC çalışıyordu ama
+> `~/.config/QGroundControl/QGroundControl.ini` içinde `[LinkConfigurations]`
+> bölümü **hiç yoktu** ve `autoConnectUDP=false` idi. Yani 14550'yi kimse
+> tutmuyordu, MAVROS karşı tarafı hiç bulamadı ve **süresiz** yayın yaptı.
+>
+> Bu, taze bir QGC kurulumunun **varsayılan hâli** — yani kuralı uygulayan
+> biri, hiçbir şey yanlış yapmadan bu tuzağa düşer. Ekle:
+> **Comm Links → Add → UDP, Listening Port 14550 → Connect.**
+>
+> Tek satırlık doğrulama — QGC açıkken bile **boş çıkabilir**:
+> ```bash
+> ss -ulnp | grep 14550        # QGroundControl gorunmuyorsa link YOK/kopuk
+> ```
+
+**Pencere ne kadar sürer — 22 Ağustos'ta ölçüldü:**
+
+| durum | tepe gecikme | süre |
+|---|---|---|
+| **Soğuk açılış**, QGC o uçağı hiç duymamış | **14.500 ms** | **~60 sn** |
+| `docker restart`, QGC bağlı ve uçağı **tanıyor** | **333 ms** | çöküş yok |
+
+Fark, QGC'nin hedef listesinde: bir kez paket aldığı adrese sürekli heartbeat
+göndermeye devam ediyor, MAVROS yeniden kalkınca ilk saniyede kilitleniyor.
+Soğuk açılışta ise QGC önce bir yayın paketi **almak** zorunda ve o paketler
+yayının kendi yarattığı kuyrukta bekliyor — **yayın kendi kurtuluşunu
+geciktiriyor.** Yani maliyet oturum başına bir kez, restart başına değil.
+
+⚠️ Bunun şartı QGC link'inin **bağlı kalması**. Kapanırsa uçak hedef
+listesinden düşer ve bir sonraki restart yine soğuk açılış gibi davranır.
+
+Kalıcı çözüm `gcs_url` = `udp://:14555@` — uçak yayın yapmaz, yalnız dinler.
+Denendi ve doğrulandı (ylp00, 100 sn: 31779 paket **tekil**, **0 yayın**, ping
+200/200, ağ geçidi ortancası **5.2 ms**), ama **operatör kararıyla
+uygulanmadı**: bağlantıyı QGC kurmak zorunda kalır, yani her takım üyesinin
+QGC link'ine uçak IP'lerini (`<ip>:14555`) girmesi gerekir ve giren yoksa
+telemetri **sessizce** gelmez. İki uçakta birden yapılmadıkça da anlamsız —
+düzeltilmemiş olan tek başına ağı boğmaya devam eder.
+*(17 Ağustos 2026'da ölçüldü, 22 Ağustos'ta karar teyit edildi)*
 
 ### 7.2 `mt7921e` kanal meşguliyeti sayaçlarını doldurmuyor
 

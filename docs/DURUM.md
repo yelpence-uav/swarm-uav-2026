@@ -1,6 +1,6 @@
 # DURUM — şu an ne çalışıyor, ne bozuk
 
-**Son güncelleme:** 22 Ağustos 2026, 07:10 — uçaklar kapalı
+**Son güncelleme:** 22 Ağustos 2026, 17:45 — uçaklar AÇIK, ylp00 restart edildi
 
 > Bu belge **şimdiki hâli** anlatır, tarihçe değil. Bir şey değişince burayı
 > güncelle, eskisini sil. Ne olduğunun hikâyesi `GUNLUK.md`'de kalır.
@@ -15,15 +15,35 @@
 | ylp01 | 2 | **YERDE** | 2 Ağustos'ta 20 m'den düştü, RPi açılmıyor |
 | ylp02 | 3 | **Uçar** | Kod **`d9be7c9`** (20 Ağu 03:40, ylp00 ile senkron). `guided_ivme_ff=1.0` — A/B sonrası **ikisinde de açık**. Pervaneler **TAKILI**. **İki uçaklı P0.11 yer testi GEÇTİ:** sürü yolundan ARMED + lider mutabakatı + mesh'ten 499 kalp atışı aldı. ✅ `yer_testi` bayrağı **YOK** (20 Ağu 16:20 ölçüldü). ✅ Alıcı failsafe'i düzeltildi ve ölçüldü (**P0.9 KAPANDI**, 19 Ağu gece: kayıtlı +100 bulundu → -100 kaydedildi → `CH5=1000`). ✅ RC-kayıp tespiti KURULU, bit iki yönde doğrulandı — kumanda kaybında RTL |
 
-> 🔴 **22 Ağustos 07:10 — UÇAKLAR KAPALI, PİLLERİ SÖKÜLÜ.**
+> ✅ **22 Ağustos 17:31 — İKİ UÇAK DA AÇIK, ylp00 restart edildi.**
 >
-> **ylp00'ı açtıktan sonra İLK İŞ: `docker restart drone1`.** Kaçınmanın
-> ivme sınırları düzeltildi (`30 → 5,66 m/s²`) ama ylp00'ın konteyneri
-> yeniden başlatılamadı — **eski, uçağın yapamayacağı ivmeyle koşuyor.**
-> Doğrulama: açılış logunda `ivme normal=3.58 acil=5.66 donus=0.50`.
-> ylp02'de etkin, doğrulandı.
+> Bekleyen `docker restart drone1` yapıldı; kaçınmanın ivme sınırları
+> (`30 → 5,66 m/s²`) artık **ylp00'da da etkin** — açılış logunda
+> `ivme normal=3.58 acil=5.66 donus=0.50`. **İki uçakta da aynı**, ayrışma yok.
+> İkisi de 11 düğüm, `armed=false`, YKİ ve QGC bağlı.
 >
-> Sıralı yapılacaklar: `YAPILACAKLAR.md` **"SONRAKİ OPERATÖRE"** bloğu.
+> Kalan sıralı işler: `YAPILACAKLAR.md` **"SONRAKİ OPERATÖRE"** bloğu.
+
+> ### 🔴 QGC'de 14550'yi DİNLEYEN link olmadan uçaklara güç verme
+>
+> **22 Ağustos'ta yaşandı ve ölçüldü.** Uçaklar `gcs_url = udp-b://…` ile
+> **yayın** yapıyor; 14550'yi dinleyen kimse yoksa MAVROS karşı tarafı hiç
+> bulamaz ve **süresiz** yayında kalır → telefon hotspot'unda laptopun
+> interneti ölür (ölçülen tepe **14,5 sn**, süre **~60 sn**).
+>
+> 🔴 **QGC'nin açık olması YETMEZ.** Osman'ın makinesinde QGC çalışıyordu ama
+> `[LinkConfigurations]` **boştu** ve `autoConnectUDP=false` idi — bu, taze
+> bir QGC kurulumunun **varsayılan hâli.**
+>
+> **Kurulum:** QGC → Comm Links → Add → UDP, Listening Port **14550** → Connect.
+> Tek link iki uçağı birden taşır (sysid 1 = ylp00, sysid 3 = ylp02).
+>
+> ```bash
+> ss -ulnp | grep 14550     # QGroundControl gorunmuyorsa link YOK/kopuk
+> ```
+>
+> Link bağlıyken `docker restart` maliyeti **333 ms** (ölçüldü) — pencere
+> oturum başına bir kez, restart başına değil. Ayrıntı: `TUZAKLAR.md` §7.1.
 
 > ✅ **22 Ağustos — ÇARPIŞMA ÖNLEME SAHADA ÇALIŞTI, ölçüldü.**
 >

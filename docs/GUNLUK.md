@@ -1,6 +1,6 @@
 # GÜNLÜK — oturum devir teslim kaydı
 
-**Son güncelleme:** 22 Ağustos 2026, 07:10
+**Son güncelleme:** 23 Ağustos 2026, 01:30
 
 Tek bilgisayar, sırayla çalışıyoruz. Biri kalkıp diğeri oturduğunda **hem
 kişi hem Claude** nerede kalındığını buradan anlar.
@@ -35,6 +35,124 @@ Claude'a **"oturumu kapat"** dersen bu kaydı o yazar.
 - ylp00: (kill switch? pil? nerede? konteyner ayakta mı?)
 - ylp02:
 ```
+
+---
+
+## 2026-08-23 01:30 — Osman + Claude (P0.15'in KÖK NEDENİ bulundu ve doğrulandı)
+
+> Uzun bir oturum. Üç ayrı iş yapıldı: laptopun ağ sorunu çözüldü, ylp00'a
+> bekleyen restart atıldı, ve **21 Ağustos'tan beri açık olan mesh körlüğünün
+> kök nedeni bulunup iki uçuşla doğrulandı.**
+
+**Ne yapıldı**
+
+*1 — "RPi'ler bağlanınca laptopun interneti çöküyor" ÇÖZÜLDÜ*
+
+- Kök neden ölçüldü: **QGC'de 14550'yi dinleyen link YOKTU.**
+  `~/.config/QGroundControl/QGroundControl.ini` içinde `[LinkConfigurations]`
+  bölümü hiç yok, `autoConnectUDP=false`. Yani QGC **açıkken bile** kimse
+  14550'yi tutmuyordu → MAVROS `udp-b` ile **süresiz** yayın yapıyordu.
+- *"Dronlara güç vermeden önce QGC'yi aç"* kuralı bu yüzden Osman'ın
+  makinesinde hiç çalışmamış — kuralın gizli ön koşulu belgede yazmıyordu.
+- Ölçüldü: **soğuk açılışta 60 sn çöküş, ağ geçidine ping tepe 14,5 sn**
+  (17 Ağustos'un imzasının birebir tekrarı). QGC link'i eklenince bitti.
+- İkinci ölçüm: **QGC bağlıyken `docker restart` maliyeti 333 ms**, çöküş yok.
+  Yani pencere **oturum başına bir kez**, restart başına değil.
+- Operatör kararıyla uçak tarafı değiştirilmedi (P1.7 kaldırıldı).
+
+*2 — ylp00'a bekleyen restart atıldı*
+
+`docker restart drone1` → **K10-K12 etkin**, açılışta
+`ivme normal=3.58 acil=5.66 donus=0.50`. İki uçak artık aynı ivme sınırlarında.
+
+*3 — 🎯 P0.15'in KÖK NEDENİ: ESP↔Pi UART'ının ESP ucundaki JUMPER konnektörü*
+
+Akşam boyunca **on hipotez elendi**, hepsi ölçümle: anten yönelimi · LiPo
+pilin araya girmesi · mesafe (3,7/6/16 m) · ESC rölanti · FlySky vericisi ·
+besleme gerilimi · ısınma · irtifa farkı · CPU yükü · `collision_avoidance`.
+
+Belirleyici ölçüm:
+
+```
+ylp00 : 19.007 paket -> crc_fail = 868   (hepsi UCUS sirasinda)
+ylp02 : 19.505 paket -> crc_fail =   0   (ayni ucus, ayni kod)
+yerde : ~19.000      -> crc_fail =   0   (her iki ucakta)
+```
+
+Firmware okundu: mesh'te **iki bağımsız CRC katmanı** var (ESP-NOW donanım
+FCS + mesh CRC16, ve UART CRC16) ve ikisini de ESP doğruluyor. Dolayısıyla
+Pi'de sayılan `crc_fail` **yalnızca o uçağın kendi ESP→Pi UART hattından**
+gelebilir — bu çıkarım şüpheliyi tek kabloya indirdi.
+
+Yerde **hiçbir test üretmedi** (kablo bükme, pervanesiz motor, pervaneli
+kalkış-eşiği-altı gaz, gövde/kol bükme). Arıza yalnız uçuş titreşiminde
+çıkıyor. Konnektöre elle dokunulunca **171 hata + iki tel çıktı** — orada
+bulundu.
+
+**Doğrulama (iki uçuş):** konnektör oturtuldu →
+tek uçaklı 10 m askı **crc_fail 0** · iki uçaklı 10 m askı **crc_fail 0**
+(ylp02 de 0). `alim_ok` hiç düşmedi; önce 13,5 → 7,6 düşüyordu.
+
+*Yan bulgular*
+
+- **Körlük alarmı YKİ'ye ULAŞMIYOR.** 24 sn benzetim + ylp02 fiilen 114 sn
+  kapalı → bayrak hiç kurulmadı, baz logu boş, YKİ 0 uyarı. Elenenler: kod
+  uçakta var · `build` taze · eşik 5,0 · kanca doğru yerde · baz kodu var ·
+  md5 birebir · havada olma şartı yok · uçağa özgü değil. **Sebep bulunamadı.**
+- Havada link **yerdekinden iyi** (16 m'de 5,5 → 7,2 paket/s) — yer yansıması.
+- Üç olayda da **aynı yön** öldü: ylp02 → ylp00.
+- `swarm_fsm`'in acil iniş dalı gerçek körlükte **ateşlemedi**
+  (`active_agent_count` 2→1→2) — 15 Ağustos'taki `agent_id` düzeltmesi tutuyor.
+
+**Ne değişti**
+
+- kod: `gorev_kanit_ucus.py` — **yeni `--senaryo irtifa`** (üç eşit bacak:
+  10 m → biri 5 m → 10 m, sonuncusu **sürüklenme kontrolü**) + `--alcak`
+- kod: `gorev_kanit_ucus.py` — **`asili` N uçağa genelleştirildi**
+  (her uçak kendi yerinin üstünde; tek uçaklı kullanım bozulmadı)
+- uçakta: **ylp00 ESP↔Pi jumper'ı elle oturtuldu** (geçici) · K10-K12 etkin
+- laptop: QGC'ye 14550 dinleyen UDP link eklendi
+- belge: `TUZAKLAR` §2.19 / §1.21 / §1.22 · `YAPILACAKLAR` P0.15 kapandı,
+  P1.18 / P2.12 / P2.13 açıldı · `RPI_ESITLEME` A16
+
+**Yarım kalan / tuzak**
+
+- 🔴 **Jumper düzeltmesi GEÇİCİ.** Kilit ve gerilim boşaltma yok, yeniden
+  gevşer. Kalıcı yol lehim ya da JST-GH. **ylp02 ve ylp01'in aynı konnektörü
+  kontrol edilmedi** — ylp02'nin 0 hatası "sağlam" değil "henüz gevşememiş".
+- 🔴 **Körlük alarmı YKİ'ye ulaşmıyor** — kopma olursa havada haberin olmaz,
+  yalnız kayıttan görülür.
+- 🟡 **Agresif düzeltme** araştırıldı, ölçülmedi. Çift konum döngüsü **elendi**
+  (`guided_konum_kp` PX4'ün terimini geri çıkarıyor). Kalan üç aday:
+  ① varışta hız tek tikte sıfırlanıyor → ivme komutu tavana kırpılmış
+  **basamak** olarak gidiyor (en güçlü aday) ② `guided_tasma_m=3.0`
+  ③ askıda gecikme telafisi `if vx or vy` ile **kapalı**, PX4'ün tam 0,95'i
+  çalışıyor. Ölçüm bu geceki kayıtlardan yapılabilir, uçuş gerekmez.
+- ⚠️ **Operatörün eklediği kural belgede yok:** arm'dan sonra 5 sn içinde
+  kalkış olmazsa **otomatik disarm**. Yer testlerini bu süreye göre kurmak
+  gerekiyor (parametre adı doğrulanmadı).
+- ⚠️ `d0=10 hard=6` **hâlâ geçici** — formasyon uçuşundan önce geri alınacak.
+- ⚠️ Aktif kayıt `metadata.yaml` taşımadığı için `ros2 bag` açamıyor; kopyala
+  + `reindex` yolu kullanıldı (canlı kayda dokunmadan).
+
+**Sıradaki adım**
+
+Jumper'ın kalıcı çözümü (lehim/JST-GH) ve ylp02 + ylp01'in aynı
+konnektörünün kontrolü. Ardından `PLAN.md`'de bekleyen kaçınma eğim testi.
+
+**Uçakların bırakıldığı hâl**
+
+- **ylp00:** yerde, disarm, pervaneler **TAKILI**, 11 düğüm.
+  ESP↔Pi jumper'ı **elle oturtulmuş (geçici)**. `crc_fail = 0`.
+  K10-K12 etkin (`ivme normal=3.58 acil=5.66 donus=0.50`).
+- **ylp02:** yerde, disarm, pervaneler **TAKILI**. `crc_fail = 0`.
+  Jumper'ı **kontrol edilmedi**.
+- **ylp01:** yerde (2 Ağustos'tan beri). Dönünce `RPI_ESITLEME` A13-A16 + K1-K12.
+- Uçaklardaki kalıcı ayarlar: `d0=10 hard=6` **(GEÇİCİ)** · `korluk_tut_s=0` ·
+  `kernel.panic=10` · ramoops · izleme 10 sn · `/ws/gozlem` var ·
+  `/ws/suru_dugumleri = origin consensus fsm formasyon ca`
+- 🔴 **Laptop:** QGC'de 14550 link'i **bağlı kalmalı** — koparsa uçak
+  açılışında ağ yine 60 sn çöker. Kontrol: `ss -ulnp | grep 14550`
 
 ---
 
