@@ -1,6 +1,6 @@
 # GÜNLÜK — oturum devir teslim kaydı
 
-**Son güncelleme:** 22 Ağustos 2026, 06:40
+**Son güncelleme:** 22 Ağustos 2026, 07:10
 
 Tek bilgisayar, sırayla çalışıyoruz. Biri kalkıp diğeri oturduğunda **hem
 kişi hem Claude** nerede kalındığını buradan anlar.
@@ -38,7 +38,7 @@ Claude'a **"oturumu kapat"** dersen bu kaydı o yazar.
 
 ---
 
-## 2026-08-22 06:40 — Eyüp + Claude
+## 2026-08-22 07:10 — Eyüp + Claude
 
 **Ne yapıldı**
 - 🔴 **Kaçınma, uçağın YAPAMAYACAĞI ivme istiyormuş.** Operatör "devrilecek
@@ -98,12 +98,33 @@ Claude'a **"oturumu kapat"** dersen bu kaydı o yazar.
 - ylp00'ı yeniden başlat, kuru test + harita, kaçınma testini tekrarla:
   **eğim genliği düştü mü** (34° → beklenen ~20°) ve dönüş yumuşadı mı.
 
+**Ne yapıldı — devamı (oturum sonu)**
+- **Sıradaki uçuş `PLAN.md`'ye yazıldı:** tek soru *"kaçınma artık uçağın
+  yapabileceği sınırlar içinde mi"*, ölçüt **eğim genliği** (34° → ≤20°),
+  ve kritik kabul ölçütü: **kaçışın gücü zayıflamamalı** (3,88 m).
+- **P1.16 açıldı — YKİ uyarılarının kalıcı kaydı YOK.** Operatör "senin
+  verdiklerin dışında da bildirim geldi" dedi, sayınca **~32** çıktı
+  (11 körlük döngüsü + 21 DURUM bayatlığı); ben 4 sanıyordum çünkü yalnız
+  ylp00'ın kendi logundan saymıştım. **Baz istasyonu ayrıca kendi
+  olaylarını üretiyor.** `AlertManager` yalnız bellekte tutuyor —
+  `alert_manager.py`'de sıfır dosya işlemi, `yki_backend.log`'da 4,6 MB'da
+  sıfır uyarı izi.
+- **`YAPILACAKLAR.md`'nin en üstüne "SONRAKİ OPERATÖRE" bloğu** — sıralı
+  altı madde, ilk ikisi uçuş engeli.
+
 **Uçakların bırakıldığı hâl**
-- ylp00: yerde, konteyner ayakta (11 düğüm) ama **MAVROS cevapsız** —
-  uçuş pili kapalı olabilir. **Yeni kaçınma parametreleri ETKİN DEĞİL.**
-- ylp02: yerde, disarm, 11 düğüm, yeni parametreler **etkin**
-  (`ivme normal=3.58 acil=5.66 donus=0.50`)
+- 🔴 **İKİSİNİN DE PİLİ SÖKÜLDÜ, kapalılar** (operatör, oturum sonu).
+- ylp00: **yeni kaçınma parametreleri ETKİN DEĞİL** — kod dağıtıldı ama
+  konteyner yeniden başlatılamadı (MAVROS cevapsızdı). Açılışta
+  **`docker restart drone1` ŞART**, yoksa eski `30 m/s²` ile uçar.
+  Doğrulama: `ivme normal=3.58 acil=5.66 donus=0.50`.
+- ylp02: yeni parametreler **etkin ve doğrulandı**. Pil bu oturumda bir kez
+  bitti ve değiştirildi.
 - ylp01: yerde (2 Ağustos'tan beri). Dönünce `RPI_ESITLEME` A13-A15 + K1-K12
+- Uçaklardaki kalıcı ayarlar (pil takılınca öyle bulunacak):
+  `d0=10 hard=6` **(GEÇİCİ — formasyon öncesi geri al)** · `korluk_tut_s=0` ·
+  `kernel.panic=10` · ramoops · izleme 10 sn · `/ws/gozlem` var ·
+  `/ws/suru_dugumleri = origin consensus fsm formasyon ca`
 
 ---
 
