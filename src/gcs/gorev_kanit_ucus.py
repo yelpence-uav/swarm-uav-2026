@@ -172,9 +172,24 @@ TEKLI_BEKLEME_S = 5.0         # her adimda yerinde bekleme
 # Kacinmayi denemenin en temiz yolu bu: operator OTEKI dronu kumandayla
 # yaklastirir ve otonom ucagin kacip kacmadigina bakar.
 #
-# IRTIFA AYRIMI GUVENLIK ICIN: kacinma yalniz YATAY calisiyor (itme_vektoru
-# 'kuzey, dogu' aliyor, irtifa hesaba hic girmiyor). Yani iki ucagi farkli
-# irtifada tutmak kacinmayi engellemez ama fiziksel carpismayi imkansiz kilar.
+# 🔴 23 AGUSTOS 2026 — BU KURAL TERSINE DONDU. ESKI HALI:
+#     "IRTIFA AYRIMI GUVENLIK ICIN: kacinma yalniz YATAY calisiyor, yani iki
+#      ucagi farkli irtifada tutmak kacinmayi engellemez ama fiziksel
+#      carpismayi imkansiz kilar."
+#
+# Kacinma artik DIKEY de calisiyor (KARAR-06). Yeni kuralda ucak once
+# "hepsinden katman kadar ayrik miyim?" diye bakiyor:
+#
+#     |rel_z| >= katman (3.0 m)  ->  TATMIN  ->  DIKEY KACIS HIC OLMAZ
+#
+# Yani ESKI GUVENLIK ALISKANLIGI (farkli irtifada ucur) yeni kodu SESSIZCE
+# KAPATIYOR: ucus tertemiz gecer, hicbir sey olmaz ve "kacinma calismadi"
+# diye yorumlanir.
+#
+# 🔴 DIKEY TESTTE YAKLASMA BENZER IRTIFADA OLMALI (fark < 3 m).
+# Guvenlik artik irtifa ayrimindan degil, kacisin KENDISINDEN ve
+# operatorun kumandasindan geliyor. Kacan ucak yukari cikacak — ustunden
+# gecme, yandan yaklas.
 ASILI_IRTIFA_M = 8.0
 ASILI_SURE_S = 60.0
 

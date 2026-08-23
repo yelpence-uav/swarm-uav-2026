@@ -1,6 +1,6 @@
 # KARARLAR — verilmiş ama henüz uygulanmamış kararlar
 
-**Son güncelleme:** 23 Ağustos 2026, 20:30 — KARAR-06 dikey yol verme
+**Son güncelleme:** 23 Ağustos 2026, 21:00 — KARAR-06 + ultracode kararı
 
 Sohbette verilen kararlar oturum bitince kayboluyor. Bu defter onları
 tutuyor: **ne karar verildi, neden, ne zaman uygulanacak, nasıl test edilecek.**
@@ -797,8 +797,19 @@ geçirgenlik · körlükte tutma. Ayrıntı `CA.md` §6.
 
 1. **Tırmanma itki payı ölçülmedi.** Operatörün iki uçaklı testinde
    kayıttan `vfr_hud.throttle` tepesi çıkarılacak.
-2. `KARAR-02` gereği ilk uçuştan önce **`ultracode`** denetimi.
-3. ylp01 dönünce `SURU_KADRO="1 2 3"` (KARAR-04).
+2. ylp01 dönünce `SURU_KADRO="1 2 3"` (KARAR-04).
+
+> ### ✅ `KARAR-02` denetimi bu uçuş için ATLANDI — operatör kararı (23 Ağu)
+>
+> Çok ajanlı denetim `KARAR-02` gereği önerildi. Operatör **atladı**:
+> *"Bu test bana çok ağır ve lüzumsuz geliyor. Uçuş testleri ile direkt
+> nokta atışı şeyleri yakalayabiliriz."*
+>
+> Gerekçesi savunulabilir: bugün beş tasarım kusurunu **birim testler**
+> yakaladı, denetim değil; ve kod zaten beş yer testinden geçti.
+>
+> **Bir daha sorulmayacak** — bu uçuş için karar verildi. Sonraki
+> düğümlerde (ADIM 3 `formation_node`) `KARAR-02` yeniden geçerli.
 
 ## Diğer seçenekler (operatör isterse)
 

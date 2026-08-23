@@ -5,7 +5,8 @@
 # NEDEN VAR (23 Agustos 2026)
 # Carpisma onlemenin yol verme bileseni artik DIKEY: catisan ucaklardan
 # kimligi buyuk olan, kucuk olanin olculen irtifasindan KATMAN kadar uzaga
-# gider. Yatay itme kapali (k_yatay=0) — formasyon geometrisi bozulmasin.
+# gider. Yatay itme SON CARE: yalniz sert kabuk (hard) icinde acilir —
+# normal catismada formasyon geometrisi bozulmasin.
 #
 # GERCEK `ca_core` KOSTURULUR, taklit degil. Ustelik artik DIKEY KURAL DA
 # ca_core'un icinde: onceki surumde benzetim KENDI ayri dikey kuralini
@@ -34,9 +35,14 @@
 # 🔴 NE OLCMEZ — sonuclari yorumlarken sart:
 #   * Kinematik model: egim dinamigi, ITKI SINIRI, ruzgar YOK
 #   * Ucak komut edilen hizi ANINDA uygular (gercekte PX4 araya girer)
-#   * 🔴 DIKEY HIZ TAVANI VARSAYIM: v_dikey=1.5 m/s. Ucagin gercekten
-#     tirmanabildigi hiz OLCULMEDI (aski gazi %66, itki payi bilinmiyor —
-#     TUZAKLAR §0.3). Bu sayi yanlissa butun dikey sonuclar kayar.
+#   * DIKEY HIZ TAVANI ARTIK VARSAYIM DEGIL: v_dikey=1.2 = PX4'un kendi
+#     MPC_Z_VEL_MAX_UP degeri, ucaktan okundu (TUZAKLAR §2.22).
+#   * 🔴 AMA ITKI PAYI HALA OLCULMEDI: a_dikey=2.0 ~1.20x aski itkisi
+#     istiyor, aski gazi %66 olculmus (TUZAKLAR §0.3). Ucak bu ivmeyi
+#     gercekten uretebiliyor mu — ilk ucusun kayitindan cikacak.
+#
+# ⚠️ TABAN degerleri UCAKTAKILERLE AYNI TUTULMALI. Ayrisirsa benzetim
+#    ucmayan bir seyi olcer; 23 Agustos'ta bir kez ayrismisti.
 #
 # KULLANIM
 #     python3 src/gcs/ca_benzetim.py            # 3-10 m aralik taramasi
@@ -76,7 +82,7 @@ TABAN = dict(
     d0=4.0, hard=2.5, r_min=1.5,
     katman=3.0, k_dikey=1.0, k_yatay=1.0, k_tan=0.0,
     yatay_esik=0.0,      # 0 = hard kullanilir (son care)
-    v_dikey=1.5, a_dikey=1.0, kp_dikey=0.8,
+    v_dikey=1.2, a_dikey=2.0, kp_dikey=2.0,   # = UCAKTAKI degerler
     f_sat=6.0, v_max=4.0, xy_guard=0.3, slew=3.58,
     c_dead=0.2, c_ref=1.0,
     mesh_hz=10.0, mesh_kayip=0.05, seyir=3.0, aralik=5.0,
