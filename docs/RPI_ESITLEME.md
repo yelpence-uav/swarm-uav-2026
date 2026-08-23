@@ -1,6 +1,6 @@
 # RPİ EŞİTLEME DEFTERİ — geri gelen drone'u hizaya getirme
 
-**Son güncelleme:** 23 Ağustos 2026, 01:30 — A16 ESP↔Pi jumper (P0.15 kök nedeni)
+**Son güncelleme:** 23 Ağustos 2026, 20:30 — K13-K16 dikey kaçınma + A17 POSE kapısı
 
 ## Bu belge ne için
 
@@ -164,6 +164,51 @@ konteyner yeniden başlatma yeterli. ylp01 döndüğünde tek yapılacak
 | K10 | 🔴 **Kaçınma ivmeleri eğim tavanına bağlandı** (30→5,66) | ✅ | ❌ | ✅ |
 | K11 | `hard` sınırındaki süreksizlik giderildi | ✅ | ❌ | ✅ |
 | K12 | Kaçınma sonrası dönüş yumuşatma (0,5 m/s²) | ✅ | ❌ | ✅ |
+| K13 | 🔴 **DİKEY yol verme** — birincil kaçış dikeye alındı | ✅ *(23 Ağu 20:10)* | ❌ | ✅ |
+| K14 | 🔴 **Yatay itme SON ÇARE** — yalnız `hard` içinde (`k_tan=0`) | ✅ | ❌ | ✅ |
+| K15 | 🔴 **Dikey datum düzeltmesi** — `alt_amsl − home`, EKF yerel z DEĞİL | ✅ | ❌ | ✅ |
+| K16 | 🔴 **`d0/hard` 10/6 → 4,0/2,5** — geçici test değeri geri alındı | ✅ | ❌ | ✅ |
+| A17 | 🔴 **POSE kapısı `0.100 → 0.095`** — komşu tazeleme 7,1 → 10,5 Hz | ✅ *(23 Ağu 18:10)* | ❌ | ✅ |
+
+
+> ### 🔀 K13-K16 — DİKEY KAÇINMA (23 Ağustos 2026)
+>
+> Birincil kaçış yönü **dikey** oldu. Uçakta bunun karşılığı iki şey:
+>
+> **1. Kod** (`dagit.sh` ile gitti, `.surum = 9e8ee4f +KIRLI`):
+> `ca_core.py` · `collision_avoidance_node.py` · `komsu_adaptoru.py` ·
+> `baslat.sh` · `esp32_bridge_node.py`
+>
+> **2. Ayar dosyası** — `~/yelpence_ws/ucus_ayarlari.env` YENİDEN ÜRETİLDİ:
+>
+> ```
+> KACINMA_D0=4.0        KACINMA_HARD=2.5      KACINMA_KATMAN=3.0
+> KACINMA_DIKEY_HIZ=1.2 KACINMA_DIKEY_IVME=2.0 KACINMA_DIKEY_KP=2.0
+> ```
+>
+> 🔴 **K2 BURADA KAPANDI:** dosyanın sonundaki elle eklenmiş
+> `KACINMA_D0=10.0 / KACINMA_HARD=6.0` geçici test bloğu artık YOK.
+> Eski dosya `ucus_ayarlari.env.23agu_oncesi` olarak yedeklendi.
+>
+> **Geri gelen uçakta yapılacak:**
+> ```bash
+> ./deploy/rpi/dagit.sh ylp01
+> python3 src/gcs/ucus_ayarlari.py --kabuk | \
+>   ./deploy/yki/drone_bul.sh ylp01 'cat > ~/yelpence_ws/ucus_ayarlari.env'
+> ./deploy/yki/drone_bul.sh ylp01 'docker restart drone2'
+> ```
+>
+> 🔴 **VE `SURU_KADRO`:** `baslat.sh`'te varsayılan **`"1 3"`**. ylp01
+> dönünce **üç uçakta da `"1 2 3"`** olmalı — rütbe bundan türüyor ve yanlış
+> kadro **kaçış yönünü ters çevirir** (ylp02 yukarı yerine aşağı kaçar).
+> `KARAR-04`'ün listesine eklendi.
+>
+> ### A17 — POSE kapısı (23 Ağustos)
+>
+> `esp32_bridge._pose_periyot_s` 0,100 → **0,095**. 10 Hz kaynağı 10 Hz
+> kapıdan geçirmek örneklerin ~%26'sını yutuyordu (`TUZAKLAR` §2.20).
+> Ölçülen: komşu tazeleme **7,1 → 10,5 Hz**, `gonderim_drop=0`.
+> Kod değişikliği — `dagit.sh` ile gider, elle bir şey gerekmez.
 
 > ✅ **ylp00'da K10-K12 ETKİNLEŞTİ (22 Ağustos 17:31).** Bekleyen
 > `docker restart drone1` yapıldı ve açılış logundan doğrulandı:

@@ -394,8 +394,33 @@ class Esp32BridgeNode(Node):
         self._komsu_son_goruldu: dict[int, float] = {}
         # POSE giden son zaman — rate limit için (Ö3)
         self._son_pose_gonderim_ts = 0.0
-        # Rate-limit eşiği: saniyede 10 POSE = 100ms aralık
-        self._pose_periyot_s = 0.1
+        # Rate-limit esigi. 0.100 DEGIL 0.095 — 23 Agustos 2026'da OLCULDU.
+        #
+        # KAYNAK 10 Hz, KAPI 10 Hz: ikisi ayni olunca kapi kaynagi YUTUYOR.
+        # agent_fsm'in /swarm/internal/drone{id}/status yayini tam 10.00 Hz
+        # ama +-3 ms jitter'li, yani ardisik bosluklarin %51.4'u 0.100'un
+        # ALTINDA (45 sn, 450 ornek, ylp02). Esigin altina dusen ornek
+        # tamamen DUSUYOR — POSE kuyruklanmiyor, gonder-ya-da-atla.
+        #
+        # OLCULEN SONUC (iki ucak, yerde):
+        #     kaynak            10.00 /s
+        #     Pi->ESP yazilan    7.08 /s (ylp00)   7.44 /s (ylp02)
+        #     karsi tarafin aldigi 7.09 /s          7.11 /s
+        #     -> HAVADAN kayip ~%0-4, KAPIDAN kayip ~%26
+        #
+        # Yani "mesh %30 kaybediyor" sanilan sey radyo degil BU SATIRDI.
+        # `ca_benzetim.py` ve `CA.md` §4 o yanlis varsayim uzerine kurulmustu.
+        #
+        # NEDEN 0.095, neden faz biriktirme (son += periyot) DEGIL: faz
+        # biriktirme kaynak bir an duraklarsa birikmis tikleri PES PESE
+        # gonderip UART'a patlama yapar. Esigi kaynagin altina cekmek hicbir
+        # kosulda kaynaktan hizli gondermez — tavan yine kaynagin kendi
+        # 10 Hz'i. Kapinin asil isi (kaynak cilginca hizlanirsa UART'i
+        # korumak) duruyor.
+        #
+        # ⚠️ Firmware'e DOKUNULMADI: mesh kapisi tip basina 50 ms = 20 Hz
+        # (`MESH_GONDERIM_MIN_MS`, TX DRONE/src/main.cpp:261), 10 Hz altinda.
+        self._pose_periyot_s = 0.095
         # DURUM giden son zaman — 1Hz tavan (state nadiren değişir)
         self._son_durum_gonderim_ts = 0.0
         self._durum_periyot_s = 1.0

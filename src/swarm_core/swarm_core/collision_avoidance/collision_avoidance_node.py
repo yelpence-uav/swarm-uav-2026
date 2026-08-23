@@ -2,6 +2,7 @@
 """Hiz tabanli carpisma onleme filtresi."""
 
 import copy
+import math
 
 import rclpy
 from rclpy.node import Node
@@ -63,6 +64,10 @@ class CollisionAvoidanceNode(Node):
         self._cur_vy = 0.0
         self._cur_vz = 0.0
         self._pos_ok = False
+        # Kendi goreli irtifam (m, YUKARI). Kaynak: alt_amsl - home_amsl,
+        # yani komsununkiyle AYNI datum. Gerekce _on_agent_status'ta.
+        self._irtifa_m = 0.0
+        self._irtifa_ok = False
         # Kendi TAM durumum. Adaptor goreli vektoru hesaplarken kendi
         # lat/lon ve pos_x/pos_y'ime ihtiyac duyuyor; NeighborInfo yolunda
         # bu is kinematic_fusion'da yapildigi icin burada saklanmiyordu.
@@ -94,6 +99,12 @@ class CollisionAvoidanceNode(Node):
         self._son_kacis_t = 0.0
         self._n_donus_yumusak = 0
         self._korluk_tut_aktif = False
+        # --- dikey yol verme tanilari ---
+        self._n_dikey_yetersiz = 0
+        self._yetersiz_bildirildi = False
+        self._n_donus_kor = 0
+        self._donus_kor_bildirildi = False
+        self._aralik_uyarildi = False
 
         self._ca = CollisionAvoidanceCore(CaParams(
             dt=1.0 / self._publish_rate_hz,
@@ -109,6 +120,25 @@ class CollisionAvoidanceNode(Node):
             v_max=self._v_max_mps,
             slew_normal=self._slew_normal,
             slew_emergency=self._slew_emergency,
+            # --- dikey yol verme ---
+            k_dikey=self._k_dikey,
+            k_yatay=self._k_yatay,
+            yatay_esik_m=self._yatay_esik_m,
+            katman_m=self._katman_m,
+            rutbe=self._rutbe,
+            v_dikey_max=self._v_dikey_max,
+            a_dikey_max=self._a_dikey_max,
+            kp_dikey=self._kp_dikey,
+            irtifa_tavan_m=self._irtifa_tavan_m,
+            hist_m=self._hist_m,
+            donus_bekleme_s=self._donus_bekleme_s,
+            donus_hiz_mps=self._donus_hiz_mps,
+            # Dikey inisin tabani: irtifa kapisi + 1 m pay. Kapinin
+            # altina inersek CA zaten kendini kapatir ve ucak korumasiz
+            # kalir; oraya kendi elimizle inmeyelim.
+            dikey_taban_m=self._altitude_gate_m + 1.0,
+            # RUTBE icin ZORUNLU: kim capa, kim yukari cikacak.
+            agent_id=self._agent_id,
         ))
 
         self._setup_io()
@@ -118,8 +148,19 @@ class CollisionAvoidanceNode(Node):
         )
         self.create_timer(5.0, self._diag_tick)
 
+        kip = (
+            f'DIKEY yol verme (rutbe {self._rutbe}, '
+            f'katman {self._katman_m:.1f} m, '
+            f'v_dikey {self._v_dikey_max:.1f} m/s, '
+            f'taban {self._altitude_gate_m + 1.0:.1f} m)'
+            if self._k_dikey > 0.0 else 'dikey KAPALI'
+        )
         self.get_logger().info(
-            f'collision_avoidance baslatildi: agent_id={self._agent_id}'
+            f'collision_avoidance baslatildi: agent_id={self._agent_id} '
+            f'd0={self._d0_m:.1f} hard={self._hard_m:.1f} '
+            f'k_yatay={self._k_yatay:.1f} (esik '
+            f'{self._yatay_esik_m or self._hard_m:.1f} m) '
+            f'k_tan={self._k_tan:.1f} | {kip}'
         )
 
     def _declare_params(self) -> None:
@@ -175,15 +216,27 @@ class CollisionAvoidanceNode(Node):
         # 5.0 onerilen deger: saglikli linkte maks bosluk 0.4 sn olculdu,
         # yani normal isleyisin 12 kati. Gecici sarsinti ucagi durdurmaz.
         self.declare_parameter('korluk_tut_s', 0.0)
-        self.declare_parameter('d0_m', 4.5)
-        self.declare_parameter('hard_m', 2.0)
+        # d0 = 4.0 SABIT — operator karari, 23 Agustos 2026.
+        # Sartname ajanlar arasi mesafeyi hakemlere birakiyor (3-10 m,
+        # calisma aninda QR/FormationCommand ile gelir). Operator karari:
+        # aksiyon 4 m'de baslasin, aralikla degismesin. Aralik 4 m'nin
+        # altina inerse kacinma SUREKLI tetikli olur — davranis dogru ama
+        # bilinmeli, o yuzden _on_formation_command UYARI logluyor.
+        self.declare_parameter('d0_m', 4.0)
+        # hard = YATAY SON CARENIN acildigi yarical ayni zamanda. 2.5 m:
+        # dikey katman 3.0 m oldugu icin, buraya kadar gelinmisse dikey
+        # ayrim SAGLANAMAMIS demektir ve yatay itme hakli olarak acilir.
+        self.declare_parameter('hard_m', 2.5)
         self.declare_parameter('r_min_m', 1.5)
         self.declare_parameter('f_sat', 6.0)
         self.declare_parameter('c_dead_mps', 0.2)
         self.declare_parameter('c_ref_mps', 1.0)
         self.declare_parameter('c_damp', 0.7)
         self.declare_parameter('damp_band_m', 0.5)
-        self.declare_parameter('k_tan', 0.9)
+        # 0.9 DEGIL 0.0 — yatay teget dikey kiple birlikte KOTULESTIRIYOR
+        # (CA.md §4.3'te olculdu: -0.12 m). Dikey kapatilirsa (k_dikey=0)
+        # eski davranis icin 0.9'a geri alinmali.
+        self.declare_parameter('k_tan', 0.0)
         self.declare_parameter('v_max_mps', 4.0)
         self.declare_parameter('slew_normal_mps2', 4.0)
         self.declare_parameter('slew_emergency_mps2', 30.0)
@@ -191,6 +244,44 @@ class CollisionAvoidanceNode(Node):
         # 0 = kapali (ham setpoint dokunulmadan gecer).
         self.declare_parameter('donus_ivme_mps2', 0.5)
         self.declare_parameter('donus_soguma_s', 4.0)
+        # --- DIKEY YOL VERME (23 Agustos 2026, operator karari) -----------
+        # Gerekce ve kural: ca_core._dikey_hesapla basligi.
+        #   k_dikey=0 -> dikey KAPALI, dugum eski davranisina birebir doner
+        #   k_yatay=0 -> yatay itme KAPALI (saf dikey)
+        #   k_yatay=1 -> 22 Agustos'ta sahada olculen yatay kacis geri gelir
+        self.declare_parameter('k_dikey', 1.0)
+        # k_yatay=1.0 + yatay_esik_m=0 (=hard) -> "dikey birincil, yatay
+        # son care" (operator karari 23 Agustos). Saf dikey icin k_yatay=0,
+        # eski tam-yatay kip icin yatay_esik_m=d0.
+        self.declare_parameter('k_yatay', 1.0)
+        self.declare_parameter('yatay_esik_m', 0.0)
+        self.declare_parameter('katman_m', 3.0)
+        # RUTBE — donusumlu merdivendeki sirasi. baslat.sh kadrodan
+        # turetiyor: kimligimden KUCUK kac ajan var. -1 = bilinmiyor
+        # (o zaman ca_core "en ucuz yon" yedegine duser).
+        # SABIT OLMASI SART: anlik catisma kumesinden turetilseydi iki
+        # ucak ayni katmani secebilirdi — benzetimde olculdu, drone2 ve
+        # drone3 tam ayni irtifada bulusuyordu.
+        self.declare_parameter('rutbe', -1)
+        # 🔴 v_dikey PX4 TAVANINA ESIT (MPC_Z_VEL_MAX_UP = 1.2, ucaktan
+        # okundu 23 Agu). Ustunu yazmak PX4'un SESSIZCE kirpmasi demek:
+        # ayar 3.0 gorunur, ucak 1.2 tirmanir. ucus_ayarlari.py bu
+        # ayrismayi HATA olarak veriyor.
+        self.declare_parameter('v_dikey_max_mps', 1.2)
+        # a=2.0 kp=2.0 — operator karari (23 Agu), "en dengeli". Hiz
+        # tavani baskin oldugu icin a=3.0'in kazanci 0.04 m; buna karsilik
+        # itki geregi %75 -> %72 gaza iniyor ve MPC_ACC_DOWN_MAX=3.0
+        # sinirina basmiyor (cift rutbeli ucak ASAGI kaciyor).
+        self.declare_parameter('a_dikey_max_mps2', 2.0)
+        self.declare_parameter('kp_dikey', 2.0)
+        # Mutlak irtifa tavani, 0 = kapali. Sartname irtifa degisimini
+        # ornek olarak 5-30 m veriyor; bir deger konacaksa operator
+        # karariyla konur. Varsayilan KAPALI: sessizce gorev
+        # irtifasini kirpan bir tavan, korumadan daha tehlikeli olur.
+        self.declare_parameter('irtifa_tavan_m', 0.0)
+        self.declare_parameter('hist_m', 0.5)
+        self.declare_parameter('donus_bekleme_s', 2.0)
+        self.declare_parameter('donus_hiz_mps', 0.5)
 
         gp = self.get_parameter
         self._agent_id = int(gp('agent_id').value)
@@ -217,6 +308,18 @@ class CollisionAvoidanceNode(Node):
         self._slew_emergency = float(gp('slew_emergency_mps2').value)
         self._donus_ivme_mps2 = float(gp('donus_ivme_mps2').value)
         self._donus_soguma_s = float(gp('donus_soguma_s').value)
+        self._k_dikey = float(gp('k_dikey').value)
+        self._k_yatay = float(gp('k_yatay').value)
+        self._yatay_esik_m = float(gp('yatay_esik_m').value)
+        self._katman_m = float(gp('katman_m').value)
+        self._rutbe = int(gp('rutbe').value)
+        self._v_dikey_max = float(gp('v_dikey_max_mps').value)
+        self._a_dikey_max = float(gp('a_dikey_max_mps2').value)
+        self._kp_dikey = float(gp('kp_dikey').value)
+        self._irtifa_tavan_m = float(gp('irtifa_tavan_m').value)
+        self._hist_m = float(gp('hist_m').value)
+        self._donus_bekleme_s = float(gp('donus_bekleme_s').value)
+        self._donus_hiz_mps = float(gp('donus_hiz_mps').value)
 
         if not 1 <= self._agent_id <= 254:
             raise ValueError(f'agent_id 1-254 olmalı: {self._agent_id}')
@@ -272,7 +375,8 @@ class CollisionAvoidanceNode(Node):
             # mesh'ten gelen HAM durum. Bu topic'i esp32_bridge besliyor ve
             # _MESH_QOS ile, yani BEST_EFFORT yayinliyor — abone de BEST_EFFORT
             # olmak ZORUNDA. RELIABLE abone + BEST_EFFORT yayinci ESLESMEZ ve
-            # konu SESSIZCE bos kalir; bu depoda ayni tuzaga birkac kez dusuldu.
+            # konu SESSIZCE bos kalir; bu depoda ayni tuzaga birkac kez
+            # dusuldu.
             topic = f'/swarm/public/drone{nid}/status'
             self._neighbor_subs[nid] = self.create_subscription(
                 AgentStatus,
@@ -295,9 +399,82 @@ class CollisionAvoidanceNode(Node):
         self._cur_vz = float(msg.vel_z)
         self._pos_ok = bool(msg.xy_valid and msg.z_valid)
         self._ben = msg
+        # KENDI GORELI IRTIFAM — komsununkiyle AYNI FORMULLE.
+        #
+        # 🔴 pos_z KULLANILMAZ. O, MAVROS odometry'sinden gelen EKF YEREL
+        # NED'i; sifir noktasi acilisa bagli ve olculdu ki ~10 m kayabiliyor
+        # ve ucus boyunca suruyor (esp32_bridge_node.py:1697). Komsunun
+        # mesh'ten gelen irtifasi ise (alt_amsl - home_amsl). Ikisini
+        # karistirmak dikey yol vermeyi 10 m yanlislar.
+        #
+        # Ayni sebeple IRTIFA KAPISI da bu degeri kullaniyor: eskiden
+        # `-pos_z`ye bakiyordu ve EKF kaymasinda ucak YERDEYKEN kapiyi
+        # acabilirdi. Ayni hata esp32_bridge'de POSE icin zaten bir kez
+        # yasanmis ve orada duzeltilmisti; burada duruyordu.
+        if (msg.home_alt_amsl_m != 0.0 and msg.gps_fix_type >= 3
+                and math.isfinite(msg.alt_amsl_m)):
+            self._irtifa_m = float(msg.alt_amsl_m) - float(
+                msg.home_alt_amsl_m)
+            self._irtifa_ok = True
+        else:
+            # Guvenli taraf: irtifa bilinmiyorsa DIKEY KURAL KAPALI ve
+            # irtifa kapisi "yerdeyim" varsayar (CA devre disi kalir).
+            self._irtifa_m = 0.0
+            self._irtifa_ok = False
 
     def _on_formation_command(self, msg: FormationCommand) -> None:
         self._ensure_neighbor_subs(msg.agent_ids)
+        # ARALIK vs d0 — 23 Agustos 2026.
+        #
+        # Sartname ajanlar arasi mesafeyi hakemlere birakiyor ve deger
+        # calisma aninda geliyor. Operator karari d0'i 4.0'da SABIT
+        # tutmak. Aralik 4 m'nin altina inerse kacinma normal formasyonda
+        # SUREKLI tetikli olur: dikey merdiven kalici hale gelir ve suru
+        # kademeli ucar. Bu bir hata degil, ama bilinmeden yasanirsa
+        # "neden hep tirmaniyorlar" diye saatler yakar.
+        aralik = float(msg.spacing_m)
+        if aralik > 0.0 and aralik <= self._d0_m and not self._aralik_uyarildi:
+            self._aralik_uyarildi = True
+            self.get_logger().warning(
+                f'🟠 ARALIK {aralik:.1f} m <= d0 {self._d0_m:.1f} m — '
+                f'kacinma normal formasyonda SUREKLI tetikli olacak, '
+                f'dikey merdiven kalici hale gelir. Beklenen davranis; '
+                f'istenmiyorsa d0_m kucultulmeli.'
+            )
+            self._olay(SystemEvent.SEVERITY_WARNING, self._agent_id,
+                       f'formasyon araligi {aralik:.1f} m, kacinma esigi '
+                       f'{self._d0_m:.1f} m — merdiven kalici')
+        elif aralik > self._d0_m:
+            self._aralik_uyarildi = False
+
+    def _dikey_tanilari_isle(self) -> None:
+        """ca_core'un dikey uyarisini olaya cevirir — sessiz kalmasin.
+
+        "Algoritma istedigini yapamadi" demek; log'da kaybolursa ucus
+        sonrasi "neden ayrim olusmadi" sorusu cevapsiz kalir.
+        """
+        if self._ca.dikey_yetersiz and not self._yetersiz_bildirildi:
+            self._yetersiz_bildirildi = True
+            self._n_dikey_yetersiz += 1
+            self.get_logger().warning(
+                '🔴 DIKEY YETERSIZ: gereken ayrimi saglayamiyorum — '
+                'inis tabani ya da irtifa tavani engelliyor. '
+                'Ayrim beklenenden KUCUK kalabilir.'
+            )
+            self._olay(SystemEvent.SEVERITY_CRITICAL, self._agent_id,
+                       'dikey kacis gereken ayrimi saglayamadi')
+        elif not self._ca.dikey_yetersiz:
+            self._yetersiz_bildirildi = False
+
+        if self._ca.dikey_donus_kor and not self._donus_kor_bildirildi:
+            self._donus_kor_bildirildi = True
+            self._n_donus_kor += 1
+            self.get_logger().warning(
+                '🟠 DIKEY AYRIM TUTULUYOR: komsu gorulmuyor, nominale '
+                'DONULMUYOR. Komsu tekrar gorulunce donus baslar.'
+            )
+        elif not self._ca.dikey_donus_kor:
+            self._donus_kor_bildirildi = False
 
     def _on_neighbor(self, nid: int, msg: AgentStatus) -> None:
         self._neighbors[nid] = msg
@@ -328,7 +505,7 @@ class CollisionAvoidanceNode(Node):
                 self._n_skip_state += 1
                 continue
 
-            gozlem, neden = agent_status_to_obs(st, self._ben)
+            gozlem, neden = agent_status_to_obs(st, self._ben, komsu_id=nid)
             if gozlem is None:
                 self._n_skip_adaptor[neden] = (
                     self._n_skip_adaptor.get(neden, 0) + 1
@@ -360,7 +537,8 @@ class CollisionAvoidanceNode(Node):
                     f'korluk bitti.'
                 )
                 self._olay(SystemEvent.SEVERITY_INFO, nid,
-                           f'drone{nid} tekrar goruluyor, kacinma korlugu bitti')
+                           f'drone{nid} tekrar goruluyor, '
+                           f'kacinma korlugu bitti')
 
     def _korluk_kaydet(self, nid: int, yas: float, now: float) -> None:
         """Kaybolan komsuyu olay olarak bildirir — P0.15, 21 Agustos 2026.
@@ -453,8 +631,12 @@ class CollisionAvoidanceNode(Node):
             self._relay(raw)
             return
 
-        if (self._altitude_gate_m > 0.0
-                and (-self._cur_z) < self._altitude_gate_m):
+        # IRTIFA KAPISI — artik EKF yerel z yerine (alt_amsl - home_amsl).
+        # Gerekce _on_agent_status'ta: EKF yerel z ~10 m kayabiliyor ve
+        # kayma yukari yonluyse ucak YERDEYKEN kapi acilirdi.
+        # Irtifa hic bilinmiyorsa da kapali sayilir (guvenli taraf).
+        if self._altitude_gate_m > 0.0 and (
+                not self._irtifa_ok or self._irtifa_m < self._altitude_gate_m):
             self._n_gate_alt += 1
             self._relay(raw)
             return
@@ -520,7 +702,15 @@ class CollisionAvoidanceNode(Node):
             (float(raw.vx), float(raw.vy), float(raw.vz))
             if raw.velocity_valid else (0.0, 0.0, 0.0)
         )
-        v_cmd, risk = self._ca.compute(base, obstacles)
+        v_cmd, risk = self._ca.compute(
+            base, obstacles,
+            h_now=self._irtifa_m if self._irtifa_ok else None,
+            # Korlukte kazanilan dikey ayrim BIRAKILMAZ. `_korluk_bildirildi`
+            # yalnizca BIR KEZ GORULMUS ve sonra kaybolmus komsulari tutuyor;
+            # hic gorulmemis komsu (or. yerdeki ylp01) burayi tetiklemez.
+            kor=bool(self._korluk_bildirildi),
+        )
+        self._dikey_tanilari_isle()
 
         if not risk:
             self._relay(raw, reset_core=False)
@@ -601,6 +791,10 @@ class CollisionAvoidanceNode(Node):
                 f'korluk={self._n_korluk} '
                 f'korluk_tut={self._n_korluk_tut} '
                 f'kor_komsu={sorted(self._korluk_bildirildi) or "-"} '
+                f'irtifa={self._irtifa_m:.1f}'
+                f'{"" if self._irtifa_ok else "(GECERSIZ)"} '
+                f'dikey_yetersiz={self._n_dikey_yetersiz} '
+                f'donus_kor={self._n_donus_kor} '
                 f'komsu_veri={len(self._neighbors)}/'
                 f'{len(self._neighbor_subs)} '
                 f'ben={"var" if self._ben is not None else "YOK"}'

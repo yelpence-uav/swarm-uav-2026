@@ -1,6 +1,6 @@
 # GÜNLÜK — oturum devir teslim kaydı
 
-**Son güncelleme:** 23 Ağustos 2026, 01:30
+**Son güncelleme:** 23 Ağustos 2026, 20:30
 
 Tek bilgisayar, sırayla çalışıyoruz. Biri kalkıp diğeri oturduğunda **hem
 kişi hem Claude** nerede kalındığını buradan anlar.
@@ -35,6 +35,122 @@ Claude'a **"oturumu kapat"** dersen bu kaydı o yazar.
 - ylp00: (kill switch? pil? nerede? konteyner ayakta mı?)
 - ylp02:
 ```
+
+---
+
+## 2026-08-23 20:30 — Osman + Claude (DİKEY çarpışma önleme: yazıldı, dağıtıldı, 5 yer testi)
+
+> Gün tamamen çarpışma önlemeye ayrıldı. Kaçınmanın birincil kaçış yönü
+> **dikey** oldu; yatay itme son çareye indi. Yol boyunca **üç sessiz hata**
+> ve **beş tasarım kusuru** çıktı — hepsi ölçümle bulundu.
+
+**Ne yapıldı**
+
+*1 — Mesh "%30 kayıp" efsanesi çürüdü: kaynağı radyo değil KENDİ KAPIMIZ*
+
+Operatör "%28 kayıp saçma, dün o sorunu çözmüştük" dedi ve haklı çıktı.
+Ölçüldü: kaynak (agent_fsm iç durum) tam **10,00 Hz**, ama POSE kapısı da
+10 Hz — jitter yüzünden boşlukların **%51,4'ü eşiğin altında** kalıyor ve o
+örnekler tamamen düşüyor.
+
+```
+                    ONCE              SONRA (_pose_periyot_s 0.100 -> 0.095)
+Pi->ESP yazilan   8,08 / 8,44 /s      11,91 / 11,94 /s
+karsi taraf alan  7,09 / 7,11 Hz      10,89 / 10,46 Hz
+en buyuk bosluk   0,41 s              0,31 s
+gercek HAVA kaybi                     %1-5   (radyo neredeyse kusursuz)
+```
+
+Dağıtıldı ve uçakta doğrulandı. `gonderim_drop=0`, `crc_fail=0`.
+
+*2 — Dikey yol verme yazıldı (KARAR-06)*
+
+Kural: çatışan uçaklardan **kimliği büyük olan**, küçüğün **ölçülen**
+irtifasından `katman` kadar uzağa gider. Rütbe **kadrodan** (`SURU_KADRO`),
+merdiven **dönüşümlü** (+k, −k, +2k…). Yatay itme yalnız `hard` içinde.
+
+**Testler beş tasarım kusuru yakaladı** — hepsi düzeltildi, gerekçeleri koda
+yazıldı:
+- çapa görev tırmanışını kesiyordu (QR "20 m'ye çık" merdiveni dondururdu)
+- saf dikey kip görev **yatay** hızını sessizce frenliyordu (2,0 → 0,2 m/s)
+- yön kararı manevranın ortasında dönüyordu (ivme rampası yüzünden)
+- 🔴 drone2 ile drone3 **tam aynı irtifaya** çıkıyordu (yarış durumu)
+- dikey müdahale görevin dikey komutunu tamamen eziyordu
+
+*3 — İki sessiz hata daha (ikisi de uykudaydı)*
+
+- 🔴 **Dikey datum:** kendi `pos_z`'m EKF yerel (boot'a bağlı ~10 m kayar),
+  komşununki mesh'ten gelen kalkış-göreli. İkisi çıkarılıyordu. Dikey kaçış
+  için bu **doğrudan kumanda sinyali** — düzeltildi (`TUZAKLAR` §2.21).
+  Aynı sebeple **irtifa kapısı** da sağlam kaynağa alındı.
+- 🔴 **PX4 sessiz kırpma:** `MPC_Z_VEL_MAX_UP = 1,2` çıktı. Kaçınmaya 3,0
+  yazılsaydı ayar ve log 3,0 gösterirken uçak 1,2 tırmanacaktı. Dört PX4
+  dikey tavanı `ucus_ayarlari.py`'ye girdi + **denetim** eklendi.
+
+*4 — Dağıtım ve BEŞ YER TESTİ (hepsi geçti)*
+
+| test | sonuç |
+|---|---|
+| G0-1 datum | `rel_z` iki uçaktan zıt işaretli, 3 cm farkla (−0,428 / +0,397) |
+| G0-2 rütbe+işaret | çapa 0,000 · rütbe 1 → −1,184 (PX4 tavanında doyuyor) |
+| G0-3 yatay son çare | 0,6 m arayla açıldı, **zıt yönlerde** (+3,74 / −3,65) |
+| G0-4 geçirgenlik | çatışma yokken çıktı girdiyle **birebir** |
+| G0-5 körlükte tutma | `donus_kor=1`, ayrım bırakılmadı |
+
+**Ne değişti**
+
+- kod: `ca_core.py` — dikey yol verme, `xy_guard` kör noktası, yatay son
+  çare kapısı, `slew_emergency` 30 → 5,66
+- kod: `komsu_adaptoru.py` — dikey datum düzeltmesi + `agent_id`
+- kod: `collision_avoidance_node.py` — parametreler, irtifa kapısı, tanılar
+- kod: `esp32_bridge_node.py` — POSE kapısı 0,100 → 0,095
+- kod: `ucus_ayarlari.py` — CA eşikleri + PX4 dikey tavanları + denetimler
+- kod: `baslat.sh` — dikey parametreler, `SURU_KADRO`'dan rütbe
+- kod: `ca_benzetim.py` — gerçek `ca_core` dikeyi + ölçülen mesh modeli
+- yeni: `test_ca_dikey.py` (26 test) · `teshis/g0_dikey_datum.py` ·
+  `teshis/g0_dikey_gozlem.sh` · `teshis/g0_korluk_tutma.sh`
+- **uçakta:** kod dağıtıldı (`9e8ee4f +KIRLI`), `ucus_ayarlari.env` yeniden
+  üretildi (**K2 kapandı**: `d0` 10→4,0, `hard` 6→2,5), konteynerler restart
+- belge: `CA.md` yeniden yazıldı · `TUZAKLAR` §1.23 §1.24 §2.20 §2.21 §2.22
+  §3.12 · `KARARLAR` KARAR-06 + KARAR-01 düzeltmesi + KARAR-04'e `SURU_KADRO`
+  · `RPI_ESITLEME` K13-K16 + A17 · `DURUM` · `YAPILACAKLAR` · `PLAN` ·
+  `CLAUDE.md`
+
+**Yarım kalan / tuzak**
+
+- 🔴 **Havada hiç uçmadı.** İlk uçuş operatörün tarif ettiği iki uçaklı test.
+- 🔴 **Tırmanma itki payı ölçülmedi** — o uçuşta kayıttan çıkarılacak
+  (`vfr_hud.throttle` tepesi). Askı gazı %66, `a=2.0` ~1,20× itki istiyor.
+- 🔴 **`KARAR-02`: `ultracode`** — yeni CA'nın ilk uçuşu.
+- 🟠 Yanal kayma **~4,8 m** bekleniyor; haritaya işlenmeli.
+- 🟠 Kumanda hangi uçağa bağlı hâlâ netleşmedi; ylp02'yi de yakalarsa test
+  boş çıkar.
+- ⚠️ **İki belge bayattı, düzeltildi:** `/ws/gozlem` "VAR" yazıyordu — **YOK**.
+  `basit_kacinma` koşuyor yazıyordu — 21 Ağustos'ta kapanmış.
+- ⚠️ Üç uçağın **aynı noktadan geçtiği** çapraz slot değişiminde hiçbir ayar
+  kabul eşiğini tutturmuyor (1,76 m). `formation_node` o geometriyi
+  üretmemeli.
+- ⚠️ Test betikleri artık düğüm bıraktı (`kill` sarmalayıcıyı öldürüp çocuğu
+  öksüz bırakıyor) — temizlendi, tek yayıncı doğrulandı, `TUZAKLAR` §1.24.
+
+**Sıradaki adım**
+
+Operatörün iki uçaklı dikey kaçınma testi — `PLAN.md` "SIRADAKİ UÇUŞ" ve
+`YAPILACAKLAR` "SONRAKİ OPERATÖRE" bloğunda tam tarifi var.
+
+**Uçakların bırakıldığı hâl**
+
+- **ylp00:** yerde, disarm, pervaneler **TAKILI**, 11 düğüm.
+  `rutbe=0` (**ÇAPA** — dikeyde kıpırdamaz).
+- **ylp02:** yerde, disarm, pervaneler **TAKILI**, 11 düğüm.
+  `rutbe=1` (**YUKARI +3 m** — testte asılı duracak olan bu).
+- İkisinde de: `d0=4.0 hard=2.5 katman=3.0 v=1.2 a=2.0 kp=2.0` ·
+  yatay **SON ÇARE** · `crc_fail=0` · test kancaları **temiz** ·
+  `/control/setpoint` **tek yayıncı** · `/ws/gozlem` **YOK**
+- Eski ayar dosyası: `~/yelpence_ws/ucus_ayarlari.env.23agu_oncesi`
+- **ylp01:** yerde. Dönünce `RPI_ESITLEME` A13-A17 + K1-K16, **ve
+  `SURU_KADRO="1 2 3"`** (yoksa kaçış yönü ters döner).
+- 🔴 **Laptop:** QGC'de 14550 link'i bağlı kalmalı.
 
 ---
 

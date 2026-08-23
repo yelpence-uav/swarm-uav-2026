@@ -28,13 +28,30 @@ _M_PER_DEG_LAT = 111320.0
 
 
 def _durum(**kw):
-    """Varsayilani gecerli olan sahte AgentStatus."""
+    """Varsayilani gecerli olan sahte AgentStatus.
+
+    23 Agustos 2026'da UC ALAN EKLENDI: dikey yol verme icin adaptor artik
+    kendi irtifasini `alt_amsl_m - home_alt_amsl_m` ile hesapliyor —
+    komsunun mesh'ten gelen degeriyle AYNI FORMUL. Eskiden `pos_z` farki
+    aliniyordu ve o iki FARKLI datum'u karistiriyordu (bkz. adaptorun
+    DIKEY bolumundeki not).
+
+    `agent_id` de eklendi: dikey rutbe icin gerekli.
+    """
     alanlar = {
         'lat_deg': 0.0, 'lon_deg': 0.0,
-        'pos_x': 0.0, 'pos_y': 0.0, 'pos_z': 0.0,
+        # pos_z = -10.0: mesh konvansiyonunda komsunun irtifasi 10 m
+        # (NED, yukari negatif) — asagidaki alt_amsl/home ciftiyle AYNI
+        # irtifayi anlatiyor. Ikisi tutarsiz birakilirsa iki ucak ayni
+        # yerde dururken bile aralarinda 10 m dikey fark GORUNUR ve butun
+        # yatay testler sessizce d0'in disina duser.
+        'pos_x': 0.0, 'pos_y': 0.0, 'pos_z': -10.0,
         'vel_x': 0.0, 'vel_y': 0.0, 'vel_z': 0.0,
         'xy_valid': True, 'z_valid': True, 'v_xy_valid': True,
         'origin_synced': True, 'state': 0,
+        'agent_id': 1,
+        # Dikey datum: irtifa = alt_amsl - home_amsl = 10.0 m
+        'alt_amsl_m': 1010.0, 'home_alt_amsl_m': 1000.0, 'gps_fix_type': 6,
     }
     alanlar.update(kw)
     return SimpleNamespace(**alanlar)
@@ -83,18 +100,29 @@ def test_d0_disinda_itme_yok():
     assert (vx, vy, vz) == (0.0, 0.0, 0.0)
 
 
-def test_d0_icinde_YAKLASAN_komsuya_itme_var():
-    """KARAR-01 Test 1: komsu 6 m'de ve YAKLASIYOR -> itme sifirdan buyuk."""
-    ben = _durum()
-    komsu = _durum(pos_x=6.0, vel_x=-3.0)
+def test_d0_icinde_YAKLASAN_komsuya_DIKEY_kacis_var():
+    """KARAR-01 Test 1'in 23 Agustos 2026 hali.
 
-    obs, _ = agent_status_to_obs(komsu, ben)
-    ca = CollisionAvoidanceCore(CaParams(d0=8.0, hard=4.0, r_min=1.5))
-    (vx, vy, vz), risk = ca.compute((0.0, 0.0, 0.0), [obs])
+    ⚠️ SOZLESME DEGISTI. Eskiden bu test "6 m'de yaklasan komsuya YATAY
+    itme" bekliyordu. Artik birincil kacis DIKEY ve yatay itme yalnizca
+    `hard` kabugunun icinde aciliyor (operator karari).
 
-    assert risk
-    assert math.hypot(vx, vy, vz) > 0.0
-    assert vx < 0.0
+    Yani 6 m'de beklenen tepki: dikey VAR, yatay YOK. Ikisi de burada
+    kilitleniyor — "kacinma calisiyor mu" sorusu yon degistirdigi icin
+    testin de degismesi gerekiyordu, ama SUSMASI degil.
+    """
+    ben = _durum(agent_id=3)
+    komsu = _durum(agent_id=1, pos_x=6.0, vel_x=-3.0)
+
+    obs, _ = agent_status_to_obs(komsu, ben, komsu_id=1)
+    ca = CollisionAvoidanceCore(CaParams(
+        d0=8.0, hard=4.0, r_min=1.5, agent_id=3, rutbe=1, katman_m=3.0))
+    (vx, vy, vz), risk = ca.compute((0.0, 0.0, 0.0), [obs], h_now=10.0)
+
+    assert risk, 'yaklasan komsuya tepki verilmeli'
+    assert vz < 0.0, f'DIKEY kacis beklenir (rutbe 1 -> yukari), vz={vz:.3f}'
+    assert abs(vx) < 1e-6 and abs(vy) < 1e-6, (
+        f'6 m kabuk disinda YATAY itme olmamali: ({vx:.3f}, {vy:.3f})')
 
 
 def test_DURAN_komsuya_hard_disinda_itme_YOK():
@@ -163,21 +191,29 @@ def test_gecersiz_konum_atlanir():
 def test_kapanma_hizi_itmeyi_ERKEN_tetikler():
     """KARAR-01'in belirleyici gerekcesi: yaklasma hizi hesaba katiliyor.
 
-    Ayni 7 m mesafede duran komsu ile uzerimize gelen komsu AYNI tepkiyi
+    Ayni mesafede duran komsu ile uzerimize gelen komsu AYNI tepkiyi
     almamali — `basit_kacinma`nin yapamadigi tam olarak bu.
+
+    ⚠️ MESAFE 7 -> 4.5 m'YE CEKILDI (23 Agustos 2026). Yatay itme artik
+    yalnizca `hard` kabugunun icinde acildigi icin 7 m'de her iki komsu da
+    sifir tepki aliyor ve test AYRIMI OLCEMEZ hale gelmisti. Olculecek
+    ozellik (kapanma hizi itmeyi guclendiriyor mu) DEGISMEDI, yalnizca
+    gecerli oldugu bolge daraldi.
     """
     ben = _durum()
-    duran = _durum(pos_x=7.0)
-    gelen = _durum(pos_x=7.0, vel_x=-6.0)   # bize dogru 6 m/s
+    duran = _durum(pos_x=4.5)
+    gelen = _durum(pos_x=4.5, vel_x=-6.0)   # bize dogru 6 m/s
 
     obs_duran, _ = agent_status_to_obs(duran, ben)
     obs_gelen, _ = agent_status_to_obs(gelen, ben)
 
+    # TEK TIK YETMIYOR: ivme siniri (slew) ilk tikte iki cikisi da ayni
+    # degere kirpiyor ve fark gorunmuyor. Kararli hale birakiliyor.
     ca1 = CollisionAvoidanceCore(CaParams(d0=8.0, hard=4.0, r_min=1.5))
-    (vx_d, vy_d, _), _ = ca1.compute((0.0, 0.0, 0.0), [obs_duran])
-
     ca2 = CollisionAvoidanceCore(CaParams(d0=8.0, hard=4.0, r_min=1.5))
-    (vx_g, vy_g, _), _ = ca2.compute((0.0, 0.0, 0.0), [obs_gelen])
+    for _ in range(40):
+        (vx_d, vy_d, _), _ = ca1.compute((0.0, 0.0, 0.0), [obs_duran])
+        (vx_g, vy_g, _), _ = ca2.compute((0.0, 0.0, 0.0), [obs_gelen])
 
     assert math.hypot(vx_g, vy_g) > math.hypot(vx_d, vy_d), (
         'yaklasan komsuya daha sert tepki verilmeli')

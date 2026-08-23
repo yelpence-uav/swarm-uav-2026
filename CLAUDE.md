@@ -1,6 +1,6 @@
 # Yelpençe — TEKNOFEST 2026 Sürü İHA
 
-**Son güncelleme:** 20 Ağustos 2026, 18:50
+**Son güncelleme:** 23 Ağustos 2026, 20:30
 
 > Bu dosyayı Claude Code her oturumda **kendiliğinden okur**. Yeni bir sohbet
 > açan kişinin hiçbir şey söylemesine gerek yok; buradan projeyi anlar.
@@ -77,28 +77,32 @@ Erişim, MAC'ler, portlar, QGC ayarı: **`docs/cihazlar.md`**.
 
 ## 3. Şu an sahada gerçekten ne koşuyor
 
-Bu listeyi ezberle. Repoda 19 ROS düğümü var; uçakta **beşi** açık:
+Bu listeyi ezberle. Repoda 19 ROS düğümü var; uçakta **on biri** açık:
 
 ```
-mavros_node          MAVLink <-> ROS
-px4_bridge           setpoint yürütücü + OFFBOARD  (swarm_control)
-agent_fsm_node       ajan durum makinesi           (swarm_state_machine)
-esp32_bridge         mesh <-> ROS köprüsü          (swarm_control)
-basit_kacinma        APF çarpışma kaçınması        (swarm_control)  ← GEÇİCİ
+mavros_node            MAVLink <-> ROS
+px4_bridge             setpoint yürütücü + OFFBOARD  (swarm_control)
+agent_fsm_node         ajan durum makinesi           (swarm_state_machine)
+esp32_bridge           mesh <-> ROS köprüsü          (swarm_control)
+collision_avoidance    DİKEY yol verme + yatay son çare  (swarm_core)
+ic_dis_kopru           internal -> public yerel döngü
+swarm_origin_publisher · consensus_node · swarm_fsm_node
+formation_node · path_planner            (yalnız hesap, uçağı sürmüyor)
 ```
 
-> **`basit_kacinma` yarışmada kullanılmayacak.** Test için yazılmış bir
-> çarpışma önleme algoritması; asıl sürü algoritması değil. Yerine
-> `collision_avoidance` geçecek (KARAR-01) ve **`basit_kacinma` o zaman
-> iptal edilip çıkarılacak.** Bugün duruyor olması bir tercih değil, henüz
-> sırası gelmemiş bir geçiş.
+**11 düğüm** (+ MAVROS eklentileri). 23 Ağustos'ta ölçüldü.
+
+> **`basit_kacinma` 21 Ağustos'ta KAPATILDI** (ADIM 4, KARAR-01). Yerine
+> `collision_avoidance` koşuyor; 23 Ağustos'ta **dikey yol vermeye**
+> geçirildi (KARAR-06, `docs/CA.md`). Silinmedi — beklenmedik davranışta
+> tek dosya değişikliğiyle geri dönülür.
 >
 > Dikkat: o yuva aynı zamanda **zorunlu bir aktarım katı** —
 > `/control/setpoint/raw` ile `/control/setpoint` arasındaki tek köprü orası.
 > "Kaçınmayı kaldır" diye bir seçenek yok; yalnızca *değiştir* var. Boş
 > bırakılırsa `formation_node`'un setpoint'leri px4_bridge'e hiç ulaşmaz.
 
-Diğer **14 sürü düğümü kapalı**. `deploy/rpi/baslat.sh` içindeki
+Diğer **sürü düğümleri kapalı**. `deploy/rpi/baslat.sh` içindeki
 `SURU_DUGUMLERI` değişkeniyle adı verilerek açılırlar; varsayılan boş.
 
 ### Komut yolu (kanıtlanmış, uçan yol)
@@ -107,12 +111,12 @@ Diğer **14 sürü düğümü kapalı**. `deploy/rpi/baslat.sh` içindeki
 YKİ: src/gcs/gorev_kanit_ucus.py
   -> REST -> backend (:8000) -> base ESP -> ESP-NOW mesh
   -> esp32_bridge -> /drone_N/control/setpoint/raw
-  -> basit_kacinma -> /drone_N/control/setpoint
+  -> collision_avoidance -> /drone_N/control/setpoint
   -> px4_bridge -> MAVROS -> PX4 (OFFBOARD)
 ```
 
-Kaçınma `/ws/kacinma` dosyası varsa devrede (şu an **ikisinde de var**).
-Dosya yoksa esp32_bridge doğrudan `/control/setpoint`'e yazar.
+Kaçınma düğümü `collision_avoidance` (`suru_dugumleri`'nde `ca`).
+`/ws/kacinma` dosyası **YOK** — `kacinma.adim4_oncesi` olarak kenarda.
 
 ---
 
@@ -124,7 +128,7 @@ Dosya yoksa esp32_bridge doğrudan `/control/setpoint`'e yazar.
 | Konu | Bugünkü üretici (saha) | Sürü tasarımındaki üretici |
 |------|------------------------|----------------------------|
 | `.../setpoint/raw` | `esp32_bridge` (remap ile) | `formation_node` |
-| `.../setpoint`     | `basit_kacinma`            | `collision_avoidance` |
+| `.../setpoint`     | `collision_avoidance`      | `collision_avoidance` |
 
 **İkisi aynı anda açılırsa** px4_bridge 50 Hz'de iki farklı algoritmadan
 gelen çelişkili setpoint'leri sırayla alır ve hangisinin kazandığı zamanlamaya
@@ -183,6 +187,7 @@ Burada yalnız Claude'un sık kullandıkları:
 | `docs/GUNLUK.md` | Oturum devir teslim kaydı — kim, ne zaman, ne yaptı |
 | `docs/YAPILACAKLAR.md` | Öncelikli iş listesi (🔴P0 · 🟠P1 · 🟡P2 · ⚪P3) |
 | `docs/KARARLAR.md` | **Verilmiş ama henüz uygulanmamış kararlar** — sırası gelince operatöre hatırlat |
+| **`docs/CA.md`** | **Çarpışma önleme** — dikey yol verme tasarımı, yer testleri, açık sorular |
 | **`docs/TUZAKLAR.md`** | **Hata vermeden yanlış sonuç üretenler.** Bir şey "çalışmıyor ama hata da vermiyor" ise ÖNCE buraya bak |
 | `docs/RPI_ESITLEME.md` | Pi'lerde ne yapıldı, hangi uçakta var |
 | `docs/cihazlar.md` | Kimlik tablosu, SSH, MAC, port, QGC, sysid |

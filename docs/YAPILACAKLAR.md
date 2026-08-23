@@ -1,81 +1,87 @@
 # YAPILACAKLAR
 
-**Son güncelleme:** 23 Ağustos 2026, 01:30 — P0.15 KAPANDI (kök neden bulundu)
+**Son güncelleme:** 23 Ağustos 2026, 20:30 — dikey kaçınma dağıtıldı, 5 yer testi geçti
 
-## 🚨 SONRAKİ OPERATÖRE — ÖNCE BUNLAR (22 Ağustos gecesi bırakıldı)
+## 🚨 SONRAKİ OPERATÖRE — ÖNCE BUNLAR (23 Ağustos akşamı)
 
-> Bu blok bir oturumun sonunda, **uçuş yarıda kalmışken** yazıldı. Aşağıdaki
-> sıra rastgele değil: 1 ve 2 yapılmadan uçulmaz.
+### 1. 🔴 Uçuş öncesi `uptime -s` (P0.17)
 
-### 1. ✅ `docker restart drone1` — YAPILDI (22 Ağustos 17:31)
+ylp00'ın Pi'si bir kez **öldü ve öyle kaldı**. Pi son 10 dakikada açılmışsa
+**uçma.** Pi ölürse **GÜCÜ KESME** — iz RAM'de.
 
-Kaçınmanın ivme sınırları (`30 → 5,66 m/s²`) artık **ylp00'da da etkin**.
-Açılış logundan doğrulandı:
+### 2. 🔴 Sıradaki uçuş: DİKEY KAÇINMANIN İLK UÇUŞU
+
+Operatörün tarif ettiği iki uçaklı test:
 
 ```
-collision_avoidance basladi (komsular: 2,3, d0=10.0 hard=6.0,
-  ivme normal=3.58 acil=5.66 donus=0.50, basit_kacinma KAPALI)
+ylp02 (id 3, rutbe 1) ASILI DURUR      <- kacacak olan
+ylp00 (id 1, rutbe 0) KUMANDAYLA uzerine surulur, 3 m/s
 ```
 
-11 düğüm ayakta, YKİ drone1'i yeniden görüyor. **İki uçak da aynı
-ivme sınırlarında** — ayrışma kalmadı.
+🔴 **Asılı duran ylp02 olmalı.** ylp00 çapadır, dikeyde **kıpırdamaz** —
+ters kurulursa test boş çıkar.
 
-### 2. 🔴 Uçuş öncesi `uptime -s` (P0.17)
+**Beklenen (benzetimden, önceden yazıldı):**
 
-ylp00'ın Pi'si bir kez **öldü ve öyle kaldı** (kırmızı ışık, elle açıldı).
-Sebep bilinmiyor. Pi son 10 dakikada açılmışsa **uçma.** Çökme kaydı artık
-kurulu, bir daha olursa iz bırakacak → `TUZAKLAR.md` §2.17.
+| an | ne olur |
+|---|---|
+| yatay 3,90 m | tetik, ylp02 tırmanmaya başlar |
+| t+0,85 s | en yakın 3B **2,17 m**, o ana kadar **0,81 m** tırmanmış |
+| t+7 s | 3 m'nin tamamı kurulur |
+| ylp00 6-7 m uzaklaşınca | 2 sn bekleme + 0,5 m/s iniş (~8 sn) |
+| 🔴 **yanal kayma** | **~4,8 m** — 2,5 m'nin içine girilirse yatay son çare açılır |
 
-🔴 **Pi ölürse GÜCÜ KESME** — iz RAM'de, güç giderse silinir.
+🔴 **O 4,8 m HARİTADA olmalı.** Asılı uçak durduğu yerde kalmayacak.
 
-### 3. 🔴 Sıradaki uçuş: üç düzeltmenin doğrulanması
+⚠️ Uçağı 4,5 m'den (d0 + histerezis) uzağa götürmezsen çatışma bitmez ve
+ylp02 **inmez**. Geçtikten sonra en az 6-7 m uzaklaş.
 
-Tam tarifi `PLAN.md` **"SIRADAKİ UÇUŞ"** bölümünde. Özet:
+### 3. 🔴 Aynı uçuştan TIRMANMA ÖLÇÜMÜ çıkarılacak
 
-| | önceki uçuş | beklenen |
-|---|---|---|
-| kaçış maks eğim | **34,0°** | **≤ 20°** |
-| dönüş tepe hızı | 3,21 m/s | ~1,73 m/s |
-| **kaçışın gücü** | 3,88 m kaçtı | **aynı kalmalı** |
+Dikey tasarımın tek doğrulanmamış varsayımı. Kayıttan üçü:
 
-Son satır kritik: kaçış **zayıflarsa düzeltme yanlış** demektir.
+| kayıttan | ne söyler |
+|---|---|
+| `vfr_hud.throttle` tepesi | itki payı. Askı %66; tepe %75 altındaysa pay sağlam |
+| komut `vz` ↔ gerçekleşen `vz` | PX4 1,2'yi tutuyor mu |
+| 3 m'ye varış süresi | beklenen ~7 sn |
 
-Ölçüm `/mavros/imu/data` quaternion'undan roll/pitch, **evrelere ayrılmış**
-(asılı / kaçış / dönüş / asılı). ⚠️ Konum ve hız verisi bu sorunu
-**gizler** — `TUZAKLAR.md` §2.18.
+Sonuç iyiyse `MPC_Z_VEL_MAX_UP` 1,2 → 3,0 tartışılabilir (yanal kaymayı
+4,8 → 1,9 m yapıyor).
 
-Manevra: tek uçak asılı, ikinci uçak kumandayla **yandan** yaklaşır.
-**Tepeden yaklaşılmaz** (`xy_guard=0.3` kör noktası), **altından geçilmez.**
+### 4. 🔴 `KARAR-02` — `ultracode`
 
-### 4. 🔴 Formasyon uçuşundan ÖNCE: `d0=10 hard=6` GERİ ALINACAK
+Bu, yeni CA'nın **ilk uçuşu** ve 20 Hz'de uçağa dikey komut verecek kod.
+Uçuştan önce operatörden o mesaja `ultracode` yazması istenecek.
 
-Bu değerler yalnız kaçınma testi için, uçaklara **elle** kondu. 12 m
-aralıkta formasyonun planlı en yakın yaklaşması 8,49 m — `d0=10` normal
-formasyon geçişinde tetiklenir ve formasyonla çekişir.
-Geri alma komutu: `RPI_ESITLEME.md` **K2**.
+### 5. 🟠 Kumanda hangi uçağa bağlı — HÂLÂ NETLEŞMEDİ
 
-### 5. 🟠 Kumanda hangi uçağa bağlı — NETLEŞMEDİ
-
-ylp00'da `rc_link_ok: true`. İkinci uçağı kumandayla kaldırırken ylp00'ın
-modunun alınıp alınmadığı ölçülmedi. **Uçuşsuz, 30 saniyelik yer testiyle**
-kesinleşir: iki uçak yerde ve disarm dururken çubuğu oynat, ylp00'ın RC
-girişi değişiyor mu bak.
-
-Bu netleşmeden aynı test düzeni üçüncü kez aynı yerde kesilebilir. (Not:
-mod geri alma açığı kapatıldı, yani pilot müdahalesi artık **kalıcı** —
-ama kumandanın hangi uçağı sürdüğü hâlâ bilinmiyor.)
+ylp00'da `rc_link_ok: true`. Kumanda ylp02'yi de yakalarsa **asılı uçağın
+otonomisi durur** ve test hiçbir şey göstermez. Uçuşsuz 30 sn'lik yer
+testiyle kesinleşir.
 
 ### 6. 🟠 YKİ uyarılarının kalıcı kaydı yok → **P1.16**
 
-Bir oturumda **~32 bildirim** gitti ve **hiçbiri kayıtlı değil**.
-`AlertManager` yalnız bellekte tutuyor. ~20 satırlık iş, uçuş sonrası
-"ne oldu" sorusunu cevaplanabilir kılıyor.
-
 ### Bilinmesi gereken, düzeltilmemiş
-- Kaçınma **asılı dururken teğet bileşen üretmiyor** (yalnız düz geriye iter)
-- **Tepeden yaklaşmada koruma YOK** (`xy_guard=0.3` altı komşu tamamen atlanır)
-- Uçakta üretilen `SystemEvent`'lerin çoğu YKİ'ye **ulaşmıyor** (mesh'te
-  `TIP_EVENT` yok) — yalnız kaçınma körlüğü bayrakla taşınıyor → P1.15
+- Üç uçağın **aynı noktadan geçtiği** çapraz slot değişiminde hiçbir ayar
+  kabul eşiğini tutturmuyor (1,76 m). `formation_node` o geometriyi
+  üretmemeli — devreye alınırken bakılacak.
+- `/ws/gozlem` bayrağı **YOK** (belge "VAR" diyordu, bayattı). Şu an
+  zararsız ama `formation_node`'a tarif gelirse uçağı **doğrudan sürer**.
+- Uçakta üretilen `SystemEvent`'lerin çoğu YKİ'ye ulaşmıyor → P1.15
+
+---
+
+## ✅ 23 Ağustos'ta KAPANANLAR
+
+| | ne | nasıl |
+|---|---|---|
+| **K2** | `d0=10 hard=6` geçici test değeri | `ucus_ayarlari.env` yeniden üretildi → **4,0 / 2,5** |
+| **ADIM 4 dikey** | çarpışma önleme dikeye geçti | KARAR-06, 5 yer testi, 78/78 birim test |
+| **mesh "%30 kayıp"** | kaynağı radyo değil POSE kapısıymış | 7,1 → **10,5 Hz** (`TUZAKLAR` §2.20) |
+| **dikey datum** | EKF yerel z ile mesh irtifası karıştırılıyordu | `TUZAKLAR` §2.21, G0-1 ile doğrulandı |
+| **PX4 sessiz kırpma** | `MPC_Z_VEL_MAX_UP=1,2` bilinmiyordu | tek kaynağa girdi + denetim (`TUZAKLAR` §2.22) |
+| **`xy_guard` kör noktası** | tam tepedeki komşu atlanıyordu | `ca_core` yeniden yapılandırıldı (CA.md B2) |
 
 ---
 

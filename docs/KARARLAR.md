@@ -1,6 +1,6 @@
 # KARARLAR — verilmiş ama henüz uygulanmamış kararlar
 
-**Son güncelleme:** 21 Ağustos 2026, CA algoritma incelemesi
+**Son güncelleme:** 23 Ağustos 2026, 20:30 — KARAR-06 dikey yol verme
 
 Sohbette verilen kararlar oturum bitince kayboluyor. Bu defter onları
 tutuyor: **ne karar verildi, neden, ne zaman uygulanacak, nasıl test edilecek.**
@@ -35,6 +35,20 @@ sırası gelince" denilen şeyleri. Onlar en kolay kaybolanlar.
 ---
 
 # KARAR-01 — Çarpışma önleme: Seçenek C
+
+> ### ⚠️ 23 AĞUSTOS DÜZELTMESİ — aşağıdaki tabloda İKİ HATA vardı
+>
+> Kod sıfırdan okununca çıktı:
+>
+> 1. *"Dikey: `basit_kacinma` yok / `collision_avoidance` var"* — **YANLIŞ,
+>    ikisinde de yoktu.** `ca_core.compute()` gelen `vfz`'yi değiştirmeden
+>    geri veriyordu; `rel_z` yalnız 3B mesafe hesabında kullanılıyordu.
+>    Dikey kaçış **23 Ağustos'ta yazıldı** (KARAR-06).
+> 2. *"Teğet: ikisinde de var"* — **eksik.** CA'nınki kendi hızımıza bağlı
+>    olduğu için asılıyken çalışmıyordu. Artık konu dışı: `k_tan = 0`.
+>
+> Seçim (Seçenek C) yine de doğruydu ve yürürlükte. Eşikler KARAR-06 ile
+> değişti: `d0 6.0 → 4.0`, `hard 4.0 → 2.5` (anlamı da değişti).
 
 **Durum:** 🟢 **KOD HAZIR** — adaptör yazıldı ve test edildi (20 Ağustos 2026)
 **Ne zaman:** `PLAN.md` §4 **Aşama 1B** — `basit_kacinma` kapatılarak
@@ -580,6 +594,7 @@ Bugün filo **iki uçak** (drone 1 ve 3) ama ajan **kimlikleri 1..3**. Bu ayrım
 | `SURU_AJAN_SAYISI` → `agent_count` | **3** | 3 (değişmez) | **Kimlik aralığı** `1..N` — abone olunacak `droneN` konuları |
 | `SURU_BEKLENEN_UCAK` → `expected_agent_count` | **2** | **3** | **Filo büyüklüğü** — `formation_reached` ve sağlık oranı |
 | `task_reallocator.min_active_for_formation` | 2 | **3?** | ⚠️ hangi anlamda kullandığı **doğrulanmadı** |
+| `SURU_KADRO` (`baslat.sh`) | **`"1 3"`** | **`"1 2 3"`** | 🔴 Dikey kaçışın RÜTBESİ bundan türüyor. Yanlış kadro kaçış **yönünü ters çevirir** (23 Ağu, KARAR-06) |
 
 ## Neden ayrı bir karar
 
@@ -710,6 +725,89 @@ kopya bu dizüstünde. Makine giderse imaj yine yalnız SD kartlarda kalır.
 |---|----|-----------------|
 | A | `docker/rpi/Dockerfile.rpi` geri alınsın | Yeniden derleme ortamı kaydırır; uçan yapılandırma birebir korunmaz |
 | B | Hiç yedek yok, gerekince elle kurulur | ROS Jazzy + mavros elle kurulumu saatler sürer ve aynısı çıkmaz |
+
+---
+
+# KARAR-06 — Çarpışma önlemede kaçış yönü: DİKEY birincil, yatay son çare
+
+**Durum:** ✅ **UYGULANDI** — kod dağıtıldı, beş yer testi geçti (23 Ağustos)
+**Ne zaman:** Uygulandı 23 Ağustos 2026; **havada hiç uçmadı**
+**Karar veren:** Operatör (23 Ağustos 2026)
+
+## Karar
+
+Çarpışma önlemenin birincil kaçış yönü **dikey** olacak. Çatışan uçaklardan
+kimliği büyük olan, küçüğün **ölçülen** irtifasından `katman` kadar uzağa
+gider. **Yatay itme yalnız sert kabuğun (`hard`) içinde** açılır.
+
+```
+d0 = 4.0 m (SABIT) · hard = 2.5 m · katman = 3.0 m
+v_dikey = 1.2 m/s (= PX4 MPC_Z_VEL_MAX_UP) · a = 2.0 · kp = 2.0
+rutbe: kadrodan (SURU_KADRO), DONUSUMLU merdiven (+k, -k, +2k...)
+```
+
+## Neden
+
+**Operatörün gerekçesi:** yatay düzlem görev geometrisinin kendisi
+(formasyon slotları, rota, QR konumları); yatay itmek formasyonu bozar,
+dikey eksen boş. Ayrıca yatay "sağa geç" kuralı n=3'te döngüsel, dikeyde
+kimlik sıralaması döngüyü imkânsız kılıyor.
+
+**Ölçümle doğrulandı** (formasyon yakın geçişi, benzetim):
+
+```
+yanal aralik  bagil hiz   en yakin 3B   YATAY KAYMA
+     3.0 m      3.0 m/s      3.09 m       0.00 m
+     3.5 m      3.0 m/s      3.54 m       0.00 m
+```
+
+Formasyon geometrisi hiç bozulmuyor — hedeflenen davranış tam olarak bu.
+
+**Neden yatay tamamen kapalı değil** (operatör kararı, ölçüme dayalı):
+
+```
+yaklasma    SAF DIKEY   SAF YATAY   DIKEY + SON CARE
+ 2.5 m/s      1.01 m      2.02 m        2.06 m
+ 4.0 m/s      0.47 m      1.53 m        1.20 m
+```
+
+Dikey yetkiyi gerçekçi olmayan değerlere çıkarmak bile açığı kapatmıyor
+(v=5 a=5 → 1,83 m). Sebep ayar değil **geometri**: dikey kaçışın
+kazanabileceği en fazla mesafe `katman` kadar ve onu kurmak 2-3 sn alıyor.
+
+**Neden a=2.0, 3.0 değil:** hız tavanı (1,2) baskın olduğu için a=3.0'ın
+kazancı yalnız 0,04 m; bedeli ~%75 gaz (askı %66) ve `MPC_ACC_DOWN_MAX=3.0`
+sınırına basmak. Operatör "en dengeli değer" dedi.
+
+## Nasıl uygulandı
+
+`ca_core.py` (dikey çekirdek + `xy_guard` kör noktası + son çare kapısı) ·
+`komsu_adaptoru.py` (dikey datum) · `collision_avoidance_node.py` ·
+`ucus_ayarlari.py` (tek kaynak + PX4 kırpma denetimi) · `baslat.sh` (rütbe).
+
+**Geri alma tek parametre:** `k_dikey=0` → düğüm eski davranışına birebir
+döner. Saf dikey isteniyorsa `k_yatay=0`.
+
+## Test
+
+**Birim: 78/78.** **Yer testi: 5/5** — datum · rütbe/işaret · son çare ·
+geçirgenlik · körlükte tutma. Ayrıntı `CA.md` §6.
+
+## 🔴 Kalan — uçmadan önce
+
+1. **Tırmanma itki payı ölçülmedi.** Operatörün iki uçaklı testinde
+   kayıttan `vfr_hud.throttle` tepesi çıkarılacak.
+2. `KARAR-02` gereği ilk uçuştan önce **`ultracode`** denetimi.
+3. ylp01 dönünce `SURU_KADRO="1 2 3"` (KARAR-04).
+
+## Diğer seçenekler (operatör isterse)
+
+| | Ne | Neden seçilmedi |
+|---|----|-----------------|
+| A | Saf dikey (`k_yatay=0`) | Hızlı yaklaşmada koruma çöküyor (4 m/s'te 0,47 m) |
+| B | Saf yatay (eski kip) | Formasyon geometrisini bozuyor; görevin kendisi o düzlem |
+| C | Göreli rütbe (yalnız çatışanlar sıralanır) | Çizgi formasyonunda iki uçak **aynı katmanı** seçiyor — mesh kusursuz olsa bile |
+| D | "En yüksek komşunun üstüne çık" | Benzetimde yarış: drone2 ve drone3 aynı irtifada buluştu (0,00 m ayrım) |
 
 ---
 

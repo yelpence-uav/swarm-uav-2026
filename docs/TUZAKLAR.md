@@ -1,6 +1,6 @@
 # TUZAKLAR — hata vermeden yanlış sonuç üretenler
 
-**Son güncelleme:** 23 Ağustos 2026, 01:30 — §2.19 jumper konnektör (P0.15 kök nedeni)
+**Son güncelleme:** 23 Ağustos 2026, 20:30 — §2.20-2.22, §1.23, §3.12 (dikey kaçınma günü)
 
 > **Bu belge CANLI.** Arşiv değil — buradaki her madde **bugün de geçerli.**
 >
@@ -640,6 +640,60 @@ doğrula. *(22 Ağustos 2026)*
 
 ---
 
+### 1.23 `set -u` ile ROS `setup.bash` = script TEK SATIR çıktı vermeden ölür
+
+**23 Ağustos 2026, yer testi betiğinde yaşandı.** Betik `set -uo pipefail`
+ile başlıyordu ve `source /opt/ros/jazzy/setup.bash` satırında **sessizce**
+ölüyordu: çıkış kodu 1, stdout boş, stderr boş, log dosyası bile yok.
+
+Sebep: `setup.bash` tanımsız değişkenlere dokunuyor
+(`AMENT_TRACE_SETUP_FILES`, `COLCON_TRACE`…) ve `set -u` altında ilk temas
+kabuğu bitiriyor. `>/dev/null 2>&1` ile susturulmuş olması izi tamamen yok
+ediyor.
+
+`bash -x` olmadan bulunması çok zor — teşhis yolu buydu:
+
+```bash
+docker exec drone1 bash -x /tmp/betik.sh ... > /tmp/iz.txt 2>&1
+# ⚠️ yonlendirme KONTEYNER DISINDA calisir: dosyayi Pi'de ara, icerde degil
+```
+
+**Kural:** ROS kaynaklayan betiklerde `set -u` **kullanma**. `set -o pipefail`
+yeterli.
+
+### 1.24 `kill` `ros2 run`'ı öldürür, ÇOCUĞU öksüz bırakır
+
+**23 Ağustos 2026'da yer testinden sonra yakalandı.** Test betikleri
+`ros2 run swarm_core collision_avoidance ... &` ile düğüm açıp `kill $PID`
+ile kapatıyordu. Ama `ros2 run` bir **sarmalayıcı**: gerçek düğüm ayrı bir
+süreç (`/ws/install/.../collision_avoidance`). Sarmalayıcı ölünce çocuk
+yaşamaya devam ediyor.
+
+Üç yer testinden sonra ylp02'de **üç artık düğüm** ayaktaydı:
+
+```
+PID  261/265  942 sn   <- gercek ucus dugumu (dogru)
+PID  1007     403 sn   <- G0-2 artigi
+PID  1264     164 sn   <- G0-5 artigi
+PID  1493      75 sn   <- G0-4 artigi
+```
+
+Bu sefer zararsızdı çünkü hepsinin çıktısı `-r` ile `/g0…` konularına
+yönlendirilmişti. **Yönlendirme olmasaydı** `/drone_N/control/setpoint`'e
+dört yayıncı olurdu — `CLAUDE.md` §4'ün tam olarak yasakladığı hâl.
+
+**Kural:** test düğümünü desenle öldür ve **doğrula**:
+
+```bash
+pkill -f "collision_avoidance.*[/]g0"
+ros2 topic info /drone_N/control/setpoint     # "Publisher count: 1" OLMALI
+```
+
+⚠️ `ros2 node list` bu işte yanıltıcı: MAVROS ~70 eklenti alt düğümü
+kaydediyor, toplam 80 görünüyor. Sürü düğümü sayısını `mavros` filtreleyerek
+say.
+
+
 ## 2. ROS 2 / DDS / kabuk
 
 ### 2.1 QoS uyumsuzluğu SESSİZDİR — bu belgedeki en pahalı tek kural
@@ -1086,6 +1140,102 @@ uçuş kaydında duruyor. Uçuş sonrası tek bakışta kontrol edilebilir —
 
 ---
 
+### 2.20 🔴 10 Hz kaynağı 10 Hz kapıdan geçirmek örneklerin ÇEYREĞİNİ yutar
+
+**23 Ağustos 2026'da ölçüldü.** Aylardır "mesh %30 kaybediyor" sanılan şeyin
+kaynağı radyo değil, kendi köprümüzdü.
+
+`esp32_bridge._on_own_status` POSE'u 10 Hz tavanla mesh'e veriyordu:
+
+```python
+if now - self._son_pose_gonderim_ts >= self._pose_periyot_s:   # 0.100
+    self._son_pose_gonderim_ts = now
+```
+
+Kaynak (`agent_fsm` iç durum yayını) **tam 10,00 Hz** ama ±3 ms jitter'lı.
+Ölçüldü: ardışık boşlukların **%51,4'ü 0,100 s'nin ALTINDA**. Eşiğin altına
+düşen örnek tamamen düşüyor — POSE kuyruklanmıyor, gönder-ya-da-atla.
+
+```
+kaynak                       10,00 /s
+Pi->ESP yazilan (once)        8,08 /s (ylp00)   8,44 /s (ylp02)
+karsi tarafin aldigi          7,09 Hz           7,11 Hz
+  -> HAVADAN kayip ~%0-4, KAPIDAN kayip ~%26
+```
+
+**Düzeltme tek sabit:** `_pose_periyot_s = 0.095`. Kapı kaynakla vuruşmaz,
+hız kaynağın kendi 10 Hz'i olur. Sonuç ölçüldü:
+
+```
+Pi->ESP yazilan  11,91 /s · 11,94 /s      (gonderim_drop = 0)
+karsi tarafin aldigi 10,46 Hz · 10,89 Hz  (en buyuk bosluk 0,41 -> 0,31 s)
+```
+
+⚠️ **Faz biriktirme (`son += periyot`) SEÇİLMEDİ**: kaynak bir an duraklarsa
+birikmiş tikleri peş peşe gönderip UART'a patlama yapar. Eşiği kaynağın
+altına çekmek hiçbir koşulda kaynaktan hızlı gönderemez.
+
+> **Genel ders:** periyodik bir kaynağı **aynı periyotlu** bir kapıdan
+> geçirme. Kapı ya kaynaktan hızlı olmalı ya da faz kilitli. Aradaki jitter
+> hangi tarafa düşerse örneği o yutar ve hiçbir sayaç artmaz.
+
+### 2.21 🔴 İki uçağın `pos_z`'si AYNI REFERANSTA DEĞİL
+
+**23 Ağustos 2026.** Dikey çarpışma önleme yazılırken bulundu; o güne kadar
+uykudaydı çünkü `rel_z` yalnız 3B mesafeyi biraz kaydırıyordu.
+
+| | kaynak | sıfır noktası |
+|---|---|---|
+| **kendi** `pos_z` | MAVROS odometry (EKF yerel NED) | EKF açılış origin'i — **boot'a bağlı ~10 m kayar, uçuş boyunca sürer** |
+| **komşunun** `pos_z` | mesh POSE → `-(alt_amsl − home_amsl)` | komşunun **kendi kalkış noktası** |
+
+`rel_z = komsu.pos_z - ben.pos_z` bu ikisini karıştırıyordu. Yatay tarafta
+aynı tuzağın uyarısı `komsu_adaptoru.py` başlığında upuzun yazılı; dikeyde
+yoktu. Aynı hata `esp32_bridge`'de POSE için bir kez yaşanmış ve orada
+düzeltilmişti (`:1697` — *"yerdeyken YKİ 10 m gösteriyordu"*).
+
+**Doğrusu: iki tarafta da GÖNDERENİN formülünü kullan.**
+
+```python
+ben_h  = ben.alt_amsl_m - ben.home_alt_amsl_m
+komsu_h = -komsu.pos_z
+rel_z  = ben_h - komsu_h
+```
+
+Geriye kalan tek hata iki kalkış noktası arasındaki **kot farkı**. Yer
+testinde ölçüldü (G0-1): ylp00 −0,428 / ylp02 +0,397 — zıt işaretli, 3 cm
+farkla tutarlı. 0,4 m'nin kaynağı ylp00'ın **bayat home kaydı**
+(`alt_amsl 1219,31` vs `home 1219,72`), kot farkı değil.
+
+⚠️ **CA'nın irtifa kapısı da aynı sebeple `-pos_z`'den bu formüle çevrildi** —
+EKF yukarı kayarsa uçak YERDEYKEN kapı açılırdı.
+
+**Ölçme aracı:** `deploy/rpi/teshis/g0_dikey_datum.py`. İki uçak yerdeyken
+`|rel_z| < 0,5 m` olmalı.
+
+### 2.22 🔴 PX4 dikey hız komutunu SESSİZCE kırpar — `MPC_Z_VEL_MAX_UP`
+
+**23 Ağustos 2026'da uçaktan okundu.** Dikey kaçışa 3,0 m/s yazılacaktı;
+uçaklarda tavan **1,2 m/s** çıktı.
+
+```
+MPC_Z_VEL_MAX_UP  = 1.2     MPC_ACC_UP_MAX    = 4.0
+MPC_Z_VEL_MAX_DN  = 1.5     MPC_ACC_DOWN_MAX  = 3.0
+```
+
+Üstünü yazmak demek: **ayar 3,0 gösterir, log 3,0 gösterir, uçak 1,2
+tırmanır.** `MPC_TILTMAX_AIR`'ın kodda 30 varsayılıp ylp00'da 45 çıkmasıyla
+birebir aynı sınıf.
+
+**Kapatıldı:** dört tavan `ucus_ayarlari.py`'ye girdi ve denetim eklendi —
+kaçınmanın dikey hızı PX4 tavanını aşarsa **HATA** veriyor. Ayrıca
+"merdiven kurulma süresi > çatışma süresi" uyarısı da orada.
+
+> Kural: uçağa komut veren her yeni büyüklük için PX4'ün karşılık gelen
+> tavanını **oku ve tek kaynağa yaz**. "Varsayılan şudur" bu depoda iki kez
+> yanlış çıktı.
+
+
 ## 3. PX4 ve uçuş davranışı
 
 ### 3.1 Kumanda AÇIKKEN sürü otonomisi TAMAMEN durur — ve loglanmaz
@@ -1254,6 +1404,35 @@ FCU reboot'undan sonra `mesaj_hizlari.py` tekrar koşmalı. Konteyner restart
 bunu zaten sırayla yapıyor.
 
 ---
+
+### 3.12 Dikey kaçınmada çatışma ölçütü YATAY mesafedir — 3B DEĞİL
+
+**23 Ağustos 2026, tasarım kararı.** Sezgiye ters geldiği için burada.
+
+Dikey yol vermede "çatışma var mı" sorusu **yalnız yatay** mesafeye bakar
+(giriş `d0`, çıkış `d0 + 0,5`). 3B mesafeye bakılsaydı şu döngü oluşurdu:
+
+```
+ucak tirmanir -> 3B mesafe buyur -> catisma biter -> iner
+             -> mesafe kuculur -> yine tirmanir     ... SALINIM
+```
+
+Yatay mesafe tırmanmaktan etkilenmediği için tetik kararlı kalıyor; çatışma
+ancak uçaklar gerçekten **yanal** ayrıldığında bitiyor.
+
+**Güvenlik açısından yeterli:** çıkış 4,5 m *yatay* istiyor ve 3B mesafe
+yataydan asla küçük olamaz. Yani iniş sırasında irtifalar ne olursa olsun
+arada en az 4,5 m var.
+
+**Yan etkisi (bilinmeli):** dikeyde ayrık ama yatayda yakın iki uçak
+"çatışma sürüyor" sayılır ve kaçan uçak **nominaline dönmez**. Sıkı
+formasyonda (aralık ≤ `d0`) merdiven kalıcı hâle gelir — `collision_avoidance`
+bunu açılışta uyarı olarak logluyor.
+
+**Yararlı bir sonucu:** komşu tam altına park ederse yatay mesafe ~0 kalır,
+çatışma hiç bitmez ve kaçan uçak **üstüne inmez**. Yerde ölçüldü: komşu
+0,3 m yatayda iken uçak 35 saniye boyunca 13,00 m'de kaldı.
+
 
 ## 4. Mesh ve ESP32
 

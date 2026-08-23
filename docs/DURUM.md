@@ -1,6 +1,6 @@
 # DURUM — şu an ne çalışıyor, ne bozuk
 
-**Son güncelleme:** 22 Ağustos 2026, 17:45 — uçaklar AÇIK, ylp00 restart edildi
+**Son güncelleme:** 23 Ağustos 2026, 20:30 — DİKEY kaçınma dağıtıldı, 5 yer testi geçti
 
 > Bu belge **şimdiki hâli** anlatır, tarihçe değil. Bir şey değişince burayı
 > güncelle, eskisini sil. Ne olduğunun hikâyesi `GUNLUK.md`'de kalır.
@@ -23,6 +23,50 @@
 > İkisi de 11 düğüm, `armed=false`, YKİ ve QGC bağlı.
 >
 > Kalan sıralı işler: `YAPILACAKLAR.md` **"SONRAKİ OPERATÖRE"** bloğu.
+
+
+> ## 🔀 23 AĞUSTOS — DİKEY KAÇINMA DEVREDE (yerde doğrulandı, HAVADA UÇMADI)
+>
+> Kaçınmanın birincil kaçış yönü **dikey** oldu. Yatay itme yalnız sert
+> kabuğun içinde açılıyor. Sonraki kişi uçakları böyle bulacak.
+>
+> | | eski | **şimdi** |
+> |---|---|---|
+> | birincil kaçış | yatay itme | **DİKEY yol verme** |
+> | yatay itme | `d0` içinde her zaman | **yalnız `hard` içinde (son çare)** |
+> | `d0` / `hard` | 10,0 / 6,0 *(geçici test)* | **4,0 / 2,5** ← K2 KAPANDI |
+> | katman | — | **3,0 m** |
+> | dikey hız / ivme / kp | — | **1,2 / 2,0 / 2,0** |
+> | rütbe | — | ylp00 **0 (ÇAPA)** · ylp02 **1 (YUKARI +3 m)** |
+> | `k_tan` | 0,9 | **0** (dikeyle birlikte kötüleştiriyor) |
+>
+> **Rütbe kuralı:** en küçük kimlik çapadır, dikeyde kıpırdamaz. Merdiven
+> dönüşümlü (+katman, −katman, +2×katman…) ve **kadrodan** türetiliyor
+> (`SURU_KADRO="1 3"`, `baslat.sh`). ylp01 dönünce **"1 2 3"** yapılacak —
+> yoksa yerdeki uçak, uçanların kaçış yönünü belirler.
+>
+> **Beş yer testi geçti** (datum · rütbe/işaret · son çare · geçirgenlik ·
+> körlükte tutma). Ayrıntı ve sayılar: `docs/CA.md` §6.
+>
+> 🔴 **HAVADA HİÇ UÇMADI.** İlk uçuştan önce `KARAR-02` gereği `ultracode`
+> denetimi. Ve 🔴 **tırmanma itki payı ölçülmedi** — o ölçüm operatörün
+> planladığı iki uçaklı testte kayıttan çıkarılacak (`CA.md` §7).
+
+> ## 📡 23 AĞUSTOS — MESH KAYBI %29 DEĞİL, %1-5 ÇIKTI
+>
+> "Mesh %30 kaybediyor" varsayımının kaynağı radyo değil **kendi
+> köprümüzdü**: 10 Hz'lik kaynağı 10 Hz'lik bir kapıdan geçiriyorduk ve
+> jitter yüzünden örneklerin ~%26'sı yutuluyordu (`TUZAKLAR` §2.20).
+>
+> `_pose_periyot_s` 0,100 → **0,095**. Ölçülen sonuç:
+>
+> ```
+> komsu tazeleme  7,1 Hz -> 10,5 Hz     en buyuk bosluk 0,41 -> 0,31 s
+> Pi->ESP yazilan 8,1 /s -> 11,9 /s     gonderim_drop = 0   crc_fail = 0
+> ```
+>
+> Kaçınmanın gördüğü dünya bu kadar tazelendi. `korluk_alarm_s=2,0` ve
+> `neighbor_rx_stale_s=1,5` eşiklerinin payı **arttı**, değiştirmeye gerek yok.
 
 > ### 🔴 QGC'de 14550'yi DİNLEYEN link olmadan uçaklara güç verme
 >
@@ -319,7 +363,7 @@ Bunlar **dosya varlığıyla** çalışıyor; uçağı bulan kişi böyle bulaca
 
 | Bayrak | ylp00 | ylp02 | Anlamı |
 |--------|-------|-------|--------|
-| `~/yelpence_ws/kacinma` | **var** | **var** | `basit_kacinma` açık, esp32_bridge çıkışı `/raw`'a yönlendirilmiş |
+| `~/yelpence_ws/kacinma` | **YOK** | **YOK** | `kacinma.adim4_oncesi` olarak kenarda. Koşan: **`collision_avoidance`** (21 Ağu ADIM 4) |
 | `~/yelpence_ws/gcs_url` | var | var | MAVLink QGC'ye iletiliyor (`udp-b://:14555@14550`) |
 | `~/yelpence_ws/tgt_system` | yok | `3` | ylp02'nin FCU sysid'i 3 |
 | `BATARYA_KRITIK_V` | `0.0` | `0.0` | FSM bataryaya bakmıyor (regülatörden besleme) |
@@ -327,7 +371,7 @@ Bunlar **dosya varlığıyla** çalışıyor; uçağı bulan kişi böyle bulaca
 | `~/yelpence_ws/suru_dugumleri` | **`origin consensus fsm formasyon`** | **`origin consensus fsm formasyon`** | 17 Ağu'da ikisinde de ölçüldü, **aynı**. Varsa `SURU_DUGUMLERI` env'ini ezer. Düğüm açmak: `echo ... > dosya` + `docker restart` |
 | `~/yelpence_ws/origin` | **var** | **var** | `38.6904758 39.1610188 1216.96` — tek kaynak `deploy/saha_origin.env`, ylp00'da doğrulandı (17 Ağu). Elle yazma, `dagit.sh` dağıtır |
 | `~/yelpence_ws/yer_testi` | **YOK** | **YOK** | 19 Ağu 23:57'de ikisinden de silindi — **uçaklar kalkış komutunu ALIR.** Yer testine dönüş: `touch` + restart. (Not: yeni `kalkis_olayla=false` sayesinde "görev başladı" olayı tek başına kalkış tetiklemez; kalkış yalnız guided takeoff'la) |
-| `~/yelpence_ws/gozlem` | **VAR** ⚠️ | **VAR** ⚠️ | `formation_node` setpoint'i `/gozlem/...`'e gidiyor, **uçağa ULAŞMIYOR**. Uçuştan önce SİL + restart |
+| `~/yelpence_ws/gozlem` | **YOK** ⚠️ | **YOK** ⚠️ | 23 Ağu'da ölçüldü — belgede "VAR" yazıyordu, **bayattı**. Şu an zararsız (`formation_node`'a tarif gelmiyor) ama tarif gelirse formasyon uçağı **DOĞRUDAN SÜRER** |
 | `~/yelpence_ws/gps_saat_kapali` | yok | yok | Varsa GPS'ten saat düzeltmesi yapılmaz |
 
 ### 🔴 UÇMADAN ÖNCE: `yer_testi` bayrağını kaldır
@@ -432,13 +476,17 @@ dönüşsüz silecekti.
 ## 5. Sahada koşan düğümler
 
 ```
-mavros_node · px4_bridge · agent_fsm_node · esp32_bridge · basit_kacinma
-+ ic_dis_kopru · swarm_origin_publisher · consensus_node
-+ swarm_fsm_node · formation_node · path_planner           (15 Ağustos)
+mavros_node · px4_bridge · agent_fsm_node · esp32_bridge
++ collision_avoidance · ic_dis_kopru · swarm_origin_publisher
++ consensus_node · swarm_fsm_node · formation_node · path_planner
 ```
 
-`collision_avoidance` **kapalı** — `basit_kacinma` ile aynı topic yuvası,
-ikisi birden açılmaz (`CLAUDE.md` §4). ADIM 4'te değişecek.
+**11 düğüm** — 23 Ağustos'ta `ros2 node list` ile ikisinde de doğrulandı.
+(`ros2 node list` toplam ~80 gösterir; fazlası MAVROS'un eklenti alt
+düğümleri, normal.)
+
+`basit_kacinma` **KAPALI** (21 Ağustos, ADIM 4). Silinmedi — beklenmedik
+davranışta tek dosya değişikliğiyle geri dönülür.
 
 **İlk sürü düğümleri sahada koşuyor.** `ic_dis_kopru` herhangi bir sürü
 düğümü açıksa kendiliğinden açılıyor — sözleşmenin `internal → public`

@@ -1,6 +1,6 @@
 # PLAN — buradan finale
 
-**Son güncelleme:** 22 Ağustos 2026, sıradaki uçuş tanımlandı
+**Son güncelleme:** 23 Ağustos 2026, 20:30 — ADIM 4 dikeye geçti (KARAR-06)
 
 Bu belge **tüm takımın ortak resmi** ve sürü entegrasyonunun **teknik yol
 haritası**. Yeni gelen biri bunu okuyup işe başlayabilir.
@@ -42,52 +42,51 @@ YKİ (bilgisayar) → mesh → uçak: "şu noktaya git"
 
 ---
 
-## ⏭️ SIRADAKİ UÇUŞ — kaçınma testi, üç düzeltmeyle (22 Ağustos)
+## ⏭️ SIRADAKİ UÇUŞ — DİKEY kaçınmanın ilk uçuşu (23 Ağustos)
 
-Kaçınma **sahada çalıştığı ölçüldü** (operatör 6,5 m'ye yaklaştı, ylp00
-3,88 m kaçtı). Ama aynı uçuşlarda üç kusur bulundu ve düzeltildi;
-**hiçbiri henüz uçmadı.** Sıradaki uçuşun tek işi bunları doğrulamak.
+Kaçınma 23 Ağustos'ta **dikey yol vermeye** geçirildi (KARAR-06). Beş yer
+testi geçti, **havada hiç uçmadı**. Tasarımın tamamı: **`docs/CA.md`**.
 
 ### Bu uçuş hangi tek soruyu cevaplıyor?
 
-> **Kaçınma artık uçağın yapabileceği sınırlar içinde mi kalıyor?**
+> **Dikey kaçış havada, uçağın yapabileceği sınırlar içinde çalışıyor mu?**
 
-Ölçüt tek: **eğim genliği.** Önceki uçuşta kaçış evresinde roll
-−24,7°…+28,3° (53° genlik), maks eğim **34°** ölçülmüştü.
+### Manevra — en kısa yeterli
 
-| | önceki uçuş | bu uçuşta beklenen |
-|---|---|---|
-| kaçış maks eğim | **34,0°** | **≤ 20°** (`slew_normal=3.58` → 20,1°) |
-| kaçış roll genliği | 53° | belirgin düşüş |
-| dönüş tepe hızı | 3,21 m/s | **~1,73 m/s** (`donus_ivme=0.5`) |
-| dönüş maks eğim | 22,0° | belirgin düşüş |
-| kaçışın **gücü** | 3,88 m kaçtı | **aynı kalmalı** — zayıflarsa düzeltme yanlış |
+```
+ylp02 (id 3, rutbe 1) ASILI DURUR        <- kacacak olan
+ylp00 (id 1, rutbe 0) KUMANDAYLA uzerine surulur, 3 m/s
+```
 
-### Neyi değiştirdik
+🔴 **Asılı duran ylp02 olmalı.** ylp00 çapadır, dikeyde **kıpırdamaz**.
 
-1. **İvmeler eğim tavanına bağlandı** — `slew_emergency` 30 → **5,66 m/s²**
-   (71,9° → 30°). Kaçınma artık `ucus_ayarlari.py`'den türetiliyor.
-2. **`hard` sınırındaki basamak giderildi** — sıçrama 3,19 → 1,80 m/s.
-3. **Dönüş yumuşatma** — kaçınma sonrası 4 sn `max_acc_mps2=0.5`.
+### Önceden yazılmış beklenti (benzetimden)
 
-Ayrıca aynı gün: **pilot devraldıysa mod geri alınmaz** (uçak kumandadan
-verilen LAND'i geri alıp tırmanıyordu) ve **körlük alarmı** (kaçınmanın
-kör kaldığı YKİ'de sesli bildiriliyor).
+| an | beklenen |
+|---|---|
+| yatay 3,90 m | tetik |
+| t+0,85 s | en yakın 3B **2,17 m**, o ana kadar **0,81 m** tırmanmış |
+| t+7 s | 3 m'nin tamamı kurulur |
+| dönüş | 2 sn bekleme + 0,5 m/s iniş (~8 sn) |
+| 🔴 yanal kayma | **~4,8 m** — haritada olmalı |
 
-### Uçuş öncesi zorunlu — bu uçuşa özel
+⚠️ 3 m'nin tamamı **geçtikten sonra** kurulur; 4 m'den 3 m/s kapanma
+1,33 sn, 3 m tırmanma ~4 sn. Görüntüde "yükselmedi" gibi durur.
 
-- 🔴 **`docker restart drone1`** — ylp00'da yeni parametreler ETKİN DEĞİL.
-  Açılışta `ivme normal=3.58 acil=5.66 donus=0.50` görünmeli.
-- 🔴 **`uptime -s`** — Pi son 10 dk'da açılmışsa uçma (P0.17).
-- 🔴 Kuru test + harita, operatör gözüyle onaylar.
-- Manevra: **tek uçak asılı**, operatör ylp02 ile **yandan** yaklaşır.
-  Tepeden yaklaşılmaz (`xy_guard` kör noktası), altından geçilmez.
+⚠️ Uçağı 6-7 m uzaklaştırmazsan çatışma bitmez ve ylp02 inmez.
 
-### Sonrasında ölçülecek
+### Aynı uçuştan çıkarılacak ÖLÇÜM
 
-`/mavros/imu/data` quaternion'undan roll/pitch, **evrelere ayrılmış**
-genlik karşılaştırması (asılı / kaçış / dönüş / asılı). Konum ve hız
-verisi bu sorunu **gizler** — bkz. `TUZAKLAR.md` §2.18.
+🔴 Dikey tasarımın tek doğrulanmamış varsayımı: **tırmanma itki payı**.
+Kayıttan `vfr_hud.throttle` tepesi + gerçekleşen `vz` + 3 m'ye varış süresi.
+
+### Uçuş öncesi zorunlu
+
+- 🔴 `uptime -s` (P0.17)
+- 🔴 Kuru test + harita — **yanal kaymanın 4,8 m'si dahil**
+- 🔴 `KARAR-02`: bu, yeni CA'nın ilk uçuşu → `ultracode` denetimi
+- 🟠 Kumanda hangi uçağa bağlı, netleşmedi — ylp02'yi de yakalarsa
+  asılı uçağın otonomisi durur ve test boş çıkar
 
 ---
 
@@ -504,10 +503,14 @@ Düğüm komutu doğru çözüyor, slot hesabı doğru, rampa hedefe oturuyor.
 durumlarında komut üretiyor ve o durumlara ancak `SYNCHRONIZED_TAKEOFF` →
 tüm ajanlar `IN_SWARM` olduktan sonra geliniyor. **En az 2 uçak ve UÇUŞ ister.**
 
-### ADIM 4 · `collision_avoidance` — KARAR-01
+### ADIM 4 · `collision_avoidance` — ✅ AÇILDI (21 Ağu) + DİKEYE GEÇTİ (23 Ağu)
 
-`basit_kacinma` kapanır (aynı yuva), **silinmez**. Adaptör ve testi hazır.
-⚠️ KARAR-02 hatırlatması geçerli.
+`basit_kacinma` kapandı (aynı yuva), **silinmedi**. 23 Ağustos'ta kaçış
+yönü **dikeye** alındı (KARAR-06): birincil kaçış dikey yol verme, yatay
+itme yalnız sert kabukta. Beş yer testi geçti, **havada uçmadı**.
+
+Tasarım, ölçümler, açık sorular: **`docs/CA.md`**.
+⚠️ KARAR-02 hatırlatması geçerli — ilk uçuştan önce `ultracode`.
 
 ### ADIM 5 · `camera_driver` + `vision_node` — paralel
 

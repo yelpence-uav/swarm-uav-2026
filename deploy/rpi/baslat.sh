@@ -943,11 +943,47 @@ if [ -n "$SURU_DUGUMLERI" ]; then
             # KARAR-01 Secenek C: komsu verisi kinematic_fusion'dan DEGIL,
             # mesh'ten gelen ham AgentStatus'tan (komsu_adaptoru.py). Bu
             # yuzden 'fusion' anahtarini acmaya gerek YOK.
+            # DIKEY YOL VERME — 23 Agustos 2026, operator karari.
+            #
+            # Birincil kacis DIKEY: catisan ucaklardan kimligi buyuk olan,
+            # kucugun OLCULEN irtifasindan KATMAN kadar uzaga gider. Yatay
+            # itme SON CARE — yalnizca `hard` kabugunun icinde acilir.
+            #
+            # RUTBE (donusumlu merdiven) kadrodan turetiliyor: kimligimin
+            # `1,AGENT_ID..N` siralamasindaki indeksi. rutbe 1 -> +katman,
+            # rutbe 2 -> -katman, rutbe 3 -> +2*katman ...
+            # Sabit olmasi SART: anlik catisma kumesinden turetilseydi iki
+            # ucak ayni katmani secebilirdi (benzetimde olculdu).
+            # RUTBE, ABONELIK LISTESINDEN DEGIL UCAN KADRODAN turetilir.
+            #
+            # CA_KOMSULAR "kime abone olayim" listesi ve olmayan drone'u
+            # icermesi zararsiz. Ama RUTBE oyle degil: ylp01 (id 2) yerde
+            # dururken onu saymak ylp02'yi rutbe 1 yerine rutbe 2 yapiyor
+            # ve donusumlu merdivende YON DEGISTIRIYOR (yukari yerine
+            # asagi). Yani yerde duran bir ucak, ucanlarin kacis yonunu
+            # belirliyordu.
+            #
+            # SURU_KADRO = GERCEKTEN ucan kimlikler. ylp01 donunce "1 2 3".
+            # (KARAR-04'teki "uc ucak birden ucunca degisecekler" listesine
+            # bu da eklendi.)
+            SURU_KADRO="${SURU_KADRO:-1 3}"
+            CA_RUTBE=0
+            for _k in $SURU_KADRO; do
+                [ "$_k" -lt "$AGENT_ID" ] 2>/dev/null && \
+                    CA_RUTBE=$((CA_RUTBE + 1))
+            done
             ros2 run swarm_core collision_avoidance --ros-args \
                 -p agent_id:=${AGENT_ID} \
                 -p neighbor_ids:="[$CA_KOMSULAR]" \
-                -p d0_m:=${KACINMA_D0:-6.0} \
-                -p hard_m:=${KACINMA_HARD:-4.0} \
+                -p rutbe:=${CA_RUTBE} \
+                -p d0_m:=${KACINMA_D0:-4.0} \
+                -p hard_m:=${KACINMA_HARD:-2.5} \
+                -p katman_m:=${KACINMA_KATMAN:-3.0} \
+                -p v_dikey_max_mps:=${KACINMA_DIKEY_HIZ:-1.2} \
+                -p a_dikey_max_mps2:=${KACINMA_DIKEY_IVME:-2.0} \
+                -p kp_dikey:=${KACINMA_DIKEY_KP:-2.0} \
+                -p k_dikey:=${KACINMA_K_DIKEY:-1.0} \
+                -p k_yatay:=${KACINMA_K_YATAY:-1.0} \
                 -p neighbor_rx_stale_s:=${KACINMA_BAYAT_S:-1.5} \
                 -p slew_normal_mps2:=${KACINMA_IVME_NORMAL:-3.58} \
                 -p slew_emergency_mps2:=${KACINMA_IVME_ACIL:-5.66} \
@@ -955,7 +991,10 @@ if [ -n "$SURU_DUGUMLERI" ]; then
                 >> "$GUNLUK/ca.log" 2>&1 &
             sleep 1
             echo "[baslat] collision_avoidance basladi (komsular: $CA_KOMSULAR," \
-                 "d0=${KACINMA_D0:-6.0} hard=${KACINMA_HARD:-4.0}," \
+                 "rutbe=$CA_RUTBE, d0=${KACINMA_D0:-4.0} hard=${KACINMA_HARD:-2.5}," \
+                 "DIKEY katman=${KACINMA_KATMAN:-3.0} v=${KACINMA_DIKEY_HIZ:-1.2}"\
+                 "a=${KACINMA_DIKEY_IVME:-2.0} kp=${KACINMA_DIKEY_KP:-2.0}," \
+                 "yatay SON CARE (hard icinde)," \
                  "ivme normal=${KACINMA_IVME_NORMAL:-3.58} acil=${KACINMA_IVME_ACIL:-5.66}" \
                  "donus=${KACINMA_DONUS_IVME:-0.5}, basit_kacinma KAPALI)"
         fi

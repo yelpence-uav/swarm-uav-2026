@@ -1,6 +1,6 @@
 # Yelpençe — TEKNOFEST 2026 Sürü İHA
 
-**Son güncelleme:** 23 Ağustos 2026, 14:45 — `docs/CA.md` eklendi
+**Son güncelleme:** 23 Ağustos 2026, 20:30 — dikey çarpışma önleme
 
 Takım **Yelpençe** · Takım no **752825**
 
@@ -32,7 +32,7 @@ Claude Code kullanıyorsan [`CLAUDE.md`](CLAUDE.md) kendiliğinden okunur.
 | Sırada ne var? | `docs/YAPILACAKLAR.md` |
 | Bu konuda karar verilmiş miydi? | `docs/KARARLAR.md` |
 | **Çalışmıyor ama hata da vermiyor** | `docs/TUZAKLAR.md` |
-| Çarpışma önleme: hangi düğüm, dikey yol verme, benzetim | `docs/CA.md` |
+| Çarpışma önleme: dikey yol verme, yer testleri, açık sorular | `docs/CA.md` |
 | Uçaklarda ne var, geri gelen drone'a ne yapmalı? | `docs/RPI_ESITLEME.md` |
 | SSH, IP, MAC, portlar, QGC, sysid | `docs/cihazlar.md` |
 | Mesh paket formatı | `docs/MESH_PROTOKOL_KARARLARI.md` |

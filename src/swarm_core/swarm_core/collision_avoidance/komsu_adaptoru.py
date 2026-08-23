@@ -68,8 +68,13 @@ ATLAMA_SAYISAL = 'sayisal'        # NaN/inf
 def agent_status_to_obs(
     komsu: AgentStatus,
     ben: AgentStatus,
+    komsu_id: int | None = None,
 ) -> tuple[NeighborObs | None, str]:
     """Ham `AgentStatus` ciftini CA'nin bekledigi `NeighborObs`a cevirir.
+
+    komsu_id: dikey RUTBE icin kimlik. Dugum bunu ZATEN biliyor (abonelik
+    anahtari); mesajin kendi `agent_id` alanina guvenmek yerine disaridan
+    vermek daha saglam — bos bir alan dikey kurali SESSIZCE kapatirdi.
 
     Doner: (gozlem, atlama_nedeni). Gozlem None ise neden dolu.
     """
@@ -93,12 +98,47 @@ def agent_status_to_obs(
         return None, ATLAMA_CERCEVE
 
     # --- DIKEY --------------------------------------------------------------
-    # pos_z de local NED. Ortak origin yoksa 0.0 aliyoruz; bu MUHAFAZAKAR
-    # yon: d3 kuculur, yani kacinma DAHA ERKEN devreye girer. Yanlis bir
-    # yukseklik farkina guvenip gec kalmaktansa erken itmek dogru takas.
-    if komsu.origin_synced and ben.origin_synced:
-        rel_z = float(komsu.pos_z) - float(ben.pos_z)
+    # 🔴 23 AGUSTOS 2026'DA DUZELTILDI — eski hali IKI FARKLI REFERANSTAN
+    # olculen sayiyi birbirinden cikariyordu.
+    #
+    # ESKI HALI:  rel_z = komsu.pos_z - ben.pos_z
+    #
+    #   ben.pos_z   : MAVROS odometry = EKF YEREL NED. Sifir noktasi EKF'in
+    #                 acilis origin'i; esp32_bridge_node.py:1697'de olculdu:
+    #                 "boot'a bagli ~10 m kayabiliyor VE ucus boyunca suruyor"
+    #   komsu.pos_z : mesh POSE = -(alt_amsl - home_amsl), yani komsunun
+    #                 KENDI KALKIS NOKTASINA gore irtifasi
+    #                 (esp32_bridge_node.py:938, 949)
+    #
+    # Iki ayri datum. Farklari SABIT BIR YANLILIK tasiyor ve o yanlilik
+    # 10 m mertebesinde olabiliyor.
+    #
+    # NEDEN SIMDIYE KADAR PATLAMADI: rel_z yalniz 3B mesafeyi (d3) biraz
+    # kaydiriyordu ve `origin_synced` kapisi cogu zaman 0.0 yaziyordu.
+    # DIKEY YOL VERMEDE ise rel_z DOGRUDAN KUMANDA SINYALI: 10 m'lik bir
+    # yanlilik ucagin "zaten yeterince yukaridayim" sanip HIC kacmamasi
+    # demek. Yatay tarafta bu tuzagin uyarisi bu dosyanin basliginda zaten
+    # var; dikeyde yoktu.
+    #
+    # DOGRU HALI: iki tarafta da GONDERENIN KULLANDIGI FORMULU kullan.
+    # Geriye kalan tek hata iki ucagin kalkis noktalari arasindaki KOT
+    # FARKI — ayni sahadan kalktiklari ve ikisi de ayni RTK bazindan
+    # duzeldigi icin tipik olarak yarim metrenin altinda. Yer testi G0-1
+    # bunu olcuyor: iki ucak kalkis noktasindayken rel_z ~ 0 cikmali.
+    dikey_gecerli = (
+        ben.home_alt_amsl_m != 0.0 and ben.gps_fix_type >= 3
+        and math.isfinite(ben.alt_amsl_m)
+    )
+    if dikey_gecerli:
+        ben_h = float(ben.alt_amsl_m) - float(ben.home_alt_amsl_m)
+        komsu_h = -float(komsu.pos_z)
+        rel_z = ben_h - komsu_h          # NED: + ise komsu BENDEN ASAGIDA
     else:
+        # Kendi dikey datum'umuzu kuramiyoruz. rel_z=0 MUHAFAZAKAR yon
+        # (d3 kuculur, yatay koruma erken devreye girer) ama dikey kural
+        # bu komsu icin UYGULANMAZ — asagida agent_id=0 ile kapatiliyor.
+        # Uydurma bir yukseklik farkina gore tirmanmak, hic tirmanmamaktan
+        # kotudur: yanlis yone gitme ihtimalini de tasir.
         rel_z = 0.0
 
     # --- HIZ ----------------------------------------------------------------
@@ -126,4 +166,11 @@ def agent_status_to_obs(
         rel_vy=rel_vy,
         rel_vz=rel_vz,
         distance=mesafe,
+        # RUTBE kimligi. Dikey datum kurulamadiysa 0 gecilir ve ca_core
+        # dikey kurali bu komsu icin UYGULAMAZ — yatay koruma calismaya
+        # devam eder. "Bilmiyorsan dikeyde hareket etme" kurali.
+        agent_id=(
+            int(komsu_id if komsu_id is not None else komsu.agent_id)
+            if dikey_gecerli else 0
+        ),
     ), ''

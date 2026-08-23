@@ -53,6 +53,26 @@ GOREV_IVME_MPS2 = 1.5
 GOREV_DIKEY_HIZ_MPS = 1.0      # motor isinmasi: daha yavas
 GOREV_DIKEY_IVME_MPS2 = 1.0
 
+# PX4'un KENDI dikey tavanlari — 23 Agustos 2026'da UCAKTAN OKUNDU.
+#
+# 🔴 NEDEN BURADA: dikey yol verme (carpisma kacinmasi) dikey hiz komutu
+# veriyor ve PX4 bu tavanin ustunu SESSIZCE KIRPIYOR. Kacinmaya 3.0 m/s
+# yazip PX4'te 1.2 birakmak, ayarda ve logda 3.0 gorunurken ucagin 1.2 ile
+# tirmanmasi demek — bu depoda MPC_TILTMAX_AIR ile bire bir ayni tuzak
+# yasandi (kodda 30 varsayildi, ylp00'da 45'ti).
+#
+# OLCULEN (iki ucakta da ayni):
+#     MPC_Z_VEL_MAX_UP  1.2    MPC_ACC_UP_MAX    4.0
+#     MPC_Z_VEL_MAX_DN  1.5    MPC_ACC_DOWN_MAX  3.0
+#
+# 1.2 dusuk bir deger ve bilincli secilmis gorunuyor (gorev dikey hizi 1.0,
+# "motor isinmasi" notu). Yukseltmek AYRI bir karar: kalkis ve gorev
+# tirmanislarini da etkiler ve itki payi hala olculmedi.
+PX4_DIKEY_HIZ_TAVANI_MPS = 1.2
+PX4_DIKEY_INIS_TAVANI_MPS = 1.5
+PX4_DIKEY_IVME_TAVANI_MPS2 = 4.0
+PX4_DIKEY_INIS_IVME_TAVANI_MPS2 = 3.0
+
 # --- PX4 tavanlari ----------------------------------------------------------
 # MPC_XY_VEL_MAX. Gorev seyir hizindan YUKSEK olmali:
 #   * carpisma kacinmasinin kacis manevrasi bu tavandan yararlaniyor;
@@ -280,8 +300,73 @@ CARPISMA_PAYI_M = KRITIK_AYRIM_M - MIN_AYRIM_M
 # hard'i MIN_AYRIM'e, d0'i 1.5 katina baglamak ikisini birden cozuyor.
 # Bedeli: rampa 4.0 m yerine 2.0 m (3 m/s'te 1.33 s yerine 0.67 s). Dar ama
 # yeterli; ilk iki ucakli ucusta kayittan itmenin ne zaman basladigi olculecek.
-KACINMA_HARD_M = MIN_AYRIM_M
-KACINMA_D0_M = 1.5 * MIN_AYRIM_M
+# =============================================================================
+# 🔀 23 AGUSTOS 2026 — DIKEY YOL VERMEYE GECILDI, ESIKLERIN ANLAMI DEGISTI
+# =============================================================================
+# Yukaridaki turetme YATAY itme icin dogruydu: tek savunma yatay itmeyken
+# `hard` "kabul edilen sinira degdigimiz an tam kuvvet" demekti.
+#
+# Artik birincil kacis DIKEY (operator karari): catisan ucaklardan kimligi
+# buyuk olan, kucuk olanin olculen irtifasindan KATMAN kadar uzaga gider.
+# Yatay itme SON CARE olarak, yalnizca `hard` kabugunun icinde aciliyor.
+# Bu iki esigin anlamini degistirdi:
+#
+#   d0   = DIKEY manevranin BASLADIGI mesafe (yatay itme DEGIL)
+#   hard = dikey yetisememisse YATAY itmenin acildigi kabuk
+#
+# d0 = 4.0 SABIT — operator karari. Sartname ajanlar arasi mesafeyi
+# hakemlere birakiyor (3-10 m, calisma aninda QR ile geliyor) ve operator
+# aksiyonun 4 m'de baslamasini istedi. Araliga BAGLANMADI: hakem 5 m'nin
+# altini secerse kacinma surekli tetikli olur — davranis dogru ama
+# collision_avoidance_node bunu UYARI olarak logluyor, sessiz kalmiyor.
+#
+# hard = 2.5 — dikey katman 3.0 m oldugu icin buraya kadar gelinmisse
+# dikey ayrim SAGLANAMAMIS demektir; yatay itme hakli olarak acilir.
+#
+# ⚠️ hard artik MIN_AYRIM_M'in ALTINDA ve bu BILEREK: eski kuralda
+# "sinira degince tam kuvvet" mantikliydi cunku baska savunma yoktu.
+# Simdi sinira gelmeden once dikey zaten devrede.
+KACINMA_HARD_M = 2.5
+KACINMA_D0_M = 4.0
+
+# --- DIKEY YOL VERME ---------------------------------------------------------
+# DIKEY KACIS HIZI — PX4 TAVANINA ESITLENDI, 23 Agustos 2026.
+#
+# 1.5 yazilmisti; ucaktan okununca PX4'un tavani 1.2 cikti. Ustunu yazmak
+# PX4'un sessizce kirpmasi demekti: ayar 1.5 gorunur, ucak 1.2 tirmanir.
+# Simdi ikisi ayni ve asagidaki denetim ayrismayi HATA olarak veriyor.
+#
+# DAHA HIZLI ISTENIRSE: once MPC_Z_VEL_MAX_UP yukseltilir (ayri karar,
+# kalkis ve gorev tirmanislarini da etkiler), sonra bu sayi. Benzetimde
+# 1.2 -> 3.0 kazanci: en yakin mesafe 2.17 -> 2.26 m (kucuk), yanal kayma
+# 4.83 -> 1.92 m (buyuk), 3 m merdiven 6.7 -> 5.4 sn.
+KACINMA_DIKEY_HIZ_MPS = PX4_DIKEY_HIZ_TAVANI_MPS
+
+# Dikey ivme — operator karari (23 Agustos): "en dengeli deger".
+#
+# OLCULDU: hiz tavani (1.2, PX4) baskin oldugu icin IVMENIN KATKISI COK
+# KUCUK. a=1.5 ile a=3.0 arasinda en yakin mesafe farki 0.07 m:
+#     a=1.5 -> 2.10 m,  a=2.0 -> 2.13 m,  a=3.0 -> 2.17 m
+# Cunku 1.2 m/s'e ulasmak a=3.0'da 0.4 sn, a=1.5'te 0.8 sn suruyor; 3 m
+# tirmanmanin kendisi zaten 2.5 sn.
+#
+# 2.0 SECILDI, 3.0 DEGIL — iki gerekce:
+#   * ITKI PAYI: a=3.0 -> 1.31x aski itkisi (~%75 gaz), a=2.0 -> 1.20x
+#     (~%72). Aski gazi zaten %66 olculmus (TUZAKLAR §0.3); performans
+#     farki 0.04 m iken %3 gaz payi vermek dogru takas degil.
+#   * MPC_ACC_DOWN_MAX = 3.0: cift rutbeli ucak ASAGI kaciyor ve a=3.0
+#     tam o sinira basiyor — PX4 kirpar. 2.0 her iki yonde de payda.
+#
+# DAHA HIZLI ISTENIRSE dogru kol IVME DEGIL, MPC_Z_VEL_MAX_UP.
+KACINMA_DIKEY_IVME_MPS2 = 2.0
+
+# Dikey konum kazanci — operator karari (23 Agustos). 0.8 -> 2.0.
+# 3 m'lik hatada 0.8 yalnizca 2.4 m/s komut uretiyordu ve hiz tavanina hic
+# ulasmiyordu; sinir kp'nin kendisiydi.
+KACINMA_DIKEY_KP = 2.0
+
+# Dikey merdivende ardisik rutbeler arasi ayrim (operator karari).
+KACINMA_KATMAN_M = 3.0
 
 # Komsu verisi bu suredan eskiyse YOK SAYILIR. Mesh ~5-7 Hz ve ~%30 kayipli;
 # 0.5 s penceresi iki-uc ardisik kayipta komsuyu dusurur ve kacinma SESSIZCE
@@ -356,13 +441,47 @@ def denetle():
             f'{KRITIK_AYRIM_M - KACINMA_D0_M:.2f} m pay var. Ilk ucusta '
             f'kayittan kacinmanin NE ZAMAN tetiklendigine bak (KARAR-01).')
 
-    # hard, tam kuvvetin basladigi mesafe. MIN_AYRIM'in altina duserse
-    # koruma ancak sinir asildiktan SONRA tam guce ciker.
-    if KACINMA_HARD_M < MIN_AYRIM_M:
+    # hard, artik YATAY SON CARENIN acildigi kabuk (23 Agustos'ta anlami
+    # degisti — bkz. KACINMA ESIKLERI bolumu). MIN_AYRIM'in altinda olmasi
+    # ARTIK HATA DEGIL: sinira gelmeden once DIKEY zaten devrede.
+    #
+    # Kontrol edilecek yeni sart: dikey katman, yatay son carenin acildigi
+    # kabuktan BUYUK olmali. Kucukse dikey ayrim tamamlansa bile ucaklar
+    # sert kabugun icinde kalir ve yatay itme HER catismada aciliyor
+    # demektir — yani "dikey birincil" karari fiilen bozulur.
+    if KACINMA_KATMAN_M <= KACINMA_HARD_M:
         hata.append(
-            f'kacinma hard ({KACINMA_HARD_M:.1f} m) MIN_AYRIM_M '
-            f'({MIN_AYRIM_M:.1f} m) ALTINDA — tam kuvvet itme, kabul edilen '
-            f'sinir asildiktan sonra basliyor.')
+            f'dikey katman ({KACINMA_KATMAN_M:.1f} m) yatay son care '
+            f'kabugundan ({KACINMA_HARD_M:.1f} m) BUYUK olmali — yoksa '
+            f'dikey ayrim tamamlansa bile yatay itme her catismada acilir.')
+    # 🔴 PX4 SESSIZ KIRPMA DENETIMI — 23 Agustos 2026.
+    # Kacinmanin dikey komutu PX4 tavanini asarsa PX4 kirpar ve HICBIR YERDE
+    # uyari cikmaz: ayar ve log istenen degeri gosterir, ucak baskasini yapar.
+    if KACINMA_DIKEY_HIZ_MPS > PX4_DIKEY_HIZ_TAVANI_MPS + 1e-9:
+        hata.append(
+            f'kacinma dikey hizi ({KACINMA_DIKEY_HIZ_MPS:.1f} m/s) PX4 '
+            f'tavanindan ({PX4_DIKEY_HIZ_TAVANI_MPS:.1f} m/s, '
+            f'MPC_Z_VEL_MAX_UP) BUYUK — PX4 sessizce kirpar. Once PX4 '
+            f'parametresini yukselt.')
+    if KACINMA_DIKEY_IVME_MPS2 > PX4_DIKEY_IVME_TAVANI_MPS2 + 1e-9:
+        hata.append(
+            f'kacinma dikey ivmesi ({KACINMA_DIKEY_IVME_MPS2:.1f} m/s2) '
+            f'MPC_ACC_UP_MAX ({PX4_DIKEY_IVME_TAVANI_MPS2:.1f}) USTUNDE.')
+    if KACINMA_DIKEY_IVME_MPS2 > PX4_DIKEY_INIS_IVME_TAVANI_MPS2 + 1e-9:
+        uyari.append(
+            f'kacinma dikey ivmesi ({KACINMA_DIKEY_IVME_MPS2:.1f} m/s2) '
+            f'MPC_ACC_DOWN_MAX ({PX4_DIKEY_INIS_IVME_TAVANI_MPS2:.1f}) '
+            f'USTUNDE — ASAGI kacan ucak (cift rutbe) kirpilir.')
+    # Dikey merdivenin kurulma suresi, catisma suresinden kisa olmali.
+    _t_merdiven = (KACINMA_KATMAN_M / KACINMA_DIKEY_HIZ_MPS
+                   + KACINMA_DIKEY_HIZ_MPS / KACINMA_DIKEY_IVME_MPS2)
+    _t_catisma = KACINMA_D0_M / max(0.1, 2.0 * GOREV_HIZ_MPS)
+    if _t_merdiven > _t_catisma:
+        uyari.append(
+            f'dikey merdiven {_t_merdiven:.1f} saniyede kuruluyor ama kafa '
+            f'kafaya kapanma {_t_catisma:.1f} sn suruyor — en yakin anda '
+            f'ayrimin TAMAMI olusmus olmayacak (beklenen davranis, '
+            f'ucus oncesi bilinmeli).')
     if not KACINMA_HARD_M < KACINMA_D0_M:
         hata.append(
             f'kacinma hard ({KACINMA_HARD_M:.1f}) < d0 ({KACINMA_D0_M:.1f}) '
@@ -528,6 +647,10 @@ def _kabuk():
     print(f'KACINMA_IVME_ACIL={KACINMA_IVME_ACIL_MPS2:.2f}')
     print(f'KACINMA_DONUS_IVME={KACINMA_DONUS_IVME_MPS2:.2f}')
     print(f'KACINMA_HARD={KACINMA_HARD_M}')
+    print(f'KACINMA_KATMAN={KACINMA_KATMAN_M}')
+    print(f'KACINMA_DIKEY_HIZ={KACINMA_DIKEY_HIZ_MPS}')
+    print(f'KACINMA_DIKEY_IVME={KACINMA_DIKEY_IVME_MPS2}')
+    print(f'KACINMA_DIKEY_KP={KACINMA_DIKEY_KP}')
     print(f'KACINMA_BAYAT_S={KACINMA_BAYAT_S}')
 
 

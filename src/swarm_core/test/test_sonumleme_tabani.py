@@ -56,13 +56,54 @@ def test_UZAKLASAN_komsuya_CEKIM_YOK():
 
 
 def test_YAKLASAN_komsuda_itme_BOZULMADI():
-    """Duzeltme korumayi zayiflatmamali — asil is bu."""
-    for d3, en_az in ((9.0, 0.5), (8.0, 2.0), (7.0, 3.0), (6.5, 3.0)):
+    """Duzeltme korumayi zayiflatmamali — asil is bu.
+
+    ⚠️ 23 AGUSTOS 2026'DA ESIKLER DEGISTI, TEST DE DEGISTI.
+    Birincil kacis artik DIKEY; yatay itme SON CARE olarak yalnizca `hard`
+    kabugunun icinde aciliyor (operator karari). Yani 9 m ve 8 m'de yatay
+    itme beklemek ARTIK YANLIS — orada dikey calisiyor.
+
+    Kabuk disinda itmenin SIFIR olmasi bir gerileme degil, KARARIN KENDISI.
+    Bu test artik kabugun ICINDE itmenin bozulmadigini kilitliyor; disarisi
+    icin ayri bir test var (test_kabuk_disinda_yatay_itme_YOK).
+    """
+    for d3, en_az in ((6.0, 3.0), (5.5, 3.0), (5.0, 3.0)):
         vx = _kos(d3, 1.0)
         assert vx <= -en_az, (
             f'{d3} m yaklasmada itme zayifladi: {vx:.3f} m/s '
             f'(en az {en_az} bekleniyor)'
         )
+
+
+def test_kabuk_disinda_yatay_itme_YOK():
+    """DIKEY BIRINCIL karari: `hard` disinda yatay itme olmamali.
+
+    Formasyon geometrisi yatay duzlemin kendisi; kacinma normal catismada
+    ona dokunmamali. 23 Agustos 2026, operator karari.
+    """
+    for d3 in (9.0, 8.0, 7.5):
+        vx = _kos(d3, 1.0)
+        assert abs(vx) < 1e-6, (
+            f'{d3} m (hard=6.0 kabugunun DISINDA) yatay itme var: '
+            f'{vx:.3f} m/s — formasyon gereksiz yere bozulur'
+        )
+
+
+def test_UZAKLASAN_komsuya_KABUK_ICINDE_de_cekim_yok():
+    """Asil arizanin (B3) hala kapali oldugunu KABUK ICINDE dogrular.
+
+    Eski test yalniz 6.5-9.0 m'ye bakiyordu; o bolge artik yatayda tamamen
+    kapali oldugu icin arizanin geri gelmesini YAKALAYAMAZDI. Sonumleme
+    tabani bugun yalnizca kabuk icinde is goruyor, testin de orada olmasi
+    gerekiyor.
+    """
+    for d3 in (6.0, 5.5, 5.0):
+        for kapanma in (-0.5, -1.0, -2.0, -4.0):
+            vx = _kos(d3, kapanma)
+            assert vx <= 1e-6, (
+                f'{d3} m, {kapanma} m/s uzaklasirken CA komsuya dogru '
+                f'{vx:.3f} m/s veriyor'
+            )
 
 
 def test_SERT_KABUK_bozulmadi():
