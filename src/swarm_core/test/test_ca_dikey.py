@@ -391,3 +391,85 @@ def test_korluk_bitince_donus_BASLAR():
             h_now=h, kor=False)
         h -= vz * ca.p.dt
     assert abs(h - 10.0) < 0.6, f'korluk bitince donmedi: {h:.2f} m'
+
+
+# =========================================================================
+# 🔴 YO-YO — ILK UCUSTA SAHADA GORULDU (23 Agustos 2026)
+# =========================================================================
+# Operator gozlemi: "02 surekli kendini asagi birakiyor ama 00 risk
+# alaninda durdugu icin tekrar yukari atiyor. Yoyo gibi gidip geliyordu."
+#
+# Sebep: ayrim saglanir saglanmaz CA dikey yetkiyi GOREV katmanina geri
+# veriyordu. Guided gorev setpoint'i bir KONUM hedefi (asili durulan
+# irtifa), yani PX4 ucagi hemen geri cekiyor -> ayrim bozuluyor -> CA
+# tekrar tirmaniyor -> ...
+#
+# Ne benzetim ne birim test yakaladi: benzetimde "gorev" bir HIZ komutu
+# (sifir), birakinca geri ceken bir sey yok.
+
+
+def _yoyo_kosusu(ca, komsu_h, h0, nominal, tik=1200):
+    """PX4'un KONUM hedefini modelleyen kosu.
+
+    CA yetkiyi birakirsa (risk False) ucak `nominal`e dogru cekilir —
+    guided asili durmada PX4'un yaptigi tam olarak budur. Yetki CA'dayken
+    onun vz'si uygulanir.
+    """
+    h = h0
+    izler = []
+    for _ in range(tik):
+        (_vx, _vy, vz), risk = ca.compute(
+            (0.0, 0.0, 0.0), [_komsu(1, dx=2.0, rel_z=h - komsu_h)],
+            h_now=h)
+        if risk:
+            h -= vz * ca.p.dt
+        else:
+            # PX4 konum hedefine geri cekiyor (MPC_Z_VEL_MAX_DN=1.5)
+            fark = nominal - h
+            h += max(-1.5, min(1.5, 2.0 * fark)) * ca.p.dt
+        izler.append(h)
+    return izler
+
+
+def test_ayrim_saglaninca_YETKI_BIRAKILMAZ():
+    """Ayrim saglandi diye yetki birakilirsa gorev ucagi geri ceker."""
+    ca = CollisionAvoidanceCore(_p(agent_id=3))
+    h, _vz = _kosturmak(ca, [(1, 2.0, 10.0)], h0=10.0, tik=400)
+    assert h > 12.5, 'once tirmanmis olmali'
+    (_vx, _vy, _vz), risk = ca.compute(
+        (0.0, 0.0, 0.0), [_komsu(1, dx=2.0, rel_z=h - 10.0)], h_now=h)
+    assert risk is True, (
+        'ayrim saglaninca yetki BIRAKILMAMALI — gorevin konum hedefi '
+        'ucagi geri ceker ve yo-yo baslar')
+
+
+def test_komsu_risk_alaninda_KALIRSA_yoyo_YOK():
+    """Asil saha senaryosu: komsu risk alanindan CIKMIYOR.
+
+    Ucak ayrimi kurup ORADA KALMALI. Genlik katman'in yarisini asarsa
+    yo-yo geri gelmis demektir.
+    """
+    ca = CollisionAvoidanceCore(_p(agent_id=3))
+    izler = _yoyo_kosusu(ca, komsu_h=10.0, h0=10.0, nominal=10.0)
+    yerlesik = izler[len(izler) // 3:]        # ilk tirmanmayi atla
+    genlik = max(yerlesik) - min(yerlesik)
+    assert genlik < KATMAN / 2, (
+        f'YO-YO: irtifa {min(yerlesik):.2f}-{max(yerlesik):.2f} m '
+        f'arasinda salindi (genlik {genlik:.2f} m)')
+    assert min(yerlesik) > 10.0 + KATMAN - 0.7, (
+        f'ayrim korunmadi: en dusuk {min(yerlesik):.2f} m')
+
+
+def test_komsu_CIKINCA_nominale_donuluyor():
+    """Yo-yo duzeltmesi donusu bozmamali — operator bunu da gozledi."""
+    ca = CollisionAvoidanceCore(_p(agent_id=3))
+    izler = _yoyo_kosusu(ca, komsu_h=10.0, h0=10.0, nominal=10.0, tik=600)
+    h = izler[-1]
+    for _ in range(1200):                     # komsu uzaklasti
+        (_vx, _vy, vz), risk = ca.compute(
+            (0.0, 0.0, 0.0), [_komsu(1, dx=20.0, rel_z=h - 10.0)], h_now=h)
+        if risk:
+            h -= vz * ca.p.dt
+        else:
+            h += max(-1.5, min(1.5, 2.0 * (10.0 - h))) * ca.p.dt
+    assert abs(h - 10.0) < 0.5, f'nominale donmedi: {h:.2f} m'

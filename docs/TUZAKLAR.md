@@ -1,6 +1,6 @@
 # TUZAKLAR — hata vermeden yanlış sonuç üretenler
 
-**Son güncelleme:** 23 Ağustos 2026, 20:30 — §2.20-2.22, §1.23, §3.12 (dikey kaçınma günü)
+**Son güncelleme:** 23 Ağustos 2026, 22:15 — §3.13, §3.14 (dikey kaçınmanın ilk uçuşu)
 
 > **Bu belge CANLI.** Arşiv değil — buradaki her madde **bugün de geçerli.**
 >
@@ -200,7 +200,13 @@ dakikalık `rc/in` ölçümü bu düşüşü engellerdi. *(19 Ağustos 2026, ~17
   `RC3_MIN` 1016→906 oldu). Her kalibrasyondan sonra failsafe eşiklerinin
   hâlâ aralığın DIŞINDA kaldığı denetlenmeli.
 
-### 0.3 ylp00 hover gazı %66 — hâlâ öyle mi?
+### ✅ 0.3 CEVAPLANDI (23 Ağustos) — hover gazı %66 DEĞİL, **%72**
+
+Uçuş kaydından ölçüldü (ylp02, `vfr_hud.throttle`, 763 örnek):
+**ortanca %72 · p90 %77.** Yani itki payı sanılandan **6 puan**
+daha dar. Ayrıntı ve sonuçları: `CA.md` §7.1.
+
+### 0.3 (eski soru) ylp00 hover gazı %66 — hâlâ öyle mi?
 
 İtki payı yok. Motor yakan ve devrilmeyi kolaylaştıran **yapısal** sorun
 olarak yazılmıştı; roll manevrası ve yüksek irtifa itki payı ister. Ağırlık
@@ -1432,6 +1438,54 @@ bunu açılışta uyarı olarak logluyor.
 **Yararlı bir sonucu:** komşu tam altına park ederse yatay mesafe ~0 kalır,
 çatışma hiç bitmez ve kaçan uçak **üstüne inmez**. Yerde ölçüldü: komşu
 0,3 m yatayda iken uçak 35 saniye boyunca 13,00 m'de kaldı.
+
+
+### 3.13 🔴 Benzetim "görevi" HIZ komutu sanır, guided gerçekte KONUM hedefidir
+
+**23 Ağustos 2026.** Dikey kaçınmanın ilk uçuşunda bir davranışı
+benzetimle açıklamaya çalışırken çıktı ve **iki ayrı benzetim denemesi de
+gerçeği üretemedi.**
+
+`ca_benzetim.py`'de her uçağın "görevi" bir **hız** vektörü (`vf`). Kaçınma
+yetkiyi bırakınca uçak o hızı uygular — asılı durmada bu **sıfır**, yani
+uçak **yerinde kalır**.
+
+Sahada guided asılı durma bir **konum** setpoint'i. Kaçınma yetkiyi
+bırakınca PX4 o hedefi görür ve uçağı oraya **aktif olarak geri çeker**
+(`MPC_Z_VEL_MAX_DN` = 1,5 m/s'ye kadar).
+
+```
+BENZETIM : yetki birakildi -> vz = 0        -> ucak DURUR
+SAHA     : yetki birakildi -> konum hedefi  -> ucak GERI CEKILIR
+```
+
+Yani "yetkiyi bırakmanın bedeli" benzetimde **sıfır**, sahada **3 metre**.
+Bırakma/tutma kararlarını benzetimle sınamak bu yüzden yanıltıcı.
+
+**Kural:** kaçınmanın *yetki devri* davranışını benzetimle doğrulama;
+benzetim yalnız **manevra** sorularını (ne kadar, ne kadar hızlı, ne kadar
+ayrım) cevaplayabilir.
+
+### 3.14 Tetik sınırı pilotun GÖZLE kestirebileceğinden dar
+
+**23 Ağustos 2026, ilk uçuşta yaşandı.** Operatör ylp00'ı "risk alanında
+tuttuğunu" söyledi ve ylp02'nin yo-yo yaptığını gözledi. Kayıttan ölçüldü:
+
+```
+4.5 m sinirindan gecis sayisi : 4   (iki tam giris-cikis)
+icerideyken d_xy : 3.25 - 3.67 m    -> ylp02 irtifasini TUTTU
+disariya cikis   : 4.91 ve 5.01 m   -> donus BURADA basladi
+```
+
+Sistem doğru davranmıştı; yo-yo **operatör kaynaklıydı**. "İçerideyim" ile
+"çıktım" arasındaki fark **yalnız 1,2 m** (3,3 ↔ 4,5 m) — bir uçağı
+uçururken diğerini gözle takip ederken ayırt edilemiyor.
+
+**İki sonucu var:**
+1. Kaçınma testlerinde "bölgede tuttum" beyanı **ölçümle doğrulanmalı**;
+   gözlem tek başına yeterli değil.
+2. Çıkış histerezisi (`hist_m`) dar olduğunda sistem pilotun gözünde
+   kararsız görünür, oysa değildir. `CA.md` §7.2.
 
 
 ## 4. Mesh ve ESP32

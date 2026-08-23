@@ -1,6 +1,6 @@
 # Yelpençe — TEKNOFEST 2026 Sürü İHA
 
-**Son güncelleme:** 23 Ağustos 2026, 20:30
+**Son güncelleme:** 23 Ağustos 2026, 22:15
 
 > Bu dosyayı Claude Code her oturumda **kendiliğinden okur**. Yeni bir sohbet
 > açan kişinin hiçbir şey söylemesine gerek yok; buradan projeyi anlar.

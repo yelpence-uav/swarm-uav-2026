@@ -1,6 +1,6 @@
 # RPİ EŞİTLEME DEFTERİ — geri gelen drone'u hizaya getirme
 
-**Son güncelleme:** 23 Ağustos 2026, 20:30 — K13-K16 dikey kaçınma + A17 POSE kapısı
+**Son güncelleme:** 23 Ağustos 2026, 22:15 — K13-K16 UÇTU; depo uçaklardan ileride
 
 ## Bu belge ne için
 
@@ -171,7 +171,19 @@ konteyner yeniden başlatma yeterli. ylp01 döndüğünde tek yapılacak
 | A17 | 🔴 **POSE kapısı `0.100 → 0.095`** — komşu tazeleme 7,1 → 10,5 Hz | ✅ *(23 Ağu 18:10)* | ❌ | ✅ |
 
 
-> ### 🔀 K13-K16 — DİKEY KAÇINMA (23 Ağustos 2026)
+> ### 🔴🔴 23 AĞUSTOS 22:15 — DEPO UÇAKLARDAN İLERİDE
+>
+> ```
+> ucaklarda : commit 1d1048e   (ucan, dogrulanmis kod)
+> depoda    : cbf948c + ca_core degisikligi
+> ```
+>
+> Uçuştan **sonra** `ca_core`'a yapılan değişiklik (`tatmin` durumunda dikey
+> yetkiyi bırakmama) **dağıtılmadı**. Uçaklar uçtukları kodla duruyor.
+> Sonraki oturumun ilk işi: dağıt ya da farkı bilinçli olarak belgele.
+> Ayrıntı: `CA.md` §7.3.
+>
+> ### 🔀 K13-K16 — DİKEY KAÇINMA (23 Ağustos 2026) — ✅ UÇTU
 >
 > Birincil kaçış yönü **dikey** oldu. Uçakta bunun karşılığı iki şey:
 >

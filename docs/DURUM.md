@@ -1,6 +1,6 @@
 # DURUM — şu an ne çalışıyor, ne bozuk
 
-**Son güncelleme:** 23 Ağustos 2026, 20:30 — DİKEY kaçınma dağıtıldı, 5 yer testi geçti
+**Son güncelleme:** 23 Ağustos 2026, 22:15 — DİKEY kaçınma İLK UÇUŞU yapıldı
 
 > Bu belge **şimdiki hâli** anlatır, tarihçe değil. Bir şey değişince burayı
 > güncelle, eskisini sil. Ne olduğunun hikâyesi `GUNLUK.md`'de kalır.
@@ -25,7 +25,46 @@
 > Kalan sıralı işler: `YAPILACAKLAR.md` **"SONRAKİ OPERATÖRE"** bloğu.
 
 
-> ## 🔀 23 AĞUSTOS — DİKEY KAÇINMA DEVREDE (yerde doğrulandı, HAVADA UÇMADI)
+
+> ## 🎯 23 AĞUSTOS AKŞAMI — DİKEY KAÇINMA HAVADA ÇALIŞTI
+>
+> ylp02 4,8 m'de asılı, ylp00 operatör kumandasında üzerine sürüldü.
+> **İki tam kaçış-dönüş çevrimi**, ikisi de temiz:
+>
+> ```
+> tirmanma       : +3,1 m ve +2,8 m      (tasarim hedefi 3,0 m)
+> tepe hiz       : 1,25 m/s              (PX4 tavani 1,2 — doygun)
+> donus          : 0,50 m/s, nominale 4,79 m (iki kez)
+> yatay itme     : HIC ACILMADI (vx=vy=0,00)
+> en yakin yatay : 3,20 m
+> alarmlar       : dikey_yetersiz=0 donus_kor=0 korluk=0
+> ```
+>
+> Ayrıntı, zaman çizelgesi ve "yo-yo" gözleminin çözümü: **`docs/CA.md` §6.5**.
+>
+> ### 🔴 Uçuştan çıkan iki bulgu
+>
+> **1. İtki payı ince.** Askı gazı **%72** (belgede %66 yazıyordu, düzeltildi).
+> Kaçış geçişlerinde gaz **%100'e doyuyor** — toplam ~2,5 sn, en uzun
+> kesintisiz blok 0,7 sn. Uçak düşmez ama o anlarda rezerv yok.
+> **`MPC_Z_VEL_MAX_UP` yükseltilemez** — o karar ölçümle kapandı.
+>
+> **2. Dönüş fazla aceleci.** Çıkış eşiği 4,5 m + 2 sn bekleme; komşu hâlâ
+> yakınken 3 m'lik ayrım 6 saniyede geri veriliyor. Öneri `hist_m`
+> 0,5 → 2,5-3,0 (`CA.md` §7.2) — **henüz yapılmadı.**
+>
+> ### 🔴🔴 DEPO UÇAKLARDAN İLERİDE
+>
+> ```
+> ucaklarda : commit 1d1048e
+> depoda    : cbf948c + commit'siz ca_core degisikligi
+> ```
+>
+> Uçuştan **sonra** `ca_core`'a yapılan değişiklik (`tatmin` durumunda dikey
+> yetkiyi bırakmama) **dağıtılmadı**. Uçaklar uçtukları kodla duruyor.
+> Sonraki oturumda ya dağıt ya da farkın bilinçli olduğunu doğrula.
+
+> ## 🔀 23 AĞUSTOS — DİKEY KAÇINMA DEVREYE ALINDI (yapılandırma)
 >
 > Kaçınmanın birincil kaçış yönü **dikey** oldu. Yatay itme yalnız sert
 > kabuğun içinde açılıyor. Sonraki kişi uçakları böyle bulacak.
@@ -48,9 +87,8 @@
 > **Beş yer testi geçti** (datum · rütbe/işaret · son çare · geçirgenlik ·
 > körlükte tutma). Ayrıntı ve sayılar: `docs/CA.md` §6.
 >
-> 🔴 **HAVADA HİÇ UÇMADI.** İlk uçuştan önce `KARAR-02` gereği `ultracode`
-> denetimi. Ve 🔴 **tırmanma itki payı ölçülmedi** — o ölçüm operatörün
-> planladığı iki uçaklı testte kayıttan çıkarılacak (`CA.md` §7).
+> ✅ **Aynı akşam uçtu ve çalıştı** — yukarıdaki bloğa bak.
+> `KARAR-02` denetimi operatör kararıyla atlandı (`KARARLAR.md`).
 
 > ## 📡 23 AĞUSTOS — MESH KAYBI %29 DEĞİL, %1-5 ÇIKTI
 >

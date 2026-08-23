@@ -1,6 +1,6 @@
 # GÜNLÜK — oturum devir teslim kaydı
 
-**Son güncelleme:** 23 Ağustos 2026, 20:30
+**Son güncelleme:** 23 Ağustos 2026, 22:15
 
 Tek bilgisayar, sırayla çalışıyoruz. Biri kalkıp diğeri oturduğunda **hem
 kişi hem Claude** nerede kalındığını buradan anlar.
@@ -35,6 +35,113 @@ Claude'a **"oturumu kapat"** dersen bu kaydı o yazar.
 - ylp00: (kill switch? pil? nerede? konteyner ayakta mı?)
 - ylp02:
 ```
+
+---
+
+## 2026-08-23 22:15 — Osman + Claude (DİKEY kaçınma HAVADA ÇALIŞTI)
+
+> Aynı günün ikinci oturumu. Sabah yazılan dikey kaçınma akşam uçtu ve
+> çalıştı. Uçuş iki gerçek bulgu çıkardı ve **bir teşhisimi çürüttü.**
+
+**Ne yapıldı**
+
+*1 — Uçuş öncesi tam kontrol dizisi*
+
+Batarya değişimi sonrası: QGC 14550 ✅ · canlı düğüm parametreleri
+doğrulandı (`rutbe` 0/1, tüm dikey ayarlar) · RTK ikisi de fix=6/32 uydu
+(ylp00 ~15 dk FLOAT'ta kaldı, RTCM 6/s akıyordu, kendiliğinden oturdu) ·
+parametre ayrışması yok · titreşim **ylp00 armed 0,021 m, ylp02 0,014 m**
+(eşik 0,25; 1 Ağustos'ta devrilen kalkışta 0,111 m'ydi) · kuru test + harita.
+
+⚠️ `docker logs` (tail'siz) ylp00 için **eski açılışı** gösterdi — `TUZAKLAR`
+§1.18'in canlı hâli. Canlı düğüme `ros2 param get` ile sorulunca doğru çıktı.
+**Log'a değil düğüme sor.**
+
+*2 — 🎯 DİKEY KAÇINMA UÇTU VE ÇALIŞTI*
+
+ylp02 4,8 m'de asılı, operatör ylp00'ı kumandayla üzerine sürdü.
+
+```
+tirmanma       : +3,1 m ve +2,8 m      (tasarim hedefi 3,0 m)
+tepe hiz       : 1,25 m/s              (PX4 tavani 1,2 — doygun)
+donus          : 0,50 m/s -> nominale 4,79 m (iki kez)
+yatay itme     : HIC ACILMADI (vx=vy=0,00 bastan sona)
+en yakin yatay : 3,20 m
+alarmlar       : dikey_yetersiz=0 donus_kor=0 korluk=0
+```
+
+*3 — 🔴 Bir teşhisim ÇÜRÜTÜLDÜ*
+
+Operatör yo-yo gözledi. "CA ayrım sağlanınca yetkiyi bırakıyor" diye teşhis
+koydum ve düzeltme yazdım. **İki ayrı benzetim denemesi de yo-yo'yu
+üretemedi** (genlik 0,00 ve 0,05 m).
+
+Kayıttan yatay mesafe çıkarılınca gerçek çıktı: **4,5 m sınırından tam 4
+geçiş** var, yani iki tam giriş-çıkış. ylp00 içerideyken ylp02 irtifasını
+**tuttu** (t=18,7-22,1: 7,70 → 7,50 m); inişler yalnız `d_xy > 4,5 m`
+olduktan sonra başladı.
+
+Sistem doğru davranmış. Yo-yo gerçek ama **operatör kaynaklı**: "içerideyim"
+ile "çıktım" arasındaki fark **1,2 m** ve gözle ayırt edilemiyor.
+
+**Ders:** ölçmeden teşhis koydum, düzeltme bile yazdım. Doğrulama adımı
+olmasa yanlış bir hikâye belgeye girecekti.
+
+*4 — İki gerçek bulgu*
+
+- 🔴 **İtki payı ince.** Askı gazı **%72** (belgede %66'ydı — `TUZAKLAR`
+  §0.3 kapandı). Kaçış geçişlerinde gaz **%100'e doyuyor**: toplam ~2,5 sn,
+  en uzun kesintisiz blok 0,7 sn. `MPC_Z_VEL_MAX_UP` yükseltme fikri
+  **ölçümle kapandı.**
+- 🟠 **Dönüş fazla aceleci.** Çıkış 4,5 m + 2 sn; komşu hâlâ yakınken ayrım
+  6 sn'de geri veriliyor. Öneri `hist_m` 0,5 → 2,5-3,0.
+
+**Ne değişti**
+
+- kod (**COMMIT'Lİ, dağıtıldı**): sabahki dikey kaçınma paketi (`1d1048e`)
+  + `cbf948c` (benzetim TABAN eşitleme, `asili` senaryo uyarısı)
+- kod (**COMMIT'Lİ, DAĞITILMADI**): `ca_core` — `tatmin` durumunda dikey
+  yetki bırakılmıyor + 3 yo-yo regresyon testi. **Uçuştaki davranışı
+  düzeltmiyor**, ayrı bir durumu sertleştiriyor.
+- uçakta: batarya değişimi dışında değişiklik YOK. Uçaklar `1d1048e`.
+- yeni araçlar: `teshis/g0_dikey_datum.py` · `g0_dikey_gozlem.sh` ·
+  `g0_korluk_tutma.sh`
+- belge: `CA.md` §6.5 + §7 · `TUZAKLAR` §0.3 (cevaplandı) §3.13 §3.14 ·
+  `KARARLAR` (KARAR-06 uçtu, `MPC_Z_VEL_MAX_UP` vazgeçildi) · `DURUM` ·
+  `YAPILACAKLAR` · `PLAN`
+
+**Yarım kalan / tuzak**
+
+- 🔴🔴 **DEPO UÇAKLARDAN İLERİDE.** Uçaklar `1d1048e`, depo daha yeni.
+  Sonraki oturumun ilk işi: dağıt ya da farkı bilinçli olarak belgele.
+- 🟠 `hist_m` düzeltmesi yapılmadı — sıradaki uçuşun konusu.
+- 🔴 İtki payı ince; dikey ivme artırılmamalı.
+- 🟠 Kuru testin haritası **kaçış zarfını göstermiyor** (~5 m yanal + 3 m
+  dikey). Operatöre elle söylendi; araca eklenmeli (~20 satır).
+- 🟠 Kumanda hangi uçağa bağlı hâlâ netleşmedi.
+- ⚠️ `KARAR-02` denetimi operatör kararıyla **atlandı**; gerekçesi
+  `KARARLAR`'da. Sonraki düğümlerde (ADIM 3) yeniden geçerli.
+- ⚠️ PX4 titreşim/clipping konusu akmıyor; ölçüt konum sıçraması.
+
+**Sıradaki adım**
+
+Yine **çarpışma önleme** (operatör kararı): `hist_m` genişletilip dönüş
+davranışı doğrulanacak. Tam tarif `PLAN.md` "SIRADAKİ UÇUŞ" ve
+`YAPILACAKLAR` "SONRAKİ OPERATÖRE" bloğunda.
+
+**Uçakların bırakıldığı hâl**
+
+- **ylp00:** yerde, disarm, pervaneler **TAKILI**, 11 düğüm, `rutbe=0`
+  (ÇAPA). Kod `1d1048e`.
+- **ylp02:** yerde, disarm, pervaneler **TAKILI**, 11 düğüm, `rutbe=1`
+  (YUKARI +3 m). Kod `1d1048e`. Bu oturumda uçan uçak bu.
+- İkisinde de: `d0=4.0 hard=2.5 katman=3.0 v=1.2 a=2.0 kp=2.0` ·
+  yatay SON ÇARE · `crc_fail=0` · test kancaları temiz ·
+  `/control/setpoint` tek yayıncı · `/ws/gozlem` YOK · RTK fix=6
+- Eski ayar dosyası: `~/yelpence_ws/ucus_ayarlari.env.23agu_oncesi`
+- **ylp01:** yerde. Dönünce `RPI_ESITLEME` A13-A17 + K1-K16 **ve
+  `SURU_KADRO="1 2 3"`**.
+- 🔴 **Laptop:** QGC'de 14550 link'i bağlı kalmalı.
 
 ---
 

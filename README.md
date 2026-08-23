@@ -1,6 +1,6 @@
 # Yelpençe — TEKNOFEST 2026 Sürü İHA
 
-**Son güncelleme:** 23 Ağustos 2026, 20:30 — dikey çarpışma önleme
+**Son güncelleme:** 23 Ağustos 2026, 22:15 — dikey çarpışma önleme UÇTU
 
 Takım **Yelpençe** · Takım no **752825**
 

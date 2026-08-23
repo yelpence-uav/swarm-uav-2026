@@ -1,6 +1,6 @@
 # PLAN — buradan finale
 
-**Son güncelleme:** 23 Ağustos 2026, 20:30 — ADIM 4 dikeye geçti (KARAR-06)
+**Son güncelleme:** 23 Ağustos 2026, 22:15 — ADIM 4 UÇTU
 
 Bu belge **tüm takımın ortak resmi** ve sürü entegrasyonunun **teknik yol
 haritası**. Yeni gelen biri bunu okuyup işe başlayabilir.
@@ -42,51 +42,39 @@ YKİ (bilgisayar) → mesh → uçak: "şu noktaya git"
 
 ---
 
-## ⏭️ SIRADAKİ UÇUŞ — DİKEY kaçınmanın ilk uçuşu (23 Ağustos)
+## ⏭️ SIRADAKİ UÇUŞ — dikey kaçınmanın DÖNÜŞ davranışı (23 Ağustos akşamı)
 
-Kaçınma 23 Ağustos'ta **dikey yol vermeye** geçirildi (KARAR-06). Beş yer
-testi geçti, **havada hiç uçmadı**. Tasarımın tamamı: **`docs/CA.md`**.
+✅ **Dikey kaçınma ilk uçuşunda çalıştı** (23 Ağustos akşamı): iki tam
+kaçış-dönüş çevrimi, +3,1 / +2,8 m tırmanma, yatay itme hiç açılmadı.
+Tam sonuç: **`docs/CA.md` §6.5**.
 
 ### Bu uçuş hangi tek soruyu cevaplıyor?
 
-> **Dikey kaçış havada, uçağın yapabileceği sınırlar içinde çalışıyor mu?**
+> **Çıkış histerezisi genişletilince "yo-yo" görüntüsü kayboluyor mu?**
 
-### Manevra — en kısa yeterli
+Şu an çıkış eşiği `d0 + 0,5 = 4,5 m`. Komşu hâlâ 5 m'de dururken 3 m'lik
+ayrım 2 sn sonra geri veriliyor; ilk uçuşta operatör bunu yo-yo olarak
+gördü (aslında iki ayrı çevrimdi — `CA.md` §6.5).
 
-```
-ylp02 (id 3, rutbe 1) ASILI DURUR        <- kacacak olan
-ylp00 (id 1, rutbe 0) KUMANDAYLA uzerine surulur, 3 m/s
-```
+**Değişecek tek şey:** `hist_m` 0,5 → 2,5-3,0 (`ucus_ayarlari.py`).
+Aynı uçuşta ikinci bir değişiklik denenmez.
 
-🔴 **Asılı duran ylp02 olmalı.** ylp00 çapadır, dikeyde **kıpırdamaz**.
+### Ölçüt
 
-### Önceden yazılmış beklenti (benzetimden)
+| | ilk uçuş | beklenen |
+|---|---|---|
+| 4,5 m sınırından geçiş | 4 (iki çevrim) | **belirgin azalma** |
+| ayrım bırakma | komşu 4,9 m'deyken | komşu **6,5-7 m** çıkınca |
+| tırmanma / dönüş | +3,1 m / 0,5 m/s | **aynı kalmalı** |
 
-| an | beklenen |
-|---|---|
-| yatay 3,90 m | tetik |
-| t+0,85 s | en yakın 3B **2,17 m**, o ana kadar **0,81 m** tırmanmış |
-| t+7 s | 3 m'nin tamamı kurulur |
-| dönüş | 2 sn bekleme + 0,5 m/s iniş (~8 sn) |
-| 🔴 yanal kayma | **~4,8 m** — haritada olmalı |
+### 🔴 Uçuş öncesi bu uçuşa özel
 
-⚠️ 3 m'nin tamamı **geçtikten sonra** kurulur; 4 m'den 3 m/s kapanma
-1,33 sn, 3 m tırmanma ~4 sn. Görüntüde "yükselmedi" gibi durur.
-
-⚠️ Uçağı 6-7 m uzaklaştırmazsan çatışma bitmez ve ylp02 inmez.
-
-### Aynı uçuştan çıkarılacak ÖLÇÜM
-
-🔴 Dikey tasarımın tek doğrulanmamış varsayımı: **tırmanma itki payı**.
-Kayıttan `vfr_hud.throttle` tepesi + gerçekleşen `vz` + 3 m'ye varış süresi.
-
-### Uçuş öncesi zorunlu
-
-- 🔴 `uptime -s` (P0.17)
-- 🔴 Kuru test + harita — **yanal kaymanın 4,8 m'si dahil**
-- 🔴 `KARAR-02`: bu, yeni CA'nın ilk uçuşu → `ultracode` denetimi
-- 🟠 Kumanda hangi uçağa bağlı, netleşmedi — ylp02'yi de yakalarsa
-  asılı uçağın otonomisi durur ve test boş çıkar
+- **Depo uçaklardan ileride** — önce karar ver (`CA.md` §7.3)
+- **İtki payı ince**: askı %72, geçişlerde %100'e doyuyor. Dikey ivmeyi
+  artırma.
+- Kuru testin haritası **kaçış zarfını göstermiyor**: ~5 m yanal + 3 m
+  dikey elle eklenmeli
+- `uptime -s` (P0.17)
 
 ---
 

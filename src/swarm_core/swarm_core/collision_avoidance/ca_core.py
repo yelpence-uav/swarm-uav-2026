@@ -583,19 +583,43 @@ class CollisionAvoidanceCore:
             # OLAN ucak dikeye mudahale eder. Capa tirmanirsa buyuk kimlikli
             # komsular onu olculen irtifasindan takip eder ve merdiven
             # gorevle birlikte yukselir.
-            # GOREV DIKEYIN SAHIBI. Ayrim zaten saglandiysa dikeye
-            # dokunmam — komsu da ayni gorev komutunu aldigi icin ofset
-            # kendiliginden korunur.
+            # 🔴🔴 YO-YO — 23 Agustos 2026, ILK UCUSTA SAHADA GORULDU.
             #
-            # 🔴 Ilk yazim burada 0.0 donduruyordu ("irtifayi tut") ve
-            # birim test yakaladi: suru topluca tirmanirken takipci
-            # ayrimi saglar saglamaz DURUYOR, capa tirmanmaya devam
-            # ediyor ve merdiven arkada kaliyordu. Ust uste binen iki
-            # hata: hem gorev kesiliyor hem ofset bozuluyordu.
+            # Burasi once `return vfz, False` idi: ayrim saglaninca CA
+            # dikey yetkiyi GOREV katmanina geri veriyordu. Operator
+            # gozlemi:
             #
-            # `_mudahale_ettim` KORUNUR: catisma bitince nominale donus
-            # yine calissin.
-            return vfz, False
+            #   "02 sürekli kendini aşağı bırakıyor ama 00 risk alanında
+            #    durduğu için tekrar yukarı atıyor. Yoyo gibi gidip
+            #    geliyordu."
+            #
+            # SEBEP: guided gorev setpoint'i bir KONUM hedefi (asili
+            # durulan 4.8 m). Yetki birakilinca PX4 o hedefi gorup ucagi
+            # asagi cekiyor; inerken ayrim katman'in altina dusuyor, CA
+            # tekrar devreye giriyor, yukari atiyor, ayrim saglanir
+            # saglanmaz yine birakiyor... Kayittan olculdu: gaz %12'ye
+            # inip %100'e cikiyor, anlik inis -1.48 m/s (= MPC_Z_VEL_MAX_DN).
+            #
+            # Yani "ayrim saglandi" KARARLI BIR DURUM DEGILDI: yetkiyi
+            # birakmak, saglandi olmasinin SEBEBINI ortadan kaldiriyordu.
+            #
+            # NE BENZETIM NE BIRIM TEST YAKALADI:
+            #   * benzetimde "gorev" bir HIZ komutu (sifir) — birakinca
+            #     ucak yerinde kaliyor, geri ceken bir sey yok
+            #   * test_zaten_katman_kadar_ayrikken_KOMUT_YOK "ayrikken
+            #     komut yok"u dogruluyordu ama SONRASINI hic sormuyordu
+            #
+            # DOGRUSU: ayrimi BEN kurduysam ve catisma suruyorsa yetkiyi
+            # TUTARIM — ama gorevin dikey HIZ niyetini (vfz) gecireyim ki
+            # suru topluca tirmanirken merdiven onunla yukselsin (o da
+            # ayri bir birim testle kilitli). Guided asili durmada
+            # `velocity_valid` yok, vfz=0 gelir ve ucak irtifasini korur.
+            #
+            # Hic mudahale etmediysem birakmak dogru: gereksiz yere yetki
+            # almayayim (or. komsu zaten 10 m yukarida).
+            if not self._mudahale_ettim:
+                return vfz, False
+            return self._dikey_slew(vfz), True
 
         if not self._mudahale_ettim:
             # Ilk mudahale ani: nominal irtifayi burada dondur. Donus

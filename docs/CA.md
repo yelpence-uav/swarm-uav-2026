@@ -1,7 +1,6 @@
 # CA — Çarpışma Önleme: dikey yol verme
 
-**Son güncelleme:** 23 Ağustos 2026, 20:30 — dikey yol verme yazıldı,
-dağıtıldı, beş yer testi geçti
+**Son güncelleme:** 23 Ağustos 2026, 22:15 — 🎯 **İLK UÇUŞ YAPILDI**, ölçüldü
 
 > Bu belge çarpışma önlemenin **bugünkü tasarımı ve durumu**. 23 Ağustos
 > sabahki sürümü yatay/dikey karşılaştırmasıydı; karar verildi ve uygulandı,
@@ -14,14 +13,19 @@ dağıtıldı, beş yer testi geçti
 
 ## 0. Otuz saniyede
 
+- 🎯 **İLK UÇUŞTA ÇALIŞTI** (23 Ağustos akşamı). İki kaçış çevrimi, ikisi de
+  temiz: +3,1 m ve +2,8 m tırmanma, nominale dönüş, **yatay itme hiç
+  açılmadı**. Ayrıntı ve sayılar: **§6.5**.
+- 🔴 Uçuştan çıkan iki bulgu: **itki payı ince** (askı %72, geçişlerde
+  %100'e doyuyor) ve **dönüş fazla aceleci** (§7).
 - **Birincil kaçış DİKEY.** Çatışan uçaklardan kimliği büyük olan, küçüğün
   **ölçülen** irtifasından `katman` kadar uzağa gider.
 - **Yatay itme SON ÇARE** — yalnız sert kabuğun (`hard`) içinde açılır.
   Normal çatışmada formasyon geometrisine hiç dokunulmaz.
 - Rütbe **kadrodan** gelir (`SURU_KADRO`), anlık çatışma kümesinden değil.
   Merdiven **dönüşümlü**: +katman, −katman, +2×katman…
-- Kod dağıtıldı, **beş yer testi geçti** (§6). Havada **hiç uçmadı**.
-- 🔴 Açık tek büyük bilinmeyen: **tırmanma itki payı** — §7.
+- Beş yer testi geçti (§6), **birim test 81/81**.
+- 🔴 Depo uçaklardan İLERİDE — §7 son madde.
 
 ```
 d0 = 4.0 m    catisma yaricapi (YATAY mesafe, cikis 4.5 m)
@@ -200,15 +204,123 @@ Ek doğrulamalar: uçan düğüm yerde tamamen sessiz (`passthrough=0 avoid=0`) 
 
 ---
 
-## 7. 🔴 Açık — uçuştan önce
+## 6.5 🎯 İLK UÇUŞ — 23 Ağustos 2026 akşamı
 
-| # | konu | nasıl kapanır |
+**Düzen:** ylp02 (rütbe 1) guided'da 4,8 m'de asılı · ylp00 (rütbe 0, çapa)
+operatör kumandasında ~4,9 m'de, yandan yaklaştı. `--senaryo asili`,
+90 sn, tek uçak otonom.
+
+### Ölçülen — tasarımla yan yana
+
+| ölçüt | tasarım | **uçuşta ölçülen** |
 |---|---|---|
-| 1 | 🔴 **Tırmanma itki payı ölçülmedi.** `a=2.0` → 1,20× askı itkisi (~%72 gaz tahmini); askı gazı %66 ölçülmüş, kalanı bilinmiyor | Operatörün iki uçaklı testinde kayıttan `vfr_hud.throttle` tepesi + gerçekleşen `vz` |
-| 2 | `MPC_Z_VEL_MAX_UP = 1,2` tırmanmayı sınırlıyor. 3,0'a çıkarmak yanal kaymayı 4,8 → 1,9 m yapıyor | #1 ölçüldükten sonra ayrı karar; kalkışı ve görev tırmanışlarını da etkiler |
-| 3 | Havada **hiç uçmadı** | `KARAR-02` gereği ilk uçuştan önce `ultracode` denetimi |
-| 4 | ylp00'ın `home` kaydı 0,41 m bayat | Arm'da PX4 yeniden kurar; arm sonrası G0-1 tekrarı |
-| 5 | Üç uçağın **aynı noktadan geçtiği** çapraz slot değişiminde hiçbir ayar kabul eşiğini tutturmuyor (1,76 m) | `formation_node` devreye girerken: o geometri hiç üretilmemeli |
+| kaçış yönü | saf dikey | **vx = vy = 0,00 baştan sona** ✅ |
+| tırmanma tepe hızı | 1,2 m/s (PX4 tavanı) | **1,25 m/s, tavanda doygun** ✅ |
+| merdiven yüksekliği | 3,0 m | **+3,1 m** ve **+2,8 m** ✅ |
+| dönüş hızı | 0,5 m/s | **0,50 m/s** ✅ |
+| nominale dönüş | 4,8 m | **4,79 m (iki kez)** ✅ |
+| yatay son çare | açılmamalı | **hiç açılmadı** ✅ |
+| alarmlar | temiz | `dikey_yetersiz=0 donus_kor=0 korluk=0` ✅ |
+| en yakın yatay mesafe | — | **3,20 m** |
+
+`avoid = 563` tik (20 Hz → ~28 sn etkin).
+
+### Zaman çizelgesi (kayıttan)
+
+```
+t=11.9s  d_xy 4.60          ben_h 4.75   disarida
+t=13.6s  d_xy 3.67 ICERIDE  ben_h 4.96   girdi, tirmanma basladi
+t=18.7s  d_xy 3.25 ICERIDE  ben_h 7.70   ayrim kuruldu
+t=22.1s  d_xy 3.29 ICERIDE  ben_h 7.50   ICERIDEYKEN IRTIFASINI TUTTU
+t=23.8s  d_xy 4.91          ben_h 6.98   komsu CIKTI -> donus
+t=30.6s  d_xy 5.02          ben_h 4.79   nominale dondu
+         ... ayni dongu bir kez daha, birebir ...
+4.5 m sinirindan gecis sayisi: 4  (iki tam giris-cikis)
+```
+
+### 🔴 "Yo-yo" — operatör gözlemi ve ölçümün söylediği
+
+Operatör uçuşta yo-yo gördü: *"02 sürekli kendini aşağı bırakıyor ama 00
+risk alanında durduğu için tekrar yukarı atıyor."*
+
+**İlk teşhis YANLIŞTI.** "CA ayrım sağlanınca yetkiyi bırakıyor, görev geri
+çekiyor" diye açıklandı; iki ayrı benzetimle **çürütüldü** (genlik 0,00 ve
+0,05 m — yo-yo üretilemedi).
+
+**Ölçümün söylediği:** ylp00 içerideyken ylp02 **irtifasını tuttu**
+(t=18,7-22,1 arası 7,70 → 7,50 m). İnişler yalnız `d_xy` 4,5 m'yi
+**aştıktan sonra** başladı. Sınırdan **tam 4 geçiş** var: iki tam
+kaçış-dönüş çevrimi.
+
+Yani sistem doğru davrandı. Yo-yo gerçek ama **operatör kaynaklı**:
+"bölgedeyim" ile "çıktım" arasındaki fark **1,2 m** (3,3 ↔ 4,5 m) ve bir
+uçağı uçururken diğerini gözle takip ederken bu ayırt edilemiyor.
+
+> **Ders:** tetik sınırı pilotun gözle kestirebileceğinden dar. Çıkış
+> histerezisi (`hist_m`) bunu doğrudan etkiliyor — §7.
+
+
+## 7. 🔴 Açık — sıradaki uçuş öncesi
+
+### 1. 🔴 İTKİ PAYI İNCE — ölçüldü, kapandı ama sonucu iyi değil
+
+Uçuş kaydından (`vfr_hud.throttle`, 763 örnek, 80 sn):
+
+```
+aski gazi ortanca : %72        (TUZAKLAR §0.3 "%66" diyordu — GUNCELLENDI)
+p90               : %77
+gaz >= %100       : 24 ornek · toplam ~2.5 sn
+gaz >= %95        : ~3.8 sn
+en uzun KESINTISIZ >=%90 blok : 0.7 sn
+```
+
+Tek sıçrama değil: kaçış geçişlerinde doyum **tekrarlanıyor**. Blokların
+hiçbiri 0,7 sn'yi geçmediği için uçak düşmez, ama o anlarda **rezerv yok**.
+
+**Sonucu:** `MPC_Z_VEL_MAX_UP` 1,2 → 3,0 fikri **KAPANDI, yapılamaz.**
+1,2 m/s tırmanmak zaten payı tüketiyor. (Bu, yanal kaymayı 4,8 → 1,9 m
+indirecek tek koldu; artık yok.)
+
+### 2. 🟠 DÖNÜŞ FAZLA ACELECİ — sıradaki iyileştirme
+
+Çıkış eşiği `d0 + hist_m = 4,5 m`, ardından 2 sn bekleyip 0,5 m/s ile
+iniyor. Komşu hâlâ 5 m'de dururken 3 m'lik ayrımı 6 saniyede geri vermek
+savurgan — ve operatörün gördüğü "yo-yo" görüntüsü tam bundan doğuyor
+(§6.5).
+
+**Öneri: `hist_m` 0,5 → 2,5-3,0.** Çıkış 6,5-7 m olur; komşu gerçekten
+uzaklaşmadan ayrım bırakılmaz. Tek parametre, `ucus_ayarlari.py`'den,
+uçuşsuz yer testiyle doğrulanır.
+
+⚠️ Bedeli: çatışma daha uzun sürer, merdiven daha uzun kalır. Sıkı
+formasyonda (aralık ≤ 7 m) kalıcı merdivene yaklaşır — `d0` ile birlikte
+düşünülmeli.
+
+### 3. 🔴 DEPO UÇAKLARDAN İLERİDE — sonraki kişi buna dikkat
+
+Uçuştan **sonra** `ca_core`'a bir değişiklik yapıldı ve **dağıtılmadı**:
+
+```
+ucaklarda : 1d1048e
+depoda    : cbf948c + commit'siz ca_core degisikligi
+```
+
+Değişiklik: ayrım sağlandığında (`tatmin`) CA artık dikey yetkiyi
+bırakmıyor, görevin dikey **hızını** geçirip yetkide kalıyor.
+
+⚠️ **Bu değişiklik uçuşta görülen yo-yo'yu DÜZELTMİYOR** (§6.5 — o
+operatör kaynaklıydı). Ayrı ve daha nadir bir durumu sertleştiriyor:
+uçuşta bir kez, `rel_z = 3,06` olduğunda o yol tetiklendi. Testleriyle
+duruyor (3 yeni regresyon testi) ama sahada **doğrulanmadı**.
+
+### 4. Kalanlar
+
+| # | konu | not |
+|---|---|---|
+| a | ylp01 dönünce `SURU_KADRO="1 2 3"` | yanlış kadro kaçış **yönünü ters çevirir** (KARAR-04) |
+| b | Üç uçağın aynı noktadan geçtiği çapraz slot değişimi | hiçbir ayar eşiği tutturmuyor (1,76 m); `formation_node` o geometriyi üretmemeli |
+| c | Kuru test kaçınmanın **kaçış zarfını** hesaba katmıyor | harita yalnız planlanan rotayı çiziyor; ~5 m yanal + 3 m dikey elle eklenmeli |
+| d | PX4'ün kendi titreşim/clipping sayacı okunamıyor | `vibration` konusu akmıyor; ölçüt olarak konum sıçraması kullanıldı |
 
 ---
 

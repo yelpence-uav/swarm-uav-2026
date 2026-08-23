@@ -1,73 +1,72 @@
 # YAPILACAKLAR
 
-**Son güncelleme:** 23 Ağustos 2026, 20:30 — dikey kaçınma dağıtıldı, 5 yer testi geçti
+**Son güncelleme:** 23 Ağustos 2026, 22:15 — dikey kaçınma UÇTU, iki bulgu açık
 
-## 🚨 SONRAKİ OPERATÖRE — ÖNCE BUNLAR (23 Ağustos akşamı)
+## 🚨 SONRAKİ OPERATÖRE — ÖNCE BUNLAR (23 Ağustos gecesi)
 
-### 1. 🔴 Uçuş öncesi `uptime -s` (P0.17)
+> **Sıradaki test yine ÇARPIŞMA ÖNLEME** (operatör kararı). Dikey kaçınma
+> ilk uçuşunda çalıştı; sıradaki uçuş **dönüş davranışını** düzeltip
+> doğrulamak.
 
-ylp00'ın Pi'si bir kez **öldü ve öyle kaldı**. Pi son 10 dakikada açılmışsa
-**uçma.** Pi ölürse **GÜCÜ KESME** — iz RAM'de.
-
-### 2. 🔴 Sıradaki uçuş: DİKEY KAÇINMANIN İLK UÇUŞU
-
-Operatörün tarif ettiği iki uçaklı test:
+### 1. 🔴🔴 DEPO UÇAKLARDAN İLERİDE — ilk bakılacak şey
 
 ```
-ylp02 (id 3, rutbe 1) ASILI DURUR      <- kacacak olan
-ylp00 (id 1, rutbe 0) KUMANDAYLA uzerine surulur, 3 m/s
+ucaklarda : commit 1d1048e
+depoda    : cbf948c + commit'siz ca_core degisikligi
 ```
 
-🔴 **Asılı duran ylp02 olmalı.** ylp00 çapadır, dikeyde **kıpırdamaz** —
-ters kurulursa test boş çıkar.
+Uçuştan **sonra** `ca_core`'a bir değişiklik yapıldı, **dağıtılmadı**:
+ayrım sağlandığında (`tatmin`) dikey yetki artık bırakılmıyor.
 
-**Beklenen (benzetimden, önceden yazıldı):**
+⚠️ **Bu değişiklik uçuşta görülen yo-yo'yu DÜZELTMİYOR** — o operatör
+kaynaklıydı (`CA.md` §6.5). Ayrı ve daha nadir bir durumu sertleştiriyor.
+Testleri var (3 regresyon testi), sahada doğrulanmadı.
 
-| an | ne olur |
-|---|---|
-| yatay 3,90 m | tetik, ylp02 tırmanmaya başlar |
-| t+0,85 s | en yakın 3B **2,17 m**, o ana kadar **0,81 m** tırmanmış |
-| t+7 s | 3 m'nin tamamı kurulur |
-| ylp00 6-7 m uzaklaşınca | 2 sn bekleme + 0,5 m/s iniş (~8 sn) |
-| 🔴 **yanal kayma** | **~4,8 m** — 2,5 m'nin içine girilirse yatay son çare açılır |
+**Karar ver:** dağıt, ya da farkın bilinçli olduğunu belgeye yaz.
 
-🔴 **O 4,8 m HARİTADA olmalı.** Asılı uçak durduğu yerde kalmayacak.
+### 2. 🟠 `hist_m` 0,5 → 2,5-3,0 — sıradaki uçuşun ASIL konusu
 
-⚠️ Uçağı 4,5 m'den (d0 + histerezis) uzağa götürmezsen çatışma bitmez ve
-ylp02 **inmez**. Geçtikten sonra en az 6-7 m uzaklaş.
+Çıkış eşiği şu an `d0 + 0,5 = 4,5 m`. Komşu hâlâ 5 m'de dururken 3 m'lik
+ayrım 2 sn sonra geri veriliyor. Operatörün gördüğü "yo-yo" görüntüsü
+bundan doğuyor.
 
-### 3. 🔴 Aynı uçuştan TIRMANMA ÖLÇÜMÜ çıkarılacak
+`hist_m` 2,5-3,0 yapılırsa çıkış 6,5-7 m olur. Tek parametre,
+`ucus_ayarlari.py`'den, **uçuşsuz yer testiyle** doğrulanır.
 
-Dikey tasarımın tek doğrulanmamış varsayımı. Kayıttan üçü:
+⚠️ Bedeli: merdiven daha uzun kalır. Sıkı formasyonda `d0` ile birlikte
+düşünülmeli (`CA.md` §7.2).
 
-| kayıttan | ne söyler |
-|---|---|
-| `vfr_hud.throttle` tepesi | itki payı. Askı %66; tepe %75 altındaysa pay sağlam |
-| komut `vz` ↔ gerçekleşen `vz` | PX4 1,2'yi tutuyor mu |
-| 3 m'ye varış süresi | beklenen ~7 sn |
+### 3. 🔴 İTKİ PAYI İNCE — bilinerek uçulacak
 
-Sonuç iyiyse `MPC_Z_VEL_MAX_UP` 1,2 → 3,0 tartışılabilir (yanal kaymayı
-4,8 → 1,9 m yapıyor).
+```
+aski gazi %72 (belgede %66 yaziyordu)   ·   p90 %77
+gaz >= %100 : ~2.5 sn toplam, en uzun kesintisiz blok 0.7 sn
+```
 
-### 4. 🔴 `KARAR-02` — `ultracode`
+`MPC_Z_VEL_MAX_UP` 1,2 → 3,0 fikri **KAPANDI**. Dikey ivmeyi (`a_dikey=2.0`)
+artırmak da aynı payı yer — artırılacaksa önce ölçülmeli.
 
-Bu, yeni CA'nın **ilk uçuşu** ve 20 Hz'de uçağa dikey komut verecek kod.
-Uçuştan önce operatörden o mesaja `ultracode` yazması istenecek.
+### 4. 🔴 Uçuş öncesi `uptime -s` (P0.17)
 
-### 5. 🟠 Kumanda hangi uçağa bağlı — HÂLÂ NETLEŞMEDİ
+Pi son 10 dakikada kendiliğinden açılmışsa **uçma**. Batarya değişimi
+sonrası taze açılış normaldir; bakılacak olan **ikinci** bir açılış.
 
-ylp00'da `rc_link_ok: true`. Kumanda ylp02'yi de yakalarsa **asılı uçağın
-otonomisi durur** ve test hiçbir şey göstermez. Uçuşsuz 30 sn'lik yer
-testiyle kesinleşir.
+### 5. 🟠 Kuru test kaçış zarfını hesaba katmıyor
 
-### 6. 🟠 YKİ uyarılarının kalıcı kaydı yok → **P1.16**
+`--kuru --harita` yalnız planlanan rotayı çiziyor. Kaçınma uçağı **~5 m
+yanal + 3 m dikey** hareket ettirebilir ve harita bunu göstermiyor.
+Operatöre elle söylenmeli. Araca eklenmesi ~20 satır.
+
+### 6. 🟠 Kumanda hangi uçağa bağlı — HÂLÂ NETLEŞMEDİ
 
 ### Bilinmesi gereken, düzeltilmemiş
 - Üç uçağın **aynı noktadan geçtiği** çapraz slot değişiminde hiçbir ayar
   kabul eşiğini tutturmuyor (1,76 m). `formation_node` o geometriyi
   üretmemeli — devreye alınırken bakılacak.
-- `/ws/gozlem` bayrağı **YOK** (belge "VAR" diyordu, bayattı). Şu an
-  zararsız ama `formation_node`'a tarif gelirse uçağı **doğrudan sürer**.
+- PX4'ün kendi titreşim/clipping sayacı okunamıyor (`vibration` akmıyor);
+  ölçüt olarak konum sıçraması kullanılıyor (ikisi de <0,03 m, temiz).
+- ylp01 dönünce `SURU_KADRO="1 2 3"` — yanlış kadro kaçış **yönünü ters
+  çevirir** (KARAR-04).
 - Uçakta üretilen `SystemEvent`'lerin çoğu YKİ'ye ulaşmıyor → P1.15
 
 ---
@@ -76,12 +75,14 @@ testiyle kesinleşir.
 
 | | ne | nasıl |
 |---|---|---|
-| **K2** | `d0=10 hard=6` geçici test değeri | `ucus_ayarlari.env` yeniden üretildi → **4,0 / 2,5** |
-| **ADIM 4 dikey** | çarpışma önleme dikeye geçti | KARAR-06, 5 yer testi, 78/78 birim test |
+| **ADIM 4 dikey** | çarpışma önleme dikeye geçti **ve UÇTU** | KARAR-06 · 5 yer testi · **ilk uçuş: +3,1/+2,8 m, temiz** |
+| **K2** | `d0=10 hard=6` geçici test değeri | yeniden üretildi → **4,0 / 2,5** |
 | **mesh "%30 kayıp"** | kaynağı radyo değil POSE kapısıymış | 7,1 → **10,5 Hz** (`TUZAKLAR` §2.20) |
-| **dikey datum** | EKF yerel z ile mesh irtifası karıştırılıyordu | `TUZAKLAR` §2.21, G0-1 ile doğrulandı |
+| **dikey datum** | EKF yerel z ile mesh irtifası karışıyordu | `TUZAKLAR` §2.21 · G0-1 uçakta doğrulandı |
 | **PX4 sessiz kırpma** | `MPC_Z_VEL_MAX_UP=1,2` bilinmiyordu | tek kaynağa girdi + denetim (`TUZAKLAR` §2.22) |
-| **`xy_guard` kör noktası** | tam tepedeki komşu atlanıyordu | `ca_core` yeniden yapılandırıldı (CA.md B2) |
+| **`xy_guard` kör noktası** | tam tepedeki komşu atlanıyordu | `ca_core` yeniden yapılandırıldı |
+| **`TUZAKLAR` §0.3** | "hover gazı %66 mı?" | ölçüldü: **%72** |
+| **otomatik disarm süresi** | "5 sn" diye not düşülmüştü, doğrulanmamıştı | `COM_DISARM_PRFLT = 10.0` |
 
 ---
 

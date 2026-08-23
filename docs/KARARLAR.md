@@ -1,6 +1,6 @@
 # KARARLAR — verilmiş ama henüz uygulanmamış kararlar
 
-**Son güncelleme:** 23 Ağustos 2026, 21:00 — KARAR-06 + ultracode kararı
+**Son güncelleme:** 23 Ağustos 2026, 22:15 — KARAR-06 UÇTU, itki payı ölçüldü
 
 Sohbette verilen kararlar oturum bitince kayboluyor. Bu defter onları
 tutuyor: **ne karar verildi, neden, ne zaman uygulanacak, nasıl test edilecek.**
@@ -730,8 +730,8 @@ kopya bu dizüstünde. Makine giderse imaj yine yalnız SD kartlarda kalır.
 
 # KARAR-06 — Çarpışma önlemede kaçış yönü: DİKEY birincil, yatay son çare
 
-**Durum:** ✅ **UYGULANDI** — kod dağıtıldı, beş yer testi geçti (23 Ağustos)
-**Ne zaman:** Uygulandı 23 Ağustos 2026; **havada hiç uçmadı**
+**Durum:** ✅ **UYGULANDI VE UÇTU** — 23 Ağustos akşamı, ilk uçuşta çalıştı
+**Ne zaman:** Uygulandı ve uçuruldu 23 Ağustos 2026
 **Karar veren:** Operatör (23 Ağustos 2026)
 
 ## Karar
@@ -793,11 +793,39 @@ döner. Saf dikey isteniyorsa `k_yatay=0`.
 **Birim: 78/78.** **Yer testi: 5/5** — datum · rütbe/işaret · son çare ·
 geçirgenlik · körlükte tutma. Ayrıntı `CA.md` §6.
 
-## 🔴 Kalan — uçmadan önce
+## ✅ İLK UÇUŞ SONUCU (23 Ağustos akşamı)
 
-1. **Tırmanma itki payı ölçülmedi.** Operatörün iki uçaklı testinde
-   kayıttan `vfr_hud.throttle` tepesi çıkarılacak.
+İki tam kaçış-dönüş çevrimi, ikisi de temiz:
+
+```
+tirmanma +3,1 m ve +2,8 m  (hedef 3,0)  ·  tepe hiz 1,25 m/s (tavan 1,2)
+donus 0,50 m/s -> nominale 4,79 m (iki kez)  ·  yatay itme HIC ACILMADI
+en yakin yatay 3,20 m  ·  alarmlar temiz
+```
+
+Ayrıntı: `CA.md` §6.5.
+
+## 🔴 Uçuştan çıkan ve KARARA BAĞLANAN
+
+### `MPC_Z_VEL_MAX_UP` 1,2 → 3,0 — ❌ VAZGEÇİLDİ, ölçümle
+
+Sabah "yanal kaymayı 4,8 → 1,9 m indirir" diye tartışılmıştı. Uçuş kaydı
+kapattı:
+
+```
+aski gazi %72 (belgede %66 yaziyordu)  ·  p90 %77
+gaz >= %100 : ~2.5 sn toplam, en uzun kesintisiz blok 0.7 sn
+```
+
+1,2 m/s tırmanmak zaten itki payını tüketiyor. **Yükseltilemez.** Aynı
+gerekçeyle `a_dikey`'i 2,0'ın üstüne çıkarmak da ölçülmeden yapılmaz.
+
+## 🔴 Kalan
+
+1. **`hist_m` 0,5 → 2,5-3,0** — dönüş fazla aceleci (`CA.md` §7.2).
+   Sıradaki uçuşun konusu.
 2. ylp01 dönünce `SURU_KADRO="1 2 3"` (KARAR-04).
+3. Depo uçaklardan ileride — `CA.md` §7.3.
 
 > ### ✅ `KARAR-02` denetimi bu uçuş için ATLANDI — operatör kararı (23 Ağu)
 >
