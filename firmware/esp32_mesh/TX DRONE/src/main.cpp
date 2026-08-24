@@ -77,6 +77,39 @@ static const struct { uint8_t mac[6]; uint8_t id; } drone_tablo[] = {
     {{0xA4, 0xF0, 0x0F, 0x64, 0xB5, 0x34}, BAZ_MESH_ID},   // RX BASE (yer)
 };
 static constexpr uint8_t DRONE_SAYISI = sizeof(drone_tablo) / sizeof(drone_tablo[0]);
+
+// MAC TAKMA ADI — degisen ESP donanimi ESKI kimligini korur (24 Agu 2026).
+//
+// ylp01'in ESP'si dusus sonrasi YENI kartla degisti (efuse ...0A:B4).
+// drone_tablo ve SAHADAKI DIGER kartlarin GOMULU tablolari eski MAC'i
+// (...13:88) taniyor; alici taraf da mac_to_id() kapisiyla bilinmeyen
+// MAC'i reddediyor. Tabloya yeni MAC'i eklemek DORT cihazin birden
+// yeniden flash'lanmasini gerektirirdi. Bunun yerine yeni kart, WiFi
+// baslamadan kendini eski MAC'le tanitir — baska hicbir cihaz degismez.
+//
+// Yeni bir ESP degisiminde buraya bir satir ekle ve cihazlar.md'ye
+// "fiziksel MAC -> takma MAC" notunu dus. esp_base_mac_addr_set()
+// WiFi init'ten ONCE cagirilmali; STA (ve ESP-NOW) MAC'i base'den turer.
+static const struct { uint8_t fiziksel[6]; uint8_t takma[6]; } mac_takma_tablo[] = {
+    // ylp01: yeni kart (D4:E9:F4:FB:0A:B4) -> eski kimlik (D4:E9:F4:FB:13:88)
+    {{0xD4, 0xE9, 0xF4, 0xFB, 0x0A, 0xB4}, {0xD4, 0xE9, 0xF4, 0xFB, 0x13, 0x88}},
+};
+static void mac_takma_uygula() {
+    uint8_t efuse[6];
+    if (esp_efuse_mac_get_default(efuse) != ESP_OK) return;
+    for (const auto& e : mac_takma_tablo) {
+        if (memcmp(e.fiziksel, efuse, 6) == 0) {
+            esp_base_mac_addr_set(e.takma);
+            Serial.printf("[MAC] takma ad: %02X:%02X:%02X:%02X:%02X:%02X -> "
+                          "%02X:%02X:%02X:%02X:%02X:%02X\n",
+                          e.fiziksel[0], e.fiziksel[1], e.fiziksel[2],
+                          e.fiziksel[3], e.fiziksel[4], e.fiziksel[5],
+                          e.takma[0], e.takma[1], e.takma[2],
+                          e.takma[3], e.takma[4], e.takma[5]);
+            return;
+        }
+    }
+}
 static uint8_t mac_to_id(const uint8_t* mac) {
     for (uint8_t i = 0; i < DRONE_SAYISI; i++)
         if (memcmp(drone_tablo[i].mac, mac, 6) == 0)
@@ -209,6 +242,7 @@ void setup() {
     delay(1000);
     Serial.println("[ESP32] Basliyor...");
     _drone_tablo_dogrula();  // MAC benzersizligini boot'ta dogrula
+    mac_takma_uygula();      // degisen donanim eski kimligini alir (WiFi'dan ONCE)
 
     // baud 460800 (spec + ekip karari). Bu Serial1 hatti RTK'nin yani sira
     // joystick/pose/vb tum Pi<->mesh protokolunu de tasiyor (_rtk_uart_gonder
