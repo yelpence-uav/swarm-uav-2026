@@ -1,6 +1,6 @@
 # Cihaz ve erişim tablosu
 
-**Son güncelleme:** 20 Ağustos 2026, 17:40
+**Son güncelleme:** 24 Ağustos 2026, 20:35 — ylp01'in Pi'si değişti (klon), yeni wlan0 MAC
 
 Sahada IP'ler DHCP ile değişir (29 Tem `10.207.118.x` → 30 Tem `10.158.16.x`
 → 14 Ağu `10.188.209.x`; her seferinde bütün SSH komutları kırıldı).
@@ -49,7 +49,7 @@ Bu projede en sık yapılan hata; komut yazmadan önce bak.
 | İHA | wlan0 MAC | eth0 MAC | ESP32 mesh MAC | Mesh ID | `MAV_SYS_ID` | `/ws/tgt_system` |
 |-----|-----------|----------|----------------|---------|--------------|------------------|
 | ylp00 | `88:a2:9e:71:60:ed` | `88:a2:9e:71:60:ec` | `B0:CB:D8:C8:A8:30` | 1 | 1 | (dosya yok) |
-| ylp01 | `88:a2:9e:da:04:2d` | (bilinmiyor) | `D4:E9:F4:FB:13:88` | 2 | 2 | `2` |
+| ylp01 | `88:a2:9e:67:6e:ff` | (ölçülmedi) | `D4:E9:F4:FB:13:88` | 2 | 2 | `2` |
 | ylp02 | `88:a2:9e:71:60:24` | `88:a2:9e:71:60:23` | `A4:F0:0F:64:A9:90` | 3 | 3 | `3` |
 
 Base ESP mesh ID = **10** (`agent_id:=10`, `yki_baslat.sh`). Firmware'deki
@@ -57,9 +57,12 @@ Base ESP mesh ID = **10** (`agent_id:=10`, `yki_baslat.sh`). Firmware'deki
 
 **IP sütunu bilerek yok** — her ağda değişiyor, `drone_bul.sh` buluyor.
 
-Not: ylp01'in wlan0 MAC öneki diğer ikisinden farklı (`da:04:2d` ↔ `71:60:xx`) —
-farklı parti Raspberry Pi. Yine de `88:a2:9e` (Raspberry Pi Trading) önekiyle
-bulunur.
+> 🔀 **ylp01'in Pi'si 24 Ağustos 2026'da DEĞİŞTİ.** Eski Pi
+> (`88:a2:9e:da:04:2d`) 2 Ağustos düşüşünde öldü; ylp02'nin SD imajı
+> **yeni bir Pi'ye klonlandı** ve `deploy/rpi/ylp01_donusum.sh` ile
+> kimliği çevrildi (kullanıcı/hostname/SSH anahtarları/tgt_system).
+> Yeni wlan0 MAC yukarıda; eth0 henüz ölçülmedi. ESP32 uçakta kaldığı
+> için mesh MAC'i DEĞİŞMEDİ.
 
 ### ⏰ Pi'lerin saati açılışta ~11 saat geriden geliyor
 

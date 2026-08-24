@@ -1,6 +1,6 @@
 # RPİ EŞİTLEME DEFTERİ — geri gelen drone'u hizaya getirme
 
-**Son güncelleme:** 23 Ağustos 2026, 22:15 — K13-K16 UÇTU; depo uçaklardan ileride
+**Son güncelleme:** 24 Ağustos 2026, 20:35 — ylp01'in YENİ Pi'si hazır (klon + kimlik dönüşümü); A/K listeleri kapandı
 
 ## Bu belge ne için
 
@@ -71,7 +71,24 @@ ve hiçbiri eksikken hata vermiyor.
 
 ### ylp01 döndüğünde — 20 Ağustos işlerinin listesi
 
-Sırayla, yukarıdan aşağı:
+> ✅ **BU LİSTE 24 AĞUSTOS 20:35'TE KAPANDI — KLON YÖNTEMİYLE.**
+> ylp02'nin SD imajı **yeni bir Pi'ye** klonlandı (eski Pi ölü) ve
+> `deploy/rpi/ylp01_donusum.sh` kimliği çevirdi: kullanıcı `yelpence01`,
+> hostname `ylp01`, SSH host anahtarları yeniden üretildi, `tgt_system=2`.
+> Aşağıdaki adımların karşılığı: (1) kod klonla `7645d83` geldi ·
+> (2) mcap klonla, sha birebir ölçüldü · (3) sysctl klonla, 100 ölçüldü ·
+> (4) `drone2` yeni oluşturuldu, log döndürme 10m×3 ölçüldü ·
+> (5) doğrulama yapıldı. Yeni wlan0 MAC: `88:a2:9e:67:6e:ff`
+> (`drone_bul.sh` + `cihazlar.md` güncellendi).
+>
+> **Kalan işler UÇAK tarafında** (Pi değil): ESC güç hattı onarımı,
+> Pi'nin uçağa montajı, ESP↔Pi jumper (A16), PX4 parametre karşılaştırma
+> (bölüm C), RC-kayıp failsafe kurulumu. Ve ⚠️ kalıntılar: `~/yelpence_ws/kayit/`
+> altında **ylp02'nin eski uçuş kayıtları** duruyor (karışıklık kaynağı,
+> ilk fırsatta temizle) · `/usr/local/bin/ylp01_donusum.sh` root'ta kaldı
+> (ikinci koşumda kendini iptal eder, zararsız; sudo'lu ilk işte silinebilir).
+
+Sırayla, yukarıdan aşağı (tarihçe için duruyor):
 
 ```bash
 # 1) Kod, betikler, paketler  (otomatik)
@@ -113,18 +130,18 @@ kalıcı olur. Üçü de ancak **ölçerek** görülür.
 | # | Ne | ylp00 | ylp01 | ylp02 | Nasıl |
 |---|----|-------|-------|-------|-------|
 | A1 | Hostname + kullanıcı | ✅ | ✅ | ✅ | `deploy/rpi/pi_hazirla.sh <id>` |
-| A2 | Docker + konteyner | ✅ | ❓ | ✅ | `deploy/rpi/run_drone.sh` (`-e AGENT_ID=<N>`, ad `<KONTEYNER>`) |
-| A3 | Saat dilimi Europe/Istanbul | ✅ | ❓ | ✅ | `izleme_kur.sh` 1/7 |
-| A4 | Wi-Fi güç tasarrufu kapalı | ✅ | ❓ | ✅ | `izleme_kur.sh` 2/7 — **kapatılmazsa Pi boşta SSH'a cevap vermiyor** |
-| A5 | Kalıcı journald | ✅ | ❓ | ✅ | `izleme_kur.sh` 3/7 — dosya adı `10-` ile başlarsa İŞE YARAMAZ |
-| A6 | `yelpence-izle` servis + timer | ✅ | ❓ | ✅ | `izleme_kur.sh` 4-5/7 |
-| A7 | Kayıt disk temizlik timer'ı | ✅ | ❓ | ✅ | `izleme_kur.sh` 6/7 |
-| A8 | **sysctl writeback (1 sn)** | ✅ *(20 Ağu 23:15)* | ❌ | ✅ | `izleme_kur.sh` 7/7 → `/etc/sysctl.d/60-yelpence-writeback.conf` · **elle, root** |
-| A11 | **`mcap` kurtarma aracı** | ✅ | ❌ | ✅ | `~/yelpence_ws/bin/mcap` · **elle kopyalanır, `dagit.sh` taşımaz** |
-| A12 | **docker log döndürme** | ✅ | ❌ | ❌ | `run_drone.sh` içinde — **yalnız konteyner YENİDEN OLUŞTURULUNCA** devreye girer |
-| A13 | 🔴 **Çökme kaydı (ramoops) + `kernel.panic=10`** | ✅ | ❌ | ✅ | `izleme_kur.sh` **8/8** · **sahada sınandı** (sysrq paniği yakalandı) |
-| A14 | **Çökme izlerini okunabilir kopyala** | ✅ | ❌ | ✅ | `yelpence-cokme.service` → `~/yelpence_ws/gunluk/cokme/` |
-| A15 | **İzleme aralığı 60 → 10 sn** | ✅ | ❌ | ✅ | 22 Ağu 03:36'da doğrulandı — `OnUnitActiveSec=10s`, timer aktif |
+| A2 | Docker + konteyner | ✅ | ✅ *(24 Ağu, drone2 yeni)* | ✅ | `deploy/rpi/run_drone.sh` (`-e AGENT_ID=<N>`, ad `<KONTEYNER>`) |
+| A3 | Saat dilimi Europe/Istanbul | ✅ | ✅ *(klon, ölçüldü)* | ✅ | `izleme_kur.sh` 1/7 |
+| A4 | Wi-Fi güç tasarrufu kapalı | ✅ | ✅ *(klon)* | ✅ | `izleme_kur.sh` 2/7 — **kapatılmazsa Pi boşta SSH'a cevap vermiyor** |
+| A5 | Kalıcı journald | ✅ | ✅ *(klon)* | ✅ | `izleme_kur.sh` 3/7 — dosya adı `10-` ile başlarsa İŞE YARAMAZ |
+| A6 | `yelpence-izle` servis + timer | ✅ | ✅ *(klon, timer active ölçüldü)* | ✅ | `izleme_kur.sh` 4-5/7 |
+| A7 | Kayıt disk temizlik timer'ı | ✅ | ✅ *(klon)* | ✅ | `izleme_kur.sh` 6/7 |
+| A8 | **sysctl writeback (1 sn)** | ✅ *(20 Ağu 23:15)* | ✅ *(klon, `dirty_expire=100` ölçüldü)* | ✅ | `izleme_kur.sh` 7/7 → `/etc/sysctl.d/60-yelpence-writeback.conf` · **elle, root** |
+| A11 | **`mcap` kurtarma aracı** | ✅ | ✅ *(klon, sha birebir ölçüldü)* | ✅ | `~/yelpence_ws/bin/mcap` · **elle kopyalanır, `dagit.sh` taşımaz** |
+| A12 | **docker log döndürme** | ✅ | ✅ *(24 Ağu, drone2 yeni oluşum — 10m×3 ölçüldü)* | ❌ | `run_drone.sh` içinde — **yalnız konteyner YENİDEN OLUŞTURULUNCA** devreye girer |
+| A13 | 🔴 **Çökme kaydı (ramoops) + `kernel.panic=10`** | ✅ | ✅ *(klon, cmdline ölçüldü)* | ✅ | `izleme_kur.sh` **8/8** · **sahada sınandı** (sysrq paniği yakalandı) |
+| A14 | **Çökme izlerini okunabilir kopyala** | ✅ | ✅ *(klon, enabled ölçüldü)* | ✅ | `yelpence-cokme.service` → `~/yelpence_ws/gunluk/cokme/` |
+| A15 | **İzleme aralığı 60 → 10 sn** | ✅ | ✅ *(klon)* | ✅ | 22 Ağu 03:36'da doğrulandı — `OnUnitActiveSec=10s`, timer aktif |
 | A16 | 🔴 **ESP↔Pi UART jumper'ı yeniden oturtuldu** | ✅ *(23 Ağu 00:50, ELLE)* | ❌ | ❔ **bakılmadı** | P0.15'in kök nedeni — `TUZAKLAR` §2.19. **Geçici**: jumper yine gevşer |
 
 > ### 🔴 A16 — konnektör: yapılan iş ve durumu
@@ -152,23 +169,28 @@ konteyner yeniden başlatma yeterli. ylp01 döndüğünde tek yapılacak
 
 | | ne | ylp00 | ylp01 | ylp02 |
 |---|---|---|---|---|
-| K1 | **ADIM 4** — `basit_kacinma` KAPALI, `collision_avoidance` açık | ✅ | ❌ | ✅ |
-| K2 | Kaçınma eşikleri **test değerleri** `d0=10 hard=6` (üretim: 6/4) | ✅ | ❌ | ✅ |
-| K3 | `velocity_only` artık CA'yı da kapsıyor | ✅ | ❌ | ✅ |
-| K4 | **Körlük alarmı** — 2 sn'de KRİTİK olay + YKİ sesli uyarı | ✅ | ❌ | ✅ |
-| K5 | Mesh `DURUM2_BAYRAK_KACINMA_KORU` (0x04) | ✅ | ❌ | ✅ |
-| K6 | `sahte_kayip_ajanlar` test kancası (tek yönlü kayıp benzetimi) | ✅ | ❌ | ✅ |
-| K7 | **Sönümleme tabanı** — uzaklaşan komşuya çekim YOK | ✅ | ❌ | ✅ |
-| K8 | `px4_bridge` setpoint hız/ivme tavanlarını okuyor | ✅ | ❌ | ✅ |
-| K9 | 🔴 **Pilot devraldıysa mod geri alınmaz** | ✅ | ❌ | ✅ |
-| K10 | 🔴 **Kaçınma ivmeleri eğim tavanına bağlandı** (30→5,66) | ✅ | ❌ | ✅ |
-| K11 | `hard` sınırındaki süreksizlik giderildi | ✅ | ❌ | ✅ |
-| K12 | Kaçınma sonrası dönüş yumuşatma (0,5 m/s²) | ✅ | ❌ | ✅ |
-| K13 | 🔴 **DİKEY yol verme** — birincil kaçış dikeye alındı | ✅ *(23 Ağu 20:10)* | ❌ | ✅ |
-| K14 | 🔴 **Yatay itme SON ÇARE** — yalnız `hard` içinde (`k_tan=0`) | ✅ | ❌ | ✅ |
-| K15 | 🔴 **Dikey datum düzeltmesi** — `alt_amsl − home`, EKF yerel z DEĞİL | ✅ | ❌ | ✅ |
-| K16 | 🔴 **`d0/hard` 10/6 → 4,0/2,5** — geçici test değeri geri alındı | ✅ | ❌ | ✅ |
-| A17 | 🔴 **POSE kapısı `0.100 → 0.095`** — komşu tazeleme 7,1 → 10,5 Hz | ✅ *(23 Ağu 18:10)* | ❌ | ✅ |
+| K1 | **ADIM 4** — `basit_kacinma` KAPALI, `collision_avoidance` açık | ✅ | ✅ | ✅ |
+| K2 | Kaçınma eşikleri **test değerleri** `d0=10 hard=6` (üretim: 6/4) | ✅ | ✅ | ✅ |
+| K3 | `velocity_only` artık CA'yı da kapsıyor | ✅ | ✅ | ✅ |
+| K4 | **Körlük alarmı** — 2 sn'de KRİTİK olay + YKİ sesli uyarı | ✅ | ✅ | ✅ |
+| K5 | Mesh `DURUM2_BAYRAK_KACINMA_KORU` (0x04) | ✅ | ✅ | ✅ |
+| K6 | `sahte_kayip_ajanlar` test kancası (tek yönlü kayıp benzetimi) | ✅ | ✅ | ✅ |
+| K7 | **Sönümleme tabanı** — uzaklaşan komşuya çekim YOK | ✅ | ✅ | ✅ |
+| K8 | `px4_bridge` setpoint hız/ivme tavanlarını okuyor | ✅ | ✅ | ✅ |
+| K9 | 🔴 **Pilot devraldıysa mod geri alınmaz** | ✅ | ✅ | ✅ |
+| K10 | 🔴 **Kaçınma ivmeleri eğim tavanına bağlandı** (30→5,66) | ✅ | ✅ | ✅ |
+| K11 | `hard` sınırındaki süreksizlik giderildi | ✅ | ✅ | ✅ |
+| K12 | Kaçınma sonrası dönüş yumuşatma (0,5 m/s²) | ✅ | ✅ | ✅ |
+| K13 | 🔴 **DİKEY yol verme** — birincil kaçış dikeye alındı | ✅ *(23 Ağu 20:10)* | ✅ | ✅ |
+| K14 | 🔴 **Yatay itme SON ÇARE** — yalnız `hard` içinde (`k_tan=0`) | ✅ | ✅ | ✅ |
+| K15 | 🔴 **Dikey datum düzeltmesi** — `alt_amsl − home`, EKF yerel z DEĞİL | ✅ | ✅ | ✅ |
+| K16 | 🔴 **`d0/hard` 10/6 → 4,0/2,5** — geçici test değeri geri alındı | ✅ | ✅ | ✅ |
+| A17 | 🔴 **POSE kapısı `0.100 → 0.095`** — komşu tazeleme 7,1 → 10,5 Hz | ✅ *(23 Ağu 18:10)* | ✅ | ✅ |
+
+> ylp01 sütunu 24 Ağustos 20:35'te ✅ oldu: kod klonla **`7645d83`**
+> geldi — üstelik bu, K listesinin tamamından DAHA YENİ (dikey kaçınma
+> dönüş paketi `hist_m=2,5` ve `tatmin` düzeltmesi dahil). `.surum`
+> dosyasından ölçüldü.
 
 
 > ### 🔴🔴 23 AĞUSTOS 22:15 — DEPO UÇAKLARDAN İLERİDE
@@ -652,12 +674,12 @@ başlatıldı** — ikisi de yapıldı, doğrulandı: 11 düğüm, `disarm`,
 
 | ne | ylp00 | ylp01 | ylp02 |
 |---|---|---|---|
-| `baslat.sh` ağ beklemesi (P0.13) | ✅ | ❌ | ✅ |
-| `baslat.sh` `gps_saat` sert zaman aşımı (P0.13) | ✅ | ❌ | ✅ |
-| `kayit_onar.sh` + açılışta arka planda çağrısı | ✅ | ❌ | ✅ |
-| sysctl writeback 1 sn (A8) | ✅ | ❌ | ✅ |
-| `mcap` kurtarma aracı (A11) | ✅ | ❌ | ✅ |
-| docker log döndürme (A12) | ✅ | ❌ | ❌ |
+| `baslat.sh` ağ beklemesi (P0.13) | ✅ | ✅ *(klon)* | ✅ |
+| `baslat.sh` `gps_saat` sert zaman aşımı (P0.13) | ✅ | ✅ *(klon)* | ✅ |
+| `kayit_onar.sh` + açılışta arka planda çağrısı | ✅ | ✅ *(klon)* | ✅ |
+| sysctl writeback 1 sn (A8) | ✅ | ✅ *(klon, ölçüldü)* | ✅ |
+| `mcap` kurtarma aracı (A11) | ✅ | ✅ *(klon, ölçüldü)* | ✅ |
+| docker log döndürme (A12) | ✅ | ✅ *(24 Ağu, drone2)* | ❌ |
 
 **A12 neden ylp02'de yok:** docker'ın log ayarları oluşturma anında
 sabitleniyor; `docker restart` yetmiyor, `docker rm -f` + `run_drone.sh`

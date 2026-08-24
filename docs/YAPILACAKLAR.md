@@ -1,6 +1,6 @@
 # YAPILACAKLAR
 
-**Son güncelleme:** 24 Ağustos 2026, 15:05 — kumanda eşleşmesi TAM kapandı (00+02); kalan: akşam uçuşu
+**Son güncelleme:** 24 Ağustos 2026, 20:35 — ylp01'in YENİ Pi'si hazır (klon); kalan: akşam uçuşu + ylp01 uçak onarımı
 
 ## 🚨 SONRAKİ OPERATÖRE — ÖNCE BUNLAR (23 Ağustos gecesi)
 
@@ -1249,8 +1249,8 @@ Karar verilmedi. Seçenekler ve maliyetleri:
 | depoya koyma, elle | 17 MB | **yeni uçakta unutulur, hata vermez** |
 
 - `[ ]` 🟠 Operatörle karara bağla, sonucu `KARARLAR.md`'ye yaz.
-- `[ ]` 🟠 ylp01 dönünce kur — `RPI_ESITLEME.md` bölüm 2, adım 2.
-  sha256: `be9734ef63ada9d0cc7a3aa41378ab65fd482601e5f5b3b52098d8e6553deabf`
+- `[x]` 🟠 ~~ylp01 dönünce kur~~ → **24 Ağu: klonla geldi**, sha ölçülerek
+  doğrulandı (`be9734ef63ada9d0...` birebir).
 
 ### 🟠 P1.12 Uçuş kayıtları tavanda — eski kayıtlar SÜREKLİ siliniyor
 
@@ -1273,10 +1273,11 @@ Yani **saklanmayan her uçuş kaydı er geç gidiyor** ve bunu haber veren bir
   (Ayarlar → Genel → Hakkında → Ad) ve SSID'ler **büyük/küçük harfe
   duyarlıdır**. Telefon açılınca bir kez bağlan; farklıysa:
   `sudo nmcli connection modify iphone-hotspot wifi.ssid "GERÇEK AD"`
-- `[ ]` 🟠 **ylp01 döndüğünde:** iki Wi-Fi ağı + iki SSH anahtarı + **PX4
-  parametreleri** (`ucus_ayarlari.py --px4` çıktısı) + `ucus_ayarlari.env` +
-  RC-kayıp failsafe kurulumu. **`RPI_ESITLEME.md` baştan sona yürütülür** —
-  tek tek hatırlamaya çalışılmaz, belgenin tek işi bu.
+- `[~]` 🟠 **ylp01 döndüğünde:** Pi tarafı **24 Ağu'da klonla KAPANDI**
+  (Wi-Fi ağları ✅ ölçüldü · SSH erişimi ✅ · `ucus_ayarlari.env` ✅ ·
+  kod `7645d83` ✅ — ayrıntı `RPI_ESITLEME.md` "ylp01 döndüğünde" notu).
+  **Kalan uçak tarafı:** PX4 parametreleri (`--px4` + `param_karsilastir`),
+  RC-kayıp failsafe kurulumu, jumper (A16) — Pi uçağa monte edilince.
 
 #### SSH anahtarları — Berk'inki de kuruldu (18 Ağustos)
 
@@ -1598,10 +1599,13 @@ WiFi düşünce MAVROS `gcs_url` uçnoktasına her MAVLink mesajı için
 
 - `[ ]` 🟡 Güç modülü çıkışı → PDB → ESC güç lehimleri
 - `[ ]` 🟡 ESC sinyal kablo demeti
-- `[ ]` 🟡 RPi neden açılmıyor (SD kart sağlam)
-- `[ ]` 🟡 Onarım sonrası **`RPI_ESITLEME.md`'yi baştan sona yürüt** —
-  düştüğünde üzerinde eski `esp32_bridge_node.py` ve `basit_kacinma_node.py`
-  vardı, kalkışta devrilmeye yol açan düzeltme yoktu. **Kod senkronu ilk iş.**
+- `[x]` 🟡 ~~RPi neden açılmıyor~~ → **ÇÖZÜLDÜ (24 Ağu 20:35): eski Pi
+  emekli edildi.** ylp02'nin SD imajı YENİ bir Pi'ye klonlandı, kimliği
+  `ylp01_donusum.sh` ile çevrildi. Kod `7645d83` (güncel), `drone2`
+  ayakta. Ayrıntı: `RPI_ESITLEME.md`.
+- `[~]` 🟡 ~~RPI_ESITLEME'yi baştan sona yürüt~~ → Pi tarafı klonla
+  kapandı; **kalan yalnız uçak tarafı** (PX4 param, RC failsafe, jumper) —
+  montaj sonrası. Kod senkronu sorunu klonla kökten çözüldü.
 
 Üç uçak olmadan n=3 okbaşı geometrisi ve rol dağıtımı denenemez.
 

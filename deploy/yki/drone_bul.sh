@@ -41,7 +41,10 @@ set -uo pipefail
 #          isim   MAC (wlan0)          kullanici     konteyner  agent_id
 DRONELAR=(
     "ylp00  88:a2:9e:71:60:ed  yelpence00  drone1  1"
-    "ylp01  88:a2:9e:da:04:2d  yelpence01  drone2  2"
+    "ylp01  88:a2:9e:67:6e:ff  yelpence01  drone2  2"
+    # ylp01 MAC 24 Agustos 2026'da degisti: eski Pi (88:a2:9e:da:04:2d)
+    # 2 Agustos dususunde oldu; ylp02 imaji YENI Pi'ye klonlandi ve
+    # ylp01_donusum.sh ile kimligi cevrildi.
     "ylp02  88:a2:9e:71:60:24  yelpence02  drone3  3"
 )
 
