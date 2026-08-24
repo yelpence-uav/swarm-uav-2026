@@ -1,6 +1,6 @@
 # DURUM — şu an ne çalışıyor, ne bozuk
 
-**Son güncelleme:** 24 Ağustos 2026, 20:35 — ylp01'in YENİ Pi'si hazır (klon+dönüşüm); öğlen: hist_m dağıtımı
+**Son güncelleme:** 25 Ağustos 2026, 02:25 — GECE UÇUŞU: dönüş davranışı DOĞRULANDI; ylp01 zinciri tam
 
 > Bu belge **şimdiki hâli** anlatır, tarihçe değil. Bir şey değişince burayı
 > güncelle, eskisini sil. Ne olduğunun hikâyesi `GUNLUK.md`'de kalır.

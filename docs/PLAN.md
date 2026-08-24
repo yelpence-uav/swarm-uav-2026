@@ -1,6 +1,6 @@
 # PLAN — buradan finale
 
-**Son güncelleme:** 24 Ağustos 2026, 14:50 — birleşik paket dağıtıldı; harita zarfı çiziyor
+**Son güncelleme:** 25 Ağustos 2026, 02:25 — dönüş davranışı UÇUŞTA DOĞRULANDI; ADIM 4 TAM
 
 Bu belge **tüm takımın ortak resmi** ve sürü entegrasyonunun **teknik yol
 haritası**. Yeni gelen biri bunu okuyup işe başlayabilir.
@@ -43,6 +43,14 @@ YKİ (bilgisayar) → mesh → uçak: "şu noktaya git"
 ---
 
 ## ⏭️ SIRADAKİ UÇUŞ — dikey kaçınmanın DÖNÜŞ davranışı (23 Ağustos akşamı)
+
+> ✅✅ **BU UÇUŞ YAPILDI VE GEÇTİ — 25 Ağustos 02:03 (gece).** Üç
+> kaçış-dönüş çevrimi: ayrım bırakma **7,2-8,3 m** (dün 4,9'du),
+> içerideyken dalış YOK, dönüş 0,5 m/s, tırmanma hızı aynı. Yo-yo
+> görüntüsü kapandı; `hist_m=2,5` + `tatmin` düzeltmesi sahada doğru.
+> Ölçüm ayrıntısı `CA.md` §7.2. Kaçınmanın DÖNÜŞ davranışı da böylece
+> kapandı — ADIM 4 tam. Sıradaki iş operatörle: ADIM 3 (formasyon) ya da
+> ylp01'in uçuşa hazırlanması.
 
 ✅ **Dikey kaçınma ilk uçuşunda çalıştı** (23 Ağustos akşamı): iki tam
 kaçış-dönüş çevrimi, +3,1 / +2,8 m tırmanma, yatay itme hiç açılmadı.

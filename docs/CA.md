@@ -1,6 +1,6 @@
 # CA — Çarpışma Önleme: dikey yol verme
 
-**Son güncelleme:** 24 Ağustos 2026, 14:50 — hist_m 2,5 dağıtıldı (§7.2-7.3), kuru test zarfı çiziyor (§7.4c)
+**Son güncelleme:** 25 Ağustos 2026, 02:25 — 🎯 hist_m + tatmin GECE UÇUŞUNDA DOĞRULANDI (§7.2)
 
 > Bu belge çarpışma önlemenin **bugünkü tasarımı ve durumu**. 23 Ağustos
 > sabahki sürümü yatay/dikey karşılaştırmasıydı; karar verildi ve uygulandı,
@@ -287,6 +287,24 @@ indirecek tek koldu; artık yok.)
 iniyor. Komşu hâlâ 5 m'de dururken 3 m'lik ayrımı 6 saniyede geri vermek
 savurgan — ve operatörün gördüğü "yo-yo" görüntüsü tam bundan doğuyor
 (§6.5).
+
+✅✅ **UÇUŞTA DOĞRULANDI (25 Ağustos 02:03 gece uçuşu).** ylp02 4,8 m
+asılı, operatör ylp00'ı kumandayla üç kez yaklaştırıp uzaklaştırdı.
+Kayıttan (mcap, rel_alt + mesh pos):
+
+```
+inis baslarken d_xy : 7,19 / 8,25 / 7,46 m   (hedef >= 6,5 — dun 4,9'du)
+icerideyken dalis   : YOK (inis yalniz operator uzaklasinca basladi)
+donus hizi          : 0,50 / 0,51 / 0,51 m/s (tasarim 0,5)
+tirmanma tepe hizi  : 1,27-1,32 m/s          (dunle ayni)
+en yakin yaklasma   : 3,52 m
+```
+
+Operatör gözlemi: "yaklaşınca yukarı kalktı, uzaklaşınca yerine döndü,
+gayet stabildi." **Yo-yo görüntüsü kapandı.** Not: tırmanmalar +4,6 m
+ölçüldü (dün +3,1) — hata değil: operatör bu kez daha yüksekte uçtu,
+hedef "komşunun ölçülen irtifası + katman" olduğu için merdiven onu
+izledi (tepe 9,1 m AGL).
 
 ✅ **YAPILDI (24 Ağustos 14:30): `hist_m` 0,5 → 2,5, çıkış 6,5 m.**
 Zincir kuruldu: `ucus_ayarlari.py` (`KACINMA_HIST_M`) → `--kabuk` env →
