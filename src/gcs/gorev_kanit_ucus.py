@@ -1215,6 +1215,7 @@ var yol=%(yol)s;        // gorev noktalari (adim merkezleri)
 var inis=%(inis)s;      // her drone'un INIS yeri (plan'in son adimi)
 var inisMesafe=%(inis_mesafe)s;  // iki inis yeri arasi, metre
 var dronelar=%(dronelar)s;  // ucaklarin SU ANKI olculen yeri
+var zarf=%(zarf)s;      // kacis zarfi yaricapi (m) — ucus_ayarlari tek kaynak
 var hepsi=[];
 if(yol.length>1){
   var cizgi=yol.map(function(p){return [p[1],p[2]]});
@@ -1223,6 +1224,11 @@ if(yol.length>1){
 }
 yol.forEach(function(p){
   hepsi.push([p[1],p[2]]);
+  // KACIS ZARFI (SARI kesikli, gercek metre): kacinma tetiklenirse ucak
+  // planli noktadan bu kadar YANA itilebilir. Yesil noktanin bos olmasi
+  // yetmez — bu dairenin ICI de bina/agac/tel icermemeli.
+  L.circle([p[1],p[2]],{radius:zarf,color:'#ffd60a',weight:2,
+    dashArray:'6,4',fill:false}).addTo(m);
   L.circleMarker([p[1],p[2]],{radius:8,color:'#fff',weight:2,
     fillColor:'#34c759',fillOpacity:1}).addTo(m)
    .bindTooltip(p[0],{permanent:true,direction:'top'});
@@ -1245,6 +1251,10 @@ inis.forEach(function(p){
   // uydu goruntusundeki bina/arac ile dogrudan karsilastirilabilir.
   L.circle([p[1],p[2]],{radius:5,color:'#af52de',weight:2,
     fillColor:'#af52de',fillOpacity:0.18}).addTo(m);
+  // INIS ZARFI (MOR kesikli): kacinma inis yaklasmasinda iterse ucak
+  // 5 m'lik bos alanin da DISINA, bu halkaya kadar sasabilir (5 + zarf).
+  L.circle([p[1],p[2]],{radius:5+zarf,color:'#af52de',weight:1.5,
+    dashArray:'6,4',fill:false}).addTo(m);
   L.circleMarker([p[1],p[2]],{radius:9,color:'#fff',weight:3,
     fillColor:'#af52de',fillOpacity:1}).addTo(m)
    .bindTooltip(p[0],{permanent:true,direction:'bottom',offset:[0,10],
@@ -1321,17 +1331,23 @@ def harita_yaz(plan, merkez0, origin, dosya, t=None):
         dronelar.append([f"d{did} ŞU AN{gorevde}", la, lo])
     ofs = (f" &middot; harita ofseti {HARITA_OFSET_KD[0]:+.1f}K "
            f"{HARITA_OFSET_KD[1]:+.1f}D m" if any(HARITA_OFSET_KD) else "")
+    zarf = AYAR.KACINMA_ZARF_YANAL_M
     ozet = (f"aralik {ARALIK_M:.0f} m &middot; yon {ROTA_YONU_DEG:.0f}&deg;{ofs}<br>"
             f"<b>kod engel gormez</b> - rotada bina/agac olmamali<br>"
             f"<span style='color:#af52de'><b>MOR = INIS YERI</b></span>"
             f" (5 m daire bos tutulmali"
             + (f", aralari {inis_mesafe}" if inis_mesafe else "") + ")<br>"
+            f"<span style='color:#c7a500'><b>SARI kesikli = KACIS ZARFI</b>"
+            f"</span> ({zarf:.0f} m: kacinma iterse ucak planli noktadan bu"
+            f" kadar yana kayabilir; dikeyde +{AYAR.KACINMA_KATMAN_M:.0f} m"
+            f" tirmanma haritada gorunmez)<br>"
             f"yesil = gorev noktasi &middot; "
             f"turuncu = ucaklarin SU ANKI yeri (altlik kaymasini buradan olc)")
     pathlib.Path(dosya).write_text(
         _HARITA_SABLON % {"yol": _j.dumps(yol), "inis": _j.dumps(inis),
                           "inis_mesafe": _j.dumps(inis_mesafe),
-                          "dronelar": _j.dumps(dronelar), "ozet": ozet},
+                          "dronelar": _j.dumps(dronelar), "ozet": ozet,
+                          "zarf": _j.dumps(zarf)},
         encoding="utf-8")
     print(f"\n=== HARITA YAZILDI ===\n  {dosya}")
     print(f"  Tarayicida ac:  xdg-open {dosya}")
@@ -1354,6 +1370,13 @@ def ayak_izi_yaz(plan, merkez0):
     print(f"  doğu   : {max(d):+6.1f} m        batı   : {min(d):+6.1f} m")
     print(f"  irtifa : {min(z):.1f} - {max(z):.1f} m")
     print(f"  toplam kutu: {max(k)-min(k):.0f} m (K-G) x {max(d)-min(d):.0f} m (D-B)")
+    # KACIS ZARFI: kacinma tetiklenirse ucak planli noktadan yana itilir;
+    # temiz tutulmasi gereken alan kutudan ZARF kadar genis (24 Agustos).
+    z_pay = AYAR.KACINMA_ZARF_YANAL_M
+    print(f"  + kaçış zarfı (her yana {z_pay:.0f} m): "
+          f"{max(k)-min(k)+2*z_pay:.0f} m (K-G) x "
+          f"{max(d)-min(d)+2*z_pay:.0f} m (D-B)"
+          f"  · dikeyde +{AYAR.KACINMA_KATMAN_M:.0f} m tırmanma payı")
     print(f"  rota yönü  : {ROTA_YONU_DEG:.0f}°  (0=kuzey, 90=doğu)")
     print("  UYARI: kod engel GÖRMEZ. Bu kutunun içinde bina/ağaç/direk olmamalı.")
 

@@ -386,6 +386,17 @@ KACINMA_KATMAN_M = 3.0
 # (aralik <= 7 m) d0 ile birlikte yeniden dusunulmeli.
 KACINMA_HIST_M = 2.5
 
+# KACIS ZARFI (YANAL) — kacinma bir ucagi PLANLI yerinden en fazla bu
+# kadar yana itebilir/kaydirabilir. Kuru testin haritasi ve ayak izi bu
+# payi cizmek icin kullaniyor (24 Agustos'ta baglandi — onceden harita
+# yalniz planli rotayi ciziyordu ve zarf operatore ELLE soyleniyordu).
+#
+# KAYNAK: 23 Agustos benzetimi — v_dikey=1.2 ile kacis sirasinda yanal
+# kayma 4.83 m olculdu (yukarida 'DIKEY KACIS HIZI' notu), 5.0'a
+# yuvarlandi. Dikey zarf ayrica var: KACINMA_KATMAN_M tirmanma —
+# haritada cizilemez, lejantta soylenir.
+KACINMA_ZARF_YANAL_M = 5.0
+
 # Komsu verisi bu suredan eskiyse YOK SAYILIR. Mesh ~5-7 Hz ve ~%30 kayipli;
 # 0.5 s penceresi iki-uc ardisik kayipta komsuyu dusurur ve kacinma SESSIZCE
 # korumasiz kalir. 1.5 s `basit_kacinma`nin sahada kosan degeri

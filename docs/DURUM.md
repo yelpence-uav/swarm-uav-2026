@@ -57,6 +57,8 @@
 >
 > ```
 > ucaklarda = depoda : 7645d83  (tatmin duzeltmesi + hist_m 2,5; cikis 6,5 m)
+>                      sonraki commit'ler (f93c3dd, ffafaae) yalniz docs +
+>                      YKI tarafi — ucak paketlerini DEGISTIRMEZ, fark yok
 > G1 dogrulama       : CANLI dugumden — ikisinde de hist_m=2.5
 >                      ylp00 rutbe=0 (capa) · ylp02 rutbe=1 (+3 m) · 11 dugum
 > env                : ucus_ayarlari.env yeniden uretildi, iki Pi'ye yazildi

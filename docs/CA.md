@@ -1,6 +1,6 @@
 # CA — Çarpışma Önleme: dikey yol verme
 
-**Son güncelleme:** 24 Ağustos 2026, 14:30 — hist_m 2,5 koda bağlandı (§7.2), birleşik dağıtım kararı (§7.3)
+**Son güncelleme:** 24 Ağustos 2026, 14:50 — hist_m 2,5 dağıtıldı (§7.2-7.3), kuru test zarfı çiziyor (§7.4c)
 
 > Bu belge çarpışma önlemenin **bugünkü tasarımı ve durumu**. 23 Ağustos
 > sabahki sürümü yatay/dikey karşılaştırmasıydı; karar verildi ve uygulandı,
@@ -330,7 +330,7 @@ dalışa izin veriyordu. Yalnız `hist_m` dağıtmak o imzayı sıklaştırırd�
 |---|---|---|
 | a | ylp01 dönünce `SURU_KADRO="1 2 3"` | yanlış kadro kaçış **yönünü ters çevirir** (KARAR-04) |
 | b | Üç uçağın aynı noktadan geçtiği çapraz slot değişimi | hiçbir ayar eşiği tutturmuyor (1,76 m); `formation_node` o geometriyi üretmemeli |
-| c | Kuru test kaçınmanın **kaçış zarfını** hesaba katmıyor | harita yalnız planlanan rotayı çiziyor; ~5 m yanal + 3 m dikey elle eklenmeli |
+| c | ✅ Kuru test kaçış zarfını **ÇİZİYOR** (24 Ağu 14:50) | sarı kesikli daire (`KACINMA_ZARF_YANAL_M`=5 m) + iniş 5+5 m dış halka; dikey +3 m lejantta |
 | d | PX4'ün kendi titreşim/clipping sayacı okunamıyor | `vibration` konusu akmıyor; ölçüt olarak konum sıçraması kullanıldı |
 
 ---

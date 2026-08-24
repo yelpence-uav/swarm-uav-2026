@@ -1,6 +1,6 @@
 # YAPILACAKLAR
 
-**Son güncelleme:** 24 Ağustos 2026, 14:45 — birleşik paket İKİ UÇAĞA dağıtıldı; kalan: akşam uçuşu
+**Son güncelleme:** 24 Ağustos 2026, 14:50 — harita kaçış zarfını çiziyor; kalan: akşam uçuşu
 
 ## 🚨 SONRAKİ OPERATÖRE — ÖNCE BUNLAR (23 Ağustos gecesi)
 
@@ -59,11 +59,14 @@ artırmak da aynı payı yer — artırılacaksa önce ölçülmeli.
 Pi son 10 dakikada kendiliğinden açılmışsa **uçma**. Batarya değişimi
 sonrası taze açılış normaldir; bakılacak olan **ikinci** bir açılış.
 
-### 5. 🟠 Kuru test kaçış zarfını hesaba katmıyor
+### 5. ✅ Kuru test kaçış zarfını ÇİZİYOR (24 Ağu 14:50)
 
-`--kuru --harita` yalnız planlanan rotayı çiziyor. Kaçınma uçağı **~5 m
-yanal + 3 m dikey** hareket ettirebilir ve harita bunu göstermiyor.
-Operatöre elle söylenmeli. Araca eklenmesi ~20 satır.
+Harita artık her görev noktasına **SARI kesikli zarf dairesi** (5 m —
+`ucus_ayarlari.KACINMA_ZARF_YANAL_M`, 23 Ağu benzetiminde ölçülen 4,83 m
+yanal kaymadan yuvarlandı), iniş noktalarına **5+5 m kesikli dış halka**
+çiziyor; dikey +3 m tırmanma lejantta. `ayak_izi_yaz` da zarflı kutuyu
+basıyor. Operatörün göz kontrolü artık zarfı da kapsıyor — elle
+hatırlatma gerekmez.
 
 ### 6. 🟠 Kumanda hangi uçağa bağlı — HÂLÂ NETLEŞMEDİ
 

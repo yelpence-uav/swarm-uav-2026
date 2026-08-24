@@ -1,6 +1,6 @@
 # PLAN — buradan finale
 
-**Son güncelleme:** 24 Ağustos 2026, 14:30 — sıradaki uçuş: hist_m + tatmin BİRLİKTE
+**Son güncelleme:** 24 Ağustos 2026, 14:50 — birleşik paket dağıtıldı; harita zarfı çiziyor
 
 Bu belge **tüm takımın ortak resmi** ve sürü entegrasyonunun **teknik yol
 haritası**. Yeni gelen biri bunu okuyup işe başlayabilir.
@@ -85,8 +85,8 @@ içerideyken irtifa dalışları `tatmin`in ölçüsü.
 - **Depo uçaklardan ileride** — önce karar ver (`CA.md` §7.3)
 - **İtki payı ince**: askı %72, geçişlerde %100'e doyuyor. Dikey ivmeyi
   artırma.
-- Kuru testin haritası **kaçış zarfını göstermiyor**: ~5 m yanal + 3 m
-  dikey elle eklenmeli
+- ✅ Kuru testin haritası kaçış zarfını artık **ÇİZİYOR** (24 Ağu 14:50 —
+  sarı kesikli daireler, iniş dış halkası, ayak izinde zarflı kutu)
 - `uptime -s` (P0.17)
 
 ---
