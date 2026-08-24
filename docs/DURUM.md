@@ -1,6 +1,6 @@
 # DURUM — şu an ne çalışıyor, ne bozuk
 
-**Son güncelleme:** 23 Ağustos 2026, 22:15 — DİKEY kaçınma İLK UÇUŞU yapıldı
+**Son güncelleme:** 24 Ağustos 2026, 14:30 — hist_m 2,5 koda bağlandı, dağıtım akşam üstü
 
 > Bu belge **şimdiki hâli** anlatır, tarihçe değil. Bir şey değişince burayı
 > güncelle, eskisini sil. Ne olduğunun hikâyesi `GUNLUK.md`'de kalır.
@@ -53,16 +53,18 @@
 > yakınken 3 m'lik ayrım 6 saniyede geri veriliyor. Öneri `hist_m`
 > 0,5 → 2,5-3,0 (`CA.md` §7.2) — **henüz yapılmadı.**
 >
-> ### 🔴🔴 DEPO UÇAKLARDAN İLERİDE
+> ### 🔀 24 AĞUSTOS 14:30 — `hist_m` 2,5 KODA BAĞLANDI + BİRLEŞİK DAĞITIM KARARI
 >
 > ```
-> ucaklarda : commit 1d1048e
-> depoda    : cbf948c + commit'siz ca_core degisikligi
+> ucaklarda : 1d1048e (dun ucan kod) — dagitim AKSAM USTU yapilacak
+> depoda    : tatmin duzeltmesi + hist_m 0,5 -> 2,5 (cikis 4,5 -> 6,5 m)
 > ```
 >
-> Uçuştan **sonra** `ca_core`'a yapılan değişiklik (`tatmin` durumunda dikey
-> yetkiyi bırakmama) **dağıtılmadı**. Uçaklar uçtukları kodla duruyor.
-> Sonraki oturumda ya dağıt ya da farkın bilinçli olduğunu doğrula.
+> Operatör kararı (24 Ağu): `tatmin` düzeltmesi ile `hist_m` akşam uçuşuna
+> **birlikte** dağıtılacak — yalnız `hist_m` dağıtmak, uçağı eski kodun
+> hatalı olduğu "ayrım kurulu + çatışma sürüyor" durumunda daha uzun tutup
+> ölçülmüş dalışı (-1,48 m/s) sıklaştırırdı. Gerekçe ve uçuş ölçütleri:
+> `PLAN.md` "SIRADAKİ UÇUŞ". **Dağıtım yapılınca burası güncellenecek.**
 
 > ## 🔀 23 AĞUSTOS — DİKEY KAÇINMA DEVREYE ALINDI (yapılandırma)
 >

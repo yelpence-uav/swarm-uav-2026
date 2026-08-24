@@ -368,6 +368,24 @@ KACINMA_DIKEY_KP = 2.0
 # Dikey merdivende ardisik rutbeler arasi ayrim (operator karari).
 KACINMA_KATMAN_M = 3.0
 
+# CIKIS HISTEREZISI — catisma d0'da ACILIR, d0 + hist'te KAPANIR.
+#
+# 0.5 -> 2.5 (24 Agustos 2026, ilk dikey ucusun bulgusu). Cikis 4.5 m
+# iken komsu 4.9 m'de DURURKEN 3 m'lik ayrim 6 saniyede geri veriliyordu.
+# Sinir pilotun gozle kestirebileceginden dar ("icerideyim" ile "ciktim"
+# arasi 1.2 m) ve operator bunu yo-yo olarak gordu — CA.md §6.5, §7.2.
+# 2.5 ile cikis 6.5 m: komsu GERCEKTEN uzaklasmadan ayrim birakilmaz.
+#
+# NEDEN 2.5, 3.0 DEGIL: cikis esigi (d0 + hist) formasyonun planli en
+# yakin yaklasmasinin (KRITIK_AYRIM_M, 12 m aralikta 8.49 m) ALTINDA
+# kalmali — ustune cikarsa normal gecisin actigi catisma bir daha
+# KAPANMAZ ve merdiven kalici olur. 2.5 -> pay 1.99 m, 3.0 -> 1.49 m.
+# Asagidaki denetim bu payi izliyor.
+#
+# BEDELI: catisma ve merdiven daha uzun surer. Siki formasyonda
+# (aralik <= 7 m) d0 ile birlikte yeniden dusunulmeli.
+KACINMA_HIST_M = 2.5
+
 # Komsu verisi bu suredan eskiyse YOK SAYILIR. Mesh ~5-7 Hz ve ~%30 kayipli;
 # 0.5 s penceresi iki-uc ardisik kayipta komsuyu dusurur ve kacinma SESSIZCE
 # korumasiz kalir. 1.5 s `basit_kacinma`nin sahada kosan degeri
@@ -454,6 +472,26 @@ def denetle():
             f'dikey katman ({KACINMA_KATMAN_M:.1f} m) yatay son care '
             f'kabugundan ({KACINMA_HARD_M:.1f} m) BUYUK olmali — yoksa '
             f'dikey ayrim tamamlansa bile yatay itme her catismada acilir.')
+
+    # CIKIS ESIGI vs FORMASYON — 24 Agustos 2026 (hist_m 0.5 -> 2.5).
+    # Catisma d0'da acilir ama d0+hist'te kapanir. Kapanis esigi
+    # formasyonun planli en yakin yaklasmasini asarsa, normal gecisin
+    # ACTIGI catisma bir daha KAPANMAZ — merdiven kalici olur. Bu yuzden
+    # d0 denetiminin aksine HATA (o "fazladan tetiklenir" der, bu
+    # "tetiklenen hic sonmez" der).
+    _kacinma_cikis = KACINMA_D0_M + KACINMA_HIST_M
+    if _kacinma_cikis >= KRITIK_AYRIM_M:
+        hata.append(
+            f'kacinma cikis esigi (d0+hist = {_kacinma_cikis:.1f} m) '
+            f'formasyonun en yakin yaklasmasinin ({KRITIK_AYRIM_M:.2f} m) '
+            f'USTUNDE — normal geciste acilan catisma hic kapanmaz. '
+            f'KACINMA_HIST_M kucult ya da ARALIK_M buyut.')
+    elif KRITIK_AYRIM_M - _kacinma_cikis < 1.0:
+        uyari.append(
+            f'kacinma cikis esigi ({_kacinma_cikis:.1f} m) ile formasyonun '
+            f'en yakin yaklasmasi ({KRITIK_AYRIM_M:.2f} m) arasinda yalniz '
+            f'{KRITIK_AYRIM_M - _kacinma_cikis:.2f} m pay var.')
+
     # 🔴 PX4 SESSIZ KIRPMA DENETIMI — 23 Agustos 2026.
     # Kacinmanin dikey komutu PX4 tavanini asarsa PX4 kirpar ve HICBIR YERDE
     # uyari cikmaz: ayar ve log istenen degeri gosterir, ucak baskasini yapar.
@@ -574,6 +612,9 @@ def _cozumleme() -> int:
           f'   (kritik - esik; bu hizda gereken aralik {_ger:.1f} m)')
     print(f'  frenleme (kacinma)    {FRENLEME_TAVAN_M:6.2f} m'
           f'   (PX4 tavaninda, kacis manevrasi icin)')
+    print(f'  kacinma giris/cikis   {KACINMA_D0_M:6.2f} m / '
+          f'{KACINMA_D0_M + KACINMA_HIST_M:.2f} m'
+          f'   (d0 / d0+hist; donus ancak cikista baslar)')
 
     # ROTA SEKILLENDIRME — fiili donus hizi formasyon BOYUTUNDAN turiyor.
     # Kanattaki ucak en hizli hareket eden; aci_hizi = teget_hiz / yaricap.
@@ -648,6 +689,7 @@ def _kabuk():
     print(f'KACINMA_DONUS_IVME={KACINMA_DONUS_IVME_MPS2:.2f}')
     print(f'KACINMA_HARD={KACINMA_HARD_M}')
     print(f'KACINMA_KATMAN={KACINMA_KATMAN_M}')
+    print(f'KACINMA_HIST={KACINMA_HIST_M}')
     print(f'KACINMA_DIKEY_HIZ={KACINMA_DIKEY_HIZ_MPS}')
     print(f'KACINMA_DIKEY_IVME={KACINMA_DIKEY_IVME_MPS2}')
     print(f'KACINMA_DIKEY_KP={KACINMA_DIKEY_KP}')

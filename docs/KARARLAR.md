@@ -1,6 +1,6 @@
 # KARARLAR — verilmiş ama henüz uygulanmamış kararlar
 
-**Son güncelleme:** 23 Ağustos 2026, 22:15 — KARAR-06 UÇTU, itki payı ölçüldü
+**Son güncelleme:** 24 Ağustos 2026, 14:30 — hist_m 2,5 koda bağlandı, birleşik dağıtım kararı
 
 Sohbette verilen kararlar oturum bitince kayboluyor. Bu defter onları
 tutuyor: **ne karar verildi, neden, ne zaman uygulanacak, nasıl test edilecek.**
@@ -822,10 +822,22 @@ gerekçeyle `a_dikey`'i 2,0'ın üstüne çıkarmak da ölçülmeden yapılmaz.
 
 ## 🔴 Kalan
 
-1. **`hist_m` 0,5 → 2,5-3,0** — dönüş fazla aceleci (`CA.md` §7.2).
-   Sıradaki uçuşun konusu.
+1. ✅ **`hist_m` 0,5 → 2,5 KODA BAĞLANDI** (24 Ağustos 14:30). Zincir
+   kuruldu: `ucus_ayarlari.py` → env → `baslat.sh` → düğüm (önceden
+   zincir YOKTU, düğüm gömülü 0,5 ile koşuyordu). **2,5 seçildi, 3,0
+   değil:** çıkış eşiği (d0+hist = 6,5 m) formasyonun planlı en yakın
+   yaklaşmasına (8,49 m) 1,99 m pay bırakıyor, 3,0 yalnız 1,49 m
+   bırakıyordu; denetime "çıkış ≥ kritik yaklaşma = HATA" koşulu
+   eklendi. Uçuş doğrulaması akşam.
 2. ylp01 dönünce `SURU_KADRO="1 2 3"` (KARAR-04).
-3. Depo uçaklardan ileride — `CA.md` §7.3.
+3. ✅ **Depo/uçak farkı — KARAR (24 Ağustos, operatör): `tatmin`
+   düzeltmesi ile `hist_m` akşam uçuşuna BİRLİKTE dağıtılacak.**
+   Tek-değişiklik kuralından bilinçli sapma: geniş histerezis uçağı
+   eski kodun hatalı olduğu "ayrım kurulu + çatışma sürüyor" durumunda
+   (komşu 4,0-6,5 m bandı) çok daha uzun tutuyor; yalnız `hist_m`
+   dağıtmak ölçülmüş dalış imzasını (-1,48 m/s) SIKLAŞTIRIRDI. İki
+   değişiklik logda ayrık gözlenir: çıkış mesafesi ↔ içerideyken
+   irtifa dalışı.
 
 > ### ✅ `KARAR-02` denetimi bu uçuş için ATLANDI — operatör kararı (23 Ağu)
 >

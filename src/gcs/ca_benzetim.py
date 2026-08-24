@@ -79,7 +79,7 @@ def kabul_esigi(aralik):
 
 
 TABAN = dict(
-    d0=4.0, hard=2.5, r_min=1.5,
+    d0=4.0, hard=2.5, r_min=1.5, hist=2.5,
     katman=3.0, k_dikey=1.0, k_yatay=1.0, k_tan=0.0,
     yatay_esik=0.0,      # 0 = hard kullanilir (son care)
     v_dikey=1.2, a_dikey=2.0, kp_dikey=2.0,   # = UCAKTAKI degerler
@@ -99,7 +99,8 @@ def _params(c, aid):
         k_dikey=c["k_dikey"], k_yatay=c["k_yatay"], katman_m=c["katman"],
         yatay_esik_m=c["yatay_esik"],
         v_dikey_max=c["v_dikey"], a_dikey_max=c["a_dikey"],
-        kp_dikey=c["kp_dikey"], dikey_taban_m=4.0, agent_id=aid,
+        kp_dikey=c["kp_dikey"], hist_m=c["hist"],
+        dikey_taban_m=4.0, agent_id=aid,
         rutbe=(aid - 1) if c.get("donusumlu", True) else -1,
     )
 

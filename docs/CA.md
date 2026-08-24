@@ -1,6 +1,6 @@
 # CA — Çarpışma Önleme: dikey yol verme
 
-**Son güncelleme:** 23 Ağustos 2026, 22:15 — 🎯 **İLK UÇUŞ YAPILDI**, ölçüldü
+**Son güncelleme:** 24 Ağustos 2026, 14:30 — hist_m 2,5 koda bağlandı (§7.2), birleşik dağıtım kararı (§7.3)
 
 > Bu belge çarpışma önlemenin **bugünkü tasarımı ve durumu**. 23 Ağustos
 > sabahki sürümü yatay/dikey karşılaştırmasıydı; karar verildi ve uygulandı,
@@ -288,9 +288,13 @@ iniyor. Komşu hâlâ 5 m'de dururken 3 m'lik ayrımı 6 saniyede geri vermek
 savurgan — ve operatörün gördüğü "yo-yo" görüntüsü tam bundan doğuyor
 (§6.5).
 
-**Öneri: `hist_m` 0,5 → 2,5-3,0.** Çıkış 6,5-7 m olur; komşu gerçekten
-uzaklaşmadan ayrım bırakılmaz. Tek parametre, `ucus_ayarlari.py`'den,
-uçuşsuz yer testiyle doğrulanır.
+✅ **YAPILDI (24 Ağustos 14:30): `hist_m` 0,5 → 2,5, çıkış 6,5 m.**
+Zincir kuruldu: `ucus_ayarlari.py` (`KACINMA_HIST_M`) → `--kabuk` env →
+`baslat.sh -p hist_m` → düğüm — önceden zincir HİÇ yoktu, düğüm gömülü
+0,5 ile koşuyordu. 2,5 seçildi, 3,0 değil: çıkış eşiği formasyonun
+planlı en yakın yaklaşmasına (8,49 m) 1,99 m pay bırakmalı (3,0 → 1,49);
+denetime "çıkış ≥ kritik yaklaşma = HATA" koşulu eklendi. Birim 82/82
+(geniş-histerezis regresyonu eklendi). Uçuş doğrulaması akşam.
 
 ⚠️ Bedeli: çatışma daha uzun sürer, merdiven daha uzun kalır. Sıkı
 formasyonda (aralık ≤ 7 m) kalıcı merdivene yaklaşır — `d0` ile birlikte
@@ -312,6 +316,13 @@ bırakmıyor, görevin dikey **hızını** geçirip yetkide kalıyor.
 operatör kaynaklıydı). Ayrı ve daha nadir bir durumu sertleştiriyor:
 uçuşta bir kez, `rel_z = 3,06` olduğunda o yol tetiklendi. Testleriyle
 duruyor (3 yeni regresyon testi) ama sahada **doğrulanmadı**.
+
+✅ **KARAR (24 Ağustos, operatör): `hist_m` ile BİRLİKTE dağıtılacak.**
+"Daha nadir durum" `hist_m` genişleyince nadir olmaktan çıkıyor: uçak
+"ayrım kurulu + çatışma sürüyor" hâlinde artık komşu 4,0-6,5 m bandında
+olduğu sürece kalıyor ve eski kod tam o hâlde yetkiyi bırakıp -1,48 m/s
+dalışa izin veriyordu. Yalnız `hist_m` dağıtmak o imzayı sıklaştırırdı.
+İki değişiklik logda ayrık gözlenir: çıkış mesafesi ↔ içerideyken dalış.
 
 ### 4. Kalanlar
 

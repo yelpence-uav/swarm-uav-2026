@@ -99,7 +99,13 @@ class CaParams:
     irtifa_tavan_m: float = 0.0
     # Catisma cikis histerezisi: giris d0'da, cikis d0 + bu kadar.
     # Asili duran iki ucak tam d0'da titresirse merdiven acilip kapanmasin.
-    hist_m: float = 0.5
+    #
+    # 0.5 -> 2.5 (24 Agustos 2026): 23 Agustos ucusunda cikis 4.5 m
+    # pilotun gozle kestiremeyecegi kadar dardi — komsu 4.9 m'de dururken
+    # 3 m'lik ayrim 6 saniyede geri veriliyordu ve operator bunu yo-yo
+    # olarak gordu (CA.md §6.5, §7.2). Tek kaynak ucus_ayarlari.py
+    # (KACINMA_HIST_M); buradaki yalnizca yedek.
+    hist_m: float = 2.5
     # Catisma bittikten sonra nominal irtifaya donus.
     donus_bekleme_s: float = 2.0
     donus_hiz_mps: float = 0.5

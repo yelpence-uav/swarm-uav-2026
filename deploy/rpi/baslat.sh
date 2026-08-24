@@ -982,6 +982,7 @@ if [ -n "$SURU_DUGUMLERI" ]; then
                 -p v_dikey_max_mps:=${KACINMA_DIKEY_HIZ:-1.2} \
                 -p a_dikey_max_mps2:=${KACINMA_DIKEY_IVME:-2.0} \
                 -p kp_dikey:=${KACINMA_DIKEY_KP:-2.0} \
+                -p hist_m:=${KACINMA_HIST:-2.5} \
                 -p k_dikey:=${KACINMA_K_DIKEY:-1.0} \
                 -p k_yatay:=${KACINMA_K_YATAY:-1.0} \
                 -p neighbor_rx_stale_s:=${KACINMA_BAYAT_S:-1.5} \
@@ -992,7 +993,8 @@ if [ -n "$SURU_DUGUMLERI" ]; then
             sleep 1
             echo "[baslat] collision_avoidance basladi (komsular: $CA_KOMSULAR," \
                  "rutbe=$CA_RUTBE, d0=${KACINMA_D0:-4.0} hard=${KACINMA_HARD:-2.5}," \
-                 "DIKEY katman=${KACINMA_KATMAN:-3.0} v=${KACINMA_DIKEY_HIZ:-1.2}"\
+                 "DIKEY katman=${KACINMA_KATMAN:-3.0} hist=${KACINMA_HIST:-2.5}" \
+                 "v=${KACINMA_DIKEY_HIZ:-1.2}"\
                  "a=${KACINMA_DIKEY_IVME:-2.0} kp=${KACINMA_DIKEY_KP:-2.0}," \
                  "yatay SON CARE (hard icinde)," \
                  "ivme normal=${KACINMA_IVME_NORMAL:-3.58} acil=${KACINMA_IVME_ACIL:-5.66}" \

@@ -320,6 +320,29 @@ def test_catisma_bitince_nominale_donuluyor():
     assert abs(h - 10.0) < 0.6, f'nominale donmedi: {h:.2f}'
 
 
+def test_genis_histerezis_komsu_GERCEKTEN_uzaklasana_kadar_tutar():
+    """hist_m 0.5 -> 2.5 (24 Agustos, KARARLAR). Cikis d0+hist = 6.5 m.
+
+    23 Agustos ucusunda cikis 4.5 m'ydi ve komsu 4.9 m'de dururken 3 m'lik
+    ayrim 6 saniyede geri verildi — operator bunu yo-yo olarak gordu.
+    Yeni degerle: komsu 5.5 m'de DURURKEN (eski cikisin disi, yeni cikisin
+    ici) ayrim TUTULMALI; 7 m'ye cekilince donus yine islemeli.
+    """
+    ca = CollisionAvoidanceCore(_p(agent_id=3, d0=4.0, hist_m=2.5))
+    h, _vz = _kosturmak(ca, [(1, 3.5, 10.0)], h0=10.0, tik=400)
+    assert h > 12.5, 'once tirmanmis olmali'
+    # Komsu 5.5 m'ye acildi: eski cikis (4.5) disari derdi, yeni (6.5) ici
+    (_vx, _vy, _vz2), risk = ca.compute(
+        (0.0, 0.0, 0.0), [_komsu(1, dx=5.5, rel_z=h - 10.0)], h_now=h)
+    assert risk is True, 'komsu 5.5 m\'de: catisma SURMELI (cikis 6.5 m)'
+    # Komsu 7 m'ye cikti — donus bozulmamali
+    for _ in range(1200):
+        (_vx, _vy, vz), _r = ca.compute(
+            (0.0, 0.0, 0.0), [_komsu(1, dx=7.0, rel_z=h - 10.0)], h_now=h)
+        h -= vz * ca.p.dt
+    assert abs(h - 10.0) < 0.6, f'komsu 7 m\'deyken nominale donmedi: {h:.2f}'
+
+
 # =========================================================================
 # YATAY SON CARE — "dikey birincil, yatay son care" (operator, 23 Agustos)
 # =========================================================================

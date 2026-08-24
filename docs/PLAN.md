@@ -1,6 +1,6 @@
 # PLAN — buradan finale
 
-**Son güncelleme:** 23 Ağustos 2026, 22:15 — ADIM 4 UÇTU
+**Son güncelleme:** 24 Ağustos 2026, 14:30 — sıradaki uçuş: hist_m + tatmin BİRLİKTE
 
 Bu belge **tüm takımın ortak resmi** ve sürü entegrasyonunun **teknik yol
 haritası**. Yeni gelen biri bunu okuyup işe başlayabilir.
@@ -52,19 +52,32 @@ Tam sonuç: **`docs/CA.md` §6.5**.
 
 > **Çıkış histerezisi genişletilince "yo-yo" görüntüsü kayboluyor mu?**
 
-Şu an çıkış eşiği `d0 + 0,5 = 4,5 m`. Komşu hâlâ 5 m'de dururken 3 m'lik
-ayrım 2 sn sonra geri veriliyor; ilk uçuşta operatör bunu yo-yo olarak
+Dün çıkış eşiği `d0 + 0,5 = 4,5 m` idi. Komşu hâlâ 5 m'de dururken 3 m'lik
+ayrım 2 sn sonra geri veriliyordu; ilk uçuşta operatör bunu yo-yo olarak
 gördü (aslında iki ayrı çevrimdi — `CA.md` §6.5).
 
-**Değişecek tek şey:** `hist_m` 0,5 → 2,5-3,0 (`ucus_ayarlari.py`).
-Aynı uçuşta ikinci bir değişiklik denenmez.
+**Değişen (24 Ağustos 14:30, koda bağlandı):** `hist_m` 0,5 → **2,5**
+(çıkış 6,5 m). Tek kaynak zinciri KURULDU: `ucus_ayarlari.py`
+(`KACINMA_HIST_M`) → `--kabuk` env → `baslat.sh -p hist_m` → düğüm —
+önceden zincir hiç yoktu, düğüm gömülü 0,5 ile koşuyordu.
+
+⚠️ **Bu uçuşta İKİ değişiklik birlikte uçuyor — operatör kararı
+(24 Ağustos):** `hist_m` + `tatmin` düzeltmesi (ayrım kuruluyken dikey
+yetki bırakılmaz, `ca_core`, dün commit'lendi ama dağıtılmamıştı).
+Tek-değişiklik kuralından bilinçli sapma: geniş histerezis uçağı tam
+eski kodun hatalı olduğu durumda (ayrım kurulu + çatışma sürüyor, komşu
+4,0-6,5 m bandında) çok daha uzun tutuyor; yalnız `hist_m` dağıtmak
+ölçülmüş dalış imzasını (-1,48 m/s, gaz %12→%100) SIKLAŞTIRIRDI. İki
+değişiklik logda AYRIK gözlenir: çıkış mesafesi davranışı `hist_m`'in,
+içerideyken irtifa dalışları `tatmin`in ölçüsü.
 
 ### Ölçüt
 
 | | ilk uçuş | beklenen |
 |---|---|---|
 | 4,5 m sınırından geçiş | 4 (iki çevrim) | **belirgin azalma** |
-| ayrım bırakma | komşu 4,9 m'deyken | komşu **6,5-7 m** çıkınca |
+| ayrım bırakma | komşu 4,9 m'deyken | komşu **6,5 m** çıkınca |
+| içerideyken irtifa | bir kez -1,48 m/s dalış | **dalış YOK, tutulur** |
 | tırmanma / dönüş | +3,1 m / 0,5 m/s | **aynı kalmalı** |
 
 ### 🔴 Uçuş öncesi bu uçuşa özel

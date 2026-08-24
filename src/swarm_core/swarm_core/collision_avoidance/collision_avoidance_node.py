@@ -279,7 +279,10 @@ class CollisionAvoidanceNode(Node):
         # karariyla konur. Varsayilan KAPALI: sessizce gorev
         # irtifasini kirpan bir tavan, korumadan daha tehlikeli olur.
         self.declare_parameter('irtifa_tavan_m', 0.0)
-        self.declare_parameter('hist_m', 0.5)
+        # 0.5 -> 2.5 (24 Agu): cikis esigi pilotun gozle kestiremeyecegi
+        # kadar dardi, donus aceleciydi. Tek kaynak ucus_ayarlari.py ->
+        # KACINMA_HIST env -> baslat.sh -p hist_m.
+        self.declare_parameter('hist_m', 2.5)
         self.declare_parameter('donus_bekleme_s', 2.0)
         self.declare_parameter('donus_hiz_mps', 0.5)
 

@@ -1,6 +1,6 @@
 # YAPILACAKLAR
 
-**Son güncelleme:** 23 Ağustos 2026, 22:15 — dikey kaçınma UÇTU, iki bulgu açık
+**Son güncelleme:** 24 Ağustos 2026, 14:30 — hist_m koda bağlandı; akşam: birleşik dağıtım + uçuş
 
 ## 🚨 SONRAKİ OPERATÖRE — ÖNCE BUNLAR (23 Ağustos gecesi)
 
@@ -8,30 +8,34 @@
 > ilk uçuşunda çalıştı; sıradaki uçuş **dönüş davranışını** düzeltip
 > doğrulamak.
 
-### 1. 🔴🔴 DEPO UÇAKLARDAN İLERİDE — ilk bakılacak şey
+### 1. ✅ KARAR VERİLDİ (24 Ağu 14:30): `tatmin` + `hist_m` BİRLİKTE dağıtılacak
 
 ```
-ucaklarda : commit 1d1048e
-depoda    : cbf948c + commit'siz ca_core degisikligi
+ucaklarda : 1d1048e (dun ucan kod) — dagitim aksam ustu yapilacak
+depoda    : tatmin duzeltmesi + hist_m 0,5 -> 2,5 zinciri
 ```
 
-Uçuştan **sonra** `ca_core`'a bir değişiklik yapıldı, **dağıtılmadı**:
-ayrım sağlandığında (`tatmin`) dikey yetki artık bırakılmıyor.
+Operatör kararı: ikisi akşam uçuşuna **birlikte** yüklenir. Tek-değişiklik
+kuralından bilinçli sapma — geniş histerezis, uçağı eski kodun hatalı
+olduğu "ayrım kurulu + çatışma sürüyor" durumunda (komşu 4,0-6,5 m
+bandında) çok daha uzun tutuyor; yalnız `hist_m` dağıtmak ölçülmüş dalış
+imzasını (-1,48 m/s, gaz %12→%100) SIKLAŞTIRIRDI. İki değişiklik logda
+ayrık gözlenir: çıkış mesafesi ↔ içerideyken irtifa dalışı. Gerekçe ve
+ölçüt tablosu: `PLAN.md` "SIRADAKİ UÇUŞ".
 
-⚠️ **Bu değişiklik uçuşta görülen yo-yo'yu DÜZELTMİYOR** — o operatör
-kaynaklıydı (`CA.md` §6.5). Ayrı ve daha nadir bir durumu sertleştiriyor.
-Testleri var (3 regresyon testi), sahada doğrulanmadı.
+**Kalan iş:** dağıt → konteyner yeniden başlat → G1: canlı düğümden
+`ros2 param get /drone_N/collision_avoidance hist_m` **2,5** dönmeli
+(log'a değil düğüme sor — `TUZAKLAR` §1.18) → akşam uçuş.
 
-**Karar ver:** dağıt, ya da farkın bilinçli olduğunu belgeye yaz.
+### 2. ✅ `hist_m` 0,5 → 2,5 KODA BAĞLANDI — uçuş doğrulaması akşam
 
-### 2. 🟠 `hist_m` 0,5 → 2,5-3,0 — sıradaki uçuşun ASIL konusu
-
-Çıkış eşiği şu an `d0 + 0,5 = 4,5 m`. Komşu hâlâ 5 m'de dururken 3 m'lik
-ayrım 2 sn sonra geri veriliyor. Operatörün gördüğü "yo-yo" görüntüsü
-bundan doğuyor.
-
-`hist_m` 2,5-3,0 yapılırsa çıkış 6,5-7 m olur. Tek parametre,
-`ucus_ayarlari.py`'den, **uçuşsuz yer testiyle** doğrulanır.
+Zincir kuruldu: `ucus_ayarlari.py` (`KACINMA_HIST_M=2.5`) → `--kabuk` env
+→ `baslat.sh -p hist_m` → düğüm. **Önceden zincir hiç yoktu** — env'de
+değişken yok, `baslat.sh` geçmiyor, düğüm gömülü 0,5 ile koşuyordu.
+Çıkış eşiği artık 6,5 m (giriş 4,0). 2,5 seçildi, 3,0 değil: formasyonun
+en yakın yaklaşmasına (8,49 m) 1,99 m pay kalıyor; denetime "çıkış ≥
+kritik yaklaşma = HATA" koşulu eklendi. Birim test 82/82 (yeni
+geniş-histerezis regresyonu dahil).
 
 ⚠️ Bedeli: merdiven daha uzun kalır. Sıkı formasyonda `d0` ile birlikte
 düşünülmeli (`CA.md` §7.2).
