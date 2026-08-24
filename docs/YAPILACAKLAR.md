@@ -1,6 +1,6 @@
 # YAPILACAKLAR
 
-**Son güncelleme:** 24 Ağustos 2026, 14:50 — harita kaçış zarfını çiziyor; kalan: akşam uçuşu
+**Son güncelleme:** 24 Ağustos 2026, 14:57 — kumanda=ylp00 ÖLÇÜLDÜ; kalan: akşam uçuşu
 
 ## 🚨 SONRAKİ OPERATÖRE — ÖNCE BUNLAR (23 Ağustos gecesi)
 
@@ -68,7 +68,17 @@ yanal kaymadan yuvarlandı), iniş noktalarına **5+5 m kesikli dış halka**
 basıyor. Operatörün göz kontrolü artık zarfı da kapsıyor — elle
 hatırlatma gerekmez.
 
-### 6. 🟠 Kumanda hangi uçağa bağlı — HÂLÂ NETLEŞMEDİ
+### 6. 🟠→yarısı ✅ Kumanda-uçak eşleşmesi ÖLÇÜLDÜ (24 Ağu 14:57)
+
+**Berk'in elindeki kumanda = ylp00.** Ölçümle: yalnız o kumanda açıkken
+RC verisi SADECE drone_1'de aktı (383 msj/20 sn ≈ 19 Hz, rssi 41;
+ylp02'de sıfır mesaj). Sağ çubuk oynatılınca ch1 1011-2001 tam menzil
+gezdi, gaz/yaw sabit kaldı. Araç: `deploy/rpi/teshis/rc_izle.py`
+(kullanımı başlığında).
+
+🟠 **Kalan:** ikinci kumandanın ylp02'ye bağlılığı aynı yöntemle
+doğrulanmadı (o kumanda kapalıydı). Akşam sahada açılınca aynı ölçüm:
+`rc_izle.py drone_3` — 20 saniye, çubuk testiyle.
 
 ### Bilinmesi gereken, düzeltilmemiş
 - 🟡 P2: ylp00'da `~/yelpence_ws/core.52` (337 MB, 22 Ağu 06:02, root
