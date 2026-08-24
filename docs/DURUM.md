@@ -1,6 +1,6 @@
 # DURUM — şu an ne çalışıyor, ne bozuk
 
-**Son güncelleme:** 24 Ağustos 2026, 14:30 — hist_m 2,5 koda bağlandı, dağıtım akşam üstü
+**Son güncelleme:** 24 Ağustos 2026, 14:45 — hist_m 2,5 + tatmin İKİ UÇAĞA DAĞITILDI, G1 doğrulandı
 
 > Bu belge **şimdiki hâli** anlatır, tarihçe değil. Bir şey değişince burayı
 > güncelle, eskisini sil. Ne olduğunun hikâyesi `GUNLUK.md`'de kalır.
@@ -11,9 +11,9 @@
 
 | İHA | agent_id | Durum | Not |
 |-----|----------|-------|-----|
-| ylp00 | 1 | **Uçar** | Kod **`d9be7c9`** (20 Ağu 03:40 — yerde kalp atışı, guided köprüsü, `kalkis_olayla=False`, **ivme ileri-beslemesi AÇIK ve kalıcı**). Pervaneler **TAKILI**. **RC-kayıp tespiti kuruldu ve HAVADA doğrulandı (19 Ağu):** kumanda kapanınca 1-2 sn'de RTL — Ch3 üst-uç yöntemi, bkz. `RPI_ESITLEME.md` §5. **P0.11 yer testi GEÇTİ:** sürü yolundan ARMED + lider seçimi + kalp atışı 399 msj @ 10 Hz. ✅ `yer_testi` bayrağı **YOK** (20 Ağu 16:20 ölçüldü) — uçak kalkış komutunu ALIR. ✅ Düşme (19 Ağu kill kazası) sonrası kontrol TAMAM (23:50): pervane/gövde/motorlar elle temiz, GPS ölçüldü — **RTK-FIXED, 30 uydu, sensör bitleri tam** (akşamki "bit yok" okuması geçiciymiş). ⏳ Titreşim ölçümü uçuş sabahı pervane takılınca (`titresim_olc.py` — pervanesiz ölçüm yanıltır). ⚠️ RC kalibrasyonu yenilendi (`RC3_MIN` 1016→906). ✅ `core.50` silindi (20 Ağu 00:05, 337 MB; disk %40) |
+| ylp00 | 1 | **Uçar** | Kod **`7645d83`** (24 Ağu 14:45 — dikey kaçınma dönüş paketi: tatmin + hist 2,5; ivme ileri-beslemesi AÇIK ve kalıcı). Pervaneler **TAKILI**. **RC-kayıp tespiti kuruldu ve HAVADA doğrulandı (19 Ağu):** kumanda kapanınca 1-2 sn'de RTL — Ch3 üst-uç yöntemi, bkz. `RPI_ESITLEME.md` §5. **P0.11 yer testi GEÇTİ:** sürü yolundan ARMED + lider seçimi + kalp atışı 399 msj @ 10 Hz. ✅ `yer_testi` bayrağı **YOK** (20 Ağu 16:20 ölçüldü) — uçak kalkış komutunu ALIR. ✅ Düşme (19 Ağu kill kazası) sonrası kontrol TAMAM (23:50): pervane/gövde/motorlar elle temiz, GPS ölçüldü — **RTK-FIXED, 30 uydu, sensör bitleri tam** (akşamki "bit yok" okuması geçiciymiş). ⏳ Titreşim ölçümü uçuş sabahı pervane takılınca (`titresim_olc.py` — pervanesiz ölçüm yanıltır). ⚠️ RC kalibrasyonu yenilendi (`RC3_MIN` 1016→906). ✅ `core.50` silindi (20 Ağu 00:05, 337 MB; disk %40) |
 | ylp01 | 2 | **YERDE** | 2 Ağustos'ta 20 m'den düştü, RPi açılmıyor |
-| ylp02 | 3 | **Uçar** | Kod **`d9be7c9`** (20 Ağu 03:40, ylp00 ile senkron). `guided_ivme_ff=1.0` — A/B sonrası **ikisinde de açık**. Pervaneler **TAKILI**. **İki uçaklı P0.11 yer testi GEÇTİ:** sürü yolundan ARMED + lider mutabakatı + mesh'ten 499 kalp atışı aldı. ✅ `yer_testi` bayrağı **YOK** (20 Ağu 16:20 ölçüldü). ✅ Alıcı failsafe'i düzeltildi ve ölçüldü (**P0.9 KAPANDI**, 19 Ağu gece: kayıtlı +100 bulundu → -100 kaydedildi → `CH5=1000`). ✅ RC-kayıp tespiti KURULU, bit iki yönde doğrulandı — kumanda kaybında RTL |
+| ylp02 | 3 | **Uçar** | Kod **`7645d83`** (24 Ağu 14:45, ylp00 ile senkron). `guided_ivme_ff=1.0` — A/B sonrası **ikisinde de açık**. Pervaneler **TAKILI**. **İki uçaklı P0.11 yer testi GEÇTİ:** sürü yolundan ARMED + lider mutabakatı + mesh'ten 499 kalp atışı aldı. ✅ `yer_testi` bayrağı **YOK** (20 Ağu 16:20 ölçüldü). ✅ Alıcı failsafe'i düzeltildi ve ölçüldü (**P0.9 KAPANDI**, 19 Ağu gece: kayıtlı +100 bulundu → -100 kaydedildi → `CH5=1000`). ✅ RC-kayıp tespiti KURULU, bit iki yönde doğrulandı — kumanda kaybında RTL |
 
 > ✅ **22 Ağustos 17:31 — İKİ UÇAK DA AÇIK, ylp00 restart edildi.**
 >
@@ -53,18 +53,24 @@
 > yakınken 3 m'lik ayrım 6 saniyede geri veriliyor. Öneri `hist_m`
 > 0,5 → 2,5-3,0 (`CA.md` §7.2) — **henüz yapılmadı.**
 >
-> ### 🔀 24 AĞUSTOS 14:30 — `hist_m` 2,5 KODA BAĞLANDI + BİRLEŞİK DAĞITIM KARARI
+> ### ✅ 24 AĞUSTOS 14:45 — DAĞITIM YAPILDI: iki uçak da `7645d83`
 >
 > ```
-> ucaklarda : 1d1048e (dun ucan kod) — dagitim AKSAM USTU yapilacak
-> depoda    : tatmin duzeltmesi + hist_m 0,5 -> 2,5 (cikis 4,5 -> 6,5 m)
+> ucaklarda = depoda : 7645d83  (tatmin duzeltmesi + hist_m 2,5; cikis 6,5 m)
+> G1 dogrulama       : CANLI dugumden — ikisinde de hist_m=2.5
+>                      ylp00 rutbe=0 (capa) · ylp02 rutbe=1 (+3 m) · 11 dugum
+> env                : ucus_ayarlari.env yeniden uretildi, iki Pi'ye yazildi
 > ```
 >
-> Operatör kararı (24 Ağu): `tatmin` düzeltmesi ile `hist_m` akşam uçuşuna
-> **birlikte** dağıtılacak — yalnız `hist_m` dağıtmak, uçağı eski kodun
-> hatalı olduğu "ayrım kurulu + çatışma sürüyor" durumunda daha uzun tutup
-> ölçülmüş dalışı (-1,48 m/s) sıklaştırırdı. Gerekçe ve uçuş ölçütleri:
-> `PLAN.md` "SIRADAKİ UÇUŞ". **Dağıtım yapılınca burası güncellenecek.**
+> Operatör kararı (24 Ağu): `tatmin` düzeltmesi ile `hist_m` **birlikte**
+> dağıtıldı — yalnız `hist_m` dağıtmak, uçağı eski kodun hatalı olduğu
+> "ayrım kurulu + çatışma sürüyor" durumunda daha uzun tutup ölçülmüş
+> dalışı (-1,48 m/s) sıklaştırırdı. Uçuş ölçütleri: `PLAN.md` "SIRADAKİ
+> UÇUŞ". Kalan: **akşam uçuşu** (dünkü senaryonun tekrarı).
+>
+> ⚠️ `docker logs` ylp00'da yine ESKİ açılışı gösterdi (TUZAKLAR §1.18) —
+> doğrulama bu yüzden canlı düğümden. Düğüm adları KÖKSÜZ: doğru sorgu
+> `ros2 param get /collision_avoidance hist_m` (`/drone_N/...` DEĞİL).
 
 > ## 🔀 23 AĞUSTOS — DİKEY KAÇINMA DEVREYE ALINDI (yapılandırma)
 >

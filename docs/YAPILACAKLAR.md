@@ -1,6 +1,6 @@
 # YAPILACAKLAR
 
-**Son güncelleme:** 24 Ağustos 2026, 14:30 — hist_m koda bağlandı; akşam: birleşik dağıtım + uçuş
+**Son güncelleme:** 24 Ağustos 2026, 14:45 — birleşik paket İKİ UÇAĞA dağıtıldı; kalan: akşam uçuşu
 
 ## 🚨 SONRAKİ OPERATÖRE — ÖNCE BUNLAR (23 Ağustos gecesi)
 
@@ -8,11 +8,12 @@
 > ilk uçuşunda çalıştı; sıradaki uçuş **dönüş davranışını** düzeltip
 > doğrulamak.
 
-### 1. ✅ KARAR VERİLDİ (24 Ağu 14:30): `tatmin` + `hist_m` BİRLİKTE dağıtılacak
+### 1. ✅ DAĞITILDI (24 Ağu 14:45): `tatmin` + `hist_m` iki uçakta, G1 doğrulandı
 
 ```
-ucaklarda : 1d1048e (dun ucan kod) — dagitim aksam ustu yapilacak
-depoda    : tatmin duzeltmesi + hist_m 0,5 -> 2,5 zinciri
+ucaklarda = depoda : 7645d83
+G1 (canli dugumden): hist_m=2.5 ikisinde · ylp00 rutbe=0 · ylp02 rutbe=1
+                     11 dugum · env yeniden uretilip iki Pi'ye yazildi
 ```
 
 Operatör kararı: ikisi akşam uçuşuna **birlikte** yüklenir. Tek-değişiklik
@@ -23,9 +24,12 @@ imzasını (-1,48 m/s, gaz %12→%100) SIKLAŞTIRIRDI. İki değişiklik logda
 ayrık gözlenir: çıkış mesafesi ↔ içerideyken irtifa dalışı. Gerekçe ve
 ölçüt tablosu: `PLAN.md` "SIRADAKİ UÇUŞ".
 
-**Kalan iş:** dağıt → konteyner yeniden başlat → G1: canlı düğümden
-`ros2 param get /drone_N/collision_avoidance hist_m` **2,5** dönmeli
-(log'a değil düğüme sor — `TUZAKLAR` §1.18) → akşam uçuş.
+**Kalan iş: yalnız akşam uçuşu** (ölçüt tablosu `PLAN.md` "SIRADAKİ UÇUŞ").
+
+⚠️ Düğüm adları KÖKSÜZ — doğru sorgu `ros2 param get /collision_avoidance
+hist_m` (bu maddenin eski hâlindeki `/drone_N/collision_avoidance` örneği
+YANLIŞTI, düğüm bulunamıyor). `docker logs` ylp00'da yine eski açılışı
+gösterdi (`TUZAKLAR` §1.18) — log'a değil düğüme sor.
 
 ### 2. ✅ `hist_m` 0,5 → 2,5 KODA BAĞLANDI — uçuş doğrulaması akşam
 
@@ -64,6 +68,10 @@ Operatöre elle söylenmeli. Araca eklenmesi ~20 satır.
 ### 6. 🟠 Kumanda hangi uçağa bağlı — HÂLÂ NETLEŞMEDİ
 
 ### Bilinmesi gereken, düzeltilmemiş
+- 🟡 P2: ylp00'da `~/yelpence_ws/core.52` (337 MB, 22 Ağu 06:02, root
+  sahipli) — hiçbir devir teslimde bahsi yok, hangi sürecin çöktüğü
+  bilinmiyor. `file core.52` ile kimliğini çıkar, sonra sil (24 Ağu
+  öğlen fark edildi; disk %42, acil değil).
 - Üç uçağın **aynı noktadan geçtiği** çapraz slot değişiminde hiçbir ayar
   kabul eşiğini tutturmuyor (1,76 m). `formation_node` o geometriyi
   üretmemeli — devreye alınırken bakılacak.
