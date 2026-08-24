@@ -1,6 +1,6 @@
 # KARARLAR — verilmiş ama henüz uygulanmamış kararlar
 
-**Son güncelleme:** 24 Ağustos 2026, 14:30 — hist_m 2,5 koda bağlandı, birleşik dağıtım kararı
+**Son güncelleme:** 25 Ağustos 2026, 02:30 — hist_m UÇUŞTA doğrulandı; KARAR-02 ADIM 3 için yeniden geçerli
 
 Sohbette verilen kararlar oturum bitince kayboluyor. Bu defter onları
 tutuyor: **ne karar verildi, neden, ne zaman uygulanacak, nasıl test edilecek.**
@@ -822,7 +822,9 @@ gerekçeyle `a_dikey`'i 2,0'ın üstüne çıkarmak da ölçülmeden yapılmaz.
 
 ## 🔴 Kalan
 
-1. ✅ **`hist_m` 0,5 → 2,5 KODA BAĞLANDI** (24 Ağustos 14:30). Zincir
+1. ✅✅ **`hist_m` 0,5 → 2,5 — UÇUŞTA DOĞRULANDI (25 Ağu 02:03):**
+   bırakma 7,2-8,3 m, dalış yok, yo-yo kapandı (`CA.md` §7.2).
+   (24 Ağustos 14:30'da koda bağlanmıştı:) Zincir
    kuruldu: `ucus_ayarlari.py` → env → `baslat.sh` → düğüm (önceden
    zincir YOKTU, düğüm gömülü 0,5 ile koşuyordu). **2,5 seçildi, 3,0
    değil:** çıkış eşiği (d0+hist = 6,5 m) formasyonun planlı en yakın

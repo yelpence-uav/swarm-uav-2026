@@ -34,7 +34,7 @@ YKİ (bilgisayar) → mesh → uçak: "şu noktaya git"
 | | Durum |
 |---|---|
 | ylp00 (drone 1) | ✅ uçuyor |
-| ylp01 (drone 2) | ❌ yerde — 2 Ağustos'ta düştü, ESC güç hattı |
+| ylp01 (drone 2) | 🟠 zinciri TAM (25 Ağu: yeni Pi+ESP+FC, panelde) — uçuş izni için ESC hattı + kalibrasyonlar kaldı |
 | ylp02 (drone 3) | ✅ uçuyor |
 | RTK, mesh, kayıt, YKİ arayüzü | ✅ çalışıyor |
 | Pilot + kumanda (her uçak için) | ✅ var |

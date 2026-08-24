@@ -1,12 +1,42 @@
 # YAPILACAKLAR
 
-**Son güncelleme:** 24 Ağustos 2026, 20:35 — ylp01'in YENİ Pi'si hazır (klon); kalan: akşam uçuşu + ylp01 uçak onarımı
+**Son güncelleme:** 25 Ağustos 2026, 02:30 — oturum kapanışı: ADIM 4 TAM; sıradaki ADIM 3 ya da ylp01 hazırlığı
 
-## 🚨 SONRAKİ OPERATÖRE — ÖNCE BUNLAR (23 Ağustos gecesi)
+## 🚨 SONRAKİ OPERATÖRE — ÖNCE BUNLAR (25 Ağustos gecesi)
 
-> **Sıradaki test yine ÇARPIŞMA ÖNLEME** (operatör kararı). Dikey kaçınma
-> ilk uçuşunda çalıştı; sıradaki uçuş **dönüş davranışını** düzeltip
-> doğrulamak.
+> ✅✅ **ADIM 4 (çarpışma önleme) İKİ UÇUŞLA TAMAMEN KAPANDI.**
+> 23 Ağu: kaçış çalıştı. 25 Ağu 02:03: dönüş çalıştı (`hist_m=2,5` +
+> `tatmin`; bırakma 7,2-8,3 m, dalış yok — `CA.md` §7.2). Ayrıca ylp01
+> DİRİLDİ: yeni Pi + yeni ESP firmware'i (MAC takma adı) + FC — panelde
+> göründü, ama **UÇUŞ İZNİ YOK** (aşağıda). 12 saatlik maratonun tamamı:
+> `GUNLUK` 25 Ağu kaydı.
+>
+> **Sıradaki büyük iş operatörle seçilecek:**
+> - **ADIM 3 (formasyon)** — 🔴 ilk uçuş öncesi `KARAR-02` gereği
+>   operatörden **ultracode** istenir; tek-üretici kuralı (CLAUDE.md §4)
+>   ve çapraz slot geometrisi yasağı geçerli
+> - ya da **ylp01'i uçuşa hazırlamak** (aşağıdaki P1 listesi)
+
+### 🟠 P1 — ylp01 uçuş izni için kalanlar (Pi/ESP/FC zinciri TAM, bunlar değil)
+- `[ ]` 🟠 ESC güç hattı onarımı (2 Ağu düşüş hasarı — asıl engel)
+- `[ ]` 🟠 Yeni FC'de ivme/jiroskop/seviye kalibrasyonları (pusula yapıldı)
+- `[ ]` 🟠 RC-kayıp failsafe kurulumu + `param_karsilastir.py` ile fark dökümü
+- `[ ]` 🟠 ESP↔Pi jumper/tellerini sabitle (A16 — RX teli gece elle takıldı!)
+- `[ ]` 🔴 Kadroya girdiği gün `SURU_KADRO="1 2 3"` ÜÇ uçakta (KARAR-04)
+
+### 🟠 P1 — gece uçuşunun kuyrukları
+- `[ ]` 🟠 02:03 uçuşunun **gaz-doyum analizi** (`vfr_hud`; tırmanma +4,6 m
+  olduğu için doyum dünkünden uzun olabilir — itki payı takibi)
+- `[ ]` 🟠 u-blox USB askı hassasiyeti: gece 3 kez düştü (tak-çıkar/taşıma).
+  `yki_rtcm_reader`'a cihaz-sessiz alarmı + VID:PID'den yeniden bulma;
+  panelde belirgin göster
+- `[ ]` 🟡 Panel RTK reset butonu cihazı DONUK bırakabiliyor (çek-tak
+  gerekti) — reset sonrası sağlık kontrolü/uyarı ekle
+- `[ ]` 🟡 Base ESP donması yaşandı (RST düzeltti) — watchdog/izleme düşün
+- `[ ]` 🟡 ESP firmware derleme ortamı geçici venv'deydi — PlatformIO
+  kurulumunu kalıcılaştır/belgele (`pio run -e esp32dev_serial0`)
+- `[ ]` ⚪ CA uçuş analizi (mcap → metrikler) tek seferlik betikti;
+  kalıcı araca çevrilebilir
 
 ### 1. ✅ DAĞITILDI (24 Ağu 14:45): `tatmin` + `hist_m` iki uçakta, G1 doğrulandı
 

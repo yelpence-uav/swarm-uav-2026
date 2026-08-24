@@ -1,6 +1,6 @@
 # GÜNLÜK — oturum devir teslim kaydı
 
-**Son güncelleme:** 23 Ağustos 2026, 22:15
+**Son güncelleme:** 25 Ağustos 2026, 02:30
 
 Tek bilgisayar, sırayla çalışıyoruz. Biri kalkıp diğeri oturduğunda **hem
 kişi hem Claude** nerede kalındığını buradan anlar.
@@ -35,6 +35,118 @@ Claude'a **"oturumu kapat"** dersen bu kaydı o yazar.
 - ylp00: (kill switch? pil? nerede? konteyner ayakta mı?)
 - ylp02:
 ```
+
+---
+
+## 2026-08-25 02:30 — Berk + Claude (12 saatlik maraton: hist_m UÇTU-GEÇTİ, ylp01 DİRİLDİ)
+
+> 24 Ağu öğlen 14:00'ten 25 Ağu gece 02:30'a tek oturum. Dört perde:
+> masa başı (hist_m) → ylp01'in yeni Pi'si → gece YKİ/ESP kurtarmaları →
+> gece uçuşu. **11 commit, hepsi ölçüm kanıtlı.**
+
+**Ne yapıldı**
+
+*1 — `hist_m` 0,5 → 2,5 + birleşik dağıtım (öğlen)*
+
+- Zincir HİÇ yokmuş: env'de değişken yok, `baslat.sh` geçmiyor, düğüm
+  gömülü 0,5'te. Kuruldu: `ucus_ayarlari.py` → env → `-p hist_m` → düğüm.
+  Denetime "çıkış ≥ kritik yaklaşma = HATA" koşulu. Birim 82/82.
+- **Operatör kararı:** `tatmin` düzeltmesiyle BİRLİKTE dağıtıldı (tek
+  değişiklik kuralından bilinçli sapma — gerekçe `KARARLAR`). İki uçakta
+  canlı doğrulama: `hist_m=2.5`, rütbe 0/1.
+- Harita artık **kaçış zarfını çiziyor** (sarı kesikli, iniş dış halkası,
+  ayak izinde zarflı kutu) — P1 kapandı.
+- Kumanda-uçak eşleşmesi ÖLÇÜLDÜ: 1.→ylp00, 2.→ylp02, çapraz karışma yok
+  (`teshis/rc_izle.py` kalıcı araç).
+
+*2 — ylp01'in YENİ Pi'si (öğlen/akşam)*
+
+- ylp02'nin SD imajı klonlanıp yeni Pi'ye takıldı; `ylp01_donusum.sh`
+  kimliği çevirdi (kullanıcı/hostname/SSH anahtarları/tgt_system=2).
+  `drone2` yeni oluşturuldu → log döndürme A12 ✅. RPI_ESITLEME'nin tüm
+  "ylp01 döndüğünde" listesi klonla tek seferde kapandı; A/K tabloları
+  güncellendi. Yeni wlan0 MAC `88:a2:9e:67:6e:ff`.
+
+*3 — Gece kurtarmaları (YKİ + ylp01 ESP + Pixhawk)*
+
+- **RTK reader** eski port adını bekliyordu (USB yeniden numaralandı) +
+  QGC'nin RTK autoconnect'i u-blox'u kapmıştı → port düzeltildi, QGC
+  ayarı kapatıldı. u-blox gece 3 KEZ USB askısına düştü (tak-çıkarlara
+  hassas) — her seferinde çek-tak düzeltti.
+- **Base ESP donmuştu** (ne veri ne log) → RST düğmesi diriltti; köprü
+  doğru portla yeniden başlatıldı → ylp00/ylp02 panele döndü.
+- **ylp01 ESP'si üç katmanlı sorun çıkardı** (hepsi ölçümle):
+  (a) 2 Ağu öncesi ESKİ firmware (UART düzeni+kanal farklı),
+  (b) ESP DEĞİŞMİŞ — fiziksel MAC `...0A:B4`, tablodaki `...13:88`,
+  (c) Pi→ESP RX teli KOPUK. Çözüm: **MAC takma adı** mekanizması
+  (`mac_takma_tablo`, `esp_wifi_set_mac` — ilk deneme
+  `esp_base_mac_addr_set` TUTMADI, sahada ölçüldü) + güncel
+  `esp32dev_serial0` derlemesi **Pi üzerinden flash** (`esptool
+  --no-stub`, Ubuntu paketinde stub eksik) + tel takıldı. Boot:
+  `[MAC] takma ad (OK) ... [MESH] MAC: ...13:88`. Diğer üç cihaza
+  DOKUNULMADI.
+- **Pixhawk (yeni FC):** Here4 CAN sorunu kablo/port işiyle çözüldü
+  (pusula+GPS geldi), `MAV_SYS_ID` 3→2, uçağa takıldı → MAVROS bağlandı
+  → **panelde "Drone 2 | yerde | gps=3D→RTK-Fix"**. Zincir uçtan uca.
+- RTK survey **3,5 saatlik içeride-zehirlenmiş ortalamada 3,6 m'de
+  takılıydı** → TMODE rover'a çekilip yeniden başlatıldı → açık gökte
+  60 sn'de bitti, 1005 aktı, iki uçak **RTK-Fix**.
+
+*4 — 🎯 GECE UÇUŞU (02:03): dönüş davranışı DOĞRULANDI*
+
+Kuru test + zarflı harita + operatör onayı + RTK-Fix ile. ylp02 4,8 m
+asılı 120 sn; operatör ylp00'ı 3 kez yaklaştırıp uzaklaştırdı:
+
+```
+inis baslarken d_xy : 7,19 / 8,25 / 7,46 m   (hedef >=6,5 — dun 4,9)
+iceride dalis       : YOK          donus hizi : 0,50-0,51 m/s
+tirmanma tepe hizi  : 1,27-1,32    en yakin   : 3,52 m
+```
+
+Tırmanma +4,6 m (dün +3,1) hata değil: operatör yüksekte uçtu, hedef
+"komşu irtifası + katman" onu izledi (9,1 m AGL). **Yo-yo kapandı;
+ADIM 4 İKİ UÇUŞLA TAM.**
+
+**Ne değişti**
+
+- kod: `ucus_ayarlari.py`/`baslat.sh`/`ca_core`/düğüm (hist zinciri) ·
+  `gorev_kanit_ucus.py` (zarf haritası) · `teshis/rc_izle.py` (yeni) ·
+  `deploy/rpi/ylp01_donusum.sh` (yeni) · `firmware TX DRONE main.cpp` +
+  `mesh_shared/mesh_config.h` (MAC takma adı; `esp_wifi_get_mac`)
+- uçakta: ylp00+ylp02 **`7645d83`** ve `hist_m=2,5` (canlı doğrulandı) ·
+  ylp01: yeni Pi + yeni ESP firmware'i + FC sysid=2 · ylp01'de
+  `/usr/local/bin/ylp01_donusum.sh` kaldı (zararsız) ve `kayit/` altında
+  ylp02'nin eski kayıtları duruyor (klon kalıntısı)
+- belge: `CA` §7 · `PLAN` "SIRADAKİ UÇUŞ" ✅ · `DURUM` · `YAPILACAKLAR` ·
+  `KARARLAR` · `RPI_ESITLEME` · `cihazlar` (ESP MAC takma notu)
+
+**Yarım kalan / tuzak**
+
+- 🟠 02:03 uçuşunun **gaz-doyum analizi yapılmadı** (tırmanma +4,6 m =
+  doyum uzamış olabilir; kayıt ylp02'de, `vfr_hud`dan bakılacak)
+- 🟠 u-blox USB askısı gece 3 kez — reader'a kendini-toparlama + panel
+  alarmı eklenecek (YAPILACAKLAR)
+- ⚠️ Panel reset butonu u-blox'u DONUK bırakabiliyor (çek-tak gerekti)
+- ⚠️ Firmware derleme ortamı GEÇİCİ venv'de (job tmp) — kalıcılaştır
+- ⚠️ ylp01 uçuş İZNİ YOK: ESC güç hattı onarımı + ivme/jiro/seviye
+  kalibrasyonları + RC failsafe + param karşılaştırma + jumper (A16)
+  duruyor. Kadroya girince `SURU_KADRO="1 2 3"` üç uçakta (KARAR-04).
+
+**Sıradaki adım**
+
+ADIM 4 tamamen kapandı. Operatörle seçilecek: **ADIM 3'e (formasyon)
+geçiş** — ilk uçuş öncesi `KARAR-02` gereği **ultracode** istenir — ya da
+ylp01'in uçuşa hazırlanması (ESC hattı + kalibrasyonlar).
+
+**Uçakların bırakıldığı hâl** (02:23 ölçüldü)
+
+- ylp00: KAPALI (uçuş sonrası kapatıldı)
+- ylp01: KAPALI (uçuş öncesi bilerek kapatıldı — mesh'te komşu olmasın)
+- ylp02: KAPALI (uçuş sonrası kapatıldı)
+- YKİ (Mac): **TÜM süreçler KAPATILDI** (02:35 — backend, base köprüsü,
+  rtcm reader, origin yayıncıları, frontend; `pgrep` ile doğrulandı).
+  u-blox + base ESP fiziksel olarak USB'de takılı duruyor. Yarın açmak
+  için: `src/gcs/yki_baslat.sh` (macOS notu betiğin başında)
 
 ---
 
