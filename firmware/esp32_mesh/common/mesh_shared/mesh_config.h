@@ -837,7 +837,10 @@ static inline void mesh_kanal_tara(void) {
 // bozamaz, provizyon adimi yok, "duyar ama duyulmaz" arizasi imkansiz.
 static inline void mesh_init(mesh_veri_callback_t callback) {
     _veri_callback = callback;
-    esp_read_mac(_benim_mac, ESP_MAC_WIFI_STA);
+    // esp_wifi_get_mac: arayuzun O ANKI MAC'i — esp_wifi_set_mac ile
+    // degistirilmisse (MAC takma adi, TX DRONE) onu yansitir.
+    // esp_read_mac efuse'tan turetir ve takma adi GORMEZDI.
+    esp_wifi_get_mac(WIFI_IF_STA, _benim_mac);
     Serial.printf("[MESH] MAC: %02X:%02X:%02X:%02X:%02X:%02X\n",
         _benim_mac[0],_benim_mac[1],_benim_mac[2],
         _benim_mac[3],_benim_mac[4],_benim_mac[5]);

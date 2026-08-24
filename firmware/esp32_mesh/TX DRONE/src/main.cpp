@@ -95,13 +95,20 @@ static const struct { uint8_t fiziksel[6]; uint8_t takma[6]; } mac_takma_tablo[]
     {{0xD4, 0xE9, 0xF4, 0xFB, 0x0A, 0xB4}, {0xD4, 0xE9, 0xF4, 0xFB, 0x13, 0x88}},
 };
 static void mac_takma_uygula() {
+    // 🔴 WiFi.mode(WIFI_STA)'dan SONRA cagrilmali. Ilk yazim
+    // esp_base_mac_addr_set ile WiFi'dan ONCE deniyordu ve SAHADA TUTMADI:
+    // boot logu "[MESH] MAC: ...0A:B4" basti, base paketleri reddetti
+    // (25 Agustos gecesi olculdu). esp_wifi_set_mac arayuzun MAC'ini
+    // dogrudan degistirir; ESP-NOW da bu arayuzden gonderir.
     uint8_t efuse[6];
     if (esp_efuse_mac_get_default(efuse) != ESP_OK) return;
     for (const auto& e : mac_takma_tablo) {
         if (memcmp(e.fiziksel, efuse, 6) == 0) {
-            esp_base_mac_addr_set(e.takma);
-            Serial.printf("[MAC] takma ad: %02X:%02X:%02X:%02X:%02X:%02X -> "
+            esp_err_t rc = esp_wifi_set_mac(WIFI_IF_STA, e.takma);
+            Serial.printf("[MAC] takma ad (%s): "
+                          "%02X:%02X:%02X:%02X:%02X:%02X -> "
                           "%02X:%02X:%02X:%02X:%02X:%02X\n",
+                          rc == ESP_OK ? "OK" : "HATA",
                           e.fiziksel[0], e.fiziksel[1], e.fiziksel[2],
                           e.fiziksel[3], e.fiziksel[4], e.fiziksel[5],
                           e.takma[0], e.takma[1], e.takma[2],
@@ -242,7 +249,6 @@ void setup() {
     delay(1000);
     Serial.println("[ESP32] Basliyor...");
     _drone_tablo_dogrula();  // MAC benzersizligini boot'ta dogrula
-    mac_takma_uygula();      // degisen donanim eski kimligini alir (WiFi'dan ONCE)
 
     // baud 460800 (spec + ekip karari). Bu Serial1 hatti RTK'nin yani sira
     // joystick/pose/vb tum Pi<->mesh protokolunu de tasiyor (_rtk_uart_gonder
@@ -265,6 +271,7 @@ void setup() {
 #endif
 
     WiFi.mode(WIFI_STA);
+    mac_takma_uygula();      // degisen donanim eski kimligini alir (WiFi'dan SONRA sart)
 
     // Ucus oncesi opsiyonel manuel kanal taramasi.
     // Otomatik degisim yok, sadece operator isterse rapor alir.
