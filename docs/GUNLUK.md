@@ -1,6 +1,6 @@
 # GÜNLÜK — oturum devir teslim kaydı
 
-**Son güncelleme:** 25 Ağustos 2026, 21:56
+**Son güncelleme:** 26 Ağustos 2026, 02:37
 
 Tek bilgisayar, sırayla çalışıyoruz. Biri kalkıp diğeri oturduğunda **hem
 kişi hem Claude** nerede kalındığını buradan anlar.
@@ -35,6 +35,113 @@ Claude'a **"oturumu kapat"** dersen bu kaydı o yazar.
 - ylp00: (kill switch? pil? nerede? konteyner ayakta mı?)
 - ylp02:
 ```
+
+---
+
+## 2026-08-26 02:37 — Berk + Claude (gece: İLK FORMASYON UÇUŞU + OTONOM CA GEÇİŞİ; 🔴 HOME kayması bulundu)
+
+> Akşam kapanışından (21:56) sonra devam edildi: ADIM 3 hazırlıkları,
+> hub kazası, ve İKİ TARİHİ UÇUŞ. Kod: `db58414..89a16cf` + belgeler.
+
+**Ne yapıldı**
+
+*1 — ADIM 3 hazırlıkları (uçaklar kapalıyken)*
+- PLAN "Engel 3 açık" diyordu; kod okununca `velocity_only`'nin 21 Ağu'dan
+  beri OTOMATİK olduğu görüldü (CA açıkken zaten true) — belge koda
+  eşitlendi (`db58414`).
+- **Tek-üretici geçişi `baslat.sh`'e kondu (`20c2b01`):** formasyon
+  SÜRERKEN esp32_bridge çıkışı `/gozlem/.../mesh_goto`ya (uçağı süremez;
+  `/raw`'ın tek üreticisi formation_node). Boş-yuva kapısının ARKASINA
+  kondu (kapı gözlemi zorlayabiliyor). Üç senaryo sahte /ws ile masada
+  doğrulandı; formasyon sürmüyorken davranış birebir eski.
+
+*2 — USB hub kazası ve kalıcı DTR/RTS düzeltmesi*
+- Operatör hub ekledi → port adları değişti → RTK reader ESKİ portta,
+  backend'in ESP köprüsü KOPUK (lsof boş). `yki_mac.sh` ile (VID:PID)
+  yeniden başlatıldı.
+- Köprünün ilk açılışı base ESP'yi BOOTLOADER'a kilitledi (bilinen
+  DTR/RTS tuzağı) → **kalıcı düzeltme `89a16cf`:** esp32_bridge seri
+  portu artık dtr=False rts=False ile açıyor (nesne portsuz kurulur,
+  hatlar çekilir, sonra open). Uçakta zararsız (ttyAMA4). Kilit, log
+  portunun tetiklediği temiz boot'la kırıldı; akış geri geldi.
+- Dağıtım: `20c2b01`+`89a16cf` üç uçağa (kopya+build+restart), açılış
+  doğrulamalı (`b38b652`). Bulgu: **drone1'in docker json logu KORUPT**
+  (docker logs hata veriyor) — doğrulama canlı topolojiden yapıldı
+  (mesh_goto konusu + param). rosbag etkilenmez.
+
+*3 — G0: üç-uçaklı formasyon hesabı YERDE doğrulandı*
+- `form_yayinla.sh` üç-uçak varsayılanına çevrildi ([1,2,3], spacing 12).
+- Mesh'ten V tarifi → üç uçağın formation_node'u DOĞRU slotları hesapladı:
+  merkez ~1 cm, kanatlar tam 12,0 m, kanatlar arası 90°, z=-8 ✓.
+
+*4 — 🎯 İLK FORMASYON UÇUŞU (ADIM 3 HAVADA) — 3 uçak, ok başı/V*
+- Operatör kararıyla tek-uçak ara adımı atlandı; ultracode İSTENDİ,
+  operatör ATLADI (KARAR-02 notu).
+- Hareket-minimize tarif (merkez/heading optimizasyonu): hareketler
+  2,1-4,6 m; geçişte araları ≥7,2 m.
+- Kalkış 8 m (tarifsiz → pozisyon-hold), 5 sn, V tarifi (tip 2, spacing 8,
+  hız 1,0): üçü ~15 sn'de slotlarına oturdu — **hedeflere ~1 m, yaw üçünde
+  330° senkron, 20+ sn milimetrik sabit, salınım YOK**. RTL ile üçü kendi
+  kalkış noktasına NOKTA ATIŞI indi (o uçuşta home'lar doğruydu).
+- İrtifa notu: tarif z=-8'e karşın gerçek ~8,8-9,3 m (origin/EKF z farkı
+  ~1 m) — zararsız, kayda geçti.
+
+*5 — 🎯 OTONOM CA GEÇİŞ TESTİ (ÇİZGİ tip 3) + İKİ AÇIK SORU*
+- Kurgu: ylp00 8 m'de ÇAKILI lider (tarif dışı); ylp01+ylp02 ÇİZGİ
+  formasyonuyla liderin 15 m gerisinde toplandı (hatlar ±3,0 m — şablon
+  koddan doğrulandı: 2 ajanda merkez+yan), sonra merkez 30 m güneye
+  taşındı → düz geçiş.
+- **Sahada gözlenen (operatör):** ylp01 liderin ÜSTÜNDEN (~11 m), ylp02
+  ALTINDAN geçti (⚡ **rütbe-AŞAĞI kaçışın İLK gerçek uçuşu** — 8 m'de
+  aşağı hedef ~5 m > taban 4) ve geçişi tamamladılar; lider kıpırdamadı.
+- ⚠️ AÇIK 1: ylp02 geçiş sonrası nominale dönüşte 6,4 m'de TUTUK kaldı
+  (körlük yok — sebep bag/ca.log analizinde; SSH o an kopuktu).
+- 🔴 AÇIK 2 (P0): **HOME KAYMASI** — RTL basılınca d1/d2 (ve görünüşe
+  göre d3 de) kalkış yerlerine değil, ÜÇÜ AYNI CİVARA (kalkışların ~9 m
+  KD'si, birbirine 1-2 m) indi. Ölçüm: PX4 home kayıtları TAM iniş
+  noktaları — yani RTL doğru uçtu, HOME'LAR YANLIŞTI. Kök (ARM anı
+  konumu mu, eski home mu, origin/EKF mi) rosbag'deki home_position +
+  statustext geçmişinden çıkarılacak. **ÇÖZÜLMEDEN RTL'Lİ UÇUŞ YOK.**
+- Not: kumandalar bu uçuşta hep KAPALIYMIŞ (operatör beyanı) — OFFBOARD
+  RC'siz uçtu; RC-loss failsafe'in OFFBOARD istisnası da ayrıca
+  incelenmeli (P1).
+
+*6 — Saha pratikleri*
+- iPhone hotspot MESAFE hassas: uçak güneye uçunca ylp02 SSH koptu
+  ("host down") — mesh ETKİLENMEZ. Kural: telefon uçak grubunun ortasında.
+- YKİ paneli "sürekli KRİTİK körlük" toast'ları: iki alıcının drone2'yi
+  21 ms arayla kaybetmesiyle teşhis edildi — ELDE TAŞIMA gölgelenmesi
+  (TUZAKLAR §4.12'ye yazılmıştı; bir kez daha yaşandı, kural işledi).
+
+**Ne değişti**
+- kod: `db58414` `20c2b01` `b38b652` `89a16cf` (+ form_yayinla üç-uçak)
+- uçakta: üçü `89a16cf` seviyesinde (build'li); formasyon-sürer modda
+  bırakıldı mı → HAYIR: uçuş bitti, konteynerler formasyon-sürer modda
+  AMA uçaklar disarm/kapatılacak. ⚠️ SONRAKİ AÇILIŞTA: `/ws/gozlem` YOK
+  → yine formasyon-sürer modda açılırlar (mesh goto uçağa gitmez!).
+  Eski goto düzeni istenirse `touch /ws/gozlem` + restart.
+- belge: GUNLUK, DURUM, YAPILACAKLAR, KARARLAR (KARAR-02 notu), CA §6.7,
+  PLAN (ADIM 3 uçtu)
+
+**Yarım kalan / tuzak**
+- 🔴 HOME kayması P0 (yukarıda) — bag analizi: `/drone_N/mavros/
+  home_position/home` zaman serisi + statustext "home" mesajları.
+- 🟠 ylp02 dönüş tutukluğu — aynı bag'den + ca.log.
+- 🟡 drone1 docker json log korupt — `docker logs` çalışmıyor; kalıcı
+  çözüm konteyner recreate (docker save imajından) ya da log dosyasını
+  sıfırlamak. Rosbag'ler sağlam.
+- Formasyon tip kodu notu: FORMATION_OKBASI=1 ile FORMATION_V=2 AYRI —
+  "ilk formasyon uçuşu" tip 2 (V) ile uçtu; OKBASI şablonu henüz uçmadı.
+
+**Sıradaki adım**
+- P0 HOME analizini yap → temizse ikinci formasyon tipi/OKBASI ve ADIM 3
+  kalanları (mission zinciri) planlanır.
+
+**Uçakların bırakıldığı hâl**
+- Üçü disarm, kalkışların ~9 m KD'sindeki iniş noktalarında yan yana;
+  kapatma operatörde. Pil gerçek durumu BİLİNMİYOR (sensör yok) — gece
+  4 uçuş yapıldı, şarj önerilir.
+- YKİ: backend+reader+köprü açık bırakıldı (`yki_durdur.sh` ile kapanır).
 
 ---
 

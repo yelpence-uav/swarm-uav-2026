@@ -1,6 +1,23 @@
 # DURUM — şu an ne çalışıyor, ne bozuk
 
-**Son güncelleme:** 25 Ağustos 2026, 21:56 — AKŞAM SAHASI 8/8: İLK ÜÇ UÇAKLI UÇUŞ + çok-komşulu CA GEÇTİ; körlük yerde-pasif muafiyeti (`6258eab`) üç uçakta CANLI ve uçuş-doğrulamalı; ylp01 3 görev uçuşu uçtu — tam kadroda
+**Son güncelleme:** 26 Ağustos 2026, 02:37 — GECE: İLK FORMASYON UÇUŞU (V, 3 uçak) + OTONOM CA GEÇİŞİ GEÇTİ; 🔴 P0: HOME KAYMASI (RTL'e güvenilmez, bag analizi bekliyor); uçaklar formasyon-sürer modda bırakıldı
+
+
+> ## 🌙 26 AĞUSTOS GECESİ — İKİ TARİHİ UÇUŞ + BİR P0
+>
+> - **İLK FORMASYON UÇUŞU (ADIM 3 HAVADA):** üç uçak, V (tip 2), slotlara
+>   ~1 m, yaw 330° senkron, 20+ sn salınımsız; RTL nokta iniş. ✅
+> - **OTONOM CA GEÇİŞİ:** çakılı liderin ±3 m yanından düz geçiş —
+>   ylp01 ÜSTTEN (~11 m), ylp02 ALTTAN (⚡ aşağı-kaçışın ilk uçuşu);
+>   lider kıpırdamadı. ✅
+> - 🔴 **P0 — HOME KAYMASI:** RTL'de üçü kalkışa değil AYNI yanlış civara
+>   indi (~9 m KD). PX4 home kayıtları = iniş noktaları (RTL doğru uçtu,
+>   home'lar yanlıştı). **Çözülmeden RTL'li uçuş YOK** — bag analizi.
+> - ⚠️ ylp02 geçiş sonrası dönüşte 6,4 m'de tutuk kaldı — analiz bekliyor.
+> - ⚠️ Uçaklar **formasyon-sürer modda** bırakıldı (`/ws/gozlem` yok):
+>   sonraki açılışta mesh goto UÇAĞA GİTMEZ. Eski düzen için
+>   `touch /ws/gozlem` + restart.
+> - 🟡 drone1 docker json logu korupt (`docker logs` bozuk; rosbag sağlam).
 
 > ## 🎯 25 AĞUSTOS AKŞAMI — İLK ÜÇ UÇAKLI UÇUŞ, 8 TEST 8'İ GEÇTİ
 >

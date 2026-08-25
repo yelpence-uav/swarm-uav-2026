@@ -1,6 +1,6 @@
 # PLAN — buradan finale
 
-**Son güncelleme:** 25 Ağustos 2026, 22:40 — Engel 3 koda eşitlendi + TEK-ÜRETİCİ geçişi baslat.sh'e kondu (formasyon sürerken esp32→mesh_goto); ADIM 3 hazırlıkları tamam, dağıtım bekliyor
+**Son güncelleme:** 26 Ağustos 2026, 02:37 — ADIM 3 İLK UÇUŞLARI GEÇTİ (formasyon + otonom CA geçişi); HOME kayması P0
 
 Bu belge **tüm takımın ortak resmi** ve sürü entegrasyonunun **teknik yol
 haritası**. Yeni gelen biri bunu okuyup işe başlayabilir.
@@ -495,7 +495,14 @@ yeniden başladığında `sequence_num` 1'e döndüğü için **bütün** seçim
 bayat sayılıp düşüyordu; `docker restart` sonrası `swarm_fsm` lider
 değişimlerine kalıcı sağır kalıyordu. Artık kaynak başına `(incarnation, seq)`.
 
-### ADIM 3 · `path_planner` + `formation_node`
+### ADIM 3 · `path_planner` + `formation_node` — 🎯 İLK UÇUŞLAR GEÇTİ (26 Ağu gecesi)
+
+> ✅ **İlk formasyon uçuşu:** 3 uçak, V (tip 2), mesh tarifiyle slotlara
+> ~1 m, 20+ sn salınımsız, RTL nokta iniş. ✅ **Otonom CA geçişi:** ÇİZGİ
+> (tip 3) ile çakılı liderin ±3 m yanından geçiş — üstten/alttan dikey
+> yol verme canlı. Tarif kaynağı hâlâ elle (`form_yayinla`/topic pub);
+> `mission1` zinciri ve OKBASI (tip 1) şablonu henüz uçmadı.
+> 🔴 Açık: HOME kayması P0 (`YAPILACAKLAR`), ylp02 dönüş tutukluğu.
 
 **Şart:** ~~`px4_bridge velocity_only:=True`~~ ✅ otomatik (Engel 3 —
 `/ws/gozlem` silinince kendiliğinden true; yarın açılışta

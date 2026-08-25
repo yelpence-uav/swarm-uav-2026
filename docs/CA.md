@@ -1,6 +1,6 @@
 # CA — Çarpışma Önleme: dikey yol verme
 
-**Son güncelleme:** 25 Ağustos 2026, 21:56 — 🎯 İLK ÜÇ UÇAKLI TEST GEÇTİ + körlük yerde-pasif muafiyeti (`6258eab`) uçuşla doğrulandı (§6.6)
+**Son güncelleme:** 26 Ağustos 2026, 02:37 — 🎯 İLK ÜÇ UÇAKLI TEST GEÇTİ + körlük yerde-pasif muafiyeti (`6258eab`) uçuşla doğrulandı (§6.6)
 
 > Bu belge çarpışma önlemenin **bugünkü tasarımı ve durumu**. 23 Ağustos
 > sabahki sürümü yatay/dikey karşılaştırmasıydı; karar verildi ve uygulandı,
@@ -316,6 +316,22 @@ korluk / yatay son care : SIFIR / SIFIR — inisler nokta atisi
    normaldir (iki uçak drone2'yi 21 ms arayla kaybetti — alıcı değil
    taşıma). **Uçuşta körlük KRİTİĞİ ekrandayken yaklaştırma YAPILMAZ:
    görmeyen uçak kaçamaz.**
+
+## 6.7 🎯 26 Ağustos gecesi — OTONOM geçiş testi (çakılı lider, ÇİZGİ)
+
+Kurgu: ylp00 8 m'de tarif dışı (pozisyon-hold = çakılı lider); ylp01+ylp02
+ÇİZGİ (tip 3, 2 ajanda merkez+yan şablonu) ile liderin 15 m gerisinde
+toplanıp merkez 30 m güneye taşınarak liderin ±3,0 m yanından DÜZ geçti.
+
+Sahada gözlenen: **ylp01 liderin ÜSTÜNDEN (~11 m), ylp02 ALTINDAN geçti**
+— ⚡ rütbe-AŞAĞI kaçışın İLK gerçek uçuşu (8 m'de aşağı hedef ~5 m >
+taban 4; ayna devreye girmedi, tasarım gereği). Lider kıpırdamadı; iki
+uçak geçişi tamamlayıp bitiş slotlarına vardı.
+
+Açık kalanlar (bag analizi bekliyor):
+1. 🟠 ylp02 geçiş sonrası nominale dönüşte 6,4 m'de TUTUK kaldı (körlük
+   yok; kor_tutan boş — farklı bir tutma/CA-dışı sebep olabilir).
+2. 🔴 P0 (CA-dışı): RTL'de HOME kayması — `YAPILACAKLAR` P0.
 
 ## 7. 🔴 Açık — sıradaki uçuş öncesi
 

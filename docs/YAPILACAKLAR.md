@@ -1,8 +1,30 @@
 # YAPILACAKLAR
 
-**Son güncelleme:** 25 Ağustos 2026, 22:40 — ADIM 3 hazırlıkları: velocity_only otomatikmiş (belge eşitlendi), tek-üretici geçişi baslat.sh'e kondu (dağıtım bekliyor)
+**Son güncelleme:** 26 Ağustos 2026, 02:37 — ADIM 3 İLK UÇUŞU + otonom CA geçişi GEÇTİ; 🔴 YENİ P0: HOME kayması
 
-## 🚨 SONRAKİ OPERATÖRE — ÖNCE BUNLAR (25 Ağustos akşamı)
+## 🚨 SONRAKİ OPERATÖRE — ÖNCE BUNLAR (26 Ağustos gecesi)
+
+- `[ ]` 🔴 **P0 — HOME KAYMASI (RTL'e güvenilmez):** gece CA geçiş
+  testinde RTL, üç uçağı kalkış yerine değil AYNI yanlış civara indirdi
+  (~9 m KD; birbirine 1-2 m). PX4 home kayıtları = iniş noktaları →
+  RTL doğru, HOME yanlış. Yapılacak: uçuşun rosbag'inden
+  `/drone_N/mavros/home_position/home` zaman serisi + statustext "home"
+  mesajları → home NE ZAMAN, HANGİ konumla set edilmiş? (Şüpheliler:
+  ARM anında EKF/origin henüz oturmamış konum; önceki uçuştan kalma
+  home; set_gp_origin etkileşimi.) **Bu kapanmadan RTL'li uçuş YOK;
+  iniş land + göz önü alanla planlanır.**
+- `[ ]` 🟠 P1 — ylp02 geçiş sonrası dönüş tutukluğu: 6,4 m'de bekledi
+  (körlük yok). Aynı bag + ca.log'dan sebep çıkarılacak.
+- `[ ]` 🟠 P1 — OFFBOARD'da RC'siz uçuş: kumandalar kapalıyken RC-loss
+  failsafe'in tetiklenmemesi (COM_RCL_EXCEPT?) bilinçli mi — ölç,
+  kararlaştır, yaz.
+- `[ ]` 🟡 P2 — drone1 docker json logu korupt: `docker logs` hata
+  veriyor. Konteyner recreate (docker save imajından) ya da json log
+  sıfırlama; rosbag'ler sağlam.
+- ⚠️ Uçaklar **formasyon-sürer modda** (`/ws/gozlem` yok). Mesh goto
+  testleri için önce `touch /ws/gozlem` + restart.
+
+## 🚨 ÖNCEKİ (25 Ağustos akşamı)
 
 > ✅✅✅ **ADIM 4 (çarpışma önleme) HER YÖNÜYLE KAPANDI — üç uçaklı canlı
 > testle.** 25 Ağu akşam: ilk ÜÇ UÇAKLI eşzamanlı uçuş; manuel çapa

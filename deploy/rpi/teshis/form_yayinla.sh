@@ -1,5 +1,8 @@
 #!/bin/bash
 # Konteyner icinde LIDER dronda kosar. $1 = agent_id
+# $2 = agent_ids listesi (varsayilan "[1,2,3]" — 25 Agu: uc ucakli kadro;
+#      eski iki ucakli calisma icin "[1,3]" gecilebilir)
+# $3 = spacing_m (varsayilan 12.0 — ADIM 3 sarti; eski deger 4.0)
 #
 # AMAC: mesh formasyon aktarimini consensus/formation_node'a bagimli OLMADAN
 # test etmek. O dugumler GPS/poz/gorev durumu istiyor; ylp02'de GPS yok. Bu
@@ -13,6 +16,8 @@
 #   max_speed 3.5 m/s             -> uint8 x10        35                (tam)
 # Yani karsi tarafta EN UFAK sapma = gercek hata, kuantizasyon degil.
 AID="$1"
+AGENTS="${2:-[1,2,3]}"
+SPACING="${3:-12.0}"
 source /opt/ros/jazzy/setup.bash
 source /ws/install/setup.bash
 export ROS_DOMAIN_ID=0 RMW_IMPLEMENTATION=rmw_cyclonedds_cpp ROS_LOCALHOST_ONLY=1
@@ -32,7 +37,7 @@ timeout -s INT 4 ros2 topic pub -r 2 \
     --qos-reliability reliable --qos-durability transient_local \
     /swarm/internal/election/result \
     swarm_interfaces/msg/ElectionResult \
-    "{sequence_num: 1, new_leader_id: $AID, election_round: 1, triggered_by_agent_id: 0, reason: 3, confirmed_by_agent_ids: [1,3], message: mesh_testi}" \
+    "{sequence_num: 1, new_leader_id: $AID, election_round: 1, triggered_by_agent_id: 0, reason: 3, confirmed_by_agent_ids: $AGENTS, message: mesh_testi}" \
     2>&1 | grep -iE "incompatible|error" | head -3
 sleep 1
 
@@ -43,6 +48,6 @@ sleep 1
 echo "   [yayin] FormationCommand V, merkez 12.3/-45.6/-8.0, hdg 137.5 (5 sn)"
 timeout -s INT 6 ros2 topic pub -r 2 /swarm/internal/formation/target \
     swarm_interfaces/msg/FormationCommand \
-    "{sequence_num: 7, formation_type: 2, center_x: 12.3, center_y: -45.6, center_z: -8.0, heading_deg: 137.5, spacing_m: 4.0, agent_ids: [1,3], max_speed_mps: 3.5, source_module: mesh_testi}" \
+    "{sequence_num: 7, formation_type: 2, center_x: 12.3, center_y: -45.6, center_z: -8.0, heading_deg: 137.5, spacing_m: $SPACING, agent_ids: $AGENTS, max_speed_mps: 3.5, source_module: mesh_testi}" \
     2>&1 | grep -iE "incompatible|error" | head -3
 echo "   [yayin] bitti"

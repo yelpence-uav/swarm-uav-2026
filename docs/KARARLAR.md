@@ -1,6 +1,6 @@
 # KARARLAR — verilmiş ama henüz uygulanmamış kararlar
 
-**Son güncelleme:** 25 Ağustos 2026, 21:56 — KARAR-07 eklendi ve aynı gün UYGULANDI (körlük yerde-pasif muafiyeti, `6258eab`)
+**Son güncelleme:** 26 Ağustos 2026, 02:37 — KARAR-02 atlama notu (ADIM 3 uçuşları)
 
 Sohbette verilen kararlar oturum bitince kayboluyor. Bu defter onları
 tutuyor: **ne karar verildi, neden, ne zaman uygulanacak, nasıl test edilecek.**
@@ -849,6 +849,14 @@ gerekçeyle `a_dikey`'i 2,0'ın üstüne çıkarmak da ölçülmeden yapılmaz.
    dağıtmak ölçülmüş dalış imzasını (-1,48 m/s) SIKLAŞTIRIRDI. İki
    değişiklik logda ayrık gözlenir: çıkış mesafesi ↔ içerideyken
    irtifa dalışı.
+
+> ### ✅ `KARAR-02` denetimi ADIM 3 uçuşları için de ATLANDI — operatör kararı (26 Ağu gecesi)
+>
+> İlk formasyon uçuşu ve otonom CA geçişi öncesi ultracode İSTENDİ,
+> operatör "es geç" dedi. Dayanaklar: 35/35 birim test, G0 yer ölçümü,
+> velocity_only zincirinin CA uçuşlarıyla dolaylı kanıtı, kademeli tarif
+> akışı + RTL/kumanda iptal yolları. İki uçuş da geçti; HOME kayması
+> (P0) formation koduyla İLGİSİZ (PX4 home mekanizması).
 
 > ### ✅ `KARAR-02` denetimi bu uçuş için ATLANDI — operatör kararı (23 Ağu)
 >
