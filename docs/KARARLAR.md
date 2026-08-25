@@ -1,6 +1,6 @@
 # KARARLAR — verilmiş ama henüz uygulanmamış kararlar
 
-**Son güncelleme:** 25 Ağustos 2026, 02:30 — hist_m UÇUŞTA doğrulandı; KARAR-02 ADIM 3 için yeniden geçerli
+**Son güncelleme:** 25 Ağustos 2026, 17:30 — KARAR-04 UYGULANDI (kadro 1 2 3, rütbeler ölçüldü)
 
 Sohbette verilen kararlar oturum bitince kayboluyor. Bu defter onları
 tutuyor: **ne karar verildi, neden, ne zaman uygulanacak, nasıl test edilecek.**
@@ -580,7 +580,15 @@ umursar, diğeri umursamaz. `DURUM.md` §3'te de yazılı.
 
 # KARAR-04 — Üç uçak birden uçunca değişecek parametreler
 
-**Durum:** 🟡 BEKLİYOR — ylp01 onarılmadı
+**Durum:** ✅ **UYGULANDI (25 Ağustos 2026, 17:25)** — ylp01 onarılıp
+kaldırma testini geçince. Ölçülerek doğrulandı: `SURU_KADRO="1 2 3"` +
+`SURU_BEKLENEN_UCAK=3` üç uçağa dağıtıldı; canlı rütbeler **0/1/2**,
+`expected_agent_count=3` üçünde de. `min_active_for_formation` kod
+okumasıyla kapandı: canlı-üye eşiği, varsayılanı zaten 3 ve düğüm
+kapalı — değişiklik gerekmedi. ⚠️ YAN ETKİ: ylp02'nin kaçış yönü
+YUKARIDAN AŞAĞIYA döndü (rütbe 1→2); alçakta 4 m taban kelepçesi
+korur. ⏳ ARM'lı yer testi (FORMING + sağlık oranı 2/3) İÇ MEKÂN
+yasağı nedeniyle ilk açık alan oturumuna kaldı.
 **Ne zaman:** ylp01 dönüp üç uçakla ilk uçuş yapıldığında
 **Karar veren:** Operatör (15 Ağustos 2026, "sırası gelince")
 
@@ -831,7 +839,8 @@ gerekçeyle `a_dikey`'i 2,0'ın üstüne çıkarmak da ölçülmeden yapılmaz.
    yaklaşmasına (8,49 m) 1,99 m pay bırakıyor, 3,0 yalnız 1,49 m
    bırakıyordu; denetime "çıkış ≥ kritik yaklaşma = HATA" koşulu
    eklendi. Uçuş doğrulaması akşam.
-2. ylp01 dönünce `SURU_KADRO="1 2 3"` (KARAR-04).
+2. ✅ ylp01 dönünce `SURU_KADRO="1 2 3"` — **YAPILDI (25 Ağu 17:25,
+   KARAR-04 tam kaydına bak; rütbeler 0/1/2 ölçüldü).**
 3. ✅ **Depo/uçak farkı — KARAR (24 Ağustos, operatör): `tatmin`
    düzeltmesi ile `hist_m` akşam uçuşuna BİRLİKTE dağıtılacak.**
    Tek-değişiklik kuralından bilinçli sapma: geniş histerezis uçağı

@@ -1,6 +1,6 @@
 # YAPILACAKLAR
 
-**Son güncelleme:** 25 Ağustos 2026, 02:30 — oturum kapanışı: ADIM 4 TAM; sıradaki ADIM 3 ya da ylp01 hazırlığı
+**Son güncelleme:** 25 Ağustos 2026, 17:30 — KARAR-04 ✓, ylp01 uçtu; kalan: A16 + pil ADC + kalibrasyon teyidi
 
 ## 🚨 SONRAKİ OPERATÖRE — ÖNCE BUNLAR (25 Ağustos gecesi)
 
@@ -17,12 +17,24 @@
 >   ve çapraz slot geometrisi yasağı geçerli
 > - ya da **ylp01'i uçuşa hazırlamak** (aşağıdaki P1 listesi)
 
-### 🟠 P1 — ylp01 uçuş izni için kalanlar (Pi/ESP/FC zinciri TAM, bunlar değil)
-- `[ ]` 🟠 ESC güç hattı onarımı (2 Ağu düşüş hasarı — asıl engel)
-- `[ ]` 🟠 Yeni FC'de ivme/jiroskop/seviye kalibrasyonları (pusula yapıldı)
-- `[ ]` 🟠 RC-kayıp failsafe kurulumu + `param_karsilastir.py` ile fark dökümü
-- `[ ]` 🟠 ESP↔Pi jumper/tellerini sabitle (A16 — RX teli gece elle takıldı!)
-- `[ ]` 🔴 Kadroya girdiği gün `SURU_KADRO="1 2 3"` ÜÇ uçakta (KARAR-04)
+### 🟠 P1 — ylp01 uçuş izni (25 Ağu güncellemesi: ÇOĞU KAPANDI)
+- `[x]` 🟠 ~~ESC güç hattı onarımı~~ → **tamir edildi, KALDIRMA TESTİ GEÇTİ**
+  (25 Ağu ~17:00, operatör kumandayla; not: bir gün önce iki kaza olmuştu —
+  kalkışta flip + pervaneli/pilli ESC kalibrasyonu kazası, GUNLUK'a yazılacak)
+- `[x]` 🟠 ~~RC-kayıp failsafe~~ → **İKİ YÖNDE DOĞRULANDI (25 Ağu):** alıcı
+  Ch3=2100 basıyor, PX4 RC_RECEIVER biti düşüyor (`RC_FAILS_THR=2050`
+  parametreleri kopyayla zaten gelmişti). Ayrıca tamir sırasında
+  `MAV_SYS_ID` 3'e dönmüştü — 2'ye yazıldı+reboot+doğrulandı (⚠️ TUZAK:
+  parametre dosyası her yüklendiğinde sysid'i kontrol et!)
+- `[x]` 🔴 ~~SURU_KADRO~~ → **KARAR-04 UYGULANDI (17:25):** üç uçak
+  "1 2 3", rütbeler 0/1/2 canlı ölçüldü, beklenen uçak=3. ⚠️ ylp02'nin
+  kaçış yönü artık AŞAĞI. ⏳ ARM'lı yer testi açık alana kaldı.
+- `[ ]` 🟠 Yeni FC'de ivme/jiroskop/seviye kalibrasyonları — kaldırma
+  geçti ama bu üçünün BU kartta yapıldığı teyit edilmedi; sor/yap
+- `[ ]` 🟠 `param_karsilastir.py` ile ylp02'yle fark dökümü
+- `[ ]` 🟠 ESP↔Pi jumper/tellerini sabitle (A16 — RX teli elle takıldı!)
+- `[ ]` 🟠 **ylp01 pil ölçümü YOK** (FC 65,5 V sentinel basıyor — güç
+  modülünün POWER kablosu ya da BAT ayarı; pil izlemesiz uçuş riskli)
 
 ### 🟠 P1 — gece uçuşunun kuyrukları
 - `[ ]` 🟠 02:03 uçuşunun **gaz-doyum analizi** (`vfr_hud`; tırmanma +4,6 m
