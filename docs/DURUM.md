@@ -1,6 +1,24 @@
 # DURUM — şu an ne çalışıyor, ne bozuk
 
-**Son güncelleme:** 25 Ağustos 2026, 17:30 — KARAR-04 UYGULANDI: kadro "1 2 3", rütbeler 0/1/2 (⚠️ ylp02 artık AŞAĞI kaçar); ylp01 kaldırma testini geçti, RC failsafe iki yönde doğrulandı
+**Son güncelleme:** 25 Ağustos 2026, 21:56 — AKŞAM SAHASI 8/8: İLK ÜÇ UÇAKLI UÇUŞ + çok-komşulu CA GEÇTİ; körlük yerde-pasif muafiyeti (`6258eab`) üç uçakta CANLI ve uçuş-doğrulamalı; ylp01 3 görev uçuşu uçtu — tam kadroda
+
+> ## 🎯 25 AĞUSTOS AKŞAMI — İLK ÜÇ UÇAKLI UÇUŞ, 8 TEST 8'İ GEÇTİ
+>
+> - **TEST 0 (KARAR-04 yer testi):** üçlü eşzamanlı ARM sürü yolundan 3/3;
+>   uçak kaybında sayaç 3→2, **acil iniş YOK** — dayanıklılık doğrulandı.
+>   (FORMING görev başlatılmadan görülmez — üç uçaklı ilk göreve entegre.)
+> - **ylp01 üç görev uçuşu uçtu** (asılı + 2 CA testi) — tamir tamamen kapandı.
+> - **Günün bulgusu:** kapalı ylp02 körlük sayılıp dönüşü 34 sn blokladı →
+>   `6258eab` **körlük yerde-pasif muafiyeti** (yerde+disarm kayıp komşu
+>   dönüşü tutmaz; havada/arm'lı kayıp AYNEN korunur). Üç uçağa dağıtıldı,
+>   yerde VE uçuşta doğrulandı (3 tam kaçış-dönüş çevrimi).
+> - **FİNAL: üç uçak aynı anda havada** (filo ilki) — manuel ÇAPA (ylp00)
+>   ile ylp01/ylp02'ye ikişer yaklaşma: 4/4 kaçış-dönüş, taban aynası ×2
+>   (`dikey_yetersiz` → rütbe-AŞAĞI uçak yukarı aynalar), merdiven tepesi
+>   9,6 m, sıfır körlük, inişler nokta atışı.
+> - Filo ilki #2: **üç uçak aynı anda RTK-Fix** (taze survey, 1005 canlı).
+> - ⚠️ Canlı kural: uçak ELDE taşınırken ESP gölgelenir → 2 sn'lik körlük
+>   KRİTİK'leri normaldir; uçuş sırasında görülürse yaklaştırma KESİLİR.
 
 > Bu belge **şimdiki hâli** anlatır, tarihçe değil. Bir şey değişince burayı
 > güncelle, eskisini sil. Ne olduğunun hikâyesi `GUNLUK.md`'de kalır.
@@ -11,9 +29,9 @@
 
 | İHA | agent_id | Durum | Not |
 |-----|----------|-------|-----|
-| ylp00 | 1 | **Uçar** | Kod **`7645d83`** (24 Ağu 14:45 — dikey kaçınma dönüş paketi: tatmin + hist 2,5; ivme ileri-beslemesi AÇIK ve kalıcı). Pervaneler **TAKILI**. **RC-kayıp tespiti kuruldu ve HAVADA doğrulandı (19 Ağu):** kumanda kapanınca 1-2 sn'de RTL — Ch3 üst-uç yöntemi, bkz. `RPI_ESITLEME.md` §5. **P0.11 yer testi GEÇTİ:** sürü yolundan ARMED + lider seçimi + kalp atışı 399 msj @ 10 Hz. ✅ `yer_testi` bayrağı **YOK** (20 Ağu 16:20 ölçüldü) — uçak kalkış komutunu ALIR. ✅ Düşme (19 Ağu kill kazası) sonrası kontrol TAMAM (23:50): pervane/gövde/motorlar elle temiz, GPS ölçüldü — **RTK-FIXED, 30 uydu, sensör bitleri tam** (akşamki "bit yok" okuması geçiciymiş). ⏳ Titreşim ölçümü uçuş sabahı pervane takılınca (`titresim_olc.py` — pervanesiz ölçüm yanıltır). ⚠️ RC kalibrasyonu yenilendi (`RC3_MIN` 1016→906). ✅ `core.50` silindi (20 Ağu 00:05, 337 MB; disk %40) |
-| ylp01 | 2 | **UÇTU (kaldırma) — kadroda** | 25 Ağu gecesi tamamlandı: **yeni Pi** (klon+`ylp01_donusum.sh`, kod `7645d83`) + **yeni ESP firmware'i** (Pi üzerinden flash; **MAC takma adı**: fiziksel `...0A:B4` mesh'te `...13:88` — `cihazlar.md`) + Pi→ESP RX teli takıldı + **yeni Pixhawk** (CAN/Here4 ✅ pusula+GPS, `MAV_SYS_ID=2`). **Panelde göründü: "Drone 2, RTK-Fix".** Mesh RX kanıtı: RTCM `/drone_2/rtcm/in` 4,5 Hz. ⚠️ **UÇMAZ:** ESC güç hattı onarımı + ivme/jiro/seviye kalibrasyonları + RC failsafe + param karşılaştırma + jumper sabitleme (A16) bekliyor — `YAPILACAKLAR` P1 listesi. Kadroya girince `SURU_KADRO="1 2 3"` üç uçakta (KARAR-04). `kayit/` altında ylp02'nin eski kayıtları var (klon kalıntısı) |
-| ylp02 | 3 | **Uçar** | Kod **`7645d83`** (24 Ağu 14:45, ylp00 ile senkron). `guided_ivme_ff=1.0` — A/B sonrası **ikisinde de açık**. Pervaneler **TAKILI**. **İki uçaklı P0.11 yer testi GEÇTİ:** sürü yolundan ARMED + lider mutabakatı + mesh'ten 499 kalp atışı aldı. ✅ `yer_testi` bayrağı **YOK** (20 Ağu 16:20 ölçüldü). ✅ Alıcı failsafe'i düzeltildi ve ölçüldü (**P0.9 KAPANDI**, 19 Ağu gece: kayıtlı +100 bulundu → -100 kaydedildi → `CH5=1000`). ✅ RC-kayıp tespiti KURULU, bit iki yönde doğrulandı — kumanda kaybında RTL |
+| ylp00 | 1 | **Uçar** | Kod **`6258eab`** (25 Ağu ~21:00 — körlük yerde-pasif muafiyeti; öncesi 7645d83 tatmin+hist 2,5). Kadro rütbesi 0 = **ÇAPA (dikeyde kaçmaz)** — CA testlerinde manuel/yaklaştıran uçak bu olmalı (25 Ağu dersi). Pervaneler **TAKILI**. **RC-kayıp tespiti kuruldu ve HAVADA doğrulandı (19 Ağu):** kumanda kapanınca 1-2 sn'de RTL — Ch3 üst-uç yöntemi, bkz. `RPI_ESITLEME.md` §5. **P0.11 yer testi GEÇTİ:** sürü yolundan ARMED + lider seçimi + kalp atışı 399 msj @ 10 Hz. ✅ `yer_testi` bayrağı **YOK** (20 Ağu 16:20 ölçüldü) — uçak kalkış komutunu ALIR. ✅ Düşme (19 Ağu kill kazası) sonrası kontrol TAMAM (23:50): pervane/gövde/motorlar elle temiz, GPS ölçüldü — **RTK-FIXED, 30 uydu, sensör bitleri tam** (akşamki "bit yok" okuması geçiciymiş). ⏳ Titreşim ölçümü uçuş sabahı pervane takılınca (`titresim_olc.py` — pervanesiz ölçüm yanıltır). ⚠️ RC kalibrasyonu yenilendi (`RC3_MIN` 1016→906). ✅ `core.50` silindi (20 Ağu 00:05, 337 MB; disk %40) |
+| ylp01 | 2 | **Uçar — 3 görev uçuşu geçti (25 Ağu akşam)** | Kod **`6258eab`**. Tamir zinciri TAMAMEN kapandı: yeni Pi + yeni ESP (MAC takma adı `...13:88` — `cihazlar.md`) + yeni Pixhawk (`MAV_SYS_ID=2`). 25 Ağu akşam: **asılı görev uçuşu** (4,8 m/60 sn, sapma 0,4 m) + **iki CA doğrulama uçuşu** (kaçış 4,0 m'de giriş, 3 tam kaçış-dönüş çevrimi) + üç uçaklı final testte kaçan taraf. Kadro rütbesi 1 = YUKARI kaçar. Pi içeriği diğerleriyle md5-eşit (25 Ağu öğlen). ⏳ Pil sensör kartı hâlâ yok — uçuşlar tok pil + süre sınırıyla | |
+| ylp02 | 3 | **Uçar** | Kod **`6258eab`** (25 Ağu ~21:00, filo senkron). Kadro rütbesi 2 = birincil AŞAĞI; **4,8 m altında taban aynası YUKARI'ya çevirir — 25 Ağu'da iki kez sahada doğrulandı** (`dikey_yetersiz` tanısı). `guided_ivme_ff=1.0` açık. Pervaneler **TAKILI**. **İki uçaklı P0.11 yer testi GEÇTİ:** sürü yolundan ARMED + lider mutabakatı + mesh'ten 499 kalp atışı aldı. ✅ `yer_testi` bayrağı **YOK** (20 Ağu 16:20 ölçüldü). ✅ Alıcı failsafe'i düzeltildi ve ölçüldü (**P0.9 KAPANDI**, 19 Ağu gece: kayıtlı +100 bulundu → -100 kaydedildi → `CH5=1000`). ✅ RC-kayıp tespiti KURULU, bit iki yönde doğrulandı — kumanda kaybında RTL |
 
 > ✅ **22 Ağustos 17:31 — İKİ UÇAK DA AÇIK, ylp00 restart edildi.**
 >

@@ -1,6 +1,6 @@
 # KARARLAR — verilmiş ama henüz uygulanmamış kararlar
 
-**Son güncelleme:** 25 Ağustos 2026, 17:30 — KARAR-04 UYGULANDI (kadro 1 2 3, rütbeler ölçüldü)
+**Son güncelleme:** 25 Ağustos 2026, 21:56 — KARAR-07 eklendi ve aynı gün UYGULANDI (körlük yerde-pasif muafiyeti, `6258eab`)
 
 Sohbette verilen kararlar oturum bitince kayboluyor. Bu defter onları
 tutuyor: **ne karar verildi, neden, ne zaman uygulanacak, nasıl test edilecek.**
@@ -870,6 +870,46 @@ gerekçeyle `a_dikey`'i 2,0'ın üstüne çıkarmak da ölçülmeden yapılmaz.
 | B | Saf yatay (eski kip) | Formasyon geometrisini bozuyor; görevin kendisi o düzlem |
 | C | Göreli rütbe (yalnız çatışanlar sıralanır) | Çizgi formasyonunda iki uçak **aynı katmanı** seçiyor — mesh kusursuz olsa bile |
 | D | "En yüksek komşunun üstüne çık" | Benzetimde yarış: drone2 ve drone3 aynı irtifada buluştu (0,00 m ayrım) |
+
+---
+
+# KARAR-07 — Körlükte dönüş tutması: yerde+disarm kayıp komşu MUAF
+
+**Durum:** ✅ UYGULANDI ve UÇUŞLA DOĞRULANDI (25 Ağustos 2026 akşamı, `6258eab`)
+**Karar veren:** operatör (25 Ağustos 2026 — "B'yi yaz, sadece havada
+olan dronelar tehdit oluştursun")
+
+## Karar
+Körlükteki (görülmüş-ama-kayıp) komşunun SON bilinen durumu **yerde
+(< 1,5 m) + disarm + z geçerli** ise dikey dönüş tutması UYGULANMAZ;
+körlük alarmı yine basılır. Havada, arm'lı ya da konumu şüpheli kaybolan
+komşu için tutma AYNEN sürer.
+
+## Neden
+25 Ağu TEST 2: kapalı ylp02 körlük sayıldı, çatışma bittikten sonra
+dönüş 34 sn bloke kaldı (d_xy 13,5 m'yken uçak 7,4 m'de asılı). Kapalı
+uçak kalkamaz; arm ederse telemetrisi döner ve körlük zaten biter. Düşen
+uçak da PX4 çarpışma disarm'ıyla yerde+disarm görünür — kalanlar gereksiz
+yükseklikte kalmaz. 46,4 sn'lik tek yönlü mesh vakası (TUZAKLAR 2.15)
+havada+arm'lı sınıfta olduğundan korunmaya devam eder.
+
+## Nasıl uygulandı
+`ca_core.komsu_yerde_pasif()` (saf) + node `_korluk_tutanlar()` filtresi
+(`kor=` beslemesi) + `korluk_yer_esigi_m=1.5` (ucus_ayarlari/baslat.sh
+`KACINMA_KORLUK_YER`) + tanıya `kor_tutan=` alanı. Canlı yerdeki AÇIK
+uçak hâlâ kaçış tetikler (elde-taşıma test yöntemi bilerek korundu).
+
+## Test (hepsi geçti)
+5 birim test (35/35) → yer doğrulaması (aç-kapat: alarm + muafiyet logu +
+`kor_tutan=-`) → uçuş: aynı körlük koşulunda 3 tam kaçış-dönüş çevrimi.
+Havada-kayıp dalı yalnız birim testli (sahada üretmek tehlikeli).
+
+## Diğer seçenekler (elenenler)
+| Seçenek | Neden seçilmedi |
+|---|---|
+| Yalnız saha kuralı (kod değişikliği yok) | insan hatasına açık — bugün de bilmediğimiz için yaşandı |
+| N sn zaman aşımı | mesh 46 sn tek yönlü olabildiği ölçüldü; eşik keyfî, havada-kayıp korumasını zayıflatır |
+| Sağlık katmanından "resmî kayıp" ilanı | mimarice şık, ileride eklenebilir; bugün için daha büyük iş |
 
 ---
 

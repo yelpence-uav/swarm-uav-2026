@@ -1,6 +1,6 @@
 # RPİ EŞİTLEME DEFTERİ — geri gelen drone'u hizaya getirme
 
-**Son güncelleme:** 25 Ağustos 2026, 17:35 — ylp01 RC-kayıp doğrulandı, Ch2 reverse düzeltmesi kaydedildi
+**Son güncelleme:** 25 Ağustos 2026, 21:56 — `6258eab` (körlük muafiyeti) üç uçağa dağıtıldı ve doğrulandı
 
 ## Bu belge ne için
 
@@ -662,9 +662,22 @@ Gerçek bir ölümde bu yığın asıl suçlu sürücüyü gösterecek.
 🔴 **Pi öldüğünde GÜCÜ KESME** — `ramoops` izi RAM'de, güç giderse silinir.
 
 ## 8. DEĞİŞİKLİK DEFTERİ
-## 8. DEĞİŞİKLİK DEFTERİ
 
 Her Pi değişikliği buraya, en yeni en üste.
+
+### 2026-08-25 (akşam) — `6258eab` körlük muafiyeti ÜÇ uçağa dağıtıldı
+
+Konteyner içine kopyalanan dosyalar: `ca_core.py`,
+`collision_avoidance_node.py` (→ `/ws/src/swarm_core/...`), `baslat.sh`
+(→ `/ws/baslat.sh`). Ardından `colcon build --packages-select swarm_core`
++ `docker restart`. Doğrulama: üçünde `ros2 param get /collision_avoidance
+korluk_yer_esigi_m` = **1.5**.
+
+| Uçak | Durum |
+|------|-------|
+| ylp00 | ✅ |
+| ylp01 | ✅ |
+| ylp02 | ✅ |
 
 ### 2026-08-20 (5) — açılış sertleştirmesi + kayıt onarımı (ylp00 + ylp02)
 

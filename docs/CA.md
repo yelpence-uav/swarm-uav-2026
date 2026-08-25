@@ -1,6 +1,6 @@
 # CA — Çarpışma Önleme: dikey yol verme
 
-**Son güncelleme:** 25 Ağustos 2026, 02:25 — 🎯 hist_m + tatmin GECE UÇUŞUNDA DOĞRULANDI (§7.2)
+**Son güncelleme:** 25 Ağustos 2026, 21:56 — 🎯 İLK ÜÇ UÇAKLI TEST GEÇTİ + körlük yerde-pasif muafiyeti (`6258eab`) uçuşla doğrulandı (§6.6)
 
 > Bu belge çarpışma önlemenin **bugünkü tasarımı ve durumu**. 23 Ağustos
 > sabahki sürümü yatay/dikey karşılaştırmasıydı; karar verildi ve uygulandı,
@@ -259,6 +259,63 @@ uçağı uçururken diğerini gözle takip ederken bu ayırt edilemiyor.
 > **Ders:** tetik sınırı pilotun gözle kestirebileceğinden dar. Çıkış
 > histerezisi (`hist_m`) bunu doğrudan etkiliyor — §7.
 
+
+## 6.6 🎯 25 Ağustos akşamı — körlük bulgusu, muafiyet ve İLK ÜÇ UÇAKLI TEST
+
+Üç uçuş, bir bulgu, bir düzeltme, tam doğrulama. Ayrıntılı anlatım
+`GUNLUK` 25 Ağu 21:56; burada CA'ya kalıcı olan bilgi var.
+
+### Bulgu: körlükte dönme koruması kapalı uçağı da tutuyor
+
+ylp01 asılı + ylp00 elde testinde kaçış girişi tam 4,0 m'de, tırmanış
+7,9'a — kusursuz. Ama operatör çekildikten sonra dönüş GELMEDİ: bag
+analizi çıkış eşiğinin (6,5 m) t=37'de aşıldığını, kaçışın t=71'e dek
+(**34 sn**, d_xy 13,5 m'yken) tutulduğunu gösterdi. Kök neden §"körlükte
+dönme" korumasının tasarlandığı gibi çalışması: sabah mesh'te görülen
+ylp02 test öncesi KAPATILINCA "görülmüş-ama-kayıp" = körlük kuruldu.
+(24 Ağu gecesi aynı test dönmüştü çünkü o gece ylp01 mesh'e hiç
+girememişti — hiç görülmemiş komşu körlük sayılmaz.)
+
+### Düzeltme: yerde-pasif muafiyeti (`6258eab`, KARAR-07)
+
+Kayıp komşunun SON bilinen durumu **yerde (<`korluk_yer_esigi_m`=1,5 m)
++ disarm + z geçerli** ise dönüş tutması uygulanmaz; alarm yine basılır.
+Havada/arm'lı/şüpheli kayıp AYNEN korunur (46,4 sn mesh vakası sınıfı).
+Kod: `ca_core.komsu_yerde_pasif()` + node `_korluk_tutanlar()`; tanıda
+yeni alan `kor_tutan=` (körlüktekilerden gerçekten tutanlar). Canlı
+yerdeki açık uçak hâlâ kaçış tetikler — elde-taşıma test yöntemi yaşıyor.
+
+Doğrulama merdiveni: 5 birim test (35/35) → yerde aç-kapat kanıtı
+(`kor_komsu=[3] kor_tutan=-` + "YERDE+DISARM — donus tutmasi
+UYGULANMAYACAK") → uçuş: aynı körlük koşulunda **3 tam kaçış-dönüş**
+(tepe 8,5/7,9/7,1 → hep 4,5'e, ~0,5 m/s, `donus_kor=0`).
+
+### İLK ÜÇ UÇAKLI TEST (147 sn) — çok-komşulu CA canlı
+
+Düzen dersi: **manuel/yaklaştıran uçak = ÇAPA (drone1) olmalı** — çapa
+zaten kaçmaz, manuel olması hiçbir davranışı kaybettirmez; öteki her
+düzende ikilinin kaçması gereken tarafı pilot olur ve dikey kaçış ölür.
+
+ylp01+ylp02 görevle 4,8 m'de asılı (~10 m ara), operatör ylp00'la
+ikisine de İKİŞER yaklaşma — 4/4 çevrim temiz:
+
+```
+ylp01 (rutbe 1, YUKARI) : tepe 9,6 m ("2 komsu etkide" — merdiven ustu) ve 8,8
+ylp02 (rutbe 2, ASAGI)  : tepe 8,7 ve 7,7 — IKISINDE de dikey_yetersiz →
+                          TABAN AYNASI YUKARI (ilk saha kaniti)
+donusler                : hepsi 4,5'e, saniyeler icinde
+korluk / yatay son care : SIFIR / SIFIR — inisler nokta atisi
+```
+
+### Saha kuralları (25 Ağu dersleri)
+
+1. CA testinde yaklaştıran uçak ÇAPA olmalı (yukarıdaki gerekçe).
+2. Test dışı kadro uçağı ya HİÇ açılmaz ya AÇIK bırakılır (aç-kapat
+   körlük kurar; artık yerde-disarm muaf ama alarm/karmaşa yaratır).
+3. Uçak ELDE taşınırken ESP gölgelenir → 2 sn'lik körlük KRİTİK'leri
+   normaldir (iki uçak drone2'yi 21 ms arayla kaybetti — alıcı değil
+   taşıma). **Uçuşta körlük KRİTİĞİ ekrandayken yaklaştırma YAPILMAZ:
+   görmeyen uçak kaçamaz.**
 
 ## 7. 🔴 Açık — sıradaki uçuş öncesi
 

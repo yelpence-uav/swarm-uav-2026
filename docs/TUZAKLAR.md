@@ -1,6 +1,6 @@
 # TUZAKLAR — hata vermeden yanlış sonuç üretenler
 
-**Son güncelleme:** 23 Ağustos 2026, 22:15 — §3.13, §3.14 (dikey kaçınmanın ilk uçuşu)
+**Son güncelleme:** 25 Ağustos 2026, 21:56 — §4.11, §4.12 (körlük aç-kapat tuzağı, elde-taşıma gölgelenmesi)
 
 > **Bu belge CANLI.** Arşiv değil — buradaki her madde **bugün de geçerli.**
 >
@@ -1607,6 +1607,36 @@ drone da `connected=False`. ESP resetlenince mesh anında geri geldi.
 **Köprünün portu geri açması yeterli değil.** *(29 Temmuz 2026)*
 
 ---
+
+### 4.11 Kadro uçağını AÇ-KAPAT yapmak CA körlüğü kurar — "hiç açma ya da açık bırak"
+
+25 Ağustos: sabah mesh'te görülen ylp02 test öncesi kapatıldı. Uçan
+ylp01'in CA'sı onu "görülmüş-ama-kayıp" saydı (körlük) ve **çatışma
+bittikten sonra dönüşü 34 sn blokladı** — uçak d_xy 13,5 m'yken 7,4 m'de
+asılı kaldı. Hata yok, alarm var, ama davranış şaşırtıcı.
+
+Bir gece önce AYNI test dönmüştü — çünkü o gece ylp01 mesh'e hiç
+girememişti: **hiç görülmemiş komşu körlük sayılmaz.** Yani "üçüncü uçağın
+ESP'si bozukken test temiz, sağlamken kirli" paradoksu yaşandı.
+
+`6258eab` (KARAR-07) yerde+disarm kayıp komşuyu dönüş tutmasından muaf
+tuttu; yine de kural: **test dışı kadro uçağı ya HİÇ açılmaz ya AÇIK
+bırakılır** — aç-kapat, alarm gürültüsü ve (havada/arm'lı son görülme
+durumunda) gerçek tutma üretir.
+
+### 4.12 Uçak ELDE taşınırken ESP gölgelenir — "sürekli KRİTİK" alıcı arızası değildir
+
+25 Ağustos: YKİ art arda "drone1 KOMŞUSUNU GÖREMİYOR" KRİTİK'leri bastı.
+Ölçüm: drone1 VE drone3, drone2'yi **21 ms arayla aynı anda** kaybetti —
+iki bağımsız alıcı aynı anda kaybediyorsa suç vericide: drone2 o dakikada
+ELDE TAŞINIYORDU (anten el/vücut/yönelimle gölgelenir, 2 sn'lik kesinti
+körlük alarmı basar, yere konunca düzelir).
+
+Teşhis kalıbı: kayıp olayının zamanını iki alıcıda karşılaştır — eşzamanlı
+kayıp = verici/taşıma; tek alıcıda kayıp = o alıcının RX'i.
+
+**Uçuş kuralı: körlük KRİTİĞİ ekrandayken yaklaştırma YAPILMAZ** — görmeyen
+uçak kaçamaz; alarm tam bunu söylüyor.
 
 ## 5. Raspberry Pi ve seri portlar
 

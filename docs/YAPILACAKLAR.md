@@ -1,21 +1,27 @@
 # YAPILACAKLAR
 
-**Son güncelleme:** 25 Ağustos 2026, 17:55 — ylp01 UÇUŞ İZNİ LİSTESİ KAPANDI (pil kartı beklemesi hariç)
+**Son güncelleme:** 25 Ağustos 2026, 21:56 — AKŞAM SAHASI 8/8: ilk üç uçaklı uçuş + çok-komşulu CA geçti; ylp01 kadroda ve uçuyor; körlük muafiyeti `6258eab` üç uçakta
 
-## 🚨 SONRAKİ OPERATÖRE — ÖNCE BUNLAR (25 Ağustos gecesi)
+## 🚨 SONRAKİ OPERATÖRE — ÖNCE BUNLAR (25 Ağustos akşamı)
 
-> ✅✅ **ADIM 4 (çarpışma önleme) İKİ UÇUŞLA TAMAMEN KAPANDI.**
-> 23 Ağu: kaçış çalıştı. 25 Ağu 02:03: dönüş çalıştı (`hist_m=2,5` +
-> `tatmin`; bırakma 7,2-8,3 m, dalış yok — `CA.md` §7.2). Ayrıca ylp01
-> DİRİLDİ: yeni Pi + yeni ESP firmware'i (MAC takma adı) + FC — panelde
-> göründü, ama **UÇUŞ İZNİ YOK** (aşağıda). 12 saatlik maratonun tamamı:
-> `GUNLUK` 25 Ağu kaydı.
+> ✅✅✅ **ADIM 4 (çarpışma önleme) HER YÖNÜYLE KAPANDI — üç uçaklı canlı
+> testle.** 25 Ağu akşam: ilk ÜÇ UÇAKLI eşzamanlı uçuş; manuel çapa
+> (ylp00) ile ylp01/ylp02'ye ikişer yaklaşma → 4/4 kaçış-dönüş, taban
+> aynası ×2, merdiven tepesi 9,6 m, sıfır körlük (`GUNLUK` 25 Ağu 21:56;
+> ölçümler `CA.md` §6.6). KARAR-04 yer testi de kapandı (üçlü ARM +
+> kayıp dayanıklılığı). Körlük bulgusu + `6258eab` muafiyeti: `CA.md` §6.6.
 >
-> **Sıradaki büyük iş operatörle seçilecek:**
-> - **ADIM 3 (formasyon)** — 🔴 ilk uçuş öncesi `KARAR-02` gereği
->   operatörden **ultracode** istenir; tek-üretici kuralı (CLAUDE.md §4)
->   ve çapraz slot geometrisi yasağı geçerli
-> - ya da **ylp01'i uçuşa hazırlamak** (aşağıdaki P1 listesi)
+> **Sıradaki büyük iş: ADIM 3 (formasyon)** — 🔴 ilk uçuş öncesi
+> `KARAR-02` gereği operatörden **ultracode** istenir; tek-üretici kuralı
+> (CLAUDE.md §4) ve çapraz slot geometrisi yasağı geçerli.
+>
+> - 🟡 P2 — CA muafiyetinin "havada kayıp → tutma sürer" dalı yalnız
+>   birim testli (sahada üretmek tehlikeli — bilinçli sınır; kod
+>   `komsu_yerde_pasif`, 5 birim test).
+> - 🟡 P2 — CA testi saha kuralları (25 Ağu dersleri): manuel/yaklaştıran
+>   uçak = ÇAPA (ylp00) olmalı; test dışı kadro uçağı ya hiç açılmaz ya
+>   açık kalır; uçak elde taşınırken körlük KRİTİK'leri normal; uçuşta
+>   körlük KRİTİĞİ varken yaklaştırma YAPILMAZ.
 
 ### 🟠 P1 — ylp01 uçuş izni (25 Ağu güncellemesi: ÇOĞU KAPANDI)
 - `[x]` 🟠 ~~ESC güç hattı onarımı~~ → **tamir edildi, KALDIRMA TESTİ GEÇTİ**
@@ -33,9 +39,10 @@
   flip'ine katkı vermiş olabilir (pilot düzeltmesi ters tepiyordu).
   Failsafe düzenine etkisi YOK (o Ch3 tabanlı; kapalı-durum 2100 tekrar
   ölçüldü).
-- `[x]` 🔴 ~~SURU_KADRO~~ → **KARAR-04 UYGULANDI (17:25):** üç uçak
-  "1 2 3", rütbeler 0/1/2 canlı ölçüldü, beklenen uçak=3. ⚠️ ylp02'nin
-  kaçış yönü artık AŞAĞI. ⏳ ARM'lı yer testi açık alana kaldı.
+- `[x]` 🔴 ~~SURU_KADRO~~ → **KARAR-04 UYGULANDI (17:25) ve YER TESTİ
+  GEÇTİ (25 Ağu akşam):** üçlü eşzamanlı ARM sürü yolundan 3/3; uçak
+  kaybında sayaç 3→2, acil iniş YOK. ⚠️ ylp02'nin kaçış yönü AŞAĞI —
+  ama 4,8 m'de taban aynası YUKARI'ya çevirir (sahada 2× doğrulandı).
 - `[x]` 🟠 ~~İvme/jiroskop/seviye kalibrasyonları~~ → **operatör teyit
   etti: tamamlandı (25 Ağu).**
 - `[x]` 🟠 ~~`param_karsilastir.py` fark dökümü~~ → **KOŞULDU (25 Ağu

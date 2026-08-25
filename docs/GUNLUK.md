@@ -1,6 +1,6 @@
 # GÜNLÜK — oturum devir teslim kaydı
 
-**Son güncelleme:** 25 Ağustos 2026, 02:30
+**Son güncelleme:** 25 Ağustos 2026, 21:56
 
 Tek bilgisayar, sırayla çalışıyoruz. Biri kalkıp diğeri oturduğunda **hem
 kişi hem Claude** nerede kalındığını buradan anlar.
@@ -35,6 +35,104 @@ Claude'a **"oturumu kapat"** dersen bu kaydı o yazar.
 - ylp00: (kill switch? pil? nerede? konteyner ayakta mı?)
 - ylp02:
 ```
+
+---
+
+## 2026-08-25 21:56 — Berk + Claude (akşam sahası: 8 test/uçuş 8'i GEÇTİ, İLK ÜÇ UÇAKLI UÇUŞ)
+
+**Ne yapıldı**
+
+*1 — RTK: taze survey + reader doğru porta (akşam açılışı)*
+- u-blox takılınca reader hâlâ sabahki `-YOK` portundaydı → doğru portla
+  yeniden başlatıldı; **dünkü hafıza-survey tuzağına karşı** rover→survey-in
+  ile SIFIRDAN survey (60 sn, 2 m hedef) → 1005 akışta.
+- **Filo ilki: ÜÇ uçak aynı anda RTK-Fix** (31-32 uydu).
+- Ders: paneldeki "reset" düğmesi survey SIFIRLAMAZ (cihaz reboot'u; üstelik
+  donuk bırakabiliyor). Saha değişince taze survey Claude'dan istenir.
+
+*2 — TEST 0: KARAR-04 ARM'lı yer testi (pervaneler SÖKÜLÜ)*
+- **Tur A:** üç uçak sürü yolundan AYNI ANDA ARM — 3/3 `success` (safety
+  button'lar basılınca `ready_to_arm` üçünde true; PX4 ~10 sn'de oto-disarm).
+  Bulgu: FSM görev başlamadan FORMING'e geçmiyor (`mission_active=false`) —
+  FORMING doğrulaması üç uçaklı ilk göreve entegre olacak, yerde görülmez.
+- **Tur B:** ylp02 konteyneri durduruldu (kayıp simülasyonu): 2 sn'de CA
+  körlük alarmı, ~3 sn'de `active_agent_count` 3→2, **ACİL İNİŞ YOK**
+  (2/3=%67 > %50), ESP komşu tablosu tutarlı düştü; geri gelince 3'e döndü.
+  **KARAR-04 dayanıklılık beklentisi sahada doğrulandı.**
+- Not: ARM servis komutunu Claude'un kabuğu gönderemiyor (güvenlik
+  sınıflandırıcısı); operatör `!` ile çalıştırdı — iş bölümü: izleme Claude,
+  ARM satırı operatör.
+
+*3 — TEST 1: ylp01 kazadan 24 saat sonra İLK GÖREV UÇUŞU*
+- `asili` 4,8 m / 60 sn: arm teyit 2,5 s, tırmanış temiz, oturma 4,60 m
+  (vz=-0,12), sapma 0,4 m, land düzgün. **Mesh→CA→px4_bridge zinciri yeni
+  Pi+Pixhawk+ESP ile uçuşta doğrulandı.**
+
+*4 — TEST 2 + GÜNÜN BULGUSU: körlükte dönüş 34 sn bloke*
+- ylp01 asılı + ylp00 elde: kaçış girişi tam 4,0 m'de, tırmanış 7,9'a ✓ —
+  ama operatör çekildikten sonra **dönüş gelmedi**; 60 sn dolunca 7,4 m'den
+  land. Bag analizi: çıkış eşiği (6,5 m) t=37'de aşıldı, kaçış t=71'e dek
+  tutuldu (**34 sn**), d_xy 13,5 m'ye çıkmıştı.
+- **Kök neden ARIZA DEĞİL:** 23 Ağu'da eklenen körlükte-dönme koruması.
+  Sabah açık olan ylp02 test öncesi KAPATILINCA "görülmüş-ama-kayıp" =
+  körlük kuruldu (`kor_komsu=[3]`), koruma dönüşü bilerek tuttu. Dün aynı
+  test dönmüştü çünkü ylp01 mesh'e HİÇ girmemişti (hiç görülmemiş komşu
+  körlük sayılmaz).
+
+*5 — Çözüm: körlük yerde-pasif muafiyeti (`6258eab`) + doğrulama*
+- `komsu_yerde_pasif()` (ca_core, saf): kayıp komşunun SON durumu
+  **yerde + disarm + z geçerli** ise dönüş tutması UYGULANMAZ (kapalı/düşmüş
+  uçak); havada/arm'lı kayıp AYNEN korunur (46,4 sn mesh vakası sınıfı).
+  Alarm her durumda basılır. Tanıya `kor_tutan=` alanı eklendi.
+- `korluk_yer_esigi_m=1.5` (ucus_ayarlari + baslat.sh `KACINMA_KORLUK_YER`).
+  5 yeni birim test, **35/35**. Canlı yerdeki uçak hâlâ kaçış tetikler
+  (elde-taşıma test yöntemi ve kalkış koruması bilerek korundu).
+- **Üç uçağa dağıtıldı** (dosya + colcon build + restart; üçünde param 1.5).
+- **Yer doğrulaması:** ylp02 bilerek aç-kapat → alarm geldi, muafiyet logu
+  düştü, `kor_komsu=[3] kor_tutan=-`.
+- **Uçuş doğrulaması:** aynı körlük koşulunda ylp01 ile tekrar: ÜÇ tam
+  yaklaş-kaç-çekil-DÖN çevrimi (tepe 8,5/7,9/7,1 → hep 4,5'e, ~0,5 m/s);
+  `donus_kor=0`. ylp02 açılınca körlük kendiliğinden temizlendi.
+
+*6 — FİNAL: İLK ÜÇ UÇAKLI EŞZAMANLI UÇUŞ + çok-komşulu CA (147 sn)*
+- Düzen (operatör fikri, doğrusu buydu): **manuel uçak = ÇAPA (ylp00)** —
+  çapa zaten kaçmaz, hiçbir davranış kaybolmaz; ylp01+ylp02 görevle asılı
+  (4,8 m, 120 sn, aralarında ~10 m).
+- Operatör ylp00'ı iki uçağa da İKİŞER kez yaklaştırdı — 4/4 çevrim temiz:
+  ylp01 tepe **9,6 m** ("2 komşu etkide" — merdiven üst basamağı) ve 8,8;
+  ylp02 tepe 8,7 ve 7,7, ikisinde de **`dikey_yetersiz` → taban aynası
+  YUKARI** (rütbe-AŞAĞI uçağın taban davranışının ilk saha kanıtı).
+  Dönüşler hep 4,5'e; sıfır körlük, sıfır yatay son çare; inişler nokta.
+- Uçuş sırasında YKİ KRİTİK körlük uyarıları görüldü (uçuş ÖNCESİ):
+  drone1 ve drone3, drone2'yi **aynı anda** (21 ms arayla) kaybetmişti →
+  suçlu alıcılar değil, **elde taşınan uçağın ESP'sinin gölgelenmesi**
+  (uçak taşınırken 2 sn'lik kesintiler normal). Canlı kural: uçuşta körlük
+  KRİTİĞİ ekrandayken yaklaştırma YAPILMAZ.
+
+**Ne değişti**
+- kod: `6258eab` — ca_core `komsu_yerde_pasif`, node `_korluk_tutanlar`
+  filtresi + muafiyet logu + `kor_tutan` tanısı; baslat.sh + ucus_ayarlari
+  `KACINMA_KORLUK_YER=1.5`; test_ca_dikey +5 test.
+- uçakta: **üçü de `6258eab`** (build + restart, 25 Ağu ~21:00); başka
+  parametre/bayrak değişmedi. RPI_ESITLEME güncellendi.
+- belge: DURUM, YAPILACAKLAR, KARARLAR (KARAR-07), CA §6.6, TUZAKLAR §4,
+  RPI_ESITLEME, GUNLUK (bu kayıt).
+
+**Yarım kalan / tuzak**
+- Muafiyetin "havada kayıp → tutma sürer" dalı yalnız birim testli (sahada
+  üretmek tehlikeli — bilinçli sınır).
+- Berk'in sabah gözlemleri: TEST 2 tekrarının ilki boşa gitti (uçaklar
+  yanlış yerde, yaklaşılamadı) — test öncesi konum teyidi şart.
+- KARAR-02 denetimi bu CA değişikliği için soruldu, operatör ultracode
+  YAZMADI → kendi denetim + 35 test + kademeli doğrulamayla uçuldu.
+
+**Sıradaki adım**
+- ADIM 3 (formasyon) — ilk uçuş öncesi `KARAR-02` ultracode + tek-üretici
+  geçişi (YAPILACAKLAR "SONRAKİ OPERATÖRE").
+
+**Uçakların bırakıldığı hâl**
+- Üçü de sahada kendi noktalarına indi, disarm; kapatma/pil operatörde.
+- YKİ backend + RTCM reader Mac'te açık bırakıldı (kapatılacaksa operatör).
 
 ---
 
