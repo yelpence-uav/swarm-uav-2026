@@ -1,6 +1,6 @@
 # PLAN — buradan finale
 
-**Son güncelleme:** 25 Ağustos 2026, 02:25 — dönüş davranışı UÇUŞTA DOĞRULANDI; ADIM 4 TAM
+**Son güncelleme:** 25 Ağustos 2026, 22:20 — Engel 3 koda eşitlendi: `velocity_only` 21 Ağu'dan beri otomatik, ADIM 3'te tek iş `/ws/gozlem`'i silmek; ADIM 4 üç uçaklı testle TAM
 
 Bu belge **tüm takımın ortak resmi** ve sürü entegrasyonunun **teknik yol
 haritası**. Yeni gelen biri bunu okuyup işe başlayabilir.
@@ -351,13 +351,22 @@ DETACHED/PRECISION_LANDING/WAITING_REJOIN/REJOINING durumlarında susuyor;
 Hakemlik yine de **güvenlik ağı** olarak değerli — bir kapı kaçarsa sessiz
 çakışma yerine belirli davranış. ~30 satır, yerde test edilebilir.
 
-### Engel 3 — `formation_node` kip uyuşmazlığı 🟠 açık
+### Engel 3 — `formation_node` kip uyuşmazlığı ✅ ÇÖZÜLDÜ (21 Ağu; belge 25 Ağu'da koda eşitlendi)
 
 `formation_node` C modu (saf hız, `position_valid=False`) için tasarlanmış, ama
 `px4_bridge._velocity_only` varsayılanı `False` → A modunda çalışır, PX4 de
 konum kontrolü yapar ve **kazançlar toplanır** (SVT 0.8 + `MPC_XY_P` 0.95).
 
-**Çözüm: `velocity_only:=True`** — `baslat.sh`'te tek satır. **ADIM 3'ün şartı.**
+**Çözüm 21 Ağustos'ta `baslat.sh`'e girmiş** (satır ~470-510, bu belge bayat
+kalmıştı): `VELOCITY_ONLY` elle değil **otomatik** hesaplanıyor —
+(a) formasyon uçağı sürüyorsa (`/ws/gozlem` yok) **veya** (b) CA koşuyorsa
+→ `true`. (b) sayesinde bugünkü uçan yapılandırmada **zaten true**; 25 Ağu
+kaçış uçuşlarının saf-hız B dalında temiz çalışması davranışsal kanıt.
+Guided yol bozulmaz: `goto` `velocity_valid=False` taşır → yürütücü (C)
+dalı, `velocity_only`'ye hiç bakmaz. Ek güvenlik: formasyon sürecekken
+aktarım katı boşsa betik gözlem modunu ZORLAR.
+
+**ADIM 3 günü kalan iş: `/ws/gozlem`'i silmek** — bayrak kendiliğinden doğru.
 
 Alternatif: `formation_node`'u konum kipine almak (`position_valid=True`). O
 zaman iş bölümü temiz olur — `formation_node` **nereye**, `px4_bridge`
@@ -394,7 +403,7 @@ Koşmakta olanlar da listede; "zaten var" bir düğümü çıkarmak yanlış olu
 
 | Düğüm | Gereken |
 |-------|---------|
-| `px4_bridge` | ADIM 3'te `velocity_only:=True` |
+| `px4_bridge` | ✅ `velocity_only` otomatik (Engel 3): CA açıkken zaten true; ADIM 3'te `/ws/gozlem` silinince formasyon dalı da devrede |
 | `esp32_bridge` | Değişiklik yok — lider kapısı doğru çalışıyor |
 | `basit_kacinma` | ADIM 4'te değişecek, **silinmeyecek** |
 | `agent_fsm_node` | ✅ preflight pil düzeltmesi yapıldı (15 Ağu) |
@@ -488,7 +497,9 @@ değişimlerine kalıcı sağır kalıyordu. Artık kaynak başına `(incarnatio
 
 ### ADIM 3 · `path_planner` + `formation_node`
 
-**Şart:** `px4_bridge velocity_only:=True`, `spacing_m` komutta 12 m.
+**Şart:** ~~`px4_bridge velocity_only:=True`~~ ✅ otomatik (Engel 3 —
+`/ws/gozlem` silinince kendiliğinden true; yarın açılışta
+`grep velocity_only` ile açılış logundan teyit et), `spacing_m` komutta 12 m.
 
 ⚠️ **KARAR-02:** `formation_node` 50 Hz'de uçağa setpoint yazıyor — ilk kez
 havaya kalkmadan önce operatöre çok ajanlı denetim önerilecek.
