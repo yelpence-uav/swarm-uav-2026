@@ -1,6 +1,6 @@
 # RPİ EŞİTLEME DEFTERİ — geri gelen drone'u hizaya getirme
 
-**Son güncelleme:** 25 Ağustos 2026, 21:56 — `6258eab` (körlük muafiyeti) üç uçağa dağıtıldı ve doğrulandı
+**Son güncelleme:** 25 Ağustos 2026, 23:50 — tek-üretici baslat.sh + DTR/RTS köprü düzeltmesi üç uçakta
 
 ## Bu belge ne için
 
@@ -664,6 +664,20 @@ Gerçek bir ölümde bu yığın asıl suçlu sürücüyü gösterecek.
 ## 8. DEĞİŞİKLİK DEFTERİ
 
 Her Pi değişikliği buraya, en yeni en üste.
+
+### 2026-08-25 (gece ~23:45) — tek-üretici `baslat.sh` + DTR/RTS'li `esp32_bridge` ÜÇ uçağa
+
+`20c2b01` (baslat.sh: TEK-ÜRETİCİ geçişi + FORMASYON_SURUYOR) ve `89a16cf`
+(esp32_bridge: seri açılışta DTR/RTS tutulmaz). Kopya + `colcon build
+--packages-select swarm_control` + restart. Doğrulama: açılış logunda
+`velocity_only=true`, TEK-URETICI satırı YOK (formasyon gözlemde — davranış
+korundu), üçü panele RTK-Fix'le döndü.
+
+| Uçak | Durum |
+|------|-------|
+| ylp00 | ✅ |
+| ylp01 | ✅ |
+| ylp02 | ✅ |
 
 ### 2026-08-25 (akşam) — `6258eab` körlük muafiyeti ÜÇ uçağa dağıtıldı
 

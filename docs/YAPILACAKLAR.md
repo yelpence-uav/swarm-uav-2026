@@ -16,11 +16,10 @@
 > geometrisi yasağı geçerli. Hazırlıklar (25 Ağu akşam, uçaklar kapalıyken):
 > - `[x]` `velocity_only` — zaten otomatikmiş (21 Ağu, PLAN Engel 3 koda
 >   eşitlendi); açılış logunda `velocity_only=true` teyidi yeter
-> - `[x]` **tek-üretici geçişi `baslat.sh`'e kondu:** formasyon sürerken
->   esp32_bridge çıkışı `/gozlem/mesh_goto`ya (uçağı süremez); üç senaryo
->   masada doğrulandı. ⚠️ **uçaklara DAĞITILMADI** — ADIM 3 gününün ilk
->   işi: baslat.sh'i üç uçağa dağıt, açılış logunda `TEK-URETICI` satırı
->   (formasyon açılınca) / bugünkü davranışın korunduğunu gör
+> - `[x]` **tek-üretici geçişi `baslat.sh`'e kondu ve DAĞITILDI (25 Ağu
+>   gece):** üç uçakta açılış logu doğrulandı — `velocity_only=true`,
+>   TEK-URETICI satırı yok (formasyon gözlemde, davranış korundu).
+>   DTR/RTS'li esp32_bridge de (`89a16cf`) aynı turda gitti
 > - `[ ]` tarif kaynağı: ilk testler `form_yayinla.sh` ile (mission1_node
 >   uçuş ister, yerde test edilemez)
 >
