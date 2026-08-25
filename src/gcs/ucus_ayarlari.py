@@ -386,6 +386,13 @@ KACINMA_KATMAN_M = 3.0
 # (aralik <= 7 m) d0 ile birlikte yeniden dusunulmeli.
 KACINMA_HIST_M = 2.5
 
+# KORLUK YER ESIGI — kaybolan komsunun SON bilinen irtifasi bunun
+# altinda VE disarm ise korluk DONUS TUTMASI uygulanmaz (kapali ucak,
+# dusen ucak). 25 Agustos sahasi: kapali ylp02 yuzunden ylp01 donusu
+# 34 sn bloke kaldi. Havada/arm'li kaybolan komsu icin tutma aynen
+# surer (46.4 sn'lik tek yonlu mesh vakasi o siniftir, TUZAKLAR 2.15).
+KACINMA_KORLUK_YER_M = 1.5
+
 # KACIS ZARFI (YANAL) — kacinma bir ucagi PLANLI yerinden en fazla bu
 # kadar yana itebilir/kaydirabilir. Kuru testin haritasi ve ayak izi bu
 # payi cizmek icin kullaniyor (24 Agustos'ta baglandi — onceden harita
@@ -701,6 +708,7 @@ def _kabuk():
     print(f'KACINMA_HARD={KACINMA_HARD_M}')
     print(f'KACINMA_KATMAN={KACINMA_KATMAN_M}')
     print(f'KACINMA_HIST={KACINMA_HIST_M}')
+    print(f'KACINMA_KORLUK_YER={KACINMA_KORLUK_YER_M}')
     print(f'KACINMA_DIKEY_HIZ={KACINMA_DIKEY_HIZ_MPS}')
     print(f'KACINMA_DIKEY_IVME={KACINMA_DIKEY_IVME_MPS2}')
     print(f'KACINMA_DIKEY_KP={KACINMA_DIKEY_KP}')

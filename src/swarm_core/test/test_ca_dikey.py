@@ -18,7 +18,7 @@ sys.path.insert(0, os.path.join(
     os.path.dirname(os.path.abspath(__file__)), '..'))
 
 from swarm_core.collision_avoidance.ca_core import (  # noqa: E402
-    CaParams, CollisionAvoidanceCore, NeighborObs)
+    CaParams, CollisionAvoidanceCore, NeighborObs, komsu_yerde_pasif)
 
 KATMAN = 3.0
 
@@ -496,3 +496,38 @@ def test_komsu_CIKINCA_nominale_donuluyor():
         else:
             h += max(-1.5, min(1.5, 2.0 * (10.0 - h))) * ca.p.dt
     assert abs(h - 10.0) < 0.5, f'nominale donmedi: {h:.2f} m'
+
+
+# --- korluk yerde-pasif muafiyeti — 25 Agustos 2026 saha bulgusu ---------
+#
+# Kapali (yerde+disarm) ylp02 yuzunden ylp01'in donusu 34 sn bloke kaldi.
+# Muafiyet YALNIZ yerde VE disarm VE z gecerli olan kayip komsuya uygulanir.
+
+def test_korluk_muaf_yerde_ve_disarm():
+    """Kapali ucak: yerde (z~0), disarm -> tutma YOK."""
+    assert komsu_yerde_pasif(
+        armed=False, pos_z_ned=-0.2, z_valid=True, yer_esigi_m=1.5)
+
+
+def test_korluk_muaf_DEGIL_havada_kaybolan():
+    """46.4 sn'lik mesh kopmasi sinifi: havada kaybolan KORUNUR."""
+    assert not komsu_yerde_pasif(
+        armed=True, pos_z_ned=-5.0, z_valid=True, yer_esigi_m=1.5)
+
+
+def test_korluk_muaf_DEGIL_yerde_ama_armli():
+    """Yerde ama ARM'li: her an kalkabilir -> tutma SURER."""
+    assert not komsu_yerde_pasif(
+        armed=True, pos_z_ned=-0.1, z_valid=True, yer_esigi_m=1.5)
+
+
+def test_korluk_muaf_DEGIL_z_gecersiz():
+    """Konuma guvenilmiyorsa guvenli taraf: tutma SURER."""
+    assert not komsu_yerde_pasif(
+        armed=False, pos_z_ned=0.0, z_valid=False, yer_esigi_m=1.5)
+
+
+def test_korluk_muaf_DEGIL_disarm_ama_yuksekte():
+    """Disarm gorunen ama yuksekte kaybolan (supheli veri) KORUNUR."""
+    assert not komsu_yerde_pasif(
+        armed=False, pos_z_ned=-4.0, z_valid=True, yer_esigi_m=1.5)

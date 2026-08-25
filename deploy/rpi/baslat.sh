@@ -986,6 +986,7 @@ if [ -n "$SURU_DUGUMLERI" ]; then
                 -p a_dikey_max_mps2:=${KACINMA_DIKEY_IVME:-2.0} \
                 -p kp_dikey:=${KACINMA_DIKEY_KP:-2.0} \
                 -p hist_m:=${KACINMA_HIST:-2.5} \
+                -p korluk_yer_esigi_m:=${KACINMA_KORLUK_YER:-1.5} \
                 -p k_dikey:=${KACINMA_K_DIKEY:-1.0} \
                 -p k_yatay:=${KACINMA_K_YATAY:-1.0} \
                 -p neighbor_rx_stale_s:=${KACINMA_BAYAT_S:-1.5} \

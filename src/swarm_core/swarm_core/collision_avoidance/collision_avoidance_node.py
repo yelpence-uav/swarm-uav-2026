@@ -20,7 +20,12 @@ from swarm_interfaces.msg import (
     SystemEvent,
 )
 
-from .ca_core import CaParams, CollisionAvoidanceCore, NeighborObs
+from .ca_core import (
+    CaParams,
+    CollisionAvoidanceCore,
+    NeighborObs,
+    komsu_yerde_pasif,
+)
 # KARAR-01 Secenek C: komsu verisi NeighborInfo/kinematic_fusion yerine ham
 # AgentStatus'tan geliyor. NeighborInfo importu BILEREK kaldirildi — dursaydi
 # "hangi kaynak kullaniliyor" sorusu koda bakinca belirsiz kalirdi.
@@ -94,6 +99,8 @@ class CollisionAvoidanceNode(Node):
         # Hic gorulmemis komsu (or. yerdeki ylp01) korluk sayilmaz.
         self._komsu_gorulmus: set[int] = set()
         self._korluk_bildirildi: set[int] = set()
+        # Yerde+disarm kaybolan komsu icin muafiyet YALNIZ BIR KEZ loglanir.
+        self._korluk_muaf_bildirildi: set[int] = set()
         self._n_korluk = 0
         self._n_korluk_tut = 0
         self._son_kacis_t = 0.0
@@ -216,6 +223,14 @@ class CollisionAvoidanceNode(Node):
         # 5.0 onerilen deger: saglikli linkte maks bosluk 0.4 sn olculdu,
         # yani normal isleyisin 12 kati. Gecici sarsinti ucagi durdurmaz.
         self.declare_parameter('korluk_tut_s', 0.0)
+        # korluk_yer_esigi_m: kaybolan komsunun SON bilinen irtifasi bu
+        # esigin ALTINDA ve DISARM ise korluk DONUS TUTMASI uygulanmaz
+        # (kapali ucak, dusen ucak). 25 Agustos sahasi: kapali ylp02
+        # yuzunden ylp01 donusu 34 sn bloke kaldi. Alarm yine basilir.
+        # 1.5 m: RTK'da yer gurultusu cm mertebesi; elde tasinan ucak
+        # KAYBOLMADIGI icin bu esikten hic gecmez (canli komsu tehdit
+        # olmaya devam eder — elde-tasima CA testi bilerek korunuyor).
+        self.declare_parameter('korluk_yer_esigi_m', 1.5)
         # d0 = 4.0 SABIT — operator karari, 23 Agustos 2026.
         # Sartname ajanlar arasi mesafeyi hakemlere birakiyor (3-10 m,
         # calisma aninda QR/FormationCommand ile gelir). Operator karari:
@@ -297,6 +312,7 @@ class CollisionAvoidanceNode(Node):
         self._altitude_gate_m = float(gp('altitude_gate_m').value)
         self._korluk_alarm_s = float(gp('korluk_alarm_s').value)
         self._korluk_tut_s = float(gp('korluk_tut_s').value)
+        self._korluk_yer_esigi_m = float(gp('korluk_yer_esigi_m').value)
         self._d0_m = float(gp('d0_m').value)
         self._hard_m = float(gp('hard_m').value)
         self._r_min_m = float(gp('r_min_m').value)
@@ -517,6 +533,37 @@ class CollisionAvoidanceNode(Node):
             obs.append(gozlem)
         return obs
 
+    def _korluk_tutanlar(self) -> set[int]:
+        """Korlukteki komsulardan DONUS TUTMASI gerektirenleri suzer.
+
+        Korluk seti ikiye ayrilir (25 Agustos 2026 saha bulgusu):
+        - Son gorulmesinde YERDE + DISARM olan (kapali/dusmus ucak):
+          alarm basilir ama donus tutmasina SEBEP OLMAZ. O ucak kalkamaz;
+          arm olursa telemetrisi yeniden gelir ve korlugu zaten bitirir.
+        - Digerleri (havada/arm'li/konumu suphali kaybolan): tutma surer.
+          46.4 sn'lik tek yonlu mesh vakasi (TUZAKLAR 2.15) bu siniftir.
+        """
+        tutanlar: set[int] = set()
+        for nid in self._korluk_bildirildi:
+            st = self._neighbors.get(nid)
+            muaf = st is not None and komsu_yerde_pasif(
+                armed=bool(st.armed),
+                pos_z_ned=float(st.pos_z),
+                z_valid=bool(st.z_valid),
+                yer_esigi_m=self._korluk_yer_esigi_m,
+            )
+            if muaf:
+                if nid not in self._korluk_muaf_bildirildi:
+                    self._korluk_muaf_bildirildi.add(nid)
+                    self.get_logger().info(
+                        f'drone{nid} korlukte ama son gorulmesi YERDE+DISARM '
+                        f'(z={-float(st.pos_z):.1f} m) — donus tutmasi '
+                        f'UYGULANMAYACAK.'
+                    )
+            else:
+                tutanlar.add(nid)
+        return tutanlar
+
     def _korluk_tara(self, now: float) -> None:
         """Komsu tazeligini tarar, korlugu baslatir/bitirir — P0.15.
 
@@ -535,6 +582,7 @@ class CollisionAvoidanceNode(Node):
             self._komsu_gorulmus.add(nid)
             if nid in self._korluk_bildirildi:
                 self._korluk_bildirildi.discard(nid)
+                self._korluk_muaf_bildirildi.discard(nid)
                 self.get_logger().warning(
                     f'drone{nid} TEKRAR GORULUYOR ({yas:.2f} sn yasinda) — '
                     f'korluk bitti.'
@@ -711,7 +759,12 @@ class CollisionAvoidanceNode(Node):
             # Korlukte kazanilan dikey ayrim BIRAKILMAZ. `_korluk_bildirildi`
             # yalnizca BIR KEZ GORULMUS ve sonra kaybolmus komsulari tutuyor;
             # hic gorulmemis komsu (or. yerdeki ylp01) burayi tetiklemez.
-            kor=bool(self._korluk_bildirildi),
+            #
+            # 25 Agustos saha bulgusu: son gorulmesinde YERDE + DISARM olan
+            # kayip komsu (kapali ucak, dusen ucak) tutma sebebi OLMAZ —
+            # `_korluk_tutanlar` filtresi. Alarm yine basilir; yalniz donus
+            # blokesi kalkar. Havada/arm'li kaybolan icin tutma aynen surer.
+            kor=bool(self._korluk_tutanlar()),
         )
         self._dikey_tanilari_isle()
 
@@ -794,6 +847,7 @@ class CollisionAvoidanceNode(Node):
                 f'korluk={self._n_korluk} '
                 f'korluk_tut={self._n_korluk_tut} '
                 f'kor_komsu={sorted(self._korluk_bildirildi) or "-"} '
+                f'kor_tutan={sorted(self._korluk_tutanlar()) or "-"} '
                 f'irtifa={self._irtifa_m:.1f}'
                 f'{"" if self._irtifa_ok else "(GECERSIZ)"} '
                 f'dikey_yetersiz={self._n_dikey_yetersiz} '

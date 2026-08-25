@@ -186,6 +186,33 @@ def _smoothstep(t: float) -> float:
     return t * t * (3.0 - 2.0 * t)
 
 
+def komsu_yerde_pasif(
+    armed: bool, pos_z_ned: float, z_valid: bool, yer_esigi_m: float
+) -> bool:
+    """Kaybolan komsunun SON bilinen durumu 'yerde + disarm' mi?
+
+    25 Agustos 2026 sahada: ylp02 KAPALI masada dururken ylp01 kacisa
+    girdi; catisma bitince korluk tutmasi (ca 549) donusu SURESIZ blokladi
+    ve ucak gorev bitene dek 7.8 m'de kaldi. Kapali ucak "havada bir yerde
+    olabilir" varsayimiyla korunuyordu — oysa son telemetrisi yerde ve
+    disarm oldugunu SOYLUYORDU.
+
+    Bu fonksiyon o ayrimi yapar: yerde VE disarm kaybolan komsu tutma
+    sebebi OLMAZ (kalkamaz; arm ederse yeni telemetri gelir ve zaten
+    korluk biter). Havada ya da arm'li kaybolan komsu icin tutma aynen
+    surer — 46.4 sn'lik tek yonlu mesh vakasi (TUZAKLAR 2.15) bu siniftir.
+
+    Dusen ucak notu: PX4 carpismada kendini disarm eder, son paketleri
+    yerde+disarm gorunur -> kalanlar gereksiz yere yukseklikte kalmaz.
+
+    z_valid False ise konuma guvenilmez -> guvenli taraf: pasif SAYILMAZ.
+    NED: yerde pos_z ~ 0, havada negatif.
+    """
+    if armed or not z_valid:
+        return False
+    return -pos_z_ned < yer_esigi_m
+
+
 def clamp_speed_xy(
     vx: float, vy: float, max_speed: float
 ) -> tuple[float, float]:
