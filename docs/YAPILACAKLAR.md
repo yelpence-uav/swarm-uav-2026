@@ -1,6 +1,6 @@
 # YAPILACAKLAR
 
-**Son güncelleme:** 25 Ağustos 2026, 17:35 — + Ch2 reverse düzeltmesi doğrulandı (flip katkı şüphesi notuyla)
+**Son güncelleme:** 25 Ağustos 2026, 17:45 — A16 bantla sabitlendi; pil ölçümü BİLEREK devre dışı (kart bekleniyor)
 
 ## 🚨 SONRAKİ OPERATÖRE — ÖNCE BUNLAR (25 Ağustos gecesi)
 
@@ -39,9 +39,16 @@
 - `[ ]` 🟠 Yeni FC'de ivme/jiroskop/seviye kalibrasyonları — kaldırma
   geçti ama bu üçünün BU kartta yapıldığı teyit edilmedi; sor/yap
 - `[ ]` 🟠 `param_karsilastir.py` ile ylp02'yle fark dökümü
-- `[ ]` 🟠 ESP↔Pi jumper/tellerini sabitle (A16 — RX teli elle takıldı!)
-- `[ ]` 🟠 **ylp01 pil ölçümü YOK** (FC 65,5 V sentinel basıyor — güç
-  modülünün POWER kablosu ya da BAT ayarı; pil izlemesiz uçuş riskli)
+- `[x]` 🟠 ~~ESP↔Pi tellerini sabitle (A16)~~ → **bantla sabitlendi
+  (25 Ağu ~17:40, operatör).** Kalıcı çözüm (kilitli konnektör/lehim)
+  hâlâ ileride — bant titreşimde gevşeyebilir, uçuş öncesi göz at.
+- `[~]` 🟠 **ylp01 pil ölçümü BİLEREK devre dışı** (25 Ağu, operatör):
+  güç ölçüm devre kartı EKSİK, yenisi bekleniyor; gelene kadar FC pil
+  göremez (65,5 V sentinel). 🔴 **UÇUŞ KURALI bu süreçte:** panel/QGC
+  %100 gösterse de İNANMA (sahte doldurma) — tok pille kalk, uçuşu
+  süreyle sınırla (zamanlayıcı tut), pil takım disiplinini operatör
+  yürütür. Kart gelince: tak → `battery` konusundan gerçek V ölçülecek
+  → bu madde kapanır.
 
 ### 🟠 P1 — gece uçuşunun kuyrukları
 - `[ ]` 🟠 02:03 uçuşunun **gaz-doyum analizi** (`vfr_hud`; tırmanma +4,6 m
