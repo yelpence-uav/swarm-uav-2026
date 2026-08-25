@@ -1,6 +1,6 @@
 # YAPILACAKLAR
 
-**Son güncelleme:** 25 Ağustos 2026, 21:56 — AKŞAM SAHASI 8/8: ilk üç uçaklı uçuş + çok-komşulu CA geçti; ylp01 kadroda ve uçuyor; körlük muafiyeti `6258eab` üç uçakta
+**Son güncelleme:** 25 Ağustos 2026, 22:40 — ADIM 3 hazırlıkları: velocity_only otomatikmiş (belge eşitlendi), tek-üretici geçişi baslat.sh'e kondu (dağıtım bekliyor)
 
 ## 🚨 SONRAKİ OPERATÖRE — ÖNCE BUNLAR (25 Ağustos akşamı)
 
@@ -12,8 +12,17 @@
 > kayıp dayanıklılığı). Körlük bulgusu + `6258eab` muafiyeti: `CA.md` §6.6.
 >
 > **Sıradaki büyük iş: ADIM 3 (formasyon)** — 🔴 ilk uçuş öncesi
-> `KARAR-02` gereği operatörden **ultracode** istenir; tek-üretici kuralı
-> (CLAUDE.md §4) ve çapraz slot geometrisi yasağı geçerli.
+> `KARAR-02` gereği operatörden **ultracode** istenir; çapraz slot
+> geometrisi yasağı geçerli. Hazırlıklar (25 Ağu akşam, uçaklar kapalıyken):
+> - `[x]` `velocity_only` — zaten otomatikmiş (21 Ağu, PLAN Engel 3 koda
+>   eşitlendi); açılış logunda `velocity_only=true` teyidi yeter
+> - `[x]` **tek-üretici geçişi `baslat.sh`'e kondu:** formasyon sürerken
+>   esp32_bridge çıkışı `/gozlem/mesh_goto`ya (uçağı süremez); üç senaryo
+>   masada doğrulandı. ⚠️ **uçaklara DAĞITILMADI** — ADIM 3 gününün ilk
+>   işi: baslat.sh'i üç uçağa dağıt, açılış logunda `TEK-URETICI` satırı
+>   (formasyon açılınca) / bugünkü davranışın korunduğunu gör
+> - `[ ]` tarif kaynağı: ilk testler `form_yayinla.sh` ile (mission1_node
+>   uçuş ister, yerde test edilemez)
 >
 > - 🟡 P2 — CA muafiyetinin "havada kayıp → tutma sürer" dalı yalnız
 >   birim testli (sahada üretmek tehlikeli — bilinçli sınır; kod

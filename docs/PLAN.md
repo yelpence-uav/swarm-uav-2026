@@ -1,6 +1,6 @@
 # PLAN — buradan finale
 
-**Son güncelleme:** 25 Ağustos 2026, 22:20 — Engel 3 koda eşitlendi: `velocity_only` 21 Ağu'dan beri otomatik, ADIM 3'te tek iş `/ws/gozlem`'i silmek; ADIM 4 üç uçaklı testle TAM
+**Son güncelleme:** 25 Ağustos 2026, 22:40 — Engel 3 koda eşitlendi + TEK-ÜRETİCİ geçişi baslat.sh'e kondu (formasyon sürerken esp32→mesh_goto); ADIM 3 hazırlıkları tamam, dağıtım bekliyor
 
 Bu belge **tüm takımın ortak resmi** ve sürü entegrasyonunun **teknik yol
 haritası**. Yeni gelen biri bunu okuyup işe başlayabilir.
@@ -500,6 +500,15 @@ değişimlerine kalıcı sağır kalıyordu. Artık kaynak başına `(incarnatio
 **Şart:** ~~`px4_bridge velocity_only:=True`~~ ✅ otomatik (Engel 3 —
 `/ws/gozlem` silinince kendiliğinden true; yarın açılışta
 `grep velocity_only` ile açılış logundan teyit et), `spacing_m` komutta 12 m.
+
+✅ **Tek-üretici geçişi de `baslat.sh`'te (25 Ağu akşam):** formasyon
+SÜRERKEN esp32_bridge'in setpoint çıkışı `/gozlem/.../mesh_goto`ya gider —
+mesh goto kayda girer ama uçağı SÜREMEZ; `/raw`'ın tek üreticisi
+formation_node olur (CLAUDE.md §4 fiziksel olarak sağlanır). ARM/takeoff/
+land/mode komutları AgentCommand kanalından — etkilenmez. Formasyon
+sürmüyorken davranış birebir eski. Üç senaryo masada doğrulandı;
+⚠️ uçaklara DAĞITILMADI (ADIM 3 gününün ilk işi: baslat.sh dağıt +
+açılış logundan `TEK-URETICI` satırını gör).
 
 ⚠️ **KARAR-02:** `formation_node` 50 Hz'de uçağa setpoint yazıyor — ilk kez
 havaya kalkmadan önce operatöre çok ajanlı denetim önerilecek.

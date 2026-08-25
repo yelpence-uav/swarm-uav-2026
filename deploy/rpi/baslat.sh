@@ -432,17 +432,11 @@ KACINMA=0
 CA_ACIK=0
 if [ "$KACINMA" = "0" ] && { acik ca || acik hepsi; }; then CA_ACIK=1; fi
 
-SP_REMAP=""
-if [ "$KACINMA" = "1" ] || [ "$CA_ACIK" = "1" ]; then
-    SP_REMAP="-r /drone_${AGENT_ID}/control/setpoint:=/drone_${AGENT_ID}/control/setpoint/raw"
-    if [ "$KACINMA" = "1" ]; then
-        echo "[baslat] CARPISMA KACINMASI ACIK (basit_kacinma) — esp32_bridge cikisi /raw'a yonlendirildi"
-    else
-        echo "[baslat] CARPISMA KACINMASI ACIK (collision_avoidance) — esp32_bridge cikisi /raw'a yonlendirildi"
-    fi
-else
-    echo "[baslat] carpisma kacinmasi kapali (/ws/kacinma yok, 'ca' da istenmedi)"
-fi
+# SP_REMAP hesabi BURADAN TASINDI (25 Agustos 2026, tek-uretici gecisi).
+# Karar "formasyon SURUYOR mu"ya bagli ve o ancak asagidaki bos-yuva
+# kapisindan SONRA kesinlesiyor (kapi /ws/gozlem'i touch edebiliyor).
+# Yeni yeri: kapinin hemen arkasi. esp32_bridge'in kullanimi cok daha
+# asagida (ros2 run satiri), o yuzden tasima guvenli.
 
 # BOS YUVA KAPISI — 21 Agustos 2026.
 #
@@ -465,6 +459,47 @@ if [ ! -f /ws/gozlem ] && { acik formasyon || acik hepsi; } \
     # iptal olur. Burada ayrica VELOCITY_ONLY=false yazmak gereksiz ve
     # yaniltici olurdu — degisken bu satirdan SONRA kuruluyor.
     touch /ws/gozlem
+fi
+
+# FORMASYON_SURUYOR — bu noktadan sonra KESIN (kapi gozlemi zorladiysa 0).
+FORMASYON_SURUYOR=0
+if [ ! -f /ws/gozlem ] && { acik formasyon || acik hepsi; }; then
+    FORMASYON_SURUYOR=1
+fi
+
+# TEK-URETICI GECISI — 25 Agustos 2026 (CLAUDE.md §4, ADIM 3).
+#
+# /control/setpoint/raw'in iki olasi ureticisi var: esp32_bridge (mesh
+# goto'lari, remap ile) ve formation_node (50 Hz slot takibi). Formasyon
+# UCAGI SURERKEN ikisi ayni yuvaya yazamaz — px4_bridge 50 Hz'de iki
+# algoritmadan celiskili setpoint alir, kazanan zamanlamaya kalir.
+#
+# Cozum FIZIKSEL ayrim (durum-bazli susturmaya guvenmiyoruz — o yalniz
+# formation_node tarafinda var, esp32_bridge kosulsuz basar):
+#   formasyon SURUYOR  -> esp32_bridge cikisi /gozlem/.../mesh_goto
+#                         (kayda girer, UCAGI SUREMEZ; raw'in tek
+#                         ureticisi formation_node olur)
+#   formasyon surmuyor -> bugune kadarki davranis BIREBIR:
+#                         kacinma varsa /raw'a, yoksa dogrudan /setpoint'e
+#
+# NOT: mesh'in ARM / takeoff / land / mode komutlari AgentCommand
+# kanalindan gider, bu remap onlara DOKUNMAZ. Acil mudahale her zaman
+# land/RTL komutuyla — goto ile degil.
+SP_REMAP=""
+if [ "$FORMASYON_SURUYOR" = "1" ]; then
+    SP_REMAP="-r /drone_${AGENT_ID}/control/setpoint:=/gozlem/drone_${AGENT_ID}/mesh_goto"
+    echo "[baslat] 🔒 TEK-URETICI (ADIM 3): formasyon SURUYOR — esp32_bridge"
+    echo "[baslat]    cikisi /gozlem/drone_${AGENT_ID}/mesh_goto (mesh goto UCAGI SUREMEZ;"
+    echo "[baslat]    /raw'in tek ureticisi formation_node, aktarim kati CA)"
+elif [ "$KACINMA" = "1" ] || [ "$CA_ACIK" = "1" ]; then
+    SP_REMAP="-r /drone_${AGENT_ID}/control/setpoint:=/drone_${AGENT_ID}/control/setpoint/raw"
+    if [ "$KACINMA" = "1" ]; then
+        echo "[baslat] CARPISMA KACINMASI ACIK (basit_kacinma) — esp32_bridge cikisi /raw'a yonlendirildi"
+    else
+        echo "[baslat] CARPISMA KACINMASI ACIK (collision_avoidance) — esp32_bridge cikisi /raw'a yonlendirildi"
+    fi
+else
+    echo "[baslat] carpisma kacinmasi kapali (/ws/kacinma yok, 'ca' da istenmedi)"
 fi
 
 # VELOCITY_ONLY — ADIM 3'un sarti (PLAN.md Engel 3).
@@ -499,8 +534,7 @@ fi
 #               -> yurutucu_aktif dali (C) — velocity_only'ye HIC bakmiyor
 #   CA kacisi   -> velocity_valid=True   -> B dali (saf hiz, PX4 konum tutmaz)
 VELOCITY_ONLY=false
-if { [ ! -f /ws/gozlem ] && { acik formasyon || acik hepsi; }; } \
-   || [ "$CA_ACIK" = "1" ]; then
+if [ "$FORMASYON_SURUYOR" = "1" ] || [ "$CA_ACIK" = "1" ]; then
     VELOCITY_ONLY=true
 fi
 echo "[baslat] px4_bridge velocity_only=${VELOCITY_ONLY}" \
