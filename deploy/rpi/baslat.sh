@@ -963,10 +963,13 @@ if [ -n "$SURU_DUGUMLERI" ]; then
             # asagi). Yani yerde duran bir ucak, ucanlarin kacis yonunu
             # belirliyordu.
             #
-            # SURU_KADRO = GERCEKTEN ucan kimlikler. ylp01 donunce "1 2 3".
-            # (KARAR-04'teki "uc ucak birden ucunca degisecekler" listesine
-            # bu da eklendi.)
-            SURU_KADRO="${SURU_KADRO:-1 3}"
+            # SURU_KADRO = GERCEKTEN ucan kimlikler.
+            # 25 Agustos 2026: ylp01 DONDU (kaldirma testi gecti) -> "1 2 3"
+            # yapildi (KARAR-04). DIKKAT: bu degisiklikle ylp02'nin rutbesi
+            # 1 -> 2 oldu, dikey kacis yonu YUKARIDAN ASAGIYA dondu
+            # (donusumlu merdiven). Alcakta 4 m irtifa tabani kelepcesi
+            # asagi kacisi yukariya cevirir (birim testli).
+            SURU_KADRO="${SURU_KADRO:-1 2 3}"
             CA_RUTBE=0
             for _k in $SURU_KADRO; do
                 [ "$_k" -lt "$AGENT_ID" ] 2>/dev/null && \
@@ -1031,8 +1034,8 @@ if [ -n "$SURU_DUGUMLERI" ]; then
         #   formation_reached: active >= expected -> 2 >= 3 FALSE, FORMING'de takilir
         #   saglik orani     : healthy/expected < 0.5 -> 1/3 = 0.33 ile
         #                      iki ucaktan biri bozulunca TUM SURUYE acil inis
-        # Uc ucak birden ucmaya baslayinca SURU_BEKLENEN_UCAK=3 yapilacak.
-        SURU_BEKLENEN_UCAK="${SURU_BEKLENEN_UCAK:-2}"
+        # 25 Agustos 2026: ylp01 dondu, filo uc ucak -> 3 yapildi (KARAR-04).
+        SURU_BEKLENEN_UCAK="${SURU_BEKLENEN_UCAK:-3}"
         ros2 run swarm_state_machine swarm_fsm_node --ros-args \
             -p agent_id:=${AGENT_ID} \
             -p agent_count:=${SURU_AJAN_SAYISI} \
