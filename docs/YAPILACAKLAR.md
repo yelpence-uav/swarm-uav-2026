@@ -1,6 +1,6 @@
 # YAPILACAKLAR
 
-**Son güncelleme:** 25 Ağustos 2026, 17:45 — A16 bantla sabitlendi; pil ölçümü BİLEREK devre dışı (kart bekleniyor)
+**Son güncelleme:** 25 Ağustos 2026, 17:55 — ylp01 UÇUŞ İZNİ LİSTESİ KAPANDI (pil kartı beklemesi hariç)
 
 ## 🚨 SONRAKİ OPERATÖRE — ÖNCE BUNLAR (25 Ağustos gecesi)
 
@@ -36,9 +36,11 @@
 - `[x]` 🔴 ~~SURU_KADRO~~ → **KARAR-04 UYGULANDI (17:25):** üç uçak
   "1 2 3", rütbeler 0/1/2 canlı ölçüldü, beklenen uçak=3. ⚠️ ylp02'nin
   kaçış yönü artık AŞAĞI. ⏳ ARM'lı yer testi açık alana kaldı.
-- `[ ]` 🟠 Yeni FC'de ivme/jiroskop/seviye kalibrasyonları — kaldırma
-  geçti ama bu üçünün BU kartta yapıldığı teyit edilmedi; sor/yap
-- `[ ]` 🟠 `param_karsilastir.py` ile ylp02'yle fark dökümü
+- `[x]` 🟠 ~~İvme/jiroskop/seviye kalibrasyonları~~ → **operatör teyit
+  etti: tamamlandı (25 Ağu).**
+- `[x]` 🟠 ~~`param_karsilastir.py` fark dökümü~~ → **KOŞULDU (25 Ağu
+  17:50): ylp01↔ylp02 arası 17 uçuş-kritik parametrede AYRIŞMA YOK**
+  (tek fark MAV_SYS_ID 2/3 — uçağa özgü, normal).
 - `[x]` 🟠 ~~ESP↔Pi tellerini sabitle (A16)~~ → **bantla sabitlendi
   (25 Ağu ~17:40, operatör).** Kalıcı çözüm (kilitli konnektör/lehim)
   hâlâ ileride — bant titreşimde gevşeyebilir, uçuş öncesi göz at.
