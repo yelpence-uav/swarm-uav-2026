@@ -1,6 +1,6 @@
 # RPİ EŞİTLEME DEFTERİ — geri gelen drone'u hizaya getirme
 
-**Son güncelleme:** 24 Ağustos 2026, 20:35 — ylp01'in YENİ Pi'si hazır (klon + kimlik dönüşümü); A/K listeleri kapandı
+**Son güncelleme:** 25 Ağustos 2026, 17:35 — ylp01 RC-kayıp doğrulandı, Ch2 reverse düzeltmesi kaydedildi
 
 ## Bu belge ne için
 
@@ -484,7 +484,7 @@ tutar) → üst ucu **100%'e GERİ AL**. Ölçülen: failsafe 2100, canlı tavan
 |------|---------------------------|-------------------|
 | ylp00 | ✅ 19 Ağu | ✅ 19 Ağu — HAVADA doğrulandı (kumanda kapandı → 1-2 sn'de RTL) |
 | ylp02 | ✅ 19 Ağu gece (2101; **CH5 kill'i de -100'e kaydedildi** — fabrika +100 bırakmıştı, P0.9) | ✅ 19 Ağu gece — bit iki yönde ölçüldü (0x1320C83F ↔ 0x1321C83F) |
-| ylp01 | ❌ (yerde) | ❌ (yerde) |
+| ylp01 | ✅ 25 Ağu (2100 — İKİ YÖNDE bit ölçümüyle doğrulandı) | ✅ kopya paramla gelmişti (`RC_FAILS_THR=2050`, `RC_MAP_FAILSAFE=3` ölçüldü) |
 
 Not: ylp02'de yalnız 2 parametre yazıldı (`RC_FAILS_THR=2050`,
 `RC_MAP_FAILSAFE=3`) — `RC6_*` orada zaten fabrika değerindeydi (CH6

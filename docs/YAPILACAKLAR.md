@@ -1,6 +1,6 @@
 # YAPILACAKLAR
 
-**Son güncelleme:** 25 Ağustos 2026, 17:30 — KARAR-04 ✓, ylp01 uçtu; kalan: A16 + pil ADC + kalibrasyon teyidi
+**Son güncelleme:** 25 Ağustos 2026, 17:35 — + Ch2 reverse düzeltmesi doğrulandı (flip katkı şüphesi notuyla)
 
 ## 🚨 SONRAKİ OPERATÖRE — ÖNCE BUNLAR (25 Ağustos gecesi)
 
@@ -26,6 +26,13 @@
   parametreleri kopyayla zaten gelmişti). Ayrıca tamir sırasında
   `MAV_SYS_ID` 3'e dönmüştü — 2'ye yazıldı+reboot+doğrulandı (⚠️ TUZAK:
   parametre dosyası her yüklendiğinde sysid'i kontrol et!)
+- `[x]` 🟠 **ylp01 kumandasında Ch2 (pitch) REVERSE'lüymüş** — ileri
+  sürünce geri gidiyordu; operatör kumandadan düzeltti (25 Ağu akşam).
+  Ölçümle doğrulandı: ileri itişte ch2=2000, `RC2_REV=1` (PX4'te ters
+  kayıt yok) → yorum "+ileri" ✓. ⚠️ Not: bu ters kanal 24 Ağu kalkış
+  flip'ine katkı vermiş olabilir (pilot düzeltmesi ters tepiyordu).
+  Failsafe düzenine etkisi YOK (o Ch3 tabanlı; kapalı-durum 2100 tekrar
+  ölçüldü).
 - `[x]` 🔴 ~~SURU_KADRO~~ → **KARAR-04 UYGULANDI (17:25):** üç uçak
   "1 2 3", rütbeler 0/1/2 canlı ölçüldü, beklenen uçak=3. ⚠️ ylp02'nin
   kaçış yönü artık AŞAĞI. ⏳ ARM'lı yer testi açık alana kaldı.
