@@ -714,9 +714,25 @@ class Esp32BridgeNode(Node):
             if self._ser is not None and self._ser.is_open:
                 return True
             try:
+                # DTR/RTS TUTULMAZ — 25 Agustos 2026 (base ESP kilidi).
+                #
+                # CH340'ta DTR/RTS, ESP32'nin EN/BOOT hatlarina bagli.
+                # Port acilirken isletim sistemi ikisini de ASSERT ederse
+                # ESP resetlenir ve BOOT basili kombinasyona denk gelirse
+                # BOOTLOADER'da KILITLI kalir — veri hic akmaz, hata da
+                # yok (25 Agu gece: YKI paneli uc ucagi OFFLINE gosterdi,
+                # kopru "port acildi" demisti). Cozum: nesneyi PORTSUZ
+                # kur, hatlari False'a cek, sonra ac — pyserial bu sirada
+                # acilis anindaki hat durumunu garanti eder.
+                #
+                # Ucakta zararsiz: ttyAMA4 GPIO UART'inda DTR/RTS yok.
                 self._ser = serial.Serial(
-                    self._port, self._baud, timeout=0.1
+                    baudrate=self._baud, timeout=0.1
                 )
+                self._ser.dtr = False
+                self._ser.rts = False
+                self._ser.port = self._port
+                self._ser.open()
                 self.get_logger().info(
                     f'Seri port açıldı: {self._port} @ {self._baud}'
                 )
