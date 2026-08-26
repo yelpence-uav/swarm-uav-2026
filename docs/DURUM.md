@@ -1,7 +1,33 @@
 # DURUM — şu an ne çalışıyor, ne bozuk
 
-**Son güncelleme:** 26 Ağustos 2026, 02:37 — GECE: İLK FORMASYON UÇUŞU (V, 3 uçak) + OTONOM CA GEÇİŞİ GEÇTİ; 🔴 P0: HOME KAYMASI (RTL'e güvenilmez, bag analizi bekliyor); uçaklar formasyon-sürer modda bırakıldı
+**Son güncelleme:** 26 Ağustos 2026, 23:10 — `dd5a1e6` üç uçağa dağıtıldı (9 düğüm, MAVROS GCS sağlıklı); ESP Pi üzerinden flash'lanabilir; 🔴 P0 HOME kayması AÇIK
 
+
+> ## 🔧 26 AĞUSTOS 23:10 — `dd5a1e6` ÜÇ UÇAĞA DAĞITILDI + ESP FLASH YOLU AÇILDI
+>
+> **Uçuş yapılmadı, yer işi.** Üçü de `dd5a1e6`; `baslat.sh` ve `run_drone.sh`
+> md5 olarak depoyla eşit, **9 düğüm ayakta**, MAVROS GCS hattı üçünde de
+> **sağlıklı** (yeni denetim canlı, `/ws/mavros_gcs_bozuk` yok).
+>
+> - 🆕 **`baslat.sh` MAVROS GCS hattını artık doğruluyor**, bozuksa mavros'u
+>   **bir kez** yeniden başlatıyor; yine bozuksa `/ws/mavros_gcs_bozuk`
+>   bırakıyor ve `drone_bul.sh --durum` onu `>> SORUN` olarak gösteriyor.
+>   Bu, tek oturumda 876 MB'a varan sessiz log taşkınını bitiriyor
+>   (`TUZAKLAR` §2.23 — **kök neden hâlâ bilinmiyor**).
+> - 🆕 **ESP32 artık kablo sökülmeden, Pi üzerinden flash'lanabilir** —
+>   ylp00'da kanıtlandı (`chip-id` okundu, MAC tabloyla birebir, stub yüklendi).
+>   esptool **v5.3.1** üç Pi'nin **host'unda** (`~/esptool_venv/bin/esptool`).
+>   Yöntem: konteyner durdur → **BOOT basılı tut + EN'e dokun** → esptool →
+>   EN'e tek dokunuş → konteyner başlat. USB-TTL ve jumper sökme **gerekmiyor**.
+> - ⏳ **`-e ROS_LOCALHOST_ONLY=1` HENÜZ ETKİN DEĞİL** — konteyner recreate
+>   istiyor (A19, `YAPILACAKLAR` P1). O ana kadar `docker exec` ile ROS sorgusu
+>   yaparken **elle** `-e ROS_LOCALHOST_ONLY=1` verilmeli; yoksa düğümler
+>   görünmez ve **hata da alınmaz** (`TUZAKLAR` §1.25).
+> - ⚠️ **`--restart unless-stopped` elle durdurulanı geri getirmez.** Bugün
+>   ylp00'ın `drone1`'i Pi kapa-aç sonrası 43 dk `Exited` kaldı ve tabloda
+>   görünmüyordu; `--durum` artık `docker ps -a` kullanıyor (`TUZAKLAR` §1.26).
+> - ⚠️ Uçaklar hâlâ **formasyon-sürer modda** (`/ws/gozlem` YOK) — mesh goto
+>   uçağa gitmez. Eski düzen için `touch /ws/gozlem` + restart.
 
 > ## 🌙 26 AĞUSTOS GECESİ — İKİ TARİHİ UÇUŞ + BİR P0
 >

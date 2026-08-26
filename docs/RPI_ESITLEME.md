@@ -1,6 +1,6 @@
 # RPİ EŞİTLEME DEFTERİ — geri gelen drone'u hizaya getirme
 
-**Son güncelleme:** 25 Ağustos 2026, 23:50 — tek-üretici baslat.sh + DTR/RTS köprü düzeltmesi üç uçakta
+**Son güncelleme:** 26 Ağustos 2026, 23:00 — `dd5a1e6` üç uçağa dağıtıldı · A18 esptool host'larda · A19 `ROS_LOCALHOST_ONLY` recreate bekliyor
 
 ## Bu belge ne için
 
@@ -143,6 +143,8 @@ kalıcı olur. Üçü de ancak **ölçerek** görülür.
 | A14 | **Çökme izlerini okunabilir kopyala** | ✅ | ✅ *(klon, enabled ölçüldü)* | ✅ | `yelpence-cokme.service` → `~/yelpence_ws/gunluk/cokme/` |
 | A15 | **İzleme aralığı 60 → 10 sn** | ✅ | ✅ *(klon)* | ✅ | 22 Ağu 03:36'da doğrulandı — `OnUnitActiveSec=10s`, timer aktif |
 | A16 | 🔴 **ESP↔Pi UART jumper'ı yeniden oturtuldu** | ✅ *(23 Ağu 00:50, ELLE)* | ❌ | ❔ **bakılmadı** | P0.15'in kök nedeni — `TUZAKLAR` §2.19. **Geçici**: jumper yine gevşer |
+| A18 | **esptool — host tarafı, venv içinde** | ✅ | ✅ | ✅ | `python3 -m venv ~/esptool_venv && ~/esptool_venv/bin/pip install esptool` → **v5.3.1** · **sudo GEREKMEZ** · `dagit.sh` TAŞIMAZ · 26 Ağu. Konteynerdeki apt kopyası (yalnız `drone2`, v4.7.0, stub'sız) artık kullanılmıyor — kurtarma aracı, kurtaracağı şeyin içinde durmamalı |
+| A19 | 🔴 **`-e ROS_LOCALHOST_ONLY=1` konteyner ortamında** | ❌ | ❌ | ❌ | `run_drone.sh`'te (26 Ağu `dd5a1e6`) — **yalnız konteyner YENİDEN OLUŞTURULUNCA** devreye girer, tıpkı A12 gibi. O ana kadar elde `docker exec -e ROS_LOCALHOST_ONLY=1 ...` verilmeli · `TUZAKLAR` §1.25. **A12 ylp02'de ❌ — tek recreate ikisini birden kapatır** |
 
 > ### 🔴 A16 — konnektör: yapılan iş ve durumu
 >
@@ -664,6 +666,40 @@ Gerçek bir ölümde bu yığın asıl suçlu sürücüyü gösterecek.
 ## 8. DEĞİŞİKLİK DEFTERİ
 
 Her Pi değişikliği buraya, en yeni en üste.
+
+### 2026-08-26 (gece ~23:00) — `dd5a1e6` üç uçağa + esptool host'lara
+
+**`dagit.sh` ile dağıtıldı** — `.surum = dd5a1e6`, üçünde `baslat.sh` ve
+`run_drone.sh` md5 olarak depoyla **eşit** doğrulandı:
+
+- **`baslat.sh`** — MAVROS GCS hattı doğrulaması + **bir kez otomatik onarım**
+  (`TUZAKLAR` §2.23). `docker restart` ile devreye girdi.
+- **`run_drone.sh`** — `-e ROS_LOCALHOST_ONLY=1` (`TUZAKLAR` §1.25).
+  ⚠️ **Henüz ETKİN DEĞİL**: yalnız konteyner yeniden oluşturulunca geçerli
+  (A19). A12 (log döndürme, ylp02'de ❌) ile birlikte tek recreate'te kapanır.
+- `drone_bul.sh` (YKİ tarafı, uçağa gitmez) — eksik önbellek/mDNS hatası +
+  durmuş konteyner ve MAVROS bayrağı için `>> SORUN` satırı.
+
+**Elle kurulan — `dagit.sh` TAŞIMAZ:**
+
+```bash
+python3 -m venv ~/esptool_venv && ~/esptool_venv/bin/pip install esptool
+```
+
+**Aynı gün kanıtlandı — ESP artık kablo sökülmeden flash'lanabilir.**
+ylp00'ın ESP32'si Pi üzerinden `/dev/ttyAMA4`'ten okundu: `chip-id` →
+ESP32-D0WD-V3 rev v3.1, MAC `B0:CB:D8:C8:A8:30` (kimlik tablosuyla **birebir**).
+Yöntem: konteyner durdurulur (port serbest kalsın) → operatör **BOOT basılı
+tutup EN'e dokunur** → host'taki esptool konuşur → operatör EN'e tek dokunuş →
+konteyner geri başlatılır. Stub yükleme de çalıştı, yani `write-flash`'in zor
+kısmı da kanıtlanmış oldu. Bu, USB-TTL çeviriciye ve **P0.15'in kök nedeni olan
+jumper konnektörünü sökmeye** olan ihtiyacı kaldırıyor (A16).
+
+| Uçak | `baslat.sh` | `run_drone.sh` etkin mi | esptool |
+|------|-------------|-------------------------|---------|
+| ylp00 | ✅ | ⏳ recreate bekliyor | ✅ |
+| ylp01 | ✅ | ⏳ recreate bekliyor | ✅ |
+| ylp02 | ✅ | ⏳ recreate bekliyor | ✅ |
 
 ### 2026-08-25 (gece ~23:45) — tek-üretici `baslat.sh` + DTR/RTS'li `esp32_bridge` ÜÇ uçağa
 

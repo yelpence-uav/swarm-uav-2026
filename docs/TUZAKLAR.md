@@ -1,6 +1,6 @@
 # TUZAKLAR — hata vermeden yanlış sonuç üretenler
 
-**Son güncelleme:** 25 Ağustos 2026, 21:56 — §4.11, §4.12 (körlük aç-kapat tuzağı, elde-taşıma gölgelenmesi)
+**Son güncelleme:** 26 Ağustos 2026, 22:55 — §1.25 docker exec ROS körlüğü · §1.26 durmuş konteyner görünmüyordu · §2.23 MAVROS GCS yayın zarı
 
 > **Bu belge CANLI.** Arşiv değil — buradaki her madde **bugün de geçerli.**
 >
@@ -700,6 +700,64 @@ kaydediyor, toplam 80 görünüyor. Sürü düğümü sayısını `mavros` filtr
 say.
 
 
+### 1.25 `docker exec` ROS ortamını MİRAS ALMAZ — düğümleri göremez, hata da vermez
+
+`baslat.sh` konteynerin **komutudur**; içindeki `export ROS_LOCALHOST_ONLY=1`
+yalnız o komutun çocuklarına geçer. `docker exec` ise konteynerin
+**yapılandırmasındaki** ortamı alır — yani `docker run -e` ile verilenleri.
+İkisi aynı şey değil ve fark hiçbir yerde belirtilmiyor.
+
+Ölçüm (26 Ağustos 2026, ylp01):
+
+```
+docker exec drone2 env | grep ROS
+    ROS_DOMAIN_ID=0             <- run_drone.sh'te -e ile verilmis
+    ROS_DISTRO=jazzy            <- imaj ENV'i
+    RMW_IMPLEMENTATION=...      <- imaj ENV'i
+    (ROS_LOCALHOST_ONLY YOK)
+
+tr '\0' '\n' < /proc/211/environ | grep ROS     # calisan esp32_bridge
+    ROS_LOCALHOST_ONLY=1        <- baslat.sh export etmis
+```
+
+`ROS_LOCALHOST_ONLY=1` DDS'i loopback'e kapatır. Değişkeni almayan bir kabuk
+**başka bir DDS alanında** olur; düğümler oradadır ama görünmezler.
+
+**Belirti sessizdir:** `docker exec ... ros2 topic echo /drone_2/mavros/state`
+hiçbir şey basmadan çıkar. Düğüm ayakta, konu yayında, komut sıfır döner.
+`ros2 node list` de eksik ya da boş döner (§1.12 ile aynı yüzey).
+
+26 Ağustos'ta canlı uçtan `armed` durumu okunamadı ve önce **"MAVROS ölmüş"**
+sanıldı; teşhis bir tur geciktirdi.
+
+**Çözüm iki katmanlı:**
+- Kalıcı: `run_drone.sh`'te `-e ROS_LOCALHOST_ONLY=1` (26 Ağu, `dd5a1e6`).
+  ⚠️ **Yalnız konteyner YENİDEN OLUŞTURULUNCA** geçerli — restart yetmez.
+- O ana kadar elde: `docker exec -e ROS_LOCALHOST_ONLY=1 <konteyner> ...`
+
+---
+
+### 1.26 `docker ps` durmuş konteyneri GÖSTERMEZ — ve elle durdurulan, Pi kapa-aç ile GERİ GELMEZ
+
+İki ayrı gerçek üst üste binince uçak sessizce **sıfır düğümle** kalıyor:
+
+1. **`--restart unless-stopped`, elle durdurulmuş bir konteyneri Pi yeniden
+   başlasa bile geri getirmez.** Bu doğru davranıştır — kasten durdurulan bir
+   konteynerin kendiliğinden geri gelmesi daha tehlikeli olurdu. Ama "kapat-aç
+   düzeltir" refleksi bu durumda **çalışmaz**.
+2. **`docker ps` yalnız çalışanları listeler.** `drone_bul.sh --durum` bunu
+   kullanıyordu; durmuş konteyner **boş satır** olarak geçiyordu.
+
+26 Ağustos 2026: ylp00'ın `drone1`'i ESP testi için durdurulmuştu. Operatör
+Pi'leri kapatıp açtı — ylp01 ve ylp02 kendiliğinden geldi, **ylp00 gelmedi** ve
+43 dakika `Exited (137)` kaldı. Durum tablosunda hiçbir uyarı yoktu; fark
+edilmeseydi uçak mesh'siz, px4_bridge'siz sahaya çıkacaktı.
+
+**Çözüm:** `--durum` artık `docker ps -a` kullanıyor ve çalışmıyorsa düzeltme
+komutuyla birlikte `>> SORUN` satırı basıyor. Politika **değişmedi**.
+
+---
+
 ## 2. ROS 2 / DDS / kabuk
 
 ### 2.1 QoS uyumsuzluğu SESSİZDİR — bu belgedeki en pahalı tek kural
@@ -1241,6 +1299,55 @@ kaçınmanın dikey hızı PX4 tavanını aşarsa **HATA** veriyor. Ayrıca
 > tavanını **oku ve tek kaynağa yaz**. "Varsayılan şudur" bu depoda iki kez
 > yanlış çıktı.
 
+
+### 2.23 🔴 MAVROS'un GCS yayın hattı HER AÇILIŞTA ZAR — tutmazsa saatte yüzlerce MB
+
+`gcs_url=udp-b://:14555@14550` ile açılan GCS hattı bazen kuruluyor, bazen
+kurulamıyor. Kurulamazsa **ilk saniyeden** itibaren şunu basar ve
+kendiliğinden **düzelmez**:
+
+```
+Warning: mavconn: udp1: sendto: Network is unreachable, retrying
+         at line 325 in ./src/udp.cpp
+```
+
+Ölçülen bedel (26 Ağustos 2026, tek oturum):
+
+| Açılış | `mavros.log` | hata satırı |
+|--------|--------------|-------------|
+| ylp00 18:35 | **876 MB** | 8.275.479 |
+| ylp02 19:49 | 289 MB | 2.805.206 |
+| ylp01 19:51 | 131 MB | 1.267.045 |
+
+Tarihsel tepe: `mavros.log` tek başına **18,64 GB** (`baslat.sh` başındaki not).
+
+**Uçuşu etkilemez** — mesh seri hattan gider, WiFi'ye bağlı değildir. Asıl zarar
+**teşhis**: `mavros.log` uçuş sonrası bakılan kaynaktır ve gürültü onu yutar.
+Log döndürme devreye girince açılış satırları tamamen silinir — 26 Ağustos'ta
+ylp01'in logunun başı zaten yok olmuştu.
+
+**Uçağa özgü DEĞİL:** üçünün de hem temiz hem kirli açılışları var.
+
+**Elenenler** (hepsi aynı gün ölçüldü):
+- `gcs_url` farkı yok — üçünde birebir aynı
+- ağ modu üçünde de `host`; arayüz, rota aynı; `14555` üçünde de bağlı
+- **yayın adresi sağlam**: ylp02'den `10.x.x.255`, `172.17.255.255` ve
+  `255.255.255.255` hedeflerine test paketi **sorunsuz gitti** → yönlendirme
+  ya da `docker0` sebep değil
+- **P0.13'ün ağ bekleme döngüsü yetmiyor**: ağ tamamen ayaktayken elle yapılan
+  restart'lar (19:49, 19:51) da bozuk çıktı
+
+🔴 **Kök neden hâlâ bilinmiyor** — `mavconn/udp.cpp` okunmalı. Bilinen tek
+çözüm yeniden başlatmak; 26 Ağustos'ta iki uçakta da temizledi.
+
+**Bugünkü koruma** (`baslat.sh`, 26 Ağu `dd5a1e6`): mavros açıldıktan 15 sn
+sonra hata sayılır; varsa mavros **bir kez** yeniden başlatılır ve yalnız
+**YENİ** satırlar sayılır. Yine bozuksa gürültülü uyarı basılıp
+`/ws/mavros_gcs_bozuk` bayrağı bırakılır; `drone_bul.sh --durum` onu
+`>> SORUN` satırı olarak gösterir. Konum bilinçli: o noktada `gps_saat` ve
+sürü düğümleri henüz açılmamıştır, yani mavros'a bağlı hiçbir şey yoktur.
+
+---
 
 ## 3. PX4 ve uçuş davranışı
 

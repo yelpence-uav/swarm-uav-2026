@@ -1,8 +1,33 @@
 # YAPILACAKLAR
 
-**Son güncelleme:** 26 Ağustos 2026, 02:37 — ADIM 3 İLK UÇUŞU + otonom CA geçişi GEÇTİ; 🔴 YENİ P0: HOME kayması
+**Son güncelleme:** 26 Ağustos 2026, 23:05 — `dd5a1e6` dağıtıldı; P1 konteyner recreate (A19+A12+json log), P2 mavconn kök nedeni, P3 firmware derleme ortamı
 
 ## 🚨 SONRAKİ OPERATÖRE — ÖNCE BUNLAR (26 Ağustos gecesi)
+
+- `[ ]` 🟠 **P1 — KONTEYNER RECREATE: tek işlem, ÜÇ ihtiyacı birden kapatır.**
+  `docker rm -f <kon>` + `~/yelpence_ws/run_drone.sh` (Pi'de mevcut, `dd5a1e6`).
+  Kapattıkları:
+  1. **A19** — `-e ROS_LOCALHOST_ONLY=1`. Bu olmadan `docker exec ... ros2 ...`
+     düğümleri **sessizce göremiyor** (`TUZAKLAR` §1.25). Şu an üç uçakta da ❌.
+  2. **A12** — docker log döndürme, **ylp02'de ❌**.
+  3. **drone1'in korupt json logu** (aşağıdaki P2) — `docker logs` çalışmıyor.
+  ⚠️ Recreate öncesi `docker inspect <kon>` ile mevcut ayarları not al;
+  `SURU_DUGUMLERI` ve `TAKIM_ID` env'leri **boş** (baslat.sh dosyadan okuyor),
+  bu normal. Sonrasında `docker exec <kon> env | grep ROS_LOCALHOST` ile doğrula.
+
+- `[ ]` 🟡 P2 — **MAVROS GCS yayın hattının KÖK NEDENİ** (`TUZAKLAR` §2.23).
+  `mavconn/udp.cpp:325` okunacak: yayın soketinde `sendto` neden ENETUNREACH
+  veriyor? Yönlendirme ve `docker0` ölçümle elendi. Bugün kendi kendini
+  onarıyor (`baslat.sh`), yani acil değil — ama tek oturumda 876 MB yiyen bir
+  şeyin sebebini bilmemek iyi değil.
+
+- `[ ]` ⚪ P3 — **Firmware derleme ortamı hiçbir yerde yok.** ESP'nin Pi
+  üzerinden flash'lanabildiği 26 Ağustos'ta kanıtlandı (`RPI_ESITLEME` §8), ama
+  ne Pi'lerde ne dizüstünde PlatformIO var — yani firmware'de bir şey
+  değiştirsek `.bin` üretemiyoruz. Tek güncel `.bin` ylp01'de
+  (`~/yelpence_ws/esp_fw/`, `ccb915c` seviyesinde; o tarihten sonra
+  `firmware/` değişmedi). Kurulunca `esp32dev_serial0` derlenip mevcut
+  `.bin` ile karşılaştırılmalı.
 
 - `[ ]` 🔴 **P0 — HOME KAYMASI (RTL'e güvenilmez):** gece CA geçiş
   testinde RTL, üç uçağı kalkış yerine değil AYNI yanlış civara indirdi
