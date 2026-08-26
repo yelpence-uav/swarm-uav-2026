@@ -26,6 +26,9 @@
 # 3. yontem her zaman calisir ve internet gerektirmez; digerleri yalnizca
 # hizlandirmak icin. Onbellek yanlissa (drone yer degistirmis) dogrulama
 # adimi yakalar ve otomatik yeniden tarar.
+#
+# BIR YONTEM KADRONUN TAMAMINI BULAMAZSA bir sonrakine gecilir; kismi sonuc
+# tam sayilmaz (26 Agustos 2026 hatasi — bul() icindeki nota bak).
 # =============================================================================
 set -uo pipefail
 
@@ -216,9 +219,39 @@ onbellek_oku() {
 }
 
 # --- Ana bulma ---------------------------------------------------------------
+
+# Listedeki drone sayisi. Bos satirlar sayilmaz. `grep -c` hic eslesme
+# bulamazsa "0" basip 1 ile cikar — cikisi yutuyoruz, sayi yine dogru.
+kac_tane() { printf '%s' "$1" | grep -c '[^[:space:]]' || true; }
+
+# Iki "isim ip" listesini birlestirir. Ayni isim ikisinde de varsa BIRINCI
+# liste kazanir; cagiran her zaman daha guvenilir yontemi basa koyar.
+birlestir() {
+    local birinci="$1" ikinci="$2" isim ip
+    printf '%s' "$birinci"
+    while read -r isim ip; do
+        [ -n "$isim" ] || continue
+        printf '%s' "$birinci" | awk -v n="$isim" '$1==n{b=1} END{exit b?0:1}' \
+            || printf '%s %s\n' "$isim" "$ip"
+    done <<< "$ikinci"
+}
+
 # Cikti: "isim ip" satirlari.
+#
+# 🔴 BIR YONTEM KADRONUN TAMAMINI BULMALI, yoksa bir sonrakine gecilir.
+#
+# 26 Agustos 2026'da yasandi: onbellek ylp01 YERDEYKEN yazilmisti, icinde iki
+# ucak vardi. Ikisi de SSH'a cevap verdigi surece betik "tamam" deyip donuyor,
+# MAC taramasi HIC calismiyordu. ylp01 agda ve saglamdi; buna ragmen 12 saat
+# boyunca "yok" gorundu — ustelik MAC tablosu duzeltildikten SONRA bile,
+# cunku duzeltilen tabloyu okuyan tarama hic calismiyordu.
+# Ayni hata mDNS yolunda da vardi: tek drone cevap verse yeterli sayiliyordu.
+#
+# Yine de gercekten kapali bir ucak digerlerini bloklamamali: yontemler
+# sirayla denenir, en sonunda hepsinin bulduklari BIRLESTIRILIR.
 bul() {
-    local zorla="${1:-hayir}" onbellekli gecerli="" satir isim ip
+    local zorla="${1:-hayir}" onbellekli gecerli="" kismi="" satir isim ip
+    local kadro=${#DRONELAR[@]}
 
     if [ "$zorla" = "hayir" ] && onbellekli=$(onbellek_oku); then
         # ONBELLEGE KORU KORUNE GUVENILMEZ. Drone yer degistirmis ya da ag
@@ -227,10 +260,15 @@ bul() {
         while read -r isim ip; do
             [ -n "$ip" ] && ssh_acik_mi "$ip" 2 && gecerli+="$isim $ip"$'\n'
         done <<< "$onbellekli"
-        if [ -n "$gecerli" ]; then
+        if [ "$(kac_tane "$gecerli")" -eq "$kadro" ]; then
             printf '%s' "$gecerli"; return 0
         fi
-        bilgi "${K_SARI}...${K_SIFIR} onbellek eskimis, yeniden taraniyor"
+        if [ -n "$gecerli" ]; then
+            bilgi "${K_SARI}...${K_SIFIR} onbellekte $(kac_tane "$gecerli")/$kadro drone var — EKSIK, taraniyor"
+        else
+            bilgi "${K_SARI}...${K_SIFIR} onbellek eskimis, yeniden taraniyor"
+        fi
+        kismi="$gecerli"; gecerli=""
     fi
 
     # mDNS: hizli ve tarama gerektirmiyor. Calisirsa 254 baglanti denemesinden
@@ -239,12 +277,17 @@ bul() {
         isim=$(alan_al "$satir" 1)
         ip=$(mdns_ile "$isim") && gecerli+="$isim $ip"$'\n'
     done
-    if [ -n "$gecerli" ]; then
+    if [ "$(kac_tane "$gecerli")" -eq "$kadro" ]; then
         bilgi "${K_YESIL}mDNS${K_SIFIR} ile bulundu"
         onbellek_yaz "$gecerli"; printf '%s' "$gecerli"; return 0
     fi
+    kismi=$(birlestir "$gecerli" "$kismi")
 
-    gecerli=$(mac_tarama) || return 1
+    # MAC tarama: her zaman calisan yontem. Yine de tek turda sasabilir
+    # (254 es zamanli baglanti), o yuzden onceki yontemlerin DOGRULANMIS
+    # bulgulari uzerine eklenir — ikisi de SSH portunu gormus olur.
+    gecerli=$(birlestir "$(mac_tarama || true)" "$kismi")
+    [ -n "$gecerli" ] || return 1
     onbellek_yaz "$gecerli"; printf '%s' "$gecerli"
 }
 
@@ -286,12 +329,20 @@ durum_yaz() {
         printf '%s%s%s (%s)\n' "$K_KALIN" "$isim" "$K_SIFIR" "$ip"
         zaman_asimi 20 ssh -o ConnectTimeout=6 -o BatchMode=yes "$kul@$ip" \
             "printf '  calisma suresi : '; uptime -p 2>/dev/null || uptime
-             printf '  konteyner      : '; docker ps --filter name=$kon --format '{{.Names}} {{.Status}}' 2>/dev/null | head -1
+             _kd=\$(docker ps -a --filter name=$kon --format '{{.Status}}' 2>/dev/null | head -1)
+             printf '  konteyner      : $kon %s\n' \"\${_kd:-BULUNAMADI}\"
+             case \"\$_kd\" in
+                 Up*) ;;
+                 *) printf '  >> SORUN       : $kon CALISMIYOR - duzeltme: docker start $kon\n' ;;
+             esac
              printf '  bayraklar      : '
              for f in kacinma gcs_url tgt_system suru_dugumleri ucus_ayarlari.env; do
                  [ -e \"\$HOME/yelpence_ws/\$f\" ] && printf '%s ' \"\$f\"
              done; echo
-             printf '  disk /         : '; df -h / | awk 'NR==2{print \$4\" bos (\"\$5\" dolu)\"}'" \
+             printf '  disk /         : '; df -h / | awk 'NR==2{print \$4\" bos (\"\$5\" dolu)\"}'
+             if [ -f \"\$HOME/yelpence_ws/mavros_gcs_bozuk\" ]; then
+                 printf '  >> SORUN       : MAVROS GCS hatti BOZUK (%s hata) - docker restart $kon gerekli\n' \"\$(cat \$HOME/yelpence_ws/mavros_gcs_bozuk 2>/dev/null)\"
+             fi" \
             2>&1 | sed 's/^/  /' || echo "  ${K_SARI}(SSH cevap vermedi — anahtar yok olabilir)${K_SIFIR}"
         echo
     done

@@ -206,13 +206,79 @@ else
     echo "[baslat]        Mesh ve ucus WiFi'ye bagli DEGIL; yalniz QGC/SSH etkilenir."
 fi
 
-ros2 run mavros mavros_node --ros-args -r __ns:=/drone_${AGENT_ID}/mavros \
-    -p fcu_url:=/dev/ttyAMA0:921600 \
-    ${TGT_SYSTEM:+-p tgt_system:=$TGT_SYSTEM} \
-    ${GCS_URL:+-p gcs_url:="$GCS_URL"} \
-    >> "$GUNLUK/mavros.log" 2>&1 &
+# Fonksiyon: ayni komut hem ilk aciliste hem onarim denemesinde kullanilsin.
+# Iki yere kopyalanirsa biri guncellenip digeri unutulur (bu depoda yasandi).
+_mavros_baslat() {
+    ros2 run mavros mavros_node --ros-args -r __ns:=/drone_${AGENT_ID}/mavros \
+        -p fcu_url:=/dev/ttyAMA0:921600 \
+        ${TGT_SYSTEM:+-p tgt_system:=$TGT_SYSTEM} \
+        ${GCS_URL:+-p gcs_url:="$GCS_URL"} \
+        >> "$GUNLUK/mavros.log" 2>&1 &
+}
+_mavros_baslat
 [ -n "$GCS_URL" ] && echo "[baslat] MAVLink QGC'ye iletiliyor: $GCS_URL"
 sleep 15
+
+# --- MAVROS GCS HATTI GERCEKTEN KURULDU MU? (26 Agustos 2026) ---------------
+# Yukaridaki P0.13 ag bekleme dongusu YETMIYOR. 26 Agustos'ta olculdu: ag
+# tamamen ayaktayken ELLE yapilan restart'lar da bozuk cikti (19:49 ve 19:51).
+# Yani "ag yoktu" tek sebep degil — her baslatmada atilan bir zar. Uc ucagin
+# da hem temiz hem kirli acilislari var; ucaga ozgu degil.
+#
+# ELENENLER (hepsi ayni gun olculdu): gcs_url farki YOK (ucunde ayni), ag modu
+# ucunde de host, arayuz/rota ayni, 14555 ucunde de bagli. Yayin adresinin
+# kendisi de saglam: ylp02'den 10.x.x.255 / 172.17.255.255 / 255.255.255.255
+# ucune de test paketi SORUNSUZ gitti. Yani yonlendirme ya da docker0 degil.
+# Kok neden bulunamadi; mavconn kaynagini okumak gerekiyor (ayri is).
+#
+# BOZUK HALIN BEDELI (ayni gun, tek oturum): ylp02 289 MB / 2.805.206 satir,
+# ylp00 876 MB / 8.275.479 satir. Tarihsel tepe: mavros.log tek basina
+# 18,64 GB (bu dosyanin basindaki nota bak).
+#
+# UCUS BUNA BAGLI DEGIL — mesh seri hattan gidiyor. ASIL ZARAR TESHIS:
+# mavros.log ucus sonrasi bakilan kaynaktir ve gurultu onu yutuyor. Log
+# dondurme devreye girdiginde acilis satirlari tamamen siliniyor; 26 Agustos'ta
+# ylp01'in logunun basi zaten yok olmustu.
+#
+# BELIRTI: 'mavconn: udp1: sendto: Network is unreachable, retrying'
+# Ilk saniyede basliyor ve kendiliginden DUZELMIYOR. Bilinen tek cozum
+# konteyneri yeniden baslatmak — 26 Agustos'ta iki ucakta da temizledi.
+#
+# ONARIM: bozuksa mavros BIR KEZ yeniden baslatilir. 26 Agustos'ta olculdu —
+# yeniden baslatmak iki ucakta da temizledi, yani hata kalici degil; yeni bir
+# deneme cogu zaman tutuyor. Tam BURASI guvenli: mavros ayakta ama gps_saat ve
+# suru dugumleri HENUZ acilmadi, yani hicbir sey mavros'a bagli degil.
+# TEK deneme — dongu riski yok; ikincide de bozuksa bayrak birakilip gecilir.
+_gcs_hata_say() {
+    _bastan="${1:-0}"
+    _n=$(tail -n +"$((_bastan + 1))" "$GUNLUK/mavros.log" 2>/dev/null \
+         | grep -ac 'Network is unreachable')
+    echo "${_n:-0}"
+}
+if [ -n "$GCS_URL" ]; then
+    _gcs_hata=$(_gcs_hata_say 0)
+    if [ "$_gcs_hata" -gt 0 ]; then
+        echo "[baslat] MAVROS GCS hatti kurulamadi ($_gcs_hata hata) — BIR KEZ yeniden deneniyor"
+        _isaret=$(wc -l < "$GUNLUK/mavros.log" 2>/dev/null || echo 0)
+        pkill -f 'mavros_node' 2>/dev/null
+        sleep 3
+        _mavros_baslat
+        sleep 15
+        _gcs_hata=$(_gcs_hata_say "$_isaret")
+    fi
+    if [ "$_gcs_hata" -gt 0 ]; then
+        echo "[baslat] ==========================================================="
+        echo "[baslat] MAVROS GCS HATTI KURULAMADI — ikinci denemede de $_gcs_hata hata"
+        echo "[baslat]   QGC bu uctan MAVLink ALAMAZ."
+        echo "[baslat]   mavros.log denetlenemez hale gelene kadar buyuyecek."
+        echo "[baslat]   COZUM: docker restart <konteyner> — sonra bu satir CIKMAMALI"
+        echo "[baslat] ==========================================================="
+        echo "$_gcs_hata" > /ws/mavros_gcs_bozuk
+    else
+        rm -f /ws/mavros_gcs_bozuk
+        echo "[baslat] MAVROS GCS hatti saglikli (yayin hatasi yok)"
+    fi
+fi
 
 # --- GPS'ten saat duzeltme (15 Agustos) -------------------------------------
 # Pi 5'te RTC yedek pili yok: acilista saat ~11 saat GERIDEN geliyor ve ancak

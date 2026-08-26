@@ -54,6 +54,13 @@ echo "==> $NAME baslatiliyor (agent_id=$AGENT_ID, ws=$WS_DIR, image=$IMAGE)..."
 #
 # 10m x 3 secildi: ylp00'da 5 gunde 693 KB birikti (drone3'te 147 KB), yani
 # 30 MB tavan aylarca yetiyor ve 29 GB kartta yer sorunu degil.
+# ROS_LOCALHOST_ONLY NEDEN BURADA (26 Agustos 2026)
+# baslat.sh de export ediyor, ama orasi konteynerin KOMUTU — `docker exec` onu
+# MIRAS ALMIYOR. Belirti sessiz ve kotu: `docker exec ... ros2 topic echo`
+# dugumleri HIC goremez, hata da vermez, bos doner. O gun canli uctan armed
+# durumu okunamadi ve once "MAVROS olmus" sanildi. `docker run -e` ile verilince
+# konteyner yapilandirmasina yazilir ve her `docker exec` otomatik alir.
+# DIKKAT: yalniz konteyner YENIDEN OLUSTURULUNCA gecerli olur; restart yetmez.
 docker run -d --name "$NAME" \
   --network host \
   --restart unless-stopped \
@@ -63,6 +70,7 @@ docker run -d --name "$NAME" \
   --cap-add SYS_TIME \
   -v "$WS_DIR:/ws" \
   -e ROS_DOMAIN_ID=0 \
+  -e ROS_LOCALHOST_ONLY=1 \
   -e AGENT_ID="$AGENT_ID" \
   -e SURU_DUGUMLERI="$SURU_DUGUMLERI" \
   -e TAKIM_ID="$TAKIM_ID" \
