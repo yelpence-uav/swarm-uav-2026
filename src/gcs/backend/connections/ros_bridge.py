@@ -141,6 +141,12 @@ SYSTEM_EVENT_LABELS = {
     SystemEvent.EVENT_ALTITUDE_LIMIT_EXCEEDED: "İrtifa sınırı aşıldı",
     SystemEvent.EVENT_RC_LINK_LOST: "RC bağlantısı koptu",
     SystemEvent.EVENT_KILL_SWITCH_ACTIVATED: "Kill switch aktive edildi",
+
+    # TASIMA KATMANI (packet_parser.OLAY_TIPI_*) — SystemEvent.msg'de yok,
+    # cunku bunlar ucaktaki bir dugumun urettigi olaylar degil, olay yolunun
+    # KENDI hakkinda soyledikleri. SystemEvent'in 0-59 araligiyla cakismaz.
+    250: "Olay bütçesi aşıldı — gönderilemeyen olay",
+    251: "Olay KAYBI — mesh'te kayboldu",
 }
 
 # SystemEvent.severity → AlertManager severity string.
@@ -836,7 +842,22 @@ class RosBridge:
             label = SYSTEM_EVENT_LABELS.get(msg.event_type, f"event_{msg.event_type}")
             severity = SEVERITY_MAP.get(msg.severity, SEVERITY_INFO)
             # Mesaj custom alanı varsa onu, yoksa enum etiketini göster.
+            #
+            # MESH'TEN GELEN OLAYLARDA `message` HEP BOS: metin mesh'te
+            # tasinmiyor (16 bayt ~16 karakter eder), yalniz kod tasiniyor.
+            # O yuzden bilgi tasiyan `value` ve `source_module` alanlarini
+            # etikete ekliyoruz — aksi halde "Olay KAYBI" yazar ama KAC olay
+            # kaybedildigi hicbir yerde gorunmezdi.
             text = msg.message.strip() if msg.message else label
+            if not msg.message:
+                ekler = []
+                if msg.value:
+                    # %g: 3.0 -> "3", 3.88 -> "3.88" (gereksiz sifir yok)
+                    ekler.append(f"{msg.value:g}")
+                if msg.source_module:
+                    ekler.append(msg.source_module)
+                if ekler:
+                    text = f"{label} ({', '.join(ekler)})"
             # source_agent_id 0 = sistem geneli; aksi halde drone_id olarak göster.
             drone_id = msg.source_agent_id if msg.source_agent_id != 0 else 0
             self.alerts.push_event(

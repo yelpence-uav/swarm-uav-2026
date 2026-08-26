@@ -404,7 +404,12 @@ void loop() {
                                   tip_byte == TIP_FORMASYON_DEVAM ||
                                   tip_byte == TIP_FORM_OFSET ||
                                   tip_byte == TIP_QR_GOREV ||
-                                  tip_byte == TIP_QR_HAM);
+                                  tip_byte == TIP_QR_HAM ||
+                                  // TIP_OLAY: ucagin kendi olaylari YKI'ye.
+                                  // Pi tarafinda butce (1/sn) ve tekrar
+                                  // (3x) uygulaniyor; firmware yalniz
+                                  // tasir (olay_kuyrugu.py).
+                                  tip_byte == TIP_OLAY);
             // Hiz limiti tip basina (bkz mesh_config.h::mesh_tip_gecebilir). Tek
             // paylasilan damga olsaydi TIP_QR_DATA, 50ms icinde cikan bir POSE/
             // LEADER_HB yuzunden sessizce dusebilirdi; QR tek atimlik ve cezali.

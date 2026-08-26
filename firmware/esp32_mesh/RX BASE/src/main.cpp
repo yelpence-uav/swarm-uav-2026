@@ -241,6 +241,17 @@ void mesh_veri_al(const uint8_t* kaynak_mac, const mesh_paket_t* p) {
     // takipci dronlarin Pi'sine iletilmez (orada bilincli olarak yok).
     else if (p->tip == TIP_QR_GOREV)   msg.uzunluk = sizeof(qr_gorev_veri_t);
     else if (p->tip == TIP_QR_HAM)     msg.uzunluk = sizeof(qr_ham_veri_t);
+    // TIP_OLAY (27 Agustos): YKI olay defterinin kaynagi — TUKETICISI VAR
+    // (drone kartindaki LOG kipi), o yuzden FORMASYON'un aksine aciliyor.
+    //
+    // UART BUTCESI: base'in YKI yonu ~35 cerceve/sn (§3, saha gunlugu).
+    // Olay yolu drone basina 1/sn butceli ve her olay 3 kez tekrarlaniyor
+    // -> uc ucakta EN KOTU 9 cerceve/sn, yani butcenin ~%26'si. Tipik hal
+    // ~0 (olaylar seyrek). Kopyalar Pi'de eleniyor (BoslukIzleyici); burada
+    // elemek firmware'i yuk duzenine baglardi ve opak tasima ilkesini bozardi.
+    // Butce dar gelirse cozum tekrar sayisini dusurmek: `olay_tekrar`
+    // parametresi, yeniden flash GEREKTIRMEZ.
+    else if (p->tip == TIP_OLAY)       msg.uzunluk = sizeof(olay_veri_t);
     // TIP_FORMASYON / _DEVAM / _FORM_OFSET BILEREK YOK - simdilik.
     // Sebep: base UART'in YKI yonu ~35 cerceve/sn ile sinirli (§3, saha
     // gunlugu) ve formasyon 5 Hz akiyor -> butcenin ~%14'u. Karsiliginda YKI

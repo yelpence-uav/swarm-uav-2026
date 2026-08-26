@@ -40,6 +40,20 @@ TIP_FORM_OFSET = 0x13  # yalnız CUSTOM: açık slot offsetleri
 TIP_QR_GOREV = 0x14  # QR'ı okuyan drone -> sürü: çözülmüş görev
 TIP_QR_HAM = 0x15  # yalnız ayrıştırma hatasında: ham metin dilimi
 
+# TIP_OLAY (0x16) — uçak olaylarını YKİ'ye taşır (27 Ağustos 2026).
+#
+# NEDEN YENİ BİR TİP: bu dosyanın §DURUM2 notunda yazdığı gibi mesh
+# protokolünde olay tipi YOKTU; körlük alarmı o yüzden DURUM paketine bit
+# olarak sıkıştırılmıştı. Bit tek bir "var/yok" taşıyor; operatörün istediği
+# "her drone'un olay defteri" için tip + şiddet + bağlam gerekiyor.
+#
+# METİN TAŞIMIYOR: 16 baytlık yük ~16 karakter eder, cümle taşımaz. Bunun
+# yerine SystemEvent.msg'deki 60 tanımlı EVENT_* kodu taşınıyor ve metni YKİ
+# üretiyor — bant genişliği ödemeden uzun, Türkçe, anlamlı mesaj.
+#
+# Tip tablosu tavanı MESH_TIP_TABLO_BOYU = 24; 0x16 = 22, yer var.
+TIP_OLAY = 0x16
+
 # Failsafe türleri (fail_safe.h)
 FAILSAFE_TIP_UYARI = 0x01
 FAILSAFE_TIP_RTL = 0x02
@@ -129,6 +143,14 @@ _QR_GOREV_FMT = '<BBBBBBbbbBBBB3x'
 # pitch/roll/yaw_deg (int8), irtifa_m, bekleme_s, ayrilan_ajan,
 # renk_ve_bekleme, rezerv[3]
 _QR_HAM_FMT = '<BBB13s'             # hata_kodu, parca_no, toplam_parca, dilim[13]
+
+# olay_veri_t — 16 bayt, paket BUYUMUYOR.
+#   olay_tipi B · siddet B · kaynak_id B · hedef_id B · deger_x100 h
+#   sira_no B · modul_kodu B · zaman_ms I · ek1 H · ek2 H
+# deger float32 DEGIL int16 x100: §1.2 birim kurali (kodda yeni kodlama
+# icat etmiyoruz). Aralik +-327.67, cozunurluk 0.01 — batarya %, mesafe m,
+# aci derece hepsi bu aralikta.
+_OLAY_FMT = '<BBBBhBBIHH'
 
 # formasyon_tipi bit7: devam paketi geliyor (5+ ajan)
 FORMASYON_BAYRAK_DEVAM = 0x80
@@ -1263,3 +1285,134 @@ def qr_ham_paketle(hata_kodu: int, ham_metin: str) -> list[bytes]:
                     p.ljust(QR_HAM_DILIM_BOYU, b'\x00'))
         for i, p in enumerate(parcalar)
     ]
+
+
+# =============================================================================
+# TIP_OLAY — uçak olayları (27 Ağustos 2026)
+# =============================================================================
+
+# source_module STRING'i mesh'te taşınamaz (16 bayta sığmaz). Kodla taşınıp
+# YKİ'de geri açılıyor. Tablodaki isimler depoda fiilen kullanılanlardan
+# çıkarıldı (`grep source_module`).
+#
+# ⚠️ Tablo İKİ TARAFTA da aynı olmalı — burası tek kaynak, YKİ bunu okuyor.
+# Yeni bir modül eklenirse SONA eklenir; aradaki kodlar KAYDIRILMAZ, yoksa
+# eski kayıtlar yanlış modül adıyla okunur.
+MODUL_KODLARI: dict[str, int] = {
+    'bilinmiyor': 0,
+    'agent_fsm': 1,
+    'collision_avoidance': 2,
+    'consensus': 3,
+    'esp32_bridge': 4,
+    'formation_control': 5,
+    'mission_fsm': 6,
+    'mission1_dynamic_swarm': 7,
+    'camera_driver': 8,
+    'precision_landing': 9,
+    'maneuver_executor': 10,
+    'mode_manager': 11,
+    'swarm_fsm': 12,
+    'joystick_interpreter': 13,
+    'path_planner': 14,
+    'px4_bridge': 15,
+    'basit_kacinma': 16,
+    'yelpence_izle': 17,      # Pi ana sistem izlemesi (konteyner disi)
+}
+MODUL_ADLARI: dict[int, str] = {v: k for k, v in MODUL_KODLARI.items()}
+
+
+def modul_kodu(ad: str) -> int:
+    """Modül adını koda çevirir; bilinmeyen ad 0 döner.
+
+    `collision_avoidance:korluk` gibi iki nokta ile alt-ad verilen yerler
+    var; taban ada bakiyoruz ki her alt-ad icin ayri kod tutmak gerekmesin.
+    """
+    if not ad:
+        return 0
+    return MODUL_KODLARI.get(ad.split(':')[0].strip(), 0)
+
+
+# TASIMA KATMANI OLAY KODLARI — SystemEvent.msg'nin 0-59 araligiyla
+# CAKISMAZ. Bunlar ucaktaki bir dugumun urettigi olaylar degil, olay
+# yolunun KENDI hakkinda soyledikleri:
+#
+#   DUSEN  : gonderici butcesi asildi, N olay gonderilmedi. Sessizce
+#            dusurmek, defterin "tamam" gorunmesi demek olurdu.
+#   BOSLUK : baz, sira_no'da atlama gordu — N olay HAVADA kayboldu.
+#            Broadcast'te ACK yok; teslimat garanti edilemez ama kayip
+#            GORUNUR kilinabilir.
+OLAY_TIPI_DUSEN = 250
+OLAY_TIPI_BOSLUK = 251
+
+
+@dataclass
+class OlayVeri:
+    """TIP_OLAY payload — bir uçak olayı.
+
+    Alanlar SystemEvent.msg ile bire bir eşleşir; `message` ve konum
+    TASINMIYOR (gerekce TIP_OLAY tanimindaki nota bak).
+    """
+
+    olay_tipi: int      # SystemEvent.EVENT_*
+    siddet: int         # SystemEvent.SEVERITY_*
+    kaynak_id: int      # 0 = sistem geneli
+    hedef_id: int       # ilgili baska ajan; 0 = yok
+    deger: float        # SystemEvent.value (x100 kodlanmis, geri acilmis)
+    sira_no: int        # drone basina artan sayac — BOSLUK TESPITI icin
+    modul: str          # source_module (koddan geri acilmis)
+    zaman_ms: int       # ucaktaki zaman damgasi
+    ek1: int
+    ek2: int
+
+
+def olay_coz(payload: bytes) -> OlayVeri:
+    """TIP_OLAY payload'ını OlayVeri'ye çözer (16 bayt)."""
+    a = struct.unpack(_OLAY_FMT, payload)
+    return OlayVeri(
+        olay_tipi=a[0],
+        siddet=a[1],
+        kaynak_id=a[2],
+        hedef_id=a[3],
+        deger=a[4] / 100.0,
+        sira_no=a[5],
+        modul=MODUL_ADLARI.get(a[6], 'bilinmiyor'),
+        zaman_ms=a[7],
+        ek1=a[8],
+        ek2=a[9],
+    )
+
+
+# int16 x100'un tasiyabilecegi aralik. Disina cikan deger KIRPILIR — sarmak
+# (overflow) sessizce ters isaretli bir sayi uretir ve "batarya %-321" gibi
+# okunur bir sonucu YANLIS ama inandirici yapar.
+OLAY_DEGER_MIN = -327.67
+OLAY_DEGER_MAKS = 327.67
+
+
+def olay_paketle(olay_tipi: int, siddet: int, kaynak_id: int,
+                 sira_no: int,
+                 hedef_id: int = 0,
+                 deger: float = 0.0,
+                 modul: str = '',
+                 zaman_ms: int = 0,
+                 ek1: int = 0,
+                 ek2: int = 0) -> bytes:
+    """Olay alanlarını 16 baytlık mesh payload'ına paketler.
+
+    sira_no drone basina 0-255 arasi doner; YKI sarmayi hesaba katarak
+    bosluk sayar (bkz. esp32_bridge baz tarafi).
+    """
+    d = max(OLAY_DEGER_MIN, min(OLAY_DEGER_MAKS, float(deger)))
+    return struct.pack(
+        _OLAY_FMT,
+        int(olay_tipi) & 0xFF,
+        int(siddet) & 0xFF,
+        int(kaynak_id) & 0xFF,
+        int(hedef_id) & 0xFF,
+        int(round(d * 100.0)),
+        int(sira_no) & 0xFF,
+        modul_kodu(modul),
+        int(zaman_ms) & 0xFFFFFFFF,
+        int(ek1) & 0xFFFF,
+        int(ek2) & 0xFFFF,
+    )

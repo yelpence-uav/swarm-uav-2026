@@ -53,6 +53,7 @@ from swarm_interfaces.msg import (
     SystemEvent,
 )
 
+from .olay_kuyrugu import BoslukIzleyici, OlayKuyrugu
 from . import packet_parser as pp
 from .cobs import cobs_decode, cobs_encode
 from .crc16 import crc16
@@ -293,6 +294,21 @@ class Esp32BridgeNode(Node):
         # parametre var (ikisinde varsayılan 45.0) ve eşitliği hiçbir şey
         # zorlamıyordu — biri farklı kalırsa slot geometrisi SESSİZCE ayrışır.
         self.declare_parameter('wing_alpha_deg', 45.0)
+
+        # --- OLAY YOLU (TIP_OLAY, 27 Agustos 2026) ---------------------------
+        # Operator onceligi: "loglarin cok seri akmasina gerek yok, asil onemli
+        # olan YKI'ye SAGLAM sekilde ulasmasi. Saniyede 1 defa bile yeterli."
+        #
+        # Bu yuzden hiz DUSUK, guvenilirlik TEKRARLA aliniyor. Broadcast'te
+        # ACK yok; her olay birkac kez yayilir ve baz kopyalari sira_no ile
+        # eler.
+        self.declare_parameter('olay_butce_hz', 1.0)      # surekli hal
+        self.declare_parameter('olay_patlama', 4)         # kisa patlama hakki
+        self.declare_parameter('olay_tekrar', 3)          # her olay kac kez
+        self.declare_parameter('olay_tekrar_aralik_s', 0.25)
+        # Ileride tekrar-isteme (TIP_OLAY_ISTE) eklenirse eksik olayi buradan
+        # cikaracagiz. Bugun kullanilmiyor ama halkayi bastan tutmak bedava.
+        self.declare_parameter('olay_halka', 32)
 
         self._agent_id = int(self.get_parameter('agent_id').value)
         self._komsu_durum_bayat_s = float(
@@ -627,6 +643,44 @@ class Esp32BridgeNode(Node):
         )
         self._okuma_thread.start()
 
+        # --- OLAY YOLU: kendi olaylarimizi mesh'e ver ------------------------
+        #
+        # ⚠️ ABONELIK `internal`'A — `public`'e DEGIL. public'te hem bizim
+        # olaylarimiz (ic_dis_kopru aktariyor) HEM de mesh'ten gelen KOMSU
+        # olaylari var (bu dugum kendisi yayinliyor, bkz. _event_pub_public).
+        # public'e abone olsaydik komsunun olayini geri yayinlar ve mesh'te
+        # bir GERI BESLEME DONGUSU kurardik. ic_dis_kopru tek yonlu
+        # (internal -> public), dosyasinin basinda yazili — yani internal
+        # yalnizca BIZIM urettiklerimiz.
+        # Butce/tekrar/sira mantigi ROS'suz saf modulde (olay_kuyrugu.py) —
+        # dizustunde, konteynersiz test edilebilsin diye. Ayni gerekce
+        # rtk_pure.h ve ca_core.py'de de yazili.
+        self._olay_kuyruk = OlayKuyrugu(
+            butce_hz=float(self.get_parameter('olay_butce_hz').value),
+            patlama=float(self.get_parameter('olay_patlama').value),
+            tekrar=int(self.get_parameter('olay_tekrar').value),
+            tekrar_aralik_s=float(
+                self.get_parameter('olay_tekrar_aralik_s').value),
+            halka=int(self.get_parameter('olay_halka').value),
+        )
+        self._olay_kuyruk.basla(time.monotonic())
+        # Alici tarafi: kopyalari eler, GERCEK kayiplari sayar. Tekrarlar
+        # sira disi varabildigi icin gecikmeli onay kullaniyor (bkz.
+        # olay_kuyrugu.BoslukIzleyici).
+        self._olay_bosluk = BoslukIzleyici()
+        self._olay_alinan = 0
+        self._olay_kopya = 0
+        self.create_subscription(
+            SystemEvent,
+            '/swarm/internal/events/system',
+            self._on_olay_out,
+            _EVENT_QOS,
+        )
+        # Tekrar kuyrugu: 50 ms'de bir bak, zamani gelmis tekrarlari yolla.
+        self._olay_timer = self.create_timer(0.05, self._olay_kuyruk_isle)
+        # Kayip/sicrama raporu ayri ve YAVAS: onay suresi zaten 2 sn.
+        self._olay_kayip_timer = self.create_timer(1.0, self._olay_kayip_bildir)
+
         # Mesh sağlık raporu: her 1 sn'de bir SystemEvent ile yayın.
         # Failsafe: mesh kopuksa swarm_fsm görür.
         self._diag_timer = self.create_timer(1.0, self._diag_yayinla)
@@ -704,6 +758,116 @@ class Esp32BridgeNode(Node):
     # =================================================================
     # SERİ PORT YÖNETİMİ
     # =================================================================
+    # =================================================================
+    # OLAY YOLU — kendi olaylarimizi mesh'e ver (TIP_OLAY, 27 Agustos 2026)
+    # =================================================================
+
+    def _on_olay_out(self, msg: SystemEvent) -> None:
+        """Kendi düğümlerimizin ürettiği olayı mesh'e sokar."""
+        # Kendi olayimiz degilse yollamayiz. `internal` zaten yalniz bizim
+        # urettiklerimizi tasiyor; bu, ileride biri yanlislikla public'i
+        # internal'a koprulerse diye IKINCI KAT koruma — o durumda komsunun
+        # olayini geri yayinlayip mesh'te geri besleme dongusu kurardik.
+        kaynak = int(msg.source_agent_id)
+        if kaynak not in (0, self._agent_id):
+            return
+
+        now = time.monotonic()
+        if not self._olay_kuyruk.izin_var_mi(now):
+            return   # butce asildi; sayac tutuluyor, 10 sn'de bir bildirilir
+
+        payload = pp.olay_paketle(
+            olay_tipi=int(msg.event_type),
+            siddet=int(msg.severity),
+            kaynak_id=self._agent_id,
+            sira_no=self._olay_kuyruk.sonraki_sira(),
+            hedef_id=int(msg.target_agent_id),
+            deger=float(msg.value),
+            modul=str(msg.source_module),
+            # Ucaktaki zaman: YKI olaylari DOGRU siralasin. Duvar saati DEGIL
+            # monotonic — Pi'lerin saati acilista atliyor (cihazlar.md,
+            # "RTC yedek pili yok").
+            zaman_ms=int(now * 1000.0) & 0xFFFFFFFF,
+        )
+        self._olay_kuyruk.kuyrukla(payload, now)
+
+    def _isle_olay(self, drone_id: int, payload: bytes) -> None:
+        """TIP_OLAY -> komşunun olayını SystemEvent olarak yayınlar.
+
+        Kopyalari ELER: her olay `tekrar` kez yayilir, bu tasarim geregi.
+        Kopyayi yayinlamak defterde ayni satirin uc kez gorunmesi olurdu.
+        """
+        try:
+            o = pp.olay_coz(payload)
+        except Exception as e:  # noqa: BLE001
+            self.get_logger().warning(f'olay cozulemedi drone{drone_id}: {e}')
+            return
+
+        self._olay_alinan += 1
+        now = time.monotonic()
+        if not self._olay_bosluk.gelen(drone_id, o.sira_no, now):
+            self._olay_kopya += 1
+            return
+
+        ev = SystemEvent()
+        ev.stamp = self.get_clock().now().to_msg()
+        ev.event_type = o.olay_tipi
+        ev.severity = o.siddet
+        ev.source_agent_id = o.kaynak_id
+        ev.target_agent_id = o.hedef_id
+        ev.value = float(o.deger)
+        ev.source_module = o.modul
+        # `message` BOS birakiliyor: metin mesh'te tasinmiyor, YKI olay
+        # kodundan uretiyor (bkz. packet_parser TIP_OLAY notu).
+        self._event_pub_public.publish(ev)
+
+    def _olay_kayip_bildir(self) -> None:
+        """Onaylanmış kayıpları ve sayaç sıçramalarını olay olarak yayınlar.
+
+        Kayip SESSIZ kalmamali: broadcast'te ACK yok, teslimat garanti
+        edilemez — ama kaybin KENDISI bildirilebilir.
+        """
+        now = time.monotonic()
+        for drone_id, adet in self._olay_bosluk.kayiplar(now):
+            ev = SystemEvent()
+            ev.stamp = self.get_clock().now().to_msg()
+            ev.event_type = pp.OLAY_TIPI_BOSLUK
+            ev.severity = 1                      # SEVERITY_WARNING
+            ev.source_agent_id = drone_id
+            ev.value = float(adet)
+            ev.source_module = 'esp32_bridge'
+            self._event_pub_public.publish(ev)
+            self.get_logger().warning(
+                f'olay boslugu: drone{drone_id} icin {adet} olay KAYIP'
+            )
+        for drone_id, kez in self._olay_bosluk.sicramalar().items():
+            self._olay_bosluk.sicrama_temizle(drone_id)
+            self.get_logger().warning(
+                f'olay sira sayaci SICRADI: drone{drone_id} ({kez} kez) — '
+                f'kayip mi yeniden baslatma mi BILINMIYOR'
+            )
+
+    def _olay_kuyruk_isle(self) -> None:
+        """Zamanı gelen tekrarları yollar; düşürülenleri bildirir."""
+        now = time.monotonic()
+        for payload in self._olay_kuyruk.hazir_olanlar(now):
+            self._uart_yaz(pp.TIP_OLAY, self._agent_id, payload)
+
+        dusen = self._olay_kuyruk.dusen_raporu(now)
+        if dusen is not None:
+            self._olay_kuyruk.kuyrukla(pp.olay_paketle(
+                olay_tipi=pp.OLAY_TIPI_DUSEN,
+                siddet=1,                      # SEVERITY_WARNING
+                kaynak_id=self._agent_id,
+                sira_no=self._olay_kuyruk.sonraki_sira(),
+                deger=float(min(dusen, 32767)),
+                modul='esp32_bridge',
+                zaman_ms=int(now * 1000.0) & 0xFFFFFFFF,
+            ), now)
+            self.get_logger().warning(
+                f'olay butcesi asildi: {dusen} olay gonderilmedi'
+            )
+
     def _seri_ac(self) -> bool:
         """Seri portu açar. Başarılı ise True, başarısız ise False.
 
@@ -915,6 +1079,8 @@ class Esp32BridgeNode(Node):
             self._isle_qr_gorev(cerceve.iha_id, cerceve.payload)
         elif cerceve.tip == pp.TIP_QR_HAM:
             self._isle_qr_ham(cerceve.iha_id, cerceve.payload)
+        elif cerceve.tip == pp.TIP_OLAY:
+            self._isle_olay(cerceve.iha_id, cerceve.payload)
         elif cerceve.tip in (pp.TIP_HEARTBEAT, pp.TIP_VERSION):
             pass  # bilinen tip, downstream aksiyonu yok
         else:

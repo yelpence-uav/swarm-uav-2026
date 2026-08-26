@@ -85,6 +85,14 @@
 #define TIP_QR_GOREV         0x14   // QR'i okuyan drone -> suru: cozulmus gorev
 #define TIP_QR_HAM           0x15   // yalniz ayristirma hatasinda: ham metin dilimi
 
+// TIP_OLAY (27 Agustos 2026): ucak olaylari -> YKI olay defteri.
+//
+// Firmware bu paketin ICINE BAKMAZ, opak tasir — tipki TIP_DURUM gibi.
+// Yuk 16 bayt, yani mesh_paket_t BUYUMUYOR ve UART_FRAME_BUF_SIZE (TX
+// DRONE'da 32) degismiyor. Metin tasinmiyor; SystemEvent.msg'deki olay
+// KODU tasiniyor ve metni YKI uretiyor.
+#define TIP_OLAY             0x16
+
 // Dikkat: iki ayri isim uzayi, karistirma:
 //
 // (1) BAZ_ID = RTK UART cercevesinin sentinel'i. Sadece UART cerceve
@@ -235,6 +243,28 @@ struct __attribute__((packed)) election_veri_t {
     uint16_t incarnation;
     uint8_t  rezerv[2];
 };   // 16 byte
+
+// Olay paketi. Alan duzeni packet_parser.py `_OLAY_FMT` ile BIREBIR ayni
+// olmali ('<BBBBhBBIHH'); ayrisirsa cerceve dilimi kayar ve alanlar SESSIZCE
+// yanlis cozulur.
+//
+// deger float DEGIL int16 x100: mesh birim kurali (bkz. MESH_PROTOKOL
+// KARARLARI §1.2 — "yeni paketler bu kurallara uyacak, ayri bir kodlama
+// icat etmiyoruz"). Aralik +-327.67.
+struct __attribute__((packed)) olay_veri_t {
+    uint8_t  olay_tipi;    // SystemEvent EVENT_* (0-59) ya da tasima kodu
+    uint8_t  siddet;       // SEVERITY_*
+    uint8_t  kaynak_id;
+    uint8_t  hedef_id;
+    int16_t  deger_x100;
+    uint8_t  sira_no;      // drone basina artan; YKI BOSLUK tespiti icin
+    uint8_t  modul_kodu;
+    uint32_t zaman_ms;
+    uint16_t ek1;
+    uint16_t ek2;
+};   // 16 byte
+static_assert(sizeof(olay_veri_t) == 16,
+              "olay_veri_t 16 byte OLMALI — packet_parser.py _OLAY_FMT ile uyum");
 
 struct __attribute__((packed)) version_veri_t {
     uint8_t  major;
