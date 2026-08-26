@@ -1,6 +1,6 @@
 # TUZAKLAR — hata vermeden yanlış sonuç üretenler
 
-**Son güncelleme:** 26 Ağustos 2026, 22:55 — §1.25 docker exec ROS körlüğü · §1.26 durmuş konteyner görünmüyordu · §2.23 MAVROS GCS yayın zarı
+**Son güncelleme:** 27 Ağustos 2026, 01:10 — §1.27 ritmik LED uyku değil SD yazımı · §1.25 docker exec ROS körlüğü · §1.26 durmuş konteyner · §2.23 MAVROS GCS yayın zarı
 
 > **Bu belge CANLI.** Arşiv değil — buradaki her madde **bugün de geçerli.**
 >
@@ -755,6 +755,40 @@ edilmeseydi uçak mesh'siz, px4_bridge'siz sahaya çıkacaktı.
 
 **Çözüm:** `--durum` artık `docker ps -a` kullanıyor ve çalışmıyorsa düzeltme
 komutuyla birlikte `>> SORUN` satırı basıyor. Politika **değişmedi**.
+
+---
+
+### 1.27 Pi'nin ritmik yanıp sönen ışığı UYKU DEĞİL — SD'ye yazıyor demek
+
+**27 Ağustos 2026, operatör gözlemi.** *"RPi'ler ağa bağlı değilken ışıkları
+yarım saniyede bir yanıp sönüyor, sanki uyku moduna girmişler."*
+
+Gözlem gerçek ve önemliydi, ama **ters okunmuştu**. Ölçüldü:
+
+```
+ACT LED tetikleyicisi        : [mmc0]   = SD KART AKTIVITESI
+PWR LED                      : kapali
+vm.dirty_writeback_centisecs : 100      = her 1 SANIYEDE geri-yazim
+uptime                       : uc ucakta da kesintisiz
+powersave / sleep.target     : kapali / etkin degil
+```
+
+Yani Pi uyumuyor — **tam tersine, durmadan SD karta yazıyor.** Çekirdek her
+saniye geri-yazım turu atıyor (`izleme_kur.sh` 7/7, güç kesilince log
+kaybolmasın diye bilinçli). Normalde yazacak veri olmadığı için LED sessiz.
+
+**Ritmi yaratan şey MAVROS taşkını** (§2.23): ağ kopunca GCS yayın hattı
+bozuluyor, saniyede binlerce satır üretiliyor, her geri-yazım turunda yazacak
+veri buluyor → düzenli, ritmik LED.
+
+**Ders:** "ağ yokken ışık yanıp sönüyor" doğru bir korelasyondu; yanlış olan
+"demek ki uyuyor" çıkarımıydı. Bu projede LED, sistemin **en ucuz telemetri
+kanalı** — ama neyi gösterdiği tetikleyiciye bakılarak doğrulanmalı
+(`cat /sys/class/leds/ACT/trigger`).
+
+**Yan zarar:** SD kart boşuna yıpranıyor. Taşkın halinde saatte yüzlerce MB
+yazılıyor ve geri-yazım 1 sn'de bir olduğu için bu yazımlar tampona toplanıp
+seyrekleştirilemiyor.
 
 ---
 

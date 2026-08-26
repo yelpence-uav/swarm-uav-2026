@@ -1,8 +1,48 @@
 # YAPILACAKLAR
 
-**Son güncelleme:** 26 Ağustos 2026, 23:05 — `dd5a1e6` dağıtıldı; P1 konteyner recreate (A19+A12+json log), P2 mavconn kök nedeni, P3 firmware derleme ortamı
+**Son güncelleme:** 27 Ağustos 2026, 01:05 — 🔴 P0 PX4 güç soketi gevşek (o uçak uçmaz) · 🔴 P0 MAVROS denetimi yalnız açılışa bakıyor
 
 ## 🚨 SONRAKİ OPERATÖRE — ÖNCE BUNLAR (26 Ağustos gecesi)
+
+- `[ ]` 🔴🔴 **P0 — ylp02'nin PX4 GÜÇ SOKETİ GEVŞEK. ylp02 UÇMAZ.**
+  27 Ağustos gecesi operatör buldu: **güç soketine dokununca FCU yeniden
+  başlıyor.** Aynı arıza daha önce iki kez görülmüştü ve ikisi de yanlış
+  yorumlanmıştı:
+  - "Pi'nin düğmesine bastım, PX de rebootlandı" → Pi'yle ilgisi YOK; düğme
+    ile güç kablosu **aynı yerde**, el kabloya çarpmış. PX ayrı regülatörden
+    besleniyor (operatör teyidi), yani elektriksel bir bağ zaten yok.
+  - "Durduk yere rebootlandı" → aynı gevşek temas, titreşim/ısıl hareketle.
+
+  **Neden P0:** `TUZAKLAR` §2.19'daki ESP jumper'ıyla aynı sınıf — yerde
+  kusursuz, dokununca/titreşince bozuk. Ama sonucu kıyaslanamaz: jumper
+  bozulunca **veri** kaybediyorduk, güç kesilince **uçuş kontrolcüsü ölür ve
+  uçak düşer.** Havadaki titreşim parmaktan çok daha sert.
+
+  ⚠️ **2 Ağustos'ta ylp01'in düşüşü hâlâ tam aydınlanmadı** — bu aday sebep
+  olarak değerlendirilmeli.
+
+  **Kabul ölçütü:** bant DEĞİL, lehim ya da kilitli konnektör. Tamir sonrası
+  **kabloyu bilerek üç kez oynat**; üçünde de reboot gelmiyorsa geçti sayılır.
+  A16'daki bant çözümü ESP için bile "geçici" kabul edilmişti; güç hattı için
+  hiç kabul edilemez.
+
+- `[ ]` 🔴 **P0 — MAVROS GCS denetimi YETERSİZ: yalnız açılışa bakıyor.**
+  26 Ağustos'ta eklenen denetim (`baslat.sh`) açılıştan 15 sn sonra bir kez
+  sayıyor. Ama taşkın **sonradan da başlayabiliyor** — 27 Ağustos 00:40'ta
+  üç uçak da açılışta TEMİZ raporlanmışken şu hâldeydi:
+
+  ```
+  ylp00  1.267.490 hata / 131 MB     ylp01  4.520.170 / 467 MB
+  ylp02  5.049.428 hata / 522 MB     bayrak: ÜÇÜNDE DE YOK
+  ```
+
+  Doğrusu **periyodik** denetim: `yelpence-izle` zaten 10 sn'de bir koşuyor,
+  oraya takılır. ⚠️ Otomatik onarım yalnız **yerde + disarm** iken çalışmalı;
+  havada mavros'u yeniden başlatmak px4_bridge'i keser — havada SADECE uyarı.
+
+  **Yan zarar iki katlı:** (a) `mavros.log`'un başı siliniyor, teşhis kaynağı
+  yok oluyor — bu gece PX4 reboot'unu tam da bu yüzden logdan çıkaramadık;
+  (b) SD kart boşuna yıpranıyor (geri-yazım 1 sn'de bir, `TUZAKLAR` §1.27).
 
 - `[ ]` 🟠 **P1 — KONTEYNER RECREATE: tek işlem, ÜÇ ihtiyacı birden kapatır.**
   `docker rm -f <kon>` + `~/yelpence_ws/run_drone.sh` (Pi'de mevcut, `dd5a1e6`).
@@ -21,13 +61,18 @@
   onarıyor (`baslat.sh`), yani acil değil — ama tek oturumda 876 MB yiyen bir
   şeyin sebebini bilmemek iyi değil.
 
-- `[ ]` ⚪ P3 — **Firmware derleme ortamı hiçbir yerde yok.** ESP'nin Pi
-  üzerinden flash'lanabildiği 26 Ağustos'ta kanıtlandı (`RPI_ESITLEME` §8), ama
-  ne Pi'lerde ne dizüstünde PlatformIO var — yani firmware'de bir şey
-  değiştirsek `.bin` üretemiyoruz. Tek güncel `.bin` ylp01'de
-  (`~/yelpence_ws/esp_fw/`, `ccb915c` seviyesinde; o tarihten sonra
-  `firmware/` değişmedi). Kurulunca `esp32dev_serial0` derlenip mevcut
-  `.bin` ile karşılaştırılmalı.
+- `[ ]` 🟡 P2 — **PlatformIO PATH'te değil: "yok" sanılıyor.** 27 Ağustos'ta
+  yanlış teşhis kondu ("hiçbir yerde yok") çünkü yalnız `command -v pio`'ya
+  bakılmıştı. Gerçek: **`~/pio-venv/bin/pio` (Core 6.1.19)** ve `~/.platformio`
+  (1,5 GB, araç zinciri indirilmiş) YKİ dizüstünde duruyor — 25 Ağustos
+  günlüğündeki "geçici venv" bu.
+  Yapılacak: kalıcılaştır (PATH'e al ya da `deploy/` altına ince bir sarmalayıcı)
+  ve `README`/`cihazlar.md`'ye yaz. Aksi halde her yeni operatör aynı yanlış
+  teşhisi koyar.
+  ℹ️ **ESP-NOW v2 bu araç zincirinde YOK:** `framework-arduinoespressif32
+  3.20017` = Arduino core 2.0.17 = **IDF 4.4**; v2 IDF 5.3+ istiyor. Geçmek
+  Arduino 3.x'e platform göçü demek — bugün gerek yok, gerekçe `TUZAKLAR`
+  §2.23 civarındaki mesh ölçümlerinde.
 
 - `[ ]` 🔴 **P0 — HOME KAYMASI (RTL'e güvenilmez):** gece CA geçiş
   testinde RTL, üç uçağı kalkış yerine değil AYNI yanlış civara indirdi
