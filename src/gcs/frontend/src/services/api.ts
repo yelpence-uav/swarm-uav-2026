@@ -127,6 +127,47 @@ export const rtk = {
     reqJson<RtkResetSonuc>(`/rtk/reset?kip=${kip}`, "POST"),
 };
 
+export interface GunlukKaydi {
+  sira: number;
+  zaman: number;      // unix epoch (saniye)
+  drone_id: number;   // 0 = sistem geneli
+  siddet: "info" | "warning" | "critical" | "emergency";
+  kod: string;        // event_43, link_timeout, pi_disk ...
+  mesaj: string;
+}
+
+export interface GunlukCevap {
+  kayitlar: GunlukKaydi[];
+  son_sira: number;
+  aktif: boolean;     // false = arka ucta defter kurulmamis
+}
+
+/** Uçuş ve sistem olay defteri.
+ *
+ * ARTIMLI OKUMA: elindeki en buyuk `sira`yi `sonra` ile geri gonder, yalniz
+ * yeni kayitlar doner. Defter binlerce satira ulassa bile her sorgu birkac
+ * yuz bayt tasir. `sonra=0` tum defteri (limit kadarini) verir.
+ *
+ * drone verilirse o drone'un kayitlari + sistem geneli (drone_id=0) doner;
+ * "Pi diski doldu" o drone'u ilgilendirir, ayri sekmede aranmamali.
+ */
+export const gunluk = {
+  oku: (opts?: {
+    drone?: number;
+    minSiddet?: string;
+    sonra?: number;
+    limit?: number;
+  }) => {
+    const q = new URLSearchParams();
+    if (opts?.drone !== undefined) q.set("drone", String(opts.drone));
+    if (opts?.minSiddet) q.set("min_siddet", opts.minSiddet);
+    if (opts?.sonra) q.set("sonra", String(opts.sonra));
+    if (opts?.limit) q.set("limit", String(opts.limit));
+    const qs = q.toString();
+    return reqJson<GunlukCevap>(`/loglar${qs ? "?" + qs : ""}`, "GET");
+  },
+};
+
 export const api = {
   takeoff: (droneId: number, altitude?: number) =>
     postCommand(

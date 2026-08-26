@@ -6,6 +6,7 @@ import time
 from dataclasses import dataclass
 from typing import Iterable
 
+from backend.core.log_store import LogStore
 from backend.core.state_store import DroneState
 
 SEVERITY_INFO = "info"
@@ -54,10 +55,39 @@ class AlertManager:
          "rtk_lost"}
     )
 
-    def __init__(self, susturulan: Iterable[str] = ()) -> None:
+    # PIL DEGERLENDIRMESI KAPALI (27 Agustos 2026, operator karari)
+    #
+    # NEDEN: su an sahada pil olcumu YOK. ylp01'in guc olcum karti eksik,
+    # digerlerinde de PX4 tezgahta sabit "12.6 V / %100" sentinel'i veriyor
+    # (TUZAKLAR §1.20). Yani gelen sayi ne dolu ne bos — ANLAMSIZ.
+    #
+    # Bunu "sustur" ile cozmuyoruz: susturma, GERCEK bir sinyali ekrandan
+    # gizlemek demek ve o sinyal deftere yine giriyor. Burada gizlenecek bir
+    # sinyal yok; olmayan bir olcumden uyari uretmeyi tamamen birakiyoruz.
+    # Aksi halde her arka uc acilisinda "Batarya kritik %0" defteri
+    # kirletiyor ve LOG butonunu bos yere kirmizi yakiyordu — telemetri
+    # gelmeden once durum sifir ve pilin GPS'teki gibi lutuf suresi yok.
+    #
+    # ACMAK ICIN: pil olcum kartlari takilinca config.yaml -> alerts.pil: true.
+    # O gun esikler (BAT_*) ve lutuf suresi de bastan gozden gecirilmeli.
+    def __init__(
+        self,
+        susturulan: Iterable[str] = (),
+        gunluk: "LogStore | None" = None,
+        pil: bool = False,
+    ) -> None:
         self.susturulan = {
             k for k in susturulan if k in self.SUSTURULABILIR
         }
+        # Kalici defter (bkz. core/log_store.py). Uyari motorunun davranisi
+        # DEGISMIYOR — ayni kayitlar bir de deftere dusuyor. None ise hicbir
+        # sey degismez, yani mevcut testler ve cagirilar etkilenmez.
+        #
+        # DIKKAT: susturulan uyarilar da deftere GIRER. Ekranda susturmak
+        # "hakem videosunda ariza gorunumu olmasin" icindi; sonradan
+        # incelerken o kayitlarin YOK olmasi bambaska bir sey olurdu.
+        self._gunluk = gunluk
+        self._pil = bool(pil)
         self._active: dict[tuple[int, str], Alert] = {}
         self._events: list[Alert] = []
         self._events_lock = threading.Lock()
@@ -78,6 +108,8 @@ class AlertManager:
                     timestamp=time.time(),
                 )
             )
+        if self._gunluk is not None:
+            self._gunluk.ekle(drone_id, severity, code, message)
 
     def _grace_active(self) -> bool:
         return (time.time() - self._started_at) < self.GPS_GRACE_SEC
@@ -97,6 +129,12 @@ class AlertManager:
             message=message,
             timestamp=time.time(),
         )
+        # Yalniz DEGISIM aninda deftere dusuyoruz: yukaridaki erken donus,
+        # ayni uyari surdugu surece buraya gelinmesini engelliyor. Aksi halde
+        # "Baglanti koptu" her degerlendirme turunda (10 Hz) deftere yazilir
+        # ve defter tek bir arizayla dolardi.
+        if self._gunluk is not None:
+            self._gunluk.ekle(key[0], severity, key[1], message)
 
     def _clear(self, key: tuple[int, str]) -> None:
         self._active.pop(key, None)
@@ -120,7 +158,11 @@ class AlertManager:
 
             self._clear(link_key)
 
-            if d.battery_percent <= self.BAT_CRIT_ON:
+            if not self._pil:
+                # Pil olcumu yok -> hic uyari uretme, eskisini de temizle.
+                self._clear(bat_low_key)
+                self._clear(bat_crit_key)
+            elif d.battery_percent <= self.BAT_CRIT_ON:
                 self._set(
                     bat_crit_key,
                     SEVERITY_CRITICAL,
@@ -129,7 +171,7 @@ class AlertManager:
             elif d.battery_percent >= self.BAT_CRIT_OFF:
                 self._clear(bat_crit_key)
 
-            if bat_crit_key not in self._active:
+            if self._pil and bat_crit_key not in self._active:
                 if (
                     d.battery_percent <= self.BAT_LOW_ON
                     and d.battery_percent > 0

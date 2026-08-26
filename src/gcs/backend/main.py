@@ -36,6 +36,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from backend.api.commands import router as commands_router
 from backend.api.guided import router as guided_router
 from backend.api.kosucu import router as kosucu_router
+from backend.api.loglar import router as loglar_router
 from backend.api.mission import router as mission_router
 from backend.api.params import router as params_router
 from backend.api.rtk import router as rtk_router
@@ -45,6 +46,7 @@ from backend.connections.command_worker import CommandWorker
 from backend.connections.heartbeat_sender import HeartbeatSender
 from backend.connections.mavlink_listener import MavlinkListener
 from backend.core.alert_manager import AlertManager, SEVERITY_INFO, SEVERITY_WARNING
+from backend.core.log_store import LogStore
 from backend.core.command_gate import CommandGate
 from backend.core.params import ParamStore
 from backend.core.state_store import StateStore
@@ -124,11 +126,29 @@ async def lifespan(app: FastAPI):
     cfg = load_config()
     mode = cfg.get("connection_mode", "ros2")
     store = StateStore(offline_timeout_sec=cfg.get("offline_timeout_sec", 3.0))
+    # Kalici olay defteri (P1.16). Uyarilar bugune kadar yalnizca RAM'deydi
+    # ve EVENT_TTL_SEC=10 sn sonra siliniyordu; YKI kapaninca ucus boyunca ne
+    # oldugunun kaydi kayboluyordu.
+    #
+    # Dosya tavani BILINCLI: 26/27 Agustos'ta MAVROS'un GCS hatti bozulunca
+    # tek oturumda 876 MB log uretti. Sinirsiz buyuyen kayit dosyasi
+    # birakmiyoruz (bkz. log_store.py).
+    _gunluk_cfg = cfg.get("gunluk", {})
+    gunluk = LogStore(
+        kapasite=_gunluk_cfg.get("kapasite", 2000),
+        dosya=_gunluk_cfg.get("dosya", "gunluk/yki_olaylar.jsonl"),
+        dosya_tavani_b=_gunluk_cfg.get("dosya_tavani_b", 8 * 1024 * 1024),
+    )
     # config.yaml -> alerts.susturulan: ["link_timeout", "low_battery", ...]
     # Kanit videosunda YKI ekrani kayda giriyor; surekli acilip kapanan uyari
     # kutulari orada ariza gorunumu yaratiyor. Bkz. AlertManager.SUSTURULABILIR.
     alerts = AlertManager(
-        susturulan=cfg.get("alerts", {}).get("susturulan", [])
+        susturulan=cfg.get("alerts", {}).get("susturulan", []),
+        gunluk=gunluk,
+        # Varsayilan KAPALI: sahada pil olcumu yok, gelen sayi anlamsiz.
+        # Olcum kartlari takilinca config.yaml -> alerts.pil: true
+        # (gerekce AlertManager basinda).
+        pil=cfg.get("alerts", {}).get("pil", False),
     )
 
     sysid_map: dict[int, int] = {}              # sysid -> drone_id
@@ -144,6 +164,7 @@ async def lifespan(app: FastAPI):
     app.state.store = store
     app.state.params = ParamStore()
     app.state.alerts = alerts
+    app.state.gunluk = gunluk
     app.state.config = cfg
     app.state.connection_mode = mode
 
@@ -243,6 +264,7 @@ def create_app() -> FastAPI:
     app.include_router(params_router)
     app.include_router(kosucu_router)
     app.include_router(rtk_router)
+    app.include_router(loglar_router)
 
     @app.websocket("/ws/telemetry")
     async def ws_telemetry(websocket: WebSocket):

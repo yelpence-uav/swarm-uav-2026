@@ -104,7 +104,6 @@ export default function App() {
         drones={payload.drones}
         swarmState={payload.swarm_state}
         rtk={payload.rtk ?? null}
-        mesafeler={payload.mesafeler ?? []}
         selectedMissionId={selectedMissionId}
         onOpenSettings={() => setSettingsOpen(true)}
       />
@@ -162,6 +161,7 @@ export default function App() {
       <footer className="app__drone-strip">
         <TelemetryPanel
           drones={payload.drones}
+          mesafeler={payload.mesafeler ?? []}
           selectedDroneId={selectedDroneId}
           onSelectDrone={(id) =>
             setSelectedDroneId((cur) => (cur === id ? null : id))

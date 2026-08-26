@@ -141,3 +141,8 @@ src/gcs/frontend/tsconfig.tsbuildinfo
 # Takimin geri kalani Ubuntu 24.04'te; onlar icin deploy/yki/kur_yki.sh dogrudan
 # calisiyor. Ayrinti: arch-docker/README.md
 arch-docker/
+
+# YKI olay defterinin DISK ciktisi (27 Agustos 2026).
+# LogStore calisirken buraya JSONL yaziyor — calisma zamani verisi, kaynak
+# degil. Dosya tavani kodda sinirli ama yine de depoya girmemeli.
+src/gcs/gunluk/

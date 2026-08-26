@@ -1,7 +1,9 @@
 import { PIL_GOSTER } from "../../services/gorunum";
 import type { DroneState } from "../../types/telemetry";
 import { AGENT_STATE_LABELS } from "../../types/telemetry";
+import type { GunlukKaydi } from "../../services/api";
 import { BatteryGauge } from "./BatteryGauge";
+import { DroneLog } from "./DroneLog";
 import "./DroneCard.css";
 
 const ACCENT_VARS: Record<number, string> = {
@@ -41,9 +43,19 @@ const GPS_DOGRULUK: Record<number, string> = {
 
 interface DroneCardProps {
   drone: DroneState;
-  /** Kart sağ üstündeki tek buton — seçili drone kontrol panelini açar. */
+  /** Kart sağ üstündeki buton — seçili drone kontrol panelini açar. */
   onSelect?: (droneId: number) => void;
   selected?: boolean;
+  /** Bu drone'un olay kayıtları (sistem geneli dahil). */
+  kayitlar?: GunlukKaydi[];
+  /** Görülmemiş kritik olay var mı — LOG butonu kırmızı yanıp söner. */
+  kritik?: boolean;
+  logAcik?: boolean;
+  onLogToggle?: (droneId: number) => void;
+  gunlukHata?: boolean;
+  gunlukAktif?: boolean;
+  /** Diğer drone'lara YATAY mesafe (m). Boşsa satır hiç çizilmez. */
+  mesafeler?: { id: number; ad: string; yatay_m: number }[];
 }
 
 /** Kart başlığı — sadece telemetri kartlarında ortak; tek aksiyon: Kontrol. */
@@ -52,11 +64,17 @@ function CardHead({
   badge,
   onSelect,
   selected,
+  logAcik,
+  onLogToggle,
+  kritik,
 }: {
   drone: DroneState;
   badge: React.ReactNode;
   onSelect?: (id: number) => void;
   selected?: boolean;
+  logAcik?: boolean;
+  onLogToggle?: (id: number) => void;
+  kritik?: boolean;
 }) {
   return (
     <header className="drone-card__head">
@@ -65,6 +83,26 @@ function CardHead({
       />
       <h3 className="drone-card__title">{drone.name}</h3>
       {badge}
+      {onLogToggle && (
+        <button
+          type="button"
+          className={
+            "drone-card__log" +
+            (logAcik ? " drone-card__log--acik" : "") +
+            // Yanip sonme YALNIZ kapaliyken: acikken olay zaten goz onunde,
+            // yanip sonen buton orada dikkat dagitir.
+            (kritik && !logAcik ? " drone-card__log--kritik" : "")
+          }
+          onClick={() => onLogToggle(drone.drone_id)}
+          title={
+            kritik
+              ? "GÖRÜLMEMİŞ KRİTİK OLAY VAR — olay defterini aç"
+              : "Bu drone'un olay defterini aç/kapa"
+          }
+        >
+          ▤ LOG
+        </button>
+      )}
       {onSelect && (
         <button
           type="button"
@@ -79,27 +117,48 @@ function CardHead({
   );
 }
 
-export function DroneCard({ drone, onSelect, selected = false }: DroneCardProps) {
+export function DroneCard({
+  drone,
+  onSelect,
+  selected = false,
+  kayitlar = [],
+  kritik = false,
+  logAcik = false,
+  onLogToggle,
+  gunlukHata = false,
+  gunlukAktif = true,
+  mesafeler = [],
+}: DroneCardProps) {
   const accent = ACCENT_VARS[drone.drone_id] ?? "var(--color-accent)";
   const stateLabel = AGENT_STATE_LABELS[drone.state] ?? drone.mode;
 
   if (!drone.connected) {
     return (
       <article
-        className={`drone-card drone-card--offline ${selected ? "drone-card--selected" : ""}`}
+        className={`drone-card drone-card--offline ${selected ? "drone-card--selected" : ""} ${logAcik ? "drone-card--log" : ""}`}
         style={{ "--accent": accent } as React.CSSProperties}
       >
         <CardHead
           drone={drone}
           onSelect={onSelect}
           selected={selected}
+          logAcik={logAcik}
+          onLogToggle={onLogToggle}
+          kritik={kritik}
           badge={
             <span className="drone-card__badge drone-card__badge--offline">OFFLINE</span>
           }
         />
-        <div className="drone-card__offline-body">
-          <span className="drone-card__offline-icon">⚠</span>
-          <span className="drone-card__offline-text">Son paket gelmiyor</span>
+        <div className="drone-card__govde">
+          <div className="drone-card__telemetri">
+            <div className="drone-card__offline-body">
+              <span className="drone-card__offline-icon">⚠</span>
+              <span className="drone-card__offline-text">Son paket gelmiyor</span>
+            </div>
+          </div>
+          {logAcik && (
+            <DroneLog kayitlar={kayitlar} hata={gunlukHata} aktif={gunlukAktif} />
+          )}
         </div>
       </article>
     );
@@ -115,13 +174,16 @@ export function DroneCard({ drone, onSelect, selected = false }: DroneCardProps)
 
   return (
     <article
-      className={`drone-card ${selected ? "drone-card--selected" : ""}`}
+      className={`drone-card ${selected ? "drone-card--selected" : ""} ${logAcik ? "drone-card--log" : ""}`}
       style={{ "--accent": accent } as React.CSSProperties}
     >
       <CardHead
         drone={drone}
         onSelect={onSelect}
         selected={selected}
+        logAcik={logAcik}
+        onLogToggle={onLogToggle}
+        kritik={kritik}
         badge={
           <span
             className={`drone-card__badge drone-card__badge--${armed ? "armed" : "ground"}`}
@@ -131,6 +193,14 @@ export function DroneCard({ drone, onSelect, selected = false }: DroneCardProps)
         }
       />
 
+      {/* GOVDE — telemetri ile defter AYNI grid hucresinde ust uste.
+          Kartin yuksekligi HER ZAMAN telemetriye gore belirlenir; defter o
+          kutuyu doldurur. Boylece LOG'a basinca serit KIPIRDAMIYOR ve
+          "defter ne kadar uzun olsun" diye sihirli bir sayi tutmak
+          gerekmiyor — telemetri kartinin icerigi degisirse defter de
+          kendiliginde ona uyar. */}
+      <div className="drone-card__govde">
+      <div className="drone-card__telemetri">
       <div
         className={`drone-card__fly ${canFly ? "drone-card__fly--ok" : "drone-card__fly--no"}`}
       >
@@ -158,9 +228,29 @@ export function DroneCard({ drone, onSelect, selected = false }: DroneCardProps)
         />
       </dl>
 
+      {/* KOMSU MESAFELERI.
+          Ust basliktan buraya tasindi (27 Agu): tek bir "2.41 / 12.03" dizisi
+          hangi cifte ait oldugunu SOYLEMIYORDU. Kartta durunca soru kendiliginden
+          cevaplaniyor — bu kart hangi drone ise, digerlerine uzakligi yaninda. */}
+      {mesafeler.length > 0 && (
+        <div className="drone-card__mesafe">
+          <span className="drone-card__mesafe-label">MESAFE</span>
+          {mesafeler.map((m) => (
+            <span key={m.id} className="drone-card__mesafe-oge mono">
+              {m.ad} <b>{m.yatay_m.toFixed(2)}</b> m
+            </span>
+          ))}
+        </div>
+      )}
+
       <footer className="drone-card__footer mono">
         {drone.lat.toFixed(5)}, {drone.lon.toFixed(5)}
       </footer>
+      </div>
+      {logAcik && (
+        <DroneLog kayitlar={kayitlar} hata={gunlukHata} aktif={gunlukAktif} />
+      )}
+      </div>
     </article>
   );
 }

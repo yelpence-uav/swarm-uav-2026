@@ -1,4 +1,4 @@
-import type { DroneState, IkiliMesafe, RtkStatus, SwarmState } from "../../types/telemetry";
+import type {DroneState, RtkStatus, SwarmState} from "../../types/telemetry";
 import type { ConnectionStatus } from "../../services/websocket";
 import { useTheme } from "../../hooks/useTheme";
 import { MISSION_ID } from "../../services/api";
@@ -9,7 +9,6 @@ interface AppHeaderProps {
   drones: DroneState[];
   swarmState: SwarmState | null;
   rtk: RtkStatus | null;
-  mesafeler: IkiliMesafe[];
   selectedMissionId: number;
   onOpenSettings?: () => void;
 }
@@ -41,7 +40,6 @@ export function AppHeader({
   drones,
   swarmState,
   rtk,
-  mesafeler,
   selectedMissionId,
   onOpenSettings,
 }: AppHeaderProps) {
@@ -60,11 +58,6 @@ export function AppHeader({
   // hicbir sey yoktu — akmadigi ancak drone'a SSH atip px4_bridge logundaki
   // 'rtk: msg=0' sayacina bakinca anlasildi. Artik burada gorunuyor.
   const rtkLabel = rtk?.bagli ? `${rtk.msg_hz.toFixed(0)} Hz` : "YOK";
-  // Drone'lar arasi mesafe. Sahada seritmetreyle karsilastirip RTK'nin
-  // gercekten cm mertebesinde olup olmadigini dogrulamak icin duruyor.
-  const mesafeLabel = mesafeler.length
-    ? mesafeler.map((m) => `${m.yatay_m.toFixed(2)}`).join(" / ")
-    : "—";
   const rtkTone: "success" | "danger" = rtk?.bagli ? "success" : "danger";
 
   return (
@@ -100,11 +93,6 @@ export function AppHeader({
           value={missionLabel(missionActive, selectedMissionId)}
           tone={missionTone(missionActive)}
           pulse={missionActive}
-        />
-        <Metric
-          label="Arası (m)"
-          value={mesafeLabel}
-          tone="neutral"
         />
         <Metric
           label="RTK"

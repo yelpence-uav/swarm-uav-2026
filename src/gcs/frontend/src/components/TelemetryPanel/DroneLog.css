@@ -1,0 +1,79 @@
+/* Olay defteri — LOG kipindeki drone kartının TÜM gövdesi.
+ *
+ * Kart bir flex sütun; defter `flex: 1` ile kalan yüksekliği alıyor.
+ *
+ * ⚠️ Flex çocuğun varsayılan `min-height` değeri `auto`dur: bu bırakılırsa
+ * kutu içerik kadar büyür, `overflow-y` HİÇ devreye girmez ve liste kartı
+ * taşırır. Bu yüzden aşağıda AÇIK bir `min-height` var — flex + scroll
+ * birleşiminin klasik tuzağı. Değerin neden sıfır değil de 150px olduğu
+ * kuralın kendi yanında yazılı.
+ */
+
+.drone-log {
+  /* Yukseklik artik BURADAN gelmiyor: govde (.drone-card__govde) telemetri
+     ile ayni grid hucresinde ve kartin boyunu telemetri belirliyor. Defter
+     o kutuyu dolduruyor.
+     min-height: 0 SART — flex/grid cocugunun varsayilani `auto`, birakilirsa
+     kutu icerik kadar buyur ve `overflow-y` hic devreye girmez. */
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  overflow-y: auto;
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+  line-height: 1.5;
+}
+
+.drone-log__iz {
+  color: var(--color-text-muted);
+  font-style: italic;
+  padding: var(--space-2) 0;
+}
+
+.drone-log__satir {
+  display: grid;
+  grid-template-columns: 4.6em 3.4em 1fr;
+  gap: var(--space-2);
+  align-items: baseline;
+  padding: 2px 3px;
+  border-left: 2px solid transparent;
+  border-radius: var(--radius-sm);
+}
+
+.drone-log__satir--warning {
+  border-left-color: var(--color-warning);
+  background: color-mix(in srgb, var(--color-warning) 7%, transparent);
+}
+
+.drone-log__satir--critical,
+.drone-log__satir--emergency {
+  border-left-color: var(--color-danger);
+  background: color-mix(in srgb, var(--color-danger) 10%, transparent);
+}
+
+.drone-log__saat {
+  color: var(--color-text-muted);
+}
+
+.drone-log__siddet {
+  font-size: 0.58rem;
+  letter-spacing: 0.04em;
+  color: var(--color-text-muted);
+}
+
+.drone-log__siddet--warning {
+  color: var(--color-warning);
+}
+
+.drone-log__siddet--critical,
+.drone-log__siddet--emergency {
+  color: var(--color-danger);
+}
+
+/* Mesaj TAŞMIYOR, sarıyor: kırpılmış bir olay satırı anlamsız kalır.
+   Yükseklik sınırını listenin kendi kaydırması taşıyor. */
+.drone-log__mesaj {
+  color: var(--color-text-primary);
+  overflow-wrap: anywhere;
+}
