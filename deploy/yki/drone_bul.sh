@@ -384,6 +384,18 @@ baglan() {
     if [ $# -gt 0 ]; then
         # Komut kipi — Claude ve betikler icin. Ciktisi temiz kalsin diye
         # bilgi satirlari stderr'e gidiyor (yukaridaki bilgi()).
+        # SUDO ICIN TTY SART (27 Agustos 2026'da iki kez yasandi).
+        #
+        # `ssh kul@ip 'komut'` TTY ayirmaz; sudo parola soramaz ve su hatayi
+        # verir: "a terminal is required to read the password". Hata sudo'dan
+        # geldigi icin insan once SSH anahtarini ya da yetkiyi suclu saniyor.
+        #
+        # Komutta `sudo` geciyorsa -t ekliyoruz. Kosulsuz -t VERMIYORUZ:
+        # Claude ve betikler bu yolu ciktiyi ayristirmak icin kullaniyor,
+        # TTY ise satir sonlarina \r ekler ve ayristirmayi bozar.
+        if printf '%s ' "$@" | grep -q '\bsudo\b'; then
+            exec ssh -t -o ConnectTimeout=10 "$kul@$ip" "$@"
+        fi
         exec ssh -o ConnectTimeout=10 "$kul@$ip" "$@"
     fi
     bilgi "${K_YESIL}->${K_SIFIR} $isim  $kul@$ip"
