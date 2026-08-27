@@ -133,10 +133,16 @@ dagit_bir() {
     # sahada dizustu olmadan (ya da baska birinin bilgisayariyla) konteyner
     # yeniden yaratilamazdi. Konteyner bir kez yaratilip unutuldugu icin bu
     # aylarca fark edilmedi; --cap-add gibi bir ayar degisince ortaya cikti.
+    # izleme_kur.sh de gidiyor (27 Agustos 2026): tasinmadigi icin ucaklarda
+    # 22 Agustos'tan kalma surum duruyordu ve "guncel betigi calistiriyorum"
+    # sanilirken eskisi kosuyordu. Tam da bu dosyanin basinda yazan sessiz
+    # kayma. Betik root ister, yani dagit.sh onu CALISTIRMAZ — yalniz tasir;
+    # kurulumu operator `sudo bash ~/yelpence_ws/izleme_kur.sh` ile yapar.
     rsync -a "$REPO/deploy/rpi/baslat.sh" "$REPO/deploy/rpi/mesaj_hizlari.py" \
           "$REPO/deploy/rpi/gps_saat.py" "$REPO/deploy/rpi/run_drone.sh" \
+          "$REPO/deploy/rpi/izleme_kur.sh" "$REPO/deploy/rpi/cokme_kopyala.sh" \
           "$kul@$ip:$hedef/" || { log "baslat.sh rsync BASARISIZ"; return 1; }
-    log "baslat.sh + mesaj_hizlari.py + gps_saat.py + run_drone.sh tamam"
+    log "baslat.sh + mesaj_hizlari.py + gps_saat.py + run_drone.sh + izleme_kur.sh tamam"
 
     # SAHA TESHIS BETIKLERI (18 Agustos 2026'da eklendi).
     #
