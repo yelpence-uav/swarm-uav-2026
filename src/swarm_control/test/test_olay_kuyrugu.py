@@ -1,11 +1,14 @@
 # Copyright 2026 Yelpence
-"""Olay yolunun bütçe/tekrar/sıra mantığı.
+"""Olay yolunun bütçe, tekrar ve sıra numarası mantığı.
 
 Zaman DISARIDAN veriliyor, yani testler gercek zaman beklemiyor — 10 saniyelik
 bir davranis 10 saniye surmuyor. `rtk_pure.h` ve `ca_core.py` ile ayni kalip.
 """
 
-from swarm_control.esp32_bridge.olay_kuyrugu import OlayKuyrugu
+from swarm_control.esp32_bridge.olay_kuyrugu import (
+    BoslukIzleyici,
+    OlayKuyrugu,
+)
 
 
 def _kuyruk(**kw):
@@ -14,36 +17,69 @@ def _kuyruk(**kw):
     return k
 
 
-def test_patlama_hakki_kadar_gecer():
-    """Bastaki jeton kovasi dolu: patlama kadar olay ANINDA gecer."""
-    k = _kuyruk(butce_hz=1.0, patlama=4)
-    assert [k.izin_var_mi(1000.0) for _ in range(4)] == [True] * 4
-    assert k.izin_var_mi(1000.0) is False
-    assert k.dusen == 1
+def test_butce_asilinca_DUSMEZ_bekler():
+    """27 Agustos operator karari: "ilk gelen hemen gonderilirken digeri
+    sirada bekler." Gecikme kabul edilebilir, KAYIP edilemez."""
+    k = _kuyruk(butce_hz=1.0, patlama=1, tekrar=1)
+    for i in range(5):
+        assert k.ekle(bytes([i]) * 16, 1000.0) is True     # hicbiri dusmedi
+    assert k.dusen == 0
+    assert k.bekleyen_sayisi() == 5
+
+    # Ayni anda YALNIZ butce kadari cikar
+    assert len(k.hazir_olanlar(1000.0)) == 1
+    assert len(k.hazir_olanlar(1000.5)) == 0               # yarim saniye yetmez
+    assert len(k.hazir_olanlar(1001.0)) == 1               # bir saniye sonra
+    assert k.bekleyen_sayisi() == 3
+
+
+def test_bekleyenler_SIRASIYLA_cikiyor():
+    """Kuyruk gelis sirasini korur."""
+    k = _kuyruk(butce_hz=1.0, patlama=1, tekrar=1)
+    for i in range(3):
+        k.ekle(bytes([i]) * 16, 1000.0)
+    cikan = []
+    for t in range(4):
+        cikan += k.hazir_olanlar(1000.0 + t)
+    assert [c[0] for c in cikan] == [0, 1, 2]              # gelis sirasi korundu
+
+
+def test_kuyruk_DOLARSA_dusurur_ve_sayar():
+    """Sinirsiz kuyruk bellegi sisirir ve saatlerce eski olaylari
+    'taze' diye yollardi."""
+    k = _kuyruk(butce_hz=1.0, patlama=1, kuyruk_derinlik=3)
+    assert [k.ekle(b'x' * 16, 1000.0) for _ in range(5)] == [True] * 3 + [False] * 2
+    assert k.dusen == 2
+    assert k.bekleyen_sayisi() == 3
+
+
+def test_TEPE_YUK_butceyi_asmiyor():
+    """Kuyrugun mesh icin asil faydasi: tepe yuk = surekli hal.
+    Kova+patlama anlik 12 cerceve salabiliyordu."""
+    k = _kuyruk(butce_hz=1.0, patlama=1, tekrar=3, tekrar_aralik_s=0.25)
+    for i in range(20):
+        k.ekle(bytes([i]) * 16, 1000.0)
+    # Tek bir anda cikan gonderim sayisi: 1 yeni + o an zamani gelen tekrarlar
+    ilk = len(k.hazir_olanlar(1000.0))
+    assert ilk == 1, f"anlik patlama: {ilk}"
 
 
 def test_jeton_zamanla_doluyor():
-    k = _kuyruk(butce_hz=1.0, patlama=4)
-    for _ in range(4):
-        k.izin_var_mi(1000.0)
-    assert k.izin_var_mi(1000.5) is False      # yarim saniye = yarim jeton
-    assert k.izin_var_mi(1001.5) is True       # bir saniye daha -> 1 jeton
-
-
-def test_jeton_tavani_asilmiyor():
-    """Uzun sessizlikten sonra bile patlama hakki kadar birikir, fazlasi yok."""
-    k = _kuyruk(butce_hz=1.0, patlama=4)
-    k.izin_var_mi(9999.0)                       # cok sonra
-    gecen = sum(1 for _ in range(10) if k.izin_var_mi(9999.0))
-    assert gecen == 3                           # 4 jeton vardi, biri yukarida
+    """Jeton kovasi butce hiziyla dolar."""
+    k = _kuyruk(butce_hz=1.0, patlama=2, tekrar=1)
+    for i in range(4):
+        k.ekle(bytes([i]) * 16, 1000.0)
+    assert len(k.hazir_olanlar(1000.0)) == 2      # patlama hakki
+    assert len(k.hazir_olanlar(1000.4)) == 0
+    assert len(k.hazir_olanlar(1001.0)) == 1      # jeton doldu
 
 
 def test_dusenler_sayiliyor():
     """Sessizce dusurmek defterin 'tamam' gorunmesi demek olurdu."""
-    k = _kuyruk(butce_hz=1.0, patlama=1)
-    k.izin_var_mi(1000.0)
+    k = _kuyruk(butce_hz=1.0, patlama=1, kuyruk_derinlik=1)
+    k.ekle(b'a' * 16, 1000.0)
     for _ in range(5):
-        k.izin_var_mi(1000.0)
+        k.ekle(b'b' * 16, 1000.0)
     assert k.dusen == 5
 
 
@@ -61,6 +97,7 @@ def test_tekrar_sayisi_ve_araligi():
 
 
 def test_tekrar_bir_ise_tek_gonderim():
+    """tekrar=1 ise olay bir kez gider."""
     k = _kuyruk(tekrar=1)
     k.kuyrukla(b'y' * 16, 1000.0)
     assert len(k.hazir_olanlar(1000.0)) == 1
@@ -78,10 +115,10 @@ def test_sira_no_sariyor():
 
 def test_dusen_raporu_periyodik():
     """Rapor 10 sn'de bir; ara sorgular None doner ve sayac SIFIRLANMAZ."""
-    k = _kuyruk(butce_hz=1.0, patlama=1)
-    k.izin_var_mi(1000.0)
+    k = _kuyruk(butce_hz=1.0, patlama=1, kuyruk_derinlik=1)
+    k.ekle(b'a' * 16, 1000.0)
     for _ in range(3):
-        k.izin_var_mi(1000.0)
+        k.ekle(b'b' * 16, 1000.0)
 
     assert k.dusen_raporu(1005.0) is None          # daha 10 sn olmadi
     assert k.dusen == 3                            # sayac duruyor
@@ -91,6 +128,7 @@ def test_dusen_raporu_periyodik():
 
 
 def test_dusen_yoksa_rapor_yok():
+    """Dusen yokken rapor uretilmez."""
     k = _kuyruk()
     assert k.dusen_raporu(2000.0) is None
 
@@ -107,6 +145,7 @@ def test_halka_tamponu_sinirli():
 
 
 def test_kuyruk_bosken_hazir_yok():
+    """Bos kuyruk gonderim uretmez."""
     assert _kuyruk().hazir_olanlar(1000.0) == []
 
 
@@ -124,8 +163,6 @@ def test_ayni_anda_birden_cok_olay():
 # =============================================================================
 # BoslukIzleyici — alici tarafi
 # =============================================================================
-
-from swarm_control.esp32_bridge.olay_kuyrugu import BoslukIzleyici   # noqa: E402
 
 
 def test_kopyalar_eleniyor():
@@ -163,6 +200,7 @@ def test_gec_gelen_kayip_SAYILMIYOR():
 
 
 def test_sarma_sinirinda_dogru():
+    """Sayac sarmasinda bosluk dogru sayilir."""
     b = BoslukIzleyici(bekleme_s=1.0)
     b.gelen(1, 254, 0.0)
     b.gelen(1, 1, 0.1)                       # 255 ve 0 atlandi
@@ -183,6 +221,7 @@ def test_buyuk_atlama_kayip_SAYILMIYOR_ama_sessiz_de_gecmiyor():
 
 
 def test_droneler_birbirinden_bagimsiz():
+    """Her drone kendi sayacini tasir."""
     b = BoslukIzleyici(bekleme_s=1.0)
     b.gelen(1, 5, 0.0)
     b.gelen(2, 90, 0.0)                      # baska drone, baska sayac
@@ -206,6 +245,7 @@ def test_periyodik_kaynak_butceyi_YEMIYOR():
 
 
 def test_farkli_olaylar_birbirini_ENGELLEMIYOR():
+    """Yineleme suzgeci olay bazinda calisir."""
     k = _kuyruk()
     assert k.yinelenen_mi((43, 2, 0, 3.88), 1000.0) is False
     assert k.yinelenen_mi((58, 1, 0, 0.0), 1000.0) is False   # baska olay
@@ -213,6 +253,7 @@ def test_farkli_olaylar_birbirini_ENGELLEMIYOR():
 
 
 def test_pencere_gecince_tekrar_gecer():
+    """Yineleme penceresi dolunca olay yeniden gecer."""
     k = _kuyruk()
     a = (43, 2, 0, 1.0)
     assert k.yinelenen_mi(a, 1000.0, 5.0) is False
@@ -221,6 +262,7 @@ def test_pencere_gecince_tekrar_gecer():
 
 
 def test_yineleme_sozlugu_sinirsiz_buyumuyor():
+    """Yineleme sozlugu tavanla sinirlidir."""
     k = _kuyruk()
     for i in range(500):
         k.yinelenen_mi((i, 0, 0, 0.0), 1000.0 + i * 30.0, 5.0)

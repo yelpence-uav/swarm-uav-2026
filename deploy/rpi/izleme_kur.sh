@@ -119,6 +119,13 @@ cat > /usr/local/bin/yelpence_izle.sh <<'BETIK'
 # detaylı fotoğraf çeker. systemd timer'dan root olarak çalışır.
 IZLE=/var/log/yelpence_izle.log
 OLAY=/var/log/yelpence_olay.log
+# Konteynerin GOREBILECEGI tek satirlik anlik durum (27 Agustos 2026).
+# NEDEN: RPi saglik olaylarini (sicaklik, dusuk gerilim, disk...) YKI olay
+# defterine tasiyacagiz; o isi esp32_bridge yapiyor ve konteyner icinden
+# /var/log'u GOREMIYOR (yalniz ~/yelpence_ws -> /ws bagli). Ayrica vcgencmd
+# konteynerde yok. Bu yuzden olcumu burasi yapip oraya birakiyor.
+# Yol kurulum sirasinda yaziliyor (asagidaki sed).
+WS=__WS_YOLU__
 IF=wlan0
 
 kirp() {  # $1 dosya — 5 MB'ı geçerse son 20000 satırı tut
@@ -157,6 +164,16 @@ ros=$(pgrep -cf "mavros|swarm_|px4_bridge" 2>/dev/null || echo 0)
 printf '%s up=%s v=%s t=%s thr=%s wifi=%s ip=%s ssid=%s sig=%s load=%s mem=%s disk=%s%% dok=%s ros=%s\n' \
     "$ts" "$up" "$v" "$t" "$thr" "$wifi" "$ip4" "$ssid" "$sig" \
     "$load" "$mem" "$disk" "$dok" "$ros" >> "$IZLE"
+
+# Ayni satiri konteynerin gorebilecegi yere de yaz (uzerine yaz, biriktirme —
+# burada gecmis degil ANLIK durum lazim; gecmis zaten $IZLE'de).
+if [ -d "$WS" ]; then
+    printf '%s up=%s v=%s t=%s thr=%s wifi=%s ip=%s ssid=%s sig=%s load=%s mem=%s disk=%s%% dok=%s ros=%s\n' \
+        "$ts" "$up" "$v" "$t" "$thr" "$wifi" "$ip" "$ssid" "$sig" \
+        "$load" "$mem" "$disk" "$dok" "$ros" > "$WS/sistem_durum.tmp" 2>/dev/null \
+      && mv -f "$WS/sistem_durum.tmp" "$WS/sistem_durum" 2>/dev/null \
+      && chmod 644 "$WS/sistem_durum" 2>/dev/null
+fi
 kirp "$IZLE"
 
 # --- arıza mı? öyleyse bağlam fotoğrafı ---
@@ -184,6 +201,7 @@ if [ -n "$sorun" ]; then
     kirp "$OLAY"
 fi
 BETIK
+sed -i "s|^WS=__WS_YOLU__|WS=/home/$KULLANICI/yelpence_ws|" /usr/local/bin/yelpence_izle.sh
 chmod +x /usr/local/bin/yelpence_izle.sh
 
 # Eski surumden kalan dosyayi temizle (v1'de adi guc_izle.sh idi)

@@ -350,31 +350,47 @@
 
 /* --- GÖVDE: telemetri ile defter ÜST ÜSTE (27 Ağustos 2026) --------------
  *
- * Neden grid ile üst üste: LOG'a basınca kart yüksekliği DEĞİŞMEMELİ. Şerit
- * (.app__drone-strip) yüksekliğini içerikten alıyor ve grid satırı en uzun
- * karta göre boyutlanıyor; üç kart birden deftere geçip içeride tek satır
- * olunca şerit çöküyordu.
+ * KURAL: kartın yüksekliğini HER ZAMAN telemetri belirler. LOG'a basmak,
+ * daha çok olay birikmesi, uçağın çevrimdışı olması — hiçbiri kartı
+ * büyütüp küçültmez.
  *
- * Çözüm defteri sabit yükseklikte tutmak DEĞİL — o, telemetri kartının
- * içeriği değişince tekrar bozulurdu. Bunun yerine ikisi aynı grid
- * hücresinde: kartın boyu HER ZAMAN telemetriye göre belirlenir, defter o
- * kutuyu doldurur. Sihirli sayı yok, kendiliğinden uyumlu. */
+ * İki ayrı hata bu kuralı doğurdu:
+ *   1. Üç kart birden LOG kipine alınıp içeride tek satır varken şerit
+ *      (.app__drone-strip) bir satıra ÇÖKÜYORDU — şerit yüksekliğini
+ *      içerikten alıyor.
+ *   2. Olaylar birikince kart YUKARI DOĞRU BÜYÜYORDU — defter akıştaydı,
+ *      yani yükseklik hesabına giriyordu ve `overflow-y` hiç devreye
+ *      girmiyordu.
+ *
+ * Çözüm defteri sabit bir yüksekliğe çivilemek DEĞİL (telemetri kartının
+ * içeriği değişince yeniden bozulurdu): telemetri akışta kalıp boyu
+ * belirliyor, defter MUTLAK konumlandırmayla akıştan çıkarılıp o kutuyu
+ * dolduruyor ve taşarsa kendi içinde kayıyor. Sihirli sayı yok. */
 
 .drone-card__govde {
+  position: relative;
   flex: 1;
   min-height: 0;
-  display: grid;
 }
 
-.drone-card__govde > * {
-  grid-area: 1 / 1;
-  min-height: 0;
-}
-
+/* Telemetri AKISTA kalir: kartin yuksekligini TEK BASINA o belirler.
+   LOG kipinde gizlenir ama yerini korur (visibility, display degil). */
 .drone-card__telemetri {
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
+}
+
+/* Defter AKIS DISINDA — 27 Agustos, operator bildirdi:
+   "log'a bastigimda kart yukariya dogru inanilmaz buyuyor."
+   Sebep: defter akistayken grid hucresi EN UZUN cocuga gore boyutlaniyordu,
+   yani icerik buyudukce kart buyuyor ve `overflow-y` hic devreye girmiyordu.
+   Mutlak konumlandirma defteri yukseklik hesabindan tamamen cikariyor:
+   kutu telemetrinin boyunda sabit kalir, icerik tasarsa DEFTER kayar. */
+.drone-card__log-katman {
+  position: absolute;
+  inset: 0;
+  overflow-y: auto;
 }
 
 /* `visibility: hidden` — `display: none` DEĞİL.

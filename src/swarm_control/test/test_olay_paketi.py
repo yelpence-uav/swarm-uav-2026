@@ -52,6 +52,7 @@ def test_tip_kodu_serbest_araliktta():
 
 
 def test_gidis_donus():
+    """Paketlenen alanlar birebir geri cozulur."""
     p = olay_paketle(
         olay_tipi=43, siddet=2, kaynak_id=3, sira_no=7, hedef_id=1,
         deger=3.88, modul='collision_avoidance', zaman_ms=123456,
@@ -70,6 +71,7 @@ def test_gidis_donus():
 
 
 def test_negatif_deger():
+    """Negatif deger isaretini korur."""
     assert abs(olay_coz(olay_paketle(1, 0, 1, 0, deger=-12.5)).deger + 12.5) < 0.005
 
 
@@ -89,6 +91,7 @@ def test_modul_alt_ad_tabana_dusuyor():
 
 
 def test_bilinmeyen_modul_sifir():
+    """Bilinmeyen modul 0 kodunu alir."""
     assert modul_kodu('olmayan_modul') == 0
     assert modul_kodu('') == 0
     assert olay_coz(olay_paketle(1, 0, 1, 0, modul='olmayan')).modul == 'bilinmiyor'

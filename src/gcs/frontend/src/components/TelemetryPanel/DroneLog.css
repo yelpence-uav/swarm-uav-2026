@@ -10,16 +10,13 @@
  */
 
 .drone-log {
-  /* Yukseklik artik BURADAN gelmiyor: govde (.drone-card__govde) telemetri
-     ile ayni grid hucresinde ve kartin boyunu telemetri belirliyor. Defter
-     o kutuyu dolduruyor.
-     min-height: 0 SART — flex/grid cocugunun varsayilani `auto`, birakilirsa
-     kutu icerik kadar buyur ve `overflow-y` hic devreye girmez. */
-  min-height: 0;
+  /* Kaydirma ve yukseklik sinirini SARMALAYAN katman tasiyor
+     (.drone-card__log-katman, mutlak konumlu). Defter yalnizca icerigi
+     dizer — burada `overflow` ya da `min-height` OLMAMALI, yoksa iki
+     kaydirma kutusu ic ice girer. */
   display: flex;
   flex-direction: column;
   gap: 1px;
-  overflow-y: auto;
   font-family: var(--font-mono);
   font-size: 0.66rem;
   line-height: 1.5;

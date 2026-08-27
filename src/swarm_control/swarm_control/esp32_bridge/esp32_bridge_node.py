@@ -54,6 +54,7 @@ from swarm_interfaces.msg import (
 )
 
 from .olay_kuyrugu import BoslukIzleyici, OlayKuyrugu
+from .sistem_sagligi import SistemSagligi, satir_coz
 from . import packet_parser as pp
 from .cobs import cobs_decode, cobs_encode
 from .crc16 import crc16
@@ -303,7 +304,19 @@ class Esp32BridgeNode(Node):
         # ACK yok; her olay birkac kez yayilir ve baz kopyalari sira_no ile
         # eler.
         self.declare_parameter('olay_butce_hz', 1.0)      # surekli hal
-        self.declare_parameter('olay_patlama', 4)         # kisa patlama hakki
+        # Kuyruk geldikten sonra patlama hakki kucultuldu: tepe yuk = surekli
+        # hal olsun. 3 ucak x 1/sn x 3 tekrar = 9 cerceve/sn, baz->YKI UART
+        # butcesinin (~35) %26'si. Patlama 4 iken anlik 12 cerceve cikabiliyordu.
+        self.declare_parameter('olay_patlama', 2)
+        self.declare_parameter('olay_kuyruk_derinlik', 32)
+        # Pi ana sistem sagligi: `yelpence_izle.sh` 10 sn'de bir yaziyor,
+        # ayni periyotta okuyoruz. Bos birakilirsa ozellik KAPALI kalir
+        # (dosya yoksa zaten sessizce atlanir).
+        self.declare_parameter('sistem_durum_dosya', '/ws/sistem_durum')
+        self.declare_parameter('sistem_durum_periyot_s', 10.0)
+        # MAVROS GCS taskini: `/ws/gunluk/son` acilan gunluge symlink
+        # (baslat.sh kuruyor), yani konteyner icinden okunabilir.
+        self.declare_parameter('mavros_log_dosya', '/ws/gunluk/son/mavros.log')
         self.declare_parameter('olay_tekrar', 3)          # her olay kac kez
         self.declare_parameter('olay_tekrar_aralik_s', 0.25)
         # Ileride tekrar-isteme (TIP_OLAY_ISTE) eklenirse eksik olayi buradan
@@ -662,12 +675,21 @@ class Esp32BridgeNode(Node):
             tekrar_aralik_s=float(
                 self.get_parameter('olay_tekrar_aralik_s').value),
             halka=int(self.get_parameter('olay_halka').value),
+            kuyruk_derinlik=int(
+                self.get_parameter('olay_kuyruk_derinlik').value),
         )
         self._olay_kuyruk.basla(time.monotonic())
         # Alici tarafi: kopyalari eler, GERCEK kayiplari sayar. Tekrarlar
         # sira disi varabildigi icin gecikmeli onay kullaniyor (bkz.
         # olay_kuyrugu.BoslukIzleyici).
         self._olay_bosluk = BoslukIzleyici()
+        # Pi ana sistem sagligi -> olay. Esik/histerezis saf modulde.
+        self._sistem = SistemSagligi()
+        self._mavros_taskin_bildirildi = False
+        _sd_p = float(self.get_parameter('sistem_durum_periyot_s').value)
+        if _sd_p > 0.0:
+            self._sistem_timer = self.create_timer(
+                _sd_p, self._sistem_sagligi_kontrol)
         self._olay_alinan = 0
         self._olay_kopya = 0
         self.create_subscription(
@@ -788,9 +810,6 @@ class Esp32BridgeNode(Node):
         if self._olay_kuyruk.yinelenen_mi(anahtar, now):
             return
 
-        if not self._olay_kuyruk.izin_var_mi(now):
-            return   # butce asildi; sayac tutuluyor, 10 sn'de bir bildirilir
-
         payload = pp.olay_paketle(
             olay_tipi=int(msg.event_type),
             siddet=int(msg.severity),
@@ -804,7 +823,97 @@ class Esp32BridgeNode(Node):
             # "RTC yedek pili yok").
             zaman_ms=int(now * 1000.0) & 0xFFFFFFFF,
         )
-        self._olay_kuyruk.kuyrukla(payload, now)
+        # Butce asilirsa olay DUSMEZ, SIRADA BEKLER (operator karari,
+        # 27 Agustos: "ilk gelen hemen gonderilirken digeri sirada bekler").
+        # Yalniz kuyruk dolarsa dusurulur ve sayilir.
+        self._olay_kuyruk.ekle(payload, now)
+
+    def _sistem_sagligi_kontrol(self) -> None:
+        """Pi ana sistem ölçümlerini okuyup DEĞİŞİMLERİ olay olarak yayar.
+
+        Olcumu konteyner disinda `yelpence_izle.sh` yapiyor — vcgencmd
+        (sicaklik, kisitlama bitleri) konteynerde yok ve /var/log gorunmuyor.
+        O yuzden olcum dosyadan geliyor; esik ve histerezis saf modulde
+        (sistem_sagligi.py), yani ROS'suz test edilebiliyor.
+
+        Olay `/swarm/internal/events/system`'e yayinlaniyor, yani normal
+        yoldan gecip mesh'e ve YKI'ye ulasiyor — ayri bir kanal yok.
+        """
+        yol = str(self.get_parameter('sistem_durum_dosya').value).strip()
+        if not yol:
+            return
+        try:
+            with open(yol, encoding='utf-8', errors='replace') as f:
+                satir = f.readline().strip()
+        except OSError:
+            # Dosya yoksa ozellik KAPALI demektir (izleme_kur.sh henuz
+            # calistirilmamis). Sessiz gecmek dogru: her 10 sn'de bir uyari
+            # basmak, cozmedigi bir seyi surekli hatirlatmak olurdu.
+            return
+        if not satir:
+            return
+
+        self._mavros_taskin_kontrol()
+
+        for tip, siddet, deger in self._sistem.degerlendir(satir_coz(satir)):
+            ev = SystemEvent()
+            ev.stamp = self.get_clock().now().to_msg()
+            ev.event_type = int(tip)
+            ev.severity = int(siddet)
+            ev.source_agent_id = self._agent_id
+            ev.value = float(deger)
+            ev.source_module = 'yelpence_izle'
+            self._event_pub_internal.publish(ev)
+
+    def _mavros_taskin_kontrol(self) -> None:
+        """MAVROS'un GCS yayın hattı bozulduysa YKİ'ye KRİTİK olarak bildirir.
+
+        26/27 Agustos'ta olculdu: hat bozulunca tek oturumda 876 MB log
+        uretiliyor, SD kart yipraniyor ve — asil zarari — `mavros.log`'un
+        BASI siliniyor, yani ucus sonrasi teshis kaynagi yok oluyor.
+        O gece PX4'un neden yeniden basladigini tam da bu yuzden logdan
+        cikaramadik.
+
+        BURADA ONARIM YAPILMIYOR — bilincli (operator karari, 27 Agustos):
+        acilisin ilk dakikalarindaki otomatik onarim `baslat.sh`'te; sonrasi
+        icin karar operatorun, cunku oturum ortasinda mavros'u yeniden
+        baslatmak surpriz ve riskli. Buradaki is yalnizca GORUNUR KILMAK.
+
+        Sayac yalniz artar, yani "bozuk" tek yonlu bir durum: bir kez
+        bildirilir, konteyner yeniden baslayana kadar tekrar edilmez.
+        """
+        if self._mavros_taskin_bildirildi:
+            return
+        yol = str(self.get_parameter('mavros_log_dosya').value).strip()
+        if not yol:
+            return
+        try:
+            with open(yol, 'rb') as f:
+                # Bastan degil SONDAN oku: dosya yuzlerce MB olabilir ve
+                # bastan taramak her 10 saniyede diski dovmek olurdu.
+                f.seek(0, 2)
+                boyut = f.tell()
+                f.seek(max(0, boyut - 65536))
+                kuyruk = f.read()
+        except OSError:
+            return
+        if b'Network is unreachable' not in kuyruk:
+            return
+
+        self._mavros_taskin_bildirildi = True
+        ev = SystemEvent()
+        ev.stamp = self.get_clock().now().to_msg()
+        ev.event_type = pp.OLAY_TIPI_MAVROS_TASKIN
+        ev.severity = 2                       # SEVERITY_CRITICAL
+        ev.source_agent_id = self._agent_id
+        ev.value = float(min(boyut // (1024 * 1024), 32767))   # MB
+        ev.source_module = 'esp32_bridge'
+        self._event_pub_internal.publish(ev)
+        self.get_logger().error(
+            f'MAVROS GCS yayin hatti BOZUK — mavros.log {boyut // 1048576} MB. '
+            f'Otomatik onarim YAPILMIYOR; karar operatorde '
+            f'(SSH + docker restart).'
+        )
 
     def _isle_olay(self, drone_id: int, payload: bytes) -> None:
         """TIP_OLAY -> komşunun olayını SystemEvent olarak yayınlar.

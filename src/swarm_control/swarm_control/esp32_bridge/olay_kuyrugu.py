@@ -19,6 +19,15 @@ Burada yasayan uc karar:
    akmasina gerek yok, asil onemli olan YKI'ye SAGLAM sekilde ulasmasi."
    Yani hiz dusuk tutulup guvenilirlik tekrarla aliniyor.
 
+2b. KUYRUK (27 Agustos, operator duzeltmesi). Butce asilinca olay DUSMEZ,
+   SIRADA BEKLER: "ilk gelen hemen gonderilirken digeri sirada bekler."
+   Gecikme kabul edilebilir, kayip degil.
+   Yan fayda mesh icin: kova+patlama anlik 12 cerceve salabiliyordu; kuyrukla
+   tepe yuk = surekli hal, yani yuk ONGORULEBILIR ve sabit. Baz->YKI UART
+   siniri (~35 cerceve/sn) icin bu onemli.
+   Kuyruk SINIRSIZ degil: dolarsa dusurur ve BILDIRIR — sinirsiz kuyruk
+   bellegi sisirir ve saatlerce eski olaylari "taze" diye yollardi.
+
 3. SIRA NUMARASI. Tek bayt, 255'ten sonra sarar. Teslimati garanti edemeyiz
    ama YKI BOSLUGU GOREBILIR — sessiz kayip yerine bilinen kayip.
 """
@@ -37,6 +46,9 @@ class OlayKuyrugu:
     tekrar: int = 3
     tekrar_aralik_s: float = 0.25
     halka: int = 32
+    # Butce asilinca bekleyecek olay sayisi. 32 ~ 32 saniyelik birikim;
+    # bundan eskisi zaten YKI icin anlamini yitirir.
+    kuyruk_derinlik: int = 32
 
     # --- ic durum ---
     _jeton: float = field(default=0.0, init=False)
@@ -48,6 +60,7 @@ class OlayKuyrugu:
     gonderilen: int = field(default=0, init=False)
     _dusen_rapor_ts: float = field(default=0.0, init=False)
     _yineleme: dict = field(default_factory=dict, init=False)
+    _bekleyen: list = field(default_factory=list, init=False)
 
     def basla(self, now: float) -> None:
         """Zaman tabanını kurar. Node açılışında bir kez çağrılır."""
@@ -63,18 +76,30 @@ class OlayKuyrugu:
         )
         self._jeton_ts = now
 
-    def izin_var_mi(self, now: float) -> bool:
-        """Bütçe bir olaya izin veriyor mu; veriyorsa jetonu HARCAR.
-
-        Vermiyorsa `dusen` artar — sessizce dusurmek, defterin "tamam"
-        gorunmesi demek olurdu.
-        """
+    def _jeton_al(self, now: float) -> bool:
+        """Bütçe bir gönderime izin veriyor mu; veriyorsa jetonu HARCAR."""
         self._jeton_tazele(now)
         if self._jeton < 1.0:
-            self.dusen += 1
             return False
         self._jeton -= 1.0
         return True
+
+    def ekle(self, payload: bytes, now: float) -> bool:
+        """Olayı BEKLEME kuyruğuna alır. False = kuyruk dolu, DÜŞTÜ.
+
+        Butce asilirsa olay dusmez, SIRADA BEKLER (operator karari,
+        27 Agustos). Yalniz kuyruk dolarsa dusurulur ve sayilir — sessizce
+        dusurmek, defterin "tamam" gorunmesi demek olurdu.
+        """
+        if len(self._bekleyen) >= max(1, int(self.kuyruk_derinlik)):
+            self.dusen += 1
+            return False
+        self._bekleyen.append(payload)
+        return True
+
+    def bekleyen_sayisi(self) -> int:
+        """Sırada bekleyen olay sayısı."""
+        return len(self._bekleyen)
 
     # ------------------------------------------------------------- sıra / kuyruk
     def sonraki_sira(self) -> int:
@@ -94,7 +119,14 @@ class OlayKuyrugu:
             del self._halka_tampon[:fazla]
 
     def hazir_olanlar(self, now: float) -> list[bytes]:
-        """Zamanı gelmiş gönderimleri döner ve kuyruğu ilerletir."""
+        """Zamanı gelmiş gönderimleri döner ve kuyruğu ilerletir.
+
+        Once BEKLEYEN olaylar butce izin verdikce tekrar kuyruguna alinir —
+        boylece tepe yuk butcenin uzerine cikamaz.
+        """
+        while self._bekleyen and self._jeton_al(now):
+            self.kuyrukla(self._bekleyen.pop(0), now)
+
         cikan: list[bytes] = []
         kalanlar = []
         for payload, kalan, sonraki in self._kuyruk:
@@ -181,6 +213,7 @@ class BoslukIzleyici:
 
     def __init__(self, bekleme_s: float = 2.0, pencere: int = 64,
                  makul_kayip: int = 16) -> None:
+        """Boşluk izleyiciyi kurar (eşikler için sınıf notuna bak)."""
         self.bekleme_s = float(bekleme_s)
         self.pencere = int(pencere)
         # Bundan BUYUK bir atlama "kayip" degil SAYAC SICRAMASI sayilir.
@@ -265,4 +298,5 @@ class BoslukIzleyici:
         return {k: v for k, v in self._sicrama.items() if v > 0}
 
     def sicrama_temizle(self, drone_id: int) -> None:
+        """Bildirilen sıçrama sayacını sıfırlar."""
         self._sicrama.pop(drone_id, None)

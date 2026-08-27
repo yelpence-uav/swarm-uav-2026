@@ -257,14 +257,35 @@ _gcs_hata_say() {
 }
 if [ -n "$GCS_URL" ]; then
     _gcs_hata=$(_gcs_hata_say 0)
-    if [ "$_gcs_hata" -gt 0 ]; then
-        echo "[baslat] MAVROS GCS hatti kurulamadi ($_gcs_hata hata) — BIR KEZ yeniden deneniyor"
+    # OTOMATIK ONARIM YALNIZ ILK ACILISTA (27 Agustos 2026, operator karari)
+    #
+    # Operator: "rpi acildiginda bu hata olursa ... sadece drone ILK KEZ
+    # acildiginda rpi kendisi yapabilsin. Ama ucurduk ve inis yaptik ya da
+    # rpi acilisindan belli bir dakika gecti, o zaman ... bu insiyatifi
+    # almasin. YKI'ye log olarak bassin, operator SSH ile kendisi yapsin."
+    #
+    # GEREKCE: konteyner Pi acildiktan saatler sonra da yeniden baslatilabilir
+    # — ucus sonrasi, kayit incelenirken, saha ortasinda. O anda mavros'u
+    # kendiliginden yeniden baslatmak SURPRIZ ve riskli; karar operatorun.
+    # Acilisin ilk dakikalarinda ise hicbir sey mavros'a bagli degil, orada
+    # otomatik onarim zararsiz ve faydali.
+    #
+    # OLCUT Pi UPTIME'i — konteyner uptime'i DEGIL: konteyner her restart'ta
+    # sifirlanir ve "ilk acilis" yanilsamasi yaratirdi.
+    _PI_UPTIME_SN=$(cut -d. -f1 /proc/uptime 2>/dev/null || echo 999999)
+    _ONARIM_TAVANI_SN="${MAVROS_ONARIM_TAVANI_SN:-900}"     # 15 dakika
+    if [ "$_gcs_hata" -gt 0 ] && [ "$_PI_UPTIME_SN" -lt "$_ONARIM_TAVANI_SN" ]; then
+        echo "[baslat] MAVROS GCS hatti kurulamadi ($_gcs_hata hata) — ilk acilis, BIR KEZ yeniden deneniyor"
         _isaret=$(wc -l < "$GUNLUK/mavros.log" 2>/dev/null || echo 0)
         pkill -f 'mavros_node' 2>/dev/null
         sleep 3
         _mavros_baslat
         sleep 15
         _gcs_hata=$(_gcs_hata_say "$_isaret")
+    elif [ "$_gcs_hata" -gt 0 ]; then
+        echo "[baslat] MAVROS GCS hatti bozuk ($_gcs_hata hata) — Pi ${_PI_UPTIME_SN} sn'dir acik"
+        echo "[baslat]   OTOMATIK ONARIM YAPILMADI (tavan ${_ONARIM_TAVANI_SN} sn)."
+        echo "[baslat]   Karar operatorde: SSH ile 'docker restart <konteyner>'."
     fi
     if [ "$_gcs_hata" -gt 0 ]; then
         echo "[baslat] ==========================================================="

@@ -1341,6 +1341,23 @@ def modul_kodu(ad: str) -> int:
 #   BOSLUK : baz, sira_no'da atlama gordu — N olay HAVADA kayboldu.
 #            Broadcast'te ACK yok; teslimat garanti edilemez ama kayip
 #            GORUNUR kilinabilir.
+# Pi ANA SISTEM olaylari (60-79). SystemEvent.msg 0-59'u kullaniyor, bu
+# aralik BOS. Bunlar konteyner disindan gelir: olcumu `yelpence_izle.sh`
+# yapar (vcgencmd konteynerde yok), esik/histerezis `sistem_sagligi.py`de.
+#
+# SIDDET DURUMU ANLATIR: acilis WARNING/CRITICAL, normale donus INFO.
+# Deger her iki durumda da tasinir, yani "Pi sicakligi (82)" kritik,
+# "Pi sicakligi (64)" bilgi olarak okunur.
+OLAY_TIPI_PI_SICAKLIK = 60
+OLAY_TIPI_PI_GERILIM = 61        # get_throttled != 0 (dusuk gerilim/kisitlama)
+OLAY_TIPI_PI_DISK = 62
+OLAY_TIPI_PI_BELLEK = 63
+OLAY_TIPI_PI_YUK = 64
+OLAY_TIPI_PI_KONTEYNER = 65
+OLAY_TIPI_PI_ROS_EKSIK = 66
+OLAY_TIPI_PI_WIFI = 67
+OLAY_TIPI_MAVROS_TASKIN = 68
+
 OLAY_TIPI_DUSEN = 250
 OLAY_TIPI_BOSLUK = 251
 

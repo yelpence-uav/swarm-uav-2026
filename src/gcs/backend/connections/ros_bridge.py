@@ -145,6 +145,19 @@ SYSTEM_EVENT_LABELS = {
     # TASIMA KATMANI (packet_parser.OLAY_TIPI_*) — SystemEvent.msg'de yok,
     # cunku bunlar ucaktaki bir dugumun urettigi olaylar degil, olay yolunun
     # KENDI hakkinda soyledikleri. SystemEvent'in 0-59 araligiyla cakismaz.
+    # Pi ANA SISTEM (packet_parser.OLAY_TIPI_PI_*). SIDDET DURUMU ANLATIR:
+    # aciliş WARNING/CRITICAL, normale donus INFO. Deger her iki durumda da
+    # tasinir, yani "Pi sıcaklığı (82)" kritik, "(64)" bilgi olarak okunur.
+    60: "Pi sıcaklığı",
+    61: "Pi BESLEME/KISITLAMA (düşük gerilim)",
+    62: "Pi diski doluyor",
+    63: "Pi belleği azaldı",
+    64: "Pi yükü yüksek",
+    65: "Konteyner çalışmıyor",
+    66: "ROS düğümü eksik",
+    67: "Pi Wi-Fi bağlantısı",
+    68: "MAVROS GCS hattı BOZUK — log şişiyor (MB)",
+
     250: "Olay bütçesi aşıldı — gönderilemeyen olay",
     251: "Olay KAYBI — mesh'te kayboldu",
 }

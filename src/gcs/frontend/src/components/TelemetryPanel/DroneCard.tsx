@@ -157,7 +157,9 @@ export function DroneCard({
             </div>
           </div>
           {logAcik && (
-            <DroneLog kayitlar={kayitlar} hata={gunlukHata} aktif={gunlukAktif} />
+            <div className="drone-card__log-katman">
+              <DroneLog kayitlar={kayitlar} hata={gunlukHata} aktif={gunlukAktif} />
+            </div>
           )}
         </div>
       </article>
@@ -248,7 +250,9 @@ export function DroneCard({
       </footer>
       </div>
       {logAcik && (
-        <DroneLog kayitlar={kayitlar} hata={gunlukHata} aktif={gunlukAktif} />
+        <div className="drone-card__log-katman">
+              <DroneLog kayitlar={kayitlar} hata={gunlukHata} aktif={gunlukAktif} />
+            </div>
       )}
       </div>
     </article>
