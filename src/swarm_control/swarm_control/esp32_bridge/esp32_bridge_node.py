@@ -1426,7 +1426,24 @@ class Esp32BridgeNode(Node):
             self._korluk_olayi_kenar(drone_id, bool(durum.kacinma_koru))
 
     def _korluk_olayi_kenar(self, drone_id: int, kor: bool) -> None:
-        """Komsunun korluk bayragi DEGISTIGINDE YKI olayi yayinlar (P0.16)."""
+        """Komşunun körlük bayrağı DEĞİŞTİĞİNDE YKİ olayı yayınlar (P0.16).
+
+        ⚠️ SIDDET BILEREK 'INFO' — 27 Agustos 2026, operator karari.
+        Bu tespit, mesh'te olay tipi YOKKEN yazilmisti: korlugu YKI'ye
+        ulastirmanin tek yolu DURUM paketindeki bitti. Artik TIP_OLAY var ve
+        ucagin KENDI `collision_avoidance`'i ayni olguyu KRITIK olarak
+        gonderiyor.
+
+        Olculdu (27 Agu 04:11-04:13): tek bir konteyner yeniden baslatmasi
+        pencereye `baz=2 mesh=1 link_timeout=1` dusuruyordu — ayni olgu UC
+        bagimsiz dedektorden. Defter iki kat kalabaliklasip LOG butonu
+        gereksiz yere kirmizi yaniyordu.
+
+        SILMIYORUZ, SEVIYE INDIRIYORUZ: bu yol bir uctan bagimsiz — olay
+        butcesi tikanirsa, bir ucak eski firmware'deyse ya da TIP_OLAY
+        kaybolursa hala calisir. Yani yedek duruyor, yalniz kritik uyariyi
+        artik tek kaynak (ucagin kendisi) veriyor.
+        """
         onceki = self._komsu_korluk.get(drone_id)
         if onceki == kor:
             return
@@ -1436,16 +1453,15 @@ class Esp32BridgeNode(Node):
         m = SystemEvent()
         m.stamp = self.get_clock().now().to_msg()
         m.event_type = SystemEvent.EVENT_COLLISION_RISK
-        m.severity = (SystemEvent.SEVERITY_CRITICAL if kor
-                      else SystemEvent.SEVERITY_INFO)
+        m.severity = SystemEvent.SEVERITY_INFO
         m.source_agent_id = drone_id
         m.source_module = 'esp32_bridge'
         m.value = float(drone_id)
         m.message = (
-            f'drone{drone_id} KOMSUSUNU GOREMIYOR — o komsuya karsi '
-            f'carpisma korumasi YOK (mesh tek yonlu olmus olabilir)'
+            f'[yedek tespit] drone{drone_id} komsusunu goremiyor '
+            f'(mesh tek yonlu olmus olabilir)'
             if kor else
-            f'drone{drone_id} komsularini tekrar goruyor, kacinma korlugu bitti'
+            f'[yedek tespit] drone{drone_id} komsularini tekrar goruyor'
         )
         self._event_pub_public.publish(m)
         self.get_logger().warning(m.message) if kor else \
