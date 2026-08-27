@@ -848,23 +848,23 @@ class RosBridge:
             # O yuzden bilgi tasiyan `value` ve `source_module` alanlarini
             # etikete ekliyoruz — aksi halde "Olay KAYBI" yazar ama KAC olay
             # kaybedildigi hicbir yerde gorunmezdi.
-            text = msg.message.strip() if msg.message else label
-            if not msg.message:
+            if msg.message:
+                mesaj = f"{label}: {msg.message.strip()}"
+            else:
                 ekler = []
                 if msg.value:
                     # %g: 3.0 -> "3", 3.88 -> "3.88" (gereksiz sifir yok)
                     ekler.append(f"{msg.value:g}")
                 if msg.source_module:
                     ekler.append(msg.source_module)
-                if ekler:
-                    text = f"{label} ({', '.join(ekler)})"
+                mesaj = f"{label} ({', '.join(ekler)})" if ekler else label
             # source_agent_id 0 = sistem geneli; aksi halde drone_id olarak göster.
             drone_id = msg.source_agent_id if msg.source_agent_id != 0 else 0
             self.alerts.push_event(
                 drone_id=drone_id,
                 severity=severity,
                 code=f"event_{msg.event_type}",
-                message=f"{label}: {text}" if text != label else label,
+                message=mesaj,
             )
         except Exception:
             logger.exception("SystemEvent → AlertManager bağlantı hatası")
