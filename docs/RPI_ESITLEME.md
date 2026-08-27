@@ -1,6 +1,6 @@
 # RPİ EŞİTLEME DEFTERİ — geri gelen drone'u hizaya getirme
 
-**Son güncelleme:** 26 Ağustos 2026, 23:00 — `dd5a1e6` üç uçağa dağıtıldı · A18 esptool host'larda · A19 `ROS_LOCALHOST_ONLY` recreate bekliyor
+**Son güncelleme:** 27 Ağustos 2026, 04:00 — OLAY DEFTERİ: `d8ae3df` üç Pi'ye, firmware `eabe59f` DÖRT karta; uçtan uca doğrulandı
 
 ## Bu belge ne için
 
@@ -519,6 +519,8 @@ kaldı (CH3=1296'da bile) ve güç çevrimi ile temizlendi. Şüpheli:
 | D1 | Firmware yüklü (`TX DRONE`) | `firmware/esp32_mesh/TX DRONE/` |
 | D2 | MAC → ID tablosu **iki firmware'de de aynı** | `RX BASE/src/main.cpp` ~128, `TX DRONE/src/main.cpp` ~71 |
 | D3 | Yeni ESP takıldıysa MAC'i tabloya ekle | Tabloda olmayan MAC'ten gelen paket **reddedilir** |
+| D4 | 🔴 **Firmware `eabe59f` — DÖRT kartta** (3 drone + baz) | 27 Ağu ~03:00-03:40. `TIP_OLAY` taşıyan sürüm. **Pi üzerinden**, kablo/konnektör sökmeden: konteyner durdur → operatör **BOOT tut + EN'e dokun** → `esptool --before no-reset write-flash` → EN → konteyner başlat. Baz USB'den (`--no-stub` şart, `TUZAKLAR` §4.4). Dördünde de **hash doğrulandı** |
+| D5 | **Uçandaki firmware artık BİLİNEN bir commit** | D4'ten önce belirsizdi: ylp01'in `.bin`'i 25 Ağu 00:52'de, `ccb915c` ise 00:56'da — binary commit'ten ESKİYDİ. ⚠️ `.bin` dosya boyutu hizalama yüzünden yuvarlanıyor, **provenans göstergesi olarak kullanılamaz** (eski ve yeni kaynak aynı boyutu veriyor). Doğrulama davranıştan yapılır |
 
 ---
 
@@ -666,6 +668,38 @@ Gerçek bir ölümde bu yığın asıl suçlu sürücüyü gösterecek.
 ## 8. DEĞİŞİKLİK DEFTERİ
 
 Her Pi değişikliği buraya, en yeni en üste.
+
+### 2026-08-27 (gece 02:00-04:00) — OLAY DEFTERİ: YKİ paneli + mesh taşıması
+
+**Operatör isteği:** "her drone'un loglarını görebileceğim bir kısım olsun...
+tabii ki tüm logu mesh'ten akıtamayız, kısa olayın ne olduğunu belli eden
+loglar akıtalım." Ve: *"logların çok seri akmasına gerek yok, asıl önemli
+olan YKİ'ye SAĞLAM ulaşması. Saniyede 1 defa bile yeterli."*
+
+**Dağıtıldı:** `d8ae3df` üç Pi'ye (`dagit.sh`), firmware `eabe59f` dört karta.
+
+**Paket BÜYÜMEDİ:** `olay_veri_t` mevcut 16 baytlık yüke oturdu; `mesh_paket_t`
+25 bayt, `veri[18]` ve `UART_FRAME_BUF_SIZE=32` aynı. Flash %56,2 → %56,7.
+
+**Canlı testte iki kusur bulundu** (ikisi de birim testlerde görünemezdi):
+- `_diag_yayinla` saniyede bir `SystemEvent` yayıyor (yerel `swarm_fsm` için).
+  Aktarıcı onu da mesh'e sokunca **bütçenin tamamını yiyordu** — yani gerçek
+  olaylar (çarpışma riski, RC kaybı) bütçe yüzünden **düşerdi**. Düzeltme:
+  `EVENT_UNKNOWN` mesh'e çıkmaz + genel yineleme süzgeci (5 sn).
+  Ölçüldü: **3,0 çerçeve/sn → 0,00**.
+- YKİ etiketi iki kez yazılıyordu (kozmetik).
+
+**Uçtan uca doğrulandı:** ylp02 kısa süre mesh'ten çıkarıldı → ylp00'ın
+`collision_avoidance`'i körlük olayı üretti → mesh → baz → panel. Ayırt etme
+ölçütü: **mesaj alanı boşsa mesh'ten gelmiştir** (metin taşınmıyor, yalnız
+kod), doluysa bazın kendi tespitidir.
+
+| Uçak | Python | ESP firmware |
+|------|--------|--------------|
+| ylp00 | ✅ `d8ae3df` | ✅ `eabe59f` |
+| ylp01 | ✅ `d8ae3df` | ✅ `eabe59f` |
+| ylp02 | ✅ `d8ae3df` | ✅ `eabe59f` |
+| baz | ✅ (dizüstü, editable install) | ✅ `eabe59f` |
 
 ### 2026-08-26 (gece ~23:00) — `dd5a1e6` üç uçağa + esptool host'lara
 
