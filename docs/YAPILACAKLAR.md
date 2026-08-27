@@ -1,6 +1,29 @@
 # YAPILACAKLAR
 
-**Son güncelleme:** 27 Ağustos 2026, 01:05 — 🔴 P0 PX4 güç soketi gevşek (o uçak uçmaz) · 🔴 P0 MAVROS denetimi yalnız açılışa bakıyor
+**Son güncelleme:** 27 Ağustos 2026, 04:30 — olay defteri bitti (P1.16 kapandı); 🔴 P0 ylp02 güç soketi ve 🔴 P0 HOME kayması AÇIK
+
+## ✅ 27 AĞUSTOS GECESİ BİTENLER
+
+- `[x]` 🟠 ~~**P1.16 — YKİ uyarılarının kalıcı kaydı yok**~~ → **KAPANDI.**
+  `core/log_store.py`: sınırlı halka tampon + JSONL diske yazma. Dosya tavanı
+  bilinçli sınırlı (26/27 Ağustos'ta MAVROS tek oturumda 876 MB üretmişti).
+- `[x]` **Olay defteri uçtan uca** — panel + `TIP_OLAY` mesh taşıması,
+  dört kart `eabe59f`'e yakıldı, iki uçaktan doğrulandı.
+- `[x]` **PlatformIO "yok" sanılıyordu** → `~/pio-venv/bin/pio`, kullanıldı.
+- `[x]` `dagit.sh` artık `izleme_kur.sh` ve `cokme_kopyala.sh` da taşıyor.
+- `[x]` `drone_bul.sh` sudo'lu komutlara TTY ayırıyor.
+
+### 🟡 Olay defterinden çıkan yeni işler
+
+- `[ ]` 🟡 P2 — **`EVENT_PX4_REBOOT` (kod 69) yazılmadı.** Taşıma yolu artık
+  hazır; havada bir FCU yeniden başlarsa kaydı kalsın. Birkaç satır.
+- `[ ]` 🟡 P2 — **MAVROS taşkınının KÖK NEDENİ hâlâ bilinmiyor**
+  (`mavconn/udp.cpp:325`, yayın soketinde ENETUNREACH). Artık kendini
+  onarıyor ve görünür — acil değil ama sebebi bilinmiyor.
+- `[ ]` ⚪ P3 — Görev düğümleri (mission1, mission_fsm, camera_driver,
+  precision_landing, maneuver_executor) kapalı olduğu için defter bugün
+  yalnız körlük görüyor. Görev zinciri açılınca **kod tarafında ek iş
+  olmadan** zenginleşecek — bir şey yapılması gerekmiyor, bilgi olarak.
 
 ## 🚨 SONRAKİ OPERATÖRE — ÖNCE BUNLAR (26 Ağustos gecesi)
 
@@ -728,7 +751,18 @@ Köprü geri açılınca körlük temizlendi (`kor_komsu=-`).
   ulaşmıyor. Firmware + 3 ESP flash gerektirir — 👤 **Eyüp** (bkz. P1.15).
 
 
-### 🟠 P1.16 YKİ uyarılarının KALICI KAYDI YOK — ekranda kayıp gidiyor
+### ✅ P1.16 YKİ uyarılarının kalıcı kaydı — KAPANDI (27 Ağustos 04:00)
+
+> **Çözüm:** `src/gcs/backend/core/log_store.py` — sınırlı halka tampon +
+> JSONL diske yazma (`src/gcs/gunluk/yki_olaylar.jsonl`). Dosya tavanı
+> **bilinçli sınırlı**: 26/27 Ağustos'ta MAVROS'un GCS hattı bozulunca
+> `mavros.log` tek oturumda 876 MB'a çıkmıştı; sınırsız büyüyen kayıt
+> dosyası bırakmıyoruz. Susturulan uyarılar da deftere GİRER — ekranda
+> susturmak hakem videosu içindi, sonradan incelerken kaydın yok olması
+> bambaşka bir şey olurdu.
+>
+> Aşağıdaki özgün kayıt, sorunun nasıl bulunduğunu anlatıyor; **tarihçe
+> olarak duruyor.**
 
 **22 Ağustos'ta bulundu.** Operatör *"benim verdiklerin dışında da bildirim
 geldi"* dedi ve haklıydı — sayınca **~32 bildirim** çıktı, ben 4 sanıyordum.

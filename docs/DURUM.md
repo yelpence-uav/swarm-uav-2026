@@ -1,7 +1,34 @@
 # DURUM — şu an ne çalışıyor, ne bozuk
 
-**Son güncelleme:** 26 Ağustos 2026, 23:10 — `dd5a1e6` üç uçağa dağıtıldı (9 düğüm, MAVROS GCS sağlıklı); ESP Pi üzerinden flash'lanabilir; 🔴 P0 HOME kayması AÇIK
+**Son güncelleme:** 27 Ağustos 2026, 04:30 — olay defteri uçtan uca çalışıyor (firmware DÖRT kartta); 🔴 ylp02 güç soketi UÇUŞ ENGELİ; 🔴 HOME kayması hâlâ açık
 
+
+> ## 📓 27 AĞUSTOS 04:30 — OLAY DEFTERİ ÇALIŞIYOR + 🔴 ylp02 UÇMAZ
+>
+> **Uçuş yok, yer işi.** Üç uçak açık, disarm, mesh'te (`komsu_veri=2/2`).
+> Python **`61ba6c9`**, ESP firmware **`eabe59f`** (üç drone + baz, hash
+> doğrulandı — kablo sökülmeden, Pi üzerinden yakıldı).
+>
+> - 🔴🔴 **ylp02 UÇMAZ — PX4 güç soketi gevşek.** Sokete dokununca FCU
+>   yeniden başlıyor. Pi tarafında düşük gerilim izi YOK (`get_throttled=0x0`),
+>   yani arıza PX'in kendi hattında. Kabul ölçütü: bant DEĞİL lehim/kilitli
+>   konnektör, sonra kabloyu bilerek üç kez oynat. `YAPILACAKLAR` P0.
+> - 🆕 **YKİ olay defteri:** drone kartında `▤ LOG` → kart komple deftere
+>   dönüşüyor. Kritik olayda buton kırmızı yanıp söner. Kayıtlar **diske**
+>   yazılıyor (`src/gcs/gunluk/yki_olaylar.jsonl`) — **P1.16 kapandı**.
+> - 🆕 **Olaylar mesh'ten akıyor** (`TIP_OLAY = 0x16`). Paket BÜYÜMEDİ.
+>   Bütçe drone başına 1/sn, 3 tekrar, aşınca **kuyrukta bekler** (düşmez).
+>   Ayırt etme: **mesaj alanı boşsa mesh'ten gelmiştir.**
+> - 🆕 **Pi sistem sağlığı olayları** (60-68, histerezisli). Eşikler ölçüme
+>   dayanıyor: Pi 5 boşta 56-64 °C, uyarı 70/65, kritik 80/75.
+> - ⚠️ **Pil değerlendirmesi KAPALI** (`alerts.pil=false`): sahada ölçüm yok,
+>   PX4 tezgâhta sabit 12,6 V/%100 sentinel'i veriyor. Kart gelince açılacak.
+> - ⚠️ **MAVROS otomatik onarımı yalnız Pi uptime < 15 dk.** Sonrasında
+>   onarım YOK; köprü KRİTİK olay basar, karar operatörde (SSH + restart).
+> - ⚠️ Uçaklar **formasyon-sürer modda** (`/ws/gozlem` YOK) — mesh goto
+>   uçağa gitmez. Eski düzen için `touch /ws/gozlem` + restart.
+> - 🔴 **26 Ağustos'un HOME kayması P0'ı HÂLÂ AÇIK** — bu gece dokunulmadı.
+>   Çözülmeden RTL'li uçuş YOK.
 
 > ## 🔧 26 AĞUSTOS 23:10 — `dd5a1e6` ÜÇ UÇAĞA DAĞITILDI + ESP FLASH YOLU AÇILDI
 >

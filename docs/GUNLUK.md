@@ -1,6 +1,6 @@
 # GÜNLÜK — oturum devir teslim kaydı
 
-**Son güncelleme:** 26 Ağustos 2026, 02:37
+**Son güncelleme:** 27 Ağustos 2026, 04:30 — olay defteri uçtan uca çalışıyor; firmware DÖRT kartta; 🔴 ylp02 güç soketi
 
 Tek bilgisayar, sırayla çalışıyoruz. Biri kalkıp diğeri oturduğunda **hem
 kişi hem Claude** nerede kalındığını buradan anlar.
@@ -35,6 +35,121 @@ Claude'a **"oturumu kapat"** dersen bu kaydı o yazar.
 - ylp00: (kill switch? pil? nerede? konteyner ayakta mı?)
 - ylp02:
 ```
+
+---
+
+## 2026-08-27 04:30 — Eyüp + Claude (OLAY DEFTERİ: YKİ paneli + mesh taşıması; 🔴 ylp02 güç soketi P0)
+
+> Uzun bir gece: 26 Ağustos akşamı depoyu tanımakla başladı, olay defterinin
+> uçtan uca çalışmasıyla bitti. **Uçuş yapılmadı, tamamı yer işi.**
+> 11 commit.
+
+**Ne yapıldı**
+
+*1 — Devir teslim: 4 günün açığı kapatıldı*
+- Yerel `main` 4 gün geriydi; iş `saha` uzağındaydı (28 commit). İlerletildi.
+- 4 günün özeti okundu: dikey kaçınma, ilk formasyon uçuşu, ylp01'in
+  dirilişi, P0.15'in kök nedeni (ESP↔Pi jumper konnektörü).
+
+*2 — 🔴 ylp02'nin PX4 GÜÇ SOKETİ GEVŞEK — uçuş engeli*
+- Operatör buldu: **sokete dokununca FCU yeniden başlıyor.** Daha önce iki
+  kez görülüp ikisi de yanlış yorumlanmıştı ("Pi düğmesine bastım, PX de
+  rebootlandı" → el kabloya çarpmış; "durduk yere rebootlandı" → aynı temas).
+- Ölçüldü ve **elendi**: üç Pi'de de `get_throttled = 0x0`, EXT5V 5,13-5,18 V.
+  Yani arıza PX'in KENDİ hattında, Pi ile paylaşmıyor — **Pi izlemesi bunu
+  asla yakalayamaz**, ayrı bir sinyal gerekiyor.
+- `TUZAKLAR` §2.19'daki ESP jumper'ıyla aynı sınıf ama sonucu kıyaslanamaz:
+  jumper VERİ kaybettiriyordu, güç kesilince **uçuş kontrolcüsü ölür**.
+  ⚠️ 2 Ağustos'ta ylp01'in düşüşü hâlâ aydınlanmadı — aday sebep.
+
+*3 — YKİ OLAY DEFTERİ (Adım 1): panel + kalıcı kayıt + disk*
+- `AlertManager` uyarıları 10 sn sonra siliyordu; defter AYRI tutuldu, uyarı
+  motorunun davranışı değişmedi. **P1.16 KAPANDI** (uyarılar artık diske).
+- Panel drone kartında: `▤ LOG` basınca kart **komple deftere dönüşüyor**,
+  kritik olayda buton kırmızı yanıp sönüyor.
+- Operatör iki kusur yakaladı ve ikisi de düzeltildi: üç kart birden log
+  kipindeyken şerit çöküyordu; olaylar birikince kart yukarı büyüyordu.
+  Çözüm sihirli sayı değil — telemetri akışta kalıp boyu belirliyor, defter
+  mutlak konumlandırmayla akıştan çıkıyor.
+- Pil değerlendirmesi **kapatıldı** (`alerts.pil`, varsayılan false): sahada
+  ölçüm yok, PX4 tezgâhta sabit 12,6 V/%100 sentinel'i veriyor. Susturmadık,
+  hiç üretmiyoruz — susturma GERÇEK bir sinyali gizlemektir.
+- Mesafe üst başlıktan kartlara taşındı (yatay mesafe — çarpışma ölçütü de
+  yatay, `TUZAKLAR` §3.12).
+
+*4 — TIP_OLAY (Adım 3): olaylar mesh'ten akıyor*
+- Protokolde olay tipi YOKTU; körlük alarmı DURUM bitine sıkıştırılmıştı.
+  Artık `TIP_OLAY = 0x16`, **paket BÜYÜMEDİ** (16 bayta oturdu, `mesh_paket_t`
+  25 bayt, UART tamponu 32 aynı). Flash %56,2 → %56,7.
+- Metin taşınmıyor, **kod** taşınıyor; metni YKİ üretiyor.
+- Bütçe drone başına 1/sn, her olay 3 kez tekrar. Operatör kararıyla
+  **düşürme → KUYRUK**: "ilk gelen hemen gider, diğeri sırada bekler."
+  Yan fayda: tepe yük = sürekli hâl, yani öngörülebilir (baz→YKİ UART'ı
+  ~35 çerçeve/sn ve olay yolu en kötü 9 = %26).
+- `sira_no` ile YKİ **boşluk görebiliyor**. Tekrarlar sıra dışı vardığı için
+  gecikmeli onay kullanılıyor — naif sayaç uydurma kayıp raporlardı.
+- Mimari: bütçe/kuyruk/boşluk ve eşik/histerezis **ROS'suz saf modüllerde**
+  (`olay_kuyrugu.py`, `sistem_sagligi.py`), `rtk_pure.h` kalıbı.
+
+*5 — Pi sistem sağlığı olayları (kod 60-68), histerezisli*
+- Veri zaten toplanıyordu (`yelpence_izle.sh`); ikinci izleme kurulmadı.
+- Eşikler ÖLÇÜME dayanıyor: Pi 5 boşta **56-64 °C**. Operatörün önerdiği
+  50 °C alınmadı — sürekli alarm verirdi. Uyarı 70/65, kritik 80/75.
+
+*6 — MAVROS onarım politikası (operatör kararı)*
+- Otomatik onarım artık **Pi uptime kapısında** (<15 dk). Ölçüt konteyner
+  uptime'ı DEĞİL — o her restart'ta sıfırlanıp sahte "ilk açılış" yaratırdı.
+- Kapının dışında onarım YOK; köprü KRİTİK olay basıyor, karar operatörde.
+
+*7 — Firmware DÖRT karta, kablo sökülmeden*
+- `eabe59f` üç drone + baz. Yöntem: konteyner durdur → operatör **BOOT+EN**
+  → `esptool --before no-reset` → EN → konteyner başlat. Baz USB'den
+  (`--no-stub` şart; `TUZAKLAR` §4.4 aynen tetiklendi).
+- Dördünde de **hash doğrulandı**. Provenans boşluğu kapandı (öncesinde
+  ylp01'in `.bin`'i commit'ten eskiydi).
+- ⚠️ `.bin` dosya boyutu hizalama yüzünden yuvarlanıyor — **provenans
+  göstergesi olarak kullanılamaz**. Doğrulama davranıştan.
+
+*8 — Uçtan uca doğrulama (iki kez, iki uçaktan)*
+```
+04:23:34  d1 [KRITIK]  Carpisma riski (2, collision_avoidance)   <- MESH
+04:23:34  d3 [KRITIK]  Carpisma riski (2, collision_avoidance)   <- MESH
+04:23:35  d2 [KRITIK]  Baglanti koptu                            <- YKI telemetrisi
+04:23:37  d3 [bilgi ]  [yedek tespit] ...                        <- bazin yedegi
+```
+Ayırt etme ölçütü: **mesaj alanı boşsa mesh'ten gelmiştir.**
+
+**Canlı testin yakaladığı, birim testlerin göremeyeceği dört kusur**
+
+1. 🔴 `_diag_yayinla` saniyede bir olay yayıyordu; aktarılınca **bütçenin
+   tamamını yiyor** ve GERÇEK olayların düşmesine yol açıyordu. Olay yolu
+   tam da iş görmesi gereken anda susardı. (3,0 çerçeve/sn → 0,00)
+2. Aynı olgu **üç bağımsız dedektörden** bildiriliyordu. Bazın tespiti
+   INFO'ya indirildi ve `[yedek tespit]` etiketlendi — silinmedi, çünkü
+   bütçe tıkanırsa ya da bir uçak eski firmware'deyse tek gören o olur.
+3. `dagit.sh` **`izleme_kur.sh`'i taşımıyordu**; uçaklarda 22 Ağustos'tan
+   kalma sürüm duruyordu. Tam da o dosyanın uyardığı sessiz kayma.
+4. `drone_bul.sh` sudo'lu komutlara TTY ayırmıyordu (iki kez tökezlendi).
+
+**Ne değişti**
+- kod: `dd5a1e6 8f21515 f5649a0 73e06e1 eabe59f d8ae3df 3c21e6a ff148f3
+  59a7c53 38be7da 1219837 61ba6c9`
+- uçakta: Python `61ba6c9`, ESP firmware `eabe59f` (üç drone + baz)
+- belge: TUZAKLAR §1.25-1.27 §2.23, RPI_ESITLEME D4/D5 + defter kaydı,
+  YAPILACAKLAR iki P0, DURUM, bu kayıt
+
+**Yarım kalan / tuzak**
+- 🔴 ylp02 güç soketi — **düzeltilmeden ylp02 UÇMAZ**
+- 🔴 26 Ağustos'un HOME kayması P0'ı **hâlâ açık** (bu gece dokunulmadı)
+- 🟠 MAVROS taşkınının **kök nedeni** hâlâ bilinmiyor (`mavconn/udp.cpp:325`)
+- 🟡 `EVENT_PX4_REBOOT` (kod 69) yazılmadı — taşıma yolu artık hazır
+- Görev düğümleri kapalı olduğu için defter bugün yalnız körlük görüyor;
+  görev zinciri açılınca **kod tarafında ek iş olmadan** zenginleşecek
+
+**Uçakların bırakıldığı hâl**
+- Üçü de açık, disarm, mesh'te (`komsu_veri=2/2`), Python `61ba6c9`,
+  firmware `eabe59f`. Formasyon-sürer modda (`/ws/gozlem` YOK).
+- YKİ açık (backend + RTCM reader + baz köprüsü). Pil ölçümü kapalı.
 
 ---
 
