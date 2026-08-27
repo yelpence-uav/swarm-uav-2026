@@ -189,3 +189,39 @@ def test_droneler_birbirinden_bagimsiz():
     b.gelen(1, 6, 0.1)
     b.gelen(2, 91, 0.1)
     assert b.kayiplar(5.0) == []
+
+
+# =============================================================================
+# Yineleme suzgeci — 27 Agustos canli testinde bulunan kusurun testi
+# =============================================================================
+
+def test_periyodik_kaynak_butceyi_YEMIYOR():
+    """`_diag_yayinla` saniyede bir ayni olayi yayiyordu; aktarilinca butcenin
+    TAMAMINI yiyor ve GERCEK olaylarin dusmesine yol aciyordu."""
+    k = _kuyruk()
+    anahtar = (0, 0, 0, 0.0)
+    gecen = sum(0 if k.yinelenen_mi(anahtar, 1000.0 + i, 5.0) else 1
+                for i in range(10))          # 10 saniyede saniyede bir
+    assert gecen == 2                        # 5 sn'lik pencerede iki kez
+
+
+def test_farkli_olaylar_birbirini_ENGELLEMIYOR():
+    k = _kuyruk()
+    assert k.yinelenen_mi((43, 2, 0, 3.88), 1000.0) is False
+    assert k.yinelenen_mi((58, 1, 0, 0.0), 1000.0) is False   # baska olay
+    assert k.yinelenen_mi((43, 2, 0, 3.88), 1000.1) is True   # ayni olay
+
+
+def test_pencere_gecince_tekrar_gecer():
+    k = _kuyruk()
+    a = (43, 2, 0, 1.0)
+    assert k.yinelenen_mi(a, 1000.0, 5.0) is False
+    assert k.yinelenen_mi(a, 1003.0, 5.0) is True     # pencere icinde
+    assert k.yinelenen_mi(a, 1006.0, 5.0) is False    # pencere gecti
+
+
+def test_yineleme_sozlugu_sinirsiz_buyumuyor():
+    k = _kuyruk()
+    for i in range(500):
+        k.yinelenen_mi((i, 0, 0, 0.0), 1000.0 + i * 30.0, 5.0)
+    assert len(k._yineleme) <= 128

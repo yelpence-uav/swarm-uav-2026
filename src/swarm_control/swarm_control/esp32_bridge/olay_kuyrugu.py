@@ -47,6 +47,7 @@ class OlayKuyrugu:
     dusen: int = field(default=0, init=False)
     gonderilen: int = field(default=0, init=False)
     _dusen_rapor_ts: float = field(default=0.0, init=False)
+    _yineleme: dict = field(default_factory=dict, init=False)
 
     def basla(self, now: float) -> None:
         """Zaman tabanını kurar. Node açılışında bir kez çağrılır."""
@@ -125,6 +126,32 @@ class OlayKuyrugu:
         n = self.dusen
         self.dusen = 0
         return n
+
+    # -------------------------------------------------------------- yineleme
+    def yinelenen_mi(self, anahtar, now: float,
+                     pencere_s: float = 5.0) -> bool:
+        """Aynı olay bu pencerede zaten gönderildi mi.
+
+        27 AGUSTOS, CANLI TESTTE BULUNDU: `esp32_bridge._diag_yayinla` her
+        saniye bir SystemEvent yayinliyor (mesh saglik sayaclari, yerel
+        swarm_fsm icin). Aktarici onu yakalayinca butcenin TAMAMINI yedi:
+        defter saniyede bir ayni satirla dolardi ve — daha kotusu — GERCEK
+        olaylar butce dolu oldugu icin DUSERDI.
+
+        Bu suzgec genel: hangi dugum olursa olsun, ayni olayi pencere
+        icinde bir kez gecirir. Periyodik bir kaynak eklendiginde yeniden
+        ayni tuzaga dusulmesin diye tip bazli kara liste yerine bu secildi.
+        """
+        eski = self._yineleme.get(anahtar)
+        if eski is not None and (now - eski) < pencere_s:
+            return True
+        self._yineleme[anahtar] = now
+        # Sozluk sinirsiz buyumesin: pencerenin cok disinda kalanlari at.
+        if len(self._yineleme) > 128:
+            for k in [k for k, t in self._yineleme.items()
+                      if (now - t) > pencere_s * 4]:
+                del self._yineleme[k]
+        return False
 
     # ------------------------------------------------------------------ halka
     def halka_icerik(self) -> list[bytes]:

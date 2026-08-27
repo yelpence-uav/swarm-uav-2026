@@ -772,7 +772,22 @@ class Esp32BridgeNode(Node):
         if kaynak not in (0, self._agent_id):
             return
 
+        # EVENT_UNKNOWN (0) MESH'E CIKMAZ.
+        # 27 Agustos canli testinde bulundu: `_diag_yayinla` her saniye bu
+        # tiple bir SystemEvent yayinliyor (mesh saglik sayaclari, YEREL
+        # swarm_fsm icin). Aktarilinca butcenin tamamini yiyor ve gercek
+        # olaylarin dusmesine yol aciyordu. "Bilinmeyen" bir olayin defterde
+        # zaten anlatacak bir seyi yok.
+        if int(msg.event_type) == SystemEvent.EVENT_UNKNOWN:
+            return
+
         now = time.monotonic()
+        # Ayni olayin tekrari (periyodik kaynaklar) 5 sn penceresinde bir kez.
+        anahtar = (int(msg.event_type), int(msg.severity),
+                   int(msg.target_agent_id), round(float(msg.value), 2))
+        if self._olay_kuyruk.yinelenen_mi(anahtar, now):
+            return
+
         if not self._olay_kuyruk.izin_var_mi(now):
             return   # butce asildi; sayac tutuluyor, 10 sn'de bir bildirilir
 
