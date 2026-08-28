@@ -1,6 +1,6 @@
 # KARARLAR — verilmiş ama henüz uygulanmamış kararlar
 
-**Son güncelleme:** 28 Ağustos 2026, 05:50 — KARAR-09 (B) verildi: konteynerler eşitlenecek; ylp00/ylp01 bekliyor
+**Son güncelleme:** 28 Ağustos 2026, 06:05 — KARAR-09 (A) da bağlandı: QR'ı okuyan drone mesh'ten paylaşır, mimari hazır
 
 Sohbette verilen kararlar oturum bitince kayboluyor. Bu defter onları
 tutuyor: **ne karar verildi, neden, ne zaman uygulanacak, nasıl test edilecek.**
@@ -36,7 +36,7 @@ sırası gelince" denilen şeyleri. Onlar en kolay kaybolanlar.
 
 # KARAR-09 — Kamera hangi uçaklarda, konteynerler eşitlensin mi
 
-**Durum:** 🔵 **KARAR VERİLDİ (B) — kısmen uygulandı**
+**Durum:** 🔵 **İKİSİ DE KARARA BAĞLANDI — (B) kısmen uygulandı, (A) mimari zaten hazır**
 **Ne zaman:** ylp00 ve ylp01 ağa geldiğinde tek komut
 **Karar veren:** Operatör (28 Ağustos 2026): *"hepsinin konteynerini eşitle"*
 **Soruyu soran:** Operatör (28 Ağustos 2026) — *"Bütün dronelara kamera
@@ -92,9 +92,38 @@ Bu, mesh protokolü ve görev mantığıyla birlikte konuşulmalı; şu an
   `deploy/yki/imaj_esitle.sh` yazıldı ve ylp02'de sınandı. ylp00 ve ylp01
   **kapalı olduğu için yapılamadı** — açılınca uçak başına tek komut:
   `./deploy/yki/imaj_esitle.sh ylp00`
-- `[ ]` Operatör: A — kaç uçağa kamera?
-- `[ ]` A birden azsa: QR sonucu mesh'ten paylaşılacak mı, tek hata
-  noktası kabul mü?
+- `[x]` ~~Operatör: A — kaç uçağa kamera?~~ → **Sayı önemli değil.**
+  Operatör (28 Ağu): *"kamera tek droneda da olsa birden fazla droneda da
+  olsa, hangi drone QR'ı okursa diğer dronelara görevi söyleyecek
+  meshten."*
+- `[x]` ~~A birden azsa: QR sonucu mesh'ten paylaşılacak mı?~~ → **EVET, ve
+  mimari BUNU ZATEN YAPIYOR.** 28 Ağu'da kod okunarak doğrulandı:
+
+  ```
+  qr_detector (okuyan drone)
+     → /swarm/internal/perception/qr_data
+     → esp32_bridge · qr_gorev_paketle()  →  TIP_QR_GOREV (0x14), 16 bayt
+     → ESP-NOW yayın (tüm sürü duyar)
+     → diğer dronelarda esp32_bridge · _isle_qr_gorev()
+     → /swarm/internal/perception/qr_data   ← yerel okumuş gibi
+  ```
+
+  204 baytlık QR 16 bayta sığıyor çünkü **ham JSON gönderilmiyor**: okuyan
+  drone çözüp yapısal alanları yolluyor (`qr_gorev_veri_t`, static_assert
+  ile 16 bayta kilitli). Geçmeyen alanların gerekçesi `mesh_config.h`'de
+  satır satır yazılı.
+
+  Ayrıca `TIP_QR_HAM` (0x15) düşünülmüş: **ayrıştırma hatasında** ham metnin
+  ilk 52 karakteri gidiyor. Şartname *"QR içeriği örnektir, nihai format
+  sonra paylaşılacaktır"* dediği için — format değişirse `json.loads`
+  patlar ve sahada elinde hiçbir şey kalmaz; o dilim en azından formatı
+  gösterir.
+
+  Firmware her iki tarafta tanıyor (`TX DRONE/main.cpp:238`,
+  `RX BASE/main.cpp:242`), köprüde TX (`:2672`) ve RX (`:2459`) var,
+  sayaçlar bile duruyor (`qr_tx=`, `qr_rx=`).
+
+  ⚠️ **AMA SAHADA HİÇ KOŞMADI** — bkz. YAPILACAKLAR 🟠P1.21.
 
 ---
 

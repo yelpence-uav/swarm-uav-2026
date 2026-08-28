@@ -1,6 +1,6 @@
 # YAPILACAKLAR
 
-**Son güncelleme:** 28 Ağustos 2026, 05:25 — 🟠P1.20 QR takım slotu doğrulanmadı; algı paketleri imaja gömüldü
+**Son güncelleme:** 28 Ağustos 2026, 06:05 — 🟠P1.21 QR mesh paylaşımı sahada koşmadı; P1.20 takım slotu
 
 ## ✅ 27 AĞUSTOS GECESİ BİTENLER
 
@@ -797,6 +797,41 @@ loglarından geriye dönebildim — o da tesadüfen orada oldukları için.
 - `[ ]` 🟡 `config.yaml`'da susturulan listesi var (`link_timeout`,
   `low_battery`, `critical_battery`) — **susturulanlar da loga yazılmalı**,
   yalnız ekrana çıkmasın. Şu an tamamen kayboluyorlar.
+
+### 🟠 P1.21 QR'ın mesh'ten paylaşımı SAHADA HİÇ KOŞMADI
+
+**28 Ağustos 2026'da kod okunarak doğrulandı: zincir TAM.** Firmware her
+iki tarafta tanıyor, köprüde TX ve RX var, paket 16 bayta kilitli
+(`qr_gorev_veri_t`, static_assert). KARAR-09 (A) buna dayanıyor: kamera
+kaç uçakta olursa olsun, okuyan drone görevi mesh'ten söyler.
+
+**Ama hiç çalıştırılmadı.** Tek uçakla sınanamaz; iki uçak gerekiyor.
+
+- `[ ]` 🟠 **İki uçakla uçtan uca test.** ylp02 QR'ı okur, ylp00 mesh'ten
+  alır. Ölçüt: iki uçakta da `/swarm/internal/perception/qr_data`
+  yayınlanmalı ve **alanları birebir eşleşmeli**. Köprü sayaçları
+  `qr_tx=` / `qr_rx=` doğrulama için zaten var.
+- `[ ]` 🟠 Uçuş gerekmez — ikisi yerde, mesh açık, QR'ı ylp02'ye göster.
+
+#### ⚠️ Test sırasında bakılacak iki bilinen açık
+
+**1. `qr_seq` bayat-atma UYGULANMAMIŞ.** `QRMissionData.msg`'nin yorumu
+*"monotonically increasing; mission_fsm drops out-of-order/stale QRs"*
+diyor; `mesh_config.h` bunu düzeltiyor: **karşılaştırma hiçbir yerde
+yapılmıyor.** Mesh yayın ve ACK yok — bir drone paketi kaçırırsa görevi
+hiç duymaz, geç duyarsa eski görevi uygular. Sıra denetimi olmadan bunu
+fark edecek bir şey yok.
+
+- `[ ]` 🟡 Sıra denetimi eklenecek mi karar ver. Eklenirse **`uint8`
+  sarması** (255→0) hesaba katılmalı — `mesh_config.h` uyarıyor: naif bir
+  `yeni > eski` karşılaştırması sarmadan sonra her şeyi bayat sayar.
+- `[ ]` 🟡 Tekrar gönderim: görev komutu kritik ve tek atış. Olay
+  kuyruğundaki tekrar mekanizması (`olay_kuyrugu.py`) burada da
+  kullanılabilir mi?
+
+**2. `team_slot` hâlâ doğrulanmadı** — bkz. P1.20. Yanlış slot mesh'ten
+paylaşılırsa **bütün sürü** yanlış görevi uygular; tek uçağın hatası
+değil, sürünün hatası olur.
 
 ### 🟠 P1.20 QR takım slotu DOĞRULANMADI — yanlışsa başka takımın görevi uygulanır
 
