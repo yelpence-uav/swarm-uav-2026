@@ -1,6 +1,6 @@
 # KAMERA ve ALGI — sahada ölçülmüş sonuçlar
 
-**Son güncelleme:** 28 Ağustos 2026, 12:10
+**Son güncelleme:** 28 Ağustos 2026, 12:40
 
 > Bu belge **28 Ağustos 2026'da tek oturumda** yapılan kamera kurulumu,
 > kalibrasyonu ve dört uçuşluk QR tespit testinin sonucudur. Her sayı
@@ -533,6 +533,37 @@ PYTHONPATH=$HOME/pylib_laptop python3 ...
 
 Doğru wheel etiketi PyPI JSON API'sinden bulunur (`cp312`, `x86_64`,
 `musllinux` olmayan).
+
+> ⚠️ **`x86_64` macOS wheel adlarında da geçiyor.** Süzgece `linux` de koy,
+> yoksa `macosx_10_9_x86_64` gelir ve ikili çalışmaz.
+
+**Laptopta kurulu olanlar** (`~/pylib_laptop`, hepsi wheel açılarak, sudo yok):
+
+| paket | ne için |
+|---|---|
+| `opencv-python-headless` | dedektörler |
+| `zxing-cpp` | QR çözme — **uçaktakiyle aynı**, sayılar kıyaslanabilir |
+| `imageio-ffmpeg` | içinde **statik ffmpeg 7.0.2 + libx264** taşıyor |
+
+```bash
+export PYTHONPATH=$HOME/pylib_laptop
+FF=$HOME/pylib_laptop/imageio_ffmpeg/binaries/ffmpeg-linux-x86_64-v7.0.2
+```
+
+### Kaydı MP4'e çevirme (WhatsApp/sunum)
+
+```bash
+"$FF" -f mjpeg -framerate 30 -i <kayit>.mjpeg \
+  -vf scale=1280:-2 -c:v libx264 -preset slow \
+  -b:v 950k -maxrate 1100k -bufsize 2200k \
+  -pix_fmt yuv420p -movflags +faststart -an cikti.mp4
+```
+
+`-f mjpeg` **şart**: dosya ardışık yapıştırılmış JPEG'lerden ibaret, kapsayıcı
+yok, kare hızı bilgisi içinde bulunmuyor. `-b:v 950k` ≈ dakikada 7 MB —
+WhatsApp'ın 16 MB sınırını 100 saniyeye kadar aşmaz.
+
+Kesit almak için girdiden **önce** `-ss <sn>`, sonra `-t <süre>`.
 
 ### `deploy/rpi/teshis/kamera_zincir.sh`
 

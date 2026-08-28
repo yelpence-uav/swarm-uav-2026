@@ -103,6 +103,16 @@ Claude'a **"oturumu kapat"** dersen bu kaydı o yazar.
   tarafından sabit, çözünürlük de tükendi. Tavanı açacak tek eksen
   titreşim: teorik tavan 34 m, gerçek 11 m, aradaki farkın tamamı jöle.
 
+**Laptopta kurulanlar (yeni oturum bunları tekrar kurmaya kalkmasın)**
+
+- `~/pylib_laptop` — `opencv-python-headless`, `zxing-cpp`,
+  `imageio-ffmpeg` (statik ffmpeg 7.0.2 + libx264). Hepsi **wheel
+  açılarak** kuruldu; laptopta `pip` YOK, `ensurepip` Debian'da kapalı.
+  Kullanım: `export PYTHONPATH=$HOME/pylib_laptop`
+- `~/yelpence_kayitlar/` — yedi uçuş kaydı (.mjpeg + .idx), `100509`'un
+  irtifa CSV'si, iki MP4 (2K ve 4K yalıtımlı).
+- Çözümleme **ROS'suz** koşuyor: `kayit_coz.py --irtifa-csv`.
+
 **Uçakların bırakıldığı hâl**
 
 - ylp00: kapalı, ağda değil. 3S 8000 mAh + 1045 pervane takılı.
