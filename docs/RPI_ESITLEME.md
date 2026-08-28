@@ -714,6 +714,33 @@ konteyner YENİDEN OLUŞTURULURSA GİDER**):
 > Yeni imajdan açılan taze konteynerde `cv2`, `pyzbar`, `zxingcpp`, `numpy`
 > dördü de doğrulandı.
 >
+> 🔵 **28 Ağu 05:50 — KARAR-09 (B): konteynerler EŞİTLENECEK.**
+> Operatör kararı. `deploy/yki/imaj_esitle.sh` yazıldı, ylp02'de sınandı.
+>
+> ```bash
+> ./deploy/yki/imaj_esitle.sh ylp00      # uçak açıkken, tek komut
+> ./deploy/yki/imaj_esitle.sh ylp01
+> ```
+>
+> Betik: diski denetler · eski imajı `temiz-20260828` olarak korur ·
+> tarball'ı taşır (zaten varsa atlar) · `gzip -t` ile doğrular · yükler ·
+> **yeni imajdan taze konteyner açıp dört paketi import ederek** doğrular.
+>
+> ⚠️ **`docker load` çalışan konteyneri DEĞİŞTİRMEZ.** Konteyner eski
+> imajın kimliğine bağlı; yeni imaj ancak konteyner yeniden
+> OLUŞTURULUNCA (`docker rm` + `run_drone.sh`) devreye girer. Betik bunu
+> bilerek yapmıyor — bekleyen A19 ile birlikte yapılacak.
+>
+> | Uçak | İmaj eşitlendi | Konteyner yeni imajda |
+> |------|----------------|----------------------|
+> | ylp00 | ❌ **kapalıydı, bekliyor** | ❌ |
+> | ylp01 | ❌ **kapalıydı, bekliyor** | ❌ |
+> | ylp02 | ✅ `ea2c1b1e9154` | ❌ (A19'da) |
+>
+> ℹ️ Tarball eşitleme sırasında her Pi'ye kopyalanıyor (`~/imaj-yedek/`).
+> Yani P2.9'daki "yedek tek makinede" sorunu kendiliğinden hafifliyor:
+> dizüstü + üç Pi = dört kopya.
+
 > 🔴 **UÇAKLAR ARASI İMAJ AYRIŞMASI:** yalnız **ylp02** yeni imajda.
 > ylp00 ve ylp02'de imaj kimliği artık AYNI DEĞİL — 20 Ağustos'ta ikisi de
 > `661296d…` idi. Kamera yalnız ylp02'de olduğu için bu bilinçli; diğer

@@ -1,6 +1,6 @@
 # KARARLAR — verilmiş ama henüz uygulanmamış kararlar
 
-**Son güncelleme:** 28 Ağustos 2026, 05:35 — KARAR-09 açıldı: kamera hangi uçaklarda, konteynerler eşitlensin mi
+**Son güncelleme:** 28 Ağustos 2026, 05:50 — KARAR-09 (B) verildi: konteynerler eşitlenecek; ylp00/ylp01 bekliyor
 
 Sohbette verilen kararlar oturum bitince kayboluyor. Bu defter onları
 tutuyor: **ne karar verildi, neden, ne zaman uygulanacak, nasıl test edilecek.**
@@ -36,8 +36,9 @@ sırası gelince" denilen şeyleri. Onlar en kolay kaybolanlar.
 
 # KARAR-09 — Kamera hangi uçaklarda, konteynerler eşitlensin mi
 
-**Durum:** 🟡 **AÇIK — operatör kararı bekleniyor**
-**Ne zaman:** ikinci uçağa kamera takılmadan önce, ya da imaj güncellemesi gerektiğinde
+**Durum:** 🔵 **KARAR VERİLDİ (B) — kısmen uygulandı**
+**Ne zaman:** ylp00 ve ylp01 ağa geldiğinde tek komut
+**Karar veren:** Operatör (28 Ağustos 2026): *"hepsinin konteynerini eşitle"*
 **Soruyu soran:** Operatör (28 Ağustos 2026) — *"Bütün dronelara kamera
 takmayabiliriz... Ama eğer hepsi eşit olsun dersen hepsinin konteynerini
 eşitleyebiliriz."*
@@ -87,7 +88,10 @@ Ama o zaman **o uçak tek hata noktası** olur — düşerse görev biter.
 Bu, mesh protokolü ve görev mantığıyla birlikte konuşulmalı; şu an
 `QRMissionData` yalnız yerel yayınlanıyor, mesh'e çıkmıyor.
 
-- `[ ]` Operatör: B eşitlensin mi?
+- `[x]` ~~Operatör: B eşitlensin mi?~~ → **EVET, eşitlensin** (28 Ağu).
+  `deploy/yki/imaj_esitle.sh` yazıldı ve ylp02'de sınandı. ylp00 ve ylp01
+  **kapalı olduğu için yapılamadı** — açılınca uçak başına tek komut:
+  `./deploy/yki/imaj_esitle.sh ylp00`
 - `[ ]` Operatör: A — kaç uçağa kamera?
 - `[ ]` A birden azsa: QR sonucu mesh'ten paylaşılacak mı, tek hata
   noktası kabul mü?
