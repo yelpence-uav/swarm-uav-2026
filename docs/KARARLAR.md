@@ -1,6 +1,6 @@
 # KARARLAR — verilmiş ama henüz uygulanmamış kararlar
 
-**Son güncelleme:** 28 Ağustos 2026, 18:25 — KARAR-10: süreler 25/25/25 (operatör), ultracode ATLANDI, ylp02 soketi operatörce halledildi
+**Son güncelleme:** 28 Ağustos 2026, 19:55 — ✅ KARAR-10 UÇTU: beş faz uçakta, avoid=0, iniş kalkış noktalarına; sekans anahtarı silindi
 
 Sohbette verilen kararlar oturum bitince kayboluyor. Bu defter onları
 tutuyor: **ne karar verildi, neden, ne zaman uygulanacak, nasıl test edilecek.**
@@ -36,8 +36,12 @@ sırası gelince" denilen şeyleri. Onlar en kolay kaybolanlar.
 
 # KARAR-10 — Formasyon geçiş testi: sekans UÇAKTA, YKİ yalnız başlatır
 
-**Durum:** 🔵 **KOD YAZILDI (28 Ağustos 2026, 18:00) — dağıtım + G0 + uçuş bekliyor**
-**Ne zaman:** ylp02 güç soketi P0 kapanınca; önce G0 yer testi
+**Durum:** ✅ **UYGULANDI VE UÇTU (28 Ağustos 2026, ~19:30)** — üç uçak,
+tek buton, beş faz (çizgi→ok→V→çizgi→EVE) uçakta koştu; `avoid=0`, en
+yakın çift ~8,0 m, BITTI t0+123 s, iniş kalkış noktalarına. Kayıtlar
+`~/yelpence-kayitlar/20260828_formasyon_gecis/`. Operatör: *"çalıştı,
+gayet de iyiydi."* `sekans` anahtarı test sonrası SİLİNDİ.
+**Ne zaman:** ~~ylp02 güç soketi P0 kapanınca; önce G0 yer testi~~ bitti
 **Karar veren:** Operatör (28 Ağustos 2026): *"yerden rastgele konumlardan
 kalkış, çizgi → ok başı → V, aralık 7 m, YKİ'de geçici test butonu, SSH'a
 bağımlı kalınmayacak, süre ≤ 2 dk"* — plan sunuldu, "tamam yazmaya başla"
@@ -57,10 +61,21 @@ bağımlı kalınmayacak, süre ≤ 2 dk"* — plan sunuldu, "tamam yazmaya baş
 3. **Heading kalkış diziliminden türetilir** (PCA + kimlik-tabanlı işaret
    kuralı) — sahaya göre env düzenleme (SSH) gerekmez; kuru test aynı
    kuralla hesaplayıp haritada gösterir, operatör gözle onaylar.
-4. **İniş = guided land, olduğu yerde** (RTL YASAK — HOME kayması P0).
-   İniş noktaları = son fazın slotları; bütün fazların slotları kuru
-   testte doğrulanıp haritaya çizildiği için sekans hangi fazda donarsa
-   donsun iniş önceden onaylanmış dizilişin üstüne olur.
+4. **İniş = kalkış noktalarına, EVE DÖNÜŞ fazıyla (operatör isteği,
+   28 Ağu akşam) — PX4 RTL DEĞİL** (HOME kayması P0; RTL üçünü aynı
+   yanlış noktaya indirmişti). Sekans sonu: son formasyondan ÇİZGİ'ye
+   dönül üp her uçak KENDİ ölçülmüş kalkış noktasına tek-ajanlı CUSTOM
+   tarifle gider (lider kapısız — yalnız kendini komutlar), YKİ oraya
+   land verir. Tam sekans: **çizgi→ok→V→çizgi→EVE** (95+25 s; kalkış ve
+   inişle uçuş **~2,5 dk** — eve dönüş isteği 2 dk hedefini ~30 s aştı).
+
+   > Dönüş neden ÇİZGİ koridorundan ve atama neden ilk-faz-Macar'ıyla
+   > sabit: iki önceki kural kuru testte GERÇEK yerleşimle elendi
+   > (o-anki-konum Macar'ı → V→EVE çapraz 2,17 m; kalkış-konum her-faz
+   > Macar'ı → tipler arası taraf dönmesi, yol komşu slotun ÜSTÜNDEN).
+   > Gerekçeli döküm: `formasyon_sekans_cekirdek.faz_ofsetleri` docstring.
+   > kalkış→çizgi Macar eşleşmesi kesişmesiz (takas argümanı); EVE aynı
+   > yürüyüşün tersi ve plan_dogrula V→çizgi→EVE bacaklarını ölçüyor.
 5. **Aparat GEÇİCİ:** mission1 zinciri sahaya alınınca `formasyon_sekans`
    düğümü, `sekans` anahtarı, kosucu senaryosu ve YKİ buton satırı
    SİLİNECEK.
@@ -98,18 +113,23 @@ birebir aynı (iki bağımsız yol, tek sonuç). tsc + flake8 + 26 birim test.
   Toplam 75 s; kalkış+iniş ile ~110 s. YKİ kopsa sekans uçakta sürer;
   kaybedilen tek şey otomatik iniş komutu (kumanda/QGC elde).
 
-## Test merdiveni (sırayla, atlamadan)
+## Test merdiveni (28 Ağu akşamı KOŞULDU — uçuşlar kaldı)
 
 1. ✅ Birim 26/26 + kuru koşu (laptop)
-2. ⏳ **G0 (yerde, pervanesiz, `/ws/gozlem` TAKILI):** dağıt → `sekans`
-   aç → `yer_testi_irtifa_atla:=true` ile düğümü elle başlat → üç uçakta
-   tarif akışını, `form_tx/form_rx` sayaçlarını, atamaları ölç. Uçuş yok.
-3. ⏳ Sahada uçaklar açıkken **kuru + harita** (gerçek konumlarla) —
-   operatör haritayı GÖZLE onaylar (uçaklar yerde ≥ 5 m aralıkla konmalı,
-   yoksa YER denetimi haklı olarak KALIR der)
-4. ⏳ **Uçuş A — tek soru "reshape havada güvenli mi":** fazlar
-   `cizgi,okbasi` (env'den kısaltılır), kalkış→çizgi→ok→iniş (~80 sn)
-5. ⏳ **Uçuş B — tam sekans** çizgi→ok→V (~2 dk)
+2. ✅ **G0 GEÇTİ (28 Ağu akşam, 3. turda; ARM'sız — olay basılmadan,
+   `yer_testi_irtifa_atla` olay beklemeyi de atlıyor çünkü AgentStatus'un
+   yayıncısı agent_fsm ve o ÇALIŞMAK zorunda).** Üç uçak bağımsız aynı
+   merkez/heading(±0,3°)/atamayı buldu; fazlar t0+25/50, BITTI t0+75,5;
+   tarif mesh'ten takipçiye kuantize ulaştı, formation_node 20 Hz üretti;
+   lider olmayanlar sustu. G0 dört gerçek hata yakalattı: kopru'nun lider
+   kapısı baypası → kapı üreticiye; iç veriyolu RELIABLE; YAML param tip
+   tuzağı (2 vaka) → string+dynamic_typing; FSM=status yayıncısı.
+3. ✅ Kuru + harita gerçek konumlarla GEÇTİ (en kritik an 4,95 m);
+   ayrıca iki atama kuralını eleyip çizgi koridorunu doğrulattı (yukarı
+   bak). Uçaklar yerde ≥5 m aralıkla konmalı; kuru sonrası OYNATILMAZ.
+4. ⏳ **UÇUŞ — operatör onayı bekleniyor** (harita gösterildi). Başlatma
+   YKİ panel "GEÇİCİ · formasyon geçiş → UÇUR"; Claude uçuşta komut
+   göndermez, betik izler ve sonda kalkış noktalarına land verir.
 
 > ### ✅ KARAR-02 denetimi bu test için ATLANDI — operatör kararı (28 Ağu akşam)
 >

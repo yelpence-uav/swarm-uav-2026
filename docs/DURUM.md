@@ -1,6 +1,6 @@
 # DURUM — şu an ne çalışıyor, ne bozuk
 
-**Son güncelleme:** 28 Ağustos 2026, 18:30 — formasyon geçiş testi kodu HAZIR (KARAR-10, repo'da; uçaklara DAĞITILMADI); ylp02 güç soketi operatörce halledildi (kabul testi uçuş sabahı); 🔴 HOME kayması hâlâ açık
+**Son güncelleme:** 28 Ağustos 2026, 19:55 — ✅ FORMASYON GEÇİŞ TESTİ UÇTU (KARAR-10: çizgi→ok→V→çizgi→EVE sekansı UÇAKTA, avoid=0, iniş kalkış noktalarına); uçaklar `403b99f`, `sekans` anahtarı test sonrası SİLİNDİ; 🔴 HOME kayması hâlâ açık (bu uçuş RTL kullanmadı)
 
 
 > ## 📷 28 AĞUSTOS 11:20 — KAMERA SAHADA ÇALIŞIYOR, QR OKUNUYOR

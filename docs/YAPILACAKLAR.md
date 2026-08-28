@@ -1,8 +1,23 @@
 # YAPILACAKLAR
 
-**Son güncelleme:** 28 Ağustos 2026, 18:25 — sekans süreleri 25/25/25 (operatör); ultracode atlandı; ylp02 soketi operatörce halledildi (kabul testi uçuş sabahı)
+**Son güncelleme:** 28 Ağustos 2026, 19:55 — ✅ formasyon geçiş testi UÇTU (P1.27-30 kapandı); kayıtlar dizüstünde; sekans anahtarı silindi
 
-## 🧩 28 AĞUSTOS AKŞAMI — FORMASYON GEÇİŞ TESTİ (KARAR-10, kod HAZIR)
+## ✅ 28 AĞUSTOS AKŞAMI — FORMASYON GEÇİŞ TESTİ UÇTU (KARAR-10 TAM)
+
+**Tek uçuşta beş faz:** çizgi→ok→V→çizgi→EVE, sekans tamamen uçakta,
+YKİ tek butonla başlattı, iniş kalkış noktalarına. `avoid=0` (kaçınma hiç
+tetiklenmedi), en yakın çift ~8,0 m, BITTI t0+123 s. Kayıtlar:
+`~/yelpence-kayitlar/20260828_formasyon_gecis/`. Döküm: GUNLUK 19:50.
+P1.27/28/29/30 KAPANDI (A ve B uçuşları tek uçuşta birleşti — operatör
+kararıyla tam sekans uçuldu). `sekans` anahtarı test sonrası SİLİNDİ.
+
+- `[ ]` 🟡 P2 — uçuş kaydı analizi: slot oturma hataları + faz geçiş
+  temizliği (mcap → metrik; kayıtlar dizüstünde)
+- `[ ]` 🟡 P2 — TUZAKLAR'a aday: ros2 `-p x:=90` INTEGER olur, double
+  declare düğümü açılışta öldürür → yeni düğümlerde `dynamic_typing`
+- `[ ]` ⚪ P3 — mission1 sahaya alınınca sekans aparatını sil (KARAR-10 §5)
+
+## 🧩 (arşiv) FORMASYON GEÇİŞ TESTİ hazırlık maddeleri
 
 Çizgi → ok başı → V, 7 m, sekans UÇAKTA (`formasyon_sekans_node`), tetik
 YKİ'deki geçici buton. Mimari, riskler, elenen seçenekler: **KARAR-10**.

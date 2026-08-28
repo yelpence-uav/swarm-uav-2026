@@ -1,6 +1,6 @@
 # GÜNLÜK — oturum devir teslim kaydı
 
-**Son güncelleme:** 28 Ağustos 2026, 11:45 — kamera sahada çalışıyor, QR 6-9 m'de okunuyor (rolling shutter çözüldü)
+**Son güncelleme:** 28 Ağustos 2026, 19:50 — FORMASYON GEÇİŞ TESTİ UÇTU (çizgi→ok→V→çizgi→EVE, sekans uçakta, avoid=0)
 
 Tek bilgisayar, sırayla çalışıyoruz. Biri kalkıp diğeri oturduğunda **hem
 kişi hem Claude** nerede kalındığını buradan anlar.
@@ -35,6 +35,65 @@ Claude'a **"oturumu kapat"** dersen bu kaydı o yazar.
 - ylp00: (kill switch? pil? nerede? konteyner ayakta mı?)
 - ylp02:
 ```
+
+---
+
+## 2026-08-28 19:50 — Berk + Claude (FORMASYON GEÇİŞ TESTİ UÇTU ✅ — sekans UÇAKTA, YKİ butonuyla)
+
+> **Üç uçak, tek uçuş, tek buton.** Çizgi→ok başı→V→çizgi→EVE sekansı
+> tamamen uçakta koştu (yeni `formasyon_sekans` düğümü, KARAR-10); YKİ
+> yalnız arm+takeoff verdi, izledi, sonda kalkış noktalarına indirdi.
+> Operatör: *"çalıştı, gayet de iyiydi."*
+
+**Ne yapıldı (uçuş, ölçülmüş)**
+
+- Sekans logu (ylp00, lider d2): merkez (+6.5,-3.2), heading 310.6°
+  (dizilimden otomatik), atama [2,1,3] — çizgi t0 → ok t0+26 → V t0+51 →
+  çizgi t0+76 → EVE t0+97 → **BITTI t0+123 s** (plan 120).
+- **Kaçınma hiç tetiklenmedi: `avoid=0` üç uçakta** — 7 m aralıkta
+  geçişler nominal kaldı (kuru öngörüsü: en dar an 4,95 m > d0 4,0).
+- İzleme: en yakın çift uçuş boyunca ~8,0 m; irtifa ~9,0-9,2 m
+  (hedef 8 + bilinen ~1 m EKF/origin farkı, 26 Ağu ile aynı).
+- Kayıtlar dizüstünde: **`~/yelpence-kayitlar/20260828_formasyon_gecis/`**
+  (uçak başına rosbag ~34 MB + uçuş açılışının tüm günlükleri + YKİ
+  kosucu çıktısı + haritalar).
+
+**Gün içinde G0'ın yakaladığı 4 gerçek hata** (uçuşa çıkmadan düzeltildi):
+kopru'nun lider-kapısı baypası → kapı üreticiye; iç veriyolu RELIABLE;
+YAML param tip tuzağı ×2 → string+dynamic_typing; AgentStatus yayıncısı
+agent_fsm'miş (FSM'siz G0 imkânsız). Kuru test de gerçek yerleşimde iki
+atama kuralını eledi → çizgi dönüş koridoru + ilk-faz-Macar sabit sahiplik.
+
+**Ne değişti**
+
+- kod: `formasyon_sekans_cekirdek/node` (yeni), `ucus_ayarlari` SEKANS_*,
+  `gorev_kanit_ucus` formasyon_gecis senaryosu + `harita_yaz_sekans`
+  (okunaklı harita), `baslat.sh` `sekans` anahtarı, kosucu+KosucuPanel
+  GEÇİCİ buton. Commit'ler `36531c4..403b99f`, uçaklarda `403b99f`.
+- uçakta: **`sekans` anahtarı test sonrası SİLİNDİ** (`suru_dugumleri` =
+  `origin consensus fsm formasyon ca` — normal düzen); `/ws/gozlem` YOK
+  (formasyon-sürer mod). Konteynerler restart EDİLMEDİ — bir sonraki
+  açılışta sekanssız kalkacaklar. `ucus_ayarlari.env` yenilendi (SEKANS_*).
+- belge: KARARLAR (KARAR-10), YAPILACAKLAR, DURUM.
+
+**Yarım kalan / tuzak**
+
+- ⚠️ ros2 `-p x:=90` tam sayıyı INTEGER yapar, double declare düğümü
+  ÖLDÜRÜR — iki kez yaşandı; yeni düğüm yazan `dynamic_typing` kullansın
+  (TUZAKLAR'a aday).
+- ⚠️ ylp01 paralel dagit'te ilk denemede düşüyor, tekli geçiyor (Wi-Fi).
+- İrtifa ~1 m yüksek oturuyor (EKF/origin) — bilinen, analiz P0 HOME ile.
+- 🔴 HOME kayması P0 HÂLÂ AÇIK (bu uçuş RTL kullanmadı, EVE fazı çözdü).
+
+**Sıradaki adım**
+
+- Uçuş kaydı analizi (isteğe bağlı): slot oturma hataları + faz geçiş
+  temizliği mcap'ten. Aparat, mission1 sahaya alınınca silinecek (KARAR-10).
+
+**Uçakların bırakıldığı hâl**
+
+- Üçü de uçuştan sonra kalkış noktalarında, disarm; operatör şarj için
+  kapatıyor. `sekans` anahtarı YOK, gozlem YOK, kod `403b99f`.
 
 ---
 
