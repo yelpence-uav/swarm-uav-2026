@@ -1,6 +1,42 @@
 # YAPILACAKLAR
 
-**Son güncelleme:** 28 Ağustos 2026, 11:45 — kamera işleri (P1.22-P1.26); QR boyutu SABİT, tavanı yalıtım açacak
+**Son güncelleme:** 28 Ağustos 2026, 18:25 — sekans süreleri 25/25/25 (operatör); ultracode atlandı; ylp02 soketi operatörce halledildi (kabul testi uçuş sabahı)
+
+## 🧩 28 AĞUSTOS AKŞAMI — FORMASYON GEÇİŞ TESTİ (KARAR-10, kod HAZIR)
+
+Çizgi → ok başı → V, 7 m, sekans UÇAKTA (`formasyon_sekans_node`), tetik
+YKİ'deki geçici buton. Mimari, riskler, elenen seçenekler: **KARAR-10**.
+Kod laptopta doğrulandı (26 birim test, kuru koşu GEÇTİ, tsc/flake8).
+Sıradaki adımlar SIRAYLA — atlanmaz:
+
+- `[ ]` 🟠 **P1.27 — Dağıtım:** `ucus_ayarlari.py --kabuk > ucus_ayarlari.env`
+  yeniden üret + `dagit.sh` üç uçağa (yeni düğüm + baslat.sh) + YKİ backend
+  restart + frontend build. `suru_dugumleri`'ne `sekans` EKLEME — onu G0
+  oturumunda, bilerek aç.
+- `[ ]` 🟠 **P1.28 — G0 yer testi (uçuş yok):** pervanesiz, `/ws/gozlem`
+  TAKILI, `sekans` açık, düğüm `yer_testi_irtifa_atla:=true` ile. Ölçülecek:
+  üç uçakta EVENT→sekans tetiklenmesi, lider uçakta `form_tx` artışı,
+  takipçilerde `form_rx` + tarifin gözlem konusunda görünmesi, atamaların
+  üç uçakta aynı çıkması. ⚠️ Armlı bekleme kısa (OFFBOARD integral sarması,
+  TUZAKLAR §3.11); kill switch elde.
+- `[ ]` 🟠 **P1.29 — Uçuş A (tek geçiş):** sahada gerçek konumlarla kuru +
+  harita (operatör GÖZLE onaylar; uçaklar yerde ≥ 5 m aralıkla; kuru
+  çıktısındaki faz-bütçe satırlarına bak — "SUREYE SIGMIYOR" uyarısı
+  varsa ya toplu koy ya süreyi büyüt) →
+  `SEKANS_FAZLAR=cizgi,okbasi` ile kalkış→çizgi→ok→iniş (~80 sn).
+  ✅ KARAR-02 denetimi ATLANDI (operatör, 28 Ağu akşam — bir daha
+  sorulmayacak). 🔴 Uçuş öncesi sekiz madde aynen. 🔴 ylp02 soket
+  kabul testi uçuş sabahı: kabloyu bilerek 3× oynat, reboot GELMEMELİ.
+  *Ölçüt: reshape temiz, `avoid` sayacı ve en yakın çift kayıttan.*
+- `[ ]` 🟠 **P1.30 — Uçuş B (tam sekans):** çizgi→ok→V (~2 dk). *Ölçüt:
+  slotlara ≤1,5 m, OKBAŞI→V geçişinde en yakın çift ve kaçınma davranışı.*
+- `[ ]` 🟡 P2 — Test bitince `sekans` anahtarını `suru_dugumleri`'nden
+  SİL + restart (açıkken her guided ARM sekansı tetikler). Kalıcı görev
+  zinciri (mission1) gelince aparatın tamamı silinecek (KARAR-10 §5).
+
+✅ **Ön koşul kapandı (operatör, 28 Ağu akşam):** ylp02 güç soketi
+"halledildi". Kabul testi (3× kablo oynatma, reboot yok) P1.29'da uçuş
+sabahına bağlandı.
 
 ## 📷 28 AĞUSTOS — KAMERA TESTİNDEN ÇIKANLAR
 
@@ -85,7 +121,12 @@ okunuyor (%38-69), tavan **11 m** ve tavanı belirleyen şey **kalan titreşim**
 
 ## 🚨 SONRAKİ OPERATÖRE — ÖNCE BUNLAR (26 Ağustos gecesi)
 
-- `[ ]` 🔴🔴 **P0 — ylp02'nin PX4 GÜÇ SOKETİ GEVŞEK. ylp02 UÇMAZ.**
+- `[~]` 🔴🔴 **P0 — ylp02 PX4 GÜÇ SOKETİ → operatör "halledildi" (28 Ağu
+  akşam).** Kabul testi HENÜZ kayda geçmedi: kabloyu bilerek **3× oynat**,
+  üçünde de reboot gelmiyorsa `[x]` yap (P1.29 uçuş sabahı kontrolüne
+  bağlandı). Aşağıdaki tarihçe, arızanın iki kez yanlış yorumlandığını
+  anlatıyor — kabul testini atlama.
+  ~~ylp02 UÇMAZ.~~
   27 Ağustos gecesi operatör buldu: **güç soketine dokununca FCU yeniden
   başlıyor.** Aynı arıza daha önce iki kez görülmüştü ve ikisi de yanlış
   yorumlanmıştı:

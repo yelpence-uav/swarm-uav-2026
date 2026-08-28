@@ -1,6 +1,6 @@
 # KARARLAR — verilmiş ama henüz uygulanmamış kararlar
 
-**Son güncelleme:** 28 Ağustos 2026, 06:05 — KARAR-09 (A) da bağlandı: QR'ı okuyan drone mesh'ten paylaşır, mimari hazır
+**Son güncelleme:** 28 Ağustos 2026, 18:25 — KARAR-10: süreler 25/25/25 (operatör), ultracode ATLANDI, ylp02 soketi operatörce halledildi
 
 Sohbette verilen kararlar oturum bitince kayboluyor. Bu defter onları
 tutuyor: **ne karar verildi, neden, ne zaman uygulanacak, nasıl test edilecek.**
@@ -31,6 +31,106 @@ sırası gelince" denilen şeyleri. Onlar en kolay kaybolanlar.
 `🔵 SIRASI GELDİ` — aşamaya ulaşıldı, uygulanacak
 `✅ UYGULANDI` — bitti, sonucu yazıldı
 `❌ VAZGEÇİLDİ` — gerekçesiyle
+
+---
+
+# KARAR-10 — Formasyon geçiş testi: sekans UÇAKTA, YKİ yalnız başlatır
+
+**Durum:** 🔵 **KOD YAZILDI (28 Ağustos 2026, 18:00) — dağıtım + G0 + uçuş bekliyor**
+**Ne zaman:** ylp02 güç soketi P0 kapanınca; önce G0 yer testi
+**Karar veren:** Operatör (28 Ağustos 2026): *"yerden rastgele konumlardan
+kalkış, çizgi → ok başı → V, aralık 7 m, YKİ'de geçici test butonu, SSH'a
+bağımlı kalınmayacak, süre ≤ 2 dk"* — plan sunuldu, "tamam yazmaya başla"
+
+## Karar
+
+1. **Geçiş tarifleri uçakta doğar.** Yeni `formasyon_sekans_node`
+   (GEÇİCİ test aparatı) üç uçakta da koşar (sıcak yedek); guided ARM'ın
+   ürettiği `EVENT_MISSION_STARTED` ile tetiklenir, kadro hedef irtifaya
+   çıkınca ÇİZGİ→OKBAŞI→V tarifini `/swarm/internal/formation/target`'a
+   basar. Mesh'e yalnız liderinki çıkar (köprü kapısı, mevcut). YKİ'nin
+   rolü şartnamedeki gibi: başlat (arm+takeoff), izle, sonda indir.
+2. **7 m aralık SENARYOYA ÖZGÜ** (`ucus_ayarlari.SEKANS_ARALIK_M`).
+   `ARALIK_M`'e YAZILMADI: 7 m'de OKBAŞI→V geçişinin en dar anı 4,95 m,
+   kaçınma çıkış eşiği (6,5 m) ve `denetle()` bunu global değer olarak
+   doğru şekilde reddediyor. Sabit haller 7,0 m ile eşiğin üstünde.
+3. **Heading kalkış diziliminden türetilir** (PCA + kimlik-tabanlı işaret
+   kuralı) — sahaya göre env düzenleme (SSH) gerekmez; kuru test aynı
+   kuralla hesaplayıp haritada gösterir, operatör gözle onaylar.
+4. **İniş = guided land, olduğu yerde** (RTL YASAK — HOME kayması P0).
+   İniş noktaları = son fazın slotları; bütün fazların slotları kuru
+   testte doğrulanıp haritaya çizildiği için sekans hangi fazda donarsa
+   donsun iniş önceden onaylanmış dizilişin üstüne olur.
+5. **Aparat GEÇİCİ:** mission1 zinciri sahaya alınınca `formasyon_sekans`
+   düğümü, `sekans` anahtarı, kosucu senaryosu ve YKİ buton satırı
+   SİLİNECEK.
+
+## Yazılan parçalar (28 Ağustos)
+
+| Parça | Dosya |
+|---|---|
+| Saf çekirdek (faz planı, atama, heading, geçiş-mesafe, kalkış kapısı) | `swarm_core/formation_control/formasyon_sekans_cekirdek.py` |
+| ROS kabuğu | `.../formasyon_sekans_node.py` (`ros2 run swarm_core formasyon_sekans`) |
+| Birim testler 26/26 | `swarm_core/test/test_formasyon_sekans_cekirdek.py` |
+| Tek kaynak sabitler + `denetle()` eki + `--kabuk` SEKANS_* | `src/gcs/ucus_ayarlari.py` |
+| Kuru+harita+izleme senaryosu `formasyon_gecis` | `src/gcs/gorev_kanit_ucus.py` |
+| `sekans` anahtarı (formasyon şart, consensus uyarısı) | `deploy/rpi/baslat.sh` |
+| Senaryo-özel filo `"1,2,3"` | `src/gcs/backend/api/kosucu.py` |
+| GEÇİCİ buton satırı (KURU / UÇUR) | `frontend .../KosucuPanel.tsx` |
+
+Doğrulandı: kuru koşu `--sahte` yerleşimle **SONUÇ: GEÇTİ, en kritik an
+4,95 m** — `plan_dogrula`'nın kapalı-form denetçisi çekirdeğin sayısıyla
+birebir aynı (iki bağımsız yol, tek sonuç). tsc + flake8 + 26 birim test.
+
+## Bilinerek alınan riskler / sınırlar
+
+- **OKBAŞI→V'de pay 0,95 m** (4,95 − d0 4,0): ~1 m takip hatasıyla kaçınma
+  tetiklenebilir. Tehlike değil (dikey yol verme), ama uçuş kaydında
+  `avoid` sayacına bakılacak; sıkça tetikleniyorsa aralık/açı yeniden.
+- **`sekans` anahtarı açıkken HER guided ARM test başlatır** — normal uçuşa
+  dönmeden anahtar silinmeli (`suru_dugumleri`'nden `sekans` çıkar +
+  restart). baslat.sh açılış logu bunu bağırıyor.
+- Sekans süreleri **25/25/25 sn — operatör kararı (28 Ağu akşam)**; ilk
+  taslak 35/25/25 idi, 35'in tek gerekçesi kurulum yoluydu. Kısaltma
+  güvenlik sorunu değil (geçiş o anki konumdan yeniden atanır, kaçınma
+  aktif); "bu yerleşimde 25 sn yetiyor mu" sorusunu artık **kuru test
+  ölçüyor** (faz başına en uzun yol + süre kestirimi, sığmıyorsa UYARI).
+  Toplam 75 s; kalkış+iniş ile ~110 s. YKİ kopsa sekans uçakta sürer;
+  kaybedilen tek şey otomatik iniş komutu (kumanda/QGC elde).
+
+## Test merdiveni (sırayla, atlamadan)
+
+1. ✅ Birim 26/26 + kuru koşu (laptop)
+2. ⏳ **G0 (yerde, pervanesiz, `/ws/gozlem` TAKILI):** dağıt → `sekans`
+   aç → `yer_testi_irtifa_atla:=true` ile düğümü elle başlat → üç uçakta
+   tarif akışını, `form_tx/form_rx` sayaçlarını, atamaları ölç. Uçuş yok.
+3. ⏳ Sahada uçaklar açıkken **kuru + harita** (gerçek konumlarla) —
+   operatör haritayı GÖZLE onaylar (uçaklar yerde ≥ 5 m aralıkla konmalı,
+   yoksa YER denetimi haklı olarak KALIR der)
+4. ⏳ **Uçuş A — tek soru "reshape havada güvenli mi":** fazlar
+   `cizgi,okbasi` (env'den kısaltılır), kalkış→çizgi→ok→iniş (~80 sn)
+5. ⏳ **Uçuş B — tam sekans** çizgi→ok→V (~2 dk)
+
+> ### ✅ KARAR-02 denetimi bu test için ATLANDI — operatör kararı (28 Ağu akşam)
+>
+> `ultracode` önerildi, operatör *"gerek yok"* dedi. Önceki atlamalarla
+> (23 Ağu CA, 26 Ağu ADIM 3) aynı desen; bu test için **bir daha
+> sorulmayacak**. Dayanak: 26 birim test + kuru koşunun bağımsız
+> kapalı-form denetçiyle aynı sayıyı bulması + G0 yer testi basamağı.
+
+✅ **Ön koşul kapandı (operatör, 28 Ağu akşam):** ylp02 PX4 güç soketi
+*"halledildi"*. ⚠️ Kabul ölçütü (bant değil lehim/kilitli konnektör +
+kabloyu bilerek **3× oynat**, reboot gelmemeli) uçuş sabahı ön kontrole
+taşındı — P1.29'un içinde.
+
+## Diğer seçenekler (elenenler)
+
+| | Ne | Neden seçilmedi |
+|---|----|-----------------|
+| A | mission1 + mission_fsm zincirini açmak | Sekansı QR'dan alır; `kalkis_olayla=true` ister (hiç uçmadı, 4 bilinen kusur: env yolu kırık, komut konusunda çift üretici, ARMED'da iniş ölü, irtifa çıpası). Tek testte 3+ yeni düğüm = tek-değişiklik kuralının tersi |
+| B | Geçişleri YKİ'den TIP_KOMUT formasyon talebiyle göndermek | Merkezî — şartnamenin düştüğü not; ayrıca drone tarafında tüketicisi `mode_manager` (kapalı) |
+| C | Geçişleri SSH `form_yayinla.sh` ile vermek | Operatörün açıkça yasakladığı şey |
+| D | Yeni mesh paket tipi "test başlat" | Dört karta firmware flash; mevcut ARM→EVENT_MISSION_STARTED yolu aynı işi görüyor |
 
 ---
 

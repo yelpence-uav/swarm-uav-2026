@@ -49,22 +49,32 @@ export function KosucuPanel() {
 
   const calisiyor = durum?.calisiyor ?? false;
 
-  const baslat = async (kuru: boolean) => {
-    if (
-      !kuru &&
-      !window.confirm(
-        "GERÇEK UÇUŞ başlatılacak.\n\n" +
+  const baslat = async (kuru: boolean, senaryo?: string) => {
+    // GEÇİCİ formasyon geçiş testinin CANLI onayı kendi listesini taşıyor:
+    // sekans uçakta koştuğu için buradaki tek komut arm+takeoff — geri
+    // kalan şartlar (sekans anahtarı, harita onayı) uçuştan ÖNCE sağlanmış
+    // olmalı, sonradan düzeltilemez.
+    const onayMetni =
+      senaryo === "formasyon_gecis"
+        ? "FORMASYON GEÇİŞ TESTİ (GERÇEK UÇUŞ, 3 uçak) başlatılacak.\n\n" +
+          "• Üç uçakta da suru_dugumleri içinde `sekans` açık mı?\n" +
+          "• KURU test geçti ve HARİTA gözle doğrulandı mı?\n" +
+          "  (iniş noktaları = SON formasyonun slotları — kalkış yeri DEĞİL)\n" +
+          "• Kumandalar açık, kill switch ulaşılabilir mi?\n" +
+          "• Piller tok mu? (test ~2 dk)\n\nBaşlatılsın mı?"
+        : "GERÇEK UÇUŞ başlatılacak.\n\n" +
           "• Kumandalar açık ve kill switch ulaşılabilir mi?\n" +
           "• Kuru test geçti mi?\n" +
-          "• Piller yeterli mi?\n\nBaşlatılsın mı?",
-      )
-    ) {
+          "• Piller yeterli mi?\n\nBaşlatılsın mı?";
+    if (!kuru && !window.confirm(onayMetni)) {
       return;
     }
     setMesgul(true);
     setHata(null);
     try {
-      setDurum(await kosucuApi.baslat({ kuru }));
+      setDurum(
+        await kosucuApi.baslat({ kuru, ...(senaryo && { senaryo }) }),
+      );
     } catch (e) {
       setHata(e instanceof Error ? e.message : String(e));
     } finally {
@@ -135,6 +145,30 @@ export function KosucuPanel() {
           onClick={() => void durdur()}
         >
           DURDUR (İNİŞ)
+        </button>
+      </div>
+
+      {/* GEÇİCİ — formasyon geçiş testi (28 Ağustos). Sekans (çizgi →
+          ok başı → V, 7 m) UÇAKTA koşar; bu düğmeler yalnızca kuru denetimi
+          ve arm+takeoff'u başlatır. mission1 zinciri devreye girince bu
+          satır SİLİNECEK. */}
+      <div className="kp__btns kp__btns--gecici">
+        <span className="kp__gecici-etiket">
+          GEÇİCİ · formasyon geçiş (çizgi→ok→V, 7 m, sekans uçakta)
+        </span>
+        <button
+          className="kp__btn"
+          disabled={mesgul || calisiyor}
+          onClick={() => void baslat(true, "formasyon_gecis")}
+        >
+          KURU
+        </button>
+        <button
+          className="kp__btn kp__btn--canli"
+          disabled={mesgul || calisiyor}
+          onClick={() => void baslat(false, "formasyon_gecis")}
+        >
+          UÇUR
         </button>
       </div>
 

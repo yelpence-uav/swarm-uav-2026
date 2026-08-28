@@ -22,6 +22,8 @@ setup(
         'console_scripts': [
             'formation_node = '
             'swarm_core.formation_control.formation_node:main',
+            'formasyon_sekans = '
+            'swarm_core.formation_control.formasyon_sekans_node:main',
             'collision_avoidance = '
             'swarm_core.collision_avoidance'
             '.collision_avoidance_node:main',

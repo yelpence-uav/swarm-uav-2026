@@ -140,11 +140,29 @@ class BaslatBody(BaseModel):
     # cikartiyordu — sahada dugme calismiyor gibi gorunuyordu, oysa filo
     # degismisti. Filo her degistiginde BURASI guncellenir.
     senaryo: str = Field("saha", description="gorev_kanit_ucus.py --senaryo")
-    dronelar: str = Field("1,3", description="virgülle, ör. '1,3'")
+    dronelar: str | None = Field(
+        None, description="virgülle, ör. '1,3'. BOŞSA senaryoya göre "
+        "varsayılan (_coz_dronelar) uygulanır — tek kaynak burası kalsın "
+        "diye panel bu alanı GÖNDERMİYOR.")
     lider: int = Field(3, description="lider drone id")
     kuru: bool = Field(True, description="True ise KOMUT GÖNDERİLMEZ")
     kacinma: bool = Field(False, description="çarpışma kaçınması açık mı")
     harita: bool = Field(True, description="uydu haritası üret")
+
+
+# Filo varsayilani (yukaridaki 2 Agustos dersinin tek kaynagi).
+_FILO_DRONELAR = "1,3"
+# ⚠️ GECICI — formasyon_gecis senaryosu UC ucak ister (2 ucakta reshape
+# anlamini yitirir) ve sekansi ucaktaki formasyon_sekans dugumu kosar.
+# ylp02'nin PX4 guc soketi P0'i kapanmadan bu senaryo CANLI baslatilmamali
+# (YAPILACAKLAR.md) — betik on kontrolu yine de tutar ama karar operatorun.
+_SENARYO_DRONELAR = {"formasyon_gecis": "1,2,3"}
+
+
+def _coz_dronelar(b: BaslatBody) -> str:
+    if b.dronelar:
+        return b.dronelar
+    return _SENARYO_DRONELAR.get(b.senaryo, _FILO_DRONELAR)
 
 
 def _argv(b: BaslatBody) -> list[str]:
@@ -155,7 +173,7 @@ def _argv(b: BaslatBody) -> list[str]:
     argv = [
         "python3", "-u", str(_BETIK),
         "--senaryo", b.senaryo,
-        "--dronelar", b.dronelar,
+        "--dronelar", _coz_dronelar(b),
         "--lider", str(b.lider),
     ]
     if b.kuru:
@@ -176,7 +194,7 @@ def _durum() -> dict:
     # gonderiyordu; hata ancak on kontrol patlayinca fark edildi.
     _v = BaslatBody()
     return {
-        "varsayilan": {"senaryo": _v.senaryo, "dronelar": _v.dronelar,
+        "varsayilan": {"senaryo": _v.senaryo, "dronelar": _coz_dronelar(_v),
                        "lider": _v.lider},
         "calisiyor": calisiyor,
         "kuru": k.kuru,

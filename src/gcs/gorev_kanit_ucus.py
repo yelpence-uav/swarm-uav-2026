@@ -73,6 +73,16 @@ import urllib.request
 #     python3 src/gcs/ucus_ayarlari.py --px4    # ucaklara yazilacak komutlar
 import ucus_ayarlari as AYAR
 
+# --senaryo formasyon_gecis (GECICI): sekans geometrisi UCAKTAKI dugumle
+# (formasyon_sekans_node) AYNI fonksiyonlardan gelir — harita neyi
+# gosteriyorsa ucak onu ucar. swarm_core saf Python, ROS'suz yuklenir.
+# Kopya formul yazmak "ayni sabit iki yerde" kazasinin geometri hali olurdu.
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent
+                       / "swarm_core"))
+from swarm_core.formation_control import (  # noqa: E402
+    formasyon_sekans_cekirdek as SEKANS,
+)
+
 YKI = "http://localhost:8000"
 ZAMAN_ASIMI_S = 5.0
 
@@ -2128,6 +2138,159 @@ def plan_kur_formasyon(merkez0, baslangic=None):
     return plan
 
 
+# --- --senaryo formasyon_gecis (GECICI — 28 Agustos) -------------------------
+# CIZGI -> OKBASI -> V gecis testi. GECISLER BU BETIKTEN GONDERILMEZ:
+# tarif kaynagi ucaktaki formasyon_sekans_node (suru_dugumleri: `sekans`),
+# tetigi guided ARM'in urettigi EVENT_MISSION_STARTED. Bu betigin rolu
+# yalnizca sartnamedeki YKI rolu: baslat (arm+takeoff), izle, sonda indir.
+# Kuru modda ise ucagin ucacagi geometriyi AYNI cekirdek fonksiyonlariyla
+# kurup dogrular ve haritaya cizer.
+SEKANS_IZLEME_PAY_S = 20.0   # sekans suresi ustune izleme payi (kalkis
+#                              kapisi gecikmesi + faz gecis beklemeleri)
+
+
+def plan_kur_formasyon_gecis(t):
+    """Sekansin faz hedeflerini UCAKTAKI cekirdekle birebir ayni kurar.
+
+    Girdi gercek konumlar (telemetri) — sekans dugumunun t0'da gorecegi
+    konumlarin yerdeki hali. Merkez, heading ve slot atamasi ayni
+    fonksiyonlardan geldigi icin dogrulanan/haritalanan geometri ile
+    uculacak geometri ozdes. Son fazin slotlari ayni zamanda INIS
+    NOKTALARI — harita onlari mavi cizer, operator gozle dogrular.
+    """
+    konumlar = {did: (t[did]["pos_x"], t[did]["pos_y"]) for did in DRONELAR}
+    merkez = SEKANS.agirlik_merkezi(konumlar)
+    heading = SEKANS.otomatik_heading_deg(konumlar)
+    fazlar = SEKANS.faz_plani(list(AYAR.SEKANS_FAZLAR),
+                              list(AYAR.SEKANS_FAZ_SURE_S))
+    print(f"\n  sekans merkezi ({merkez[0]:+.1f},{merkez[1]:+.1f}) NED, "
+          f"heading {heading:.1f}° (kalkis diziliminden turetildi — ucak da "
+          f"ayni kurali kosacak)")
+    plan = []
+    poz = dict(konumlar)
+    for i, ((tip, sure), ad) in enumerate(zip(fazlar, AYAR.SEKANS_FAZLAR)):
+        ids, ofsetler = SEKANS.atama(tip, poz, merkez, heading,
+                                     AYAR.SEKANS_ARALIK_M, KANAT_ACISI_DEG)
+        dunya = SEKANS.dunya_konumlari(ids, ofsetler, merkez, heading)
+        hedefler = {did: (dunya[did][0], dunya[did][1],
+                          AYAR.SEKANS_IRTIFA_M) for did in DRONELAR}
+        # FAZ SURESI BU YERLESIME YETIYOR MU — 25/25/25 karari (28 Agu)
+        # korlemesine pay yerine bu olcume dayaniyor: en uzun yol / faz
+        # hizi + oturma payi. Yetmiyorsa guvenlik sorunu DEGIL (gecis o
+        # anki konumdan yeniden atanir, kacinma aktif) ama formasyon tam
+        # oturmadan morph baslar — operator bilerek ucsun ya da ucaklari
+        # daha toplu koysun / SEKANS_FAZ_SURE_S'i buyutsun.
+        hiz = (AYAR.SEKANS_KURULUM_HIZ_MPS if i == 0
+               else AYAR.SEKANS_GECIS_HIZ_MPS)
+        en_uzun = max(math.hypot(dunya[d][0] - poz[d][0],
+                                 dunya[d][1] - poz[d][1])
+                      for d in DRONELAR)
+        # SVT rampasi tam hizda gitmez; 0.7 etkin-hiz carpani + 6 s oturma
+        # (YERLESME_S ile ayni mertebe) muhafazakar bir kestirim.
+        tahmin = en_uzun / max(0.1, 0.7 * hiz) + 6.0
+        isaret = "" if tahmin <= sure else "  ⚠️ SUREYE SIGMIYOR"
+        print(f"  faz {ad:<7} en uzun yol {en_uzun:5.1f} m  ~{tahmin:4.0f} s"
+              f"  (butce {sure:.0f} s){isaret}")
+        if tahmin > sure:
+            print(f"    UYARI: {ad} fazi {sure:.0f} sn'ye sigmayabilir — "
+                  f"ucaklari birbirine yakin koy ya da SEKANS_FAZ_SURE_S "
+                  f"buyut (ucus_ayarlari.py). Guvenlik sorunu degil, "
+                  f"formasyon tam oturmadan sonraki faz baslar.")
+        plan.append((f"{ad.upper()} formasyonu ({sure:.0f} s) [UCAKTA]",
+                     heading, hedefler, True))
+        poz = {did: dunya[did] for did in DRONELAR}
+    return plan
+
+
+def _formasyon_gecis_izle(kuru: bool, kalan) -> int:
+    """Sekans ucakta akarken YKI tarafindan IZLEME + sonda inis.
+
+    Buradan HICBIR gecis komutu cikmaz — sartname provasi tam da bu: YKI
+    baglantisi kesilse sekans ucakta surer, kaybedilen tek sey bu ekrandaki
+    izleme ve otomatik inis komutu olur (kumanda/QGC her zaman elde).
+
+    Inis GUVENLIGI: butun fazlarin slotlari kuru testte dogrulandi ve
+    haritada gosterildi; sekans hangi fazda donarsa donsun ucaklar
+    onceden onaylanmis bir dizilisin ustunde asilidir — "suresi doldu,
+    oldugu yerde indir" bu yuzden guvenli.
+    """
+    toplam = sum(AYAR.SEKANS_FAZ_SURE_S) + SEKANS_IZLEME_PAY_S
+    sinirlar = []
+    biriken = 0.0
+    for ad, sure in zip(AYAR.SEKANS_FAZLAR, AYAR.SEKANS_FAZ_SURE_S):
+        biriken += sure
+        sinirlar.append((biriken, ad))
+    print(f"\n=== SEKANS UCAKTA KOSUYOR — {toplam:.0f} s izlenecek, "
+          f"gecis komutu YKI'den GONDERILMEZ ===")
+    print("    beklenen akis: " + "  ".join(
+        f"{ad}<= t0+{s:.0f}s" for s, ad in sinirlar))
+    t0 = time.time()
+    uyari_t = 0.0
+    while time.time() - t0 < toplam:
+        time.sleep(1.0)
+        gecen = time.time() - t0
+        if kalan() < 40:
+            print(f"\n    GOREV SURE TAVANI ({kalan():.0f}s) — iniliyor")
+            break
+        try:
+            t = durum()
+        except RuntimeError as e:
+            # YKI telemetrisi koptu diye inis komutu YOLLANMAZ (zaten
+            # ulasmazdi) — sekans ucakta surer, biz sayacla bekleriz.
+            print(f"\n    UYARI: telemetri kesildi ({e}) — sekans ucakta "
+                  f"surer, izleme sayacla devam ediyor")
+            continue
+        ihlal = guvenlik_ihlali(t)
+        if ihlal:
+            print(f"\n    !!! {ihlal} — gorev durduruluyor")
+            indir(kuru)
+            return 1
+        pilot = [d for d in ucanlar()
+                 if t.get(d, {}).get("flight_mode", 0) in _PILOT_MODLARI]
+        if pilot:
+            print(f"\n    !!! drone {pilot} PILOT KONTROLUNDE — "
+                  f"gorev durduruluyor")
+            indir(kuru)
+            return 1
+        # En yakin cift — kacinmanin isini YKI'den bolme: 4 m alti gorulse
+        # bile inis komutu GONDERILMEZ (CA dikey yol veriyor; o anda inise
+        # zorlamak katmani bozar). Yalniz yuksek sesle soylenir.
+        cift = ""
+        if len(DRONELAR) >= 2:
+            en_kucuk, en_cift = float("inf"), ""
+            for a, b in itertools.combinations(DRONELAR, 2):
+                da, db = t.get(a), t.get(b)
+                if da is None or db is None:
+                    continue
+                m = math.dist(
+                    (da["pos_x"], da["pos_y"], da.get("alt_m", 0.0)),
+                    (db["pos_x"], db["pos_y"], db.get("alt_m", 0.0)))
+                if m < en_kucuk:
+                    en_kucuk, en_cift = m, f"d{a}-d{b}"
+            if en_kucuk < float("inf"):
+                cift = f"  en yakin {en_cift}={en_kucuk:.1f}m"
+                if (en_kucuk < MIN_AYRIM_M
+                        and time.time() - uyari_t > 3.0):
+                    uyari_t = time.time()
+                    print(f"\n    UYARI: {en_cift} = {en_kucuk:.2f} m "
+                          f"< {MIN_AYRIM_M:.1f} m — kacinma calisiyor "
+                          f"olmali (dikey ayrima bak); inis komutu "
+                          f"bilerek GONDERILMIYOR")
+        faz = next((ad for s, ad in sinirlar if gecen <= s), "bitti/inis")
+        irtifalar = "  ".join(
+            f"d{d}={t.get(d, {}).get('alt_m', 0.0):.1f}m"
+            for d in ucanlar())
+        print(f"    t0+{gecen:5.0f}s  beklenen faz: {faz:<7} "
+              f"{irtifalar}{cift}", end="\r")
+    else:
+        print(f"\n    sekans penceresi doldu ({toplam:.0f} s)")
+    print("    Not: formasyon hic kurulmadiysa once suna bak: uc ucakta da "
+          "suru_dugumleri icinde `sekans` var mi; sonra mesh_diag "
+          "form_tx/form_rx/form_lider_degil sayaclari.")
+    indir(kuru)
+    return 0
+
+
 def plan_yaz(plan):
     print("\n=== GÖREV PLANI ===")
     # GECIS NOKTALARI TEK SATIRDA. Yay 80 noktaya bolununce her birini uc
@@ -2617,6 +2780,30 @@ def gorev(kuru: bool) -> int:
         plan = plan_kur_test(merkez0, baslangic)
     elif _SENARYO == "formasyon":
         plan = plan_kur_formasyon(merkez0, baslangic)
+    elif _SENARYO == "formasyon_gecis":
+        eksik = [d for d in DRONELAR if d not in t]
+        if not eksik:
+            plan = plan_kur_formasyon_gecis(t)
+        elif kuru:
+            # YKI kapaliyken plan YAPISI denetlenebilsin (tekli ile ayni
+            # kalip). Uyari yuksek sesle: heading/merkez/atama GERCEK
+            # konumdan turetiliyor, temsili yerlesimle cikan harita
+            # UCULACAK geometri DEGIL.
+            print("\n[KURU] telemetri yok — TEMSILI rastgele yerlesim "
+                  "varsayildi. Harita ve dogrulama GERCEK DEGIL; sahada "
+                  "ucaklar acikken KURU TEST TEKRARLANMADAN UCULMAZ.")
+            _temsili = {}
+            for _i, _did in enumerate(DRONELAR):
+                _aci = 2.0 * math.pi * _i / max(1, len(DRONELAR)) + 0.7
+                _temsili[_did] = {
+                    "pos_x": merkez0[0] + 9.0 * math.cos(_aci) * (1 + _i % 2),
+                    "pos_y": merkez0[1] + 9.0 * math.sin(_aci),
+                }
+            plan = plan_kur_formasyon_gecis(_temsili)
+        else:
+            print(f"Telemetride yok: drone {eksik} — formasyon_gecis "
+                  "senaryosu gercek konumlara dayanir, baslatilamaz.")
+            return 1
     else:
         plan = plan_kur(merkez0, baslangic)
     plan_yaz(plan)
@@ -2645,6 +2832,7 @@ def gorev(kuru: bool) -> int:
                   else IRTIFA_TEST_UST_M if _SENARYO == "irtifa"
                   else TEKLI_IRTIFA_M if _SENARYO == "tekli"
                   else FORMASYON_TEST_IRTIFA_M if _SENARYO in ("formasyon", "lider")
+                  else AYAR.SEKANS_IRTIFA_M if _SENARYO == "formasyon_gecis"
                   else KALKIS_IRTIFA_M)
     print(f"\n=== ARM + KALKIŞ {kalkis_irt:.0f} m ===")
     for did in DRONELAR:
@@ -2870,6 +3058,15 @@ def gorev(kuru: bool) -> int:
         indir(kuru)
         return 1
 
+    # --- formasyon_gecis: plan YURUTULMEZ, izlenir --------------------------
+    # Gecisleri ucaktaki formasyon_sekans_node veriyor (guided ARM'in
+    # urettigi EVENT_MISSION_STARTED ile tetiklendi, kadro irtifaya cikinca
+    # basladi). Asagidaki genel yurutucu goto gonderir — o yuzden bu
+    # senaryoda HIC girilmez; formasyon-surer modda mesh goto zaten ucaga
+    # ulasmaz (SP_REMAP), ama gondermek kaydi kirletir ve niyeti bulandirir.
+    if _SENARYO == "formasyon_gecis":
+        return _formasyon_gecis_izle(kuru, kalan)
+
     # --- Plan adımları ------------------------------------------------------
     # ILK YON DE KADEMELI VERILIR — HER DRONE KENDI OLCULEN YONUNDEN.
     #
@@ -3025,13 +3222,17 @@ def main() -> int:
                          "Kacis kesicisinin marjini genisletir, yoksa kesici "
                          "kacinma manevrasini kacis sanip gorevi iptal eder.")
     ap.add_argument("--senaryo",
-                    choices=("kanit", "test", "formasyon", "lider", "tekli",
+                    choices=("kanit", "test", "formasyon", "formasyon_gecis",
+                             "lider", "tekli",
                              "asili", "irtifa", "takip", "g2", "donus", "tam",
                              "final", "saha"),
                     default="kanit",
                     help="kanit = tam koreografi; test = kuzeybati/bekle/"
                          "irtifa/don; formasyon = rastgele yerlesimden cizgi "
-                         "formasyonu kur ve in; lider = lider YERINDE ASILI durur, "
+                         "formasyonu kur ve in; formasyon_gecis = arm+takeoff "
+                         "sonrasi CIZGI->OKBASI->V sekansi UCAKTA kosar "
+                         "(formasyon_sekans dugumu), YKI yalniz izler ve "
+                         "indirir; lider = lider YERINDE ASILI durur, "
                          "takipci onun sagina cizgi formasyonu kurup iner; "
                          "tekli = TEK ucak, kalkis yonunde 7 m, bekle, 5 m "
                          "tirman, bekle, in")
@@ -3162,6 +3363,9 @@ def main() -> int:
         # bekletmemek icin.
         ap.error("--senaryo irtifa EN AZ IKI drone ister — olculen sey iki "
                  "ucak ARASINDAKI link (or. --dronelar 1,3)")
+    if a.senaryo == "formasyon_gecis" and len(DRONELAR) < 2:
+        ap.error("--senaryo formasyon_gecis EN AZ IKI drone ister — tek "
+                 "ucakta reshape diye bir sey yok (or. --dronelar 1,2,3)")
     if a.harita_ofset:
         try:
             k, _, d = a.harita_ofset.partition(",")
@@ -3284,6 +3488,18 @@ def main() -> int:
               f"{IRTIFA_TEST_UST_M:.0f} m   (her biri {IRTIFA_TEST_SURE_S:.0f}s)")
         print("  3. bacak SÜRÜKLENME KONTROLÜ — 1. ile aynı çıkmazsa "
               "ölçüm geçersiz")
+    elif a.senaryo == "formasyon_gecis":
+        print(f"  dronelar: {DRONELAR}   kalkış {AYAR.SEKANS_IRTIFA_M:.0f} m"
+              f"   aralık {AYAR.SEKANS_ARALIK_M:.1f} m (senaryoya özgü — "
+              f"filo ARALIK_M {ARALIK_M:.0f} m DEĞİL)")
+        print("  sekans: " + " -> ".join(AYAR.SEKANS_FAZLAR)
+              + "   süreler: " + ", ".join(f"{s:g}s"
+                                           for s in AYAR.SEKANS_FAZ_SURE_S)
+              + f"   izleme payı {SEKANS_IZLEME_PAY_S:.0f}s")
+        print("  GEÇİŞLER UÇAKTA (formasyon_sekans düğümü) — YKİ yalnız "
+              "arm+takeoff verir, izler, sonda indirir")
+        print("  ŞART: üç uçakta da suru_dugumleri içinde `sekans` açık "
+              "olmalı; heading kalkış diziliminden türetilir (haritaya bak)")
     elif a.senaryo == "tekli":
         print(f"  drone: {DRONELAR[0]}   kalkış {TEKLI_IRTIFA_M:.0f} m -> "
               f"{TEKLI_IRTIFA_M + TEKLI_IRTIFA_ARTIS_M:.0f} m   "

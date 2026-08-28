@@ -129,3 +129,19 @@
   font: 600 11px ui-monospace, monospace;
   letter-spacing: 0.02em;
 }
+
+/* GECICI — formasyon gecis testi satiri (28 Agustos; mission1 gelince silinecek) */
+.kp__btns--gecici {
+  align-items: center;
+  padding-top: var(--space-2);
+  border-top: 1px dashed var(--color-border);
+}
+
+.kp__gecici-etiket {
+  flex: 1;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-warning, #d97706);
+}

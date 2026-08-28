@@ -450,6 +450,70 @@ KACINMA_DONUS_IVME_MPS2 = 0.5
 FRENLEME_GOREV_M = frenleme_m(GOREV_HIZ_MPS, GOREV_IVME_MPS2)
 FRENLEME_TAVAN_M = frenleme_m(PX4_HIZ_TAVANI_MPS, PX4_IVME_MPS2)
 
+# =============================================================================
+# FORMASYON GECIS TESTI — ⚠️ GECICI (28 Agustos), mission1 gelince silinecek
+# =============================================================================
+# Operator tarifi: rastgele kalkis -> CIZGI -> OKBASI -> V, aralik 7 m,
+# toplam sure <= 2 dk, tetik YKI'deki gecici buton. Tuketiciler:
+#   formasyon_sekans_node (ucakta, baslat.sh env'inden) ve
+#   gorev_kanit_ucus.py --senaryo formasyon_gecis (kuru + harita + kalkis/inis)
+#
+# 🔴 7.0 ARALIK_M'E YAZILMAZ. Filo varsayilani 12 m kalir; 7 m yalniz bu
+# senaryonun tarifinde tasinir. Cunku 7 m'de gecislerin en dar ani
+# (OKBASI->V, kanatlar liderin yanindan s*sin45 = 4.95 m ile gecer) kacinma
+# cikis esiginin (d0+hist = 6.5 m) ALTINDA — ARALIK_M=7 yazilsaydi yukarida
+# "acilan catisma hic kapanmaz" HATASI dogru olarak patlardi. Senaryoda ise
+# bu gecici bir AN, sabit hal degil: sabit halde ciftler 7.0 m'de ve cikis
+# esiginin ustunde. Asagidaki denetle() eki bu geometriyi ayrica izler.
+SEKANS_ARALIK_M = 7.0
+SEKANS_IRTIFA_M = 8.0          # 26 Agustos formasyon ucusuyla ayni irtifa
+SEKANS_FAZLAR = ('cizgi', 'okbasi', 'v')
+# 25/25/25 — operator karari (28 Agustos aksam). Ilk taslak 35/25/25 idi;
+# 35'in tek gerekcesi ilk fazin KURULUM yolu tasimasiydi (rastgele
+# dagilimdan slota gidis + oturma; gecisler bilinen slottan basliyor,
+# 5.4 / 9.9 m). Kisaltmak guvenlik sorunu DEGIL: faz suresi yetmese bile
+# gecis o anki konumlardan yeniden atanir ve kacinma aktif — bedeli yalniz
+# cizginin tam oturmadan morph'a girmesi olur. O riski korlemesine pay
+# yerine OLCUM tutuyor: kuru test (plan_kur_formasyon_gecis) gercek
+# yerlesimle kurulum suresini hesaplayip 25 sn'ye sigmiyorsa UYARIYOR.
+# Toplam 75 s; kalkis (~20 s) ve inis (~15 s) ile ~2 dk'nin rahat icinde.
+SEKANS_FAZ_SURE_S = (25.0, 25.0, 25.0)
+SEKANS_KURULUM_HIZ_MPS = 2.5   # ilk faz: bos alanda uzun yol, seyire yakin
+SEKANS_GECIS_HIZ_MPS = 1.5     # reshape: dar gecit, mission1'in morph'u gibi yavas
+SEKANS_KALKIS_ESIK_ORANI = 0.8  # EKF z / origin farki ~1 m olculdu (26 Agu)
+SEKANS_KALKIS_ZAMAN_ASIMI_S = 90.0
+
+
+def _sekans_geometri():
+    """Sekans gecislerinin en dar anlarini swarm_core'dan TEK KAYNAKLA verir.
+
+    Geometri formulunu burada kopyalamak "ayni sabit iki yerde" tuzaginin
+    (dosya basligindaki kaza) formul hali olurdu; ucaktaki dugumle ayni
+    fonksiyon cagriliyor. swarm_core saf Python (ROS'suz) — dizustunde de
+    yuklenir. Bulunamazsa None doner ve denetim bunu UYARI yapar, sessiz
+    gecmez.
+    """
+    import os
+    kok = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                       '..', 'swarm_core')
+    if kok not in sys.path:
+        sys.path.insert(0, kok)
+    try:
+        from swarm_core.formation_control import (
+            formasyon_sekans_cekirdek as cek,
+        )
+    except ImportError:
+        return None
+    plan = cek.faz_plani(list(SEKANS_FAZLAR), list(SEKANS_FAZ_SURE_S))
+    gecisler = []
+    for i in range(len(plan) - 1):
+        d = cek.gecis_min_mesafe(
+            plan[i][0], plan[i + 1][0], 3,
+            SEKANS_ARALIK_M, KANAT_ACISI_DEG,
+        )
+        gecisler.append((SEKANS_FAZLAR[i], SEKANS_FAZLAR[i + 1], d))
+    return gecisler
+
 
 # =============================================================================
 # DENETIM
@@ -587,6 +651,46 @@ def denetle():
             f'{izleme_gecikmesi_m(GOREV_HIZ_MPS):.2f} m — ucak "vardim" '
             f'demeden once uzun sure salinabilir')
 
+    # --- FORMASYON GECIS TESTI (gecici senaryo) ------------------------------
+    # Sabit haller: uc formasyonda da en yakin cift = SEKANS_ARALIK_M.
+    # Gecis anlari asagida faz cifti basina denetlenir. Esikler:
+    #   MIN_AYRIM_M altina inen nominal gecis -> HATA (plan bastan yanlis)
+    #   d0+1 m altina inen -> UYARI (takip hatasi ~1 m ile kacinma
+    #   tetiklenebilir — tehlike degil, bilinerek uculur ve kayittan bakilir)
+    if SEKANS_ARALIK_M < MIN_AYRIM_M:
+        hata.append(
+            f'sekans araligi ({SEKANS_ARALIK_M:.1f} m) MIN_AYRIM '
+            f'({MIN_AYRIM_M:.1f} m) altinda')
+    _cikis = KACINMA_D0_M + KACINMA_HIST_M
+    if SEKANS_ARALIK_M <= _cikis:
+        hata.append(
+            f'sekans araligi ({SEKANS_ARALIK_M:.1f} m) kacinma cikis '
+            f'esiginin ({_cikis:.1f} m) altinda/esiginde — sabit halde bile '
+            f'acilan catisma kapanmaz')
+    elif SEKANS_ARALIK_M - _cikis < 1.0:
+        uyari.append(
+            f'sekans araligi ({SEKANS_ARALIK_M:.1f} m) ile kacinma cikis '
+            f'esigi ({_cikis:.1f} m) arasinda yalniz '
+            f'{SEKANS_ARALIK_M - _cikis:.1f} m pay var — kacinma acilirsa '
+            f'merdiven uzun surer, kayittan avoid sayacina bakilmali')
+    _gecisler = _sekans_geometri()
+    if _gecisler is None:
+        uyari.append(
+            'sekans gecis geometrisi denetlenemedi: swarm_core yuklenemedi '
+            '(formasyon_sekans_cekirdek). Depo agacinin disinda misin?')
+    else:
+        for _a, _b, _d in _gecisler:
+            if _d < MIN_AYRIM_M:
+                hata.append(
+                    f'sekans gecisi {_a}->{_b}: nominal en yakin cift '
+                    f'{_d:.2f} m < MIN_AYRIM {MIN_AYRIM_M:.1f} m')
+            elif _d < KACINMA_D0_M + 1.0:
+                uyari.append(
+                    f'sekans gecisi {_a}->{_b}: nominal en yakin cift '
+                    f'{_d:.2f} m; kacinma girisine (d0={KACINMA_D0_M:.1f} m) '
+                    f'pay {_d - KACINMA_D0_M:.2f} m — ~1 m takip hatasiyla '
+                    f'kacinma tetiklenebilir (bilinerek ucul)')
+
     return uyari, hata
 
 
@@ -669,6 +773,17 @@ def _cozumleme() -> int:
           f'{max(0.0, TIPIK_BACAK_M - rampa):.1f} m seyir kaliyor '
           f'(bacak boyu senaryoya gore degisir).')
 
+    _gecisler = _sekans_geometri()
+    print(f'\n{kl}FORMASYON GECIS TESTI{z}  (gecici senaryo — '
+          f'aralik {SEKANS_ARALIK_M:.1f} m, irtifa {SEKANS_IRTIFA_M:.1f} m)')
+    print(f'  sekans                {" -> ".join(SEKANS_FAZLAR)}'
+          f'   (sureler {", ".join(f"{s:g} s" for s in SEKANS_FAZ_SURE_S)})')
+    if _gecisler is not None:
+        for _a, _b, _d in _gecisler:
+            r = g if _d >= KACINMA_D0_M + 1.0 else s
+            print(f'  {_a}->{_b:<18} en dar an {r}{_d:5.2f} m{z}'
+                  f'   (kacinma girisi {KACINMA_D0_M:.1f} m)')
+
     uyari, hata = denetle()
     print()
     for h in hata:
@@ -713,6 +828,16 @@ def _kabuk():
     print(f'KACINMA_DIKEY_IVME={KACINMA_DIKEY_IVME_MPS2}')
     print(f'KACINMA_DIKEY_KP={KACINMA_DIKEY_KP}')
     print(f'KACINMA_BAYAT_S={KACINMA_BAYAT_S}')
+    # Formasyon gecis testi — GECICI (formasyon_sekans_node, `sekans` anahtari)
+    print(f'SEKANS_ARALIK={SEKANS_ARALIK_M}')
+    print(f'SEKANS_IRTIFA={SEKANS_IRTIFA_M}')
+    print(f'SEKANS_FAZLAR={",".join(SEKANS_FAZLAR)}')
+    print('SEKANS_FAZ_SURELERI='
+          + ','.join(f'{s:g}' for s in SEKANS_FAZ_SURE_S))
+    print(f'SEKANS_KURULUM_HIZ={SEKANS_KURULUM_HIZ_MPS}')
+    print(f'SEKANS_GECIS_HIZ={SEKANS_GECIS_HIZ_MPS}')
+    print(f'SEKANS_KALKIS_ESIK={SEKANS_KALKIS_ESIK_ORANI}')
+    print(f'SEKANS_KALKIS_ZAMAN_ASIMI={SEKANS_KALKIS_ZAMAN_ASIMI_S:g}')
 
 
 def _px4():

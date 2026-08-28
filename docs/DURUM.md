@@ -1,6 +1,6 @@
 # DURUM — şu an ne çalışıyor, ne bozuk
 
-**Son güncelleme:** 28 Ağustos 2026, 11:45 — kamera sahada çalışıyor, QR **6-9 m KISITI**; 🔴 ylp02 güç soketi UÇUŞ ENGELİ; 🔴 HOME kayması hâlâ açık
+**Son güncelleme:** 28 Ağustos 2026, 18:30 — formasyon geçiş testi kodu HAZIR (KARAR-10, repo'da; uçaklara DAĞITILMADI); ylp02 güç soketi operatörce halledildi (kabul testi uçuş sabahı); 🔴 HOME kayması hâlâ açık
 
 
 > ## 📷 28 AĞUSTOS 11:20 — KAMERA SAHADA ÇALIŞIYOR, QR OKUNUYOR

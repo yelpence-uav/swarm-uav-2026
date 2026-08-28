@@ -1043,6 +1043,58 @@ if [ -n "$SURU_DUGUMLERI" ]; then
         echo "[baslat] formation_node + path_planner basladi"
     fi
 
+    # ⚠️ GECICI TEST APARATI — FORMASYON GECIS SEKANSI (28 Agustos).
+    # mission1 zinciri sahaya alininca bu anahtar ve dugum SILINECEK.
+    #
+    # Ne yapar: guided ARM'in urettigi EVENT_MISSION_STARTED'i duyar, kadro
+    # hedef irtifaya cikinca CIZGI -> OKBASI -> V tarifini
+    # /swarm/internal/formation/target'a basar. Mesh'e yalniz LIDERINKI
+    # cikar (kopru kapisi, KARAR 11) — dugum uc ucakta da kosar (sicak
+    # yedek, path_planner ile ayni gerekce).
+    #
+    # 🔴 SOZLESME: bu anahtar ACIKKEN her guided ARM bir test baslangicidir.
+    # Normal ucusa donmeden once suru_dugumleri'nden `sekans` SILINMELI.
+    #
+    # 🔴 formasyon anahtari SART: tarifi ucuran formation_node'dur. Sekans
+    # tek basina acilirsa tarif mesh'e cikar ama hicbir ucak uymaz — sessiz
+    # bosluk olmasin diye burada acikca reddediliyor.
+    if acik sekans; then
+        if ! acik formasyon; then
+            echo "[baslat] HATA: 'sekans' istendi ama 'formasyon' kapali —" \
+                 "tarifi ucuracak formation_node yok. formasyon_sekans" \
+                 "ACILMADI." | tee -a "$GUNLUK/sekans.log"
+        else
+            if ! acik consensus; then
+                echo "[baslat] UYARI: 'sekans' acik ama 'consensus' kapali —" \
+                     "lider secilemez, tarif mesh'e HIC cikmaz" \
+                     "(form_lider_degil sayaci artar)."
+            fi
+            # Kadro paramı SURU_KADRO'dan (bosluklu liste -> ROS dizisi).
+            _SEKANS_KADRO="${SURU_KADRO:-1 2 3}"
+            _SEKANS_KADRO_ROS="[$(echo ${_SEKANS_KADRO} | tr ' ' ',')]"
+            _SEKANS_FAZ_ROS="[\"$(echo "${SEKANS_FAZLAR:-cizgi,okbasi,v}" | sed 's/,/","/g')\"]"
+            _SEKANS_SURE_ROS="[${SEKANS_FAZ_SURELERI:-25,25,25}]"
+            ros2 run swarm_core formasyon_sekans --ros-args \
+                -p agent_id:=${AGENT_ID} \
+                -p kadro:="${_SEKANS_KADRO_ROS}" \
+                -p aralik_m:=${SEKANS_ARALIK:-7.0} \
+                -p irtifa_m:=${SEKANS_IRTIFA:-8.0} \
+                -p fazlar:="${_SEKANS_FAZ_ROS}" \
+                -p faz_sure_s:="${_SEKANS_SURE_ROS}" \
+                -p kurulum_hiz_mps:=${SEKANS_KURULUM_HIZ:-2.5} \
+                -p gecis_hiz_mps:=${SEKANS_GECIS_HIZ:-1.5} \
+                -p kalkis_esik_orani:=${SEKANS_KALKIS_ESIK:-0.8} \
+                -p kalkis_zaman_asimi_s:=${SEKANS_KALKIS_ZAMAN_ASIMI:-90.0} \
+                -p kanat_alfa_deg:=${KANAT_ALFA_DEG} \
+                >> "$GUNLUK/sekans.log" 2>&1 &
+            sleep 1
+            echo "[baslat] formasyon_sekans basladi (GECICI TEST:" \
+                 "aralik=${SEKANS_ARALIK:-7.0} m," \
+                 "fazlar=${SEKANS_FAZLAR:-cizgi,okbasi,v}," \
+                 "kadro=${_SEKANS_KADRO}) — her guided ARM sekansi tetikler"
+        fi
+    fi
+
     # ADIM 4 — KARAR-01. basit_kacinma ile AYNI yuva; ikisi birden ACILMAZ.
     if acik ca; then
         if [ -f /ws/kacinma ]; then
