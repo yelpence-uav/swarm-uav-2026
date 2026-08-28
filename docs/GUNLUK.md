@@ -1,6 +1,6 @@
 # GÜNLÜK — oturum devir teslim kaydı
 
-**Son güncelleme:** 28 Ağustos 2026, 19:50 — FORMASYON GEÇİŞ TESTİ UÇTU (çizgi→ok→V→çizgi→EVE, sekans uçakta, avoid=0)
+**Son güncelleme:** 28 Ağustos 2026, 21:40 — manevra modu 4 boşluk kapatıldı (dağıtılmadı); test planı yarına — 3 onay sorusu KARAR-11'de
 
 Tek bilgisayar, sırayla çalışıyoruz. Biri kalkıp diğeri oturduğunda **hem
 kişi hem Claude** nerede kalındığını buradan anlar.
@@ -35,6 +35,53 @@ Claude'a **"oturumu kapat"** dersen bu kaydı o yazar.
 - ylp00: (kill switch? pil? nerede? konteyner ayakta mı?)
 - ylp02:
 ```
+
+---
+
+## 2026-08-28 21:40 — Berk + Claude (GÖREV 2 MANEVRA MODU: şartname incelendi, 4 boşluk kapatıldı, test PLANLANDI — yarına)
+
+**Ne yapıldı**
+
+- Şartname 5.1/5.2 tam okundu (pdf → metin, `pdfenv` scratchpad'de).
+  Üç ayrı "pitch/roll/yaw" bağlamı ayrıştırıldı: Görev 1 QR-eğim /
+  Görev 2 hareket modu (öteleme) / **Görev 2 MANEVRA modu** (merkez
+  sabit eğim+rotasyon — test edilecek olan). Rapor sohbette; özet ve
+  puan/ceza notları **KARAR-11**'de.
+- Zincir HAZIR ÇIKTI: mode_manager (605) + joystick_interpreter (534,
+  FlySky FS-i6X eşlemeli) + köprü TIP_KOMUT iki yönde. Ama hiç koşmamış
+  ve 4 boşluğu vardı → **kapatıldı, commit `f6f8498`** (KARAR-11):
+  joystick anahtarı+remap · çıkış /raw'a + formasyon susturması
+  (3 sn bayat-bırakma) · eğim matematiği apply_tilt'e (merkez-kayması
+  ve ters roll işareti düzeldi, 2 regresyon testi) · MOD_* tek kaynak
+  (yaw 25°/s = PX4'ten türetme). Testler 11/11.
+- **Manevra testi planlandı** (tek buton, SSH'siz, kumandasız sürücü) ve
+  plan sırasında koddan **2 yeni engel** çıktı (formation_change ofset
+  güncellemiyor → ışınlanma; FSM READY'ye ulaşamıyor) — KARAR-11'de.
+
+**Ne değişti**
+
+- kod: `f6f8498` (repo'da; ⚠️ **uçaklara DAĞITILMADI** — şarjdalar)
+- uçakta: hiçbir şey (19:50 kaydındaki hâl geçerli)
+- belge: KARARLAR (KARAR-11 + test planı), YAPILACAKLAR (P1.31-33)
+
+**Yarım kalan / tuzak**
+
+- Manevra testi kodu YAZILMADI — operatör "yarına kalsın" dedi.
+  🔴 Yarın İLK İŞ: KARAR-11'deki **3 onay sorusu** (sürücü uçağı? /
+  genlikler ±10°, yaw 12,5°/s? / iniş slot üstüne?) → sonra kod.
+- mode_manager HOLD'da 5 sn komutsuz kalınca kendiliğinden LANDING'e
+  geçiyor (bugün etkisiz ama sürücü tasarımını belirledi — yayın sonda
+  kesilmeyecek).
+
+**Sıradaki adım**
+
+- Onay soruları → manevra test kodu (KARAR-11 merdiveni 1) → uçaklar
+  açılınca dağıtım + G0 (P1.31).
+
+**Uçakların bırakıldığı hâl**
+
+- Üçü de kapalı, piller şarjda. Kod `403b99f` (f6f8498 dağıtılmadı),
+  `sekans` anahtarı YOK, gozlem YOK.
 
 ---
 

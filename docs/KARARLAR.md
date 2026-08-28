@@ -1,6 +1,6 @@
 # KARARLAR — verilmiş ama henüz uygulanmamış kararlar
 
-**Son güncelleme:** 28 Ağustos 2026, 20:40 — KARAR-11: Görev 2 manevra modunun 4 boşluğu kapatıldı (kod hazır, dağıtım+G0 operatör komutu bekliyor)
+**Son güncelleme:** 28 Ağustos 2026, 21:40 — KARAR-11'e manevra testi planı eklendi (YARINA KALDI; 2 yeni engel bulundu, 3 onay sorusu açık)
 
 Sohbette verilen kararlar oturum bitince kayboluyor. Bu defter onları
 tutuyor: **ne karar verildi, neden, ne zaman uygulanacak, nasıl test edilecek.**
@@ -95,14 +95,53 @@ formation_node uçurur). Testler: 11/11 (2 yeni regresyon dahil), denetim
   19 Hz; manual_control hiç ölçülmedi).
 - İşaret yönleri (çubuk ileri = ?) G0'da kilitlenecek.
 
-## Test merdiveni (KOMUT BEKLİYOR — uçaklar şarjda, dağıtılmadı)
+## MANEVRA TESTİ PLANI — 🟡 YARINA KALDI (operatör, 28 Ağu 21:35; plan sunuldu, ONAY BEKLİYOR)
 
-1. ⏳ Dağıtım (dagit.sh ×3 + env) — uçaklar açılınca
-2. ⏳ G0: `/ws/gozlem` + `mod`+`joystick`(yalnız pilot uçağı) aç,
-   kumandayla yerde: işaret yönleri, merkez sabitliği, deadman,
-   mod/formasyon anahtarları, susturma bayrağı
-3. ⏳ Uçuş A: ÇİZGİ'de yalnız pitch eğimi (simetrik, en güvenli tek soru)
-4. ⏳ Uçuş B: OKBAŞI/V eğim (asimetri) + yaw rotasyonu
+Tek buton, SSH'siz, kumandasız otomatik test: sekans deseninin kardeşi
+**`manevra_test_surucusu`** (GEÇİCİ, yalnız BİR uçakta yayın — pilot-uçağı
+deseni) zamanlanmış SwarmControlCommand basar → mesh → üç mode_manager.
+Akış: kalkış 8 m → ÇİZGİ 7 m kur (MOVEMENT, 10 sn) → **ROLL** ±%66
+4+4 sn → **PITCH** aynı profil (çizgide dz üretmez — MERKEZ-KAYMASI
+regresyon ölçümü) → **YAW** ~45° sola-geri (%50 çubuk = 12,5°/s) →
+düzle → YKİ land (slot üstüne). Genlik: eğim ±10°, toplam ~2 dk. Eğim
+yalnız z'yi modüle eder — yatay 7 m ayrım hiç değişmez.
+
+### Plan sırasında koddan çıkan İKİ YENİ ENGEL (kod yazılırken kapatılacak)
+
+5. 🔴 `_handle_formation_change` kendi `_formation_offsets`'ini
+   GÜNCELLEMİYOR → formasyon değiştirip manevraya geçince gömülü okbaşı
+   ofsetleri eğilir ve x-y de ona göre basılır — uçaklar çizgiden okbaşı
+   konumlarına IŞINLANMAYA kalkardı (~10 satır düzeltme).
+6. 🔴 mode_manager FSM'i sahada READY'ye ULAŞAMAZ: IDLE→PREFLIGHT kapısı
+   mission_fsm'in SEMI_AUTONOMOUS'unu (düğüm kapalı), TAKEOFF→READY
+   kapısı IN_SWARM'ı (ajanlar ARMED'da kalıyor) istiyor. Çözüm:
+   sekans deseninde `test_hazir_atla` parametresi (varsayılan false).
+   Tam Görev 2 akışı (kumandadan kalkış + mission_fsm) ADIM 6'nın işi.
+   ⚠️ Ayrıca: komut akışı kesilip 5 sn geçince FSM kendiliğinden
+   LANDING'e geçip iniş OLAYI basıyor (bugün etkisiz — agent_fsm
+   ARMED'da işlemiyor) — sürücü bu yüzden sonda yayını kesmeyip
+   çubukları sıfırda tutacak.
+
+Atama notu: mode_manager slotları KİMLİK SIRASIYLA dağıtıyor (Macar yok)
+— kuru denetim aynı kuralla çizer, çapraz yerleşimde KALIR der; Macar
+iyileştirmesi ayrı P2.
+
+### Operatöre ONAY SORULARI (yarın ilk iş)
+
+1. Sürücü uçağı hangisi? (öneri: ylp00)
+2. Genlikler: eğim ±10°, yaw ~45°/12,5°/s — uygun mu?
+3. İniş slot üstüne land (EVE fazı YOK) — uygun mu?
+
+### Test merdiveni (onaydan sonra)
+
+1. ⏳ Kod: 5+6 düzeltmeleri + sürücü düğümü + kosucu `manevra` senaryosu
+   (kuru: çizgi + eğim zarfı + harita) + panel butonu + birim testler
+2. ⏳ Dağıtım (dagit.sh ×3 + env) — uçaklar açılınca
+3. ⏳ G0: `/ws/gozlem` + `mod`(3 uçak) + `manevratest`(yalnız sürücü
+   uçağı): işaret yönleri, merkez sabitliği, susturma, deadman
+4. ⏳ Uçuş A: yukarıdaki çizelge (ÇİZGİ'de roll/pitch/yaw)
+5. ⏳ Uçuş B: OKBAŞI/V eğim (asimetri) + tam yaw · ayrıca gerçek
+   kumandayla `joystick` zinciri (G0'dan sonra)
 
 ---
 
