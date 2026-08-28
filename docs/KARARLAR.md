@@ -1,6 +1,6 @@
 # KARARLAR — verilmiş ama henüz uygulanmamış kararlar
 
-**Son güncelleme:** 26 Ağustos 2026, 02:37 — KARAR-02 atlama notu (ADIM 3 uçuşları)
+**Son güncelleme:** 28 Ağustos 2026, 05:35 — KARAR-09 açıldı: kamera hangi uçaklarda, konteynerler eşitlensin mi
 
 Sohbette verilen kararlar oturum bitince kayboluyor. Bu defter onları
 tutuyor: **ne karar verildi, neden, ne zaman uygulanacak, nasıl test edilecek.**
@@ -31,6 +31,66 @@ sırası gelince" denilen şeyleri. Onlar en kolay kaybolanlar.
 `🔵 SIRASI GELDİ` — aşamaya ulaşıldı, uygulanacak
 `✅ UYGULANDI` — bitti, sonucu yazıldı
 `❌ VAZGEÇİLDİ` — gerekçesiyle
+
+---
+
+# KARAR-09 — Kamera hangi uçaklarda, konteynerler eşitlensin mi
+
+**Durum:** 🟡 **AÇIK — operatör kararı bekleniyor**
+**Ne zaman:** ikinci uçağa kamera takılmadan önce, ya da imaj güncellemesi gerektiğinde
+**Soruyu soran:** Operatör (28 Ağustos 2026) — *"Bütün dronelara kamera
+takmayabiliriz... Ama eğer hepsi eşit olsun dersen hepsinin konteynerini
+eşitleyebiliriz."*
+
+## Ayrılması gereken iki soru
+
+Bunlar **bağımsız** ve karıştırılırsa gereksiz iş çıkar:
+
+| | Soru | Bugün |
+|---|---|---|
+| **A** | Hangi uçaklarda **kamera donanımı** olacak | yalnız ylp02 |
+| **B** | Hangi uçaklarda **konteyner ortamı** algı paketlerini taşıyacak | yalnız ylp02 |
+
+Kamerası olmayan bir uçakta `opencv`+`pyzbar`+`zxing` bulunması **hiçbir
+şeye mal olmuyor**: 760 MB disk (Pi'lerde 18-19 GB boş) ve o kadar. Düğümler
+zaten açılmıyor — `SURU_DUGUMLERI` listesinde yoklar.
+
+## Öneri: B'yi EŞİTLE, A'yı ayrı karar ver
+
+**Gerekçe — bu deponun kendi geçmişi.** `RPI_ESITLEME.md` tam olarak
+ayrışma yüzünden var ve `CLAUDE.md` şunu yazıyor: *"Yazılmayan değişiklik,
+sonradan saatlerce süren 'neden bunda çalışmıyor' arayışına dönüşüyor."*
+28 Ağustos'ta ayrışma **başladı**: 20 Ağustos'ta ylp00 ve ylp02'de imaj
+kimliği aynıydı (`661296d…`), artık değil (ylp02 `ea2c1b1e…`).
+
+Eşitlemenin bedeli **uçak başına tek komut**:
+
+```bash
+scp ~/yelpence-yedek/yelpence-ros-algi-20260828.tar.gz ylpNN:~/
+./deploy/yki/drone_bul.sh ylpNN 'docker load < ~/yelpence-ros-algi-20260828.tar.gz'
+```
+
+Kazandırdığı: hangi uçağa kamera takılırsa takılsın ortam hazır; bir uçak
+düşüp yerine başkası girdiğinde imaj derdi çıkmıyor; hata ayıklarken
+"bunda var, ötekinde yok" sorusu hiç doğmuyor.
+
+## Karşı görüş
+
+Disk ve 628 MB'lık transfer. Bir de imajı güncellersek **üç uçakta birden**
+güncellemek gerekir — bugün tek uçakta.
+
+## Kamera donanımı (A) için ayrı düşünce
+
+Şartname üç uçağın da QR okumasını **gerektirmiyorsa**, tek kameralı bir
+sürü çalışabilir: kamerası olan uçak QR'ı okur, sonucu mesh'ten paylaşır.
+Ama o zaman **o uçak tek hata noktası** olur — düşerse görev biter.
+Bu, mesh protokolü ve görev mantığıyla birlikte konuşulmalı; şu an
+`QRMissionData` yalnız yerel yayınlanıyor, mesh'e çıkmıyor.
+
+- `[ ]` Operatör: B eşitlensin mi?
+- `[ ]` Operatör: A — kaç uçağa kamera?
+- `[ ]` A birden azsa: QR sonucu mesh'ten paylaşılacak mı, tek hata
+  noktası kabul mü?
 
 ---
 

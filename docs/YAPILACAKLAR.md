@@ -1,6 +1,6 @@
 # YAPILACAKLAR
 
-**Son güncelleme:** 27 Ağustos 2026, 04:30 — olay defteri bitti (P1.16 kapandı); 🔴 P0 ylp02 güç soketi ve 🔴 P0 HOME kayması AÇIK
+**Son güncelleme:** 28 Ağustos 2026, 05:25 — 🟠P1.20 QR takım slotu doğrulanmadı; algı paketleri imaja gömüldü
 
 ## ✅ 27 AĞUSTOS GECESİ BİTENLER
 
@@ -797,6 +797,41 @@ loglarından geriye dönebildim — o da tesadüfen orada oldukları için.
 - `[ ]` 🟡 `config.yaml`'da susturulan listesi var (`link_timeout`,
   `low_battery`, `critical_battery`) — **susturulanlar da loga yazılmalı**,
   yalnız ekrana çıkmasın. Şu an tamamen kayboluyorlar.
+
+### 🟠 P1.20 QR takım slotu DOĞRULANMADI — yanlışsa başka takımın görevi uygulanır
+
+**28 Ağustos 2026'da gerçek şartname QR'ında ölçüldü.**
+
+QR'ın içinde her takıma **ayrı görev** var ve hangi satırın bizim olduğunu
+QR söylemiyor — o numarayı yarışma düzenleyicisi veriyor:
+
+```json
+"team": {"1":[3,0], "2":[2,0], "3":[2,0], "4":[2,0], "5":[2,0]}
+```
+
+Ölçülen fark:
+
+| Slot | Formasyon | Aralık | İrtifa |
+|---|---|---|---|
+| **1** | OKBAŞI | 5 m | **28 m** |
+| **2-5** | V | 6 m | **22 m** |
+
+Yanlış slot = **başka takımın formasyonu ve irtifası**. Kod hata vermez,
+QR'ı düzgün okur, `valid=True` döner — sadece yanlış satırı alır. Sessiz.
+
+`vision_node` bu değeri önceden `QRDetector`'a **hiç vermiyordu**, sessizce
+1 kalıyordu ve parametre olarak tanımlı bile değildi. 28 Ağu'da parametre
+oldu (`vision_params.yaml → team_slot`), ama **değer hâlâ varsayılan 1**.
+
+- `[ ]` 🟠 Şartnameden ya da düzenleyiciden **takım slot numaramızı öğren**
+  (takım numaramız 752825; tablodaki 1-5 ile aynı şey değil)
+- `[ ]` 🟠 `vision_params.yaml`'da `team_slot` değerini yaz — **tek satır**,
+  başka hiçbir değişiklik gerekmiyor
+- `[ ]` ⚪ Yarışma günü slot değişirse diye: uçuş öncesi kontrol listesine
+  "team_slot doğru mu" maddesi
+
+> ℹ️ Testler için fark etmiyor: tablodaki 2-5 birebir aynı, yalnız 1 farklı.
+> Hangi değer olursa olsun QR düzgün ayrıştırılıyor.
 
 ### 🟠 P1.18 Köprüde ÇERÇEVE-KAYBI sayacı yok — kayıp bayt sessizce yok oluyor
 
