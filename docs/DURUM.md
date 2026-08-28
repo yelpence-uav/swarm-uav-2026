@@ -1,6 +1,6 @@
 # DURUM — şu an ne çalışıyor, ne bozuk
 
-**Son güncelleme:** 28 Ağustos 2026, 11:20 — kamera sahada çalışıyor, QR 6-9 m'de okunuyor; 🔴 ylp02 güç soketi UÇUŞ ENGELİ; 🔴 HOME kayması hâlâ açık
+**Son güncelleme:** 28 Ağustos 2026, 11:45 — kamera sahada çalışıyor, QR **6-9 m KISITI**; 🔴 ylp02 güç soketi UÇUŞ ENGELİ; 🔴 HOME kayması hâlâ açık
 
 
 > ## 📷 28 AĞUSTOS 11:20 — KAMERA SAHADA ÇALIŞIYOR, QR OKUNUYOR
@@ -10,6 +10,10 @@
 >
 > - ✅ **QR okunuyor: 5-11 m'de karelerin %38-69'u, tepe 7-8 m'de %69.**
 >   Saha kuralı: **QR gerekiyorsa 6-9 m'de uç.**
+> - 🔒 **QR BÜYÜTÜLEMEZ** — boyutu (1,5 m, 74 modül) yarışma tarafından
+>   sabit, çözünürlük de tükendi (4K en yükseği). Yani **6-9 m bir tercih
+>   değil KISIT**; görev planı QR'ın üstünden bu irtifada geçmek zorunda.
+>   Tavanı açacak tek eksen titreşim: teorik tavan 34 m, gerçek 11 m.
 > - 🔴 **ASIL BULGU: rolling shutter jölesi.** Motor titreşimi kare içinde
 >   satır kaymasına yol açıyor, QR modül ızgarası bozuluyordu. Yalıtımsız
 >   4K'da **200 karede sıfır** okuma vardı. Operatör yalıtım ekledi →

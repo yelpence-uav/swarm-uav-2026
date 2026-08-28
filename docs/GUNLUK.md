@@ -1,6 +1,6 @@
 # GÜNLÜK — oturum devir teslim kaydı
 
-**Son güncelleme:** 28 Ağustos 2026, 11:20 — kamera sahada çalışıyor, QR 6-9 m'de okunuyor (rolling shutter çözüldü)
+**Son güncelleme:** 28 Ağustos 2026, 11:45 — kamera sahada çalışıyor, QR 6-9 m'de okunuyor (rolling shutter çözüldü)
 
 Tek bilgisayar, sırayla çalışıyoruz. Biri kalkıp diğeri oturduğunda **hem
 kişi hem Claude** nerede kalındığını buradan anlar.
@@ -99,8 +99,9 @@ Claude'a **"oturumu kapat"** dersen bu kaydı o yazar.
 
 **Sıradaki adım**
 
-- QR'ı 3 m'ye büyüt (P1.22) — hem menzili hem jöle toleransını iki katına
-  çıkarır, tek adımda en yüksek etki.
+- Yalıtımı derinleştir (P1.22). 🔒 **QR büyütülemez** — boyutu yarışma
+  tarafından sabit, çözünürlük de tükendi. Tavanı açacak tek eksen
+  titreşim: teorik tavan 34 m, gerçek 11 m, aradaki farkın tamamı jöle.
 
 **Uçakların bırakıldığı hâl**
 

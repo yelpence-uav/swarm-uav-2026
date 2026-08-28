@@ -1,18 +1,30 @@
 # YAPILACAKLAR
 
-**Son güncelleme:** 28 Ağustos 2026, 11:20 — kamera işleri (P1.22-P1.25); 🟠P1.21 QR mesh paylaşımı sahada koşmadı
+**Son güncelleme:** 28 Ağustos 2026, 11:45 — kamera işleri (P1.22-P1.26); QR boyutu SABİT, tavanı yalıtım açacak
 
 ## 📷 28 AĞUSTOS — KAMERA TESTİNDEN ÇIKANLAR
 
 Dört uçuşun tam dökümü: **`docs/KAMERA.md`**. Bugünkü durum: QR **6-9 m'de**
 okunuyor (%38-69), tavan **11 m** ve tavanı belirleyen şey **kalan titreşim**.
 
-- `[ ]` 🟠 **P1.22 — QR'ı büyüt: 1,5 m → 3 m.**
-  **Tek adımda en yüksek etkili iş.** İki yönden birden kazandırır:
-  px/modül iki katına çıkar (menzil) **ve** jöleye dayanıklılık artar —
-  jöle görüntüyü *N piksel* kaydırıyor; modül 5 px ise kayma onu yok eder,
-  15 px ise tolere edilir. Teorik tavan 34 m → 68 m.
-  *Maliyet: bir baskı. Kod değişikliği yok.*
+- `[ ]` 🟠 **P1.22 — Yalıtımı derinleştir. Tavanı açacak TEK eksen bu.**
+  🔒 **QR büyütülemez** — boyutu (1,5 m, 74 modül) yarışma tarafından
+  sabit. Çözünürlük de tükendi (4K en yükseği). Yani px/modül tarafında
+  yapılacak bir şey yok; geriye yalnız titreşim kalıyor.
+
+  Boyut tarafında **23 m'lik kullanılmayan pay** duruyor: teorik tavan
+  34 m, gerçek tavan 11 m. Aradaki farkın tamamı titreşim.
+
+  Denenecekler: daha yumuşak/ağır göbek, jel ped, kademeli yalıtım,
+  **pervane balansı** (dengesiz tek pervane bütün yalıtımı boşa çıkarır).
+  *Ölçüt: 11-15 m'de okuma sıfırdan farklı olmalı — o bantta QR'ın zaten
+  %67-78'i BULUNUYOR, sadece veri okunamıyor.*
+
+- `[ ]` 🟠 **P1.26 — Görev planı 6-9 m kısıtına uymalı.**
+  QR okuma bandı bir tercih değil **kısıt**: altında kadraj taşıyor
+  (2 m'de kare 2,1 m, QR 1,5 m), üstünde titreşim kesiyor. Görev
+  rotası QR'ın üstünden **6-9 m'de** geçmek zorunda. Şu anki
+  `ucus_ayarlari` irtifaları bu bandı gözetmiyor.
 
 - `[ ]` 🟠 **P1.23 — Renk eşiklerini yeni renk dengesinde kalibre et.**
   Mevcut eşikler **magenta tondayken** ölçülmüştü; beyaz dengesi sabit

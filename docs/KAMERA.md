@@ -1,6 +1,6 @@
 # KAMERA ve ALGI — sahada ölçülmüş sonuçlar
 
-**Son güncelleme:** 28 Ağustos 2026, 11:20
+**Son güncelleme:** 28 Ağustos 2026, 11:45
 
 > Bu belge **28 Ağustos 2026'da tek oturumda** yapılan kamera kurulumu,
 > kalibrasyonu ve dört uçuşluk QR tespit testinin sonucudur. Her sayı
@@ -221,12 +221,26 @@ kuruluyor) ama **veri okunamıyor.** Yani yukarıda bizi kesen şey
 
 ### 5.3 Sıradaki kaldıraçlar
 
-1. **QR'ı büyütmek (1,5 m → 3 m).** Sezgiye aykırı ama jöleye karşı da işe
-   yarar: jöle görüntüyü *N piksel* kaydırır. Modül 5 px ise N piksellik
-   kayma onu yok eder; modül 15 px ise tolere edilir. **Hem menzil hem
-   dayanıklılık.**
-2. **Daha fazla yalıtım + pervane balansı.** Kalan genliği düşürür.
-3. **Çözünürlük tükendi** — 4K zaten en iyisi.
+> 🔒 **QR'IN BOYUTU SABİT — 1,5 m, 74 modül. Büyütülemez.**
+> Hedefi yarışma veriyor; boyutu ve modül sayısı bizim elimizde değil.
+> Yani px/modül yalnızca **irtifa** ve **çözünürlük** ile oynanabilir,
+> ikisi de tükenmiş durumda (4K zaten en yükseği, irtifayı da 11 m'nin
+> üstüne çıkaramıyoruz).
+
+Geriye kalan tek eksen **titreşim**:
+
+1. **Daha fazla yalıtım.** Şu anki yalıtım 3-4 kat kazandırdı ve tavanı
+   8'den 11 m'ye taşıdı. Daha yumuşak/ağır bir göbek, jel ped, kademeli
+   yalıtım — kalan genliği düşüren her şey doğrudan tavana yazılır.
+2. **Pervane balansı ve motor durumu.** Titreşimin kaynağı orası;
+   dengesiz tek pervane bütün yalıtımı boşa çıkarır.
+3. **Uçuş tarzı.** Sabit asılı kalmak, hızlı manevradan daha az titreşim
+   üretir. QR okunacak noktada **durup beklemek** oranı yükseltir.
+4. **Çözünürlük tükendi** — 4K zaten en iyisi.
+
+**Yapılamayacak olan:** QR'ı büyütmek. Bu yüzden 6-9 m bandı bir tercih
+değil, **kısıt** — görev planı bu irtifada QR'ın üstünden geçmeyi
+sağlamak zorunda.
 
 ### 5.4 Boyut tavanı (jöle olmasaydı)
 
@@ -237,10 +251,11 @@ QR piksel      = QR_boyu × px/m
 
 | QR | 4K'da teorik tavan |
 |---|---|
-| 1,5 m · 74 modül | ~34 m |
-| 3,0 m · 74 modül | ~68 m |
+| **1,5 m · 74 modül (yarışmanın verdiği)** | **~34 m** |
 
 **Bugünkü gerçek tavan 11 m** — yani boyuttan değil titreşimden sınırlıyız.
+Boyut tarafında 23 m'lik kullanılmayan pay duruyor; onu açacak tek şey
+titreşimi düşürmek.
 
 ---
 
@@ -384,7 +399,7 @@ kare hızından okuma süresi çıkarılamaz.
 
 ## 10. Açık işler
 
-- 🟠 **QR'ı büyüt (3 m).** En yüksek etkili tek adım.
+- 🟠 **Yalıtımı derinleştir.** QR büyütülemediği için tavanı açacak tek eksen bu; boyut tarafında 23 m'lik kullanılmayan pay var.
 - 🟠 **Renk eşiklerini yeni renk dengesinde kalibre et.**
 - 🟠 **Konteynerdeki `swarm_perception` eski derleme** —
   `min_zone_area_frac` parametresi yok, canlı eşik ayarı çalışmıyor.
