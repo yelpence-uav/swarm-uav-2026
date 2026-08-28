@@ -167,8 +167,8 @@ class FormasyonSekansNode(Node):
         if self._irtifa_atla:
             self.get_logger().warn(
                 'yer_testi_irtifa_atla=TRUE — kalkis kapisinin irtifa sarti '
-                'ATLANIYOR. Bu yapilandirmayla UCULMAZ (yalniz G0 yer '
-                'gozlemi, /ws/gozlem takiliyken).'
+                'VE olay bekleme ATLANIYOR. Bu yapilandirmayla UCULMAZ '
+                '(yalniz G0 yer gozlemi, /ws/gozlem takiliyken).'
             )
 
         # Hatalı faz listesiyle SESSİZCE boş koşmak yok: plan açılışta
@@ -179,7 +179,14 @@ class FormasyonSekansNode(Node):
             [float(s) for s in gp('faz_sure_s').value],
         )
 
-        self._durum = _BEKLEME
+        # G0'da olay HIC BASILMAZ — bilerek. SystemEvent'i agent_fsm de
+        # duyuyor ve ARM zincirini baslatiyor; yerde pervaneler takiliyken
+        # istenmez. Olay→sekans sicramasi ayrica dogrulanmis durumda
+        # (28 Agu G0-1: olay alindi, BEKLEME→HAZIRLIK gecisi loglandi).
+        # FSM ise G0'da CALISMAK ZORUNDA: AgentStatus'un yayincisi o
+        # (agent_fsm_node.py:122) — ilk denemede oldurulunce butun durum
+        # zinciri sustu ve kalkis kapisi 'veri HIC gelmedi' dedi.
+        self._durum = _HAZIRLIK if self._irtifa_atla else _BEKLEME
         self._olay_t: float | None = None
         self._t0: float | None = None
         self._merkez: tuple[float, float] | None = None
@@ -314,6 +321,9 @@ class FormasyonSekansNode(Node):
 
     # ------------------------------------------------------------------
     def _hazirlik_tik(self, simdi: float) -> None:
+        if self._olay_t is None:
+            # G0 yolu: olay yok, zaman asimi sayaci ilk tik'te baslar.
+            self._olay_t = simdi
         irtifalar, yaslar, senkron = self._kadro_verisi(simdi)
         hazir, eksikler = cek.kalkis_hazir_mi(
             self._kadro, irtifalar, yaslar, senkron,
