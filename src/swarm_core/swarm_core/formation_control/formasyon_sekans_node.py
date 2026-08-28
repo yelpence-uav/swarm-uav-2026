@@ -130,8 +130,8 @@ class FormasyonSekansNode(Node):
         # sayiliyor, DOUBLE_ARRAY bekleyen declare InvalidParameterType
         # ile dugumu ACILISTA olduruyordu (sekans.log'da tam iz). String
         # parametrede tip belirsizligi yok; env degerleri zaten virgullu.
-        self.declare_parameter('fazlar', 'cizgi,okbasi,v')
-        self.declare_parameter('faz_sure_s', '25,25,25')
+        self.declare_parameter('fazlar', 'cizgi,okbasi,v,cizgi')
+        self.declare_parameter('faz_sure_s', '25,25,25,20')
         self.declare_parameter('yayin_hz', 2.0, _dnm)
         # Kalkış kapısı: hedef irtifanın bu oranına ulaşmak yeter.
         # 1.0 yapılmaz — EKF z ile origin irtifası arasında ~1 m fark
@@ -232,6 +232,7 @@ class FormasyonSekansNode(Node):
         self._faz_bas: float | None = None
         self._gecis_bekleme_bas: float | None = None
         self._gecisler_donduruldu = False
+        self._slot_sahibi = None        # t0'da bir kez, tüm fazlarda sabit
         self._faz_atama = None          # (agent_ids sıralı, ofsetler)
         self._seq = 0
 
@@ -401,10 +402,17 @@ class FormasyonSekansNode(Node):
         self._t0 = simdi
         self._faz_idx = 0
         self._faz_bas = simdi
-        self._faz_atama = cek.atama(
-            self._plan[0][0], konumlar, self._merkez,
+        # ATAMA BİR KEZ, İLK FAZDA (Macar, kalkış konumlarından); slot
+        # İNDEKSİ sonraki fazlara aynen taşınır — gerekçe ve iki başarısız
+        # önceki kural cekirdek.faz_ofsetleri docstring'inde. Bu düzen,
+        # formation_node'un o-anki-konumdan koşan dağıtık atamasıyla
+        # uyuşmayabilir; o zaman düğüm lider gömüsüne düşer (tasarımdaki
+        # güvenli geri düşüş) ve geometri yine bizim kilitlediğimiz olur.
+        self._slot_sahibi, ofsetler = cek.atama(
+            self._plan[0][0], self._kalkis_konumlari, self._merkez,
             self._heading_deg, self._aralik_m, self._alfa_deg,
         )
+        self._faz_atama = (self._slot_sahibi, ofsetler)
         self._durum = _SEKANS
         self.get_logger().info(
             f'SEKANS BASLADI: merkez=({self._merkez[0]:+.1f},'
@@ -488,12 +496,12 @@ class FormasyonSekansNode(Node):
         self._faz_bas = simdi
         self._gecis_bekleme_bas = None
         tip = self._plan[self._faz_idx][0]
-        konumlar = self._konumlar_xy()
-        # Reshape ataması O ANKİ konumlardan — formation_node'un dağıtık
-        # ataması da aynı girdiyle aynı Macar'ı koşacak (uyuşma → yerel).
-        self._faz_atama = cek.atama(
-            tip, konumlar, self._merkez,
-            self._heading_deg, self._aralik_m, self._alfa_deg,
+        # Sahiplik SABİT (t0'daki çizgi ataması); yalnız bu tipin
+        # ofsetleri hesaplanır — cekirdek.faz_ofsetleri gerekçesi.
+        self._faz_atama = (
+            self._slot_sahibi,
+            cek.faz_ofsetleri(tip, len(self._slot_sahibi),
+                              self._aralik_m, self._alfa_deg),
         )
         self.get_logger().info(
             f'FAZ GECISI -> {cek.tip_adi(tip)} '

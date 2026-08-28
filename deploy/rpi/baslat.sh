@@ -1080,8 +1080,8 @@ if [ -n "$SURU_DUGUMLERI" ]; then
                 -p kadro:="${_SEKANS_KADRO_ROS}" \
                 -p aralik_m:=${SEKANS_ARALIK:-7.0} \
                 -p irtifa_m:=${SEKANS_IRTIFA:-8.0} \
-                -p fazlar:="'${SEKANS_FAZLAR:-cizgi,okbasi,v}'" \
-                -p faz_sure_s:="'${SEKANS_FAZ_SURELERI:-25,25,25}'" \
+                -p fazlar:="'${SEKANS_FAZLAR:-cizgi,okbasi,v,cizgi}'" \
+                -p faz_sure_s:="'${SEKANS_FAZ_SURELERI:-25,25,25,20}'" \
                 -p kurulum_hiz_mps:=${SEKANS_KURULUM_HIZ:-2.5} \
                 -p gecis_hiz_mps:=${SEKANS_GECIS_HIZ:-1.5} \
                 -p kalkis_esik_orani:=${SEKANS_KALKIS_ESIK:-0.8} \
@@ -1092,7 +1092,7 @@ if [ -n "$SURU_DUGUMLERI" ]; then
             sleep 1
             echo "[baslat] formasyon_sekans basladi (GECICI TEST:" \
                  "aralik=${SEKANS_ARALIK:-7.0} m," \
-                 "fazlar=${SEKANS_FAZLAR:-cizgi,okbasi,v}," \
+                 "fazlar=${SEKANS_FAZLAR:-cizgi,okbasi,v,cizgi}," \
                  "kadro=${_SEKANS_KADRO}) — her guided ARM sekansi tetikler"
         fi
     fi

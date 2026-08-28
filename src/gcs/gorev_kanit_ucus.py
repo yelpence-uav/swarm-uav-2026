@@ -2347,9 +2347,19 @@ def plan_kur_formasyon_gecis(t):
           f"ayni kurali kosacak)")
     plan = []
     poz = dict(konumlar)
+    # Atama BIR KEZ, ILK FAZDA (Macar, kalkis konumlarindan); slot INDEKSI
+    # sonraki fazlara aynen tasinir — dugumle birebir ayni kural, gerekce
+    # ve iki basarisiz onceki deneme: formasyon_sekans_cekirdek.faz_ofsetleri.
+    sabit_ids = None
     for i, ((tip, sure), ad) in enumerate(zip(fazlar, AYAR.SEKANS_FAZLAR)):
-        ids, ofsetler = SEKANS.atama(tip, poz, merkez, heading,
-                                     AYAR.SEKANS_ARALIK_M, KANAT_ACISI_DEG)
+        if sabit_ids is None:
+            sabit_ids, ofsetler = SEKANS.atama(
+                tip, konumlar, merkez, heading,
+                AYAR.SEKANS_ARALIK_M, KANAT_ACISI_DEG)
+        else:
+            ofsetler = SEKANS.faz_ofsetleri(
+                tip, len(sabit_ids), AYAR.SEKANS_ARALIK_M, KANAT_ACISI_DEG)
+        ids = sabit_ids
         dunya = SEKANS.dunya_konumlari(ids, ofsetler, merkez, heading)
         hedefler = {did: (dunya[did][0], dunya[did][1],
                           AYAR.SEKANS_IRTIFA_M) for did in DRONELAR}

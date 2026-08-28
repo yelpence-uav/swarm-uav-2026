@@ -208,6 +208,27 @@ def atama(
     return slot_sahibi, [tuple(s) for s in slotlar]
 
 
+def faz_ofsetleri(tip: int, n: int, aralik_m: float, alfa_deg: float):
+    """Bir fazın slot ofsetleri, SABİT sahiplik düzeninde kullanılmak üzere.
+
+    Sekans ataması yalnız İLK fazda (çizgi) Macar'la yapılır ve slot
+    İNDEKSİ sonraki fazlara aynen taşınır — slot 1 her tipte sağ kanattır
+    ve sahibi değişmez. İki başarısız deneme kuru testte yakalandı
+    (28 Ağu akşam, gerçek yerleşim):
+      * her fazda o-anki-konumdan Macar → V→EVE dönüşünde çapraz (2,17 m)
+      * her fazda kalkış-konumdan Macar → tipler arası TARAF dönmesi
+        (ok kanatları geride, V kanatları önde; maliyet x'e baskın gelip
+        ±y tarafını çevirebiliyor) → yol komşu slotun ÜSTÜNDEN (0,00 m)
+    Sabit indeks taşımada taraflar hiç dönmez; tipler simetrik olduğundan
+    nominal geçiş mesafeleri gecis_min_mesafe'nin verdikleridir.
+    """
+    return [
+        tuple(s) for s in compute_slot_offsets(
+            tip, n, float(aralik_m), math.radians(float(alfa_deg))
+        )
+    ]
+
+
 def dunya_konumlari(
     agent_ids: list[int],
     ofsetler,

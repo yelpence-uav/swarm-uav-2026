@@ -467,17 +467,23 @@ FRENLEME_TAVAN_M = frenleme_m(PX4_HIZ_TAVANI_MPS, PX4_IVME_MPS2)
 # esiginin ustunde. Asagidaki denetle() eki bu geometriyi ayrica izler.
 SEKANS_ARALIK_M = 7.0
 SEKANS_IRTIFA_M = 8.0          # 26 Agustos formasyon ucusuyla ayni irtifa
-SEKANS_FAZLAR = ('cizgi', 'okbasi', 'v')
-# 25/25/25 — operator karari (28 Agustos aksam). Ilk taslak 35/25/25 idi;
-# 35'in tek gerekcesi ilk fazin KURULUM yolu tasimasiydi (rastgele
-# dagilimdan slota gidis + oturma; gecisler bilinen slottan basliyor,
-# 5.4 / 9.9 m). Kisaltmak guvenlik sorunu DEGIL: faz suresi yetmese bile
-# gecis o anki konumlardan yeniden atanir ve kacinma aktif — bedeli yalniz
-# cizginin tam oturmadan morph'a girmesi olur. O riski korlemesine pay
-# yerine OLCUM tutuyor: kuru test (plan_kur_formasyon_gecis) gercek
-# yerlesimle kurulum suresini hesaplayip 25 sn'ye sigmiyorsa UYARIYOR.
-# Toplam 75 s; kalkis (~20 s) ve inis (~15 s) ile ~2 dk'nin rahat icinde.
-SEKANS_FAZ_SURE_S = (25.0, 25.0, 25.0)
+# SON FAZ YINE CIZGI — EVE DONUSUN GUVENLI KORIDORU (28 Agu aksam,
+# kuru testte olculerek bulundu). V'den dogrudan eve donus, gercek
+# yerlesimde carpisma denetiminden GECEMEDI (2,17-2,20 m): kalkis ucgeni
+# iki boyutlu, V baska yerde tek boyutlu — bir ucagin kalkis noktasi
+# digerinin V slotunun dibinde kalabiliyor. Cozum: donusten once CIZGI'ye
+# toplan. kalkis->cizgi bacagi Macar'in en-kisa-toplam eslesmesi (kesisen
+# ciftte takas toplami kisaltirdi -> kesisme olamaz) ve plan_dogrula bu
+# bacagi ZATEN denetliyor; EVE = ayni yuruyusun tersi. Iki basarisiz
+# atama kurali denemesi icin: formasyon_sekans_cekirdek.faz_ofsetleri.
+SEKANS_FAZLAR = ('cizgi', 'okbasi', 'v', 'cizgi')
+# 25/25/25 operator karari (28 Agustos aksam); donus cizgisi 20 s (yol
+# 9,9 m ~15 s, kuru butce satiri olcuyor). Kisaltmak guvenlik sorunu
+# DEGIL: faz suresi yetmese bile kacinma aktif — riski korlemesine pay
+# yerine OLCUM tutuyor: kuru test faz basina en uzun yolu hesaplayip
+# sigmiyorsa UYARIYOR. Adlandirilmis 95 s + EVE 25 s = 120 s; kalkis ve
+# inisle ~2,5 dk (eve donus istegi 2 dk hedefini asagi yukari 30 s asti).
+SEKANS_FAZ_SURE_S = (25.0, 25.0, 25.0, 20.0)
 SEKANS_KURULUM_HIZ_MPS = 2.5   # ilk faz: bos alanda uzun yol, seyire yakin
 SEKANS_GECIS_HIZ_MPS = 1.5     # reshape: dar gecit, mission1'in morph'u gibi yavas
 # EVE DONUS fazi (operator istegi, 28 Agu aksam): V'den sonra her ucak
