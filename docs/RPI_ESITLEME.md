@@ -1,6 +1,6 @@
 # RPİ EŞİTLEME DEFTERİ — geri gelen drone'u hizaya getirme
 
-**Son güncelleme:** 28 Ağustos 2026, 05:30 — 🔒 ylp02 IR-cut gündüz konumunda kilitli; algı zinciri paketleri yalnız ylp02'de
+**Son güncelleme:** 28 Ağustos 2026, 05:10 — algı paketleri İMAJA GÖMÜLDÜ (ylp02); IR-cut gündüz konumunda kilitli
 
 ## Bu belge ne için
 
@@ -701,7 +701,30 @@ konteyner YENİDEN OLUŞTURULURSA GİDER**):
 | `python3-qrcode` | apt | ~50 KB | yalnız test için, kaldırılabilir |
 | `python3-pip` + **`zxing-cpp`** | pip `--break-system-packages` | ~5 MB | QR — **birincil** çözücü |
 
-**Yeniden oluşturmadan sonra tek komut** — elle kurmaya gerek yok:
+> ✅ **28 Ağustos 05:00 — ARTIK İMAJA GÖMÜLÜ, konteyner yeniden
+> oluşturmada KAYBOLMUYOR.** `deploy/rpi/README.md`'deki KARAR-05 yordamı
+> uygulandı: konteynerde kur → `docker commit` → buraya yaz.
+>
+> ```
+> yelpence-ros:latest           ea2c1b1e9154   2,02 GB   ← algı paketleri DAHİL
+> yelpence-ros:temiz-20260828   661296d759c2   1,26 GB   ← eski bilinen-iyi, KORUNDU
+> ```
+>
+> Commit öncesi apt önbelleği ve test dosyaları temizlendi (826 → 763 MB).
+> Yeni imajdan açılan taze konteynerde `cv2`, `pyzbar`, `zxingcpp`, `numpy`
+> dördü de doğrulandı.
+>
+> 🔴 **UÇAKLAR ARASI İMAJ AYRIŞMASI:** yalnız **ylp02** yeni imajda.
+> ylp00 ve ylp02'de imaj kimliği artık AYNI DEĞİL — 20 Ağustos'ta ikisi de
+> `661296d…` idi. Kamera yalnız ylp02'de olduğu için bu bilinçli; diğer
+> uçaklara kamera takılınca yedek yüklenmeli:
+> `docker load < yelpence-ros-algi-20260828.tar.gz`
+>
+> **Yedek (P2.9):** `~/yelpence-yedek/yelpence-ros-algi-20260828.tar.gz`,
+> 628 MB, `gzip -t` sağlam, SHA256 Pi kopyasıyla birebir. Pi'de de duruyor
+> (`~/imaj-yedek/`). ⚠️ İkisi de tek makinede — harici kopya hâlâ eksik.
+
+**İmaj bir şekilde eskiye dönerse tek komut:**
 
 ```bash
 ./deploy/yki/drone_bul.sh ylp02 'bash ~/yelpence_ws/algi_kur.sh drone3'

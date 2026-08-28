@@ -1895,8 +1895,15 @@ ortam yeniden üretilemez.
 
 - `[ ]` 🟡 Harici bir yere kopyala (USB bellek, bulut, ikinci makine).
   378 MB, tek `rsync`.
-- `[ ]` ⚪ İmaja `cv2`+`pyzbar` eklendiğinde (ADIM 5) **yeni yedek al** ve
-  ne eklendiğini `RPI_ESITLEME.md`'ye yaz.
+- `[x]` ⚪ ~~İmaja `cv2`+`pyzbar` eklendiğinde (ADIM 5) **yeni yedek al**~~
+  → 28 Ağu'da yapıldı. `docker commit` ile `yelpence-ros:latest`
+  (`ea2c1b1e9154`, 2,02 GB); eski bilinen-iyi `yelpence-ros:temiz-20260828`
+  olarak korundu. Eklenenler: `python3-opencv`, `python3-pyzbar`,
+  **`zxing-cpp`** (dört QR çözücü ölçülüp seçildi). Yedek
+  `~/yelpence-yedek/yelpence-ros-algi-20260828.tar.gz`, 628 MB, doğrulandı.
+  ⚠️ **Yalnız ylp02'de** — uçaklar arası imaj ayrışması `RPI_ESITLEME.md`'de.
+- `[ ]` 🟡 **Yeni yedek de tek makinede.** 628 MB, harici kopya gerekiyor —
+  yukarıdaki 378 MB'lık maddeyle aynı iş, artık iki dosya.
 
 ### 🟠 P2.7 Denetim kaydının yarısı yalnız Berk'in Mac'inde
 
