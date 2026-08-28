@@ -12,12 +12,12 @@ from rclpy.qos import (
     QoSReliabilityPolicy,
 )
 
-from sensor_msgs.msg import CameraInfo, Image
+from sensor_msgs.msg import CameraInfo, CompressedImage, Image
 
 from swarm_interfaces.msg import SystemEvent
 
-from .camera_info_builder import build_camera_info
-from .frame_grabber import FrameGrabber, SimFrameGrabber
+from .camera_info_builder import build_camera_info, compute_focal_length
+from .frame_grabber import FrameGrabber, HttpMjpegGrabber, SimFrameGrabber
 
 _IMAGE_QOS = QoSProfile(
     reliability=QoSReliabilityPolicy.BEST_EFFORT,
@@ -40,6 +40,7 @@ class CameraDriverNode(Node):
         self._grabber = None
         self._sim_subscriber_active = False
         self._last_frame_time = time.monotonic()
+        self._info_g = self._info_y = 0
 
         if self._sitl_mode:
             self._setup_sitl_mode()
@@ -67,6 +68,32 @@ class CameraDriverNode(Node):
         self.declare_parameter('height', 720)
         self.declare_parameter('fps', 15.0)
         self.declare_parameter('sitl_mode', False)
+
+        # KAYNAK — 27 Agustos 2026, gercek donanimda olculdu.
+        # 'v4l2'  : cv2.VideoCapture(device_id). Pi 5 + IMX477'de CALISMAZ;
+        #           /dev/video0 = rp1-cfe-csi2_ch0, ham Bayer veren CSI
+        #           yakalama dugumu, UVC kamera degil.
+        # 'http'  : deploy/rpi/kamera_yayin.py'nin MJPEG akisi. Konteyner
+        #           --network host oldugu icin 127.0.0.1 dogrudan erisilir;
+        #           cihaz gecirme gerekmez.
+        # Varsayilan BILEREK 'http': elimizdeki tek donanimda calisan yol o.
+        # 'v4l2' USB kamera takilirsa diye duruyor.
+        self.declare_parameter('source', 'http')
+        self.declare_parameter('source_url', 'http://127.0.0.1:8080/akis')
+
+        # YAYIN BICIMI — 28 Agustos 2026, olculdu.
+        # 'compressed' : JPEG'i COZMEDEN CompressedImage olarak yayinlar.
+        #                4056x3040 icin TEK YOL: ham Image 37 MB eder ve
+        #                DDS'ten hic gecmez (denendi, mesaj ulasmadi).
+        # 'raw'        : eski davranis, sensor_msgs/Image. Yalniz kucuk
+        #                cozunurluklerde ve ham piksel isteyen tuketiciler
+        #                icin.
+        self.declare_parameter('yayin_bicimi', 'compressed')
+
+        # Odak uzakligini GERCEK kare boyutundan turet. Config'teki fx/fy
+        # 1280x720 icin yazilmisti; akis 4056x3040'a cikinca 3,17 kat
+        # yanlis kalir ve piksel->metre donusumu o oranda saparadi.
+        self.declare_parameter('odak_otomatik', True)
         self.declare_parameter('flip_vertical', False)
         self.declare_parameter('flip_horizontal', False)
         self.declare_parameter('health_timeout_sec', 3.0)
@@ -83,6 +110,10 @@ class CameraDriverNode(Node):
         self._height = self.get_parameter('height').value
         self._fps = self.get_parameter('fps').value
         self._sitl_mode = self.get_parameter('sitl_mode').value
+        self._source = self.get_parameter('source').value
+        self._source_url = self.get_parameter('source_url').value
+        self._bicim = self.get_parameter('yayin_bicimi').value
+        self._odak_otomatik = self.get_parameter('odak_otomatik').value
         self._flip_v = self.get_parameter('flip_vertical').value
         self._flip_h = self.get_parameter('flip_horizontal').value
         self._health_timeout = self.get_parameter(
@@ -106,6 +137,11 @@ class CameraDriverNode(Node):
             f'/drone_{aid}/camera/image_raw',
             _IMAGE_QOS,
         )
+        self._compressed_pub = self.create_publisher(
+            CompressedImage,
+            f'/drone_{aid}/camera/image_raw/compressed',
+            _IMAGE_QOS,
+        )
         self._info_pub = self.create_publisher(
             CameraInfo,
             f'/drone_{aid}/camera/camera_info',
@@ -117,9 +153,23 @@ class CameraDriverNode(Node):
             10,
         )
 
-    def _setup_real_camera(self) -> None:
-        """Gercek donanim kamerasini baslatir."""
-        self._grabber = FrameGrabber(
+    def _create_grabber(self):
+        """Secilen kaynaga gore erisim katmanini kurar.
+
+        Tek yerde duruyor: onceden ayni yapilandirma hem `_setup_real_camera`
+        hem `_try_reopen_camera` icinde kopyalanmisti; biri degisip digeri
+        unutulursa yeniden baglanma sessizce eski ayarla acilirdi.
+        """
+        if self._source == 'http':
+            return HttpMjpegGrabber(
+                url=self._source_url,
+                width=self._width,
+                height=self._height,
+                fps=self._fps,
+                flip_vertical=self._flip_v,
+                flip_horizontal=self._flip_h,
+            )
+        return FrameGrabber(
             device_id=self._device_id,
             width=self._width,
             height=self._height,
@@ -127,18 +177,34 @@ class CameraDriverNode(Node):
             flip_vertical=self._flip_v,
             flip_horizontal=self._flip_h,
         )
+
+    def _source_label(self) -> str:
+        """Kayitlarda hangi kaynaktan bahsedildigi belli olsun."""
+        if self._source == 'http':
+            return self._source_url
+        return f'/dev/video{self._device_id}'
+
+    def _setup_real_camera(self) -> None:
+        """Gercek donanim kamerasini baslatir."""
+        self._grabber = self._create_grabber()
         if not self._grabber.open_camera():
             self.get_logger().error(
-                f'Kamera acilamadi: /dev/video{self._device_id}'
+                f'Kamera acilamadi: {self._source_label()}'
             )
         else:
             actual_w, actual_h = self._grabber.actual_resolution
             actual_fps = self._grabber.actual_fps
             self.get_logger().info(
-                f'Kamera acildi: /dev/video{self._device_id} '
+                f'Kamera acildi: {self._source_label()} '
                 f'({actual_w}x{actual_h}@{actual_fps:.0f}Hz)'
             )
-            if actual_w != self._width or actual_h != self._height:
+            # `odak_otomatik` acikken width/height parametreleri zaten
+            # kullanilmiyor — CameraInfo gercek kare boyutundan turetiliyor.
+            # O kipte bu uyari yanlis alarm olur ve sonraki kisiyi bos yere
+            # arattirir, o yuzden yalniz otomatik KAPALIYKEN veriliyor.
+            if (not self._odak_otomatik
+                    and (actual_w != self._width
+                         or actual_h != self._height)):
                 self.get_logger().warn(
                     f'Cozunurluk farkli: gercek={actual_w}x{actual_h}'
                 )
@@ -192,6 +258,11 @@ class CameraDriverNode(Node):
             self._try_reopen_camera()
             return
 
+        if (self._bicim == 'compressed'
+                and hasattr(self._grabber, 'grab_jpeg')):
+            self._sikistirilmis_yayinla()
+            return
+
         success, frame = self._grabber.grab()
         if not success:
             return
@@ -216,6 +287,50 @@ class CameraDriverNode(Node):
         )
         self._info_pub.publish(self._camera_info_msg)
 
+    def _sikistirilmis_yayinla(self) -> None:
+        """Kareyi cozmeden, JPEG olarak yayinlar (4K icin tek yol)."""
+        basarili, jpeg = self._grabber.grab_jpeg()
+        if not basarili or not jpeg:
+            return
+
+        self._last_frame_time = time.monotonic()
+        now = self.get_clock().now().to_msg()
+        cerceve = f'drone_{self._agent_id}_camera'
+
+        msg = CompressedImage()
+        msg.header.stamp = now
+        msg.header.frame_id = cerceve
+        msg.format = 'jpeg'
+        msg.data = jpeg
+        self._compressed_pub.publish(msg)
+
+        self._camera_info_guncelle()
+        self._camera_info_msg.header.stamp = now
+        self._camera_info_msg.header.frame_id = cerceve
+        self._info_pub.publish(self._camera_info_msg)
+
+    def _camera_info_guncelle(self) -> None:
+        """Odak uzakligini GERCEK kare boyutuna gore tazeler.
+
+        Cozunurluk calisma sirasinda degisebiliyor (yayin servisinin
+        onizleme ayari). fx sabit kalirsa piksel->metre donusumu sessizce
+        yanlis olur; hicbir hata vermez, yalnizca bolge/QR konumu kayar.
+        """
+        if not self._odak_otomatik:
+            return
+        g, y = self._grabber.actual_resolution
+        if g <= 0 or y <= 0 or (g == self._info_g and y == self._info_y):
+            return
+        self._info_g, self._info_y = g, y
+        fx = compute_focal_length(self._fov_h_rad, g)
+        self._camera_info_msg = self._info_mesaji(build_camera_info(
+            width=g, height=y, fx=fx, fy=fx,
+            cx=g / 2.0, cy=y / 2.0,
+        ))
+        self.get_logger().info(
+            f'CameraInfo tazelendi: {g}x{y} fx={fx:.1f} '
+            f'(FOV {self._fov_h_rad:.4f} rad)')
+
     def _try_reopen_camera(self) -> None:
         """Kamerayi yeniden baglamayi dener."""
         if self._sitl_mode:
@@ -224,20 +339,13 @@ class CameraDriverNode(Node):
             return
 
         if self._grabber is None:
-            self._grabber = FrameGrabber(
-                device_id=self._device_id,
-                width=self._width,
-                height=self._height,
-                fps=self._fps,
-                flip_vertical=self._flip_v,
-                flip_horizontal=self._flip_h,
-            )
+            self._grabber = self._create_grabber()
 
         if self._grabber.open_camera():
             self.get_logger().info('Kamera yeniden baglandi.')
         else:
             self.get_logger().warn(
-                f'Kamera acilamadi: /dev/video{self._device_id}',
+                f'Kamera acilamadi: {self._source_label()}',
                 throttle_duration_sec=5.0,
             )
 
@@ -255,17 +363,13 @@ class CameraDriverNode(Node):
                 f'camera: {elapsed:.1f}s no frame',
             )
 
-    def _build_camera_info_msg(self) -> CameraInfo:
-        """Önbellek icin CameraInfo hazirlar."""
-        info = build_camera_info(
-            width=self._width,
-            height=self._height,
-            fx=self._fx,
-            fy=self._fy,
-            cx=self._cx,
-            cy=self._cy,
-        )
+    @staticmethod
+    def _info_mesaji(info: dict) -> CameraInfo:
+        """`build_camera_info` sozlugunu CameraInfo mesajina cevirir.
 
+        Tek yerde duruyor: alan esleme iki yere kopyalandiginda biri
+        degisip digeri unutulur ve mesaj sessizce eksik kalir.
+        """
         msg = CameraInfo()
         msg.width = info['width']
         msg.height = info['height']
@@ -274,8 +378,18 @@ class CameraDriverNode(Node):
         msg.k = info['k']
         msg.r = info['r']
         msg.p = info['p']
-
         return msg
+
+    def _build_camera_info_msg(self) -> CameraInfo:
+        """Önbellek icin CameraInfo hazirlar."""
+        return self._info_mesaji(build_camera_info(
+            width=self._width,
+            height=self._height,
+            fx=self._fx,
+            fy=self._fy,
+            cx=self._cx,
+            cy=self._cy,
+        ))
 
     def _pub_event(
         self, event_type: int, severity: int, message: str = '',

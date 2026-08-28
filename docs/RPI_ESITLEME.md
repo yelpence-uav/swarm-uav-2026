@@ -1,6 +1,6 @@
 # RPİ EŞİTLEME DEFTERİ — geri gelen drone'u hizaya getirme
 
-**Son güncelleme:** 27 Ağustos 2026, 04:00 — OLAY DEFTERİ: `d8ae3df` üç Pi'ye, firmware `eabe59f` DÖRT karta; uçtan uca doğrulandı
+**Son güncelleme:** 28 Ağustos 2026, 05:30 — 🔒 ylp02 IR-cut gündüz konumunda kilitli; algı zinciri paketleri yalnız ylp02'de
 
 ## Bu belge ne için
 
@@ -668,6 +668,145 @@ Gerçek bir ölümde bu yığın asıl suçlu sürücüyü gösterecek.
 ## 8. DEĞİŞİKLİK DEFTERİ
 
 Her Pi değişikliği buraya, en yeni en üste.
+
+### 2026-08-28 (gece) — 🔒 ylp02 IR-CUT SÜZGECİ GÜNDÜZ KONUMUNDA KİLİTLENDİ
+
+Operatör süzgeci gündüz konumuna alıp **kablosunu söktü**. Artık ışık
+sensörü onu gece moduna çeviremez.
+
+**Neden doğru karar:** süzgeç gece konumuna geçtiğinde sensör kızılötesi
+görüyor ve kare magentaya kayıyor. 27 Ağustos'ta tam bunu ölçmüştük —
+renk tespiti o karede **6 sahte KIRMIZI bölge** üretti. Uçuş ortasında
+bulut geçse ve sensör eşiği aşsa, renk tespiti sessizce çöpe dönerdi.
+Kilitli olduğu için 28 Ağustos'ta yapılan renk kalibrasyonu (gerçek hedef
+0,985 · bayrak 0,281 · poster 0,130) geçerliliğini koruyor.
+
+**Kaybedilen:** gece görüş yeteneği. Zaten kullanılamıyordu — 28 Ağustos
+ölçümü: 1,1 lükste otomatik pozlama 1/15 sn'ye çıkıyor, bu da 20 m'de
+4 m/s ile **50 piksel** bulanıklık demek; QR modülü 3,8 piksel. Gece QR
+okumak fizik olarak mümkün değil. Yarışma gündüz.
+
+⚠️ **Yalnız ylp02'de.** ylp00 ve ylp01'de kamera yok.
+
+### 2026-08-28 (gece) — 👁️ ALGI: konteyner paketleri, YALNIZ ylp02'DE
+
+`camera_driver` + `vision_node` gerçek donanımda ilk kez koştu. Konteyner
+`drone3`'e kurulanlar (**hepsi konteynerin yazılabilir katmanında —
+konteyner YENİDEN OLUŞTURULURSA GİDER**):
+
+| Paket | Nasıl | Boyut | Niçin |
+|---|---|---|---|
+| `python3-opencv` 4.6.0 | apt, `--no-install-recommends` | ~709 MB | JPEG çözme, renk tespiti, `wechat_qrcode` |
+| `python3-pyzbar` | apt | ~100 KB | QR — yedek çözücü |
+| `python3-qrcode` | apt | ~50 KB | yalnız test için, kaldırılabilir |
+| `python3-pip` + **`zxing-cpp`** | pip `--break-system-packages` | ~5 MB | QR — **birincil** çözücü |
+
+`--no-install-recommends` bilinçli: recommends ile 1203 MB, onsuz 709 MB.
+Aradaki 494 MB `va-driver-all`/`vdpau-driver-all` gibi video hızlandırma
+sürücüleri, başsız konteynerde kullanılmıyor.
+
+**QR çözücü seçimi ölçümle yapıldı** (gerçek şartname QR'ı, 4056x3040,
+74 modül, 204 bayt):
+
+```
+tam kare, QR VAR    pyzbar 695 ms | zxing 268 ms | wechat   122 ms
+tam kare, QR YOK    pyzbar 628 ms | zxing 275 ms | wechat 11619 ms
+kirpma ~1272 px     pyzbar  61 ms | zxing  34 ms | wechat    11 ms
+menzil (1,5 m QR)   pyzbar ~25 m  | zxing ~25 m  | wechat  ~40 m
+```
+
+`zxing` birincil: pyzbar ile aynı menzil, yarı süre, QR yokken de aynı
+sürede biter. `wechat` yalnız KIRPMADA ve yalnız periyodik yedek turunda —
+tam karede 11,6 saniye sürüyor. `zxing` yoksa kod pyzbar'a düşer.
+
+⚠️ **Donanım değil kütüphane.** 12,3 MP kareye sadece dokunmanın maliyeti
+ölçüldü: griye çevirme 10,2 ms, eşikleme 23 ms. pyzbar'ın 695 ms'si bunun
+30 katı. Aynı donanımda wechat aynı işi 122 ms'de yapıyor.
+
+**Kamera servisi** (`~/kamera_yayin.py`) host tarafında, açılışta
+BAŞLAMIYOR — elle başlatılıyor. `~/kamera_kayit/` (en son 5 kayıt) ve
+`~/kamera_foto/` (en son 20 foto) dizinleri orada oluşuyor.
+
+| Uçak | Kamera | Konteyner paketleri |
+|------|--------|---------------------|
+| ylp00 | ❌ | ❌ |
+| ylp01 | ❌ | ❌ |
+| ylp02 | ✅ IMX477 HQ | ✅ opencv, pyzbar, zxing-cpp |
+
+### 2026-08-27 (akşam ~17:30) — 🎥 IMX477 HQ kamera — YALNIZ ylp02'DE
+
+Arducam IMX477 HQ kamera (IR-CUT, 6 mm CS lens) ylp02'nin Pi 5'ine bağlandı.
+Önce hiç görünmedi; **iki ayrı sebep üst üste binmişti** ve ikisi de sessiz.
+
+**1. Flex ters takılıydı.** Pi 4'ün CSI'si 15 pin / 1,0 mm, Pi 5'in CAM/DISP'i
+**22 pin / 0,5 mm** — ayrı konnektör, ayrı kablo, kablonun iki ucunda kontaklar
+ters yüzlerde olmak zorunda. Ters takılınca mekanik olarak oturuyor ama
+elektriksel olarak ölü: kameraya güç gitmiyor. Tek belirti `No cameras
+available!` — ne hata, ne uyarı.
+
+> Operatörün güç testi doğruydu ve işe yaradı: **elini IR sensörüne
+> yaklaştırıp gece moduna geçişi izlemek.** Geçiyorsa karta 3,3 V geliyor.
+> Kabloyu ayıklarken bundan daha hızlı bir ölçüt yok.
+
+**2. Ters düzeltilip güç geldikten SONRA da görünmedi.** Sebep:
+`camera_auto_detect=1` bu Arducam kartını **tanımıyor**. Ölçüm bunu kesin
+ayırdı: Pi kamera takılıyken açılmıştı (uptime 3 dk), yani "yanlış anda
+takıldı" değil — firmware iki portu da yokladı, sensör oto-tespite cevap
+vermedi. Elle overlay verilince sorunsuz çalıştı.
+
+**Çözüm — `/boot/firmware/config.txt` (YALNIZ ylp02):**
+
+```
+camera_auto_detect=0
+dtoverlay=imx477,cam0
+dtoverlay=imx477,cam1
+```
+
+⚠️ **İKİ SATIR DA BİLEREK DURUYOR.** Kamera tek porta takılı (`i2c@80000`,
+`csi@128000`, `imx477 11-001a`); boş port (`i2c@88000`, `10-001a`) her
+açılışta `failed to read chip id 477, error -121` yazıp çekiliyor. Bu
+**zararsız** ve ~700 ms sürüyor. Karşılığında kablo hangi konnektöre
+takılırsa takılsın kamera bulunuyor — sahada kablo yeri değişirse kimse
+config kurcalamak zorunda kalmıyor. **Boş porttaki -121 hatası bir arıza
+değildir**, bu satırın kendisidir.
+
+**Doğrulandı (uçtan uca, 27 Ağustos 17:35):**
+
+```
+imx477 11-001a: Device found is imx477
+rp1-cfe 1f00128000.csi: Using sensor imx477 11-001a for capture
+0 : imx477 [4056x3040 12-bit RGGB]
+rpicam-still -n -t 2000 --width 2028 --height 1520  →  196 KB JPEG
+```
+
+**Görüntü alındı ama iki fiziksel ayar EKSİK** (ikisi de taze kurulumda
+normal, ikisi de yazılım işi değil):
+
+| Ne | Belirti | Ne yapılacak |
+|----|---------|--------------|
+| **Odak** | Kare baştan sona bulanık | 6 mm CS lens **doğrudan** takılır — **C-CS ara halkası takılıysa çıkar**, takılıyken hiçbir mesafeye odaklanamaz. Sonra odak halkası + arka odak (back-focus) halkası |
+| **IR-CUT** | Güçlü magenta/pembe tonlama | IR süzgeci **gece konumunda** — ortam ışığı kartın eşiğinin altında. Gündüz ışığında kendiliğinden dönmeli; dönmüyorsa ışık sensörü kapalı olabilir |
+
+**Uçaklar arası fark — geri gelen uçak için:**
+
+| Uçak | Kamera | config.txt |
+|------|--------|-----------|
+| ylp00 | ❌ yok | `camera_auto_detect=1` (dokunulmadı) |
+| ylp01 | ❌ yok | `camera_auto_detect=1` (dokunulmadı) |
+| ylp02 | ✅ IMX477 HQ | `camera_auto_detect=0` + iki `dtoverlay=imx477` |
+
+**Açık iş — kamera ROS'tan kullanılacaksa:** `deploy/rpi/run_drone.sh`
+konteynere yalnız `--device /dev/ttyAMA0` ve `/dev/ttyAMA4` veriyor.
+libcamera için `/dev/video*`, `/dev/media*` ve `/dev/dma_heap` de gerekir.
+Konteyner yeniden **oluşturma** ister (yeniden başlatma yetmez) — zaten
+bekleyen A19 ile aynı anda kapanır.
+
+**Geri alma (tek satır):**
+
+```bash
+./deploy/yki/drone_bul.sh ylp02 \
+  "sudo sed -i '/dtoverlay=imx477/d; s/^camera_auto_detect=0/camera_auto_detect=1/' /boot/firmware/config.txt"
+```
 
 ### 2026-08-27 (gece 02:00-04:00) — OLAY DEFTERİ: YKİ paneli + mesh taşıması
 

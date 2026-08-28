@@ -7,12 +7,95 @@
     # QR tespiti yapılırken kullanılacak asgari güven eşiği
     qr_min_confidence: 0.5
 
+    # 🔴 TAKIM SLOTU — QR'ın "team" alanı her takıma AYRI görev veriyor.
+    # 28 Ağustos'ta gerçek şartname QR'ında ölçüldü:
+    #   slot 1 -> OKBAŞI, aralık 5 m, irtifa 28 m
+    #   slot 2 -> V,      aralık 6 m, irtifa 22 m
+    # Yanlış slot = başka takımın formasyonu ve irtifası. Daha önce düğüm
+    # bu değeri QRDetector'a HİÇ vermiyordu, sessizce 1 kalıyordu.
+    # ⚠️ DEĞER DOĞRULANMADI — yarışma slotumuz kesinleşince güncellenmeli.
+    team_slot: 1
+
+    # İKİ AŞAMALI QR TARAMA — önce 1/4 ölçekte varyansla QR'ın yerini bul,
+    # sonra o bölgeyi TAM ÇÖZÜNÜRLÜKTE oku. Gerçek QR'da ölçüldü
+    # (4056x3040, 74 modül): 697 ms -> 141 ms, 5,2 kat. Konum sapması
+    # 0,0 piksel, menzil kaybı yok. Bulamazsa tam kare taramasına düşer.
+    qr_iki_asamali: true
+    qr_bulucu_olcek: 4
+    # ⚠️ Tam kare taraması GÜVENLİK AĞI, her karede değil. 28 Ağustos'ta
+    # ölçüldü — ilk uygulama ters tepiyordu:
+    #   10 kare, hiçbirinde QR yok (görevde EN SIK durum):
+    #     düz tam tarama          882 ms/kare
+    #     her karede tam tarama  1085 ms/kare  ← DAHA YAVAŞ
+    #     periyot 5               349 ms/kare  ← 2,53x hızlı
+    #   10 kare, 3'ünde QR var:
+    #     düz tam tarama          919 ms/kare, 3 QR
+    #     periyot 5               237 ms/kare, 3 QR  ← 3,88x, kayıp yok
+    # 0 yazarsan tam taramaya hiç düşmez (203 ms ama güvenlik ağı yok).
+    qr_tam_tarama_periyodu: 5
+
+    # WECHAT YEDEĞİ — 28 Ağustos'ta gerçek QR'la ölçüldü.
+    # Aynı kırpmada, irtifa benzetimiyle:
+    #    8,5 m  pyzbar ✓  94 ms  |  wechat ✓  18 ms
+    #     25 m  pyzbar ✓ 102 ms  |  wechat ✓  21 ms
+    #     35 m  pyzbar ✗         |  wechat ✓ 188 ms   ← pyzbar bırakıyor
+    #     45 m  pyzbar ✗         |  wechat ✓ 351 ms
+    # Uçtan uca menzil: yalnız pyzbar ~20 m, melez ~35-45 m.
+    #
+    # ⚠️ TAM KAREDE ASLA KULLANILMAZ. QR yokken tam karede 11 857 ms
+    # sürüyor (pyzbar 624 ms) — bulamayınca çok pahalı bir arama yapıyor.
+    # Bu yüzden yalnız KIRPMADA ve yalnız periyodik yedek turunda çağrılır.
+    # QR yokken maliyet: kapalı 272 ms/kare, açık 368 ms/kare.
+    qr_wechat_yedek: true
+
+    # 4056x3040 için ZORUNLU: ham sensor_msgs/Image kare başına 37 MB eder
+    # ve DDS'ten hiç geçmez (28 Ağustos'ta denendi, mesaj ulaşmadı).
+    goruntu_bicimi: compressed
+
     # ── İniş Bölgesi (Landing Zone) İşleme Parametreleri ──
     # Renk tespiti çok daha hafif olduğu için daha yüksek frekansta çalışır.
     landing_zone_rate_hz: 15.0
+    # Renk tespiti 1/4 ölçekte koşar — 28 Ağustos'ta gerçek hedefte
+    # ölçüldü: dairesellik 0,985 -> 0,975, alan ve aday sayısı aynı.
+    # 12,3 MP yerine 0,77 MP işlenir. 1 yaparsan tam çözünürlükte koşar.
+    # 1/2 secildi, 1/4 degil. GEREKCE: 28 Agustos'ta 1 m'lik daireyle
+    # irtifa benzetimi yapildi (10-60 m). Taban duzeltildikten sonra ucu de
+    # 60 m'ye kadar buluyor, fark DAIRESELLIKTE:
+    #   60 m'de  tam 0,966 | 1/2 0,945 | 1/4 0,902
+    # Hedefi celdiricilerden ayiran tek olcut dairesellik (bayrak 0,281,
+    # poster 0,130, esik 0,75). Daire YOLDA, seyir irtifasinda, kucukken
+    # yakalanacak; o payi korumak 34 ms'den degerli.
+    # (1/2 = 101 ms, 1/4 = 67 ms, tam = 274 ms)
+    landing_zone_olcek: 2
 
     # İniş bölgesi için asgari alan boyutu (piksel kare)
-    min_zone_area_px: 500.0
+    # ALAN EŞİKLERİ — 28 Ağustos 2026'da GERÇEK kırmızı hedefle ölçüldü.
+    # Karede bilerek çeldirici vardı (bayraklar, posterler, torba). Ölçüm:
+    #   gerçek hedef  : alan %1,243   dairesellik 0,985
+    #   en büyük leke : alan %2,753   dairesellik 0,281  ← BAYRAK, hedeften BÜYÜK
+    #   36 çeldirici  : hepsinin daireselliği 0,53'ün ALTINDA
+    # Yani ayrımı yapan şey alan değil DAİRESELLİK. "En büyük kırmızıyı seç"
+    # mantığı yanlış pede giderdi.
+    #
+    # ⚠️ ALAN EŞİĞİ NEDEN DÜŞÜK: alan oranı mesafenin KARESİYLE küçülür.
+    # %0,15 eşiği, ölçüm mesafesinin 2,88 katında hedefi eler — ~8,5 m'den
+    # çekilmişse kesim ~24 m, yani tam uçuş irtifamız. %0,02'de kesim ~67 m.
+    # Taramada %0,02'de de tek aday çıktı (dairesellik zaten süzüyor).
+    #
+    # min_zone_area_px mutlak TABAN: birkaç piksellik lekeler rastgele
+    # yüksek dairesellik verebilir. Etkin eşik ikisinin BÜYÜĞÜ.
+    # ⚠️ TABAN DUSUK TUTULUYOR. Bu esik KUCULTULMUS karede uygulaniyor;
+    # 300 px, 1/4 olcekte tam cozunurlukteki 4800 pikselE denk gelir ve
+    # 50 m'deki daireyi (283 px) eliyordu — 28 Agustos'ta olculdu, hedef
+    # 50 ve 60 m'de KAYBOLUYORDU. Asil suzgec `min_zone_area_frac`
+    # (olcekten bagimsiz) ve dairesellik; bu yalnizca birkac piksellik
+    # lekelere karsi taban.
+    min_zone_area_px: 40.0
+    min_zone_area_frac: 0.0002
+    # Daire eğik bakışta elipse döner, ölçü cos(eğim)'e düşer. 0,75 kabaca
+    # 41°'ye kadar izin verirken 0,53'lük çeldiricileri eliyor — boşluğun
+    # tam ortası.
+    min_circularity: 0.75
 
     # Gürültüyü azaltmak için Gauss filtresi çekirdek boyutu
     gaussian_blur_kernel: 5

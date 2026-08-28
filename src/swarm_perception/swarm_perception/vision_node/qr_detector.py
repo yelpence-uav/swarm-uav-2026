@@ -21,11 +21,33 @@
 """qr_detector.py."""
 
 import json
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional, Tuple
+
+import cv2
 
 import numpy as np
 
 from pyzbar.pyzbar import decode
+
+# BIRINCIL COZUCU: zxing-cpp. 28 Agustos 2026'da gercek sartname QR'i
+# uzerinde olculdu (4056x3040, 74 modul, 204 bayt):
+#
+#   tam kare, QR VAR    pyzbar 695 ms  | zxing 268 ms  | wechat   122 ms
+#   tam kare, QR YOK    pyzbar 628 ms  | zxing 275 ms  | wechat 11619 ms
+#   kirpma (~1272 px)   pyzbar  61 ms  | zxing  34 ms  | wechat    11 ms
+#   menzil (1,5 m QR)   pyzbar ~25 m   | zxing ~25 m   | wechat  ~40 m
+#
+# zxing SECILDI cunku: pyzbar ile AYNI menzil, YARI SURE ve QR yokken de
+# ayni surede bitiyor. wechat daha menzilli ama bulamayinca 11,6 SANIYE
+# harciyor — tam karede asla kullanilmaz (bkz. _wechat_ile_coz).
+#
+# ⚠️ zxing pip paketi (konteyner yeniden olusturulunca GIDER). Yoksa
+# pyzbar'a dusuyoruz — o apt paketi, her zaman var. Islevsel fark yok,
+# yalnizca iki kat yavas.
+try:
+    import zxingcpp
+except ImportError:                                   # pragma: no cover
+    zxingcpp = None
 
 # QR komut kısaltmaları -> QRMissionData enum değerleri.
 _FORMATION_CODES = {'ok': 1, 'v': 2, 'l': 3}     # OKBASI / V / CIZGI
@@ -36,41 +58,250 @@ class QRDetector:
     """Goruntudeki QR kodlarini bulup ayristiran sinif."""
 
     def __init__(
-        self, min_confidence: float = 0.5, team_slot: int = 1
+        self, min_confidence: float = 0.5, team_slot: int = 1,
+        iki_asamali: bool = True, olcek: int = 4,
+        pay_orani: float = 0.25, aday_sayisi: int = 2,
+        tam_tarama_periyodu: int = 5, wechat_yedek: bool = True,
     ) -> None:
         """Aciklama: QRDetector sinifini ilklendirir."""
         self._min_confidence = min_confidence
         self._team_slot = int(team_slot)
+        # IKI ASAMALI TARAMA — 28 Agustos 2026, gercek sartname QR'i uzerinde
+        # olculdu (1,5 m QR, 8,5 m mesafe, 4056x3040, 74 modul):
+        #     tam kare taramasi            697 ms
+        #     1/4 varyansla bul + kirp+oku 140 ms   -> 5,0 KAT HIZLI
+        # Menzil kaybi YOK: okuma yine TAM COZUNURLUKTE, sadece karenin
+        # tamami degil QR'in bulundugu bolge taraniyor.
+        #
+        # NEDEN cv2.QRCodeDetector DEGIL: o dedektor uc kose desenini ve
+        # zamanlama desenini DOGRULAYARAK ariyor; 74 modullu yogun bir QR'da
+        # 1/4 olcekte modul 2,25 piksele dusuyor ve desen ayirt edilemiyor.
+        # Olculdu: 1/4'te de 1/8'de de BULAMADI.
+        #
+        # Varyans bulucu QR yapisina hic bakmiyor — yalnizca yerel degisintisi
+        # anormal yuksek bolgeyi ariyor (yogun siyah-beyaz doku). Bu ozellik
+        # kucultmeye cok daha dayanikli; 1/8'de bile 35 ms'de buldu.
+        self._iki_asamali = bool(iki_asamali)
+        self._olcek = max(1, int(olcek))
+        self._pay_orani = float(pay_orani)
+        self._aday_sayisi = max(1, int(aday_sayisi))
+        # ⚠️ TAM TARAMAYA HER BASARISIZLIKTA DUSMUYORUZ — 28 Agustos 2026'da
+        # olculdu ve ilk uygulama TERS TEPTI:
+        #     QR VAR : tam kare 833 ms -> iki asama  177 ms   4,7x HIZLI
+        #     QR YOK : tam kare 928 ms -> iki asama 1331 ms   1,4x YAVAS
+        # Cunku QR yokken bulucu + basarisiz kirpmalar + tam tarama UST USTE
+        # odeniyordu. Ve gorevde karelerin COGUNDA QR YOKTUR — yani en sik
+        # durum kotulesiyordu.
+        # Cozum: tam tarama bir GUVENLIK AGI, her karede degil her
+        # `tam_tarama_periyodu` basarisizlikta bir kez. 0 = hic yapma.
+        self._tam_periyot = max(0, int(tam_tarama_periyodu))
+        self._basarisiz = 0
+        # WECHAT YEDEGI — 28 Agustos 2026, gercek QR uzerinde olculdu.
+        # Ayni kirpmada, irtifa benzetimiyle:
+        #     irtifa   pyzbar        wechat
+        #      8,5 m   ✓  94 ms      ✓  18 ms
+        #       25 m   ✓ 102 ms      ✓  21 ms
+        #       35 m   ✗  86 ms      ✓ 188 ms   <- pyzbar BIRAKIYOR
+        #       45 m   ✗  57 ms      ✓ 351 ms
+        # Yani wechat hem hizli hem MENZILLI. Ama bir tuzagi var:
+        #     QR YOKKEN, TAM KAREDE  ->  11 857 ms  (pyzbar 624 ms)
+        # Bulamayinca cok pahali bir arama yapiyor. Bu yuzden:
+        #   * TAM KAREYE ASLA wechat calistirilmaz,
+        #   * yalniz KIRPMADA ve yalniz pyzbar basarisiz olunca,
+        #   * o da periyodik yedek turunda — her karede degil.
+        # Boylece menzil kazanci alinir, 12 saniyelik risk alinmaz.
+        self._wechat_yedek = bool(wechat_yedek)
+        self._wechat = None
+        self._wechat_denendi = False
 
     def detect(self, image: np.ndarray) -> List[Dict[str, Any]]:
         """BGR goruntu uzerindeki QR kodlari bulur ve ayristirir."""
         if image is None or image.size == 0:
             return []
 
-        decoded_objects = decode(image)
-        results = []
-        for obj in decoded_objects:
-            try:
-                raw_text = obj.data.decode('utf-8')
-            except UnicodeDecodeError:
+        if self._iki_asamali:
+            hizli = self._iki_asamali_tara(image)
+            if hizli:
+                # Sayac BILEREK sifirlanmiyor: her basaridan sonra sifirlamak,
+                # bir sonraki basarisizligi hep tam taramaya sokuyordu. Olculdu
+                # (10 karenin 3'unde QR): sifirlarken 508 ms/kare, sifirlamadan
+                # 237. Sayac tek bir ritim tutuyor; taze bir dedektorun ILK
+                # basarisizligi yine tam tarama yapar, sozlesme korunur.
+                return hizli
+            self._basarisiz += 1
+            # Guvenlik agi: bulucunun kacirdigi bir QR sonsuza kadar
+            # gorunmez kalmasin diye ARADA BIR tam kare taraniyor.
+            #
+            # ⚠️ ILK basarisizlikta MUTLAKA tam tarama yapiliyor
+            # ((n-1) % periyot), sonrakiler atlaniyor. Sebebi: `detect()`
+            # tek basina cagrildiginda (birim testler, tek kare inceleme)
+            # QR'i bulmak ZORUNDA. Once `n % periyot` yazmistim ve ilk
+            # cagri bos donuyordu — iki birim test bunu yakaladi.
+            if (self._tam_periyot == 0
+                    or (self._basarisiz - 1) % self._tam_periyot != 0):
+                return []
+            # Periyodik yedek turu: once wechat'i KIRPMADA dene (pyzbar'in
+            # yetismedigi uzak QR'lar icin), sonra tam kare taramasina dus.
+            if self._wechat_yedek:
+                w = self._wechat_ile_coz(image)
+                if w:
+                    return w
+
+        return self._cerceveleri_coz(
+            image, 0, 0, image.shape[1], image.shape[0])
+
+    def _wechat_al(self):
+        """Cozucuyu bir kez kurar; opencv_contrib yoksa None doner."""
+        if self._wechat_denendi:
+            return self._wechat
+        self._wechat_denendi = True
+        try:
+            self._wechat = cv2.wechat_qrcode_WeChatQRCode()
+        except (AttributeError, cv2.error):
+            self._wechat = None      # opencv_contrib yoksa sessizce gec
+        return self._wechat
+
+    def _wechat_ile_coz(
+        self, image: np.ndarray
+    ) -> Optional[List[Dict[str, Any]]]:
+        """Adaylari wechat ile dener — YALNIZ kirpmada, asla tam karede."""
+        w = self._wechat_al()
+        if w is None:
+            return None
+        for x0, y0, x1, y1 in self._adaylari_bul(image):
+            parca = image[y0:y1, x0:x1]
+            if parca.size == 0:
                 continue
+            try:
+                metinler, kutular = w.detectAndDecode(parca)
+            except cv2.error:
+                continue
+            for metin, kutu in zip(metinler, kutular):
+                if not metin:
+                    continue
+                nk = np.asarray(kutu).reshape(-1, 2)
+                gx, gy = float(nk[:, 0].mean()), float(nk[:, 1].mean())
+                gen = float(nk[:, 0].max() - nk[:, 0].min())
+                yuk = float(nk[:, 1].max() - nk[:, 1].min())
+                d = {
+                    'raw_text': metin,
+                    'image_x': (x0 + gx) / image.shape[1],
+                    'image_y': (y0 + gy) / image.shape[0],
+                    'image_width': gen / image.shape[1],
+                    'image_height': yuk / image.shape[0],
+                }
+                d.update(self._parse_qr_text(metin))
+                return [d]
+        return None
 
-            rect = obj.rect
-            img_h, img_w = image.shape[:2]
+    def _cerceveleri_coz(
+        self, parca: np.ndarray, ofs_x: int, ofs_y: int,
+        tam_g: int, tam_y: int,
+    ) -> List[Dict[str, Any]]:
+        """Verilen parcayi tarar; konumlari TAM KAREYE gore normalize eder.
 
+        ⚠️ ofs_x/ofs_y ve tam_g/tam_y sart: kirpilmis bir parcada bulunan
+        QR'in konumu parcaya gore cikar. Bunlar eklenmezse dugum QR'i
+        karenin yanlis yerinde sanir ve hedef koordinati kayar.
+        """
+        sonuc: List[Dict[str, Any]] = []
+        for raw_text, sol, ust, gen, yuk in self._ham_coz(parca):
             qr_data = {
                 'raw_text': raw_text,
-                'image_x': float(rect.left + rect.width / 2) / img_w,
-                'image_y': float(rect.top + rect.height / 2) / img_h,
-                'image_width': float(rect.width) / img_w,
-                'image_height': float(rect.height) / img_h,
+                'image_x': float(ofs_x + sol + gen / 2) / tam_g,
+                'image_y': float(ofs_y + ust + yuk / 2) / tam_y,
+                'image_width': float(gen) / tam_g,
+                'image_height': float(yuk) / tam_y,
             }
+            qr_data.update(self._parse_qr_text(raw_text))
+            sonuc.append(qr_data)
+        return sonuc
 
-            parsed_fields = self._parse_qr_text(raw_text)
-            qr_data.update(parsed_fields)
-            results.append(qr_data)
+    @staticmethod
+    def _ham_coz(parca: np.ndarray) -> List[Tuple[str, int, int, int, int]]:
+        """(metin, sol, ust, genislik, yukseklik) listesi.
 
-        return results
+        Iki cozucuyu tek bicime indirir. zxing varsa o, yoksa pyzbar.
+        """
+        if zxingcpp is not None:
+            try:
+                cikti = []
+                for b in zxingcpp.read_barcodes(parca):
+                    if not b.text:
+                        continue
+                    p = b.position
+                    xs = [p.top_left.x, p.top_right.x,
+                          p.bottom_left.x, p.bottom_right.x]
+                    ys = [p.top_left.y, p.top_right.y,
+                          p.bottom_left.y, p.bottom_right.y]
+                    cikti.append((b.text, min(xs), min(ys),
+                                  max(xs) - min(xs), max(ys) - min(ys)))
+                return cikti
+            except Exception:                          # pragma: no cover
+                pass          # zxing takilirsa pyzbar'a dus, tespiti kaybetme
+
+        cikti = []
+        for obj in decode(parca):
+            try:
+                metin = obj.data.decode('utf-8')
+            except UnicodeDecodeError:
+                continue
+            r = obj.rect
+            cikti.append((metin, r.left, r.top, r.width, r.height))
+        return cikti
+
+    def _iki_asamali_tara(
+        self, image: np.ndarray
+    ) -> Optional[List[Dict[str, Any]]]:
+        """Once kucukte QR adayini bul, sonra TAM COZUNURLUKTE oku."""
+        for x0, y0, x1, y1 in self._adaylari_bul(image):
+            parca = image[y0:y1, x0:x1]
+            if parca.size == 0:
+                continue
+            s = self._cerceveleri_coz(
+                parca, x0, y0, image.shape[1], image.shape[0])
+            if s:
+                return s
+        return None
+
+    def _adaylari_bul(
+        self, image: np.ndarray
+    ) -> List[Tuple[int, int, int, int]]:
+        """Yerel degisintisi yuksek bolgeler — QR'in dokusal imzasi."""
+        tam_y, tam_g = image.shape[:2]
+        b = self._olcek
+        if tam_g // b < 32 or tam_y // b < 32:
+            return []
+        try:
+            kucuk = cv2.resize(image, (tam_g // b, tam_y // b),
+                               interpolation=cv2.INTER_AREA)
+            gri = cv2.cvtColor(kucuk, cv2.COLOR_BGR2GRAY).astype(np.float32)
+            ort = cv2.blur(gri, (12, 12))
+            # Degisinti kayan pencerede: E[x^2] - E[x]^2. Yuvarlama yuzunden
+            # kucuk negatif cikabilir, karekokten once kirpiyoruz.
+            std = np.sqrt(np.maximum(cv2.blur(gri * gri, (12, 12))
+                                     - ort * ort, 0.0))
+            esik = float(np.percentile(std, 99.0)) * 0.55
+            maske = (std > esik).astype(np.uint8) * 255
+            maske = cv2.morphologyEx(maske, cv2.MORPH_CLOSE,
+                                     np.ones((9, 9), np.uint8))
+            konturlar, _ = cv2.findContours(
+                maske, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        except cv2.error:
+            return []
+
+        kutular = []
+        for c in sorted(konturlar, key=cv2.contourArea,
+                        reverse=True)[:self._aday_sayisi]:
+            x, y, w, h = cv2.boundingRect(c)
+            if w < 8 or h < 8:
+                continue
+            pay = int(max(w, h) * self._pay_orani)
+            kutular.append((
+                max(0, (x - pay) * b), max(0, (y - pay) * b),
+                min(tam_g, (x + w + pay) * b),
+                min(tam_y, (y + h + pay) * b)))
+        return kutular
 
     def _blank_result(self) -> Dict[str, Any]:
         """Tüm alanları nötr olan boş bir sonuç sözlüğü döndürür."""

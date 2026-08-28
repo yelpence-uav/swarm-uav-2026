@@ -34,6 +34,10 @@ class TestQRDetector(unittest.TestCase):
         self.assertEqual(self.detector.detect(None), [])
         self.assertEqual(self.detector.detect(np.array([])), [])
 
+    # zxing-cpp 28 Agustos'ta BIRINCIL cozucu oldu (ayni menzil,
+    # yari sure). Bu testler AYRISTIRMAYI siniyor, cozuculugu degil;
+    # `decode` mock'unun calisabilmesi icin zxing kapatiliyor.
+    @patch('swarm_perception.vision_node.qr_detector.zxingcpp', None)
     @patch('swarm_perception.vision_node.qr_detector.decode')
     def test_valid_qr_detection(self, mock_decode: MagicMock) -> None:
         """Geçerli bir şartname JSON QR kodunun başarıyla ayrıştırılması."""
@@ -63,6 +67,10 @@ class TestQRDetector(unittest.TestCase):
         self.assertEqual(res['spacing_m'], 2.5)
         self.assertEqual(res['error_message'], '')
 
+    # zxing-cpp 28 Agustos'ta BIRINCIL cozucu oldu (ayni menzil,
+    # yari sure). Bu testler AYRISTIRMAYI siniyor, cozuculugu degil;
+    # `decode` mock'unun calisabilmesi icin zxing kapatiliyor.
+    @patch('swarm_perception.vision_node.qr_detector.zxingcpp', None)
     @patch('swarm_perception.vision_node.qr_detector.decode')
     def test_invalid_team_slot(self, mock_decode: MagicMock) -> None:
         """Takım slotu tabloda yoksa QR geçersiz sayılmalı."""

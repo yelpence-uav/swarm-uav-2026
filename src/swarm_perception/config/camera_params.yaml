@@ -22,8 +22,29 @@ camera_driver:
     fps: 15.0
 
     # Çalışma modu
-    # false = gerçek kamera (/dev/video0), true = Gazebo bridge
+    # false = gerçek kamera, true = Gazebo bridge
     sitl_mode: false
+
+    # KAYNAK — 27 Ağustos 2026'da gerçek donanımda ölçüldü.
+    #
+    # 'v4l2' : cv2.VideoCapture(device_id).
+    #          ⚠️ Pi 5 + IMX477'de ÇALIŞMAZ. /dev/video0 = rp1-cfe-csi2_ch0,
+    #          yani ham Bayer veren CSI yakalama düğümü — UVC kamera değil.
+    #          Bu satırın eski hâli sim döneminden kalan bir varsayımdı.
+    # 'http' : deploy/rpi/kamera_yayin.py MJPEG akışını tüketir. Kamerayı
+    #          libcamera aracılığıyla o servis açıyor. Konteyner
+    #          --network host olduğu için 127.0.0.1 doğrudan erişilir:
+    #          --device /dev/video* geçirmeye ve konteyner yeniden
+    #          oluşturmaya GEREK YOK.
+    #
+    # ⚠️ KAMERAYI TEK SÜREÇ AÇAR. 'http' seçildiğinde yayın servisi
+    #    koşuyor olmalı:  python3 ~/kamera_yayin.py --port 8080
+    source: http
+    source_url: http://127.0.0.1:8080/akis
+
+    # ⚠️ Aşağıdaki width/height 'http' kaynakta YALNIZ UYARI için kullanılır
+    # — gerçek çözünürlüğü yayın servisinin önizleme ayarı belirler. İkisi
+    # tutmuyorsa düğüm "Cozunurluk farkli" uyarısı yazar.
 
     # Kamera montaj yönü düzeltmesi
     # GERÇEK DONANIM: Kamera drone gövdesine monte edildikten sonra
@@ -47,11 +68,27 @@ camera_driver:
     #   ros2 run camera_calibration cameracalibrator \
     #     --size 9x6 --square 0.025 \
     #     image:=/drone_1/camera/image_raw
+    # ⚠️ Aşağıdaki fx/fy/cx/cy 1280x720 için yazılmıştı. Akış 4056x3040'a
+    # çıkınca 3,17 kat yanlış kalıyordu. `odak_otomatik: true` iken düğüm
+    # bunları GERÇEK kare boyutundan kendisi türetiyor; buradakiler yalnız
+    # otomatik kapalıyken kullanılır.
     fx: 1108.5
     fy: 1108.5
     cx: 640.0
     cy: 360.0
-    fov_horizontal_rad: 1.047
+
+    # GÖRÜŞ AÇISI — 28 Ağustos 2026'da ÖLÇÜLDÜ, artık varsayım değil.
+    # Yöntem: 1,5 m'lik QR, 8,5 m mesafe, 4056x3040 karede 667 piksel.
+    #   445 px/m -> kare 9,12 m genişliğinde -> FOV 56,4°
+    # Eski değer 1.047 (60,0°) Gazebo modelinden kalmaydı ve %6 sapıyordu:
+    # 25 m irtifada kare kenarında ~1,3 m konum hatası demek.
+    fov_horizontal_rad: 0.98437   # 56,4 derece (ölçüldü)
+
+    # 4056x3040 için ZORUNLU: ham `sensor_msgs/Image` kare başına 37 MB
+    # eder ve DDS'ten hiç geçmez (28 Ağustos'ta denendi, mesaj ulaşmadı).
+    # 'compressed' JPEG'i ÇÖZMEDEN aktarır — 1,4 MB.
+    yayin_bicimi: compressed
+    odak_otomatik: true
 
     # Kamera sağlık kontrolü — bu süre boyunca frame gelmezse
     # SystemEvent.EVENT_AGENT_FAULT yayınlanır.

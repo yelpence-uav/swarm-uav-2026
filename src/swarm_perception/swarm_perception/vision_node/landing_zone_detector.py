@@ -22,6 +22,18 @@ class LandingZoneDetector:
         """Aciklama: LandingZoneDetector sinifini ilklendirir."""
         self._config = config
         self._min_area = config.get('min_zone_area_px', 500.0)
+        # ORANLI ESIK — 27 Agustos 2026.
+        # `min_zone_area_px` MUTLAK pikseldir; onizleme cozunurlugu 640'tan
+        # 1920'ye cikinca ayni fiziksel nesne 9 KAT daha buyuk goründügü icin
+        # esik sessizce 9 kat gevser. Kareye oranli esik cozunurlukten
+        # bagimsizdir. Etkin esik ikisinin BUYUGUDUR.
+        self._min_area_frac = config.get('min_zone_area_frac', 0.0015)
+        # DAIRESELLIK — onceden 0.4 olarak KODA GOMULUYDU ve parametre
+        # degildi. 0.4 cok gevsek: bir KARE bile 0.64 verir, yani gecerdi.
+        # Sahada 0.44-0.62 arasi duzensiz lekeler "inis bolgesi" sayildi.
+        # Not: daire egik bakista elipse doner ve olcu cos(egim)'e duser —
+        # 0.75 kabaca 41 dereceye kadar bakisa izin verir.
+        self._min_circularity = config.get('min_circularity', 0.75)
         self._blur_k = config.get('gaussian_blur_kernel', 5)
 
         ranges = config.get('color_ranges', {})
@@ -85,10 +97,11 @@ class LandingZoneDetector:
         )
 
         img_h, img_w = image_shape[:2]
+        alan_esigi = max(self._min_area, self._min_area_frac * img_h * img_w)
 
         for cnt in contours:
             area = cv2.contourArea(cnt)
-            if area < self._min_area:
+            if area < alan_esigi:
                 continue
 
             (x, y), radius = cv2.minEnclosingCircle(cnt)
@@ -98,7 +111,7 @@ class LandingZoneDetector:
                 float(area / circle_area) if circle_area > 0 else 0.0
             )
 
-            if confidence < 0.4:
+            if confidence < self._min_circularity:
                 continue
 
             zone_data = {
@@ -107,6 +120,9 @@ class LandingZoneDetector:
                 'image_y': float(y) / img_h,
                 'radius_px': float(radius),
                 'confidence': confidence,
+                # Ayarlarken NEDEN kabul/red edildigi gorunsun diye:
+                'area_px': float(area),
+                'area_frac': float(area / (img_h * img_w)),
             }
             zones.append(zone_data)
 

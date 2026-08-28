@@ -5,7 +5,11 @@ import math
 import time
 from typing import Any
 
+import cv2
+
 import numpy as np
+
+from rcl_interfaces.msg import SetParametersResult
 
 import rclpy
 from rclpy.node import Node
@@ -16,7 +20,7 @@ from rclpy.qos import (
     QoSReliabilityPolicy,
 )
 
-from sensor_msgs.msg import CameraInfo, Image
+from sensor_msgs.msg import CameraInfo, CompressedImage, Image
 
 from swarm_interfaces.msg import (
     AgentStatus,
@@ -89,8 +93,41 @@ class VisionNode(Node):
         self.declare_parameter('agent_id', 1)
         self.declare_parameter('qr_processing_rate_hz', 5.0)
         self.declare_parameter('qr_min_confidence', 0.5)
+        # 🔴 TAKIM SLOTU — QR icindeki "team" alani her takima AYRI gorev
+        # veriyor. Yanlis slot = baska takimin formasyonu ve irtifasi.
+        # 28 Agustos'ta gercek QR'da olculdu: slot 1 -> OK/5 m/28 m,
+        # slot 2 -> V/6 m/22 m. Onceden hic verilmiyordu ve sessizce 1
+        # kaliyordu; parametre olarak da tanimli degildi.
+        self.declare_parameter('team_slot', 1)
+        # QR taramasi: once kucukte bul, sonra TAM COZUNURLUKTE oku.
+        # Olculdu (4056x3040, 74 modul): 697 ms -> 141 ms, 5,2 kat.
+        # Konum sapmasi 0,0 piksel. Ayrinti qr_detector.py'de.
+        self.declare_parameter('qr_iki_asamali', True)
+        self.declare_parameter('qr_bulucu_olcek', 4)
+        # Tam kare taramasi bir GUVENLIK AGI, her karede degil. Olculdu:
+        # her karede tam taramaya dusmek QR YOKKEN 1085 ms/kare ediyordu —
+        # duz tam taramadan (882) BETER. Periyot 5 ile 349 ms.
+        self.declare_parameter('qr_tam_tarama_periyodu', 5)
+        # WeChat cozucusu YALNIZ kirpmada, yalniz periyodik yedek turunda.
+        # Menzili ~20 m'den ~45 m'ye cikariyor. Tam karede ASLA
+        # kullanilmaz: QR yokken 11,8 saniye suruyor (olculdu).
+        self.declare_parameter('qr_wechat_yedek', True)
+        # Goruntu bicimi: 'compressed' 4K icin ZORUNLU (ham Image 37 MB
+        # eder ve DDS'ten gecmez). 'raw' eski davranis.
+        self.declare_parameter('goruntu_bicimi', 'compressed')
         self.declare_parameter('landing_zone_rate_hz', 15.0)
         self.declare_parameter('min_zone_area_px', 500.0)
+        # RENK TESPITINI KUCULTULMUS KAREDE KOSTUR — 28 Agustos 2026.
+        # Gercek kirmizi hedefte olculdu: 1/4 olcekte dairesellik
+        # 0,985 -> 0,975, alan orani ayni, aday sayisi ayni. Renkli bir ped
+        # bulmak 12,3 MP istemiyor; QR'in aksine burada cozunurluk MENZIL
+        # demek degil, yalnizca maliyet.
+        self.declare_parameter('landing_zone_olcek', 2)
+        # Ikisi de 27 Agustos 2026'da eklendi. Gerekce ve sayilarin nedeni
+        # landing_zone_detector.py'de yaziyor — burada TEKRARLANMIYOR ki
+        # biri degisip digeri unutulmasin.
+        self.declare_parameter('min_zone_area_frac', 0.0015)
+        self.declare_parameter('min_circularity', 0.75)
         self.declare_parameter('gaussian_blur_kernel', 5)
         self.declare_parameter('sitl_mode', False)
 
@@ -108,6 +145,8 @@ class VisionNode(Node):
         self._agent_id = self.get_parameter('agent_id').value
         self._qr_rate_hz = self.get_parameter('qr_processing_rate_hz').value
         self._lz_rate_hz = self.get_parameter('landing_zone_rate_hz').value
+        self._lz_olcek = max(1, int(
+            self.get_parameter('landing_zone_olcek').value))
         self._sitl_mode = self.get_parameter('sitl_mode').value
         self._zone_merge_dist_m = self.get_parameter(
             'zone_merge_dist_m'
@@ -122,7 +161,18 @@ class VisionNode(Node):
     def _setup_detectors(self) -> None:
         """Tespit algoritmalarini baslatir."""
         qr_conf = self.get_parameter('qr_min_confidence').value
-        self._qr_detector = QRDetector(min_confidence=qr_conf)
+        self._qr_detector = QRDetector(
+            min_confidence=qr_conf,
+            team_slot=self.get_parameter('team_slot').value,
+            iki_asamali=self.get_parameter('qr_iki_asamali').value,
+            olcek=self.get_parameter('qr_bulucu_olcek').value,
+            tam_tarama_periyodu=self.get_parameter(
+                'qr_tam_tarama_periyodu').value,
+            wechat_yedek=self.get_parameter('qr_wechat_yedek').value,
+        )
+        self.get_logger().info(
+            f'QR: team_slot={self.get_parameter("team_slot").value} '
+            f'iki_asamali={self.get_parameter("qr_iki_asamali").value}')
         # QR içeriği her değiştiğinde artan sıra numarası. Aynı QR'ın ardışık
         # kareleri aynı seq'i taşır; mission_fsm bu sayede her kareyi değil,
         # yalnızca yeni okunan QR'ı işler.
@@ -131,6 +181,10 @@ class VisionNode(Node):
 
         lz_config = {
             'min_zone_area_px': self.get_parameter('min_zone_area_px').value,
+            'min_zone_area_frac': self.get_parameter(
+                'min_zone_area_frac'
+            ).value,
+            'min_circularity': self.get_parameter('min_circularity').value,
             'gaussian_blur_kernel': self.get_parameter(
                 'gaussian_blur_kernel'
             ).value,
@@ -157,6 +211,35 @@ class VisionNode(Node):
         }
         self._lz_detector = LandingZoneDetector(config=lz_config)
 
+        # CANLI AYAR — 27 Agustos 2026.
+        # Esikler bir kez okunup dedektore gomuluyordu; degistirmek icin
+        # dugumu yeniden baslatmak gerekiyordu. Dogru esik pede, irtifaya ve
+        # isiga bagli ve ancak SAHADA bakarak bulunuyor. Bu geri cagri
+        # `ros2 param set` ile degistirilen esikleri aninda uyguluyor.
+        self.add_on_set_parameters_callback(self._on_param_degisti)
+
+    def _on_param_degisti(self, params: list) -> SetParametersResult:
+        """Esik parametreleri degisince dedektoru yeniden kurar."""
+        ILGILI = {'min_zone_area_px', 'min_zone_area_frac', 'min_circularity',
+                  'gaussian_blur_kernel'}
+        if not any(p.name in ILGILI for p in params):
+            return SetParametersResult(successful=True)
+
+        # Geri cagri parametreler UYGULANMADAN once kosar; yeni degerleri
+        # elle harmanlamak gerekiyor, yoksa bir tur eski deger kullanilir.
+        yeni = {p.name: p.value for p in params}
+        cfg = dict(self._lz_detector._config)
+        for ad in ILGILI:
+            cfg[ad] = yeni.get(ad, self.get_parameter(ad).value)
+        self._lz_detector = LandingZoneDetector(config=cfg)
+        self.get_logger().info(
+            'inis bolgesi esikleri guncellendi: '
+            f"alan_px={cfg['min_zone_area_px']} "
+            f"alan_oran={cfg['min_zone_area_frac']} "
+            f"dairesellik={cfg['min_circularity']}"
+        )
+        return SetParametersResult(successful=True)
+
     def _setup_publishers(self) -> None:
         """Publisher'lari olusturur."""
         self._qr_pub = self.create_publisher(
@@ -179,12 +262,20 @@ class VisionNode(Node):
 
     def _setup_subscriptions(self) -> None:
         """Abonelikleri kurar."""
-        self.create_subscription(
-            Image,
-            f'/drone_{self._agent_id}/camera/image_raw',
-            self._image_callback,
-            _BEST_EFFORT_QOS,
-        )
+        if self.get_parameter('goruntu_bicimi').value == 'compressed':
+            self.create_subscription(
+                CompressedImage,
+                f'/drone_{self._agent_id}/camera/image_raw/compressed',
+                self._compressed_callback,
+                _BEST_EFFORT_QOS,
+            )
+        else:
+            self.create_subscription(
+                Image,
+                f'/drone_{self._agent_id}/camera/image_raw',
+                self._image_callback,
+                _BEST_EFFORT_QOS,
+            )
 
         self.create_subscription(
             CameraInfo,
@@ -216,6 +307,42 @@ class VisionNode(Node):
             self._fy = msg.k[4]
             self._cx = msg.k[2]
             self._cy = msg.k[5]
+
+    def _compressed_callback(self, msg: CompressedImage) -> None:
+        """JPEG kareyi cozup isler.
+
+        ⚠️ HIZ SINIRI COZMEDEN ONCE bakiliyor. 4056x3040 bir JPEG'i cozmek
+        106 ms suruyor; islenmeyecek bir kareyi cozmek o sureyi bosa yakar
+        ve QR'a ayrilan cekirdegi tuketirdi.
+        """
+        now = time.monotonic()
+        run_qr = (now - self._last_qr_time) >= self._qr_interval
+        run_lz = (now - self._last_lz_time) >= self._lz_interval
+        if not run_qr and not run_lz:
+            return
+
+        # TEK TAM COZME, iki yol PAYLASIYOR. Denendi ve GERI ALINDI
+        # (28 Agustos): JPEG'i bulucu icin 1/4, renk icin 1/2 ayri ayri
+        # cozmek — ve aday bulununca ayrica tam cozmek — daha YAVAS cikti:
+        #     seyir/QR yok  415 -> 442 ms      askida/QR var  212 -> 251 ms
+        # Cunku tek tam cozmeden renk yolunun kucultmesi yalnizca 9 ms;
+        # ayri ayri cozmek ayni kareyi iki-uc kez cozmek demek.
+        # OpenCV'nin IMREAD_REDUCED_* bayraklari tek basina hizli (90 -> 25 ms)
+        # ama burada kazanc vermiyor. Tekrar denenecekse once bu olculsun.
+        frame = cv2.imdecode(
+            np.frombuffer(msg.data, dtype=np.uint8), cv2.IMREAD_COLOR)
+        if frame is None:
+            self.get_logger().warn('JPEG cozulemedi',
+                                   throttle_duration_sec=10.0)
+            return
+
+        # cv2.imdecode BGR dondurur — dedektorlerin bekledigi duzen.
+        if run_qr:
+            self._process_qr(frame, msg.header.stamp)
+            self._last_qr_time = now
+        if run_lz:
+            self._process_lz(frame, msg.header.stamp)
+            self._last_lz_time = now
 
     def _image_callback(self, msg: Image) -> None:
         """Görüntü karesini isler."""
@@ -252,9 +379,15 @@ class VisionNode(Node):
             self._last_lz_time = now
 
     def _process_qr(self, frame: np.ndarray, stamp: Any) -> None:
-        """QR kodlarini bulup yayinlar."""
-        results = self._qr_detector.detect(frame)
+        """QR kodlarini bulup yayinlar (hazir piksel kareden)."""
+        self._qr_sonucu_yayinla(self._qr_detector.detect(frame), stamp)
 
+    def _qr_sonucu_yayinla(self, results: list, stamp: Any) -> None:
+        """Tespit sonuclarini QRMissionData olarak yayinlar.
+
+        Iki giris yolu ayni yayin kodunu kullanir (piksel kare ve JPEG);
+        kopyalanirsa biri degisip digeri unutulur.
+        """
         for res in results:
             msg = QRMissionData()
             msg.stamp = stamp
@@ -299,9 +432,36 @@ class VisionNode(Node):
 
             self._qr_pub.publish(msg)
 
-    def _process_lz(self, frame: np.ndarray, stamp: Any) -> None:
-        """İniş bölgesini işler ve sonuçları yayınlar."""
-        zones = self._lz_detector.detect(frame)
+    def _process_lz(self, frame: np.ndarray, stamp: Any,
+                    onceden_olcekli: int = 1) -> None:
+        """İniş bölgesini işler ve sonuçları yayınlar.
+
+        `onceden_olcekli`: kare ZATEN bu oranda küçültülmüş geldiyse tekrar
+        küçültülmez. `fx` tam kare için hesaplandığından `radius_px` ve
+        kare boyutları o oranla geri büyütülür.
+        """
+        # ⚠️ `radius_px` TAM ÇÖZÜNÜRLÜK pikselinde olmak ZORUNDA: aşağıda
+        # `fx` ile metreye çevriliyor ve `fx` tam kare için hesaplanmış.
+        # Küçültülmüş karede bulunan yarıçap ölçekle geri büyütülmezse
+        # bölgenin metrik yarıçapı sessizce `olcek` katı küçük çıkardı.
+        # `image_x`/`image_y` normalize olduğu için ölçekten etkilenmez.
+        if onceden_olcekli > 1:
+            # Kare JPEG'den zaten bu oranda kucuk cozuldu.
+            zones = self._lz_detector.detect(frame)
+            uygulanan = onceden_olcekli
+        elif self._lz_olcek > 1 and frame.shape[1] // self._lz_olcek >= 64:
+            kucuk = cv2.resize(
+                frame,
+                (frame.shape[1] // self._lz_olcek,
+                 frame.shape[0] // self._lz_olcek),
+                interpolation=cv2.INTER_AREA)
+            zones = self._lz_detector.detect(kucuk)
+            uygulanan = self._lz_olcek
+        else:
+            zones = self._lz_detector.detect(frame)
+            uygulanan = 1
+        for z in zones:
+            z['radius_px'] = float(z['radius_px']) * uygulanan
 
         msg = LandingZoneDetection()
         msg.stamp = stamp
@@ -330,7 +490,11 @@ class VisionNode(Node):
 
         px, py, pz, heading_deg = self._my_pose
         height_m = max(-pz, self._zone_min_height_m)
-        h_px, w_px = frame.shape[0], frame.shape[1]
+        # ⚠️ TAM kare boyutu: `fx` tam cozunurluk icin hesaplandi. Kare
+        # kucultulmus geldiyse olcekle geri buyutuluyor, yoksa piksel->metre
+        # donusumu sessizce `uygulanan` kati saparadi.
+        h_px = frame.shape[0] * uygulanan
+        w_px = frame.shape[1] * uygulanan
 
         for z in zones:
             ned_x, ned_y = zone_offset_ned_m(
