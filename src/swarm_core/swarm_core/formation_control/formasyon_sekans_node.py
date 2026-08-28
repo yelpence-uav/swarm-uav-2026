@@ -40,6 +40,7 @@ karta firmware flash'ı gerektirirdi (bkz. KARARLAR.md KARAR-09 notu).
 """
 
 import rclpy
+from rcl_interfaces.msg import ParameterDescriptor
 from rclpy.node import Node
 from rclpy.qos import (
     DurabilityPolicy,
@@ -104,15 +105,21 @@ class FormasyonSekansNode(Node):
     def __init__(self) -> None:
         super().__init__('formasyon_sekans')
 
+        # SAYISAL SKALERLER dynamic_typing ile — sahada iki kez ölçülen
+        # tuzak (28 Ağu, sekans.log): `-p x:=90` YAML'da INTEGER'dır ve
+        # double bekleyen declare düğümü AÇILIŞTA öldürür. env üreticisi
+        # %g ile tam sayıları noktasız bastığı için bu her an tekrar
+        # edebilirdi; okuma tarafı zaten float() ile sarıyor.
+        _dnm = ParameterDescriptor(dynamic_typing=True)
         self.declare_parameter('agent_id', 1)
         self.declare_parameter('kadro', [1, 2, 3])
-        self.declare_parameter('aralik_m', 7.0)
-        self.declare_parameter('irtifa_m', 8.0)
+        self.declare_parameter('aralik_m', 7.0, _dnm)
+        self.declare_parameter('irtifa_m', 8.0, _dnm)
         # heading_otomatik=true: heading kalkış diziliminden türetilir
         # (PCA — cekirdek.otomatik_heading_deg) ve kuru testin haritada
         # gösterdiğiyle aynı kuraldır. false → heading_deg aynen alınır.
         self.declare_parameter('heading_otomatik', True)
-        self.declare_parameter('heading_deg', 0.0)
+        self.declare_parameter('heading_deg', 0.0, _dnm)
         # Varsayilanlar ucus_ayarlari.SEKANS_* ile AYNI TUTULUR; sahada
         # gecerli degerler baslat.sh'in env'inden gelir (tek kaynak).
         # 25/25/25 operator karari (28 Agu aksam) — kurulumun 25 sn'ye
@@ -125,27 +132,27 @@ class FormasyonSekansNode(Node):
         # parametrede tip belirsizligi yok; env degerleri zaten virgullu.
         self.declare_parameter('fazlar', 'cizgi,okbasi,v')
         self.declare_parameter('faz_sure_s', '25,25,25')
-        self.declare_parameter('yayin_hz', 2.0)
+        self.declare_parameter('yayin_hz', 2.0, _dnm)
         # Kalkış kapısı: hedef irtifanın bu oranına ulaşmak yeter.
         # 1.0 yapılmaz — EKF z ile origin irtifası arasında ~1 m fark
         # ölçüldü (26 Ağustos: tarif -8, gerçek 8,8-9,3 m).
-        self.declare_parameter('kalkis_esik_orani', 0.8)
-        self.declare_parameter('kalkis_zaman_asimi_s', 90.0)
+        self.declare_parameter('kalkis_esik_orani', 0.8, _dnm)
+        self.declare_parameter('kalkis_zaman_asimi_s', 90.0, _dnm)
         # Faz GEÇİŞİ ancak bütün kadro verisi tazeyken yapılır: körken
         # reshape başlatmak, kaçınmanın göremediği bir yakınlaşma
         # üretebilir. Tutma süresi tavanı aşarsa geçişler DONDURULUR
         # (mevcut formasyon güvenli, sekanssız devam tehlikeli değil).
-        self.declare_parameter('komsu_taze_s', 2.0)
-        self.declare_parameter('gecis_bekleme_tavani_s', 15.0)
+        self.declare_parameter('komsu_taze_s', 2.0, _dnm)
+        self.declare_parameter('gecis_bekleme_tavani_s', 15.0, _dnm)
         # İlk faz kurulumu rastgele dağılımdan toparlanır (uzun yol,
         # boş alan) — seyir hızına yakın. Sonraki geçişler dar geçitli
         # (OKBAŞI→V'de 4,95 m) — mission1'in QR morph'u gibi yavaş.
-        self.declare_parameter('kurulum_hiz_mps', 2.5)
-        self.declare_parameter('gecis_hiz_mps', 1.5)
+        self.declare_parameter('kurulum_hiz_mps', 2.5, _dnm)
+        self.declare_parameter('gecis_hiz_mps', 1.5, _dnm)
         # Macar maliyeti formation_node/köprü ile aynı geometriden
         # hesaplansın diye kanat açısı da aynı kaynaktan geçirilir
         # (baslat.sh KANAT_ALFA_DEG — üç tüketiciye de aynı değer gider).
-        self.declare_parameter('kanat_alfa_deg', 45.0)
+        self.declare_parameter('kanat_alfa_deg', 45.0, _dnm)
         # 🔴 YALNIZ G0 YER TESTİ: kalkış kapısının İRTİFA şartını atlar —
         # uçaklar yerdeyken (/ws/gozlem takılı, formation_node çıkışı uçağa
         # gitmez) tarif zinciri uçurulmadan ölçülebilsin. UÇUŞTA ASLA true

@@ -837,7 +837,11 @@ def _kabuk():
     print(f'SEKANS_KURULUM_HIZ={SEKANS_KURULUM_HIZ_MPS}')
     print(f'SEKANS_GECIS_HIZ={SEKANS_GECIS_HIZ_MPS}')
     print(f'SEKANS_KALKIS_ESIK={SEKANS_KALKIS_ESIK_ORANI}')
-    print(f'SEKANS_KALKIS_ZAMAN_ASIMI={SEKANS_KALKIS_ZAMAN_ASIMI_S:g}')
+    # :.1f, :g DEGIL — %g tam sayilari noktasiz basar ('90'), ros2 -p bunu
+    # INTEGER sayar ve double bekleyen declare dugumu oldurur (28 Agu,
+    # sahada olculdu). Dugum artik dynamic_typing ile toleransli ama
+    # uretici de duzgun bassin: ayni tuzaga baska tuketici dusmesin.
+    print(f'SEKANS_KALKIS_ZAMAN_ASIMI={SEKANS_KALKIS_ZAMAN_ASIMI_S:.1f}')
 
 
 def _px4():
