@@ -701,6 +701,15 @@ konteyner YENİDEN OLUŞTURULURSA GİDER**):
 | `python3-qrcode` | apt | ~50 KB | yalnız test için, kaldırılabilir |
 | `python3-pip` + **`zxing-cpp`** | pip `--break-system-packages` | ~5 MB | QR — **birincil** çözücü |
 
+**Yeniden oluşturmadan sonra tek komut** — elle kurmaya gerek yok:
+
+```bash
+./deploy/yki/drone_bul.sh ylp02 'bash ~/yelpence_ws/algi_kur.sh drone3'
+```
+
+`deploy/rpi/algi_kur.sh` neyin kurulu olduğunu kontrol eder, eksikse kurar
+ve sonunda hepsini import ederek doğrular. Zaten kuruluysa saniyeler sürer.
+
 `--no-install-recommends` bilinçli: recommends ile 1203 MB, onsuz 709 MB.
 Aradaki 494 MB `va-driver-all`/`vdpau-driver-all` gibi video hızlandırma
 sürücüleri, başsız konteynerde kullanılmıyor.
