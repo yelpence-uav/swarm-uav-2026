@@ -494,6 +494,27 @@ SEKANS_KALKIS_ESIK_ORANI = 0.8  # EKF z / origin farki ~1 m olculdu (26 Agu)
 SEKANS_KALKIS_ZAMAN_ASIMI_S = 90.0
 
 
+# =============================================================================
+# GOREV 2 — YARI OTONOM MOD LIMITLERI (mode_manager + joystick_interpreter)
+# =============================================================================
+# Sartname 5.2: tek kumandadan Suru Hareket Modu (oteleme) ve MANEVRA MODU
+# (merkez sabit; pitch/roll = formasyon DUZLEMI egimi, yaw = formasyon
+# rotasyonu + heading). Buradaki "egim" UCAGIN govde egimi DEGIL — slot
+# irtifa modulasyonu; MPC_TILTMAX_AIR ile karistirma.
+#
+# Onceden bu sayilar ModeContext/MotionLimits icinde GOMULUYDU (iki ayri
+# kopya: 30 vs 45 deg/s!) — 14 Agustos dersinin ayni sinifi. 28 Agustos'ta
+# tek kaynaga baglandi (KARAR-11).
+MOD_EGIM_TAVANI_DEG = 15.0     # manevra egim genligi (cubuk tam basili)
+# Yaw hizi PX4 tavaniyla AYNI kaynaktan: her ucak heading'ini de donduruyor
+# ve PX4 MPC_YAWRAUTO_MAX bunun ustunu SESSIZCE kirpar (23 Agu dersi).
+MOD_YAW_HIZI_DEG_S = PX4_DONUS_HIZI_DEG_S
+MOD_HIZ_MPS = 2.0              # hareket modu oteleme hizi (muhafazakar)
+MOD_ARALIK_M = 7.0             # varsayilan aralik — 28 Agu ucusuyla ayni;
+#                                hakem baska soylerse kumandadan degisir
+MOD_DEADMAN_ZAMAN_ASIMI_S = 0.5
+
+
 def _sekans_geometri():
     """Sekans gecislerinin en dar anlarini swarm_core'dan TEK KAYNAKLA verir.
 
@@ -853,6 +874,12 @@ def _kabuk():
     # uretici de duzgun bassin: ayni tuzaga baska tuketici dusmesin.
     print(f'SEKANS_KALKIS_ZAMAN_ASIMI={SEKANS_KALKIS_ZAMAN_ASIMI_S:.1f}')
     print(f'SEKANS_EVE_SURE={SEKANS_EVE_SURE_S:.1f}')
+    # Gorev 2 yari otonom mod (mode_manager + joystick_interpreter)
+    print(f'MOD_EGIM_TAVANI={MOD_EGIM_TAVANI_DEG:.1f}')
+    print(f'MOD_YAW_HIZI={MOD_YAW_HIZI_DEG_S:.1f}')
+    print(f'MOD_HIZ={MOD_HIZ_MPS:.1f}')
+    print(f'MOD_ARALIK={MOD_ARALIK_M:.1f}')
+    print(f'MOD_DEADMAN_ZAMAN_ASIMI={MOD_DEADMAN_ZAMAN_ASIMI_S:.1f}')
 
 
 def _px4():

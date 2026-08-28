@@ -13,7 +13,7 @@ from rclpy.qos import (
     ReliabilityPolicy,
 )
 
-from std_msgs.msg import UInt8
+from std_msgs.msg import Bool, UInt8
 
 from swarm_interfaces.msg import (
     AgentSetpoint,
@@ -296,6 +296,12 @@ class FormationControlNode(Node):
         self._prev_ramp_z: float | None = None
         # Aktif QR alt-adımı (mission_fsm yayınlar); MANEUVER'da çıkış susar.
         self._qr_step: int = 0
+        # Görev 2 manevra susturması (mode_manager yayınlar, 20 Hz).
+        self._mod_sustur: bool = False
+        self._mod_sustur_rx: float = 0.0
+        # 3 sn tazelenmezse bayrak DÜŞER: mode_manager ölürse formasyon
+        # sürücülüğe geri döner (bilinen-iyi zincir), uçak sahipsiz kalmaz.
+        self._mod_sustur_bayat_s: float = 3.0
         # Bu drone'un kendi FSM durumu; ayrılma/iniş durumlarında çıkış susar.
         self._agent_state: int = 0
 
@@ -358,6 +364,16 @@ class FormationControlNode(Node):
             UInt8,
             '/swarm/public/mission/qr_step',
             self._on_qr_step,
+            _RELIABLE_QOS,
+        )
+        # Görev 2 MANEVRA susturması (28 Ağu): mode_manager /raw'a kendisi
+        # yazarken bu bayrağı true basar — Görev 1'deki qr_step=MANEUVER
+        # kapısının Görev 2 karşılığı. Yayıncı ölürse sürücüsüz kalmamak
+        # için bayat-bırakma var (_publish_setpoint içindeki eşik).
+        self.create_subscription(
+            Bool,
+            '/swarm/internal/mode/formasyon_sustur',
+            self._on_mod_sustur,
             _RELIABLE_QOS,
         )
 
@@ -861,6 +877,11 @@ class FormationControlNode(Node):
         """mission_fsm'in yayınladığı aktif QR alt-adımını saklar."""
         self._qr_step = int(msg.data)
 
+    def _on_mod_sustur(self, msg: Bool) -> None:
+        """mode_manager'ın Görev 2 manevra susturma bayrağını saklar."""
+        self._mod_sustur = bool(msg.data)
+        self._mod_sustur_rx = self.get_clock().now().nanoseconds * 1e-9
+
     def _publish_setpoint(self) -> None:
         """Periyodik setpoint hesaplar ve AgentSetpoint yayınlar."""
         # MANEUVER adımında formasyon susar → /raw'a yalnız maneuver_executor
@@ -868,6 +889,19 @@ class FormationControlNode(Node):
         # korunduğu için bu susma yalnızca aktif manevra hareketi süresincedir.
         if self._qr_step == _QR_STEP_MANEUVER:
             return
+
+        # Görev 2 MANEVRA susturması: mode_manager /raw'a kendisi yazıyor.
+        # Bayat-bırakma: bayrak true ama 3 sn'dir tazelenmemişse yayıncı
+        # ölmüş demektir — formasyon sürücülüğe döner (uçak sahipsiz kalmaz).
+        if self._mod_sustur:
+            _simdi = self.get_clock().now().nanoseconds * 1e-9
+            if _simdi - self._mod_sustur_rx <= self._mod_sustur_bayat_s:
+                return
+            self._mod_sustur = False
+            self.get_logger().warn(
+                'mod susturmasi BAYAT (yayinci oldu mu?) — formasyon '
+                'surucu olarak devam ediyor',
+            )
 
         # Bu drone ayrılmış/iniş/rejoin durumundaysa formation sürücü değildir
         # (precision_landing veya agent_fsm/PX4). /raw'a yazma.

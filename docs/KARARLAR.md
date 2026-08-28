@@ -1,6 +1,6 @@
 # KARARLAR — verilmiş ama henüz uygulanmamış kararlar
 
-**Son güncelleme:** 28 Ağustos 2026, 19:55 — ✅ KARAR-10 UÇTU: beş faz uçakta, avoid=0, iniş kalkış noktalarına; sekans anahtarı silindi
+**Son güncelleme:** 28 Ağustos 2026, 20:40 — KARAR-11: Görev 2 manevra modunun 4 boşluğu kapatıldı (kod hazır, dağıtım+G0 operatör komutu bekliyor)
 
 Sohbette verilen kararlar oturum bitince kayboluyor. Bu defter onları
 tutuyor: **ne karar verildi, neden, ne zaman uygulanacak, nasıl test edilecek.**
@@ -31,6 +31,78 @@ sırası gelince" denilen şeyleri. Onlar en kolay kaybolanlar.
 `🔵 SIRASI GELDİ` — aşamaya ulaşıldı, uygulanacak
 `✅ UYGULANDI` — bitti, sonucu yazıldı
 `❌ VAZGEÇİLDİ` — gerekçesiyle
+
+---
+
+# KARAR-11 — Görev 2 manevra modu: dört boşluk kapatıldı, devreye alma bekliyor
+
+**Durum:** 🔵 **KOD HAZIR (28 Ağustos 2026, 20:40) — dağıtım + G0 + uçuş operatör komutu bekliyor**
+**Ne zaman:** Operatör "başla" deyince (uçaklar şarjda, dağıtım yapılamadı)
+**Karar veren:** Operatör (28 Ağustos 2026): şartname incelemesi + "4 boşluğu kapat sonra benden komut bekle"
+
+## Bağlam
+
+Şartname 5.2 (Görev 2, 100 puan) iki mod tanımlıyor: **Sürü Hareket Modu**
+(çubuklar = öteleme) ve **MANEVRA MODU** (merkez sabit; pitch/roll =
+formasyon DÜZLEMİ eğimi, yaw = formasyon rotasyonu + heading, throttle =
+toplu irtifa). Görev 1'in QR-tetikli pitch/roll eğim manevrası AYNI hareket
+ama otonom; karıştırılmayacak. "Eğim" uçağın gövdesini yatırmak DEĞİL —
+slot irtifa modülasyonu (Şekil 4). Ceza: osilasyon -10, çarpışma -20×N.
+
+Zincir zaten yazılmıştı (1685 satır mode_manager paketi + köprü TIP_KOMUT
+iki yönde + FlySky FS-i6X kanal eşlemeli joystick_interpreter) ama hiç
+koşmamıştı ve dört boşluğu vardı. 28 Ağu akşamı kapatıldı:
+
+## Kapatılan dört boşluk
+
+1. **`joystick` anahtarı eklendi** (`baslat.sh`) — 🔴 YALNIZ PİLOT
+   UÇAĞINDA açılır (üç uçakta açılırsa üç kumanda birden sürüye komut
+   basar). Düğümün KÖKSÜZ `/mavros/*` abonelikleri `/drone_N/mavros/*`'a
+   remap'lendi (remapsız sessizce veri gelmiyordu).
+2. **mode_manager çıkışı `/control/setpoint` → `/control/setpoint/raw`** —
+   eskisi kaçınmanın ÇIKIŞ konusuna yazıyordu (iki üretici + CA baypası).
+   Artık CA zorunlu aktarım katı olarak arada (formasyon zinciriyle aynı).
+   **+ formasyon susturması:** MANEVRA'da (ve eğik HOLD'da) mode_manager
+   `/swarm/internal/mode/formasyon_sustur` (Bool, 20 Hz) basar;
+   formation_node susar. 3 sn tazelenmezse bayrak DÜŞER (yayıncı ölürse
+   formasyon sürücülüğe döner — sahipsiz uçak yok). Görev 1'deki
+   qr_step=MANEUVER kapısının Görev 2 karşılığı.
+3. **Eğim matematiği tek kaynağa bağlandı:** `maneuver_mode` artık
+   `manual_kinematics.apply_tilt` kullanıyor. Eski kopya (a) ortalama
+   çıkarmıyordu → asimetrik formasyonda (okbaşı/V) bütün sürü kayıyordu —
+   Görev 1'de sahada ölçülmüş hatanın aynısı (14→10,5 m); (b) roll işareti
+   Görev 1 sözleşmesinin TERSİYDİ. İki regresyon testi kilitledi
+   (merkez-sabitliği + roll işareti); kumanda-çubuk yönünün son sözü
+   G0 işaret testinde.
+4. **Limitler `ucus_ayarlari` MOD_* bölümünde** (KARAR gerekçeleriyle):
+   eğim 15° · yaw **25°/s = PX4_DONUS_HIZI'ndan türetildi** (iki gömülü
+   kopya 30 ve 45 idi; PX4 MPC_YAWRAUTO_MAX üstünü sessizce kırpar) ·
+   hız 2,0 m/s · varsayılan aralık 7,0 m · deadman 0,5 s. `--kabuk` →
+   env → baslat.sh → her iki düğüm. `wing_alpha_deg` de paramlandı
+   (45.0 gömülüydü). Sayısal skalerler dynamic_typing (sekans dersi).
+
+`mod` anahtarına `formasyon` bağımlılık kapısı kondu (hareket modu tarifi
+formation_node uçurur). Testler: 11/11 (2 yeni regresyon dahil), denetim
+0 hata, bash -n temiz. Commit: bkz. git.
+
+## Bilinen açık uçlar (test planına girecek, kod değil)
+
+- Hareket modunda her uçağın mode_manager'ı centroid'i KENDİ tik'inde
+  entegre ediyor — uçaklar arası yavaş sürüklenme olasılığı G0/uçuşta
+  ölçülecek (sekanstaki gibi tek-yayıncı değil, hesap-herkeste deseni).
+- Kumanda→PX4→MAVROS→interpreter zincirinde `manual_control` mü `rc/in`
+  mi gerçekte akıyor — pilot uçağında G0'da ölçülecek (rc/in kanıtlı,
+  19 Hz; manual_control hiç ölçülmedi).
+- İşaret yönleri (çubuk ileri = ?) G0'da kilitlenecek.
+
+## Test merdiveni (KOMUT BEKLİYOR — uçaklar şarjda, dağıtılmadı)
+
+1. ⏳ Dağıtım (dagit.sh ×3 + env) — uçaklar açılınca
+2. ⏳ G0: `/ws/gozlem` + `mod`+`joystick`(yalnız pilot uçağı) aç,
+   kumandayla yerde: işaret yönleri, merkez sabitliği, deadman,
+   mod/formasyon anahtarları, susturma bayrağı
+3. ⏳ Uçuş A: ÇİZGİ'de yalnız pitch eğimi (simetrik, en güvenli tek soru)
+4. ⏳ Uçuş B: OKBAŞI/V eğim (asimetri) + yaw rotasyonu
 
 ---
 

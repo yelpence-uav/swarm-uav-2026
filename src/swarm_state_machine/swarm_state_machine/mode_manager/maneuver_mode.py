@@ -1,7 +1,38 @@
 # Copyright 2026 Yelpence
-"""Sürü manevra modu hesaplama modülü."""
+"""Sürü manevra modu hesaplama modülü (Görev 2, MANEVRA).
+
+EĞİM MATEMATİĞİ TEK KAYNAKTAN: `manual_kinematics.apply_tilt`. Bu modülün
+ilk yazımı kendi kopyasını taşıyordu ve o kopyada Görev 1 tarafında
+ÖLÇÜLEREK düzeltilen hata aynen duruyordu (apply_tilt docstring'i:
+asimetrik formasyonda — okbaşı/V — ham dz'nin ortalaması sıfır olmadığı
+için bütün sürü kayıyordu, 14→10,5 m ölçüldü). Ayrıca roll işareti
+Görev 1 sözleşmesinin TERSİYDİ (-oy·sin yerine +dy·tan olmalı: roll>0 =
+sağa yatış = sağdaki slot AŞAĞI). Şartname 5.2.2 "sürü merkezi sabit
+tutularak" diyor; ortalama-çıkarma o şartın kendisi.
+
+Kumanda-yön eşlemesinin (çubuk ileri = hangi işaret) son sözü yerde
+ölçülür — G0 işaret-yönü testi (komsu_adaptoru geleneği).
+"""
 
 import math
+
+from swarm_core.formation_control.manual_kinematics import apply_tilt
+
+
+def _egik_ofsetler(
+    formation_offsets: dict[int, tuple[float, float, float]],
+    pitch_deg: float,
+    roll_deg: float,
+) -> dict[int, tuple[float, float, float]]:
+    """Ofsetleri apply_tilt'ten geçirip kimliğe geri eşler.
+
+    Sıralama kimliğe göre SABİT: apply_tilt liste alır, ortalamayı
+    listeden çıkarır — çağrılar arasında sıra değişirse sonuç değişmez
+    ama okunabilirlik için deterministik tutuluyor.
+    """
+    sirali = sorted(formation_offsets.items())
+    egik = apply_tilt([ofs for _aid, ofs in sirali], pitch_deg, roll_deg)
+    return {aid: egik[i] for i, (aid, _ofs) in enumerate(sirali)}
 
 
 def compute_agent_setpoints(
@@ -27,36 +58,27 @@ def compute_agent_setpoints(
     target_pitch_deg = ctx.pitch_cmd * ctx.max_tilt_deg
     target_roll_deg = ctx.roll_cmd * ctx.max_tilt_deg
 
-    pitch_rad = math.radians(target_pitch_deg)
-    roll_rad = math.radians(target_roll_deg)
-    heading_rad = math.radians(new_heading)
+    egik = _egik_ofsetler(
+        formation_offsets, target_pitch_deg, target_roll_deg
+    )
 
+    heading_rad = math.radians(new_heading)
     cos_h = math.cos(heading_rad)
     sin_h = math.sin(heading_rad)
 
     setpoints = []
-
-    for agent_id, (ox, oy, oz) in formation_offsets.items():
+    for agent_id, (ox, oy, _oz) in formation_offsets.items():
         rx = ox * cos_h - oy * sin_h
         ry = ox * sin_h + oy * cos_h
-
-        forward_dist = ox
-        dz_pitch = forward_dist * math.sin(pitch_rad)
-
-        right_dist = oy
-        dz_roll = right_dist * math.sin(roll_rad)
-
-        target_x = ctx.centroid_x + rx
-        target_y = ctx.centroid_y + ry
-        target_z = (
-            ctx.centroid_z + oz + dz_throttle - dz_pitch - dz_roll
-        )
+        # Eğim yalnız z'yi modüle eder (apply_tilt xy'ye dokunmaz);
+        # merkez sabitliği apply_tilt'in ortalama-çıkarmasıyla garanti.
+        ez = egik[agent_id][2]
 
         setpoints.append({
             'agent_id': agent_id,
-            'x': target_x,
-            'y': target_y,
-            'z': target_z,
+            'x': ctx.centroid_x + rx,
+            'y': ctx.centroid_y + ry,
+            'z': ctx.centroid_z + ez + dz_throttle,
             'heading_deg': new_heading,
         })
 
@@ -76,34 +98,25 @@ def compute_hold_setpoints(
     Returns:
         list[dict]: Sabit konum İHA setpoint listesi.
     """
-    pitch_rad = math.radians(ctx.maneuver_pitch_deg)
-    roll_rad = math.radians(ctx.maneuver_roll_deg)
-    heading_rad = math.radians(ctx.formation_heading_deg)
+    egik = _egik_ofsetler(
+        formation_offsets, ctx.maneuver_pitch_deg, ctx.maneuver_roll_deg
+    )
 
+    heading_rad = math.radians(ctx.formation_heading_deg)
     cos_h = math.cos(heading_rad)
     sin_h = math.sin(heading_rad)
 
     setpoints = []
-
-    for agent_id, (ox, oy, oz) in formation_offsets.items():
+    for agent_id, (ox, oy, _oz) in formation_offsets.items():
         rx = ox * cos_h - oy * sin_h
         ry = ox * sin_h + oy * cos_h
-
-        forward_dist = ox
-        dz_pitch = forward_dist * math.sin(pitch_rad)
-
-        right_dist = oy
-        dz_roll = right_dist * math.sin(roll_rad)
-
-        target_x = ctx.centroid_x + rx
-        target_y = ctx.centroid_y + ry
-        target_z = ctx.centroid_z + oz - dz_pitch - dz_roll
+        ez = egik[agent_id][2]
 
         setpoints.append({
             'agent_id': agent_id,
-            'x': target_x,
-            'y': target_y,
-            'z': target_z,
+            'x': ctx.centroid_x + rx,
+            'y': ctx.centroid_y + ry,
+            'z': ctx.centroid_z + ez,
             'heading_deg': ctx.formation_heading_deg,
         })
 

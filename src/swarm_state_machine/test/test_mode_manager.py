@@ -136,6 +136,47 @@ class TestManeuverMode(unittest.TestCase):
         self.assertEqual(pitch_deg, 15.0)
         self.assertEqual(roll_deg, 0.0)
 
+    def test_maneuver_asimetrik_formasyonda_merkez_sabit(self):
+        """OKBAŞI-vari asimetrik ofsetlerde pitch, merkezi KAYDIRMAMALI.
+
+        İlk yazım ortalama çıkarmıyordu ve Görev 1 tarafında aynı hata
+        sahada ölçülmüştü (apply_tilt yorumu: sürü 14→10,5 m'ye kaydı).
+        Kilit: eğimli z'lerin ortalaması = centroid_z (net kayma 0).
+        """
+        ctx = ModeContext(agent_ids=[1, 2, 3])
+        ctx.centroid_z = -10.0
+        ctx.pitch_cmd = 1.0
+        ctx.max_tilt_deg = 15.0
+
+        # Okbaşı benzeri: lider önde, iki kanat GERİDE (dx<0) — asimetrik.
+        offsets = {1: (2.0, 0.0, 0.0), 2: (-2.0, -2.0, 0.0),
+                   3: (-2.0, 2.0, 0.0)}
+        setpoints, _h, _p, _r = compute_agent_setpoints(
+            ctx, dt=0.1, formation_offsets=offsets,
+        )
+        ort_z = sum(sp['z'] for sp in setpoints) / len(setpoints)
+        self.assertAlmostEqual(ort_z, -10.0, places=6)
+
+    def test_maneuver_roll_isareti_gorev1_sozlesmesi(self):
+        """roll>0 (sağa yatış) → SAĞDAKİ slot (oy>0) AŞAĞI (NED z artar).
+
+        İlk yazımın işareti Görev 1'de test edilip uçmuş apply_tilt
+        sözleşmesinin TERSİYDİ; birleşince kilitlendi. Kumanda-çubuk
+        eşlemesinin son sözü G0 işaret-yönü testinde.
+        """
+        ctx = ModeContext(agent_ids=[1, 2])
+        ctx.centroid_z = -10.0
+        ctx.roll_cmd = 1.0
+        ctx.max_tilt_deg = 15.0
+
+        offsets = {1: (0.0, 3.0, 0.0), 2: (0.0, -3.0, 0.0)}
+        setpoints, _h, _p, _r = compute_agent_setpoints(
+            ctx, dt=0.1, formation_offsets=offsets,
+        )
+        z = {sp['agent_id']: sp['z'] for sp in setpoints}
+        self.assertGreater(z[1], -10.0)   # sağdaki aşağı (down artar)
+        self.assertLess(z[2], -10.0)      # soldaki yukarı
+
     def test_maneuver_mode_compute_hold_setpoints(self):
         """compute_hold_setpoints fonksiyonunu doğrular."""
         ctx = ModeContext(agent_ids=[1])

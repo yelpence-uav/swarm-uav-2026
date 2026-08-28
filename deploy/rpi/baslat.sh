@@ -1233,11 +1233,60 @@ if [ -n "$SURU_DUGUMLERI" ]; then
     fi
 
     # ADIM 12 — Gorev 2 (yari otonom) mod yoneticisi.
+    #
+    # 🔴 'formasyon' SART: HAREKET modu tarifi formation_node ucurur;
+    # formation_node yoksa hareket modu sessizce bos kalir (sekans
+    # anahtarindaki kuralin aynisi). MANEVRA modunda mode_manager /raw'a
+    # kendisi yazar ve formation_node'u /swarm/internal/mode/
+    # formasyon_sustur bayragiyla susturur (28 Agu, KARAR-11).
     if acik mod; then
-        ros2 run swarm_state_machine mode_manager_node \
-            >> "$GUNLUK/mode_manager.log" 2>&1 &
+        if ! acik formasyon; then
+            echo "[baslat] HATA: 'mod' istendi ama 'formasyon' kapali —" \
+                 "hareket modunun tarifini ucuracak formation_node yok." \
+                 "mode_manager ACILMADI." | tee -a "$GUNLUK/mode_manager.log"
+        else
+            _MOD_KADRO="${SURU_KADRO:-1 2 3}"
+            _MOD_KADRO_ROS="[$(echo ${_MOD_KADRO} | tr ' ' ',')]"
+            ros2 run swarm_state_machine mode_manager_node --ros-args \
+                -p agent_ids:="${_MOD_KADRO_ROS}" \
+                -p default_spacing_m:=${MOD_ARALIK:-7.0} \
+                -p max_speed_mps:=${MOD_HIZ:-2.0} \
+                -p max_yaw_rate_deg_s:=${MOD_YAW_HIZI:-25.0} \
+                -p max_tilt_deg:=${MOD_EGIM_TAVANI:-15.0} \
+                -p wing_alpha_deg:=${KANAT_ALFA_DEG} \
+                >> "$GUNLUK/mode_manager.log" 2>&1 &
+            sleep 1
+            echo "[baslat] mode_manager_node basladi (Gorev 2:" \
+                 "egim=${MOD_EGIM_TAVANI:-15.0} deg," \
+                 "yaw=${MOD_YAW_HIZI:-25.0} deg/s, hiz=${MOD_HIZ:-2.0} m/s," \
+                 "aralik=${MOD_ARALIK:-7.0} m, kadro=${_MOD_KADRO})"
+        fi
+    fi
+
+    # Gorev 2 kumanda GIRIS ucu — joystick_interpreter.
+    #
+    # 🔴 YALNIZ PILOT UCAGINDA ACILIR (suru_dugumleri dosyasina 'joystick'
+    # yalniz o ucakta yazilir). Her ucagin kendi RC alicisi var; uc ucakta
+    # birden acilirsa UC kumanda birden mesh'e komut basar (kill-switch
+    # pilotlarinin cubuklari dahil) — coklu uretici kaosu. Sartname:
+    # "TEK bir joystick veya RC kumanda".
+    #
+    # Dugumun MAVROS abonelikleri KOKSUZ yazilmis (/mavros/rc/in) —
+    # sahadaki ad alani /drone_N/mavros: remap SART, yoksa hic veri
+    # gelmez ve HATA DA VERMEZ (TUZAKLAR'daki koksuz-ad sinifi).
+    if acik joystick; then
+        ros2 run swarm_state_machine joystick_interpreter_node --ros-args \
+            -p max_speed_mps:=${MOD_HIZ:-2.0} \
+            -p max_yaw_rate_deg_s:=${MOD_YAW_HIZI:-25.0} \
+            -p max_tilt_deg:=${MOD_EGIM_TAVANI:-15.0} \
+            -p deadman_timeout_s:=${MOD_DEADMAN_ZAMAN_ASIMI:-0.5} \
+            -r /mavros/rc/in:=/drone_${AGENT_ID}/mavros/rc/in \
+            -r /mavros/manual_control/control:=/drone_${AGENT_ID}/mavros/manual_control/control \
+            >> "$GUNLUK/joystick.log" 2>&1 &
         sleep 1
-        echo "[baslat] mode_manager_node basladi"
+        echo "[baslat] joystick_interpreter basladi — BU UCAK PILOT UCAGI:" \
+             "kumandasi tum suruyu surer (SwA emniyet, SwB mod," \
+             "SwC formasyon, SwD kalkis/inis)"
     fi
 
     # Gorev 1 orkestratoru. KARAR 10: her dronda kosar (sicak yedek).

@@ -1,6 +1,21 @@
 # YAPILACAKLAR
 
-**Son güncelleme:** 28 Ağustos 2026, 19:55 — ✅ formasyon geçiş testi UÇTU (P1.27-30 kapandı); kayıtlar dizüstünde; sekans anahtarı silindi
+**Son güncelleme:** 28 Ağustos 2026, 20:40 — Görev 2 manevra modu hazırlığı: 4 boşluk kapatıldı (KARAR-11), dağıtım+G0 komut bekliyor
+
+## 🎮 28 AĞUSTOS GECE — GÖREV 2 MANEVRA MODU (KARAR-11, kod HAZIR)
+
+Şartname 5.2 incelendi, mevcut zincir (mode_manager + joystick_interpreter
++ TIP_KOMUT mesh yolu) hazırmış; 4 boşluk kapatıldı — ayrıntı **KARAR-11**.
+Uçaklar şarjda olduğundan DAĞITILMADI; operatör komutu bekleniyor:
+
+- `[ ]` 🟠 **P1.31 — Dağıtım + G0** (uçaklar açılınca): env yenile +
+  dagit.sh ×3 + `/ws/gozlem` tak + `mod` anahtarı (3 uçak) + `joystick`
+  anahtarı (YALNIZ pilot uçağı) → kumandayla yerde: işaret yönleri,
+  merkez sabitliği, deadman, susturma bayrağı, mod/formasyon anahtarları.
+- `[ ]` 🟠 **P1.32 — Uçuş A:** ÇİZGİ'de yalnız pitch eğimi.
+- `[ ]` 🟠 **P1.33 — Uçuş B:** OKBAŞI/V eğim (asimetri) + yaw rotasyonu.
+- `[ ]` 🟡 P2 — hareket modunda uçaklar arası centroid sürüklenmesi
+  (hesap-herkeste deseni) G0/uçuş kaydından ölçülecek (KARAR-11 açık uç).
 
 ## ✅ 28 AĞUSTOS AKŞAMI — FORMASYON GEÇİŞ TESTİ UÇTU (KARAR-10 TAM)
 

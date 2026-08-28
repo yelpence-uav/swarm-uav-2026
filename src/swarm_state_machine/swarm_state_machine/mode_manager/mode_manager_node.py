@@ -13,7 +13,7 @@ from rclpy.qos import (
     ReliabilityPolicy,
 )
 
-from std_msgs.msg import UInt8
+from std_msgs.msg import Bool, UInt8
 
 from swarm_core.formation_control.formation_geometry import (
     compute_slot_offsets,
@@ -65,6 +65,12 @@ class ModeManagerNode(Node):
             agent_ids=self._agent_ids,
             sitl_mode=self._sitl_mode,
         )
+        # Limitleri ctx'e paramdan yaz (tek kaynak). Kumandadan gelen
+        # max_* alanlari > 0 ise _on_control_command yine EZEBILIR —
+        # o kanal hakem/pilot ayari icin bilerek acik birakildi.
+        self._ctx.max_speed_mps = self._max_speed_mps
+        self._ctx.max_yaw_rate_deg_s = self._max_yaw_rate_deg_s
+        self._ctx.max_tilt_deg = self._max_tilt_deg
 
         self._last_tick_time = time.monotonic()
         self._formation_offsets: dict[int, tuple[float, float, float]] = {}
@@ -85,10 +91,24 @@ class ModeManagerNode(Node):
 
     def _declare_params(self) -> None:
         """ROS2 parametrelerini tanimlar ve okur."""
+        # Sayisal skalerler dynamic_typing ile — formasyon_sekans'ta iki
+        # kez sahada olculen tuzak: `-p x:=90` YAML'da INTEGER'dir ve
+        # double bekleyen declare dugumu ACILISTA oldurur.
+        from rcl_interfaces.msg import ParameterDescriptor
+        _dnm = ParameterDescriptor(dynamic_typing=True)
         self.declare_parameter('agent_ids', [1, 2, 3])
-        self.declare_parameter('tick_hz', 20.0)
+        self.declare_parameter('tick_hz', 20.0, _dnm)
         self.declare_parameter('sitl_mode', False)
-        self.declare_parameter('default_spacing_m', 5.0)
+        # LIMITLER TEK KAYNAKTAN (ucus_ayarlari MOD_* -> baslat.sh env).
+        # Ilk yazimda ModeContext gomulu varsayilanlariyla kosuyordu —
+        # 14 Agustos dersinin ayni sinifi (MAKS_EGIM_DEG kazasi).
+        self.declare_parameter('default_spacing_m', 7.0, _dnm)
+        self.declare_parameter('max_speed_mps', 2.0, _dnm)
+        self.declare_parameter('max_yaw_rate_deg_s', 25.0, _dnm)
+        self.declare_parameter('max_tilt_deg', 15.0, _dnm)
+        # Slot geometrisi formation_node/kopru/sekans ile AYNI aci —
+        # eskiden asagida math.radians(45.0) GOMULUYDU.
+        self.declare_parameter('wing_alpha_deg', 45.0, _dnm)
 
         self._agent_ids = list(
             self.get_parameter('agent_ids').value
@@ -102,6 +122,18 @@ class ModeManagerNode(Node):
         self._default_spacing_m = float(
             self.get_parameter('default_spacing_m').value
         )
+        self._max_speed_mps = float(
+            self.get_parameter('max_speed_mps').value
+        )
+        self._max_yaw_rate_deg_s = float(
+            self.get_parameter('max_yaw_rate_deg_s').value
+        )
+        self._max_tilt_deg = float(
+            self.get_parameter('max_tilt_deg').value
+        )
+        self._wing_alpha_rad = math.radians(float(
+            self.get_parameter('wing_alpha_deg').value
+        ))
 
     def _init_default_offsets(self) -> None:
         """Varsayilan formasyon ofsetlerini olusturur."""
@@ -135,14 +167,33 @@ class ModeManagerNode(Node):
             _RELIABLE_QOS,
         )
 
+        # ÇIKIŞ /raw'A — /control/setpoint DEĞİL (28 Ağu düzeltmesi).
+        # /control/setpoint kaçınmanın ÇIKIŞ konusu; oraya yazmak
+        # collision_avoidance ile İKİ ÜRETİCİ çakışmasıydı (CLAUDE.md §4)
+        # ve manevra sırasında kaçınma katmanını BAYPAS ediyordu. /raw'a
+        # yazınca CA zorunlu aktarım katı olarak arada kalır (formasyon
+        # zinciriyle aynı yol). Her uçağın mode_manager'ı yalnız KENDİ
+        # uçağının konusunda tüketici bulur (ROS_LOCALHOST_ONLY);
+        # yabancı-id konuları yerel ve boş kalır.
         self._setpoint_pubs: dict[int, rclpy.publisher.Publisher] = {}
         for aid in self._agent_ids:
             pub = self.create_publisher(
                 AgentSetpoint,
-                f'/drone_{aid}/control/setpoint',
+                f'/drone_{aid}/control/setpoint/raw',
                 _BEST_EFFORT_QOS,
             )
             self._setpoint_pubs[aid] = pub
+
+        # MANEVRA/HOLD-eğik sırasında formation_node'u susturan bayrak.
+        # Görev 1'de aynı işi qr_step=MANEUVER yapıyor; Görev 2'de mission
+        # zinciri kapalı olduğundan bu kanal eklendi (28 Ağu). Bayrak her
+        # tick yayınlanır; formation_node 3 sn tazelenmezse KENDİLİĞİNDEN
+        # bırakır (mode_manager ölürse sürücüsüz kalınmasın).
+        self._sustur_pub = self.create_publisher(
+            Bool,
+            '/swarm/internal/mode/formasyon_sustur',
+            _RELIABLE_QOS,
+        )
 
     def _setup_subscribers(self) -> None:
         """Abone kanallarini olusturur."""
@@ -210,6 +261,18 @@ class ModeManagerNode(Node):
         ctx.rtl_requested = False
         ctx.emergency_stop_requested = False
         ctx.formation_change_requested = False
+
+        # formation_node susturması: mode_manager /raw'a KENDİSİ yazarken
+        # (MANEVRA her zaman; HOLD yalnız eğik pozdayken) formasyon susar,
+        # aksi hâlde formasyon sürücüdür (MOVEMENT tarif üzerinden gider).
+        sustur = Bool()
+        sustur.data = (
+            ctx.state == ModeState.MANEUVER
+            or (ctx.state in (ModeState.HOLD, ModeState.READY)
+                and (ctx.maneuver_pitch_deg != 0.0
+                     or ctx.maneuver_roll_deg != 0.0))
+        )
+        self._sustur_pub.publish(sustur)
 
     def _transition(self, new_state: ModeState) -> None:
         """Durum gecisini uygular."""
@@ -489,7 +552,10 @@ class ModeManagerNode(Node):
 
         if ftype in (FORMATION_OKBASI, FORMATION_V, FORMATION_CIZGI) and num_agents > 0:
             try:
-                alpha = math.radians(45.0)
+                # wing_alpha paramdan — 45.0 GOMULUYDU (28 Agu): formasyon
+                # zincirinin geri kalani KANAT_ALFA_DEG'i paylasirken bu
+                # dugum ayrisirsa slot geometrisi sessizce kayardi.
+                alpha = self._wing_alpha_rad
                 offsets = compute_slot_offsets(ftype, num_agents, spacing, alpha)
                 msg.offset_x = [float(o[0]) for o in offsets]
                 msg.offset_y = [float(o[1]) for o in offsets]
