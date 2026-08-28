@@ -153,6 +153,23 @@ class FormasyonSekansNode(Node):
         # hesaplansın diye kanat açısı da aynı kaynaktan geçirilir
         # (baslat.sh KANAT_ALFA_DEG — üç tüketiciye de aynı değer gider).
         self.declare_parameter('kanat_alfa_deg', 45.0, _dnm)
+        # EVE DÖNÜŞ FAZI (operatör isteği, 28 Ağu akşam): son adlandırılmış
+        # fazdan sonra her uçak KENDİ kalkış noktasına (t0'da kaydedilen
+        # ölçülmüş konum) döner ve orada asılı kalır; inişi YKİ verir.
+        #
+        # 🔴 PX4 RTL DEĞİL — bilerek: HOME kayması P0 açık (26 Ağu: RTL üç
+        # uçağı AYNI yanlış noktaya indirdi). Burada PX4 home'una hiç
+        # bakılmıyor; hedef, mesh'ten ölçülen ortak-NED kalkış konumu.
+        #
+        # Mekanizma: tek-ajanlı CUSTOM FormationCommand (agent_ids=[ben],
+        # ofset 0, merkez=kendi kalkış noktası). LİDER KAPISIZ — her uçak
+        # YALNIZ KENDİNİ komutlar, kendi tarifне kopru yerel aktarımıyla
+        # kendi formation_node'una gider; başka uçağa komut çıkmaz (mesh'e
+        # sızan liderinki agent_ids süzgecine takılır). Üç ajanlı CUSTOM'ın
+        # bilinen mesh kusuru (çift ofset paketi, 50 ms tip limiti) tek
+        # ajanda yok: başlık 0x11 + tek ofset 0x13 — farklı tipler, geçer.
+        self.declare_parameter('eve_donus', True)
+        self.declare_parameter('eve_sure_s', 25.0, _dnm)
         # 🔴 YALNIZ G0 YER TESTİ: kalkış kapısının İRTİFA şartını atlar —
         # uçaklar yerdeyken (/ws/gozlem takılı, formation_node çıkışı uçağa
         # gitmez) tarif zinciri uçurulmadan ölçülebilsin. UÇUŞTA ASLA true
@@ -201,8 +218,14 @@ class FormasyonSekansNode(Node):
         # FSM ise G0'da CALISMAK ZORUNDA: AgentStatus'un yayincisi o
         # (agent_fsm_node.py:122) — ilk denemede oldurulunce butun durum
         # zinciri sustu ve kalkis kapisi 'veri HIC gelmedi' dedi.
+        self._eve_donus = bool(gp('eve_donus').value)
+        self._eve_sure_s = float(gp('eve_sure_s').value)
+
         self._durum = _HAZIRLIK if self._irtifa_atla else _BEKLEME
         self._olay_t: float | None = None
+        # t0'da dondurulur; EVE fazının hedefi (uçak başına kalkış yeri).
+        self._kalkis_konumlari: dict[int, tuple[float, float]] | None = None
+        self._evede = False
         self._t0: float | None = None
         self._merkez: tuple[float, float] | None = None
         self._faz_idx = 0
@@ -262,12 +285,16 @@ class FormasyonSekansNode(Node):
         self.create_timer(1.0 / self._yayin_hz, self._tick)
 
         adlar = ' -> '.join(cek.tip_adi(t) for t, _s in self._plan)
+        if self._eve_donus:
+            adlar += ' -> EVE'
+        toplam = cek.toplam_sure_s(self._plan) + (
+            self._eve_sure_s if self._eve_donus else 0.0
+        )
         self.get_logger().info(
             f'formasyon_sekans hazir (GECICI TEST APARATI): kadro='
             f'{self._kadro} aralik={self._aralik_m} m irtifa='
             f'{self._irtifa_m} m sekans=[{adlar}] toplam='
-            f'{cek.toplam_sure_s(self._plan):.0f} s — '
-            f'guided ARM olayi bekleniyor'
+            f'{toplam:.0f} s — guided ARM olayi bekleniyor'
         )
 
     # ------------------------------------------------------------------
@@ -364,6 +391,10 @@ class FormasyonSekansNode(Node):
 
     def _sekansi_baslat(self, simdi: float) -> None:
         konumlar = self._konumlar_xy()
+        # EVE fazının hedefi: t0'daki konumlar = kalkış noktalarının üstü
+        # (uçaklar guided kalkışta yatayda kımıldamaz). PX4 home'undan
+        # BAĞIMSIZ — HOME kayması P0'ına dokunmuyor.
+        self._kalkis_konumlari = dict(konumlar)
         self._merkez = cek.agirlik_merkezi(konumlar)
         if self._heading_otomatik:
             self._heading_deg = cek.otomatik_heading_deg(konumlar)
@@ -385,17 +416,41 @@ class FormasyonSekansNode(Node):
 
     # ------------------------------------------------------------------
     def _sekans_tik(self, simdi: float) -> None:
+        if self._evede:
+            if simdi - self._faz_bas >= self._eve_sure_s:
+                self._durum = _BITTI
+                self.get_logger().info(
+                    'SEKANS BITTI — yayin durdu. Ucaklar KALKIS '
+                    'noktalarinin ustunde asili (EVE fazi); inis '
+                    'YKI/kumandadan, oldugu yere.'
+                )
+                return
+            self._eve_yayinla()
+            return
         tip, sure = self._plan[self._faz_idx]
         if simdi - self._faz_bas >= sure and not self._gecisler_donduruldu:
             if self._faz_idx + 1 >= len(self._plan):
-                self._durum = _BITTI
-                self.get_logger().info(
-                    'SEKANS BITTI — yayin durdu. Ucaklar son formasyonda '
-                    'asili (formation_node son tarifi tutar); inis '
-                    'YKI/kumandadan.'
-                )
-                return
-            if self._gecise_izin_var(simdi):
+                if self._eve_donus and self._gecise_izin_var(simdi):
+                    self._evede = True
+                    self._faz_bas = simdi
+                    self.get_logger().info(
+                        f'FAZ GECISI -> EVE (t0+{simdi - self._t0:.0f} s): '
+                        f'her ucak KENDI kalkis noktasina donuyor '
+                        f'(hedefim: {self._kalkis_konumlari.get(self._agent_id)})'
+                    )
+                    self._eve_yayinla()
+                    return
+                if not self._eve_donus:
+                    self._durum = _BITTI
+                    self.get_logger().info(
+                        'SEKANS BITTI — yayin durdu. Ucaklar son '
+                        'formasyonda asili; inis YKI/kumandadan.'
+                    )
+                    return
+                # eve istendi ama veri bayat: tazelenene ya da tavana kadar
+                # mevcut fazda bekle (adlandirilmis gecislerle ayni kural).
+            if self._faz_idx + 1 < len(self._plan) and \
+                    self._gecise_izin_var(simdi):
                 self._faza_gec(simdi)
             elif (self._gecis_bekleme_bas is not None
                     and simdi - self._gecis_bekleme_bas
@@ -446,6 +501,47 @@ class FormasyonSekansNode(Node):
         )
 
     # ------------------------------------------------------------------
+    def _eve_yayinla(self) -> None:
+        """EVE fazı: tek-ajanlı CUSTOM — her uçak YALNIZ KENDİNİ komutlar.
+
+        Bilerek LİDER KAPISIZ (parametre bloğundaki gerekçe): komut yalnız
+        kendi agent_id'sini taşıdığı için başka uçağın formation_node'u
+        onu süzer; çakışma fiziksel olarak imkânsız. Kendi uçağına ulaşım
+        yolu ic_dis_kopru'nun yerel internal→public aktarımı.
+        """
+        hedef = (self._kalkis_konumlari or {}).get(self._agent_id)
+        if hedef is None:
+            self.get_logger().error(
+                'EVE fazi: kalkis konumum kayitli degil — yayin yok, '
+                'ucak son formasyon slotunda asili kalir',
+                throttle_duration_sec=10.0,
+            )
+            return
+        msg = FormationCommand()
+        msg.stamp = self.get_clock().now().to_msg()
+        msg.sequence_num = self._seq
+        self._seq += 1
+        msg.formation_type = FormationCommand.FORMATION_CUSTOM
+        msg.center_x = float(hedef[0])
+        msg.center_y = float(hedef[1])
+        msg.center_z = -abs(self._irtifa_m)
+        msg.heading_deg = float(self._heading_deg)
+        msg.spacing_m = float(self._aralik_m)
+        msg.use_current_centroid = False
+        msg.use_current_altitude = False
+        msg.rotate_towards_target = False
+        msg.hold_after_reached = True
+        msg.agent_ids = [int(self._agent_id)]
+        msg.offset_x = [0.0]
+        msg.offset_y = [0.0]
+        msg.offset_z = [0.0]
+        msg.position_tolerance_m = 0.0
+        msg.heading_tolerance_deg = 0.0
+        msg.timeout_sec = 0.0
+        msg.max_speed_mps = self._gecis_hiz
+        msg.source_module = 'formasyon_sekans_eve'
+        self._cmd_pub.publish(msg)
+
     def _yayinla(self, simdi: float) -> None:
         # LİDER KAPISI (üretici tarafı — dosya başlığındaki gerekçe).
         # Durum makinesi yukarıda zaten ilerledi; susan yalnız yayın.

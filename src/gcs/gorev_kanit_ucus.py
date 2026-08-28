@@ -1363,6 +1363,185 @@ def harita_yaz(plan, merkez0, origin, dosya, t=None):
     print(f"  Tarayicida ac:  xdg-open {dosya}")
 
 
+_HARITA_SEKANS_SABLON = """<!doctype html>
+<html lang="tr"><head><meta charset="utf-8">
+<title>Yelpence - formasyon gecis</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>html,body,#h{height:100%%;margin:0}
+.bilgi{position:absolute;z-index:1000;top:10px;left:50px;background:#fffd;
+padding:8px 12px;font:13px system-ui;border-radius:6px;box-shadow:0 1px 6px #0006;max-width:340px}
+.fazEt{background:#fff;border:none;font:700 12px system-ui;border-radius:4px;
+box-shadow:0 1px 4px #0007;padding:2px 6px}
+.kalkEt{background:#e0342c;color:#fff;border:none;font:700 12px system-ui;
+box-shadow:0 1px 4px #0007}
+.kalkEt::before{border-bottom-color:#e0342c}
+</style></head><body>
+<div class="bilgi">%(ozet)s</div>
+<div id="h"></div><script>
+var m=L.map('h');
+// maxNativeZoom 18 SART: Esri z19+ icin bu bolgede yer tutucu donduruyor.
+var uydu=L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+ {maxZoom:22,maxNativeZoom:18,attribution:'Esri'}).addTo(m);
+var clarity=L.tileLayer('https://clarity.maptiles.arcgis.com/arcgis/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+ {maxZoom:22,maxNativeZoom:19,attribution:'Esri Clarity'});
+var fazlar=%(fazlar)s;   // [{ad,renk,etiket_konum:[la,lo],slotlar:[[did,la,lo],..]},..]
+var kalkis=%(kalkis)s;   // [[did,la,lo],..]  kalkis = INIS
+var yollar=%(yollar)s;   // [{did,noktalar:[[la,lo],..]},..]
+var simdiki=%(simdiki)s; // [[etiket,la,lo],..]
+var zarfKose=%(zarf_kose)s; // [[la,lo] x4] tampon dikdortgen
+var hepsi=[];
+
+// FAZ SEKILLERI — faz basina TEK renk, slotlar ince cizgiyle bagli,
+// kalici etiket yalniz faz merkezinde (1 CIZGI / 2 OK BASI / ...).
+var gFaz=L.layerGroup().addTo(m);
+fazlar.forEach(function(f){
+  var pts=f.slotlar.map(function(s){return [s[1],s[2]]});
+  pts.forEach(function(p){hepsi.push(p)});
+  L.polyline(pts,{color:f.renk,weight:3,opacity:0.9}).addTo(gFaz);
+  f.slotlar.forEach(function(s){
+    L.circleMarker([s[1],s[2]],{radius:6,color:'#fff',weight:2,
+      fillColor:f.renk,fillOpacity:1}).addTo(gFaz)
+     .bindTooltip('d'+s[0]+' · '+f.ad,{direction:'top'});
+  });
+  L.marker(f.etiket_konum,{opacity:0}).addTo(gFaz)
+   .bindTooltip(f.etiket,{permanent:true,direction:'center',
+     className:'fazEt'});
+});
+
+// UCAK YOLLARI — gri kesikli; kimin oldugu uzerine gelince.
+var gYol=L.layerGroup().addTo(m);
+yollar.forEach(function(y){
+  L.polyline(y.noktalar,{color:'#555',weight:1.5,dashArray:'4,6',
+    opacity:0.8}).addTo(gYol).bindTooltip('d'+y.did+' yolu');
+});
+
+// KALKIS = INIS — kirmizi hedef isareti + 5 m bos-alan dairesi (gercek
+// metre; yakinlastirinca buyumez, uydudaki engelle dogrudan kiyaslanir).
+var gKalk=L.layerGroup().addTo(m);
+kalkis.forEach(function(s){
+  hepsi.push([s[1],s[2]]);
+  L.circle([s[1],s[2]],{radius:5,color:'#e0342c',weight:2,
+    fillColor:'#e0342c',fillOpacity:0.12}).addTo(gKalk);
+  L.circleMarker([s[1],s[2]],{radius:9,color:'#fff',weight:3,
+    fillColor:'#e0342c',fillOpacity:1}).addTo(gKalk)
+   .bindTooltip('d'+s[0]+' KALKIŞ+İNİŞ',{permanent:true,
+     direction:'bottom',offset:[0,10],className:'kalkEt'});
+});
+
+// SU ANKI KONUM (turuncu) — altlik kaymasini gozle olcmek icin.
+var gSimdi=L.layerGroup().addTo(m);
+simdiki.forEach(function(p){
+  L.circleMarker([p[1],p[2]],{radius:6,color:'#000',weight:1.5,
+    fillColor:'#ff9f0a',fillOpacity:0.95}).addTo(gSimdi)
+   .bindTooltip(p[0]);
+});
+
+// GUVENLIK ZARFI — nokta basina daire YERINE tum alani saran TEK
+// dikdortgen (butun faz slotlari + kacis payi). Ici bos olmali.
+var gZarf=L.layerGroup().addTo(m);
+L.polygon(zarfKose,{color:'#ffd60a',weight:2.5,dashArray:'8,6',
+  fill:false}).addTo(gZarf);
+zarfKose.forEach(function(p){hepsi.push(p)});
+
+L.control.layers({'Uydu (Esri)':uydu,'Uydu (Clarity)':clarity},
+ {'Faz şekilleri':gFaz,'Uçak yolları':gYol,'Kalkış/İNİŞ':gKalk,
+  'Şu anki konum':gSimdi,'Güvenlik zarfı':gZarf},
+ {collapsed:false}).addTo(m);
+L.control.scale({metric:true,imperial:false,maxWidth:220}).addTo(m);
+m.fitBounds(L.latLngBounds(hepsi).pad(0.6),{maxZoom:20});
+</script></body></html>
+"""
+
+_SEKANS_FAZ_RENKLERI = ("#0a84ff", "#b57500", "#af52de", "#1f9d4d")
+
+
+def harita_yaz_sekans(plan, origin, dosya, t=None):
+    """formasyon_gecis icin OKUNAKLI harita — genel harita_yaz yerine.
+
+    Genel harita bu senaryoda karisiyordu (28 Agu operator geri bildirimi):
+    dort fazin noktalari ayni bolgeye ust uste dusuyor, her noktaya kalici
+    etiket + zarf dairesi binince okunmaz oluyordu. Burada:
+      * faz basina TEK renk ve TEK kalici etiket (slot adlari hover'da)
+      * ucak yollari ince gri kesikli (kim nereden nereye — hover)
+      * kalkis=INIS tek kirmizi isaret (eve donusuyle ayni nokta)
+      * zarf: nokta basina daire yerine tum alani saran TEK dikdortgen
+      * katman denetimiyle her grup ac/kapa
+    """
+    if origin is None:
+        print("  harita: origin turetilemedi, atlandi")
+        return
+    import json as _j
+    fazlar = []
+    for i, adim in enumerate(plan):
+        etiket, _h, hedefler = adim[0], adim[1], adim[2]
+        ad = etiket.split(" (")[0]
+        renk = _SEKANS_FAZ_RENKLERI[i % len(_SEKANS_FAZ_RENKLERI)]
+        slotlar = []
+        for did in sorted(hedefler):
+            la, lo = ned_to_latlon(origin, hedefler[did][0], hedefler[did][1])
+            slotlar.append([did, la, lo])
+        mk = sum(hedefler[d][0] for d in hedefler) / len(hedefler)
+        md = sum(hedefler[d][1] for d in hedefler) / len(hedefler)
+        ela, elo = ned_to_latlon(origin, mk, md)
+        fazlar.append({"ad": ad, "renk": renk, "etiket": f"{i + 1} {ad}",
+                       "etiket_konum": [ela, elo], "slotlar": slotlar})
+    # Kalkis = son adim (EVE) hedefleri = inis yerleri.
+    kalkis = []
+    if plan:
+        for did in sorted(plan[-1][2]):
+            h = plan[-1][2][did]
+            la, lo = ned_to_latlon(origin, h[0], h[1])
+            kalkis.append([did, la, lo])
+    # Ucak basina yol: kalkis -> her fazin slotu (sirali).
+    yollar = []
+    for did in DRONELAR:
+        noktalar = []
+        for k in kalkis:
+            if k[0] == did:
+                noktalar.append([k[1], k[2]])
+        for adim in plan:
+            h = adim[2][did]
+            la, lo = ned_to_latlon(origin, h[0], h[1])
+            noktalar.append([la, lo])
+        yollar.append({"did": did, "noktalar": noktalar})
+    simdiki = []
+    for did, d in sorted((t or {}).items()):
+        if not d.get("connected") or abs(d.get("lat", 0.0)) < 0.001:
+            continue
+        la, lo = ned_to_latlon(origin, d["pos_x"], d["pos_y"])
+        simdiki.append([f"d{did} şu an", la, lo])
+    # Zarf dikdortgeni: butun plan noktalarinin NED bbox'u + kacis payi.
+    zarf = AYAR.KACINMA_ZARF_YANAL_M
+    ks = [h[0] for adim in plan for h in adim[2].values()]
+    ds = [h[1] for adim in plan for h in adim[2].values()]
+    kmin, kmax = min(ks) - zarf, max(ks) + zarf
+    dmin, dmax = min(ds) - zarf, max(ds) + zarf
+    zarf_kose = [list(ned_to_latlon(origin, kk, dd))
+                 for kk, dd in ((kmax, dmin), (kmax, dmax),
+                                (kmin, dmax), (kmin, dmin))]
+    ozet = (f"<b>Formasyon geçiş testi</b> — aralık "
+            f"{AYAR.SEKANS_ARALIK_M:.1f} m · irtifa "
+            f"{AYAR.SEKANS_IRTIFA_M:.0f} m<br>"
+            + " → ".join(f"<span style='color:{f['renk']}'><b>{f['ad']}"
+                         f"</b></span>" for f in fazlar) + "<br>"
+            f"<span style='color:#e0342c'><b>KIRMIZI = kalkış VE iniş"
+            f"</b></span> (eve dönüş; 5 m daire boş olmalı)<br>"
+            f"<span style='color:#c7a500'><b>SARI çerçeve</b></span> = "
+            f"uçuş alanı + {zarf:.0f} m kaçış payı — İÇİ tamamen boş "
+            f"olmalı (kod engel görmez); dikeyde +"
+            f"{AYAR.KACINMA_KATMAN_M:.0f} m<br>"
+            f"gri kesikli = uçak yolları · turuncu = şu anki yer "
+            f"(altlık kayması buradan ölçülür)")
+    pathlib.Path(dosya).write_text(
+        _HARITA_SEKANS_SABLON % {
+            "fazlar": _j.dumps(fazlar), "kalkis": _j.dumps(kalkis),
+            "yollar": _j.dumps(yollar), "simdiki": _j.dumps(simdiki),
+            "zarf_kose": _j.dumps(zarf_kose), "ozet": ozet},
+        encoding="utf-8")
+    print(f"\n=== HARITA YAZILDI (sekans gorunumu) ===\n  {dosya}")
+
+
 def ayak_izi_yaz(plan, merkez0):
     """Kalkis noktasina gore HANGI YONDE NE KADAR yer gerektigini yazar.
 
@@ -2199,6 +2378,21 @@ def plan_kur_formasyon_gecis(t):
         plan.append((f"{ad.upper()} formasyonu ({sure:.0f} s) [UCAKTA]",
                      heading, hedefler, True))
         poz = {did: dunya[did] for did in DRONELAR}
+    # EVE DONUS (operator istegi, 28 Agu): her ucak KENDI kalkis noktasina.
+    # PX4 RTL DEGIL — HOME kaymasi P0. Atama SABIT (herkes kendi yerine),
+    # Macar yok; plan_dogrula V->EVE yollarinin kesisip kesismedigini
+    # OLCUYOR — kesisiyorsa SONUC: KALDI der ve ucaklar yeniden dizilir.
+    eve_hedefler = {did: (konumlar[did][0], konumlar[did][1],
+                          AYAR.SEKANS_IRTIFA_M) for did in DRONELAR}
+    en_uzun = max(math.hypot(eve_hedefler[d][0] - poz[d][0],
+                             eve_hedefler[d][1] - poz[d][1])
+                  for d in DRONELAR)
+    tahmin = en_uzun / max(0.1, 0.7 * AYAR.SEKANS_GECIS_HIZ_MPS) + 6.0
+    isaret = "" if tahmin <= AYAR.SEKANS_EVE_SURE_S else "  ⚠️ SUREYE SIGMIYOR"
+    print(f"  faz eve     en uzun yol {en_uzun:5.1f} m  ~{tahmin:4.0f} s"
+          f"  (butce {AYAR.SEKANS_EVE_SURE_S:.0f} s){isaret}")
+    plan.append((f"EVE DONUS ({AYAR.SEKANS_EVE_SURE_S:.0f} s) [UCAKTA]",
+                 heading, eve_hedefler, True))
     return plan
 
 
@@ -2212,14 +2406,18 @@ def _formasyon_gecis_izle(kuru: bool, kalan) -> int:
     Inis GUVENLIGI: butun fazlarin slotlari kuru testte dogrulandi ve
     haritada gosterildi; sekans hangi fazda donarsa donsun ucaklar
     onceden onaylanmis bir dizilisin ustunde asilidir — "suresi doldu,
-    oldugu yerde indir" bu yuzden guvenli.
+    oldugu yerde indir" bu yuzden guvenli. Normal akista son faz EVE:
+    ucaklar KENDI kalkis noktalarinin ustunde ve inis oraya olur.
     """
-    toplam = sum(AYAR.SEKANS_FAZ_SURE_S) + SEKANS_IZLEME_PAY_S
+    toplam = (sum(AYAR.SEKANS_FAZ_SURE_S) + AYAR.SEKANS_EVE_SURE_S
+              + SEKANS_IZLEME_PAY_S)
     sinirlar = []
     biriken = 0.0
     for ad, sure in zip(AYAR.SEKANS_FAZLAR, AYAR.SEKANS_FAZ_SURE_S):
         biriken += sure
         sinirlar.append((biriken, ad))
+    biriken += AYAR.SEKANS_EVE_SURE_S
+    sinirlar.append((biriken, 'eve'))
     print(f"\n=== SEKANS UCAKTA KOSUYOR — {toplam:.0f} s izlenecek, "
           f"gecis komutu YKI'den GONDERILMEZ ===")
     print("    beklenen akis: " + "  ".join(
@@ -2811,7 +3009,10 @@ def gorev(kuru: bool) -> int:
     _org = _origin_bul(t)
     koordinat_yaz(plan, merkez0, _org)
     if _HARITA_DOSYA:
-        harita_yaz(plan, merkez0, _org, _HARITA_DOSYA, t)
+        if _SENARYO == "formasyon_gecis":
+            harita_yaz_sekans(plan, _org, _HARITA_DOSYA, t)
+        else:
+            harita_yaz(plan, merkez0, _org, _HARITA_DOSYA, t)
     if not plan_dogrula(plan, baslangic):
         return 1
     if kuru:
@@ -3493,8 +3694,10 @@ def main() -> int:
               f"   aralık {AYAR.SEKANS_ARALIK_M:.1f} m (senaryoya özgü — "
               f"filo ARALIK_M {ARALIK_M:.0f} m DEĞİL)")
         print("  sekans: " + " -> ".join(AYAR.SEKANS_FAZLAR)
+              + " -> EVE(kalkış yerine dönüş)"
               + "   süreler: " + ", ".join(f"{s:g}s"
                                            for s in AYAR.SEKANS_FAZ_SURE_S)
+              + f" + eve {AYAR.SEKANS_EVE_SURE_S:g}s"
               + f"   izleme payı {SEKANS_IZLEME_PAY_S:.0f}s")
         print("  GEÇİŞLER UÇAKTA (formasyon_sekans düğümü) — YKİ yalnız "
               "arm+takeoff verir, izler, sonda indirir")

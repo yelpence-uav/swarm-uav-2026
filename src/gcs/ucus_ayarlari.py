@@ -480,6 +480,10 @@ SEKANS_FAZLAR = ('cizgi', 'okbasi', 'v')
 SEKANS_FAZ_SURE_S = (25.0, 25.0, 25.0)
 SEKANS_KURULUM_HIZ_MPS = 2.5   # ilk faz: bos alanda uzun yol, seyire yakin
 SEKANS_GECIS_HIZ_MPS = 1.5     # reshape: dar gecit, mission1'in morph'u gibi yavas
+# EVE DONUS fazi (operator istegi, 28 Agu aksam): V'den sonra her ucak
+# KENDI olculmus kalkis noktasina doner, inis oraya olur. PX4 RTL DEGIL —
+# HOME kaymasi P0 acik (RTL uc ucagi ayni yanlis noktaya indirmisti).
+SEKANS_EVE_SURE_S = 25.0
 SEKANS_KALKIS_ESIK_ORANI = 0.8  # EKF z / origin farki ~1 m olculdu (26 Agu)
 SEKANS_KALKIS_ZAMAN_ASIMI_S = 90.0
 
@@ -842,6 +846,7 @@ def _kabuk():
     # sahada olculdu). Dugum artik dynamic_typing ile toleransli ama
     # uretici de duzgun bassin: ayni tuzaga baska tuketici dusmesin.
     print(f'SEKANS_KALKIS_ZAMAN_ASIMI={SEKANS_KALKIS_ZAMAN_ASIMI_S:.1f}')
+    print(f'SEKANS_EVE_SURE={SEKANS_EVE_SURE_S:.1f}')
 
 
 def _px4():

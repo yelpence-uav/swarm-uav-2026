@@ -1086,6 +1086,7 @@ if [ -n "$SURU_DUGUMLERI" ]; then
                 -p gecis_hiz_mps:=${SEKANS_GECIS_HIZ:-1.5} \
                 -p kalkis_esik_orani:=${SEKANS_KALKIS_ESIK:-0.8} \
                 -p kalkis_zaman_asimi_s:=${SEKANS_KALKIS_ZAMAN_ASIMI:-90.0} \
+                -p eve_sure_s:=${SEKANS_EVE_SURE:-25.0} \
                 -p kanat_alfa_deg:=${KANAT_ALFA_DEG} \
                 >> "$GUNLUK/sekans.log" 2>&1 &
             sleep 1

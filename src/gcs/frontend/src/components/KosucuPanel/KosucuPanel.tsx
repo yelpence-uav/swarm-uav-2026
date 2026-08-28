@@ -59,9 +59,9 @@ export function KosucuPanel() {
         ? "FORMASYON GEÇİŞ TESTİ (GERÇEK UÇUŞ, 3 uçak) başlatılacak.\n\n" +
           "• Üç uçakta da suru_dugumleri içinde `sekans` açık mı?\n" +
           "• KURU test geçti ve HARİTA gözle doğrulandı mı?\n" +
-          "  (iniş noktaları = SON formasyonun slotları — kalkış yeri DEĞİL)\n" +
+          "  (çizgi→ok→V→EVE: iniş = KALKIŞ noktaları, eve dönüş fazı)\n" +
           "• Kumandalar açık, kill switch ulaşılabilir mi?\n" +
-          "• Piller tok mu? (test ~2 dk)\n\nBaşlatılsın mı?"
+          "• Piller tok mu? (test ~2,5 dk)\n\nBaşlatılsın mı?"
         : "GERÇEK UÇUŞ başlatılacak.\n\n" +
           "• Kumandalar açık ve kill switch ulaşılabilir mi?\n" +
           "• Kuru test geçti mi?\n" +
