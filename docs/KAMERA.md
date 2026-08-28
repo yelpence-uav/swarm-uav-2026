@@ -1,6 +1,6 @@
 # KAMERA ve ALGI — sahada ölçülmüş sonuçlar
 
-**Son güncelleme:** 28 Ağustos 2026, 11:45
+**Son güncelleme:** 28 Ağustos 2026, 12:10
 
 > Bu belge **28 Ağustos 2026'da tek oturumda** yapılan kamera kurulumu,
 > kalibrasyonu ve dört uçuşluk QR tespit testinin sonucudur. Her sayı
@@ -259,11 +259,181 @@ titreşimi düşürmek.
 
 ---
 
-## 6. Renk (iniş bölgesi) tespiti
+## 6. TESPİT ZİNCİRİ — algoritmalar ve hız
 
-Kırmızı/mavi **daire**, dairesellik ölçütüyle ayırt ediliyor
-(kontur alanı ÷ çevreleyen dairenin alanı). Ölçüldü: gerçek hedef **0,985**,
-bayrak 0,281, poster 0,130 — ayrımı yapan tek ölçüt bu.
+### 6.1 Veri yolu
+
+```
+rpicam-vid (libcamera)  ->  MJPEG akışı  ->  HTTP :8080/akis
+   -> HttpMjpegGrabber      FFD8..FFD9 sınırlarından kareye böler
+   -> camera_driver_node    JPEG'i ÇÖZMEDEN CompressedImage yayınlar
+   -> vision_node           tek noktada çözer, iki dedektöre dağıtır
+```
+
+JPEG düğümler arasında **çözülmeden** taşınıyor: 4K ham `Image` **37 MB**
+eder ve DDS'ten geçmez.
+
+### 6.2 Hız sınırı — çözmeden ÖNCE
+
+```python
+run_qr = (now - son_qr) >= 1/5.0      # QR   5 Hz
+run_lz = (now - son_lz) >= 1/15.0     # renk 15 Hz
+if not run_qr and not run_lz: return  # <- ÇÖZMEDEN çık
+```
+
+**4056x3040 bir JPEG'i çözmek 106 ms.** İşlenmeyecek kareyi çözmek o süreyi
+boşa yakar ve QR'a ayrılan çekirdeği tüketirdi.
+
+**Tek tam çözme, iki yol paylaşıyor.** Ayrı ayrı çözmek (bulucu için 1/4,
+renk için 1/2) denendi ve **geri alındı** — ölçüldü: 415 → 442 ms (seyir),
+212 → 251 ms (askıda). Tek çözmeden sonra renk yolunun küçültmesi yalnızca
+9 ms; ayrı çözmek aynı kareyi iki-üç kez çözmek demek.
+
+### 6.3 QR — Aşama 1: varyans bulucu
+
+QR'ın imzası **dokusudur**: küçük alanda çok sık siyah-beyaz geçiş.
+Kayan pencereyle ölçülüyor:
+
+```python
+küçük = resize(kare, 1/4, INTER_AREA)      # 4056 -> 1014
+gri   = BGR2GRAY(küçük).astype(float32)
+
+ort = blur(gri,     (12,12))               # E[x]
+sq  = blur(gri*gri, (12,12))               # E[x²]
+std = sqrt(max(sq - ort², 0))              # yerel standart sapma
+
+eşik  = percentile(std, 99) * 0.55         # KAREYE GÖRE UYARLANIR
+maske = MORPH_CLOSE(std > eşik, 9x9)
+konturlar = findContours(maske, RETR_EXTERNAL)
+```
+
+Alanca en büyük **2 kontur** alınıp kutuları **%25 payla** genişletiliyor ve
+**×4 ile tam çözünürlüğe** geri haritalanıyor.
+
+- **Eşik neden 99. yüzdelikten türetiliyor:** sabit bir sayı parlak betonla
+  gölgeli çimde farklı davranırdı. Kareye göre kendini ayarlıyor.
+- **`sqrt` öncesi `max(…, 0)`:** yuvarlama yüzünden E[x²]−E[x]² küçük negatif
+  çıkabiliyor, NaN üretirdi.
+
+> **Neden `cv2.QRCodeDetector` DEĞİL:** o dedektör üç köşe desenini ve
+> zamanlama desenini **doğrulayarak** arıyor. 74 modüllü yoğun bir QR'da 1/4
+> ölçekte modül 2,25 piksele düşüyor ve desen ayırt edilemiyor. **Ölçüldü:
+> 1/4'te de 1/8'de de bulamadı.** Varyans bulucu QR yapısına hiç bakmıyor,
+> yalnız anormal yüksek yerel değişintiyi arıyor.
+
+### 6.4 QR — Aşama 2: çözücü kaskadı
+
+Aday bölge **tam çözünürlükte** kırpılıp çözücüye veriliyor. Ölçüldü
+(gerçek şartname QR'ı, 1,5 m, 8,5 m mesafe, 4056x3040, 74 modül):
+
+| | pyzbar | **zxing** | wechat |
+|---|---|---|---|
+| tam kare, QR VAR | 695 ms | **268 ms** | 122 ms |
+| tam kare, QR YOK | 628 ms | **275 ms** | **11 619 ms** ⚠️ |
+| kırpma (~1272 px) | 61 ms | **34 ms** | 11 ms |
+| menzil (1,5 m QR) | ~25 m | **~25 m** | ~40 m |
+
+**Birincil zxing-cpp:** pyzbar ile aynı menzil, yarı süre, QR yokken de sabit
+süre. **Yedek pyzbar:** zxing pip paketi (konteyner yeniden oluşturulunca
+gider), pyzbar apt paketi (hep var). İşlevsel fark yok.
+
+```
+kırpmada bulunamadı -> başarısız++
+   her N'inci başarısızlıkta:
+      1) wechat'i YALNIZ KIRPMADA dene     (11 ms, ~40 m menzil)
+      2) sonra TAM KARE taraması           (güvenlik ağı)
+   wechat TAM KAREDE ASLA çalıştırılmaz    (boş karede 11,6 SANİYE)
+```
+
+İki incelik ölçümle bulundu:
+
+- **Başarıdan sonra sayaç sıfırlanmıyor.** Sıfırlarken her başarıdan sonraki
+  ilk başarısızlık hep tam taramaya giriyordu: **508 → 237 ms/kare.**
+- **İlk başarısızlıkta mutlaka tam tarama** (`(n-1) % periyot`). Önce
+  `n % periyot` yazılmıştı ve `detect()` tek başına çağrıldığında boş
+  dönüyordu — iki birim test yakaladı.
+
+### 6.5 🚀 HIZ — ilk sisteme göre kaç kat
+
+İlk sistem: **tam karede pyzbar taraması.** Bugünkü: iki aşamalı + zxing.
+
+| durum | ESKİ (tam kare pyzbar) | YENİ (iki aşamalı) | kazanç |
+|---|---|---|---|
+| **QR kadrajda** | 697 ms | **140 ms** | **5,0×** |
+| **Gerçekçi karışım** (10 karenin 3'ünde QR) | 648 ms | **237 ms** | **2,7×** |
+| QR yok (tam tarama turu) | 628 ms | 275 ms | 2,3× |
+
+**Menzil kaybı YOK** — okuma yine tam çözünürlükte yapılıyor, sadece karenin
+tamamı değil QR'ın bulunduğu bölge taranıyor.
+
+#### Saniyede kaç okuma
+
+| | eski | **yeni** |
+|---|---|---|
+| QR kadrajdayken | 1,4 Hz | **7,1 Hz** |
+| Gerçekçi karışım | 1,5 Hz | **4,2 Hz** |
+
+Düğüm **5 Hz'e ayarlı** (`qr_processing_rate_hz: 5.0`). Kritik nokta şu:
+**eski sistem 5 Hz isteyip 1,5 Hz verebiliyordu** — ayar bir kurgudan
+ibaretti, düğüm sürekli geride kalırdı. Yeni sistem 5 Hz'i **gerçekten
+tutuyor**.
+
+#### Uçuşta uçtan uca ölçülen (2K, JPEG çözme + QR + renk birlikte)
+
+| irtifa | kare başına | Hz |
+|---|---|---|
+| 5-10 m (QR bulunuyor) | **123 ms** | 8,1 |
+| 10-15 m | 171 ms | 5,8 |
+| 0-5 m (bulunamıyor, tam tarama) | 438 ms | 2,3 |
+
+Yani QR kadrajdayken zincir **hız sınırından daha hızlı**; kadrajda yokken
+tam tarama turları devreye girdiği için yavaşlıyor. Bu doğru davranış —
+hızlı olması gereken durum, QR'ın görüldüğü durum.
+
+## 7. Renk (iniş bölgesi) tespiti
+
+Klasik HSV eşikleme + şekil süzgeci. Öğrenme tabanlı değil.
+
+```python
+kare = GaussianBlur(kare, k)                # gürültü konturu bozmasın
+hsv  = BGR2HSV(kare)
+
+# KIRMIZI İKİ ARALIK — hue 0/180'de sarmalanıyor, tek aralık yetmez
+maske_k = inRange(hsv, [  0,100,100], [ 10,255,255]) \
+        | inRange(hsv, [160,100,100], [180,255,255])
+maske_m = inRange(hsv, [100,150, 50], [140,255,255])
+
+konturlar = findContours(maske, RETR_EXTERNAL)
+```
+
+Her kontur **iki** süzgeçten geçiyor:
+
+**(a) Alan — mutlak değil, ORANLI**
+
+```python
+eşik = max(min_alan_px, min_alan_frac × kare_alanı)
+```
+
+Sabit piksel sayısı yanlış olurdu: aynı hedef 5 m'de 40 m'dekinin 64 katı
+piksel kaplıyor.
+
+**(b) Dairesellik — ayrımı yapan tek ölçüt**
+
+```python
+(x, y), r    = minEnclosingCircle(kontur)
+dairesellik  = kontur_alanı / (π · r²)
+if dairesellik < 0.75: ele
+```
+
+Kusursuz daire 1,0; **kare 0,64**. Ölçüldü: gerçek hedef **0,985**,
+bayrak **0,281**, poster **0,130**. Kırmızı bir bayrağı ya da posteri
+eleyen şey renk değil, **şekil**.
+
+⚠️ Renk yolu kareyi **1/2'ye küçültüp** işliyor (9 ms). Kritik incelik:
+`radius_px` **tam çözünürlük pikselinde** olmak zorunda — aşağıda odak
+uzaklığıyla metreye çevriliyor ve `fx` tam kare için hesaplanmış.
+Küçültülmüş karede bulunan yarıçap geri büyütülmezse bölgenin metrik
+yarıçapı **sessizce yarı** çıkardı.
 
 | pozlama | renk bulma |
 |---|---|
@@ -279,7 +449,7 @@ eler. Doğru değer 0,0005 mertebesinde.
 
 ---
 
-## 7. Kayıt ve yayın mimarisi
+## 8. Kayıt ve yayın mimarisi
 
 ```
 rpicam-vid --codec mjpeg -o -
@@ -327,7 +497,7 @@ küçültmek 116 ms).
 
 ---
 
-## 8. Çözümleme araçları
+## 9. Çözümleme araçları
 
 ### `deploy/rpi/teshis/kayit_coz.py`
 
@@ -378,7 +548,7 @@ ama pay kalmıyor). Uçuş testinde **kapalı tut** — çözümlemeyi kayıttan
 
 ---
 
-## 9. Yanlış giden teşhisler — tekrarlanmasın
+## 10. Yanlış giden teşhisler — tekrarlanmasın
 
 Bu bölüm bilerek duruyor. Her biri zaman kaybettirdi.
 
@@ -397,7 +567,7 @@ kare hızından okuma süresi çıkarılamaz.
 
 ---
 
-## 10. Açık işler
+## 11. Açık işler
 
 - 🟠 **Yalıtımı derinleştir.** QR büyütülemediği için tavanı açacak tek eksen bu; boyut tarafında 23 m'lik kullanılmayan pay var.
 - 🟠 **Renk eşiklerini yeni renk dengesinde kalibre et.**
