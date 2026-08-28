@@ -117,8 +117,14 @@ class FormasyonSekansNode(Node):
         # gecerli degerler baslat.sh'in env'inden gelir (tek kaynak).
         # 25/25/25 operator karari (28 Agu aksam) — kurulumun 25 sn'ye
         # sigip sigmadigini kuru test gercek yerlesimle denetliyor.
-        self.declare_parameter('fazlar', ['cizgi', 'okbasi', 'v'])
-        self.declare_parameter('faz_sure_s', [25.0, 25.0, 25.0])
+        #
+        # IKISI DE VIRGULLU STRING, dizi DEGIL — G0-3 sonrasi sahada
+        # olculdu: baslat.sh'in gectigi [25,25,25] YAML'da INTEGER_ARRAY
+        # sayiliyor, DOUBLE_ARRAY bekleyen declare InvalidParameterType
+        # ile dugumu ACILISTA olduruyordu (sekans.log'da tam iz). String
+        # parametrede tip belirsizligi yok; env degerleri zaten virgullu.
+        self.declare_parameter('fazlar', 'cizgi,okbasi,v')
+        self.declare_parameter('faz_sure_s', '25,25,25')
         self.declare_parameter('yayin_hz', 2.0)
         # Kalkış kapısı: hedef irtifanın bu oranına ulaşmak yeter.
         # 1.0 yapılmaz — EKF z ile origin irtifası arasında ~1 m fark
@@ -175,8 +181,10 @@ class FormasyonSekansNode(Node):
         # kurulur, bozuksa düğüm exception ile ölür ve baslat.sh logunda
         # görünür (uçuş öncesi G0'da yakalanır).
         self._plan = cek.faz_plani(
-            [str(f) for f in gp('fazlar').value],
-            [float(s) for s in gp('faz_sure_s').value],
+            [f.strip() for f in str(gp('fazlar').value).split(',')
+             if f.strip()],
+            [float(s) for s in str(gp('faz_sure_s').value).split(',')
+             if s.strip()],
         )
 
         # G0'da olay HIC BASILMAZ — bilerek. SystemEvent'i agent_fsm de

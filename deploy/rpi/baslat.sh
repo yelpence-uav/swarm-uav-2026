@@ -1070,17 +1070,18 @@ if [ -n "$SURU_DUGUMLERI" ]; then
                      "(form_lider_degil sayaci artar)."
             fi
             # Kadro paramı SURU_KADRO'dan (bosluklu liste -> ROS dizisi).
+            # fazlar/faz_sure_s VIRGULLU STRING gider — dizi olarak
+            # gecirilen [25,25,25] YAML'da INTEGER_ARRAY sayilip dugumu
+            # acilista olduruyordu (28 Agu G0 bulgusu, sekans.log).
             _SEKANS_KADRO="${SURU_KADRO:-1 2 3}"
             _SEKANS_KADRO_ROS="[$(echo ${_SEKANS_KADRO} | tr ' ' ',')]"
-            _SEKANS_FAZ_ROS="[\"$(echo "${SEKANS_FAZLAR:-cizgi,okbasi,v}" | sed 's/,/","/g')\"]"
-            _SEKANS_SURE_ROS="[${SEKANS_FAZ_SURELERI:-25,25,25}]"
             ros2 run swarm_core formasyon_sekans --ros-args \
                 -p agent_id:=${AGENT_ID} \
                 -p kadro:="${_SEKANS_KADRO_ROS}" \
                 -p aralik_m:=${SEKANS_ARALIK:-7.0} \
                 -p irtifa_m:=${SEKANS_IRTIFA:-8.0} \
-                -p fazlar:="${_SEKANS_FAZ_ROS}" \
-                -p faz_sure_s:="${_SEKANS_SURE_ROS}" \
+                -p fazlar:="'${SEKANS_FAZLAR:-cizgi,okbasi,v}'" \
+                -p faz_sure_s:="'${SEKANS_FAZ_SURELERI:-25,25,25}'" \
                 -p kurulum_hiz_mps:=${SEKANS_KURULUM_HIZ:-2.5} \
                 -p gecis_hiz_mps:=${SEKANS_GECIS_HIZ:-1.5} \
                 -p kalkis_esik_orani:=${SEKANS_KALKIS_ESIK:-0.8} \
