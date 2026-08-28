@@ -1,7 +1,47 @@
 # DURUM — şu an ne çalışıyor, ne bozuk
 
-**Son güncelleme:** 27 Ağustos 2026, 04:30 — olay defteri uçtan uca çalışıyor (firmware DÖRT kartta); 🔴 ylp02 güç soketi UÇUŞ ENGELİ; 🔴 HOME kayması hâlâ açık
+**Son güncelleme:** 28 Ağustos 2026, 11:20 — kamera sahada çalışıyor, QR 6-9 m'de okunuyor; 🔴 ylp02 güç soketi UÇUŞ ENGELİ; 🔴 HOME kayması hâlâ açık
 
+
+> ## 📷 28 AĞUSTOS 11:20 — KAMERA SAHADA ÇALIŞIYOR, QR OKUNUYOR
+>
+> **Dört uçuş yapıldı (ylp02, elle/RC).** Kamera kuruldu, kalibre edildi,
+> QR tespiti sıfırdan çalışır hâle geldi. Ayrıntı: **`docs/KAMERA.md`**.
+>
+> - ✅ **QR okunuyor: 5-11 m'de karelerin %38-69'u, tepe 7-8 m'de %69.**
+>   Saha kuralı: **QR gerekiyorsa 6-9 m'de uç.**
+> - 🔴 **ASIL BULGU: rolling shutter jölesi.** Motor titreşimi kare içinde
+>   satır kaymasına yol açıyor, QR modül ızgarası bozuluyordu. Yalıtımsız
+>   4K'da **200 karede sıfır** okuma vardı. Operatör yalıtım ekledi →
+>   3-4 kat kazanç.
+> - ⚠️ **KARE HIZI JÖLEYİ DEĞİŞTİRMEZ** — sürücü fps'i VBLANK ile ayarlar,
+>   satır okuma süresi sabit. 10→30 fps denendi, hiçbir faydası olmadı.
+>   Okuma süresini **kip** değiştirir (2028x1520 = yarı okuma).
+> - ⚠️ **Tavanı belirleyen şey çözünürlük değil, kalan titreşim.** 11-15
+>   m'de px/modül 5-6 (taban 2,25) ve QR'ın %67-78'i BULUNUYOR ama veri
+>   okunamıyor.
+>
+> **Uçakta değişen ayarlar (ylp02) — sonraki kişi böyle bulacak:**
+>
+> | ayar | değer | neden |
+> |---|---|---|
+> | Kip | `tamfov` 2028x1520 varsayılan; **uçuşta 4K seçildi** | jöle |
+> | Pozlama | `sport` (otomatik, kısa) | sabit 1/250 kareyi DOYURUYORDU (%37-45 kırpık) |
+> | Beyaz dengesi | sabit `[2.5923, 1.2225]` | AWB %25 kayıktı (magenta) |
+> | Kare hızı | 30 | jöleye faydası yok, sadece daha çok deneme |
+> | Yayın (tarayıcı) | 640 px | 1920'de küçültme 3,46 çekirdek yiyordu |
+>
+> - 🔴 **UÇUŞTA TARAYICI SEKMESİNİ KAPAT.** Açıkken toplam CPU %90,7,
+>   yük 8,11 ve **mavros %74'te CPU için yarışıyor**. Kapalıyken %67,5.
+>   Kayıt sunucu tarafında sürer, sekme kapanınca kesilmez.
+> - 🆕 **PIL Pi'ye sudo'suz kuruldu** (`~/yelpence_ws/pylib`) — tarayıcı
+>   küçültmesi için. `docs/RPI_ESITLEME.md`'de, ylp00/ylp01'de YOK.
+> - 🆕 **`kayit_coz.py --irtifa-csv`** — çözümleme artık ROS'suz, laptopta
+>   koşuyor.
+> - ⚠️ **Konteynerdeki `swarm_perception` eski derleme** —
+>   `min_zone_area_frac` yok, canlı renk eşiği ayarı çalışmıyor.
+> - ⚠️ Renk dedektörü çalışıyor (5-15 m'de %20-30) ama eşikleri **magenta
+>   tondayken** kalibre edilmişti; yeni renk dengesinde yeniden ölçülmeli.
 
 > ## 📓 27 AĞUSTOS 04:30 — OLAY DEFTERİ ÇALIŞIYOR + 🔴 ylp02 UÇMAZ
 >

@@ -1,6 +1,6 @@
 # GÜNLÜK — oturum devir teslim kaydı
 
-**Son güncelleme:** 27 Ağustos 2026, 04:30 — olay defteri uçtan uca çalışıyor; firmware DÖRT kartta; 🔴 ylp02 güç soketi
+**Son güncelleme:** 28 Ağustos 2026, 11:20 — kamera sahada çalışıyor, QR 6-9 m'de okunuyor (rolling shutter çözüldü)
 
 Tek bilgisayar, sırayla çalışıyoruz. Biri kalkıp diğeri oturduğunda **hem
 kişi hem Claude** nerede kalındığını buradan anlar.
@@ -35,6 +35,79 @@ Claude'a **"oturumu kapat"** dersen bu kaydı o yazar.
 - ylp00: (kill switch? pil? nerede? konteyner ayakta mı?)
 - ylp02:
 ```
+
+---
+
+## 2026-08-28 11:20 — Eyüp + Claude (KAMERA: kurulum, kalibrasyon, QR tespiti çalışıyor)
+
+> **Dört uçuş yapıldı** (ylp02, elle/RC). Kamera hiç çalışmıyordan
+> "6-9 m'de QR okunuyor"a geldi. Tam ölçüm dökümü: **`docs/KAMERA.md`**.
+
+**Ne yapıldı**
+
+- **Arducam IMX477 ylp02'ye takıldı.** İlk "güç gelmiyor" sorunu flex'in
+  **ters takılmasıydı** — kablo yanlış değildi.
+- **`deploy/rpi/kamera_yayin.py` yazıldı** (~1600 satır, saf stdlib):
+  MJPEG yayın, yerel kayıt (.mjpeg + .idx), foto çekme, keskinlik ölçümü,
+  sistem sağlığı, tarayıcı arayüzü.
+- **Kayıt tam çözünürlükte, yayın küçültülerek** — operatör isteği. Tek
+  rpicam çıkışı üç tüketiciye dağıtılıyor; küçültme yalnız
+  `/akis?kucult=1` yolunda. PIL Pi'ye **sudo'suz** kuruldu.
+- **Pozlama kalibrasyonu.** Sabit 1/250 kareleri DOYURUYORDU (ort. 240/255,
+  %37-45 tam beyaz kırpık) — ölçümü gölgede almıştım, sahne güneşte 15 kat
+  parlaktı. `sport` otomatik kipe geçildi: kırpık %0.
+- **Beyaz dengesi kalibrasyonu.** AWB ön ayarlarının **hiçbiri** düzeltmiyor
+  (hepsi %25 sapma, magenta). Beyaz kâğıtla kapalı döngü ölçüm →
+  sabit `[2.5923, 1.2225]`, sapma %0.
+- **Dört uçuşluk QR testi** — sonuç tablosu `KAMERA.md` §5'te.
+- **`kayit_coz.py`** çoklu mcap + `--irtifa-csv` desteği kazandı; çözümleme
+  artık ROS'suz laptopta koşuyor.
+
+**Ne bulundu — asıl mesele rolling shutter**
+
+- Aynı QR **durağan fotoğrafta okunuyor**, motorlar dönerken **200 karede
+  sıfır**. Operatör: "kaldırım taşlarında bile dalgalanma var."
+- **Kare hızı jöleyi değiştirmiyor** — sürücü fps'i VBLANK ile ayarlıyor,
+  satır okuma süresi sabit. 10→30 fps denendi, faydası olmadı.
+- Kip değiştirmek okuma süresini gerçekten değiştiriyor (2K = yarı okuma).
+- **Yalıtım 3-4 kat kazandırdı** (2K'da %4-25 → %62-76).
+- Tavan (11 m) hâlâ **titreşimden**, boyuttan değil: 11-15 m'de QR'ın
+  %67-78'i bulunuyor ama okunamıyor.
+
+**Ne değişti**
+
+- kod: `deploy/rpi/kamera_yayin.py` — yeni; `deploy/rpi/teshis/kayit_coz.py`
+  — yeni; `swarm_perception` (camera_driver HTTP kaynağı, QR iki aşamalı
+  tarama, LZ dairesellik) — daha önceki oturumdan
+- uçakta (**ylp02**): kip `tamfov` varsayılan, pozlama `sport`, beyaz
+  dengesi sabit `[2.5923,1.2225]`, kare hızı 30, yayın 640 px.
+  **PIL `~/yelpence_ws/pylib`'de** (ylp00/ylp01'de YOK).
+- belge: `docs/KAMERA.md` (yeni), `DURUM.md`, `YAPILACAKLAR.md`,
+  `RPI_ESITLEME.md`
+
+**Yarım kalan / tuzak**
+
+- 🔴 **Uçuşta tarayıcı sekmesini kapat.** Açıkken CPU %90,7, mavros %74'te
+  yarışıyor. Kapalıyken %67,5.
+- **Konteynerdeki `swarm_perception` eski derleme** — `min_zone_area_frac`
+  yok, canlı renk eşiği ayarı çalışmıyor. Yeniden derlenmeli.
+- Renk eşikleri **magenta tondayken** kalibre edildi, artık geçersiz.
+- Renk hedefi son üç uçuşta kadrajda değildi — renk irtifa eğrisi yok.
+- Beyaz dengesi gün ışığına bağlı; akşam/kapalı havada yeniden ölçülmeli.
+- ylp02'nin **PX4 güç soketi P0'ı** ve **HOME kayması P0'ı** bu oturumda
+  ele alınmadı, ikisi de açık.
+
+**Sıradaki adım**
+
+- QR'ı 3 m'ye büyüt (P1.22) — hem menzili hem jöle toleransını iki katına
+  çıkarır, tek adımda en yüksek etki.
+
+**Uçakların bırakıldığı hâl**
+
+- ylp00: kapalı, ağda değil. 3S 8000 mAh + 1045 pervane takılı.
+- ylp01: kapalı, ağda değil.
+- ylp02: kamera takılı ve **yalıtımlı**, kamera servisi ayakta (:8080),
+  sürü düğümleri koşuyor, rosbag kayıtta. Oturum sonunda ağdan düştü.
 
 ---
 

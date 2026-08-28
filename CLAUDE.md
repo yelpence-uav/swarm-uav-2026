@@ -1,6 +1,6 @@
 # Yelpençe — TEKNOFEST 2026 Sürü İHA
 
-**Son güncelleme:** 23 Ağustos 2026, 22:15
+**Son güncelleme:** 28 Ağustos 2026, 11:20
 
 > Bu dosyayı Claude Code her oturumda **kendiliğinden okur**. Yeni bir sohbet
 > açan kişinin hiçbir şey söylemesine gerek yok; buradan projeyi anlar.
@@ -188,6 +188,7 @@ Burada yalnız Claude'un sık kullandıkları:
 | `docs/YAPILACAKLAR.md` | Öncelikli iş listesi (🔴P0 · 🟠P1 · 🟡P2 · ⚪P3) |
 | `docs/KARARLAR.md` | **Verilmiş ama henüz uygulanmamış kararlar** — sırası gelince operatöre hatırlat |
 | **`docs/CA.md`** | **Çarpışma önleme** — dikey yol verme tasarımı, yer testleri, açık sorular |
+| **`docs/KAMERA.md`** | **Kamera ve algı** — kalibrasyon, QR/renk tespit menzilleri, rolling shutter |
 | **`docs/TUZAKLAR.md`** | **Hata vermeden yanlış sonuç üretenler.** Bir şey "çalışmıyor ama hata da vermiyor" ise ÖNCE buraya bak |
 | `docs/RPI_ESITLEME.md` | Pi'lerde ne yapıldı, hangi uçakta var |
 | `docs/cihazlar.md` | Kimlik tablosu, SSH, MAC, port, QGC, sysid |

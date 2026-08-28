@@ -1,6 +1,6 @@
 # Yelpençe — TEKNOFEST 2026 Sürü İHA
 
-**Son güncelleme:** 23 Ağustos 2026, 22:15 — dikey çarpışma önleme UÇTU
+**Son güncelleme:** 28 Ağustos 2026, 11:20
 
 Takım **Yelpençe** · Takım no **752825**
 
@@ -19,6 +19,7 @@ uçağın kendi içinde verilir; yer istasyonunun tek işi görevi başlatmaktı
 | 2 | [`docs/DURUM.md`](docs/DURUM.md) | Şu an ne çalışıyor, uçakta hangi ayar açık |
 | 3 | [`docs/GUNLUK.md`](docs/GUNLUK.md) | Son kişi nerede bıraktı (**en üstteki** kayıt) |
 | 4 | [`docs/YAPILACAKLAR.md`](docs/YAPILACAKLAR.md) | Sıradaki iş — 🔴P0 / 🟠P1 / 🟡P2 / ⚪P3 |
+| 5 | [`docs/KAMERA.md`](docs/KAMERA.md) | Kamera ayarları + QR/renk tespit menzilleri |
 
 Claude Code kullanıyorsan [`CLAUDE.md`](CLAUDE.md) kendiliğinden okunur.
 
@@ -33,6 +34,7 @@ Claude Code kullanıyorsan [`CLAUDE.md`](CLAUDE.md) kendiliğinden okunur.
 | Bu konuda karar verilmiş miydi? | `docs/KARARLAR.md` |
 | **Çalışmıyor ama hata da vermiyor** | `docs/TUZAKLAR.md` |
 | Çarpışma önleme: dikey yol verme, yer testleri, açık sorular | `docs/CA.md` |
+| **Kamera, QR ve renk tespiti — ölçülmüş menziller** | **`docs/KAMERA.md`** |
 | Uçaklarda ne var, geri gelen drone'a ne yapmalı? | `docs/RPI_ESITLEME.md` |
 | SSH, IP, MAC, portlar, QGC, sysid | `docs/cihazlar.md` |
 | Mesh paket formatı | `docs/MESH_PROTOKOL_KARARLARI.md` |

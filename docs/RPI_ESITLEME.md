@@ -1,6 +1,84 @@
 # RPİ EŞİTLEME DEFTERİ — geri gelen drone'u hizaya getirme
 
-**Son güncelleme:** 28 Ağustos 2026, 05:10 — algı paketleri İMAJA GÖMÜLDÜ (ylp02); IR-cut gündüz konumunda kilitli
+**Son güncelleme:** 28 Ağustos 2026, 11:20
+
+## Kamera ayarları — ylp02'de kalibre edildi · 28 Ağustos 2026
+
+**Hangi uçaklarda:** ylp02 ✅ · ylp00 ❌ · ylp01 ❌ (o uçaklarda kamera yok)
+
+Bunlar `deploy/rpi/kamera_yayin.py` içinde **kodda** duruyor, yani dosyayı
+dağıtmak yetiyor — uçakta elle bir ayar yok. Ama **kalibrasyon değerleri
+ylp02'nin kamerasına özeldir**; başka bir modüle takılırsa yeniden ölçülmeli.
+
+| ayar | değer | nasıl bulundu |
+|---|---|---|
+| `KALIBRE_KAZANC` | `2.5923,1.2225` | beyaz kâğıt, kapalı döngü, sapma %0 |
+| `KALIBRE_POZLAMA` | `sport` | sabit 1/250 kareyi doyuruyordu (%37-45 kırpık) |
+| Varsayılan kip | `tamfov` (2028x1520) | rolling shutter — okuma süresi yarıya |
+| `fps` (tam kip) | 30 | jöleye faydası yok, sadece daha çok deneme |
+
+**Yeniden kalibrasyon (kamera değişirse ZORUNLU):**
+
+```bash
+# beyaz kâğıt kameraya doğru tutulurken:
+docker cp ... ; python3 /tmp/kalibre.py      # bkz. docs/KAMERA.md §3.2
+```
+
+⚠️ Kazanç **gün ışığına (~4500 K) bağlıdır.** Akşam/kapalı havada kayar.
+
+---
+
+## PIL (Pillow) — Pi host'una sudo'suz kuruldu · 28 Ağustos 2026
+
+**Hangi uçaklarda:** ylp02 ✅ · ylp00 ❌ · ylp01 ❌
+
+**Neden:** `kamera_yayin.py` kaydı TAM çözünürlükte tutup tarayıcıya
+küçültülmüş kare gönderiyor (operatör isteği: "kaydı hangi çözünürlükte
+alıyorsak o çözünürlükte yap, sadece hotspottan gelende küçültme olsun").
+rpicam-vid'in tek çıkışı var, küçültme Python tarafında olmak zorunda.
+Host'ta hiçbir görüntü aracı yoktu — PIL, ffmpeg, ImageMagick, GStreamer,
+jpegtran, **pip bile** yok.
+
+**Kök yetkisi GEREKMEDİ:**
+
+```bash
+mkdir -p ~/pylib_indir && cd ~/pylib_indir
+apt-get download python3-pil python3-pil.imagetk libfreetype6 \
+  libimagequant0 liblcms2-2 libopenjp2-7 libraqm0 libwebpdemux2 libwebpmux3
+mkdir -p ~/yelpence_ws/pylib
+for d in *.deb; do dpkg -x "$d" ~/yelpence_ws/pylib; done
+cd ~ && rm -rf ~/pylib_indir
+```
+
+Toplam **5,5 MB**, `~/yelpence_ws/pylib` altında. Sisteme hiçbir şey yazılmadı.
+
+**LD_LIBRARY_PATH GEREKMİYOR.** `kamera_yayin.py` içindeki `_pil_yukle()`
+paylaşımlı kütüphaneleri `ctypes.CDLL(..., RTLD_GLOBAL)` ile ön yüklüyor.
+Sebep: LD_LIBRARY_PATH süreç başlamadan ayarlanmak zorunda; öyle olsaydı
+servisi kim nasıl başlattıysa küçültme sessizce kaybolabilirdi.
+
+`libraqm` yüklenemiyor (karmaşık metin şekillendirme) — gerekmiyor.
+
+**Doğrulama:**
+
+```bash
+python3 -c "import sys; sys.path.insert(0,'$HOME/yelpence_ws/pylib/usr/lib/python3/dist-packages')"
+curl -s http://127.0.0.1:8080/olcum | grep -o '"pil": [a-z]*'   # true olmalı
+```
+
+**PIL yoksa ne olur:** çökmez — küçültme kapanır, yayın tam boyda gider
+(4K'da 24,5 Mbps, hotspot taşımaz). Arayüzde kırmızı uyarı çıkar.
+
+**ÖLÇÜLDÜ (28 Ağustos, Pi 5, gerçek 4056x3040 kare):**
+
+| hedef | draft (DCT) | draftsiz |
+|-------|-------------|----------|
+| 640px | **33 ms** | 116 ms |
+| 960px | 39 ms | — |
+| 1280px | 70 ms | — |
+| 1920px | 95 ms | — |
+
+Canlıda: 299,5 KB → 13,7 KB/kare, 24,5 → 1,12 Mbps, 26,8 ms/kare.
 
 ## Bu belge ne için
 

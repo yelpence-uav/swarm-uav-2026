@@ -43,6 +43,9 @@ tepeye gore yuzde, egilim ve ham egri birlikte gosteriliyor.
 """
 
 import argparse
+import ctypes
+import glob
+import io
 import json
 import os
 import shutil
@@ -77,14 +80,34 @@ MODLAR = {
                'mod': '2028:1520:12:P', 'fps': 30},
     'dk169':  {'ad': '4056x2160  4K 16:9',     'w': 4056, 'h': 2160,
                'mod': '4056:2160:12:P', 'fps': 15},
+    # fps 10 -> 30, 28 Agustos 2026. SEBEP COZUNURLUK DEGIL, OKUMA SURESI:
+    # IMX477 satir satir okur (rolling shutter). 10 fps'te bir karenin
+    # okunmasi ~100 ms surer ve o sure boyunca motor titresimi (~100-200 Hz)
+    # her satiri farkli kaydirir — kare "jole" gibi dalgalanir.
+    # OLCULDU: ayni QR, ayni piksel boyutunda, DURAGAN fotografta okunuyor;
+    # motorlar donerken 200 karenin SIFIRINDA okundu. Titresim surekli
+    # oldugu icin temiz kare hic olusmuyor.
+    # 30 fps okuma suresini ~3 kat kisaltir. Cozunurluk AYNI kalir.
     'tam':    {'ad': '4056x3040  TAM 12,3MP',  'w': 4056, 'h': 3040,
-               'mod': '4056:3040:12:P', 'fps': 10},
+               'mod': '4056:3040:12:P', 'fps': 30},
 }
 
 # Onizleme GENISLIGI. Yukseklik yakalama en-boy oranindan turetiliyor —
 # boylece onizleme ile yakalama ayni kareyi gosterir, kirpma olmaz.
 # 0 = kirpmasiz tam boy (ethernet icin).
 ONIZLEMELER = (480, 640, 960, 1280, 1920, 0)
+
+# YAYIN BOYU — YALNIZ TARAYICIYA gider. 28 Agustos 2026, operator:
+# "ekran kaydini kameradan hangi cozunurlukte veri aliyorsak o cozunurlukte
+# yap. Sadece hotspottan bana gelen veride kucultme yapabilelim."
+#
+# ONIZLEMELER ile karistirma — ikisi AYRI KATMANDA:
+#   ONIZLEMELER -> rpicam-vid'in kodladigi boy. KAYDA ve ROS'a giden budur.
+#   YAYIN_BOYLARI -> Python'un o kareyi tarayici icin kuculttugu boy.
+# Yani kayit 4056x3040 kalirken hotspot'a 640 px gidebilir. Kucultme
+# istemci basina degil KARE basina yapilir (onbellek), CPU iki katina cikmaz.
+# 0 = kucultme yok, kare oldugu gibi gider.
+YAYIN_BOYLARI = (0, 480, 640, 960, 1280, 1920)
 
 # q = JPEG sikistirma kalitesi; COZUNURLUKLE ILGISI YOK. 4056x3040'ta
 # olculdu (28 Agustos): q90 2574 KB/kare, q75 1350, q60 930, q45 670 —
@@ -127,13 +150,124 @@ BEYAZ_AYARLARI = (
     ('cloudy', 'Bulutlu'),
 )
 
+# 28 Agustos 2026'da DEGISTI: iki profil de TAM boyda yakalar/kaydeder
+# ('onizleme': 0). Fark yalniz tarayiciya giden 'yayin' boyunda. Eskiden
+# hotspot profili 640'ta KAYDEDIYORDU — ucus kaydi da 640 oluyordu ve
+# kayittan QR cozumlemesi anlamsizlasiyordu.
+# q60: 4K'da 9,3 MB/s yaziyor; SD kart 25,3 MB/s. q90 21,9 ile sinira
+# dayanip kare dusuruyordu (bkz. KALITELER yorumu).
+# SABIT BEYAZ KAZANCI — 28 Agustos 2026, ylp02'de beyaz kagit karsisinda
+# KAPALI DONGU ile olculdu (2 turda oturdu, sapma %0):
+#
+#   AWB acikken beyaz kagit  : R 210  G 168  B 211  -> R/G 1,25  B/G 1,25
+#   [2.5923, 1.2225] ile     : R/G 1,004  B/G 1,004
+#
+# On ayarlarin HICBIRI duzeltmiyordu: auto, indoor, fluorescent, daylight
+# dordu de %25 sapma veriyor; tungsten ve cloudy doyuyor. Yani secim sorunu
+# degil — libcamera resmi HQ kamera icin yazilmis imx477.json ayar dosyasini
+# kullaniyor, Arducam'in mercek + IR-cut gecirgenligi farkli oldugu icin AWB
+# dosyaya gore "dogru" ama module gore yanlis kazanc hesapliyor.
+#
+# ⚠️ BU DEGER GUN ISIGINA (~4500 K) BAGLI. Aksam ya da kapali havada kayar.
+# Renk dedektorunun kirmizi/mavi esikleri bu renk dengesinde kalibre edilmeli
+# — magenta tonda yapilmis eski esikler artik gecerli degil.
+# Yeniden olcmek icin: python3 /tmp/kalibre.py (beyaz kagit karsisinda).
+KALIBRE_KAZANC = '2.5923,1.2225'
+
+# POZLAMA — 28 Agustos 2026 ucusundan sonra 'sport'a CEVRILDI.
+#
+# ONCE '4000' (sabit 1/250) yazmistim; gerekce hareket bulanikligiydi ve
+# olcum dogruydu (4 m/s, 20 m: 1/250 okunuyor, 1/125 okunmuyor). AMA olcumu
+# GOLGEDE aldim. Kamera asagi cevrilip gunesli tasa bakinca sahne ~5 kat
+# parlaklasti ve sabit deklansor kisamadi:
+#
+#   28 Agustos 07:21 ucusu — ortalama parlaklik 240/255,
+#   karelerin %37-45'i TAM BEYAZA kirpilmis (>=250).
+#
+# Kirpilmis alanda kontrast YOKTUR: QR modulleri birbirine karisir, kenar
+# gradyani sifirdir. Sabah olmasi korumadi — asil degisken gunes acisi ve
+# yuzeyin yansitmasi, saat degil.
+#
+# 'sport' OTOMATIK pozlamadir ama deklansoru kisa tutmaya egilimlidir:
+# isiga uyum saglar VE hareket korumasini verir. Sabit bir sayi ikisinden
+# yalnizca birini verebiliyor.
+KALIBRE_POZLAMA = 'sport'
+
+# 28 Agustos 2026: varsayilan kip 'tam' -> 'tamfov' (2028x1520 binlenmis).
+#
+# SEBEP: rolling shutter. Sensor satir satir okur; 4056x3040'ta 3040 satir
+# okunur ve bu ~33 ms surer. Motor titresimi (~100 Hz) o sure boyunca her
+# satiri farkli kaydirir -> kare ICINDE dalgalanma, QR modul izgarasi bozulur.
+#
+# ⚠️ KARE HIZI BUNU DEGISTIRMEZ. Surucu fps'i VBLANK (bekleme) ile ayarlar,
+# satir okuma hizini degil. 10 -> 30 fps denendi: operator "dalgalanma bir
+# gram azalmadi" dedi, dogru. Okuma suresi iki durumda da ayni.
+# Okuma suresini KIP degistirir: 1520 satir = yarim okuma = yarim bozulma.
+#
+# BEDELI: modul basina ~10 px yerine ~5 px (cozme tabani 2,25 — pay var).
+# Yan fayda: kart yuku ve CPU dortte bire iner.
 PROFILLER = {
-    'hotspot':  {'mod': 'tam', 'onizleme': 640, 'kalite': 55},
-    'ethernet': {'mod': 'tam', 'onizleme': 1920, 'kalite': 90},
+    'hotspot':  {'mod': 'tamfov', 'onizleme': 0, 'kalite': 75, 'yayin': 640},
+    'ethernet': {'mod': 'tamfov', 'onizleme': 0, 'kalite': 90, 'yayin': 0},
 }
 
 
 # ------------------------------------------------------------------ sistem
+
+def _pil_yukle():
+    """Goruntu kutuphanesini (PIL) yukler — sudo'suz kuruluma da bakar.
+
+    28 AGUSTOS 2026'da OLCULDU: Pi host'unda hicbir goruntu araci YOK —
+    PIL, ffmpeg, ImageMagick, GStreamer, jpegtran, hatta pip bile yok. Kok
+    yetkisi istemeden cozuldu:
+
+        apt-get download python3-pil <bagimliliklar>   # kok GEREKMEZ
+        dpkg -x *.deb ~/yelpence_ws/pylib
+
+    Paylasimli kutuphaneler LD_LIBRARY_PATH yerine ctypes ile ON YUKLENIYOR.
+    Sebep: LD_LIBRARY_PATH surec BASLAMADAN once ayarlanmak zorunda; o zaman
+    servisi nasil baslattigin (nohup, systemd, elle) onemli hale gelirdi ve
+    biri yanlis baslattiginda kucultme SESSIZCE kaybolurdu. Bu haliyle betik
+    kendi kendine yetiyor.
+
+    Bagimlilik sirasi bilinmedigi icin ilerleme durana kadar donuluyor.
+    libraqm yuklenemez (karmasik metin sekillendirme) — bize gerekmiyor.
+
+    PIL yoksa None doner: kucultme kapanir, yayin tam boy gider. Ucus
+    durmaz, yalnizca bant genisligi artar.
+    """
+    try:
+        from PIL import Image
+        return Image
+    except ImportError:
+        pass
+    kok = os.path.expanduser('~/yelpence_ws/pylib')
+    lib = os.path.join(kok, 'usr/lib/aarch64-linux-gnu')
+    paket = os.path.join(kok, 'usr/lib/python3/dist-packages')
+    if not os.path.isdir(paket):
+        return None
+    kalan, tur = sorted(glob.glob(os.path.join(lib, '*.so*'))), 0
+    while kalan and tur < 6:
+        tur += 1
+        yeni = []
+        for so in kalan:
+            try:
+                ctypes.CDLL(so, mode=ctypes.RTLD_GLOBAL)
+            except OSError:
+                yeni.append(so)
+        if len(yeni) == len(kalan):
+            break
+        kalan = yeni
+    sys.path.insert(0, paket)
+    try:
+        from PIL import Image
+        return Image
+    except ImportError:
+        return None
+
+
+_Goruntu = _pil_yukle()
+
 
 class Sistem:
     """Pi'nin CPU / RAM / sicaklik / kisitlama degerleri. Saf stdlib."""
@@ -243,6 +377,21 @@ def arayuz_haritasi() -> dict:
 
 # ------------------------------------------------------------------- yayin
 
+def _kazanc_sula(deger: str) -> str:
+    """'r,b' dizesini dogrular. Gecersizse BOS doner (AWB acik kalir).
+
+    Dogrulama sart: bozuk bir dize rpicam-vid'i acilista dusurur ve kamera
+    hic gelmez — arayuzde tek gorunen sey "kare yok" olurdu.
+    """
+    try:
+        r, b = (float(x) for x in str(deger).split(','))
+    except ValueError:
+        return ''
+    if not (0.1 <= r <= 8.0 and 0.1 <= b <= 8.0):
+        return ''
+    return f'{r:.4f},{b:.4f}'
+
+
 class Yayin:
     """rpicam-vid'i besler, MJPEG karelerini dagitir, keskinligi olcer."""
 
@@ -252,7 +401,24 @@ class Yayin:
         self.kalite = kalite
         self.buyutec = False
         self.awb = 'auto'
+        # SABIT BEYAZ KAZANCI — 28 Agustos 2026'da OLCULEREK eklendi.
+        # Beyaz kagit taramasi: auto/indoor/fluorescent/daylight'in DORDU DE
+        # R/G 1,25 · B/G 1,25 veriyor (yesil %25 eksik, magenta ton).
+        # tungsten ve cloudy doyuyor. Yani ON AYAR SECIMI SORUNU DEGIL —
+        # AWB'nin kendisi bu modulde yanlis yere oturuyor. Sebep: libcamera
+        # resmi HQ kamera icin yazilmis imx477.json ayar dosyasini kullaniyor,
+        # Arducam'in mercek + IR-cut gecirgenligi farkli.
+        # Bos dize = AWB acik. Doluysa '--awbgains r,b' ile AWB DEVRE DISI.
+        self.kazanc = ''
         self.pozlama = 'auto'
+        # Tarayici kucultmesi — kayda ve ROS'a DOKUNMAZ. Bkz. YAYIN_BOYLARI.
+        self.yayin_boy = 0
+        self._kucuk_kilit = threading.Lock()
+        self._kucuk_sayac = -1
+        self._kucuk_kare: bytes | None = None
+        self._kucuk_bayt = 0
+        self._kucuk_ms = 0.0
+        self._kucuk_hata = ''
 
         self._kilit = threading.Condition()
         self._kare: bytes | None = None
@@ -316,7 +482,11 @@ class Yayin:
             '--framerate', str(m['fps']),
             '-q', str(self.kalite),
             '--denoise', 'off', '--sharpness', '0', '--flush',
-            '--awb', self.awb,
+            # awbgains verilirse rpicam AWB'yi tamamen kapatir; --awb
+            # o durumda yok sayilir, ikisini birden vermek zararsiz degil —
+            # bu yuzden ayri kollar.
+            *(['--awbgains', self.kazanc] if self.kazanc
+              else ['--awb', self.awb]),
             # Kare basina pozlama/kazanc/lux buraya yaziliyor; canli
             # okunabiliyor (dogrulandi: dosya kayit sirasinda buyuyor).
             '--metadata', META_YOLU, '--metadata-format', 'txt',
@@ -635,6 +805,10 @@ class Yayin:
     def olcum(self) -> dict:
         m = MODLAR[self.mod]
         g, y = self.onizleme_boyu()
+        # Tarayiciya giden gercek bant: kucultme aciksa kucuk karenin boyu,
+        # degilse ham bant. Hotspot'un tasiyip tasimayacagini bu belirler.
+        yayin_bps = (self._kucuk_bayt * self._fps
+                     if self.yayin_boy and self._kucuk_bayt else self._bps)
         return {
             'ham_kb': round(self._ham / 1024.0, 1),
             'yumusak_kb': round(self._yumusak / 1024.0, 1),
@@ -649,9 +823,16 @@ class Yayin:
             'yakalama': f"{m['w']}x{m['h']}",
             'onizleme': f'{g}x{y}',
             'onizleme_g': self.onizleme,
+            'yayin_boy': self.yayin_boy,
+            'yayin_kb': round(self._kucuk_bayt / 1024.0, 1),
+            'yayin_mbps': round(yayin_bps * 8 / 1e6, 2),
+            'yayin_ms': round(self._kucuk_ms, 1),
+            'pil': _Goruntu is not None,
+            'kucultme_hata': self._kucuk_hata,
             'kalite': self.kalite,
             'buyutec': self.buyutec,
             'awb': self.awb,
+            'kazanc': self.kazanc,
             'pozlama': self.pozlama,
             'poz_olcum': self.pozlama_olcumu(),
             'kayit': self.kayit_durumu(),
@@ -663,25 +844,91 @@ class Yayin:
     # --------------------------------------------------------------- ayar
 
     def ayarla(self, mod: str, onizleme: int, kalite: int,
-               buyutec: bool, awb: str = '', pozlama: str = '') -> None:
+               buyutec: bool, awb: str = '', pozlama: str = '',
+               kazanc: str | None = None) -> None:
+        """Kamera ayarlari. Degisiklik varsa rpicam-vid YENIDEN KURULUR.
+
+        `kazanc`: 'r,b' sabit beyaz kazanci; bos dize AWB'yi geri acar.
+        None verilirse mevcut deger korunur — boylece `/ayar?awb=...` sabit
+        kazanci kazara silmez.
+        """
         awb = awb or self.awb
         gecerli = {a for a, _ in BEYAZ_AYARLARI}
         awb = awb if awb in gecerli else self.awb
         poz = pozlama or self.pozlama
         poz = poz if poz in {a for a, _ in POZLAMALAR} else self.pozlama
-        yeni = (mod, int(onizleme), int(kalite), bool(buyutec), awb, poz)
+        kz = self.kazanc if kazanc is None else _kazanc_sula(kazanc)
+        yeni = (mod, int(onizleme), int(kalite), bool(buyutec), awb, poz, kz)
         if yeni == (self.mod, self.onizleme, self.kalite, self.buyutec,
-                    self.awb, self.pozlama):
+                    self.awb, self.pozlama, self.kazanc):
             return
         self.mod = mod if mod in MODLAR else self.mod
         self.onizleme, self.kalite = yeni[1], yeni[2]
         self.buyutec, self.awb = yeni[3], yeni[4]
-        self.pozlama = yeni[5]
+        self.pozlama, self.kazanc = yeni[5], yeni[6]
         # Cozunurluk/kalite degisince kare boyutu toptan degisir; eski tepe
         # anlamsiz kalir ve yuzde hep dusuk gorunurdu.
         self._yumusak = self._tepe = 0.0
         self._degisti.set()
         self._oldur()
+
+    def yayin_boyu_ayarla(self, boy: int) -> None:
+        """Tarayici kucultme boyu. Kamerayi YENIDEN BASLATMAZ.
+
+        `ayarla()`den ayri durmasinin sebebi bu: cozunurluk/kalite degisimi
+        rpicam-vid'i oldurup yeniden kuruyor (~2 sn karanlik). Kucultme
+        sadece Python tarafinda oldugu icin anlik uygulanir — ucus sirasinda
+        bant daralinca kayit kesintiye ugramadan boy dusurulebilir.
+        """
+        boy = int(boy)
+        if boy == self.yayin_boy:
+            return
+        self.yayin_boy = boy
+        with self._kucuk_kilit:
+            self._kucuk_sayac, self._kucuk_kare = -1, None
+            self._kucuk_bayt = 0
+
+    def kucult(self, sayac: int, kare: bytes) -> bytes:
+        """Kareyi YALNIZ tarayici icin kucultur.
+
+        Kayit `_kayda_yaz` ile ham kareyi diske yazar, ROS `/akis`i
+        parametresiz cagirir — ikisi de bu yoldan GECMEZ. Tek etkilenen
+        `/akis?kucult=1` isteyen tarayicidir.
+
+        Onbellek KARE BASINA: iki tarayici sekmesi ayni kareyi ikinci kez
+        kucultmez.
+        """
+        boy = self.yayin_boy
+        if not boy or _Goruntu is None or self._kucuk_hata:
+            return kare
+        with self._kucuk_kilit:
+            if self._kucuk_sayac == sayac and self._kucuk_kare is not None:
+                return self._kucuk_kare
+        bas = time.monotonic()
+        try:
+            im = _Goruntu.open(io.BytesIO(kare))
+            g0, y0 = im.size
+            if g0 <= boy:
+                return kare
+            y = max(1, y0 * boy // g0)
+            # draft(): JPEG'i DCT alaninda 1/2, 1/4, 1/8 olcekte COZER —
+            # tam cozup sonra kucultmez. 4056x3040 -> 640 px OLCULDU
+            # (28 Agustos, Pi 5): draft ile 33 ms, draftsiz 116 ms. Tam
+            # cozum bosa harcanmis is; o pikseller hicbir zaman gorulmuyor.
+            im.draft('RGB', (boy, y))
+            im = im.resize((boy, y), _Goruntu.BILINEAR)
+            tampon = io.BytesIO()
+            im.save(tampon, 'JPEG', quality=self.kalite)
+            kucuk = tampon.getvalue()
+        except Exception as e:                   # noqa: BLE001
+            # Kucultme COKERSE yayin durmamali: tam kare gonderip devam et.
+            self._kucuk_hata = f'kucultme: {e}'
+            return kare
+        with self._kucuk_kilit:
+            self._kucuk_sayac, self._kucuk_kare = sayac, kucuk
+            self._kucuk_bayt = len(kucuk)
+            self._kucuk_ms = (time.monotonic() - bas) * 1000.0
+        return kucuk
 
     def kare_bekle(self, son: int, zaman_asimi: float = 5.0):
         with self._kilit:
@@ -891,7 +1138,8 @@ details.ayarlar>div{padding:0 9px 9px}
       <summary>Ayarlar</summary>
       <div>
         <label><span>Yakalama <i class="ipuc" data-ip="Sensörün hangi çözünürlükte OKUDUĞU. QR menzili buna bağlı. Üst kipler daha çok detay, daha düşük fps tavanı.">?</i></span><select id="s-mod"></select></label>
-        <label><span>Önizleme <i class="ipuc" data-ip="Sana GÖNDERİLEN boyut. Yükseklik yakalamanın en-boy oranından türetilir, kırpma olmaz. TAM = küçültmesiz, ~125 Mbps, yalnız ethernette.">?</i></span><select id="s-onz"></select></label>
+        <label><span>Kayıt boyu <i class="ipuc" data-ip="ISP'nin KODLADIĞI boy. Diske yazılan, ROS'a giden ve QR/renk taranan kare BUDUR. TAM = kırpmasız, kaydın tam çözünürlükte olması için doğru seçim. Yükseklik yakalamanın en-boy oranından türetilir, kırpma olmaz.">?</i></span><select id="s-onz"></select></label>
+        <label><span>Yayın (yalnız sana) <i class="ipuc" data-ip="Tarayıcıya gönderilirken uygulanan küçültme. KAYDA VE ALGIYA DOKUNMAZ — disk ve ROS her zaman tam boyu alır. 4056x3040→640 px ölçüldü: 33 ms/kare (DCT alanında çözme), 53 Mbps yerine 0,6 Mbps. Hotspot ancak böyle yetişir. Kamerayı yeniden başlatmaz, anında geçer.">?</i></span><select id="s-yayin"></select></label>
         <label><span>Kalite <i class="ipuc" data-ip="JPEG sıkıştırma kalitesi. ÖLÇÜLDÜ: tespite etkisi YOK — q45 de q90 da aynı mesafede okuyor. q90 sadece dosyayı 2,4 kat büyütür ve çözmeyi %21 yavaşlatır.">?</i></span><select id="s-kal"></select></label>
         <label><span>Pozlama <i class="ipuc" data-ip="Otomatik pozlama karanlıkta süreyi UZATARAK ışık toplar; drone o sürede yol aldığı için görüntü sürüklenir. ÖLÇÜLDÜ (4 m/s, 20 m): 1/250'de QR okundu, 1/125'te okunamadı. ⚠️ AMA pozlamayı kısaltmak ışığı da keser (1/15→1/500 = 33 kat az ışık). Kazanç tavandaysa kare kararır — keskin ama siyah, yine okunmaz.">?</i></span><select id="s-poz"></select></label>
         <label><span>Beyaz ayarı <i class="ipuc" data-ip="Yanlış beyaz ayarı kareyi tek renge kaydırır ve renk tespiti her yeri o renk sanır. Magenta kare 6 sahte KIRMIZI bölge üretmişti.">?</i></span><select id="s-awb"></select></label>
@@ -914,10 +1162,12 @@ details.ayarlar>div{padding:0 9px 9px}
 <script>
 const $ = (s) => document.querySelector(s);
 const gecmis = [];
-let d = {mod:'tam', onizleme:640, kalite:55, buyutec:false, awb:'auto'};
+let d = {mod:'tam', onizleme:0, kalite:60, buyutec:false, awb:'auto',
+         yayin:640, kazanc:''};
 
 const MODLAR = __MODLAR__;
 const ONIZLEMELER = __ONIZLEMELER__;
+const YAYIN_BOYLARI = __YAYIN_BOYLARI__;
 const KALITELER = __KALITELER__;
 const BEYAZ = __BEYAZ__;
 const POZLAMALAR = __POZLAMALAR__;
@@ -930,7 +1180,9 @@ const ALANLAR = [[0.0005,'%0,05'],[0.0015,'%0,15'],[0.005,'%0,5'],
 const DAIRELER = [0.50, 0.65, 0.75, 0.85, 0.92];
 let esik = {alan:0.0015, daire:0.75};
 
-function akisiTazele(){ $('#kare').src = '/akis?t=' + Date.now(); }
+// kucult=1 SADECE tarayicinin istegi. ROS camera_driver ve kamera_zincir.sh
+// /akis'i parametresiz cagirir ve tam cozunurluk alir.
+function akisiTazele(){ $('#kare').src = '/akis?kucult=1&t=' + Date.now(); }
 $('#kare').addEventListener('error', () => setTimeout(akisiTazele, 1200));
 akisiTazele();
 
@@ -1031,7 +1283,8 @@ async function olc(){
   try{
     const o = await (await fetch('/olcum',{cache:'no-store'})).json();
     d = {mod:o.mod, onizleme:o.onizleme_g, kalite:o.kalite,
-         buyutec:o.buyutec, awb:o.awb, pozlama:o.pozlama};
+         buyutec:o.buyutec, awb:o.awb, pozlama:o.pozlama, yayin:o.yayin_boy,
+         kazanc:o.kazanc};
 
     const p = o.yuzde;
     $('#yuzde').textContent = p.toFixed(0);
@@ -1039,9 +1292,15 @@ async function olc(){
     cubuk.style.width = Math.max(2,Math.min(100,p)) + '%';
     cubuk.style.background = p>=97 ? 'var(--iyi)' : (p>=85 ? 'var(--orta)' : 'var(--kotu)');
 
-    $('#c-boyut').textContent = o.yakalama + ' → ' + o.onizleme;
+    // Iki ok, uc katman: sensor → diske/ROS'a giden → sana gelen.
+    const ekran = o.yayin_boy ? o.yayin_boy + 'px' : 'tam';
+    $('#c-boyut').textContent = o.yakalama + ' ⇒ ' + o.onizleme + ' → ' + ekran;
     $('#c-fps').textContent   = o.fps;
-    const mb=$('#c-mbps'); mb.textContent = o.mbps + ' Mbps'; boya(mb, o.mbps, 10, 30);
+    // Bant cipi HOTSPOT yukunu gosterir (renk ona gore), yaninda kaynak bant.
+    const mb=$('#c-mbps');
+    mb.textContent = o.yayin_boy ? o.mbps + '→' + o.yayin_mbps + ' Mbps'
+                                 : o.mbps + ' Mbps';
+    boya(mb, o.yayin_mbps, 10, 30);
 
     const s = o.sistem || {};
     const cpu=$('#c-cpu'); cpu.textContent=(s.cpu ?? '—')+'%'; boya(cpu, s.cpu||0, 80, 95);
@@ -1133,8 +1392,13 @@ async function olc(){
     if (gecmis.length > 150) gecmis.shift();
     ciz(); egilimGuncelle(); secicileriTazele();
 
-    const h=$('#hata'); h.textContent=o.hata || '';
-    h.classList.toggle('gorun', !!o.hata);
+    // Kucultme SESSIZCE kaybolmasin: PIL yoksa veya coktuyse yaz.
+    let uyari = o.hata || '';
+    if (o.yayin_boy && !o.pil)
+      uyari = 'küçültme KAPALI (PIL yok) — yayın tam boyda gidiyor. ' + uyari;
+    if (o.kucultme_hata) uyari = o.kucultme_hata + '. ' + uyari;
+    const h=$('#hata'); h.textContent = uyari;
+    h.classList.toggle('gorun', !!uyari);
   }catch(e){ /* ağ koptu; bir sonraki turda yine denenir */ }
 }
 
@@ -1149,6 +1413,17 @@ function secicileriKur(){
     const o=document.createElement('option');
     o.value=g; o.textContent = g===0 ? 'TAM (kırpmasız)' : g+' px'; z.appendChild(o);
   }
+  const yb=$('#s-yayin');
+  for (const g of YAYIN_BOYLARI){
+    const o=document.createElement('option');
+    o.value=g; o.textContent = g===0 ? 'Küçültme yok' : g+' px'; yb.appendChild(o);
+  }
+  // Kamerayi yeniden BASLATMAZ: ayarla() degil dogrudan /ayar?yayin=.
+  // Grafik gecmisi de silinmez — keskinlik olcusu kayittan bagimsiz surer.
+  yb.onchange = () => {
+    d.yayin = +yb.value;
+    fetch('/ayar?yayin=' + d.yayin, {cache:'no-store'});
+  };
   const q=$('#s-kal');
   for (const k of KALITELER){
     const o=document.createElement('option'); o.value=k; o.textContent='q'+k; q.appendChild(o);
@@ -1189,21 +1464,31 @@ function secicileriKur(){
   m.onchange = () => { d.mod = m.value; ayarla(); };
   z.onchange = () => { d.onizleme = +z.value; ayarla(); };
   q.onchange = () => { d.kalite = +q.value; ayarla(); };
-  w.onchange = () => { d.awb = w.value; ayarla(); };
+  // Sabit kazanc aciksa AWB on ayari etkisizdir. Secim yapildiginda
+  // kazanci temizliyoruz ki secici yalan soylemesin.
+  w.onchange = () => { d.awb = w.value; d.kazanc = ''; ayarla(); };
 }
 
 function secicileriTazele(){
   $('#s-mod').value = d.mod;
   $('#s-onz').value = d.onizleme;
+  $('#s-yayin').value = d.yayin;
   $('#s-kal').value = d.kalite;
-  $('#s-awb').value = d.awb;
+  const wa=$('#s-awb');
+  wa.value = d.awb;
+  // Sabit kazanc aciksa secicinin gosterdigi on ayar GECERSIZ. Bunu
+  // yazmazsak operatör 'daylight secili' sanip yanlis teshis kurar.
+  wa.title = d.kazanc ? 'SABIT KAZANÇ açık (' + d.kazanc + ') — ön ayar etkisiz'
+                      : '';
+  wa.style.opacity = d.kazanc ? 0.45 : 1;
   $('#s-poz').value = d.pozlama;
   $('#btn-buyutec').classList.toggle('acik', d.buyutec);
 }
 
 async function ayarla(){
   await fetch(`/ayar?mod=${d.mod}&onizleme=${d.onizleme}&kalite=${d.kalite}`
-              + `&b=${d.buyutec?1:0}&awb=${d.awb}&poz=${d.pozlama}`,
+              + `&b=${d.buyutec?1:0}&awb=${d.awb}&poz=${d.pozlama}`
+              + `&kazanc=${d.kazanc ?? ''}`,
               {cache:'no-store'});
   gecmis.length = 0; setTimeout(akisiTazele, 900);
 }
@@ -1268,6 +1553,7 @@ SAYFA_BAYT = (
     .replace('__MODLAR__', json.dumps(
         {k: {'ad': v['ad'], 'fps': v['fps']} for k, v in MODLAR.items()}))
     .replace('__ONIZLEMELER__', json.dumps(list(ONIZLEMELER)))
+    .replace('__YAYIN_BOYLARI__', json.dumps(list(YAYIN_BOYLARI)))
     .replace('__KALITELER__', json.dumps(list(KALITELER)))
     .replace('__BEYAZ__', json.dumps([list(b) for b in BEYAZ_AYARLARI]))
     .replace('__POZLAMALAR__', json.dumps([list(b) for b in POZLAMALAR]))
@@ -1336,7 +1622,10 @@ class Istek(BaseHTTPRequestHandler):
                 int(s.get('kalite', [y.kalite])[0]),
                 s.get('b', ['0'])[0] == '1',
                 s.get('awb', [y.awb])[0],
-                s.get('poz', [y.pozlama])[0])
+                s.get('poz', [y.pozlama])[0],
+                kazanc=s['kazanc'][0] if 'kazanc' in s else None)
+            if 'yayin' in s:
+                self.yayin.yayin_boyu_ayarla(int(s['yayin'][0]))
             return self._duz(b'{"ok":true}', 'application/json')
 
         if yol.path == '/profil':
@@ -1344,6 +1633,7 @@ class Istek(BaseHTTPRequestHandler):
             if p:
                 self.yayin.ayarla(p['mod'], p['onizleme'], p['kalite'], False,
                                   '', self.yayin.pozlama)
+                self.yayin.yayin_boyu_ayarla(p['yayin'])
             return self._duz(b'{"ok":true}', 'application/json')
 
         if yol.path == '/kare.jpg':
@@ -1417,6 +1707,13 @@ class Istek(BaseHTTPRequestHandler):
         self.send_error(404)
 
     def _akis(self) -> None:
+        """MJPEG akisi. `?kucult=1` YOKSA kare oldugu gibi gider.
+
+        Bu ayrim kasitli: ROS `camera_driver` ve `kamera_zincir.sh` bu ucu
+        parametresiz cagiriyor ve TAM cozunurluk aliyor. Kucultme yalnizca
+        tarayicinin istegidir — algi zincirine hicbir sekilde bulasmaz.
+        """
+        kucultsun = parse_qs(urlparse(self.path).query).get('kucult', ['0'])[0] == '1'
         self.send_response(200)
         self.send_header('Age', '0')
         self.send_header('Cache-Control', 'no-store, no-cache, must-revalidate')
@@ -1431,6 +1728,8 @@ class Istek(BaseHTTPRequestHandler):
                     continue
                 if self.yayin.foto_modunda():
                     continue        # 4K kareler tarayiciya gitmesin
+                if kucultsun:
+                    kare = self.yayin.kucult(son, kare)
                 self.wfile.write(b'--' + SINIR + b'\r\n')
                 self.wfile.write(b'Content-Type: image/jpeg\r\n')
                 self.wfile.write(b'Content-Length: %d\r\n\r\n' % len(kare))
@@ -1465,6 +1764,9 @@ def main() -> int:
 
     p = PROFILLER[d.profil]
     yayin = Yayin(p['mod'], p['onizleme'], p['kalite'])
+    yayin.kazanc = _kazanc_sula(KALIBRE_KAZANC)
+    yayin.pozlama = KALIBRE_POZLAMA
+    yayin.yayin_boyu_ayarla(p['yayin'])
     yayin.kayit_siniri = max(1, d.kayit_sayisi)
     yayin.baslat()
     Istek.yayin = yayin

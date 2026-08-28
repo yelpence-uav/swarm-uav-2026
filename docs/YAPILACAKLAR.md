@@ -1,6 +1,52 @@
 # YAPILACAKLAR
 
-**Son güncelleme:** 28 Ağustos 2026, 06:05 — 🟠P1.21 QR mesh paylaşımı sahada koşmadı; P1.20 takım slotu
+**Son güncelleme:** 28 Ağustos 2026, 11:20 — kamera işleri (P1.22-P1.25); 🟠P1.21 QR mesh paylaşımı sahada koşmadı
+
+## 📷 28 AĞUSTOS — KAMERA TESTİNDEN ÇIKANLAR
+
+Dört uçuşun tam dökümü: **`docs/KAMERA.md`**. Bugünkü durum: QR **6-9 m'de**
+okunuyor (%38-69), tavan **11 m** ve tavanı belirleyen şey **kalan titreşim**.
+
+- `[ ]` 🟠 **P1.22 — QR'ı büyüt: 1,5 m → 3 m.**
+  **Tek adımda en yüksek etkili iş.** İki yönden birden kazandırır:
+  px/modül iki katına çıkar (menzil) **ve** jöleye dayanıklılık artar —
+  jöle görüntüyü *N piksel* kaydırıyor; modül 5 px ise kayma onu yok eder,
+  15 px ise tolere edilir. Teorik tavan 34 m → 68 m.
+  *Maliyet: bir baskı. Kod değişikliği yok.*
+
+- `[ ]` 🟠 **P1.23 — Renk eşiklerini yeni renk dengesinde kalibre et.**
+  Mevcut eşikler **magenta tondayken** ölçülmüştü; beyaz dengesi sabit
+  kazanca alındı, ton değişti. Renk dedektörü çalışıyor (5-15 m'de %20-30)
+  ama sayılar artık dayanaksız.
+  *Ölçüt: kırmızı ve mavi daire, 5-15 m, sahte pozitif yok.*
+
+- `[ ]` 🟠 **P1.24 — Konteynerdeki `swarm_perception` eski derleme.**
+  `LandingZoneDetector.__init__()` `min_zone_area_frac` kabul etmiyor, yani
+  canlı renk eşiği ayarı (`/algi_ayar` → `algi_kopru`) sessizce çalışmıyor.
+  Kaynak güncel, konteyner değil. `colcon build` gerekiyor.
+
+- `[ ]` 🟡 **P1.25 — Renk hedefini kadraja alan bir uçuş.**
+  Son üç uçuşta sadece QR üzerinde uçuldu; rengin irtifa eğrisi **yok**.
+  QR'ınki gibi bir tablo lazım.
+
+- `[ ]` 🟡 P2 — **Beyaz dengesini farklı ışıkta yeniden ölç.** Sabit kazanç
+  gün ışığına (~4500 K) bağlı; akşam/kapalı havada kayar.
+  *30 saniye: beyaz kâğıt + `/tmp/kalibre.py`.*
+
+- `[ ]` 🟡 P2 — **1332x990 kipini dene.** Okuma süresi üçte bire iner
+  (jöle azalır) ama px/modül 3,3'e düşer. Alçak irtifa için seçenek olabilir.
+
+- `[ ]` ⚪ P3 — **PIL'i ylp00 ve ylp01'e de kur.** Şu an yalnız ylp02'de.
+  Komutlar `docs/RPI_ESITLEME.md`'de. O uçaklarda kamera yoksa acele yok.
+
+> ### ⚠️ Uçuş yapacak kişiye
+>
+> - **Tarayıcı sekmesini kapat.** Açıkken CPU %90,7 ve mavros %74'te CPU
+>   için yarışıyor; kapalıyken %67,5. Kayıt sekmeden bağımsız sürer.
+> - **Algı zincirini (`kamera_zincir.sh`) kayıtla birlikte açma** — CPU %97.
+>   Çözümlemeyi kayıttan yap.
+> - **Alçak uçmak QR'ı okutmuyor** — 2 m'de kare 2,1 m genişliğinde,
+>   1,5 m'lik QR taşıyor. 6-9 m doğru bant.
 
 ## ✅ 27 AĞUSTOS GECESİ BİTENLER
 
