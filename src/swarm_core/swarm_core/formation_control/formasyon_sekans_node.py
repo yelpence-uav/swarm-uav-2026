@@ -15,10 +15,17 @@ NASIL ÇALIŞIR
     /swarm/internal/formation/target'a basar → esp32_bridge lider
     kapısı + mesh + loopback → formation_node'lar uçakları sürer.
 
-ÜÇ UÇAKTA DA KOŞAR (sıcak yedek) — path_planner ile aynı gerekçe:
-lider düşerse yeni liderin sekansı kaldığı yerden yayına girer. Mesh'e
-yalnız liderinki çıkar; kapı köprüde (KARAR 11), burada lider kontrolü
-YOKTUR ve olmamalıdır.
+ÜÇ UÇAKTA DA KOŞAR (sıcak yedek) — mission1 orchestrator ile aynı desen:
+durum makinesi herkeste ilerler, YAYINI YALNIZ LİDER yapar
+(`_lider_id == agent_id`; ElectionResult'tan öğrenilir). Lider düşerse
+yeni liderin sekansı kendi kaldığı fazdan yayına girer.
+
+🔴 LİDER KAPISI BURADA, ÜRETİCİDE — köprü kapısı YETMEZ (G0'da, 28 Ağu
+canlı uçakta ölçüldü): `ic_dis_kopru` `formation/target`'ı internal →
+public KOŞULSUZ aktarıyor. Yayını köprü kapısına bırakan bir takipçi,
+kendi tarifini kopru üzerinden KENDİ formation_node'una ulaştırır ve
+liderin mesh'ten gelen tarifiyle yarıştırırdı. Uçmuş tasarım da aynı
+sebeple üretici tarafında kapılı (orchestrator.py:334 is_leader).
 
 ⚠️ SÖZLEŞME: bu düğüm `suru_dugumleri`'nde `sekans` anahtarı AÇIKKEN her
 guided ARM bir test başlangıcıdır. Normal uçuşa dönmeden anahtar
@@ -41,20 +48,44 @@ from rclpy.qos import (
     ReliabilityPolicy,
 )
 
-from swarm_interfaces.msg import AgentStatus, FormationCommand, SystemEvent
+from swarm_interfaces.msg import (
+    AgentStatus,
+    ElectionResult,
+    FormationCommand,
+    SystemEvent,
+)
 
 from . import formasyon_sekans_cekirdek as cek
 
-# esp32_bridge'in /swarm/internal/formation/target aboneliği _MESH_QOS =
-# BEST_EFFORT + VOLATILE. Yayıncı da aynısını kullanıyor ki QoS uyumu
-# sorusu hiç doğmasın (form_yayinla.sh'teki TRANSIENT_LOCAL tuzağının
-# tersi burada geçerli değil ama ders aynı: mesh konularında profili
-# karşı taraftan kopyala).
-_MESH_QOS = QoSProfile(
+# İÇ VERİYOLU SÖZLEŞMESİ: bütün internal yayıncılar RELIABLE
+# (ic_dis_kopru.py:79-83, 15 Ağustos taraması). İlk yazım BEST_EFFORT
+# yayınlıyordu ve G0'da (28 Ağu) canlı uçakta yakalandı: kopru'nun
+# RELIABLE aboneliği "incompatible QoS" deyip HİÇ almıyordu. Köprü
+# (esp32_bridge) BEST_EFFORT abone olduğu için RELIABLE yayın ikisiyle
+# de uyumlu.
+_IC_YAYIN_QOS = QoSProfile(
+    reliability=ReliabilityPolicy.RELIABLE,
+    durability=DurabilityPolicy.VOLATILE,
+    history=HistoryPolicy.KEEP_LAST,
+    depth=5,
+)
+
+# Mesh kaynaklı konuların abonelik profili (esp32_bridge _MESH_QOS ile aynı).
+_MESH_ABONE_QOS = QoSProfile(
     reliability=ReliabilityPolicy.BEST_EFFORT,
     durability=DurabilityPolicy.VOLATILE,
     history=HistoryPolicy.KEEP_LAST,
     depth=5,
+)
+
+# ElectionResult QoS'u consensus_node/esp32_bridge ile birebir aynı olmak
+# ZORUNDA (RELIABLE + TRANSIENT_LOCAL) — form_yayinla.sh:29-34 tuzağının
+# dersi: profil uyuşmazsa konu SESSİZCE boş kalır.
+_ELECTION_QOS = QoSProfile(
+    reliability=ReliabilityPolicy.RELIABLE,
+    durability=DurabilityPolicy.TRANSIENT_LOCAL,
+    history=HistoryPolicy.KEEP_LAST,
+    depth=1,
 )
 
 # Durumlar — sıralı akış, geri dönüş yok (test aparatı basit kalsın).
@@ -161,9 +192,13 @@ class FormasyonSekansNode(Node):
 
         self._konum: dict[int, AgentStatus] = {}
         self._konum_rx: dict[int, float] = {}
+        # Lider kimliği — 0 = bilinmiyor, kimse yayınlamaz (güvenli taraf:
+        # tarif akmazsa uçaklar guided kalkış noktalarında asılı kalır).
+        self._lider_id = 0
 
         self._cmd_pub = self.create_publisher(
-            FormationCommand, '/swarm/internal/formation/target', _MESH_QOS
+            FormationCommand, '/swarm/internal/formation/target',
+            _IC_YAYIN_QOS,
         )
 
         # Olay aboneliği agent_fsm ile birebir aynı (iki konu, depth 10):
@@ -175,6 +210,16 @@ class FormasyonSekansNode(Node):
         ):
             self.create_subscription(SystemEvent, konu, self._on_olay, 10)
 
+        # Lider bilgisi: internal = kendi consensus'umuz seçince,
+        # public = mesh'ten (esp32_bridge TIP_ELECTION'ı çözüp basıyor).
+        for konu in (
+            '/swarm/internal/election/result',
+            '/swarm/public/election/result',
+        ):
+            self.create_subscription(
+                ElectionResult, konu, self._on_secim, _ELECTION_QOS
+            )
+
         # Kadro konumları: public droneN/status hem komşuları (mesh) hem
         # kendimizi (ic_dis_kopru yerel döngüsü) kapsar. Kendi internal
         # akışımız yedek — kopru gecikirse kendi verimiz yine akar.
@@ -183,13 +228,13 @@ class FormasyonSekansNode(Node):
                 AgentStatus,
                 f'/swarm/public/drone{a}/status',
                 self._durum_cb(a),
-                _MESH_QOS,
+                _MESH_ABONE_QOS,
             )
         self.create_subscription(
             AgentStatus,
             f'/swarm/internal/drone{self._agent_id}/status',
             self._durum_cb(self._agent_id),
-            _MESH_QOS,
+            _MESH_ABONE_QOS,
         )
 
         self.create_timer(1.0 / self._yayin_hz, self._tick)
@@ -212,6 +257,15 @@ class FormasyonSekansNode(Node):
             self._konum[aid] = msg
             self._konum_rx[aid] = self._simdi()
         return _cb
+
+    def _on_secim(self, msg: ElectionResult) -> None:
+        yeni = int(msg.new_leader_id)
+        if yeni != self._lider_id:
+            self.get_logger().info(
+                f'lider degisti: {self._lider_id} -> {yeni} '
+                f'(yayin {"BIZDE" if yeni == self._agent_id else "onda"})'
+            )
+            self._lider_id = yeni
 
     def _on_olay(self, msg: SystemEvent) -> None:
         if msg.event_type != SystemEvent.EVENT_MISSION_STARTED:
@@ -368,6 +422,16 @@ class FormasyonSekansNode(Node):
 
     # ------------------------------------------------------------------
     def _yayinla(self, simdi: float) -> None:
+        # LİDER KAPISI (üretici tarafı — dosya başlığındaki gerekçe).
+        # Durum makinesi yukarıda zaten ilerledi; susan yalnız yayın.
+        # Devir anında yeni lider kendi fazından kesintisiz devam eder.
+        if self._lider_id != self._agent_id:
+            self.get_logger().warn(
+                f'lider degiliz (lider={self._lider_id}) — tarif yayini '
+                f'susturuldu, durum makinesi sicak yedekte ilerliyor',
+                throttle_duration_sec=10.0,
+            )
+            return
         tip, _sure = self._plan[self._faz_idx]
         agent_ids, ofsetler = self._faz_atama
         msg = FormationCommand()
