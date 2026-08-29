@@ -202,6 +202,11 @@ export const api = {
 export const MISSION_ID = {
   DYNAMIC_SWARM: 1,         // Görev 1
   SEMI_AUTONOMOUS: 2,       // Görev 2
+  // TEST: yarismada YOK. Gecici saha testlerini YKI'den koşturmak icin
+  // ayrilmis slot (29 Agustos 2026, operator). Su an HENUZ BAGLI DEGIL —
+  // neyi tetikleyecegi kararlasinca burasi ve MissionPanel doldurulacak.
+  // 90+ araligi bilerek: sartnamedeki gorev kimlikleriyle carpismasin.
+  TEST: 90,
 } as const;
 
 export const MISSION_COMMAND = {
@@ -311,6 +316,11 @@ export const swarmApi = {
 };
 
 // --- Kanit ucusu kosucusu (gorev_kanit_ucus.py) -----------------------------
+// NOT (29 Agustos 2026): YKI'deki KosucuPanel karti operator istegiyle
+// KALDIRILDI, ama bu istemci BILEREK duruyor — KARAR-11 test merdiveni
+// adim 1 "kosucu `manevra` senaryosu + panel butonu" istiyor, yani gunler
+// icinde geri gelecek. Arka uctaki /api/kosucu ucu da yerinde.
+// Kartin kendisi: `git show 38c0f3f:src/gcs/frontend/src/components/KosucuPanel/KosucuPanel.tsx`
 // Backend bu betigi ayri bir surec olarak calistiriyor; buradan yalnizca
 // baslat / durdur / durum sorulur. Durdur = SIGINT = ucaklar INER.
 

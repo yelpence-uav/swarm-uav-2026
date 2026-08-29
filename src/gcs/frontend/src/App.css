@@ -6,7 +6,12 @@
 
 .app {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 360px;
+  /* Kenar cubugu 29 Agustos 2026'da GENISLETILDI (operator: "cok dar,
+     haritayi azicik daraltmasinda sakinca yok"). Sabit px yerine clamp:
+     genis ekranda panel rahatlar, dar ekranda haritayi bogmaz.
+     Alt sinir eski genislik (360), ust sinir 480 — daha genisi haritayi
+     kullanilmaz hale getiriyor. */
+  grid-template-columns: minmax(0, 1fr) clamp(360px, 26vw, 480px);
   grid-template-rows: auto 1fr auto;
   grid-template-areas:
     "header   header"
@@ -27,7 +32,7 @@
 
 /* Joystick aktif: map-area sütununu ortadan ikiye böl. */
 .app--joystick {
-  grid-template-columns: minmax(0, 1fr) 380px 360px;
+  grid-template-columns: minmax(0, 1fr) 380px clamp(360px, 24vw, 460px);
   grid-template-areas:
     "header   header   header"
     "map-area joystick sidebar"
@@ -95,10 +100,12 @@
 /* Responsive */
 @media (max-width: 1280px) {
   .app {
-    grid-template-columns: minmax(0, 1fr) 320px;
+    /* 1280 alti: clamp'in alt sinirindan da dar — burada harita zaten
+       kritik, panel 360'a sabitleniyor (eskiden 320). */
+    grid-template-columns: minmax(0, 1fr) 360px;
   }
   .app--joystick {
-    grid-template-columns: minmax(0, 1fr) 320px 320px;
+    grid-template-columns: minmax(0, 1fr) 320px 360px;
   }
 }
 

@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
 
+import { AcilSonlandirma } from "./components/AcilSonlandirma/AcilSonlandirma";
 import { AlertList } from "./components/AlertSystem/AlertList";
 import { AppHeader } from "./components/AppShell/AppHeader";
 import { DroneControlPanel } from "./components/DroneControlPanel/DroneControlPanel";
 import { JoystickPanel } from "./components/JoystickPanel/JoystickPanel";
 import { MapView } from "./components/Map/Map";
-import { KosucuPanel } from "./components/KosucuPanel/KosucuPanel";
 import { MissionControl } from "./components/MissionControl/MissionControl";
 import { MissionPanel } from "./components/MissionPanel/MissionPanel";
 import { QRPanel } from "./components/QRPanel/QRPanel";
@@ -13,7 +13,6 @@ import { QRPositionForm } from "./components/QRPositionForm/QRPositionForm";
 import { BildirimPanel } from "./components/BildirimPanel/BildirimPanel";
 import { RpiPanel } from "./components/RpiPanel/RpiPanel";
 import { SettingsPanel } from "./components/SettingsPanel/SettingsPanel";
-import { SwarmStatePanel } from "./components/SwarmStatePanel/SwarmStatePanel";
 import { TelemetryPanel } from "./components/TelemetryPanel/TelemetryPanel";
 import { useGunluk } from "./hooks/useGunluk";
 import { useQRPositions } from "./hooks/useQRPositions";
@@ -60,6 +59,10 @@ export default function App() {
   // Seçili drone (kontrol paneli), ayarlar modalı ve uçuş parametreleri.
   const [selectedDroneId, setSelectedDroneId] = useState<number | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  // Takim ID: gorev karti VE haritadaki acil sonlandirma ayni degeri
+  // kullaniyor, o yuzden burada tutuluyor (iki ayri state bir sure sonra
+  // ayrisirdi — CLAUDE.md §9).
+  const [teamId, setTeamId] = useState("team_1");
   const [bildirimlerOpen, setBildirimlerOpen] = useState(false);
   // RPi paneli — acik oldugu drone'un kimligi (null = kapali).
   const [rpiDrone, setRpiDrone] = useState<number | null>(null);
@@ -133,6 +136,13 @@ export default function App() {
           params={flightParams}
         />
         <AlertList alerts={payload.alerts} />
+        {selectedMissionId !== MISSION_ID.SEMI_AUTONOMOUS && (
+          <AcilSonlandirma
+            missionId={selectedMissionId}
+            teamId={teamId}
+            missionActive={missionActive}
+          />
+        )}
         {/* Kontrol paneli 29 Agustos 2026'da sag kenar cubuğundan HARITAYA
             tasindi (operator): komut verirken bakilan sey harita, panel de
             orada olsun. Sag alt kose Leaflet atif yazisinin ustune biniyor,
@@ -155,13 +165,13 @@ export default function App() {
       )}
 
       <aside className="app__sidebar">
-            <KosucuPanel />
             <MissionPanel
               missionActive={missionActive}
               missionId={selectedMissionId}
               onMissionIdChange={setSelectedMissionId}
+              teamId={teamId}
+              onTeamIdChange={setTeamId}
             />
-            <SwarmStatePanel swarmState={payload.swarm_state} />
             <QRPanel qr={payload.qr ?? null} />
             <QRPositionForm
               positions={qr.positions}

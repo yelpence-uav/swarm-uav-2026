@@ -19,22 +19,29 @@ import "./MissionPanel.css";
  */
 
 const MISSION_LABELS: Record<number, string> = {
-  [MISSION_ID.DYNAMIC_SWARM]: "Görev 1 - Dinamik Sürü",
-  [MISSION_ID.SEMI_AUTONOMOUS]: "Görev 2 - Yarı Otonom",
+  [MISSION_ID.DYNAMIC_SWARM]: "Görev 1 — Dinamik Sürü",
+  [MISSION_ID.SEMI_AUTONOMOUS]: "Görev 2 — Yarı Otonom",
+  [MISSION_ID.TEST]: "Test Görevi",
 };
 
 interface MissionPanelProps {
   missionActive: boolean;
   missionId: number;
   onMissionIdChange: (id: number) => void;
+  /* Takım ID App'te tutuluyor: haritadaki acil sonlandırma da aynı değeri
+     kullanıyor ve iki yerde ayrı state olsaydı biri güncellenip diğeri
+     unutulurdu (CLAUDE.md §9). */
+  teamId: string;
+  onTeamIdChange: (v: string) => void;
 }
 
 export function MissionPanel({
   missionActive,
   missionId,
   onMissionIdChange,
+  teamId,
+  onTeamIdChange,
 }: MissionPanelProps) {
-  const [teamId, setTeamId] = useState<string>("team_1");
   const [busy, setBusy] = useState<string | null>(null);
   const [lastResult, setLastResult] = useState<TriggerMissionResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -108,14 +115,25 @@ export function MissionPanel({
           <input
             type="text"
             value={teamId}
-            onChange={(e) => setTeamId(e.target.value)}
+            onChange={(e) => onTeamIdChange(e.target.value)}
             placeholder="team_1"
             disabled={busy !== null}
             spellCheck={false}
           />
         </label>
 
-        {missionId !== MISSION_ID.SEMI_AUTONOMOUS ? (
+        {missionId === MISSION_ID.TEST ? (
+          // Yeri ayrildi, isleyisi HENUZ BAGLANMADI. Baslat dugmesini aktif
+          // birakmak backend'e tanimsiz bir mission_id gondermek olurdu.
+          // TEST GOREVI = DINAMIK SLOT (29 Agustos 2026, operator):
+          // "o an yazdigimiz test neyse onu kosturmak icin degistirilecek".
+          // Yani burasi kalici bir ozellik degil, her testte YENIDEN
+          // BAGLANACAK bir kanca. Bos birakilmasi bilerek — aktif bir
+          // BASLAT dugmesi arka uca tanimsiz bir mission_id gonderirdi.
+          <div className="mission-panel__hint mission-panel__hint--bekliyor">
+            Test görevi boşta — o anki test buraya bağlanır
+          </div>
+        ) : missionId !== MISSION_ID.SEMI_AUTONOMOUS ? (
           <button
             className="mission-panel__start"
             disabled={startDisabled}
@@ -131,37 +149,15 @@ export function MissionPanel({
             {busy === "GÖREV BAŞLAT" ? "GÖNDERİLİYOR..." : "▶ GÖREV BAŞLAT"}
           </button>
         ) : (
-          <div
-            className="mission-panel__hint"
-            style={{
-              background: "rgba(56, 189, 248, 0.1)",
-              border: "1px solid rgba(56, 189, 248, 0.3)",
-              color: "#38bdf8",
-              padding: "6px 12px",
-              borderRadius: "6px",
-              fontWeight: 600,
-              fontSize: "0.85rem",
-            }}
-          >
-            🕹 Görev 2 Kumandadan Başlatılır (SwD Şalteri)
+          <div className="mission-panel__hint mission-panel__hint--bilgi">
+            Görev 2 kumandadan başlatılır (SwD şalteri)
           </div>
         )}
       </div>
 
-      {missionId !== MISSION_ID.SEMI_AUTONOMOUS && (
-        <div className="mission-panel__row mission-panel__row--safety">
-          <span className="mission-panel__safety-label">
-            ⚠ Acil sonlandırma (görev başarısız sayılır):
-          </span>
-          <button
-            className="mission-panel__safety-btn mission-panel__safety-btn--abort"
-            disabled={busy !== null || !missionActive}
-            onClick={() => trigger(MISSION_COMMAND.ABORT, "GÖREVİ İPTAL", "double")}
-          >
-            ✕ Görevi İptal Et
-          </button>
-        </div>
-      )}
+      {/* Acil sonlandırma 29 Ağustos 2026'da HARİTANIN ALT ORTASINA taşındı
+          (operatör): görev sürerken göz haritada, buton da orada olmalı.
+          Bkz. components/AcilSonlandirma/. */}
 
       {lastResult && (
         <div

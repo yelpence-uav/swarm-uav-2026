@@ -1,6 +1,6 @@
 # YAPILACAKLAR
 
-**Son güncelleme:** 29 Ağustos 2026, 20:20 — hızlı döngü araçları eklendi; sahada doğrulama bekliyor
+**Son güncelleme:** 29 Ağustos 2026, 21:15 — ADIM 6'ya KARAR-12 bağlandı (`mission_active` mesh yolu)
 
 > **Finale 8 gün.** Bu liste artık "her fikir" değil, **bu 8 günde
 > yapılacak iş.** Bir madde buraya giriyorsa birinin onu yapması planlanıyor
@@ -76,6 +76,11 @@ Bugünkü komut yolu (YKİ → mesh → goto) finali GEÇEMEZ. Bu blok o yüzden
   `vision_params.yaml`'a `team_slot` yaz. **Tek satır ama bilinmeden QR
   görevleri filtrelenemez.**
 - `[ ]` 🟠 **ADIM 6 — `mission_fsm`.** QR görev sırası. Görev 2 de buna bağlı.
+  ↳ Açılınca **KARAR-12** sırası gelir: `mission_active` YKİ'ye lider kalp
+  atışıyla (mesh'e **0 bayt** — bayt zaten uçuyor, hep `0` yazıyor).
+  Bugün YKİ'de **beş kapı** kalıcı `false`; en görünürü **ACİL İNİŞ butonu
+  hiç aktifleşmiyor**, en önemlisi görev sırasında tekil komutların
+  kilitlenmemesi (şartname: müdahale görevi BAŞARISIZ sayar). ~23 satır.
 - `[ ]` 🟠 **ADIM 7 — `mission1_dynamic_swarm`.** YKİ'nin yerini alan
   orkestratör; **dağıtıklık şartının karşılığı bu.**
   ⚠️ Yerde test edilemez: `decide()` ancak `SYNCHRONIZED_TAKEOFF` → tüm

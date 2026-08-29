@@ -1,0 +1,57 @@
+/* Görev iptali — harita alt ortası.
+   z-index 1002: takip butonu 1000, "buraya git" çubuğu 1001. Güvenlik
+   denetimi hiçbir koşulda örtülmemeli. */
+.acil {
+  position: absolute;
+  left: 50%;
+  bottom: var(--space-3);
+  transform: translateX(-50%);
+  z-index: 1002;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-1);
+  max-width: calc(100% - 2 * var(--space-3));
+}
+
+.acil__btn {
+  padding: var(--space-2) var(--space-5, 20px);
+  border-radius: var(--radius-md);
+  font-family: var(--font-ui);
+  font-size: var(--text-xs);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  white-space: nowrap;
+  color: var(--color-danger);
+  background: var(--color-bg-overlay);
+  border: 1px solid var(--color-danger);
+  backdrop-filter: blur(8px);
+  transition: all var(--transition-fast);
+}
+
+.acil__btn:hover:not(:disabled) {
+  background: var(--gradient-danger);
+  color: #fff;
+  box-shadow: var(--shadow-glow-danger);
+}
+
+/* Görev yokken görünür ama pasif: operatör yerini önceden öğrensin,
+   acil anda aramasın. */
+.acil__btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  border-color: var(--color-border);
+  color: var(--color-text-muted);
+}
+
+.acil__hata {
+  padding: 2px var(--space-2);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-overlay);
+  color: var(--color-danger);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

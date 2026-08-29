@@ -6,6 +6,14 @@
    ============================================================ */
 
 :root {
+  /* 29 Agustos 2026 (operator: "gorev secme penceresinde yazi da arka plan
+     da beyaz, gormek zorlasiyor"). <select>'in ACILIR LISTESI sayfa CSS'iyle
+     degil TARAYICININ YEREL widget'iyla ciziliyor; sayfa koyu olsa bile o
+     liste sistem varsayilanindan (acik) geliyordu. color-scheme tarayiciya
+     "bu sayfa koyu" diyor ve yerel widget'lari (acilir liste, kaydirma
+     cubugu, tarih secici) ona gore ciziyor. */
+  color-scheme: dark;
+
 /* Renk paleti (koyu tema) */
   --color-bg-base:       #070b14;
   --color-bg-elevated:   #0e1424;
@@ -182,6 +190,17 @@ a:hover {
 button {
   font-family: inherit;
   cursor: pointer;
+}
+
+/* Acilir liste ogeleri — color-scheme'i yok sayan tarayicilar icin acik
+   yazilmis emniyet kemeri. Saydam token KULLANILMIYOR: yerel widget
+   saydamligi cozmuyor, arkasinda beyaz sistem zemini kaliyor. */
+select {
+  color-scheme: dark;
+}
+option {
+  background-color: var(--color-bg-elevated);
+  color: var(--color-text-primary);
 }
 
 /* Monospaced sayısal değerler için utility */

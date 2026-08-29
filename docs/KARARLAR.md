@@ -1,6 +1,6 @@
 # KARARLAR — verilmiş ama henüz uygulanmamış kararlar
 
-**Son güncelleme:** 29 Ağustos 2026, 19:40 — KARAR-02'nin ultracode hatırlatma görevi kaldırıldı
+**Son güncelleme:** 29 Ağustos 2026, 21:15 — KARAR-12 eklendi (`mission_active` lider kalp atışıyla, mesh'e 0 bayt)
 
 Sohbette verilen kararlar oturum bitince kayboluyor. Bu defter onları
 tutuyor: **ne karar verildi, neden, ne zaman uygulanacak, nasıl test edilecek.**
@@ -31,6 +31,130 @@ sırası gelince" denilen şeyleri. Onlar en kolay kaybolanlar.
 `🔵 SIRASI GELDİ` — aşamaya ulaşıldı, uygulanacak
 `✅ UYGULANDI` — bitti, sonucu yazıldı
 `❌ VAZGEÇİLDİ` — gerekçesiyle
+
+---
+
+# KARAR-12 — `mission_active` YKİ'ye lider kalp atışıyla gelecek (mesh'e 0 bayt)
+
+**Durum:** 🟡 BEKLİYOR
+**Ne zaman:** ADIM 6-7 — `mission_fsm` `suru_dugumleri`'ne eklendiği an. Öncesinde
+test edilemez, çünkü olayı üreten düğüm kapalı.
+**Karar veren:** Operatör (29 Ağustos 2026), `SwarmState` kartı kaldırıldıktan sonra
+
+## Karar
+
+YKİ `mission_active` bilgisini **`LeaderHeartbeat` üzerinden** alacak
+(`TIP_LEADER_HB`). `SwarmState` mesh'e **çıkarılmayacak** — o karar 29 Ağustos'ta
+verildi ("mesh sade kalsın") ve bu yol onu bozmadan aynı sonucu veriyor.
+
+## Neden
+
+**Ölçüldü (29 Ağustos), zincirin tamamı zaten kurulu — tek kopuk halka kaynak:**
+
+```
+LeaderHeartbeat.msg              bool mission_active alanı       ✅ VAR
+consensus_node.py:541            kalp atışına koyuyor            ✅
+leader_hb_paketle():781          16 bayta paketliyor             ✅
+esp32_bridge:2714                TIP_LEADER_HB ile yolluyor      ✅  10 Hz, yalnız lider
+esp32_bridge:1782                alıcıda çözüyor                 ✅
+esp32_bridge:478                 /swarm/public/leader/heartbeat  ✅
+backend                          o konuya abone DEĞİL            ❌
+consensus_context.py:86          = False, bir daha HİÇ set edilmiyor  ❌  ← tek kopukluk
+```
+
+Doğru değeri tutan `mission_active` **başka düğümde**: `swarm_fsm_node.py:586/590`,
+`EVENT_MISSION_STARTED` / `EVENT_MISSION_COMPLETED` olaylarından. `consensus`'unki
+`__init__`'te `False` yapılıp unutulmuş.
+
+**Mesh maliyeti tam olarak sıfır:**
+
+```
+TIP_LEADER_HB payload = 16 bayt (mesh sabit)
+  kullanılan  8   ← mission_active bunun İÇİNDE, zaten uçuyor
+  boş dolgu   8   ← ileride mission_id (uint8) için yer var
+```
+
+Paket saniyede 10 kez zaten gidiyor, bayt zaten içinde, sadece hep `0` yazıyor.
+
+**Neden olay (`SystemEvent`) yolu değil — ikisi de mesh'e 0 bayt:**
+Olay **kenar tetikli**. Şartname *"hakemler görev sırasında YKİ bağlantısını
+kesecektir"* diyor; yeniden bağlanan YKİ'de kenar tetikli bayrak `false` başlar —
+yani **ACİL İNİŞ butonu tam ihtiyaç duyulan anda pasif kalır.** Kalp atışı
+**seviye tetikli**, 10 Hz: paket kaybı 100 ms'de kendini onarır, geç bağlanan YKİ
+doğruyu 100 ms'de öğrenir.
+
+**Lider devri kendiliğinden güvenli:** `swarm_fsm` olayları
+`/swarm/public/events/system`'den dinliyor (`:229`) ve mesh'ten gelen **komşu
+olayları da oraya** düşüyor (`_event_pub_public`). `consensus` da aynı konuyu
+dinlerse her uçak `mission_active`'i **bağımsız** tutar; yeni seçilen lider doğru
+değerle yayına başlar. Düğümler arası yeni bağımlılık doğmaz.
+
+## Nasıl uygulanacak
+
+| # | Nerede | İş | Satır |
+|---|--------|----|-------|
+| 1 | `consensus_node.py` | `/swarm/public/events/system`'e abone ol, `EVENT_MISSION_STARTED/COMPLETED` ile `ctx.mission_active` set et (`swarm_fsm_node.py:584-590` ile birebir aynı mantık) | ~8 |
+| 2 | `ros_bridge.py` | `/swarm/public/leader/heartbeat` → `LeaderHeartbeat` aboneliği, `mission_active`'i durumda tut | ~10 |
+| 3 | `ros_bridge.py` | Olay yolunu **teyit katmanı** olarak ekle: `EVENT_MISSION_COMPLETED` gelince hemen düşür (kalp atışını beklemeden) | ~5 |
+
+Geri alınabilir: üçü de eklemeli, hiçbir mevcut davranışı değiştirmiyor.
+
+### 🔴 Zaman aşımında SON DEĞERİ KORU — sıfırlama
+
+Kalp atışını **yalnız lider** yayınlıyor. Lider düşerse yeni seçime kadar
+(`heartbeat_timeout_ms = 1000`) YKİ hiçbir şey almaz.
+
+Buradaki refleks yanlış yön: drone bağlantı zaman aşımlarında yaptığımız gibi
+durumu **sıfırlarsak, lider düştüğü saniyede ACİL İNİŞ butonu ölür.** Tam
+gerektiği anda.
+
+Doğrusu: zaman aşımında **son değeri koru**, "bilmiyorum" durumunda buton **açık**
+kalsın. Ters yöndeki hata (görev bittiği halde komutların kilitli kalması) hem
+güvenli taraf, hem de 3. adımdaki olay teyidi onu zaten düşürüyor.
+
+## Bu ne düzeltiyor
+
+Arayüzde **beş kapı** `missionActive`'e bağlı ve bugün hepsi kalıcı olarak `false`
+(`App.tsx`) — çünkü `payload.swarm_state` hiç dolmuyor:
+
+```
+:134  guidedEnabled    = !isSimMode && !missionActive   → "buraya git" çubuğu
+:143  missionActive                                     → ACİL İNİŞ (kalıcı PASİF)
+:154  commandsDisabled = missionActive                  → tekil komutlar (hiç kilitlenmiyor)
+:169  missionActive
+:183  disabled         = missionActive                  → görev kartı
+```
+
+`:154` şartname açısından önemli: *görev sırasında YKİ'den müdahale görevi
+BAŞARISIZ sayar* — bugün arayüz bunu **uygulamıyor.** Görev zinciri kapalı olduğu
+için şu an zararsız, ADIM 6'da değil.
+
+## Kapsam dışı — bilerek
+
+| Alan | Neden gelmiyor | Etkisi |
+|---|---|---|
+| `activeMission` (metin, `App.tsx:104`) | Mesh 16 baytta metin taşımıyor | Tek kullanımı joystick görünürlüğü (`:113`) ve orada zaten **VEYA** var: operatörün liste seçimi joystick'i açıyor. Yalnız görev ortasında yeniden bağlanan YKİ'de eksik. İstenirse boş 8 bayta `mission_id` (uint8) konur — o da 0 bayt |
+| `activeQrId` (`App.tsx:133`) | Mesh işi değil | `payload.qr`'dan geliyor, `goru` açılınca kendiliğinden dolar |
+
+## Test
+
+**Uçuş YOK — hepsi yerde (CLAUDE.md §7: yerde cevaplanıyorsa uçulmaz).**
+
+1. **G0:** `mission_fsm` açık, iki uçak yerde. Görevi başlat → YKİ'de ACİL İNİŞ
+   butonu **aktifleşsin**, tekil komutlar **kilitlensin**.
+2. **G0:** Görevi tamamla → ikisi de geri dönsün.
+3. **G0 — asıl sınav (şartname senaryosu):** görev sürerken YKİ'yi kapat, aç.
+   Buton **≤1 sn içinde yeniden aktif** olmalı. Kenar tetikli çözüm burada kalır.
+4. **G0 — lider devri:** görev sürerken lideri `kill` ile düşür. Yeni lider
+   seçilene kadar buton **pasifleşmemeli**; seçim sonrası doğru değerle sürmeli.
+
+## Diğer seçenekler (operatör isterse)
+
+| Seçenek | Neden seçilmedi |
+|---|---|
+| **`SystemEvent` (kenar tetikli)** — mesh'e yine 0 bayt, yalnız arka uçta ~10 satır, uçakta hiç değişiklik yok | Tek paket kaybı = durum sonsuza kadar yanlış. Yeniden bağlanan YKİ `false` başlar — hakem bağlantıyı **kesecek**. Elenmedi, **B'nin üstüne teyit katmanı** olarak alındı (3. adım) |
+| **`SwarmState`'i mesh'e çıkar** | 29 Ağustos operatör kararı: "mesh sade kalsın". Ayrıca paketleyici + köprü aboneliği + alıcı yayını **sıfırdan** yazılacaktı; kalp atışında üçü de hazır |
+| **YKİ'de türet** | Ölçüldü: `swarm_state` fazı, `formation_reached/stable` ve metin alanları YKİ'de **türetilemez.** `mission_active` türetilebilirdi ama kaynak yine mesh olurdu |
 
 ---
 
