@@ -110,13 +110,16 @@ taraması sırasıyla dener; sonuncusu her zaman çalışır.
 ## Sık kullanılan komutlar
 
 ```bash
-# Uçuştan ÖNCE — bedava, saniyeler sürer, ATLANMAZ
-./deploy/yki/param_karsilastir.py         # uçaklar aynı ayarda mı
+# HER UÇUŞTAN ÖNCE — saniyeler sürer, ATLANMAZ
 python3 src/gcs/gorev_kanit_ucus.py --kuru --harita \
     --senaryo saha --dronelar 1,2,3 --lider 3
 #   --kuru   : plan + çarpışma denetimi, HİÇBİR komut gitmez → "SONUÇ: GEÇTİ" şart
 #   --harita : /tmp/yelpence_rota.html — uydu görüntüsünde yeşil=rota,
 #              mavi=her drone'un İNECEĞİ yer. OPERATÖR GÖZÜYLE DOĞRULAR.
+
+# SAHA GÜNÜ BİR KEZ — uçuş başına DEĞİL (29 Ağu operatör kararı)
+./deploy/yki/param_karsilastir.py         # uçaklar aynı ayarda mı
+./deploy/yki/drone_bul.sh --durum         # disk, konteyner, bayraklar, Pi ayakta mı
 
 # Uçuş ayarları — hız, ivme, formasyon aralığı, açılar (TEK KAYNAK)
 python3 src/gcs/ucus_ayarlari.py          # çözümle + tutarlılık denetle
@@ -124,7 +127,17 @@ python3 src/gcs/ucus_ayarlari.py --px4    # uçaklara yazılacak parametreler
 python3 src/gcs/ucus_ayarlari.py --kabuk  # baslat.sh için env satırları
 
 # Kodu dronlara dağıt (rsync + konteynerde derleme + sürüm kaydı)
-./deploy/rpi/dagit.sh
+./deploy/rpi/dagit.sh                          # hepsi, altı paket birden
+
+# ⚡ HIZLI DÖNGÜ — bir Python satırı değiştiğinde (29 Ağustos)
+#    Tam docker restart ~50 sn sabit sleep + MAVROS/PX4/RTK yeniden kilit
+#    istiyordu. Değişen tek düğümse ikisi de gereksiz:
+./deploy/rpi/dagit.sh --paket swarm_core ylp00         # 1) yalnız o paketi derle
+./deploy/yki/drone_bul.sh ylp00 \
+    'docker exec -d drone1 bash /ws/baslat.sh --yalniz ca'   # 2) yalnız o düğüm
+#    --yalniz mavros/px4_bridge/agent_fsm/esp32_bridge/uçuş kaydına DOKUNMAZ.
+#    🔴 UÇUŞ SIRASINDA KULLANMA — düğüm saniyelerce yok olur.
+#    ⚠️ Bir .msg/.srv değiştiyse --paket kullanma, hepsini derle.
 
 # Yer istasyonu
 src/gcs/yki_baslat.sh · src/gcs/yki_durdur.sh

@@ -3,9 +3,22 @@
 # Repodaki ROS paketlerini drone Pi'lerine dagitir, konteynerde derler ve
 # HANGI COMMIT'IN yuklu oldugunu Pi'ye yazar.
 #
-#   ./dagit.sh                 # cihazlar.md'deki tum drone'lar
-#   ./dagit.sh ylp02           # yalniz biri
-#   KURU=1 ./dagit.sh          # ne yapilacagini goster, dokunma
+#   ./dagit.sh                          # cihazlar.md'deki tum drone'lar
+#   ./dagit.sh ylp02                    # yalniz biri
+#   ./dagit.sh --paket swarm_core       # YALNIZ o paketi senkronla + derle
+#   ./dagit.sh --paket swarm_core,swarm_control ylp02
+#   KURU=1 ./dagit.sh                   # ne yapilacagini goster, dokunma
+#
+# --paket NEDEN VAR (29 Agustos 2026)
+# Bir Python satiri degistiginde ALTI PAKETIN HEPSI yeniden derleniyordu ve
+# bu dakikalar suruyordu. Oysa degisen tek paket. `swarm_interfaces` (CMake +
+# rosidl) acik ara en yavasi; Python tarafinda bir sey degistiyse ona hic
+# dokunmaya gerek yok — install/ altinda zaten duruyor.
+#
+# 🔴 BIR .msg/.srv/.action DEGISTIYSE `--paket` KULLANMA (ya da
+#    swarm_interfaces'i de listeye ekle VE ona bagli paketleri de).
+#    Arayuz degisip bagimlilar yeniden derlenmezse eski basliklarla kosarlar
+#    ve hata YERINE yanlis veri alirsin.
 #
 # NEDEN VAR
 # 30 Temmuz'da olculdu: Pi'lerdeki kod 22 TEMMUZ'DAN kalmaydi, yani 8 gun
@@ -41,8 +54,9 @@ SUBNET="10.158.16"
 # ikisi de SIMULASYON bileseni. network_proxy sahada esp32_bridge'in yerini
 # almaya calisir ve /swarm/public/* topic'lerine IKINCI bir yayinci sokar —
 # teshisi cok zor bir cift-kaynak durumu olusur.
-PAKETLER=(swarm_interfaces swarm_core swarm_control swarm_state_machine
-          swarm_perception swarm_missions)
+TUM_PAKETLER=(swarm_interfaces swarm_core swarm_control swarm_state_machine
+              swarm_perception swarm_missions)
+PAKETLER=("${TUM_PAKETLER[@]}")
 
 log()  { printf '   %s\n' "$*"; }
 bas()  { printf '\n==== %s ====\n' "$*"; }
@@ -219,7 +233,42 @@ EOF
 }
 
 # ---------------------------------------------------------------------------
-hedefler=("$@")
+# --- arg ayristirma: --paket bayragi + pozisyonel drone adlari -------------
+_secilen=()
+hedefler=()
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --paket)   IFS=',' read -r -a _p <<< "${2:-}"; _secilen+=(${_p[@]+"${_p[@]}"}); shift 2 ;;
+        --paket=*) IFS=',' read -r -a _p <<< "${1#*=}"; _secilen+=(${_p[@]+"${_p[@]}"}); shift ;;
+        -h|--yardim)
+            sed -n '2,30p' "${BASH_SOURCE[0]}" | sed 's/^# \?//'; exit 0 ;;
+        -*) log "bilinmeyen bayrak: $1"; exit 1 ;;
+        *)  hedefler+=("$1"); shift ;;
+    esac
+done
+
+if [ ${#_secilen[@]} -gt 0 ]; then
+    # Gecerlilik denetimi: yanlis yazilan paket adi sessizce HICBIR SEY
+    # derlemez ve "dagittim ama degismedi" saatlerce arattirir.
+    for _p in "${_secilen[@]}"; do
+        _bulundu=0
+        for _t in "${TUM_PAKETLER[@]}"; do [ "$_p" = "$_t" ] && _bulundu=1; done
+        if [ "$_bulundu" = "0" ]; then
+            log "HATA: bilinmeyen paket '$_p'"
+            log "  gecerli: ${TUM_PAKETLER[*]}"
+            exit 1
+        fi
+    done
+    PAKETLER=("${_secilen[@]}")
+    log "SECILI PAKET(LER): ${PAKETLER[*]}  (digerlerine dokunulmuyor)"
+    for _p in "${PAKETLER[@]}"; do
+        if [ "$_p" = "swarm_interfaces" ] && [ ${#PAKETLER[@]} -eq 1 ]; then
+            log "⚠️  YALNIZ swarm_interfaces secildi. Bir .msg degistiyse ONA BAGLI"
+            log "    paketler de yeniden derlenmeli, yoksa eski basliklarla kosarlar."
+        fi
+    done
+fi
+
 if [ ${#hedefler[@]} -eq 0 ]; then
     hedefler=(ylp00 ylp01 ylp02)
 fi

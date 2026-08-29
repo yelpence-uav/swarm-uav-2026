@@ -1,6 +1,6 @@
 # KARARLAR — verilmiş ama henüz uygulanmamış kararlar
 
-**Son güncelleme:** 29 Ağustos 2026, 18:00 — uygulanmış 6 karar özete indi (gerekçeler git'te); açık kalanlar: 11, 09, 02, 03
+**Son güncelleme:** 29 Ağustos 2026, 19:40 — KARAR-02'nin ultracode hatırlatma görevi kaldırıldı
 
 Sohbette verilen kararlar oturum bitince kayboluyor. Bu defter onları
 tutuyor: **ne karar verildi, neden, ne zaman uygulanacak, nasıl test edilecek.**
@@ -240,9 +240,10 @@ Bu, mesh protokolü ve görev mantığıyla birlikte konuşulmalı; şu an
 
 # KARAR-02 — Claude effort seviyesi: hep `max`, ultracode noktasal
 
-**Durum:** 🟡 BEKLİYOR — kural yürürlükte, hatırlatma anları henüz gelmedi
-**Ne zaman:** Her oturum (kural) + `PLAN.md` §8 **ADIM 1, 3, 4** (hatırlatma)
-**Karar veren:** Operatör (15 Ağustos 2026)
+**Durum:** 🟢 **KISMEN YÜRÜRLÜKTE** — `effort=max` kuralı geçerli;
+**hatırlatma görevi 29 Ağustos 2026'da KALDIRILDI** (aşağıda)
+**Ne zaman:** Her oturum (yalnız `effort=max`)
+**Karar veren:** Operatör (15 Ağustos 2026 · daraltma 29 Ağustos 2026)
 
 ## Karar
 
@@ -277,23 +278,20 @@ PX4 varsayılanı dedi (tersiydi), çoklu üretici çakışması çözülmemiş 
 (susturma ile çözülmüştü). Üçü de tek kanalda bulunamadı. Onu hiç duymamış
 bağımsız bir ajan o çapayı miras almıyor.
 
-## 🔴 Claude'un yapacağı — hatırlatma anları
+## ❌ Hatırlatma görevi KALDIRILDI (29 Ağustos 2026, operatör)
 
-Şu üç adıma gelindiğinde, **uçmadan önce** operatöre söyle:
+Karar başlangıçta Claude'a şunu yüklüyordu: ADIM 1 (`consensus`),
+ADIM 3 (`formation_node`) ve ADIM 4 (`collision_avoidance`) ilk kez havaya
+kalkmadan önce operatöre *"bu mesaja `ultracode` yazar mısın?"* diye sor.
 
-| Adım | Düğüm | Neden fan-out gerekli |
-|------|-------|------------------------|
-| **ADIM 1** | `consensus_node` | Kayıplı mesh'te lider seçimi; iki lider senaryosu aranmalı |
-| **ADIM 3** | `formation_node` | 50 Hz'de uçağa setpoint yazıyor |
-| **ADIM 4** | `collision_avoidance` | İki uçak arasındaki tek koruma katmanı |
+**Bugün geçersiz, iki sebeple:**
 
-Söylenecek cümle: *"Bu düğüm ilk kez havaya kalkacak. KARAR-02 gereği burada
-çok ajanlı denetim öneriliyor — bu mesaja `ultracode` yazar mısın?"*
+1. **Üç adım da bitti** — üçü de uçtu ve sahada doğrulandı.
+2. Operatör 28 Ağustos akşamı denetimi zaten atlamıştı (*"bir daha
+   sorulmayacak"*), 29 Ağustos'ta da genel olarak kaldırdı.
 
-Operatör istemezse tartışılmaz, tek kanalda ilerlenir.
-
-**Genel kural:** havaya kalkacak bir düğüm **ilk kez** açılmadan önce denetim
-önerilir. Belge, config, kurulum, düzeltme işlerinde önerilmez — orada israf.
+**Yürürlükte kalan:** `/effort` hep `max`; ultracode'u **operatör** ister,
+o mesajın içine kelimeyi yazarak. Claude önermez, uçuşu bunun için durdurmaz.
 
 ## Ayrıca — Claude effort'unu kendi okuyabilir
 

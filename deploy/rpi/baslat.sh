@@ -4,6 +4,115 @@
 # Konteynere run_drone.sh ile -e AGENT_ID=<N> gecilir. Drone'da /ws/baslat.sh olarak durur.
 AGENT_ID="${AGENT_ID:-1}"
 echo "[baslat] AGENT_ID=$AGENT_ID"
+
+# --- --yalniz <dugum>: TEK DUGUMU yeniden baslat (29 Agustos 2026) ----------
+#
+# NEDEN VAR: bir Python satiri degistiginde tam `docker restart` gerekiyordu.
+# Olculen maliyet ~50 sn sabit sleep (2 + 15 mavros + 5 + 5 + 2 + ~20 dugum)
+# + MAVROS el sikismasi + PX4 + RTK yeniden kilit + consensus yeniden secim.
+# Oysa degisen sey `formation_node` ise mavros'un kalkmasina GEREK YOK.
+#
+#   docker exec -d drone1 /ws/baslat.sh --yalniz formasyon
+#
+# NE YAPAR : yalniz o anahtarin dugumlerini oldurur ve yeniden baslatir.
+# NE YAPMAZ: mavros, px4_bridge, agent_fsm, esp32_bridge, ucus kaydi ve
+#            gunluk bekcisine DOKUNMAZ; yeni gunluk dizini ACMAZ (mevcut
+#            `son` dizinine yazar, boylece acilis loglari donmez).
+#
+# 🔴 UCUS SIRASINDA KULLANMA. Dugum saniyelerce yok olur; kacinma ya da
+#    formasyon o pencerede sessizce devre disi kalir.
+#
+# ⚠️ Gating degiskenleri (SP_REMAP, VELOCITY_ONLY, bos yuva kapisi) normal
+#    aciliskaki gibi /ws/suru_dugumleri'nden hesaplanir — yani `acik`
+#    DEGISMEZ, yalniz BASLATMA kapisi (`baslat_mi`) daralir. Aksi halde
+#    --yalniz formasyon derken CA kapali sanilir ve gozlem modu zorlanirdi.
+YALNIZ=""
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --yalniz) YALNIZ="${2:-}"; shift 2 ;;
+        --yalniz=*) YALNIZ="${1#*=}"; shift ;;
+        *) shift ;;
+    esac
+done
+
+altyapi() { [ -z "$YALNIZ" ]; }
+
+# baslat_mi: `acik` (yapilandirma) VE (yalniz modu yoksa ya da hedef bu ise)
+baslat_mi() {
+    acik "$1" || return 1
+    [ -z "$YALNIZ" ] || [ "$YALNIZ" = "$1" ]
+}
+
+# Anahtar -> yurutulebilir adlari. `--yalniz` oldurmek icin kullanir.
+_dugum_exe() {
+    case "$1" in
+        origin)    echo "swarm_origin_publisher" ;;
+        consensus) echo "consensus_node" ;;
+        formasyon) echo "formation_node path_planner" ;;
+        sekans)    echo "formasyon_sekans" ;;
+        ca)        echo "collision_avoidance" ;;
+        manevra)   echo "maneuver_executor" ;;
+        fsm)       echo "swarm_fsm_node" ;;
+        gorevfsm)  echo "mission_fsm_node" ;;
+        mod)       echo "mode_manager_node" ;;
+        joystick)  echo "joystick_interpreter_node" ;;
+        gorev1)    echo "mission1_node" ;;
+        goru)      echo "camera_driver vision_node" ;;
+        inis)      echo "precision_landing_node" ;;
+        rol)       echo "task_reallocator_node" ;;
+        *)         echo "" ;;
+    esac
+}
+
+# `ros2 run` bir SARMALAYICI: gercek dugum ayri bir surec ve sarmalayiciyi
+# oldurmek cocugu OKSUZ birakiyor (TUZAKLAR §1.24 — 23 Agustos'ta ylp02'de
+# uc artik dugum bulundu). Bu yuzden once gercek surec, sonra sarmalayici.
+#
+# 🔴 `pkill -f` KULLANILMIYOR: desen KOMUT SATIRINA bakiyor ve cagiran kabugun
+# kendi komut satiri deseni icerirse pkill ONU DA olduruyor (29 Agustos'ta
+# masada yasandi — test kabugu kendini kesti). Onun yerine pgrep + kendi
+# PID'lerini eleyerek kill.
+_dugum_oldur() {
+    local exe pid kalan
+    for exe in $1; do
+        for pid in $(pgrep -f "install/[^ ]*/${exe}\b" 2>/dev/null) \
+                   $(pgrep -f "ros2 run [^ ]* ${exe}\b" 2>/dev/null); do
+            [ "$pid" = "$$" ] && continue
+            [ "$pid" = "$PPID" ] && continue
+            kill "$pid" 2>/dev/null
+        done
+    done
+    sleep 1
+    for exe in $1; do
+        kalan=""
+        for pid in $(pgrep -f "install/[^ ]*/${exe}\b" 2>/dev/null); do
+            [ "$pid" = "$$" ] && continue
+            [ "$pid" = "$PPID" ] && continue
+            kill -9 "$pid" 2>/dev/null; kalan="$kalan $pid"
+        done
+        [ -n "$kalan" ] && echo "[baslat]   $exe TERM ile inmedi, KILL gonderildi:$kalan"
+    done
+    return 0
+}
+
+# TRAMPLEN — dugum, cagiran oturumdan KOPARILIR.
+# `docker exec ... /ws/baslat.sh --yalniz ca` ile cagrildiginda exec oturumu
+# kapaninca arka plandaki dugum SIGHUP alabilir. setsid ile yeni bir oturum
+# acilir; boylece `-d` bayragi unutulsa da dugum yasamaya devam eder.
+# Cikti bir dosyaya alinip geri basiliyor — cagiran yine de ne oldugunu gorur.
+if [ -n "$YALNIZ" ] && [ -z "${YELPENCE_YALNIZ_KOPUK:-}" ] \
+   && command -v setsid >/dev/null 2>&1; then
+    export YELPENCE_YALNIZ_KOPUK=1
+    _cik="/tmp/yalniz_${YALNIZ}.log"
+    # `bash "$0"` SART: baslat.sh 644 (calistirilabilir DEGIL) ve konteyner
+    # CMD'si de `bash /ws/baslat.sh`. setsid "$0" dogrudan calistirmaya
+    # kalkar ve "permission denied" alir (29 Agustos'ta sahada yasandi).
+    setsid bash "$0" --yalniz "$YALNIZ" > "$_cik" 2>&1 &
+    sleep 5
+    cat "$_cik"
+    exit 0
+fi
+
 source /opt/ros/jazzy/setup.bash && source /ws/install/setup.bash
 export ROS_DOMAIN_ID=0 RMW_IMPLEMENTATION=rmw_cyclonedds_cpp ROS_LOCALHOST_ONLY=1  # saha: DDS loopback-only, dis ag bagimsiz
 
@@ -26,14 +135,21 @@ export ROS_DOMAIN_ID=0 RMW_IMPLEMENTATION=rmw_cyclonedds_cpp ROS_LOCALHOST_ONLY=
 # Budama -type d ile yapiliyor, boylece asagidaki 'son' sembolik bagi
 # hedefiyle birlikte silinmiyor.
 export TZ=Europe/Istanbul
-GUNLUK="/ws/gunluk/$(date +%Y%m%d_%H%M%S)"
-mkdir -p "$GUNLUK"
-find /ws/gunluk -maxdepth 1 -mindepth 1 -type d -printf '%T@ %p\n' 2>/dev/null \
-    | sort -rn | tail -n +6 | cut -d' ' -f2- | xargs -r rm -rf
+if [ -n "$YALNIZ" ] && [ -d /ws/gunluk/son ]; then
+    # --yalniz: YENI acilis dizini ACMA. Aksi halde her tek-dugum yeniden
+    # baslatmasi bir dizin uretir ve asagidaki budama (en yeni 5) gercek
+    # acilis loglarini birkac denemede silip supururdu.
+    GUNLUK="$(cd /ws/gunluk/son && pwd -P)"
+else
+    GUNLUK="/ws/gunluk/$(date +%Y%m%d_%H%M%S)"
+    mkdir -p "$GUNLUK"
+    find /ws/gunluk -maxdepth 1 -mindepth 1 -type d -printf '%T@ %p\n' 2>/dev/null \
+        | sort -rn | tail -n +6 | cut -d' ' -f2- | xargs -r rm -rf
+fi
 # Bag GORELI olmak zorunda: mutlak verilirse '/ws/gunluk/<damga>'i gosterir ve
 # host'ta /ws diye bir yol olmadigi icin ~/yelpence_ws/gunluk/son KIRIK cikar
 # (olculdu). Sadece dizin adi verilince iki taraftan da cozuluyor.
-ln -sfn "$(basename "$GUNLUK")" /ws/gunluk/son   # ~/yelpence_ws/gunluk/son/mavros.log
+altyapi && ln -sfn "$(basename "$GUNLUK")" /ws/gunluk/son   # ~/yelpence_ws/gunluk/son/mavros.log
 echo "[baslat] gunlukler: $GUNLUK"
 
 # --- GUNLUK BOYUT BEKCISI ---------------------------------------------------
@@ -128,7 +244,9 @@ gunluk_bekcisi() {
         done
     done
 }
+if altyapi; then   # --yalniz modunda ATLANIR  (gunluk bekcisi)
 gunluk_bekcisi &
+fi   # /altyapi: gunluk bekcisi
 echo "[baslat] gunluk bekcisi: dosya ${GUNLUK_TAVAN_MB} MB (son ${GUNLUK_KORUNAN_MB} MB korunur)," \
      "dizin ${GUNLUK_DIZIN_TAVAN_MB} MB"
 
@@ -166,6 +284,7 @@ if [ -f /ws/tgt_system ]; then
 fi
 # Suanki durum: ylp00 -> dosya YOK (FCU sysid 1, MAVROS varsayilani 1)
 #               ylp02 -> /ws/tgt_system = 3 (FCU sysid 3)
+if altyapi; then   # --yalniz modunda ATLANIR  (ag beklemesi + mavros + GCS denetimi + gps_saat)
 # --- AG HAZIR MI? (20 Agustos 2026, P0.13) ----------------------------------
 # OLCULDU (ylp00, 20 Agustos):
 #     Pi acilis          15:51
@@ -365,6 +484,7 @@ elif [ -f /ws/gps_saat.py ]; then
              | tee -a "$GUNLUK/gps_saat.log"
     fi
 fi
+fi   # /altyapi: ag beklemesi + mavros + GCS denetimi + gps_saat
 # GUIDED YORUNGE HIZLARI — yorunge 2 Agustos'ta px4_bridge'e tasindi
 # (bkz. _yurutucu_ilerlet). Onceden gorev betigi setpoint'i kendi yurutuyor ve
 # her ara noktayi mesh'ten yolluyordu; mesh'te ~%30 paket kaybi oldugu icin
@@ -621,6 +741,7 @@ fi
 echo "[baslat] px4_bridge velocity_only=${VELOCITY_ONLY}" \
      "(formasyon suruyor mu: $([ -f /ws/gozlem ] && echo 'HAYIR-gozlem' || echo evet-veya-kapali))"
 
+if altyapi; then   # --yalniz modunda ATLANIR  (px4_bridge)
 ros2 run swarm_control px4_bridge --ros-args -p agent_id:=${AGENT_ID} \
     -p velocity_only:=${VELOCITY_ONLY} \
     -p guided_hiz_yatay_mps:=${GUIDED_HIZ_YATAY} \
@@ -632,6 +753,7 @@ ros2 run swarm_control px4_bridge --ros-args -p agent_id:=${AGENT_ID} \
     -p guided_ivme_ff:=${GUIDED_IVME_FF} \
     -p guided_tasma_m:=${GUIDED_TASMA} >> "$GUNLUK/px4b.log" 2>&1 &
 sleep 5
+fi   # /altyapi: px4_bridge
 # BATARYA KRITIK ESIGI — 0 ise FSM bataryaya HIC BAKMAZ.
 #
 # 2 AGUSTOS: ucaklar regulatorden besleniyor, PX4'te BAT1_SOURCE disabled.
@@ -673,6 +795,7 @@ fi
 # cikar (consensus secim yapabilir) ama kalkisi TETIKLEMEZ — 'takeoff'
 # komutunun tek kaynagi guided yol. mission1+agent_fsm kalkisi
 # devraldiginda SURU_KALKIS_OLAYLA=true yapilacak.
+if altyapi; then   # --yalniz modunda ATLANIR  (agent_fsm + mesaj hizlari)
 ros2 run swarm_state_machine agent_fsm_node --ros-args \
     -p agent_id:=${AGENT_ID} \
     -p battery_critical_voltage_v:=${BATARYA_KRITIK_V} \
@@ -682,6 +805,7 @@ sleep 5
 # MAVLink yayin hizlari: FCU her resetlendiginde sifirlanir, her aciliste yeniden istenir
 python3 /ws/mesaj_hizlari.py >> "$GUNLUK/hizlar.log" 2>&1
 sleep 2
+fi   # /altyapi: agent_fsm + mesaj hizlari
 # TAKIM_ID -> team_id: QR'in takim filtresi mesh'te TASINMIYOR (metin, 16 bayta sigmaz).
 # QR'i okuyan drone yerelde filtreliyor; alici kopru bu alani DOLDURMAK ZORUNDA.
 # Bos kalirsa mission_fsm_node:336 ve mission1_node:205 gelen HER QR'i reddeder
@@ -699,7 +823,9 @@ TAKIM_ID="${TAKIM_ID:-752825}"
 # da ayni isimli parametreyi kullaniyor; UCU AYNI OLMALI yoksa slot geometrisi
 # sessizce ayrisir.
 KANAT_ALFA_DEG="${KANAT_ALFA_DEG:-45.0}"
+if altyapi; then   # --yalniz modunda ATLANIR  (esp32_bridge)
 ros2 run swarm_control esp32_bridge --ros-args -p serial_port:=/dev/ttyAMA4 -p baud:=460800 -p agent_id:=${AGENT_ID} -p team_id:="'${TAKIM_ID}'" -p wing_alpha_deg:=${KANAT_ALFA_DEG} $SP_REMAP >> "$GUNLUK/esp.log" 2>&1 &
+fi   # /altyapi: esp32_bridge
 
 # basit_kacinma baslatma blogu 29 Agustos 2026'da SILINDI (yukaridaki
 # gerekce). Tek kacinma dugumu collision_avoidance ve o asagida, sürü
@@ -786,6 +912,7 @@ YAML
 KAYIT_HARIC="/mavros/(sim_state/|hil/|px4flow/|optical_flow/|gimbal_control/|mount_control/|landing_target/|camera/|cam_imu_sync/|wheel_odometry/|adsb/|terrain/|rangefinder/|wind_estimation|log_transfer/|mag_calibration/|geofence/|rallypoint/|mission/|debug_value/|gpsstatus/gps2/|imu/diff_pressure|imu/temperature_baro|trajectory/desired|setpoint_trajectory/|nav_controller_output/|target_actuator_control|tunnel/|manual_control/|radio_status|timesync_status)"
 
 KAYIT_DIZIN="/ws/kayit/$(hostname)_$(date +%Y%m%d_%H%M%S)"
+if altyapi; then   # --yalniz modunda ATLANIR  (ucus kaydi + trap)
 ros2 bag record \
     -e "^(/drone_${AGENT_ID}/|/swarm/|/gozlem/)" \
     --exclude-regex "$KAYIT_HARIC" \
@@ -806,6 +933,30 @@ kapat() {
     kill -TERM 0 2>/dev/null
 }
 trap kapat TERM INT
+fi   # /altyapi: ucus kaydi + trap
+
+# --- --yalniz: hedefi dogrula ve ESKI surecini oldur ------------------------
+if [ -n "$YALNIZ" ]; then
+    _exe="$(_dugum_exe "$YALNIZ")"
+    if [ -z "$_exe" ]; then
+        echo "[baslat] HATA: --yalniz '$YALNIZ' bilinmiyor."
+        echo "[baslat]   Gecerli anahtarlar: origin consensus formasyon sekans ca"
+        echo "[baslat]                       manevra fsm gorevfsm mod joystick"
+        echo "[baslat]                       gorev1 goru inis rol"
+        exit 1
+    fi
+    if ! acik "$YALNIZ"; then
+        echo "[baslat] HATA: '$YALNIZ' /ws/suru_dugumleri icinde YOK — acilmaz."
+        echo "[baslat]   Su an acik olanlar: '${SURU_DUGUMLERI}'"
+        echo "[baslat]   Once anahtari ekle, sonra --yalniz ile yeniden baslat."
+        exit 1
+    fi
+    echo "[baslat] --yalniz $YALNIZ  (yurutulebilir: $_exe)"
+    echo "[baslat]   altyapiya DOKUNULMUYOR: mavros, px4_bridge, agent_fsm,"
+    echo "[baslat]   esp32_bridge, ucus kaydi ve gunluk bekcisi calismaya devam eder."
+    _dugum_oldur "$_exe"
+    echo "[baslat]   eski surecler oldurudu, yeniden baslatiliyor..."
+fi
 
 # --- Suru dugumleri: BILEREK OPT-IN ----------------------------------------
 # Bunlar simulasyon icin yazildi ve sahada HIC kosmadilar. On dortunu birden
@@ -898,12 +1049,14 @@ if [ -n "$SURU_DUGUMLERI" ]; then
     # Kapatilamaz degil ama kapatilirsa suru dugumleri birbirini gormez;
     # bu yuzden 'origin'/'consensus' gibi ayri bir anahtara BAGLANMADI —
     # herhangi bir suru dugumu aciksa o da acilir.
+if altyapi; then   # --yalniz modunda ATLANIR  (ic_dis_kopru)
     ros2 run swarm_control ic_dis_kopru \
         >> "$GUNLUK/ic_dis_kopru.log" 2>&1 &
     sleep 1
     echo "[baslat] ic_dis_kopru basladi (internal -> public yerel dongu)"
+fi   # /altyapi: ic_dis_kopru
 
-    if acik origin; then
+    if baslat_mi origin; then
         if [ -f /ws/origin ]; then
             read -r O_LAT O_LON O_ALT _ < /ws/origin
             # REMAP KALDIRILDI (15 Agustos): dugum artik sozlesmeye uygun
@@ -926,7 +1079,7 @@ if [ -n "$SURU_DUGUMLERI" ]; then
         fi
     fi
 
-    if acik consensus; then
+    if baslat_mi consensus; then
         ros2 run swarm_core consensus_node --ros-args \
             -p agent_id:=${AGENT_ID} \
             -p agent_count:=${SURU_AJAN_SAYISI} \
@@ -965,7 +1118,7 @@ if [ -n "$SURU_DUGUMLERI" ]; then
     # /control/setpoint) kullaniyor, ayri anahtari var: 'ca'. Ayni yuvaya
     # iki uretici baglanirsa px4_bridge 50 Hz'de celiskili setpoint alir —
     # CLAUDE.md §4'un yasakladigi sey.
-    if acik formasyon; then
+    if baslat_mi formasyon; then
         # wing_alpha_deg: kopru, swarm_fsm ve mission1 ile AYNI deger sart,
         # yoksa slot geometrisi sessizce ayrisir.
         # sitl_mode:=false ACIKCA geciliyor (17 Agustos). Dugumun kendi
@@ -1024,7 +1177,7 @@ if [ -n "$SURU_DUGUMLERI" ]; then
     # 🔴 formasyon anahtari SART: tarifi ucuran formation_node'dur. Sekans
     # tek basina acilirsa tarif mesh'e cikar ama hicbir ucak uymaz — sessiz
     # bosluk olmasin diye burada acikca reddediliyor.
-    if acik sekans; then
+    if baslat_mi sekans; then
         if ! acik formasyon; then
             echo "[baslat] HATA: 'sekans' istendi ama 'formasyon' kapali —" \
                  "tarifi ucuracak formation_node yok. formasyon_sekans" \
@@ -1064,7 +1217,7 @@ if [ -n "$SURU_DUGUMLERI" ]; then
     fi
 
     # ADIM 4 — KARAR-01. Tek kacinma dugumu; /raw -> /setpoint aktarim kati.
-    if acik ca; then
+    if baslat_mi ca; then
         # Komsu listesi: kendisi haric butun filo. Olmayan drone'a abone
         # olmak zararsiz — veri gelmezse komsu yok sayilir.
         CA_KOMSULAR=$(echo "1 2 3" | tr ' ' '\n' \
@@ -1141,7 +1294,7 @@ if [ -n "$SURU_DUGUMLERI" ]; then
     fi
 
     # Manevra (pitch/roll/yaw) — formasyon zinciri acikken anlamli.
-    if acik manevra; then
+    if baslat_mi manevra; then
         ros2 run swarm_core maneuver_executor --ros-args \
             -p agent_id:=${AGENT_ID} >> "$GUNLUK/manevra.log" 2>&1 &
         sleep 1
@@ -1160,7 +1313,7 @@ if [ -n "$SURU_DUGUMLERI" ]; then
     # durumunu /swarm/internal/drone{id}/status'tan okuyabilsin diye. Bkz.
     # swarm_fsm_node.py'deki agent_id yorumu: bu olmadan iki ucakli suruda
     # tek komsu bayatlayinca TUM SURUYE acil inis yayinlaniyordu.
-    if acik fsm; then
+    if baslat_mi fsm; then
         # SURU_AJAN_SAYISI  = kimlik araligi (1..N), abonelikler bundan
         # SURU_BEKLENEN_UCAK = kac ucak GERCEKTEN uculuyor
         #
@@ -1183,7 +1336,7 @@ if [ -n "$SURU_DUGUMLERI" ]; then
     fi
 
     # ADIM 6 — gorev durum makinesi. Her IKI gorevi de bu suruyor.
-    if acik gorevfsm; then
+    if baslat_mi gorevfsm; then
         # team_id: kopru ve mission1 ile AYNI olmali (QR filtresi).
         ros2 run swarm_state_machine mission_fsm_node --ros-args \
             -p team_id:="'${TAKIM_ID}'" >> "$GUNLUK/mission_fsm.log" 2>&1 &
@@ -1198,7 +1351,7 @@ if [ -n "$SURU_DUGUMLERI" ]; then
     # anahtarindaki kuralin aynisi). MANEVRA modunda mode_manager /raw'a
     # kendisi yazar ve formation_node'u /swarm/internal/mode/
     # formasyon_sustur bayragiyla susturur (28 Agu, KARAR-11).
-    if acik mod; then
+    if baslat_mi mod; then
         if ! acik formasyon; then
             echo "[baslat] HATA: 'mod' istendi ama 'formasyon' kapali —" \
                  "hareket modunun tarifini ucuracak formation_node yok." \
@@ -1233,7 +1386,7 @@ if [ -n "$SURU_DUGUMLERI" ]; then
     # Dugumun MAVROS abonelikleri KOKSUZ yazilmis (/mavros/rc/in) —
     # sahadaki ad alani /drone_N/mavros: remap SART, yoksa hic veri
     # gelmez ve HATA DA VERMEZ (TUZAKLAR'daki koksuz-ad sinifi).
-    if acik joystick; then
+    if baslat_mi joystick; then
         ros2 run swarm_state_machine joystick_interpreter_node --ros-args \
             -p max_speed_mps:=${MOD_HIZ:-2.0} \
             -p max_yaw_rate_deg_s:=${MOD_YAW_HIZI:-25.0} \
@@ -1249,7 +1402,7 @@ if [ -n "$SURU_DUGUMLERI" ]; then
     fi
 
     # Gorev 1 orkestratoru. KARAR 10: her dronda kosar (sicak yedek).
-    if acik gorev1; then
+    if baslat_mi gorev1; then
         ros2 run swarm_missions mission1_dynamic_swarm --ros-args \
             -p agent_id:=${AGENT_ID} -p team_id:="'${TAKIM_ID}'" \
             -p wing_alpha_deg:=${KANAT_ALFA_DEG} \
@@ -1259,7 +1412,7 @@ if [ -n "$SURU_DUGUMLERI" ]; then
 
     # Kamera + goru. Kamera donanimi olmayan dronda camera_driver hata dongusune
     # girer, o yuzden ayri anahtar.
-    if acik goru; then
+    if baslat_mi goru; then
         ros2 run swarm_perception camera_driver --ros-args \
             -p agent_id:=${AGENT_ID} >> "$GUNLUK/kamera.log" 2>&1 &
         sleep 2
@@ -1269,14 +1422,14 @@ if [ -n "$SURU_DUGUMLERI" ]; then
     fi
 
     # Hassas inis — goru acikken anlamli (inis bolgesi kameradan geliyor).
-    if acik inis; then
+    if baslat_mi inis; then
         ros2 run swarm_core precision_landing_node --ros-args \
             -p agent_id:=${AGENT_ID} >> "$GUNLUK/inis.log" 2>&1 &
         sleep 1
     fi
 
     # Rol yeniden dagitim.
-    if acik rol; then
+    if baslat_mi rol; then
         # task_reallocator agent_id KABUL ETMIYOR (olculdu).
         ros2 run swarm_core task_reallocator_node \
             >> "$GUNLUK/rol.log" 2>&1 &
@@ -1300,6 +1453,7 @@ fi
 #   3) betik icinde: aktif kayit ve son 120 sn'de dokunulmus dizin ATLANIR
 #
 # Yani en kotu durumda onarim yapilmaz; ucusu geciktirmesi mumkun degil.
+if altyapi; then   # --yalniz modunda ATLANIR  (kayit onarimi)
 if [ -f /ws/kayit_onar.sh ]; then
     (
         timeout 600 bash /ws/kayit_onar.sh >> "$GUNLUK/kayit_onar.log" 2>&1
@@ -1307,6 +1461,16 @@ if [ -f /ws/kayit_onar.sh ]; then
     ) &
     echo "[baslat] kayit onarimi arka planda basladi -> $GUNLUK/kayit_onar.log"
 fi
+fi   # /altyapi: kayit onarimi
 
-echo "tum dugumler basladi (kayit: $KAYIT_DIZIN)"
+if altyapi; then
+    echo "tum dugumler basladi (kayit: $KAYIT_DIZIN)"
+else
+    # --yalniz: KAYIT_DIZIN yalnizca hesaplandi, YENI kayit ACILMADI.
+    # Eski mesaj burada yeni bir dizin adi basip "ucusum hangi kayitta"
+    # sorusunu yaniltiyordu (29 Agustos, sahada goruldu).
+    echo "[baslat] --yalniz $YALNIZ TAMAM — altyapi ve ucus kaydi dokunulmadi"
+fi
+if altyapi; then   # --yalniz modunda ATLANIR  (wait — yalniz modunda beklemez, cikar)
 wait
+fi   # /altyapi: wait — yalniz modunda beklemez, cikar

@@ -1,6 +1,6 @@
 # RPİ EŞİTLEME DEFTERİ — geri gelen drone'u hizaya getirme
 
-**Son güncelleme:** 28 Ağustos 2026, 11:20
+**Son güncelleme:** 29 Ağustos 2026, 19:45 — param karşılaştırması saha gününe indirildi
 
 ## Kamera ayarları — ylp02'de kalibre edildi · 28 Ağustos 2026
 
@@ -443,8 +443,9 @@ ikisi de simülasyon bileşeni. Uçakta 6 paket olmalı, 8 değil.
 ./deploy/yki/param_karsilastir.py --al MPC_XY_VEL_MAX
 ```
 
-**Her uçuştan önce çalıştır.** Farklı olanları kırmızı basar, uçağa özgü
-olanları (`MAV_SYS_ID`) ayırır.
+**Ne zaman:** bir parametre **yazıldıktan sonra** ve saha gününde bir kez —
+*uçuş başına değil* (29 Ağu operatör kararı, `CLAUDE.md` §9). Farklı olanları
+kırmızı basar, uçağa özgü olanları (`MAV_SYS_ID`) ayırır.
 
 **Neden özel bir araç gerekti** (14 Ağustos'ta çözüldü):
 

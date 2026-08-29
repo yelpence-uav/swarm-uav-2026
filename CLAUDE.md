@@ -1,6 +1,6 @@
 # Yelpençe — TEKNOFEST 2026 Sürü İHA
 
-**Son güncelleme:** 29 Ağustos 2026, 18:50
+**Son güncelleme:** 29 Ağustos 2026, 19:30 — rutin kontroller uçuş başınadan saha gününe indirildi (operatör kararı)
 
 > Claude bu dosyayı her oturumda **kendiliğinden okur.** Yeni sohbet açan
 > kişinin hiçbir şey söylemesine gerek yok; projeyi buradan anlar.
@@ -216,7 +216,11 @@ listede ve ultracode seçilince effort `xhigh`'a düşüyor). Çok ajanlı denet
 gerekirse operatör **o mesajın içine `ultracode` yazar.**
 
 Claude effortunu okuyabilir: `echo $CLAUDE_EFFORT`. **`max` değilse operatöre
-hemen söyle.** Belge/config/kurulum işlerinde ultracode **önerme** — israf.
+hemen söyle.**
+
+> **Ultracode'u Claude ÖNERMEZ.** Eski kural belirli adımlardan önce
+> hatırlatma yapmamı istiyordu; operatör 28 Ağustos'ta kaldırdı ve o adımlar
+> zaten bitti. İsteyen operatördür, hatırlatan değil.
 
 ### 📅 Her .md değişikliğinde en üste tarih-saat
 
@@ -323,8 +327,10 @@ Operatör değişse de, acele olsa da, hava kararıyor olsa da geçerli.
    > devredilemez — kod bina, ağaç, tel, araç **göremez**; harita elimizdeki
    > **tek engel kontrolüdür.** Claude "harita üretildi" deyip geçemez.
 
-6. **Uçakla ilgili her türlü ön testi yap.** Gerekiyorsa operatörden
+6. **O uçuşa özgü bir ön test gerekiyorsa iste.** Gerekiyorsa operatörden
    kumandayı açmasını iste — istemek yük değil, görev.
+   ⚠️ *"Her türlü ön test"* değil: rutin kontroller aşağıdaki **saha günü**
+   listesinde ve **uçuş başına tekrarlanmaz.**
 7. **Rotayı doğru tahmin et.** "Sanırım şuraya gider" kabul edilemez;
    belirsizlik varsa uçulmaz, önce ölçülür.
 8. **İrtifadan önce yatay hareket YOK.**
@@ -332,6 +338,26 @@ Operatör değişse de, acele olsa da, hava kararıyor olsa da geçerli.
 > ### ⛔ Bu sekiz madde tamamlanmadan uçuş BAŞLAMAZ
 >
 > Biri atlanıyorsa Claude **uçuşu durdurur** ve nedenini söyler.
+
+### 🟢 Bunlar uçuş başına DEĞİL — saha günü bir kez
+
+29 Ağustos 2026 operatör kararı. Bu kontroller değerli ama **her uçuşta
+tekrarlanmaları ölçülebilir bir şey yakalamadı**, buna karşılık saha
+temposunu kesiyorlardı. Claude bunları uçuş başına **istemez ve uçuşu
+bunlar için durdurmaz.**
+
+| Kontrol | Ne zaman |
+|---|---|
+| `./deploy/yki/param_karsilastir.py` | Bir PX4 parametresi **yazıldıktan sonra** + saha günü bir kez |
+| `python3 src/gcs/titresim_olc.py <ylpXX>` | Gövdeye **fiziksel iş** yapıldıysa (motor, pervane, kart montajı, düşme sonrası) + saha günü bir kez |
+| Pi ayakta mı · disk · bayraklar · **kod senkronu (md5)** · **ros2 düğüm sayısı** | Hepsi `./deploy/yki/drone_bul.sh --durum` içinde — **tek komut**, ayrı adım değil |
+| **QGC 14550 link kontrolü** | **Operatörün kendi işi.** Claude sormaz, gate etmez |
+
+> 🔴 **QGC hattı operatöre ait.** `udp-b` yayını 14550'yi dinleyen kimse
+> yokken laptopun internetini boğuyor (22 Ağustos'ta ölçüldü) — ama bu
+> **operatörün kendi makinesindeki** bir kurulum meselesi ve o kişi süreci
+> kendi yönetiyor. Belirtisi de nettir: `fix_type` 6'ya çıkmaz, QGC'de uçak
+> görünmez. Ayrıntı `TUZAKLAR.md` §7.1'de duruyor — gerektiğinde bakılır.
 
 ### Diğerleri
 

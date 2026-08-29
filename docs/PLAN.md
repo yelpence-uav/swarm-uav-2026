@@ -1,6 +1,6 @@
 # PLAN — buradan finale
 
-**Son güncelleme:** 29 Ağustos 2026, 18:30 — finale 8 gün; kapanan aşamalar özete indi, kalan iş öne alındı
+**Son güncelleme:** 29 Ağustos 2026, 19:40 — G2 kapsamı daraltıldı, param kontrolü saha gününe indi
 
 ## 1. Neredeyiz
 
@@ -135,11 +135,24 @@ Düğüm gerçek telemetriyle gerçek kararlar üretir, ama uçağa ulaşmaz. So
 kayıttan "ne yapardı" ile "ne oldu" karşılaştırılır. Uçakta `/ws/gozlem`
 bayrağı bunu `baslat.sh` üzerinden yapıyor.
 
-**G2 atlanmaz.** Bu projede en pahalı ders, "kod doğru görünüyor" ile "kod
-doğru davranıyor" arasındaki farkın uçakla ödenmesi oldu.
+**G2 uçağı SÜRECEK düğümler için atlanmaz.** Bu projede en pahalı ders,
+"kod doğru görünüyor" ile "kod doğru davranıyor" arasındaki farkın uçakla
+ödenmesi oldu. İlk kullanımında değerini kanıtladı: `formation_node` yerdeki
+uçak için `vz = 1.51 m/s` üretti — gözlem modu olmasaydı bu bir tırmanma
+komutuydu.
 
-İlk kullanımında değerini kanıtladı: `formation_node` yerdeki uçak için
-`vz = 1.51 m/s` üretti — gözlem modu olmasaydı bu bir tırmanma komutuydu.
+> **🟢 29 Ağustos 2026 — kapsam daraltıldı (operatör kararı).** Kural
+> yazıldığında sürü zincirinin hiçbir parçası uçmamıştı; bugün formasyon ve
+> kaçınma uçuyor. Artık:
+>
+> | Düğüm ne yapıyor | Kademe |
+> |---|---|
+> | Uçağa **setpoint yazıyor** (formasyon, kaçınma, mod yöneticisi) | G0 → **G2** → G3 |
+> | Yalnız **hesap/durum** üretiyor (consensus, fsm, planner, görü) | G0 → G3 (G2 isteğe bağlı) |
+>
+> **G0 hiçbir koşulda atlanmaz** — uçuş gerektirmiyor ve en yüksek getirili
+> kontrol o: 28 Ağustos'ta tek oturumda **dört gerçek hatayı** uçuşa
+> çıkmadan yakaladı.
 
 ### 🔴 En küçük yeterli manevra
 
@@ -187,7 +200,8 @@ son hedefi (= **inecekleri yer**).
 > Formasyonda uçaklar **kalktıkları yere inmez**; mavi noktalar tam bunun
 > içindir.
 
-Ayrıca `./deploy/yki/param_karsilastir.py` — uçaklar aynı ayarda mı.
+`./deploy/yki/param_karsilastir.py` — uçaklar aynı ayarda mı. **Uçuş başına
+değil**: parametre yazıldıktan sonra ve saha gününde bir kez (`CLAUDE.md` §9).
 
 Uçuş öncesi zorunlu **sekiz madde** ve kırmızı çizgiler: `CLAUDE.md` §9.
 

@@ -1,6 +1,6 @@
 # TUZAKLAR — hata vermeden yanlış sonuç üretenler
 
-**Son güncelleme:** 29 Ağustos 2026, 18:40 — kapanmış maddeler çıkarıldı; kalan her madde HÂLÂ GEÇERLİ
+**Son güncelleme:** 29 Ağustos 2026, 19:35 — §2.11b eklendi (arayüz silinince artımlı derleme üç uçağı düşürdü)
 
 > **Bu belge CANLI.** Arşiv değil — buradaki her madde **bugün de geçerli.**
 >
@@ -63,12 +63,19 @@ bozuktur. "Yarım gazda titreşim normal" doğrudur; **clipping normal değildir
 İkinci ölçüm temiz çıktı ama **sebep bulunamadı.** Aralıklı arıza sabit
 arızadan tehlikelidir — uçarken geri gelebilir. O günün kuralı:
 
-> Her uçuştan önce `python3 src/gcs/titresim_olc.py ylp00` — clipping
-> artıyorsa **UÇMA.** Fiziksel kontrol sırası: motor yatakları → uçuş kartı
-> montaj köpüğü → kol/gövde vidaları.
+> `python3 src/gcs/titresim_olc.py <ylpXX>` — clipping artıyorsa **UÇMA.**
+> Fiziksel kontrol sırası: motor yatakları → uçuş kartı montaj köpüğü →
+> kol/gövde vidaları. ⚠️ **Pervane TAKILI ölçülür** — pervanesiz ölçüm
+> yanıltır.
 
-**Araç hâlâ repoda** (`src/gcs/titresim_olc.py`) ama bu kural hiçbir uçuş
-öncesi listesinde yok. `DURUM.md` §7 yalnız `param_karsilastir.py` diyor.
+**🟢 29 Ağustos 2026 — kural uçuş başınadan saha gününe indirildi.** Eski
+hâli *"her uçuştan önce"* idi ve **yazıldığı 1 Ağustos'tan beri bir kez
+bile koşulmadı** (28 Ağustos'a kadar ~20 uçuş yapıldı). Uygulanmayan bir
+kural koruma sağlamaz, yalnız listeyi şişirir.
+
+**Yeni kural:** gövdeye **fiziksel iş** yapıldıysa (motor, pervane, kart
+montajı, düşme/devrilme sonrası) **ve** saha gününde bir kez.
+Sebep hâlâ bulunamadı, o yüzden ölçüm tamamen bırakılmıyor.
 *(1 Ağustos 2026'da ölçüldü)*
 
 ### ✅ 0.2 CEVAPLANDI ve DÜZELTİLDİ (18-19 Ağustos)
@@ -797,6 +804,47 @@ yayıncıdan **hiçbir şey almıyordu**.
 
 ⚠️ `src/swarm_interfaces/INTERFACE_CONTRACT.md` bu dört konu için hâlâ
 "RELIABLE, event" diyor. **Sözleşme sahadaki gerçeği yansıtmıyor**; kod kazanır.
+
+### 2.11b 🔴 Bir arayüz SİLİNİRSE artımlı `colcon build` YETMEZ — üç uçak birden düştü
+
+**29 Ağustos 2026'da yaşandı, sahada.** `swarm_interfaces/action/ExecuteFormation.action`
+depodan silindi (kodda sıfır referansı vardı). `dagit.sh` dağıttı,
+`colcon build` **"Finished <<< swarm_interfaces [4.70s] · 6 packages finished"**
+dedi, hata vermedi. Konteyner yeniden başlatıldı ve **bizim on düğümümüzün
+hepsi açılışta öldü.**
+
+```
+UnsupportedTypeSupport: Could not import 'rosidl_typesupport_c'
+                        for package 'swarm_interfaces'
+  -> ctypes ile dogrudan yuklenince gercek sebep cikti:
+     undefined symbol: swarm_interfaces__action__execute_formation__send_goal__request...
+```
+
+**Mekanizma:** artımlı derleme C kütüphanesini (`libswarm_interfaces__rosidl_typesupport_c.so`)
+ExecuteFormation olmadan yeniden ürettti, ama **Python uzantısını
+(`swarm_interfaces_s__rosidl_typesupport_c.so`) yeniden üretmedi.** Eski uzantı
+artık var olmayan sembolü aramaya devam etti → yükleme anında `undefined symbol`.
+
+**Belirti neden yanıltıcı:** hata `swarm_interfaces`'i *import eden* her düğümde
+çıkıyor, yani suçlu `formation_node`/`consensus`/`px4_bridge` sanılıyor. Hepsi
+aynı satırla ölüyor. `colcon` da **başarılı** dedi.
+
+**Süre farkı tek başına bir işaret:** artımlı derleme **4,7 sn**, temiz derleme
+**1 dk 19 sn**. `swarm_interfaces` saniyeler içinde "derlendi" diyorsa
+üretim adımlarını atlamıştır.
+
+> **Kural:** `.msg` / `.srv` / `.action` **silindiğinde ya da yeniden
+> adlandırıldığında** temiz derleme şart:
+>
+> ```bash
+> docker exec <kon> bash -lc 'rm -rf /ws/build/swarm_interfaces /ws/install/swarm_interfaces &&
+>   source /opt/ros/jazzy/setup.bash && cd /ws &&
+>   colcon build --symlink-install --packages-select swarm_interfaces'
+> ```
+>
+> Alan **eklemek** artımlıda sorun çıkarmıyor; **kaldırmak** çıkarıyor.
+> `dagit.sh --paket` da bunu çözmez — o yalnız hangi paketin derleneceğini
+> seçer, temizlik yapmaz.
 
 ### 2.11 `--symlink-install`'a rağmen Python kaynağı KOPYALANIYOR
 

@@ -320,6 +320,14 @@ tablo_yaz() {
 
 durum_yaz() {
     local liste; liste=$(bul "hayir") || { bilgi "hicbir drone bulunamadi"; return 1; }
+    # 29 Agustos 2026: senkron ve dugum sayisi kontrolu BURAYA tasindi.
+    # Onceden ucus oncesi ayri ayri kosulan iki adimdi; simdi --durum'un
+    # icinde. `.surum` dosyasina GUVENILMEZ (dagit.sh derleme cokse bile
+    # onu yaziyor, TUZAKLAR §1.14) — bu yuzden md5.
+    local _depo _yerel_md5
+    _depo=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
+    _yerel_md5=$(md5sum "$_depo/deploy/rpi/baslat.sh" 2>/dev/null | cut -d' ' -f1)
+    _yerel_md5=${_yerel_md5:-yok}
     tablo_yaz "$liste"
     local satir isim ip kul kon
     for satir in "${DRONELAR[@]}"; do
@@ -340,6 +348,18 @@ durum_yaz() {
                  [ -e \"\$HOME/yelpence_ws/\$f\" ] && printf '%s ' \"\$f\"
              done; echo
              printf '  disk /         : '; df -h / | awk 'NR==2{print \$4\" bos (\"\$5\" dolu)\"}'
+             printf '  baslat.sh md5  : '
+             _um=\$(md5sum \$HOME/yelpence_ws/baslat.sh 2>/dev/null | cut -d' ' -f1)
+             if [ \"\$_um\" = \"$_yerel_md5\" ]; then echo 'depo ile AYNI'
+             else echo \"FARKLI (ucak \${_um:0:8} / depo ${_yerel_md5:0:8}) - dagit.sh gerekli\"; fi
+             # ROS_LOCALHOST_ONLY olmadan dugumler SESSIZCE gorunmez (TUZAKLAR §1.25).
+             # Beklenen ~80: 11 kendi dugumumuz + MAVROS eklenti alt dugumleri.
+             printf '  ros2 dugum     : '
+             _dn=\$(timeout 15 docker exec -e ROS_LOCALHOST_ONLY=1 $kon bash -lc 'source /opt/ros/jazzy/setup.bash 2>/dev/null; source /ws/install/setup.bash 2>/dev/null; ros2 node list 2>/dev/null' 2>/dev/null | grep -c . || true)
+             _dn=\${_dn:-0}
+             if [ \"\$_dn\" -gt 20 ]; then echo \"\$_dn (normal)\"
+             elif [ \"\$_dn\" -eq 0 ]; then echo 'CEVAP YOK - konteyner kapali ya da ROS ayakta degil'
+             else echo \"\$_dn - BEKLENENDEN AZ, acilis logunu incele\"; fi
              if [ -f \"\$HOME/yelpence_ws/mavros_gcs_bozuk\" ]; then
                  printf '  >> SORUN       : MAVROS GCS hatti BOZUK (%s hata) - docker restart $kon gerekli\n' \"\$(cat \$HOME/yelpence_ws/mavros_gcs_bozuk 2>/dev/null)\"
              fi" \

@@ -1,6 +1,6 @@
 # DURUM — şu an ne çalışıyor, ne bozuk
 
-**Son güncelleme:** 29 Ağustos 2026, 18:10 — belge sadeleştirmesi: tarihçe blokları GUNLUK'e/git'e; filo ve bayrak tabloları üç uçağa göre yenilendi
+**Son güncelleme:** 29 Ağustos 2026, 20:15 — hızlı döngü (--paket / --yalniz); rutin kontroller saha gününe indi
 
 
 ## 1. Filo
@@ -68,62 +68,30 @@ anahtarı 18 Ağustos'ta ikisine de kuruldu.**
 değişip aynı adresi başka cihaz alırsa SSH *"REMOTE HOST IDENTIFICATION HAS
 CHANGED"* diye bağırır — panik yapma, `ssh-keygen -R <ip>` ile temizlenir.
 
-### 🔴 QGC'de `AutoConnect → RTK GPS` KAPALI olmalı
+### 🖥 QGC — operatörün kendi işi
 
-**18 Ağustos'ta ölçüldü.** QGC'nin RTK oto-bağlanması u-blox baz istasyonunun
-seri portunu **kapıyor**; `yki_rtcm_reader` portu açamıyor (`Resource busy`)
-ve **RTCM hiç akmıyor**. Belirti sessiz: telemetri normal, arayüz sağlıklı,
-tek işaret uçakların `fix_type`'ının 6 yerine 3-5'te takılması.
+**29 Ağustos 2026 operatör kararı:** QGC kurulumu ve 14550 link kontrolü
+**uçuş öncesi listede değil.** Operatör bu süreci kendi makinesinde kendisi
+yönetiyor; Claude sormaz, uçuşu bunun için durdurmaz.
 
-Port sahibi `lsof` ile bulundu (`QGroundControl PID 6245`). Kapatılınca RTCM
-9-10 msg/s'e döndü ve iki uçak da **RTK-FIXED (fix=6)** oldu.
+Yine de bilinmesi gereken üç ayar — bir şey ters giderse buraya bak:
 
-QGC → Application Settings → General → *AutoConnect* → **RTK GPS kapalı**,
-**UDP kapalı**. MAVLink bağlantısı elle eklenen 14550 UDP link'inden.
-Ayrıntı: `TUZAKLAR.md` §6.6.
+| Ayar | Doğrusu | Yanlışsa belirtisi |
+|---|---|---|
+| Comm Links → UDP, **dinleme portu 14550** | elle eklenmiş, bağlı | Uçaklar `udp-b` ile **süresiz yayında** kalır; telefon hotspot'unda laptopun interneti ölür (ölçülen tepe 14,5 sn). Tek link üç uçağı birden taşır |
+| AutoConnect → **RTK GPS kapalı** | kapalı | QGC u-blox baz istasyonunun seri portunu kapar, `yki_rtcm_reader` açamaz (`Resource busy`), **RTCM hiç akmaz** — tek işaret `fix_type`'ın 6 yerine 3-5'te takılması |
+| AutoConnect → **UDP kapalı** | kapalı | Otomatik link elle eklenenle çakışır |
 
-### 🔴 Dronlara güç vermeden ÖNCE QGC'yi aç
+```bash
+ss -ulnp | grep 14550     # QGroundControl gorunmuyorsa link YOK/kopuk
+```
 
-**17 Ağustos'ta ölçüldü.** `gcs_url` = `udp-b://…` **yayın** demek ve QGC
-açık değilken MAVROS durmadan `255.255.255.255:14550`'ye yayın yapıyor.
-Telefon hotspot'u bu akış altında **tüm istemcilere** teslimatı saniyede
-~1.25 pakete düşürüyor: ağ geçidine ping 14 saniyeye çıkıyor, laptopta
-internet ölüyor. Trafik küçük (14 paket/s) — sorun hacim değil, **yayın
-olması**. Radyo tarafı tamamen sağlıklıydı: hava %0-3, yeniden gönderim ~0,
-hız sabit 72.2 Mbit.
+⚠️ QGC'nin **açık olması yetmez** — `[LinkConfigurations]` boş ve
+`autoConnectUDP=false` bir QGC kurulumunun **varsayılan hâlidir.**
+Keşfedilen karşı taraf unutulmadığı için QGC'yi **sonradan kapatmak sorun
+değil**; ama her `docker restart` MAVROS'u yeniden başlatıp pencereyi
+yeniden açar. Tam ölçümler ve kök neden: `TUZAKLAR.md` §7.1 · §6.6.
 
-QGC bağlanınca MAVROS **tekil** gönderime geçiyor ve sorun anında bitiyor.
-Keşfettiği karşı tarafı unutmadığı için QGC'yi **sonradan kapatmak sorun
-değil** (ölçüldü). Ama her `docker restart droneN` MAVROS'u yeniden başlatıp
-pencereyi tekrar açıyor.
-
-Kalıcı çözüm tek satır — `gcs_url` = `udp://:14555@` (uçak yayın yapmaz,
-sadece dinler; bağlantıyı QGC kurar, uçakta IP yazılı olmaz). Denendi ve
-doğrulandı, **uygulanmadı**: operatör kararıyla uçak `udp-b`'de bırakıldı.
-Ayrıntı: `GUNLUK.md` 17 Ağustos kaydı.
-
-> ### 🔴 QGC'de 14550'yi DİNLEYEN link olmadan uçaklara güç verme
->
-> **22 Ağustos'ta yaşandı ve ölçüldü.** Uçaklar `gcs_url = udp-b://…` ile
-> **yayın** yapıyor; 14550'yi dinleyen kimse yoksa MAVROS karşı tarafı hiç
-> bulamaz ve **süresiz** yayında kalır → telefon hotspot'unda laptopun
-> interneti ölür (ölçülen tepe **14,5 sn**, süre **~60 sn**).
->
-> 🔴 **QGC'nin açık olması YETMEZ.** Osman'ın makinesinde QGC çalışıyordu ama
-> `[LinkConfigurations]` **boştu** ve `autoConnectUDP=false` idi — bu, taze
-> bir QGC kurulumunun **varsayılan hâli.**
->
-> **Kurulum:** QGC → Comm Links → Add → UDP, Listening Port **14550** → Connect.
-> Tek link üç uçağı birden taşır (sysid 1 = ylp00, 2 = ylp01, 3 = ylp02).
->
-> ```bash
-> ss -ulnp | grep 14550     # QGroundControl gorunmuyorsa link YOK/kopuk
-> ```
->
-> Link bağlıyken `docker restart` maliyeti **333 ms** (ölçüldü) — pencere
-> oturum başına bir kez, restart başına değil. Ayrıntı: `TUZAKLAR.md` §7.1.
-
----
 
 ## 🛡️ KAÇINMA KÖRLÜĞÜ ALARMI — 21-22 Ağustos'ta eklendi, ÇALIŞIYOR
 
@@ -242,18 +210,53 @@ takılınca **üçünü birden** aç, biri unutulursa tutarsız davranır:
 ## 4. Kod senkronu
 
 ```
-ucaklarda (uc de) : 403b99f    28 Agustos, formasyon gecis testi surumu
-repoda            : f6f8498 +  Gorev 2 manevra modu (KARAR-11) — DAGITILMADI
-                    29 Agu    repo sadelestirmesi — DAGITILMADI
+ucaklarda (uc de) : 04f3828 +KIRLI    29 Agustos 19:15'te dagitildi ve
+                                       konteynerler yeniden baslatildi
+repoda            : 04f3828 + commit'lenmemis degisiklikler
+                    (kural sadelestirmesi, --paket/--yalniz, --durum eklentileri)
 ```
 
-⚠️ **`.surum` dosyasına tek başına güvenme, md5 karşılaştır** — `dagit.sh`
-derleme başarısız olsa bile `.surum` yazıyor (`TUZAKLAR.md` §1.14).
+**29 Ağustos dağıtımının doğrulanmış hâli** (üç uçakta da aynı):
+
+| | ylp00 | ylp01 | ylp02 |
+|---|---|---|---|
+| `baslat.sh` md5 | depo ile AYNI | AYNI | AYNI |
+| `ros2 node list` | 79 | 79 | 79 |
+| bizim düğümler | 11 | 11 | 11 |
+| mesh komşu tazeleme | 10,7 / 10,8 Hz | 10,7 / 11,9 Hz | 10,8 / 11,7 Hz |
+| `basit_kacinma` · `kinematic_fusion` | silindi | silindi | silindi |
+
+⚠️ **`.surum` dosyasına tek başına güvenme** — `dagit.sh` derleme başarısız
+olsa bile `.surum` yazıyor (`TUZAKLAR.md` §1.14). Senkron kontrolü artık
+`drone_bul.sh --durum` içinde (md5 + düğüm sayısı).
+
+### ⚡ Kod değişikliğinde tam restart gerekmiyor (29 Ağustos)
 
 ```bash
-./deploy/yki/drone_bul.sh <ylpXX> 'md5sum ~/yelpence_ws/baslat.sh'
-md5sum deploy/rpi/baslat.sh          # ikisi ayni olmali
+./deploy/rpi/dagit.sh --paket swarm_core ylp00          # yalnız o paket derlenir
+./deploy/yki/drone_bul.sh ylp00 \
+    'docker exec -d drone1 bash /ws/baslat.sh --yalniz ca'   # yalnız o düğüm
 ```
+
+`--yalniz` **mavros, px4_bridge, agent_fsm, esp32_bridge, uçuş kaydı ve
+günlük bekçisine dokunmaz**; yeni günlük dizini de açmaz (mevcut `son`
+dizinine yazar). Gating değişkenleri (`SP_REMAP`, `VELOCITY_ONLY`, boş yuva
+kapısı) normal açılıştaki gibi `/ws/suru_dugumleri`'nden hesaplanır — yani
+`--yalniz formasyon` derken CA kapalı sanılmaz.
+
+| | Tam `docker restart` | `--yalniz <düğüm>` |
+|---|---|---|
+| Sabit `sleep` | ~50 sn | ~2 sn |
+| MAVROS / PX4 el sıkışması | yeniden | dokunulmaz |
+| RTK kilidi · consensus seçimi | yeniden | korunur |
+| `colcon build` | 6 paket | `--paket` ile 1 |
+
+> 🔴 **Uçuş sırasında kullanma.** Düğüm saniyelerce yok olur; kaçınma ya da
+> formasyon o pencerede sessizce devre dışı kalır.
+>
+> ⚠️ Bir `.msg`/`.srv`/`.action` değiştiyse `--paket` **kullanma** — arayüz
+> değişip bağımlılar yeniden derlenmezse eski başlıklarla koşarlar ve hata
+> yerine **yanlış veri** alırsın.
 
 🔴 **29 Ağustos sadeleştirmesi `baslat.sh`'i değiştirdi** (`basit_kacinma` ve
 `fusion` blokları kalktı). Dağıtımdan sonra açılış logunda şu satırlar
@@ -393,7 +396,14 @@ Doğrulama: *"Uçaklar arası ayrışma yok (16 parametre)"* — yalnız
 **Uçuş ayarları artık tek kaynakta:** `src/gcs/ucus_ayarlari.py`.
 `baslat.sh` `/ws/ucus_ayarlari.env`'i okuyor, seyir hızı **3.0 m/s** canlıda.
 
-**Her uçuştan önce çalıştır:** `./deploy/yki/param_karsilastir.py`
+**Ne zaman çalıştır:** bir PX4 parametresi **yazıldıktan sonra** ve saha
+gününde bir kez — *uçuş başına değil* (29 Ağu operatör kararı, `CLAUDE.md` §9).
+Ayrışma ancak biri parametre yazdığında oluşur; 14 Ağustos'tan beri tekrarı
+görülmedi.
+
+```bash
+./deploy/yki/param_karsilastir.py
+```
 
 ## 8. Yerel servisler (YKİ laptop)
 

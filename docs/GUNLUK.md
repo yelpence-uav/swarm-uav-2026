@@ -1,6 +1,6 @@
 # GÜNLÜK — oturum devir teslim kaydı
 
-**Son güncelleme:** 29 Ağustos 2026, 17:50 — defter son 2 kayda indirildi (öncesi git'te, `783afab`)
+**Son güncelleme:** 29 Ağustos 2026, 19:16 — repo sadeleştirmesi + hızlı döngü üç uçağa dağıtıldı; arayüz silme tuzağı yaşandı ve çözüldü
 
 Tek bilgisayar, sırayla çalışıyoruz. Biri kalkıp diğeri oturduğunda **hem
 kişi hem Claude** nerede kalındığını buradan anlar.
@@ -35,6 +35,85 @@ Claude'a **"oturumu kapat"** dersen bu kaydı o yazar.
 - ylp00: (kill switch? pil? nerede? konteyner ayakta mı?)
 - ylp02:
 ```
+
+---
+
+## 2026-08-29 19:16 — Osman + Claude (REPO SADELEŞTİRMESİ + HIZLI DÖNGÜ · üç uçağa dağıtıldı)
+
+> **Uçuş yok, yer işi.** Repo sadeleştirildi, uçuş öncesi kontroller
+> gevşetildi, kod değişikliği döngüsü kısaltıldı. Üç uçağa dağıtıldı —
+> **dağıtım sırasında üç uçak da düştü ve düzeltildi** (aşağıda).
+
+**Ne yapıldı**
+
+- **Ölü kod silindi** (`04f3828`): `basit_kacinma` (sürü zincirinde zaten
+  ölüydü — yalnız `position_valid=True` setpoint'lerde çalışıyordu),
+  `kinematic_fusion` (KARAR-01 ile elenmişti), `backend/test_tools`,
+  `ExecuteFormation.action`, `px4_autopilot` submodule, `ca_benzetim.py`,
+  `kacinma_testi.py`, `on_ucus_kontrol.py` (IP'leri/eşikleri bayattı),
+  `pusula_olc.py`, `CA.md`, `WORKFLOW_BULGULAR.md`. **−11.655 satır.**
+- **Belgeler kesildi:** 16.102 → 8.775 satır. Açılış ritüeli
+  (DURUM+GUNLUK+YAPILACAKLAR) **5.866 → 768 satır**. Arşiv git'te
+  (`git show 783afab:docs/<dosya>`).
+- **Uçuş öncesi kontroller gevşetildi** (operatör kararı): `param_karsilastir`
+  ve `titresim_olc` uçuş başınadan **saha gününe** indi · `uptime`/md5/düğüm
+  sayısı `drone_bul.sh --durum` içinde birleşti · **QGC 14550 link kontrolü
+  tamamen operatöre bırakıldı** · G2 yalnız *uçağı süren* düğümler için ·
+  KARAR-02'nin ultracode hatırlatma görevi kaldırıldı.
+- **Hızlı döngü araçları yazıldı ve SAHADA DOĞRULANDI:**
+  `dagit.sh --paket <ad>` (yalnız değişen paketi derle) ve
+  `baslat.sh --yalniz <düğüm>` (altyapıya dokunmadan tek düğüm yenile).
+
+**🔴 Dağıtımda yaşanan arıza — kök neden bulundu, TUZAKLAR §2.11b**
+
+`ExecuteFormation.action` silinince artımlı `colcon build` C kütüphanesini
+yeniden üretti ama **Python typesupport uzantısını üretmedi**; eski uzantı
+`undefined symbol: ...execute_formation...` verdi ve **on düğümün hepsi
+açılışta öldü.** `colcon` "6 packages finished" diyerek BAŞARILI raporladı.
+Ayırt edici işaret: artımlı **4,7 sn**, temiz derleme **1 dk 19 sn**.
+Çözüm: üç uçakta `build/`+`install/swarm_interfaces` silinip temiz derlendi.
+
+Ayrıca `colcon` silinen entry-point'leri kaldırmıyor — `basit_kacinma` ve
+`kinematic_fusion` üç uçakta da **çalıştırılabilir** duruyordu; konteyner
+içinden temizlendi (host kullanıcısı silemiyor, dosyalar root'a ait).
+
+**Ne değişti**
+
+- kod: `baslat.sh` (`--yalniz`, `basit_kacinma`/`fusion` blokları kalktı),
+  `dagit.sh` (`--paket`), `drone_bul.sh` (`--durum`'a md5 + düğüm sayısı)
+- uçakta: üçü de **`04f3828 +KIRLI`**, konteynerler yeniden başlatıldı,
+  `swarm_interfaces` temiz derlendi, ölü düğüm artıkları silindi
+- belge: CLAUDE, README, DURUM, PLAN, KARARLAR, TUZAKLAR (§2.11b yeni),
+  RPI_ESITLEME (§3'e A20/A21/A22), YAPILACAKLAR, GUNLUK
+
+**Doğrulanan hâl (üç uçakta da aynı)**
+
+```
+baslat.sh md5 : depo ile AYNI      ros2 dugum : 79 (11'i bizim)
+mesh komsu    : 10,7-11,9 Hz       CA         : avoid=0, saglikli
+telemetri     : bagli, DISARM, 31-32 uydu, Auto.Loiter
+--yalniz ca   : ca PID 270->1249 (12 sn) · mavros/px4/esp/fsm/formasyon PID DEGISMEDI
+```
+
+**Yarım kalan / tuzak**
+
+- **RTK yok (`fix=3`)** — baz istasyonu RTCM yayınlamıyor. Uçuştan önce ayrı iş.
+- **ylp02 diski %79 dolu** (5,9 GB boş); ylp00 %42, ylp01 %36.
+- ylp01'in SSH host anahtarı `known_hosts`'a eklendi (24 Ağu klonlamasında
+  yeniden üretilmişti; üç anahtarın da farklı olduğu doğrulandı).
+- `baslat.sh` **644'tür, çalıştırılabilir değil** — çağrı `bash /ws/baslat.sh`.
+  `docker exec -d drone1 /ws/baslat.sh` "permission denied" verir.
+- ⚠️ `--yalniz` **uçuş sırasında kullanılmaz** — düğüm saniyelerce yok olur.
+
+**Sıradaki adım**
+
+- Görev 2 manevra modu: KARAR-11'deki **3 onay sorusu** → test kodu.
+
+**Uçakların bırakıldığı hâl**
+
+- Üçü de açık, ağda, **disarm**, Auto.Loiter, 11 düğüm ayakta.
+  `suru_dugumleri = origin consensus fsm formasyon ca`, `gozlem` YOK
+  (formasyon-sürer mod), `kacinma` YOK.
 
 ---
 

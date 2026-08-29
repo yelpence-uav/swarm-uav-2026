@@ -1,6 +1,6 @@
 # YAPILACAKLAR
 
-**Son güncelleme:** 29 Ağustos 2026, 18:20 — finale 8 gün: liste Görev 1 + Görev 2'ye göre yeniden kuruldu
+**Son güncelleme:** 29 Ağustos 2026, 20:20 — hızlı döngü araçları eklendi; sahada doğrulama bekliyor
 
 > **Finale 8 gün.** Bu liste artık "her fikir" değil, **bu 8 günde
 > yapılacak iş.** Bir madde buraya giriyorsa birinin onu yapması planlanıyor
@@ -110,10 +110,16 @@ Bugünkü komut yolu (YKİ → mesh → goto) finali GEÇEMEZ. Bu blok o yüzden
 
 ## 🟠 P1 — altyapı (uçuşları engellemiyor ama biriktikçe pahalı)
 
-- `[ ]` 🟠 **29 Ağustos sadeleştirmesini dağıt.** `baslat.sh` değişti
-  (`basit_kacinma` + `fusion` blokları kalktı). Dağıtımdan sonra açılış
-  logunda `CARPISMA KACINMASI ACIK (collision_avoidance)` ve
-  `TEK-URETICI (ADIM 3)` satırları görülmeli.
+- `[ ]` 🟠 **29 Ağustos değişikliklerini dağıt.** `baslat.sh` iki kez değişti:
+  ① `basit_kacinma` + `fusion` blokları kalktı ② **`--yalniz <düğüm>`** eklendi.
+  Dağıtımdan sonra açılış logunda `CARPISMA KACINMASI ACIK (collision_avoidance)`
+  ve `TEK-URETICI (ADIM 3)` satırları görülmeli.
+  *Sonra bir kez sahada doğrula:* `docker exec -d drone1 bash /ws/baslat.sh --yalniz ca`
+  → `ca.log`'da düğüm yeniden kalkmalı, `mavros`/`px4_bridge` **kesintisiz**
+  kalmalı (`ros2 node list` sayısı düşmemeli). Masada konteynerde doğrulandı,
+  **gerçek uçakta koşmadı.**
+- `[ ]` 🟡 `drone_bul.sh --durum`'un yeni iki satırı (md5 senkronu, düğüm
+  sayısı) canlı uçakta hiç koşmadı — ilk fırsatta bak.
 - `[ ]` 🟠 **Konteyner recreate ×3 — tek işlem üç ihtiyacı kapatır.**
   `docker rm -f <kon>` + `~/yelpence_ws/run_drone.sh`. Kapattıkları:
   **A19** `-e ROS_LOCALHOST_ONLY=1` (üçünde de ❌; olmadan `docker exec ros2`
