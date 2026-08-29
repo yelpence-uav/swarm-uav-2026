@@ -1,6 +1,6 @@
 # DURUM — şu an ne çalışıyor, ne bozuk
 
-**Son güncelleme:** 29 Ağustos 2026, 20:15 — hızlı döngü (--paket / --yalniz); rutin kontroller saha gününe indi
+**Son güncelleme:** 30 Ağustos 2026, 00:05 — §2 düzeltildi: `TIP_OLAY` 27 Ağustos'ta eklendi, olaylar YKİ'ye ULAŞIYOR (belge 3 gündür yanlıştı)
 
 
 ## 1. Filo
@@ -148,9 +148,23 @@ Bkz. `TUZAKLAR.md` §2.16.
 (otomatik-oynatma politikası), masaüstü bildirimi için **izin vermek**. İkisi
 de 22 Ağustos'ta sahada doğrulandı.
 
-**Sınırı:** bu bayrak yalnız kaçınma körlüğünü taşıyor. Uçakta üretilen diğer
-`SystemEvent`'ler (FSM durum geçişleri, consensus lider değişimi) **hâlâ
-YKİ'ye ulaşmıyor** — mesh'te `TIP_EVENT` yok. Mesh'e `TIP_EVENT` eklemek kalıcı çözüm — `YAPILACAKLAR` P2.
+**Bu sınır KALKTI (27 Ağustos 2026).** Eskiden burada "diğer `SystemEvent`'ler
+YKİ'ye ulaşmıyor, mesh'te `TIP_EVENT` yok" yazıyordu; **artık yanlış** —
+`TIP_OLAY` (0x16) eklendi ve uçağın **kendi ürettiği bütün** olaylarını
+YKİ'ye taşıyor (`esp32_bridge._on_olay_out`). Alıcı taraf komşunun olayını
+`/swarm/public/events/system`'e düşürüyor, YKİ oradan okuyor.
+
+İki bilinçli süzgeç var:
+- `EVENT_UNKNOWN` (0) mesh'e **çıkmaz** — `_diag_yayinla` saniyede bir bu
+  tiple yerel sağlık sayacı yayınlıyor, mesh'i boşuna doldururdu (27 Ağustos
+  canlı testinde bulundu).
+- Yalnız **kendi** olayımız gider (`source_agent_id` ∈ {0, kendi id}); biri
+  public'i internal'a köprülerse geri besleme döngüsü kurulmasın diye.
+
+⚠️ Mesh 16 bayt taşıdığı için olayın **metni gitmiyor**, yalnız kodu. YKİ
+etiketi enum'dan kuruyor (`SYSTEM_EVENT_LABELS`, 29 etiket) ve `value` +
+`source_module` alanlarını ekliyor. Yani YKİ'de gördüğün olay metni uçakta
+yazılmış cümle değil, YKİ'nin kod karşılığı.
 
 ---
 ## 3. Uçakta açık olan bayraklar

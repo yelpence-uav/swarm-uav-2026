@@ -1,6 +1,6 @@
 # GÜNLÜK — oturum devir teslim kaydı
 
-**Son güncelleme:** 29 Ağustos 2026, 21:54 — YKİ arayüzü sadeleştirildi, RPi sağlık paneli eklendi (SSH-only)
+**Son güncelleme:** 30 Ağustos 2026, 00:05 — YKİ ölü kartları kaldırıldı, KARAR-12 (`mission_active` mesh yolu)
 
 Tek bilgisayar, sırayla çalışıyoruz. Biri kalkıp diğeri oturduğunda **hem
 kişi hem Claude** nerede kalındığını buradan anlar.
@@ -35,6 +35,122 @@ Claude'a **"oturumu kapat"** dersen bu kaydı o yazar.
 - ylp00: (kill switch? pil? nerede? konteyner ayakta mı?)
 - ylp02:
 ```
+
+---
+
+## 2026-08-30 00:05 — Osman + Claude (YKİ: ölü kartlar temizlendi · KARAR-12)
+
+> **Uçuş yok, hava muhalefeti — günün üçüncü oturumu.** YKİ'de görev paneli
+> genişledi, acil iniş haritaya taşındı ve **hiç çalışmamış iki kart**
+> kaldırıldı. Uçaklara bugün de dokunulmadı.
+
+**Ne yapıldı — YKİ**
+
+- **Görev paneli yatayda genişledi** (operatör: "çok dar"); harita bir tık daraldı.
+- **ACİL İNİŞ görev kartından haritanın alt ortasına** taşındı. Görev sürerken
+  operatörün gözü haritada; butonu kenar çubuğunda aramak acil anda kayıp zaman.
+  `z-index 1002` — takip butonu (1000) ve "buraya git" çubuğu (1001) örtmesin.
+  🔴 Komut **`LAND`, `ABORT` DEĞİL** — bilerek: koda bakıldı, `ABORT` yalnız
+  `MissionState.ABORTED`'a geçiriyor ve sürünün **zaten inmiş** olmasını
+  bekliyor, hiçbir yerde iniş komutu üretmiyor.
+- **Test Görevi slotu** (id **90**, şartname kimlikleriyle çakışmasın diye 90+).
+  Dinamik: o an yazılan test buraya bağlanacak. **Şu an bağlı değil**, panel
+  bunu açıkça yazıyor.
+- Görev seçme listesi okunmuyordu (beyaz üstüne beyaz) — `option` renkleri
+  açıkça verildi, `:root`'a `color-scheme: dark`.
+
+**Kaldırılan iki kart**
+
+- **KosucuPanel** — operatör "artık ihtiyacımız yok". `api.ts` istemcisi ve arka
+  uçtaki `/api/kosucu` **bilerek duruyor**: KARAR-11 test merdiveni adım 1
+  koşucu senaryosu istiyor, günler içinde geri gelecek.
+- **SwarmStatePanel** — kart **hiç çalışmamıştı**. Ölçüldü: `swarm_fsm`
+  `/swarm/public/state`'i uçakta 5 Hz yayınlıyor ama ① `swarm_state_paketle`
+  **yok** ② `esp32_bridge` o konuya **abone değil** ③ alıcı taraf
+  `TIP_SWARM_STATE`'i `SystemEvent`'e çeviriyor, `SwarmState`'e değil. Yani
+  mesh taşıyıcısı **hiç kurulmamış**; kart kalıcı boştu.
+
+**QR kartı — kaldırılMADI, sebebi farklı**
+
+Aynı yöntemle bakıldı: QR zinciri **baştan sona eksiksiz** —
+`vision_node` → `/swarm/internal/perception/qr_data` → `esp32_bridge` abone ✅ →
+`TIP_QR_GOREV` (0x14) paketleyici ✅ → alıcı `QRMissionData` yayını ✅ →
+backend abone ✅. Ayrıştırma patlarsa `TIP_QR_HAM` (0x15) yedeği bile var.
+**Kart boş çünkü `goru` anahtarı uçaklarda açık değil** (`suru_dugumleri =
+origin consensus fsm formasyon ca`). ADIM 5 açılınca kendiliğinden dolar.
+
+**KARAR-12 — `mission_active` YKİ'ye lider kalp atışıyla (mesh'e 0 bayt)**
+
+`SwarmState` gidince `payload.swarm_state` üç yerde varsayılana düştü; sonucu
+**arayüzde beş kapı kalıcı `false`**: ACİL İNİŞ butonu **hiç aktifleşmiyor** ve
+görev sırasında tekil komutlar **kilitlenmiyor** (şartname: müdahale görevi
+BAŞARISIZ sayar).
+
+Ölçüldü — çözümün boru hattı **zaten kurulu, yalnız kaynağı boş**:
+`LeaderHeartbeat.msg`'de `mission_active` alanı var, paketleyici koyuyor,
+`TIP_LEADER_HB` 10 Hz gidiyor, alıcı çözüyor, baz köprü
+`/swarm/public/leader/heartbeat`'e yayınlıyor. **Tek kopukluk:**
+`consensus_context.py:86` `mission_active = False` yapıp bir daha **hiç** set
+etmiyor — bayt saniyede 10 kez sıfır taşıyor. (Doğru değeri tutan aynı isimli
+alan **başka düğümde**: `swarm_fsm_node.py:586/590`.)
+
+```
+TIP_LEADER_HB payload = 16 bayt (mesh sabit)
+  kullanılan  8   <- mission_active bunun İÇİNDE, zaten uçuyor
+  boş dolgu   8   <- ileride mission_id (uint8) için yer var
+```
+
+Olay yolu (`SystemEvent`) elenmedi, **teyit katmanı** olarak alındı: olay
+**kenar** tetikli, kalp atışı **seviye** tetikli. Şartname "hakem YKİ
+bağlantısını kesecek" diyor — yeniden bağlanan YKİ'de kenar tetikli bayrak
+`false` başlar, yani buton tam gerektiği anda pasif kalır.
+
+🔴 **Karara yazılan tuzak:** kalp atışını **yalnız lider** yayınlıyor. Zaman
+aşımında durumu **sıfırlarsak lider düştüğü saniyede ACİL İNİŞ butonu ölür.**
+Doğrusu son değeri **korumak**.
+
+**Ne değişti**
+
+- kod: `MissionPanel` (Test slotu, option renkleri), `AcilSonlandirma/` (yeni),
+  `App.tsx`/`App.css`, `index.css`, `api.ts`; `KosucuPanel/` + `SwarmStatePanel/`
+  silindi. `tsc` temiz, derleme 357,56 kB.
+- belge: `KARARLAR.md` **KARAR-12** (yeni), `YAPILACAKLAR.md` ADIM 6'ya bağlantı,
+  **`DURUM.md` §2 DÜZELTİLDİ** (aşağıda).
+- uçakta: **hiçbir şey.** Üç uçağa 29 Ağustos'tan beri dokunulmadı.
+
+**Yarım kalan / tuzak**
+
+- ⚠️ **`DURUM.md` 3 gündür yanlış bilgi taşıyordu, düzeltildi:** §2'de "diğer
+  `SystemEvent`'ler YKİ'ye ulaşmıyor, mesh'te `TIP_EVENT` yok" yazıyordu.
+  `TIP_OLAY` (0x16) **27 Ağustos'ta eklenmiş**, olaylar ulaşıyor. Belge
+  güncellenmemiş, işaret ettiği `YAPILACAKLAR` P2 maddesi de artık yok.
+  **Aynı hata başka yerde de olabilir — belge kodun gerisinde.**
+- ⚠️ **Verdiğim mesh sayısı yanlıştı, düzeltildi:** üç uçak için "~43
+  çerçeve/s" demiştim; `TIP_LEADER_HB`'yi saymamışım (lider `tick_hz=10` ile
+  10 Hz yolluyor). Doğrusu **~53**. "Mesh sade kalsın" kararını değiştirmiyor,
+  güçlendiriyor.
+- 🟡 **YKİ denetimi yarıda kesildi** (operatör: "şimdilik bu kadar yeter,
+  sırası gelince"). Ölçülenler — **YAPILACAKLAR'a yazılmadı, operatör istemedi:**
+  `DroneState`'in **52 alanından 31'i arayüzde hiç kullanılmıyor**; bir kısmı
+  zaten gösterilmemeli (ham NED, `sysid`) ama içlerinde `failsafe_active`,
+  `oscillation_detected`/`unstable_flight`, `origin_synced`, `estimator_ok`,
+  `pilot_override_active` ve **`status_text`** (PX4'ün kendi mesajları, arka
+  uçta dolu) var. Uyarı sistemi (`alert_manager.evaluate`) yalnız **4 koşul**
+  izliyor: bağlantı, pil, GPS fix, RTK kaybı. Haritada **HOME işareti yok**
+  (CLAUDE.md §9 "HOME kayması çözülmeden RTL yok" kırmızı çizgisi var ama
+  operatör kaymayı arayüzden göremiyor) ve **uçuş alanı sınırı yok**.
+  Denetim `Map.tsx` incelemesinde kesildi, tamamlanmadı.
+
+**Sıradaki adım**
+
+- Değişmedi: Görev 2 manevra modu — **KARAR-11'deki 3 onay sorusu → test kodu.**
+  Kod 28 Ağustos'tan beri hazır, uçaklara **dağıtılmadı**; 29 Ağustos'un
+  `baslat.sh` değişiklikleri de uçaklarda yok.
+
+**Uçakların bırakıldığı hâl**
+
+- Üçü de açık, ağda, **disarm**, 11 düğüm. **Bugün hiç dokunulmadı** — 29
+  Ağustos sabahki dağıtımdan beri aynı hâlde.
 
 ---
 
