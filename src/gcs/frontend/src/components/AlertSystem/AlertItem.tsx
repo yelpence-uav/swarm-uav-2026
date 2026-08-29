@@ -19,7 +19,9 @@ export function AlertItem({ alert, onDismiss }: AlertItemProps) {
     <li className={`alert-item alert-item--${alert.severity}`}>
       <div className="alert-item__head">
         <span className="alert-item__severity">{SEVERITY_LABEL[alert.severity]}</span>
-        <span className="alert-item__drone">Drone {alert.drone_id}</span>
+        <span className="alert-item__drone">
+          {alert.drone_id === 0 ? "Sistem" : `Drone ${alert.drone_id}`}
+        </span>
         <span className="alert-item__age">{formatAge(ageSec)}</span>
         <button
           className="alert-item__close"
@@ -34,8 +36,11 @@ export function AlertItem({ alert, onDismiss }: AlertItemProps) {
   );
 }
 
+/** "5 sn once" degil, yer dar: kisa ama okunur. "12s" gibi kisaltmalar
+ *  sahada "12 saniye mi 12 saat mi" diye sorduruyordu. */
 function formatAge(seconds: number): string {
-  if (seconds < 60) return `${seconds.toFixed(0)}s`;
-  if (seconds < 3600) return `${(seconds / 60).toFixed(0)}d`;
-  return `${(seconds / 3600).toFixed(0)}sa`;
+  if (seconds < 10) return "az önce";
+  if (seconds < 60) return `${seconds.toFixed(0)} sn`;
+  if (seconds < 3600) return `${(seconds / 60).toFixed(0)} dk`;
+  return `${(seconds / 3600).toFixed(0)} sa`;
 }

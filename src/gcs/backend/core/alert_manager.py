@@ -13,6 +13,18 @@ SEVERITY_INFO = "info"
 SEVERITY_WARNING = "warning"
 SEVERITY_CRITICAL = "critical"
 
+# GPS fix tipi -> operatorun okuyabilecegi ad. Uyari metninde "fix=2" yerine
+# "2B konum" yaziyoruz; sahada sayiyi kimse akilda tutmuyor.
+FIX_ADI = {
+    0: "konum yok",
+    1: "konum yok",
+    2: "2B konum",
+    3: "3B konum",
+    4: "DGPS",
+    5: "RTK (kayan)",
+    6: "RTK (sabit)",
+}
+
 
 @dataclass
 class Alert:
@@ -149,7 +161,7 @@ class AlertManager:
             rtk_key = (d.drone_id, "rtk_lost")
 
             if not d.connected:
-                self._set(link_key, SEVERITY_CRITICAL, "Bağlantı koptu")
+                self._set(link_key, SEVERITY_CRITICAL, "Telemetri kesildi")
                 self._clear(bat_low_key)
                 self._clear(bat_crit_key)
                 self._clear(gps_key)
@@ -166,7 +178,7 @@ class AlertManager:
                 self._set(
                     bat_crit_key,
                     SEVERITY_CRITICAL,
-                    f"Batarya kritik %{d.battery_percent:.0f}",
+                    f"Pil kritik: %{d.battery_percent:.0f}",
                 )
             elif d.battery_percent >= self.BAT_CRIT_OFF:
                 self._clear(bat_crit_key)
@@ -179,7 +191,7 @@ class AlertManager:
                     self._set(
                         bat_low_key,
                         SEVERITY_CRITICAL,
-                        f"Düşük batarya %{d.battery_percent:.0f}",
+                        f"Pil azaldı: %{d.battery_percent:.0f}",
                     )
                 elif d.battery_percent >= self.BAT_LOW_OFF:
                     self._clear(bat_low_key)
@@ -189,8 +201,8 @@ class AlertManager:
             if not self._grace_active():
                 if d.gps_fix_type < 3:
                     msg = (
-                        f"Zayıf GPS (fix={d.gps_fix_type}, "
-                        f"sat={d.gps_satellites})"
+                        f"GPS zayıf: {FIX_ADI.get(d.gps_fix_type, d.gps_fix_type)}"
+                        f", {d.gps_satellites} uydu"
                     )
                     self._set(gps_key, SEVERITY_WARNING, msg)
                 else:
@@ -200,17 +212,11 @@ class AlertManager:
                 self._had_rtk.add(d.drone_id)
                 self._clear(rtk_key)
             elif d.drone_id in self._had_rtk and not self._grace_active():
-                fix_name = {
-                    0: "yok",
-                    1: "yok",
-                    2: "2D",
-                    3: "3D",
-                    4: "DGPS",
-                }.get(d.gps_fix_type, str(d.gps_fix_type))
                 self._set(
                     rtk_key,
                     SEVERITY_WARNING,
-                    f"RTK sinyali kayboldu (şu an {fix_name})",
+                    "RTK kilidi kayboldu — şu an "
+                    f"{FIX_ADI.get(d.gps_fix_type, d.gps_fix_type)}",
                 )
 
         now = time.time()

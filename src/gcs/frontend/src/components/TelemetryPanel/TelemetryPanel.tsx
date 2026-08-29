@@ -1,6 +1,5 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback } from "react";
 
-import { useGunluk } from "../../hooks/useGunluk";
 import type { DroneState, IkiliMesafe } from "../../types/telemetry";
 import { DroneCard } from "./DroneCard";
 import "./TelemetryPanel.css";
@@ -13,6 +12,14 @@ interface TelemetryPanelProps {
   onSelectDrone?: (droneId: number) => void;
   /** Bağlı drone çiftleri arası mesafe; kart başına süzülür. */
   mesafeler?: IkiliMesafe[];
+  /* Olay defteri App'ten geliyor — `useGunluk` BİLEREK TEK ÇEKİCİ.
+     29 Ağustos 2026: başlıktaki bildirim paneli de aynı defteri okuyor;
+     burada ikinci bir useGunluk() çağırmak saniyede iki sorgu demekti. */
+  kritikVar: (droneId: number) => boolean;
+  /** LOG butonu — bildirim panelini o drone'a süzülmüş açar. */
+  onLogAc?: (droneId: number) => void;
+  /** RPi butonu — Pi sağlık panelini açar (SSH ile okunur). */
+  onRpiAc?: (droneId: number) => void;
 }
 
 export function TelemetryPanel({
@@ -20,26 +27,10 @@ export function TelemetryPanel({
   selectedDroneId = null,
   onSelectDrone,
   mesafeler = [],
+  kritikVar,
+  onLogAc,
+  onRpiAc,
 }: TelemetryPanelProps) {
-  const { droneKayitlari, kritikVar, okunduIsaretle, aktif, hata } = useGunluk();
-
-  // BIRDEN COK kart ayni anda acilabilir: iki drone'un olaylarini yan yana
-  // karsilastirmak, loglari kartlara koymanin asil kazanci.
-  const [acikLoglar, setAcikLoglar] = useState<Set<number>>(new Set());
-
-  const logToggle = useCallback((droneId: number) => {
-    setAcikLoglar((eski) => {
-      const yeni = new Set(eski);
-      if (yeni.has(droneId)) yeni.delete(droneId);
-      else yeni.add(droneId);
-      return yeni;
-    });
-  }, []);
-
-  // Log acikken gelen olaylar GORULMUS sayilir — buton yanip sonmesin.
-  useEffect(() => {
-    acikLoglar.forEach((id) => okunduIsaretle(id));
-  }, [acikLoglar, okunduIsaretle]);
 
   /** Bir drone'un DİĞER drone'lara yatay mesafeleri, isimleriyle.
    *
@@ -71,12 +62,9 @@ export function TelemetryPanel({
           drone={d}
           onSelect={onSelectDrone}
           selected={d.drone_id === selectedDroneId}
-          kayitlar={droneKayitlari(d.drone_id)}
           kritik={kritikVar(d.drone_id)}
-          logAcik={acikLoglar.has(d.drone_id)}
-          onLogToggle={logToggle}
-          gunlukHata={hata}
-          gunlukAktif={aktif}
+          onLogAc={onLogAc}
+          onRpiAc={onRpiAc}
           mesafeler={komsuMesafeleri(d.drone_id)}
         />
       ))}

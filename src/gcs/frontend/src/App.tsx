@@ -10,11 +10,13 @@ import { MissionControl } from "./components/MissionControl/MissionControl";
 import { MissionPanel } from "./components/MissionPanel/MissionPanel";
 import { QRPanel } from "./components/QRPanel/QRPanel";
 import { QRPositionForm } from "./components/QRPositionForm/QRPositionForm";
+import { BildirimPanel } from "./components/BildirimPanel/BildirimPanel";
+import { RpiPanel } from "./components/RpiPanel/RpiPanel";
 import { SettingsPanel } from "./components/SettingsPanel/SettingsPanel";
 import { SwarmStatePanel } from "./components/SwarmStatePanel/SwarmStatePanel";
 import { TelemetryPanel } from "./components/TelemetryPanel/TelemetryPanel";
+import { useGunluk } from "./hooks/useGunluk";
 import { useQRPositions } from "./hooks/useQRPositions";
-import { useTheme } from "./hooks/useTheme";
 import { MISSION_ID, guided, params as paramsApi } from "./services/api";
 import type { FlightParams } from "./services/api";
 import { TelemetryWS } from "./services/websocket";
@@ -46,7 +48,6 @@ const DEFAULT_PARAMS: FlightParams = {
 };
 
 export default function App() {
-  useTheme();
 
   const qr = useQRPositions();
 
@@ -59,6 +60,17 @@ export default function App() {
   // Seçili drone (kontrol paneli), ayarlar modalı ve uçuş parametreleri.
   const [selectedDroneId, setSelectedDroneId] = useState<number | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [bildirimlerOpen, setBildirimlerOpen] = useState(false);
+  // RPi paneli — acik oldugu drone'un kimligi (null = kapali).
+  const [rpiDrone, setRpiDrone] = useState<number | null>(null);
+  // Panel hangi kaynakla acilacak: "hepsi" (baslik dugmesi) ya da drone id
+  // (kart LOG butonu). Kart ici log katmani 29 Agustos'ta kaldirildi.
+  const [bildirimKaynak, setBildirimKaynak] = useState<"hepsi" | number>("hepsi");
+
+  // Olay defteri TEK yerden cekiliyor (hook'un kendi notu: "NEDEN TEK
+  // CEKICI"). Hem drone kartlarindaki log hem basliktaki bildirim paneli
+  // ayni veriyi kullaniyor.
+  const olaylar = useGunluk();
   const [flightParams, setFlightParams] = useState<FlightParams>(DEFAULT_PARAMS);
 
   useEffect(() => {
@@ -101,11 +113,14 @@ export default function App() {
     <div className={`app ${joystickVisible ? "app--joystick" : ""}`}>
       <AppHeader
         status={status}
-        drones={payload.drones}
-        swarmState={payload.swarm_state}
         rtk={payload.rtk ?? null}
-        selectedMissionId={selectedMissionId}
         onOpenSettings={() => setSettingsOpen(true)}
+        onOpenBildirimler={() => {
+          setBildirimKaynak("hepsi");
+          setBildirimlerOpen(true);
+          olaylar.hepsiniOkunduIsaretle();
+        }}
+        okunmamisBildirim={olaylar.okunmamis}
       />
 
       <main className="app__map-area">
@@ -118,6 +133,19 @@ export default function App() {
           params={flightParams}
         />
         <AlertList alerts={payload.alerts} />
+        {/* Kontrol paneli 29 Agustos 2026'da sag kenar cubuğundan HARITAYA
+            tasindi (operator): komut verirken bakilan sey harita, panel de
+            orada olsun. Sag alt kose Leaflet atif yazisinin ustune biniyor,
+            bu bilerek — atif zorunlu degil ve panel gecici. */}
+        {selectedDroneId != null && (
+          <DroneControlPanel
+            drone={selectedDrone}
+            guidedMode={!isSimMode}
+            commandsDisabled={missionActive}
+            params={flightParams}
+            onClose={() => setSelectedDroneId(null)}
+          />
+        )}
       </main>
 
       {joystickVisible && (
@@ -127,16 +155,6 @@ export default function App() {
       )}
 
       <aside className="app__sidebar">
-        {selectedDroneId != null ? (
-          <DroneControlPanel
-            drone={selectedDrone}
-            guidedMode={!isSimMode}
-            commandsDisabled={missionActive}
-            params={flightParams}
-            onClose={() => setSelectedDroneId(null)}
-          />
-        ) : (
-          <>
             <KosucuPanel />
             <MissionPanel
               missionActive={missionActive}
@@ -154,8 +172,6 @@ export default function App() {
             {isSimMode && (
               <MissionControl anyConnected={anyConnected} disabled={missionActive} />
             )}
-          </>
-        )}
       </aside>
 
       <footer className="app__drone-strip">
@@ -166,8 +182,37 @@ export default function App() {
           onSelectDrone={(id) =>
             setSelectedDroneId((cur) => (cur === id ? null : id))
           }
+          kritikVar={olaylar.kritikVar}
+          onRpiAc={(id) => setRpiDrone(id)}
+          onLogAc={(id) => {
+            setBildirimKaynak(id);
+            setBildirimlerOpen(true);
+            olaylar.okunduIsaretle(id);
+          }}
         />
       </footer>
+
+      {rpiDrone != null && (
+        <RpiPanel
+          droneId={rpiDrone}
+          droneAdi={
+            payload.drones.find((d) => d.drone_id === rpiDrone)?.name ??
+            `Drone ${rpiDrone}`
+          }
+          onClose={() => setRpiDrone(null)}
+        />
+      )}
+
+      {bildirimlerOpen && (
+        <BildirimPanel
+          kayitlar={olaylar.kayitlar}
+          droneler={payload.drones.map((d) => d.drone_id)}
+          baslangicKaynak={bildirimKaynak}
+          aktif={olaylar.aktif}
+          hata={olaylar.hata}
+          onClose={() => setBildirimlerOpen(false)}
+        />
+      )}
 
       {settingsOpen && (
         <SettingsPanel

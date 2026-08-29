@@ -39,6 +39,7 @@ from backend.api.kosucu import router as kosucu_router
 from backend.api.loglar import router as loglar_router
 from backend.api.mission import router as mission_router
 from backend.api.params import router as params_router
+from backend.api.rpi import router as rpi_router
 from backend.api.rtk import router as rtk_router
 from backend.api.telemetry import router as telemetry_router
 from backend.connections.command_sender import CommandSender
@@ -265,6 +266,8 @@ def create_app() -> FastAPI:
     app.include_router(kosucu_router)
     app.include_router(rtk_router)
     app.include_router(loglar_router)
+    # Pi saglik paneli — SSH ile, mesh'ten GECMEZ (bkz. api/rpi.py basligi).
+    app.include_router(rpi_router)
 
     @app.websocket("/ws/telemetry")
     async def ws_telemetry(websocket: WebSocket):

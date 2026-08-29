@@ -26,6 +26,9 @@ export function useGunluk() {
   const [hata, setHata] = useState(false);
   // drone_id -> bu sira numarasina kadar gorulmus sayilir
   const [gorulen, setGorulen] = useState<Record<number, number>>({});
+  // Basliktaki bildirim butonu icin AYRI imlec: kart bazli `gorulen`den
+  // bagimsiz, cunku panel butun dronelarin olaylarini birlikte gosteriyor.
+  const [panelGorulen, setPanelGorulen] = useState(0);
 
   // Artimli imlec. State degil ref: her turda degisiyor ama yeniden cizim
   // gerektirmiyor.
@@ -90,6 +93,20 @@ export function useGunluk() {
     [kayitlar, gorulen],
   );
 
+  /** Bildirim panelinde HENÜZ GÖRÜLMEMİŞ kayıt sayısı (uyarı ve üstü).
+   *
+   * `info` sayılmıyor: rozet sürekli dolu görünürse kimse bakmaz. Operatörün
+   * fark etmesi gereken şey uyarı/kritik/acil. */
+  const okunmamis = kayitlar.filter(
+    (k) => k.siddet !== "info" && k.sira > panelGorulen,
+  ).length;
+
+  /** Paneldeki her şeyi görülmüş say (panel açılınca çağrılır). */
+  const hepsiniOkunduIsaretle = useCallback(() => {
+    const enBuyuk = kayitlar.reduce((mx, k) => (k.sira > mx ? k.sira : mx), 0);
+    setPanelGorulen((g) => (g >= enBuyuk ? g : enBuyuk));
+  }, [kayitlar]);
+
   /** O drone'un kayıtlarını görülmüş say (log açıkken çağrılır). */
   const okunduIsaretle = useCallback(
     (droneId: number) => {
@@ -101,5 +118,14 @@ export function useGunluk() {
     [kayitlar],
   );
 
-  return { kayitlar, droneKayitlari, kritikVar, okunduIsaretle, aktif, hata };
+  return {
+    kayitlar,
+    droneKayitlari,
+    kritikVar,
+    okunduIsaretle,
+    okunmamis,
+    hepsiniOkunduIsaretle,
+    aktif,
+    hata,
+  };
 }

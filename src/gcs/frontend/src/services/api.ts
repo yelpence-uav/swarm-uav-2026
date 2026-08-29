@@ -370,3 +370,21 @@ export const kosucuApi = {
     return (await r.json()) as KosucuDurum;
   },
 };
+
+// --- RPi anlik durumu (YALNIZ SSH) ------------------------------------------
+// 🔴 Bu veri MESH'TEN GECMEZ (operator karari, 29 Agustos 2026). Arka uc her
+// istekte SSH ile olcuyor; SSH yoksa `ssh_ok:false` doner ve arayuz "bilinmiyor"
+// gosterir. Deger UYDURULMAZ, bayat deger de gosterilmez.
+export interface RpiDurum {
+  drone_id: number;
+  ad?: string;
+  ssh_ok: boolean;
+  hata?: string;
+  zaman?: number;
+  degerler: Record<string, number | string>;
+}
+
+export const rpi = {
+  /** Tek drone'un Pi saglik degerleri. SSH round-trip: tipik 1-3 sn. */
+  oku: (droneId: number) => reqJson<RpiDurum>(`/rpi/${droneId}`, "GET"),
+};

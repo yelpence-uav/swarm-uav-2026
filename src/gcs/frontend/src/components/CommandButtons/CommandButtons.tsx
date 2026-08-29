@@ -23,41 +23,39 @@ type ActionKey = "arm" | "takeoff" | "land" | "rtl" | "disarm";
 
 interface ActionMeta {
   label: string;
-  icon: string;
   className: string;
   confirm?: string;
 }
 
+// 29 Agustos 2026 (operator): ikon glifleri KALDIRILDI, metinler sadelesti.
+// Onay metinleri artik "emin misin" demek yerine OPERATORUN BAKMASI GEREKEN
+// SEYI soruyor — sahada tek anlamli soru o.
 const ACTIONS: Record<ActionKey, ActionMeta> = {
   arm: {
     label: "Arm",
-    icon: "⏻",
     className: "btn--primary",
-    confirm: "Drone ARM edilecek (motorlar dönmeye hazır olacak). Onaylıyor musun?",
+    confirm: "Motorlar arm edilecek. Pervanelerin çevresi boş mu?",
   },
   takeoff: {
     label: "Kalkış",
-    icon: "▲",
     className: "btn--primary",
   },
   land: {
     label: "İniş",
-    icon: "▼",
     className: "btn--neutral",
-    confirm: "Drone'u indirmek istediğinden emin misin?",
+    confirm: "Drone bulunduğu noktaya inecek. Aşağısı boş mu?",
   },
   rtl: {
-    label: "Eve Dön",
-    icon: "⌂",
+    label: "Kalkışa dön",
     className: "btn--neutral",
-    confirm: "Drone başlangıç noktasına dönecek. Onay?",
+    confirm: "Drone kalkış noktasına dönüp inecek. Onaylıyor musun?",
   },
   disarm: {
-    label: "Acil Dur",
-    icon: "■",
+    label: "Motor kes",
     className: "btn--danger",
     confirm:
-      "DİKKAT: Drone havadaysa motor kesilir ve düşer.\n\nAcil durumu onaylıyor musun?",
+      "DİKKAT: Drone havadaysa motorlar durur ve DÜŞER.\n\n" +
+      "Yere inmiş bir drone için güvenlidir. Devam edilsin mi?",
   },
 };
 
@@ -98,7 +96,7 @@ export function CommandButtons({
           ? `${e.message} (${e.http_status})`
           : e instanceof Error
             ? e.message
-            : "Bilinmeyen hata";
+            : "Beklenmeyen hata";
       showError(msg);
     }
   };
@@ -110,11 +108,11 @@ export function CommandButtons({
     // Guided kalkış: irtifa sor (iptal edilebilir).
     let takeoffAlt = 0;
     if (action === "takeoff" && guidedMode) {
-      const s = window.prompt("Kalkış irtifası (metre):", String(varAlt));
+      const s = window.prompt("Kalkış irtifası (metre)", String(varAlt));
       if (s === null) return;
       takeoffAlt = parseFloat(s);
       if (!(takeoffAlt > 0)) {
-        showError("Geçersiz irtifa");
+        showError("İrtifa değeri geçersiz");
         return;
       }
     }
@@ -156,7 +154,7 @@ export function CommandButtons({
     const x = parseFloat(gx);
     const y = parseFloat(gy);
     if (Number.isNaN(x) || Number.isNaN(y)) {
-      showError("Kuzey (x) ve Doğu (y) gerekli");
+      showError("Kuzey ve Doğu değerleri zorunlu");
       return;
     }
     const z = parseFloat(gz);
@@ -190,31 +188,37 @@ export function CommandButtons({
                 !connected
                   ? "Drone bağlı değil"
                   : disabled
-                    ? "Görev aktif iken bireysel komut yasak (şartname)"
+                    ? "Görev sürerken tek drone'a komut verilemez (şartname)"
                     : meta.label
               }
             >
-              <span className="cmd-btn__icon">{meta.icon}</span>
               <span className="cmd-btn__label">{meta.label}</span>
             </button>
           );
         })}
+
+        {/* Guided'da eylem sayisi 5 -> iki sutunlu izgarada altinci hucre
+            bos kaliyordu. "Noktaya git" o bosluğa YERLESTI (29 Agu,
+            operator); acilan form asagida tam genislikte kaliyor. */}
+        {guidedMode && (
+          <button
+            type="button"
+            className="cmd-btn cmd-goto__toggle"
+            onClick={() => setGotoOpen((v) => !v)}
+            disabled={!connected || disabled}
+            aria-expanded={gotoOpen}
+          >
+            Noktaya git {gotoOpen ? "▾" : "▸"}
+          </button>
+        )}
       </div>
 
       {guidedMode && (
-        <div className="cmd-goto">
-          <button
-            type="button"
-            className="cmd-goto__toggle"
-            onClick={() => setGotoOpen((v) => !v)}
-            disabled={!connected || disabled}
-          >
-            📍 Nokta-git {gotoOpen ? "▲" : "▼"}
-          </button>
+        <>
           {gotoOpen && (
             <div className="cmd-goto__form">
               <label>
-                Kuzey x (m)
+                Kuzey (m)
                 <input
                   value={gx}
                   onChange={(e) => setGx(e.target.value)}
@@ -223,7 +227,7 @@ export function CommandButtons({
                 />
               </label>
               <label>
-                Doğu y (m)
+                Doğu (m)
                 <input
                   value={gy}
                   onChange={(e) => setGy(e.target.value)}
@@ -232,7 +236,7 @@ export function CommandButtons({
                 />
               </label>
               <label>
-                İrtifa z (m)
+                İrtifa (m)
                 <input
                   value={gz}
                   onChange={(e) => setGz(e.target.value)}
@@ -241,10 +245,10 @@ export function CommandButtons({
                 />
               </label>
               <div className="cmd-goto__hint">
-                Hız: MPC_XY_VEL_MAX (QGC'den)
+                Hız uçağın kendi ayarından gelir
               </div>
               <label>
-                Yön° (ops.)
+                Yön (°, isteğe bağlı)
                 <input
                   value={gh}
                   onChange={(e) => setGh(e.target.value)}
@@ -262,7 +266,7 @@ export function CommandButtons({
               </button>
             </div>
           )}
-        </div>
+        </>
       )}
 
       {error && (

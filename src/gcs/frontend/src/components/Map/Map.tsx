@@ -301,7 +301,7 @@ export function MapView({
         onClick={toggleFollow}
         title={followUI ? "Otomatik takip açık" : "Otomatik takip kapalı"}
       >
-        {followUI ? "📍 Takip AÇIK" : "📍 Takip KAPALI"}
+        {followUI ? "Takip AÇIK" : "Takip KAPALI"}
       </button>
 
       {pending && (

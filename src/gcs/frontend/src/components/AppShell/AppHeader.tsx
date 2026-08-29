@@ -1,17 +1,25 @@
-import type {DroneState, RtkStatus, SwarmState} from "../../types/telemetry";
+import type { RtkStatus } from "../../types/telemetry";
 import type { ConnectionStatus } from "../../services/websocket";
-import { useTheme } from "../../hooks/useTheme";
-import { MISSION_ID } from "../../services/api";
 import "./AppHeader.css";
 
 interface AppHeaderProps {
   status: ConnectionStatus;
-  drones: DroneState[];
-  swarmState: SwarmState | null;
   rtk: RtkStatus | null;
-  selectedMissionId: number;
   onOpenSettings?: () => void;
+  /** Bildirim panelini acar. */
+  onOpenBildirimler?: () => void;
+  /** Panelde henuz gorulmemis uyari/kritik sayisi; 0 ise rozet cizilmez. */
+  okunmamisBildirim?: number;
 }
+
+// 29 Agustos 2026 (operator): baslikta ARM ve GOREV kutulari KALDIRILDI.
+//   ARM   -> zaten her drone kartinda ayri ayri takip ediliyordu.
+//   GOREV -> sonra geri gelecek; geldiginde swarmState + selectedMissionId
+//            proplari ve missionLabel/missionTone yardimcilari da geri gelir
+//            (git: `git show e4eceb9:src/gcs/frontend/src/components/AppShell/AppHeader.tsx`).
+//   SURU  -> kaldirildi, sartname 3'ten fazla IHA'ya izin veriyor.
+// Kalan iki bilgi kenarlara yaslandi: baglanti solda basligin altina,
+// RTK sagda ayarlar dugmesinin soluna.
 
 const STATUS_LABEL: Record<ConnectionStatus, string> = {
   connecting: "Bağlanıyor",
@@ -19,40 +27,19 @@ const STATUS_LABEL: Record<ConnectionStatus, string> = {
   closed: "Çevrimdışı",
 };
 
-function missionTone(
-  active: boolean,
-): "success" | "warning" | "danger" | "neutral" {
-  return active ? "success" : "neutral";
-}
-
-function missionLabel(
-  active: boolean,
-  selectedMissionId: number,
-): string {
-  if (active) {
-    return selectedMissionId === MISSION_ID.SEMI_AUTONOMOUS ? "G2 AKTİF" : "G1 AKTİF";
-  }
-  return selectedMissionId === MISSION_ID.SEMI_AUTONOMOUS ? "G2 HAZIR" : "G1 HAZIR";
-}
+const STATUS_TONE: Record<ConnectionStatus, "success" | "warning" | "danger"> = {
+  connecting: "warning",
+  open: "success",
+  closed: "danger",
+};
 
 export function AppHeader({
   status,
-  drones,
-  swarmState,
   rtk,
-  selectedMissionId,
   onOpenSettings,
+  onOpenBildirimler,
+  okunmamisBildirim = 0,
 }: AppHeaderProps) {
-  const { theme, toggleTheme } = useTheme();
-
-  const online = drones.filter((d) => d.connected).length;
-  const total = drones.length;
-
-  const allArmed = drones.length > 0 && drones.every((d) => d.armed);
-  const anyArmed = drones.some((d) => d.armed);
-
-  const missionActive = swarmState?.mission_active ?? false;
-
   // RTK/RTCM akisi. 31 Temmuz'da u-blox sonradan takildi, YKI acilista portu
   // goremeyip RTCM okuyucusunu hic baslatmamisti ve arayuzde bunu gosteren
   // hicbir sey yoktu — akmadigi ancak drone'a SSH atip px4_bridge logundaki
@@ -74,50 +61,41 @@ export function AppHeader({
         <div className="app-header__title">
           <span className="app-header__title-main">YELPENCE</span>
           <span className="app-header__title-sub">Sürü Kontrol Merkezi</span>
+          <span
+            className={`app-header__conn app-header__conn--${STATUS_TONE[status]}`}
+            title={`Bağlantı: ${STATUS_LABEL[status]}`}
+          >
+            {STATUS_LABEL[status]}
+          </span>
         </div>
       </div>
 
-      <div className="app-header__metrics">
-        <Metric
-          label="Sürü"
-          value={`${online}/${total}`}
-          tone={online === total ? "success" : online === 0 ? "danger" : "warning"}
-        />
-        <Metric
-          label="Arm"
-          value={allArmed ? "TÜMÜ" : anyArmed ? "KISMI" : "YERDE"}
-          tone={allArmed ? "warning" : "neutral"}
-        />
-        <Metric
-          label="Görev"
-          value={missionLabel(missionActive, selectedMissionId)}
-          tone={missionTone(missionActive)}
-          pulse={missionActive}
-        />
-        <Metric
-          label="RTK"
-          value={rtkLabel}
-          tone={rtkTone}
-        />
-        <Metric
-          label="Bağlantı"
-          value={STATUS_LABEL[status]}
-          tone={
-            status === "open"
-              ? "success"
-              : status === "connecting"
-                ? "warning"
-                : "danger"
-          }
-          pulse={status !== "open"}
-        />
-      </div>
-
       <div className="app-header__actions">
+        <Metric label="RTK" value={rtkLabel} tone={rtkTone} />
+        {onOpenBildirimler && (
+          <button
+            type="button"
+            className="app-header__action-btn app-header__action-btn--bildirim"
+            onClick={onOpenBildirimler}
+            aria-label={
+              okunmamisBildirim > 0
+                ? `Bildirimler — ${okunmamisBildirim} yeni`
+                : "Bildirimler"
+            }
+            title="Bildirimler — zaman damgalı tam liste"
+          >
+            <BildirimIkon />
+            {okunmamisBildirim > 0 && (
+              <span className="app-header__rozet">
+                {okunmamisBildirim > 99 ? "99+" : okunmamisBildirim}
+              </span>
+            )}
+          </button>
+        )}
         {onOpenSettings && (
           <button
             type="button"
-            className="app-header__theme-toggle"
+            className="app-header__action-btn"
             onClick={onOpenSettings}
             aria-label="Ayarlar"
             title="Ayarlar — parametreler (irtifa, hız, min-nav)"
@@ -125,17 +103,29 @@ export function AppHeader({
             ⚙
           </button>
         )}
-        <button
-          type="button"
-          className="app-header__theme-toggle"
-          onClick={toggleTheme}
-          aria-label={theme === "dark" ? "Açık temaya geç" : "Koyu temaya geç"}
-          title={theme === "dark" ? "Açık tema" : "Koyu tema"}
-        >
-          {theme === "dark" ? "☾" : "☀"}
-        </button>
       </div>
     </header>
+  );
+}
+
+/** Zil ikonu — emoji degil inline SVG: emojiler platformdan platforma
+ *  farkli ciziliyor ve operator arayuzden emojileri kaldirtti. */
+function BildirimIkon() {
+  return (
+    <svg
+      width="17"
+      height="17"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.9"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M18 8a6 6 0 1 0-12 0c0 6-2 7-2 7h16s-2-1-2-7" />
+      <path d="M13.7 20a1.9 1.9 0 0 1-3.4 0" />
+    </svg>
   );
 }
 

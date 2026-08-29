@@ -1,0 +1,134 @@
+/* RPi sağlık paneli — BildirimPanel ile aynı kalıp (overlay + modal). */
+.rpi-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-4, 16px);
+}
+
+.rpi-modal {
+  width: min(520px, 100%);
+  max-height: min(80vh, 720px);
+  display: flex;
+  flex-direction: column;
+  background: var(--color-bg-panel);
+  border: 1px solid var(--color-border-accent);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6);
+  overflow: hidden;
+}
+
+.rpi-modal__head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--color-border);
+  flex-shrink: 0;
+}
+
+.rpi-modal__head h2 {
+  margin: 0;
+  font-size: var(--text-sm);
+  font-family: var(--font-ui);
+  color: var(--color-text-primary);
+}
+
+/* Verinin NEREDEN geldiği başlıkta yazıyor: mesh mi SSH mi sorusu bu
+   projede sürekli çıkıyor ve cevabı burada tek kelimeyle duruyor. */
+.rpi-modal__kaynak {
+  margin-right: auto;
+  font-size: var(--text-xs);
+  font-family: var(--font-mono);
+  color: var(--color-text-muted);
+}
+
+.rpi-modal__close {
+  background: transparent;
+  border: 0;
+  color: var(--color-text-secondary);
+  font-size: 1rem;
+  cursor: pointer;
+}
+.rpi-modal__close:hover { color: var(--color-text-primary); }
+
+.rpi-modal__body {
+  padding: var(--space-2) var(--space-3) var(--space-3);
+  overflow-y: auto;
+  flex: 1;
+}
+
+.rpi-iz {
+  padding: var(--space-4);
+  text-align: center;
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+  font-family: var(--font-ui);
+}
+.rpi-iz--hata {
+  color: var(--color-danger);
+  line-height: 1.5;
+}
+
+.rpi-satir {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: 6px var(--space-2);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-xs);
+}
+.rpi-satir:nth-child(odd) { background: var(--color-bg-glass); }
+
+.rpi-satir__etiket {
+  color: var(--color-text-secondary);
+  font-family: var(--font-ui);
+  white-space: nowrap;
+}
+
+.rpi-satir__deger {
+  font-size: var(--text-sm);
+  text-align: right;
+}
+.rpi-satir__deger--ok     { color: var(--color-text-primary); }
+.rpi-satir__deger--notr   { color: var(--color-text-secondary); }
+.rpi-satir__deger--uyari  { color: var(--color-warning); font-weight: 700; }
+.rpi-satir__deger--kritik { color: var(--color-danger);  font-weight: 700; }
+
+.rpi-modal__foot {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-4) var(--space-3);
+  border-top: 1px solid var(--color-border);
+  flex-shrink: 0;
+}
+
+.rpi-modal__not {
+  flex: 1;
+  font-size: 10px;
+  color: var(--color-text-muted);
+  font-family: var(--font-ui);
+}
+
+.rpi-modal__yenile {
+  padding: 4px var(--space-3);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
+  background: var(--color-bg-glass);
+  color: var(--color-text-secondary);
+  font-family: var(--font-ui);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  transition: all var(--transition-fast);
+}
+.rpi-modal__yenile:hover:not(:disabled) {
+  color: var(--color-accent);
+  border-color: var(--color-border-accent);
+}
+.rpi-modal__yenile:disabled { opacity: 0.45; cursor: not-allowed; }

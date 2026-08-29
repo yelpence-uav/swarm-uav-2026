@@ -1,9 +1,7 @@
 import { PIL_GOSTER } from "../../services/gorunum";
 import type { DroneState } from "../../types/telemetry";
 import { AGENT_STATE_LABELS } from "../../types/telemetry";
-import type { GunlukKaydi } from "../../services/api";
 import { BatteryGauge } from "./BatteryGauge";
-import { DroneLog } from "./DroneLog";
 import "./DroneCard.css";
 
 const ACCENT_VARS: Record<number, string> = {
@@ -46,74 +44,136 @@ interface DroneCardProps {
   /** Kart sağ üstündeki buton — seçili drone kontrol panelini açar. */
   onSelect?: (droneId: number) => void;
   selected?: boolean;
-  /** Bu drone'un olay kayıtları (sistem geneli dahil). */
-  kayitlar?: GunlukKaydi[];
-  /** Görülmemiş kritik olay var mı — LOG butonu kırmızı yanıp söner. */
+  /** Görülmemiş kritik olay var mı — LOG butonu kırmızı. */
   kritik?: boolean;
-  logAcik?: boolean;
-  onLogToggle?: (droneId: number) => void;
-  gunlukHata?: boolean;
-  gunlukAktif?: boolean;
+  /** RPi paneli — Pi sağlık değerleri (SSH ile, mesh'ten GEÇMEZ). */
+  onRpiAc?: (droneId: number) => void;
+  /** LOG: bildirim panelini BU drone'a süzülmüş açar.
+   *
+   *  29 Ağustos 2026: kart içindeki log katmanı KALDIRILDI. Kartlar alt
+   *  şeritte kısa; log oraya sığmıyordu ve her düzen denemesinde daha da
+   *  daralıyordu. Aynı defteri başlıktaki bildirim paneli zaten drone
+   *  süzgeciyle gösteriyor — iki ayrı log yüzeyi tutmanın karşılığı yoktu. */
+  onLogAc?: (droneId: number) => void;
   /** Diğer drone'lara YATAY mesafe (m). Boşsa satır hiç çizilmez. */
   mesafeler?: { id: number; ad: string; yatay_m: number }[];
 }
 
-/** Kart başlığı — sadece telemetri kartlarında ortak; tek aksiyon: Kontrol. */
+/** Kart başlığı — YALNIZ kimlik ve durum. 29 Ağustos 2026'da eylem
+ *  butonları (LOG, Kontrol) buradan alt şeride taşındı: başlıkta altı
+ *  öğe vardı ve "bu ne durumda" ile "ne yapabilirim" iç içe geçmişti. */
 function CardHead({
   drone,
   badge,
-  onSelect,
-  selected,
-  logAcik,
-  onLogToggle,
-  kritik,
+  canFly,
+  durum,
 }: {
   drone: DroneState;
   badge: React.ReactNode;
-  onSelect?: (id: number) => void;
-  selected?: boolean;
-  logAcik?: boolean;
-  onLogToggle?: (id: number) => void;
-  kritik?: boolean;
+  /** undefined = gosterme (offline kartta OFFLINE rozeti zaten yeterli). */
+  canFly?: boolean;
+  /** agent_fsm durum etiketi ("Boşta", "Armed", "Sürüde"...). */
+  durum?: string;
 }) {
   return (
     <header className="drone-card__head">
-      <span
-        className={`drone-card__dot ${drone.connected ? "drone-card__dot--live" : ""}`}
-      />
+      {/* Renkli canli noktasi 29 Agustos 2026'da KALDIRILDI (operator):
+          "bagli mi" bilgisini zaten OFFLINE rozeti ve kartin solmasi
+          veriyordu; nokta ayrica surekli yanip sonup dikkat dagitiyordu. */}
       <h3 className="drone-card__title">{drone.name}</h3>
+      {canFly !== undefined && (
+        <span
+          className={
+            "drone-card__fly-rozet " +
+            (canFly ? "drone-card__fly-rozet--ok" : "drone-card__fly-rozet--no")
+          }
+          title={
+            canFly
+              ? "Ön kontroller tamam, kill switch kapalı, kumanda bağlı"
+              : "Ön kontrol, kill switch ya da kumanda bağlantısı engelliyor"
+          }
+        >
+          {canFly ? "UÇABİLİR" : "UÇAMAZ"}
+        </span>
+      )}
+      {durum && (
+        <span
+          className="drone-card__durum-rozet"
+          title="Sürü ajanının görev durumu (agent_fsm) — PX4 arm durumundan ayrı"
+        >
+          {durum}
+        </span>
+      )}
       {badge}
-      {onLogToggle && (
+    </header>
+  );
+}
+
+/** Kart eylemleri — alt şeridin sağında, bilgiden ince bir çizgiyle ayrı. */
+function CardActions({
+  drone,
+  onSelect,
+  selected,
+  onLogAc,
+  kritik,
+  onRpi,
+}: {
+  drone: DroneState;
+  onSelect?: (id: number) => void;
+  selected?: boolean;
+  onLogAc?: (id: number) => void;
+  kritik?: boolean;
+  /** Raspberry Pi paneli. Verilmezse buton GORUNUR ama pasif — yeri
+   *  simdiden ayrilsin, isleyisi sonra baglanacak. Baglamak icin tek
+   *  yapilacak: bu prop'u gecmek. */
+  onRpi?: (id: number) => void;
+}) {
+  return (
+    <span className="drone-card__eylemler">
+      {onLogAc && (
         <button
           type="button"
           className={
-            "drone-card__log" +
-            (logAcik ? " drone-card__log--acik" : "") +
-            // Yanip sonme YALNIZ kapaliyken: acikken olay zaten goz onunde,
-            // yanip sonen buton orada dikkat dagitir.
-            (kritik && !logAcik ? " drone-card__log--kritik" : "")
+            "drone-card__eylem-btn drone-card__log" +
+            (kritik ? " drone-card__log--kritik" : "")
           }
-          onClick={() => onLogToggle(drone.drone_id)}
+          onClick={() => onLogAc(drone.drone_id)}
           title={
             kritik
-              ? "GÖRÜLMEMİŞ KRİTİK OLAY VAR — olay defterini aç"
-              : "Bu drone'un olay defterini aç/kapa"
+              ? "GÖRÜLMEMİŞ KRİTİK OLAY VAR — bildirimleri bu drone için aç"
+              : "Bildirimleri bu drone için aç"
           }
         >
-          ▤ LOG
+          LOG
         </button>
       )}
       {onSelect && (
         <button
           type="button"
-          className={`drone-card__ctrl ${selected ? "drone-card__ctrl--active" : ""}`}
+          className={
+            "drone-card__eylem-btn drone-card__ctrl" +
+            (selected ? " drone-card__ctrl--active" : "")
+          }
           onClick={() => onSelect(drone.drone_id)}
           title="Kontrol panelini aç (arm, kalkış, nokta-git…)"
         >
-          ⚙ Kontrol
+          Kontrol
         </button>
       )}
-    </header>
+      <button
+        type="button"
+        className="drone-card__eylem-btn drone-card__rpi"
+        onClick={onRpi ? () => onRpi(drone.drone_id) : undefined}
+        disabled={!onRpi}
+        title={
+          onRpi
+            ? "Raspberry Pi paneli"
+            : "Raspberry Pi paneli — henüz bağlanmadı"
+        }
+      >
+        RPi
+      </button>
+    </span>
   );
 }
 
@@ -121,12 +181,9 @@ export function DroneCard({
   drone,
   onSelect,
   selected = false,
-  kayitlar = [],
   kritik = false,
-  logAcik = false,
-  onLogToggle,
-  gunlukHata = false,
-  gunlukAktif = true,
+  onLogAc,
+  onRpiAc,
   mesafeler = [],
 }: DroneCardProps) {
   const accent = ACCENT_VARS[drone.drone_id] ?? "var(--color-accent)";
@@ -135,16 +192,11 @@ export function DroneCard({
   if (!drone.connected) {
     return (
       <article
-        className={`drone-card drone-card--offline ${selected ? "drone-card--selected" : ""} ${logAcik ? "drone-card--log" : ""}`}
+        className={`drone-card drone-card--offline ${selected ? "drone-card--selected" : ""}`}
         style={{ "--accent": accent } as React.CSSProperties}
       >
         <CardHead
           drone={drone}
-          onSelect={onSelect}
-          selected={selected}
-          logAcik={logAcik}
-          onLogToggle={onLogToggle}
-          kritik={kritik}
           badge={
             <span className="drone-card__badge drone-card__badge--offline">OFFLINE</span>
           }
@@ -156,12 +208,19 @@ export function DroneCard({
               <span className="drone-card__offline-text">Son paket gelmiyor</span>
             </div>
           </div>
-          {logAcik && (
-            <div className="drone-card__log-katman">
-              <DroneLog kayitlar={kayitlar} hata={gunlukHata} aktif={gunlukAktif} />
             </div>
-          )}
-        </div>
+        {/* Offline kartta da eylemler dursun: bagli olmayan drone'un
+            defterine bakmak tam da o an gerekiyor. */}
+        <footer className="drone-card__footer">
+          <CardActions
+            drone={drone}
+            onSelect={onSelect}
+            selected={selected}
+            onLogAc={onLogAc}
+            onRpi={onRpiAc}
+            kritik={kritik}
+          />
+        </footer>
       </article>
     );
   }
@@ -176,16 +235,13 @@ export function DroneCard({
 
   return (
     <article
-      className={`drone-card ${selected ? "drone-card--selected" : ""} ${logAcik ? "drone-card--log" : ""}`}
+      className={`drone-card ${selected ? "drone-card--selected" : ""}`}
       style={{ "--accent": accent } as React.CSSProperties}
     >
       <CardHead
         drone={drone}
-        onSelect={onSelect}
-        selected={selected}
-        logAcik={logAcik}
-        onLogToggle={onLogToggle}
-        kritik={kritik}
+        canFly={canFly}
+        durum={stateLabel}
         badge={
           <span
             className={`drone-card__badge drone-card__badge--${armed ? "armed" : "ground"}`}
@@ -203,17 +259,6 @@ export function DroneCard({
           kendiliginde ona uyar. */}
       <div className="drone-card__govde">
       <div className="drone-card__telemetri">
-      <div
-        className={`drone-card__fly ${canFly ? "drone-card__fly--ok" : "drone-card__fly--no"}`}
-      >
-        <span className="drone-card__fly-dot" />
-        {canFly ? "UÇABİLİR" : "UÇAMAZ"}
-      </div>
-
-      <div className="drone-card__state">
-        <span className="drone-card__state-label">{stateLabel}</span>
-      </div>
-
       {PIL_GOSTER && (
         <BatteryGauge percent={drone.battery_percent} voltage={drone.battery_voltage} />
       )}
@@ -234,27 +279,36 @@ export function DroneCard({
           Ust basliktan buraya tasindi (27 Agu): tek bir "2.41 / 12.03" dizisi
           hangi cifte ait oldugunu SOYLEMIYORDU. Kartta durunca soru kendiliginden
           cevaplaniyor — bu kart hangi drone ise, digerlerine uzakligi yaninda. */}
-      {mesafeler.length > 0 && (
-        <div className="drone-card__mesafe">
-          <span className="drone-card__mesafe-label">MESAFE</span>
+      {/* ALT SERIT: solda koordinat, sagda komsu mesafeleri. Ikisi ayni
+          hizada (29 Agu, operator) — mesafe kendi satirinda dururken kart
+          bir satir daha uzuyordu ve iki bilgi de "yardimci" oldugu icin
+          ayni seride yakisiyor. */}
+      </div>
+      </div>
+
+      <footer className="drone-card__footer">
+        <CardActions
+          drone={drone}
+          onSelect={onSelect}
+          selected={selected}
+          onLogAc={onLogAc}
+          onRpi={onRpiAc}
+          kritik={kritik}
+        />
+        {/* Konum ve mesafeler YAN YANA, sagda; aralarinda ince cubuk.
+            Mesafe sarmalayicisi kaldirildi ki cubuk kurali (`> * + *`)
+            konum ile her mesafe ogesi arasinda ESIT calissin. */}
+        <span className="drone-card__footer-bilgi">
+          <span className="drone-card__footer-konum mono">
+            {drone.lat.toFixed(5)}, {drone.lon.toFixed(5)}
+          </span>
           {mesafeler.map((m) => (
             <span key={m.id} className="drone-card__mesafe-oge mono">
               {m.ad} <b>{m.yatay_m.toFixed(2)}</b> m
             </span>
           ))}
-        </div>
-      )}
-
-      <footer className="drone-card__footer mono">
-        {drone.lat.toFixed(5)}, {drone.lon.toFixed(5)}
+        </span>
       </footer>
-      </div>
-      {logAcik && (
-        <div className="drone-card__log-katman">
-              <DroneLog kayitlar={kayitlar} hata={gunlukHata} aktif={gunlukAktif} />
-            </div>
-      )}
-      </div>
     </article>
   );
 }

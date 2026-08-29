@@ -1,6 +1,6 @@
 # GÜNLÜK — oturum devir teslim kaydı
 
-**Son güncelleme:** 29 Ağustos 2026, 19:16 — repo sadeleştirmesi + hızlı döngü üç uçağa dağıtıldı; arayüz silme tuzağı yaşandı ve çözüldü
+**Son güncelleme:** 29 Ağustos 2026, 21:54 — YKİ arayüzü sadeleştirildi, RPi sağlık paneli eklendi (SSH-only)
 
 Tek bilgisayar, sırayla çalışıyoruz. Biri kalkıp diğeri oturduğunda **hem
 kişi hem Claude** nerede kalındığını buradan anlar.
@@ -35,6 +35,85 @@ Claude'a **"oturumu kapat"** dersen bu kaydı o yazar.
 - ylp00: (kill switch? pil? nerede? konteyner ayakta mı?)
 - ylp02:
 ```
+
+---
+
+## 2026-08-29 21:54 — Osman + Claude (YKİ SADELEŞTİRME + RPi SAĞLIK PANELİ)
+
+> **Uçuş yok, hava muhalefeti.** Gün boyu YKİ arayüzü elden geçti, yeni bir
+> özellik eklendi (RPi paneli) ve Arch konteyneri yeniden kuruldu.
+
+**Ne yapıldı — arayüz**
+
+- **Başlık:** SÜRÜ sayacı, ARM ve GÖREV kutuları kaldırıldı; bağlantı durumu
+  başlığın altına küçük rozet, RTK sağa yaslandı. **Açık tema tamamen
+  kaldırıldı** (`useTheme` silindi, `index.html`'de `data-theme="dark"`
+  SABİT — `Map.css`'in leaflet karo filtresi o attribute'a bağlı).
+- **Bildirim paneli (YENİ):** başlıkta zil butonu + okunmamış sayacı. Tüm
+  olaylar zaman damgalı, **şiddet ve drone süzgeçleriyle**. Kaynak zaten
+  vardı (`useGunluk` → `yki_olaylar.jsonl`); eksik olan görünürlüktü.
+- **Drone kartı:** renkli nokta gitti; UÇAMAZ/BOŞTA/YERDE rozetleri başlığa;
+  LOG/Kontrol/RPi butonları alt şeride SOLA, konum+mesafe sağa (çubukla
+  ayrık); puntolar 1-2 birim büyüdü (ham px yerine token'a bağlandı).
+  **Kart içi log katmanı KALDIRILDI** — kart kısa, defter sığmıyordu; LOG
+  artık bildirim panelini o drone'a süzülmüş açıyor. `DroneLog` silindi.
+- **Kontrol paneli** sağ kenar çubuğundan **haritanın sağ altına** taşındı.
+  Komut butonlarından ikonlar kalktı; onay metinleri "emin misin" yerine
+  **operatörün bakması gereken şeyi** soruyor ("Pervanelerin çevresi boş mu?").
+- Ayarlar paneli ve bildirim metinleri sade Türkçeye çevrildi (İngilizce
+  kalıntılar, iç jargon, kısaltmalar). 29 olay etiketi + 5 uyarı mesajı.
+
+**Ne yapıldı — RPi sağlık paneli (YENİ ÖZELLİK)**
+
+🔴 **Veri MESH'TEN GEÇMİYOR — yalnız SSH.** Operatör kararı. Mesh 16 baytlık
+paketler taşıyor ve görev telemetrisi için; teşhis verisi oraya konmuyor.
+SSH yoksa `ssh_ok:false` döner, arayüz "bilinmiyor" gösterir — **değer
+uydurulmaz.**
+
+```
+RPi butonu -> GET /api/rpi/{id} -> drone_bul.sh ylpXX 'bash -s' < rpi_durum.sh
+           -> SSH -> Pi: sicaklik, throttle, CPU, bellek, disk, Wi-Fi, ROS
+```
+
+Ölçüm betiği **stdin'den** geçiyor: uçağa dağıtım GEREKMEZ, uçaklardaki kod
+sürümünden bağımsız. Kimlik/IP `drone_bul.sh --tablo`'dan (ikinci tablo yok).
+Eşikler ölçümden: Pi 5 boşta 56-64 °C → uyarı 70, kritik 80.
+
+**Ne değişti**
+
+- kod: `backend/api/rpi.py` (yeni), `deploy/rpi/teshis/rpi_durum.sh` (yeni),
+  `components/BildirimPanel/` + `RpiPanel/` (yeni), 20 dosya düzenlendi,
+  `DroneLog` + `useTheme` silindi
+- **YKİ makinesi (Osman/Arch):** konteyner YENİDEN KURULDU —
+  `arch-docker/Dockerfile`'a `openssh-client iproute2 iputils-ping net-tools
+  nmap`, `yki_konteyner.sh`'e `~/.ssh` (ro) + drone önbelleği bağları ve
+  `~/.cache` sahiplik düzeltmesi. (Bu dosyalar gitignore'da, kişisel.)
+- uçakta: **hiçbir şey** — RPi özelliği uçak tarafına dokunmuyor
+
+**Yarım kalan / tuzak**
+
+- 🔴 **`kur_yki.sh` 6/8'de bir kez düştü** (pip PyPI zaman aşımı, hotspot).
+  YKİ o sürede kapalı kaldı. `PIP_DEFAULT_TIMEOUT=120 PIP_RETRIES=10` ile
+  tekrar koşunca geçti. Dalgalı ağda yeniden kurulum riskli.
+- ✅ **TUZAKLAR §2.11b burada da vuracaktı:** yerel `install/`'da silinmiş
+  `ExecuteFormation`'dan 18 artık vardı; `kur`'un artımlı derlemesi aynı
+  `undefined symbol` hatasını üretecekti. Derlemeden ÖNCE
+  `build/`+`install/swarm_interfaces` silindi → temiz derleme 24,3 sn
+  (artımlı ~5 sn sürer ve bozuk çıkar — süre farkı tek başına işaret).
+- ⚠️ **ylp01'in RAM'i yarısı: 4049 MB** (diğer ikisi 8062). 24 Ağustos klon
+  yeni Pi'ye yapılmıştı. Bugün sorun değil, görü zinciri açılınca üçü aynı
+  davranmayabilir. `RPI_ESITLEME`'ye YAZILMADI (operatör: "şimdilik kalsın").
+- ⚠️ `yelpence/yki:araclar` imajı 323 MB'lık hazır venv içeriyor — kurulum
+  yine düşerse kurtarma yolu.
+
+**Sıradaki adım**
+
+- Görev 2 manevra modu: KARAR-11'deki 3 onay sorusu → test kodu.
+
+**Uçakların bırakıldığı hâl**
+
+- Üçü de açık, ağda, **disarm**, 11 düğüm, kod `04f3828 +KIRLI`. Uçaklara
+  bugün hiç dokunulmadı.
 
 ---
 

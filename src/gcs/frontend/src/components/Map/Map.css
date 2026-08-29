@@ -83,11 +83,13 @@ html[data-theme="dark"] .leaflet-tile {
   text-shadow: 0 1px 1px rgba(0, 0, 0, 0.45);
 }
 
-/* Auto-follow toggle butonu */
+/* Auto-follow toggle butonu — SOL ALT kose (29 Agustos 2026, operator).
+   Kose secimi bos olduguna bakilarak yapildi: Leaflet zoom kontrolu sol
+   USTTE, atif sag ALTTA duruyor. Sol alt tamamen serbest. */
 .map-follow-toggle {
   position: absolute;
-  top: var(--space-3);
-  right: var(--space-3);
+  bottom: var(--space-3);
+  left: var(--space-3);
   z-index: 1000;
   border-radius: var(--radius-md);
   padding: var(--space-2) var(--space-3);
@@ -160,7 +162,9 @@ html[data-theme="dark"] .leaflet-tile {
   left: 50%;
   bottom: var(--space-3);
   transform: translateX(-50%);
-  z-index: 1000;
+  /* Takip butonu da sol altta: dar ekranda cubuk genisleyip onun uzerine
+     gelebiliyor. Cubuk gecici ve daha onemli — ustte kalsin. */
+  z-index: 1001;
   display: flex;
   align-items: center;
   gap: var(--space-3);

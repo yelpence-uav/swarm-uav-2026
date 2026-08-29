@@ -1,7 +1,7 @@
 /* Yelpence GCS - Tasarım Sistemi
    ============================================================
    Renkler, gölgeler, gradyanlar, tipografi, spacing token'ları.
-   Koyu tema default; html[data-theme="light"] overrides aşağıda.
+   TEK TEMA: koyu. Açık tema 29 Ağustos 2026'da kaldırıldı.
    Componentler doğrudan hex/px yazmaz, sadece var(--token) kullanır.
    ============================================================ */
 
@@ -135,43 +135,11 @@
   --z-modal:    1000;
 }
 
-/* Açık tema */
-html[data-theme="light"] {
-  --color-bg-base:       #f1f5f9;
-  --color-bg-elevated:   #ffffff;
-  --color-bg-panel:      #ffffff;
-  --color-bg-glass:      rgba(0, 0, 0, 0.025);
-  --color-bg-overlay:    rgba(241, 245, 249, 0.85);
-
-  --color-border:        rgba(15, 23, 42, 0.08);
-  --color-border-strong: rgba(15, 23, 42, 0.16);
-  --color-border-accent: rgba(14, 165, 233, 0.4);
-
-  --color-text-primary:   #0f172a;
-  --color-text-secondary: #475569;
-  --color-text-muted:     #94a3b8;
-  --color-text-inverse:   #ffffff;
-
-  --color-accent:         #0284c7;
-  --color-accent-strong:  #0369a1;
-  --color-accent-glow:    rgba(2, 132, 199, 0.3);
-
-  --gradient-bg:
-    radial-gradient(ellipse at top left, rgba(56, 189, 248, 0.12), transparent 60%),
-    radial-gradient(ellipse at bottom right, rgba(251, 146, 60, 0.1), transparent 60%),
-    linear-gradient(180deg, #f1f5f9 0%, #e2e8f0 100%);
-
-  --gradient-card:
-    linear-gradient(135deg, #ffffff 0%, #f8fafc 100%);
-  --gradient-card-hover:
-    linear-gradient(135deg, #ffffff 0%, rgba(56, 189, 248, 0.06) 100%);
-
-  --shadow-sm:    0 1px 2px rgba(15, 23, 42, 0.06);
-  --shadow-md:    0 4px 12px rgba(15, 23, 42, 0.08);
-  --shadow-lg:    0 12px 32px rgba(15, 23, 42, 0.12);
-  --shadow-xl:    0 24px 64px rgba(15, 23, 42, 0.16);
-  --shadow-inset: inset 0 1px 0 rgba(255, 255, 255, 0.5);
-}
+/* Tek tema: KOYU. Açık tema 29 Ağustos 2026'da kaldırıldı (operatör
+   kararı) — saha kullanımında hep koyu tercih ediliyordu ve iki paleti
+   birden bakımda tutmanın karşılığı yoktu. Koyu palet :root'ta, üstte.
+   html[data-theme="dark"] index.html'de SABİT: Map.css'in leaflet karo
+   filtresi o attribute'a bağlı, düşerse karolar parlak kalır. */
 
 /* Global reset + base */
 *,

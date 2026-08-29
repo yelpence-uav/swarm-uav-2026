@@ -17,9 +17,24 @@ interface FieldDef {
 }
 
 const FIELDS: FieldDef[] = [
-  { key: "default_altitude_m", label: "Basic irtifa", unit: "m", hint: "Takeoff / nokta-git için varsayılan irtifa" },
-  { key: "default_speed_ms", label: "Basic hız", unit: "m/s", hint: "Nokta-git seyir hızı (yalpalama için düşür)" },
-  { key: "min_nav_altitude_m", label: "Min. navigasyon irtifası", unit: "m", hint: "Altındayken önce oto-kalkış yapılır" },
+  {
+    key: "default_altitude_m",
+    label: "Varsayılan irtifa",
+    unit: "m",
+    hint: "Kalkışta ve bir noktaya giderken kullanılan irtifa",
+  },
+  {
+    key: "default_speed_ms",
+    label: "Varsayılan hız",
+    unit: "m/s",
+    hint: "Noktalar arası seyir hızı. Uçak salınım yapıyorsa düşür",
+  },
+  {
+    key: "min_nav_altitude_m",
+    label: "En düşük seyir irtifası",
+    unit: "m",
+    hint: "Uçak bunun altındaysa önce otomatik kalkış yapılır",
+  },
 ];
 
 export function SettingsPanel({ params, onSaved, onClose }: SettingsPanelProps) {
@@ -44,10 +59,10 @@ export function SettingsPanel({ params, onSaved, onClose }: SettingsPanelProps) 
     setRtkSonuc(null);
     try {
       const r = await rtkApi.reset("sicak");
-      setRtkSonuc(`Reset gönderildi (${r.kip}). ${r.uyari}`);
+      setRtkSonuc(`Yeniden başlatma komutu gönderildi (${r.kip}). ${r.uyari}`);
       setRtkOnay(false);
     } catch (e) {
-      setRtkSonuc(e instanceof CommandFailure ? `HATA: ${e.message}` : "Reset gönderilemedi");
+      setRtkSonuc(e instanceof CommandFailure ? `HATA: ${e.message}` : "Komut gönderilemedi");
     } finally {
       setRtkBusy(false);
     }
@@ -76,7 +91,7 @@ export function SettingsPanel({ params, onSaved, onClose }: SettingsPanelProps) 
     <div className="settings-overlay" onClick={onClose}>
       <div className="settings-modal" onClick={(e) => e.stopPropagation()} role="dialog">
         <header className="settings-modal__head">
-          <h2>⚙ Ayarlar — Parametreler</h2>
+          <h2>Uçuş ayarları</h2>
           <button className="settings-modal__close" onClick={onClose} aria-label="Kapat">✕</button>
         </header>
         <div className="settings-modal__body">
@@ -97,11 +112,11 @@ export function SettingsPanel({ params, onSaved, onClose }: SettingsPanelProps) 
           {error && <div className="settings-modal__error">{error}</div>}
 
           <div className="settings-bakim">
-            <h3 className="settings-bakim__baslik">🛰 RTK baz istasyonu</h3>
+            <h3 className="settings-bakim__baslik">RTK baz istasyonu</h3>
             <p className="settings-bakim__not">
-              u-blox alıcısını yeniden başlatır. <strong>RTCM akışı birkaç saniye
-              kesilir</strong> ve uçaklar RTK-FIX'i düşürüp yeniden yakalar.
-              Uçuş sırasında kullanma.
+              Baz istasyonunun alıcısını yeniden başlatır. <strong>Düzeltme yayını
+              birkaç saniye kesilir</strong>; uçaklar RTK kilidini kaybedip yeniden
+              yakalar. Uçuş sırasında kullanma.
             </p>
             {!rtkOnay ? (
               <button
@@ -109,7 +124,7 @@ export function SettingsPanel({ params, onSaved, onClose }: SettingsPanelProps) 
                 onClick={() => { setRtkOnay(true); setRtkSonuc(null); }}
                 disabled={rtkBusy}
               >
-                u-blox'u resetle
+                Yeniden başlat
               </button>
             ) : (
               <div className="settings-bakim__onay">
@@ -119,7 +134,7 @@ export function SettingsPanel({ params, onSaved, onClose }: SettingsPanelProps) 
                   onClick={rtkReset}
                   disabled={rtkBusy}
                 >
-                  {rtkBusy ? "…" : "Evet, resetle"}
+                  {rtkBusy ? "…" : "Evet, yeniden başlat"}
                 </button>
                 <button
                   className="settings-btn settings-btn--ghost"
