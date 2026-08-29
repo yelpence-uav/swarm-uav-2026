@@ -35,7 +35,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "srv/ManageSwarmMember.srv"
 
   # Actions
-  "action/ExecuteFormation.action"
+  # ExecuteFormation.action 29 Agustos 2026'da SILINDI — kodda sifir referans.
   "action/ExecuteManeuver.action"
   "action/ManageSwarmMember.action"
 

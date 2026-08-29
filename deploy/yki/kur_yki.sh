@@ -77,8 +77,12 @@ mavi "6/8  Python venv (GCS backend)"
 yesil "  venv hazır: $VENV"
 
 mavi "7/8  colcon build"
-# px4_autopilot boş bir submodule; colcon tarayıp uyarmasın.
-[ -d "$REPO/src/px4_autopilot" ] && touch "$REPO/src/px4_autopilot/COLCON_IGNORE"
+# px4_autopilot submodule'u 29 Ağustos 2026'da SİLİNDİ (içi boştu, yalnız
+# COLCON_IGNORE vardı; .gitmodules PX4-Autopilot'u gösterdiği için
+# `git submodule update --init` diyen biri ~1 GB'ı boşuna indiriyordu).
+# Buradaki COLCON_IGNORE dokunuşu da onunla birlikte kalktı — dizin yokken
+# `[ -d ... ] && touch` 1 döndürüp `set -e` altında kurulumu tam da bu
+# satırda durduruyordu.
 cd "$REPO"
 set +u                                   # ROS setup.bash bağlanmamış değişken kullanır
 source /opt/ros/$ROS_DISTRO/setup.bash

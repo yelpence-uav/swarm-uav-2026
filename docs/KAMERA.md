@@ -1,6 +1,6 @@
 # KAMERA ve ALGI — sahada ölçülmüş sonuçlar
 
-**Son güncelleme:** 28 Ağustos 2026, 12:10
+**Son güncelleme:** 29 Ağustos 2026, 17:55 — IR-cut kilidi kayda geçti (belge "ışık sensörü ile çalışıyor" diyordu, bayattı)
 
 > Bu belge **28 Ağustos 2026'da tek oturumda** yapılan kamera kurulumu,
 > kalibrasyonu ve dört uçuşluk QR tespit testinin sonucudur. Her sayı
@@ -27,7 +27,7 @@ Saha kuralı: **QR okuması gerekiyorsa 6-9 m'de uç.**
 | Sensör | Arducam IMX477 (12,3 MP), ylp02'de |
 | Bağlantı | Pi 5 CAM portu, **22 pin 0,5 mm** mavi flex |
 | Mercek | C/CS, diyafram tam açık, odak elle |
-| IR-cut | Elektromekanik, ışık sensörü ile — **çalışıyor** |
+| IR-cut | Elektromekanik. 🔒 **28 Ağustos'ta GÜNDÜZ konumunda kilitlendi, kablosu söküldü** — ışık sensörü artık çeviremez (bkz. aşağıda) |
 
 ### Flex tuzağı
 
@@ -36,6 +36,18 @@ Pi 5 CAM/DISP girişi **22 pin 0,5 mm**; Pi 4 CSI girişi **15 pin 1,0 mm**.
 ucu da dar" mavi flex doğru kablodur — **ama ters takılırsa güç gelmez ve
 hiçbir hata mesajı çıkmaz.** 28 Ağustos'ta tam olarak bu oldu; teşhis
 "kablo yanlış" sanıldı, gerçekte flex tersti.
+
+### 🔒 IR-cut neden kilitlendi (28 Ağustos, operatör)
+
+Süzgeç **gece konumuna geçtiğinde** sensör kızılötesi görüyor ve kare
+magentaya kayıyor. 27 Ağustos'ta ölçüldü: o karede renk tespiti **6 sahte
+KIRMIZI bölge** üretti. Uçuş ortasında bulut geçip sensör eşiği aşsaydı
+renk tespiti sessizce çöpe dönerdi — ve hata vermezdi.
+
+Bu yüzden süzgeç gündüz konumuna alınıp **kablosu söküldü**. 28 Ağustos
+renk kalibrasyonu (gerçek hedef 0,985 · bayrak 0,281 · poster 0,130) bu
+sayede geçerliliğini koruyor. Aşağıdaki doğrulama hâlâ işe yarar ama artık
+yalnız "filtre yerinde mi" sorusunu cevaplar; kip değişmez.
 
 ### IR-cut nasıl doğrulanır (10 saniye)
 

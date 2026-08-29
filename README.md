@@ -1,6 +1,6 @@
 # Yelpençe — TEKNOFEST 2026 Sürü İHA
 
-**Son güncelleme:** 28 Ağustos 2026, 11:20
+**Son güncelleme:** 29 Ağustos 2026, 18:55 — belge sadeleştirmesi; filo üç uçak
 
 Takım **Yelpençe** · Takım no **752825**
 
@@ -15,10 +15,10 @@ uçağın kendi içinde verilir; yer istasyonunun tek işi görevi başlatmaktı
 
 | Sıra | Dosya | Ne verir |
 |---|---|---|
-| 1 | [`docs/PLAN.md`](docs/PLAN.md) | Büyük resim + teknik yol haritası |
-| 2 | [`docs/DURUM.md`](docs/DURUM.md) | Şu an ne çalışıyor, uçakta hangi ayar açık |
+| 1 | [`docs/DURUM.md`](docs/DURUM.md) | Şu an ne çalışıyor, uçakta hangi ayar açık |
+| 2 | [`docs/YAPILACAKLAR.md`](docs/YAPILACAKLAR.md) | **8 günde yapılacak iş** — 🔴P0 / 🟠P1 / 🟡P2 / ⚪P3 |
 | 3 | [`docs/GUNLUK.md`](docs/GUNLUK.md) | Son kişi nerede bıraktı (**en üstteki** kayıt) |
-| 4 | [`docs/YAPILACAKLAR.md`](docs/YAPILACAKLAR.md) | Sıradaki iş — 🔴P0 / 🟠P1 / 🟡P2 / ⚪P3 |
+| 4 | [`docs/PLAN.md`](docs/PLAN.md) | Neden böyle yapıldı — şartname, test kademeleri, kalan ADIM'lar |
 | 5 | [`docs/KAMERA.md`](docs/KAMERA.md) | Kamera ayarları + QR/renk tespit menzilleri |
 
 Claude Code kullanıyorsan [`CLAUDE.md`](CLAUDE.md) kendiliğinden okunur.
@@ -28,12 +28,12 @@ Claude Code kullanıyorsan [`CLAUDE.md`](CLAUDE.md) kendiliğinden okunur.
 | Soru | Belge |
 |---|---|
 | Nereye gidiyoruz, hangi düğüm ne zaman açılacak? | `docs/PLAN.md` |
+| Uçaklarda ne var, hangisinde eksik? | `docs/RPI_ESITLEME.md` §3 |
 | Şu an ne çalışıyor, uçaklar hangi hâlde? | `docs/DURUM.md` |
 | Son kişi ne yaptı? | `docs/GUNLUK.md` |
 | Sırada ne var? | `docs/YAPILACAKLAR.md` |
 | Bu konuda karar verilmiş miydi? | `docs/KARARLAR.md` |
 | **Çalışmıyor ama hata da vermiyor** | `docs/TUZAKLAR.md` |
-| Çarpışma önleme: dikey yol verme, yer testleri, açık sorular | `docs/CA.md` |
 | **Kamera, QR ve renk tespiti — ölçülmüş menziller** | **`docs/KAMERA.md`** |
 | Uçaklarda ne var, geri gelen drone'a ne yapmalı? | `docs/RPI_ESITLEME.md` |
 | SSH, IP, MAC, portlar, QGC, sysid | `docs/cihazlar.md` |
@@ -79,8 +79,8 @@ konularını göremezsin — SSH ile içine girmen gerekir.
 | İHA | agent_id | Konteyner | ROS ns | Durum |
 |-----|----------|-----------|--------|-------|
 | ylp00 | 1 | `drone1` | `/drone_1` | uçuyor |
-| ylp01 | 2 | `drone2` | `/drone_2` | **yerde** — ESC güç hattı onarımı |
-| ylp02 | 3 | `drone3` | `/drone_3` | uçuyor |
+| ylp01 | 2 | `drone2` | `/drone_2` | uçuyor |
+| ylp02 | 3 | `drone3` | `/drone_3` | uçuyor · **kamera bu uçakta** |
 
 > ⚠️ **İsimdeki sayı bir eksik:** ylp00 → drone**1**. En sık yapılan hata;
 > komut yazmadan önce bak. Tam kimlik tablosu: `docs/cihazlar.md`.
@@ -103,7 +103,7 @@ taraması sırasıyla dener; sonuncusu her zaman çalışır.
 
 > **Dron ağda ama QGC/YKİ'de görünmüyorsa:** konteyner WiFi hazır olmadan
 > kalkmıştır. `./deploy/yki/drone_bul.sh ylp00 'docker restart drone1'` çözer.
-> Kalıcı düzeltme `YAPILACAKLAR.md` P0.13'te.
+> Kalıcı düzeltme `YAPILACAKLAR.md`'de (konteyner recreate maddesi).
 
 ---
 
@@ -113,7 +113,7 @@ taraması sırasıyla dener; sonuncusu her zaman çalışır.
 # Uçuştan ÖNCE — bedava, saniyeler sürer, ATLANMAZ
 ./deploy/yki/param_karsilastir.py         # uçaklar aynı ayarda mı
 python3 src/gcs/gorev_kanit_ucus.py --kuru --harita \
-    --senaryo saha --dronelar 1,3 --lider 3
+    --senaryo saha --dronelar 1,2,3 --lider 3
 #   --kuru   : plan + çarpışma denetimi, HİÇBİR komut gitmez → "SONUÇ: GEÇTİ" şart
 #   --harita : /tmp/yelpence_rota.html — uydu görüntüsünde yeşil=rota,
 #              mavi=her drone'un İNECEĞİ yer. OPERATÖR GÖZÜYLE DOĞRULAR.
@@ -142,11 +142,11 @@ tek formasyon. Uzun uçuş bir değer değil, bir **risk**. Ayrıntı: `PLAN.md`
 ## Depo düzeni
 
 ```
-src/swarm_control/        px4_bridge, esp32_bridge, kaçınma, mesh köprüsü
-src/swarm_core/           formasyon, konsensüs, manevra, hassas iniş, rota
+src/swarm_control/        px4_bridge, esp32_bridge, mesh köprüsü
+src/swarm_core/           formasyon, konsensüs, kaçınma, manevra, hassas iniş
 src/swarm_state_machine/  ajan / sürü / görev durum makineleri
 src/swarm_missions/       Görev 1 orkestratörü
-src/swarm_perception/     kamera, QR, renkli bölge, komşu füzyonu
+src/swarm_perception/     kamera, QR, renkli bölge
 src/swarm_interfaces/     ROS mesaj sözleşmesi
 src/gcs/                  yer istasyonu + saha ölçüm araçları
 deploy/rpi/               dronlara dağıtım (baslat.sh, dagit.sh, teshis/)

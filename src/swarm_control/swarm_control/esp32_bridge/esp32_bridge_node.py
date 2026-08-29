@@ -438,7 +438,8 @@ class Esp32BridgeNode(Node):
         #     -> HAVADAN kayip ~%0-4, KAPIDAN kayip ~%26
         #
         # Yani "mesh %30 kaybediyor" sanilan sey radyo degil BU SATIRDI.
-        # `ca_benzetim.py` ve `CA.md` §4 o yanlis varsayim uzerine kurulmustu.
+        # O yanlis varsayim uzerine kurulmus iki belge/arac (ca_benzetim.py,
+        # docs/CA.md) 29 Agu 2026'da silindi — git gecmisinde duruyor.
         #
         # NEDEN 0.095, neden faz biriktirme (son += periyot) DEGIL: faz
         # biriktirme kaynak bir an duraklarsa birikmis tikleri PES PESE

@@ -22,8 +22,6 @@ setup(
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
-            'kinematic_fusion = '
-            'swarm_perception.kinematic_fusion.kinematic_fusion_node:main',
             'camera_driver = '
             'swarm_perception.camera_driver.camera_driver_node:main',
             'vision_node = '

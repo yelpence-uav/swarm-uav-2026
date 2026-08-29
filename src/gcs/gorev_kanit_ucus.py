@@ -90,7 +90,8 @@ ZAMAN_ASIMI_S = 5.0
 # 31 Temmuz: ylp02 DEVRE DISI — pusulasi 143 uT / std 63 okuyor (saglami
 # 48 uT / std 1), kalibrasyon "unable to fit mag 0" ile basarisiz.
 # Olcumle elenenler: kamera guc kablosu, ESP32 mesh yayini, hareket,
-# yapilandirma farki. Bkz. src/gcs/pusula_olc.py
+# yapilandirma farki. (Olcum araci pusula_olc.py 29 Agu 2026'da silindi —
+# gerekirse git gecmisinden gelir.)
 DRONELAR = [1, 2]
 
 # --- Geometri ---------------------------------------------------------------

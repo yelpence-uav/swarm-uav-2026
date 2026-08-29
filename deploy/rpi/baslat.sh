@@ -489,35 +489,33 @@ acik() {
 # Bos yuva kapisi VELOCITY_ONLY'yi geri false yapabiliyor ve px4_bridge
 # hemen asagida o degerle kalkiyor — blok asagida kalirsa kapi cok gec
 # calisir ve dugum yanlis modda baslar.
-# --- CARPISMA KACINMASI (opt-in) --------------------------------------------
-# /ws/kacinma dosyasi VARSA devreye girer. Opt-in olmasi bilerek: kacinma
-# ucus komut yolunun ICINE giriyor, habersiz bir dagitimin bunu sessizce
-# aktiflestirmesi istenmez.
+# --- CARPISMA KACINMASI ------------------------------------------------------
+# Tek kacinma dugumu: collision_avoidance (`ca` anahtari, ADIM 4/KARAR-01).
 #
 # Devredeyken zincir soyle olur:
-#   esp32_bridge -> /control/setpoint/RAW -> basit_kacinma -> /control/setpoint
+#   esp32_bridge -> /control/setpoint/RAW -> collision_avoidance -> /control/setpoint
 # Yani esp32_bridge'in cikisi yeniden yonlendiriliyor ve kacinma araya
-# giriyor. Dosya yoksa esp32_bridge dogrudan /control/setpoint'e yazar,
-# yani bugune kadarki davranis aynen korunur.
+# giriyor. Kacinma yoksa esp32_bridge dogrudan /control/setpoint'e yazar.
 #
 # NOT: kacinma dugumu calissa bile remap YOKSA zararsizdir — /raw'a kimse
 # yazmadigi icin hicbir setpoint yayinlamaz (Asama-1 gozlem modu boyleydi).
 # YONLENDIRME, DUGUM SECIMINDEN AYRILDI — 21 Agustos 2026.
 #
-# Eskiden tek dosya (/ws/kacinma) IKI isi birden yapiyordu: (a) hangi
-# kacinma dugumunun kostugu, (b) esp32_bridge'in ciktisinin nereye gittigi.
-# Sonucu olculdu: `ca` acmak icin /ws/kacinma silinince esp32_bridge
-# DOGRUDAN /setpoint'e yaziyor, collision_avoidance ise /raw'i dinliyor —
-# yani kacinma ucus yolunun TAMAMEN DISINDA kaliyor ve ustelik ikisi ayni
-# konuya yazarak CLAUDE.md bolum 4'u ihlal ediyordu.
-#
-# Artik iki soru ayri:
-#   KACINMA_VAR : herhangi bir kacinma dugumu kosacak mi -> yonlendirme
-#   BASIT_KACINMA / ca : hangisi kosacak
-KACINMA=0
-[ -f /ws/kacinma ] && KACINMA=1
+# 🔴 basit_kacinma 29 Agustos 2026'da SILINDI — ve bu bir sadelestirmeden
+# fazlasiydi. O dugum yalniz position_valid=True setpoint'lerde calisiyordu;
+# formasyon ucagi SAF HIZ kipinde (position_valid=False) suruyor, yani sürü
+# zincirinde ZATEN OLUYDU. Belgelerde "geri donus" diye duran sey aslinda
+# kacinmanin TAMAMEN kapanmasi anlamina geliyordu. /ws/kacinma bayragi da
+# onunla birlikte kalkti; dosya hala duruyorsa asagisi HATA verip durur —
+# sessizce korumasiz kalmaktansa acilmamak dogru.
+if [ -f /ws/kacinma ]; then
+    echo "[baslat] 🔴 HATA: /ws/kacinma var ama basit_kacinma SILINDI (29 Agu 2026)."
+    echo "[baslat]        Bu dosyayla devam etmek kacinmayi SESSIZCE kapatirdi."
+    echo "[baslat]        Yapilacak: rm /ws/kacinma  +  /ws/suru_dugumleri'ne 'ca' ekle."
+    exit 1
+fi
 CA_ACIK=0
-if [ "$KACINMA" = "0" ] && { acik ca || acik hepsi; }; then CA_ACIK=1; fi
+if acik ca || acik hepsi; then CA_ACIK=1; fi
 
 # SP_REMAP hesabi BURADAN TASINDI (25 Agustos 2026, tek-uretici gecisi).
 # Karar "formasyon SURUYOR mu"ya bagli ve o ancak asagidaki bos-yuva
@@ -534,12 +532,12 @@ if [ "$KACINMA" = "0" ] && { acik ca || acik hepsi; }; then CA_ACIK=1; fi
 # setpoint'ler px4_bridge'e HIC ULASMAZ. Ucak kalkar, komut bekler, hicbir
 # sey gelmez — hata da vermez. Bu sinif hatayi sessiz birakmiyoruz.
 if [ ! -f /ws/gozlem ] && { acik formasyon || acik hepsi; } \
-   && [ "$KACINMA" = "0" ] && [ "$CA_ACIK" = "0" ]; then
+   && [ "$CA_ACIK" = "0" ]; then
     echo "[baslat] 🔴 HATA: formasyon UCAGI SURECEK (gozlem kapali) ama"
     echo "[baslat]        hicbir kacinma dugumu yok — /raw ile /setpoint"
     echo "[baslat]        arasindaki AKTARIM KATI BOS. Setpoint'ler ucaga"
-    echo "[baslat]        ULASMAZ. Ya /ws/kacinma olustur ya SURU_DUGUMLERI'ne"
-    echo "[baslat]        'ca' ekle. Bkz. CLAUDE.md bolum 3, KARAR-01."
+    echo "[baslat]        ULASMAZ. SURU_DUGUMLERI'ne 'ca' ekle."
+    echo "[baslat]        Bkz. CLAUDE.md bolum 3, KARAR-01."
     echo "[baslat]        GUVENLI TARAFA GECILIYOR: gozlem modu zorlaniyor."
     # `touch` YETIYOR: asagidaki VELOCITY_ONLY blogu tam da bu dosyaya
     # bakiyor ([ ! -f /ws/gozlem ]), yani B moduna gecis kendiliginden
@@ -578,15 +576,11 @@ if [ "$FORMASYON_SURUYOR" = "1" ]; then
     echo "[baslat] 🔒 TEK-URETICI (ADIM 3): formasyon SURUYOR — esp32_bridge"
     echo "[baslat]    cikisi /gozlem/drone_${AGENT_ID}/mesh_goto (mesh goto UCAGI SUREMEZ;"
     echo "[baslat]    /raw'in tek ureticisi formation_node, aktarim kati CA)"
-elif [ "$KACINMA" = "1" ] || [ "$CA_ACIK" = "1" ]; then
+elif [ "$CA_ACIK" = "1" ]; then
     SP_REMAP="-r /drone_${AGENT_ID}/control/setpoint:=/drone_${AGENT_ID}/control/setpoint/raw"
-    if [ "$KACINMA" = "1" ]; then
-        echo "[baslat] CARPISMA KACINMASI ACIK (basit_kacinma) — esp32_bridge cikisi /raw'a yonlendirildi"
-    else
-        echo "[baslat] CARPISMA KACINMASI ACIK (collision_avoidance) — esp32_bridge cikisi /raw'a yonlendirildi"
-    fi
+    echo "[baslat] CARPISMA KACINMASI ACIK (collision_avoidance) — esp32_bridge cikisi /raw'a yonlendirildi"
 else
-    echo "[baslat] carpisma kacinmasi kapali (/ws/kacinma yok, 'ca' da istenmedi)"
+    echo "[baslat] carpisma kacinmasi kapali ('ca' istenmedi)"
 fi
 
 # VELOCITY_ONLY — ADIM 3'un sarti (PLAN.md Engel 3).
@@ -707,32 +701,9 @@ TAKIM_ID="${TAKIM_ID:-752825}"
 KANAT_ALFA_DEG="${KANAT_ALFA_DEG:-45.0}"
 ros2 run swarm_control esp32_bridge --ros-args -p serial_port:=/dev/ttyAMA4 -p baud:=460800 -p agent_id:=${AGENT_ID} -p team_id:="'${TAKIM_ID}'" -p wing_alpha_deg:=${KANAT_ALFA_DEG} $SP_REMAP >> "$GUNLUK/esp.log" 2>&1 &
 
-if [ "$KACINMA" = "1" ]; then
-    sleep 2
-    # komsu_idler: kendisi haric butun filo. Olmayan drone'a abone olmak
-    # zararsiz — veri gelmezse komsu yok sayilir.
-    KOMSULAR=$(echo "1 2 3" | tr ' ' '\n' | grep -v "^${AGENT_ID}$" | paste -sd, -)
-    # ESIKLER — ucus_ayarlari.py TEK KAYNAK (--kabuk uretiyor).
-    #
-    # 15 AGUSTOS'TA BULUNDU: burada yedek deger 6.0/3.0 yaziyordu ve
-    # KACINMA_D0/KACINMA_HARD'i HIC KIMSE uretmiyordu. Yani dugumun kendi
-    # varsayilani (8.0/4.0) her acilista sessizce eziliyor, ucaklar 6.0/3.0
-    # ile uculuyordu. hard=3.0, MIN_AYRIM_M'in (4.0) ALTINDA — koruma tam
-    # guce ancak sinir asildiktan SONRA cikiyordu.
-    #
-    # BUGUNKU DEGER 6.0/4.0 (20 Agustos, operator karari). Ikisi de bilerek:
-    #   hard=4.0 -> MIN_AYRIM_M ile ayni, tam kuvvet TAM SINIRDA basliyor
-    #   d0=6.0   -> formasyonun planli en yakin yaklasmasi 8.49 m; 8.0 ile
-    #               pay 0.49 m kaliyordu ve kacinma NORMAL gecise karisirdi
-    # Turetme ve gerekce: src/gcs/ucus_ayarlari.py (TEK KAYNAK, --kabuk uretir).
-    # Dugum varsayilani hala 8.0/4.0 — env gelmezse burasi onu bilerek eziyor.
-    ros2 run swarm_control basit_kacinma --ros-args \
-        -p agent_id:=${AGENT_ID} -p komsu_idler:="[$KOMSULAR]" \
-        -p d0_m:=${KACINMA_D0:-6.0} -p hard_m:=${KACINMA_HARD:-4.0} \
-        -p bayat_s:=${KACINMA_BAYAT_S:-1.5} \
-        >> "$GUNLUK/kacinma.log" 2>&1 &
-    echo "[baslat] basit_kacinma basladi (komsular: $KOMSULAR)"
-fi
+# basit_kacinma baslatma blogu 29 Agustos 2026'da SILINDI (yukaridaki
+# gerekce). Tek kacinma dugumu collision_avoidance ve o asagida, sürü
+# dugumleri bolumunde `ca` anahtariyla aciliyor.
 
 # --- Ucus kaydi (PX4 ULog'unun yerine gecen kayit) --------------------------
 # Pixhawk'ta RAM sinirda oldugu icin FCU tarafinda logger ACILMIYOR. Onun
@@ -843,8 +814,7 @@ trap kapat TERM INT
 # SURU_DUGUMLERI ile ADI verilir:
 #
 #   SURU_DUGUMLERI="consensus"                       # yalniz lider secimi
-#   SURU_DUGUMLERI="consensus fusion"                # + komsu yumusatma
-#   SURU_DUGUMLERI="consensus fusion formasyon"      # + formasyon zinciri
+#   SURU_DUGUMLERI="consensus formasyon ca"          # + formasyon zinciri
 #   SURU_DUGUMLERI="hepsi"                           # tumu (dikkatli)
 #
 # run_drone.sh bunu -e ile gecirir. Sira onemli: formasyon zinciri
@@ -967,13 +937,9 @@ if [ -n "$SURU_DUGUMLERI" ]; then
              "(agent_count=$SURU_AJAN_SAYISI, battery_min_v=$BATARYA_KRITIK_V)"
     fi
 
-    # Komsu telemetrisini yumusatir (EMA). Formasyon oncesi acilmasi mantikli:
-    # slot atamasi komsu konumlarina bakiyor.
-    if acik fusion; then
-        ros2 run swarm_perception kinematic_fusion --ros-args \
-            -p agent_id:=${AGENT_ID} >> "$GUNLUK/fusion.log" 2>&1 &
-        sleep 2
-    fi
+    # `fusion` (kinematic_fusion) anahtari 29 Agustos 2026'da SILINDI.
+    # KARAR-01 ile zaten elenmisti: EMA yumusatmasi ~0,4 sn gecikme ekliyor,
+    # kacinma komsu verisini ham AgentStatus'tan aliyor.
 
     # Formasyon zinciri — UCU BIRLIKTE acilir, tek basina anlamsizlar.
     # GOZLEM MODU — /ws/gozlem dosyasi varsa formation_node'un setpoint
@@ -995,10 +961,10 @@ if [ -n "$SURU_DUGUMLERI" ]; then
     fi
 
     # ADIM 3 — formasyon zinciri. collision_avoidance BU ANAHTARDAN CIKARILDI:
-    # o ADIM 4 ve `basit_kacinma` ile AYNI topic yuvasini kullaniyor
-    # (/control/setpoint/raw -> /control/setpoint). Ikisi birden acilirsa
-    # px4_bridge 50 Hz'de iki farkli algoritmadan celiskili setpoint alir —
-    # CLAUDE.md §4'un yasakladigi sey. Artik ayri anahtar: 'ca'.
+    # o ADIM 4 ve aktarim kati yuvasini (/control/setpoint/raw ->
+    # /control/setpoint) kullaniyor, ayri anahtari var: 'ca'. Ayni yuvaya
+    # iki uretici baglanirsa px4_bridge 50 Hz'de celiskili setpoint alir —
+    # CLAUDE.md §4'un yasakladigi sey.
     if acik formasyon; then
         # wing_alpha_deg: kopru, swarm_fsm ve mission1 ile AYNI deger sart,
         # yoksa slot geometrisi sessizce ayrisir.
@@ -1097,88 +1063,81 @@ if [ -n "$SURU_DUGUMLERI" ]; then
         fi
     fi
 
-    # ADIM 4 — KARAR-01. basit_kacinma ile AYNI yuva; ikisi birden ACILMAZ.
+    # ADIM 4 — KARAR-01. Tek kacinma dugumu; /raw -> /setpoint aktarim kati.
     if acik ca; then
-        if [ -f /ws/kacinma ]; then
-            echo "[baslat] UYARI: 'ca' istendi ama /ws/kacinma da var —" \
-                 "basit_kacinma ile AYNI yuva. collision_avoidance ACILMADI." \
-                 "Once /ws/kacinma dosyasini sil."
-        else
-            # Komsu listesi: kendisi haric butun filo — basit_kacinma ile
-            # AYNI mantik. Olmayan drone'a abone olmak zararsiz.
-            CA_KOMSULAR=$(echo "1 2 3" | tr ' ' '\n' \
-                          | grep -v "^${AGENT_ID}$" | paste -sd, -)
-            # ESIKLER basit_kacinma ILE AYNI KAYNAKTAN. Dugum degistiginde
-            # kacinmanin gorus alani sessizce degismesin diye sart.
-            #
-            # neighbor_rx_stale_s: dugum varsayilani 0.5 idi — mesh ~5-7 Hz
-            # ve ~%30 kayipli, iki-uc ardisik kayipta komsu dusuyor ve CA
-            # SESSIZCE korumasiz kaliyor. basit_kacinma sahada 1.5 kullaniyor.
-            #
-            # KARAR-01 Secenek C: komsu verisi kinematic_fusion'dan DEGIL,
-            # mesh'ten gelen ham AgentStatus'tan (komsu_adaptoru.py). Bu
-            # yuzden 'fusion' anahtarini acmaya gerek YOK.
-            # DIKEY YOL VERME — 23 Agustos 2026, operator karari.
-            #
-            # Birincil kacis DIKEY: catisan ucaklardan kimligi buyuk olan,
-            # kucugun OLCULEN irtifasindan KATMAN kadar uzaga gider. Yatay
-            # itme SON CARE — yalnizca `hard` kabugunun icinde acilir.
-            #
-            # RUTBE (donusumlu merdiven) kadrodan turetiliyor: kimligimin
-            # `1,AGENT_ID..N` siralamasindaki indeksi. rutbe 1 -> +katman,
-            # rutbe 2 -> -katman, rutbe 3 -> +2*katman ...
-            # Sabit olmasi SART: anlik catisma kumesinden turetilseydi iki
-            # ucak ayni katmani secebilirdi (benzetimde olculdu).
-            # RUTBE, ABONELIK LISTESINDEN DEGIL UCAN KADRODAN turetilir.
-            #
-            # CA_KOMSULAR "kime abone olayim" listesi ve olmayan drone'u
-            # icermesi zararsiz. Ama RUTBE oyle degil: ylp01 (id 2) yerde
-            # dururken onu saymak ylp02'yi rutbe 1 yerine rutbe 2 yapiyor
-            # ve donusumlu merdivende YON DEGISTIRIYOR (yukari yerine
-            # asagi). Yani yerde duran bir ucak, ucanlarin kacis yonunu
-            # belirliyordu.
-            #
-            # SURU_KADRO = GERCEKTEN ucan kimlikler.
-            # 25 Agustos 2026: ylp01 DONDU (kaldirma testi gecti) -> "1 2 3"
-            # yapildi (KARAR-04). DIKKAT: bu degisiklikle ylp02'nin rutbesi
-            # 1 -> 2 oldu, dikey kacis yonu YUKARIDAN ASAGIYA dondu
-            # (donusumlu merdiven). Alcakta 4 m irtifa tabani kelepcesi
-            # asagi kacisi yukariya cevirir (birim testli).
-            SURU_KADRO="${SURU_KADRO:-1 2 3}"
-            CA_RUTBE=0
-            for _k in $SURU_KADRO; do
-                [ "$_k" -lt "$AGENT_ID" ] 2>/dev/null && \
-                    CA_RUTBE=$((CA_RUTBE + 1))
-            done
-            ros2 run swarm_core collision_avoidance --ros-args \
-                -p agent_id:=${AGENT_ID} \
-                -p neighbor_ids:="[$CA_KOMSULAR]" \
-                -p rutbe:=${CA_RUTBE} \
-                -p d0_m:=${KACINMA_D0:-4.0} \
-                -p hard_m:=${KACINMA_HARD:-2.5} \
-                -p katman_m:=${KACINMA_KATMAN:-3.0} \
-                -p v_dikey_max_mps:=${KACINMA_DIKEY_HIZ:-1.2} \
-                -p a_dikey_max_mps2:=${KACINMA_DIKEY_IVME:-2.0} \
-                -p kp_dikey:=${KACINMA_DIKEY_KP:-2.0} \
-                -p hist_m:=${KACINMA_HIST:-2.5} \
-                -p korluk_yer_esigi_m:=${KACINMA_KORLUK_YER:-1.5} \
-                -p k_dikey:=${KACINMA_K_DIKEY:-1.0} \
-                -p k_yatay:=${KACINMA_K_YATAY:-1.0} \
-                -p neighbor_rx_stale_s:=${KACINMA_BAYAT_S:-1.5} \
-                -p slew_normal_mps2:=${KACINMA_IVME_NORMAL:-3.58} \
-                -p slew_emergency_mps2:=${KACINMA_IVME_ACIL:-5.66} \
-                -p donus_ivme_mps2:=${KACINMA_DONUS_IVME:-0.5} \
-                >> "$GUNLUK/ca.log" 2>&1 &
-            sleep 1
-            echo "[baslat] collision_avoidance basladi (komsular: $CA_KOMSULAR," \
-                 "rutbe=$CA_RUTBE, d0=${KACINMA_D0:-4.0} hard=${KACINMA_HARD:-2.5}," \
-                 "DIKEY katman=${KACINMA_KATMAN:-3.0} hist=${KACINMA_HIST:-2.5}" \
-                 "v=${KACINMA_DIKEY_HIZ:-1.2}"\
-                 "a=${KACINMA_DIKEY_IVME:-2.0} kp=${KACINMA_DIKEY_KP:-2.0}," \
-                 "yatay SON CARE (hard icinde)," \
-                 "ivme normal=${KACINMA_IVME_NORMAL:-3.58} acil=${KACINMA_IVME_ACIL:-5.66}" \
-                 "donus=${KACINMA_DONUS_IVME:-0.5}, basit_kacinma KAPALI)"
-        fi
+        # Komsu listesi: kendisi haric butun filo. Olmayan drone'a abone
+        # olmak zararsiz — veri gelmezse komsu yok sayilir.
+        CA_KOMSULAR=$(echo "1 2 3" | tr ' ' '\n' \
+                      | grep -v "^${AGENT_ID}$" | paste -sd, -)
+        # ESIKLER ucus_ayarlari.py TEK KAYNAGINDAN (--kabuk uretir).
+        #
+        # neighbor_rx_stale_s: dugum varsayilani 0.5 idi — mesh ~5-7 Hz
+        # ve ~%30 kayipli, iki-uc ardisik kayipta komsu dusuyor ve CA
+        # SESSIZCE korumasiz kaliyor. Sahada kullanilan deger 1.5.
+        #
+        # KARAR-01 Secenek C: komsu verisi mesh'ten gelen ham
+        # AgentStatus'tan aliniyor (komsu_adaptoru.py) — araya yumusatma
+        # girmiyor, cunku EMA ~0,4 sn gecikme ekliyordu.
+        # DIKEY YOL VERME — 23 Agustos 2026, operator karari.
+        #
+        # Birincil kacis DIKEY: catisan ucaklardan kimligi buyuk olan,
+        # kucugun OLCULEN irtifasindan KATMAN kadar uzaga gider. Yatay
+        # itme SON CARE — yalnizca `hard` kabugunun icinde acilir.
+        #
+        # RUTBE (donusumlu merdiven) kadrodan turetiliyor: kimligimin
+        # `1,AGENT_ID..N` siralamasindaki indeksi. rutbe 1 -> +katman,
+        # rutbe 2 -> -katman, rutbe 3 -> +2*katman ...
+        # Sabit olmasi SART: anlik catisma kumesinden turetilseydi iki
+        # ucak ayni katmani secebilirdi (benzetimde olculdu).
+        # RUTBE, ABONELIK LISTESINDEN DEGIL UCAN KADRODAN turetilir.
+        #
+        # CA_KOMSULAR "kime abone olayim" listesi ve olmayan drone'u
+        # icermesi zararsiz. Ama RUTBE oyle degil: ylp01 (id 2) yerde
+        # dururken onu saymak ylp02'yi rutbe 1 yerine rutbe 2 yapiyor
+        # ve donusumlu merdivende YON DEGISTIRIYOR (yukari yerine
+        # asagi). Yani yerde duran bir ucak, ucanlarin kacis yonunu
+        # belirliyordu.
+        #
+        # SURU_KADRO = GERCEKTEN ucan kimlikler.
+        # 25 Agustos 2026: ylp01 DONDU (kaldirma testi gecti) -> "1 2 3"
+        # yapildi (KARAR-04). DIKKAT: bu degisiklikle ylp02'nin rutbesi
+        # 1 -> 2 oldu, dikey kacis yonu YUKARIDAN ASAGIYA dondu
+        # (donusumlu merdiven). Alcakta 4 m irtifa tabani kelepcesi
+        # asagi kacisi yukariya cevirir (birim testli).
+        SURU_KADRO="${SURU_KADRO:-1 2 3}"
+        CA_RUTBE=0
+        for _k in $SURU_KADRO; do
+            [ "$_k" -lt "$AGENT_ID" ] 2>/dev/null && \
+                CA_RUTBE=$((CA_RUTBE + 1))
+        done
+        ros2 run swarm_core collision_avoidance --ros-args \
+            -p agent_id:=${AGENT_ID} \
+            -p neighbor_ids:="[$CA_KOMSULAR]" \
+            -p rutbe:=${CA_RUTBE} \
+            -p d0_m:=${KACINMA_D0:-4.0} \
+            -p hard_m:=${KACINMA_HARD:-2.5} \
+            -p katman_m:=${KACINMA_KATMAN:-3.0} \
+            -p v_dikey_max_mps:=${KACINMA_DIKEY_HIZ:-1.2} \
+            -p a_dikey_max_mps2:=${KACINMA_DIKEY_IVME:-2.0} \
+            -p kp_dikey:=${KACINMA_DIKEY_KP:-2.0} \
+            -p hist_m:=${KACINMA_HIST:-2.5} \
+            -p korluk_yer_esigi_m:=${KACINMA_KORLUK_YER:-1.5} \
+            -p k_dikey:=${KACINMA_K_DIKEY:-1.0} \
+            -p k_yatay:=${KACINMA_K_YATAY:-1.0} \
+            -p neighbor_rx_stale_s:=${KACINMA_BAYAT_S:-1.5} \
+            -p slew_normal_mps2:=${KACINMA_IVME_NORMAL:-3.58} \
+            -p slew_emergency_mps2:=${KACINMA_IVME_ACIL:-5.66} \
+            -p donus_ivme_mps2:=${KACINMA_DONUS_IVME:-0.5} \
+            >> "$GUNLUK/ca.log" 2>&1 &
+        sleep 1
+        echo "[baslat] collision_avoidance basladi (komsular: $CA_KOMSULAR," \
+             "rutbe=$CA_RUTBE, d0=${KACINMA_D0:-4.0} hard=${KACINMA_HARD:-2.5}," \
+             "DIKEY katman=${KACINMA_KATMAN:-3.0} hist=${KACINMA_HIST:-2.5}" \
+             "v=${KACINMA_DIKEY_HIZ:-1.2}"\
+             "a=${KACINMA_DIKEY_IVME:-2.0} kp=${KACINMA_DIKEY_KP:-2.0}," \
+             "yatay SON CARE (hard icinde)," \
+             "ivme normal=${KACINMA_IVME_NORMAL:-3.58} acil=${KACINMA_IVME_ACIL:-5.66}" \
+             "donus=${KACINMA_DONUS_IVME:-0.5})"
     fi
 
     # Manevra (pitch/roll/yaw) — formasyon zinciri acikken anlamli.

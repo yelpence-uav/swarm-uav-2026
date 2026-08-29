@@ -1,3 +1,0 @@
-[submodule "src/px4_autopilot"]
-    path = src/px4_autopilot
-    url = https://github.com/PX4/PX4-Autopilot

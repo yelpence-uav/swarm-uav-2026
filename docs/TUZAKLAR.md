@@ -1,6 +1,6 @@
 # TUZAKLAR — hata vermeden yanlış sonuç üretenler
 
-**Son güncelleme:** 27 Ağustos 2026, 01:10 — §1.27 ritmik LED uyku değil SD yazımı · §1.25 docker exec ROS körlüğü · §1.26 durmuş konteyner · §2.23 MAVROS GCS yayın zarı
+**Son güncelleme:** 29 Ağustos 2026, 18:40 — kapanmış maddeler çıkarıldı; kalan her madde HÂLÂ GEÇERLİ
 
 > **Bu belge CANLI.** Arşiv değil — buradaki her madde **bugün de geçerli.**
 >
@@ -71,76 +71,12 @@ arızadan tehlikelidir — uçarken geri gelebilir. O günün kuralı:
 öncesi listesinde yok. `DURUM.md` §7 yalnız `param_karsilastir.py` diyor.
 *(1 Ağustos 2026'da ölçüldü)*
 
-### ✅ 0.2 CEVAPLANDI (18 Ağustos) — sorun ylp00'da DEĞİL, **ylp02'de**
+### ✅ 0.2 CEVAPLANDI ve DÜZELTİLDİ (18-19 Ağustos)
 
-YKİ telemetrisinden ölçüldü, iki kez tekrarlandı:
-
-| | ylp00 (drone1) | ylp02 (drone3) |
-|---|---|---|
-| kumanda **kapalı** | `kill=False` `healthy=True` | **`kill=True` `healthy=False`** |
-| kumanda **açık** | `kill=False` `healthy=True` | `kill=False` `healthy=True` |
-
-`rc_link_ok` iki durumda da `True`; diğer bütün sağlık bayrakları temiz.
-Yani ylp00 bir noktada düzelmiş (kimse yazmamış), **ylp02 bozuk**.
-
-**✅ ylp02 aynı gün düzeltildi (17:30).** Kumandanın `RX Setup → Failsafe`
-ekranında **Ch5 `+100%`** yazılıydı — failsafe kapalı değil, **kill değeriyle
-kayıtlı**. `-100%`'e çevrilip kaydedildi:
-
-```
-önce : 1488 1496 1017 1500  2001  2000 1000 1000     ← kumanda KAPALI
-sonra: 1488 1496 1018 1500  1000  2000 1000 1000     ← kumanda KAPALI
-```
-
-⚠️ Dikkat çekici: 29 Temmuz'da "ylp00" diye kaydedilen sekiz kanal, bugün
-ylp02'de **birebir** çıktı (`1488 1496 1017 1500 200x 2000 1000 1000`).
-Ya o gün ölçüm ylp02'de yapılıp nota yanlış uçak yazıldı, ya da iki alıcı da
-aynı ayarlıydı ve ylp00 sonradan düzeltildi. Ayırt edilemedi.
-
-**Düzeltmeden sonraki kill semantiği** (18 Ağu'da ölçüldü, LED ile de görüldü):
-
-| Durum | PX4 | Pixhawk LED |
-|-------|-----|-------------|
-| Kumanda AÇIK + SwA kill konumunda | kill aktif | kırmızı |
-| Kumanda KAPALI (failsafe `CH5=1000`) | kill **bırakılır** | yeşil |
-
-Yani kill artık **yalnız kumanda açıkken** var. `COM_KILL_DISARM=5.0` sayesinde
-kill 5 sn'den uzun tutulursa PX4 kendiliğinden **disarm** ediyor; kill sonradan
-kalksa bile motorlar geri gelmiyor.
-⚠️ **Uç durum:** kill 5 sn'den KISA tutulup bırakılırsa uçak hâlâ armlı olduğu
-için motorlar geri gelir ("pilot kill'ledi, 2 sn sonra kumanda öldü").
-Bilerek kabul edildi — alternatifi kumanda ölünce garantili kill'di.
-
-⚠️ **CH6 hâlâ 2000** (aux2 = Görev 2 mod seçimi) — bugün zararsız,
-`mode_manager` kapalı. Görev 2 öncesi kaydedilmeli.
-Kalan maddeler: `YAPILACAKLAR.md` **P0.9**.
-
-Aşağıdaki 29 Temmuz ölçümü tarihçe olarak duruyor — mekanizma aynı, yalnız
-uçak farklı:
-
-Kumanda **kapalıyken** ylp00'ın alıcısı susmuyor, hafızasındaki failsafe
-değerlerini göndermeye devam ediyordu; içlerinden biri CH5'i kill'e atıyordu:
-
-```
-rc/in (ylp00, kumanda KAPALI): [1488, 1496, 1017, 1500, 2000, 2000, 1000, 1000]
-                                                        ^CH5 = 2000 -> +1.0
-RC_MAP_KILL_SW=5, RC_KILLSWITCH_TH=0.75  ->  KILL AÇIK
-```
-
-Ayar **alıcının flash'ında** duruyor: QGC göstermez, RC kalibrasyonu
-dokunmaz, PX4 parametre karşılaştırması bulamaz — iki uçakta parametreler
-birebir aynıydı. Kumandayı değiştirmek de çözmezdi.
-
-Havada karşılığı: RC kaybı → RTL **değil**, anında motor kesme.
-`NAV_RCL_ACT=2` yazılıydı ama hiç devreye girmiyordu, çünkü alıcı yayına
-devam ettiği için PX4 kaybı hiç görmüyordu (`RC_FAILS_THR=0`).
-
-Yarım kalan prosedür: kumandada End Points ile gaz failsafe'ine ayrım
-yaratmak (Ch3 alt uç geçici %120 → çubuk aşağıdayken failsafe kaydet →
-Ch5/6/7 Off → %100'e dön → `RC_FAILS_THR=960`). ylp02'de %120 uygulandı,
-908 ölçüldü. **Açık soru:** alıcı 908'i ham PWM olarak mı yüzde olarak mı
-saklıyor? Yüzde ise End Points geri alınınca numara boşa gider.
-*(29 Temmuz 2026'da ölçüldü)*
+*Soru: alıcı failsafe'i kill mi tetikliyor?* Cevap beklenenin tersi çıktı —
+sorun ylp00'da değil **ylp02'deydi**: kumanda kapanınca `kill=True`,
+`healthy=False` oluyordu. Alıcı failsafe'i düzeltildi (kayıtlı +100 → -100,
+`CH5=1000` ölçüldü) ve **P0.9 kapandı**. Ölçüm dökümü git'te.
 
 ### 0.4 Kumandayı fabrika ayarlarına döndürmek ALICININ failsafe'ini de bozar
 
@@ -204,7 +140,7 @@ dakikalık `rc/in` ölçümü bu düşüşü engellerdi. *(19 Ağustos 2026, ~17
 
 Uçuş kaydından ölçüldü (ylp02, `vfr_hud.throttle`, 763 örnek):
 **ortanca %72 · p90 %77.** Yani itki payı sanılandan **6 puan**
-daha dar. Ayrıntı ve sonuçları: `CA.md` §7.1.
+daha dar. Ayrıntı: `git show 783afab:docs/CA.md` §7.1.
 
 ### 0.3 (eski soru) ylp00 hover gazı %66 — hâlâ öyle mi?
 
@@ -483,84 +419,15 @@ sormuştum, boş döndü.
 - `run_drone.sh`'e `--log-opt max-size=10m --log-opt max-file=3` eklendi:
   döndürme olmadan bozuk parça **sonsuza kadar** kalıyordu.
 
-### 1.19 Uçuş kayıtlarının HEPSİ `ros2 bag` ile açılamıyordu — veri duruyordu, sarmalayıcı yoktu
+### 1.19 Uçuş kaydı açılmıyorsa panik yapma — veri duruyor olabilir
 
-**En pahalıya patlayabilecek olanı buydu ve tamamen sessizdi.** Ölçüldü
-(20 Ağustos): ylp00'da **60 kayıttan 60'ında**, ylp02'de **50'den 50'sinde**
-`metadata.yaml` yok. `ros2 bag info` hepsine aynı şeyi diyor:
+Bir dönem uçuş kayıtlarının **hepsi** `ros2 bag` ile açılamıyordu; veri
+sağlamdı, sarmalayıcı bozuktu. Bugün iki koruma var: açılışta
+`kayit_onar.sh` ve `~/yelpence_ws/bin/mcap` kurtarma aracı.
 
-```
-Could not find metadata in bag directory /ws/kayit/ylp00_20260820_211501
-```
-
-Yani 15 Ağustos'tan beri **hiçbir uçuş kaydı standart yoldan okunamıyordu**
-ve kimse fark etmemişti — kayıt sırasında hiçbir hata yok, dizin dolu
-görünüyor, `.mcap` dosyaları yerinde.
-
-**Neden:** rosbag2 `metadata.yaml`'ı kayıt düğümü **temiz kapandığında**
-yazıyor. Pil değişiminde güç kesiliyor, düğüm SIGINT bile almıyor —
-metadata hiç yazılmıyor. Bkz. §1.18, aynı kök neden.
-
-**Veri kayıp DEĞİL.** `.mcap` kendi kendini tanımlıyor; `ros2 bag reindex`
-metadata'yı yeniden üretiyor. Tek engel şu: güç kesilirken yazılan **son
-parça** bozuk kalıyor ve **tek bozuk parça bütün reindex'i iptal ediyor.**
-İki ayrı biçimde görülüyor:
-
-| durum | boyut | reindex hatası |
-|---|---|---|
-| yeni açılmış parça | **0 bayt** | `file too small` |
-| yazılırken kesilen parça | **831488 bayt** (dolu görünür) | `zstd ... Data corruption detected` |
-
-İkincisi önemli: **boyuta bakarak eleyemezsin.** Bu yüzden onarım betiği
-parçayı boyutundan değil, **reindex'in hata metninden** buluyor.
-
-**Araç:** `deploy/rpi/teshis/kayit_onar.sh` — konteyner içinde koşar
-(dosyalar root'a ait), bozuk parçaları `/ws/kayit_yarim/` altına **taşır
-(silmez)**, reindex eder. Aktif kaydı atlar.
-
-```bash
-docker exec droneN bash /ws/kayit_onar.sh --kuru   # ne yapacagini goster
-docker exec droneN bash /ws/kayit_onar.sh          # onar
-```
-
-**Uygulandı (20 Ağustos):** ylp00 → 59/60 okunur (kalan 1 dizinde hiç parça
-yok, 16 Ağustos'ta iki kesinti arasında açılmış), ylp02 → 49/50 okunur
-(kalan 1 tanesi o an kayıttaydı). Toplam 37 bozuk parça karantinaya alındı,
-hepsi ~4 KB — **anlamlı veri kaybı yok.**
-
-#### Bozuk parça ATILMAK zorunda değil — `mcap recover` içindekini geri alıyor
-
-`/ws/bin/mcap` (MCAP CLI, tek statik dosya, arm64) varsa `kayit_onar.sh`
-parçayı karantinaya almadan **önce** kurtarmayı deniyor. Ölçüldü:
-
-```
-831488 baytlik bozuk parca -> 736130 bayt gecerli mcap
-                              10588 mesaj, 25.8 SANIYE geri geldi
-                              yalniz son chunk atildi
-```
-
-Yani düşüşte kaybedilen pencere **~30 sn değil ~4 sn**, üstelik kayıt
-ayarlarına (`--max-bag-duration 30`) hiç dokunmadan.
-
-> ##### 🔴 `mcap recover` BAŞARILI kurtarmada 3 DÖNÜYOR
->
-> Kısmi kurtarma "lossy" sayılıyor ve çıkış kodu **3** oluyor — ama üretilen
-> dosya **kusursuz.** Ölçüldü: kod 3, çıktı 736130 bayt, `mcap info` sorunsuz
-> açıyor, 10588 mesaj.
->
-> Çıkış koduna bakıp elemek, **tam da kurtarmak istediğin veriyi çöpe atar.**
-> `kayit_onar.sh` bu yüzden koda değil **sonuca** bakıyor: dosya var mı, dolu
-> mu, `mcap info` açabiliyor mu.
-
-> ##### ⚠️ "En yeni dizin aktif kayıttır" varsayımı YANLIŞ
->
-> `kayit_onar.sh` önce aktif kaydı `ls -1dt` ile en yeni mtime'lı dizin
-> sanıyordu. Bir dizine elle dosya taşıyınca betik **onu** aktif sandı ve
-> gerçek aktif kaydı korumasız bıraktı. Şimdi dizin, kayıt sürecinin
-> **komut satırından** (`-o <dizin>`) okunuyor. mtime tahmindir, komut
-> satırı ölçümdür.
-
----
+> ⚠️ **`mcap` ikilisi `dagit.sh` ile GİTMEZ** ve depoda yok (A11, elle
+> kopyalanır). Yeni bir uçakta yoksa onarım **sessizce** eski davranışına
+> döner. Tam teşhis öyküsü: `git show 783afab:docs/TUZAKLAR.md`
 
 ### 1.19b Kuru testi HER fiziksel dokunuştan sonra TEKRARLA — plan sessizce geçersizleşir
 
@@ -942,21 +809,6 @@ herkes bu tuzağa düşer — dosya yenidir, koşan kod eskidir, md5 karşılaş
 `src/`'ye bakarsa "senkron" der.
 
 İlgili: §1.17 (`build/lib/` bayat kopya tutuyor).
-
-### 2.12 Geçici remap konuyu mesh'ten TAMAMEN koparır
-
-`swarm_origin_publisher` bir süre `/swarm/internal/origin` yerine doğrudan
-`/swarm/public/origin`'e remap ile yazıyordu (uçak kendi origin'ini göremediği
-için konmuş bir yama). Yan etkisi fark edilmemişti: **`esp32_bridge` yalnız
-`/internal`'ı dinliyor**, yani remap açıkken origin mesh'e **hiç çıkmıyordu**.
-
-Yerel sorunu çözen remap, uçaklar arası yolu sessizce kapatmıştı.
-`ic_dis_kopru` gelince remap kaldırıldı ve origin hem yerel düğümlere hem
-mesh'e gitmeye başladı.
-
-> **Kural:** `/internal` → `/public` remap'i koymadan önce sor — o konuyu
-> mesh'e veren bir köprü var mı? Varsa remap onu devre dışı bırakır.
-*(15 Ağustos 2026)*
 
 ### 2.13 Konteyner açılışından DAKİKALAR sonra bile `agent_fsm` UNKNOWN'da olabilir
 
@@ -1626,7 +1478,7 @@ uçururken diğerini gözle takip ederken ayırt edilemiyor.
 1. Kaçınma testlerinde "bölgede tuttum" beyanı **ölçümle doğrulanmalı**;
    gözlem tek başına yeterli değil.
 2. Çıkış histerezisi (`hist_m`) dar olduğunda sistem pilotun gözünde
-   kararsız görünür, oysa değildir. `CA.md` §7.2.
+   kararsız görünür, oysa değildir. (`git show 783afab:docs/CA.md` §7.2)
 
 
 ## 4. Mesh ve ESP32
@@ -2100,18 +1952,3 @@ satır. Sonraki kişi YKİ'yi ayakta sanıyor.
 sarmalayıcıyı (`yki_mac.sh`) gösteriyor.
 
 ---
-
-## Artık geçerli olmayanlar — arşivde var, burada yok
-
-16 Ağustos'ta koda bakıldı, bu maddeler **kapanmış**; arşivde okursan
-şaşırma:
-
-| Arşivdeki iddia | Bugünkü durum |
-|---|---|
-| `/tools` toptan `.gitignore`'da, dosyalar sessizce commit'lenmiyor | Kalktı — yalnız `tools/aes_key.txt` yoksayılıyor |
-| `tsconfig.tsbuildinfo` takip ediliyor | Takipten çıkmış (`git ls-files` = 0) |
-| rosbag `--compression-mode file` → `reindex` kurtarmıyor | Düzeltildi: `--storage-config-file` ile mcap kendi sıkıştırıyor |
-| `MAKS_EGIM_DEG` kodda sabit 35, `MPC_TILTMAX_AIR` varsayımı | `ucus_ayarlari.py` eğimi ivmeden türetiyor ve tutarsızlığı söylüyor |
-| `gunluk/son` sembolik bağı kırık (mutlak yol) | `baslat.sh` göreli bağ kuruyor, iki Pi'de doğrulandı |
-| `ORIGIN_ALT` yanlış (1218.5) | Kalkış irtifa çerçevesi düzeltildi; origin dosyası `1216.03` |
-| ylp01'in ESP'si eski firmware'de / ylp01 ağda yok | ylp01 **yerde** — 2 Ağustos'ta düştü (`DURUM.md` §1) |

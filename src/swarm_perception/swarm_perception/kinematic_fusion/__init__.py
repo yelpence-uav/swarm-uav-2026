@@ -1,1 +1,0 @@
-"""Kinematic fusion module."""
