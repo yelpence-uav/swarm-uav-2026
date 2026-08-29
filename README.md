@@ -1,6 +1,6 @@
 # Yelpençe — TEKNOFEST 2026 Sürü İHA
 
-**Son güncelleme:** 29 Ağustos 2026, 18:55 — belge sadeleştirmesi; filo üç uçak
+**Son güncelleme:** 30 Ağustos 2026, 00:39 — `docs/gorev2.md` eklendi (Görev 2 tek toplanma noktası)
 
 Takım **Yelpençe** · Takım no **752825**
 
@@ -33,6 +33,7 @@ Claude Code kullanıyorsan [`CLAUDE.md`](CLAUDE.md) kendiliğinden okunur.
 | Son kişi ne yaptı? | `docs/GUNLUK.md` |
 | Sırada ne var? | `docs/YAPILACAKLAR.md` |
 | Bu konuda karar verilmiş miydi? | `docs/KARARLAR.md` |
+| **Görev 2 — yarı otonom sürü kontrolü** | **`docs/gorev2.md`** |
 | **Çalışmıyor ama hata da vermiyor** | `docs/TUZAKLAR.md` |
 | **Kamera, QR ve renk tespiti — ölçülmüş menziller** | **`docs/KAMERA.md`** |
 | Uçaklarda ne var, geri gelen drone'a ne yapmalı? | `docs/RPI_ESITLEME.md` |

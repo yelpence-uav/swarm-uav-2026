@@ -1,6 +1,6 @@
 # KARARLAR — verilmiş ama henüz uygulanmamış kararlar
 
-**Son güncelleme:** 29 Ağustos 2026, 21:15 — KARAR-12 eklendi (`mission_active` lider kalp atışıyla, mesh'e 0 bayt)
+**Son güncelleme:** 30 Ağustos 2026, 00:39 — KARAR-11'in üç sorusu cevaplandı; Görev 2 kararları `docs/gorev2.md`'ye taşındı
 
 Sohbette verilen kararlar oturum bitince kayboluyor. Bu defter onları
 tutuyor: **ne karar verildi, neden, ne zaman uygulanacak, nasıl test edilecek.**
@@ -163,6 +163,11 @@ için şu an zararsız, ADIM 6'da değil.
 **Durum:** 🔵 **KOD HAZIR (28 Ağustos 2026, 20:40) — dağıtım + G0 + uçuş operatör komutu bekliyor**
 **Ne zaman:** Operatör "başla" deyince (uçaklar şarjda, dağıtım yapılamadı)
 **Karar veren:** Operatör (28 Ağustos 2026): şartname incelemesi + "4 boşluğu kapat sonra benden komut bekle"
+
+> ➡️ **DEVAMI: [`docs/gorev2.md`](gorev2.md)** — aşağıdaki üç ONAY SORUSU
+> 30 Ağustos 2026'da cevaplandı (G2-K1/K4/K5) ve ikinci RC alıcı kararıyla
+> birlikte **16 boşluk + 29 maddelik sıralı iş listesi** oraya yazıldı. Görev 2'ye
+> gelen ÖNCE o belgeyi okur; burası yalnız 28 Ağustos'un kaydı.
 
 ## Bağlam
 
