@@ -232,43 +232,6 @@ export interface TriggerMissionResponse {
   command: number;
 }
 
-export const SWARM_CONTROL_MODE = {
-  UNKNOWN: 0,
-  SWARM_MOVEMENT: 1,
-  MANEUVER: 2,
-} as const;
-
-export const SWARM_FORMATION = {
-  UNKNOWN: 0,
-  OKBASI: 1,
-  V: 2,
-  CIZGI: 3,
-} as const;
-
-export interface SwarmControlBody {
-  sequence_num: number;
-  command_valid: boolean;
-  deadman_pressed: boolean;
-  deadman_timeout_s?: number;
-  mode: number;
-  pitch_cmd: number;
-  roll_cmd: number;
-  yaw_cmd: number;
-  throttle_cmd: number;
-  takeoff?: boolean;
-  land?: boolean;
-  rtl?: boolean;
-  emergency_stop?: boolean;
-  formation_change_requested?: boolean;
-  requested_formation?: number;
-  requested_spacing_m?: number;
-  duration_s?: number;
-  max_speed_mps?: number;
-  max_yaw_rate_deg_s?: number;
-  max_tilt_deg?: number;
-  source_module?: string;
-}
-
 async function postJson<T>(path: string, body: unknown): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
     method: "POST",
@@ -305,14 +268,6 @@ export const missionApi = {
   // QR konum tablosunu sürüye gönder (latched). Paralel diziler eşit uzunlukta.
   sendQrCoords: (req: QRCoordsRequest) =>
     postJson<QRCoordsResponse>(`/mission/qr_coords`, req),
-};
-
-export const swarmApi = {
-  control: (body: SwarmControlBody) =>
-    postJson<{ published: boolean; sequence_num: number }>(
-      `/swarm/control`,
-      body,
-    ),
 };
 
 // --- Kanit ucusu kosucusu (gorev_kanit_ucus.py) -----------------------------

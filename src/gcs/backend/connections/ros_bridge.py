@@ -7,7 +7,6 @@ olarak kalır, `connection_mode` ile seçilir.
 GCS rolü (kontrat 3.3):
   - Subscribe: AgentStatus, SwarmState, SystemEvent, ElectionResult,
               LandingZoneDetection
-  - Publish:   SwarmControlCommand (Görev 2 joystick)
   - Service client: TriggerMission (Görev başlat/durdur), ManageSwarmMember (debug)
 
 Bu dosya iskelet sürüm — şimdilik sadece AgentStatus subscriber + log.
@@ -39,7 +38,6 @@ from swarm_interfaces.msg import (
     AgentStatus,
     GuidedCommand,
     QRMissionData,
-    SwarmControlCommand,
     SwarmOrigin,
     SwarmState,
     SystemEvent,
@@ -361,7 +359,6 @@ class RosBridge:
 
         # Service client + publisher (Aşama 3)
         self._trigger_mission_client = None
-        self._control_pub = None
         # Guided (YKİ tekil komut) yayıncısı + harita→NED için son origin.
         self._guided_pub = None
         self._son_origin: Optional[SwarmOrigin] = None
@@ -475,42 +472,6 @@ class RosBridge:
 
         resp = future.result()
         return {"success": bool(resp.success), "message": str(resp.message)}
-
-    def publish_swarm_control(self, payload: dict) -> None:
-        """SwarmControlCommand.msg yayınla — Görev 2 joystick frame'i.
-
-        payload: frontend'den gelen normalized joystick + mod + bayraklar.
-        20-50 Hz çağrı bekleniyor; mesaj inşası fast-path.
-        """
-        if self._control_pub is None:
-            raise RuntimeError("SwarmControlCommand publisher hazır değil")
-
-        m = SwarmControlCommand()
-        m.stamp = self._node.get_clock().now().to_msg()
-        m.sequence_num = int(payload.get("sequence_num", 0))
-        m.command_valid = bool(payload.get("command_valid", False))
-        m.deadman_pressed = bool(payload.get("deadman_pressed", False))
-        m.deadman_timeout_s = float(payload.get("deadman_timeout_s", 0.5))
-        m.mode = int(payload.get("mode", SwarmControlCommand.MODE_UNKNOWN))
-        m.pitch_cmd = float(payload.get("pitch_cmd", 0.0))
-        m.roll_cmd = float(payload.get("roll_cmd", 0.0))
-        m.yaw_cmd = float(payload.get("yaw_cmd", 0.0))
-        m.throttle_cmd = float(payload.get("throttle_cmd", 0.0))
-        m.takeoff = bool(payload.get("takeoff", False))
-        m.land = bool(payload.get("land", False))
-        m.rtl = bool(payload.get("rtl", False))
-        m.emergency_stop = bool(payload.get("emergency_stop", False))
-        m.formation_change_requested = bool(payload.get("formation_change_requested", False))
-        m.requested_formation = int(
-            payload.get("requested_formation", SwarmControlCommand.FORMATION_UNKNOWN)
-        )
-        m.requested_spacing_m = float(payload.get("requested_spacing_m", 0.0))
-        m.duration_s = float(payload.get("duration_s", 0.0))
-        m.max_speed_mps = float(payload.get("max_speed_mps", 0.0))
-        m.max_yaw_rate_deg_s = float(payload.get("max_yaw_rate_deg_s", 0.0))
-        m.max_tilt_deg = float(payload.get("max_tilt_deg", 0.0))
-        m.source_module = str(payload.get("source_module", "gcs"))
-        self._control_pub.publish(m)
 
     def publish_guided(
         self,
@@ -711,14 +672,6 @@ class RosBridge:
             TriggerMission, "/swarm/mission/trigger"
         )
         logger.info("service client → /swarm/mission/trigger")
-
-        # SwarmControlCommand publisher — Görev 2 joystick mesajı.
-        # GCS ağa komut enjekte ettiği için /swarm/internal/... (proxy public'e iletir).
-        # Kontrata göre BEST_EFFORT, 20-50 Hz; deadman switch ile guard.
-        self._control_pub = self._node.create_publisher(
-            SwarmControlCommand, "/swarm/internal/control/command", sensor_qos
-        )
-        logger.info("publisher → /swarm/internal/control/command")
 
         # GuidedCommand publisher — YKİ tekil komut (arm/takeoff/goto/rtl/land).
         # RELIABLE, depth 10: komut kaybolmamalı, geç katılan re-execute etmesin

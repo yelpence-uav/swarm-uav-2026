@@ -513,6 +513,16 @@ MOD_HIZ_MPS = 2.0              # hareket modu oteleme hizi (muhafazakar)
 MOD_ARALIK_M = 7.0             # varsayilan aralik — 28 Agu ucusuyla ayni;
 #                                hakem baska soylerse kumandadan degisir
 MOD_DEADMAN_ZAMAN_ASIMI_S = 0.5
+# B15 KALKIS KAPISI (30 Agustos 2026): mode_manager, TUM ucaklar bu
+# yuksekligin uzerine cikana kadar HICBIR tarif/setpoint yayinlamaz.
+# NEDEN: READY'de _dispatch_hold() tarif yayinliyor ve centroid swarm_fsm
+# hic centroid hesaplamadiysa (0,0,0)'da kaliyor — yerde READY'ye atlayan
+# bir FSM suruyu NED ORIGIN'E gonderirdi. formasyon_sekans ayni kapiyi
+# 0.8 x irtifa ile kuruyor; burada sabit esik, cunku mode_manager hedef
+# irtifayi bilmiyor (kalkis kumandadan gelince B2 ile gelecek).
+# 2.0 m: yer gurultusunun acikca ustunde, en dusuk planlanan irtifanin
+# (8 m) acikca altinda.
+MOD_KALKIS_ESIK_M = 2.0
 
 
 def _sekans_geometri():
@@ -880,6 +890,7 @@ def _kabuk():
     print(f'MOD_HIZ={MOD_HIZ_MPS:.1f}')
     print(f'MOD_ARALIK={MOD_ARALIK_M:.1f}')
     print(f'MOD_DEADMAN_ZAMAN_ASIMI={MOD_DEADMAN_ZAMAN_ASIMI_S:.1f}')
+    print(f'MOD_KALKIS_ESIK={MOD_KALKIS_ESIK_M:.1f}')
 
 
 def _px4():

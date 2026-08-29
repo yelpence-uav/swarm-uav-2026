@@ -392,6 +392,7 @@ class Esp32BridgeNode(Node):
         self._formasyon_gonderilen = 0   # mesh'e yazılan formasyon turu (lider)
         self._formasyon_alinan = 0       # montajı tamamlanıp yayınlanan
         self._formasyon_lider_degil = 0  # lider kapısında düşürülen
+        self._formasyon_mod_suzuldu = 0  # B5: Görev 2 tarifi, mesh'e çıkmaz
         self._qr_gorev_gonderilen = 0
         self._qr_gorev_alinan = 0
         # Bilinen lider (KARAR 11 kapısı). 0 = henüz seçim görülmedi.
@@ -769,6 +770,7 @@ class Esp32BridgeNode(Node):
             f'form_tx={self._formasyon_gonderilen} '
             f'form_rx={self._formasyon_alinan} '
             f'form_lider_degil={self._formasyon_lider_degil} '
+            f'form_mod_suzuldu={self._formasyon_mod_suzuldu} '
             f'form_yarim={self._formasyon_montaj.zaman_asimi_sayisi} '
             f'form_sahipsiz={self._formasyon_montaj.sahipsiz_parca_sayisi} '
             f'qr_tx={self._qr_gorev_gonderilen} '
@@ -2534,6 +2536,33 @@ class Esp32BridgeNode(Node):
            uçar ve aralarında sistematik kayma olur. Aynı yoldan geçirince
            bütün sürü BİREBİR aynı hedefi görür.
         """
+        # 🔴 B5 (30 Ağustos 2026) — GÖREV 2 TARİFLERİ MESH'E ÇIKMAZ.
+        #
+        # Görev 2'de mode_manager ÜÇ UÇAKTA BİRDEN koşuyor ve her biri kendi
+        # FormationCommand'ını /swarm/internal/formation/target'a yazıyor.
+        # ic_dis_kopru (:108) bunu her uçağın KENDİ /swarm/public/...'ine
+        # koyuyor — doğru ve YETERLİ yol bu.
+        #
+        # Buradan mesh'e de çıkarsak LİDERİN tarifi diğerlerinin AYNI
+        # konusuna İKİNCİ ÜRETİCİ olarak düşer. formation_node.py:331
+        # hakemlik yapmıyor: son gelen kazanır. İki akış kaçınılmaz olarak
+        # ayrışır, çünkü her mode_manager centroid'i KENDİ tik'inde
+        # entegre ediyor — sonuç formasyonun gerilmesi. CLAUDE.md §4'ün
+        # yasakladığı desenin ta kendisi.
+        #
+        # Şartname zaten DAĞITIK istiyor: ortak girdi kumanda akışı
+        # (TIP_KOMUT, 20 Hz); merkezin ayrıca dağıtılması GEREKMİYOR.
+        # Görev 1 tarafı (mission1) etkilenmez — onun source_module'ü farklı.
+        if msg.source_module == 'mode_manager':
+            self._formasyon_mod_suzuldu += 1
+            if self._formasyon_mod_suzuldu == 1:
+                self.get_logger().info(
+                    'B5: mode_manager formasyon tarifi mesh e ÇIKARILMIYOR '
+                    '(Görev 2 dağıtık sürülür; yerel ic_dis_kopru yolu '
+                    'yeterli, mesh e çıkarsa ikinci üretici olurdu)'
+                )
+            return
+
         if not self._lider_miyim():
             self._formasyon_lider_degil += 1
             self.get_logger().debug(

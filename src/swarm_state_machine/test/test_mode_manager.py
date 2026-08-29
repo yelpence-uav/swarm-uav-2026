@@ -27,6 +27,11 @@ from swarm_state_machine.mode_manager.movement_mode import (
 class _MockAgentStatus:
     state: int = 5
     healthy: bool = True
+    # B15 kalkis kapisi bu ucunu okuyor. NED: pos_z asagi POZITIF,
+    # yani -pos_z = yukseklik.
+    pos_x: float = 0.0
+    pos_y: float = 0.0
+    pos_z: float = 0.0
 
 
 class TestModeContext(unittest.TestCase):
@@ -259,3 +264,216 @@ class TestModeTransitions(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class TestKalkisKapisi(unittest.TestCase):
+    """B15 — KALKIS KAPISI regresyonlari (30 Agustos 2026).
+
+    Kapatilan kaza: mode_manager READY'de _dispatch_hold() ile
+    FormationCommand yayinliyor; centroid swarm_fsm hic centroid
+    hesaplamadiysa (0,0,0)'da kaliyor. B3'un test_hazir_atla'si FSM'i
+    yerde READY'ye atlatinca sonuc "sürü NED ORIGIN'e gider" oluyordu.
+    """
+
+    @staticmethod
+    def _ctx(**kw):
+        c = ModeContext(agent_ids=[1, 2, 3], **kw)
+        c.kalkis_esik_m = 2.0
+        return c
+
+    @staticmethod
+    def _kadro(yukseklikler, x=30.0, y=15.0):
+        """Verilen yuksekliklerde (metre, YUKARI +) sahte kadro uretir."""
+        return {
+            i + 1: _MockAgentStatus(pos_x=x, pos_y=y, pos_z=-h)
+            for i, h in enumerate(yukseklikler)
+        }
+
+    def test_kapi_yerde_KAPALI(self):
+        """Uc ucak da yerdeyken kapi ACILMAZ."""
+        ctx = self._ctx()
+        ctx.agent_statuses = self._kadro([0.0, 0.0, 0.0])
+        self.assertFalse(ctx.kalkis_kapisi_degerlendir())
+        self.assertFalse(ctx.kalkis_tamam)
+
+    def test_kapi_ORIGIN_KAZASI_regresyonu(self):
+        """🔴 Asil kaza: yerde, centroid (0,0,0), test_hazir_atla ACIK.
+
+        Kapi kapali kaldigi surece hicbir tarif yayinlanmaz; yayinlansaydi
+        merkez (0,0,0) olurdu ve sürü NED origin'e giderdi.
+        """
+        ctx = self._ctx()
+        ctx.test_hazir_atla = True
+        ctx.agent_statuses = self._kadro([0.0, 0.0, 0.0], x=30.0, y=15.0)
+        self.assertEqual((ctx.centroid_x, ctx.centroid_y, ctx.centroid_z),
+                         (0.0, 0.0, 0.0))
+        self.assertFalse(ctx.kalkis_kapisi_degerlendir())
+
+    def test_kapi_eksik_ajanla_ACILMAZ(self):
+        """Bir ucagin durumu hic gelmediyse kapi ACILMAZ."""
+        ctx = self._ctx()
+        ctx.agent_statuses = {
+            1: _MockAgentStatus(pos_z=-8.0),
+            2: _MockAgentStatus(pos_z=-8.0),
+        }
+        self.assertFalse(ctx.kalkis_kapisi_degerlendir())
+
+    def test_kapi_biri_yerdeyken_ACILMAZ(self):
+        """Ikisi havada biri yerdeyse kapi ACILMAZ (min alinir)."""
+        ctx = self._ctx()
+        ctx.agent_statuses = self._kadro([8.0, 8.0, 0.5])
+        self.assertFalse(ctx.kalkis_kapisi_degerlendir())
+
+    def test_kapi_esikte_ACILMAZ_ustunde_ACILIR(self):
+        """Esik kesin: altinda kapali, uzerinde acik."""
+        ctx = self._ctx()
+        ctx.agent_statuses = self._kadro([1.9, 1.9, 1.9])
+        self.assertFalse(ctx.kalkis_kapisi_degerlendir())
+
+        ctx2 = self._ctx()
+        ctx2.agent_statuses = self._kadro([2.1, 2.1, 2.1])
+        self.assertTrue(ctx2.kalkis_kapisi_degerlendir())
+
+    def test_kapi_acilinca_centroid_UCAKLARDAN_tohumlanir(self):
+        """Kapi acilirken centroid SwarmState'ten degil ucaklardan gelir."""
+        ctx = self._ctx()
+        ctx.agent_statuses = {
+            1: _MockAgentStatus(pos_x=10.0, pos_y=0.0, pos_z=-8.0),
+            2: _MockAgentStatus(pos_x=20.0, pos_y=6.0, pos_z=-8.0),
+            3: _MockAgentStatus(pos_x=30.0, pos_y=-6.0, pos_z=-8.0),
+        }
+        self.assertTrue(ctx.kalkis_kapisi_degerlendir())
+        self.assertAlmostEqual(ctx.centroid_x, 20.0, places=6)
+        self.assertAlmostEqual(ctx.centroid_y, 0.0, places=6)
+        self.assertAlmostEqual(ctx.centroid_z, -8.0, places=6)
+
+    def test_kapi_MANDAL_geri_kapanmaz(self):
+        """Kapi bir kez acilinca KAPANMAZ — havada yayin kesilmemeli."""
+        ctx = self._ctx()
+        ctx.agent_statuses = self._kadro([8.0, 8.0, 8.0])
+        self.assertTrue(ctx.kalkis_kapisi_degerlendir())
+
+        # bir ucagin durumu tamamen kayboldu (mesh bayatlamasi)
+        ctx.agent_statuses = {}
+        self.assertTrue(ctx.kalkis_kapisi_degerlendir())
+        self.assertTrue(ctx.kalkis_tamam)
+
+    def test_kapi_acildiktan_sonra_centroid_YENIDEN_tohumlanmaz(self):
+        """Mandal acikken centroid entegratordur; ucaklar onu EZMEZ."""
+        ctx = self._ctx()
+        ctx.agent_statuses = self._kadro([8.0, 8.0, 8.0], x=10.0, y=10.0)
+        self.assertTrue(ctx.kalkis_kapisi_degerlendir())
+
+        ctx.centroid_x = 99.0            # hareket modu entegratoru ilerletti
+        ctx.agent_statuses = self._kadro([8.0, 8.0, 8.0], x=0.0, y=0.0)
+        ctx.kalkis_kapisi_degerlendir()
+        self.assertEqual(ctx.centroid_x, 99.0)
+
+
+class TestB3TestHazirAtla(unittest.TestCase):
+    """B3 — test_hazir_atla, B15 kapisini BAYPAS EDEMEZ."""
+
+    @staticmethod
+    def _ctx():
+        c = ModeContext(agent_ids=[1, 2, 3])
+        c.kalkis_esik_m = 2.0
+        return c
+
+    def test_idle_preflight_mission_fsm_OLMADAN(self):
+        """mission_fsm kapali (mission_state != 8) ama test_hazir_atla acik."""
+        ctx = self._ctx()
+        ctx.state = ModeState.IDLE
+        self.assertIsNone(evaluate_transitions(ctx))   # bayrak yokken takili
+
+        ctx.test_hazir_atla = True
+        self.assertEqual(evaluate_transitions(ctx), ModeState.PREFLIGHT)
+
+    def test_takeoff_READY_ANCAK_kapi_acikken(self):
+        """🔴 En kritik kilit: test_hazir_atla tek basina READY VERMEZ."""
+        ctx = self._ctx()
+        ctx.state = ModeState.TAKEOFF
+        ctx.test_hazir_atla = True
+        ctx.agent_statuses = {
+            1: _MockAgentStatus(state=3),   # ARMED — IN_SWARM degil
+            2: _MockAgentStatus(state=3),
+            3: _MockAgentStatus(state=3),
+        }
+        ctx.kalkis_tamam = False
+        self.assertIsNone(evaluate_transitions(ctx))
+
+        ctx.kalkis_tamam = True
+        self.assertEqual(evaluate_transitions(ctx), ModeState.READY)
+
+    def test_in_swarm_yolu_bayraksiz_da_calisir(self):
+        """Gercek akis (IN_SWARM) test bayragi olmadan da READY verir."""
+        ctx = self._ctx()
+        ctx.state = ModeState.TAKEOFF
+        ctx.agent_statuses = {
+            1: _MockAgentStatus(state=5),
+            2: _MockAgentStatus(state=5),
+            3: _MockAgentStatus(state=5),
+        }
+        self.assertEqual(evaluate_transitions(ctx), ModeState.READY)
+
+    def test_kapi_acilinca_ofsetler_de_OLCULEN_geometriden(self):
+        """Pilot ilk is MANEVRA'ya gecerse gomulu ucgen egilmemeli."""
+        ctx = self._ctx()
+        ctx.agent_statuses = {
+            1: _MockAgentStatus(pos_x=10.0, pos_y=0.0, pos_z=-8.0),
+            2: _MockAgentStatus(pos_x=20.0, pos_y=6.0, pos_z=-8.0),
+            3: _MockAgentStatus(pos_x=30.0, pos_y=-6.0, pos_z=-8.0),
+        }
+        self.assertTrue(ctx.kalkis_kapisi_degerlendir())
+
+        ofs = ctx.olculen_ofsetler()
+        self.assertEqual(set(ofs), {1, 2, 3})
+        self.assertAlmostEqual(ofs[1][0], -10.0, places=6)   # 10 - 20
+        self.assertAlmostEqual(ofs[2][1], 6.0, places=6)
+        self.assertAlmostEqual(ofs[3][0], 10.0, places=6)    # 30 - 20
+        # ofsetlerin ortalamasi SIFIR olmali (centroid tanimi)
+        self.assertAlmostEqual(sum(o[0] for o in ofs.values()), 0.0, places=6)
+        self.assertAlmostEqual(sum(o[1] for o in ofs.values()), 0.0, places=6)
+        self.assertTrue(all(o[2] == 0.0 for o in ofs.values()))
+
+
+class TestHoldVeRtlKapilari(unittest.TestCase):
+    """G2-K6 (HOLD otomatik inisi yok) + B8 (land RTL'i KESEBILIR)."""
+
+    @staticmethod
+    def _ctx(state):
+        c = ModeContext(agent_ids=[1, 2, 3])
+        c.state = state
+        return c
+
+    def test_hold_komutsuz_INMEZ(self):
+        """G2-K6: komut kesilse de HOLD'da kalir, kendiliginden INMEZ."""
+        ctx = self._ctx(ModeState.HOLD)
+        ctx.state_entry_time = time.monotonic() - 600.0   # 10 dakika
+        self.assertFalse(ctx.command_active)
+        self.assertIsNone(evaluate_transitions(ctx))
+        self.assertEqual(ctx.state, ModeState.HOLD)
+
+    def test_hold_komut_gelince_moda_doner(self):
+        """Komut geri gelince HOLD kilitlenmis olmamali."""
+        ctx = self._ctx(ModeState.HOLD)
+        ctx.command_valid = True
+        ctx.deadman_pressed = True
+        ctx.last_valid_command_time = time.monotonic()
+        ctx.control_mode = ControlMode.SWARM_MOVEMENT
+        self.assertEqual(evaluate_transitions(ctx), ModeState.MOVEMENT)
+
+    def test_land_RTL_i_KESEBILIR(self):
+        """🔴 B8 kilidi: land kapisina RTL EKLENMEMELI.
+
+        CLAUDE.md "iptal her zaman land" diyor; pilotun SwD ile verdigi
+        inis komutu RTL'i kesebilmek ZORUNDA. B8'in dogru cozumu bu kapiyi
+        daraltmak degil, dugumun kendi olayina tepki vermesini durdurmakti.
+        """
+        ctx = self._ctx(ModeState.RTL)
+        ctx.land_requested = True
+        self.assertEqual(evaluate_transitions(ctx), ModeState.LANDING)
+
+    def test_rtl_kendi_basina_LANDING_e_dusmez(self):
+        """B8: istek olmadan RTL kendiliginden LANDING'e gecmez."""
+        ctx = self._ctx(ModeState.RTL)
+        self.assertIsNone(evaluate_transitions(ctx))

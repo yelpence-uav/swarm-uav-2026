@@ -1,7 +1,8 @@
 /* App shell - dashboard grid layout
    ============================================================
    Layout: header (full) -> main grid (map + sidebar) -> drone strip (full)
-   Görev 2 aktifken: map alanı yarıya bölünür, joystick panel yan tarafa gelir.
+   YKİ joystick paneli 30 Ağustos 2026'da SİLİNDİ (simülasyon dönemi
+   artığıydı); üç sütunlu "Görev 2" varyantı da onunla birlikte kalktı.
    ============================================================ */
 
 .app {
@@ -30,15 +31,6 @@
   min-height: 0;
 }
 
-/* Joystick aktif: map-area sütununu ortadan ikiye böl. */
-.app--joystick {
-  grid-template-columns: minmax(0, 1fr) 380px clamp(360px, 24vw, 460px);
-  grid-template-areas:
-    "header   header   header"
-    "map-area joystick sidebar"
-    "strip    strip    strip";
-}
-
 /* Areas */
 .app-header {
   /* AppHeader.css'te detaylı tanımlandı */
@@ -63,16 +55,6 @@
   border-radius: var(--radius-lg);
   pointer-events: none;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
-}
-
-.app__joystick {
-  grid-area: joystick;
-  overflow: hidden;
-  border-radius: var(--radius-lg);
-  border: 1px solid var(--color-border-accent);
-  background: var(--color-bg-elevated);
-  box-shadow: var(--shadow-md), var(--shadow-glow-accent);
-  animation: slide-in-right var(--transition-slow);
 }
 
 .app__sidebar {
@@ -104,9 +86,6 @@
        kritik, panel 360'a sabitleniyor (eskiden 320). */
     grid-template-columns: minmax(0, 1fr) 360px;
   }
-  .app--joystick {
-    grid-template-columns: minmax(0, 1fr) 320px 360px;
-  }
 }
 
 @media (max-width: 1024px) {
@@ -117,16 +96,6 @@
       "header"
       "sidebar"
       "map-area"
-      "strip";
-  }
-  .app--joystick {
-    grid-template-columns: 1fr;
-    grid-template-rows: auto auto 1fr auto auto;
-    grid-template-areas:
-      "header"
-      "sidebar"
-      "map-area"
-      "joystick"
       "strip";
   }
   .app__sidebar {

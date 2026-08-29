@@ -119,38 +119,3 @@ def swarm_state(request: Request):
     return {"swarm_state": snapshot}
 
 
-class SwarmControlBody(BaseModel):
-    """SwarmControlCommand mesaj gövdesi."""
-
-    sequence_num: int = 0
-    command_valid: bool = False
-    deadman_pressed: bool = False
-    deadman_timeout_s: float = 0.5
-    mode: int = 0
-    pitch_cmd: float = 0.0
-    roll_cmd: float = 0.0
-    yaw_cmd: float = 0.0
-    throttle_cmd: float = 0.0
-    takeoff: bool = False
-    land: bool = False
-    rtl: bool = False
-    emergency_stop: bool = False
-    formation_change_requested: bool = False
-    requested_formation: int = 0
-    requested_spacing_m: float = 0.0
-    duration_s: float = 0.0
-    max_speed_mps: float = 0.0
-    max_yaw_rate_deg_s: float = 0.0
-    max_tilt_deg: float = 0.0
-    source_module: str = "gcs"
-
-
-@router.post("/api/swarm/control")
-def swarm_control(body: SwarmControlBody, request: Request):
-    """Görev 2 sürü komutu yayını."""
-    bridge = _bridge(request)
-    try:
-        bridge.publish_swarm_control(body.model_dump())
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Publish hatası: {e}")
-    return {"published": True, "sequence_num": body.sequence_num}

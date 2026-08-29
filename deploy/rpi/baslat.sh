@@ -1357,6 +1357,31 @@ fi   # /altyapi: ic_dis_kopru
                  "hareket modunun tarifini ucuracak formation_node yok." \
                  "mode_manager ACILMADI." | tee -a "$GUNLUK/mode_manager.log"
         else
+            # B16 (30 Agustos 2026) — 'fsm' KAPI DEGIL, UYARI. NEDEN:
+            #
+            # Plan bunu 'formasyon'un esi bir KAPI olarak yazmisti; gerekce
+            # "fsm kapaliysa SwarmState gelmez, mode_manager'in centroid'i
+            # (0,0,0)'da kalir ve suru NED origin'e gider" idi. Uygulamadan
+            # once kod okundu ve gerekce ARTIK GECERLI DEGIL:
+            #
+            #   * B15 KALKIS KAPISI centroid'i ucaklarin KENDI konumundan
+            #     tohumluyor; SwarmState'e ihtiyac kalmadi.
+            #   * SwarmState.formation_heading_deg ZATEN hep 0.0 —
+            #     swarm_fsm o alani hicbir yerde HESAPLAMIYOR (B17).
+            #   * formation_reached / formation_stable ctx'e yaziliyor ama
+            #     HICBIR YERDE OKUNMUYOR (olculdu).
+            #
+            # Yani 'fsm' kapaliyken mode_manager bugun islevsel bir sey
+            # KAYBETMIYOR. Calisan bir yapilandirmayi HATA ile durdurmak
+            # yanlis olurdu. Ama sessiz de birakmiyoruz: kanitlanmis yigin
+            # 'origin consensus fsm formasyon ca' ve ondan sapma gorunur olmali.
+            if ! acik fsm; then
+                echo "[baslat] UYARI: 'mod' acik ama 'fsm' KAPALI." \
+                     "mode_manager aciliyor (B15 centroid'i ucaklardan" \
+                     "tohumluyor, SwarmState sart degil) — ama bu" \
+                     "kanitlanmis yigindan SAPMA. Bilerek yaptiysan sorun yok." \
+                     | tee -a "$GUNLUK/mode_manager.log"
+            fi
             _MOD_KADRO="${SURU_KADRO:-1 2 3}"
             _MOD_KADRO_ROS="[$(echo ${_MOD_KADRO} | tr ' ' ',')]"
             ros2 run swarm_state_machine mode_manager_node --ros-args \
@@ -1366,12 +1391,16 @@ fi   # /altyapi: ic_dis_kopru
                 -p max_yaw_rate_deg_s:=${MOD_YAW_HIZI:-25.0} \
                 -p max_tilt_deg:=${MOD_EGIM_TAVANI:-15.0} \
                 -p wing_alpha_deg:=${KANAT_ALFA_DEG} \
+                -p kalkis_esik_m:=${MOD_KALKIS_ESIK:-2.0} \
+                -p test_hazir_atla:=${MOD_TEST_HAZIR_ATLA:-false} \
                 >> "$GUNLUK/mode_manager.log" 2>&1 &
             sleep 1
             echo "[baslat] mode_manager_node basladi (Gorev 2:" \
                  "egim=${MOD_EGIM_TAVANI:-15.0} deg," \
                  "yaw=${MOD_YAW_HIZI:-25.0} deg/s, hiz=${MOD_HIZ:-2.0} m/s," \
-                 "aralik=${MOD_ARALIK:-7.0} m, kadro=${_MOD_KADRO})"
+                 "aralik=${MOD_ARALIK:-7.0} m, kadro=${_MOD_KADRO}," \
+                 "kalkis kapisi=${MOD_KALKIS_ESIK:-2.0} m," \
+                 "test_hazir_atla=${MOD_TEST_HAZIR_ATLA:-false})"
         fi
     fi
 
@@ -1392,6 +1421,7 @@ fi   # /altyapi: ic_dis_kopru
             -p max_yaw_rate_deg_s:=${MOD_YAW_HIZI:-25.0} \
             -p max_tilt_deg:=${MOD_EGIM_TAVANI:-15.0} \
             -p deadman_timeout_s:=${MOD_DEADMAN_ZAMAN_ASIMI:-0.5} \
+            -p default_spacing_m:=${MOD_ARALIK:-7.0} \
             -r /mavros/rc/in:=/drone_${AGENT_ID}/mavros/rc/in \
             -r /mavros/manual_control/control:=/drone_${AGENT_ID}/mavros/manual_control/control \
             >> "$GUNLUK/joystick.log" 2>&1 &

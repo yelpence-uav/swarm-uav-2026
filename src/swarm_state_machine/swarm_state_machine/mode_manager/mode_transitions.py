@@ -52,7 +52,10 @@ def evaluate_transitions(ctx: ModeContext) -> ModeState | None:
 
 def _from_idle(ctx: ModeContext) -> ModeState | None:
     """IDLE durumundan gecisleri degerlendirir."""
-    if ctx.is_mission_semi_autonomous():
+    # B3: sahada mission_fsm KAPALI oldugu icin mission_state hic 8 olmuyor
+    # ve FSM IDLE'da takili kaliyordu. test_hazir_atla bu kapiyi atlatir.
+    # Tam Gorev 2 akisi (kumandadan kalkis + mission_fsm) ADIM 6'nin isi.
+    if ctx.is_mission_semi_autonomous() or ctx.test_hazir_atla:
         return ModeState.PREFLIGHT
     return None
 
@@ -75,7 +78,14 @@ def _from_preflight(ctx: ModeContext) -> ModeState | None:
 
 def _from_takeoff(ctx: ModeContext) -> ModeState | None:
     """TAKEOFF durumundan gecisleri degerlendirir."""
+    # B3: ajanlar sahada ARMED'da kaliyor, IN_SWARM'a hic gecmiyor.
+    # test_hazir_atla'da olcut KALKIS KAPISI olur (B15) — yani "gercekten
+    # havada mi", varsayimsal bir FSM durumu degil. Kapi kapaliyken READY'ye
+    # gecmek, yerde tarif yayinlamak demek olurdu.
     if ctx.all_agents_in_swarm():
+        return ModeState.READY
+
+    if ctx.test_hazir_atla and ctx.kalkis_tamam:
         return ModeState.READY
 
     if ctx.time_in_state() > _TAKEOFF_TIMEOUT_S:
@@ -120,10 +130,21 @@ def _from_maneuver(ctx: ModeContext) -> ModeState | None:
 
 
 def _from_hold(ctx: ModeContext) -> ModeState | None:
-    """HOLD durumundan gecisleri degerlendirir."""
+    """HOLD durumundan gecisleri degerlendirir.
+
+    G2-K6 (operator, 30 Agustos 2026) — OTOMATIK INIS KALDIRILDI.
+    Eskiden komut akisi 5 sn kesilince kendiliginden LANDING'e geciliyordu.
+    Mesh sarsintisi 5 saniyeyi rahat buluyor ve bu, GOREV ORTASINDA
+    istenmeyen bir inis demekti. Artik komut kesilince suru HOLD'da bekler;
+    inis kararini pilot ya da hakem verir.
+
+    🔴 KABUL EDILEN BEDEL: kumanda kalici olarak kaybedilirse suru SURESIZ
+    asili kalir. Kacinma calismaya devam eder ama PIL IZLEME UC YERDE DE
+    KAPALI (BAT1_SOURCE disabled, BATARYA_KRITIK_V=0.0) — yazilim tarafinda
+    hicbir otomatik koruma YOK. Sureyi pilotlar tutar; cikis yolu
+    kill-switch pilotlaridir. Ayrinti: docs/gorev2.md G2-K6.
+    """
     if not ctx.command_active:
-        if ctx.time_in_state() > 5.0:
-            return ModeState.LANDING
         return None
 
     if ctx.control_mode == ControlMode.SWARM_MOVEMENT:

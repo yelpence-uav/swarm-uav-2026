@@ -4,7 +4,6 @@ import { AcilSonlandirma } from "./components/AcilSonlandirma/AcilSonlandirma";
 import { AlertList } from "./components/AlertSystem/AlertList";
 import { AppHeader } from "./components/AppShell/AppHeader";
 import { DroneControlPanel } from "./components/DroneControlPanel/DroneControlPanel";
-import { JoystickPanel } from "./components/JoystickPanel/JoystickPanel";
 import { MapView } from "./components/Map/Map";
 import { MissionControl } from "./components/MissionControl/MissionControl";
 import { MissionPanel } from "./components/MissionPanel/MissionPanel";
@@ -101,19 +100,14 @@ export default function App() {
     () => payload.swarm_state?.mission_active ?? false,
     [payload.swarm_state],
   );
-  const activeMission = payload.swarm_state?.active_mission ?? "";
   const isSimMode = payload.connection_mode === "mavlink-sim";
 
   const selectedDrone = payload.drones.find(
     (d) => d.drone_id === selectedDroneId,
   );
 
-  const joystickVisible =
-    selectedMissionId === MISSION_ID.SEMI_AUTONOMOUS ||
-    activeMission === "semi_autonomous";
-
   return (
-    <div className={`app ${joystickVisible ? "app--joystick" : ""}`}>
+    <div className="app">
       <AppHeader
         status={status}
         rtk={payload.rtk ?? null}
@@ -157,12 +151,6 @@ export default function App() {
           />
         )}
       </main>
-
-      {joystickVisible && (
-        <aside className="app__joystick">
-          <JoystickPanel enabled={true} />
-        </aside>
-      )}
 
       <aside className="app__sidebar">
             <MissionPanel

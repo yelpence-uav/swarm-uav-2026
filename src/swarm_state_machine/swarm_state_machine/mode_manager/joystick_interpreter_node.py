@@ -81,7 +81,7 @@ class JoystickInterpreterNode(Node):
         self._active_mode = SwarmControlCommand.MODE_SWARM_MOVEMENT
         self._formation_change_requested = False
         self._requested_formation = 0
-        self._requested_spacing_m = 5.0
+        self._requested_spacing_m = self._default_spacing_m
         self._last_aux3_formation = None
         self._last_aux4 = -1000  # SwD UP varsayılan
         self._safety_active = False
@@ -123,13 +123,23 @@ class JoystickInterpreterNode(Node):
 
     def _declare_params(self) -> None:
         """ROS2 parametrelerini tanımlar ve okur."""
-        self.declare_parameter('publish_hz', 30.0)
+        # dynamic_typing SART: `-p x:=7` YAML'da INTEGER'dir ve double
+        # declare edilmis dugumu ACILISTA oldurur. Bu tuzak sahada IKI KEZ
+        # yasandi (formasyon_sekans) ve bu dugum henuz hic kosmadi — ilk
+        # kosacagi yer saha. Ayni sinif hatayi bekleyip yasamiyoruz.
+        from rcl_interfaces.msg import ParameterDescriptor
+        _dnm = ParameterDescriptor(dynamic_typing=True)
+        self.declare_parameter('publish_hz', 30.0, _dnm)
         self.declare_parameter('deadman_channel', 'aux1')
-        self.declare_parameter('deadman_threshold', 0.5)
-        self.declare_parameter('deadman_timeout_s', 0.5)
-        self.declare_parameter('max_speed_mps', 2.0)
-        self.declare_parameter('max_yaw_rate_deg_s', 30.0)
-        self.declare_parameter('max_tilt_deg', 15.0)
+        self.declare_parameter('deadman_threshold', 0.5, _dnm)
+        self.declare_parameter('deadman_timeout_s', 0.5, _dnm)
+        self.declare_parameter('max_speed_mps', 2.0, _dnm)
+        self.declare_parameter('max_yaw_rate_deg_s', 30.0, _dnm)
+        self.declare_parameter('max_tilt_deg', 15.0, _dnm)
+        # B10: aralik GOMULU 5.0 idi ve `ucus_ayarlari` MOD_ARALIK=7.0 ile
+        # celisiyordu. Belirti sessiz: ILK formasyon degisikliginde sürü
+        # 7 m'den 5 m'ye kapanirdi. Ad `mode_manager` ile AYNI tutuldu.
+        self.declare_parameter('default_spacing_m', 7.0, _dnm)
 
         self._publish_hz = float(
             self.get_parameter('publish_hz').value
@@ -151,6 +161,9 @@ class JoystickInterpreterNode(Node):
         )
         self._max_tilt_deg = float(
             self.get_parameter('max_tilt_deg').value
+        )
+        self._default_spacing_m = float(
+            self.get_parameter('default_spacing_m').value
         )
 
     def _setup_publishers(self) -> None:
@@ -216,8 +229,10 @@ class JoystickInterpreterNode(Node):
             elif aux3_val > self.AUX_FORMATION_THRESH_HIGH:
                 self._last_aux3_formation = SwarmControlCommand.FORMATION_CIZGI
             else:
-                self._last_aux3_formation = \
-                    SwarmControlCommand.FORMATION_UNKNOWN
+                # ORTA = V (B4). Emniyet kilitliyken de ayni esleme
+                # kullanilmali; aksi halde kilit acildiginda deger
+                # degisiyormus gibi gorunup SAHTE KENAR tetiklenir.
+                self._last_aux3_formation = SwarmControlCommand.FORMATION_V
 
             cmd.command_valid = False
             cmd.deadman_pressed = False
@@ -257,8 +272,16 @@ class JoystickInterpreterNode(Node):
         elif aux3_val > self.AUX_FORMATION_THRESH_HIGH:
             current_aux3_formation = SwarmControlCommand.FORMATION_CIZGI
         else:
-            # ORTA = Formasyonsuz (0)
-            current_aux3_formation = SwarmControlCommand.FORMATION_UNKNOWN
+            # ORTA = V FORMASYONU (B4, 30 Agustos 2026).
+            # ONCEDEN FORMATION_UNKNOWN (0) idi ve bu sessiz bir sartname
+            # ihlaliydi: sinifin kendi sabit yorumu "-300..+300 arasi ->
+            # V Formasyonu (2)" diyordu, _on_joy yorumu "Hicbiri = Ortada
+            # (V)" diyordu, ama kod 0 uretiyordu. Sonuc: V formasyonu
+            # kumandadan ULASILAMAZ. Ustelik esp32_bridge formasyon=0 ile
+            # gelen degisiklik bayragini BILEREK dusuruyor, yani talep
+            # mesh'e bile cikmiyordu. Sartname 5.2.2 ornek hakem
+            # direktifi birebir: "V formasyonuna gec".
+            current_aux3_formation = SwarmControlCommand.FORMATION_V
 
         if self._last_aux3_formation != current_aux3_formation:
             self._last_aux3_formation = current_aux3_formation

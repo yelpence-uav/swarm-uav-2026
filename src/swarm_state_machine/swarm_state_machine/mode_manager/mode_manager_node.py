@@ -71,6 +71,8 @@ class ModeManagerNode(Node):
         self._ctx.max_speed_mps = self._max_speed_mps
         self._ctx.max_yaw_rate_deg_s = self._max_yaw_rate_deg_s
         self._ctx.max_tilt_deg = self._max_tilt_deg
+        self._ctx.kalkis_esik_m = self._kalkis_esik_m
+        self._ctx.test_hazir_atla = self._test_hazir_atla
 
         self._last_tick_time = time.monotonic()
         self._formation_offsets: dict[int, tuple[float, float, float]] = {}
@@ -109,6 +111,12 @@ class ModeManagerNode(Node):
         # Slot geometrisi formation_node/kopru/sekans ile AYNI aci —
         # eskiden asagida math.radians(45.0) GOMULUYDU.
         self.declare_parameter('wing_alpha_deg', 45.0, _dnm)
+        # B15 KALKIS KAPISI: bu yuksekligin ALTINDA hicbir tarif/setpoint
+        # yayinlanmaz. Tek kaynak `ucus_ayarlari` MOD_KALKIS_ESIK.
+        self.declare_parameter('kalkis_esik_m', 2.0, _dnm)
+        # B3: mission_fsm kapaliyken FSM'i READY'ye ulastirir. VARSAYILAN
+        # FALSE — yarisma profilinde ADIM 6 acilinca kapatilir.
+        self.declare_parameter('test_hazir_atla', False)
 
         self._agent_ids = list(
             self.get_parameter('agent_ids').value
@@ -134,6 +142,12 @@ class ModeManagerNode(Node):
         self._wing_alpha_rad = math.radians(float(
             self.get_parameter('wing_alpha_deg').value
         ))
+        self._kalkis_esik_m = float(
+            self.get_parameter('kalkis_esik_m').value
+        )
+        self._test_hazir_atla = bool(
+            self.get_parameter('test_hazir_atla').value
+        )
 
     def _init_default_offsets(self) -> None:
         """Varsayilan formasyon ofsetlerini olusturur."""
@@ -240,6 +254,23 @@ class ModeManagerNode(Node):
         self._last_tick_time = now
         ctx = self._ctx
 
+        # B15 KALKIS KAPISI — evaluate_transitions'tan ONCE degerlendirilir,
+        # cunku _from_takeoff ctx.kalkis_tamam'i okuyor (B3 test yolu).
+        _kapi_onceydi = ctx.kalkis_tamam
+        ctx.kalkis_kapisi_degerlendir()
+        if ctx.kalkis_tamam and not _kapi_onceydi:
+            # Ofsetleri de OLCULEN geometriyle tohumla — pilot ilk is
+            # MANEVRA'ya gecerse gomulu ucgen egilmesin (bkz. docstring).
+            olculen = ctx.olculen_ofsetler()
+            if len(olculen) == len(self._agent_ids):
+                self._formation_offsets = olculen
+            self.get_logger().info(
+                f'[mode_manager] KALKIS KAPISI ACILDI (esik '
+                f'{ctx.kalkis_esik_m:.1f} m) — centroid ucaklarin KENDI '
+                f'konumundan tohumlandi: ({ctx.centroid_x:.1f}, '
+                f'{ctx.centroid_y:.1f}, {ctx.centroid_z:.1f})'
+            )
+
         next_state = evaluate_transitions(ctx)
         if next_state is not None and next_state != ctx.state:
             self._transition(next_state)
@@ -266,7 +297,7 @@ class ModeManagerNode(Node):
         # (MANEVRA her zaman; HOLD yalnız eğik pozdayken) formasyon susar,
         # aksi hâlde formasyon sürücüdür (MOVEMENT tarif üzerinden gider).
         sustur = Bool()
-        sustur.data = (
+        sustur.data = ctx.kalkis_tamam and (
             ctx.state == ModeState.MANEUVER
             or (ctx.state in (ModeState.HOLD, ModeState.READY)
                 and (ctx.maneuver_pitch_deg != 0.0
@@ -498,10 +529,13 @@ class ModeManagerNode(Node):
     def _on_swarm_state(self, msg: SwarmState) -> None:
         ctx = self._ctx
 
-        if ctx.state in (
-            ModeState.IDLE, ModeState.PREFLIGHT,
-            ModeState.TAKEOFF, ModeState.READY,
-        ):
+        # KALKIS KAPISI acildiktan SONRA centroid mode_manager'in KENDI
+        # entegratorudur; disaridan yazmak suruyu isinlatir. Kapi acilirken
+        # zaten ucaklarin kendi konumundan tohumlandi (B15). Kapi kapaliyken
+        # izlemeye devam — o sirada zaten hicbir sey yayinlanmiyor.
+        # ESKIDEN kosul (IDLE, PREFLIGHT, TAKEOFF, READY) idi; READY'de
+        # swarm_fsm'in (0,0,0) centroid'i iyi tohumu EZEBILIYORDU (B16).
+        if not ctx.kalkis_tamam:
             ctx.centroid_x = msg.centroid_x
             ctx.centroid_y = msg.centroid_y
             ctx.centroid_z = msg.centroid_z
@@ -512,14 +546,43 @@ class ModeManagerNode(Node):
         ctx.formation_stable = msg.formation_stable
 
     def _on_event(self, msg: SystemEvent) -> None:
+        """Baska dugumlerin acil olaylarini istege cevirir.
+
+        🔴 B8 (30 Agustos 2026) — KENDI OLAYINA TEPKI VERME.
+        Bu dugum /swarm/internal/events/system'e hem YAZIYOR hem ABONE.
+        Eskiden kendi yayinini da isliyordu ve RTL durumu TEK TIK yasiyordu:
+
+            _on_state_entry(RTL) -> EVENT_RTL_TRIGGERED yayinlanir
+              -> _on_event kendi olayini duyar -> land_requested = True
+              -> land kapisi RTL'i DISLAMIYOR -> hemen LANDING
+
+        Cozum land kapisina RTL eklemek DEGIL: CLAUDE.md "iptal her zaman
+        land" diyor ve pilotun SwD ile verdigi inis komutu RTL'i
+        KESEBILMELI. Dogru cozum kaynagi susturmak.
+
+        Ikinci kusur: iki olay tipi de HEM rtl HEM land istegi kuruyordu.
+        RTL olayi inis istemez, acil inis olayi RTL istemez — ayrildi.
+        """
+        if msg.source_module == 'mode_manager':
+            return
+
         eid = msg.event_type
 
-        if eid in (SystemEvent.EVENT_EMERGENCY_LAND, SystemEvent.EVENT_RTL_TRIGGERED):
+        if eid == SystemEvent.EVENT_RTL_TRIGGERED:
             self._ctx.emergency_stop_requested = False
             self._ctx.rtl_requested = True
+        elif eid == SystemEvent.EVENT_EMERGENCY_LAND:
+            self._ctx.emergency_stop_requested = False
             self._ctx.land_requested = True
 
     def _publish_formation_command(self, params: dict) -> None:
+        # 🔴 B15 KALKIS KAPISI — kapi kapaliyken TEK BIR tarif bile disari
+        # cikmaz. Kapi dispatch'e degil YAYIN SINIRINA konuldu: boylece
+        # ileride eklenen her yeni yol da kendiliginden kapali kalir.
+        # Kapali kalma sebebi ve tehlike: mode_context.kalkis_kapisi_degerlendir
+        if not self._ctx.kalkis_tamam:
+            return
+
         msg = FormationCommand()
         msg.stamp = self.get_clock().now().to_msg()
         msg.sequence_num = self._ctx.command_sequence_num
@@ -563,6 +626,25 @@ class ModeManagerNode(Node):
                 self._last_valid_offsets_x = list(msg.offset_x)
                 self._last_valid_offsets_y = list(msg.offset_y)
                 self._last_valid_offsets_z = list(msg.offset_z)
+
+                # 🔴 B7 (KARAR-11 #5) — MANEVRA'nin kullandigi ofsetleri
+                # BURADA tazele. Onceden _formation_offsets yalniz
+                # _init_default_offsets()'te bir kez kuruluyordu ve
+                # _handle_formation_change onu HIC guncellemiyordu: formasyon
+                # degistirip manevraya gecince gomulu ESKI ofsetler egilir,
+                # x-y de onlara gore basilirdi -> ucaklar yeni formasyon
+                # konumlarina ISINLANMAYA kalkardi.
+                # Senkron noktasi TEK ve slot geometrisinin hesaplandigi tek
+                # yer burasi; iki ayri kopya birbirinden kayamaz.
+                # Slot i <-> agent_ids[i] (kimlik sirasi; Macar YOK, KARAR-11).
+                self._formation_offsets = {
+                    aid: (
+                        float(msg.offset_x[i]),
+                        float(msg.offset_y[i]),
+                        float(msg.offset_z[i]),
+                    )
+                    for i, aid in enumerate(msg.agent_ids)
+                }
             except Exception as e:
                 self.get_logger().error(f'Slot offset hesaplama hatası: {e}')
                 msg.offset_x = [0.0] * num_agents
@@ -610,6 +692,10 @@ class ModeManagerNode(Node):
         self._formation_pub.publish(msg)
 
     def _publish_agent_setpoint(self, sp: dict) -> None:
+        # 🔴 B15 KALKIS KAPISI — bkz. _publish_formation_command.
+        if not self._ctx.kalkis_tamam:
+            return
+
         agent_id = sp['agent_id']
         pub = self._setpoint_pubs.get(agent_id)
         if pub is None:

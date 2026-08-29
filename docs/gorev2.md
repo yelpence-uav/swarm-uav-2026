@@ -1,6 +1,6 @@
 # GÖREV 2 — Yarı Otonom Sürü Kontrolü
 
-**Son güncelleme:** 30 Ağustos 2026, 01:47 — B15/B16 eklendi (kalkış kapısı + `fsm` bağımlılığı); §4 sıralı iş listesine çevrildi
+**Son güncelleme:** 30 Ağustos 2026, 02:23 — Aşama A 1-7 UYGULANDI; B8 kök nedenden çözüldü; YKİ joystick paneli ve arka uç zinciri SİLİNDİ
 
 Şartname **§5.2** · **100 puan** · görev başına **3 hak**, en yüksek puan sayılır.
 
@@ -107,7 +107,7 @@ USB-TTL kullanılıyorsa adaptörün 3,3 V–5 V jumper'ı da doğru konumda olm
 
 ---
 
-## 3. Boşluklar — 16 madde, hepsi kodda doğrulandı
+## 3. Boşluklar — 17 madde, hepsi kodda doğrulandı
 
 Kod `f6f8498`'de (28 Ağu) hazır sayılıyor ama **hiç koşmadı** ve uçaklara
 **dağıtılmadı.**
@@ -196,11 +196,40 @@ sonra uçak `kalkis_esik_orani × irtifa` (0,8) değerine çıkana kadar **susuy
 *Çözüm:* aynı kapı `mode_manager`'a taşınır.
 🔴 **B3 ile AYNI değişiklikte gitmek zorunda — ayrı yapılamaz.**
 
-**B16 · `baslat.sh` `mod` anahtarı `fsm`'e bağımlı değil.**
-`:1355` yalnız `formasyon`'a bakıyor. `fsm` kapalıyken `swarm_fsm` hiç
-`SwarmState` yayınlamaz → `mode_manager`'ın centroid'i yine `(0,0,0)`'da kalır
-→ **B15'in aynı sonucu, farklı yoldan.** `formasyon` kapısının eşi olarak
-`fsm` kapısı da konulmalı (~5 satır).
+**B16 · `mod` anahtarı `fsm`'e bağımlı değil.** ✅ *uygulandı — ama KAPI DEĞİL, UYARI*
+
+Bu madde "`formasyon`'un eşi bir kapı konulmalı" diye yazılmıştı; gerekçe
+*"`fsm` kapalıysa centroid `(0,0,0)`'da kalır"* idi. **Uygulamadan önce kod
+okundu ve gerekçe çürüdü** (`PLAN.md` §8: *"'N'i 2 yap' türü maddeleri
+uygulamadan önce KODU OKU"*):
+
+- **B15** centroid'i uçakların kendi konumundan tohumluyor → `SwarmState` şart değil
+- `SwarmState.formation_heading_deg` **zaten hep 0.0** → bkz. B17
+- `formation_reached` / `formation_stable` ctx'e yazılıyor ama **hiçbir yerde
+  okunmuyor** (ölçüldü)
+
+Yani `fsm` kapalıyken `mode_manager` bugün işlevsel bir şey **kaybetmiyor**.
+Çalışan bir yapılandırmayı `HATA` ile durdurmak yanlış olurdu. Sessiz de
+bırakılmadı: kanıtlanmış yığından (`origin consensus fsm formasyon ca`) sapma
+açılış logunda **UYARI** olarak görünüyor.
+
+**B17 · `SwarmState.formation_heading_deg` HİÇ HESAPLANMIYOR — devir anında formasyon kuzeye döner.**
+`swarm_fsm/swarm_context.py:73` alanı tanımlıyor, `swarm_fsm_node.py:696`
+yayınlıyor, **arada atama yapan tek bir satır yok** (repo tarandı). Yani
+`SwarmState.formation_heading_deg` kalıcı olarak **0.0**.
+
+Sonuç Görev 2'de: kalkış kapısı açıldığında `mode_manager`'ın heading'i
+**0° = KUZEY**. Pilot SwC ile gerçek bir formasyon seçmişse ilk
+`FormationCommand` slotları kuzeye göre dizer → sürü **kimsenin komut
+vermediği bir dönüş** yapar. 7 m aralıkta kanat uçakları ~10 m yer değiştirir.
+Çarpışma değil, ama tam **kontrolün pilota devredildiği anda** olur ve
+şartname açısından kontrol kaybı gibi görünür.
+
+🔴 **Uçuş A'yı (ÇİZGİ) doğrudan etkiler.**
+*Çözüm:* kapı açılırken heading'i de ölçülenden tohumla — uçakların
+`AgentStatus.heading_deg` **dairesel ortalaması**. B15'in centroid tohumlamasının
+eşi, ~12 satır, aynı test koşumuyla sınanabilir. Geometriden türetmek yerine
+ölçülen yaw tercih edildi: çizgi formasyonunun geometrisi **iki yönlü belirsiz**.
 
 ### 🟠 P1 — puan kaybettirir
 
@@ -215,17 +244,42 @@ eşdeğeri, yapılmamış hâli.**
 KARAR-11 #5, **hâlâ açık**. Formasyon değiştirip manevraya geçince gömülü
 ofsetler eğilir → **ışınlanma riski.**
 
-**B8 · RTL durumu bir tik yaşıyor.**
-`_on_state_entry(RTL)` → `EVENT_RTL_TRIGGERED` yayınlıyor → düğüm **kendi olayını**
-dinliyor (`_on_event`) → `land_requested=True` → `mode_transitions.py:39` land
-kapısı **RTL'i dışlamıyor** → anında LANDING. Bugün güvenli tarafa düşüyor
-(`CLAUDE.md` RTL yasağıyla uyumlu) ama **kazara, tasarımla değil.**
+**B8 · RTL durumu bir tik yaşıyor.** ✅ *uygulandı — planlanandan FARKLI çözümle*
 
-**B9 · YKİ JoystickPanel ikinci üretici VE şartname ihlali.**
-`ros_bridge.py:719` laptop'tan `/swarm/internal/control/command` yayınlıyor →
-base ESP `TIP_KOMUT` olarak mesh'e basıyor. Görev sırasında açık kalırsa hem
-çift üretici hem **§5.2 "müdahale → görev BAŞARISIZ"**.
-Tezgâh aracı olarak kalsın, **görev profilinde kilitlenmeli.**
+`_on_state_entry(RTL)` → `EVENT_RTL_TRIGGERED` yayınlıyor → düğüm
+`/swarm/internal/events/system`'e hem **yazıyor hem abone**, yani **kendi
+olayını** duyuyor → `land_requested=True` → anında LANDING.
+
+Plan *"land kapısına RTL ekle"* diyordu. **Yanlış olurdu:** `CLAUDE.md`
+*"iptal her zaman `land`"* diyor ve pilotun SwD ile verdiği iniş komutu RTL'i
+**kesebilmek zorunda**. Kapıyı daraltmak o yolu da kapatırdı.
+
+*Uygulanan:* kaynağı sustur — `_on_event` kendi olayını (`source_module ==
+'mode_manager'`) **yok sayıyor**. İkinci kusur da giderildi: iki olay tipi de
+hem `rtl` hem `land` isteği kuruyordu; artık RTL olayı → `rtl_requested`,
+acil iniş olayı → `land_requested`. Land'in RTL'i kesebildiği ayrı bir
+regresyon testiyle **kilitlendi**.
+
+**B9 · YKİ JoystickPanel ikinci üretici VE şartname ihlali.** ✅ *KOMPLE SİLİNDİ*
+
+Laptop `/swarm/internal/control/command`'a yayınlıyordu → base ESP `TIP_KOMUT`
+olarak mesh'e basıyordu. Hem çift üretici hem §5.2 *"müdahale → görev
+BAŞARISIZ"* riski.
+
+Plan *"görev profilinde kilitle"* diyordu; **operatör kararı (30 Ağustos):
+komple sil — o kısım simülasyon için yazılmıştı.** Silinen zincir:
+
+```
+frontend  JoystickPanel/ (4 dosya) · services/gamepad.ts
+          App.tsx joystickVisible + app--joystick · App.css uc sutunlu duzen
+          api.ts SWARM_CONTROL_MODE · SWARM_FORMATION
+                 SwarmControlBody · swarmApi.control
+arka uc   mission.py  SwarmControlBody + POST /api/swarm/control
+          ros_bridge  publish_swarm_control + _control_pub + import
+```
+
+Sonuç: **YKİ `SwarmControlCommand`'ı mesh'e hiçbir yoldan basamıyor.**
+`tsc` temiz, derleme 357,56 → **344,03 kB**. Geri gerekirse git'te.
 
 **B10 · `requested_spacing_m` 5.0 sabit.**
 `joystick_interpreter_node.py:84` — parametre değil, gömülü. `MOD_ARALIK=7.0`
@@ -254,18 +308,24 @@ Aşama geçişlerinde 🚦 kapı var — kapı sağlanmadan sonraki aşamaya ge�
 
 | # | İş | Boyut |
 |---|---|---|
-| **1** | **B4** V formasyonu (SwC orta → `FORMATION_V`) + **B10** spacing parametresi | ~10 satır |
-| **2** | **B7** `_handle_formation_change` → `_formation_offsets` güncellemesi | ~10 satır |
-| **3** | 🔴 **B3 + B15 BİRLİKTE** — `test_hazir_atla` **ve** kalkış kapısı. **Ayrılamaz** | ~40 satır |
-| **4** | **B16** `mod` anahtarına `fsm` bağımlılık kapısı (`baslat.sh`) | ~5 satır |
-| **5** | **B5** `_on_formation_out`'a `source_module == 'mode_manager'` süzgeci | ~4 satır |
-| **6** | **B8** RTL land kapısı + **G2-K6** HOLD otomatik inişini kaldır | ~5 satır |
-| **7** | **B9** YKİ JoystickPanel'i görev profilinde kilitle | YKİ tarafı |
+| **1** | ✅ **B4** V formasyonu (SwC orta → `FORMATION_V`) + **B10** spacing parametresi | ~10 satır |
+| **2** | ✅ **B7** `_handle_formation_change` → `_formation_offsets` güncellemesi | ~10 satır |
+| **3** | ✅ 🔴 **B3 + B15 BİRLİKTE** — `test_hazir_atla` **ve** kalkış kapısı. **Ayrılamaz** | ~40 satır |
+| **4** | ✅ **B17** — kapı değil **uyarı** oldu (gerekçe çürüdü, bkz. §3) | ~25 satır |
+| **5** | ✅ **B5** `_on_formation_out`'a `source_module == 'mode_manager'` süzgeci | ~4 satır |
+| **6** | ✅ **B8** (kök nedenden: kendi olayını yok say) + **G2-K6** HOLD otomatik inişi kaldırıldı | ~30 satır |
+| **7** | ✅ **B9** — panel *kilitlenmedi*, **komple silindi** (operatör: simülasyon artığı) | −1.100 satır |
 | **8** | **`rc_ibus_kopru`** düğümü — çerçeve çözücü **saf fonksiyon**, donanımsız yazılıp test edilir | ~120 satır |
 | **9** | `gorev_kanit_ucus.py` → **`manevra` senaryosu** (kuru + eğim zarfı + harita). `CLAUDE.md` §9 uçuşu buna kapıyor | — |
 | **10** | Birim testler + `ucus_ayarlari.py` denetimi + `bash -n` | — |
 
 > 🚦 **Kapı:** testler yeşil olmadan Aşama B'ye geçilmez.
+>
+> **1-7 bitti (30 Ağustos 02:23).** `mode_context` + `mode_transitions`
+> **27/27 birim testi** bu laptopta geçiyor; YKİ `tsc` + derleme temiz. Düğüm katmanı
+> (`mode_manager_node`, `joystick_interpreter_node`, `esp32_bridge`)
+> yalnız **sözdizimi** doğrulandı — `rclpy`/`swarm_interfaces` konteynerde;
+> gerçek doğrulama **G0'da** (madde 16-18).
 
 ### AŞAMA B — Donanım (ylp00, atölye)
 
@@ -338,5 +398,10 @@ En uzun bekleme **14** (konteyner recreate); en riskli **11** (gerilim) ve
   düzeltme eklenecek (`_on_swarm_state` bugün yalnız IDLE/PREFLIGHT/TAKEOFF/
   READY'de centroid'i tazeliyor, MOVEMENT'ta **hiç** tazelemiyor)
 - **Mesh bütçesi** `TIP_KOMUT` ile birlikte (B13)
+- **ACİL İNİŞ butonu Görev 2'de hâlâ gizli** (`App.tsx`:
+  `selectedMissionId !== MISSION_ID.SEMI_AUTONOMOUS`). Gizlenme sebebi
+  joystick panelinin o alanı kaplamasıydı; panel silindi, **sebep kalktı.**
+  Görev 2'de gösterilsin mi — operatör kararı (şartname müdahaleyi yasaklıyor,
+  ama güvenlik puanın önünde ve kill-switch pilotları asıl çıkış yolu)
 - **Slot ataması Macar değil, kimlik sırasıyla** — çapraz yerleşimde kalır
   (KARAR-11 notu, ayrı P2)
