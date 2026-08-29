@@ -81,6 +81,8 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent
                        / "swarm_core"))
 from swarm_core.formation_control import (  # noqa: E402
     formasyon_sekans_cekirdek as SEKANS,
+    formation_geometry as GEO,
+    manual_kinematics as KIN,
 )
 
 YKI = "http://localhost:8000"
@@ -2318,6 +2320,170 @@ def plan_kur_formasyon(merkez0, baslangic=None):
     return plan
 
 
+# --- --senaryo manevra (GOREV 2 — sürüyü PILOT surer) ------------------------
+# Bu senaryo digerlerinden farkli: PLAN YURUTULMEZ. Sürüyü ylp00'a takili
+# ikinci kumanda surer (gorev2.md B1). Kosucunun rolu sartnamedeki YKI
+# rolunun ta kendisi: baslat (arm+takeoff), izle, sonda indir.
+#
+# O zaman kuru test NEYI dogruluyor? Ucus sirasinda ULASILABILECEK
+# geometrilerin ZARFINI:
+#   * baslangic dizilisi ve slot ayrimlari (carpisma denetimi)
+#   * EGIM ZARFI — +-MOD_TEST_EGIM_DEG'de slot basina dikey kayma
+#   * YAW ZARFI  — formasyon donunce ayak izi
+#   * INIS NOKTALARI — G2-K5: her ucak KENDI slotunun ustune iner
+#
+# 🔴 YATAY yolu GOSTEREMEZ ve gostermeye calismamali: hareket modunda
+# merkezi pilot surer, kod sinirlamaz. Bunu sessizce gecmek haritayi
+# oldugundan guvenli gosterirdi.
+MANEVRA_IZLEME_S = 150.0     # arm+takeoff sonrasi pilota birakilan sure
+MANEVRA_ZARF_PAY_M = 2.0     # ayak izi yaricapina guvenlik payi
+
+
+def _manevra_slotlar(merkez, heading_deg, pitch_deg=0.0, roll_deg=0.0):
+    """Verilen egim/heading'de drone_id -> (kuzey, dogu, irtifa).
+
+    UCAKTAKI ZINCIRLE AYNI IKI FONKSIYON kullaniliyor:
+      * GEO.compute_slot_offsets  -> mode_manager._publish_formation_command
+      * KIN.apply_tilt            -> maneuver_mode._egik_ofsetler
+    Kopya formul yazmak "ayni sabit iki yerde" kazasinin geometri hali olur.
+    """
+    n = len(DRONELAR)
+    ofs = GEO.compute_slot_offsets(
+        GEO.FORMATION_CIZGI, n, AYAR.MOD_ARALIK_M,
+        math.radians(KANAT_ACISI_DEG))
+    egik = KIN.apply_tilt(ofs, pitch_deg, roll_deg)
+    h = math.radians(heading_deg)
+    hedefler = {}
+    for i, did in enumerate(DRONELAR):
+        ox, oy, _ = ofs[i]
+        kz = merkez[0] + ox * math.cos(h) - oy * math.sin(h)
+        dg = merkez[1] + ox * math.sin(h) + oy * math.cos(h)
+        hedefler[did] = (kz, dg, AYAR.MOD_TEST_IRTIFA_M + egik[i][2])
+    return hedefler, ofs, egik
+
+
+def _manevra_zarf_yaz(merkez, heading_ucak, heading_olculen, ofs):
+    """Kuru testin asil ciktisi: ucusta ulasilabilecek geometrilerin zarfi."""
+    e = AYAR.MOD_TEST_EGIM_DEG
+    yaricap = max(math.hypot(o[0], o[1]) for o in ofs)
+
+    print(f"\n  MANEVRA ZARFI — sürüyü PILOT surer, bu plan YURUTULMEZ")
+    print(f"    formasyon     CIZGI, aralik {AYAR.MOD_ARALIK_M:.1f} m, "
+          f"irtifa {AYAR.MOD_TEST_IRTIFA_M:.1f} m")
+    print(f"    merkez        ({merkez[0]:+.1f},{merkez[1]:+.1f}) NED")
+    print(f"    ayak izi      yaricap {yaricap:.2f} m -> yaw ne olursa olsun "
+          f"merkez cevresi {yaricap + MANEVRA_ZARF_PAY_M:.1f} m TEMIZ olmali")
+
+    print(f"\n  EGIM ZARFI (cubuk ~%66 -> +-{e:.0f} deg)")
+    for ad, p_deg, r_deg in (("ROLL ", 0.0, e), ("PITCH", e, 0.0)):
+        egik = KIN.apply_tilt(ofs, p_deg, r_deg)
+        dz = [g[2] for g in egik]
+        yayilim = max(dz) - min(dz)
+        detay = "  ".join(f"d{did} {z:+.2f}"
+                          for did, z in zip(DRONELAR, dz))
+        print(f"    {ad} {e:+.0f} deg   {detay}   yayilim {yayilim:.2f} m")
+    print(f"      ^ CIZGI'de PITCH dz URETMEZ (butun slotlarin dx=0). "
+          f"BU DOGRU DAVRANIS —")
+    print(f"        merkez-kaymasi regresyonunun olcum noktasi (KARAR-11). "
+          f"Havada")
+    print(f"        pitch'te irtifa degisirse EGIM MATEMATIGI BOZUK demektir.")
+
+    print(f"\n  🔴 YATAY ZARF — KOD SINIRLAMIYOR")
+    print(f"    Hareket modunda merkezi PILOT surer: {AYAR.MOD_HIZ_MPS:.1f} m/s "
+          f"x ucus suresi.")
+    print(f"    {MANEVRA_IZLEME_S:.0f} s'de teorik "
+          f"{AYAR.MOD_HIZ_MPS * MANEVRA_IZLEME_S:.0f} m. Bu plan yatay yolu "
+          f"GOSTEREMEZ;")
+    print(f"    harita yalniz BASLANGIC dizilisini ve INIS noktalarini "
+          f"gosterir.")
+    print(f"    Ucus alani sinirini OPERATOR ve PILOT tutar.")
+
+    fark = abs((heading_olculen - heading_ucak + 180.0) % 360.0 - 180.0)
+    if fark > 5.0:
+        kayma = 2.0 * yaricap * math.sin(math.radians(fark) / 2.0)
+        print(f"\n  🔴 B17 UYARISI — DEVIR ANINDA FORMASYON DONER")
+        print(f"    Ucaklar {heading_olculen:.0f} deg dizilmis ama "
+              f"mode_manager heading'i {heading_ucak:.0f} deg kullanacak")
+        print(f"    ({fark:.0f} deg fark). Sebep: swarm_fsm "
+              f"formation_heading_deg'i HIC HESAPLAMIYOR")
+        print(f"    (swarm_context.py:73 tanimli, atama yok) -> SwarmState hep "
+              f"0.0 tasiyor.")
+        print(f"    Sonuc: kalkis kapisi acilir acilmaz her ucak ~{kayma:.1f} m "
+              f"YER DEGISTIRIR —")
+        print(f"    kimsenin komut vermedigi bir donus, tam kontrolun pilota "
+              f"gectigi anda.")
+        print(f"    Ya B17 kapatilir ya da ucaklar {heading_ucak:.0f} deg'e "
+              f"dizilir.")
+
+
+def plan_kur_manevra(t):
+    """Gorev 2 manevra testinin ZARFINI kurar (yurutulmez, dogrulanir).
+
+    Adimlar ucusun sirasi DEGIL, ulasilabilecek uc noktalar: kuru test her
+    ikisi arasinda carpisma denetimi yapsin diye. SON ADIM duz CIZGI ve
+    baslangic heading'i — G2-K5 geregi INIS oraya, yani haritadaki mavi
+    noktalar gercek inis yerleri.
+    """
+    konumlar = {did: (t[did]["pos_x"], t[did]["pos_y"]) for did in DRONELAR}
+    merkez = SEKANS.agirlik_merkezi(konumlar)
+    heading_olculen = SEKANS.otomatik_heading_deg(konumlar)
+    # 🔴 UCAGIN KULLANACAGI heading. B17 kapanana kadar mode_manager
+    # SwarmState'ten 0.0 aliyor — kuru test GERCEGI modellemeli, iyi
+    # niyetli olani degil.
+    heading_ucak = 0.0
+
+    e = AYAR.MOD_TEST_EGIM_DEG
+    y = AYAR.MOD_TEST_YAW_DEG
+    adimlar = [
+        ("CIZGI kur (duz)",        heading_ucak,      0.0,  0.0),
+        (f"ROLL +{e:.0f} deg",     heading_ucak,      0.0,   +e),
+        (f"ROLL -{e:.0f} deg",     heading_ucak,      0.0,   -e),
+        (f"PITCH +{e:.0f} deg",    heading_ucak,       +e,  0.0),
+        (f"YAW +{y:.0f} deg",      heading_ucak + y,  0.0,  0.0),
+        ("DUZLE + INIS HAZIR",     heading_ucak,      0.0,  0.0),
+    ]
+    plan = []
+    ofs = None
+    for etiket, hd, p_deg, r_deg in adimlar:
+        hedefler, ofs, _ = _manevra_slotlar(merkez, hd, p_deg, r_deg)
+        plan.append((f"{etiket} [PILOT]", hd, hedefler, True))
+
+    _manevra_zarf_yaz(merkez, heading_ucak, heading_olculen, ofs)
+    return plan
+
+
+def _manevra_izle(kuru: bool, kalan) -> int:
+    """Sürüyü PILOT surerken YKI tarafindan izleme + sonda inis.
+
+    Buradan HICBIR hareket komutu cikmaz — sartname 5.2'nin istedigi tam
+    bu: gorev basladiktan sonra YKI mudahalesi YASAK. Kosucu yalnizca
+    kalkisi verir, izler ve sure dolunca indirir.
+    """
+    print(f"\n=== SURU PILOTUN — {MANEVRA_IZLEME_S:.0f} s izlenecek, "
+          f"YKI'den HAREKET KOMUTU GONDERILMEZ ===")
+    print("    pilot: SwA emniyet ac -> SwB mod -> cubuklar. "
+          "Kill pilotlari tetikte.")
+    t0 = time.time()
+    while time.time() - t0 < MANEVRA_IZLEME_S:
+        time.sleep(1.0)
+        if kalan() < 40:
+            print(f"\n    GOREV SURE TAVANI ({kalan():.0f}s) — iniliyor")
+            break
+        try:
+            t = durum()
+        except RuntimeError as e:
+            print(f"\n    UYARI: telemetri kesildi ({e}) — sürüyü pilot "
+                  f"surmeye devam eder, izleme sayacla surer")
+            continue
+        gecen = time.time() - t0
+        irt = "  ".join(
+            f"d{d}:{-t[d].get('pos_z', 0.0):.1f}m" for d in DRONELAR if d in t)
+        print(f"\r    t+{gecen:5.1f}s  {irt}   ", end="", flush=True)
+    print()
+    indir(kuru)
+    return 0
+
+
 # --- --senaryo formasyon_gecis (GECICI — 28 Agustos) -------------------------
 # CIZGI -> OKBASI -> V gecis testi. GECISLER BU BETIKTEN GONDERILMEZ:
 # tarif kaynagi ucaktaki formasyon_sekans_node (suru_dugumleri: `sekans`),
@@ -2989,6 +3155,25 @@ def gorev(kuru: bool) -> int:
         plan = plan_kur_test(merkez0, baslangic)
     elif _SENARYO == "formasyon":
         plan = plan_kur_formasyon(merkez0, baslangic)
+    elif _SENARYO == "manevra":
+        eksik = [d for d in DRONELAR if d not in t]
+        if not eksik:
+            plan = plan_kur_manevra(t)
+        elif kuru:
+            # formasyon_gecis ile ayni kalip: YKI kapaliyken plan YAPISI
+            # denetlenebilsin, ama harita UCULACAK geometri DEGIL.
+            print("\n[KURU] telemetri yok — TEMSILI yerlesim varsayildi. "
+                  "Harita ve dogrulama GERCEK DEGIL; sahada ucaklar "
+                  "acikken KURU TEST TEKRARLANMADAN UCULMAZ.")
+            _tems = {}
+            for _i, _did in enumerate(DRONELAR):
+                _tems[_did] = {"pos_x": merkez0[0],
+                               "pos_y": merkez0[1] + AYAR.MOD_ARALIK_M * _i}
+            plan = plan_kur_manevra(_tems)
+        else:
+            print(f"Telemetride yok: drone {eksik} — manevra senaryosu "
+                  "gercek konumlara dayanir, baslatilamaz.")
+            return 1
     elif _SENARYO == "formasyon_gecis":
         eksik = [d for d in DRONELAR if d not in t]
         if not eksik:
@@ -3045,6 +3230,7 @@ def gorev(kuru: bool) -> int:
                   else TEKLI_IRTIFA_M if _SENARYO == "tekli"
                   else FORMASYON_TEST_IRTIFA_M if _SENARYO in ("formasyon", "lider")
                   else AYAR.SEKANS_IRTIFA_M if _SENARYO == "formasyon_gecis"
+                  else AYAR.MOD_TEST_IRTIFA_M if _SENARYO == "manevra"
                   else KALKIS_IRTIFA_M)
     print(f"\n=== ARM + KALKIŞ {kalkis_irt:.0f} m ===")
     for did in DRONELAR:
@@ -3279,6 +3465,12 @@ def gorev(kuru: bool) -> int:
     if _SENARYO == "formasyon_gecis":
         return _formasyon_gecis_izle(kuru, kalan)
 
+    # --- manevra: plan YURUTULMEZ, sürüyü PILOT surer -----------------------
+    # Sartname 5.2: gorev basladiktan sonra YKI mudahalesi YASAK. Asagidaki
+    # genel yurutucu goto gonderirdi; bu senaryoda HIC girilmez.
+    if _SENARYO == "manevra":
+        return _manevra_izle(kuru, kalan)
+
     # --- Plan adımları ------------------------------------------------------
     # ILK YON DE KADEMELI VERILIR — HER DRONE KENDI OLCULEN YONUNDEN.
     #
@@ -3435,7 +3627,7 @@ def main() -> int:
                          "kacinma manevrasini kacis sanip gorevi iptal eder.")
     ap.add_argument("--senaryo",
                     choices=("kanit", "test", "formasyon", "formasyon_gecis",
-                             "lider", "tekli",
+                             "manevra", "lider", "tekli",
                              "asili", "irtifa", "takip", "g2", "donus", "tam",
                              "final", "saha"),
                     default="kanit",
@@ -3575,6 +3767,9 @@ def main() -> int:
         # bekletmemek icin.
         ap.error("--senaryo irtifa EN AZ IKI drone ister — olculen sey iki "
                  "ucak ARASINDAKI link (or. --dronelar 1,3)")
+    if a.senaryo == "manevra" and len(DRONELAR) < 2:
+        ap.error("--senaryo manevra EN AZ IKI drone ister — egim ve yaw "
+                 "zarfi tek ucakta olculemez (slot ofseti sifir).")
     if a.senaryo == "formasyon_gecis" and len(DRONELAR) < 2:
         ap.error("--senaryo formasyon_gecis EN AZ IKI drone ister — tek "
                  "ucakta reshape diye bir sey yok (or. --dronelar 1,2,3)")
@@ -3639,6 +3834,10 @@ def main() -> int:
           f"d{DRONELAR[0]} {IRTIFA_TEST_ALCAK_M:.0f} m / {IRTIFA_TEST_UST_M:.0f} m, "
           f"her bacak {IRTIFA_TEST_SURE_S:.0f}s (yatayda komut YOK)"
           if a.senaryo == "irtifa" else
+          f"  GÖREV 2 MANEVRA — ÇİZGİ {AYAR.MOD_ARALIK_M:.0f} m / "
+          f"{AYAR.MOD_TEST_IRTIFA_M:.0f} m, eğim ±{AYAR.MOD_TEST_EGIM_DEG:.0f}°, "
+          f"yaw {AYAR.MOD_TEST_YAW_DEG:.0f}° — SÜRÜYÜ PİLOT SÜRER"
+          if a.senaryo == "manevra" else
           "  TEK UÇAK TESTİ — kalkış yönünde 7 m, bekle, 5 m tırman, bekle, in"
           if a.senaryo == "tekli" else
           "  LİDER YANINA GEÇİŞ — lider yerinde asılı, takipçi sağına gelir"

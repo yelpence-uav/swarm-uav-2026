@@ -55,7 +55,7 @@ _dugum_exe() {
         fsm)       echo "swarm_fsm_node" ;;
         gorevfsm)  echo "mission_fsm_node" ;;
         mod)       echo "mode_manager_node" ;;
-        joystick)  echo "joystick_interpreter_node" ;;
+        joystick)  echo "joystick_interpreter_node rc_ibus_kopru" ;;
         gorev1)    echo "mission1_node" ;;
         goru)      echo "camera_driver vision_node" ;;
         inis)      echo "precision_landing_node" ;;
@@ -1416,19 +1416,44 @@ fi   # /altyapi: ic_dis_kopru
     # sahadaki ad alani /drone_N/mavros: remap SART, yoksa hic veri
     # gelmez ve HATA DA VERMEZ (TUZAKLAR'daki koksuz-ad sinifi).
     if baslat_mi joystick; then
+        # ADIM 12a — SURU kumandasinin i-BUS koprusu (30 Agustos 2026, B1).
+        #
+        # 🔴 SURU KUMANDASI PIXHAWK'TAN GELMEZ. Sartname 5.2 her IHA icin
+        # kill switch'e AYRI kumanda + AYRI pilot zorunlu kiliyor ve
+        # Pixhawk'in tek RC girisi ONA ait (CH5 kill, CH8 arm, CH3
+        # failsafe 2100). Suru kumandasinin alicisi Pi'ye i-BUS ile
+        # bagli; cerceveyi rc_ibus_kopru RCIn'e cevirir.
+        ros2 run swarm_control rc_ibus_kopru --ros-args \
+            -p agent_id:=${AGENT_ID} \
+            -p port:="'${SURU_RC_PORT:-/dev/ttyUSB0}'" \
+            >> "$GUNLUK/rc_ibus.log" 2>&1 &
+        sleep 1
+        echo "[baslat] rc_ibus_kopru basladi (port=${SURU_RC_PORT:-/dev/ttyUSB0}" \
+             "-> /drone_${AGENT_ID}/rc/suru)"
+
+        # ADIM 12b — yorumlayici. REMAP'LER SURU ALICISINA BAKAR.
+        #
+        # 🔴 IKISI DE CEVRILMEK ZORUNDA. Biri kill pilotunun alicisinda
+        # kalirsa o kumanda suruyu surer ve isaretler TERS calisir:
+        # suru zinciri CH5'i EMNIYET, CH8'i KALKIS/INIS saniyor —
+        # yani KILL SWITCH'I KALDIRMAK KOMUTLARI ACAR, ARM SWITCH'I
+        # KALKIS TETIKLER. manual_control OLU bir konuya cevriliyor:
+        # PX4 kill pilotunun cubuklarindan MANUAL_CONTROL uretiyor ve
+        # o da ayni callback'i besliyordu (gorev2.md B11).
         ros2 run swarm_state_machine joystick_interpreter_node --ros-args \
             -p max_speed_mps:=${MOD_HIZ:-2.0} \
             -p max_yaw_rate_deg_s:=${MOD_YAW_HIZI:-25.0} \
             -p max_tilt_deg:=${MOD_EGIM_TAVANI:-15.0} \
             -p deadman_timeout_s:=${MOD_DEADMAN_ZAMAN_ASIMI:-0.5} \
             -p default_spacing_m:=${MOD_ARALIK:-7.0} \
-            -r /mavros/rc/in:=/drone_${AGENT_ID}/mavros/rc/in \
-            -r /mavros/manual_control/control:=/drone_${AGENT_ID}/mavros/manual_control/control \
+            -r /mavros/rc/in:=/drone_${AGENT_ID}/rc/suru \
+            -r /mavros/manual_control/control:=/drone_${AGENT_ID}/rc/manual_control_KAPALI \
             >> "$GUNLUK/joystick.log" 2>&1 &
         sleep 1
         echo "[baslat] joystick_interpreter basladi — BU UCAK PILOT UCAGI:" \
-             "kumandasi tum suruyu surer (SwA emniyet, SwB mod," \
-             "SwC formasyon, SwD kalkis/inis)"
+             "SURU alicisindan surer (SwA emniyet, SwB mod," \
+             "SwC formasyon, SwD kalkis/inis). Kill pilotunun alicisi" \
+             "px4_bridge'de kalir, suruye DOKUNMAZ."
     fi
 
     # Gorev 1 orkestratoru. KARAR 10: her dronda kosar (sicak yedek).

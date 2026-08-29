@@ -24,6 +24,11 @@ NAME="drone${AGENT_ID}"
 SURU_DUGUMLERI="${SURU_DUGUMLERI:-}"
 TAKIM_ID="${TAKIM_ID:-}"
 KANAT_ALFA_DEG="${KANAT_ALFA_DEG:-45.0}"
+# GOREV 2 — SURU kumandasinin i-BUS alicisi (YALNIZ pilot ucaginda takili).
+# Sartname 5.2 kill switch icin AYRI kumanda + AYRI pilot zorunlu kiliyor,
+# yani Pixhawk'in tek RC girisi ONA ait; suru kumandasinin alicisi Pi'ye
+# i-BUS ile baglaniyor (gorev2.md B1).
+SURU_RC_PORT="${SURU_RC_PORT:-/dev/ttyUSB0}"
 
 if ! [[ "$AGENT_ID" =~ ^[0-9]+$ ]]; then
   echo "[HATA] AGENT_ID sayi olmali (orn: 2)"; exit 1
@@ -36,6 +41,26 @@ if docker ps -a --format '{{.Names}}' | grep -qx "$NAME"; then
 fi
 
 echo "==> $NAME baslatiliyor (agent_id=$AGENT_ID, ws=$WS_DIR, image=$IMAGE)..."
+
+# --- Suru RC alicisi: VARSA konteynere ver, YOKSA sessizce gec -------------
+# Bu ucak pilot ucagi degilse alici takili olmaz ve `--device` OLMAYAN bir
+# yol icin `docker run` HATA verip konteyneri hic acmaz. O yuzden kosullu.
+#
+# by-id yolu COZULUYOR: `docker --device` sembolik bagi degil gercek dugumu
+# ister. Bedeli su — alici baska bir USB portuna takilirsa ttyUSB numarasi
+# degisir ve KONTEYNER YENIDEN OLUSTURULMALIDIR (restart yetmez). Bu
+# `--device`in dogasi, kacisi yok; alicinin portunu sabit tut.
+RC_DEVICE=()
+if [ -e "$SURU_RC_PORT" ]; then
+  _rc_gercek="$(readlink -f "$SURU_RC_PORT")"
+  RC_DEVICE=(--device "$_rc_gercek")
+  SURU_RC_PORT="$_rc_gercek"
+  echo "==> suru RC alicisi: $SURU_RC_PORT (konteynere veriliyor)"
+else
+  echo "==> suru RC alicisi YOK ($SURU_RC_PORT) — bu ucak PILOT UCAGI DEGIL."
+  echo "    Pilot ucagiysa: alici takili mi, /ws/suru_dugumleri'nde 'joystick' var mi?"
+fi
+
 # LOG DONDURME — 20 Agustos 2026.
 #
 # OLCULDU (ylp00): docker'in json-file logu 16 Agustos 23:34'te iki NUL
@@ -67,6 +92,7 @@ docker run -d --name "$NAME" \
   --log-opt max-size=10m --log-opt max-file=3 \
   --device /dev/ttyAMA0 \
   --device /dev/ttyAMA4 \
+  ${RC_DEVICE[@]+"${RC_DEVICE[@]}"} \
   --cap-add SYS_TIME \
   -v "$WS_DIR:/ws" \
   -e ROS_DOMAIN_ID=0 \
@@ -75,6 +101,7 @@ docker run -d --name "$NAME" \
   -e SURU_DUGUMLERI="$SURU_DUGUMLERI" \
   -e TAKIM_ID="$TAKIM_ID" \
   -e KANAT_ALFA_DEG="$KANAT_ALFA_DEG" \
+  -e SURU_RC_PORT="$SURU_RC_PORT" \
   "$IMAGE" \
   bash /ws/baslat.sh
 

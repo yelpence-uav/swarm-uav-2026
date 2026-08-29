@@ -1,6 +1,6 @@
 # GÖREV 2 — Yarı Otonom Sürü Kontrolü
 
-**Son güncelleme:** 30 Ağustos 2026, 02:23 — Aşama A 1-7 UYGULANDI; B8 kök nedenden çözüldü; YKİ joystick paneli ve arka uç zinciri SİLİNDİ
+**Son güncelleme:** 30 Ağustos 2026, 02:48 — Aşama A 9 UYGULANDI (`--senaryo manevra`); mesh yükü ölçüldü, `_on_control_out` limiti G0 sonrasına bırakıldı
 
 Şartname **§5.2** · **100 puan** · görev başına **3 hak**, en yüksek puan sayılır.
 
@@ -315,14 +315,14 @@ Aşama geçişlerinde 🚦 kapı var — kapı sağlanmadan sonraki aşamaya ge�
 | **5** | ✅ **B5** `_on_formation_out`'a `source_module == 'mode_manager'` süzgeci | ~4 satır |
 | **6** | ✅ **B8** (kök nedenden: kendi olayını yok say) + **G2-K6** HOLD otomatik inişi kaldırıldı | ~30 satır |
 | **7** | ✅ **B9** — panel *kilitlenmedi*, **komple silindi** (operatör: simülasyon artığı) | −1.100 satır |
-| **8** | **`rc_ibus_kopru`** düğümü — çerçeve çözücü **saf fonksiyon**, donanımsız yazılıp test edilir | ~120 satır |
-| **9** | `gorev_kanit_ucus.py` → **`manevra` senaryosu** (kuru + eğim zarfı + harita). `CLAUDE.md` §9 uçuşu buna kapıyor | — |
+| **8** | ✅ **`rc_ibus_kopru`** + `baslat.sh` remap tekilleştirmesi + `run_drone.sh` koşullu `--device` | 391 satır |
+| **9** | ✅ **`--senaryo manevra`** — zarf tabanlı kuru test + harita + B17 ön-uçuş kapısı | ~190 satır |
 | **10** | Birim testler + `ucus_ayarlari.py` denetimi + `bash -n` | — |
 
 > 🚦 **Kapı:** testler yeşil olmadan Aşama B'ye geçilmez.
 >
-> **1-7 bitti (30 Ağustos 02:23).** `mode_context` + `mode_transitions`
-> **27/27 birim testi** bu laptopta geçiyor; YKİ `tsc` + derleme temiz. Düğüm katmanı
+> **1-9 bitti (30 Ağustos 02:48).** `mode_context` + `mode_transitions`
+> **27/27 + 17/17 birim testi** bu laptopta geçiyor; YKİ `tsc` + derleme temiz. Düğüm katmanı
 > (`mode_manager_node`, `joystick_interpreter_node`, `esp32_bridge`)
 > yalnız **sözdizimi** doğrulandı — `rclpy`/`swarm_interfaces` konteynerde;
 > gerçek doğrulama **G0'da** (madde 16-18).
@@ -397,7 +397,21 @@ En uzun bekleme **14** (konteyner recreate); en riskli **11** (gerilim) ve
   tik'inde entegre ediyor. Ölçülüp gerekirse ölçülen sürü merkezine yavaş
   düzeltme eklenecek (`_on_swarm_state` bugün yalnız IDLE/PREFLIGHT/TAKEOFF/
   READY'de centroid'i tazeliyor, MOVEMENT'ta **hiç** tazelemiyor)
-- **Mesh bütçesi** `TIP_KOMUT` ile birlikte (B13)
+- **Mesh bütçesi** `TIP_KOMUT` ile birlikte (B13). **Ölçüldü (30 Ağu):**
+  zincir `rc_ibus 50 Hz → joystick_interpreter ~80 Hz → esp32_bridge 80 Hz
+  UART → firmware 50 ms kapısı → mesh'e 20 Hz`. Mesh **~53 → ~73 çerçeve/s
+  (+%38)**; ESP-NOW yayın olduğu için tek gönderim iki uçağa birden gider.
+  ⚠️ `_on_control_out`'ta **hiç hız limiti yok** → UART'a yazdığımızın **%75'i**
+  ESP'de COBS+CRC çözülüp atılıyor. *Öneri (~8 satır):* `_on_control_out`'a
+  40 ms (25 Hz) limit — firmware kapısını doyurur, UART yazımını 80 → 25'e
+  indirir, **mesh yükünü değiştirmez**. 🟡 **Operatör kararı (30 Ağu):
+  G0 madde 23 ölçümünden SONRA** — ölçmeden değiştirme.
+- **Protokol yeterli:** `TIP_KOMUT` Görev 2'nin ihtiyacı olan her şeyi
+  taşıyor (mod, 4 çubuk, kalkış/iniş/RTL/acil, deadman, formasyon+aralık).
+  Paket **13 bayt dolu / 3 bayt boş**. `max_*` alanları bilerek taşınmıyor —
+  her uçak kendi paramından alır. **Tek olası ileri ihtiyaç:** B2'nin kalkış
+  irtifası; sıfır-mesh çözümü var (her uçağın kendi paramı, §5.2 görev öncesi
+  YKİ ayarına izin veriyor), alternatifi boş 3 bayttan biri (~10 satır).
 - **ACİL İNİŞ butonu Görev 2'de hâlâ gizli** (`App.tsx`:
   `selectedMissionId !== MISSION_ID.SEMI_AUTONOMOUS`). Gizlenme sebebi
   joystick panelinin o alanı kaplamasıydı; panel silindi, **sebep kalktı.**

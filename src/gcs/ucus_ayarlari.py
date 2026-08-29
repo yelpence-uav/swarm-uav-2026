@@ -523,6 +523,13 @@ MOD_DEADMAN_ZAMAN_ASIMI_S = 0.5
 # 2.0 m: yer gurultusunun acikca ustunde, en dusuk planlanan irtifanin
 # (8 m) acikca altinda.
 MOD_KALKIS_ESIK_M = 2.0
+# --- Gorev 2 MANEVRA TESTI genlikleri (G2-K4, operator 30 Agustos) --------
+# Bunlar TAVAN degil TEST genligi: tavanlar yukarida (egim 15, yaw 25/s),
+# test bunlarin altinda kalir. `--senaryo manevra` kuru testi ve haritasi
+# bu sayilarla cizilir; kumandada karsiligi ~%66 egim / %50 yaw cubugu.
+MOD_TEST_IRTIFA_M = 8.0        # 28 Agu sekans ucusuyla ayni irtifa
+MOD_TEST_EGIM_DEG = 10.0       # cubuk %66
+MOD_TEST_YAW_DEG = 45.0        # toplam donus (12,5 deg/s ile ~3,6 s)
 
 
 def _sekans_geometri():

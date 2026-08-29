@@ -27,6 +27,8 @@ setup(
             'swarm_control.esp32_bridge.esp32_bridge_node:main',
             'ic_dis_kopru = '
             'swarm_control.ic_dis_kopru:main',
+            'rc_ibus_kopru = '
+            'swarm_control.rc_ibus.rc_ibus_kopru_node:main',
         ],
     },
 )
