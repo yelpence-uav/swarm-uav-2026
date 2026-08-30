@@ -523,6 +523,11 @@ MOD_DEADMAN_ZAMAN_ASIMI_S = 0.5
 # 2.0 m: yer gurultusunun acikca ustunde, en dusuk planlanan irtifanin
 # (8 m) acikca altinda.
 MOD_KALKIS_ESIK_M = 2.0
+# ⚠️ ESIK PAYLASILAN ORIGIN'E GORE, YERE GORE DEGIL (30 Agu olculdu).
+# AgentStatus.pos_z origin-goreli; ucaklar origin'le ayni kotta durmuyor.
+# Olculen: ylp00 -0,5 m · ylp01 +0,2 m · ylp02 +0,5 m. Yani ylp00'in
+# esigi gecmesi icin 2,5 m tirmanmasi gerekiyor. Duz sahada onemsiz,
+# ama esik buyutulurse bu fark da buyur.
 # --- Gorev 2 MANEVRA TESTI genlikleri (G2-K4, operator 30 Agustos) --------
 # Bunlar TAVAN degil TEST genligi: tavanlar yukarida (egim 15, yaw 25/s),
 # test bunlarin altinda kalir. `--senaryo manevra` kuru testi ve haritasi

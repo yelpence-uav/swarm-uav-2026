@@ -1,6 +1,6 @@
 # GÖREV 2 — Yarı Otonom Sürü Kontrolü
 
-**Son güncelleme:** 30 Ağustos 2026, 13:49 — **G0 madde 16 GEÇTİ**; iki gerçek kusur sahada yakalandı (QoS kırığı + yayın hızı); Aşama B bitti (kod dağıtıldı + üç konteyner recreate); i-BUS zinciri uçtan uca çalıştı (130 Hz, 0 checksum hatası); işaret yönleri ölçüldü → **pitch ve yaw TERSTİ**, düzeltildi; **B18** gaz kapısı eklendi
+**Son güncelleme:** 30 Ağustos 2026, 14:00 — **G0 madde 16 + 18 GEÇTİ**; kapının HİÇ AÇILAMAYACAĞI bir kusur bulundu ve kapatıldı; iki gerçek kusur sahada yakalandı (QoS kırığı + yayın hızı); Aşama B bitti (kod dağıtıldı + üç konteyner recreate); i-BUS zinciri uçtan uca çalıştı (130 Hz, 0 checksum hatası); işaret yönleri ölçüldü → **pitch ve yaw TERSTİ**, düzeltildi; **B18** gaz kapısı eklendi
 
 Şartname **§5.2** · **100 puan** · görev başına **3 hak**, en yüksek puan sayılır.
 
@@ -213,6 +213,48 @@ sorun değil.
 **Mesh için ölçüm:** `/swarm/internal/control/command` **62,8 Hz** akıyor ve
 `esp32_bridge` hepsini UART'a yazıyor; firmware kapısı 20 Hz geçiriyor →
 **%68 boşa.** Ertelenen `_on_control_out` limiti kararının sayısı bu.
+
+
+### 🔴 G0 madde 18 — kapının HİÇ AÇILAMAYACAĞI kusur (30 Ağustos)
+
+`mode_manager` üç `agent_id` için de `/swarm/public/drone{N}/status` dinliyordu
+— **kendisi dahil.** Ama ölçüldü: o konunun **yayıncı sayısı 0**.
+
+Sebep tasarım: `ic_dis_kopru` tablosu *"drone{N}/status BİLEREK hariç"* diyor;
+uçağın kendi durumu kendi public konusuna köprülenmiyor, oraya yalnız
+**mesh'ten komşuların** durumu düşüyor.
+
+**Sonucu:** `all_agents_seen()` asla `True` olmuyordu → **kalkış kapısı (B15)
+HİÇBİR ZAMAN açılamazdı** → `mode_manager` havada da hiçbir şey yayınlamazdı.
+**Görev 2 komple ölü olurdu ve hiçbir yerde hata görünmezdi.**
+
+*Düzeltme:* `formation_node`'un deseni (`formation_node.py:341`) —
+kendi durumu `/swarm/agent/drone{ben}/telemetry`'den (px4_bridge, 10 Hz),
+komşularınki mesh'ten. `agent_id` parametresi eklendi.
+
+**Asıl ders sessizlikti.** Kapı neden kapalı olduğunu söylemiyordu. Artık
+10 saniyede bir sebebini yazıyor ve bu kusuru ilk saniyede yakaladı:
+
+```
+t+0.06s  kalkis kapisi KAPALI — durumu HIC GELMEYEN ajan: [2, 3]
+t+10s    kalkis kapisi KAPALI — esigin (2.0 m) altindaki ajanlar:
+                                {1: -0.5, 2: 0.2, 3: 0.5}
+```
+
+⚠️ Yükseklikler **paylaşılan origin'e göre**, yere göre değil. ylp00 origin'in
+0,5 m altında; eşiği geçmesi için 2,5 m tırmanması gerekiyor.
+
+**Doğrulanan durum (üç uçak yerde, `mod` + `mod_test` açık):**
+
+```
+formasyon_sustur   20.0 Hz, data:false   <- dugum canli, tikliyor
+formation/target   YAYIN YOK             <- kapi tutuyor ✅
+setpoint/raw       YAYIN YOK             ✅
+FSM                IDLE -> PREFLIGHT     <- B3 calisti, READY'ye GECMEDI
+```
+
+B3'ün `test_hazir_atla`'sı B15'i **baypas edemiyor** — birim testte kilitliydi,
+sahada da doğrulandı.
 
 ---
 
@@ -498,7 +540,7 @@ Aşama geçişlerinde 🚦 kapı var — kapı sağlanmadan sonraki aşamaya ge�
 |---|---|
 | **16** | ✅ **GEÇTİ.** Port 130 Hz / 0 hata · `/drone_1/rc/suru` **32,5 Hz** · 🔴 **kill pilotu izolasyonu YAPISAL olarak kanıtlandı** (aşağıda) |
 | **17** | ✅ **ÖLÇÜLDÜ — pitch ve yaw TERSTİ, düzeltildi.** Tablo §2'de, testlerle kilitlendi (`test_rc_eksen.py`) |
-| **18** | FSM READY'ye çıkıyor mu (`/ws/mod_test` ile) · **kalkış kapısı yerde tutuyor mu** (B15 — tarif yayınlanMAMALI) |
+| **18** | ✅ **GEÇTİ.** Kapı yerde tutuyor (hiçbir yayın yok) · B3 IDLE→PREFLIGHT ✓ · 🔴 **kapının hiç açılamayacağı kusur bulundu ve kapatıldı** (aşağıda) |
 | **19** | MANEVRA'da **merkez sabitliği** (xy değişmemeli) + `formasyon_sustur` bayrağı |
 | **20** | **Centroid sürüklenmesi**: üç uçağın `formation/target.center_*` farkı, 60 sn |
 | **21** | **B6 kararı:** çubuk basamağında centroid hızı sıçrıyor mu? Sıçrıyorsa `swarm_movement_step` (ivme rampalı, yazılı ve testli) **uçuştan önce** devreye alınır — osilasyon cezası −10 |

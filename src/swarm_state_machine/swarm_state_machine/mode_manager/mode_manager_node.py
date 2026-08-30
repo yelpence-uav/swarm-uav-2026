@@ -99,6 +99,9 @@ class ModeManagerNode(Node):
         from rcl_interfaces.msg import ParameterDescriptor
         _dnm = ParameterDescriptor(dynamic_typing=True)
         self.declare_parameter('agent_ids', [1, 2, 3])
+        # KENDI kimligim — kendi durumumu YEREL kaynaktan almak icin
+        # sart (bkz. _setup_subscribers). 0 = bilinmiyor.
+        self.declare_parameter('agent_id', 0, _dnm)
         self.declare_parameter('tick_hz', 20.0, _dnm)
         self.declare_parameter('sitl_mode', False)
         # LIMITLER TEK KAYNAKTAN (ucus_ayarlari MOD_* -> baslat.sh env).
@@ -121,6 +124,7 @@ class ModeManagerNode(Node):
         self._agent_ids = list(
             self.get_parameter('agent_ids').value
         )
+        self._agent_id = int(self.get_parameter('agent_id').value)
         self._tick_hz = float(
             self.get_parameter('tick_hz').value
         )
@@ -211,12 +215,39 @@ class ModeManagerNode(Node):
 
     def _setup_subscribers(self) -> None:
         """Abone kanallarini olusturur."""
+        # 🔴 KENDI DURUMUM /swarm/public/drone{ben}/status'TAN GELMEZ.
+        #
+        # 30 Agustos 2026 sahada olculdu: o konunun YAYINCI SAYISI 0.
+        # Sebep tasarim — ic_dis_kopru tablosu "drone{N}/status BILEREK
+        # haric" diyor; ucagin kendi durumu kendi public konusuna
+        # koprulenmiyor, oraya yalniz mesh'ten KOMSULARIN durumu dusuyor.
+        #
+        # Sonucu agirdi: all_agents_seen() asla True olmuyordu, yani
+        # KALKIS KAPISI (B15) HICBIR ZAMAN ACILAMAZDI ve mode_manager
+        # havada da hicbir sey yayinlamazdi. Gorev 2 komple olu olurdu ve
+        # hicbir yerde hata gorunmezdi.
+        #
+        # Cozum formation_node'un deseni (formation_node.py:341): kendi
+        # durumu /swarm/agent/drone{ben}/telemetry'den (px4_bridge, 10 Hz),
+        # komsularinki mesh'ten public'ten.
         for aid in self._agent_ids:
+            if aid == self._agent_id:
+                konu = f'/swarm/agent/drone{aid}/telemetry'
+            else:
+                konu = f'/swarm/public/drone{aid}/status'
             self.create_subscription(
                 AgentStatus,
-                f'/swarm/public/drone{aid}/status',
+                konu,
                 lambda msg, a=aid: self._on_agent_status(msg, a),
                 _BEST_EFFORT_QOS,
+            )
+            self.get_logger().info(f'ajan {aid} durumu <- {konu}')
+
+        if self._agent_id == 0:
+            self.get_logger().error(
+                'agent_id VERILMEDI (0). Kendi durumum public konudan '
+                'beklenecek ve ORASI BOS — kalkis kapisi HIC ACILMAZ. '
+                'baslat.sh -p agent_id:=${AGENT_ID} gecirmeli.'
             )
 
         self.create_subscription(
@@ -258,6 +289,25 @@ class ModeManagerNode(Node):
         # cunku _from_takeoff ctx.kalkis_tamam'i okuyor (B3 test yolu).
         _kapi_onceydi = ctx.kalkis_tamam
         ctx.kalkis_kapisi_degerlendir()
+        # 🔴 KAPI NEDEN KAPALI — sessiz kalmasi 30 Agustos'ta bir kusuru
+        # gizlemisti (kendi durumu hic gelmiyordu ve kimse fark etmiyordu).
+        # Kapali kaldigi surece 10 saniyede bir SEBEBINI soyler.
+        if not ctx.kalkis_tamam:
+            eksik = [a for a in self._agent_ids if a not in ctx.agent_statuses]
+            if eksik:
+                sebep = f'durumu HIC GELMEYEN ajan: {eksik}'
+            else:
+                alcak = {
+                    a: round(-float(ctx.agent_statuses[a].pos_z), 1)
+                    for a in self._agent_ids
+                    if -float(ctx.agent_statuses[a].pos_z) < ctx.kalkis_esik_m
+                }
+                sebep = (f'esigin ({ctx.kalkis_esik_m:.1f} m) altindaki '
+                         f'ajanlar: {alcak}' if alcak else 'bilinmiyor')
+            self.get_logger().info(
+                f'[mode_manager] kalkis kapisi KAPALI — {sebep}',
+                throttle_duration_sec=10.0,
+            )
         if ctx.kalkis_tamam and not _kapi_onceydi:
             # Ofsetleri de OLCULEN geometriyle tohumla — pilot ilk is
             # MANEVRA'ya gecerse gomulu ucgen egilmesin (bkz. docstring).
