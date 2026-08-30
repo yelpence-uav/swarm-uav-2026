@@ -1,6 +1,6 @@
 # DURUM — şu an ne çalışıyor, ne bozuk
 
-**Son güncelleme:** 30 Ağustos 2026, 00:05 — §2 düzeltildi: `TIP_OLAY` 27 Ağustos'ta eklendi, olaylar YKİ'ye ULAŞIYOR (belge 3 gündür yanlıştı)
+**Son güncelleme:** 30 Ağustos 2026, 03:29 — §4 düzeltildi: uçaklar artık **uçak tarafı koda da geride** (Görev 2 + `swarm_fsm`); `/ws/mod_test` bayrağı eklendi
 
 
 ## 1. Filo
@@ -183,6 +183,7 @@ Aksi yazmıyorsa **üç uçakta da aynı.**
 | `~/yelpence_ws/tgt_system` | ylp02'de `3` | ylp02'nin FCU sysid'i 3 |
 | `BATARYA_KRITIK_V` | `0.0` | FSM bataryaya bakmıyor (regülatörden besleme) |
 | `~/yelpence_ws/gps_saat_kapali` | yok | Varsa GPS'ten saat düzeltmesi yapılmaz |
+| `~/yelpence_ws/mod_test` | **YOK** (30 Ağu eklendi, dağıtılmadı) | Görev 2 G0 bayrağı: `mission_fsm` kapalıyken `mode_manager` FSM'ini READY'ye ulaştırır (`test_hazir_atla`). **Kalkış kapısını BAYPAS ETMEZ.** Uçuş öncesi kaldırılması operatör kararı |
 | ~~`~/yelpence_ws/kacinma`~~ | **kaldırıldı** | 🔴 `basit_kacinma` 29 Ağu'da silindi. Dosya bir uçakta duruyorsa **`baslat.sh` hata verip durur** — sessizce korumasız kalmasın diye |
 
 
@@ -224,11 +225,36 @@ takılınca **üçünü birden** aç, biri unutulursa tutarsız davranır:
 ## 4. Kod senkronu
 
 ```
-ucaklarda (uc de) : 04f3828 +KIRLI    29 Agustos 19:15'te dagitildi ve
-                                       konteynerler yeniden baslatildi
-repoda            : 04f3828 + commit'lenmemis degisiklikler
-                    (kural sadelestirmesi, --paket/--yalniz, --durum eklentileri)
+ucaklarda (uc de) : e4eceb9   29 Agustos 19:15'te dagitildi, konteynerler
+                              yeniden baslatildi. 30 Agustos'ta HIC
+                              DOKUNULMADI.
+repoda            : 790e8c1   (30 Agustos 03:10)
 ```
+
+### 🔴 Uçaklar artık UÇAK TARAFI KODA DA geride
+
+29 Ağustos'ta fark yalnız YKİ + belgeydi. **30 Ağustos'ta Görev 2 çalışması
+uçakta koşan koda girdi.** Dağıtılmamış olanlar:
+
+| Dosya | Ne değişti | Bugün koşan davranışa etkisi |
+|---|---|---|
+| `deploy/rpi/baslat.sh` | `joystick` iki düğüm açıyor, remap'ler, `mod` param'ları, `/ws/mod_test`, `fsm` uyarısı | Görev 2 anahtarları kapalı → **etki yok** |
+| `deploy/rpi/run_drone.sh` | koşullu `--device` (suru RC alıcısı) | konteyner recreate'te geçerli |
+| `swarm_control/rc_ibus/` | **YENİ düğüm** + testleri | anahtar kapalı → etki yok |
+| `esp32_bridge_node.py` | B5 süzgeci (`source_module == 'mode_manager'`) | `mode_manager` kapalı → **etki yok** |
+| `mode_manager/*` | B3/B4/B5/B7/B8/B10/B15 + G2-K6 | düğüm kapalı → etki yok |
+| `swarm_core/manual_kinematics.py` | `dairesel_ortalama_deg` **eklendi** (`apply_tilt` değişmedi) | Görev 1 davranışı **aynı** |
+| 🔴 `swarm_fsm/*` | **B17: `formation_heading_deg` artık HESAPLANIYOR** | **`swarm_fsm` ŞU AN KOŞAN 11 DÜĞÜMDEN BİRİ** |
+
+> 🔴 **Tek gerçek davranış değişikliği `swarm_fsm`.** Bugüne kadar
+> `SwarmState.formation_heading_deg` kalıcı `0.0` gidiyordu; dağıtımdan
+> sonra uçakların yaw ortalamasını taşıyacak. Tüketicileri: `mode_manager`
+> (kapalı) ve **YKİ arayüzü** (bugün 0 gösteriyordu, gerçek değer görecek).
+> Uçuşu süren zincirde tüketicisi **yok** — ama sonraki dağıtımdan sonra
+> YKİ'de bu alanın değişmesi **beklenen** bir şeydir, arıza değil.
+
+⚠️ `swarm_core` ve `swarm_state_machine` değiştiği için dağıtımda
+`--paket` ile tek paket derlemek **yetmez**; ikisi de derlenmeli.
 
 **29 Ağustos dağıtımının doğrulanmış hâli** (üç uçakta da aynı):
 

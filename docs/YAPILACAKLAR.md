@@ -1,6 +1,6 @@
 # YAPILACAKLAR
 
-**Son güncelleme:** 29 Ağustos 2026, 21:15 — ADIM 6'ya KARAR-12 bağlandı (`mission_active` mesh yolu)
+**Son güncelleme:** 30 Ağustos 2026, 03:29 — Görev 2 bloğu `docs/gorev2.md`'ye devredildi; Aşama A (kod) BİTTİ
 
 > **Finale 8 gün.** Bu liste artık "her fikir" değil, **bu 8 günde
 > yapılacak iş.** Bir madde buraya giriyorsa birinin onu yapması planlanıyor
@@ -39,27 +39,39 @@
 
 ---
 
-## 🟠 P1 — GÖREV 2 (manevra modu, KARAR-11 · kod hazır, hiç koşmadı)
+## 🟠 P1 — GÖREV 2 · **ayrıntılı liste `docs/gorev2.md` §4'te**
 
-Kod `f6f8498`'de hazır ve **uçaklara dağıtılmadı.** Sıra bozulmaz.
+> Bu blok 30 Ağustos'ta **`docs/gorev2.md`'ye devredildi** — orada 29 maddelik,
+> aşamalara bölünmüş, kapılı liste var. Burada yalnız **özet ve sıradaki iş**.
 
-- `[ ]` 🟠 **Operatör onayı — 3 soru** (`KARARLAR.md` KARAR-11):
-  ① sürücü uçağı hangisi (öneri ylp00) ② genlikler: eğim ±10°, yaw ~45° /
-  12,5°/s ③ iniş slot üstüne land (EVE fazı yok).
-- `[ ]` 🟠 **Manevra test kodu.** Sürücü düğümü (`manevra_test_surucusu`,
-  GEÇİCİ, tek uçakta yayın) + kosucu `manevra` senaryosu (kuru + eğim zarfı +
-  harita) + panel butonu + birim testler. **İçinde iki düzeltme var:**
-  `_handle_formation_change` kendi `_formation_offsets`'ini güncellemiyor
-  (ışınlanma riski) · mode_manager FSM'i sahada READY'ye ulaşamıyor
-  (`test_hazir_atla` parametresi, sekans deseni).
-- `[ ]` 🟠 **Dağıtım + G0.** env yenile + `dagit.sh` ×3 + `/ws/gozlem` tak +
-  `mod` anahtarı (3 uçak) + `joystick` anahtarı (**YALNIZ pilot uçağı** —
-  üçünde açılırsa üç kumanda birden sürüye komut basar).
-  *Ölçülecek:* işaret yönleri, merkez sabitliği, deadman, susturma bayrağı.
-- `[ ]` 🟠 **Uçuş A:** ÇİZGİ'de yalnız pitch/roll eğimi.
-- `[ ]` 🟠 **Uçuş B:** OKBAŞI/V eğim (asimetri) + yaw rotasyonu.
-- `[ ]` 🟠 **Gerçek kumandayla `joystick` zinciri** (G0'dan sonra).
-  ⚠️ `manual_control` mi `rc/in` mi aktığı hiç ölçülmedi (rc/in kanıtlı, 19 Hz).
+**✅ AŞAMA A BİTTİ (30 Ağustos, madde 1-10 + B17).** Kod tarafı tamam:
+V formasyonu kumandadan seçilebiliyor · kalkış kapısı (uçak artık origin'e
+gidemez) · `rc_ibus_kopru` (ikinci RC alıcısı) · `--senaryo manevra` ·
+YKİ joystick zinciri silindi · heading artık hesaplanıyor. **293 birim testi.**
+⚠️ Düğüm katmanı yalnız **sözdizimi** doğrulandı — gerçek doğrulama G0'da.
+
+- `[ ]` 🔴 **AŞAMA B — donanım (SIRADAKİ İŞ).** `gorev2.md` §4 madde 11-15:
+  ① 🔴 **i-BUS gerilim ölçümü** — Pi 5 GPIO **5 V toleranslı DEĞİL**,
+  multimetresiz bağlanmaz ② kumanda #2: bind + **10 kanal modu** +
+  **failsafe SwA=KİLİTLİ** ③ kablolama + `SURU_RC_PORT`
+  ④ **konteyner recreate ×3** (`--device` + A19 + A12 + korupt log, tek işlem)
+  ⑤ dağıtım — ⚠️ `swarm_core` ve `swarm_state_machine` ikisi de değişti,
+  `--paket` ile tek paket **yetmez**.
+- `[ ]` 🟠 **AŞAMA C — G0 yerde** (madde 16-23): RC akıyor mu · **kill
+  pilotunun çubuğu sürüyü OYNATMAMALI** · işaret yönleri · kalkış kapısı
+  yerde tutuyor mu · merkez sabitliği · centroid sürüklenmesi · deadman ·
+  **mesh bütçesi**.
+- `[ ]` 🟠 **AŞAMA D — uçuşlar** (madde 24-27): A (ÇİZGİ, pitch/roll git-gel)
+  → B (manevra, merkez sabitliği) → **B2 kumandadan kalkış** → C (asimetri).
+- `[ ]` 🟡 **`_on_control_out` hız limiti** — ölçüldü: UART'a yazdığımızın
+  **%75'i** ESP'de atılıyor. ~8 satır. **Operatör kararı: G0 madde 23
+  ölçümünden SONRA** (`gorev2.md` §5).
+- `[ ]` 🟡 **ACİL İNİŞ butonu Görev 2'de hâlâ gizli** — gizlenme sebebi
+  joystick paneliydi, panel silindi, **sebep kalktı**. Gösterilsin mi:
+  operatör kararı.
+- `[ ]` 🟡 **`--durum` gibi başka eskimiş liste var mı?** 30 Ağustos'ta
+  `drone_bul.sh --durum`'un bayrak listesinde `gozlem`/`yer_testi`/`origin`
+  eksikti (kırmızı çizgi olmalarına rağmen). Benzeri aranmadı.
 
 ---
 

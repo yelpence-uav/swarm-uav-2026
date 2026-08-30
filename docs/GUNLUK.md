@@ -1,6 +1,6 @@
 # GÜNLÜK — oturum devir teslim kaydı
 
-**Son güncelleme:** 30 Ağustos 2026, 00:05 — YKİ ölü kartları kaldırıldı, KARAR-12 (`mission_active` mesh yolu)
+**Son güncelleme:** 30 Ağustos 2026, 03:29 — Görev 2 Aşama A (kod) BİTTİ; `docs/gorev2.md` açıldı
 
 Tek bilgisayar, sırayla çalışıyoruz. Biri kalkıp diğeri oturduğunda **hem
 kişi hem Claude** nerede kalındığını buradan anlar.
@@ -35,6 +35,98 @@ Claude'a **"oturumu kapat"** dersen bu kaydı o yazar.
 - ylp00: (kill switch? pil? nerede? konteyner ayakta mı?)
 - ylp02:
 ```
+
+---
+
+## 2026-08-30 03:29 — Osman + Claude (GÖREV 2 — Aşama A: kod tarafı BİTTİ)
+
+> **Uçuş yok, uçaklara HİÇ DOKUNULMADI.** Gece boyu Görev 2 çalışıldı:
+> şartname çözümlendi, `docs/gorev2.md` açıldı, 17 boşluk bulundu, kod
+> tarafının tamamı (Aşama A, madde 1-10 + B17) kapatıldı. 4 commit.
+
+**Ne yapıldı**
+
+- **Şartname §5.2 PDF'ten okundu.** Görev 2 = 100 puan, 3 hak. Ceza:
+  çarpışma −20×N · kalkışta hata −5 · düşme −5 · **osilasyon −10**.
+  🔴 Şartname **iki kumanda zorunlu** kılıyor: *"suruyu yoneten kumanda
+  DISINDA, kill switch icin AYRI bir kumanda ve ayri yetkili pilot"*.
+  Yani ikinci alıcı kararı tercih değil, **şart**.
+- **17 boşluk bulundu, hepsi kodda `dosya:satır` ile doğrulandı.** En ağır üçü:
+  - **B1** — `joystick_interpreter` RC'yi yalnız Pixhawk'tan okuyordu, ama
+    ylp00'ın tek RC girişi **kill pilotuna ait** (CH5 kill, CH8 arm).
+    Remap tekilleştirilmeseydi **kill switch'i kaldırmak sürü komutlarını
+    AÇAR**, arm switch'i kalkış tetiklerdi.
+  - **B15** — `mode_manager` READY'de tarif yayınlıyor, centroid ise
+    `compute_centroid():129` aktif ajan yoksa **yazmadan dönüyor** →
+    `(0,0,0)`. B3'ün düzeltmesi tek başına uygulansaydı **uçak NED
+    origin'e giderdi.**
+  - **B17** — `swarm_fsm` `formation_heading_deg`'i tanımlıyor, yayınlıyor,
+    **arada atama yok** → kalıcı `0.0`. Kontrolün pilota geçtiği anda sürü
+    kuzeye dönerdi (~10 m/uçak).
+- **293 birim testi geçiyor** (27 yeni). `tsc` + `vite build` temiz.
+- **Mesh ölçüldü:** Görev 2 mesh'e **+20 çerçeve/s** ekliyor (~53 → ~73).
+  **Yapısal mesh değişikliği GEREKMİYOR** — `TIP_KOMUT` her şeyi taşıyor,
+  paket 13 bayt dolu / **3 bayt boş**.
+
+**Ne değişti**
+
+- kod (uçak tarafı, **DAĞITILMADI**): `mode_manager/*` (B3/B4/B5/B7/B8/B10/
+  B15 + G2-K6) · `swarm_fsm/*` (B17) · `esp32_bridge` (B5 süzgeci) ·
+  `manual_kinematics` (`dairesel_ortalama_deg` **eklendi**, `apply_tilt`
+  değişmedi) · **YENİ** `swarm_control/rc_ibus/` · `baslat.sh` · `run_drone.sh`
+- kod (YKİ): `--senaryo manevra` (`gorev_kanit_ucus.py`) ·
+  `ucus_ayarlari` `MOD_KALKIS_ESIK` + `MOD_TEST_*` ·
+  **YKİ joystick zinciri KOMPLE SİLİNDİ** (panel + gamepad + `api.ts` +
+  `POST /api/swarm/control` + `publish_swarm_control`) — −1.430 satır,
+  derleme 357,56 → 344,03 kB
+- **uçakta: HİÇBİR ŞEY.** Üç uçak 29 Ağustos 19:15 dağıtımından beri aynı
+  hâlde, bugün açılmadılar bile.
+- belge: **`docs/gorev2.md` YENİ** (Görev 2'nin tek toplanma noktası) ·
+  `README` + `KARARLAR` ondan haberdar edildi · `DURUM` §3/§4 ·
+  `YAPILACAKLAR` Görev 2 bloğu devredildi
+
+**Yarım kalan / tuzak**
+
+- 🔴 **UÇAKLAR ARTIK UÇAK TARAFI KODA DA GERİDE.** 29 Ağustos'ta fark yalnız
+  YKİ+belgeydi; bugün `baslat.sh`, `swarm_core`, `swarm_state_machine`,
+  `swarm_control` değişti. Ayrıntı `DURUM.md` §4 tablosunda.
+  ⚠️ Dağıtımda `--paket` ile **tek paket yetmez** — `swarm_core` ve
+  `swarm_state_machine` ikisi de derlenmeli.
+- 🔴 **Dağıtımdan sonra YKİ'de `formation_heading_deg` DEĞİŞECEK.** Bugüne
+  kadar kalıcı `0.0` gidiyordu, artık uçakların yaw ortalamasını taşıyacak.
+  `swarm_fsm` şu an koşan 11 düğümden biri — **bu beklenen bir değişiklik,
+  arıza değil.** Uçuşu süren zincirde tüketicisi yok.
+- ⚠️ **Düğüm katmanı yalnız SÖZDİZİMİ doğrulandı.** `rclpy`/`swarm_interfaces`
+  konteynerde olduğu için `mode_manager_node`, `joystick_interpreter_node`,
+  `rc_ibus_kopru`, `esp32_bridge` bu laptopta **çalıştırılamadı**. Saf-Python
+  katmanı (context/transitions/çözücü/kinematik) 293 testle kapalı, ama
+  **düğümlerin gerçek doğrulaması G0'da.**
+- 🔴 **i-BUS gerilimi ÖLÇÜLMEDİ.** FS-iA6B 5 V ile besleniyor, i-BUS çıkışı
+  yaygın olarak 3,3 V bildiriliyor **ama garanti değil** ve **Pi 5 GPIO'su
+  5 V toleranslı DEĞİL.** Multimetresiz bağlanmaz.
+- ⚠️ **Uçakların yerdeki YÖNÜ artık önemli** (B17 sonrası): formasyon
+  burunların baktığı yöne göre kuruluyor. Aynı yöne dizin; `--kuru`
+  tutarlılık < 0,90 ise uyarıyor.
+- 🟡 `--senaryo manevra` telemetrisiz **"SONUÇ: KALDI"** der — doğru
+  davranış, `formasyon_gecis` de aynısını yapıyor. Uçaklar açıkken tekrarla.
+- 🟡 Plan iki kez yanlış çıktı, ikisi de kod okunarak yakalandı: **B16**
+  ("`fsm` kapısı koy" → gerekçe çürüdü, **uyarı** yapıldı) ve **B8**
+  ("land kapısına RTL ekle" → pilotun iniş komutunu engellerdi, **kök
+  nedene** inildi). `PLAN.md` §8 kuralı iki kez işe yaradı.
+
+**Sıradaki adım**
+
+- **AŞAMA B — donanım** (`YAPILACAKLAR` Görev 2 bloğu · `gorev2.md` §4
+  madde 11-15). İlk iş 🔴 **i-BUS gerilim ölçümü**, sonra kumanda #2
+  (10 kanal + failsafe SwA=KİLİTLİ), konteyner recreate ×3, dağıtım.
+
+**Uçakların bırakıldığı hâl**
+
+- ylp00 · ylp01 · ylp02: **üçü de 29 Ağustos'tan beri DOKUNULMADI.**
+  Bugün açılmadılar. Kod `e4eceb9`, bayraklar
+  `suru_dugumleri = origin consensus fsm formasyon ca`, `/ws/gozlem` YOK,
+  `/ws/yer_testi` YOK, 11 düğüm. Yeni `/ws/mod_test` bayrağı **henüz hiçbir
+  uçakta yok** (dağıtılmadı).
 
 ---
 
