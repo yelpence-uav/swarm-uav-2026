@@ -1,6 +1,6 @@
 # GÖREV 2 — Yarı Otonom Sürü Kontrolü
 
-**Son güncelleme:** 30 Ağustos 2026, 03:45 — Aşama A bitti; **B madde 11+13 KAPANDI**: kablo takılı (pin 29 = GPIO5), sinyal **~3 V ölçüldü**, port `/dev/ttyAMA2`
+**Son güncelleme:** 30 Ağustos 2026, 13:02 — **i-BUS ZİNCİRİ UÇTAN UCA ÇALIŞTI** (130 Hz, 0 checksum hatası); işaret yönleri ölçüldü → **pitch ve yaw TERSTİ**, düzeltildi; **B18** gaz kapısı eklendi
 
 Şartname **§5.2** · **100 puan** · görev başına **3 hak**, en yüksek puan sayılır.
 
@@ -113,9 +113,58 @@ bağlantı doğrudan Pi UART'ına yapıldı, `ttyUSB` numarası kayması derdi y
 üç uçakta elle eklenmeli.** Tam tablo `cihazlar.md`, filo dağılımı
 `RPI_ESITLEME.md` **A23**.
 
+
+### 🔬 SAHA ÖLÇÜMÜ — 30 Ağustos 2026, ylp00, FS-i6X #2
+
+i-BUS zinciri **uçtan uca çalıştı.** Düğüm dağıtımı gerekmedi; port doğrudan
+okundu (`/dev/ttyAMA2`, 115200 8N1).
+
+```
+2597 + 3246 + 5195 cerceve  ·  130 Hz sabit
+checksum hatasi 0  ·  atilan bayt 0     <- sinyal seviyesi marjinal DEGIL
+```
+
+**Kanal haritası — hepsi doğrulandı:**
+
+| Kanal | Ölçülen | Sonuç |
+|---|---|---|
+| CH1 roll · CH2 pitch · CH3 gaz · CH4 yaw | 1000–2000 | ✅ |
+| **CH5 SwA** emniyet | 1000 / **2000 = AÇIK** | ✅ eşik 300 doğru tarafta |
+| CH6 SwB mod | 2 konum (+ tutulunca sahte orta) | ✅ orta `aux=0` → HAREKET, belirsizlik yok |
+| **CH7 SwC** formasyon | **1000 / 1500 / 2000** | ✅ **3 konum** → okbaşı / **V** / çizgi |
+| CH8 SwD kalkış/iniş | 1000 / 2000 | ✅ |
+| CH9–14 | sabit | kullanılmıyor |
+
+🔴 **SwC'nin ortası tam 1500** — yani `aux3 = 0`. **B4 düzeltmesi tam oraya
+oturuyor.** Anahtar 2 konumlu çıksaydı şartnamenin *"V formasyonuna geç"*
+direktifi kumandadan **karşılanamazdı**.
+
+**İşaret yönleri — iki tanesi TERSTİ:**
+
+| Çubuk | Yön | PWM | Eski kod | Sözleşme | |
+|---|---|---|---|---|---|
+| pitch | İLERİ | **1974** | −0,95 | `>0 = ileri` | 🔴 **TERSTİ** |
+| roll | SAĞA | **1981** | +0,96 | `>0 = sağa` | ✅ doğruydu |
+| yaw | SAĞA | **1014** | −0,97 | `>0 = saat yönü` | 🔴 **TERSTİ** |
+| gaz | YUKARI | 1988 | +0,98 | `>0 = tırmanış` | ✅ |
+
+Eski kodda *"genellikle RCIn pitch ileri itince pwm düşer"* diye bir **varsayım**
+yazılıydı; bu kumandada tersi çıktı. Düzeltilmeseydi **Uçuş A'da sürü çubuğun
+tersine giderdi.**
+
+> ⚠️ İlk ölçümde her çubuk **iki yöne birden** oynatıldığı için sonuç
+> belirsizdi ve ben roll'u da ters sanmıştım. Tek yönlü tekrar yapıldı;
+> sıra varsayımıyla koda dokunulsaydı **doğru olan roll bozulacaktı.**
+
+**Deadman: sessizlikle çalışıyor.** Kumanda kapalıyken i-BUS **tamamen susuyor**
+(0 bayt ölçüldü) → `rc_ibus_kopru` yayını keser → 0,5 sn'de `mode_manager` HOLD.
+`RPI_ESITLEME` §5'teki *"FS-iA6B susmuyor"* davranışı **PWM çıkışları** içinmiş.
+Alıcı failsafe'ini SwA=KİLİTLİ kaydetmek yine de ikinci katman olarak değerli,
+ama **tek dayanak değil.**
+
 ---
 
-## 3. Boşluklar — 17 madde · **1-9 + B17 kapandı**
+## 3. Boşluklar — 18 madde · **1-9 + B17 kapandı**
 
 Kod `f6f8498`'de (28 Ağu) hazır sayılıyor ama **hiç koşmadı** ve uçaklara
 **dağıtılmadı.**
@@ -257,6 +306,26 @@ geometrisi **iki yönlü belirsiz** (hangi uç ön?), ölçülen yaw değil.
 `--senaryo manevra` de güncellendi: artık **aynı fonksiyonu** çağırıyor, yani
 kuru testin modellediği şey uçulacak şeyin ta kendisi.
 
+
+**B18 · GAZ ÇUBUĞU ORTALANMIYOR — emniyet açılınca sürü anında alçalırdı.** ✅ *kapandı*
+
+30 Ağustos saha ölçümü: gaz çubuğunun **dinlenme konumu PWM 1001** (dipte).
+Zincir `1001 → gaz_normalize 0.001 → throttle_cmd = 0.001×2−1 = −1.0`, ve
+`movement_mode` bunu `v_up = −1.0 × 2 m/s` yapıyor.
+
+**Yani pilot SwA'yı gaz dipteyken açsa sürü anında 2 m/s ile alçalırdı.**
+`mode_manager`'da bunu tutan hiçbir kapı yoktu. Uçuş A'nın ilk saniyesinde
+ısırırdı.
+
+FlySky Mod 2'de gaz çubuğu **kendiliğinden ortalanmaz** — bırakıldığı yerde
+kalır ve doğal olarak dipte durur. Nötr nokta **orta çubuk** (1500 → 0.0).
+
+*Çözüm (operatör kararı: yordam değil kod kapısı):* emniyet açıldıktan sonra
+gaz bir kez merkeze gelene kadar `command_valid = False` → `mode_manager`
+HOLD'da bekler. Mandal SwA her kapandığında **sıfırlanır**, yani pilot her
+emniyet açışında gazı ortalamak zorunda. Eşik `MOD_GAZ_MERKEZ_PAY` (0,2),
+tek kaynak `ucus_ayarlari`.
+
 ### 🟠 P1 — puan kaybettirir
 
 **B6 · Hareket modunda ivme rampası YOK → doğrudan osilasyon cezası (−10).**
@@ -358,7 +427,7 @@ Aşama geçişlerinde 🚦 kapı var — kapı sağlanmadan sonraki aşamaya ge�
 | # | İş |
 |---|---|
 | **11** | ✅ **Gerilim ölçüldü: ~3 V** → 3,3 V mantık, seviye çevirici **gerekmiyor**. (Kumandadaki `IntV1 5,3 V` alıcının **beslemesi**, sinyal değil.) |
-| **12** | Kumanda #2 kurulumu: bind → **10 kanal modu** → **failsafe: SwA = KİLİTLİ** kaydet |
+| **12** | ✅ bind ✅ **10 kanal modu** (CH7/CH8 geçerli aralıkta ölçüldü) · ⏳ failsafe SwA kaydı — **artık ikincil**, bkz. deadman bulgusu |
 | **13** | ✅ **Kablolama yapıldı** — i-BUS Servo → jumper → **fiziksel pin 29 (GPIO5)** + GND. Port kesinleşti: **`/dev/ttyAMA2`**. ⏳ **Kalan tek satır:** `config.txt`'ye `dtoverlay=uart2-pi5` + **reboot** |
 | **14** | **Konteyner recreate ×3** — `--device` + A19 + A12 + drone1 korupt log, **tek işlem**. ⚠️ önce `docker inspect` ile mevcut ayarları not al |
 | **15** | Dağıtım: `dagit.sh` ×3 + `ucus_ayarlari.py --kabuk` → `/ws/ucus_ayarlari.env` |
@@ -375,8 +444,8 @@ Aşama geçişlerinde 🚦 kapı var — kapı sağlanmadan sonraki aşamaya ge�
 
 | # | Ölçülecek |
 |---|---|
-| **16** | 🔴 RC akıyor mu: `ros2 topic hz /drone_1/rc/suru` ≈ 130 Hz — **ve kill pilotunun çubuğu oynayınca KIPIRDAMAMALI** |
-| **17** | Kanal + **işaret haritası**: çubuk ileri → hangi işaret (B11'in son sözü buradadır) |
+| **16** | ✅ **130 Hz, 0 checksum hatası, 0 atılan bayt** (porttan doğrudan ölçüldü, düğüm gerekmedi). ⏳ kill pilotu izolasyonu — dağıtımdan sonra |
+| **17** | ✅ **ÖLÇÜLDÜ — pitch ve yaw TERSTİ, düzeltildi.** Tablo §2'de, testlerle kilitlendi (`test_rc_eksen.py`) |
 | **18** | FSM READY'ye çıkıyor mu (`/ws/mod_test` ile) · **kalkış kapısı yerde tutuyor mu** (B15 — tarif yayınlanMAMALI) |
 | **19** | MANEVRA'da **merkez sabitliği** (xy değişmemeli) + `formasyon_sustur` bayrağı |
 | **20** | **Centroid sürüklenmesi**: üç uçağın `formation/target.center_*` farkı, 60 sn |

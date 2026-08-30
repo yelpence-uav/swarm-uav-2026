@@ -530,6 +530,12 @@ MOD_KALKIS_ESIK_M = 2.0
 MOD_TEST_IRTIFA_M = 8.0        # 28 Agu sekans ucusuyla ayni irtifa
 MOD_TEST_EGIM_DEG = 10.0       # cubuk %66
 MOD_TEST_YAW_DEG = 45.0        # toplam donus (12,5 deg/s ile ~3,6 s)
+# 🔴 GAZ MERKEZ KAPISI (30 Agu, saha olcumu). Gaz cubugu ORTALANMIYOR ve
+# dogal olarak dipte duruyor (olculen dinlenme PWM 1001 -> throttle_cmd
+# -1.0). Emniyet acilinca suru ANINDA tam hizla alcalirdi. Gaz bu paydan
+# daha uzaksa joystick_interpreter komutu GECERSIZ isaretler ve mode_manager
+# HOLD'da bekler. Bkz. mode_manager/rc_eksen.gaz_merkezde
+MOD_GAZ_MERKEZ_PAY = 0.2
 
 
 def _sekans_geometri():
@@ -898,6 +904,7 @@ def _kabuk():
     print(f'MOD_ARALIK={MOD_ARALIK_M:.1f}')
     print(f'MOD_DEADMAN_ZAMAN_ASIMI={MOD_DEADMAN_ZAMAN_ASIMI_S:.1f}')
     print(f'MOD_KALKIS_ESIK={MOD_KALKIS_ESIK_M:.1f}')
+    print(f'MOD_GAZ_MERKEZ_PAY={MOD_GAZ_MERKEZ_PAY:.2f}')
 
 
 def _px4():

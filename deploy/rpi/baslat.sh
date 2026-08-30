@@ -1406,6 +1406,7 @@ fi   # /altyapi: ic_dis_kopru
             ros2 run swarm_state_machine mode_manager_node --ros-args \
                 -p agent_ids:="${_MOD_KADRO_ROS}" \
                 -p default_spacing_m:=${MOD_ARALIK:-7.0} \
+            -p gaz_merkez_pay:=${MOD_GAZ_MERKEZ_PAY:-0.2} \
                 -p max_speed_mps:=${MOD_HIZ:-2.0} \
                 -p max_yaw_rate_deg_s:=${MOD_YAW_HIZI:-25.0} \
                 -p max_tilt_deg:=${MOD_EGIM_TAVANI:-15.0} \

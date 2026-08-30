@@ -32,6 +32,8 @@ from sensor_msgs.msg import Joy
 from swarm_interfaces.msg import SwarmControlCommand
 from swarm_interfaces.srv import TriggerMission
 
+from . import rc_eksen
+
 _MavrosManual = namedtuple('_MavrosManual', [
     'pitch', 'roll', 'yaw', 'throttle',
     'aux1', 'aux2', 'aux3', 'aux4', 'aux5', 'aux6',
@@ -85,6 +87,9 @@ class JoystickInterpreterNode(Node):
         self._last_aux3_formation = None
         self._last_aux4 = -1000  # SwD UP varsayılan
         self._safety_active = False
+        # Gaz kapisi mandali: SwA her acildiginda SIFIRLANIR, yani pilot
+        # emniyeti her actiginda gazi bir kez merkeze getirmek ZORUNDA.
+        self._gaz_merkezlendi = False
         init_cmd = SwarmControlCommand()
         init_cmd.mode = SwarmControlCommand.MODE_SWARM_MOVEMENT
         init_cmd.command_valid = False
@@ -140,6 +145,10 @@ class JoystickInterpreterNode(Node):
         # celisiyordu. Belirti sessiz: ILK formasyon degisikliginde sürü
         # 7 m'den 5 m'ye kapanirdi. Ad `mode_manager` ile AYNI tutuldu.
         self.declare_parameter('default_spacing_m', 7.0, _dnm)
+        # 🔴 GAZ MERKEZ KAPISI (30 Agu, saha olcumu + operator karari).
+        # Gaz cubugu ortalanmiyor, dipte duruyor -> throttle_cmd = -1.0.
+        # SwA acilinca suru ANINDA alcalirdi. Gerekce: rc_eksen.gaz_merkezde
+        self.declare_parameter('gaz_merkez_pay', 0.2, _dnm)
 
         self._publish_hz = float(
             self.get_parameter('publish_hz').value
@@ -164,6 +173,9 @@ class JoystickInterpreterNode(Node):
         )
         self._default_spacing_m = float(
             self.get_parameter('default_spacing_m').value
+        )
+        self._gaz_merkez_pay = float(
+            self.get_parameter('gaz_merkez_pay').value
         )
 
     def _setup_publishers(self) -> None:
@@ -221,6 +233,8 @@ class JoystickInterpreterNode(Node):
         aux3_val = getattr(msg, self.AUX_FORMATION_CHANNEL, 0)
 
         if not self._safety_active:
+            # Emniyet kapandi -> gaz kapisi YENIDEN kurulur.
+            self._gaz_merkezlendi = False
             # Aux durumlarını güncelle ama komut gönderme
             self._last_aux4 = aux4_val
             if aux3_val < self.AUX_FORMATION_THRESH_LOW:
@@ -292,6 +306,32 @@ class JoystickInterpreterNode(Node):
         cmd.roll_cmd = self._clamp(msg.roll)
         cmd.yaw_cmd = self._clamp(msg.yaw)
         cmd.throttle_cmd = self._clamp(msg.throttle * 2.0 - 1.0)
+
+        # 🔴 GAZ MERKEZ KAPISI — emniyet acildiktan sonra gaz bir kez
+        # merkeze gelene kadar HAREKET YOK. Bkz. rc_eksen.gaz_merkezde:
+        # cubuk dipte durdugu icin throttle_cmd = -1.0 ve suru aninda
+        # alcalirdi. Mandal: bir kez merkezlendikten sonra pilot gazi
+        # serbestce kullanir (alcalma/tirmanma zaten onun komutu).
+        if not self._gaz_merkezlendi:
+            if rc_eksen.gaz_merkezde(cmd.throttle_cmd, self._gaz_merkez_pay):
+                self._gaz_merkezlendi = True
+                self.get_logger().info(
+                    'gaz merkezlendi — suru komutlari ARTIK GECERLI'
+                )
+            else:
+                # command_valid=False: mode_manager eksenleri sifirlar ve
+                # command_active dustugu icin HOLD'a gecer. deadman_pressed
+                # DOKUNULMAZ — emniyet acik, sorun gazin yerinde.
+                cmd.command_valid = False
+                cmd.pitch_cmd = 0.0
+                cmd.roll_cmd = 0.0
+                cmd.yaw_cmd = 0.0
+                cmd.throttle_cmd = 0.0
+                self.get_logger().warning(
+                    'GAZ MERKEZDE DEGIL — suru BEKLIYOR. Gaz cubugunu orta '
+                    'konuma getir (cubuk dipteyken sürü tam hizla alcalirdi).',
+                    throttle_duration_sec=2.0,
+                )
 
         cmd.takeoff = False
         cmd.land = False
@@ -392,9 +432,6 @@ class JoystickInterpreterNode(Node):
         if len(msg.channels) < 8:
             return
 
-        def map_channel_to_axis(pwm: int) -> float:
-            return self._clamp((pwm - 1500.0) / 500.0)
-
         def map_channel_to_aux(pwm: int) -> int:
             # 1000 -> -1000, 1500 -> 0, 2000 -> 1000
             return int((pwm - 1500.0) * 2.0)
@@ -410,17 +447,18 @@ class JoystickInterpreterNode(Node):
         aux3_pwm = msg.channels[6]  # SwC (Formasyon)
         aux4_pwm = msg.channels[7]  # SwD (Kalkış/İniş)
 
-        # Gaz [1000, 2000] -> [0.0, 1.0]
-        throttle_norm = self._clamp((throttle_pwm - 1000.0) / 1000.0, 0.0, 1.0)
+        throttle_norm = rc_eksen.gaz_normalize(throttle_pwm)
 
-        # Pitch, Roll, Yaw'da FlySky yönünü Gazebo ile uyumlu tutmak için
-        # invert gerekebilir. Genellikle RCIn pitch ileri itince pwm düşer
-        # (1000), geri çekince artar (2000).
-        # Gazebo ManualControl x ekseninde ileri = 1000.
-        # Bu yüzden Pitch_axis = -map_channel_to_axis(pitch_pwm)
-        pitch_axis = -map_channel_to_axis(pitch_pwm)
-        roll_axis = map_channel_to_axis(roll_pwm)
-        yaw_axis = map_channel_to_axis(yaw_pwm)
+        # 🔴 ISARETLER SAHADA OLCULDU — 30 Agustos 2026, ylp00, FS-i6X #2.
+        # Onceki kod "genellikle RCIn pitch ileri itince pwm duser" diye bir
+        # VARSAYIMLA pitch'i negatifliyor, yaw'a dokunmuyordu. Olcum ikisinin
+        # de YANLIS oldugunu gosterdi (3246 cerceve, tek yon denetimi temiz):
+        #     ileri -> pitch 1974 (UST)  ·  saga -> roll 1981 (UST)
+        #     saga  -> yaw   1014 (ALT)  <- TEK ters olan
+        # Gerekce, olcum ve "kumanda degisirse ne yapilir": rc_eksen.py
+        pitch_axis = rc_eksen.eksen_normalize(pitch_pwm, rc_eksen.TERS_PITCH)
+        roll_axis = rc_eksen.eksen_normalize(roll_pwm, rc_eksen.TERS_ROLL)
+        yaw_axis = rc_eksen.eksen_normalize(yaw_pwm, rc_eksen.TERS_YAW)
 
         norm = _MavrosManual(
             pitch=self._clamp(pitch_axis),
