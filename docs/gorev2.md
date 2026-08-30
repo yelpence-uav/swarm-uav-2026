@@ -1,6 +1,6 @@
 # GÖREV 2 — Yarı Otonom Sürü Kontrolü
 
-**Son güncelleme:** 30 Ağustos 2026, 14:18 — kalkış kapısına **ARM şartı** eklendi (açık alan ölçümü açığı gösterdi); G0 madde 16 + 18 geçti; kapının HİÇ AÇILAMAYACAĞI bir kusur bulundu ve kapatıldı; iki gerçek kusur sahada yakalandı (QoS kırığı + yayın hızı); Aşama B bitti (kod dağıtıldı + üç konteyner recreate); i-BUS zinciri uçtan uca çalıştı (130 Hz, 0 checksum hatası); işaret yönleri ölçüldü → **pitch ve yaw TERSTİ**, düzeltildi; **B18** gaz kapısı eklendi
+**Son güncelleme:** 30 Ağustos 2026, 14:30 — **B18 gaz kapısı sahada DOĞRULANDI**; kalkış kapısına ARM şartı eklendi (açık alan ölçümü açığı gösterdi); G0 madde 16 + 18 geçti; kapının HİÇ AÇILAMAYACAĞI bir kusur bulundu ve kapatıldı; iki gerçek kusur sahada yakalandı (QoS kırığı + yayın hızı); Aşama B bitti (kod dağıtıldı + üç konteyner recreate); i-BUS zinciri uçtan uca çalıştı (130 Hz, 0 checksum hatası); işaret yönleri ölçüldü → **pitch ve yaw TERSTİ**, düzeltildi; **B18** gaz kapısı eklendi
 
 Şartname **§5.2** · **100 puan** · görev başına **3 hak**, en yüksek puan sayılır.
 
@@ -408,7 +408,24 @@ geometrisi **iki yönlü belirsiz** (hangi uç ön?), ölçülen yaw değil.
 kuru testin modellediği şey uçulacak şeyin ta kendisi.
 
 
-**B18 · GAZ ÇUBUĞU ORTALANMIYOR — emniyet açılınca sürü anında alçalırdı.** ✅ *kapandı*
+**B18 · GAZ ÇUBUĞU ORTALANMIYOR — emniyet açılınca sürü anında alçalırdı.** ✅ *SAHADA DOĞRULANDI 30 Ağu 14:25*
+
+```
+SwA ACIK, gaz DIPTE (CH3 1001):
+  command_valid: false        <- kapi tutuyor
+  deadman_pressed: true       <- SwA dogru okundu
+  pitch/roll/throttle_cmd: 0.0
+  [WARN] GAZ MERKEZDE DEGIL — suru BEKLIYOR
+
+gaz ORTALANDI (CH3 1501):
+  [INFO] gaz merkezlendi — suru komutlari ARTIK GECERLI
+  command_valid: true
+  throttle_cmd: 0.002         <- merkez
+```
+Ayrıca **D1 düzeltmesi de doğrulandı:** `/swarm/public/control/command`
+**63,3 Hz** — yani `ic_dis_kopru` yerel köprüsü artık çalışıyor ve pilotun
+kendi uçağı da komutu alıyor.
+
 
 30 Ağustos saha ölçümü: gaz çubuğunun **dinlenme konumu PWM 1001** (dipte).
 Zincir `1001 → gaz_normalize 0.001 → throttle_cmd = 0.001×2−1 = −1.0`, ve
