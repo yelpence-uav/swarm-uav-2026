@@ -78,6 +78,12 @@ class RcIbusKopruNode(Node):
         # Her cerceveyi gecirmek esp32_bridge'i 130 Hz TIP_KOMUT yazmaya
         # zorlardi; firmware kapisi 50 ms (20 Hz) ve fazlasi RTCM ile ayni
         # UART'ta bosuna yer kaplardi.
+        # NOT (30 Agu, olculdu): bu bir TAVAN, birebir hiz degil. Gercek
+        # hiz seri okuma periyoduyla NICEMLENIR: read(64) @ 4160 B/s =
+        # 15,4 ms dongu, 20 ms sinir -> her IKINCI tur gecer = 32,5 Hz
+        # (olculen). Sorun degil: tuketicilerin ikisi de 20 Hz
+        # (mode_manager tick + firmware TIP_KOMUT kapisi) ve msg sozlesmesi
+        # 20-50 Hz istiyor. 50'ye yaklastirmak icin okuma boyu kucultulur.
         self.declare_parameter('yayin_hz', 50.0, _dnm)
         # Bu kadar sure gecerli cerceve gelmezse YAYIN DURUR (kablo/alici
         # kopmasi). Kumanda kapanmasi bundan FARKLI — onu SwA failsafe'i
@@ -154,7 +160,12 @@ class RcIbusKopruNode(Node):
                 self._seri_ac()
                 continue
             try:
-                veri = self._ser.read(256)
+                # 🔴 OKUMA BOYU YAYIN HIZINI BELIRLIYOR — 30 Agu sahada
+                # olculdu. read(N) N bayt DOLANA ya da timeout'a kadar
+                # bloklar; 4160 B/s'te read(256) = 61,5 ms, yani dongu
+                # 16,2 Hz kosuyordu ve `yayin_hz=50` hicbir ise yaramiyordu
+                # (olculen /drone_1/rc/suru = 16.2 Hz). 64 bayt = ~15 ms.
+                veri = self._ser.read(64)
             except (serial.SerialException, OSError) as exc:
                 self.get_logger().warning(
                     f'i-BUS okuma hatasi, yeniden baglanilacak: {exc}'
@@ -169,14 +180,22 @@ class RcIbusKopruNode(Node):
             if not veri:
                 continue
 
+            # Bir okumada birden fazla cerceve gelebilir. Sayaclar ve
+            # makullik denetimi HEPSI icin kosar, ama YAYIN yalnizca EN
+            # TAZE cerceveyle yapilir: hiz siniri eskiden yiginin ILK
+            # (en eski) cercevesini yayinliyordu ve pilotun cubugu
+            # gereksiz yere bayatliyordu.
+            son = None
             for kanallar in self._ayiklayici.besle(veri):
-                self._kanal_geldi(kanallar)
+                self._cerceve_geldi(kanallar)
+                son = kanallar
+            if son is not None:
+                self._belki_yayinla(son)
 
     # ------------------------------------------------------------------
-    def _kanal_geldi(self, kanallar: list[int]) -> None:
-        """Gecerli bir cerceve cozuldu."""
-        simdi = time.monotonic()
-        self._son_gecerli = simdi
+    def _cerceve_geldi(self, kanallar: list[int]) -> None:
+        """Gecerli bir cerceve cozuldu — sayaclar ve saglik denetimi."""
+        self._son_gecerli = time.monotonic()
         self._son_kanallar = kanallar
 
         # 🔴 SESSIZ ARIZA KAPISI: FS-i6X VARSAYILANI ALTI KANAL. 10 kanal
@@ -192,6 +211,9 @@ class RcIbusKopruNode(Node):
                 'SwC/SwD hicbir sey yapmaz.'
             )
 
+    def _belki_yayinla(self, kanallar: list[int]) -> None:
+        """Hiz siniri izin veriyorsa EN TAZE cerceveyi yayinlar."""
+        simdi = time.monotonic()
         if simdi - self._son_yayin < self._yayin_araligi:
             return
         self._son_yayin = simdi

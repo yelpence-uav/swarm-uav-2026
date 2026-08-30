@@ -46,6 +46,31 @@ _PX4_QOS = QoSProfile(
     depth=5,
 )
 
+# 🔴 KOMUT YAYINI RELIABLE — 30 Agustos 2026, SAHADA olculdu.
+#
+# Bu dugum BEST_EFFORT yayinliyordu ve `ic_dis_kopru` bu konuyu RELIABLE
+# dinliyor (ic_dis_kopru.py:80 "butun internal yayincilar RELIABLE" — o
+# tarama 15 Agustos'ta yapildi ve BU DUGUM O ZAMAN HIC KOSMUYORDU).
+# RELIABLE abone + BEST_EFFORT yayinci ESLESMEZ ve mesaj akmaz.
+#
+# OLCULEN SONUC (ylp00, joystick anahtari acikken):
+#     /swarm/internal/control/command   46.6 Hz
+#     /swarm/public/control/command     HICBIR SEY
+# Yani PILOTUN KENDI UCAGI cubuga cevap vermezdi; diger ikisi mesh'ten
+# (esp32_bridge BEST_EFFORT dinliyor, eslesiyordu) alip cevap verirdi.
+# Havada teshisi cok zor bir ariza.
+#
+# Neden yayinciyi degistiriyoruz, aboneyi degil: INTERFACE_CONTRACT §3.0.1
+# "RELIABLE yayinci + BEST_EFFORT abone UYUMLU" diyor. RELIABLE yapinca
+# ucu de calisiyor: ic_dis_kopru (RELIABLE) ✅ · esp32_bridge (BEST_EFFORT) ✅
+# · rosbag2 (BEST_EFFORT) ✅. Konu ROS_LOCALHOST_ONLY ile yerel, kayip ~0.
+_KOMUT_QOS = QoSProfile(
+    reliability=ReliabilityPolicy.RELIABLE,
+    durability=DurabilityPolicy.VOLATILE,
+    history=HistoryPolicy.KEEP_LAST,
+    depth=5,
+)
+
 
 class JoystickInterpreterNode(Node):
     """MAVROS ManualControl - SwarmControlCommand dönüştürücü."""
@@ -183,7 +208,7 @@ class JoystickInterpreterNode(Node):
         self._cmd_pub = self.create_publisher(
             SwarmControlCommand,
             '/swarm/internal/control/command',
-            _PX4_QOS,
+            _KOMUT_QOS,
         )
 
     def _setup_subscribers(self) -> None:

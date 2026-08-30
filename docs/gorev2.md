@@ -1,6 +1,6 @@
 # GÖREV 2 — Yarı Otonom Sürü Kontrolü
 
-**Son güncelleme:** 30 Ağustos 2026, 13:31 — **AŞAMA B BİTTİ** (kod dağıtıldı + üç konteyner recreate); i-BUS zinciri uçtan uca çalıştı (130 Hz, 0 checksum hatası); işaret yönleri ölçüldü → **pitch ve yaw TERSTİ**, düzeltildi; **B18** gaz kapısı eklendi
+**Son güncelleme:** 30 Ağustos 2026, 14:05 — **G0 madde 16 GEÇTİ**; iki gerçek kusur sahada yakalandı (QoS kırığı + yayın hızı); Aşama B bitti (kod dağıtıldı + üç konteyner recreate); i-BUS zinciri uçtan uca çalıştı (130 Hz, 0 checksum hatası); işaret yönleri ölçüldü → **pitch ve yaw TERSTİ**, düzeltildi; **B18** gaz kapısı eklendi
 
 Şartname **§5.2** · **100 puan** · görev başına **3 hak**, en yüksek puan sayılır.
 
@@ -161,6 +161,58 @@ tersine giderdi.**
 `RPI_ESITLEME` §5'teki *"FS-iA6B susmuyor"* davranışı **PWM çıkışları** içinmiş.
 Alıcı failsafe'ini SwA=KİLİTLİ kaydetmek yine de ikinci katman olarak değerli,
 ama **tek dayanak değil.**
+
+
+### ✅ G0 madde 16 — 30 Ağustos 14:00, ylp00
+
+**Kill pilotu izolasyonu — çubuk oynatmadan, yapısal kanıt.**
+`ros2 node info /joystick_interpreter_node` abonelikleri:
+
+```
+/drone_1/rc/manual_control_KAPALI   <- olu konu, 0 yayinci
+/drone_1/rc/suru                    <- SURU alicisi (rc_ibus_kopru)
+/joy                                <- 0 yayinci (YKI joystick silinmisti)
+
+/drone_1/mavros/rc/in  LISTEDE YOK
+```
+
+`px4_bridge` hâlâ `/drone_1/mavros/rc/in` dinliyor → **kill zinciri bozulmadı.**
+İki zincir tam ayrık; kill pilotunun çubuğu sürü zincirine **ulaşamıyor.**
+
+**Sahada yakalanan iki gerçek kusur:**
+
+**D1 — `ic_dis_kopru` QoS kırığı.** `joystick_interpreter` `/swarm/internal/
+control/command`'a **BEST_EFFORT** yayınlıyordu; `ic_dis_kopru` o konuyu
+**RELIABLE** dinliyor. Eşleşmedi. Ölçülen:
+
+```
+/swarm/internal/control/command   46.6 Hz
+/swarm/public/control/command     HICBIR SEY      <- kirik
+```
+
+Sonucu: **pilotun KENDİ uçağı çubuğa cevap vermezdi**, diğer ikisi mesh'ten
+(esp32_bridge BEST_EFFORT, eşleşiyordu) alıp cevap verirdi. Havada teşhisi
+çok zor. Kök neden `ic_dis_kopru:80`'deki *"bütün internal yayıncılar
+RELIABLE (15 Ağustos'ta tarandı)"* varsayımı — o tarama sırasında bu düğüm
+**hiç koşmamıştı.**
+
+*Düzeltme:* yayıncı RELIABLE yapıldı (`INTERFACE_CONTRACT` §3.0.1: RELIABLE
+yayıncı + BEST_EFFORT abone **uyumlu**), üç abone de çalışıyor.
+Doğrulandı: `/swarm/public/control/command` = **62,8 Hz**.
+
+**D2 — `rc_ibus_kopru` 16 Hz yayınlıyordu, 50 değil.** `read(256)` 4160 B/s'te
+**61,5 ms** bloklar; yani yayın hızını `yayin_hz` değil **okuma yığını**
+belirliyordu (130/8 = 16,2 Hz — ölçülen tam bu). Üstelik hız sınırlayıcı
+yığının **en eski** çerçevesini yayınlıyordu.
+
+*Düzeltme:* okuma 64 bayta indirildi + yığının **en taze** çerçevesi
+yayınlanıyor → **32,5 Hz** ölçüldü. Kalan fark nicemleme (15,4 ms döngü,
+20 ms sınır → her ikinci tur); tüketicilerin ikisi de 20 Hz olduğu için
+sorun değil.
+
+**Mesh için ölçüm:** `/swarm/internal/control/command` **62,8 Hz** akıyor ve
+`esp32_bridge` hepsini UART'a yazıyor; firmware kapısı 20 Hz geçiriyor →
+**%68 boşa.** Ertelenen `_on_control_out` limiti kararının sayısı bu.
 
 ---
 
@@ -444,7 +496,7 @@ Aşama geçişlerinde 🚦 kapı var — kapı sağlanmadan sonraki aşamaya ge�
 
 | # | Ölçülecek |
 |---|---|
-| **16** | ✅ **130 Hz, 0 checksum hatası, 0 atılan bayt** (porttan doğrudan ölçüldü, düğüm gerekmedi). ⏳ kill pilotu izolasyonu — dağıtımdan sonra |
+| **16** | ✅ **GEÇTİ.** Port 130 Hz / 0 hata · `/drone_1/rc/suru` **32,5 Hz** · 🔴 **kill pilotu izolasyonu YAPISAL olarak kanıtlandı** (aşağıda) |
 | **17** | ✅ **ÖLÇÜLDÜ — pitch ve yaw TERSTİ, düzeltildi.** Tablo §2'de, testlerle kilitlendi (`test_rc_eksen.py`) |
 | **18** | FSM READY'ye çıkıyor mu (`/ws/mod_test` ile) · **kalkış kapısı yerde tutuyor mu** (B15 — tarif yayınlanMAMALI) |
 | **19** | MANEVRA'da **merkez sabitliği** (xy değişmemeli) + `formasyon_sustur` bayrağı |
