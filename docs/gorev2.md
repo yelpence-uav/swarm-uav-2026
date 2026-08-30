@@ -1,6 +1,6 @@
 # GÖREV 2 — Yarı Otonom Sürü Kontrolü
 
-**Son güncelleme:** 30 Ağustos 2026, 14:05 — **G0 madde 16 GEÇTİ**; iki gerçek kusur sahada yakalandı (QoS kırığı + yayın hızı); Aşama B bitti (kod dağıtıldı + üç konteyner recreate); i-BUS zinciri uçtan uca çalıştı (130 Hz, 0 checksum hatası); işaret yönleri ölçüldü → **pitch ve yaw TERSTİ**, düzeltildi; **B18** gaz kapısı eklendi
+**Son güncelleme:** 30 Ağustos 2026, 13:49 — **G0 madde 16 GEÇTİ**; iki gerçek kusur sahada yakalandı (QoS kırığı + yayın hızı); Aşama B bitti (kod dağıtıldı + üç konteyner recreate); i-BUS zinciri uçtan uca çalıştı (130 Hz, 0 checksum hatası); işaret yönleri ölçüldü → **pitch ve yaw TERSTİ**, düzeltildi; **B18** gaz kapısı eklendi
 
 Şartname **§5.2** · **100 puan** · görev başına **3 hak**, en yüksek puan sayılır.
 
@@ -163,7 +163,7 @@ Alıcı failsafe'ini SwA=KİLİTLİ kaydetmek yine de ikinci katman olarak değe
 ama **tek dayanak değil.**
 
 
-### ✅ G0 madde 16 — 30 Ağustos 14:00, ylp00
+### ✅ G0 madde 16 — 30 Ağustos 13:45, ylp00
 
 **Kill pilotu izolasyonu — çubuk oynatmadan, yapısal kanıt.**
 `ros2 node info /joystick_interpreter_node` abonelikleri:

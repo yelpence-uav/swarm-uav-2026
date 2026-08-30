@@ -1,6 +1,6 @@
 # DURUM — şu an ne çalışıyor, ne bozuk
 
-**Son güncelleme:** 30 Ağustos 2026, 14:05 — 🔴 **ylp00'da `joystick` anahtarı AÇIK** (G0 sürüyor); üç konteyner yeniden oluşturuldu: kod `193c224` dağıtıldı, `ROS_LOCALHOST_ONLY` (A19) kapandı, ylp00'a `/dev/ttyAMA2` verildi
+**Son güncelleme:** 30 Ağustos 2026, 13:49 — 🔴 **ylp00'da `joystick` anahtarı AÇIK** (G0 sürüyor); üç konteyner yeniden oluşturuldu: kod `193c224` dağıtıldı, `ROS_LOCALHOST_ONLY` (A19) kapandı, ylp00'a `/dev/ttyAMA2` verildi
 
 
 ## 1. Filo
@@ -174,7 +174,7 @@ Aksi yazmıyorsa **üç uçakta da aynı.**
 
 | Bayrak | Değer | Anlamı |
 |--------|-------|--------|
-| `~/yelpence_ws/suru_dugumleri` | ylp01·ylp02: **`origin consensus fsm formasyon ca`** · 🔴 **ylp00: + `joystick`** (30 Ağu 14:00, G0 madde 16 için açıldı — `rc_ibus_kopru` + `joystick_interpreter` koşuyor, mesh'e `TIP_KOMUT` basıyor. `mod` kapalı olduğu için **tüketicisi yok**. Uçuştan önce bilinçli karar ver) | Varsa `SURU_DUGUMLERI` env'ini ezer. Düğüm açmak: `echo ... > dosya` + `docker restart`. `sekans` anahtarı 28 Ağu testinden sonra SİLİNDİ |
+| `~/yelpence_ws/suru_dugumleri` | ylp01·ylp02: **`origin consensus fsm formasyon ca`** · 🔴 **ylp00: + `joystick`** (30 Ağu 13:45, G0 madde 16 için açıldı — `rc_ibus_kopru` + `joystick_interpreter` koşuyor, mesh'e `TIP_KOMUT` basıyor. `mod` kapalı olduğu için **tüketicisi yok**. Uçuştan önce bilinçli karar ver) | Varsa `SURU_DUGUMLERI` env'ini ezer. Düğüm açmak: `echo ... > dosya` + `docker restart`. `sekans` anahtarı 28 Ağu testinden sonra SİLİNDİ |
 | `~/yelpence_ws/gozlem` | **YOK** | Formasyon uçağı **DOĞRUDAN SÜRER**. Bu yüzden mesh `goto` uçağa gitmez (tek-üretici geçişi). Eski düzen için `touch /ws/gozlem` + restart |
 | `~/yelpence_ws/yer_testi` | **YOK** | Uçaklar kalkış komutunu **ALIR**. Yer testine dönüş: `touch` + restart |
 | `~/yelpence_ws/origin` | **var** | `38.6904758 39.1610188 1216.96` — tek kaynak `deploy/saha_origin.env`. Elle yazma, `dagit.sh` dağıtır. **Üçünde de AYNI olmalı**, yoksa formasyonlar uçaktan uçağa kayar |
