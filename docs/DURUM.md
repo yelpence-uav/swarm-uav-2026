@@ -1,6 +1,6 @@
 # DURUM — şu an ne çalışıyor, ne bozuk
 
-**Son güncelleme:** 30 Ağustos 2026, 03:29 — §4 düzeltildi: uçaklar artık **uçak tarafı koda da geride** (Görev 2 + `swarm_fsm`); `/ws/mod_test` bayrağı eklendi
+**Son güncelleme:** 30 Ağustos 2026, 13:31 — **ÜÇ KONTEYNER DE YENİDEN OLUŞTURULDU**: kod `193c224` dağıtıldı, `ROS_LOCALHOST_ONLY` (A19) kapandı, ylp00'a `/dev/ttyAMA2` verildi
 
 
 ## 1. Filo
@@ -225,11 +225,32 @@ takılınca **üçünü birden** aç, biri unutulursa tutarsız davranır:
 ## 4. Kod senkronu
 
 ```
-ucaklarda (uc de) : e4eceb9   29 Agustos 19:15'te dagitildi, konteynerler
-                              yeniden baslatildi. 30 Agustos'ta HIC
-                              DOKUNULMADI.
-repoda            : 790e8c1   (30 Agustos 03:10)
+ucaklarda (uc de) : 193c224   30 Agustos 13:30 — dagitildi VE konteynerler
+                              YENIDEN OLUSTURULDU (restart degil, recreate)
+repoda            : 193c224   AYNI  ·  baslat.sh md5 ucunde de "depo ile AYNI"
 ```
+
+### ✅ 30 Ağustos recreate — üç uçakta doğrulandı
+
+| | ylp00 | ylp01 | ylp02 |
+|---|---|---|---|
+| `baslat.sh` md5 | depo ile AYNI | AYNI | AYNI |
+| **`ROS_LOCALHOST_ONLY=1`** | ✅ | ✅ | ✅ |
+| `--device /dev/ttyAMA2` | ✅ **var** | yok (alıcı yok) | yok (alıcı yok) |
+| bizim düğümler | 11 | 11 | 11 |
+| `TEK-URETICI (ADIM 3)` | ✅ | ✅ | ✅ |
+| disk boş | 17 G | 18 G | **5,7 G (%80)** |
+
+> **A19 kapandı.** Artık `docker exec ... ros2 node list` düğümleri
+> güvenilir görüyor; öncesinde **sessizce boş** dönüyordu (`TUZAKLAR` §1.25).
+
+> ⚠️ Açılış logunda **`CARPISMA KACINMASI ACIK` YOK, `TEK-URETICI` VAR** —
+> bu **doğru**. `baslat.sh`'te ikisi birbirini dışlayan dallar: formasyon
+> sürerken TEK-URETICI basılır. Kaçınma yine koşuyor (düğüm listesinde).
+> `YAPILACAKLAR` "ikisi de görülmeli" diyordu, **yanlıştı.**
+
+> ⚠️ **ylp02 diski %80 dolu.** Diğer ikisi %39-42. 14 Ağustos'ta iki uçağın
+> diski %100 dolup uçuş kaydını öldürmüştü — göz önünde tutulmalı.
 
 ### 🔴 Uçaklar artık UÇAK TARAFI KODA DA geride
 

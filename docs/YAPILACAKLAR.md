@@ -1,6 +1,6 @@
 # YAPILACAKLAR
 
-**Son güncelleme:** 30 Ağustos 2026, 03:29 — Görev 2 bloğu `docs/gorev2.md`'ye devredildi; Aşama A (kod) BİTTİ
+**Son güncelleme:** 30 Ağustos 2026, 13:31 — **Görev 2 Aşama A + B BİTTİ**; konteyner recreate ×3 yapıldı, A19 kapandı
 
 > **Finale 8 gün.** Bu liste artık "her fikir" değil, **bu 8 günde
 > yapılacak iş.** Bir madde buraya giriyorsa birinin onu yapması planlanıyor
@@ -50,7 +50,11 @@ gidemez) · `rc_ibus_kopru` (ikinci RC alıcısı) · `--senaryo manevra` ·
 YKİ joystick zinciri silindi · heading artık hesaplanıyor. **293 birim testi.**
 ⚠️ Düğüm katmanı yalnız **sözdizimi** doğrulandı — gerçek doğrulama G0'da.
 
-- `[ ]` 🔴 **AŞAMA B — donanım (SIRADAKİ İŞ).** `gorev2.md` §4 madde 11-15:
+- `[x]` ✅ **AŞAMA B — donanım BİTTİ (30 Ağu).** i-BUS 130 Hz / 0 hata ·
+  işaret yönleri ölçüldü (**pitch + yaw TERSTİ, düzeltildi**) · kod
+  `193c224` üç uçağa dağıtıldı · **üç konteyner yeniden oluşturuldu**
+  (A19 kapandı, ylp00'a `/dev/ttyAMA2`).
+- `[~]` 🔴 ~~**AŞAMA B — donanım (SIRADAKİ İŞ).**~~ `gorev2.md` §4 madde 11-15:
   ① 🔴 **i-BUS gerilim ölçümü** — Pi 5 GPIO **5 V toleranslı DEĞİL**,
   multimetresiz bağlanmaz ② kumanda #2: bind + **10 kanal modu** +
   **failsafe SwA=KİLİTLİ** ③ kablolama + `SURU_RC_PORT`
@@ -129,15 +133,19 @@ Bugünkü komut yolu (YKİ → mesh → goto) finali GEÇEMEZ. Bu blok o yüzden
 
 - `[ ]` 🟠 **29 Ağustos değişikliklerini dağıt.** `baslat.sh` iki kez değişti:
   ① `basit_kacinma` + `fusion` blokları kalktı ② **`--yalniz <düğüm>`** eklendi.
-  Dağıtımdan sonra açılış logunda `CARPISMA KACINMASI ACIK (collision_avoidance)`
-  ve `TEK-URETICI (ADIM 3)` satırları görülmeli.
+  ⚠️ **DÜZELTME (30 Ağu):** "ikisi de görülmeli" YANLIŞTI — `baslat.sh`'te
+  bunlar **birbirini dışlayan dallar**. Formasyon sürerken yalnız
+  `TEK-URETICI (ADIM 3)` basılır; kaçınma yine koşar (düğüm listesinde
+  `collision_avoidance` görünür). 30 Ağustos dağıtımında üçünde de böyle.
   *Sonra bir kez sahada doğrula:* `docker exec -d drone1 bash /ws/baslat.sh --yalniz ca`
   → `ca.log`'da düğüm yeniden kalkmalı, `mavros`/`px4_bridge` **kesintisiz**
   kalmalı (`ros2 node list` sayısı düşmemeli). Masada konteynerde doğrulandı,
   **gerçek uçakta koşmadı.**
 - `[ ]` 🟡 `drone_bul.sh --durum`'un yeni iki satırı (md5 senkronu, düğüm
   sayısı) canlı uçakta hiç koşmadı — ilk fırsatta bak.
-- `[ ]` 🟠 **Konteyner recreate ×3 — tek işlem üç ihtiyacı kapatır.**
+- `[x]` ✅ **Konteyner recreate ×3 — YAPILDI 30 Ağustos 13:30.**
+  A19 üçünde de kapandı, A12 zaten ✅'ti (belge yanlıştı), ylp00'a
+  `--device /dev/ttyAMA2` eklendi. Eski madde:
   `docker rm -f <kon>` + `~/yelpence_ws/run_drone.sh`. Kapattıkları:
   **A19** `-e ROS_LOCALHOST_ONLY=1` (üçünde de ❌; olmadan `docker exec ros2`
   düğümleri **sessizce göremiyor**, `TUZAKLAR` §1.25) · **A12** docker log

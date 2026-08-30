@@ -1,6 +1,6 @@
 # GÖREV 2 — Yarı Otonom Sürü Kontrolü
 
-**Son güncelleme:** 30 Ağustos 2026, 13:02 — **i-BUS ZİNCİRİ UÇTAN UCA ÇALIŞTI** (130 Hz, 0 checksum hatası); işaret yönleri ölçüldü → **pitch ve yaw TERSTİ**, düzeltildi; **B18** gaz kapısı eklendi
+**Son güncelleme:** 30 Ağustos 2026, 13:31 — **AŞAMA B BİTTİ** (kod dağıtıldı + üç konteyner recreate); i-BUS zinciri uçtan uca çalıştı (130 Hz, 0 checksum hatası); işaret yönleri ölçüldü → **pitch ve yaw TERSTİ**, düzeltildi; **B18** gaz kapısı eklendi
 
 Şartname **§5.2** · **100 puan** · görev başına **3 hak**, en yüksek puan sayılır.
 
@@ -429,8 +429,8 @@ Aşama geçişlerinde 🚦 kapı var — kapı sağlanmadan sonraki aşamaya ge�
 | **11** | ✅ **Gerilim ölçüldü: ~3 V** → 3,3 V mantık, seviye çevirici **gerekmiyor**. (Kumandadaki `IntV1 5,3 V` alıcının **beslemesi**, sinyal değil.) |
 | **12** | ✅ bind ✅ **10 kanal modu** (CH7/CH8 geçerli aralıkta ölçüldü) · ⏳ failsafe SwA kaydı — **artık ikincil**, bkz. deadman bulgusu |
 | **13** | ✅ **Kablolama yapıldı** — i-BUS Servo → jumper → **fiziksel pin 29 (GPIO5)** + GND. Port kesinleşti: **`/dev/ttyAMA2`**. ⏳ **Kalan tek satır:** `config.txt`'ye `dtoverlay=uart2-pi5` + **reboot** |
-| **14** | **Konteyner recreate ×3** — `--device` + A19 + A12 + drone1 korupt log, **tek işlem**. ⚠️ önce `docker inspect` ile mevcut ayarları not al |
-| **15** | Dağıtım: `dagit.sh` ×3 + `ucus_ayarlari.py --kabuk` → `/ws/ucus_ayarlari.env` |
+| **14** | ✅ **YAPILDI (30 Ağu 13:30)** — üçü de yeniden oluşturuldu. **A19 kapandı** (`ROS_LOCALHOST_ONLY=1` üçünde de), ylp00'a `--device /dev/ttyAMA2` geçti, konteyner içinden görünüyor. `docker inspect` yedekleri alındı |
+| **15** | ✅ **YAPILDI** — `dagit.sh` 3/3, 6 paket, sürüm `193c224`; `baslat.sh` md5 üçünde de **depo ile AYNI**, 11 düğüm, `TEK-URETICI` aktif |
 
 > 🚦 **Kapı:** `drone_bul.sh --durum` → md5 eşit, düğüm sayısı yerinde.
 > Bayraklar: `origin consensus fsm formasyon ca mod` üç uçakta ·
