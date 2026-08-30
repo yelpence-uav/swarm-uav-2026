@@ -403,10 +403,29 @@ class ModeManagerNode(Node):
     ) -> None:
         """Yeni durum giris eylemlerini calistirir."""
         if state == ModeState.TAKEOFF:
-            self._pub_event(
-                SystemEvent.EVENT_MISSION_STARTED,
-                SystemEvent.SEVERITY_INFO,
-                'Görev 2 kalkış başlıyor',
+            # 🔴 EVENT_MISSION_STARTED YAYINLANMIYOR — 30 Agustos 2026 saha
+            # olayindan sonra kaldirildi.
+            #
+            # NE OLDU: SwD kalkis konumuna alindi -> mesh -> uc mode_manager
+            # TAKEOFF'a girdi -> buradan EVENT_MISSION_STARTED yayinlandi ->
+            # agent_fsm (kalkis_olayla=false, "gecis modu") olayi ARM'a
+            # cevirdi -> px4_bridge OFFBOARD + ARM yapip arm z'sini KILITLEDI
+            # -> PERVANESIZ ucak o irtifayi tutamayinca konum denetleyicisinin
+            # integrali sardi, gaz tirmandi, PX4 kendini "flying" saydi ve
+            # YAZILIM DISARM'INI REDDETTI (MAV_RESULT=1). Kumandadan inis yolu
+            # da yok (asagidaki LANDING dali yalniz olay yayinliyor). Olay
+            # ancak agent_fsm'in ARMED->IDLE zaman asimiyla (42-95 sn) bitti.
+            # DURUM.md §3'un belgeledigi tuzagin birebir tekrari.
+            #
+            # NEDEN KALDIRILDI: EVENT_MISSION_STARTED guided yolun ARM
+            # TETIGI. mode_manager gorev baslaticisi DEGIL, mod yoneticisi;
+            # o olayi yayinlamasi "SwD'ye dokunmak suruyu ARM eder" demek.
+            # Kalkis yetkisi B2'nin isi ve ACIKCA tasarlanacak.
+            self.get_logger().info(
+                '[mode_manager] TAKEOFF durumu — KALKIS KOMUTU URETILMIYOR. '
+                'Kalkis yetkisi B2 ile gelecek (bkz. gorev2.md). '
+                'EVENT_MISSION_STARTED bilerek YAYINLANMIYOR: agent_fsm onu '
+                'ARM tetigi olarak isliyor ve 30 Agu saha olayina yol acti.'
             )
 
         elif state == ModeState.READY:
@@ -551,13 +570,33 @@ class ModeManagerNode(Node):
             ctx.formation_change_requested = False
             return
 
-        # Emniyet açık (deadman_pressed == True), ancak paket geçersiz (örn. GCS heartbeat):
-        # Eksenleri sıfırla ama aksiyon isteklerini KORU! (_tick tarafından işlenip temizlenir)
+        # Emniyet ACIK (deadman_pressed) ama paket GECERSIZ.
+        #
+        # 🔴 30 Agustos 2026: burada YORUM ile KOD CELISIYORDU. Yorum
+        # "aksiyon isteklerini KORU!" diyordu, kod ise `return` edip
+        # land/rtl/acil dahil HEPSINI dusuruyordu.
+        #
+        # Celiski B18 gaz kapisiyla TEHLIKEYE dondu: o kapi command_valid'i
+        # false yapan YENI bir sebep. Yani "SwA acik, gaz ortada degil"
+        # halinde pilot LAND VEREMEZDI — oysa CLAUDE.md "iptal her zaman
+        # land" diyor ve land tek gercek iptal yolumuz.
+        #
+        # ILKELI AYRIM: IPTAL aksiyonlari (land/rtl/acil) HER ZAMAN gecer,
+        # GIT aksiyonu (takeoff) GECMEZ. Gecersiz bir pakette "kalk" demek
+        # yanlis, "in" demek her zaman dogru.
         if not msg.command_valid:
             ctx.pitch_cmd = 0.0
             ctx.roll_cmd = 0.0
             ctx.yaw_cmd = 0.0
             ctx.throttle_cmd = 0.0
+            if msg.land:
+                ctx.land_requested = True
+            if msg.rtl:
+                ctx.rtl_requested = True
+            if msg.emergency_stop:
+                ctx.emergency_stop_requested = True
+            # takeoff BILEREK YOK — gecersiz pakette kalkis istenmez.
+            ctx.last_valid_command_time = time.monotonic()
             return
 
         try:

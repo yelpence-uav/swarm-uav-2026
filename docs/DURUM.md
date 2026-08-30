@@ -1,6 +1,6 @@
 # DURUM — şu an ne çalışıyor, ne bozuk
 
-**Son güncelleme:** 30 Ağustos 2026, 14:00 — 🔴 **G0 sürüyor: `mod` + `mod_test` ÜÇ UÇAKTA, `joystick` ylp00'da AÇIK**; üç konteyner yeniden oluşturuldu: kod `193c224` dağıtıldı, `ROS_LOCALHOST_ONLY` (A19) kapandı, ylp00'a `/dev/ttyAMA2` verildi
+**Son güncelleme:** 30 Ağustos 2026, 14:52 — 🔴 **SAHA OLAYI: SwD sürüyü ARM etti** (`gorev2.md` §2); G0 sürüyor: `mod` + `mod_test` ÜÇ UÇAKTA, `joystick` ylp00'da AÇIK**; üç konteyner yeniden oluşturuldu: kod `193c224` dağıtıldı, `ROS_LOCALHOST_ONLY` (A19) kapandı, ylp00'a `/dev/ttyAMA2` verildi
 
 
 ## 1. Filo
@@ -197,7 +197,14 @@ Aksi yazmıyorsa **üç uçakta da aynı.**
 Açık kaldığı sürece "görev başladı" komutu uçağı ARM eder ve **orada
 bırakır** — kalkış komutu gönderilmez. Yer testleri için var.
 
-### 🔴 Yer testinden çıkış: **kumandadan kill switch** — 20 Ağu'da yeniden yaşandı
+### 🔴 Yer testinden çıkış: **kumandadan kill switch** — 20 Ağu · **30 Ağu'da ÜÇÜNCÜ KEZ**
+
+> **30 Ağustos 2026:** Görev 2 G0'ında SwD sürüyü ARM etti, pervanesiz OFFBOARD'da
+> integral sardı, PX4 "flying" dedi ve **YKİ'nin disarm'ı reddedildi**
+> (`MAV_RESULT=1`). Kill kumandaları kapalıydı; olay `agent_fsm`'in kendi zaman
+> aşımıyla bitti. Kök neden `mode_manager`'ın `EVENT_MISSION_STARTED`
+> yayınlaması — kaldırıldı. Tam kayıt: `gorev2.md` §2.
+> **Ders: `mod` açıkken kill pilotları başında olmalı.**
 
 Yazılım disarm'ı OFFBOARD'dayken PX4 tarafından reddediliyor (`result=1`).
 **20 Ağustos yer testinde tekrar oldu:** `guided/3/disarm` tuttu sanıldı,

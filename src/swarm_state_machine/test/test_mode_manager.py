@@ -589,3 +589,36 @@ class TestKapiArmSarti(unittest.TestCase):
         self.assertTrue(ctx.kalkis_kapisi_degerlendir())
         ctx.agent_statuses = self._kadro([8.0, 8.0, 8.0], armed=False)
         self.assertTrue(ctx.kalkis_kapisi_degerlendir())
+
+
+class TestGecersizPaketteIptal(unittest.TestCase):
+    """🔴 command_valid=False iken IPTAL gecer, KALKIS gecmez.
+
+    B18 gaz kapisi command_valid'i false yapan yeni bir sebep. Eskiden kod
+    bu durumda TUM aksiyonlari dusuruyordu, yani "SwA acik + gaz ortada
+    degil" halinde pilot LAND VEREMIYORDU. CLAUDE.md: iptal her zaman land.
+    """
+
+    def test_land_kapisini_ASAR(self):
+        ctx = ModeContext(agent_ids=[1, 2, 3])
+        ctx.state = ModeState.MOVEMENT
+        ctx.land_requested = True          # _on_control_command'in yapacagi
+        self.assertEqual(evaluate_transitions(ctx), ModeState.LANDING)
+
+    def test_acil_durum_kapisini_ASAR(self):
+        ctx = ModeContext(agent_ids=[1, 2, 3])
+        ctx.state = ModeState.MOVEMENT
+        ctx.emergency_stop_requested = True
+        self.assertEqual(evaluate_transitions(ctx), ModeState.EMERGENCY)
+
+    def test_kalkis_gecersiz_pakette_ISTENMEZ(self):
+        """takeoff_requested kurulmazsa PREFLIGHT'ta kalinir."""
+        ctx = ModeContext(agent_ids=[1, 2, 3])
+        ctx.state = ModeState.PREFLIGHT
+        ctx.agent_statuses = {
+            i: _MockAgentStatus(state=3, healthy=True) for i in (1, 2, 3)
+        }
+        ctx.takeoff_requested = False
+        self.assertIsNone(evaluate_transitions(ctx))
+        ctx.takeoff_requested = True
+        self.assertEqual(evaluate_transitions(ctx), ModeState.TAKEOFF)

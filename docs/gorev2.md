@@ -1,6 +1,6 @@
 # GÖREV 2 — Yarı Otonom Sürü Kontrolü
 
-**Son güncelleme:** 30 Ağustos 2026, 14:40 — **mesh bütçesi ÖLÇÜLDÜ** (~57 çerçeve/s, TIP_KOMUT 16,5); deadman ölçüldü: alıcı susmuyor, kanalları MERKEZE alıyor (önceki bulgu yanlıştı); B18 doğrulandı; kalkış kapısına ARM şartı eklendi (açık alan ölçümü açığı gösterdi); G0 madde 16 + 18 geçti; kapının HİÇ AÇILAMAYACAĞI bir kusur bulundu ve kapatıldı; iki gerçek kusur sahada yakalandı (QoS kırığı + yayın hızı); Aşama B bitti (kod dağıtıldı + üç konteyner recreate); i-BUS zinciri uçtan uca çalıştı (130 Hz, 0 checksum hatası); işaret yönleri ölçüldü → **pitch ve yaw TERSTİ**, düzeltildi; **B18** gaz kapısı eklendi
+**Son güncelleme:** 30 Ağustos 2026, 14:52 — 🔴 **SAHA OLAYI: SwD sürüyü ARM etti** (bkz. §2); `EVENT_MISSION_STARTED` kaldırıldı; mesh bütçesi ölçüldü (~57 çerçeve/s, TIP_KOMUT 16,5); deadman ölçüldü: alıcı susmuyor, kanalları MERKEZE alıyor (önceki bulgu yanlıştı); B18 doğrulandı; kalkış kapısına ARM şartı eklendi (açık alan ölçümü açığı gösterdi); G0 madde 16 + 18 geçti; kapının HİÇ AÇILAMAYACAĞI bir kusur bulundu ve kapatıldı; iki gerçek kusur sahada yakalandı (QoS kırığı + yayın hızı); Aşama B bitti (kod dağıtıldı + üç konteyner recreate); i-BUS zinciri uçtan uca çalıştı (130 Hz, 0 checksum hatası); işaret yönleri ölçüldü → **pitch ve yaw TERSTİ**, düzeltildi; **B18** gaz kapısı eklendi
 
 Şartname **§5.2** · **100 puan** · görev başına **3 hak**, en yüksek puan sayılır.
 
