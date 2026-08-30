@@ -184,6 +184,27 @@ class ModeContext:
         if not self.all_agents_seen():
             return False
 
+        # 🔴 ARM SARTI — 30 Agustos, ACIK ALAN OLCUMU ekledi.
+        #
+        # Esik ORIGIN'e goreli, YERE goreli DEGIL (AgentStatus.pos_z paylasilan
+        # NED origin'inden olculur). Sahada olculdu: ucaklar YERDE dururken
+        #     ylp00 +1,7 m · ylp01 -0,1 m · ylp02 0,0 m
+        # yani ylp00 sirf YERLESIM yuzunden 2,0 m esigin %85'ini tuketmisti.
+        # Bir ucak origin'in 2,5 m ustune konsaydi — ya da origin daha alcak
+        # ayarlansaydi — KAPI YERDEYKEN ACIK OLURDU. Tam da engellemek icin
+        # yazildigi sey.
+        #
+        # DISARM BIR UCAK HAVADA OLAMAZ. Bu sart irtifa referansindan
+        # bagimsiz oldugu icin deligi kapatiyor. `armed` mesh'ten geciyor
+        # (durum_paketle:581 -> esp32_bridge:1348), yani komsular icin de
+        # guvenilir.
+        disarm = [
+            aid for aid in self.agent_ids
+            if not bool(getattr(self.agent_statuses[aid], 'armed', False))
+        ]
+        if disarm:
+            return False
+
         yukseklikler = []
         for aid in self.agent_ids:
             st = self.agent_statuses.get(aid)

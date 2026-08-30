@@ -33,6 +33,7 @@ class _MockAgentStatus:
     pos_y: float = 0.0
     pos_z: float = 0.0
     heading_deg: float = 0.0
+    armed: bool = True      # kapi testlerinin cogu ARMLI kadro varsayar
 
 
 class TestModeContext(unittest.TestCase):
@@ -535,3 +536,56 @@ class TestB17HeadingTohumlama(unittest.TestCase):
         ctx.agent_statuses = self._kadro([0.0, 0.0, 0.0])
         ctx.kalkis_kapisi_degerlendir()
         self.assertEqual(ctx.formation_heading_deg, 135.0)
+
+
+class TestKapiArmSarti(unittest.TestCase):
+    """🔴 30 Ağustos açık alan ölçümü: esik ORIGIN'e goreli, yere degil.
+
+    Ucaklar YERDE dururken olculen yukseklikler: ylp00 +1,7 · ylp01 -0,1 ·
+    ylp02 0,0 m. Yani yerlesim tek basina 2,0 m esigin %85'ini yiyordu.
+    Origin'den 2,5 m yuksege konan bir ucakta kapi YERDE ACILIRDI.
+    """
+
+    @staticmethod
+    def _ctx():
+        c = ModeContext(agent_ids=[1, 2, 3])
+        c.kalkis_esik_m = 2.0
+        return c
+
+    @staticmethod
+    def _kadro(yukseklikler, armed=True):
+        return {i + 1: _MockAgentStatus(pos_z=-h, armed=armed)
+                for i, h in enumerate(yukseklikler)}
+
+    def test_DISARM_ucaklar_esigin_USTUNDE_olsa_bile_KAPI_ACILMAZ(self):
+        """🔴 Asil kaza: kotu origin ofseti + disarm = yerde acilan kapi."""
+        ctx = self._ctx()
+        ctx.agent_statuses = self._kadro([3.0, 3.0, 3.0], armed=False)
+        self.assertFalse(ctx.kalkis_kapisi_degerlendir())
+        self.assertFalse(ctx.kalkis_tamam)
+
+    def test_ARMLI_ve_esigin_ustunde_ACILIR(self):
+        ctx = self._ctx()
+        ctx.agent_statuses = self._kadro([3.0, 3.0, 3.0], armed=True)
+        self.assertTrue(ctx.kalkis_kapisi_degerlendir())
+
+    def test_TEK_disarm_ucak_bile_KAPATIR(self):
+        ctx = self._ctx()
+        kadro = self._kadro([8.0, 8.0, 8.0], armed=True)
+        kadro[2].armed = False
+        ctx.agent_statuses = kadro
+        self.assertFalse(ctx.kalkis_kapisi_degerlendir())
+
+    def test_armli_ama_ALCAK_yine_kapali(self):
+        """Iki sart AYRI: arm tek basina yetmez."""
+        ctx = self._ctx()
+        ctx.agent_statuses = self._kadro([0.1, 0.1, 0.1], armed=True)
+        self.assertFalse(ctx.kalkis_kapisi_degerlendir())
+
+    def test_mandal_acildiktan_sonra_disarm_KAPATMAZ(self):
+        """Kapi MANDAL: acildiktan sonra disarm gorulse bile kapanmaz."""
+        ctx = self._ctx()
+        ctx.agent_statuses = self._kadro([8.0, 8.0, 8.0], armed=True)
+        self.assertTrue(ctx.kalkis_kapisi_degerlendir())
+        ctx.agent_statuses = self._kadro([8.0, 8.0, 8.0], armed=False)
+        self.assertTrue(ctx.kalkis_kapisi_degerlendir())

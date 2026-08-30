@@ -227,12 +227,25 @@ class ModeManagerNode(Node):
         # havada da hicbir sey yayinlamazdi. Gorev 2 komple olu olurdu ve
         # hicbir yerde hata gorunmezdi.
         #
-        # Cozum formation_node'un deseni (formation_node.py:341): kendi
-        # durumu /swarm/agent/drone{ben}/telemetry'den (px4_bridge, 10 Hz),
+        # Cozum: kendi durumu /swarm/internal/drone{ben}/status'tan (10 Hz),
         # komsularinki mesh'ten public'ten.
+        #
+        # ⚠️ ONCE /swarm/agent/drone{ben}/telemetry SECILMISTI (formation_node
+        # deseni) ve YANLISTI — olculdu:
+        #     /swarm/agent/drone1/telemetry   state: 0  healthy: false
+        #     /swarm/internal/drone1/status   state: 1  healthy: true
+        # Ilki px4_bridge'in HAM telemetrisi; `state` (ajan FSM durumu) ve
+        # `healthy` alanlarini DOLDURMUYOR. formation_node'a yetiyor cunku o
+        # yalniz KONUM okuyor; mode_manager ise all_agents_healthy() ve
+        # all_agents_in_swarm() icin ikisini de okuyor ve ikisi de yanlis
+        # gelirdi (PREFLIGHT -> TAKEOFF hic gecmezdi).
+        #
+        # Ayrica /swarm/internal/drone{N}/status TAM OLARAK mesh'e giden
+        # kayit: kendimizi komsularin gordugu ile AYNI alanlardan okumus
+        # oluyoruz (simetri).
         for aid in self._agent_ids:
             if aid == self._agent_id:
-                konu = f'/swarm/agent/drone{aid}/telemetry'
+                konu = f'/swarm/internal/drone{aid}/status'
             else:
                 konu = f'/swarm/public/drone{aid}/status'
             self.create_subscription(
@@ -294,8 +307,15 @@ class ModeManagerNode(Node):
         # Kapali kaldigi surece 10 saniyede bir SEBEBINI soyler.
         if not ctx.kalkis_tamam:
             eksik = [a for a in self._agent_ids if a not in ctx.agent_statuses]
+            disarm = [
+                a for a in self._agent_ids
+                if a in ctx.agent_statuses
+                and not bool(getattr(ctx.agent_statuses[a], 'armed', False))
+            ]
             if eksik:
                 sebep = f'durumu HIC GELMEYEN ajan: {eksik}'
+            elif disarm:
+                sebep = f'DISARM ajanlar: {disarm}'
             else:
                 alcak = {
                     a: round(-float(ctx.agent_statuses[a].pos_z), 1)

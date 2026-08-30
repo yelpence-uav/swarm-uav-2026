@@ -1,6 +1,6 @@
 # GÖREV 2 — Yarı Otonom Sürü Kontrolü
 
-**Son güncelleme:** 30 Ağustos 2026, 14:00 — **G0 madde 16 + 18 GEÇTİ**; kapının HİÇ AÇILAMAYACAĞI bir kusur bulundu ve kapatıldı; iki gerçek kusur sahada yakalandı (QoS kırığı + yayın hızı); Aşama B bitti (kod dağıtıldı + üç konteyner recreate); i-BUS zinciri uçtan uca çalıştı (130 Hz, 0 checksum hatası); işaret yönleri ölçüldü → **pitch ve yaw TERSTİ**, düzeltildi; **B18** gaz kapısı eklendi
+**Son güncelleme:** 30 Ağustos 2026, 14:18 — kalkış kapısına **ARM şartı** eklendi (açık alan ölçümü açığı gösterdi); G0 madde 16 + 18 geçti; kapının HİÇ AÇILAMAYACAĞI bir kusur bulundu ve kapatıldı; iki gerçek kusur sahada yakalandı (QoS kırığı + yayın hızı); Aşama B bitti (kod dağıtıldı + üç konteyner recreate); i-BUS zinciri uçtan uca çalıştı (130 Hz, 0 checksum hatası); işaret yönleri ölçüldü → **pitch ve yaw TERSTİ**, düzeltildi; **B18** gaz kapısı eklendi
 
 Şartname **§5.2** · **100 puan** · görev başına **3 hak**, en yüksek puan sayılır.
 
@@ -241,8 +241,15 @@ t+10s    kalkis kapisi KAPALI — esigin (2.0 m) altindaki ajanlar:
                                 {1: -0.5, 2: 0.2, 3: 0.5}
 ```
 
-⚠️ Yükseklikler **paylaşılan origin'e göre**, yere göre değil. ylp00 origin'in
-0,5 m altında; eşiği geçmesi için 2,5 m tırmanması gerekiyor.
+🔴 **Yükseklikler paylaşılan origin'e göre, yere göre değil — ve bu ciddi.**
+Açık alanda ölçülen: ylp00 **+1,7 m** · ylp01 −0,1 · ylp02 0,0 (üçü de YERDE).
+ylp00 sırf **yerleşim** yüzünden 2,0 m eşiğin **%85'ini** tüketti. Bir uçak
+origin'in 2,5 m üstüne konsaydı **kapı yerdeyken açık olurdu.**
+
+*Çözüm:* kapıya **ARM ŞARTI** eklendi — disarm bir uçak havada olamaz, şart
+irtifa referansından bağımsız. `armed` mesh'ten geçiyor
+(`durum_paketle:581` → `esp32_bridge:1348`), komşular için de güvenilir.
+Eşiği büyütmek çözüm değildi: ofset de büyüyebilir.
 
 **Doğrulanan durum (üç uçak yerde, `mod` + `mod_test` açık):**
 
