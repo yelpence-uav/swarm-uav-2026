@@ -1,6 +1,6 @@
 # Cihaz ve erişim tablosu
 
-**Son güncelleme:** 25 Ağustos 2026, 00:45 — ylp01 ESP değişimi: MAC takma adı + güncel firmware flash
+**Son güncelleme:** 30 Ağustos 2026, 03:45 — **drone tarafı seri port tablosu eklendi** (`ttyAMA0/2/4` + fiziksel pin + 5 V uyarısı); eski damga: 25 Ağustos 00:45 — ylp01 ESP değişimi: MAC takma adı + güncel firmware flash
 
 Sahada IP'ler DHCP ile değişir (29 Tem `10.207.118.x` → 30 Tem `10.158.16.x`
 → 14 Ağu `10.188.209.x`; her seferinde bütün SSH komutları kırıldı).
@@ -162,6 +162,26 @@ değiştirirsen diğerini de değiştir:
 MAC ve mesh ID'ler yukarıdaki **kimlik tablosunda**.
 Tabloda olmayan MAC'ten gelen paket reddedilir (kapı kimliği), yani yeni bir ESP
 takarsan MAC'i buraya eklemeden mesh'e giremez.
+
+## Drone (Raspberry Pi 5) seri portları
+
+`pi_hazirla.sh` `/boot/firmware/config.txt`'ye yazıyor; **overlay olmadan
+cihaz düğümü OLUŞMAZ** ve düğüm portu açamaz.
+
+| Port | config.txt satırı | GPIO | **Fiziksel pin** | Kim kullanıyor | Baud |
+|------|-------------------|------|------------------|----------------|------|
+| `/dev/ttyAMA0` | `dtparam=uart0=on` | 14 TX / 15 RX | 8 / 10 | **Pixhawk** (MAVROS) | 921600 |
+| `/dev/ttyAMA4` | `dtoverlay=uart4-pi5` | 12 / 13 | 32 / 33 | **ESP32 mesh** | 460800 |
+| `/dev/ttyAMA2` | `dtoverlay=uart2-pi5` | 4 TX / **5 RX** | 7 / **29** | **Görev 2 sürü RC alıcısı** (i-BUS, YALNIZ ylp00) | 115200 |
+
+> 🔴 **Pi 5 GPIO'su 5 V toleranslı DEĞİL.** Yeni bir sinyal bağlamadan önce
+> ucu GND'ye karşı **ölç**. FS-iA6B i-BUS için 30 Ağustos'ta ölçüldü:
+> **~3 V**, yani doğrudan bağlanır. Alıcının BESLEMESİ 5,3 V olabilir —
+> besleme ile sinyal seviyesi farklı şeylerdir.
+
+> ⚠️ Seri konsol `ttyAMA0`'ı işgal eder ve Pixhawk tam oraya bağlıdır.
+> `cmdline.txt`'de `console=serial0` kalırsa MAVROS bağlanamaz
+> (`pi_hazirla.sh` bunu temizliyor; ylp01'de 30 Temmuz'da bulunmuştu).
 
 ## Yer istasyonu (laptop) USB portları
 

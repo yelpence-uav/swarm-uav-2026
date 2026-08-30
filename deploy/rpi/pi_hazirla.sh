@@ -74,14 +74,20 @@ for g in dialout docker; do
 done
 
 # ---------------------------------------------------------------------------
-bas "2) UART (Pixhawk /dev/ttyAMA0, ESP32 /dev/ttyAMA4)"
+bas "2) UART (Pixhawk /dev/ttyAMA0, ESP32 /dev/ttyAMA4, suru RC /dev/ttyAMA2)"
 # ylp00'dan birebir alindi. uart4-pi5 overlay'i olmadan /dev/ttyAMA4 olusmaz
 # ve esp32_bridge portu acamaz.
 if [ ! -f "$BOOT/config.txt" ]; then
     log "UYARI: $BOOT/config.txt yok — bu Raspberry Pi OS degil mi?"
 else
     cp -n "$BOOT/config.txt" "$BOOT/config.txt.yelpence-yedek" 2>/dev/null || true
-    for satir in "enable_uart=1" "dtparam=uart0=on" "dtoverlay=uart4-pi5"; do
+    # uart2-pi5 (GPIO4 TX / GPIO5 RX = fiziksel pin 7 / 29) — GOREV 2
+    # suru kumandasinin i-BUS alicisi. Alici YALNIZ pilot ucaginda takili
+    # ama overlay UCUNDE DE aciliyor: filo tekduze kalsin ve alici baska
+    # ucaga tasindiginda tek is kablo olsun. Takili degilken /dev/ttyAMA2
+    # olusur ama BOS kalir — zararsiz.
+    for satir in "enable_uart=1" "dtparam=uart0=on" "dtoverlay=uart4-pi5" \
+                 "dtoverlay=uart2-pi5"; do
         if grep -qxF "$satir" "$BOOT/config.txt"; then
             log "$satir: var"
         else

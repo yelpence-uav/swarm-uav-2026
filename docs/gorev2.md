@@ -1,6 +1,6 @@
 # GÖREV 2 — Yarı Otonom Sürü Kontrolü
 
-**Son güncelleme:** 30 Ağustos 2026, 03:01 — **AŞAMA A BİTTİ (1-10 + B17)**; denetim `/ws/mod_test` boşluğunu buldu ve kapattı
+**Son güncelleme:** 30 Ağustos 2026, 03:45 — Aşama A bitti; **B madde 11+13 KAPANDI**: kablo takılı (pin 29 = GPIO5), sinyal **~3 V ölçüldü**, port `/dev/ttyAMA2`
 
 Şartname **§5.2** · **100 puan** · görev başına **3 hak**, en yüksek puan sayılır.
 
@@ -96,14 +96,22 @@ FS-iA6B 5 V ile besleniyor. i-BUS çıkışı yaygın olarak 3,3 V bildiriliyor
 USB-TTL kullanılıyorsa adaptörün 3,3 V–5 V jumper'ı da doğru konumda olmalı.
 **Ölçmeden bağlanmaz.**
 
-### Port: env'e bağlı, iki bağlantı da kod değişmeden çalışır
+### Port kesinleşti: `/dev/ttyAMA2` (30 Ağustos)
 
-`SURU_RC_PORT` değişkeni — kritik yolu tıkamasın diye seçim ertelenebilir.
+`SURU_RC_PORT` env'i duruyor ama artık varsayılanı doğru: `baslat.sh` ve
+`run_drone.sh` `/dev/ttyAMA2` kullanıyor. USB-TTL seçeneği **elendi** —
+bağlantı doğrudan Pi UART'ına yapıldı, `ttyUSB` numarası kayması derdi yok.
 
-| Yol | Artı | Eksi |
-|---|---|---|
-| **USB-TTL → `/dev/ttyUSB0`** *(öneri)* | reboot yok, `config.txt`'ye dokunmaz, sıcak takılır | numara her takışta değişir → **`by-id` yolu şart** (`cihazlar.md` kuralı) |
-| Pi UART → `/dev/ttyAMAn` | ad sabit, `ttyAMA0`/`ttyAMA4` deseniyle tutarlı | `config.txt` + **reboot** + GPIO pin çakışma kontrolü |
+| | |
+|---|---|
+| Sinyal | i-BUS Servo → **fiziksel pin 29 (GPIO5)** = `uart2` RX |
+| Overlay | `dtoverlay=uart2-pi5` → `/dev/ttyAMA2` · ⏳ **henüz yazılmadı** |
+| Seviye | **~3 V ölçüldü** → doğrudan bağlanır ✅ |
+| Diğer UART'lar | `ttyAMA0` Pixhawk (pin 8/10) · `ttyAMA4` ESP32 (pin 32/33) |
+
+`pi_hazirla.sh` artık `uart2-pi5`'i de yazıyor (yeni Pi'ler için); **mevcut
+üç uçakta elle eklenmeli.** Tam tablo `cihazlar.md`, filo dağılımı
+`RPI_ESITLEME.md` **A23**.
 
 ---
 
@@ -349,9 +357,9 @@ Aşama geçişlerinde 🚦 kapı var — kapı sağlanmadan sonraki aşamaya ge�
 
 | # | İş |
 |---|---|
-| **11** | 🔴 **i-BUS gerilim ölçümü.** Pi 5 GPIO **5 V toleranslı değil**. Ölçmeden bağlanmaz |
+| **11** | ✅ **Gerilim ölçüldü: ~3 V** → 3,3 V mantık, seviye çevirici **gerekmiyor**. (Kumandadaki `IntV1 5,3 V` alıcının **beslemesi**, sinyal değil.) |
 | **12** | Kumanda #2 kurulumu: bind → **10 kanal modu** → **failsafe: SwA = KİLİTLİ** kaydet |
-| **13** | Kablolama + port seçimi (`SURU_RC_PORT`: USB-TTL `by-id` ya da Pi UART) |
+| **13** | ✅ **Kablolama yapıldı** — i-BUS Servo → jumper → **fiziksel pin 29 (GPIO5)** + GND. Port kesinleşti: **`/dev/ttyAMA2`**. ⏳ **Kalan tek satır:** `config.txt`'ye `dtoverlay=uart2-pi5` + **reboot** |
 | **14** | **Konteyner recreate ×3** — `--device` + A19 + A12 + drone1 korupt log, **tek işlem**. ⚠️ önce `docker inspect` ile mevcut ayarları not al |
 | **15** | Dağıtım: `dagit.sh` ×3 + `ucus_ayarlari.py --kabuk` → `/ws/ucus_ayarlari.env` |
 

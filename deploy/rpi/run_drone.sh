@@ -28,7 +28,12 @@ KANAT_ALFA_DEG="${KANAT_ALFA_DEG:-45.0}"
 # Sartname 5.2 kill switch icin AYRI kumanda + AYRI pilot zorunlu kiliyor,
 # yani Pixhawk'in tek RC girisi ONA ait; suru kumandasinin alicisi Pi'ye
 # i-BUS ile baglaniyor (gorev2.md B1).
-SURU_RC_PORT="${SURU_RC_PORT:-/dev/ttyUSB0}"
+# 30 Agustos 2026: ylp00'da FIZIKSEL BAGLANTI YAPILDI ve OLCULDU —
+# i-BUS sinyali PIN 29 (GPIO5) = uart2 RX, sinyal ~3 V (3,3 V mantik,
+# seviye cevirici GEREKMIYOR). `dtoverlay=uart2-pi5` -> /dev/ttyAMA2.
+# Overlay olmayan ucakta bu dugum OLUSMAZ ve asagidaki kosul sessizce
+# atlar — dogru davranis, cunku alici yalniz pilot ucaginda.
+SURU_RC_PORT="${SURU_RC_PORT:-/dev/ttyAMA2}"
 
 if ! [[ "$AGENT_ID" =~ ^[0-9]+$ ]]; then
   echo "[HATA] AGENT_ID sayi olmali (orn: 2)"; exit 1

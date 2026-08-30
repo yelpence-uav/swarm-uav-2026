@@ -1,6 +1,6 @@
 # RPİ EŞİTLEME DEFTERİ — geri gelen drone'u hizaya getirme
 
-**Son güncelleme:** 29 Ağustos 2026, 19:45 — param karşılaştırması saha gününe indirildi
+**Son güncelleme:** 30 Ağustos 2026, 03:45 — **A23 eklendi**: ikinci RC alıcısı ylp00'a takıldı (pin 29, sinyal ~3 V ölçüldü), overlay bekliyor; eski damga: 29 Ağustos 19:45 — param karşılaştırması saha gününe indirildi
 
 ## Kamera ayarları — ylp02'de kalibre edildi · 28 Ağustos 2026
 
@@ -225,6 +225,7 @@ kalıcı olur. Üçü de ancak **ölçerek** görülür.
 | A19 | 🔴 **`-e ROS_LOCALHOST_ONLY=1` konteyner ortamında** | ❌ | ❌ | ❌ | `run_drone.sh`'te (26 Ağu `dd5a1e6`) — **yalnız konteyner YENİDEN OLUŞTURULUNCA** devreye girer, tıpkı A12 gibi. O ana kadar elde `docker exec -e ROS_LOCALHOST_ONLY=1 ...` verilmeli · `TUZAKLAR` §1.25. **A12 ylp02'de ❌ — tek recreate ikisini birden kapatır** |
 | A20 | **IMX477 kamera + `config.txt` overlay'i** | ❌ | ❌ | ✅ | `/boot/firmware/config.txt`: `camera_auto_detect=0` + `dtoverlay=imx477,cam0` + `dtoverlay=imx477,cam1`. **Oto-tespit bu Arducam kartini TANIMIYOR** — overlay elle verilmezse `No cameras available!` disinda hicbir belirti yok. Flex tuzagi: `KAMERA.md` §2 |
 | A21 | 🔒 **IR-CUT suzgeci GUNDUZ konumunda kilitli** | — | — | ✅ | 28 Agu gece, operator: suzgec gunduz konumuna alindi ve **kablosu sokuldu**, isik sensoru artik ceviremiyor. Gece konumunda kare magentaya kayiyor ve renk tespiti **6 sahte KIRMIZI bolge** uretmisti (27 Agu olcumu) |
+| A23 | 🔴 **İkinci RC alıcısı (Görev 2 sürü kumandası)** | ⏳ kablo ✅ / overlay ❌ | ❌ | ❌ | **30 Ağu, operatör ylp00'a fiziksel olarak taktı.** FS-iA6B **i-BUS Servo** çıkışı → jumper → **fiziksel pin 29 (GPIO5) = uart2 RX** + GND. ✅ **Sinyal ölçüldü: ~3 V** → 3,3 V mantık, **seviye çevirici GEREKMİYOR** (Pi 5 GPIO'su 5 V toleranslı değil, bu yüzden ölçüldü). Kumanda `IntV1 5,3 V` gösteriyor = alıcının BESLEMESİ, sinyal değil; telemetri geldiğine göre **bind tamam**. ⏳ **KALAN:** `/boot/firmware/config.txt`'ye `dtoverlay=uart2-pi5` + reboot → `/dev/ttyAMA2`. Sonra konteyner **recreate** (`--device`, restart yetmez). Ayrıntı: `gorev2.md` B1 |
 | A22 | **Algi paketleri (imaj icinde)** | ❌ | ❌ | ✅ | `yelpence-ros:latest` (`ea2c1b1e9154`, 2,02 GB) — opencv 4.6 + pyzbar + **zxing-cpp** (birincil QR cozucu) GOMULU, konteyner yeniden olusturmada kaybolmuyor. Eski bilinen-iyi imaj `yelpence-ros:temiz-20260828` korundu. Esitleme: `./deploy/yki/imaj_esitle.sh <ylpXX>` — **KARAR-09 (B), ylp00 + ylp01 bekliyor** |
 
 > ### 🔴 A16 — konnektör: yapılan iş ve durumu

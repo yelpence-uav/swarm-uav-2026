@@ -1445,10 +1445,10 @@ fi   # /altyapi: ic_dis_kopru
         # bagli; cerceveyi rc_ibus_kopru RCIn'e cevirir.
         ros2 run swarm_control rc_ibus_kopru --ros-args \
             -p agent_id:=${AGENT_ID} \
-            -p port:="'${SURU_RC_PORT:-/dev/ttyUSB0}'" \
+            -p port:="'${SURU_RC_PORT:-/dev/ttyAMA2}'" \
             >> "$GUNLUK/rc_ibus.log" 2>&1 &
         sleep 1
-        echo "[baslat] rc_ibus_kopru basladi (port=${SURU_RC_PORT:-/dev/ttyUSB0}" \
+        echo "[baslat] rc_ibus_kopru basladi (port=${SURU_RC_PORT:-/dev/ttyAMA2}" \
              "-> /drone_${AGENT_ID}/rc/suru)"
 
         # ADIM 12b — yorumlayici. REMAP'LER SURU ALICISINA BAKAR.
