@@ -1,6 +1,6 @@
 # GÖREV 2 — Yarı Otonom Sürü Kontrolü
 
-**Son güncelleme:** 30 Ağustos 2026, 14:30 — **B18 gaz kapısı sahada DOĞRULANDI**; kalkış kapısına ARM şartı eklendi (açık alan ölçümü açığı gösterdi); G0 madde 16 + 18 geçti; kapının HİÇ AÇILAMAYACAĞI bir kusur bulundu ve kapatıldı; iki gerçek kusur sahada yakalandı (QoS kırığı + yayın hızı); Aşama B bitti (kod dağıtıldı + üç konteyner recreate); i-BUS zinciri uçtan uca çalıştı (130 Hz, 0 checksum hatası); işaret yönleri ölçüldü → **pitch ve yaw TERSTİ**, düzeltildi; **B18** gaz kapısı eklendi
+**Son güncelleme:** 30 Ağustos 2026, 14:32 — **deadman ÖLÇÜLDÜ**: alıcı susmuyor, kanalları MERKEZE alıyor (önceki bulgu yanlıştı); B18 doğrulandı; kalkış kapısına ARM şartı eklendi (açık alan ölçümü açığı gösterdi); G0 madde 16 + 18 geçti; kapının HİÇ AÇILAMAYACAĞI bir kusur bulundu ve kapatıldı; iki gerçek kusur sahada yakalandı (QoS kırığı + yayın hızı); Aşama B bitti (kod dağıtıldı + üç konteyner recreate); i-BUS zinciri uçtan uca çalıştı (130 Hz, 0 checksum hatası); işaret yönleri ölçüldü → **pitch ve yaw TERSTİ**, düzeltildi; **B18** gaz kapısı eklendi
 
 Şartname **§5.2** · **100 puan** · görev başına **3 hak**, en yüksek puan sayılır.
 
@@ -156,11 +156,40 @@ tersine giderdi.**
 > belirsizdi ve ben roll'u da ters sanmıştım. Tek yönlü tekrar yapıldı;
 > sıra varsayımıyla koda dokunulsaydı **doğru olan roll bozulacaktı.**
 
-**Deadman: sessizlikle çalışıyor.** Kumanda kapalıyken i-BUS **tamamen susuyor**
-(0 bayt ölçüldü) → `rc_ibus_kopru` yayını keser → 0,5 sn'de `mode_manager` HOLD.
-`RPI_ESITLEME` §5'teki *"FS-iA6B susmuyor"* davranışı **PWM çıkışları** içinmiş.
-Alıcı failsafe'ini SwA=KİLİTLİ kaydetmek yine de ikinci katman olarak değerli,
-ama **tek dayanak değil.**
+🔴 **Deadman — ÖNCEKİ BULGU YANLIŞTI, 30 Ağustos 14:30'da düzeltildi.**
+
+Burada *"kumanda kapanınca i-BUS susuyor, deadman'i sessizlik taşıyor"*
+yazıyordu. **Yanlış.** İlk gözlemde 0 bayt okunmuştu ama o sırada alıcı
+henüz beslenmiyordu/bind değildi — tek gözlemden mekanizma çıkarmak hataydı.
+Kontrollü ölçüm:
+
+```
+kumanda ACIK  : [1502, 1500, 1500, 1500, 2000, 1000, 1000, 1000]
+kumanda KAPALI: [1503, 1500, 1002, 1500, 1500, 1500, 1500, 1500]
+                                         ^^^^  ^^^^  ^^^^  ^^^^
+                                         SwA   SwB   SwC   SwD
+cerceve akisi : 130 Hz, checksum_hata 0   -> ALICI SUSMUYOR
+```
+
+`RPI_ESITLEME` §5'in *"FS-iA6B susmuyor"* notu **doğruymuş**; ben onu
+*"yalnız PWM çıkışları için"* diye yanlış yorumlamıştım.
+
+**Deadman yine de düşüyor** — ama sessizlikle değil, alıcının **varsayılan
+failsafe'i bütün anahtar kanallarını 1500'e (merkeze) aldığı için.**
+`aux1 = (1500−1500)×2 = 0`, eşik 300 → emniyet **KİLİTLİ**. Ölçülen:
+
+```
+command_valid: false · deadman_pressed: false · throttle_cmd: 0.0
+```
+
+⚠️ **Bu bir VARSAYILAN, garanti değil.** FlySky alıcılarında *"son konumu tut"*
+seçeneği de var; biri onu açarsa **SwA 2000'de kalır ve deadman DÜŞMEZ** —
+sürü son çubuk komutunu süresiz sürdürür. Alıcı yakın zamanda bind edildi ve
+10 kanal için menülere girildi, yani ayarın değişmiş olması uzak ihtimal değil.
+
+*Bu yüzden madde 12'nin failsafe kaydı yapılmalı:* alıcının failsafe'i
+**SwA = 1000 (kilitli)** olarak açıkça kaydedilirse kırılganlık kalkar.
+🟠 P0 değil (ölçülen varsayılan güvenli), ama **uçuştan önce.**
 
 
 ### ✅ G0 madde 16 — 30 Ağustos 13:45, ylp00
@@ -545,7 +574,7 @@ Aşama geçişlerinde 🚦 kapı var — kapı sağlanmadan sonraki aşamaya ge�
 | # | İş |
 |---|---|
 | **11** | ✅ **Gerilim ölçüldü: ~3 V** → 3,3 V mantık, seviye çevirici **gerekmiyor**. (Kumandadaki `IntV1 5,3 V` alıcının **beslemesi**, sinyal değil.) |
-| **12** | ✅ bind ✅ **10 kanal modu** (CH7/CH8 geçerli aralıkta ölçüldü) · ⏳ failsafe SwA kaydı — **artık ikincil**, bkz. deadman bulgusu |
+| **12** | ✅ bind ✅ **10 kanal modu** · 🟠 **failsafe SwA kaydı UÇUŞTAN ÖNCE** — deadman bugün alıcının VARSAYILAN merkeze-alma davranışına dayanıyor, garanti değil |
 | **13** | ✅ **Kablolama yapıldı** — i-BUS Servo → jumper → **fiziksel pin 29 (GPIO5)** + GND. Port kesinleşti: **`/dev/ttyAMA2`**. ⏳ **Kalan tek satır:** `config.txt`'ye `dtoverlay=uart2-pi5` + **reboot** |
 | **14** | ✅ **YAPILDI (30 Ağu 13:30)** — üçü de yeniden oluşturuldu. **A19 kapandı** (`ROS_LOCALHOST_ONLY=1` üçünde de), ylp00'a `--device /dev/ttyAMA2` geçti, konteyner içinden görünüyor. `docker inspect` yedekleri alındı |
 | **15** | ✅ **YAPILDI** — `dagit.sh` 3/3, 6 paket, sürüm `193c224`; `baslat.sh` md5 üçünde de **depo ile AYNI**, 11 düğüm, `TEK-URETICI` aktif |
@@ -568,7 +597,7 @@ Aşama geçişlerinde 🚦 kapı var — kapı sağlanmadan sonraki aşamaya ge�
 | **19** | MANEVRA'da **merkez sabitliği** (xy değişmemeli) + `formasyon_sustur` bayrağı |
 | **20** | **Centroid sürüklenmesi**: üç uçağın `formation/target.center_*` farkı, 60 sn |
 | **21** | **B6 kararı:** çubuk basamağında centroid hızı sıçrıyor mu? Sıçrıyorsa `swarm_movement_step` (ivme rampalı, yazılı ve testli) **uçuştan önce** devreye alınır — osilasyon cezası −10 |
-| **22** | **Deadman**: kumandayı kapat → 0,5 sn'de HOLD (alıcı failsafe'i çalışıyor mu) |
+| **22** | ✅ **ÖLÇÜLDÜ** — kumanda kapalı → SwA 2000→1500 → `deadman_pressed: false`. Alıcı susmuyor, merkeze alıyor (§2) |
 | **23** | Mesh bütçesi: `TIP_KOMUT` açıkken çerçeve/s (mevcut ~53 üstüne +20) |
 
 > 🚦 **Kapı:** işaret yönleri **yazılı**, merkez sabitliği ölçülü, deadman kanıtlı.
