@@ -268,8 +268,20 @@ class ModeManagerNode(Node):
                 f'[mode_manager] KALKIS KAPISI ACILDI (esik '
                 f'{ctx.kalkis_esik_m:.1f} m) — centroid ucaklarin KENDI '
                 f'konumundan tohumlandi: ({ctx.centroid_x:.1f}, '
-                f'{ctx.centroid_y:.1f}, {ctx.centroid_z:.1f})'
+                f'{ctx.centroid_y:.1f}, {ctx.centroid_z:.1f}) '
+                f'heading={ctx.formation_heading_deg:.1f} deg '
+                f'(tutarlilik {ctx.kalkis_heading_tutarlilik:.2f})'
             )
+            # B17: ucaklar ayni yone bakmiyorsa ortalama heading anlamli
+            # degil ve formasyon devir aninda beklenmedik yerlesir.
+            if ctx.kalkis_heading_tutarlilik < 0.9:
+                self.get_logger().warning(
+                    '[mode_manager] UCAKLARIN YAW\'LARI DAGINIK '
+                    f'(tutarlilik {ctx.kalkis_heading_tutarlilik:.2f} < 0.90) — '
+                    f'formasyon heading={ctx.formation_heading_deg:.1f} deg '
+                    'olarak tohumlandi ama bu ortalama zayif. Ucaklar ayni '
+                    'yone bakacak sekilde dizilmeliydi.'
+                )
 
         next_state = evaluate_transitions(ctx)
         if next_state is not None and next_state != ctx.state:

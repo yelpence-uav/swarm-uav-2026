@@ -5,6 +5,10 @@ from dataclasses import dataclass, field
 import math
 import time
 
+from swarm_core.formation_control.manual_kinematics import (
+    dairesel_ortalama_deg,
+)
+
 from .mode_states import ControlMode, ModeState
 
 _AGENT_STATE_IN_SWARM = 5
@@ -68,6 +72,9 @@ class ModeContext:
     kalkis_esik_m: float = 2.0
     kalkis_tamam: bool = False
     test_hazir_atla: bool = False
+    # Kapi acilirken olculen heading'in tutarliligi (0..1). Dugum bunu
+    # loglar; dusukse ucaklar ayni yone bakmiyor demektir (B17).
+    kalkis_heading_tutarlilik: float = 0.0
 
     agent_statuses: dict = field(default_factory=dict)
 
@@ -203,6 +210,26 @@ class ModeContext:
         self.centroid_z = sum(
             float(self.agent_statuses[a].pos_z) for a in self.agent_ids
         ) / n
+
+        # 🔴 B17 — HEADING'I DE TOHUMLA (30 Agustos 2026).
+        # SwarmState.formation_heading_deg swarm_fsm tarafindan HIC
+        # hesaplanmiyordu ve kalici olarak 0.0 idi (swarm_context.py:73
+        # tanimli, atama yoktu). Sonucu: kapi acilir acilmaz mode_manager
+        # heading'i 0 = KUZEY saniyor; pilot SwC ile gercek bir formasyon
+        # secmisse ilk FormationCommand slotlari kuzeye dizer ve suru
+        # KIMSENIN KOMUT VERMEDIGI bir donus yapar — tam kontrolun pilota
+        # gectigi anda. 7 m aralikta kanatlar ~10 m yer degistiriyordu.
+        #
+        # Neden GEOMETRIDEN degil OLCULEN YAW'dan: cizgi formasyonunun
+        # geometrisi IKI YONLU BELIRSIZ (hangi uc on?), olculen yaw degil.
+        # Dairesel ortalama sart — 359/0/1 okunan bir sürüde aritmetik
+        # ortalama guneyi gosterirdi.
+        self.formation_heading_deg, self.kalkis_heading_tutarlilik = \
+            dairesel_ortalama_deg([
+                float(self.agent_statuses[a].heading_deg)
+                for a in self.agent_ids
+            ])
+
         self.kalkis_tamam = True
         return True
 

@@ -452,6 +452,9 @@ class SwarmFsmNode(Node):
         """Centroid ve formasyon kalite metriklerini gunceller."""
         ctx = self._ctx
         ctx.compute_centroid()
+        # B17 (30 Agustos 2026): formation_heading_deg TANIMLIYDI ama
+        # hicbir yerde ATANMIYORDU — SwarmState kalici 0.0 tasiyordu.
+        ctx.compute_heading()
 
         # Ofsetler artik AKTIF KOMUTTAN geliyor (aralik, heading ve atama
         # dahil). Onceki sabit sozlukler (OKBASI 3 m / CIZGI 4 m, ajan 1/2/3
@@ -541,6 +544,9 @@ class SwarmFsmNode(Node):
         cache.vel_x = msg.vel_x
         cache.vel_y = msg.vel_y
         cache.vel_z = msg.vel_z
+        # B17: heading CACHE'E ALINMIYORDU, bu yuzden compute_heading()
+        # yazilamiyordu ve formation_heading_deg kalici 0.0 idi.
+        cache.heading_deg = msg.heading_deg
         cache.heading_deg = msg.heading_deg
 
         cache.battery_voltage_v = msg.battery_voltage_v

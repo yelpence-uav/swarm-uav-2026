@@ -1351,6 +1351,25 @@ fi   # /altyapi: ic_dis_kopru
     # anahtarindaki kuralin aynisi). MANEVRA modunda mode_manager /raw'a
     # kendisi yazar ve formation_node'u /swarm/internal/mode/
     # formasyon_sustur bayragiyla susturur (28 Agu, KARAR-11).
+    # test_hazir_atla BAYRAK DOSYASIYLA acilir: /ws/mod_test
+    #
+    # NEDEN ENV DEGIL (30 Agustos 2026, denetimde bulundu): env
+    # /ws/ucus_ayarlari.env'den geliyor ve o dosyayi `ucus_ayarlari.py
+    # --kabuk` URETIYOR — elle eklenen satir bir sonraki dagitimda
+    # SILINIRDI. Ustelik bu bir UCUS AYARI degil TEST kipi; ucus
+    # ayarlarinin tek kaynagina test bayragi koymak kategori hatasi olur
+    # ve birinin onu `true` commit'lemesi an meselesi.
+    # Bayrak dosyasi projenin kendi deyimi (gozlem, yer_testi) ve
+    # `drone_bul.sh --durum` listesinde gorunur.
+    #
+    # NE YAPAR: mission_fsm kapaliyken mode_manager FSM'ini READY'ye
+    # ulastirir (B3). KALKIS KAPISINI (B15) BAYPAS ETMEZ — READY olcutu
+    # yine "gercekten havada mi".
+    _MOD_TEST_HAZIR=false
+    if [ -f /ws/mod_test ]; then
+        _MOD_TEST_HAZIR=true
+    fi
+
     if baslat_mi mod; then
         if ! acik formasyon; then
             echo "[baslat] HATA: 'mod' istendi ama 'formasyon' kapali —" \
@@ -1392,7 +1411,7 @@ fi   # /altyapi: ic_dis_kopru
                 -p max_tilt_deg:=${MOD_EGIM_TAVANI:-15.0} \
                 -p wing_alpha_deg:=${KANAT_ALFA_DEG} \
                 -p kalkis_esik_m:=${MOD_KALKIS_ESIK:-2.0} \
-                -p test_hazir_atla:=${MOD_TEST_HAZIR_ATLA:-false} \
+                -p test_hazir_atla:=${_MOD_TEST_HAZIR} \
                 >> "$GUNLUK/mode_manager.log" 2>&1 &
             sleep 1
             echo "[baslat] mode_manager_node basladi (Gorev 2:" \
@@ -1400,7 +1419,8 @@ fi   # /altyapi: ic_dis_kopru
                  "yaw=${MOD_YAW_HIZI:-25.0} deg/s, hiz=${MOD_HIZ:-2.0} m/s," \
                  "aralik=${MOD_ARALIK:-7.0} m, kadro=${_MOD_KADRO}," \
                  "kalkis kapisi=${MOD_KALKIS_ESIK:-2.0} m," \
-                 "test_hazir_atla=${MOD_TEST_HAZIR_ATLA:-false})"
+                 "test_hazir_atla=${_MOD_TEST_HAZIR} $([ "$_MOD_TEST_HAZIR" = true ] \
+                    && echo '<- /ws/mod_test VAR: FSM yerde READY olur, ucus icin SIL'))"
         fi
     fi
 

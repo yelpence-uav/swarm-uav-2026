@@ -2362,7 +2362,7 @@ def _manevra_slotlar(merkez, heading_deg, pitch_deg=0.0, roll_deg=0.0):
     return hedefler, ofs, egik
 
 
-def _manevra_zarf_yaz(merkez, heading_ucak, heading_olculen, ofs):
+def _manevra_zarf_yaz(merkez, heading_ucak, heading_dizilis, heading_R, ofs):
     """Kuru testin asil ciktisi: ucusta ulasilabilecek geometrilerin zarfi."""
     e = AYAR.MOD_TEST_EGIM_DEG
     yaricap = max(math.hypot(o[0], o[1]) for o in ofs)
@@ -2371,6 +2371,11 @@ def _manevra_zarf_yaz(merkez, heading_ucak, heading_olculen, ofs):
     print(f"    formasyon     CIZGI, aralik {AYAR.MOD_ARALIK_M:.1f} m, "
           f"irtifa {AYAR.MOD_TEST_IRTIFA_M:.1f} m")
     print(f"    merkez        ({merkez[0]:+.1f},{merkez[1]:+.1f}) NED")
+    print(f"    heading       {heading_ucak:.1f} deg  "
+          f"(ucaklarin OLCULEN yaw ortalamasi — mode_manager kalkis "
+          f"kapisinda")
+    print(f"                  ayni fonksiyonla tohumluyor: "
+          f"manual_kinematics.dairesel_ortalama_deg)")
     print(f"    ayak izi      yaricap {yaricap:.2f} m -> yaw ne olursa olsun "
           f"merkez cevresi {yaricap + MANEVRA_ZARF_PAY_M:.1f} m TEMIZ olmali")
 
@@ -2398,22 +2403,29 @@ def _manevra_zarf_yaz(merkez, heading_ucak, heading_olculen, ofs):
           f"gosterir.")
     print(f"    Ucus alani sinirini OPERATOR ve PILOT tutar.")
 
-    fark = abs((heading_olculen - heading_ucak + 180.0) % 360.0 - 180.0)
-    if fark > 5.0:
-        kayma = 2.0 * yaricap * math.sin(math.radians(fark) / 2.0)
-        print(f"\n  🔴 B17 UYARISI — DEVIR ANINDA FORMASYON DONER")
-        print(f"    Ucaklar {heading_olculen:.0f} deg dizilmis ama "
-              f"mode_manager heading'i {heading_ucak:.0f} deg kullanacak")
-        print(f"    ({fark:.0f} deg fark). Sebep: swarm_fsm "
-              f"formation_heading_deg'i HIC HESAPLAMIYOR")
-        print(f"    (swarm_context.py:73 tanimli, atama yok) -> SwarmState hep "
-              f"0.0 tasiyor.")
-        print(f"    Sonuc: kalkis kapisi acilir acilmaz her ucak ~{kayma:.1f} m "
-              f"YER DEGISTIRIR —")
-        print(f"    kimsenin komut vermedigi bir donus, tam kontrolun pilota "
-              f"gectigi anda.")
-        print(f"    Ya B17 kapatilir ya da ucaklar {heading_ucak:.0f} deg'e "
-              f"dizilir.")
+    if heading_R < 0.0:
+        print(f"\n  ⚠️  Telemetride yaw YOK — heading dizilisten turetildi "
+              f"({heading_dizilis:.0f} deg).")
+        print(f"    Ucak OLCULEN yaw kullanacak; ikisi tutmayabilir. "
+              f"Ucaklar acikken KURU TEST TEKRARLANMALI.")
+    elif heading_R < 0.9:
+        print(f"\n  🔴 UCAKLARIN YAW'LARI DAGINIK (tutarlilik "
+              f"{heading_R:.2f} < 0.90)")
+        print(f"    Ortalama heading {heading_ucak:.0f} deg cikti ama bu "
+              f"zayif bir ortalama — ucaklar")
+        print(f"    ayni yone bakmiyor. Formasyon devir aninda beklenmedik "
+              f"yerlesir.")
+        print(f"    YAPILACAK: ucaklari ayni yone cevir, kuru testi TEKRARLA.")
+    else:
+        fark = abs((heading_dizilis - heading_ucak + 180.0) % 360.0 - 180.0)
+        print(f"\n  heading tutarliligi {heading_R:.2f} — ucaklar ayni yone "
+              f"bakiyor ✓")
+        if fark > 20.0:
+            print(f"    NOT: dizilis geometrisi {heading_dizilis:.0f} deg "
+                  f"gosteriyor, yaw ortalamasi {heading_ucak:.0f} deg "
+                  f"({fark:.0f} deg fark).")
+            print(f"    Formasyon burunlarin baktigi yone gore kurulacak — "
+                  f"beklenen buysa sorun yok.")
 
 
 def plan_kur_manevra(t):
@@ -2426,11 +2438,19 @@ def plan_kur_manevra(t):
     """
     konumlar = {did: (t[did]["pos_x"], t[did]["pos_y"]) for did in DRONELAR}
     merkez = SEKANS.agirlik_merkezi(konumlar)
-    heading_olculen = SEKANS.otomatik_heading_deg(konumlar)
-    # 🔴 UCAGIN KULLANACAGI heading. B17 kapanana kadar mode_manager
-    # SwarmState'ten 0.0 aliyor — kuru test GERCEGI modellemeli, iyi
-    # niyetli olani degil.
-    heading_ucak = 0.0
+    heading_dizilis = SEKANS.otomatik_heading_deg(konumlar)
+    # UCAGIN KULLANACAGI heading — B17 kapandiktan sonra (30 Agu):
+    # mode_manager kalkis kapisi acilirken heading'i ucaklarin OLCULEN
+    # yaw'inin DAIRESEL ortalamasindan tohumluyor. Kuru test AYNI
+    # fonksiyonu cagiriyor, yani modellenen sey uculacak seyin ta kendisi.
+    yawlar = [float(t[did].get("yaw_deg", 0.0)) for did in DRONELAR
+              if "yaw_deg" in t[did]]
+    if len(yawlar) == len(DRONELAR):
+        heading_ucak, heading_R = KIN.dairesel_ortalama_deg(yawlar)
+    else:
+        # Telemetride yaw yok (temsili yerlesim / eski snapshot).
+        # Dizilisten turetileni kullan ama GUVENME diye isaretle.
+        heading_ucak, heading_R = heading_dizilis, -1.0
 
     e = AYAR.MOD_TEST_EGIM_DEG
     y = AYAR.MOD_TEST_YAW_DEG
@@ -2448,7 +2468,7 @@ def plan_kur_manevra(t):
         hedefler, ofs, _ = _manevra_slotlar(merkez, hd, p_deg, r_deg)
         plan.append((f"{etiket} [PILOT]", hd, hedefler, True))
 
-    _manevra_zarf_yaz(merkez, heading_ucak, heading_olculen, ofs)
+    _manevra_zarf_yaz(merkez, heading_ucak, heading_dizilis, heading_R, ofs)
     return plan
 
 

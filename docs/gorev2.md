@@ -1,6 +1,6 @@
 # GÖREV 2 — Yarı Otonom Sürü Kontrolü
 
-**Son güncelleme:** 30 Ağustos 2026, 02:48 — Aşama A 9 UYGULANDI (`--senaryo manevra`); mesh yükü ölçüldü, `_on_control_out` limiti G0 sonrasına bırakıldı
+**Son güncelleme:** 30 Ağustos 2026, 03:01 — **AŞAMA A BİTTİ (1-10 + B17)**; denetim `/ws/mod_test` boşluğunu buldu ve kapattı
 
 Şartname **§5.2** · **100 puan** · görev başına **3 hak**, en yüksek puan sayılır.
 
@@ -107,7 +107,7 @@ USB-TTL kullanılıyorsa adaptörün 3,3 V–5 V jumper'ı da doğru konumda olm
 
 ---
 
-## 3. Boşluklar — 17 madde, hepsi kodda doğrulandı
+## 3. Boşluklar — 17 madde · **1-9 + B17 kapandı**
 
 Kod `f6f8498`'de (28 Ağu) hazır sayılıyor ama **hiç koşmadı** ve uçaklara
 **dağıtılmadı.**
@@ -213,23 +213,41 @@ Yani `fsm` kapalıyken `mode_manager` bugün işlevsel bir şey **kaybetmiyor**.
 bırakılmadı: kanıtlanmış yığından (`origin consensus fsm formasyon ca`) sapma
 açılış logunda **UYARI** olarak görünüyor.
 
-**B17 · `SwarmState.formation_heading_deg` HİÇ HESAPLANMIYOR — devir anında formasyon kuzeye döner.**
-`swarm_fsm/swarm_context.py:73` alanı tanımlıyor, `swarm_fsm_node.py:696`
-yayınlıyor, **arada atama yapan tek bir satır yok** (repo tarandı). Yani
-`SwarmState.formation_heading_deg` kalıcı olarak **0.0**.
+**B17 · `SwarmState.formation_heading_deg` HİÇ HESAPLANMIYOR.** ✅ *KAPANDI — hem kökten hem kapıda*
 
-Sonuç Görev 2'de: kalkış kapısı açıldığında `mode_manager`'ın heading'i
-**0° = KUZEY**. Pilot SwC ile gerçek bir formasyon seçmişse ilk
-`FormationCommand` slotları kuzeye göre dizer → sürü **kimsenin komut
-vermediği bir dönüş** yapar. 7 m aralıkta kanat uçakları ~10 m yer değiştirir.
-Çarpışma değil, ama tam **kontrolün pilota devredildiği anda** olur ve
-şartname açısından kontrol kaybı gibi görünür.
+`swarm_fsm/swarm_context.py:73` alanı tanımlıyordu, `swarm_fsm_node.py:696`
+yayınlıyordu, **arada atama yapan tek satır yoktu** → kalıcı olarak `0.0`.
+Sonucu: kalkış kapısı açıldığında `mode_manager` heading'i **0° = KUZEY**
+sanıyor, pilot gerçek bir formasyon seçmişse sürü **kimsenin komut vermediği
+bir dönüş** yapıyordu — 7 m aralıkta kanatlar ~10 m.
 
-🔴 **Uçuş A'yı (ÇİZGİ) doğrudan etkiler.**
-*Çözüm:* kapı açılırken heading'i de ölçülenden tohumla — uçakların
-`AgentStatus.heading_deg` **dairesel ortalaması**. B15'in centroid tohumlamasının
-eşi, ~12 satır, aynı test koşumuyla sınanabilir. Geometriden türetmek yerine
-ölçülen yaw tercih edildi: çizgi formasyonunun geometrisi **iki yönlü belirsiz**.
+**İki yerden birden kapatıldı:**
+
+1. **Kök neden** — `swarm_fsm` artık heading'i **hesaplıyor**
+   (`AgentStatusCache.heading_deg` eklendi, `compute_heading()` yazıldı,
+   `compute_centroid()` ile birlikte çağrılıyor). YKİ arayüzü de artık
+   gerçek değer görüyor.
+2. **Kapıda** — `mode_manager` kalkış kapısı açılırken heading'i
+   **uçakların kendi ölçülen yaw'ından** tohumluyor (centroid tohumlamasının
+   eşi). Böylece `swarm_fsm` kapalı olsa bile (B16) doğru çalışır.
+
+**Ortak matematik tek yerde:** `manual_kinematics.dairesel_ortalama_deg`.
+🔴 **Aritmetik ortalama olamazdı:** 359/0/1'in ortalaması **0'dır, 120 değil** —
+kuzeye bakan bir sürüyü güneye çevirirdi ve hiçbir yerde hata vermezdi.
+Fonksiyon ayrıca **tutarlılık (R)** döndürüyor; uçaklar aynı yöne bakmıyorsa
+hem düğüm hem kuru test **yüksek sesle uyarıyor**.
+
+> ⚠️ **Birim testi ilk koşuda gerçek bir kusur yakaladı:** `atan2` kuzey için
+> çok küçük **negatif** açı döndürebiliyor ve `-1e-15 % 360.0` kayan noktada
+> **tam 360.0** veriyor — yani sözleşme `[0,360)` iken çıktı `360.0` oluyor ve
+> "kuzey" 0 yerine 360 diye okunuyordu. Eşik karşılaştırması yapan her
+> tüketici sessizce yanılırdı. Kapatıldı, gerekçe koda yazıldı.
+
+Geometriden değil **ölçülen yaw'dan** türetiliyor, çünkü çizgi formasyonunun
+geometrisi **iki yönlü belirsiz** (hangi uç ön?), ölçülen yaw değil.
+
+`--senaryo manevra` de güncellendi: artık **aynı fonksiyonu** çağırıyor, yani
+kuru testin modellediği şey uçulacak şeyin ta kendisi.
 
 ### 🟠 P1 — puan kaybettirir
 
@@ -317,12 +335,12 @@ Aşama geçişlerinde 🚦 kapı var — kapı sağlanmadan sonraki aşamaya ge�
 | **7** | ✅ **B9** — panel *kilitlenmedi*, **komple silindi** (operatör: simülasyon artığı) | −1.100 satır |
 | **8** | ✅ **`rc_ibus_kopru`** + `baslat.sh` remap tekilleştirmesi + `run_drone.sh` koşullu `--device` | 391 satır |
 | **9** | ✅ **`--senaryo manevra`** — zarf tabanlı kuru test + harita + B17 ön-uçuş kapısı | ~190 satır |
-| **10** | Birim testler + `ucus_ayarlari.py` denetimi + `bash -n` | — |
+| **10** | ✅ **Denetim** — 227 test · `bash -n` · 99-krk · ölü import · **parametre kablolaması uçtan uca** | — |
 
 > 🚦 **Kapı:** testler yeşil olmadan Aşama B'ye geçilmez.
 >
-> **1-9 bitti (30 Ağustos 02:48).** `mode_context` + `mode_transitions`
-> **27/27 + 17/17 birim testi** bu laptopta geçiyor; YKİ `tsc` + derleme temiz. Düğüm katmanı
+> **AŞAMA A BİTTİ — 1-10 + B17 (30 Ağustos 03:01).** `mode_context` + `mode_transitions`
+> **227 birim testi** bu laptopta geçiyor; YKİ `tsc` + derleme temiz. Düğüm katmanı
 > (`mode_manager_node`, `joystick_interpreter_node`, `esp32_bridge`)
 > yalnız **sözdizimi** doğrulandı — `rclpy`/`swarm_interfaces` konteynerde;
 > gerçek doğrulama **G0'da** (madde 16-18).
@@ -339,7 +357,11 @@ Aşama geçişlerinde 🚦 kapı var — kapı sağlanmadan sonraki aşamaya ge�
 
 > 🚦 **Kapı:** `drone_bul.sh --durum` → md5 eşit, düğüm sayısı yerinde.
 > Bayraklar: `origin consensus fsm formasyon ca mod` üç uçakta ·
-> **`joystick` YALNIZ ylp00** · `/ws/gozlem` **takılı**.
+> **`joystick` YALNIZ ylp00** · `/ws/gozlem` **takılı** ·
+> 🔴 **`/ws/mod_test` takılı** (üç uçakta) — `mission_fsm` kapalıyken
+> `mode_manager` FSM'ini READY'ye ulaştırır (B3). **Kalkış kapısını (B15)
+> baypas ETMEZ.** Uçuştan önce silinip silinmeyeceği operatör kararı;
+> `drone_bul.sh --durum` bayrağı listeliyor.
 
 ### AŞAMA C — G0 yerde, pervanesiz *(uçuş yok, en yüksek getirili adım)*
 
@@ -347,7 +369,7 @@ Aşama geçişlerinde 🚦 kapı var — kapı sağlanmadan sonraki aşamaya ge�
 |---|---|
 | **16** | 🔴 RC akıyor mu: `ros2 topic hz /drone_1/rc/suru` ≈ 130 Hz — **ve kill pilotunun çubuğu oynayınca KIPIRDAMAMALI** |
 | **17** | Kanal + **işaret haritası**: çubuk ileri → hangi işaret (B11'in son sözü buradadır) |
-| **18** | FSM READY'ye çıkıyor mu · **kalkış kapısı yerde tutuyor mu** (B15 doğrulaması — tarif yayınlanMAMALI) |
+| **18** | FSM READY'ye çıkıyor mu (`/ws/mod_test` ile) · **kalkış kapısı yerde tutuyor mu** (B15 — tarif yayınlanMAMALI) |
 | **19** | MANEVRA'da **merkez sabitliği** (xy değişmemeli) + `formasyon_sustur` bayrağı |
 | **20** | **Centroid sürüklenmesi**: üç uçağın `formation/target.center_*` farkı, 60 sn |
 | **21** | **B6 kararı:** çubuk basamağında centroid hızı sıçrıyor mu? Sıçrıyorsa `swarm_movement_step` (ivme rampalı, yazılı ve testli) **uçuştan önce** devreye alınır — osilasyon cezası −10 |
@@ -393,6 +415,12 @@ En uzun bekleme **14** (konteyner recreate); en riskli **11** (gerilim) ve
 
 - **i-BUS gerilim seviyesi** — bağlamadan önce (§2, 🔴)
 - **İşaret yönleri** (çubuk ileri = hangi işaret) — G0'da kilitlenecek
+- **`--durum` bayrak listesi 30 Ağu'da düzeltildi** — `gozlem`, `yer_testi`,
+  `origin` hiç görünmüyordu, oysa *"uçmadan önce `yer_testi`'ni kaldır"*
+  kırmızı çizgi. Başka eskimiş liste var mı, bakılmadı.
+- **Uçakların yerdeki yönü artık ÖNEMLİ** (B17 sonrası): formasyon
+  burunların baktığı yöne göre kuruluyor. Uçakları aynı yöne diz;
+  kuru test tutarlılık < 0,90 ise uyarıyor.
 - **Centroid sürüklenmesi** — her uçağın `mode_manager`'ı centroid'i KENDİ
   tik'inde entegre ediyor. Ölçülüp gerekirse ölçülen sürü merkezine yavaş
   düzeltme eklenecek (`_on_swarm_state` bugün yalnız IDLE/PREFLIGHT/TAKEOFF/

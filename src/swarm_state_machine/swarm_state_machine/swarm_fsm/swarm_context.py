@@ -5,6 +5,10 @@ from dataclasses import dataclass, field
 import math
 import time
 
+from swarm_core.formation_control.manual_kinematics import (
+    dairesel_ortalama_deg,
+)
+
 from .swarm_states import FormationType, SwarmState
 from ..agent_fsm.agent_states import FORMATION_ACTIVE_STATES
 
@@ -33,6 +37,7 @@ class AgentStatusCache:
     vel_x: float = 0.0
     vel_y: float = 0.0
     vel_z: float = 0.0
+    heading_deg: float = 0.0
     heading_deg: float = 0.0
 
     battery_voltage_v: float = 0.0
@@ -119,6 +124,25 @@ class SwarmContext:
     def time_in_state(self) -> float:
         """Bu durumda gecen sure."""
         return time.monotonic() - self.state_entry_time
+
+    def compute_heading(self) -> None:
+        """Aktif ajanlarin yaw'inin DAIRESEL ortalamasini formasyon
+        heading'i olarak yazar.
+
+        🔴 B17 (30 Agustos 2026): bu alan TANIMLIYDI ama HICBIR YERDE
+        ATANMIYORDU — SwarmState.formation_heading_deg kalici olarak 0.0
+        gidiyordu. Hata vermiyordu, sessizce yanlis sonuc uretiyordu.
+        Tuketen taraflar: mode_manager (Gorev 2 devir ani) ve YKI arayuzu.
+        """
+        aktif = [
+            a for a in self.agents.values()
+            if a.state in FORMATION_ACTIVE_STATES and not a.is_stale()
+        ]
+        if not aktif:
+            return
+        self.formation_heading_deg, _ = dairesel_ortalama_deg(
+            [a.heading_deg for a in aktif]
+        )
 
     def compute_centroid(self) -> None:
         """Aktif ajanların ağırlık merkezini hesaplar."""

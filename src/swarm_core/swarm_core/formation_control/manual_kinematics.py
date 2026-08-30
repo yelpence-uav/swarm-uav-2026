@@ -173,6 +173,43 @@ def maneuver_step(
     )
 
 
+def dairesel_ortalama_deg(acilar: list[float]) -> tuple[float, float]:
+    """Aci listesinin DAIRESEL ortalamasi + tutarlilik. (heading, R)
+
+    NEDEN ARITMETIK ORTALAMA DEGIL: aci 359 ile 1'in ortalamasi 180 DEGIL
+    0'dir. Kuzeye bakan bir sürüde yaw'lar 359/0/1 okunur ve aritmetik
+    ortalama suruyu GUNEYE cevirirdi. Bu, sessizce yanlis sonuc ureten
+    sinifa girer (TUZAKLAR): hicbir yerde hata vermez.
+
+    R (bileske uzunlugu, 0..1) aci yayilmasinin olcusu:
+      R ~ 1.0  aciler ust uste  -> ortalama anlamli
+      R dusuk  aciler dagilmis  -> ortalama ANLAMSIZ, cagiran uyarmali
+    R < 1e-9 (orn. tam zit iki aci) ortalamayi TANIMSIZ yapar; (0.0, 0.0)
+    doner ve cagiran bunu "guvenme" olarak okur.
+
+    Returns:
+        tuple[float, float]: (heading_deg [0,360), R [0,1]).
+    """
+    if not acilar:
+        return 0.0, 0.0
+    n = len(acilar)
+    s = sum(math.sin(math.radians(a)) for a in acilar) / n
+    c = sum(math.cos(math.radians(a)) for a in acilar) / n
+    r = math.hypot(s, c)
+    if r < 1e-9:
+        return 0.0, 0.0
+
+    h = math.degrees(math.atan2(s, c)) % 360.0
+    # KAYAN NOKTA TUZAGI (30 Agustos 2026, birim testi yakaladi):
+    # atan2 kuzey icin cok kucuk NEGATIF bir aci dondurebilir (-1e-15) ve
+    # `-1e-15 % 360.0` kayan noktada TAM 360.0 verir. Yani sozlesme [0,360)
+    # iken cikti 360.0 olur ve "kuzey" 0 yerine 360 diye okunur. Esik
+    # karsilastirmasi yapan (h < 180 gibi) her tuketici sessizce yanilirdi.
+    if h >= 360.0:
+        h = 0.0
+    return h, r
+
+
 def apply_tilt(
     offsets: list[tuple[float, float, float]],
     tilt_pitch_deg: float,

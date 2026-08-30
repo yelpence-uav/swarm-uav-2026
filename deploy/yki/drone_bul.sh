@@ -344,7 +344,13 @@ durum_yaz() {
                  *) printf '  >> SORUN       : $kon CALISMIYOR - duzeltme: docker start $kon\n' ;;
              esac
              printf '  bayraklar      : '
-             for f in kacinma gcs_url tgt_system suru_dugumleri ucus_ayarlari.env; do
+             # 30 Agustos 2026 denetimi: liste ESKIMISTI. gozlem, yer_testi
+             # ve origin — DURUM.md §3'un en kritik ucu — hic gorunmuyordu,
+             # oysa \"UCMADAN ONCE yer_testi'ni kaldir\" kirmizi cizgi.
+             # kacinma BILEREK duruyor: dosya artik VARSA baslat.sh HATA
+             # verip duruyor (29 Agu), yani gorunmesi gereken bir sey.
+             for f in kacinma gozlem yer_testi mod_test origin gcs_url \
+                      tgt_system suru_dugumleri ucus_ayarlari.env; do
                  [ -e \"\$HOME/yelpence_ws/\$f\" ] && printf '%s ' \"\$f\"
              done; echo
              printf '  disk /         : '; df -h / | awk 'NR==2{print \$4\" bos (\"\$5\" dolu)\"}'

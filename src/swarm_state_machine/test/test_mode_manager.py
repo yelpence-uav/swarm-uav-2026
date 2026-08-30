@@ -32,6 +32,7 @@ class _MockAgentStatus:
     pos_x: float = 0.0
     pos_y: float = 0.0
     pos_z: float = 0.0
+    heading_deg: float = 0.0
 
 
 class TestModeContext(unittest.TestCase):
@@ -477,3 +478,60 @@ class TestHoldVeRtlKapilari(unittest.TestCase):
         """B8: istek olmadan RTL kendiliginden LANDING'e gecmez."""
         ctx = self._ctx(ModeState.RTL)
         self.assertIsNone(evaluate_transitions(ctx))
+
+
+class TestB17HeadingTohumlama(unittest.TestCase):
+    """B17 — kapi acilirken heading OLCULEN yaw'dan gelir."""
+
+    @staticmethod
+    def _ctx():
+        c = ModeContext(agent_ids=[1, 2, 3])
+        c.kalkis_esik_m = 2.0
+        return c
+
+    @staticmethod
+    def _kadro(headingler):
+        return {i + 1: _MockAgentStatus(pos_z=-8.0, heading_deg=h)
+                for i, h in enumerate(headingler)}
+
+    def test_heading_olculenden_tohumlanir(self):
+        ctx = self._ctx()
+        ctx.agent_statuses = self._kadro([90.0, 90.0, 90.0])
+        self.assertTrue(ctx.kalkis_kapisi_degerlendir())
+        self.assertAlmostEqual(ctx.formation_heading_deg, 90.0, places=4)
+        self.assertGreater(ctx.kalkis_heading_tutarlilik, 0.99)
+
+    def test_KUZEY_sarmasi_guneye_donmez(self):
+        """🔴 B17'nin ta kendisi: 359/0/1 -> 0, 120 DEGIL."""
+        ctx = self._ctx()
+        ctx.agent_statuses = self._kadro([359.0, 0.0, 1.0])
+        self.assertTrue(ctx.kalkis_kapisi_degerlendir())
+        h = ctx.formation_heading_deg
+        self.assertLess(min(abs(h), abs(h - 360.0)), 1.0)
+
+    def test_kapi_kapaliyken_heading_YAZILMAZ(self):
+        """Yerdeyken tohumlama YOK — kapi hala kapali."""
+        ctx = self._ctx()
+        ctx.agent_statuses = {
+            i + 1: _MockAgentStatus(pos_z=0.0, heading_deg=90.0)
+            for i in range(3)
+        }
+        self.assertFalse(ctx.kalkis_kapisi_degerlendir())
+        self.assertEqual(ctx.formation_heading_deg, 0.0)
+
+    def test_daginik_yaw_TUTARLILIK_dusuk(self):
+        """Ucaklar farkli yone bakiyorsa dugum uyarabilsin."""
+        ctx = self._ctx()
+        ctx.agent_statuses = self._kadro([0.0, 120.0, 240.0])
+        self.assertTrue(ctx.kalkis_kapisi_degerlendir())
+        self.assertLess(ctx.kalkis_heading_tutarlilik, 0.9)
+
+    def test_heading_kapi_acildiktan_sonra_ENTEGRATOR(self):
+        """Mandal acikken yeni yaw okumalari heading'i EZMEZ."""
+        ctx = self._ctx()
+        ctx.agent_statuses = self._kadro([90.0, 90.0, 90.0])
+        self.assertTrue(ctx.kalkis_kapisi_degerlendir())
+        ctx.formation_heading_deg = 135.0          # pilot yaw verdi
+        ctx.agent_statuses = self._kadro([0.0, 0.0, 0.0])
+        ctx.kalkis_kapisi_degerlendir()
+        self.assertEqual(ctx.formation_heading_deg, 135.0)
