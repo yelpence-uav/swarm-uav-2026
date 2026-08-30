@@ -1,6 +1,6 @@
 # YAPILACAKLAR
 
-**Son güncelleme:** 30 Ağustos 2026, 15:13 — Görev 2 **kumanda tasarımı karara bağlandı** (G2-K7…K9); 🔴 saha olayı: SwD sürüyü ARM etti
+**Son güncelleme:** 30 Ağustos 2026, 15:45 — madde 24 kodu yazıldı (uçakta doğrulanmadı); G1 teşhisi düzeltildi, **B19** eklendi; `gorev2.md` devir teslim için sadeleştirildi.
 
 > **Finale 8 gün.** Bu liste artık "her fikir" değil, **bu 8 günde
 > yapılacak iş.** Bir madde buraya giriyorsa birinin onu yapması planlanıyor
@@ -66,12 +66,20 @@ YKİ joystick zinciri silindi · heading artık hesaplanıyor. **293 birim testi
   18 (kalkış kapısı) · 22 (deadman) · 23 (mesh). Kalan 19-21 **uçuş ister.**
 - `[ ]` 🔴 **AŞAMA D — TASARIM GEREĞİ (SIRADAKİ İŞ).** `gorev2.md` §4 madde
   24-30. **İptal yolu olmadan `mod` ile test yapılmaz:**
-  ① 🔴 **G1** `mode_manager` LANDING gerçekten indirsin (bugün yalnız olay
-  yayınlıyor, tüketicisi yok — kumandadan iniş **şartname zorunluluğu**)
+  ① 🔧 **G1** LANDING gerçekten indirsin — **kod yazıldı, uçakta
+  DOĞRULANMADI.** (Teşhis düzeltildi: olayın *tüketicisi vardı*, ama
+  `agent_transitions` `pending_state=LANDING`'i **yalnız 3 durumdan** kabul
+  ediyor ve uçaklar ARMED'daydı → istek tek tick yaşayıp kayboluyordu.
+  Artık `land` **doğrudan `px4_bridge`'e, 1 Hz tekrarlı**.)
   ② 🔴 **B2** kumandadan kalkış AÇIKÇA (30 Ağu olayının kökü)
+  ⚠️ **önce ARM yetkisi kararı** — `gorev2.md` §3'te iki seçenek + öneri
   ③ 🟠 SwC debounce (önce ÖLÇ) ④ 🟠 ADIM 6 `mission_fsm`
   ⑤ 🟠 YKİ Görev 2 BAŞLAT butonu ⑥ 🟡 YKİ aralık alanı
   ⑦ 🟠 alıcı failsafe kaydı SwA=1000
+- `[ ]` 🔴 **B19 — `COMPLETED` terminal, çıkışı yok.** İniş bitince
+  `mode_manager` orada kalıyor; **ikinci kalkış konteyner restart istiyor** ve
+  görev başına **3 hakkımız var**. ~6 satır (COMPLETED→IDLE: hepsi disarm **ve**
+  iniş mandalı düşmüş). Karar verilmedi. `gorev2.md` §5.
 - `[ ]` 🟠 **AŞAMA E — uçuşlar** (31-33): A (çizgi, pitch/roll) → B (manevra)
   → C (asimetri + kumandadan kalkış/iniş). G0 19-21 Uçuş A'da ölçülür.
   🔴 **`mod` açıkken kill pilotları başında olmalı.**

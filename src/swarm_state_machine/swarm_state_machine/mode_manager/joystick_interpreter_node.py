@@ -33,6 +33,7 @@ from swarm_interfaces.msg import SwarmControlCommand
 from swarm_interfaces.srv import TriggerMission
 
 from . import rc_eksen
+from .swd_mandal import SwdMandal
 
 _MavrosManual = namedtuple('_MavrosManual', [
     'pitch', 'roll', 'yaw', 'throttle',
@@ -110,7 +111,12 @@ class JoystickInterpreterNode(Node):
         self._requested_formation = 0
         self._requested_spacing_m = self._default_spacing_m
         self._last_aux3_formation = None
-        self._last_aux4 = -1000  # SwD UP varsayılan
+        # SwD kenar/mandal mantigi saf modulde — birim testle kilitli.
+        # Gerekce ve tasarim: swd_mandal.py dosya basligi.
+        self._swd = SwdMandal(
+            takeoff_esik=self.AUX_TAKEOFF_THRESH,
+            land_esik=self.AUX_LAND_THRESH,
+        )
         self._safety_active = False
         # Gaz kapisi mandali: SwA her acildiginda SIFIRLANIR, yani pilot
         # emniyeti her actiginda gazi bir kez merkeze getirmek ZORUNDA.
@@ -260,8 +266,11 @@ class JoystickInterpreterNode(Node):
         if not self._safety_active:
             # Emniyet kapandi -> gaz kapisi YENIDEN kurulur.
             self._gaz_merkezlendi = False
-            # Aux durumlarını güncelle ama komut gönderme
-            self._last_aux4 = aux4_val
+            # 🔴 SwD KENARLARI EMNIYET KAPALIYKEN DE ISLENIR — iptal
+            # bayragi emniyete bagli OLAMAZ (G2-K7 iki kademeli iptal:
+            # "SwA kapat -> HOLD" ve "SwD -> inis" BAGIMSIZ). Kalkis
+            # kenari burada bilerek sayilmaz: emniyet kapaliyken kalkis yok.
+            self._swd.guncelle(aux4_val, emniyet_acik=False)
             if aux3_val < self.AUX_FORMATION_THRESH_LOW:
                 self._last_aux3_formation = \
                     SwarmControlCommand.FORMATION_OKBASI
@@ -276,7 +285,13 @@ class JoystickInterpreterNode(Node):
             cmd.command_valid = False
             cmd.deadman_pressed = False
             cmd.takeoff = False
-            cmd.land = False
+            # 🔴 INIS BAYRAGI BURADA SIFIRLANMAZ (30 Agustos 2026).
+            # Eskiden sifirlaniyordu: pilot once SwA'yi kapatip sonra SwD
+            # ile inmek isterse komut HIC gitmiyordu.
+            # mode_manager._on_control_command command_valid=False iken
+            # land/rtl/emergency'i zaten koruyor — ama joystick tarafi
+            # bayragi silince o koruma OLU KODDU.
+            cmd.land = self._swd.inis_mandali
             cmd.rtl = False
             cmd.emergency_stop = False
             cmd.pitch_cmd = 0.0
@@ -358,25 +373,21 @@ class JoystickInterpreterNode(Node):
                     throttle_duration_sec=2.0,
                 )
 
-        cmd.takeoff = False
-        cmd.land = False
         cmd.rtl = False
         cmd.emergency_stop = False
 
-        # Kalkış / İniş Tetikleme (AUX 4 - SwD)
-        # Şalter AŞAĞI (>300) KALKIŞ (Mission 1), YUKARI (<-300) İNİŞ (Miss. 6)
-        # aux4_val yukarıda okundu
-        if aux4_val > self.AUX_TAKEOFF_THRESH and (
-            self._last_aux4 <= self.AUX_TAKEOFF_THRESH
-        ):
-            cmd.takeoff = True
+        # Kalkış / İniş (AUX 4 - SwD). Kenar degerlendirmesi TEK YERDE:
+        # emniyet kapaliyken de calisan SwdMandal (swd_mandal.py).
+        _onceki_mandal = self._swd.inis_mandali
+        self._swd.guncelle(aux4_val, emniyet_acik=True)
+        cmd.takeoff = self._swd.kalkisi_tuket()   # TEK ATIS
+        cmd.land = self._swd.inis_mandali         # MANDAL
+        if cmd.takeoff:
             self._call_trigger_mission(1)
-        elif aux4_val < self.AUX_LAND_THRESH and (
-            self._last_aux4 >= self.AUX_LAND_THRESH
-        ):
-            cmd.land = True
+        elif cmd.land and not _onceki_mandal:
+            # Servis cagrisi YALNIZ kenarda — mandal basili kaldigi surece
+            # her tick cagrilmasin.
             self._call_trigger_mission(6)
-        self._last_aux4 = aux4_val
 
         cmd.formation_change_requested = self._formation_change_requested
         cmd.requested_formation = self._requested_formation

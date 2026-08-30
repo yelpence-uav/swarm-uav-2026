@@ -622,3 +622,61 @@ class TestGecersizPaketteIptal(unittest.TestCase):
         self.assertIsNone(evaluate_transitions(ctx))
         ctx.takeoff_requested = True
         self.assertEqual(evaluate_transitions(ctx), ModeState.TAKEOFF)
+
+
+class TestInisHerDurumdanUlasilir(unittest.TestCase):
+    """🔴 30 Agustos 2026: iptal yolu DURUMA BAGLI OLAMAZ.
+
+    Olayda ucaklar ARMED'daydi ve agent_fsm'in LANDING istegini yalniz
+    IN_SWARM / RETURN_HOME / FAILSAFE durumlarindan kabul ettigi olculdu
+    (agent_transitions.py:207/316/387) — istek sessizce kayboldu ve pilot
+    inis veremedi. mode_manager tarafinda ayni delik OLMAMALI.
+    """
+
+    # IDLE/PREFLIGHT ucakta zaten yerde ve DISARM: inis anlamsiz, kapi
+    # bilerek disliyor. COMPLETED terminal. Gerisi HAVADA olabilir.
+    HAVADA_OLABILEN = (
+        ModeState.TAKEOFF,
+        ModeState.READY,
+        ModeState.MOVEMENT,
+        ModeState.MANEUVER,
+        ModeState.HOLD,
+    )
+
+    def test_land_her_havada_durumdan_LANDING_verir(self):
+        for durum in self.HAVADA_OLABILEN:
+            with self.subTest(durum=durum.name):
+                ctx = ModeContext(agent_ids=[1, 2, 3])
+                ctx.state = durum
+                ctx.land_requested = True
+                self.assertEqual(
+                    evaluate_transitions(ctx), ModeState.LANDING
+                )
+
+    def test_acil_her_havada_durumdan_EMERGENCY_verir(self):
+        for durum in self.HAVADA_OLABILEN:
+            with self.subTest(durum=durum.name):
+                ctx = ModeContext(agent_ids=[1, 2, 3])
+                ctx.state = durum
+                ctx.emergency_stop_requested = True
+                self.assertEqual(
+                    evaluate_transitions(ctx), ModeState.EMERGENCY
+                )
+
+    def test_TAKEOFF_sirasinda_inis_verilebilir(self):
+        """Olayin birebir hali: kalkis basladi, pilot vazgecti."""
+        ctx = ModeContext(agent_ids=[1, 2, 3])
+        ctx.state = ModeState.TAKEOFF
+        ctx.land_requested = True
+        self.assertEqual(evaluate_transitions(ctx), ModeState.LANDING)
+
+    def test_LANDING_kendi_uzerine_gecis_yapmaz(self):
+        """Mandal basili kaldikca her tick yeniden LANDING'e girilmemeli.
+
+        Girilseydi _on_state_entry her tick calisir, 1 Hz tekrar yerine
+        50 Hz komut yagardi.
+        """
+        ctx = ModeContext(agent_ids=[1, 2, 3])
+        ctx.state = ModeState.LANDING
+        ctx.land_requested = True
+        self.assertNotEqual(evaluate_transitions(ctx), ModeState.LANDING)

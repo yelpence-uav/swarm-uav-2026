@@ -13,7 +13,7 @@ from rclpy.qos import (
     ReliabilityPolicy,
 )
 
-from std_msgs.msg import Bool, UInt8
+from std_msgs.msg import Bool, String, UInt8
 
 from swarm_core.formation_control.formation_geometry import (
     compute_slot_offsets,
@@ -213,6 +213,20 @@ class ModeManagerNode(Node):
             _RELIABLE_QOS,
         )
 
+        # 🔴 INIS KOMUTU px4_bridge'E DOGRUDAN GIDER — 30 Agustos 2026.
+        #
+        # Bu konuda BIRDEN COK URETICI VAR (agent_fsm, esp32_bridge,
+        # precision_landing) ve bu CLAUDE.md §4'e AYKIRI DEGIL: §4 kurali
+        # 50 Hz'de akan SETPOINT akislari icin. Burasi ayrik bir komut
+        # posta kutusu; tekrarlanan 'land' px4_bridge'de etkisiz
+        # (px4_bridge.py:1397 capalari temizleyip AUTO.LAND'e gecer).
+        self._komut_pub = self.create_publisher(
+            String,
+            f'/swarm/agent/drone{self._agent_id}/commands',
+            _RELIABLE_QOS,
+        )
+        self._son_inis_komutu: float | None = None
+
     def _setup_subscribers(self) -> None:
         """Abone kanallarini olusturur."""
         # 🔴 KENDI DURUMUM /swarm/public/drone{ben}/status'TAN GELMEZ.
@@ -375,15 +389,36 @@ class ModeManagerNode(Node):
         ctx.emergency_stop_requested = False
         ctx.formation_change_requested = False
 
+        # 🔴 INIS KOMUTUNU 1 Hz TEKRARLA — tek atislik iptal kabul edilemez.
+        # Ucu birden gercek: (a) kumanda komutu mesh'e 200 ms'lik joystick
+        # kapisindan geciyor, tek tick'lik bayrak kapiya takilabilir
+        # (b) px4_bridge yeniden baslamis olabilir (c) agent_fsm ARMED'a
+        # girerse 'offboard' yollar (agent_fsm_node.py:306) ve AUTO.LAND
+        # px4_bridge'in pilot-modu kapisina TAKILMAZ — yani inis IPTAL
+        # OLURDU. Tekrar ucunu de kapatir; 'land' px4_bridge'de etkisizdir.
+        if ctx.state in self._INIS_DURUMLARI and (
+                self._son_inis_komutu is None
+                or now - self._son_inis_komutu >= 1.0):
+            self._inis_komutu_gonder('tekrar')
+
         # formation_node susturması: mode_manager /raw'a KENDİSİ yazarken
         # (MANEVRA her zaman; HOLD yalnız eğik pozdayken) formasyon susar,
         # aksi hâlde formasyon sürücüdür (MOVEMENT tarif üzerinden gider).
+        #
+        # INIS/ACIL durumlarinda da susar ve bu kalkis kapisina BAGLI
+        # DEGIL: mode_manager o durumlarda /raw'a hic yazmaz, ama
+        # formation_node yazmaya devam ederdi. px4_bridge o setpoint'i
+        # akitmaz (_offboard_streaming=False) — ancak biri offboard'i geri
+        # acarsa ucak birden formasyon slotuna FIRLAR. Susturmak bu
+        # pencereyi kapatir. formation_node 3 sn tazelenmezse zaten birakir.
         sustur = Bool()
-        sustur.data = ctx.kalkis_tamam and (
-            ctx.state == ModeState.MANEUVER
-            or (ctx.state in (ModeState.HOLD, ModeState.READY)
-                and (ctx.maneuver_pitch_deg != 0.0
-                     or ctx.maneuver_roll_deg != 0.0))
+        sustur.data = ctx.state in self._INIS_DURUMLARI or (
+            ctx.kalkis_tamam and (
+                ctx.state == ModeState.MANEUVER
+                or (ctx.state in (ModeState.HOLD, ModeState.READY)
+                    and (ctx.maneuver_pitch_deg != 0.0
+                         or ctx.maneuver_roll_deg != 0.0))
+            )
         )
         self._sustur_pub.publish(sustur)
 
@@ -451,6 +486,25 @@ class ModeManagerNode(Node):
             )
 
         elif state == ModeState.LANDING:
+            # 🔴 OLAY YOLU TEK BASINA YETMIYOR — 30 Agustos 2026 saha olayi.
+            #
+            # Pilot kumandanin hicbir tusuyla inis veremedi. Sebep OLCULDU:
+            # zincir aslinda VAR —
+            #     LANDING -> EVENT_EMERGENCY_LAND (target_agent_id=0)
+            #     -> agent_fsm._on_event -> ctx.pending_state = LANDING
+            # ama agent_transitions.py'de `pending_state == LANDING`
+            # YALNIZ UC DURUMDAN kabul ediliyor: IN_SWARM (:207),
+            # RETURN_HOME (:316), FAILSAFE (:387). Olay sirasinda ucaklar
+            # ARMED'daydi; _from_armed bu istegi HIC GORMEZ ve
+            # agent_fsm_node.py:232 tick sonunda pending_state'i KOSULSUZ
+            # temizler — istek tek tick yasayip SESSIZCE kaybolur.
+            #
+            # Iptal yolu duruma bagli OLAMAZ. px4_bridge tek PX4 yazicisi
+            # ve oradaki 'land' dali kosulsuzdur. Komut ORAYA gider.
+            # Olay yine de yayinlanir ki agent_fsm gorebildigi durumdayken
+            # kendi durumunu gercege esitlesin (yoksa hala "ucuyorum"
+            # sanip ARMED'a girip 'offboard' yollar).
+            self._inis_komutu_gonder('kumandadan inis')
             self._pub_event(
                 SystemEvent.EVENT_EMERGENCY_LAND,
                 SystemEvent.SEVERITY_INFO,
@@ -458,13 +512,31 @@ class ModeManagerNode(Node):
             )
 
         elif state == ModeState.RTL:
+            # 🔴 RTL UCURULMUYOR — CLAUDE.md §9: "HOME kaymasi cozulmeden
+            # RTL'li ucus YOK, inis `land` ile". Gorev 2 tasariminda RTL
+            # salteri de yok (G2-K7); sartname §5.2 madde 11 donusunu
+            # PILOT ucuruyor. Bu duruma yine de girilirse ucak havada
+            # surucusuz kalmasin diye projenin onayli iptali uygulanir.
+            #
+            # EVENT_RTL_TRIGGERED BILEREK YAYINLANMIYOR: agent_fsm onu
+            # RETURN_HOME'a cevirir ve RETURN_HOME 'offboard' komutu
+            # yollar (agent_fsm_node.py:316) — bu inisi IPTAL EDERDI.
+            self.get_logger().error(
+                '[mode_manager] RTL istendi ama RTL UCURULMUYOR '
+                '(HOME kaymasi P0, CLAUDE.md §9) — LAND uygulaniyor.'
+            )
+            self._inis_komutu_gonder('RTL istendi -> land')
             self._pub_event(
-                SystemEvent.EVENT_RTL_TRIGGERED,
+                SystemEvent.EVENT_EMERGENCY_LAND,
                 SystemEvent.SEVERITY_WARNING,
-                'Görev 2 RTL',
+                'Görev 2 RTL istendi — HOME kayması nedeniyle LAND',
             )
 
         elif state == ModeState.EMERGENCY:
+            # Acil durumda da DISARM DEGIL land — CLAUDE.md §9:
+            # "Havadaki ucaga disarm gonderme. Motoru kesmek dusmek
+            # demektir. Iptal her zaman land."
+            self._inis_komutu_gonder('acil durum')
             self._pub_event(
                 SystemEvent.EVENT_EMERGENCY_LAND,
                 SystemEvent.SEVERITY_EMERGENCY,
@@ -845,6 +917,37 @@ class ModeManagerNode(Node):
         msg.source_module = 'mode_manager'
 
         pub.publish(msg)
+
+    _INIS_DURUMLARI = (
+        ModeState.LANDING,
+        ModeState.RTL,
+        ModeState.EMERGENCY,
+    )
+
+    def _inis_komutu_gonder(self, sebep: str) -> None:
+        """px4_bridge'e dogrudan 'land' yayinlar.
+
+        Iptal yolu AJANIN DURUMUNDAN BAGIMSIZ olmak zorunda; gerekcesi
+        _on_state_entry'deki LANDING yorumunda (30 Agustos saha olayi).
+        """
+        if self._agent_id == 0:
+            # Konu /swarm/agent/drone0/commands olurdu, dinleyen yok:
+            # inis SESSIZCE kaybolur. Bu, kapatmaya calistigimiz kusurun
+            # ta kendisi — o yuzden WARNING degil ERROR.
+            self.get_logger().error(
+                '[mode_manager] INIS KOMUTU GONDERILEMEDI — agent_id=0. '
+                'baslat.sh -p agent_id:=${AGENT_ID} gecirmek ZORUNDA.',
+                throttle_duration_sec=2.0,
+            )
+            return
+        m = String()
+        m.data = 'land'
+        self._komut_pub.publish(m)
+        self._son_inis_komutu = time.monotonic()
+        self.get_logger().warning(
+            f'[mode_manager] px4_bridge -> land ({sebep})',
+            throttle_duration_sec=2.0,
+        )
 
     def _pub_event(
         self,

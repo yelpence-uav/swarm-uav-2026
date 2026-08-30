@@ -1,6 +1,6 @@
 # DURUM — şu an ne çalışıyor, ne bozuk
 
-**Son güncelleme:** 30 Ağustos 2026, 14:52 — 🔴 **SAHA OLAYI: SwD sürüyü ARM etti** (`gorev2.md` §2); G0 sürüyor: `mod` + `mod_test` ÜÇ UÇAKTA, `joystick` ylp00'da AÇIK**; üç konteyner yeniden oluşturuldu: kod `193c224` dağıtıldı, `ROS_LOCALHOST_ONLY` (A19) kapandı, ylp00'a `/dev/ttyAMA2` verildi
+**Son güncelleme:** 30 Ağustos 2026, 15:52 — madde 24 (kumandadan iniş) kodu **yazıldı ama DAĞITILMADI**; uçaklarda ölçülen kod `5515c20 +KİRLİ` (olay düzeltmesi ÜÇÜNDE DE var, ölçüldü). `gorev2.md` devir teslim için sadeleştirildi.
 
 
 ## 1. Filo
@@ -232,10 +232,25 @@ takılınca **üçünü birden** aç, biri unutulursa tutarsız davranır:
 ## 4. Kod senkronu
 
 ```
-ucaklarda (uc de) : 193c224   30 Agustos 13:30 — dagitildi VE konteynerler
-                              YENIDEN OLUSTURULDU (restart degil, recreate)
-repoda            : 193c224   AYNI  ·  baslat.sh md5 ucunde de "depo ile AYNI"
+ucaklarda (uc de) : .surum -> commit=5515c20 +KIRLI   paketler=swarm_state_machine
+                    30 Agustos 14:53, kismi (--paket) dagitim
+repoda            : 7ac36d7 + DAGITILMAMIS madde 24 (calisma agacinda)
+tam recreate      : 193c224, 30 Agustos 13:30 (restart degil, recreate)
 ```
+
+> 🔴 **`.surum` burada YANILTIYOR ve nedeni öğretici.** `+KIRLI`, dağıtımın
+> commit'lenmemiş bir çalışma ağacından yapıldığını söylüyor: `.surum`
+> `5515c20` yazıyor ama uçaktaki dosyalar **`a48ca98`'in içeriğini** taşıyor
+> (saha olayı düzeltmesi). **Ölçerek doğrulandı, 30 Ağu 15:50** — dosyada
+> imza arandı, `.surum`'a güvenilmedi:
+>
+> | | ylp00 | ylp01 | ylp02 |
+> |---|---|---|---|
+> | `EVENT_MISSION_STARTED` kaldırıldı (olay düzeltmesi) | ✅ | ✅ | ✅ |
+> | madde 24 (`_inis_komutu_gonder`) | ❌ | ❌ | ❌ |
+>
+> Yani **saha olayının kökü üç uçakta da kapalı**; kumandadan iniş **henüz
+> uçakta yok.** Sürüm kontrolü yaparken `.surum` yerine **dosyada imza ara.**
 
 ### ✅ 30 Ağustos recreate — üç uçakta doğrulandı
 
@@ -273,6 +288,7 @@ uçakta koşan koda girdi.** Dağıtılmamış olanlar:
 | `mode_manager/*` | B3/B4/B5/B7/B8/B10/B15 + G2-K6 | düğüm kapalı → etki yok |
 | `swarm_core/manual_kinematics.py` | `dairesel_ortalama_deg` **eklendi** (`apply_tilt` değişmedi) | Görev 1 davranışı **aynı** |
 | 🔴 `swarm_fsm/*` | **B17: `formation_heading_deg` artık HESAPLANIYOR** | **`swarm_fsm` ŞU AN KOŞAN 11 DÜĞÜMDEN BİRİ** |
+| 🆕 `mode_manager/*` + `swd_mandal.py` | **madde 24 — kumandadan iniş** (`land` doğrudan `px4_bridge`'e, 1 Hz tekrarlı) | `mode_manager` açık ama **iniş yolu uçakta YOK** — commit edildi, **dağıtılmadı** |
 
 > 🔴 **Tek gerçek davranış değişikliği `swarm_fsm`.** Bugüne kadar
 > `SwarmState.formation_heading_deg` kalıcı `0.0` gidiyordu; dağıtımdan

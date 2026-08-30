@@ -1,6 +1,6 @@
 # GÜNLÜK — oturum devir teslim kaydı
 
-**Son güncelleme:** 30 Ağustos 2026, 03:29 — Görev 2 Aşama A (kod) BİTTİ; `docs/gorev2.md` açıldı
+**Son güncelleme:** 30 Ağustos 2026, 15:52 — madde 24 kodu yazıldı (dağıtılmadı); Görev 2 devrediliyor
 
 Tek bilgisayar, sırayla çalışıyoruz. Biri kalkıp diğeri oturduğunda **hem
 kişi hem Claude** nerede kalındığını buradan anlar.
@@ -35,6 +35,98 @@ Claude'a **"oturumu kapat"** dersen bu kaydı o yazar.
 - ylp00: (kill switch? pil? nerede? konteyner ayakta mı?)
 - ylp02:
 ```
+
+---
+
+## 2026-08-30 15:52 — Osman + Claude (madde 24 kodu + `gorev2.md` devir teslim)
+
+> **Uçuş yok, uçaklara kod DAĞITILMADI.** Şartname G6 doğrulandı, madde 24
+> (kumandadan iniş) yazıldı ve birim testle kilitlendi, `gorev2.md` devretmek
+> için sadeleştirildi. 🔴 **Görev 2 başka arkadaşlara devrediliyor.**
+
+**Ne yapıldı**
+
+- **Şartname §5.2 PDF'ten yeniden okundu** (operatör sorusu: "geri kalkışın
+  kumandayla olması gerekmiyor muydu?"). **Doğru hatırlanmış, iki yerde geçiyor:**
+  §5.2.2 *"Takeoff ve land komutları da kumanda üzerinden yapılır"* ve senaryo
+  madde 5 *"Kumanda üzerinden kalkış komutu ile sürü, **başlangıç formasyonunu
+  koruyarak** belirlenen irtifaya yükselir"*.
+  → Planımız uygun (madde 25, kritik yolda). Altyapı da hazır: `px4_bridge`
+  `takeoff:H` kabul ediyor ve kalkışta **yatay çapayı donduruyor**, yani
+  tırmanış dikey. Kalkış kapısı da ofsetleri **ölçülen** konumdan tohumluyor —
+  senaryo madde 1 (*"hakemler yerde dizer"*) ile örtüşüyor.
+- 🔴 **G1'in teşhisi YANLIŞTI, ölçülerek düzeltildi.** Belgede *"olay
+  yayınlanıyor, tüketicisi yok"* yazıyordu. **Tüketici var:**
+  `LANDING → EVENT_EMERGENCY_LAND → agent_fsm.pending_state = LANDING`.
+  Ama `agent_transitions` bunu **yalnız 3 durumdan** kabul ediyor
+  (`IN_SWARM:207`, `RETURN_HOME:316`, `FAILSAFE:387`) ve olay sırasında
+  uçaklar **ARMED**'daydı; `agent_fsm_node.py:232` tick sonunda isteği
+  **koşulsuz siliyor** → istek tek tick yaşayıp **sessizce kayboluyor.**
+  *"Kumandanın hiçbir tuşuyla iniş veremedim"*in birebir açıklaması bu.
+- **Madde 24 yazıldı — dört ayrı kusur kapandı:**
+
+  | | Neydi | Sonucu olurdu |
+  |---|---|---|
+  | a | LANDING yalnız olay yayınlıyordu | ARMED'dayken iniş **hiç gitmiyordu** |
+  | b | İniş bayrağı **tek tick** yaşıyordu | mesh'in 200 ms kapısı iptali **tamamen** yutardı |
+  | c | SwA kapalıyken `cmd.land` **siliniyordu** | pilot önce SwA'yı kapatırsa **bir daha inemezdi** |
+  | d | LANDING'de `formation_node` susmuyordu | biri offboard'ı geri açarsa uçak slota **fırlardı** |
+
+  Ayrıca RTL durumu artık `EVENT_RTL_TRIGGERED` **yayınlamıyor** —
+  `agent_fsm` onu RETURN_HOME'a çevirip `offboard` yolluyordu ve bu
+  **inişi iptal ederdi.**
+- **Uçaklardaki kod ÖLÇÜLDÜ** (`.surum`'a güvenilmedi, dosyada imza arandı):
+  olay düzeltmesi **üçünde de var**, madde 24 **hiçbirinde yok.**
+  `.surum` `5515c20 +KIRLI` diyor ama dosyalar `a48ca98` içeriğinde —
+  `+KIRLI` dağıtımın commit'siz ağaçtan yapıldığını söylüyor. `DURUM.md` §4.
+- **Yeni boşluk B19 bulundu:** `COMPLETED` terminal ve **çıkışı yok**. İniş
+  bitince `mode_manager` orada kalıyor → **ikinci kalkış konteyner restart
+  istiyor**, oysa görev başına **3 hakkımız var.** ~6 satır, karar verilmedi.
+
+**Ne değişti**
+
+- kod: `mode_manager_node.py` — `_inis_komutu_gonder()`, LANDING/RTL/EMERGENCY
+  girişlerinde `px4_bridge`'e doğrudan `land`, tick'te **1 Hz tekrar**,
+  iniş durumlarında `formasyon_sustur`
+- kod: `swd_mandal.py` **YENİ** (saf modül, rclpy'siz test edilebilir) —
+  kalkış **tek atış**, iniş **mandal**, iniş SwA'dan **bağımsız**,
+  ilk çerçeve kenar sayılmaz
+- kod: `joystick_interpreter_node.py` — `SwdMandal` kullanıyor; emniyet
+  kapalıyken `cmd.land` artık **silinmiyor**
+- test: `test_swd_mandal.py` **YENİ** (17 test) · `test_mode_manager.py`
+  40 → **44** (iniş her havada durumdan ulaşılabilir mi)
+- **uçakta: HİÇBİR ŞEY DEĞİŞMEDİ** — dağıtım yapılmadı, bayraklar aynı
+- belge: `gorev2.md` **766 → 566 satır**, devir teslim için yeniden kuruldu ·
+  `DURUM.md` §4 (ölçülen sürüm) · `YAPILACAKLAR.md`
+
+**Yarım kalan / tuzak**
+
+- 🔴 **Madde 24 UÇAKTA DOĞRULANMADI.** Kod ve testler geçiyor, ama dağıtım
+  yapılmadı. Yerde doğrulanabilir: `mod` aç, LANDING'e sok,
+  `/swarm/agent/droneN/commands`'a `land` gitti mi bak.
+  ⚠️ `swarm_state_machine` **tek paket yetmez mi?** Bu sefer yeter — yalnız
+  o paket değişti (`swarm_core` ve mesajlar **değişmedi**).
+- 🔴 **Madde 25 (kalkış) ARM YETKİSİ KARARINI bekliyor.** `gorev2.md` §3'te
+  iki seçenek ve öneri duruyor: **SwD → `arm` + `takeoff:H` atomik**, üç
+  koşulla kapılı (SwA açık · gaz merkezde · görev YKİ'den başlatılmış).
+  Alternatifi uçakları **pervaneleri dönerken** belirsiz süre bekletiyor.
+- **`.surum` yanıltıcı.** Sürüm kontrolünde `.surum`'a değil, **dosyadaki
+  imzaya** bak (`TUZAKLAR.md` §1.14'ün canlı örneği).
+
+**Sıradaki adım**
+
+`YAPILACAKLAR` Aşama D ①: madde 24'ü dağıt ve **yerde doğrula**, sonra
+ARM yetkisi kararını al ve madde 25'i yaz. Kritik yol: `24 → 25 → 27 → 28 → 31`.
+
+**Uçakların bırakıldığı hâl**
+
+- **Üçü de ağda, DISARM, dışarıda.** Konteynerler ayakta (~2 sa),
+  11 düğüm, `baslat.sh` md5 üçünde de depo ile aynı.
+- Bayraklar: `origin consensus fsm formasyon ca mod` üçünde ·
+  **`joystick` yalnız ylp00** · **`/ws/mod_test` üçünde de takılı**
+- 🔴 **`mod` açık** → SwD'ye dokunmak sürüyü ARM edebilir.
+  **Kill pilotları başında olmadan kumandayı açma.**
+- ⚠️ ylp02 diski **%81 dolu** (diğerleri %40-42)
 
 ---
 
