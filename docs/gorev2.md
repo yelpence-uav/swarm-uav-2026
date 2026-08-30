@@ -1,6 +1,6 @@
 # GÖREV 2 — Yarı Otonom Sürü Kontrolü
 
-**Son güncelleme:** 30 Ağustos 2026, 14:52 — 🔴 **SAHA OLAYI: SwD sürüyü ARM etti** (bkz. §2); `EVENT_MISSION_STARTED` kaldırıldı; mesh bütçesi ölçüldü (~57 çerçeve/s, TIP_KOMUT 16,5); deadman ölçüldü: alıcı susmuyor, kanalları MERKEZE alıyor (önceki bulgu yanlıştı); B18 doğrulandı; kalkış kapısına ARM şartı eklendi (açık alan ölçümü açığı gösterdi); G0 madde 16 + 18 geçti; kapının HİÇ AÇILAMAYACAĞI bir kusur bulundu ve kapatıldı; iki gerçek kusur sahada yakalandı (QoS kırığı + yayın hızı); Aşama B bitti (kod dağıtıldı + üç konteyner recreate); i-BUS zinciri uçtan uca çalıştı (130 Hz, 0 checksum hatası); işaret yönleri ölçüldü → **pitch ve yaw TERSTİ**, düzeltildi; **B18** gaz kapısı eklendi
+**Son güncelleme:** 30 Ağustos 2026, 15:08 — **KUMANDA TASARIMI karara bağlandı** (G2-K7…K9); plan tasarıma göre yeniden sıralandı. Saha olayı §2'de.
 
 Şartname **§5.2** · **100 puan** · görev başına **3 hak**, en yüksek puan sayılır.
 
@@ -59,7 +59,67 @@ Osilasyon cezası B6'yı (ivme rampası) doğrudan puan meselesi yapıyor.
 | **G2-K3** | **Ayrı kumanda + ayrı pilot** (sürü ≠ kill switch) | Şartname §5.2 zorunlu kılıyor. ylp00: 2 kumanda + 2 pilot. ylp01/ylp02: 1'er kill kumandası. Tek kumandayı iki alıcıya bind etmek donanımsal mümkün ama **teknik kontrolde takılır** |
 | **G2-K4** | **Test genlikleri: eğim ±10°, yaw ~45° / 12,5°/s** | Tavanlar `ucus_ayarlari` MOD_*'ta eğim 15°, yaw 25°/s. Test bunun altında (çubuk %66 eğim, %50 yaw) — ilk uçuşta muhafazakâr |
 | **G2-K5** | **İniş: slot üstüne `land`, EVE fazı YOK** | 🔴 Uçaklar **kalktıkları yere İNMEZ.** `CLAUDE.md` §9 gereği her slotun muhtemel iniş noktası haritada ayrı ayrı doğrulanacak |
+| **G2-K7** | **Kumanda tuş tasarımı** (aşağıda ayrıntı) | 8 kanal şartnamenin bütün örnek direktiflerini karşılıyor. SwD'ye **nötr konum eklenmiyor** — operatör dikkati (operatör kararı). SwC'ye **yazılım debounce** ekleniyor: dikkatle önlenemeyen tek sorun o |
+| **G2-K8** | **Görev 2 YKİ'den başlatılır**, SwD'den DEĞİL | Şartname §5.2 örnek senaryo madde 4 *"Hakemin komutuyla İHA'lar yarı otonom kontrol moduna geçirilir"* ve YKİ'ye izinli tek eylem **"görevi başlatma"**. SwD kalkış/iniş anahtarı; ikisini aynı şaltere yüklemek 30 Ağu olayının bileşeniydi. `joystick_interpreter._call_trigger_mission` **kaldırılacak** |
+| **G2-K9** | **Aralık YKİ'den, GÖREV ÖNCESİ** — SSH ile canlı param | Şartname aralığı sabit veriyor (*"ajanlar arası X metre olacaktır"*), görev içinde değişmiyor. Bugünkü yol (env + konteyner restart) saha gününde dakikalar alır. `RpiPanel` zaten SSH deseni kullanıyor; mesh'e dokunmaz, **canlı komut yolu açmaz** (B9'da silinen risk geri gelmez) |
 | **G2-K6** | **HOLD'dan otomatik iniş KALDIRILIYOR** — sürü HOLD'da kalır | `mode_transitions.py:125` bugün 5 sn komutsuzlukta LANDING'e geçiyor. 5 saniyelik bir **mesh sarsıntısı görev ortasında iniş yaptırırdı.** İniş kararı pilota/hakeme ait |
+
+
+### 🎛 KUMANDA TUŞ TASARIMI (G2-K7) — 30 Ağustos
+
+```
+CH1 roll · CH2 pitch · CH3 throttle · CH4 yaw
+CH5 SwA  emniyet / deadman            2 konum   1000 / 2000=ACIK
+CH6 SwB  mod: hareket / manevra       2 konum
+CH7 SwC  formasyon: okbasi/V/cizgi    3 konum   1000/1500/2000 + DEBOUNCE
+CH8 SwD  kalkis / inis                2 konum   (notr YOK)
+CH9-10   BOS (olculdu: sabit 1000)  ·  VrA/VrB potlar kullanilmiyor
+```
+
+**Şartname karşılığı:** 8 kanal §5.2'nin **bütün örnek hakem direktiflerini**
+karşılıyor — mod geçişi, üç formasyon, dört eksen, kalkış/iniş.
+
+**İptal iki kademeli, ayrı butona gerek yok:**
+
+```
+SwA kapat -> deadman duser -> mode_manager HOLD (suru asili kalir)
+SwD       -> inis
+```
+
+**🔴 SwC debounce — dikkatle önlenemeyen tek sorun.** SwC detentli 3 konumlu;
+okbaşı (1000) → çizgi (2000) giderken **fiziksel olarak ortadan (1500) geçmek
+zorunda**. El hareketi 200-400 ms, örnekleme 32 Hz → orta bölgede 6-12 örnek
+ve kod her ayrı geçişte formasyon değişimi tetikliyor. Sonuç: hakem *"çizgiye
+geç"* der, sürü **önce V'ye morf olmaya başlar**. Kendi kuru testimiz
+`okbaşı→V` en dar anını **4,95 m** ölçtü, kaçınma eşiği 4,0 m — istenmeyen ara
+morf kaçınmanın kucağına giriyor (çarpışma cezası −20×N).
+
+*Çözüm:* SwC yeni konumda **N ms kararlı kalmadan** değişim tetiklenmez.
+Donanım değişikliği yok. **Eşik ÖLÇÜLEREK konacak** — pilot SwC'yi uçtan uca
+birkaç kez çevirir, orta konumdaki oturma süresi ölçülür.
+
+**SwD nötr konum EKLENMEDİ** (operatör kararı): dinlenme konumu yok, kazara
+dokunmak iniş/kalkış demek. Dokunmamak operatörün sorumluluğunda.
+
+### 🔁 RTL — kumandada YOK, ama failsafe olarak ZORUNLU
+
+Şartname §5.2 madde 11: *"**Pilotun kontrolünde** sürü... başlangıç konumuna
+geri dönüş rotasını izler"* → dönüş **pilot uçuruyor**, RTL komutu değil.
+Kumandada RTL butonu **gerekmiyor.**
+
+Ama §5.4 ayrı bir şey söylüyor:
+
+> *"Kumanda bağlantısı koptuğunda... failsafe **hakem kurulu tarafından
+> belirlenecektir**. RTL veya Land'den biri olabilir. Belirlenen failsafe
+> davranışını doğru gerçekleştiremeyen takımların **uçuşuna izin
+> verilmeyecektir**."*
+
+Bu **PX4 seviyesinde**, kill pilotunun linkine bağlı ve zaten yapılandırılmış
+(`RC_MAP_FAILSAFE=3`, `RC_FAILS_THR=2050`; 19 Ağu havada doğrulandı).
+
+> 🔴 **AMA HOME KAYMASI AÇIK (P0).** RTL üç uçağı kalkış yerine değil ~9 m
+> KD'ya indirmişti. Hakem failsafe olarak **RTL derse bu bir UÇUŞ İZNİ
+> sorunudur**, puan değil. Hakem brifinginde netleştirilmeli.
 
 ### 🔴 G2-K6'nın kabul edilen bedeli
 
@@ -587,51 +647,70 @@ Aşama geçişlerinde 🚦 kapı var — kapı sağlanmadan sonraki aşamaya ge�
 > baypas ETMEZ.** Uçuştan önce silinip silinmeyeceği operatör kararı;
 > `drone_bul.sh --durum` bayrağı listeliyor.
 
-### AŞAMA C — G0 yerde, pervanesiz *(uçuş yok, en yüksek getirili adım)*
+### AŞAMA C — G0 yerde, pervanesiz
 
-| # | Ölçülecek |
-|---|---|
-| **16** | ✅ **GEÇTİ.** Port 130 Hz / 0 hata · `/drone_1/rc/suru` **32,5 Hz** · 🔴 **kill pilotu izolasyonu YAPISAL olarak kanıtlandı** (aşağıda) |
-| **17** | ✅ **ÖLÇÜLDÜ — pitch ve yaw TERSTİ, düzeltildi.** Tablo §2'de, testlerle kilitlendi (`test_rc_eksen.py`) |
-| **18** | ✅ **GEÇTİ.** Kapı yerde tutuyor (hiçbir yayın yok) · B3 IDLE→PREFLIGHT ✓ · 🔴 **kapının hiç açılamayacağı kusur bulundu ve kapatıldı** (aşağıda) |
-| **19** | MANEVRA'da **merkez sabitliği** (xy değişmemeli) + `formasyon_sustur` bayrağı |
-| **20** | **Centroid sürüklenmesi**: üç uçağın `formation/target.center_*` farkı, 60 sn |
-| **21** | **B6 kararı:** çubuk basamağında centroid hızı sıçrıyor mu? Sıçrıyorsa `swarm_movement_step` (ivme rampalı, yazılı ve testli) **uçuştan önce** devreye alınır — osilasyon cezası −10 |
-| **22** | ✅ **ÖLÇÜLDÜ** — kumanda kapalı → SwA 2000→1500 → `deadman_pressed: false`. Alıcı susmuyor, merkeze alıyor (§2) |
-| **23** | ✅ **ÖLÇÜLDÜ — ~57 çerçeve/s**, `TIP_KOMUT` katkısı **16,5** (§2). ⏳ lider HB + RTCM eksik, uçuş öncesi tekrar |
+| # | Ölçülecek | |
+|---|---|---|
+| **16** | RC akışı + kill pilotu izolasyonu | ✅ **GEÇTİ** — 130 Hz/0 hata, izolasyon **yapısal** kanıtlandı |
+| **17** | Kanal + işaret haritası | ✅ **pitch ve yaw TERSTİ**, düzeltildi, testle kilitlendi |
+| **18** | Kalkış kapısı yerde tutuyor mu | ✅ **GEÇTİ** — hiçbir yayın yok; kapının hiç açılamayacağı kusur bulundu ve kapatıldı |
+| **22** | Deadman | ✅ **ÖLÇÜLDÜ** — alıcı susmuyor, kanalları merkeze alıyor |
+| **23** | Mesh bütçesi | ✅ ~57 çerçeve/s, `TIP_KOMUT` 16,5 |
+| **19** | MANEVRA'da merkez sabitliği + `formasyon_sustur` | ⏳ **UÇUŞ İSTER** (kapı ancak havada açılır) |
+| **20** | Centroid sürüklenmesi | ⏳ **UÇUŞ İSTER** |
+| **21** | B6 ivme rampası kararı | ⏳ **UÇUŞ İSTER** |
 
-> 🚦 **Kapı:** işaret yönleri **yazılı**, merkez sabitliği ölçülü, deadman kanıtlı.
+> 🚦 Yerde yapılabilecekler **bitti**. 19-21 kapının açılmasını, o da uçuşu istiyor.
 
-### AŞAMA D — Uçuşlar
+### 🎛 AŞAMA D — TASARIM GEREĞİ KAPATILACAKLAR *(uçuştan önce)*
+
+> **Bu aşama 30 Ağustos saha olayından ve G2-K7…K9 tasarımından doğdu.**
+> Sırası tesadüf değil: **iptal yolu olmadan `mod` ile test yapılmaz.**
+
+| # | İş | Neden burada |
+|---|---|---|
+| **24** | 🔴 **G1 — `mode_manager` LANDING gerçekten indirsin.** Bugün yalnız `EVENT_EMERGENCY_LAND` yayınlıyor, **tüketicisi yok**; `px4_bridge`'e doğrudan `land` gitmeli | **Kumandadan iniş şartname zorunluluğu** (§5.2) ve bugün **tek iptal yolumuz yok**. Bunsuz başka test yapılmaz |
+| **25** | 🔴 **B2 — kumandadan kalkış, AÇIKÇA.** `EVENT_MISSION_STARTED` kaldırıldı; yerine `mode_manager` → `px4_bridge` kalkış komutu + `MOD_KALKIS_IRTIFA` | 30 Ağu olayının kökü buydu. Kalkış yetkisi örtük değil **tasarlanmış** olacak |
+| **26** | 🟠 **SwC debounce** — önce **ÖLÇ** (SwC'yi uçtan uca çevir, orta konumdaki oturma süresi), sonra eşiği koy | Dikkatle önlenemeyen tek tasarım sorunu; ara morf 4,95 m'ye iniyor (kaçınma eşiği 4,0) |
+| **27** | 🟠 **ADIM 6 — `mission_fsm`** aç | **G2-K8'in ön koşulu**: `TriggerMission`'ı dinleyen kimse yok |
+| **28** | 🟠 **YKİ: Görev 2 BAŞLAT butonu** + `joystick_interpreter`'dan `_call_trigger_mission` **kaldır** | G2-K8. Bugün panel *"Görev 2 kumandadan başlatılır"* diyor — **artık yanlış** |
+| **29** | 🟡 **YKİ: aralık alanı** (SSH ile canlı param) + `mode_manager`'a param callback | G2-K9. Saha gününde hakem "X metre" deyince dakikalar sürmesin |
+| **30** | 🟠 **Alıcı failsafe kaydı: SwA = 1000** | Deadman bugün alıcının *varsayılan* davranışına dayanıyor, garanti değil (§2) |
+
+> 🚦 **Kapı:** 24 ve 25 bitmeden uçuş yok. İkisi de birim testle kilitlenecek;
+> 24 ayrıca **yerde** doğrulanabilir (LANDING'e gir, `px4_bridge`'e komut gitti mi).
+
+### AŞAMA E — Uçuşlar
 
 | # | Uçuş | Cevapladığı **tek** soru |
 |---|---|---|
-| **24** | **A** — ÇİZGİ 7 m / 8 m, HAREKET modu, yalnız pitch git-gel + roll git-gel | Kumanda girdisi sürüyü **formasyonu bozmadan** hareket ettiriyor mu? |
-| **25** | **B** — MANEVRA: roll ±%66, pitch aynı profil, yaw ~45° (G2-K4) | Manevra modu merkezi **sabit** tutuyor mu? |
-| **26** | **B2** — kumandadan kalkış + kalkış irtifası parametresi *(A ve B'den SONRA)* | — |
-| **27** | **C** — OKBAŞI/V eğim + kumandadan formasyon değişimi + kumandadan kalkış/iniş | Asimetri ve kumanda-kalkış çalışıyor mu? |
-
-**B2 neden sona kaydı:** Uçuş A ve B **kanıtlanmış guided kalkışla** başlayıp
-kumandaya devredilebilir. Kumandadan kalkışı ilk uçuşa koymak, aynı uçuşta
-iki yeni şey denemek olurdu (`PLAN.md` §5).
+| **31** | **A** — ÇİZGİ 7 m / 8 m, HAREKET modu, yalnız pitch git-gel + roll git-gel | Kumanda girdisi sürüyü **formasyonu bozmadan** hareket ettiriyor mu? *(G0 19-21 burada ölçülür)* |
+| **32** | **B** — MANEVRA: roll ±%66, pitch aynı profil, yaw ~45° (G2-K4) | Manevra modu merkezi **sabit** tutuyor mu? |
+| **33** | **C** — OKBAŞI/V eğim + kumandadan formasyon değişimi + kalkış/iniş | Asimetri ve kumanda-kalkış çalışıyor mu? |
 
 > Her uçuş öncesi `--kuru --harita` **zorunlu** · harita operatör gözüyle
 > doğrulanır · 🔴 **G2-K5 gereği her slotun iniş noktası ayrı ayrı temiz
 > olmalı** — uçaklar kalktıkları yere inmez.
+>
+> 🔴 **`mod` açıkken kill pilotları başında olmalı** — mode_manager'ın TAKEOFF'a
+> ulaşabildiği her yapılandırmada sürü ARM olabilir (30 Ağu olayı).
 
-### AŞAMA E — Yarışma profili
+### AŞAMA F — Yarışma profili
 
 | # | İş |
 |---|---|
-| **28** | Hakem direktifi provası: *"3 sn ileri pitch" → "çizgiye geç" → "4 sn sağ roll" → "V'ye geç" → "manevra moduna geç" → "sola yaw"* |
-| **29** | `gorev2.md` + `DURUM.md` + `GUNLUK.md` güncelleme (her oturum sonu) |
+| **34** | Hakem direktifi provası: *"3 sn ileri pitch" → "çizgiye geç" → "4 sn sağ roll" → "V'ye geç" → "manevra moduna geç" → "sola yaw"* |
+| **35** | 🔴 **HOME kayması** — hakem failsafe olarak RTL derse **uçuş izni** sorunu (§2). Brifingde netleştir |
+| **36** | `/ws/mod_test` **SİL** — yarışma profilinde test bayrağı kalmaz |
+| **37** | `gorev2.md` + `DURUM.md` + `GUNLUK.md` güncelleme (her oturum sonu) |
 
 ### Kritik yol
 
-**1 → 3 → 11 → 14 → 16 → 18 → 24.** Diğer her şey bunun yanında paralel yürür.
+**24 → 25 → 27 → 28 → 31.**
+Yani: **iniş çalışsın → kalkış çalışsın → `mission_fsm` → YKİ BAŞLAT → ilk uçuş.**
 
-En uzun bekleme **14** (konteyner recreate); en riskli **11** (gerilim) ve
-**18** (kalkış kapısı). **Aşama A'nın tamamı uçaklara hiç dokunmadan bitebilir.**
+26 (debounce), 29 (aralık) ve 30 (failsafe) paralel yürür; hiçbiri kritik
+yolu tutmuyor ama üçü de **ilk uçuştan önce** bitmeli.
 
 ---
 

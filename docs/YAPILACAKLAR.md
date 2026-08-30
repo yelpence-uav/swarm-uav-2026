@@ -1,6 +1,6 @@
 # YAPILACAKLAR
 
-**Son güncelleme:** 30 Ağustos 2026, 13:31 — **Görev 2 Aşama A + B BİTTİ**; konteyner recreate ×3 yapıldı, A19 kapandı
+**Son güncelleme:** 30 Ağustos 2026, 15:13 — Görev 2 **kumanda tasarımı karara bağlandı** (G2-K7…K9); 🔴 saha olayı: SwD sürüyü ARM etti
 
 > **Finale 8 gün.** Bu liste artık "her fikir" değil, **bu 8 günde
 > yapılacak iş.** Bir madde buraya giriyorsa birinin onu yapması planlanıyor
@@ -61,12 +61,20 @@ YKİ joystick zinciri silindi · heading artık hesaplanıyor. **293 birim testi
   ④ **konteyner recreate ×3** (`--device` + A19 + A12 + korupt log, tek işlem)
   ⑤ dağıtım — ⚠️ `swarm_core` ve `swarm_state_machine` ikisi de değişti,
   `--paket` ile tek paket **yetmez**.
-- `[ ]` 🟠 **AŞAMA C — G0 yerde** (madde 16-23): RC akıyor mu · **kill
-  pilotunun çubuğu sürüyü OYNATMAMALI** · işaret yönleri · kalkış kapısı
-  yerde tutuyor mu · merkez sabitliği · centroid sürüklenmesi · deadman ·
-  **mesh bütçesi**.
-- `[ ]` 🟠 **AŞAMA D — uçuşlar** (madde 24-27): A (ÇİZGİ, pitch/roll git-gel)
-  → B (manevra, merkez sabitliği) → **B2 kumandadan kalkış** → C (asimetri).
+- `[x]` ✅ **AŞAMA C — G0'ın yerde yapılabilen kısmı BİTTİ.** 16 (RC + kill
+  izolasyonu) · 17 (işaretler — **pitch ve yaw TERSTİ**, düzeltildi) ·
+  18 (kalkış kapısı) · 22 (deadman) · 23 (mesh). Kalan 19-21 **uçuş ister.**
+- `[ ]` 🔴 **AŞAMA D — TASARIM GEREĞİ (SIRADAKİ İŞ).** `gorev2.md` §4 madde
+  24-30. **İptal yolu olmadan `mod` ile test yapılmaz:**
+  ① 🔴 **G1** `mode_manager` LANDING gerçekten indirsin (bugün yalnız olay
+  yayınlıyor, tüketicisi yok — kumandadan iniş **şartname zorunluluğu**)
+  ② 🔴 **B2** kumandadan kalkış AÇIKÇA (30 Ağu olayının kökü)
+  ③ 🟠 SwC debounce (önce ÖLÇ) ④ 🟠 ADIM 6 `mission_fsm`
+  ⑤ 🟠 YKİ Görev 2 BAŞLAT butonu ⑥ 🟡 YKİ aralık alanı
+  ⑦ 🟠 alıcı failsafe kaydı SwA=1000
+- `[ ]` 🟠 **AŞAMA E — uçuşlar** (31-33): A (çizgi, pitch/roll) → B (manevra)
+  → C (asimetri + kumandadan kalkış/iniş). G0 19-21 Uçuş A'da ölçülür.
+  🔴 **`mod` açıkken kill pilotları başında olmalı.**
 - `[ ]` 🟡 **`_on_control_out` hız limiti** — ölçüldü: UART'a yazdığımızın
   **%75'i** ESP'de atılıyor. ~8 satır. **Operatör kararı: G0 madde 23
   ölçümünden SONRA** (`gorev2.md` §5).
