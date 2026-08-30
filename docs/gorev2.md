@@ -1,6 +1,6 @@
 # GÖREV 2 — Yarı Otonom Sürü Kontrolü
 
-**Son güncelleme:** 30 Ağustos 2026, 14:32 — **deadman ÖLÇÜLDÜ**: alıcı susmuyor, kanalları MERKEZE alıyor (önceki bulgu yanlıştı); B18 doğrulandı; kalkış kapısına ARM şartı eklendi (açık alan ölçümü açığı gösterdi); G0 madde 16 + 18 geçti; kapının HİÇ AÇILAMAYACAĞI bir kusur bulundu ve kapatıldı; iki gerçek kusur sahada yakalandı (QoS kırığı + yayın hızı); Aşama B bitti (kod dağıtıldı + üç konteyner recreate); i-BUS zinciri uçtan uca çalıştı (130 Hz, 0 checksum hatası); işaret yönleri ölçüldü → **pitch ve yaw TERSTİ**, düzeltildi; **B18** gaz kapısı eklendi
+**Son güncelleme:** 30 Ağustos 2026, 14:40 — **mesh bütçesi ÖLÇÜLDÜ** (~57 çerçeve/s, TIP_KOMUT 16,5); deadman ölçüldü: alıcı susmuyor, kanalları MERKEZE alıyor (önceki bulgu yanlıştı); B18 doğrulandı; kalkış kapısına ARM şartı eklendi (açık alan ölçümü açığı gösterdi); G0 madde 16 + 18 geçti; kapının HİÇ AÇILAMAYACAĞI bir kusur bulundu ve kapatıldı; iki gerçek kusur sahada yakalandı (QoS kırığı + yayın hızı); Aşama B bitti (kod dağıtıldı + üç konteyner recreate); i-BUS zinciri uçtan uca çalıştı (130 Hz, 0 checksum hatası); işaret yönleri ölçüldü → **pitch ve yaw TERSTİ**, düzeltildi; **B18** gaz kapısı eklendi
 
 Şartname **§5.2** · **100 puan** · görev başına **3 hak**, en yüksek puan sayılır.
 
@@ -598,7 +598,7 @@ Aşama geçişlerinde 🚦 kapı var — kapı sağlanmadan sonraki aşamaya ge�
 | **20** | **Centroid sürüklenmesi**: üç uçağın `formation/target.center_*` farkı, 60 sn |
 | **21** | **B6 kararı:** çubuk basamağında centroid hızı sıçrıyor mu? Sıçrıyorsa `swarm_movement_step` (ivme rampalı, yazılı ve testli) **uçuştan önce** devreye alınır — osilasyon cezası −10 |
 | **22** | ✅ **ÖLÇÜLDÜ** — kumanda kapalı → SwA 2000→1500 → `deadman_pressed: false`. Alıcı susmuyor, merkeze alıyor (§2) |
-| **23** | Mesh bütçesi: `TIP_KOMUT` açıkken çerçeve/s (mevcut ~53 üstüne +20) |
+| **23** | ✅ **ÖLÇÜLDÜ — ~57 çerçeve/s**, `TIP_KOMUT` katkısı **16,5** (§2). ⏳ lider HB + RTCM eksik, uçuş öncesi tekrar |
 
 > 🚦 **Kapı:** işaret yönleri **yazılı**, merkez sabitliği ölçülü, deadman kanıtlı.
 
