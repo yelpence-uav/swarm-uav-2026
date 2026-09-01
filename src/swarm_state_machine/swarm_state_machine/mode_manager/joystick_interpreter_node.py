@@ -21,6 +21,7 @@ from collections import namedtuple
 from mavros_msgs.msg import ManualControl, RCIn
 import rclpy
 from rclpy.node import Node
+from rclpy.parameter import Parameter
 from rclpy.qos import (
     DurabilityPolicy,
     HistoryPolicy,
@@ -29,11 +30,16 @@ from rclpy.qos import (
 )
 from sensor_msgs.msg import Joy
 
+from std_msgs.msg import Float32MultiArray
 from swarm_interfaces.msg import SwarmControlCommand
-from swarm_interfaces.srv import TriggerMission
 
+from . import canli_param
+from . import formasyon_kilidi
 from . import rc_eksen
+from .formasyon_kilidi import FormasyonKilidi
+from .swc_debounce import SwcDebounce
 from .swd_mandal import SwdMandal
+from .tek_atis_seri import TekAtisSeri
 
 _MavrosManual = namedtuple('_MavrosManual', [
     'pitch', 'roll', 'yaw', 'throttle',
@@ -85,6 +91,17 @@ class JoystickInterpreterNode(Node):
     AUX_MODE_CHANNEL = 'aux2'          # Mod Seçimi (SwB)
     AUX_FORMATION_CHANNEL = 'aux3'     # Formasyon Seçimi (SwC)
     AUX_TAKEOFF_LAND_CHANNEL = 'aux4'  # Kalkış / İniş (SwD)
+    # 🔴 FORMASYON KILIDI (VrB) — 31 Agustos 2026, operator karari.
+    # SwC'nin KAPALI konumu YOK: uc konumu da bir formasyon. Kumanda
+    # acilir acilmaz salterin durdugu yer bir formasyon TALEBI olarak
+    # okunuyordu (ucusta olculdu: kimse dokunmadan requested_formation
+    # 0 -> 3 oldu ve formation_change_requested mesh'e cikti).
+    # VrB potansiyometresi bos oldugu icin kilit olarak secildi.
+    # OLCUM (kumanda_web /k, 31 Agu): VrB -> ch10 -> aux6, tam aralik
+    # PWM 1000..2000, baska hicbir kanalda hareket yok (capraz karisma
+    # genligi 0). Esik aux 800 ~ PWM 1900; tepe degeri 2000.
+    AUX_FORM_KILIT_CHANNEL = 'aux6'    # Formasyon Kilidi (VrB)
+    AUX_FORM_KILIT_ESIK = 800          # >800 (~PWM 1900) -> SwC CANLI
 
     # AUX 1 Emniyet Kilidi Eşik Değeri
     # >300  -> Emniyet AKTİF (komutlar çalışır)
@@ -110,7 +127,18 @@ class JoystickInterpreterNode(Node):
         self._formation_change_requested = False
         self._requested_formation = 0
         self._requested_spacing_m = self._default_spacing_m
-        self._last_aux3_formation = None
+        # 🔴 SwC DEBOUNCE — madde 26, saha olcumuyle (swc_debounce.py).
+        # Debounce'suz hali: hakem "cizgiye gec" der, salter ortadan
+        # gecerken suru ONCE V'ye morf olmaya baslardi (en dar an 4,95 m,
+        # kacinma girisi 4,0 m -> carpisma -20xN riski).
+        self._swc = SwcDebounce(self._swc_debounce_ms)
+        # 🔴 TEK ATISLIK BAYRAKLAR MESH'TE KAYBOLUYORDU — 31 Agustos, ucusla
+        # olculdu: komut ~46 Hz yayinlaniyor, komsuya 12,6 Hz variyor.
+        # Tek cerceve suren kalkis/formasyon istegi ~%75 dusuyordu ve ilk
+        # pervaneli denemede YALNIZ pilot ucagi kalkti. Gerekce ve 600 ms'in
+        # nereden geldigi: tek_atis_seri.py
+        self._kalkis_seri = TekAtisSeri()
+        self._formasyon_seri = TekAtisSeri()
         # SwD kenar/mandal mantigi saf modulde — birim testle kilitli.
         # Gerekce ve tasarim: swd_mandal.py dosya basligi.
         self._swd = SwdMandal(
@@ -121,6 +149,25 @@ class JoystickInterpreterNode(Node):
         # Gaz kapisi mandali: SwA her acildiginda SIFIRLANIR, yani pilot
         # emniyeti her actiginda gazi bir kez merkeze getirmek ZORUNDA.
         self._gaz_merkezlendi = False
+        # VrB formasyon kilidi. Saf mantik + saha olcumu ve 'neden
+        # seviye degil gecis' gerekcesi: formasyon_kilidi.py basligi.
+        self._form_kilidi = FormasyonKilidi(self.AUX_FORM_KILIT_ESIK)
+        # Dikey yetki mandali — gerekce _on_joy icindeki blokta.
+        self._dikey_yetki = False
+        # 🔴 GOREV 2 ARALIGI HAVADA DEGISMEZ — madde 29 (31 Agustos 2026).
+        # mode_manager._on_g2_ayar ayni kapiyi `ctx.kalkis_tamam` ile
+        # koyuyor. Burada da OLMAK ZORUNDA: aralik ucusta ctx'e
+        # mode_manager'in kendi alanindan DEGIL, her formasyon
+        # degisikliginde joystick komutundan giriyor
+        # (mode_manager_node ~914: `if msg.requested_spacing_m > 0`).
+        # Yalniz mode_manager'da kapatilsa kapi KAGIT UZERINDE kalirdi:
+        # havada gelen yeni aralik buraya yazilir, sonraki SwC
+        # hareketinde formasyon ISTENMEDEN morf ederdi.
+        #
+        # ⚠️ Bu bir ISTEK mandali, olculmus "havadayim" degil — joystick
+        # dugumu irtifayi gormuyor. Bilerek temkinli tarafa duruyor:
+        # kalkis istendigi an kapanir, inis mandali gelince acilir.
+        self._kalkis_istendi = False
         init_cmd = SwarmControlCommand()
         init_cmd.mode = SwarmControlCommand.MODE_SWARM_MOVEMENT
         init_cmd.command_valid = False
@@ -129,33 +176,20 @@ class JoystickInterpreterNode(Node):
         self._last_input_time = self.get_clock().now()
 
         self._setup_publishers()
+        self._g2_ayar_abone_ol()
         self._setup_subscribers()
-
-        self._trigger_client = self.create_client(
-            TriggerMission, '/swarm/mission/trigger'
-        )
 
         self._timer = self.create_timer(
             1.0 / self._publish_hz,
             self._timer_callback,
         )
 
+        # G2-K9 / madde 29 — GOREV ONCESI CANLI AYAR.
+        self.add_on_set_parameters_callback(self._param_degisti)
+
         self.get_logger().info(
             f'JoystickInterpreterNode basladi: {self._deadman_channel}'
         )
-
-    def _call_trigger_mission(self, command_id: int) -> None:
-        """Görev 2 için kalkış (1) veya iniş/iptal (4) servisini çağırır."""
-        if not self._trigger_client.wait_for_service(timeout_sec=1.0):
-            self.get_logger().warn('TriggerMission servisi henüz hazır değil!')
-            return
-        req = TriggerMission.Request()
-        req.mission_id = 2
-        req.command = command_id
-        req.team_id = 'team_1'
-        self._trigger_client.call_async(req)
-        cmd_name = 'START' if command_id == 1 else 'ABORT/LAND'
-        self.get_logger().info(f'Kumandadan Görev 2 {cmd_name} tetiklendi!')
 
     def _declare_params(self) -> None:
         """ROS2 parametrelerini tanımlar ve okur."""
@@ -180,6 +214,9 @@ class JoystickInterpreterNode(Node):
         # Gaz cubugu ortalanmiyor, dipte duruyor -> throttle_cmd = -1.0.
         # SwA acilinca suru ANINDA alcalirdi. Gerekce: rc_eksen.gaz_merkezde
         self.declare_parameter('gaz_merkez_pay', 0.2, _dnm)
+        # SwC debounce esigi. Tek kaynak `ucus_ayarlari` MOD_SWC_DEBOUNCE_MS.
+        # Sayinin gerekcesi ve SAHA OLCUMU: swc_debounce.py dosya basligi.
+        self.declare_parameter('swc_debounce_ms', 500.0, _dnm)
 
         self._publish_hz = float(
             self.get_parameter('publish_hz').value
@@ -207,6 +244,119 @@ class JoystickInterpreterNode(Node):
         )
         self._gaz_merkez_pay = float(
             self.get_parameter('gaz_merkez_pay').value
+        )
+        self._swc_debounce_ms = float(
+            self.get_parameter('swc_debounce_ms').value
+        )
+
+    def _param_degisti(self, params):
+        """ros2 param set icin dogrulama ve UYGULAMA (G2-K9, madde 29).
+
+        Kapi saf modulde (canli_param.py). Gerekce mode_manager'daki
+        esiyle ayni: geri cagri olmadan parametreler __init__'te
+        `self._*`'a kopyalaniyordu ve `ros2 param set` "successful" deyip
+        HICBIR SEY yapmiyordu.
+        """
+        from rcl_interfaces.msg import SetParametersResult
+        for p in params:
+            try:
+                deger = canli_param.dogrula(
+                    p.name, p.value, canli_param.JOYSTICK_CANLI)
+            except canli_param.ParamRed as e:
+                return SetParametersResult(successful=False, reason=str(e))
+
+            self._default_spacing_m = deger
+            # ⚠️ IKISI DE YAZILMALI. Tele giden alan `_requested_spacing_m`;
+            # yalniz `_default_spacing_m` guncellenseydi ayar kabul edilmis
+            # gorunur ama SURUYE HIC ULASMAZDI (ayni sinif sessiz no-op).
+            self._requested_spacing_m = deger
+            self.get_logger().warning(
+                f'[joystick] CANLI AYAR: aralik = {deger:g} m '
+                f'(mesh uzerinden uc ucaga gider)'
+            )
+        return SetParametersResult(successful=True)
+
+    def _swc_bolge(self, aux3_val) -> int:
+        """Salterin ham degerini FORMATION_* sabitine cevirir (SwC).
+
+        TEK YERDE: emniyet acik ve kapali dallari ayni esleme kullanmak
+        ZORUNDA. Ayrisirlarsa kilit acildiginda deger degismis gorunur ve
+        SAHTE bir formasyon degisimi tetiklenir.
+
+        🔴 ORTA = V (B4, 30 Agustos 2026). Onceden FORMATION_UNKNOWN (0)
+        idi ve bu SESSIZ BIR SARTNAME IHLALIYDI: sinifin kendi sabit
+        yorumu "-300..+300 arasi -> V Formasyonu (2)" diyordu, _on_joy
+        yorumu "Hicbiri = Ortada (V)" diyordu, ama kod 0 uretiyordu.
+        Sonuc: V formasyonu kumandadan ULASILAMAZ. Ustelik esp32_bridge
+        formasyon=0 ile gelen degisiklik bayragini BILEREK dusuruyor, yani
+        talep mesh'e bile cikmiyordu. Sartname §5.2.2 ornek hakem
+        direktifi birebir: "V formasyonuna gec".
+        """
+        if aux3_val < self.AUX_FORMATION_THRESH_LOW:
+            return SwarmControlCommand.FORMATION_OKBASI
+        if aux3_val > self.AUX_FORMATION_THRESH_HIGH:
+            return SwarmControlCommand.FORMATION_CIZGI
+        return SwarmControlCommand.FORMATION_V
+
+    def _simdi_s(self) -> float:
+        """Debounce icin saniye. ROS saati — sim zamaniyla da tutarli."""
+        return self.get_clock().now().nanoseconds * 1e-9
+
+    def _g2_ayar_abone_ol(self) -> None:
+        """Gorev 2 baslatma ayarindaki ARALIGI dinler (madde 29).
+
+        🔴 BURASI ARALIGIN GERCEK KAYNAGI. mode_manager'daki deger yalniz
+        yedek: her cerceve `cmd.requested_spacing_m` ile buradan bir sayi
+        gidiyor ve mode_manager onu ">0 ise KABUL ET" kuraliyla aliyor.
+        Yani yalniz mode_manager'a uygulasaydik, joystick bir sonraki
+        cercevede ESKI araligi geri yazardi — sessiz ve tam olarak
+        "hata vermeden yanlis sonuc" sinifi.
+
+        Irtifa BURADA KULLANILMIYOR: kalkis irtifasi mode_manager'in isi.
+        """
+        self.create_subscription(
+            Float32MultiArray,
+            '/swarm/public/mission/g2_ayar',
+            self._on_g2_ayar,
+            QoSProfile(
+                reliability=ReliabilityPolicy.RELIABLE,
+                durability=DurabilityPolicy.TRANSIENT_LOCAL,
+                history=HistoryPolicy.KEEP_LAST,
+                depth=1,
+            ),
+        )
+
+    def _on_g2_ayar(self, msg: Float32MultiArray) -> None:
+        v = list(msg.data)
+        try:
+            aralik, _irtifa = canli_param.g2_ayar_dogrula(
+                v[0] if v else 0.0, 0.0)
+        except canli_param.ParamRed as e:
+            self.get_logger().error(f'[joystick] GOREV 2 ARALIK RED: {e}')
+            return
+        if aralik == canli_param.BELIRTILMEDI:
+            return
+        if self._kalkis_istendi:
+            self.get_logger().warning(
+                f'[joystick] GOREV 2 ARALIGI YOK SAYILDI ({aralik:.1f} m) — '
+                'kalkis istendi. Aralik yalniz kalkis oncesi degisir; '
+                'havada degistirmek formasyonu istemeden morf ettirir.'
+            )
+            return
+        # Esi mode_manager'daki gibi: ALANA DEGIL PARAMETREYE yaz.
+        # Dogrudan yazilirsa `ros2 param get default_spacing_m` eski
+        # degeri soyler ve operator "ayar gitmemis" sanir (31 Agu, ucakta
+        # olculdu). Geri cagri iki alani da kendisi guncelliyor.
+        sonuc = self.set_parameters(
+            [Parameter('default_spacing_m', Parameter.Type.DOUBLE, aralik)])
+        if not sonuc[0].successful:
+            self.get_logger().error(
+                '[joystick] GOREV 2 ARALIGI PARAMETREDE REDDEDILDI: '
+                f'{sonuc[0].reason}')
+            return
+        self.get_logger().warning(
+            f'[joystick] GOREV 2 ARALIGI UYGULANDI: {aralik:.1f} m '
+            '(mesh uzerinden uc ucaga gider)'
         )
 
     def _setup_publishers(self) -> None:
@@ -262,25 +412,31 @@ class JoystickInterpreterNode(Node):
         # Böylece kilit açıldığında sahte edge tetiklenmez.
         aux4_val = getattr(msg, self.AUX_TAKEOFF_LAND_CHANNEL, 0)
         aux3_val = getattr(msg, self.AUX_FORMATION_CHANNEL, 0)
+        aux6_val = getattr(msg, self.AUX_FORM_KILIT_CHANNEL, 0)
 
         if not self._safety_active:
             # Emniyet kapandi -> gaz kapisi YENIDEN kurulur.
             self._gaz_merkezlendi = False
+            # Ayni gerekce: emniyet kapandiysa dikey yetki de dusurulur.
+            self._dikey_yetki = False
+            # Formasyon kilidi de sifirlanir; emniyet tekrar acildiginda
+            # VrB acik BILE OLSA SwC konumu yeniden taban alinir.
+            self._form_kilidi.sifirla()
             # 🔴 SwD KENARLARI EMNIYET KAPALIYKEN DE ISLENIR — iptal
             # bayragi emniyete bagli OLAMAZ (G2-K7 iki kademeli iptal:
             # "SwA kapat -> HOLD" ve "SwD -> inis" BAGIMSIZ). Kalkis
             # kenari burada bilerek sayilmaz: emniyet kapaliyken kalkis yok.
             self._swd.guncelle(aux4_val, emniyet_acik=False)
-            if aux3_val < self.AUX_FORMATION_THRESH_LOW:
-                self._last_aux3_formation = \
-                    SwarmControlCommand.FORMATION_OKBASI
-            elif aux3_val > self.AUX_FORMATION_THRESH_HIGH:
-                self._last_aux3_formation = SwarmControlCommand.FORMATION_CIZGI
-            else:
-                # ORTA = V (B4). Emniyet kilitliyken de ayni esleme
-                # kullanilmali; aksi halde kilit acildiginda deger
-                # degisiyormus gibi gorunup SAHTE KENAR tetiklenir.
-                self._last_aux3_formation = SwarmControlCommand.FORMATION_V
+            # SwC izlenmeye DEVAM eder ama degisim URETMEZ. Hizalanmasaydi
+            # emniyet acildigi anda "bolge degisti" gorunur ve SAHTE bir
+            # formasyon degisimi tetiklenirdi. ORTA = V (B4) eslemesi
+            # emniyet kilitliyken de ayni olmak zorunda, tam bu yuzden.
+            self._swc.esitle(self._swc_bolge(aux3_val), self._simdi_s())
+            # Emniyet kapandi: bekleyen seriler DUSURULUR. Aksi halde
+            # kapanistan hemen once basilan bir kalkis istegi, emniyet
+            # kapaliyken bile mesh'e akmaya devam ederdi.
+            self._kalkis_seri.sifirla()
+            self._formasyon_seri.sifirla()
 
             cmd.command_valid = False
             cmd.deadman_pressed = False
@@ -319,33 +475,61 @@ class JoystickInterpreterNode(Node):
             self._active_mode = SwarmControlCommand.MODE_SWARM_MOVEMENT
         cmd.mode = self._active_mode
 
-        # Formasyon Seçimi (AUX 3 - SwC: Ok Başı / Formasyonsuz / Çizgi)
-        # aux3_val yukarıda okundu
-        if aux3_val < self.AUX_FORMATION_THRESH_LOW:
-            current_aux3_formation = SwarmControlCommand.FORMATION_OKBASI
-        elif aux3_val > self.AUX_FORMATION_THRESH_HIGH:
-            current_aux3_formation = SwarmControlCommand.FORMATION_CIZGI
+        # 🔴 FORMASYON SECIMI (SwC) — DEBOUNCE'LI (madde 26).
+        # Salter yeni bolgede `swc_debounce_ms` KARARLI kalmadan degisim
+        # tetiklenmez. Saha olcumu ve 500 ms'nin gerekcesi:
+        # swc_debounce.py dosya basligi (11 gecis, tavan 342 ms).
+        #
+        # 🔴 VrB KILIDI (31 Agu) — SwC ancak VrB TAM CEVRILIYKEN canli.
+        # Uc dal da `esitle`/`guncelle` ayrimina dayaniyor; ayni desen
+        # emniyet-kapali dalinda zaten kullaniliyor (swc_debounce.esitle
+        # docstring'i). `esitle` salteri izlemeye devam eder ama degisim
+        # URETMEZ, yani kilit acildiginda sahte tetikleme olmaz.
+        swc_bolge = self._swc_bolge(aux3_val)
+        kilit = self._form_kilidi.degerlendir(aux6_val)
+        talep, degisim = formasyon_kilidi.talep_hesapla(
+            kilit, swc_bolge, self._requested_formation)
+        if talep == formasyon_kilidi.DEBOUNCE:
+            # Kilit ACIK: karari SwcDebounce verir (madde 26).
+            if self._swc.guncelle(swc_bolge, self._simdi_s()):
+                self._requested_formation = self._swc.kararli
+                self._formation_change_requested = True
         else:
-            # ORTA = V FORMASYONU (B4, 30 Agustos 2026).
-            # ONCEDEN FORMATION_UNKNOWN (0) idi ve bu sessiz bir sartname
-            # ihlaliydi: sinifin kendi sabit yorumu "-300..+300 arasi ->
-            # V Formasyonu (2)" diyordu, _on_joy yorumu "Hicbiri = Ortada
-            # (V)" diyordu, ama kod 0 uretiyordu. Sonuc: V formasyonu
-            # kumandadan ULASILAMAZ. Ustelik esp32_bridge formasyon=0 ile
-            # gelen degisiklik bayragini BILEREK dusuruyor, yani talep
-            # mesh'e bile cikmiyordu. Sartname 5.2.2 ornek hakem
-            # direktifi birebir: "V formasyonuna gec".
-            current_aux3_formation = SwarmControlCommand.FORMATION_V
-
-        if self._last_aux3_formation != current_aux3_formation:
-            self._last_aux3_formation = current_aux3_formation
-            self._requested_formation = current_aux3_formation
-            self._formation_change_requested = True
+            # KAPALI ya da YENI_ACILDI. Ikisinde de debounce'un kararli
+            # bolgesi hizalanir; hizalanmasaydi bir sonraki `guncelle`
+            # SAHTE bir degisim uretirdi (swc_debounce.esitle docstring'i).
+            self._swc.esitle(swc_bolge, self._simdi_s())
+            self._requested_formation = talep
+            if degisim:
+                self._formation_change_requested = True
+                self.get_logger().warning(
+                    f'formasyon kilidi (VrB) {kilit} -> talep={talep}: '
+                    + ('FORMASYON KALDIRILDI — ucaklar bulundugu yeri tutar'
+                       if talep == formasyon_kilidi.FORMASYON_YOK
+                       else 'formasyon AKTIF')
+                )
+            elif kilit == formasyon_kilidi.KAPALI:
+                self.get_logger().info(
+                    'formasyon kilidi KAPALI (VrB cevrili degil) — formasyon '
+                    'YOK, ucaklar bulundugu yeri tutar.',
+                    throttle_duration_sec=10.0,
+                )
 
         cmd.pitch_cmd = self._clamp(msg.pitch)
         cmd.roll_cmd = self._clamp(msg.roll)
         cmd.yaw_cmd = self._clamp(msg.yaw)
-        cmd.throttle_cmd = self._clamp(msg.throttle * 2.0 - 1.0)
+        # 🔴 GAZDA DA OLU BANT — 31 Agustos 2026. pitch/roll/yaw
+        # `eksen_normalize` icinde olu banttan geciyor ama gaz AYRI yoldan
+        # geliyor (`gaz_normalize` [0,1] -> burada -1..+1). Olu bant
+        # olmasaydi, dikey yetki mandali acildiktan SONRA merkeze yakin
+        # kalan kucuk bir sapma yavas tirmanma/alcalma uretirdi — pitch'te
+        # olculen yatay kaymanin dikey ikizi.
+        cmd.throttle_cmd = rc_eksen.olu_bant_uygula(
+            self._clamp(msg.throttle * 2.0 - 1.0))
+        # Kapilar cmd.throttle_cmd'i sifirlayabiliyor; merkez sinamasi
+        # HAM deger uzerinden yapilmali, yoksa sifirlanan deger 'merkezde'
+        # gorunup kapiyi kendi kendine acardi.
+        ham_gaz = cmd.throttle_cmd
 
         # 🔴 GAZ MERKEZ KAPISI — emniyet acildiktan sonra gaz bir kez
         # merkeze gelene kadar HAREKET YOK. Bkz. rc_eksen.gaz_merkezde:
@@ -373,23 +557,94 @@ class JoystickInterpreterNode(Node):
                     throttle_duration_sec=2.0,
                 )
 
+        # 🔴 DIKEY YETKI MANDALI — 31 Agustos 2026, UC UCAKLI KALKISTA
+        # ISIRDI. B18 gaz-merkez kapisi TEK ATISLIK: yalniz SwA kapaninca
+        # sifirlaniyor. Ucusta olculen zincir:
+        #     kapi daha once saglanmis   -> command_valid = True
+        #     cubuk dogal yerinde (dip)  -> throttle_cmd = -1,00 SABIT
+        #     kalkis bitti, suru READY -> MOVEMENT
+        #     -> dikey komut = -1,00 x 2,0 = SANIYEDE 2 m ALCAL
+        # Rosbag: vz = +2,00 m/s (NED, doyumda) ve formasyon merkezinin
+        # irtifasi ayni hizda kaciyordu (center_z 20,7 -> 22,3 m).
+        #
+        # NEDEN B18 YENIDEN KURULMUYOR: command_valid ayni zamanda G2-K10'un
+        # UC KALKIS KAPISINDAN BIRI. Kalkis kenarinda sifirlansaydi kalkisin
+        # KENDISI bloke olurdu. Bu yuzden AYRI mandal: yalniz DIKEY ekseni
+        # tutar, command_valid'e ve kalkis kapisina DOKUNMAZ.
+        #
+        # Kalkis istegiyle sifirlanir (asagida). Tirmanisi mode_manager
+        # suruyor, cubuk degil; dolayisiyla tirmanis boyunca dikey komutun
+        # sifir olmasi ZARARSIZ. Pilot gazi ortaya getirdigi an yetki acilir.
+        if not self._dikey_yetki:
+            if rc_eksen.gaz_merkezde(ham_gaz, self._gaz_merkez_pay):
+                self._dikey_yetki = True
+                self.get_logger().info(
+                    'dikey yetki ACIK — gaz merkezlendi, dikey komut gecerli'
+                )
+            else:
+                cmd.throttle_cmd = 0.0
+                self.get_logger().warning(
+                    'DIKEY KOMUT TUTULUYOR — gaz cubugu merkezde degil '
+                    f'({ham_gaz:+.2f}). Ortaya getir; cubuk dipteyken suru '
+                    'tam hizla ALCALIRDI.',
+                    throttle_duration_sec=3.0,
+                )
+
         cmd.rtl = False
         cmd.emergency_stop = False
 
         # Kalkış / İniş (AUX 4 - SwD). Kenar degerlendirmesi TEK YERDE:
         # emniyet kapaliyken de calisan SwdMandal (swd_mandal.py).
-        _onceki_mandal = self._swd.inis_mandali
         self._swd.guncelle(aux4_val, emniyet_acik=True)
-        cmd.takeoff = self._swd.kalkisi_tuket()   # TEK ATIS
+        # Kenar TEK ATIS (swd_mandal), ama mesh'te yasamasi icin kisa bir
+        # seriye cevriliyor. Mandal DEGIL: seri kendiliginden duser, yoksa
+        # salter yukarida kaldikca surekli kalkis istenirdi.
+        simdi_s = self._simdi_s()
+        if self._swd.kalkisi_tuket():
+            self._kalkis_seri.tetikle(simdi_s)
+            # Kalkis istendi -> dikey yetki YENIDEN kurulur. Suru
+            # irtifaya varip cubuklara yetki verdiginde gaz dipte olsa
+            # bile dikey komut sifir olur (yukaridaki blok).
+            self._dikey_yetki = False
+            # Aralik kapisi kapanir (madde 29) — gerekce __init__'te.
+            self._kalkis_istendi = True
+        cmd.takeoff = self._kalkis_seri.aktif(simdi_s)
         cmd.land = self._swd.inis_mandali         # MANDAL
-        if cmd.takeoff:
-            self._call_trigger_mission(1)
-        elif cmd.land and not _onceki_mandal:
-            # Servis cagrisi YALNIZ kenarda — mandal basili kaldigi surece
-            # her tick cagrilmasin.
-            self._call_trigger_mission(6)
+        if self._swd.inis_mandali:
+            # Inis istendi -> yeni gorev icin aralik yeniden ayarlanabilir.
+            self._kalkis_istendi = False
+        # 🔴 KALKIS ARTIK GOREVI BASLATMIYOR — madde 25 / G2-K10 (30 Agu).
+        #
+        # Eskiden burada `_call_trigger_mission(1)` vardi, yani SwD once
+        # gorevi baslatiyor sonra kalkis istiyordu. G2-K10'un ucuncu kapisi
+        # "gorev YKI'den baslatilmis olacak" diyor; SwD gorevi kendisi
+        # baslatabilseydi o kapi KENDI KENDINI ACAR ve tek salter uc ucagi
+        # armlardi — 30 Agustos saha olayinin kapatmaya calistigimiz tam
+        # sekli. G2-K8: YKI'nin izinli tek eylemi "gorevi baslat", senaryo
+        # madde 4 ile madde 5 AYRI adimlar.
+        #
+        # 🔴 INIS DE mission_fsm'E SERVIS CAGIRMIYOR — madde 28 (30 Agu).
+        #
+        # Eskiden burada `_call_trigger_mission(6)` (COMMAND_LAND) vardi.
+        # OLCULEN sebep: `ROS_LOCALHOST_ONLY=1` (baslat.sh:117), yani bu
+        # servis istemcisi YALNIZ KENDI ucagindaki mission_fsm'e ulasir.
+        # joystick yalniz ylp00'da kostugu icin sonuc ASIMETRIYDI:
+        #     ylp00 mission_fsm -> LANDING -> MISSION_COMPLETE
+        #     ylp01/ylp02       -> SEMI_AUTONOMOUS'ta KALIR
+        # Ikinci denemede (gorev basina UC HAK) ylp00'in ucuncu kapisi
+        # KAPALI, digerlerininki ACIK olurdu: SwD'ye basinca IKI UCAK
+        # kalkar, biri yerde kalirdi. Sessiz ve pahali.
+        #
+        # Inis zaten mission_fsm'e ihtiyac duymuyor: SwD -> mesh -> UC
+        # mode_manager -> her biri KENDI px4_bridge'ine 'land' (madde 24).
+        # Dagitik yol simetrik, servis yolu degildi.
 
-        cmd.formation_change_requested = self._formation_change_requested
+        # Formasyon talebi de TEK ATISTI ve ayni sebeple dusuyordu.
+        # 🔴 YARISMA-KRITIK: hakem "cizgiye gec" der, talep komsulara
+        # ~%75 ihtimalle ULASMAZDI.
+        if self._formation_change_requested:
+            self._formasyon_seri.tetikle(simdi_s)
+        cmd.formation_change_requested = self._formasyon_seri.aktif(simdi_s)
         cmd.requested_formation = self._requested_formation
         cmd.requested_spacing_m = self._requested_spacing_m
 

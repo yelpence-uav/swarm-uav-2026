@@ -17,6 +17,7 @@ Aşama 2'de StateStore beslemesi, Aşama 3'te service client + publisher eklenir
   source /home/yelpence/ros2_ws/install/setup.bash   # swarm_interfaces için
 """
 
+import json
 import logging
 import math
 import threading
@@ -28,15 +29,17 @@ from rclpy.executors import SingleThreadedExecutor
 from rclpy.node import Node
 from rclpy.qos import (
     QoSDurabilityPolicy,
+    QoSHistoryPolicy,
     QoSPresetProfiles,
     QoSProfile,
     QoSReliabilityPolicy,
 )
 
-from std_msgs.msg import String, UInt8MultiArray
+from std_msgs.msg import Bool, Float32MultiArray, String, UInt8MultiArray
 from swarm_interfaces.msg import (
     AgentStatus,
     GuidedCommand,
+    SwarmControlCommand,
     QRMissionData,
     SwarmOrigin,
     SwarmState,
@@ -66,6 +69,13 @@ from backend.core.alert_manager import (
 from backend.core.state_store import StateStore
 
 logger = logging.getLogger(__name__)
+
+# MissionType.SEMI_AUTONOMOUS ve TriggerMission.Request.COMMAND_START.
+# Enum'lari import ETMIYORUZ: backend `swarm_state_machine`'e bagimli degil
+# ve oyle kalmali (yalniz `swarm_interfaces`).
+_MISSION_SEMI_AUTONOMOUS = 2
+_COMMAND_START = 1
+_COMMAND_ABORT = 2
 
 
 # AgentStatus.flight_mode (uint8) → frontend için Türkçe/PX4 etiketi.
@@ -361,6 +371,10 @@ class RosBridge:
         self._trigger_mission_client = None
         # Guided (YKİ tekil komut) yayıncısı + harita→NED için son origin.
         self._guided_pub = None
+        self._gorev_baslat_pub = None
+        self._g2_ayar_pub = None
+        self._kumanda = None
+        self._kumanda_lock = threading.Lock()
         self._son_origin: Optional[SwarmOrigin] = None
         # QR konum tablosu yayıncısı (operatör → drone, latched). QRCoordinates
         # mesajı derli değilse None kalır.
@@ -369,6 +383,40 @@ class RosBridge:
     def get_swarm_state(self) -> Optional[dict]:
         with self._swarm_state_lock:
             return self.latest_swarm_state
+
+    def get_kumanda(self) -> Optional[dict]:
+        """Sürü kumandasının SON komutu (mesh'ten). Arayüz sanal görünüm çizer.
+
+        Veri kaynağı mesh: pilot uçağı (ylp00) `SwarmControlCommand` yayınlıyor,
+        base ESP köprüsü onu `/swarm/public/control/command`'a düşürüyor.
+        **Yeni mesh trafiği YOK** — zaten uçan veriyi gösteriyoruz.
+
+        `yas_s` ŞART: komut akışı kesilince arayüz "son görülen" değerleri
+        canlıymış gibi göstermemeli. Kumanda kapanınca alıcı son çerçeveyi
+        tutuyor (TUZAKLAR §9.5 sınıfı), yani donuk veri gerçekçi görünür.
+        """
+        with self._kumanda_lock:
+            k = self._kumanda
+            if k is None:
+                return None
+            return dict(k, yas_s=round(time.time() - k["t"], 2))
+
+    def _on_kumanda(self, msg) -> None:
+        with self._kumanda_lock:
+            self._kumanda = {
+                "t": time.time(),
+                "pitch": round(float(msg.pitch_cmd), 3),
+                "roll": round(float(msg.roll_cmd), 3),
+                "yaw": round(float(msg.yaw_cmd), 3),
+                "gaz": round(float(msg.throttle_cmd), 3),
+                "deadman": bool(msg.deadman_pressed),
+                "gecerli": bool(msg.command_valid),
+                "mod": int(msg.mode),
+                "takeoff": bool(msg.takeoff),
+                "land": bool(msg.land),
+                "formasyon": int(msg.requested_formation),
+                "aralik_m": round(float(msg.requested_spacing_m), 2),
+            }
 
     def _on_rtcm(self, msg) -> None:
         t = time.time()
@@ -431,7 +479,39 @@ class RosBridge:
         Returns:
           {"success": bool, "message": str}
         """
+        # 🔴 GÖREV 2 BAŞLAT MESH'TEN GİDER — 31 Ağustos 2026.
+        #
+        # ROS servisi uçaklardan GÖRÜNMÜYOR: baslat.sh `ROS_LOCALHOST_ONLY=1`
+        # ile koşuyor, yani drone'ların servisleri YKİ laptopunun ROS
+        # grafiğinde YOK (ölçüldü: `ros2 service list` içinde çıkmıyor).
+        # Bu yüzden "Görev 2 BAŞLAT" butonu uçaklara ULAŞAMIYORDU ve görev
+        # 31 Ağustos gecesi SSH ile elle tetiklenmek zorunda kaldı.
+        #
+        # Mesh yolu bu boşluğu kapatıyor ve Wi-Fi'ye de bağımlı değil.
+        # Servis çağrısı YİNE denenir (SITL/yerel kurulumlarda çalışır);
+        # mesh yayını ondan BAĞIMSIZ gider, biri tutmasa öteki tutar.
+        mesh_gonderildi = False
+        if int(mission_id) == _MISSION_SEMI_AUTONOMOUS:
+            if int(command) == _COMMAND_START:
+                # 🔴 MADDE 29 — ARALIK/IRTIFA BASLATMADAN ÖNCE YAYINLANIR.
+                #
+                # Sıra ÖNEMLİ: esp32_bridge ayarı önbelleğe alır ve BAŞLAT
+                # paketine koyar. Ters sırada başlatma paketi ESKİ ayarla
+                # (ya da ayarsız) giderdi — operatör sayıyı girmiş olur,
+                # sürü eski değerle uçardı. Sessiz ve tam olarak "hata
+                # vermeden yanlış sonuç" sınıfı.
+                #
+                # Ayar konusu MANDALLI (TRANSIENT_LOCAL): iki yayın arasında
+                # esp32_bridge yeniden başlasa bile son değeri alır.
+                self._g2_ayar_yayinla(parameters_json)
+                mesh_gonderildi = self.publish_gorev_baslat(True)
+            elif int(command) == _COMMAND_ABORT:
+                mesh_gonderildi = self.publish_gorev_baslat(False)
+
         if self._trigger_mission_client is None:
+            if mesh_gonderildi:
+                return {"success": True,
+                        "message": "Görev 2 komutu mesh'ten yayınlandı"}
             return {"success": False, "message": "ROS 2 service client hazır değil"}
 
         # Karşı tarafta server var mı?
@@ -439,6 +519,13 @@ class RosBridge:
             # Bir kez wait — server yeni başladıysa şans verelim.
             ready = self._trigger_mission_client.wait_for_service(timeout_sec=1.0)
             if not ready:
+                if mesh_gonderildi:
+                    # Beklenen durum: YKİ drone'ların ROS grafiğini görmez.
+                    return {
+                        "success": True,
+                        "message": ("Görev 2 komutu mesh'ten yayınlandı "
+                                    "(yerel ROS servisi yok — normal)"),
+                    }
                 return {
                     "success": False,
                     "message": (
@@ -472,6 +559,62 @@ class RosBridge:
 
         resp = future.result()
         return {"success": bool(resp.success), "message": str(resp.message)}
+
+    def _g2_ayar_yayinla(self, parameters_json: str) -> None:
+        """Görev 2 aralık/irtifa ayarını mesh köprüsüne verir.
+
+        `parameters_json` YKİ'den geliyor:
+            {"aralik_m": 9.0, "irtifa_m": 15.0}
+        Alan yoksa ya da boşsa 0.0 gönderilir = "belirtilmedi"; uçak kendi
+        varsayılanını korur (aralık 7 m). Operatörün hiçbir şey girmemesi
+        GEÇERLİ bir seçim.
+
+        🔴 DOĞRULAMA UÇAKTA DA VAR (canli_param.g2_ayar_dogrula). Burada
+        yalnız ayrıştırma yapılıyor; sınır denetimini tek yerde tutmak
+        için tekrarlamıyoruz — iki kopya kaçınılmaz olarak ayrışır.
+        """
+        if self._g2_ayar_pub is None:
+            return
+        aralik = irtifa = 0.0
+        if parameters_json:
+            try:
+                p = json.loads(parameters_json)
+                aralik = float(p.get("aralik_m") or 0.0)
+                irtifa = float(p.get("irtifa_m") or 0.0)
+            except (ValueError, TypeError, AttributeError) as e:
+                logger.warning(
+                    "Görev 2 parametreleri okunamadı (%s) — varsayılanlar "
+                    "korunacak: %s", e, parameters_json
+                )
+                aralik = irtifa = 0.0
+        m = Float32MultiArray()
+        m.data = [aralik, irtifa]
+        self._g2_ayar_pub.publish(m)
+        logger.info(
+            "Görev 2 ayarı yayınlandı: aralık=%.1f m irtifa=%.1f m "
+            "(0.0 = belirtilmedi)", aralik, irtifa
+        )
+
+    def publish_gorev_baslat(self, basla: bool = True) -> bool:
+        """Görev 2 BAŞLAT/DURDUR'u mesh'e yayınlar (base ESP iletir).
+
+        Args:
+            basla: True = başlat, False = durdur.
+
+        Returns:
+            bool: yayınlandıysa True.
+        """
+        if self._gorev_baslat_pub is None:
+            logger.warning("gorev baslat publisher yok — mesh'e yayınlanamadı")
+            return False
+        m = Bool()
+        m.data = bool(basla)
+        self._gorev_baslat_pub.publish(m)
+        logger.info(
+            "Görev 2 %s -> /swarm/internal/mission/baslat (mesh)",
+            "BAŞLAT" if basla else "DURDUR",
+        )
+        return True
 
     def publish_guided(
         self,
@@ -685,6 +828,51 @@ class RosBridge:
             GuidedCommand, "/swarm/internal/guided/command", guided_qos
         )
         logger.info("publisher → /swarm/internal/guided/command")
+
+        # Görev 2 BAŞLAT — mesh yolu (bkz. trigger_mission yorumu).
+        self._gorev_baslat_pub = self._node.create_publisher(
+            Bool, "/swarm/internal/mission/baslat", guided_qos
+        )
+        logger.info("publisher → /swarm/internal/mission/baslat")
+
+        # --- MADDE 29: Görev 2 aralık/irtifa ayarı (31 Ağustos 2026) ------
+        # 🔴 MANDALLI (TRANSIENT_LOCAL) VE RELIABLE, bilerek:
+        #   * esp32_bridge BAŞLAT'tan hemen önce yayınlanan bu değeri
+        #     kaçırırsa sürü ESKİ aralıkla uçar — sessiz ve yanlış.
+        #   * Mandallı olduğu için esp32_bridge sonradan açılsa bile son
+        #     ayarı alır; "girdim ama gitmedi" durumu oluşmaz.
+        # Abone tarafı (esp32_bridge) AYNI profili kullanıyor; RELIABLE
+        # yayıncı + RELIABLE abone eşleşir.
+        self._g2_ayar_pub = self._node.create_publisher(
+            Float32MultiArray,
+            "/swarm/internal/mission/g2_ayar",
+            QoSProfile(
+                reliability=QoSReliabilityPolicy.RELIABLE,
+                durability=QoSDurabilityPolicy.TRANSIENT_LOCAL,
+                history=QoSHistoryPolicy.KEEP_LAST,
+                depth=1,
+            ),
+        )
+        logger.info("publisher → /swarm/internal/mission/g2_ayar")
+
+        # Sürü kumandası sanal görünümü — mesh'ten gelen komutu okur.
+        # 🔴 BEST_EFFORT ŞART: esp32_bridge bu konuyu _MESH_QOS (BEST_EFFORT)
+        # ile yayınlıyor. RELIABLE abone BEST_EFFORT yayıncıyla EŞLEŞMEZ ve
+        # TEK MESAJ BİLE GELMEZ — 30 Ağustos'ta sahada bunun aynısı yaşandı
+        # (D1: joystick BEST_EFFORT yayınlıyordu, ic_dis_kopru RELIABLE
+        # dinliyordu, komut zinciri sessizce kopuktu).
+        kumanda_qos = QoSProfile(
+            depth=5,
+            reliability=QoSReliabilityPolicy.BEST_EFFORT,
+            durability=QoSDurabilityPolicy.VOLATILE,
+        )
+        self._node.create_subscription(
+            SwarmControlCommand,
+            "/swarm/public/control/command",
+            self._on_kumanda,
+            kumanda_qos,
+        )
+        logger.info("subscriber → /swarm/public/control/command (kumanda)")
 
         # RTK baz reset komutu (18 Ağustos 2026).
         #

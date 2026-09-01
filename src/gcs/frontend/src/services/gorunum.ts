@@ -22,7 +22,27 @@
  * susturulmuş durumda (backend/config.yaml -> alerts.susturulan). Bu anahtar
  * yalnız GÖSTERGEYİ kapatır; ikisi ayrı yerler, ikisi de kapalı olmalı.
  *
- * Pil tekrar bağlanınca: burayı true yap, config.yaml'daki susturma
- * listesinden de batarya kodlarını çıkar.
+ * 🟢 31 AĞUSTOS 2026'DA GERİ AÇILDI — kapatma gerekçesi ORTADAN KALKTI.
+ *
+ * ylp00'a INA226 pil ölçüm modülü takıldı (I²C 0x40, kimlik yazmaçlarıyla
+ * doğrulandı: üretici 0x5449, die 0x2260). Uçtan uca ölçüldü:
+ *
+ *     INA226        15.926 V  %75,7
+ *     AgentStatus   15.934 V  %75,9     (mesh'e giden)
+ *     YKİ           15.90  V  %75       (ekranda)
+ *
+ * Yani gösterilen sayı artık GERÇEK BİR ÖLÇÜM. 2 Ağustos'taki iki
+ * gerekçe de düşüyor: hakem gerçek pil durumu görüyor ve operatörün
+ * güvendiği sayı doğru.
+ *
+ * 🔴 AMA HENÜZ YALNIZ ylp00'DA MODÜL VAR. Modülü olmayan uçakta
+ * px4_bridge hâlâ sabit %100 / 12,6 V yazıyor (gerekçesi orada, "PIL
+ * OLCUMU YOK" uyarısıyla birlikte). Yani ylp01/ylp02'de görünen değer
+ * ÖLÇÜM DEĞİL. Modüller takılana kadar ekranda buna göre bakılmalı.
+ *
+ * Uyarı motoru AYRI: `backend/config.yaml -> alerts.susturulan` içindeki
+ * batarya kodları HÂLÂ SUSTURULMUŞ. Bilerek — iki uçak sahte %100
+ * gösterirken düşük-pil alarmı açmak gürültü üretir. Üç uçakta da modül
+ * olunca o liste de temizlenmeli.
  */
-export const PIL_GOSTER = false;
+export const PIL_GOSTER = true;

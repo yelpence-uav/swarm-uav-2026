@@ -24,6 +24,10 @@ def get_snapshot(request: Request):
             bridge.get_swarm_state() if bridge is not None else None
         ),
         "qr": bridge.get_qr_data() if bridge is not None else None,
+        # Suru kumandasi (Gorev 2) — sanal kumanda gorunumu bunu okur.
+        # Kaynak mesh; yeni trafik yok. yas_s ile birlikte gelir ki arayuz
+        # donuk veriyi canli sanmasin.
+        "kumanda": bridge.get_kumanda() if bridge is not None else None,
         # RTK/RTCM akis durumu — arayuzdeki RTK gostergesi bunu okur.
         "rtk": bridge.get_rtk_status() if bridge is not None else None,
         # Drone'lar arasi mesafe — RTK dogrulugunu seritmetreyle sinamak icin.

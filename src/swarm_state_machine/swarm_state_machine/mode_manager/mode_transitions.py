@@ -6,6 +6,10 @@ from .mode_states import ControlMode, ModeState
 
 _PREFLIGHT_TIMEOUT_S = 3600.0
 _TAKEOFF_TIMEOUT_S = 300.0
+# Kalkisi BIZ suruyorsak (madde 25) 300 s cok uzun: tirmanis takilirsa suru
+# bes dakika armli bekler. formasyon_sekans ayni isi 90 s ile sinirliyor
+# (ucus_ayarlari.SEKANS_KALKIS_ZAMAN_ASIMI_S) — ayni sayi, ayni gerekce.
+_KALKIS_ZAMAN_ASIMI_S = 90.0
 _LANDING_TIMEOUT_S = 90.0
 _RTL_TIMEOUT_S = 120.0
 
@@ -16,8 +20,15 @@ _TERMINAL_STATES = frozenset({
 
 def evaluate_transitions(ctx: ModeContext) -> ModeState | None:
     """Bir sonraki ModeState'i ya da gecis yoksa None doner."""
+    # 🔴 B19 — COMPLETED'in TEK cikisi burasi (30 Agustos 2026).
+    #
+    # Erken donus KORUNUYOR: asagidaki acil/RTL/inis kapilari COMPLETED'a
+    # UYGULANMAZ. Sebep, EMERGENCY'nin cikisinin `all_agents_landed()`
+    # olmasi — ajan FSM'i bizim akisimizda IDLE'da kaldigi icin o kosul
+    # hic gerceklesmiyor ve suru EMERGENCY'de takilir kalirdi (yerde,
+    # disarm, 1 Hz bosa 'land' basarak). Tek, denetlenebilir cikis:
     if ctx.state in _TERMINAL_STATES:
-        return None
+        return _from_completed(ctx)
 
     if ctx.emergency_stop_requested and ctx.state != ModeState.EMERGENCY:
         return ModeState.EMERGENCY
@@ -67,7 +78,14 @@ def _from_preflight(ctx: ModeContext) -> ModeState | None:
             return ModeState.EMERGENCY
         return None
 
-    if ctx.takeoff_requested and ctx.all_agents_healthy():
+    # 🔴 G2-K10 UCUNCU KAPI — gorev YKI'den baslatilmadiysa TAKEOFF'a
+    # HIC GIRILMEZ. Gecis kapisi asil kilit degil (o, komutun uretildigi
+    # yerde: mode_manager_node._kalkis_komutu_gonder); burasi bosuna durum
+    # degistirip 90 s sonra EMERGENCY'ye dusmeyi onluyor. Reddin sebebi
+    # dugumde loglanir — sessiz kalmasi 30 Agustos'ta bir kusuru gizledi.
+    if (ctx.takeoff_requested
+            and ctx.all_agents_healthy()
+            and ctx.kalkis_yetkisi_var()):
         return ModeState.TAKEOFF
 
     if ctx.time_in_state() > _PREFLIGHT_TIMEOUT_S:
@@ -84,6 +102,21 @@ def _from_takeoff(ctx: ModeContext) -> ModeState | None:
     # gecmek, yerde tarif yayinlamak demek olurdu.
     if ctx.all_agents_in_swarm():
         return ModeState.READY
+
+    # 🔴 KALKISI BIZ SURUYORSAK OLCUT HEDEF IRTIFA (madde 25).
+    #
+    # Bu dal test_hazir_atla'nin ONUNDE olmak ZORUNDA. Bugun ucaklarda
+    # /ws/mod_test takili; kalkis kapisi 2 m'de acilir acilmaz
+    # `test_hazir_atla and kalkis_tamam` READY verirdi, _dispatch_hold()
+    # centroid'i (kapinin acildigi 2 m) hedef gosteren bir tarif yayinlardi
+    # ve TIRMANIS 2 m'DE DURURDU — hedef 8 m iken, hicbir hata gorunmeden.
+    # Kalkis komutunu biz verdiysek bitisini de biz olceriz.
+    if ctx.kalkis_komutu_verildi:
+        if ctx.kalkis_irtifasina_ulasildi():
+            return ModeState.READY
+        if ctx.time_in_state() > _KALKIS_ZAMAN_ASIMI_S:
+            return ModeState.EMERGENCY
+        return None
 
     if ctx.test_hazir_atla and ctx.kalkis_tamam:
         return ModeState.READY
@@ -175,6 +208,37 @@ def _from_rtl(ctx: ModeContext) -> ModeState | None:
         return ModeState.LANDING
 
     return None
+
+
+def _from_completed(ctx: ModeContext) -> ModeState | None:
+    """COMPLETED -> IDLE. B19: gorev basina UC HAKKIMIZ var.
+
+    Eskiden COMPLETED gercekten terminaldi: inis bitince (ya da 90 sn
+    LANDING zaman asiminda) mode_manager oraya girip KALIYORDU ve ikinci
+    kalkis icin KONTEYNER YENIDEN BASLATMAK gerekiyordu. Saha gununde
+    denemeler arasi bu yasanacakti.
+
+    IKI KOSUL, ikisi de ZORUNLU:
+
+    1. **SwD inis konumundan cikmis olacak** (`land_requested` dusmus).
+       Pilot salteri asagida birakmissa suru COMPLETED'da bekler — bu
+       kasitli: mandalin dusmesi "pilot artik inis istemiyor" demek ve
+       bunu FIZIKSEL bir hareket olarak istiyoruz.
+    2. **Butun ucaklar DISARM.** Havada bir ucak varken defteri
+       temizlemek, ikinci kalkisi ucan bir ucagin ustune vermek olurdu.
+
+    ⚠️ SwD'yi yukari almak AYNI ANDA bir kalkis kenari da uretir
+    (swd_mandal: yukari = kalkis tek atisi). O istek bu gecisin
+    `set_state`'inde TEMIZLENIR ve IDLE->PREFLIGHT'ta bir kez daha
+    temizlenir; yani suru KENDILIGINDEN kalkmaz. Ikinci kalkis icin pilot
+    SwD'yi bilerek asagi-yukari yapmak zorunda. Bu bir kolaylik kaybi
+    degil, ISTENEN davranis.
+    """
+    if ctx.land_requested:
+        return None
+    if not ctx.all_agents_disarmed():
+        return None
+    return ModeState.IDLE
 
 
 def _from_emergency(ctx: ModeContext) -> ModeState | None:

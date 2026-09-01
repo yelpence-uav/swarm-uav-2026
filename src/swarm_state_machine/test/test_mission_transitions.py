@@ -832,3 +832,63 @@ class TestTerminalRecovery(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class TestGorev2PreflightAtlamasi(unittest.TestCase):
+    """Madde 27 — Görev 2 PREFLIGHT'tan DOĞRUDAN SEMI_AUTONOMOUS'a geçer.
+
+    Şartname §5.2.2 kalkışı kumandaya veriyor. SYNCHRONIZED_TAKEOFF'tan
+    geçmek iki şeyi birden bozardı: o durumun girişi EVENT_MISSION_STARTED
+    yayınlıyor (agent_fsm onu ARM'a çeviriyor — 30 Ağustos saha olayı) ve
+    çıkışı `all_agents_in_swarm()`, ki Görev 2'de agent_fsm IDLE'da kaldığı
+    için hiç gerçekleşmez → mission_state 8 olmaz → sürü hiç kalkamaz.
+    """
+
+    def test_gorev2_PREFLIGHT_ten_dogrudan_SEMI_AUTONOMOUS(self):
+        ctx = _ctx(
+            MissionState.PREFLIGHT,
+            mission_type=MissionType.SEMI_AUTONOMOUS,
+            sitl_mode=False,
+        )
+        _all_agents(ctx, state=1)          # IDLE — agent_fsm uçurmuyor
+        self.assertEqual(
+            evaluate_transitions(ctx), MissionState.SEMI_AUTONOMOUS
+        )
+
+    def test_gorev1_YOLU_DEGISMEDI(self):
+        """Görev 1 hâlâ SYNCHRONIZED_TAKEOFF'tan geçer — regresyon."""
+        ctx = _ctx(
+            MissionState.PREFLIGHT,
+            mission_type=MissionType.DYNAMIC_SWARM,
+            sitl_mode=False,
+        )
+        _all_agents(ctx, state=1)
+        self.assertEqual(
+            evaluate_transitions(ctx), MissionState.SYNCHRONIZED_TAKEOFF
+        )
+
+    def test_gorev2_PREFLIGHT_denetimleri_YERINDE(self):
+        """Atlama denetimleri baypas ETMEZ: kapı hâlâ sağlık+GPS+origin+home."""
+        for alan, deger in (
+            ('healthy', False),
+            ('origin_synced', False),
+            ('home_set', False),
+            ('gps_fix_type', 1),
+        ):
+            with self.subTest(alan=alan):
+                ctx = _ctx(
+                    MissionState.PREFLIGHT,
+                    mission_type=MissionType.SEMI_AUTONOMOUS,
+                    sitl_mode=False,
+                )
+                _all_agents(ctx, state=1)
+                setattr(ctx.agent_statuses[2], alan, deger)
+                self.assertIsNone(evaluate_transitions(ctx))
+
+    def test_gorev2_eksik_ajanla_gecmez(self):
+        ctx = _ctx(
+            MissionState.PREFLIGHT,
+            mission_type=MissionType.SEMI_AUTONOMOUS,
+            sitl_mode=False,
+        )
+        self.assertIsNone(evaluate_transitions(ctx))

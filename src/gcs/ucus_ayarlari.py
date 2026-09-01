@@ -328,6 +328,23 @@ CARPISMA_PAYI_M = KRITIK_AYRIM_M - MIN_AYRIM_M
 # Simdi sinira gelmeden once dikey zaten devrede.
 KACINMA_HARD_M = 2.5
 KACINMA_D0_M = 4.0
+# 🔴 DIKEY AYRIM KURULANA KADAR YAKLASMA YOK — 1 Eylul 2026, operator.
+#
+# "Kacinma devreye girerse drone yatayda ilerlemeyi durduracak ve farkli
+# bir irtifaya gecip oyle yatayda harekete devam edecek."
+#
+# ca_core'un KENDI olcum tablosu (23 Agu benzetimi) bunu dogruluyor:
+#     yaklasma    SAF DIKEY   SAF YATAY
+#      1.0 m/s      2.63 m      2.27 m
+#      2.5 m/s      1.01 m      2.02 m
+#      4.0 m/s      0.47 m      1.53 m   <- dikey COKUYOR
+# Sebep ayar degil ZAMAN: 3 m'lik katmani kurmak 2-3 sn aliyor. Kapanmayi
+# durdurunca dikey kacis o zamani buluyor ve tablo "0 m/s" satirina kayiyor.
+#
+# 0.8 = katmanin (3.0 m) %80'i, yani 2.4 m dikey ayrim saglaninca yatay
+# serbest birakilir. %100 istemiyoruz: son santimlerde takilip yatayin hic
+# acilmamasi formasyonun HIC kurulmamasi demek olurdu.
+KACINMA_DIKEY_BEKLE = 0.8      # 0.0 = kapali (eski davranis)
 
 # --- DIKEY YOL VERME ---------------------------------------------------------
 # DIKEY KACIS HIZI — PX4 TAVANINA ESITLENDI, 23 Agustos 2026.
@@ -506,13 +523,131 @@ SEKANS_KALKIS_ZAMAN_ASIMI_S = 90.0
 # kopya: 30 vs 45 deg/s!) — 14 Agustos dersinin ayni sinifi. 28 Agustos'ta
 # tek kaynaga baglandi (KARAR-11).
 MOD_EGIM_TAVANI_DEG = 15.0     # manevra egim genligi (cubuk tam basili)
-# Yaw hizi PX4 tavaniyla AYNI kaynaktan: her ucak heading'ini de donduruyor
-# ve PX4 MPC_YAWRAUTO_MAX bunun ustunu SESSIZCE kirpar (23 Agu dersi).
-MOD_YAW_HIZI_DEG_S = PX4_DONUS_HIZI_DEG_S
+# Yaw hizi IKI tavanin kucugu — tanim MOD_ARALIK_M'den SONRA (o da
+# gerekiyor). Gerekce ve olcum orada.
 MOD_HIZ_MPS = 2.0              # hareket modu oteleme hizi (muhafazakar)
-MOD_ARALIK_M = 7.0             # varsayilan aralik — 28 Agu ucusuyla ayni;
-#                                hakem baska soylerse kumandadan degisir
+# 🔴 FORMASYON MORFU AYRI VE COK DAHA YAVAS — 1 Eylul 2026, UCUSTA OLCULDU.
+#
+# 31 Agustos gecesi kumandadan formasyon gecisi uculdu ve iki ucak
+# 1,65 m'ye kadar yaklasti. Kayittan cikarilan sayilar:
+#     duruştan 2,71 m/s'e     1,2 saniyede
+#     tepe kapanma hizi       4,13 m/s
+#     kacinma giris esigi     4,00 m  (KACINMA_D0_M)
+#     frenleme mesafesi       v^2/2a = 4,13^2 / (2*3,58) = 2,38 m
+#     kalmasi gereken         4,00 - 2,38 = 1,62 m
+#     OLCULEN EN YAKIN        1,65 m   <- 3 cm fark
+#
+# Yani KACINMA BOZUK DEGIL, kitabina gore calisti; 4 m'lik esik 4 m/s'lik
+# bir kapanma icin tasarlanmamis. Cozum esigi buyutmek DEGIL (7 m aralikta
+# kacinma surekli acik kalirdi), morfu YAVASLATMAK.
+#
+# 0,6 m/s ile: kapanma 1,2 m/s, frenleme 0,20 m, kacinmaya 3,80 m kalir.
+# Daha da yavaslatmanin faydasi hizla azaliyor (tavan 4,00 m), maliyeti ise
+# dogrusal artiyor — en uzun morf yolu 9,9 m, 0,6 m/s'de 16,5 sn.
+#
+# ⚠️ Bu hiz YALNIZ morf suresince gecerli. Suru merkezi hareket ederken
+# (cubukla oteleme) MOD_HIZ_MPS gecerlidir; slot hizini kalici olarak
+# dusurmek formasyonu merkezin GERISINDE birakir — formation_node'daki
+# "merkez 3.00 iken komut 1.05" hatasinin ta kendisi.
+MOD_MORF_HIZ_MPS = 0.6         # formasyon DEGISIMI sirasindaki slot hizi
+# Morf kilidinin en gec ne zaman dusecegi. En uzun morf yolu 9,9 m ->
+# 0,6 m/s'de 16,5 sn; 25 sn bunu paylasan bir tavan, takilip kalmayi onler.
+MOD_MORF_SURE_S = 25.0
+# 🔴 IVME RAMPASI — B6, 31 Agustos 2026'da baglandi.
+#
+# ONCEDEN RAMPA YOKTU: `mode_context.compute_centroid_delta` cubugu ANINDA
+# hiza ceviriyordu, yani tam basildiginda komut 0 -> 2 m/s. Sartname
+# osilasyonu -10 ile cezalandiriyor. Ivme sinirli surum
+# (`manual_kinematics.swarm_movement_step`) YAZILMIS ve TEST EDILMISTI ama
+# HICBIR YERDEN CAGRILMIYORDU — olu kod olarak duruyordu.
+#
+# ⚠️ O FONKSIYON OLDUGU GIBI KULLANILAMADI: heading ile DONDURMUYOR, yani
+# pitch'i dogrudan KUZEY sayiyor. Mevcut yol govde cercevesinde calisiyor
+# (cubuk ileri = surunun BAKTIGI yon) ve pilot icin dogru olan bu. O yuzden
+# ivme siniri mevcut yola eklendi, `slew` tek kaynaktan aliniyor.
+#
+# DEGER NEREDEN: egim tavani 15 deg -> ivme_icin(15) = 2.63 m/s². EGIM_PAY_KATI
+# 2.0 oldugu icin komut edilebilecek en buyuk ivme bunun YARISI = 1.31.
+# 1.3 secildi. 2.0 m/s'den frenleme: 1.54 s, 1.54 m.
+MOD_IVME_MPS2 = 1.3
+# Dikey ivme egimle sinirli DEGIL (itki dogrudan yukari), guided tarafiyla
+# ayni deger kullaniliyor.
+MOD_DIKEY_IVME_MPS2 = 1.0
+# 🔴 7.0 -> 9.0, 31 Agustos 2026. OLCULDU, tahmin degil.
+#
+# Kumandadan formasyon gecisinde en dar an okbasi->V morfunda olusuyor ve
+# aralikla DOGRU ORANTILI (gorev_kanit_ucus plan_dogrula ile tarandi,
+# yer dizilimi hedef formasyona esit varsayimiyla):
+#     aralik 7.0 m -> en dar 4.95 m -> kacinma girisine (d0=4.0) pay 0.95 m
+#     aralik 8.0 m -> en dar 5.66 m -> pay 1.66 m
+#     aralik 9.0 m -> en dar 6.36 m -> pay 2.36 m   <-- secilen
+#     aralik 10.0 m -> en dar 7.07 m -> pay 3.07 m
+# 7 m'deki 0.95 m pay, olculen takip hatasi/suruklenme mertebesiyle ayni
+# buyuklukte: 31 Agustos kalkisinda kilitli tirmanis boyunca ylp01 2.17 m,
+# ylp00 0.90 m, ylp02 0.18 m suruklendi. Yani 7 m'de morf sirasinda kacinma
+# TETIKLENEBILIR — carpisma degil ama formasyon bozulur ve olcum kirlenir.
+#
+# 9 m ayrica ikinci bir uyariyi da kapatiyor: durgun formasyonda ucaklar
+# kacinma CIKIS esiginin (d0+histerezis = 6.5 m) 2.5 m ustunde kaliyor;
+# 7 m'de bu pay 0.5 m idi ve kacinma bir kez acilirsa uzun sure kapanmiyordu.
+#
+# ⚠️ Alan bedeli: formasyon kutusu ~%29 buyuyor. Saha darsa aralik
+# kumandadan (canli param default_spacing_m) kucultulebilir — ama o zaman
+# yukaridaki pay da kucuur, bilerek yapilmali.
+#
+# 🔴 9.0 -> 7.0 GERI ALINDI, 31 Agustos 2026 — OPERATOR KARARI (madde 29).
+# Operator: "hic bisey girmezsek varsayilan deger 7m olsun." Yukaridaki
+# olcum SILINMEDI cunku hala gecerli: 7 m'de okbasi->V morfunun en dar ani
+# 4.95 m, kacinma girisine (d0=4.0 m) pay 0.95 m ve olculen suruklenme
+# 2.17 m'ye kadar cikti. Yani morf sirasinda kacinma TETIKLENEBILIR —
+# carpisma degil, formasyon bozulmasi.
+# Cozumu tek tus: YKI'de "Aralik (m)" kutusuna 9 yazmak (madde 29 zinciri
+# degeri mesh'ten uc ucaga birden gonderir). Varsayilan olarak 7 duruyor.
+MOD_ARALIK_M = 7.0             # hakem baska soylerse kumandadan degisir
+
+# --- YAW HIZI: IKI TAVANIN KUCUGU (1 Eylul 2026) ----------------------------
+# TAVAN 1 — PX4 (23 Agu dersi): her ucak heading'ini de donduruyor ve PX4
+# MPC_YAWRAUTO_MAX bunun ustunu SESSIZCE kirpar.
+#
+# TAVAN 2 — FORMASYON GEOMETRISI, 1 Eylul'de bulundu ve TUTARSIZDI:
+# formasyon merkez etrafinda donerken en uzak slot `aralik` kadar uzakta
+# (kuru testte V icin 6,93-7,02 m olculdu). Teget hiz = r * omega:
+#     25 deg/s * 7,0 m = 3,05 m/s   <- seyir tavani 2,0 m/s'in USTUNDE
+# Slot 3 m/s ile kayarken ucak 2 m/s ile kovaliyor: formasyon donus
+# BOYUNCA dagilir, sonra toparlar. Sartname §5.2.2 yaw'i "formasyonu
+# koruyarak" istiyor — dogrudan puan meselesi.
+#
+# 🔴 SABIT YAZILMIYOR, TURETILIYOR: aralik hakemden geliyor (madde 29) ve
+# 12 m verilirse 15 deg/s de yetmez. Elle yazilan bir sayi o gun sessizce
+# yanlis olurdu.
+#
+# PAY KATI 0.9: teget hiz tam tavana esitlenirse SVT duzeltmesine hic yer
+# kalmaz — slot tam hizla kacar, ucak hep bir adim geride olur.
+YAW_PAY_KATI = 0.9
+MOD_YAW_HIZI_DEG_S = min(
+    PX4_DONUS_HIZI_DEG_S,
+    math.degrees(YAW_PAY_KATI * MOD_HIZ_MPS / MOD_ARALIK_M),
+)
 MOD_DEADMAN_ZAMAN_ASIMI_S = 0.5
+# --- INA226 PIL OLCUMU (31 Agustos 2026) ------------------------------------
+# 🔴 NEDEN VAR: ylp01'de PX4 guc modulu YOK ve px4_bridge guc modulu
+# gormeyince pil alanlarina SABIT %100 / 12.6 V yaziyordu — yani o ucak
+# pili ne olursa olsun YKI'de "dolu" gorunuyordu. INA226 gercek olcumu
+# koyuyor. Zincir: ina226_node -> px4_bridge -> AgentStatus -> mesh -> YKI.
+#
+# ADRES OLCULDU (31 Agu, ylp00): 0x40 = 64 desimal. Kimlik yazmaclari
+# dogrulandi (uretici 0x5449, die 0x2260) — tahmin degil.
+PIL_INA226_ADRES = 64          # 0x40; A0/A1 pinleri 0x40..0x4F verir
+# Seri hucre sayisi — YALNIZCA kaba yuzde kestirimi icin kullaniliyor.
+# 31 Agu olcumu 16.029 V: 4S'te 4.01 V/hucre (saglikli), 5S'te 3.21
+# (neredeyse bos), 3S'te 5.34 (imkansiz) -> 4S.
+# ⚠️ Failsafe esigi icin YUZDE degil GERILIM kullanilir (AgentStatus
+# yorumu): LiPo gerilimi yuk altinda duser, yuzde yaniltir.
+PIL_HUCRE_SAYISI = 4
+# Sont direnci — akim olcumu icin. 0.0 = "akimi hesaplama".
+# Operator 31 Agu'da "akima gerek yok" dedi; uydurma bir deger akimi
+# SESSIZCE olcekli-yanlis yapardi, o yuzden 0.0 birakiliyor.
+PIL_SONT_OHM = 0.0
 # B15 KALKIS KAPISI (30 Agustos 2026): mode_manager, TUM ucaklar bu
 # yuksekligin uzerine cikana kadar HICBIR tarif/setpoint yayinlamaz.
 # NEDEN: READY'de _dispatch_hold() tarif yayinliyor ve centroid swarm_fsm
@@ -521,7 +656,7 @@ MOD_DEADMAN_ZAMAN_ASIMI_S = 0.5
 # 0.8 x irtifa ile kuruyor; burada sabit esik, cunku mode_manager hedef
 # irtifayi bilmiyor (kalkis kumandadan gelince B2 ile gelecek).
 # 2.0 m: yer gurultusunun acikca ustunde, en dusuk planlanan irtifanin
-# (8 m) acikca altinda.
+# (5 m) acikca altinda.
 MOD_KALKIS_ESIK_M = 2.0
 # 🔴 ESIK PAYLASILAN ORIGIN'E GORE, YERE GORE DEGIL.
 # AgentStatus.pos_z origin-goreli; ucaklar origin'le ayni kotta durmuyor.
@@ -532,6 +667,28 @@ MOD_KALKIS_ESIK_M = 2.0
 # Bu yuzden kapiya ARM SARTI eklendi (mode_context.kalkis_kapisi_degerlendir):
 # disarm bir ucak havada olamaz, sart irtifa referansindan bagimsizdir.
 # Esigi buyutmek COZUM DEGIL — ofset de buyuyebilir.
+# 🔴 KUMANDADAN KALKIS IRTIFASI (G2-K10 / madde 25, 30 Agustos 2026).
+# Sartname §5.2.2: "Takeoff ve land komutlari da kumanda uzerinden yapilir";
+# senaryo madde 5: "sürü, baslangic formasyonunu koruyarak belirlenen
+# irtifaya (Orn: 15m) yukselir". Hakem baska bir sayi soyleyebilir.
+#
+# MOD_TEST_IRTIFA_M'DEN AYRI TUTULDU (bilerek, ayni degerde olsalar bile):
+# biri gorev irtifasi, digeri manevra testinin genligi. Tek degisken
+# olsalardi hakem "15 m" dedigi anda manevra testinin de genligi degisirdi.
+#
+# 8.0 -> 5.0, 31 Agustos 2026, operator karari. Bu deger UC UCAKLI ILK
+# eszamanli kalkis icin secildi, gorev irtifasi olarak degil:
+#   * 30 Agustos'ta 8 m hedefle kalkan ylp00 iniste yalpaladi; sebep
+#     px4_bridge'in emniyet pilotuyla kavgasiydi (duzeltildi) ama ayni
+#     manevra simdi UC ucakta birden denenecek.
+#   * Dusuk irtifa hem dusme enerjisini hem pilotun tepki mesafesini
+#     lehimize cevirir; olculecek soru ("SwD ucunu birden kaldirip
+#     indiriyor mu") irtifadan BAGIMSIZ.
+# Yatay kilit 2,5 m'de acildigi icin 5 m'de kilit sonrasi hala 2,5 m
+# tirmanis kaliyor — kilit gecisi yine gozlemlenebiliyor.
+# Hakem sahada baska bir sayi soylerse (sartname ornegi 15 m) burasi
+# degisir; MOD_TEST_IRTIFA_M'e DOKUNMA, o ayri degisken.
+MOD_KALKIS_IRTIFA_M = 5.0      # 31 Agu operator: uc ucakli ILK kalkis (bkz. asagi)
 # --- Gorev 2 MANEVRA TESTI genlikleri (G2-K4, operator 30 Agustos) --------
 # Bunlar TAVAN degil TEST genligi: tavanlar yukarida (egim 15, yaw 25/s),
 # test bunlarin altinda kalir. `--senaryo manevra` kuru testi ve haritasi
@@ -545,6 +702,19 @@ MOD_TEST_YAW_DEG = 45.0        # toplam donus (12,5 deg/s ile ~3,6 s)
 # daha uzaksa joystick_interpreter komutu GECERSIZ isaretler ve mode_manager
 # HOLD'da bekler. Bkz. mode_manager/rc_eksen.gaz_merkezde
 MOD_GAZ_MERKEZ_PAY = 0.2
+# 🔴 SwC DEBOUNCE (madde 26, 30 Agustos 2026 — SAHA OLCUMU).
+# SwC detentli 3 konumlu ve orta = V FORMASYONU; okbasindan cizgiye
+# giderken ORTADAN GECMEK zorunlu. Debounce'suz kod her geciste formasyon
+# degisimi tetikliyordu: hakem "cizgiye gec" der, suru ONCE V'ye morf
+# olmaya baslardi (okbasi->V en dar an 4,95 m, kacinma girisi 4,0 m).
+#
+# 31 Agustos 2026 (YENI KUMANDA), iki kayit:
+#     852 · 364 · 215 · 214 · 200 · 158   ve   321 · 162 · 120 · 100 · 92
+# 🔴 Iki tavan CELISIYOR (852 vs 321). 852'nin gercek gecis mi duraklama
+# mi oldugu cozulmedi -> GUVENLI TARAF secildi. Esik dusuk kalirsa sahte
+# V morfu ve carpisma riski (-20xN); yuksek olursa V secimi 1,3 sn
+# gecikir, o kadar. Ayrinti: mode_manager/swc_debounce.py
+MOD_SWC_DEBOUNCE_MS = 1300.0
 
 
 def _sekans_geometri():
@@ -754,6 +924,82 @@ def denetle():
                     f'pay {_d - KACINMA_D0_M:.2f} m — ~1 m takip hatasiyla '
                     f'kacinma tetiklenebilir (bilinerek ucul)')
 
+    # --- YAW HIZI vs SEYIR TAVANI (1 Eylul 2026) ----------------------------
+    # Turetme dogru calisiyor mu; biri sabiti elle ezerse yakalansin.
+    _teget = MOD_ARALIK_M * math.radians(MOD_YAW_HIZI_DEG_S)
+    if _teget > MOD_HIZ_MPS + 1e-6:
+        hata.append(
+            f'MOD_YAW_HIZI {MOD_YAW_HIZI_DEG_S:.1f} deg/s, {MOD_ARALIK_M:.1f} m '
+            f'slot yaricapinda {_teget:.2f} m/s teget hiz ister; seyir tavani '
+            f'{MOD_HIZ_MPS:.1f} m/s. Formasyon donus BOYUNCA dagilir. '
+            f'En fazla {math.degrees(MOD_HIZ_MPS / MOD_ARALIK_M):.1f} deg/s.')
+
+    # --- FORMASYON MORF HIZI vs KACINMA PAYI (1 Eylul 2026) -----------------
+    # Morf sirasinda iki ucak birbirine dogru gidiyorsa kapanma hizi 2*v.
+    # Kacinma o hizi durdurana kadar v^2/2a yol alir; geriye kalan pay
+    # MIN_AYRIM_M'nin altina inmemeli.
+    _kapanma = 2.0 * MOD_MORF_HIZ_MPS
+    _fren = _kapanma ** 2 / (2.0 * KACINMA_IVME_NORMAL_MPS2)
+    _kalan = KACINMA_D0_M - _fren
+    if _kalan < 2.0:
+        hata.append(
+            f'MOD_MORF_HIZ {MOD_MORF_HIZ_MPS:.2f} m/s ile kapanma '
+            f'{_kapanma:.2f} m/s, frenleme {_fren:.2f} m — kacinma '
+            f'esiginden ({KACINMA_D0_M:.1f} m) geriye {_kalan:.2f} m '
+            f'kaliyor. 31 Agustos ucusunda bu sayi 1,62 m idi ve ucaklar '
+            f'1,65 m\'ye yaklasti.'
+        )
+    elif _kalan < 3.0:
+        uyari.append(
+            f'MOD_MORF_HIZ {MOD_MORF_HIZ_MPS:.2f} m/s: morfta kacinmaya '
+            f'{_kalan:.2f} m pay kaliyor (3 m alti dar)'
+        )
+    if MOD_MORF_HIZ_MPS > MOD_HIZ_MPS:
+        hata.append(
+            f'MOD_MORF_HIZ ({MOD_MORF_HIZ_MPS:.2f}) seyir hizindan '
+            f'({MOD_HIZ_MPS:.1f}) BUYUK — morfun daha yavas olmasi gerekir')
+
+    # --- MOD IVMESI vs EGIM TAVANI (B6, 31 Agustos 2026) --------------------
+    # 🔴 BU DENETIM YAZILMISTI AMA CALISMIYORDU: liste adi `hatalar`
+    # yazilmis, oysa fonksiyondaki ad `hata`. Kosul saglanmadigi icin
+    # (1.30 < 1.31) satira hic girilmemis ve NameError GORUNMEMISTI —
+    # ivme bir gun buyutulseydi denetim uyarmak yerine COKERDI.
+    # Tam olarak "hata vermeden yanlis sonuc" sinifi.
+    _mod_izin = ivme_icin(MOD_EGIM_TAVANI_DEG) / EGIM_PAY_KATI
+    if MOD_IVME_MPS2 > _mod_izin + 1e-6:
+        hata.append(
+            f'MOD_IVME {MOD_IVME_MPS2:.2f} m/s2, egim tavani '
+            f'{MOD_EGIM_TAVANI_DEG:.0f} deg ile izin verilen '
+            f'{_mod_izin:.2f} m/s2 USTUNDE — pay kati {EGIM_PAY_KATI} '
+            f'korunmuyor, ruzgarda konum tutulamaz.'
+        )
+
+    # --- GOREV 2 KALKIS OLCUTU vs YAYIN KAPISI (madde 25) -------------------
+    # mode_manager TAKEOFF'u "tum ucaklar hedefin %80'ini gecti" ile
+    # bitiriyor (_KALKIS_ULASMA_ORANI), yayin izni ise MOD_KALKIS_ESIK'te
+    # aciliyor. Bitis olcutu kapinin ALTINDA kalirsa suru READY'ye gecer
+    # ama kapi kapali oldugu icin HICBIR SEY YAYINLAMAZ — hicbir hata
+    # gorunmeden asili kalir.
+    _mod_ulasma = MOD_KALKIS_IRTIFA_M * 0.8
+    if _mod_ulasma <= MOD_KALKIS_ESIK_M:
+        hata.append(
+            f'MOD_KALKIS_IRTIFA {MOD_KALKIS_IRTIFA_M:.1f} m -> ulasma olcutu '
+            f'{_mod_ulasma:.1f} m, yayin kapisi MOD_KALKIS_ESIK '
+            f'{MOD_KALKIS_ESIK_M:.1f} m ustunde DEGIL — suru READY olur ama '
+            f'kapi kapali kalir')
+
+    # SwC debounce esigi olculen gecis tavaninin (342 ms) ustunde mi?
+    _SWC_OLCULEN_TAVAN_MS = 852.0      # 31 Agu, yeni kumanda (en kotu)
+    if MOD_SWC_DEBOUNCE_MS <= _SWC_OLCULEN_TAVAN_MS:
+        hata.append(
+            f'MOD_SWC_DEBOUNCE {MOD_SWC_DEBOUNCE_MS:.0f} ms, olculen en uzun '
+            f'SwC gecisi {_SWC_OLCULEN_TAVAN_MS:.0f} ms — gecerken SAHTE '
+            f'formasyon degisimi tetiklenir (madde 26)')
+    elif MOD_SWC_DEBOUNCE_MS - _SWC_OLCULEN_TAVAN_MS < 100.0:
+        uyari.append(
+            f'MOD_SWC_DEBOUNCE ile olculen gecis tavani arasinda yalniz '
+            f'{MOD_SWC_DEBOUNCE_MS - _SWC_OLCULEN_TAVAN_MS:.0f} ms pay var')
+
     return uyari, hata
 
 
@@ -877,6 +1123,7 @@ def _kabuk():
     # Kacinma — basit_kacinma VE collision_avoidance ayni degerleri alir.
     # Dugum degistiginde esikler degismesin diye tek kaynak burasi.
     print(f'KACINMA_D0={KACINMA_D0_M}')
+    print(f'KACINMA_DIKEY_BEKLE={KACINMA_DIKEY_BEKLE:.2f}')
     # Kacinma ivme sinirlari — 22 Agustos 2026'da EKLENDI. Oncesinde
     # ca_core'daki sabitler kullaniliyordu ve slew_emergency 30 m/s2 idi
     # (71.9 derece egim = imkansiz). Ucakta 34 derece yalpa olculdu.
@@ -910,10 +1157,19 @@ def _kabuk():
     print(f'MOD_EGIM_TAVANI={MOD_EGIM_TAVANI_DEG:.1f}')
     print(f'MOD_YAW_HIZI={MOD_YAW_HIZI_DEG_S:.1f}')
     print(f'MOD_HIZ={MOD_HIZ_MPS:.1f}')
+    print(f'MOD_MORF_HIZ={MOD_MORF_HIZ_MPS:.2f}')
+    print(f'MOD_MORF_SURE={MOD_MORF_SURE_S:.1f}')
     print(f'MOD_ARALIK={MOD_ARALIK_M:.1f}')
     print(f'MOD_DEADMAN_ZAMAN_ASIMI={MOD_DEADMAN_ZAMAN_ASIMI_S:.1f}')
     print(f'MOD_KALKIS_ESIK={MOD_KALKIS_ESIK_M:.1f}')
+    print(f'MOD_KALKIS_IRTIFA={MOD_KALKIS_IRTIFA_M:.1f}')
+    print(f'MOD_IVME={MOD_IVME_MPS2:.2f}')
+    print(f'MOD_DIKEY_IVME={MOD_DIKEY_IVME_MPS2:.2f}')
+    print(f'INA226_ADRES={PIL_INA226_ADRES}')
+    print(f'INA226_HUCRE={PIL_HUCRE_SAYISI}')
+    print(f'INA226_SONT_OHM={PIL_SONT_OHM}')
     print(f'MOD_GAZ_MERKEZ_PAY={MOD_GAZ_MERKEZ_PAY:.2f}')
+    print(f'MOD_SWC_DEBOUNCE_MS={MOD_SWC_DEBOUNCE_MS:.1f}')
 
 
 def _px4():

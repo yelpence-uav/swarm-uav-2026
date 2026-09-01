@@ -29,6 +29,8 @@ setup(
             'swarm_control.ic_dis_kopru:main',
             'rc_ibus_kopru = '
             'swarm_control.rc_ibus.rc_ibus_kopru_node:main',
+            'ina226_node = '
+            'swarm_control.pil.ina226_node:main',
         ],
     },
 )

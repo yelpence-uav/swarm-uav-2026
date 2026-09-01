@@ -1,11 +1,15 @@
 # Copyright 2026 Yelpence
 """RC eksen donusumu — SAHA OLCUMUNU kilitleyen birim testler.
 
-30 Agustos 2026, ylp00, FS-i6X #2, i-BUS'tan 3246 cerceve:
-    cubuk ILERI -> CH2 pitch 1974 | SAGA -> CH1 roll 1981
-    cubuk SAGA  -> CH4 yaw   1014 | gaz YUKARI 1988, dipte 1001
+🔴 GECERLI OLCUM — 31 Agustos 2026, ylp00, YENI BIND EDILEN KUMANDA:
+    cubuk ILERI -> CH2 pitch 2000 | SAGA -> CH1 roll 1998
+    cubuk SAGA  -> CH4 yaw   2000 | gaz YUKARI 2000, dipte 1000
+    -> DORDU DE UST UC, hicbir kanal cevrilmiyor.
 
-Bu dosya o olcumu kalici hale getiriyor: isaret bir daha degistirilirse
+Onceki kumandada (30 Agustos, FS-i6X #2) yaw saga ALT uca (1014)
+gidiyordu ve kod onu ceviriyordu. Kumanda degisince olcum de degisti.
+
+Bu dosya olcumu kalici hale getiriyor: isaret bir daha degistirilirse
 test duser ve kimse "acaba hangisiydi" diye tekrar ucmaz.
 """
 
@@ -18,34 +22,43 @@ class TestOlculenIsaretler(unittest.TestCase):
     """SwarmControlCommand.msg sozlesmesine gore isaret dogrulamasi."""
 
     def test_pitch_ILERI_pozitif(self):
-        """cubuk ILERI (olculen 1974) -> pitch_cmd > 0 (= ileri hareket)."""
-        v = RC.eksen_normalize(1974, RC.TERS_PITCH)
+        """cubuk ILERI (olculen 2000) -> pitch_cmd > 0 (= ileri hareket)."""
+        v = RC.eksen_normalize(2000, RC.TERS_PITCH)
         self.assertGreater(v, 0.9, 'pitch ILERI pozitif olmali')
 
     def test_pitch_GERI_negatif(self):
-        v = RC.eksen_normalize(1026, RC.TERS_PITCH)
+        v = RC.eksen_normalize(1000, RC.TERS_PITCH)
         self.assertLess(v, -0.9)
 
     def test_roll_SAGA_pozitif(self):
-        """cubuk SAGA (olculen 1981) -> roll_cmd > 0 (= saga hareket)."""
-        v = RC.eksen_normalize(1981, RC.TERS_ROLL)
+        """cubuk SAGA (olculen 1998) -> roll_cmd > 0 (= saga hareket)."""
+        v = RC.eksen_normalize(1998, RC.TERS_ROLL)
         self.assertGreater(v, 0.9)
 
     def test_yaw_SAGA_pozitif(self):
-        """🔴 TEK TERS KANAL: saga = ALT uc (1014) ama cmd POZITIF olmali."""
-        v = RC.eksen_normalize(1014, RC.TERS_YAW)
+        """cubuk SAGA (olculen 2000) -> yaw_cmd > 0 (= saat yonu)."""
+        v = RC.eksen_normalize(2000, RC.TERS_YAW)
         self.assertGreater(v, 0.9, 'yaw SAGA saat yonu = pozitif olmali')
 
     def test_yaw_SOLA_negatif(self):
-        v = RC.eksen_normalize(1986, RC.TERS_YAW)
+        v = RC.eksen_normalize(1000, RC.TERS_YAW)
         self.assertLess(v, -0.9)
 
-    def test_eski_kod_pitch_i_TERS_uretiyordu(self):
-        """Regresyon: duzeltmeden onceki davranis yanlisti, geri gelmesin."""
-        eski = -((1974 - 1500.0) / 500.0)      # kodun 30 Agu oncesi hali
-        yeni = RC.eksen_normalize(1974, RC.TERS_PITCH)
-        self.assertLess(eski, 0.0)
-        self.assertGreater(yeni, 0.0)
+    def test_ESKI_KUMANDA_ceviriminin_geri_gelmemesi(self):
+        """🔴 Regresyon: TERS_YAW=True geri gelirse yaw TERS calisir.
+
+        Onceki kumandada saga = 1014 (ALT uc) idi ve cevirmek SARTTI.
+        Yeni kumandada saga = 2000; ayni ceviri simdi HATA olur — pilot
+        saga cevirir, suru SOLA doner ve hicbir yerde hata gorunmez.
+        """
+        self.assertFalse(RC.TERS_YAW, 'yeni kumandada yaw CEVRILMEZ')
+        cevrilmis = RC.eksen_normalize(2000, True)      # eski davranis
+        self.assertLess(cevrilmis, 0.0, 'ceviri saga komutunu SOLA yapar')
+
+    def test_gaz_YUKARI_tam(self):
+        """Gaz ORTALANMAZ: dip 1000 -> 0.0, tepe 2000 -> 1.0."""
+        self.assertAlmostEqual(RC.gaz_normalize(1000), 0.0, places=3)
+        self.assertAlmostEqual(RC.gaz_normalize(2000), 1.0, places=3)
 
 
 class TestEksenNormalize(unittest.TestCase):
@@ -62,8 +75,61 @@ class TestEksenNormalize(unittest.TestCase):
         self.assertEqual(RC.eksen_normalize(500), -1.0)
 
     def test_ters_bayragi_isareti_cevirir(self):
-        self.assertAlmostEqual(RC.eksen_normalize(1750, False), 0.5, places=6)
-        self.assertAlmostEqual(RC.eksen_normalize(1750, True), -0.5, places=6)
+        """Testin amaci ISARET; buyukluk olu banda gore olceklenir."""
+        ileri = RC.eksen_normalize(1750, False)
+        geri = RC.eksen_normalize(1750, True)
+        self.assertGreater(ileri, 0.0)
+        self.assertAlmostEqual(geri, -ileri, places=9)
+
+
+class TestOluBant(unittest.TestCase):
+    """🔴 31 Agustos 2026 — UCUSTA OLCULDU, ucak "geziyordu".
+
+    Cubuklar merkezde dururken bile PWM tam 1500 degil (olculen dinlenme:
+    roll 1501 · pitch 1503 · yaw 1502). Olu bant olmadigi icin bu sapma
+    surekli komuta donusuyordu ve ucus kaydinda formasyon heading'i
+    13 saniyede 212.7 -> 214.0 kaydi (0.1 deg/s), YAW CUBUGU SIFIRKEN.
+    """
+
+    def test_olculen_dinlenme_degerleri_SIFIR_uretir(self):
+        for pwm in (1501, 1502, 1503, 1499, 1498, 1497):
+            self.assertEqual(
+                RC.eksen_normalize(pwm), 0.0,
+                f'PWM {pwm} sifir uretmiyor — ucak yavasca kayar')
+
+    def test_merkez_sifir(self):
+        self.assertEqual(RC.eksen_normalize(1500), 0.0)
+
+    def test_tam_basildiginda_yine_TAM_skala(self):
+        """Olu bant menzili kirpmamali: uc noktalar hala +-1.0."""
+        self.assertAlmostEqual(RC.eksen_normalize(2000), 1.0, places=6)
+        self.assertAlmostEqual(RC.eksen_normalize(1000), -1.0, places=6)
+
+    def test_olu_bandi_terk_ederken_SICRAMA_YOK(self):
+        """Yalnizca sifirlansaydi cikis 0'dan olu banda SICRARDI.
+
+        Yeniden olcekleme sayesinde gecis surekli: esigin hemen ustunde
+        cikis sifira yakin olmali.
+        """
+        esik_pwm = RC.PWM_MERKEZ + RC.OLU_BANT * RC.PWM_YARIM
+        hemen_ustu = RC.eksen_normalize(esik_pwm + 1)
+        self.assertGreater(hemen_ustu, 0.0)
+        self.assertLess(hemen_ustu, 0.01,
+                        'olu bant cikisinda sicrama var')
+
+    def test_olu_bant_KAPATILABILIR(self):
+        """olu=0 eski dogrusal davranisi verir (kiyas/teshis icin)."""
+        self.assertAlmostEqual(RC.eksen_normalize(1750, olu=0.0), 0.5,
+                               places=6)
+        self.assertNotEqual(RC.eksen_normalize(1503, olu=0.0), 0.0)
+
+    def test_esik_olculen_sapmanin_USTUNDE(self):
+        """Olculen en buyuk sapma 3 us = 0.006 normalize; esik ondan
+        belirgin olcude buyuk olmali ki trim kaymasi da yutulsun."""
+        olculen_en_buyuk = 3.0 / RC.PWM_YARIM
+        self.assertGreater(RC.OLU_BANT, olculen_en_buyuk * 3.0)
+        # Ama pilotun hissedecegi kadar buyuk de olmamali.
+        self.assertLess(RC.OLU_BANT, 0.10)
 
 
 class TestGazNormalize(unittest.TestCase):

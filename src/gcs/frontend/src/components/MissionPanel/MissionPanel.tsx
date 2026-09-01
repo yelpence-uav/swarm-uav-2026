@@ -45,6 +45,12 @@ export function MissionPanel({
   const [busy, setBusy] = useState<string | null>(null);
   const [lastResult, setLastResult] = useState<TriggerMissionResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // 🔴 MADDE 29 — Görev 2 BAŞLAT'tan ÖNCE sorulan iki değer.
+  // Başlangıç değeri BOŞ, "7" değil: dolu bir kutu operatöre "bu sayı
+  // gönderiliyor" der, oysa boş kutu HİÇBİR ŞEY göndermiyor ve uçak
+  // kendi varsayılanını (aralık 7 m) koruyor. İkisi farklı durum.
+  const [aralik, setAralik] = useState("");
+  const [irtifa, setIrtifa] = useState("");
 
   async function trigger(
     commandCode: number,
@@ -73,10 +79,28 @@ export function MissionPanel({
     setError(null);
     setLastResult(null);
     try {
+      // 🔴 MADDE 29 — Görev 2 BAŞLAT'ta aralık/irtifa gönderilir.
+      // Boş bırakılan alan JSON'a HİÇ konmaz; uçak o alan için kendi
+      // varsayılanını korur (aralık 7 m). Boş bırakmak geçerli bir seçim.
+      // Sınır denetimi UÇAKTA (canli_param.g2_ayar_dogrula) — burada
+      // ikinci bir kopya tutmuyoruz, kaçınılmaz olarak ayrışırlar.
+      let parameters_json = "";
+      if (
+        missionId === MISSION_ID.SEMI_AUTONOMOUS &&
+        commandCode === MISSION_COMMAND.START
+      ) {
+        const p: Record<string, number> = {};
+        const a = parseFloat(aralik);
+        const h = parseFloat(irtifa);
+        if (isFinite(a)) p.aralik_m = a;
+        if (isFinite(h)) p.irtifa_m = h;
+        if (Object.keys(p).length > 0) parameters_json = JSON.stringify(p);
+      }
       const resp = await missionApi.trigger({
         mission_id: missionId,
         command: commandCode,
         team_id: teamId.trim(),
+        parameters_json,
       });
       setLastResult(resp);
     } catch (e) {
@@ -133,7 +157,7 @@ export function MissionPanel({
           <div className="mission-panel__hint mission-panel__hint--bekliyor">
             Test görevi boşta — o anki test buraya bağlanır
           </div>
-        ) : missionId !== MISSION_ID.SEMI_AUTONOMOUS ? (
+        ) : (
           <button
             className="mission-panel__start"
             disabled={startDisabled}
@@ -148,12 +172,105 @@ export function MissionPanel({
           >
             {busy === "GÖREV BAŞLAT" ? "GÖNDERİLİYOR..." : "▶ GÖREV BAŞLAT"}
           </button>
-        ) : (
-          <div className="mission-panel__hint mission-panel__hint--bilgi">
-            Görev 2 kumandadan başlatılır (SwD şalteri)
-          </div>
         )}
       </div>
+
+      {/* 🔴 GÖREVİ DURDUR — 31 Ağustos 2026, operatör isteği.
+          Kumandanın KALKIŞ YETKİSİNİ geri alır (G2-K10 üçüncü kapı kapanır).
+          Mesh'ten yayın olarak gider; her uçak kendi mission_fsm'ini
+          ABORTED'a alır ve kısa bir soğuma başlatır — yoksa hâlâ 8'de olan
+          bir komşunun durum biti onu hemen yeniden başlatırdı (G2-K11).
+
+          ⚠️ UÇAN SÜRÜYÜ DURDURMAZ: mode_manager READY'ye geçtikten sonra
+          mission_state'i yeniden okumuyor. Havadaki sürünün inişi SwD ya da
+          kill switch. Buton yerde elleçleme için: pervane takarken SwD'ye
+          çarpmak üç uçağı birden armlamasın. */}
+      {/* 🔴 GÖREV 2 ÖN AYARLARI — madde 29, 31 Ağustos 2026.
+          Şartname aralığı ve kalkış irtifasını GÖREV ÖNCESİ veriyor
+          ("Örn: 15m") ve hakem başka bir sayı söyleyebilir. Değerler
+          BAŞLAT paketiyle mesh'ten ÜÇ UÇAĞA AYNI ANDA gider — görev
+          sırasında yeni bir komut yolu AÇILMAZ (şartname §5.2: YKİ
+          müdahalesi görevi başarısız yapar).
+
+          Boş bırakmak GEÇERLİ: o alan için uçak kendi varsayılanını
+          korur (aralık 7 m). Bu yüzden kutular boş başlıyor — dolu bir
+          kutu "bu değer gönderiliyor" izlenimi verirdi.
+
+          Sınır denetimi UÇAKTA (canli_param.g2_ayar_dogrula): aralık
+          4-25.5 m (alt sınır çarpışma eşiği, üst sınır mesh tavanı),
+          irtifa 3-30 m. Buradaki min/max yalnız tarayıcı yardımı;
+          gerçek kapı orada ve ikinci bir kopya TUTULMUYOR.
+
+          ⚠️ VARSAYILAN SAYI BURAYA YAZILMIYOR (§9: aynı sabiti iki yere
+          yazma). Varsayılan aralık `ucus_ayarlari.MOD_ARALIK_M` = 7 m ve
+          uçağa `baslat.sh` ile gidiyor; buraya "7" yazılsaydı o değer
+          değiştiği gün placeholder sessizce yalan söylerdi — operatör
+          kutuyu 7 sanıp boş bırakır, sürü başka aralıkta açılırdı. */}
+      {missionId === MISSION_ID.SEMI_AUTONOMOUS && !missionActive && (
+        <div className="mission-panel__row">
+          <label className="mission-panel__field">
+            <span>Aralık (m):</span>
+            <input
+              type="number"
+              step="0.5"
+              min="4"
+              max="25.5"
+              placeholder="boş = uçaktaki varsayılan"
+              value={aralik}
+              onChange={(e) => setAralik(e.target.value)}
+              disabled={busy !== null}
+            />
+          </label>
+          <label className="mission-panel__field">
+            <span>İrtifa (m):</span>
+            <input
+              type="number"
+              step="0.5"
+              min="3"
+              max="30"
+              placeholder="boş = uçaktaki varsayılan"
+              value={irtifa}
+              onChange={(e) => setIrtifa(e.target.value)}
+              disabled={busy !== null}
+            />
+          </label>
+        </div>
+      )}
+
+      {missionId === MISSION_ID.SEMI_AUTONOMOUS && (
+        <button
+          className="mission-panel__start"
+          style={{ background: "#8b2c2c", borderColor: "#8b2c2c" }}
+          disabled={busy !== null || teamId.trim().length === 0}
+          onClick={() =>
+            trigger(MISSION_COMMAND.ABORT, "GÖREVİ DURDUR", "single")
+          }
+          title="Kumandanın kalkış yetkisini geri alır (uçan sürüyü durdurmaz)"
+        >
+          {busy === "GÖREVİ DURDUR" ? "GÖNDERİLİYOR..." : "■ GÖREVİ DURDUR"}
+        </button>
+      )}
+
+      {/* 🔴 GÖREV 2'DE BAŞLAT ≠ KALKIŞ — G2-K8/G2-K10 (30 Ağustos 2026).
+          Buraya kadar burada "Görev 2 kumandadan başlatılır (SwD şalteri)"
+          yazan bir NOT vardı ve YANLIŞTI: şartname senaryosunda madde 4
+          (hakemin komutuyla yarı otonom moda geçiş) ile madde 5 (kumandadan
+          kalkış) AYRI adımlar. YKİ'nin izinli tek eylemi görevi başlatmak;
+          kalkış §5.2.2 gereği kumandadan.
+
+          Bu buton mode_manager'ın ÜÇÜNCÜ KAPISINI açar (mission_state=8).
+          Basılmadan SwD sürüyü ARMLAYAMAZ — bilerek. */}
+      {missionId === MISSION_ID.SEMI_AUTONOMOUS && (
+        <div className="mission-panel__hint mission-panel__hint--bilgi">
+          BAŞLAT sürüyü <strong>yarı otonom moda alır</strong>, kalkış
+          vermez. Kalkış ve iniş kumandadan (SwD) — şartname §5.2.2.
+          Basılmadan kumanda sürüyü armlayamaz.
+          <br />
+          DURDUR kumandanın <strong>kalkış yetkisini geri alır</strong> —
+          ⚠️ uçan sürüyü <strong>durdurmaz</strong>, iniş SwD ya da kill
+          switch ile.
+        </div>
+      )}
 
       {/* Acil sonlandırma 29 Ağustos 2026'da HARİTANIN ALT ORTASINA taşındı
           (operatör): görev sürerken göz haritada, buton da orada olmalı.

@@ -113,6 +113,37 @@ class CaParams:
     # Dikey inisin altina inemeyecegi taban (irtifa kapisi + pay).
     dikey_taban_m: float = 4.0
 
+    # 🔴 DIKEY AYRIM KURULANA KADAR YAKLASMA YOK — 1 Eylul 2026,
+    # operator onerisi: "kacinma devreye girerse drone yatayda ilerlemeyi
+    # durduracak ve farkli bir irtifaya gecip oyle yatayda devam edecek."
+    #
+    # NEDEN DOGRU: yukaridaki k_yatay olcum tablosu dikey kipin yuksek
+    # kapanma hizlarinda COKTUGUNU gosteriyor (4 m/s -> 0.47 m). Sebep
+    # ayar degil ZAMAN: 3 m'lik katmani kurmak 2-3 saniye aliyor ve
+    # kapanma o sureyi yiyor.
+    #
+    # 31 Agustos ucusunda birebir bu olculdu: kapanma 4,13 m/s, en yakin
+    # 1,65 m. Kapanmayi durdurursan dikey kacis aradigi zamani bulur ve
+    # tablo "0 m/s" satirina kayar — tam katman.
+    #
+    # MEKANIZMA `_safety_projection`in GENISLETILMISI: o zaten "r_min
+    # icinde komsuya YAKLASAN bileseni sifirla" diyor ve sahada
+    # kanitlanmis. Burada ayni islem d0 yaricapinda, ama YALNIZ dikey
+    # ayrimi henuz kurulmamis komsular icin.
+    #
+    # ⚠️ TUM YATAY HIZ SIFIRLANMIYOR, yalnizca KOMSUYA DOGRU olan bilesen.
+    # Fark kritik: suru cubukla 2 m/s ilerlerken bir ucagi tamamen
+    # dondurmak onu formasyondan 2-6 m geride birakir ve UCUNCU ucakla
+    # yeni bir catisma acar. Bilesen silinince ucak suruyle gitmeye devam
+    # eder, yalnizca komsusunun UZERINE gitmeyi birakir. Morf halinde
+    # (kafa kafaya yaklasma) hizin TAMAMI zaten o bilesendir, yani
+    # operatorun tarif ettigi "dur, irtifa degistir, devam et" davranisi
+    # birebir olusur.
+    #
+    # 0.0 = KAPALI (eski davranis). Acik degeri `katman_m`in orani:
+    # 0.8 -> 3.0 * 0.8 = 2.4 m ayrim saglaninca yatay serbest.
+    dikey_bekle_orani: float = 0.0
+
     # YATAY ITME — "DIKEY BIRINCIL, YATAY SON CARE" (operator, 23 Agustos).
     #
     # k_yatay: yatay itmenin olcegi. 0 = saf dikey.
@@ -248,6 +279,8 @@ class CollisionAvoidanceCore:
         # dikey_donus_kor: komsuyu goremedigim icin ayrimi BIRAKMIYORUM
         self.dikey_yetersiz = False
         self.dikey_donus_kor = False
+        # Son tikte yatay yaklasma tutuldu mu (dugum sayaci icin).
+        self.yatay_tutuldu = False
 
     def compute(
         self,
@@ -399,7 +432,14 @@ class CollisionAvoidanceCore:
         # calistirmazdi. Bu, kipi sessizce olu birakan bir tuzakti.
         vz, dikey_aktif = self._dikey_hesapla(vfz, neighbors, h_now, kor)
 
-        if not active and not any_within_rmin and not dikey_aktif:
+        # 🔴 DIKEY AYRIM KURULANA KADAR YAKLASMA YOK (1 Eylul 2026).
+        # Dikeyden SONRA cagriliyor: `_catisma_aktif` histerezisi orada
+        # guncelleniyor ve ikisinin ayni esigi paylasmasi sart.
+        vfx, vfy, self.yatay_tutuldu = self._dikey_bekleme_projeksiyonu(
+            vfx, vfy, neighbors)
+
+        if (not active and not any_within_rmin and not dikey_aktif
+                and not self.yatay_tutuldu):
             # YALNIZ YATAY durum sifirlanir. `reset()` cagrilamaz cunku o
             # dikey durumu da siler: ucak katmanina cikmis ve "yeterince
             # ayrigim" diyorsa bu tikte dikey mudahale YOK — ama catisma
@@ -794,6 +834,49 @@ class CollisionAvoidanceCore:
         ty = -ux
         f = self.p.k_tan * w * mag_rep
         return f * tx, f * ty
+
+    def _dikey_bekleme_projeksiyonu(
+        self, vx: float, vy: float, neighbors: list[NeighborObs],
+    ) -> tuple[float, float, bool]:
+        """Dikey ayrim kurulana kadar komsuya YAKLASMAYI sifirlar.
+
+        Gerekce ve olcumler: CaParams.dikey_bekle_orani.
+
+        Returns:
+            tuple: (vx, vy, tutuldu) — `tutuldu`, en az bir komsu icin
+                yaklasma bileseni silindiyse True.
+        """
+        p = self.p
+        if p.dikey_bekle_orani <= 0.0 or p.katman_m <= 0.0:
+            return vx, vy, False
+
+        gereken = p.katman_m * p.dikey_bekle_orani
+        # Dikey kuralla AYNI histerezis: giris d0, cikis d0 + hist. Iki
+        # ayri esik olsaydi biri acilip digeri kapanirken ucak tutulup
+        # birakilarak titrerdi.
+        esik = p.d0 + (p.hist_m if self._catisma_aktif else 0.0)
+        tutuldu = False
+
+        for n in neighbors:
+            if not _finite(n.rel_x, n.rel_y, n.rel_z):
+                continue
+            d_xy = math.sqrt(n.rel_x * n.rel_x + n.rel_y * n.rel_y)
+            if d_xy >= esik or d_xy < 1e-3:
+                continue
+            # 🔴 AYRIM SAGLANDIYSA YATAY SERBEST — operatorun tarifindeki
+            # "farkli bir irtifaya gecip OYLE yatayda devam edecek" kismi
+            # tam olarak burasi. Serbest birakilmazsa ucak komsusunun
+            # yaninda kilitlenir ve formasyon HIC kurulmaz.
+            if abs(n.rel_z) >= gereken:
+                continue
+            tx = n.rel_x / d_xy
+            ty = n.rel_y / d_xy
+            v_close = vx * tx + vy * ty
+            if v_close > 0.0:
+                vx -= v_close * tx
+                vy -= v_close * ty
+                tutuldu = True
+        return vx, vy, tutuldu
 
     def _safety_projection(
         self, vx: float, vy: float, neighbors: list[NeighborObs],

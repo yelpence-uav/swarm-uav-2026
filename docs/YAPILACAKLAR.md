@@ -1,8 +1,8 @@
 # YAPILACAKLAR
 
-**Son güncelleme:** 30 Ağustos 2026, 15:45 — madde 24 kodu yazıldı (uçakta doğrulanmadı); G1 teşhisi düzeltildi, **B19** eklendi; `gorev2.md` devir teslim için sadeleştirildi.
+**Son güncelleme:** 1 Eylül 2026, 11:30 — 🟢 sürü hareketi + formasyon geçişi UÇTU · 🔴 **ylp00 roll arızası (UÇMASIN)** · 🔴 ylp02 failsafe sebebi açık · manevra düzeltildi ama doğrulanmadı
 
-> **Finale 8 gün.** Bu liste artık "her fikir" değil, **bu 8 günde
+> **Finale 5 gün.** Bu liste artık "her fikir" değil, **bu 8 günde
 > yapılacak iş.** Bir madde buraya giriyorsa birinin onu yapması planlanıyor
 > demektir. 135 maddelik eski liste 29 Ağustos'ta kesildi — tamamı git'te:
 > `git show 783afab:docs/YAPILACAKLAR.md`
@@ -12,6 +12,90 @@
 ---
 
 ## 🔴 P0 — bunlar kapanmadan ilgili uçuş yapılmaz
+
+- `[ ]` 🔴 **ylp00 ROLL ARIZASI — uçmadan önce kapat.** PX4 iki bağımsız
+  denemede `Attitude failure (roll)` → `Failsafe activated` verdi (kalkıştan
+  5,6 sn sonra, ikisinde de). Uçak fiziksel olarak yattı, motorlar kesildi.
+  Kill switch 168 sn sonra, uçak zaten yerdeyken basıldı — sebep değil.
+  *Yapılacak:* ① **şarjlı pil** — kalkışta 15,29 → **14,72 V** çöktü (%58'di)
+  ② pervaneler: gevşek/ters/hasarlı mı ③ motor yatakları ④ kollarda çatlak.
+  Ayrıntı `GUNLUK.md` 1 Eylül kaydı.
+
+- `[ ]` 🔴 **ylp02'nin havadaki failsafe sebebi BİLİNMİYOR.** `Failsafe
+  activated` → **ALTCTL** (konum kestirimi geçersiz). Elenenler: RC sabit ve
+  rssi 41 · setpoint 50 Hz · kaçınma hiç girmedi (`avoid=0`) · Here4
+  konnektörü sarsıldı, arıza tekrar üretilemedi. PX4 ulog kapalı olduğu için
+  gerekçe okunamıyor. *Karar gerekiyor:* ylp02 tekrar uçsun mu, yoksa önce
+  ulog'u geçici açıp mı uçalım (`CLAUDE.md` "Pixhawk'ta log açma" diyor —
+  RAM sınırı; geçici istisna operatör kararı).
+
+- `[ ]` 🔴 **MANEVRA MODU DÜZELTİLDİ, UÇAKTA DOĞRULANMADI.** `px4_bridge:838`
+  zemin ofseti artık yalnız guided goto'ya uygulanıyor; dağıtıldı, md5 üçünde
+  de aynı, 4 regresyon testi var. Ama hiçbir uçuş manevraya ulaşmadı.
+  *Tek soru:* "manevraya geçince sürü irtifasını koruyor mu?" *En kısa test:*
+  kalkış → 5 m → **SwB manevra, çubuklar merkezde, 10 sn irtifayı izle** →
+  hareket moduna dön → in. ~90 sn.
+
+
+- `[x]` ✅ **DAĞITIM YAPILDI (31 Ağu 06:00)** — üç uçağa `swarm_state_machine`
+  + `swarm_control`, `gorevfsm` bayrağı, yeni env. Parametreler doğrulandı.
+  Eski madde:
+- `[x]` ~~🔴 **DAĞITIM — uçaklardaki `TERS_YAW` YANLIŞ.**~~ 31 Ağustos'ta sürü
+  kumandası değişti ve `rc_eksen.TERS_YAW` True→False çekildi (yeni kumandada
+  yaw sağı ÜST uca veriyor). Uçaklardaki kod hâlâ eski hâlde: **dağıtmadan
+  uçulursa pilot sağa çevirir, sürü SOLA döner** ve hiçbir yerde hata
+  görünmez.
+  *Yapılacak:* `swarm_state_machine` dağıt (tek paket yeter) ·
+  `/ws/suru_dugumleri`'ne **`gorevfsm`** ekle (üçüne) ·
+  `MOD_SWC_DEBOUNCE_MS=1300` env'e geçsin · `RPI_ESITLEME.md` §3'e yaz.
+  Aynı dağıtımda madde 24·25·26·27·28 + B19 de gider.
+
+- `[x]` ✅ **PERVANELİ UÇUŞ — kalk · asılı dur · in. (31 Ağu 15:52)**
+  Üç uçak birlikte kalktı (0,24 sn), 5 m'de 20 sn asılı durdu, birlikte
+  indi (0,14 sn). En dar ayrım 6,70 m sabit; roll/pitch tepe 3,3°/5,3°;
+  mod kavgası sıfır; dikey komut +0,00. Ayrıntı `GUNLUK.md` 16:24 kaydı.
+
+- `[x]` ✅ **DAĞITIM YAPILDI (1 Eylül).** B6 + madde 29 + morf hızı +
+  kaçınma dikey beklemesi + deadman düzeltmesi + manevra datumu. md5 üç
+  uçakta da depoyla aynı, parametreler `ros2 param get` ile doğrulandı.
+  Eski madde:
+- `[ ]` ~~🔴 DAĞITIM — B6 + MADDE 29 + yeni env~~
+  31 Ağustos gecesi yazıldı, yerelde 350+270 test geçti, uçaklar **kapalı**
+  olduğu için dağıtılamadı (`drone_bul.sh --durum` → "hiçbir drone
+  bulunamadı"). *Yapılacak:* `swarm_state_machine` **ve** `swarm_control`
+  (ikisi de değişti, tek paket yetmez) → `ucus_ayarlari.py --kabuk >
+  ucus_ayarlari.env` üç Pi'ye → `docker restart` → doğrula:
+  `ros2 param get /mode_manager_node default_spacing_m` (**7.0**) ·
+  `... max_accel_mps2` (**1.3**) · `... kalkis_irtifa_m` (**5.0**).
+  ⚠️ Aralık **7 mi 9 mu — KARAR-14 açık.** Formasyon geçişli uçuşta YKİ'de
+  "Aralık (m)" kutusuna **9** yazmak yeterli, dağıtım değişmiyor.
+
+- `[ ]` 🔴 **KUMANDADAN FORMASYON GEÇİŞİ — bir sonraki uçuş.**
+  Sıra: kalk (VrB KAPALI, formasyon yok) → 5 m'de asılı dur → **VrB aç**
+  (SwC'nin gösterdiği formasyon oluşsun) → SwC ile bir geçiş → **VrB kapat**
+  (uçaklar olduğu yerde donsun) → in.
+  Ön koşullar:
+  · `MOD_ARALIK=9.0` dağıtılmış olmalı (üstteki madde)
+  · 🔴 **Uçakları hedef formasyonun ŞEKLİNDE diz** — ölçüldü: rastgele
+    dizilimde ilk morf 4,83 m'ye kadar yaklaşıyor (pay 0,83 m), formasyon
+    şeklinde dizilirse darboğaz okbaşı→V morfuna kayıyor ve 9 m'de
+    **6,36 m** (pay 2,36 m) oluyor. Aralık büyütmek ilk morfu DÜZELTMEZ.
+  · Kuru test **yeni bayrakla**: `--senaryo formasyon_gecis --aralik 9
+    --kuru --harita` — bayrak 31 Ağu'da eklendi çünkü senaryolar
+    `MOD_ARALIK`'ı kullanmıyordu, yani doğrulanan geometri uçulanla
+    aynı DEĞİLDİ.
+  · Harita gözle doğrulanmalı (formasyon kutusu ~18 × 18 m + kaçış zarfı)
+
+- `[ ]` 🟡 **ylp02 diski %88 (3,6 GB).** Rosbag ~190 MB/saat yazıyor.
+  Finalden önce eski kayıtlar temizlenmeli; uzun görev kaydı dolduruyor.
+
+- `[~]` 🟡 **ylp00 — mavros SEGFAULT.** 31 Ağu 21:12'de bir kez görüldü;
+  sonraki üç restart'ta TEKRARLAMADI. İzlemede kalsın.
+  Eski madde:
+- `[ ]` ~~🔴 **ylp00 — mavros SEGFAULT.**~~ 31 Ağu 21:12 yeniden başlatmasından
+  sonra `[ros2run]: Segmentation fault`; yığın 11 yerine 2 düğümle kaldı.
+  px4_bridge mavros'suz iş göremez. **Dağıtımdan önce bakılmalı** —
+  tekrarlanıyor mu, yoksa o açılışa özgü müydü?
 
 - `[ ]` 🔴 **HOME kayması — RTL'e güvenilmez.** 26 Ağustos gece testinde RTL
   üç uçağı kalkış yerine değil **aynı yanlış civara** indirdi (~9 m KD,
@@ -64,8 +148,12 @@ YKİ joystick zinciri silindi · heading artık hesaplanıyor. **293 birim testi
 - `[x]` ✅ **AŞAMA C — G0'ın yerde yapılabilen kısmı BİTTİ.** 16 (RC + kill
   izolasyonu) · 17 (işaretler — **pitch ve yaw TERSTİ**, düzeltildi) ·
   18 (kalkış kapısı) · 22 (deadman) · 23 (mesh). Kalan 19-21 **uçuş ister.**
-- `[ ]` 🔴 **AŞAMA D — TASARIM GEREĞİ (SIRADAKİ İŞ).** `gorev2.md` §4 madde
-  24-30. **İptal yolu olmadan `mod` ile test yapılmaz:**
+- `[x]` ✅ **AŞAMA D — KOD TARAFI BİTTİ (31 Ağustos).** `gorev2.md` §4 madde
+  24-30 + B19. **Hiçbiri uçakta doğrulanmadı** — dağıtım yukarıdaki P0.
+  ✅ **Madde 29'un taşıma yolu ÇÖZÜLDÜ:** ne betik ne SSH — değerler
+  **BAŞLAT paketinin içinde** mesh'ten gidiyor, paket hâlâ 16 bayt
+  (`gorev2.md` §5, seçenek (c)). YKİ'de iki kutu; boş bırakmak geçerli.
+  Aşağıdaki eski liste tarihçe:
   ① 🔧 **G1** LANDING gerçekten indirsin — **kod yazıldı, uçakta
   DOĞRULANMADI.** (Teşhis düzeltildi: olayın *tüketicisi vardı*, ama
   `agent_transitions` `pending_state=LANDING`'i **yalnız 3 durumdan** kabul
@@ -74,12 +162,11 @@ YKİ joystick zinciri silindi · heading artık hesaplanıyor. **293 birim testi
   ② 🔴 **B2** kumandadan kalkış AÇIKÇA (30 Ağu olayının kökü)
   ⚠️ **önce ARM yetkisi kararı** — `gorev2.md` §3'te iki seçenek + öneri
   ③ 🟠 SwC debounce (önce ÖLÇ) ④ 🟠 ADIM 6 `mission_fsm`
-  ⑤ 🟠 YKİ Görev 2 BAŞLAT butonu ⑥ 🟡 YKİ aralık alanı
+  ⑤ 🟠 YKİ Görev 2 BAŞLAT butonu ⑥ ✅ YKİ aralık alanı (+ irtifa) — bitti
   ⑦ 🟠 alıcı failsafe kaydı SwA=1000
-- `[ ]` 🔴 **B19 — `COMPLETED` terminal, çıkışı yok.** İniş bitince
-  `mode_manager` orada kalıyor; **ikinci kalkış konteyner restart istiyor** ve
-  görev başına **3 hakkımız var**. ~6 satır (COMPLETED→IDLE: hepsi disarm **ve**
-  iniş mandalı düşmüş). Karar verilmedi. `gorev2.md` §5.
+- `[x]` ✅ **B19 — `COMPLETED` çıkışı YAZILDI (31 Ağu).** COMPLETED→IDLE:
+  SwD iniş konumundan çıkmış **ve** hepsi disarm. Dönüşte uçuş defteri
+  sıfırlanıyor (`kalkis_tamam` mandalı dâhil). Uçakta doğrulanmadı.
 - `[ ]` 🟠 **AŞAMA E — uçuşlar** (31-33): A (çizgi, pitch/roll) → B (manevra)
   → C (asimetri + kumandadan kalkış/iniş). G0 19-21 Uçuş A'da ölçülür.
   🔴 **`mod` açıkken kill pilotları başında olmalı.**

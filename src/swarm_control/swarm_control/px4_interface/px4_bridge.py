@@ -172,6 +172,9 @@ class Px4BridgeNode(Node):
         publish_rate = float(
             self.get_parameter('publish_rate_hz').value
         )
+        # INA226 son olcumu ve zaman damgasi (pil yedegi).
+        self._ina226_son = None
+        self._ina226_t = 0.0
         self._sitl_mode: bool = bool(
             self.get_parameter('sitl_mode').value
         )
@@ -496,6 +499,23 @@ class Px4BridgeNode(Node):
             BatteryState, f'{ns}/mavros/battery',
             self._on_mav_battery, qos_profile_sensor_data
         )
+        # INA226 pil olcumu — guc modulu OLMAYAN ucaklar icin (ylp01).
+        #
+        # 🔴 AD TAM YAZILIR, GORELI DEGIL. Ilk yazimda 'pil/ina226'
+        # (goreli) yazmistim: px4_bridge KOK ad alaninda kosuyor
+        # (dugum adi /px4_bridge), o yuzden goreli ad /pil/ina226'ya
+        # cozuluyordu; ina226_node ise /drone_N/pil/ina226'ya
+        # yayinliyor. Iki AYRI konu olustu, abone hic veri almadi ve
+        # HATA DA VERMEDI — px4_bridge sessizce sahte 12.6 V'a dusuyordu.
+        # 31 Agustos'ta `ros2 topic list` ikisini birden gosterince
+        # goruldu. Projedeki "koksuz ad" sinifinin aynisi.
+        #
+        # Yayinci BEST_EFFORT (ina226_node._PIL_QOS) — RELIABLE abone
+        # ESLESMEZ (D1 dersi).
+        self.create_subscription(
+            BatteryState, f'{ns}/pil/ina226',
+            self._on_ina226, qos_profile_sensor_data
+        )
         self.create_subscription(
             MavHomePosition, f'{ns}/mavros/home_position/home',
             self._on_mav_home, 10
@@ -539,12 +559,98 @@ class Px4BridgeNode(Node):
         if self._sitl_mode:
             self._status.failsafe_active = False
 
+    # =================================================================
+    # PIL — MAVROS birincil, INA226 yedek
+    # =================================================================
+    # 🔴 ESKI DAVRANIS BIR YALANDI (31 Agustos 2026'da fark edildi):
+    # guc modulu yokken `battery_percent <= 0` oluyordu ve burasi
+    # KOSULSUZ olarak %100 / 12.6 V yaziyordu. ylp01'de guc modulu HIC
+    # yok (`DURUM.md` §1) — yani o ucak uctugu her an YKI'de "pil %100"
+    # gorunuyordu. Hata vermez, sorgulanmaz, ucus ortasinda isirir.
+    #
+    # Yeni sira:
+    #   1. MAVROS gercek deger veriyorsa O kullanilir (guc modulu var)
+    #   2. Yoksa INA226 TAZE ise O kullanilir (gercek olcum)
+    #   3. Ikisi de yoksa eski sabit korunur — AMA artik UYARI basiliyor,
+    #      cunku o degerin olcum OLMADIGI gorunur olmali
+    # SITL'de sabit aynen kalir: benzetimde pil yok, alarm istemiyoruz.
+
+    _INA226_TAZELIK_S = 3.0
+
+    def _on_ina226(self, msg: BatteryState) -> None:
+        """INA226 dugumunden pil olcumu (I2C, guc modulu olmayan ucaklar).
+
+        Dugum SAHTE DEGER YAYINLAMAZ (bkz. ina226_node basligi): cihaz
+        yoksa ya da kimlik tutmuyorsa hic yayin yapmaz. Yani buraya bir
+        mesaj dustuyse GERCEK bir olcumdur.
+        """
+        self._ina226_son = msg
+        self._ina226_t = self.get_clock().now().nanoseconds * 1e-9
+        # MAVROS hic gelmiyor da olabilir (guc modulu yoksa PX4 BATTERY_STATUS
+        # ya hic yollamaz ya sifir yollar). O yuzden burada da yaziyoruz.
+        if not self._sitl_mode and self._mavros_pil_gercek_mi():
+            return
+        self._pili_ina226dan_yaz()
+
+    # PX4'un "gerilim bilinmiyor" isareti: BATTERY_STATUS.voltages[0] =
+    # UINT16_MAX mV = 65.535 V. 31 Agustos 2026'da ylp00'da OLCULDU —
+    # guc modulu yokken MAVROS tam bu degeri yayinliyor.
+    #
+    # 🔴 ILK YAZIMIM BUNU KACIRDI: olcut yalnizca `> 1.0` idi ve 65.535
+    # o sinavi geciyordu. Sonuc: INA226'nin GERCEK 15.96 V olcumu
+    # yoksayildi, mesh 65.535'i 1 bayta (0.1 V/LSB) sigdiramayip
+    # DOYURDU ve YKI'de sabit "25.50 V" gorundu. Hata vermeden yanlis
+    # deger — bu ozelligin kapatmak icin var oldugu sinifin ta kendisi.
+    _PIL_MAKUL_ALT_V = 1.0
+    # Ust sinir mesh tavanindan (255 x 0.1 = 25.5 V) biraz genis: 7S
+    # dolu paket 29.4 V. Ustundeki her sey ya sensor hatasi ya sentinel.
+    _PIL_MAKUL_UST_V = 30.0
+
+    def _mavros_pil_gercek_mi(self) -> bool:
+        """MAVROS anlamli bir gerilim verdi mi?
+
+        Olcut GERILIM, yuzde degil: PX4 yuzdeyi kestirir ve sensor yokken
+        0 birakir, ama gerilim alani sensor varsa dolu gelir.
+
+        MAKUL ARALIK SARTI da var: sensor yokken PX4 65.535 V (sentinel)
+        yolluyor ve bu "dolu gelmis" gibi gorunuyor. Gerekce yukarida.
+        """
+        v = float(self._status.battery_voltage_v)
+        return self._PIL_MAKUL_ALT_V < v < self._PIL_MAKUL_UST_V
+
+    def _pili_ina226dan_yaz(self) -> None:
+        m = self._ina226_son
+        if m is None:
+            return
+        self._status.battery_voltage_v = float(m.voltage)
+        self._status.battery_current_a = abs(float(m.current))
+        yuzde = float(m.percentage)
+        if yuzde == yuzde and yuzde > 0.0:      # NaN degilse
+            self._status.battery_percent = yuzde * 100.0
+
     def _on_mav_battery(self, msg: BatteryState) -> None:
         """MAVROS BatteryState -> AgentStatus batarya."""
         mav_map_battery(msg, self._status)
-        if self._sitl_mode or self._status.battery_percent <= 0.0:
+        if self._sitl_mode:
             self._status.battery_percent = 100.0
             self._status.battery_voltage_v = 12.6
+            return
+        if self._mavros_pil_gercek_mi():
+            return
+        simdi = self.get_clock().now().nanoseconds * 1e-9
+        if (self._ina226_son is not None
+                and simdi - self._ina226_t <= self._INA226_TAZELIK_S):
+            self._pili_ina226dan_yaz()
+            return
+        # Ne guc modulu ne INA226 — eski sabit korunuyor ama SESSIZ DEGIL.
+        self._status.battery_percent = 100.0
+        self._status.battery_voltage_v = 12.6
+        self.get_logger().warning(
+            'PIL OLCUMU YOK — ne MAVROS guc modulu ne INA226. Yayinlanan '
+            '%100 / 12.6 V bir OLCUM DEGIL, sabit. INA226 icin: '
+            '/ws/suru_dugumleri dosyasina `pil` ekle, I2C acik olsun.',
+            throttle_duration_sec=30.0,
+        )
 
     def _on_mav_odom(self, msg: Odometry) -> None:
         """MAVROS Odometry -> AgentStatus konum/heading (ENU->NED)."""
@@ -727,8 +833,33 @@ class Px4BridgeNode(Node):
             # Kalkis referansi VARSA (takeoff ile land/rtl/disarm arasi) goto
             # da ona gore yorumlanir: "8 m" = kalkis zemininden 8 m. Referans
             # yoksa (havada baslatilan guided) eski mutlak davranis korunur.
+            #
+            # 🔴 OFSET YALNIZ GUIDED GOTO ICIN — 1 Eylul 2026, UCUSTA OLCULDU.
+            #
+            # Yukaridaki gerekce GUIDED GOTO icin dogru: YKI "8 m" derken
+            # kalkis zeminini kastediyor. Ama FORMASYON ve MANEVRA
+            # setpoint'leri MUTLAK NED geliyor — mode_manager centroid'i
+            # ucaklarin O ANKI konumundan tohumluyor.
+            #
+            # Ikisine ayni ofseti uygulamak, formasyon z'sini zemin
+            # referansi kadar ASAGI kaydiriyordu. HAREKET modunda GORUNMEDI
+            # cunku orada maske HIZ modunda (0x09C7) ve PX4 konumu hic
+            # kullanmiyor — hata GIZLI kaldi. MANEVRA'ya gecince maske
+            # konuma dondu ve gizli hata gerceklesti:
+            #
+            #     mode_manager gonderdi   sp.z = -6,97   (7,0 m yukarida)
+            #     zemin referansi         +1,68
+            #     PX4'e giden hedef       -5,29   -> UC UCAK DA ~1,7 m ALCALDI
+            #
+            # Olculdu (ylp02, 1 Eylul): PX4'e giden hedef irtifa 6,72 ->
+            # 5,74 -> 5,29 m'ye indi, ucaklar takip etti. Operatorun
+            # "manevra moduna alinca dronelar asagi indi" gozlemi budur.
+            #
+            # AYIRT EDICI ZATEN VARDI: `heading_valid` formasyon/manevrada
+            # HER ZAMAN true (bkz. asagidaki dal ve formation_node:1072),
+            # guided goto'da false. Yeni bir bayrak eklemeye gerek yok.
             target_z = float(sp.z)
-            if self._takeoff_baslangic_z is not None:
+            if self._takeoff_baslangic_z is not None and not sp.heading_valid:
                 target_z = self._takeoff_baslangic_z + float(sp.z)
             if sp.heading_valid:
                 # Yön açıkça verildi (formasyon her zaman verir) → onu kullan.
@@ -1117,8 +1248,27 @@ class Px4BridgeNode(Node):
 
         Kilit yalnız KALKIŞ sırasında ve yalnız kilit irtifasının ALTINDA
         geçerli. Kilit açıldığı anda yatay çapa uçağın O ANKİ yerine BİR KEZ
-        yeniden kurulur: kilit boyunca rüzgârla birkaç santim sürüklenmiş
-        olabilir ve eski çapaya dönmek sıçrama komutu olurdu.
+        yeniden kurulur: kilit boyunca sürüklenmiş olabilir ve eski çapaya
+        dönmek sıçrama komutu olurdu.
+
+        🔴 SÜRÜKLENME "BİRKAÇ SANTİM" DEĞİL — 31 Ağustos 2026'da ÖLÇÜLDÜ.
+        Bu satırda önceden "birkaç santim" yazıyordu; iki mertebe yanlıştı.
+        Kilitli tırmanış boyunca ölçülen yatay sürüklenme:
+            30 Ağu  ylp00  1.09 m
+            31 Ağu  ylp00  0.90 m · ylp01  2.17 m · ylp02  0.18 m
+             1 Ağu  (kaza) 0.90 m   (titresim_olc.py başlığı)
+
+        SEBEP YAPISAL, KUSUR DEĞİL: kilit altında px4_bridge yatay HIZ
+        tutuyor (type_mask 0x09E3 -> vx=vy=0), KONUM tutmuyor. Sıfır hız
+        komutunun konum geri beslemesi yoktur; rüzgâr ve eğim yanlılığı
+        doğrudan konuma integre olur. Konum tutmaya geçmek 1 Ağustos'ta
+        pervane kıran arızayı geri getirir (uçak yerdeyken PX4 yatay konum
+        düzeltmeye çalışıp yan yatıyordu) — bu kilit tam onun için var.
+
+        SONUÇ, PLANLAMAYA ETKİSİ: uçak arası ayrım seçilirken uçak başına
+        ~2 m sürüklenme bütçelenmeli. 31 Ağustos formasyon aralığı kararı
+        (MOD_ARALIK_M 7 -> 9 m) bu ölçüme dayanıyor; gerekçe
+        ucus_ayarlari.py MOD_ARALIK_M yorumunda.
 
         Çapanın kilit dışında yenilenmemesi ayrı bir karar — bkz. takeoff
         komutunun işlendiği yer.
@@ -1403,6 +1553,50 @@ class Px4BridgeNode(Node):
             self._takeoff_anchor_x = None
             self._takeoff_anchor_y = None
             self._arm_z = None
+            # 🔴 PILOT DEVRALDIYSA AUTO.LAND'I GERI ZORLAMA — 31 Agustos
+            # 2026, UCUSTA YASANDI; ucak neredeyse dusuyordu.
+            #
+            # OLCUM (ylp00 rosbag, epoch 1788167360 baslangicli):
+            #   4.94 sn  mode_manager 'land'  -> AUTO.LAND
+            #   4.99 sn  emniyet pilotu cubuklara asildi (RC ch1 1501->2000)
+            #   5.94 sn  PX4: "Pilot took over using sticks" -> POSCTL
+            #   6.94 sn  BURASI AUTO.LAND'i GERI ZORLADI
+            #   ... ayni dongu 20 saniye boyunca SANIYEDE BIR ...
+            # Sonuc: 20 sn icinde 6 mod degisimi. Her gecis hem pilotun
+            # cubuk girdisini hem konum denetleyicisini sifirladi:
+            # istenen roll +-19.5 deg, GERCEK pitch -27.4 deg. PX4
+            # statustext'te 13 kez "Pilot took over using sticks" dedi.
+            #
+            # NEDEN 1 Hz TEKRAR KALDIRILMIYOR: tekrar mode_manager'da
+            # BILEREK var (mode_manager_node.py, _INIS_DURUMLARI dali) —
+            # tek atislik iptal mesh kapisina takilabiliyor ve agent_fsm
+            # ARMED'a girip 'offboard' yollayarak inisi iptal edebiliyor.
+            # Tekrar DOGRU; yanlis olan tekrarin PILOTU EZMESIYDI.
+            #
+            # KAPI NEDEN BURADA: px4_bridge tek PX4 yazicisi ve pilotun
+            # modunu gorebilen tek yer. Ayni gerekce 'offboard' dalinda
+            # 22 Agustos'ta zaten yazilmisti; oradaki yorum AUTO.LAND'i
+            # BILEREK muaf tutuyordu ("gorevin kendi akisi"). 31 Agustos
+            # o muafiyetin yanlis oldugunu gosterdi: gorev akisi pilotun
+            # ONUNE GECEMEZ.
+            #
+            # ILK 'land' GECER — o an mod OFFBOARD'dir, pilot henuz
+            # devralmamistir. Kapiya yalnizca TEKRARLAR takilir; yani
+            # inis komutu KAYBOLMAZ, sadece pilot ucagi eline aldiktan
+            # sonra ondan GERI ALINMAZ.
+            #
+            # Defter tutma (streaming kapatma, capa temizleme) YUKARIDA
+            # kosulsuz yapildi: pilot ucagi aldiysa offboard akisinin
+            # susmasi ve bayat kalkis hedefinin silinmesi HER HALUKARDA
+            # dogru. Kapi yalnizca MOD YAZMAYI engeller.
+            if self._status.flight_mode in PILOT_FLIGHT_MODES:
+                self.get_logger().warning(
+                    f'land komutu REDDEDILDI — pilot kumandada '
+                    f'(mod={self._status.flight_mode}). Inisi PILOT '
+                    f'tamamlar; AUTO.LAND geri zorlanmaz.',
+                    throttle_duration_sec=2.0,
+                )
+                return
             self._cmd_sender.land()
         elif cmd == 'rtl':
             self._offboard_streaming = False
@@ -1413,6 +1607,17 @@ class Px4BridgeNode(Node):
             self._takeoff_anchor_x = None
             self._takeoff_anchor_y = None
             self._arm_z = None
+            # Gerekce 'land' dalinda (31 Agustos saha olayi). RTL pilottan
+            # ucagi almak acisindan LAND'den DAHA AGIR: ucagi yalnizca
+            # indirmez, ters yone surer. Kapi burada da zorunlu.
+            if self._status.flight_mode in PILOT_FLIGHT_MODES:
+                self.get_logger().warning(
+                    f'rtl komutu REDDEDILDI — pilot kumandada '
+                    f'(mod={self._status.flight_mode}). Ucus kontrolu '
+                    f'pilotta kalir.',
+                    throttle_duration_sec=2.0,
+                )
+                return
             self._cmd_sender.return_home()
         elif cmd == 'offboard':
             # 🔴 PILOT DEVRALDIYSA MODU GERI ALMA — 22 Agustos 2026, UCUSTA

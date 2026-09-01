@@ -38,7 +38,13 @@ from rclpy.qos import (
 )
 import serial
 
-from std_msgs.msg import String, UInt8MultiArray
+from std_msgs.msg import (
+    Bool,
+    Float32MultiArray,
+    String,
+    UInt8,
+    UInt8MultiArray,
+)
 from swarm_interfaces.msg import (
     AgentSetpoint,
     AgentStatus,
@@ -245,8 +251,14 @@ def _kirp_int16(deger: float) -> int:
 class Esp32BridgeNode(Node):
     """ESP32 mesh ↔ ROS2 köprü node'u."""
 
+    # mission_fsm MissionState.SEMI_AUTONOMOUS. Enum'u import etmiyoruz:
+    # swarm_control, swarm_state_machine'e BAGIMLI DEGIL ve oyle kalmali.
+    _MISSION_SEMI_AUTONOMOUS = 8
+
     def __init__(self) -> None:
         super().__init__('esp32_bridge')
+        # Kendi gorev durumumuz — mesh'e bit olarak gider.
+        self._gorev_durumu = 0
 
         self.declare_parameter('agent_id', 1)
         # P0.14(b): komsunun DURUM paketi bu suredir gelmediyse `healthy`
@@ -566,6 +578,50 @@ class Esp32BridgeNode(Node):
             _MESH_QOS,
         )
 
+        # 🔴 GOREV DURUMU — mesh'e tasinmak uzere okunuyor (31 Agustos).
+        # Neden gerekli: TriggerMission servisi ROS_LOCALHOST_ONLY yuzunden
+        # yalniz kendi ucagina ulasiyor ve suru boluniyordu.
+        self.create_subscription(
+            UInt8,
+            '/swarm/internal/mission/state',
+            self._on_gorev_durumu,
+            _MESH_QOS,
+        )
+        # Komsudan "ben yari otonom moddayim" duyulunca burasi 1 kez basar;
+        # mission_fsm dinler ve KENDI preflight'ini kosar.
+        self._gorev_yayilim_pub = self.create_publisher(
+            Bool, '/swarm/public/mission/suru_yari_otonom', _MESH_QOS,
+        )
+        self._son_gorev_yayilim = 0.0
+
+        # --- MADDE 29: GOREV 2 ARALIK/IRTIFA (31 Agustos 2026) -----------
+        # YKI "Gorev 2 baslat"a basmadan ONCE aralik ve irtifa soruyor.
+        # Degerler baslatma paketiyle AYNI ANDA uc ucaga gidiyor.
+        #
+        # 🔴 NEDEN AYRI KONU, Bool'u DEGISTIRMEK YERINE: mevcut
+        # `/swarm/internal/mission/baslat` konusunun TIPINI degistirmek,
+        # eski bir abone/yayinci kalirsa SESSIZCE eslesmeme uretirdi
+        # (D1 sinifi). Ayri konu + mandalli QoS ile eski zincir bozulmuyor.
+        #
+        # Mandalli (TRANSIENT_LOCAL): esp32_bridge sonradan acilsa bile
+        # son ayari alir; operator "girdim ama gitmedi" durumuna dusmez.
+        self._g2_aralik_m = 0.0
+        self._g2_irtifa_m = 0.0
+        _ayar_qos = QoSProfile(
+            reliability=QoSReliabilityPolicy.RELIABLE,
+            durability=QoSDurabilityPolicy.TRANSIENT_LOCAL,
+            history=QoSHistoryPolicy.KEEP_LAST,
+            depth=1,
+        )
+        self.create_subscription(
+            Float32MultiArray, '/swarm/internal/mission/g2_ayar',
+            self._on_g2_ayar_out, _ayar_qos,
+        )
+        # Alici tarafta: mesh'ten gelen ayari yerel dinleyicilere duyur.
+        self._g2_ayar_pub = self.create_publisher(
+            Float32MultiArray, '/swarm/public/mission/g2_ayar', _ayar_qos,
+        )
+
         # RPi -> ESP32: lider origin yayınını mesh'e iletmek için
         self.create_subscription(
             SwarmOrigin,
@@ -579,6 +635,18 @@ class Esp32BridgeNode(Node):
             SwarmControlCommand,
             '/swarm/internal/control/command',
             self._on_control_out,
+            _MESH_QOS,
+        )
+
+        # 🔴 YKİ -> mesh: GÖREV 2 BAŞLAT (31 Ağustos 2026).
+        # Backend'in `TriggerMission` ROS servisi ucaklardan GORUNMUYOR
+        # (ROS_LOCALHOST_ONLY=1, olculdu). Bu yol mesh'ten gidiyor, yani
+        # Wi-Fi'ye bagimli degil. Base istasyonunda backend yayinlar;
+        # drone tarafinda yayinci yok -> bosta.
+        self.create_subscription(
+            Bool,
+            '/swarm/internal/mission/baslat',
+            self._on_gorev_baslat_out,
             _MESH_QOS,
         )
 
@@ -1363,6 +1431,15 @@ class Esp32BridgeNode(Node):
             # ORIGIN_SYNCED ARTIK DRONE'UN KENDI OLCUMUNDEN. Onceden
             # _isle_pose bunu UYDURUYORDU (bkz. oradaki not).
             status.origin_synced = durum.origin_synced
+            # 31 Agu: mesh'te tasinmadigi icin komsularda hep False kaliyordu
+            # ve mission_fsm PREFLIGHT'i HIC gecemiyordu (packet_parser
+            # DURUM2_BAYRAK_HOME_SET yorumuna bak).
+            status.home_set = durum.home_set
+            # Komsu "ben yari otonom moddayim" diyorsa bunu YEREL olarak
+            # duyur; mission_fsm kendi preflight'ini kosup KENDI kararini
+            # verir. Komsu "sen de gec" DEMIYOR, "ben gectim" diyor.
+            if durum.gorev_yari_otonom:
+                self._gorev_yayilim_yayinla(drone_id)
 
             # HEALTHY TURETILIYOR — mesh'te ayri bit YOK.
             #
@@ -1628,11 +1705,20 @@ class Esp32BridgeNode(Node):
         # alanlar eklenmeden önceki kod); o talebi uygulamak sürüyü
         # FORMATION_UNKNOWN'a ve spacing 0'a göndermek olur. Uygulamak yerine
         # reddediyoruz ve uyarıyoruz — sürüm uyumsuzluğu sessiz kalmamalı.
-        if k.flags & pp.KOMUT_FLAG_FORMATION_CHANGE and not k.talep_formasyon:
+        # 🔴 KOSUL 31 AGUSTOS'TA DARALTILDI: eskiden "formasyon=0" tek
+        # basina reddetme sebebiydi. Artik formasyon=0 MESRU bir talep —
+        # VrB formasyon ana anahtari kapatilinca kumanda bilerek
+        # FORMATION_UNKNOWN yayinliyor ("formasyon yok, yerini tut").
+        # Eski kosul o istegi dusurdugu icin pilot ucagi formasyondan
+        # cikiyor, komsular eski formasyonda kaliyordu — suru bolunurdu.
+        # Eski gonderici IKI alani da bos birakir; ayirt edici bu.
+        # Gerekce ve olcum: packet_parser.formasyon_talebi_gecerli.
+        if (k.flags & pp.KOMUT_FLAG_FORMATION_CHANGE
+                and not k.talep_formasyon and not k.talep_spacing_dm):
             self.get_logger().warning(
-                f'agent {source_id}: FORMATION_CHANGE bayrağı formasyon=0 ile '
-                f'geldi — talep reddedildi. Gönderen eski sürüm olabilir '
-                f'(talep_formasyon/talep_spacing_dm alanları 30 Temmuz eklendi).'
+                f'agent {source_id}: FORMATION_CHANGE bayrağı formasyon=0 VE '
+                f'spacing=0 ile geldi — talep reddedildi. Gönderen eski sürüm '
+                f'olabilir (bu alanlar 30 Temmuz eklendi).'
             )
         msg.formation_change_requested = k.formasyon_talebi_gecerli
         msg.requested_formation = k.talep_formasyon
@@ -1836,6 +1922,36 @@ class Esp32BridgeNode(Node):
         SystemEvent ile downstream (mission_fsm, GCS) haberdar edilir.
         """
         g = pp.gorev_coz(payload)
+
+        # 🔴 GÖREV 2 BAŞLAT — YKİ'den mesh üzerinden geldi (31 Ağustos).
+        # Mevcut G2-K11 yayılım konusuna basıyoruz: mission_fsm bunu EMİR
+        # değil TETİK olarak alıyor ve KENDİ preflight'ını koşuyor. Yani
+        # tek uçağa ulaşması bile yeter — o geçince durum paketindeki bit
+        # kalan ikisini de tetikler.
+        if g.tip in (pp.GOREV_TIP_G2_BASLAT, pp.GOREV_TIP_G2_DURDUR):
+            basla = g.tip == pp.GOREV_TIP_G2_BASLAT
+            # 🔴 AYARI ÖNCE DUYUR, BAŞLATMAYI SONRA — madde 29.
+            # Sıra önemli: mode_manager başlatma tetiğini görmeden aralık
+            # ve irtifayı almış olmalı. Ters sırada, kalkış kapısı eski
+            # irtifayla açılıp sürü yanlış yüksekliğe tırmanabilirdi.
+            if basla and (g.aralik_dm or g.irtifa_dm):
+                ayar = Float32MultiArray()
+                ayar.data = [g.aralik_m, g.irtifa_m]
+                self._g2_ayar_pub.publish(ayar)
+                self.get_logger().warning(
+                    f'[esp32] GÖREV 2 AYARI alındı: '
+                    f'aralık={g.aralik_m:.1f} m irtifa={g.irtifa_m:.1f} m '
+                    f'(0.0 = belirtilmedi, o alan için varsayılan korunur)'
+                )
+            m = Bool()
+            m.data = basla
+            self._gorev_yayilim_pub.publish(m)
+            self.get_logger().warning(
+                f'[esp32] GÖREV 2 {"BAŞLAT" if basla else "DURDUR"} alındı '
+                f'(kaynak {source_id}) — mission_fsm tetikleniyor'
+            )
+            return
+
         msg = SystemEvent()
         msg.stamp = self.get_clock().now().to_msg()
         # GOREV paketi QR çözümünden çıkar, en yakın event QR_PARSED
@@ -2102,14 +2218,46 @@ class Esp32BridgeNode(Node):
                 # GPS ile PX4'un yerel cercevesini KARSILASTIRARAK koyuyor.
                 # Mesh'ten gecmedigi surece baz istasyonu uyduruyordu.
                 origin_synced=1 if msg.origin_synced else 0,
+                home_set=1 if msg.home_set else 0,
                 # KACINMA KORU — P0.16, 21 Agustos 2026.
                 # Komsularimdan en az birini goremiyorsam 1. Anlami:
                 # "o komsuya karsi carpisma korumam YOK". Bu bilgi YKI'ye
                 # BASKA HICBIR YOLDAN ulasmiyordu: mesh'te TIP_EVENT yok ve
                 # SystemEvent'ler ucagin kendi ROS grafiginde kaliyor.
                 kacinma_koru=1 if self._kacinma_koru_var() else 0,
+                # 🔴 GOREV DURUMU MESH'E — 31 Agustos. TriggerMission
+                # servisi ROS_LOCALHOST_ONLY yuzunden yalniz kendi ucagina
+                # ulasiyor; bu bit olmadan suru BOLUNUYOR (bkz.
+                # packet_parser DURUM2_BAYRAK_GOREV_YARI_OTONOM).
+                gorev_yari_otonom=(
+                    1 if self._gorev_durumu == self._MISSION_SEMI_AUTONOMOUS
+                    else 0),
             )
             self._uart_yaz(pp.TIP_DURUM, self._agent_id, payload)
+
+    def _on_gorev_durumu(self, msg: UInt8) -> None:
+        """Kendi mission_fsm durumumuz; mesh bitine bundan karar veriyoruz."""
+        self._gorev_durumu = int(msg.data)
+
+    def _gorev_yayilim_yayinla(self, source_id: int) -> None:
+        """Komsu yari otonom moda gecmis — yerel olarak duyur.
+
+        1 Hz ile sinirli: durum paketi ~2 Hz geliyor ve her komsudan ayri
+        ayri; sinirlamazsak mission_fsm'e gereksiz tekrar yagar. Bir kez
+        duyulmasi yeterli, mission_fsm zaten IDLE'da degilse yok sayiyor.
+        """
+        simdi = time.monotonic()
+        if simdi - self._son_gorev_yayilim < 1.0:
+            return
+        self._son_gorev_yayilim = simdi
+        m = Bool()
+        m.data = True
+        self._gorev_yayilim_pub.publish(m)
+        self.get_logger().info(
+            f'[esp32] ajan {source_id} YARI OTONOM modda — gorev '
+            f'yayilimi duyuruldu (kendi preflight kosulacak)',
+            throttle_duration_sec=5.0,
+        )
 
     def _on_origin_out(self, msg: SwarmOrigin) -> None:
         """Lider origin'ini TIP_ORIGIN olarak ESP32'ye gönderir.
@@ -2185,10 +2333,15 @@ class Esp32BridgeNode(Node):
         talep_formasyon = int(msg.requested_formation)
         talep_spacing = float(msg.requested_spacing_m)
         if flags & pp.KOMUT_FLAG_FORMATION_CHANGE:
-            if not talep_formasyon:
+            # 🔴 31 AGUSTOS: "formasyon=0" TEK BASINA dusurme sebebi DEGIL.
+            # VrB ana anahtari kapatilinca formasyon=0 BILEREK gonderiliyor
+            # ve anlami "formasyon yok, bulundugun yeri tut". Eski kural
+            # bunu mesh'te dusurup suruyu bolerdi. Eski gonderici imzasi
+            # IKI alanin da bos olmasi; ayirt edici o.
+            if not talep_formasyon and not talep_spacing:
                 self.get_logger().warning(
                     'formation_change_requested=True ama requested_formation=0 '
-                    '— bayrak düşürüldü (alıcı FORMATION_UNKNOWN uygulamasın)'
+                    'VE spacing=0 — bayrak düşürüldü (gönderen eski sürüm)'
                 )
                 flags &= ~pp.KOMUT_FLAG_FORMATION_CHANGE
             elif talep_spacing > 25.5:
@@ -2339,6 +2492,60 @@ class Esp32BridgeNode(Node):
                 # Sona at: sirayi diger hedefe ver (dongusel adalet).
                 kayit['en_erken'] = simdi + _GUIDED_TEKRAR_ARALIK_S
                 self._guided_kuyruk.append(kayit)
+
+    def _on_g2_ayar_out(self, msg: Float32MultiArray) -> None:
+        """YKİ'nin Görev 2 aralık/irtifa ayarını önbelleğe alır.
+
+        Yalnız BASE istasyonunda etkin. Değerler burada UYGULANMAZ;
+        yalnızca saklanır ve BAŞLAT paketine konur — böylece üç uçak da
+        aynı paketten, aynı anda alır.
+
+        data = [aralik_m, irtifa_m]. 0.0 = "belirtilmedi", alıcı kendi
+        varsayılanını korur.
+        """
+        v = list(msg.data)
+        self._g2_aralik_m = float(v[0]) if len(v) > 0 else 0.0
+        self._g2_irtifa_m = float(v[1]) if len(v) > 1 else 0.0
+        self.get_logger().info(
+            f'[esp32] Görev 2 ayarı alındı: aralık={self._g2_aralik_m:.1f} m '
+            f'irtifa={self._g2_irtifa_m:.1f} m (BAŞLAT paketiyle gidecek)'
+        )
+
+    def _on_gorev_baslat_out(self, msg: Bool) -> None:
+        """YKİ'nin "Görev 2 BAŞLAT" komutunu mesh'e yayınlar.
+
+        Yalnız BASE istasyonunda etkin (drone'da bu konuya yayıncı yok).
+        `_guided_gonder` kullanılıyor: guided komutlarla aynı 4 kopyalı
+        tekrar kuyruğu — mesh'te ACK yok, tek paket kaybı komutu düşürür.
+
+        ⚠️ Bu komut ARM ETMEZ. Yalnız G2-K10'un ÜÇÜNCÜ KAPISINI açar;
+        kalkış yetkisi hâlâ SwD'de ve kendi kapılarında.
+        """
+        tip = (pp.GOREV_TIP_G2_BASLAT if msg.data
+               else pp.GOREV_TIP_G2_DURDUR)
+        # Madde 29 — aralık/irtifa BASLAT paketiyle birlikte gider.
+        # DURDUR'da anlamsız, sıfır geçiliyor.
+        aralik = self._g2_aralik_m if msg.data else 0.0
+        irtifa = self._g2_irtifa_m if msg.data else 0.0
+        try:
+            payload = pp.gorev_paketle(tip, 0, 0, 0, aralik, irtifa)
+        except ValueError as e:
+            # 🔴 SESSİZCE KIRPMA YOK. Değer mesh sınırının dışındaysa komut
+            # HİÇ gitmez ve sebebi yazılır; "12 m istedim 25.5 m uçtu"
+            # sınıfı bir hatayı önlemek bunun tek amacı.
+            self.get_logger().error(
+                f'[esp32] GÖREV 2 komutu GÖNDERİLMEDİ — {e}'
+            )
+            return
+        # hedef 0 = yayın; her uçak kendi mission_fsm'ini başlatır/durdurur
+        # ve başlatmada kendi PREFLIGHT denetimlerini koşar (G2-K11 ilkesi).
+        self._guided_gonder(pp.TIP_GOREV, 0, payload)
+        self.get_logger().warning(
+            f'[esp32] GÖREV 2 {"BAŞLAT" if msg.data else "DURDUR"} '
+            f"mesh'e yayınlandı (TIP_GOREV/0x{tip:02X}"
+            + (f', aralık={aralik:.1f} m, irtifa={irtifa:.1f} m'
+               if msg.data else '') + ')'
+        )
 
     def _on_guided_out(self, msg: GuidedCommand) -> None:
         """GuidedCommand'ı mesh'e iletir: TIP_GOTO veya guided TIP_KOMUT.

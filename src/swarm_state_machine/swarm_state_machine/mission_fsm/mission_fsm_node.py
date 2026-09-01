@@ -12,7 +12,7 @@ from rclpy.qos import (
     ReliabilityPolicy,
 )
 
-from std_msgs.msg import UInt8
+from std_msgs.msg import Bool, UInt8
 
 from swarm_interfaces.msg import (
     AgentStatus,
@@ -87,6 +87,9 @@ class MissionFsmNode(Node):
     def _declare_params(self) -> None:
         """ROS2 parametrelerini tanimlar ve okur."""
         self.declare_parameter('agent_ids', [1, 2, 3])
+        # 🔴 KENDI KIMLIGIM — kendi durumumu YEREL kaynaktan almak icin sart
+        # (bkz. _setup_subscribers). 0 = bilinmiyor.
+        self.declare_parameter('agent_id', 0)
         self.declare_parameter('team_id', '752825')
         self.declare_parameter('tick_hz', 5.0)
         self.declare_parameter('sitl_mode', False)
@@ -98,6 +101,7 @@ class MissionFsmNode(Node):
         self._agent_ids = list(
             self.get_parameter('agent_ids').value
         )
+        self._agent_id = int(self.get_parameter('agent_id').value)
         self._team_id = str(self.get_parameter('team_id').value)
         self._tick_hz = float(
             self.get_parameter('tick_hz').value
@@ -136,12 +140,41 @@ class MissionFsmNode(Node):
 
     def _setup_subscribers(self) -> None:
         """Abone kanallarını oluşturur."""
+        # 🔴 KENDI DURUMUM /swarm/public/drone{ben}/status'TAN GELMEZ.
+        #
+        # 30 Agustos 2026'da mode_manager'da SAHADA olculdu: o konunun
+        # YAYINCI SAYISI 0. Sebep tasarim — ic_dis_kopru tablosu
+        # "drone{N}/status BILEREK haric" diyor (ic_dis_kopru.py:36, :103);
+        # ucagin kendi durumu kendi public konusuna koprulenmiyor, oraya
+        # yalniz mesh'ten KOMSULARIN durumu dusuyor.
+        #
+        # Bu dugumde sonucu mode_manager'dakiyle AYNI SINIFTAN ve ayni
+        # kadar sessiz: `all_agents_seen` asla True olmaz, PREFLIGHT
+        # HICBIR ZAMAN gecilmez, mission_state 8 olmaz ve Gorev 2
+        # kumandadan KALKAMAZ — hicbir yerde hata gorunmeden.
+        # (gorev2.md §7.5, "G0 madde 18 — kapinin HIC ACILAMAYACAGI kusur")
+        #
+        # Cozum ayni: kendi durumu /swarm/internal/drone{ben}/status'tan,
+        # komsularinki mesh'ten public'ten.
         for aid in self._agent_ids:
+            if aid == self._agent_id:
+                konu = f'/swarm/internal/drone{aid}/status'
+            else:
+                konu = f'/swarm/public/drone{aid}/status'
             self.create_subscription(
                 AgentStatus,
-                f'/swarm/public/drone{aid}/status',
+                konu,
                 self._make_agent_cb(aid),
                 _BEST_EFFORT_QOS,
+            )
+            self.get_logger().info(f'ajan {aid} durumu <- {konu}')
+
+        if self._agent_id == 0:
+            self.get_logger().error(
+                'agent_id VERILMEDI (0). Kendi durumum public konudan '
+                'beklenecek ve ORASI BOS — PREFLIGHT HIC GECILMEZ, '
+                'Gorev 2 kumandadan kalkamaz. '
+                'baslat.sh -p agent_id:=${AGENT_ID} gecirmeli.'
             )
 
         self.create_subscription(
@@ -172,6 +205,80 @@ class MissionFsmNode(Node):
             '/swarm/public/control/command',
             self._on_control_command,
             _BEST_EFFORT_QOS,
+        )
+
+        # 🔴 GOREV YAYILIMI — 31 Agustos 2026, sahada olculen kilitlenme.
+        #
+        # TriggerMission bir ROS SERVISI ve baslat.sh ROS_LOCALHOST_ONLY=1
+        # ile kosuyor: YKI'nin (ya da operatorun) cagrisi YALNIZ tek ucaga
+        # ulasiyor. Olculdu — ylp00 SEMI_AUTONOMOUS'a gecti ve SwD ile
+        # armlandi, ylp01/ylp02 IDLE'da kaldi ve kalkisi reddetti:
+        #     "SwD KALKIS istendi ama YETKI YOK (mission_state=1)"
+        # Suru BOLUNDU. G2-K10 kapisi eksik kalkisi onledi (dogru
+        # davranis) ama gorev de hic baslayamadi.
+        #
+        # esp32_bridge komsunun durum paketindeki YARI OTONOM bitini gorup
+        # bu konuya basiyor. Burada YAPTIGIMIZ SEY BIR EMIR DEGIL, BIR
+        # TETIK: kendi PREFLIGHT denetimlerimiz (saglik + GPS + origin +
+        # home) yine kosuyor ve gecmezse SEMI_AUTONOMOUS'a GECMIYORUZ.
+        # Yani dagitiklik korunuyor — komsu "sen de gec" demiyor,
+        # "ben gectim" diyor.
+        self.create_subscription(
+            Bool,
+            '/swarm/public/mission/suru_yari_otonom',
+            self._on_gorev_yayilimi,
+            _BEST_EFFORT_QOS,
+        )
+
+    # 🔴 DURDUR SONRASI SOGUMA — 31 Agustos 2026.
+    # Gorev durumu komsulara durum paketindeki bitle yayiliyor (G2-K11).
+    # Bu, BASLATMA icin istenen sey; DURDURMA icin TERSINE calisiyordu:
+    # bir ucak dursa, hala 8'de olan komsusunun biti onu HEMEN yeniden
+    # baslatiyordu. DURDUR yayin olarak gidiyor (hepsi birden durur), ama
+    # bir ucak paketi kacirirsa digerlerini geri tetiklerdi. Soguma o
+    # pencereyi kapatiyor: durdurduktan sonra N saniye yayilim dinlenmez.
+    _DURDUR_SOGUMA_S = 10.0
+
+    def _on_gorev_yayilimi(self, msg: Bool) -> None:
+        """Gorev yayilimi — BASLAT (True) ya da DURDUR (False).
+
+        BASLAT yalniz IDLE'dan tetikler; gorev zaten basladiysa ya da
+        bitmisse yok sayilir (komsunun bayragi surekli akiyor, her cerceve
+        yeniden baslatma denemesi olmamali).
+
+        DURDUR G2-K10'un ucuncu kapisini KAPATIR.
+        ⚠️ UCAN SURUYU DURDURMAZ — mode_manager READY'ye gectikten sonra
+        mission_state'i yeniden okumuyor. Havadaki suruyu indirmenin yolu
+        SwD (madde 24) ya da kill switch.
+        """
+        ctx = self._ctx
+
+        if not msg.data:
+            if ctx.state in (MissionState.IDLE, MissionState.ABORTED):
+                return
+            ctx.pending_command = TriggerMission.Request.COMMAND_ABORT
+            ctx.abort_reason = 'YKI: gorev durduruldu (mesh)'
+            self._gorev_soguma_bitis = time.monotonic() + self._DURDUR_SOGUMA_S
+            self.get_logger().warning(
+                '[mission_fsm] GÖREV DURDURULDU — kumandanın kalkış '
+                'yetkisi geri alındı. ⚠️ UÇAN sürüyü durdurmaz; iniş SwD '
+                'ya da kill switch ile.'
+            )
+            return
+
+        if time.monotonic() < getattr(self, '_gorev_soguma_bitis', 0.0):
+            return          # az once durduruldu — komsu biti geri tetiklemesin
+        if ctx.state != MissionState.IDLE:
+            return
+        if ctx.mission_type == MissionType.SEMI_AUTONOMOUS \
+                and ctx.pending_command == TriggerMission.Request.COMMAND_START:
+            return          # zaten kuyrukta
+        ctx.mission_type = MissionType.SEMI_AUTONOMOUS
+        ctx.pending_command = TriggerMission.Request.COMMAND_START
+        self.get_logger().warning(
+            '[mission_fsm] GOREV YAYILIMI — komsu yari otonom modda, '
+            'kendi gorevim baslatiliyor. PREFLIGHT denetimleri YINE '
+            'kosacak; gecmezsem SEMI_AUTONOMOUS\'a GECMEM.'
         )
 
     def _on_control_command(self, msg: SwarmControlCommand) -> None:

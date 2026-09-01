@@ -56,6 +56,7 @@ _dugum_exe() {
         gorevfsm)  echo "mission_fsm_node" ;;
         mod)       echo "mode_manager_node" ;;
         joystick)  echo "joystick_interpreter_node rc_ibus_kopru" ;;
+        pil)       echo "ina226_node" ;;
         gorev1)    echo "mission1_node" ;;
         goru)      echo "camera_driver vision_node" ;;
         inis)      echo "precision_landing_node" ;;
@@ -1270,6 +1271,7 @@ fi   # /altyapi: ic_dis_kopru
             -p d0_m:=${KACINMA_D0:-4.0} \
             -p hard_m:=${KACINMA_HARD:-2.5} \
             -p katman_m:=${KACINMA_KATMAN:-3.0} \
+            -p dikey_bekle_orani:=${KACINMA_DIKEY_BEKLE:-0.8} \
             -p v_dikey_max_mps:=${KACINMA_DIKEY_HIZ:-1.2} \
             -p a_dikey_max_mps2:=${KACINMA_DIKEY_IVME:-2.0} \
             -p kp_dikey:=${KACINMA_DIKEY_KP:-2.0} \
@@ -1308,11 +1310,16 @@ fi   # /altyapi: ic_dis_kopru
     # bu dosyanin en basindaki opt-in kuralinin tam olarak onlemek istedigi
     # sey. Artik ayri anahtarlar: fsm / gorevfsm / mod.
     #
-    # DIKKAT: mission_fsm ve mode_manager agent_id KABUL ETMIYOR (olculdu).
-    # swarm_fsm ise 15 Agustos'ta agent_id ALIR HALE GELDI — kendi ucaginin
-    # durumunu /swarm/internal/drone{id}/status'tan okuyabilsin diye. Bkz.
-    # swarm_fsm_node.py'deki agent_id yorumu: bu olmadan iki ucakli suruda
-    # tek komsu bayatlayinca TUM SURUYE acil inis yayinlaniyordu.
+    # agent_id: UCU DE ALIR (bu not 30 Agustos'ta guncellendi — eskiden
+    # "mission_fsm ve mode_manager KABUL ETMIYOR" yaziyordu, ikisi de artik
+    # aliyor). Sebep UCUNDE DE AYNI: ucagin KENDI durumu kendi public
+    # konusuna koprulenmiyor (ic_dis_kopru.py:36 "BILEREK haric"), yani
+    # kendi kaydini /swarm/internal/drone{id}/status'tan okumak ZORUNDA.
+    #   swarm_fsm   : 15 Agu — yoksa tek komsu bayatlayinca TUM SURUYE
+    #                 acil inis yayinlaniyordu
+    #   mode_manager: 30 Agu — yoksa kalkis kapisi HIC ACILMIYORDU (G0/18)
+    #   mission_fsm : 30 Agu — yoksa PREFLIGHT HIC GECILMIYOR, yani Gorev 2
+    #                 kumandadan KALKAMIYOR (madde 27)
     if baslat_mi fsm; then
         # SURU_AJAN_SAYISI  = kimlik araligi (1..N), abonelikler bundan
         # SURU_BEKLENEN_UCAK = kac ucak GERCEKTEN uculuyor
@@ -1338,10 +1345,15 @@ fi   # /altyapi: ic_dis_kopru
     # ADIM 6 — gorev durum makinesi. Her IKI gorevi de bu suruyor.
     if baslat_mi gorevfsm; then
         # team_id: kopru ve mission1 ile AYNI olmali (QR filtresi).
+        _GFSM_KADRO="${SURU_KADRO:-1 2 3}"
+        _GFSM_KADRO_ROS="[$(echo ${_GFSM_KADRO} | tr ' ' ',')]"
         ros2 run swarm_state_machine mission_fsm_node --ros-args \
+            -p agent_ids:="${_GFSM_KADRO_ROS}" \
+            -p agent_id:=${AGENT_ID} \
             -p team_id:="'${TAKIM_ID}'" >> "$GUNLUK/mission_fsm.log" 2>&1 &
         sleep 1
-        echo "[baslat] mission_fsm_node basladi (team_id=$TAKIM_ID)"
+        echo "[baslat] mission_fsm_node basladi (team_id=$TAKIM_ID," \
+             "kadro=${_GFSM_KADRO}, agent_id=${AGENT_ID})"
     fi
 
     # ADIM 12 — Gorev 2 (yari otonom) mod yoneticisi.
@@ -1407,12 +1419,17 @@ fi   # /altyapi: ic_dis_kopru
                 -p agent_ids:="${_MOD_KADRO_ROS}" \
                 -p agent_id:=${AGENT_ID} \
                 -p default_spacing_m:=${MOD_ARALIK:-7.0} \
-            -p gaz_merkez_pay:=${MOD_GAZ_MERKEZ_PAY:-0.2} \
+            -p max_accel_mps2:=${MOD_IVME:-1.3} \
+            -p max_accel_z_mps2:=${MOD_DIKEY_IVME:-1.0} \
                 -p max_speed_mps:=${MOD_HIZ:-2.0} \
                 -p max_yaw_rate_deg_s:=${MOD_YAW_HIZI:-25.0} \
                 -p max_tilt_deg:=${MOD_EGIM_TAVANI:-15.0} \
                 -p wing_alpha_deg:=${KANAT_ALFA_DEG} \
                 -p kalkis_esik_m:=${MOD_KALKIS_ESIK:-2.0} \
+                -p kalkis_irtifa_m:=${MOD_KALKIS_IRTIFA:-8.0} \
+                -p deadman_zaman_asimi_s:=${MOD_DEADMAN_ZAMAN_ASIMI:-0.5} \
+                -p morf_hiz_mps:=${MOD_MORF_HIZ:-0.6} \
+                -p morf_sure_s:=${MOD_MORF_SURE:-25.0} \
                 -p test_hazir_atla:=${_MOD_TEST_HAZIR} \
                 >> "$GUNLUK/mode_manager.log" 2>&1 &
             sleep 1
@@ -1421,6 +1438,8 @@ fi   # /altyapi: ic_dis_kopru
                  "yaw=${MOD_YAW_HIZI:-25.0} deg/s, hiz=${MOD_HIZ:-2.0} m/s," \
                  "aralik=${MOD_ARALIK:-7.0} m, kadro=${_MOD_KADRO}," \
                  "kalkis kapisi=${MOD_KALKIS_ESIK:-2.0} m," \
+                 "kumandadan kalkis irtifasi=${MOD_KALKIS_IRTIFA:-8.0} m," \
+                 "morf hizi=${MOD_MORF_HIZ:-0.6} m/s (seyirden AYRI, 1 Eyl)," \
                  "test_hazir_atla=${_MOD_TEST_HAZIR} $([ "$_MOD_TEST_HAZIR" = true ] \
                     && echo '<- /ws/mod_test VAR: FSM yerde READY olur, ucus icin SIL'))"
         fi
@@ -1437,6 +1456,58 @@ fi   # /altyapi: ic_dis_kopru
     # Dugumun MAVROS abonelikleri KOKSUZ yazilmis (/mavros/rc/in) —
     # sahadaki ad alani /drone_N/mavros: remap SART, yoksa hic veri
     # gelmez ve HATA DA VERMEZ (TUZAKLAR'daki koksuz-ad sinifi).
+    # PIL OLCUMU — INA226 (I2C). 31 Agustos 2026'da eklendi.
+    #
+    # 🔴 NEDEN GEREKLI: ylp01'de PX4 guc modulu YOK (DURUM.md §1) ve
+    # px4_bridge guc modulu gormeyince pil alanlarina SABIT %100 / 12.6 V
+    # yaziyordu. Yani o ucak, pili ne olursa olsun, YKI'de "dolu"
+    # gorunuyordu. INA226 gercek olcumu koyuyor; px4_bridge MAVROS gercek
+    # deger vermiyorsa bunu kullaniyor.
+    #
+    # ON KOSUL: I2C acik olmali —
+    #   /boot/firmware/config.txt : dtparam=i2c_arm=on  (yeniden baslatir)
+    #   cekirdek modulu           : i2c-dev  (`/dev/i2c-1`i yaratir)
+    # Yoksa dugum ERROR yazip SESSIZ kalir; sahte deger YAYINLAMAZ.
+    #
+    # SONT DIRENCI bilinmiyorsa INA226_SONT_OHM=0 birak: gerilim dogru
+    # okunur, akim 0.0 kalir. Uydurma bir deger akimi olcekli-yanlis yapar
+    # ve HATA VERMEZ.
+    if baslat_mi pil; then
+        # 🔴 KALIBRASYON UCAGA OZGU — 31 Agustos 2026'da OLCULDU.
+        #
+        # Multimetreyle karsilastirinca sapma her uçakta FARKLI cikti:
+        #     ylp00  INA226 15.89 V · DMM 15.67 V  -> %1.4 yuksek
+        #     ylp01  INA226 16.71 V · DMM 15.88 V  -> %5.2 yuksek
+        # Farkli oranlar, yazilim olceginin dogru oldugunu KANITLIYOR:
+        # ortak bir hata olsaydi ucu de ayni oranda sapardi. Sapma karta
+        # ozgu (bolucu direnc toleransi), o yuzden duzeltme de uçak basina.
+        #
+        # ⚠️ INA226'nin PILDEN YUKSEK okumasi IR dususuyle ACIKLANAMAZ:
+        # akim pilden yuke akar, aradaki direnc gerilimi DUSURUR. Yuksek
+        # okuma ancak olcek hatasidir — bu yuzden carpan dogru arac.
+        #
+        # Deger `/ws/ina226_carpan` dosyasindan okunur (uçağa ozgu, tipki
+        # `tgt_system` gibi). Dosya yoksa env, o da yoksa 1.0 = duzeltme yok.
+        _INA_CARPAN="${INA226_CARPAN:-1.0}"
+        if [ -f /ws/ina226_carpan ]; then
+            _INA_CARPAN="$(tr -d '[:space:]' < /ws/ina226_carpan)"
+            echo "[baslat] INA226 carpani DOSYADAN: ${_INA_CARPAN}" \
+                 "(/ws/ina226_carpan)"
+        fi
+        ros2 run swarm_control ina226_node --ros-args \
+            -p gerilim_carpani:=${_INA_CARPAN} \
+            -r __ns:=/drone_${AGENT_ID} \
+            -p i2c_veriyolu:="'${INA226_VERIYOLU:-/dev/i2c-1}'" \
+            -p adres:=${INA226_ADRES:-64} \
+            -p sont_ohm:=${INA226_SONT_OHM:-0.0} \
+            -p hucre_sayisi:=${INA226_HUCRE:-0} \
+            -p hz:=${INA226_HZ:-2.0} \
+            >> "$GUNLUK/pil.log" 2>&1 &
+        sleep 1
+        echo "[baslat] ina226_node basladi (adres=${INA226_ADRES:-64}" \
+             "sont=${INA226_SONT_OHM:-0.0} ohm -> /drone_${AGENT_ID}/pil/ina226)"
+    fi
+
     if baslat_mi joystick; then
         # ADIM 12a — SURU kumandasinin i-BUS koprusu (30 Agustos 2026, B1).
         #
@@ -1468,13 +1539,16 @@ fi   # /altyapi: ic_dis_kopru
             -p max_tilt_deg:=${MOD_EGIM_TAVANI:-15.0} \
             -p deadman_timeout_s:=${MOD_DEADMAN_ZAMAN_ASIMI:-0.5} \
             -p default_spacing_m:=${MOD_ARALIK:-7.0} \
+            -p gaz_merkez_pay:=${MOD_GAZ_MERKEZ_PAY:-0.2} \
+            -p swc_debounce_ms:=${MOD_SWC_DEBOUNCE_MS:-1300.0} \
             -r /mavros/rc/in:=/drone_${AGENT_ID}/rc/suru \
             -r /mavros/manual_control/control:=/drone_${AGENT_ID}/rc/manual_control_KAPALI \
             >> "$GUNLUK/joystick.log" 2>&1 &
         sleep 1
         echo "[baslat] joystick_interpreter basladi — BU UCAK PILOT UCAGI:" \
              "SURU alicisindan surer (SwA emniyet, SwB mod," \
-             "SwC formasyon, SwD kalkis/inis). Kill pilotunun alicisi" \
+             "SwC formasyon [debounce ${MOD_SWC_DEBOUNCE_MS:-1300.0} ms]," \
+             "SwD kalkis/inis). Kill pilotunun alicisi" \
              "px4_bridge'de kalir, suruye DOKUNMAZ."
     fi
 

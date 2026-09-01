@@ -108,6 +108,9 @@ class CollisionAvoidanceNode(Node):
         self._korluk_tut_aktif = False
         # --- dikey yol verme tanilari ---
         self._n_dikey_yetersiz = 0
+        # Yatay yaklasmanin tutuldugu cerceve sayisi. Sahada bu sayacin
+        # SIFIR OLMAMASI mekanizmanin gercekten calistiginin kanitidir.
+        self._n_yatay_tut = 0
         self._yetersiz_bildirildi = False
         self._n_donus_kor = 0
         self._donus_kor_bildirildi = False
@@ -132,6 +135,7 @@ class CollisionAvoidanceNode(Node):
             k_yatay=self._k_yatay,
             yatay_esik_m=self._yatay_esik_m,
             katman_m=self._katman_m,
+            dikey_bekle_orani=self._dikey_bekle_orani,
             rutbe=self._rutbe,
             v_dikey_max=self._v_dikey_max,
             a_dikey_max=self._a_dikey_max,
@@ -271,6 +275,11 @@ class CollisionAvoidanceNode(Node):
         self.declare_parameter('k_yatay', 1.0)
         self.declare_parameter('yatay_esik_m', 0.0)
         self.declare_parameter('katman_m', 3.0)
+        # 🔴 DIKEY AYRIM KURULANA KADAR YAKLASMA YOK — operator onerisi,
+        # 1 Eylul 2026. Gerekce ve olcumler: ca_core.CaParams.
+        # 0.0 = kapali (eski davranis). Tek kaynak ucus_ayarlari.py
+        # (KACINMA_DIKEY_BEKLE).
+        self.declare_parameter('dikey_bekle_orani', 0.0)
         # RUTBE — donusumlu merdivendeki sirasi. baslat.sh kadrodan
         # turetiyor: kimligimden KUCUK kac ajan var. -1 = bilinmiyor
         # (o zaman ca_core "en ucuz yon" yedegine duser).
@@ -331,6 +340,7 @@ class CollisionAvoidanceNode(Node):
         self._k_yatay = float(gp('k_yatay').value)
         self._yatay_esik_m = float(gp('yatay_esik_m').value)
         self._katman_m = float(gp('katman_m').value)
+        self._dikey_bekle_orani = float(gp('dikey_bekle_orani').value)
         self._rutbe = int(gp('rutbe').value)
         self._v_dikey_max = float(gp('v_dikey_max_mps').value)
         self._a_dikey_max = float(gp('a_dikey_max_mps2').value)
@@ -472,6 +482,9 @@ class CollisionAvoidanceNode(Node):
         "Algoritma istedigini yapamadi" demek; log'da kaybolursa ucus
         sonrasi "neden ayrim olusmadi" sorusu cevapsiz kalir.
         """
+        if self._ca.yatay_tutuldu:
+            self._n_yatay_tut += 1
+
         if self._ca.dikey_yetersiz and not self._yetersiz_bildirildi:
             self._yetersiz_bildirildi = True
             self._n_dikey_yetersiz += 1
@@ -851,6 +864,7 @@ class CollisionAvoidanceNode(Node):
                 f'irtifa={self._irtifa_m:.1f}'
                 f'{"" if self._irtifa_ok else "(GECERSIZ)"} '
                 f'dikey_yetersiz={self._n_dikey_yetersiz} '
+                f'yatay_tut={self._n_yatay_tut} '
                 f'donus_kor={self._n_donus_kor} '
                 f'komsu_veri={len(self._neighbors)}/'
                 f'{len(self._neighbor_subs)} '

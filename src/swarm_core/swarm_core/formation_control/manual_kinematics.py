@@ -45,7 +45,13 @@ class StepResult:
     offsets: list[tuple[float, float, float]] = field(default_factory=list)
 
 
-def _slew(current: float, target: float, max_delta: float) -> float:
+# 🔴 ACIK (public) — 31 Agustos 2026. Onceden `_slew` idi ve yalniz bu
+# dosyada kullaniliyordu. mode_manager'in hareket modu da ivme rampasi
+# istiyor (B6) ama `swarm_movement_step`i oldugu gibi kullanamiyor:
+# o fonksiyon heading ile DONDURMUYOR (pitch = kuzey), mode_manager ise
+# govde cercevesinde calisiyor. Ikinci bir slew kopyasi yazmak yerine
+# bunu acik hale getirdik — tek kaynak kurali.
+def slew(current: float, target: float, max_delta: float) -> float:
     """Mevcut değeri hedefe en fazla |max_delta| adımıyla yaklaştırır."""
     if max_delta <= 0.0:
         return current
@@ -95,9 +101,9 @@ def swarm_movement_step(
     # İvme-sınırlı slew (|Δv| <= a_max·dt).
     da_xy = limits.a_max_xy * dt
     da_z = limits.a_max_z * dt
-    new_vx = _slew(state.vx, vx_des, da_xy)
-    new_vy = _slew(state.vy, vy_des, da_xy)
-    new_vz = _slew(state.vz, vz_des, da_z)
+    new_vx = slew(state.vx, vx_des, da_xy)
+    new_vy = slew(state.vy, vy_des, da_xy)
+    new_vz = slew(state.vz, vz_des, da_z)
 
     ax = (new_vx - state.vx) / dt
     ay = (new_vy - state.vy) / dt
@@ -142,12 +148,12 @@ def maneuver_step(
     # Yatay hızı güvenle 0'a çek (centroid sabit kalmalı).
     da_xy = limits.a_max_xy * dt
     da_z = limits.a_max_z * dt
-    new_vx = _slew(state.vx, 0.0, da_xy)
-    new_vy = _slew(state.vy, 0.0, da_xy)
+    new_vx = slew(state.vx, 0.0, da_xy)
+    new_vy = slew(state.vy, 0.0, da_xy)
 
     # Ortak irtifa hâlâ serbest.
     vz_des = -throttle * limits.v_max_z
-    new_vz = _slew(state.vz, vz_des, da_z)
+    new_vz = slew(state.vz, vz_des, da_z)
 
     ax = (new_vx - state.vx) / dt
     ay = (new_vy - state.vy) / dt

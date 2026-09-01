@@ -3,10 +3,12 @@
 
 from dataclasses import dataclass, field
 import math
+
 import time
 
 from swarm_core.formation_control.manual_kinematics import (
     dairesel_ortalama_deg,
+    slew,
 )
 
 from .mode_states import ControlMode, ModeState
@@ -15,6 +17,13 @@ _AGENT_STATE_IN_SWARM = 5
 _AGENT_STATE_LANDED = 13
 
 _MISSION_STATE_SEMI_AUTONOMOUS = 8
+
+# Kalkis "ulasildi" olcutu: hedef irtifanin bu orani gecilince TAKEOFF biter.
+# 0.8 UYDURULMADI — formasyon_sekans ayni olcutu ayni oranla kuruyor
+# (ucus_ayarlari.SEKANS_KALKIS_ESIK_ORANI, "EKF z / origin farki ~1 m
+# olculdu, 26 Agu"). Tam irtifa beklemek yanlis olurdu: PX4 hedefe
+# asimptotik yaklasir ve son 20 cm dakikalar surebilir.
+_KALKIS_ULASMA_ORANI = 0.8
 
 
 @dataclass
@@ -52,6 +61,13 @@ class ModeContext:
     max_speed_mps: float = 2.0
     max_yaw_rate_deg_s: float = 30.0
     max_tilt_deg: float = 15.0
+    # B6 ivme rampasi — gerekce compute_centroid_delta docstring'inde.
+    max_accel_mps2: float = 1.3
+    max_accel_z_mps2: float = 1.0
+    # Govde cercevesindeki ANLIK centroid hizi (rampanin durumu).
+    v_ileri: float = 0.0
+    v_sag: float = 0.0
+    v_yukari: float = 0.0
 
     last_valid_command_time: float = 0.0
     command_sequence_num: int = 0
@@ -75,6 +91,21 @@ class ModeContext:
     # Kapi acilirken olculen heading'in tutarliligi (0..1). Dugum bunu
     # loglar; dusukse ucaklar ayni yone bakmiyor demektir (B17).
     kalkis_heading_tutarlilik: float = 0.0
+
+    # --- B2 KUMANDADAN KALKIS (madde 25, 30 Agustos 2026) ----------------
+    # Sartname §5.2.2: "Takeoff ve land komutlari da kumanda uzerinden
+    # yapilir". kalkis_irtifa_m TEST irtifasindan (MOD_TEST_IRTIFA_M) AYRI
+    # bir parametre: hakem "15 m" derse gorev oncesi bu degisir, manevra
+    # testinin genligi degismez.
+    kalkis_irtifa_m: float = 8.0
+    # Kalkis komutunu BIZ mi verdik? TAKEOFF'un bitis olcutunu belirler
+    # (bkz. mode_transitions._from_takeoff).
+    kalkis_komutu_verildi: bool = False
+    # Komut anindaki ZEMIN z'leri (agent_id -> pos_z). Yukseklik BUNA gore
+    # olculur, origin'e gore DEGIL: acik alanda ucaklar origin'den
+    # -0,1 .. +1,7 m sapmayla duruyordu (§7.5 olcumu) ve mutlak esik o
+    # sapmayi hedefe ekler/cikarirdi.
+    kalkis_zemin_z: dict = field(default_factory=dict)
 
     agent_statuses: dict = field(default_factory=dict)
 
@@ -143,6 +174,27 @@ class ModeContext:
             for s in self.agent_statuses.values()
         )
 
+    def all_agents_disarmed(self) -> bool:
+        """Her ajanin durumu geldi ve HICBIRI armli degilse True.
+
+        B19 cikis kosulu. `armed` mesh'ten geciyor (durum_paketle:581 ->
+        esp32_bridge:1348) ve KALKIS KAPISINDA da guvendigimiz alan bu:
+        disarm bir ucak havada olamaz, irtifa referansindan bagimsizdir.
+
+        ⚠️ BAYAT DURUM: bir komsunun mesajlari kesilmisse elimizde son
+        bilinen kayit kalir. LANDING 90 sn'de zaman asimina ugrayip
+        COMPLETED'a gecmisse ve o ucak GERCEKTE hala armliysa burasi
+        yanlislikla True donebilir. Kabul edildi: alternatifi (irtifa)
+        DAHA guvenilmez (§7.5 — yerde +1,7 m okundu) ve sonuc IDLE'a
+        donmekten ibaret; IDLE tek basina hicbir komut uretmiyor.
+        """
+        if not self.all_agents_seen():
+            return False
+        return not any(
+            bool(getattr(self.agent_statuses[aid], 'armed', False))
+            for aid in self.agent_ids
+        )
+
     def all_agents_healthy(self) -> bool:
         """Her ajan healthy=True bildiriyorsa True."""
         if not self.agent_statuses:
@@ -152,6 +204,34 @@ class ModeContext:
     def is_mission_semi_autonomous(self) -> bool:
         """mission_fsm SEMI_AUTONOMOUS state'inde mi?."""
         return self.mission_state == _MISSION_STATE_SEMI_AUTONOMOUS
+
+    def ucus_durumunu_sifirla(self) -> None:
+        """B19 — COMPLETED'dan IDLE'a donerken ucus defterini temizler.
+
+        🔴 SIFIRLANMAYAN HER ALAN IKINCI DENEMEDE YANLIS DAVRANIR:
+
+        * `kalkis_tamam` bir MANDAL ve geri kapanmiyor. Temizlenmezse
+          ikinci denemede yayin kapisi UCAKLAR YERDEYKEN acik sayilir —
+          B15'in kapatmak icin var oldugu seyin ta kendisi.
+        * `kalkis_zemin_z` ONCEKI ucusun zeminini tutar; ucak birinci
+          inisde 3 m yana kaymissa ikinci kalkisin "irtifaya ulasildi"
+          olcutu yanlis referanstan olculur.
+        * `maneuver_*` sifir degilse HOLD egik poz yayinlar ve
+          formation_node susturulur — ikinci ucusa egik baslamak demek.
+
+        Gorev basina UC HAKKIMIZ var; bu yol saha gununde kullanilacak.
+        """
+        self.kalkis_tamam = False
+        self.kalkis_komutu_verildi = False
+        self.kalkis_zemin_z = {}
+        self.kalkis_heading_tutarlilik = 0.0
+        self.maneuver_pitch_deg = 0.0
+        self.maneuver_roll_deg = 0.0
+        # 🔴 IVME RAMPASI DA SILINIR (B6, 31 Agustos). Birinci ucus tam
+        # hizda biterse hiz durumu 2 m/s'te kalir; ikinci denemede ilk
+        # MOVEMENT tick'i cubuk merkezdeyken bile o hizdan devam eder ve
+        # suru SICRAR. Testle kilitli: test_ivme_rampasi.
+        self.hiz_rampasini_sifirla()
 
     def kalkis_kapisi_degerlendir(self) -> bool:
         """B15 — KALKIS KAPISI. Bir kez acilir, geri KAPANMAZ.
@@ -216,12 +296,45 @@ class ModeContext:
         if min(yukseklikler) < self.kalkis_esik_m:
             return False
 
-        # KAPI ACILIYOR — centroid'i ucaklarin KENDI konumlarindan tohumla.
-        # SwarmState'e BILEREK guvenilmiyor: swarm_fsm kapaliysa (B16) ya da
-        # compute_centroid hic kosmadiysa oradan (0,0,0) gelir. Ucaklarin
-        # kendi pos_x/y/z ortalamasi zaten centroid'in TANIMI, yani bu
-        # tohumlama hem dogru hem de B16'nin ayni tuzagini kapatiyor.
+        # KAPI ACILIYOR — centroid ve heading ucaklarin KENDI konumundan.
+        self.konumdan_tohumla()
+        self.kalkis_tamam = True
+        return True
+
+    def konumdan_tohumla(self) -> bool:
+        """Centroid'i ve heading'i ucaklarin OLCULEN konumundan kurar.
+
+        SwarmState'e BILEREK guvenilmiyor: swarm_fsm kapaliysa (B16) ya da
+        compute_centroid hic kosmadiysa oradan (0,0,0) gelir. Ucaklarin
+        kendi pos_x/y/z ortalamasi zaten centroid'in TANIMI, yani bu
+        tohumlama hem dogru hem de B16'nin ayni tuzagini kapatiyor.
+
+        🔴 B17 — HEADING DE TOHUMLANIR (30 Agustos 2026).
+        SwarmState.formation_heading_deg swarm_fsm tarafindan HIC
+        hesaplanmiyordu ve kalici olarak 0.0 idi (swarm_context.py:73
+        tanimli, atama yoktu). Sonucu: mode_manager heading'i 0 = KUZEY
+        saniyor; pilot SwC ile gercek bir formasyon secmisse ilk
+        FormationCommand slotlari kuzeye dizer ve suru KIMSENIN KOMUT
+        VERMEDIGI bir donus yapar — tam kontrolun pilota gectigi anda.
+        7 m aralikta kanatlar ~10 m yer degistiriyordu.
+
+        Neden GEOMETRIDEN degil OLCULEN YAW'dan: cizgi formasyonunun
+        geometrisi IKI YONLU BELIRSIZ (hangi uc on?), olculen yaw degil.
+        Dairesel ortalama sart — 359/0/1 okunan bir suruda aritmetik
+        ortalama guneyi gosterirdi.
+
+        IKI YERDEN CAGRILIR: kalkis kapisi acilirken ve KONTROL PILOTA
+        GECERKEN (READY girisi, madde 25). Ikincisi olmazsa suru READY'de
+        kapinin acildigi 2 m'ye GERI DALAR — ayrinti mode_manager_node
+        _on_state_entry(READY).
+
+        Returns:
+            bool: tohumlandi mi (eksik ajan varsa False).
+        """
         n = len(self.agent_ids)
+        if n == 0 or not self.all_agents_seen():
+            return False
+
         self.centroid_x = sum(
             float(self.agent_statuses[a].pos_x) for a in self.agent_ids
         ) / n
@@ -232,26 +345,89 @@ class ModeContext:
             float(self.agent_statuses[a].pos_z) for a in self.agent_ids
         ) / n
 
-        # 🔴 B17 — HEADING'I DE TOHUMLA (30 Agustos 2026).
-        # SwarmState.formation_heading_deg swarm_fsm tarafindan HIC
-        # hesaplanmiyordu ve kalici olarak 0.0 idi (swarm_context.py:73
-        # tanimli, atama yoktu). Sonucu: kapi acilir acilmaz mode_manager
-        # heading'i 0 = KUZEY saniyor; pilot SwC ile gercek bir formasyon
-        # secmisse ilk FormationCommand slotlari kuzeye dizer ve suru
-        # KIMSENIN KOMUT VERMEDIGI bir donus yapar — tam kontrolun pilota
-        # gectigi anda. 7 m aralikta kanatlar ~10 m yer degistiriyordu.
-        #
-        # Neden GEOMETRIDEN degil OLCULEN YAW'dan: cizgi formasyonunun
-        # geometrisi IKI YONLU BELIRSIZ (hangi uc on?), olculen yaw degil.
-        # Dairesel ortalama sart — 359/0/1 okunan bir sürüde aritmetik
-        # ortalama guneyi gosterirdi.
         self.formation_heading_deg, self.kalkis_heading_tutarlilik = \
             dairesel_ortalama_deg([
                 float(self.agent_statuses[a].heading_deg)
                 for a in self.agent_ids
             ])
+        return True
 
-        self.kalkis_tamam = True
+    def kalkis_yetkisi_var(self) -> bool:
+        """G2-K10 — ARM+kalkis komutu uretilebilir mi?.
+
+        🔴 30 Agustos saha olayinin KOKU arm'in ORTUK gerceklesmesiydi:
+        SwD'ye dokunmak EVENT_MISSION_STARTED yayinliyordu, agent_fsm onu
+        ARM'a ceviriyordu ve UC UCAK birden armlandi (§7.6). Ders "arm'i
+        gizle" degil, "arm'i ACIKCA TASARLA" idi.
+
+        G2-K10 (operator, 30 Agustos 2026) — secenek (a): SwD tek harekette
+        `arm` + `takeoff:H`, UC KAPIYLA:
+
+            1. SwA acik        -> deadman_pressed
+            2. gaz merkezde    -> command_valid (B18 kapisi)
+            3. gorev YKI'den baslatilmis  <- BURASI
+
+        Ilk ikisi joystick_interpreter'da; ucu birden ctx.takeoff_requested'i
+        kuran daldan geciyor (mode_manager_node._on_control_command: takeoff
+        YALNIZ hem deadman_pressed hem command_valid dogruyken set edilir —
+        "gecersiz pakette kalkis istenmez" kurali).
+
+        Ucuncu kapi BURASI ve YALNIZ gercek gorev durumuna bakar;
+        test_hazir_atla BILEREK KABUL EDILMIYOR. O bayrak (B3) FSM'i
+        mission_fsm olmadan READY'ye ulastirmak icin var; ARM yetkisi de
+        verseydi 30 Agustos'un aynisini "test" adi altinda tekrar ederdik.
+        Yani madde 27 (mission_fsm) + madde 28 (YKI BASLAT) bitene kadar
+        SwD SURUYU ARMLAYAMAZ — kritik yolun sirasi tam bu yuzden
+        24 -> 25 -> 27 -> 28.
+
+        Yer testinde kapi elle acilabilir (mesh'e dokunmaz, YEREL konu):
+            ros2 topic pub -1 /swarm/internal/mission/state \
+                std_msgs/msg/UInt8 "{data: 8}"
+
+        Returns:
+            bool: kalkis komutu uretilebilir mi.
+        """
+        return self.is_mission_semi_autonomous()
+
+    def kalkis_zeminini_tohumla(self) -> None:
+        """Kalkis komutu anindaki zemin z'lerini kaydeder.
+
+        Yukseklik ORIGIN'e gore olculemez: §7.5'te ucaklar YERDE dururken
+        ylp00 +1,7 m · ylp01 -0,1 m · ylp02 0,0 m okundu. Mutlak bir
+        "irtifaya ulasildi" esigi bu sapmayi hedefe eklerdi — ylp00 hedefe
+        1,7 m ERKEN, baskasi gec ulasmis sayilirdi. px4_bridge de ayni
+        secimi yapiyor: `_target_altitude_ned = _cached_pos_z - altitude`
+        (px4_bridge.py:1384), yani hedef HER UCAGIN KENDI zeminine goreli.
+        Olcut ile komut ayni referansta olmak zorunda.
+        """
+        self.kalkis_zemin_z = {
+            aid: float(st.pos_z)
+            for aid, st in self.agent_statuses.items()
+            if aid in self.agent_ids
+        }
+
+    def kalkis_irtifasina_ulasildi(self) -> bool:
+        """TUM ucaklar hedef irtifanin %80'ini gecti mi?.
+
+        🔴 NEDEN "2 m kapisi" YETMEZ: B15 kapisi (kalkis_esik_m = 2 m)
+        mode_manager'in YAYIN iznidir, kalkisin bitisi DEGIL. Ikisi
+        karistirilirsa suru 2 m'de READY olur ve _dispatch_hold() tarif
+        yayinlamaya baslar. Tarifin center_z'si kapinin acildigi anda
+        ucaklardan tohumlanan centroid_z'dir — yani 2 m. formation_node o
+        irtifayi hedef sanip tutar ve TIRMANIS 2 m'DE DURUR, hedef 8 m
+        iken. Ustelik hicbir yerde hata gorunmez.
+        """
+        if not self.kalkis_zemin_z:
+            return False
+        gereken = self.kalkis_irtifa_m * _KALKIS_ULASMA_ORANI
+        for aid in self.agent_ids:
+            st = self.agent_statuses.get(aid)
+            zemin = self.kalkis_zemin_z.get(aid)
+            if st is None or zemin is None:
+                return False
+            # NED: pos_z asagi POZITIF -> kazanilan yukseklik = zemin - z
+            if (zemin - float(st.pos_z)) < gereken:
+                return False
         return True
 
     def olculen_ofsetler(self) -> dict:
@@ -288,14 +464,55 @@ class ModeContext:
         new_heading = (self.formation_heading_deg + delta) % 360.0
         return new_heading
 
+    def hiz_rampasini_sifirla(self) -> None:
+        """Rampa durumunu sifirlar.
+
+        HOLD'a, INIS'e ya da IDLE'a gecerken cagrilir: yoksa bir sonraki
+        HAREKET tick'i ONCEKI hizdan devam eder ve cubuk merkezdeyken bile
+        suru kayar.
+        """
+        self.v_ileri = 0.0
+        self.v_sag = 0.0
+        self.v_yukari = 0.0
+
     def compute_centroid_delta(
         self, pitch_cmd: float, roll_cmd: float,
         throttle_cmd: float, dt: float,
     ) -> tuple[float, float, float]:
-        """Joystick girdisine gore centroid delta hesaplar (NED)."""
-        v_forward = pitch_cmd * self.max_speed_mps
-        v_right = roll_cmd * self.max_speed_mps
-        v_up = throttle_cmd * self.max_speed_mps
+        """Joystick girdisine gore centroid delta hesaplar (NED).
+
+        🔴 IVME RAMPALI — B6, 31 Agustos 2026.
+
+        ONCEDEN cubuk hiza ANINDA ceviriliyordu: tam basildiginda komut bir
+        tick'te 0 -> 2 m/s. Sartname osilasyonu -10 ile cezalandiriyor ve
+        cok rotorlu ucak o basamagi ancak sertce egilerek takip edebilir.
+
+        Rampa `manual_kinematics.slew` ile — AYNI fonksiyon
+        `swarm_movement_step` icinde de kullaniliyor, ikinci bir kopya YOK.
+
+        ⚠️ `swarm_movement_step` OLDUGU GIBI KULLANILAMADI: o fonksiyon
+        heading ile DONDURMUYOR, pitch'i dogrudan KUZEY sayiyor. Burasi
+        govde cercevesinde calisiyor (cubuk ileri = surunun BAKTIGI yon) ve
+        pilot icin dogru olan bu. Korlemesine degistirmek "ileri"nin anlamini
+        kuzeye cevirirdi — sessiz ve tehlikeli bir davranis degisikligi.
+
+        Rampa GOVDE cercevesinde uygulaniyor, dunya cercevesinde degil:
+        suru donerken komut edilen yon burnu takip etsin diye. Dunyada
+        rampalansaydi yaw sirasinda gecikme hissedilirdi.
+        """
+        v_ileri_hedef = pitch_cmd * self.max_speed_mps
+        v_sag_hedef = roll_cmd * self.max_speed_mps
+        v_yukari_hedef = throttle_cmd * self.max_speed_mps
+
+        da_xy = self.max_accel_mps2 * max(0.0, dt)
+        da_z = self.max_accel_z_mps2 * max(0.0, dt)
+        self.v_ileri = slew(self.v_ileri, v_ileri_hedef, da_xy)
+        self.v_sag = slew(self.v_sag, v_sag_hedef, da_xy)
+        self.v_yukari = slew(self.v_yukari, v_yukari_hedef, da_z)
+
+        v_forward = self.v_ileri
+        v_right = self.v_sag
+        v_up = self.v_yukari
 
         heading_rad = math.radians(self.formation_heading_deg)
         cos_h = math.cos(heading_rad)

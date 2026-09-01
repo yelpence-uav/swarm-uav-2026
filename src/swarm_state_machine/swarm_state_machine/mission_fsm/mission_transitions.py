@@ -122,6 +122,30 @@ def _from_preflight(ctx: MissionContext) -> MissionState | None:
     home_ok = ctx.sitl_mode or ctx.all_agents_home_set()
 
     if ctx.all_agents_healthy() and gps_ok and origin_ok and home_ok:
+        # 🔴 GOREV 2 KALKISI ATLAR — madde 27, 30 Agustos 2026.
+        #
+        # Sartname §5.2.2 kalkisi KUMANDAYA veriyor ("Takeoff ve land
+        # komutlari da kumanda uzerinden yapilir") ve senaryo madde 4
+        # (YKI: yari otonom moda gec) ile madde 5 (kumandadan kalkis)
+        # AYRI adimlar. SYNCHRONIZED_TAKEOFF'tan gecmek iki sekilde
+        # sartnameyi ve guvenligi bozardi:
+        #
+        #   1. O durumun girisi EVENT_MISSION_STARTED yayinliyor;
+        #      agent_fsm onu ARM'a ceviriyor (agent_fsm_node.py:304).
+        #      Yani "YKI'de BASLAT'a basmak SURUYU ARMLAR" demek olurdu —
+        #      30 Agustos saha olayinin birebir tekrari, bu sefer baska
+        #      dugumden. (gorev2.md §7.6)
+        #   2. SYNCHRONIZED_TAKEOFF'un cikisi `all_agents_in_swarm()`.
+        #      Gorev 2'de kalkisi mode_manager suruyor ve agent_fsm
+        #      IDLE'da kaliyor — o kosul HIC gerceklesmez. mission_state
+        #      8 olmaz, mode_manager'in ucuncu kapisi (G2-K10) HIC
+        #      acilmaz ve suru kalkamaz. Sessiz kilitlenme.
+        #
+        # Preflight denetimleri (saglik + GPS + origin + home) BURADA
+        # KALIYOR: G2-K10'un ucuncu kapisi artik "operator BASLAT'a basti
+        # VE ucaklar preflight'i gecti" anlamina geliyor.
+        if ctx.mission_type == MissionType.SEMI_AUTONOMOUS:
+            return MissionState.SEMI_AUTONOMOUS
         return MissionState.SYNCHRONIZED_TAKEOFF
 
     if ctx.time_in_state() > _PREFLIGHT_TIMEOUT_S:

@@ -264,6 +264,13 @@ export function DroneCard({
       )}
 
       <dl className="drone-card__stats">
+        {/* Akim yalniz OLCULUYORSA gosterilir. 0.0 A "sifir akim" degil
+            "olcum yok" demek (AgentStatus.battery_current_a sozlesmesi);
+            sabit "0.0 A" yazmak olcum varmis gibi gorunurdu. Kaynak:
+            PX4 guc modulu ya da INA226 (src/swarm_control/.../pil). */}
+        {drone.battery_current_a > 0 && (
+          <Stat label="AKIM" value={`${drone.battery_current_a.toFixed(1)} A`} />
+        )}
         <Stat label="ALT" value={`${drone.alt_m.toFixed(1)} m`} />
         <Stat label="HIZ" value={`${drone.groundspeed_mps.toFixed(1)} m/s`} />
         <Stat label="YAW" value={`${drone.yaw_deg.toFixed(0)}°`} />

@@ -1,6 +1,6 @@
 # Yelpençe — TEKNOFEST 2026 Sürü İHA
 
-**Son güncelleme:** 29 Ağustos 2026, 19:30 — rutin kontroller uçuş başınadan saha gününe indirildi (operatör kararı)
+**Son güncelleme:** 1 Eylül 2026, 11:30 — finale 5 gün; sürü hareketi ve formasyon geçişi uçtu, manevra modu doğrulama bekliyor
 
 > Claude bu dosyayı her oturumda **kendiliğinden okur.** Yeni sohbet açan
 > kişinin hiçbir şey söylemesine gerek yok; projeyi buradan anlar.
@@ -13,7 +13,8 @@
 Takım **Yelpençe**, takım numarası **752825**. TEKNOFEST 2026 Sürü İHA
 Yarışması. Üç çok rotorlu İHA bir sürü olarak otonom görev yapıyor.
 
-**Uçuş kanıtı geçildi. Sıradaki hedef final görevi. Finale 8 gün var.**
+**Uçuş kanıtı geçildi. Sürü hareketi ve formasyon geçişi de uçtu (1 Eylül).
+Sıradaki: manevra modunu doğrulamak. Finale 5 gün var.**
 
 ### 🔴 Bugünkü komut yolu finalde KULLANILAMAZ
 

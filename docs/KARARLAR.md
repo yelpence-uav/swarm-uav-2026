@@ -1,6 +1,6 @@
 # KARARLAR — verilmiş ama henüz uygulanmamış kararlar
 
-**Son güncelleme:** 30 Ağustos 2026, 00:39 — KARAR-11'in üç sorusu cevaplandı; Görev 2 kararları `docs/gorev2.md`'ye taşındı
+**Son güncelleme:** 1 Eylül 2026, 11:30 — **KARAR-15** eklendi (kaçınma eşikleri 5 m aralıkta kilitleniyor, görev günü riski). Eski: **KARAR-14** eklendi: varsayılan aralık 9 m mi 7 m mi (KARAR-13 ile operatör talimatı ÇELİŞİYOR, operatör onayı bekliyor)
 
 Sohbette verilen kararlar oturum bitince kayboluyor. Bu defter onları
 tutuyor: **ne karar verildi, neden, ne zaman uygulanacak, nasıl test edilecek.**
@@ -168,6 +168,11 @@ için şu an zararsız, ADIM 6'da değil.
 > 30 Ağustos 2026'da cevaplandı (G2-K1/K4/K5) ve ikinci RC alıcı kararıyla
 > birlikte **16 boşluk + 29 maddelik sıralı iş listesi** oraya yazıldı. Görev 2'ye
 > gelen ÖNCE o belgeyi okur; burası yalnız 28 Ağustos'un kaydı.
+>
+> **Görev 2 kararları G2-K1…G2-K10 orada, tek yerde — buraya kopyalanmıyor.**
+> En yenisi **G2-K10 (30 Ağustos, operatör): ARM yetkisi = SwD tek harekette
+> `arm`+`takeoff:H`, üç kapılı** (SwA açık · gaz merkezde · görev YKİ'den
+> başlatılmış). Gerekçesi ve uygulaması `gorev2.md` §3 + madde 25.
 
 ## Bağlam
 
@@ -537,6 +542,164 @@ seçenekleri git'te duruyor: `git show 783afab:docs/KARARLAR.md`
 | **KARAR-10** | Formasyon geçiş testi: sekans **UÇAKTA**, YKİ yalnız başlatır | ✅ 28 Ağu uçtu (5 faz, `avoid=0`). Aparat geçici — `mission1` sahaya alınınca silinecek (`YAPILACAKLAR` P3) |
 
 ---
+
+---
+
+# KARAR-12 — Kaçınmanın 3 m altındaki körlüğü
+
+**Durum:** 🟡 BEKLİYOR
+**Ne zaman:** Alçak irtifada karşılaşma ihtimali olan ilk uçuştan önce
+**Karar veren:** açık — operatöre sunuldu 31 Ağu, ertelendi
+
+## Karar
+`collision_avoidance.altitude_gate_m = 3.0` altında kaçınma setpoint'e
+**hiç dokunmuyor** (ham setpoint aynen geçiriliyor). Bu körlük kalsın mı,
+yoksa kapı arm+havada şartıyla mı düşürülsün?
+
+## Neden
+31 Ağustos 12:50 uçuşunda üç uçak **0,36 m**'ye kadar yaklaştı ve kaçınma
+**hiç ateşlemedi** — ylp00 tam o kapının altında alçalıyordu (`gate_alt`
+sayacı artıyor, `avoid=0`). Yani son savunma hattı, en çok gerektiği anda
+— yere ve birbirine yakınken — kapalı.
+
+Kapının gerekçesi de geçerli ve belgeli: irtifa `alt_amsl - home_amsl`'den
+okunuyor çünkü **EKF yerel z ~10 m kayabiliyor**; kayma yukarı yönlüyse
+uçak YERDEYKEN kapı açılır ve kaçınma yerdeki uçağı "komşu" sanıp yatay
+itme üretir.
+
+## Nasıl uygulanacak (öneri)
+Kapıyı düşürmek yerine **şart eklemek**: `irtifa >= 1.5 m VE armed VE
+uçuş modu otomatik`. Disarm bir uçak havada olamaz — bu, irtifa
+referansından bağımsız bir doğrulama (aynı numara B15 kalkış kapısında
+zaten kullanılıyor, `mode_context.kalkis_kapisi_degerlendir`).
+Maliyet ~15 satır + test.
+
+## Test
+- G0 yerde: üç uçak disarm, kapı KAPALI kalmalı (`gate_alt` artmalı)
+- G1 yerde: bir uçak armlı ve 1,5 m üstünde taşınırken kapı AÇILMALI
+- Uçuşta: `ca.log` `avoid` sayacı ve `gate_alt` sayacı birlikte okunmalı
+
+## Diğer seçenekler (operatör isterse)
+
+| Seçenek | Neden seçilmedi |
+|---|---|
+| Kapıyı olduğu gibi bırak | 31 Ağu'da 36 cm'ye kadar korumasız kalındı; tek dayanak "karşılaşmayan uçuş tasarlamak" |
+| Kapıyı 0'a indir | EKF kayması yerdeki uçağı komşu yapar — 1 Ağustos pervane kıran arızanın sınıfı |
+| Yalnız DİKEY yol vermeyi aç, yatayı kapalı tut | Ara çözüm; alçakta dikey kaçış zaten tabana takılır (`dikey_taban_m`) |
+
+---
+
+# KARAR-13 — Formasyon uçuşunda YER DİZİLİMİ kuralı
+
+**Durum:** 🟢 UYGULANACAK (bir sonraki formasyon uçuşunda)
+**Karar veren:** ölçümden çıktı, 31 Ağu
+⚠️ **Aralık kısmı ÇELİŞİYOR — bkz. KARAR-14.** Yer dizilimi kuralı aynen
+geçerli; tartışmalı olan yalnız 9 m mi 7 m mi.
+
+## Karar
+Kumandadan formasyona geçilecek uçuşlarda uçaklar yere **hedef formasyonun
+şeklinde** dizilir. Rastgele dizilim kabul edilmez.
+
+## Neden
+Ölçüldü (`gorev_kanit_ucus.plan_dogrula`, sahte telemetriyle taranarak):
+
+* Rastgele dizilim → ilk morf (`YER → ÇİZGİ`) en dar an **4,83 m**,
+  kaçınma girişine pay **0,83 m**. **Aralığı büyütmek BU PAYI DÜZELTMEZ** —
+  darboğaz merkez slotu, aralıkla ölçeklenmiyor (7→14 m taramasında sayı
+  sabit kaldı).
+* Formasyon şeklinde dizilim → darboğaz `okbaşı→V` morfuna kayıyor ve
+  **aralıkla ölçekleniyor**: 7 m → 4,95 m (pay 0,95) · **9 m → 6,36 m
+  (pay 2,36)** · 10 m → 7,07 m.
+
+Bu yüzden aralık 9 m'ye çıkarıldı **ve** dizilim kuralı kondu; ikisi
+birlikte anlamlı, tek başına biri yetmiyor.
+
+## Test
+`--senaryo formasyon_gecis --aralik 9 --kuru --harita` — `SONUÇ: GEÇTİ` ve
+en kritik an ≥ 6 m olmalı.
+
+# KARAR-14 — Varsayılan formasyon aralığı: 9 m mi 7 m mi
+
+**Durum:** 🔴 OPERATÖR ONAYI BEKLİYOR — şu an kodda **7 m**
+**Karar veren:** operatör talimatı (31 Ağu, madde 29) ile ölçüm çelişti
+
+## Karar
+`ucus_ayarlari.MOD_ARALIK_M` **9.0 → 7.0 geri alındı.** Operatörün madde 29
+talimatı birebir şöyleydi: *"hiç bişey girmezsek varsayılan değer 7m
+olsun."* Talimat açık ve yeni olduğu için uygulandı.
+
+## Neden bu bir ÇELİŞKİ
+KARAR-13 aynı gün aralığı **7 → 9 m** çıkarmıştı ve gerekçesi ölçümdü:
+
+| aralık | `okbaşı→V` en dar an | kaçınma girişine (d0 = 4 m) pay |
+|--------|----------------------|----------------------------------|
+| 7 m    | 4,95 m               | **0,95 m**                       |
+| 9 m    | 6,36 m               | 2,36 m                           |
+
+31 Ağustos kalkışında ölçülen sürüklenme: ylp01 **2,17 m** · ylp00 0,90 m ·
+ylp02 0,18 m. Yani 7 m'de pay, ölçülen sürüklenmenin **altında** —
+`okbaşı→V` morfunda kaçınma **tetiklenebilir.** Çarpışma değil: formasyon
+bozulur, ölçüm kirlenir. İkinci etki: durgun formasyonda uçaklar kaçınma
+**çıkış** eşiğinin (6,5 m) yalnız 0,5 m üstünde kalır — bir kez açılan
+kaçınma uzun süre kapanmaz.
+
+`python3 src/gcs/ucus_ayarlari.py` bu iki uyarıyı **kendisi basıyor**.
+
+## Operatörün seçeceği
+- **(A) 7 m kalsın** — talimat aynen. Formasyon geçişli uçuşta kaçınma
+  tetiklenebileceği bilinerek uçulur; kayıttan `avoid` sayacına bakılır.
+- **(B) 9 m'ye dönülsün** — KARAR-13 korunur, saha ~%29 daha geniş ister.
+- **(C) Varsayılan 7 kalsın, formasyon geçişli uçuşlarda kutuya 9 yazılsın**
+  — 🟢 **önerilen.** Madde 29 zinciri sayıyı BAŞLAT paketiyle üç uçağa
+  birden gönderiyor, yani tek kutuya `9` yazmak yeterli; kod değişmiyor.
+
+## Test
+`--senaryo formasyon_gecis --aralik <7 ya da 9> --kuru --harita`; ayrıca
+`python3 src/gcs/ucus_ayarlari.py` uyarıları okunur.
+
+# KARAR-15 — Kaçınma eşikleri 5 m aralıkta KİLİTLENİYOR
+
+**Durum:** 🔴 OPERATÖR KARARI BEKLİYOR — görev günü riski
+**Karar veren:** şartname okumasından çıktı, 1 Eylül 2026
+
+## Sorun
+
+Şartname senaryo madde 3: *"Formasyon sırasında ajanlar arası X (**Örn: 5m**)
+metre olacaktır."* Aralığı hakem söylüyor.
+
+Bizim kaçınma eşiklerimiz:
+
+| | |
+|---|---|
+| giriş (`d0`) | 4,0 m |
+| **çıkış** (`d0 + hist`) | **6,5 m** |
+| hakemin örnek aralığı | **5,0 m** |
+
+5 m aralıkta uçaklar nominal olarak **çıkış eşiğinin altında** durur. Yani
+kaçınma bir kez açılırsa **hiçbir zaman kapanamaz** — formasyon kurulamaz.
+Üstelik giriş eşiğine pay yalnız 1,0 m, oysa ölçülen sürüklenme 2,17 m'ye
+kadar çıktı; kaçınma rutin olarak tetiklenir.
+
+**Bu teorik değil:** 31 Ağustos V geçişinde birebir yaşandı — kaçınma
+ylp01'de 666, ylp02'de 633 kare açık kaldı ve V formasyonu hiç kurulamadı.
+
+`canli_param.ARALIK_ALT_M = 4.0` olduğu için kutuya 5 yazmak **kabul edilir**,
+yani hata vermeden başarısız oluruz.
+
+## Seçenekler
+
+- **(A) Görev 2 için eşikleri küçült** — giriş 3,0 m / çıkış 4,0 m. 5 m'de
+  çıkış eşiğinin 1 m üstünde kalınır. Uçak gövdesi ~0,5 m, yani 3 m hâlâ altı
+  gövde genişliği. 🟢 **önerilen**, ama bir EMNİYET eşiği ve KARAR-12
+  (kaçınmanın 3 m altı körlüğü) ile doğrudan ilişkili.
+- **(B) Alt sınırı yükselt** — `ARALIK_ALT_M`'i 7 m yap, 5 m talebini reddet.
+  Şartnameye aykırı; hakem 5 m derse görev başarısız.
+- **(C) Dokunma** — 5 m gelirse kaçınma kilitlenir, bilerek uçulur.
+
+## Test
+
+`--senaryo formasyon_gecis --aralik 5 --kuru` + `ucus_ayarlari.py` uyarıları;
+sonra tek formasyon geçişli kısa uçuşta `ca.log` `avoid=` sayacı sıfır kalmalı.
 
 # Karar şablonu (yeni karar eklerken kopyala)
 

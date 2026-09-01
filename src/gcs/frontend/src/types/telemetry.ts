@@ -248,12 +248,33 @@ export interface IkiliMesafe {
   mesafe_m: number;
 }
 
+/** Sürü kumandasının YORUMLANMIŞ komutu (ham PWM değil).
+ *  rc_eksen'den geçmiş hâli — işaret hatalarını ham kanal gizler. */
+export interface KumandaVerisi {
+  pitch: number;
+  roll: number;
+  yaw: number;
+  gaz: number;
+  deadman: boolean;      // SwA emniyet (bu kumandada AŞAĞI = AÇIK)
+  gecerli: boolean;      // gaz merkez kapısı (B18)
+  mod: number;           // 1 = hareket, 2 = manevra
+  takeoff: boolean;
+  land: boolean;
+  formasyon: number;     // 0 belirsiz · 1 okbaşı · 2 V · 3 çizgi
+  aralik_m: number;
+  yas_s: number;         // son komuttan bu yana geçen süre
+}
+
 export interface TelemetryPayload {
   drones: DroneState[];
   alerts: Alert[];
   swarm_state: SwarmState | null;   // mavlink-sim modunda veya henüz mesaj gelmediyse null
   qr?: QRMissionData | null;        // çözülmüş son QR - henüz okunmadıysa null
   rtk?: RtkStatus | null;           // RTK düzeltmesi akıyor mu
+  // Sürü kumandası (Görev 2). Kaynak MESH — pilot uçağının komutu base ESP
+  // köprüsünden geliyor, yeni trafik yok. `yas_s` ŞART: kumanda kapanınca
+  // alıcı son çerçeveyi tutuyor, donuk veri canlı görünür (TUZAKLAR §9.5).
+  kumanda?: KumandaVerisi | null;
   mesafeler?: IkiliMesafe[];        // drone'lar arası mesafe
   connection_mode?: ConnectionMode; // backend hangi yolda - UI yarışma-dışı butonları gizler
 }

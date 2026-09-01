@@ -47,7 +47,57 @@ fi
 #   LOG hatti ayri: ESP'nin CP2102'si @115200 ([MESH] ciktilari) — izlemek icin:
 #   screen /dev/serial/by-id/usb-Silicon_Labs_CP2102...  115200  (veya pio device monitor)
 # Farkli port icin: BASE_ESP_PORT=/dev/ttyUSB1 ./yki_baslat.sh
+# =============================================================================
+# 🔴 SERI PORT OTOMATIK BULMA — 31 Agustos 2026, sahada IKI KEZ isirdi
+# =============================================================================
+# Asagidaki varsayilanlar Linux `/dev/serial/by-id/...` yollari: cihazin
+# takildigi USB portundan BAGIMSIZ, kararli adlar. macOS'ta oyle bir dizin
+# YOK ve ham ad (`cu.usbserial-XXXX`) her yeniden takista DEGISEBILIYOR —
+# rakamlar USB yolunu kodluyor.
+#
+# 31 Agustos gecesi OLCULDU — iki surec de olu porta bagliydi ve ikisi de
+# HIC HATA VERMEDI, sadece sustu:
+#     base ESP : bekledigi -11340    gercek -1340
+#     RTK      : bekledigi 113301    gercek 13301   (RTK cikarilip takildi)
+# Mesh telemetrisi 66 dakika akmadi. Once ucaklar suclandi, sonra QGC;
+# gercek sebep buydu. Belirti: `/api/health` -> "connected: 0" ve
+# px4_bridge logunda `rtk: msg=0`.
+#
+# 🔴 BELIRSIZLIKTE TAHMIN ETMEZ. Birden cok aday varsa hicbirini secmez ve
+# GURULTULU uyarir: yanlis port SESSIZ ariza, eksik port en azindan gorunur.
+seri_port_bul() {
+    local ad="$1" yapilandirilmis="$2"; shift 2
+    if [ -e "$yapilandirilmis" ]; then
+        echo "$yapilandirilmis"
+        return 0
+    fi
+    local adaylar=() d
+    for d in "$@"; do
+        [ -e "$d" ] && adaylar+=("$d")
+    done
+    if [ ${#adaylar[@]} -eq 1 ]; then
+        echo "[YKİ] ⚠ $ad: yapılandırılan port YOK ($yapilandirilmis)" >&2
+        echo "[YKİ] ✓ $ad: otomatik bulundu -> ${adaylar[0]}" >&2
+        echo "${adaylar[0]}"
+        return 0
+    fi
+    if [ ${#adaylar[@]} -eq 0 ]; then
+        echo "[YKİ] 🔴 $ad: PORT BULUNAMADI. Yapılandırılan: $yapilandirilmis" >&2
+        echo "[YKİ]    Cihaz takılı mı? Süreç yine de başlar ve port" >&2
+        echo "[YKİ]    gelince bağlanmayı dener." >&2
+    else
+        echo "[YKİ] 🔴 $ad: BİRDEN ÇOK ADAY, seçim YAPILMADI:" >&2
+        printf '[YKİ]      %s\n' "${adaylar[@]}" >&2
+        echo "[YKİ]    Doğrusunu elle ver — yanlış port SESSİZCE hiçbir şey" >&2
+        echo "[YKİ]    okumaz. Örn: ${ad//[^A-Za-z]/}_PORT=... ./yki_baslat.sh" >&2
+    fi
+    echo "$yapilandirilmis"
+    return 1
+}
+
 BASE_ESP_PORT="${BASE_ESP_PORT:-/dev/serial/by-id/usb-1a86_USB_Serial-if00-port0}"
+BASE_ESP_PORT="$(seri_port_bul 'base ESP' "$BASE_ESP_PORT" \
+    /dev/serial/by-id/*1a86* /dev/cu.usbserial-* /dev/ttyUSB*)"
 BASE_ESP_BAUD=460800
 
 # --- Ortak NED origin (sabit çapa) — SAHAYA göre güncelle ---
@@ -182,6 +232,10 @@ disown
 # 'rtk: msg=0' sayacına bakınca fark edildi. Artık okuyucu her hâlükârda
 # başlar, port gelince kendiliğinden bağlanır.
 RTK_GPS_PORT="${RTK_GPS_PORT:-/dev/serial/by-id/usb-u-blox_AG_-_www.u-blox.com_u-blox_GNSS_receiver-if00}"
+# u-blox CDC-ACM olarak gorunuyor: Linux'ta ttyACM*, macOS'ta cu.usbmodem*.
+# ESP ise CH340 (cu.usbserial-*) — ikisi ayri desen, karismiyorlar.
+RTK_GPS_PORT="$(seri_port_bul 'RTK GPS' "$RTK_GPS_PORT" \
+    /dev/serial/by-id/*u-blox* /dev/cu.usbmodem* /dev/ttyACM*)"
 RTK_TOPIC="${RTK_TOPIC:-/swarm/internal/rtcm}"
 if [ -e "$RTK_GPS_PORT" ]; then
   echo "[YKİ] RTK okuyucu başlatılıyor ($RTK_GPS_PORT -> $RTK_TOPIC)..."

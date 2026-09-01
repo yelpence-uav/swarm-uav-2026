@@ -91,6 +91,23 @@ fi
 # durumu okunamadi ve once "MAVROS olmus" sanildi. `docker run -e` ile verilince
 # konteyner yapilandirmasina yazilir ve her `docker exec` otomatik alir.
 # DIKKAT: yalniz konteyner YENIDEN OLUSTURULUNCA gecerli olur; restart yetmez.
+# INA226 pil olcumu I2C uzerinden okunuyor (31 Agustos 2026). Cihaz her
+# ucakta olmayabilir ve OLMAYAN bir `--device` docker run'u BASLATMAZ —
+# RC alicisiyla ayni gerekce (yukarida satir ~51). O yuzden kosullu.
+#
+# ⚠️ ON KOSUL: /dev/i2c-1 ancak I2C ACIKSA olusur —
+#     /boot/firmware/config.txt : dtparam=i2c_arm=on   (yeniden baslatir)
+#     cekirdek modulu           : i2c-dev              (`modprobe i2c-dev`)
+#     kalici                    : echo i2c-dev >> /etc/modules
+# Yoksa bu satir sessizce atlanir ve ina226_node "I2C acik degil" der.
+I2C_DEVICE=()
+if [ -e /dev/i2c-1 ]; then
+  I2C_DEVICE=(--device /dev/i2c-1)
+  echo "[run_drone] /dev/i2c-1 konteynere aktariliyor (INA226)"
+else
+  echo "[run_drone] /dev/i2c-1 YOK — INA226 okunamaz (I2C kapali olabilir)"
+fi
+
 docker run -d --name "$NAME" \
   --network host \
   --restart unless-stopped \
@@ -98,6 +115,7 @@ docker run -d --name "$NAME" \
   --device /dev/ttyAMA0 \
   --device /dev/ttyAMA4 \
   ${RC_DEVICE[@]+"${RC_DEVICE[@]}"} \
+  ${I2C_DEVICE[@]+"${I2C_DEVICE[@]}"} \
   --cap-add SYS_TIME \
   -v "$WS_DIR:/ws" \
   -e ROS_DOMAIN_ID=0 \

@@ -6,6 +6,7 @@ import { AppHeader } from "./components/AppShell/AppHeader";
 import { DroneControlPanel } from "./components/DroneControlPanel/DroneControlPanel";
 import { MapView } from "./components/Map/Map";
 import { MissionControl } from "./components/MissionControl/MissionControl";
+import { KumandaGorunum } from "./components/KumandaGorunum/KumandaGorunum";
 import { MissionPanel } from "./components/MissionPanel/MissionPanel";
 import { QRPanel } from "./components/QRPanel/QRPanel";
 import { QRPositionForm } from "./components/QRPositionForm/QRPositionForm";
@@ -160,6 +161,13 @@ export default function App() {
               teamId={teamId}
               onTeamIdChange={setTeamId}
             />
+            {/* Sürü kumandası sanal görünümü — YALNIZ Görev 2'de.
+                Görev 1'de kumanda zinciri hiç koşmuyor; paneli her zaman
+                göstermek "veri yok" kutusunu kalıcı hâle getirir ve
+                operatörü gerçek bir arıza sanmaya iter. */}
+            {selectedMissionId === MISSION_ID.SEMI_AUTONOMOUS && (
+              <KumandaGorunum kumanda={payload.kumanda ?? null} />
+            )}
             <QRPanel qr={payload.qr ?? null} />
             <QRPositionForm
               positions={qr.positions}

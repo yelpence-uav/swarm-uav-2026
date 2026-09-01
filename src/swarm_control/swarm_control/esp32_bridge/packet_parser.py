@@ -19,6 +19,36 @@ from .crc16 import crc16
 TIP_KOMUT = 0x02
 TIP_POSE = 0x04
 TIP_GOREV = 0x05
+
+# 🔴 GOREV 2 BASLAT — 31 Agustos 2026. TIP_GOREV'e YENI BIR TIP; yeni mesaj
+# tipi ACILMADI, paket buyumedi (_GOREV_FMT'te 12 bayt rezerv zaten vardi).
+#
+# NEDEN VAR: gorev YKI'den `TriggerMission` ROS SERVISIYLE baslatiliyordu ve
+# baslat.sh `ROS_LOCALHOST_ONLY=1` ile kosuyor — yani o servis YKI
+# laptopundan GORUNMUYOR (olculdu: `ros2 service list` icinde yok). Sonuc:
+# YKI'deki "Gorev 2 BASLAT" butonu ucaklara ULASAMIYORDU; 31 Agustos gecesi
+# gorev SSH ile elle tetiklendi.
+#
+# Bu tip mesh'ten gidiyor, yani Wi-Fi'ye bagimli DEGIL. Bir ucaga ulasmasi
+# yeter: o ucak SEMI_AUTONOMOUS'a gecince durum paketindeki
+# DURUM2_BAYRAK_GOREV_YARI_OTONOM biti digerlerine yayiliyor (G2-K11).
+#
+# ⚠️ Alici tarafta ARM ETMEZ. Gorev baslatmak yalniz G2-K10'un UCUNCU
+# KAPISINI acar; armlama yetkisi hala SwD'de ve kendi kapilarinda.
+GOREV_TIP_G2_BASLAT = 0x20
+
+# GOREV 2 DURDUR — kumanda yetkisini geri alir (G2-K10 ucuncu kapiyi KAPATIR).
+#
+# ⚠️ UCAN SURUYU DURDURMAZ. mode_manager bir kez READY'ye gectikten sonra
+# mission_state'i yeniden okumuyor; bu komut yalniz YENI kalkislari engeller.
+# Havadaki suruyu indirmenin yolu SwD (madde 24) ya da kill switch.
+#
+# 🔴 YAYIN OLARAK GIDER ve alicida KISA BIR SOGUMA baslatir. Sebep: durum
+# paketindeki DURUM2_BAYRAK_GOREV_YARI_OTONOM biti komsulari tetikliyor
+# (G2-K11). Tek ucak dursaydi, hala 8'de olan komsusunun biti onu HEMEN
+# yeniden baslatirdi. Soguma, bir ucak DURDUR paketini kacirsa bile
+# digerlerinin geri tetiklenmesini onluyor.
+GOREV_TIP_G2_DURDUR = 0x21
 TIP_RENK = 0x06
 TIP_DURUM = 0x07
 TIP_ORIGIN = 0x08
@@ -107,8 +137,58 @@ DURUM2_BAYRAK_ORIGIN_SYNCED = 0x02
 # Ayrica semantik olarak da DOGRU: "su an koruyamiyorum" bir DURUM,
 # bir olay degil. Kendiliginden temizlenir ve YKI surekli gosterebilir.
 DURUM2_BAYRAK_KACINMA_KORU = 0x04
+
+# 🔴 HOME_SET — 31 Agustos 2026'da eklendi, SAHADA OLCULEN bir kilitlenmeyi
+# cozmek icin. mission_fsm PREFLIGHT->SEMI_AUTONOMOUS gecisi
+# `all_agents_home_set()` istiyor ve komsularin durumunu MESH'ten okuyor.
+# home_set mesh paketinde YOKTU, yani alici tarafta hep False kaliyordu:
+#
+#     ylp01 KENDI ic durumu : home_set = true
+#     ylp00'in mesh kopyasi : home_set = false     <- kaybolan bilgi
+#
+# Sonuc: PREFLIGHT HICBIR ZAMAN gecilemez, Gorev 2 HIC baslayamaz ve
+# hicbir yerde hata gorunmez. G0 madde 18'in aynı sinifi.
+#
+# Paket boyutu DEGISMEDI (bayraklar2'de bes bos bit vardi) ve firmware
+# payload'i yalnizca tasiyor. Iki yonde de geriye donuk uyumlu:
+# eski gonderici -> bit 0 -> bugunku davranis; eski alici -> biti yok sayar.
+DURUM2_BAYRAK_HOME_SET = 0x08
+
+# 🔴 GOREV YARI OTONOM — 31 Agustos 2026, SAHADA OLCULEN ikinci kilitlenme.
+# Gorev YKI'den TriggerMission servisiyle baslatiliyor ve o servis
+# ROS_LOCALHOST_ONLY=1 yuzunden YALNIZ KENDI UCAGINA ulasiyor. Sahada
+# olculdu: ylp00 mission_state=8 oldu ve SwD ile armlandi, ylp01/ylp02
+# mission_state=1'de kaldi ve kalkisi REDDETTI —
+#     "SwD KALKIS istendi ama YETKI YOK (mission_state=1, beklenen 8)"
+# Yani suru BOLUNDU. G2-K10'un kapisi eksik kalkisi onledi (dogru
+# davranis) ama gorev de hic baslayamadi.
+#
+# Bu bit gorev durumunu mesh'e tasiyor: bir ucak SEMI_AUTONOMOUS'a
+# gecince komsulari GORUR ve KENDI preflight'ini calistirip KENDI
+# kararini verir. Dagitik kalir — komsu "sen de gec" DEMEZ, yalniz
+# "ben gectim" der.
+#
+# ⚠️ NEDEN EVENT_MISSION_STARTED KULLANILMIYOR: o olay mesh'ten zaten
+# geciyor AMA agent_fsm onu ARM'a ceviriyor (agent_fsm_node.py:304) —
+# 30 Agustos saha olayinin tetigi tam olarak oydu. Gorev baslatmak
+# ARMLAMAK DEGILDIR; ayri kanal sart.
+DURUM2_BAYRAK_GOREV_YARI_OTONOM = 0x10
 _RENK_FMT = '<Bii7x'         # renk, lat, lon, rezerv[7]
-_GOREV_FMT = '<BBbB12x'      # tip, param1, param2, bekleme, rezerv[12]
+# 🔴 GOREV 2 ARALIK/IRTIFA — madde 29, 31 Agustos 2026. Rezervden UC bayt
+# alindi; paket 16 BAYTTA KALDI, firmware DEGISMEDI (ayni numara
+# durum_paketle'de de kullanildi). Geriye kalan rezerv: 9 bayt.
+#
+# NEDEN param1/param2 KULLANILMADI: param2 int8, yani desimetre ile en
+# fazla 12.7 m irtifa tasir — sartname ornegi 15 m. Ayrica ikisi de
+# 'genel amacli' alanlar; adlandirilmis alan okunurlugu artiriyor.
+#
+# SIFIR = BELIRTILMEDI. Eski surum gonderici rezervi sifir birakir; alici
+# o zaman KENDI varsayilanini korur. Geriye donuk uyumlu.
+_GOREV_FMT = '<BBbBBH9x'
+#              |||| | |  tip, param1, param2, bekleme,
+#              |||| | +- irtifa_dm  (uint16, 0.1 m; 0 = belirtilmedi)
+#              |||| +--- aralik_dm  (uint8,  0.1 m; 0 = belirtilmedi)
+#              rezerv[9]
 _ORIGIN_FMT = '<iiiI'        # lat_1e7, lon_1e7, alt_mm, sequence
 # target_id (offset 10, rezerv[0]): guided komutun HEDEF drone'u. Mesh çerçevesi
 # id taşımaz (base düşürür, drone MAC'ten kaynak id üretir), o yüzden hedef
@@ -310,6 +390,16 @@ class DurumVeri:
         return bool(self.bayraklar2 & DURUM2_BAYRAK_KACINMA_KORU)
 
     @property
+    def home_set(self) -> bool:
+        """PX4 HOME konumu kuruldu mu (mission_fsm preflight sarti)."""
+        return bool(self.bayraklar2 & DURUM2_BAYRAK_HOME_SET)
+
+    @property
+    def gorev_yari_otonom(self) -> bool:
+        """Bu ucagin mission_fsm'i SEMI_AUTONOMOUS'ta mi (Gorev 2)."""
+        return bool(self.bayraklar2 & DURUM2_BAYRAK_GOREV_YARI_OTONOM)
+
+    @property
     def battery_volt(self) -> float:
         """Voltaj, 0.1 V çözünürlükte."""
         return self.battery_volt_x10 / 10.0
@@ -337,6 +427,20 @@ class GorevVeri:
     param1: int
     param2: int
     bekleme_suresi_s: int
+    # Madde 29 — Görev 2 başlatılırken YKİ'den gelen aralık/irtifa.
+    # 0 = BELİRTİLMEDİ; alıcı kendi varsayılanını korur.
+    aralik_dm: int = 0
+    irtifa_dm: int = 0
+
+    @property
+    def aralik_m(self) -> float:
+        """Formasyon aralığı, metre. 0.0 = belirtilmedi."""
+        return self.aralik_dm / 10.0
+
+    @property
+    def irtifa_m(self) -> float:
+        """Kalkış irtifası, metre. 0.0 = belirtilmedi."""
+        return self.irtifa_dm / 10.0
 
 
 @dataclass
@@ -378,15 +482,28 @@ class KomutVeri:
 
     @property
     def formasyon_talebi_gecerli(self) -> bool:
-        """FORMATION_CHANGE bayrağı anlamlı bir formasyonla mı geldi?
+        """FORMATION_CHANGE bayrağı anlamlı bir talep mi taşıyor?
 
-        Eski bir gönderici (bu alanlar eklenmeden önceki sürüm) bayrağı set
-        edip baytları sıfır bırakır. O talebi uygulamak sürüyü
-        FORMATION_UNKNOWN'a ve spacing=0'a göndermek demektir; alıcı bunu
-        uygulamak yerine reddetmeli.
+        Eski bir gönderici (bu alanlar 30 Temmuz'da eklenmeden önceki
+        sürüm) bayrağı set edip İKİ BAYTI DA sıfır bırakır. O talebi
+        uygulamak sürüyü spacing=0 ile FORMATION_UNKNOWN'a göndermekti;
+        alıcı bunu uygulamak yerine reddetmeli.
+
+        🔴 formasyon=0 ARTIK MEŞRU BİR TALEP — 31 Ağustos 2026. VrB
+        formasyon ana anahtarı kapatıldığında kumanda bilerek
+        `requested_formation = FORMATION_UNKNOWN` yayınlıyor ve anlamı
+        "formasyon yok, bulunduğun yeri tut". Eski kural bu isteği
+        mesh'te DÜŞÜRÜYORDU: pilot uçağı formasyondan çıkıyor, komşular
+        eski formasyonda kalıyordu — sürü ikiye bölünürdü.
+
+        AYIRT EDİCİ: eski gönderici İKİ alanı da boş bırakır. Bilinçli
+        "formasyon yok" isteğinde spacing DOLU gelir (joystick
+        `default_spacing_m`'i her çerçevede yazıyor; 31 Ağustos uçuş
+        kaydında requested_formation=0 iken bile spacing 7.0 m ölçüldü).
+        Bu yüzden şart "formasyon sıfır" değil, "İKİSİ DE sıfır".
         """
-        return bool(self.flags & KOMUT_FLAG_FORMATION_CHANGE) and \
-            self.talep_formasyon != 0
+        return bool(self.flags & KOMUT_FLAG_FORMATION_CHANGE) and not (
+            self.talep_formasyon == 0 and self.talep_spacing_dm == 0)
 
 
 @dataclass
@@ -548,7 +665,9 @@ def durum_paketle(drone_id: int, durum: int, armed: int,
                   rc_link_ok: int = 0,
                   ready_to_arm: int = 0,
                   origin_synced: int = 0,
-                  kacinma_koru: int = 0) -> bytes:
+                  kacinma_koru: int = 0,
+                  home_set: int = 0,
+                  gorev_yari_otonom: int = 0) -> bytes:
     """Durum verisi alanlarını 16 baytlık mesh payload'ına paketler (REV C).
 
     RPi kendi durumunu (agent_fsm çıktısı) ESP32'ye gönderirken kullanır.
@@ -602,6 +721,10 @@ def durum_paketle(drone_id: int, durum: int, armed: int,
         bayraklar2 |= DURUM2_BAYRAK_ORIGIN_SYNCED
     if kacinma_koru:
         bayraklar2 |= DURUM2_BAYRAK_KACINMA_KORU
+    if home_set:
+        bayraklar2 |= DURUM2_BAYRAK_HOME_SET
+    if gorev_yari_otonom:
+        bayraklar2 |= DURUM2_BAYRAK_GOREV_YARI_OTONOM
 
     # 255 = "bilinmiyor/kötü" sentineli. 25.4'ten büyük HDOP zaten kullanılamaz
     # kalitededir, sentinele kırpmak bilgi kaybetmez.
@@ -638,12 +761,15 @@ def renk_paketle(renk: int, lat: int, lon: int) -> bytes:
 
 def gorev_coz(payload: bytes) -> GorevVeri:
     """TIP_GOREV payload'ını GorevVeri'ye çözer."""
-    tip, param1, param2, bekleme = struct.unpack(_GOREV_FMT, payload)
-    return GorevVeri(tip, param1, param2, bekleme)
+    (tip, param1, param2, bekleme,
+     aralik_dm, irtifa_dm) = struct.unpack(_GOREV_FMT, payload)
+    return GorevVeri(tip, param1, param2, bekleme, aralik_dm, irtifa_dm)
 
 
 def gorev_paketle(tip: int, param1: int, param2: int,
-                  bekleme_suresi_s: int) -> bytes:
+                  bekleme_suresi_s: int,
+                  aralik_m: float = 0.0,
+                  irtifa_m: float = 0.0) -> bytes:
     """Sürü görev komutunu 16 baytlık mesh payload'a paketler.
 
     Args:
@@ -651,11 +777,26 @@ def gorev_paketle(tip: int, param1: int, param2: int,
         param1 (int): 0-255 birinci parametre.
         param2 (int): -128..127 ikinci parametre.
         bekleme_suresi_s (int): 0-255 saniye bekleme süresi.
+        aralik_m (float): formasyon aralığı, metre. 0.0 = belirtilmedi.
+        irtifa_m (float): kalkış irtifası, metre. 0.0 = belirtilmedi.
 
     Returns:
         bytes: 16 baytlık payload.
+
+    🔴 KIRPMA SESSİZ DEĞİL: aralık 1 bayt desimetre ile taşındığı için
+    tavanı 25.5 m. Üstü verilirse ValueError atılır — sessizce kırpmak
+    "12 m istedim, 25.5 m uçtu" sınıfı bir hata üretirdi.
     """
-    return struct.pack(_GOREV_FMT, tip, param1, param2, bekleme_suresi_s)
+    aralik_dm = int(round(aralik_m * 10.0))
+    irtifa_dm = int(round(irtifa_m * 10.0))
+    if not 0 <= aralik_dm <= 255:
+        raise ValueError(
+            f'aralik_m {aralik_m} mesh sinirlarinin disinda (0..25.5 m)')
+    if not 0 <= irtifa_dm <= 65535:
+        raise ValueError(
+            f'irtifa_m {irtifa_m} mesh sinirlarinin disinda (0..6553.5 m)')
+    return struct.pack(_GOREV_FMT, tip, param1, param2, bekleme_suresi_s,
+                       aralik_dm, irtifa_dm)
 
 
 def origin_coz(payload: bytes) -> OriginVeri:

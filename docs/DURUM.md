@@ -1,7 +1,36 @@
 # DURUM — şu an ne çalışıyor, ne bozuk
 
-**Son güncelleme:** 30 Ağustos 2026, 15:52 — madde 24 (kumandadan iniş) kodu **yazıldı ama DAĞITILMADI**; uçaklarda ölçülen kod `5515c20 +KİRLİ` (olay düzeltmesi ÜÇÜNDE DE var, ölçüldü). `gorev2.md` devir teslim için sadeleştirildi.
+**Son güncelleme:** 1 Eylül 2026, 11:30 — 🟢 **SÜRÜ HAREKETİ + FORMASYON GEÇİŞİ UÇTU ve çalışıyor.** 🔴 **ylp00 kalkışta roll arızası veriyor — UÇMASIN.** 🔴 ylp02'nin havadaki failsafe sebebi bilinmiyor. Manevra modu düzeltildi ama uçakta doğrulanmadı.
 
+> ### 🔴 UÇMADAN ÖNCE OKU — 1 Eylül
+>
+> | uçak | durum |
+> |---|---|
+> | **ylp00** | 🔴 **UÇMASIN.** İki bağımsız denemede PX4 `Attitude failure (roll)` → failsafe. Uçak fiziksel olarak yattı. Önce **şarjlı pil** (kalkışta 15,29 → 14,72 V çöktü, %58'di), sonra pervane/motor/kol kontrolü. |
+> | **ylp01** | 🟢 sağlam · pil %58 (15,32 V) |
+> | **ylp02** | 🟠 düştü, **kırık yok**, şu an sağlıklı (pusula 10 Hz, RTK). Havadaki `Failsafe activated` → ALTCTL sebebi **BİLİNMİYOR**. Here4 konnektörü elle sarsıldı, arıza tekrar üretilemedi. Tekrar uçurmak operatör kararı. |
+>
+> **Uçaklardaki ayarlar (üçünde de `ros2 param get` ile doğrulandı):**
+> `morf_hiz_mps=0.6` · `morf_sure_s=25.0` · `deadman_zaman_asimi_s=0.5`
+> `max_yaw_rate_deg_s=14.7` · `max_speed_mps=2.0` · `default_spacing_m=7.0`
+> `kalkis_irtifa_m=5.0` · CA `dikey_bekle_orani=0.8` · `test_hazir_atla=False`
+>
+> 🔴 **`/ws/mod_test` SİLİNDİ** — görev YKİ'den BAŞLAT'a basılmadan sürü
+> READY olmuyor (G2-K10'un üçüncü kapısı artık gerçekten çalışıyor).
+>
+> 🔴 **Manevra modu düzeltildi ama UÇAKTA DOĞRULANMADI** — hiçbir uçuş
+> manevra moduna ulaşamadı. Tek soru: "manevraya geçince irtifa korunuyor mu?"
+>
+> ⚠️ **Kaçınmanın dikey katmanı 5 m'de sığmıyor** (dikey iniş tabanı 4,0 m).
+> Kaçınmaya güvenilecek uçuşta irtifa ≥ 8 m olmalı — YKİ'de "İrtifa (m)"
+> kutusuna 8 yazmak yeterli, dağıtım gerekmez.
+>
+> ⚠️ **KARAR-14 açık**: varsayılan aralık 7 m mi 9 m mi. Şu an **7**.
+>
+> 🟠 **Şartname örnek aralığı 5 m**, kaçınmanın çıkış eşiği 6,5 m — hakem
+> "5 metre" derse kaçınma bir kez açılınca kapanmaz. Görev günü riski.
+>
+> 🟢 ylp02 diski %66 (9,6 GB boş). Uçuş kayıtlarına dokunulmadı.
 
 ## 1. Filo
 
@@ -232,11 +261,28 @@ takılınca **üçünü birden** aç, biri unutulursa tutarsız davranır:
 ## 4. Kod senkronu
 
 ```
-ucaklarda (uc de) : .surum -> commit=5515c20 +KIRLI   paketler=swarm_state_machine
-                    30 Agustos 14:53, kismi (--paket) dagitim
-repoda            : 7ac36d7 + DAGITILMAMIS madde 24 (calisma agacinda)
+ucaklarda (uc de) : .surum -> bc42d00 (main) +KIRLI
+                    paketler = swarm_state_machine + swarm_control
+                    31 Agustos 06:00, uc ucaga da dagitildi ve DOGRULANDI
+repoda            : bc42d00 + calisma agacinda ayni degisiklikler
+                    (mesh home_set + gorev yayilimi dahil)
 tam recreate      : 193c224, 30 Agustos 13:30 (restart degil, recreate)
 ```
+
+> ✅ **DAGITIM YAPILDI (31 Agustos 06:00).** Asagidaki uyari KAPANDI ama
+> gerekcesi ogretici oldugu icin duruyor:
+>
+> ~~🔴 **UCAKLARDAKI KOD ARTIK BIR TUR DAHA ESKI — ve bu sefer TEHLIKELI.**~~
+> 31 Agustos'ta suru kumandasi degisti ve `rc_eksen.TERS_YAW` **True'dan
+> False'a** cekildi (yeni kumandada yaw sagi UST uca veriyor). Ucaklardaki
+> kod hala `TERS_YAW = True`:
+>
+> **Bugun dagitim yapilmadan ucusulursa pilot SAGA cevirir, suru SOLA
+> doner** — ve hicbir yerde hata gorunmez. Dagitim ZORUNLU.
+>
+> Dagitilacak paket: `swarm_state_machine` (tek paket yeter; `swarm_core`
+> ve mesajlar degismedi). Ayrica `/ws/suru_dugumleri`'ne **`gorevfsm`**
+> eklenecek (ucune) ve `MOD_SWC_DEBOUNCE_MS=1300` env'e gecmeli.
 
 > 🔴 **`.surum` burada YANILTIYOR ve nedeni öğretici.** `+KIRLI`, dağıtımın
 > commit'lenmemiş bir çalışma ağacından yapıldığını söylüyor: `.surum`
@@ -399,6 +445,17 @@ Bunlar sahada ölçüldü, tekrar sorgulanmasın:
 - **Görev koşucusu** `--senaryo saha`: 5 nokta, 8→15 m, çizgi↔okbaşı formasyon
   değişimi, rotasyonlar, 135° güneydoğuya dönüp iniş. ~187 s görev / ~222 s video.
 - **Kuru test** kritik ayrım **8.41 m** (eşik 4.0 m) — `SONUÇ: GEÇTİ`
+- 🟢 **KUMANDADAN ÜÇ UÇAKLI KALKIŞ/İNİŞ** (31 Ağustos 15:52, pervaneli):
+  SwD ile üçü birlikte kalktı (**0,24 sn** içinde ARM), 5 m'de 20 sn asılı
+  durdu, SwD ile birlikte indi (**0,14 sn** içinde COMPLETED). Ölçülen:
+  en dar uçak arası **6,70 m sabit** · gerçek roll/pitch tepe **3,3° / 5,3°**
+  · **sıfır** mod kavgası · sürüye giden dikey komut **+0,00** (ham gaz
+  kanalı uçuş boyunca dipteyken). Uçuş 122 sn, tek müdahale yok.
+- **B19 çıkışı**: üçü de `COMPLETED → IDLE → PREFLIGHT`'e döndü (0,14 sn
+  içinde) — ikinci deneme için konteyner yeniden başlatmak GEREKMİYOR.
+- **VrB formasyon ana anahtarı** (31 Ağustos): kapalıyken sürüye giden
+  formasyon `0`, SwC bir formasyon konumunda dursa bile. Yerde ve havada
+  doğrulandı. Kanal: VrB → ch10 → `aux6`, eşik aux 800 (~PWM 1900).
   (aralık 12 m'ye çıkınca 7.07'den yükseldi)
 - **RTK-FIX üç uçakta birden** (25 Ağustos, taze survey, 1005 canlı); baz
   `1005` dahil tam RTCM seti yayınlıyor.
@@ -427,7 +484,12 @@ Bunlar sahada ölçüldü, tekrar sorgulanmasın:
 | 1 | 🔴 **HOME kayması — RTL'e güvenilmez** | RTL üç uçağı kalkışa değil aynı yanlış civara indirdi (~9 m KD). **Çözülmeden RTL'li uçuş YOK**; iniş `land` + göz önü alanla | `YAPILACAKLAR` P0 |
 | 2 | 🔴 **MAVROS GCS denetimi yalnız açılışa bakıyor** | Taşkın sonradan başlıyor: 27 Ağu'da üçü de "temiz" raporlanmışken 5 M hata / 522 MB. Otomatik onarım **yalnız Pi uptime < 15 dk**; sonrası operatörde (SSH + restart) | `YAPILACAKLAR` P0 |
 | 3 | 🟠 Görev düğümleri hiç uçmadı | Görev 1'in tamamı bunlara bağlı: `mission1`, `mission_fsm`, `vision_node`, `precision_landing`, `task_reallocator`, `maneuver_executor` | `PLAN.md` §8 |
-| 4 | 🟠 Görev 2 zinciri hiç koşmadı | `mode_manager` + `joystick_interpreter` kod hazır, dağıtılmadı | `KARARLAR` KARAR-11 |
+| 4 | 🟡 Görev 2 **yerde koştu, havada koşmadı** | Aşama D dağıtıldı ve doğrulandı: iniş · görev başlatma · kapılar. **Pervaneli uçuş YAPILMADI** | `gorev2.md` §7.13 |
+| 4f | 🔴 **`MOD_ARALIK=9.0` uçaklara GİTMEDİ** | Formasyon geçişi için aralık 7→9 m çıkarıldı (ölçümle, `ucus_ayarlari.py`), ama uçuş sonrası yapıldı ve uçaklar kapalıydı. **Formasyon uçuşundan önce env dağıt + konteyner restart** — yoksa uçakta 7 m geçerli ve okbaşı→V morfunda kaçınmaya pay 0,95 m kalır | 31 Ağu |
+| 4d | 🔴 **Üçünde de `mission_state=8`** | Üçüncü kapı AÇIK: **SwD-yukarı üç uçağı birden armlar.** Konteyner restart'ı ya da ABORT ile sıfırlanır | 31 Ağu |
+| 4e | ⚠️ `active_formation` **ÇİZGİ**'de kaldı | SwC denenirken ayarlandı; READY'ye geçilirse sürü çizgi slotlarına koşar. **Uçuştan önce restart** | 31 Ağu |
+| 4b | 🔴 **ylp00: mavros SEGFAULT** | 31 Ağu 21:12 yeniden başlatmasından sonra `[ros2run]: Segmentation fault`; yığın 11 yerine 2 düğümle kaldı. RC ölçümlerini engellemedi ama **px4_bridge mavros'suz iş göremez** | 31 Ağu, `gunluk/…/mavros.log` |
+| 4c | 🟡 ylp00'da `kumanda_web.py` koşuyor | Port 8090, salt okur, `docker exec -d` ile elle başlatıldı — `baslat.sh` bilmiyor, restart'ta kaybolur. Durdurmak: `docker exec drone1 pkill -f kumanda_web.py` | `src/gcs/kumanda_web.py` |
 | 5 | 🟡 Drone'larda repoda olmayan betikler | Bilgi versiyonsuz, kaybolabilir | `YAPILACAKLAR` P2 |
 | 6 | 🟡 ESC telemetrisi kapalı | ylp01'in 2 Ağustos düşüşünün sebebini doğrudan verirdi | `YAPILACAKLAR` P2 |
 | 7 | 🟡 Wi-Fi düşünce MAVROS log patlıyor | Bekçi kırpıyor ama **kök neden hâlâ bilinmiyor** | `TUZAKLAR` §2.23 |

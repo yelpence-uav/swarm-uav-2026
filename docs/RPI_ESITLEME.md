@@ -1,6 +1,6 @@
 # RPİ EŞİTLEME DEFTERİ — geri gelen drone'u hizaya getirme
 
-**Son güncelleme:** 30 Ağustos 2026, 13:31 — **A19 KAPANDI** (üç konteyner yeniden oluşturuldu); A12 düzeltildi; **A23 ÇALIŞIYOR**: `uart2-pi5` eklendi, i-BUS 130 Hz / 0 hata ölçüldü; eski: A23 eklendi: ikinci RC alıcısı ylp00'a takıldı (pin 29, sinyal ~3 V ölçüldü), overlay bekliyor; eski damga: 29 Ağustos 19:45 — param karşılaştırması saha gününe indirildi
+**Son güncelleme:** 1 Eylül 2026, 11:30 — **B14-B19 eklendi**: 1 Eylül kod sürümü + morf/yaw/kaçınma/deadman parametreleri; 🔴 **`mod_test` üç uçaktan da SİLİNDİ**. Eski: 31 Ağustos 23:55 — B12/B13 eklendi: B6 ivme rampası + madde 29 üç uçağa dağıtıldı, `ros2 param get` ile doğrulandı; B10 (`MOD_ARALIK`) üçünde de **7.0** ve repoyla aynı. Eski damga: 16:29 — B9/B10/B11 eklendi. Eski damga: 30 Ağustos 2026, 13:31 — **A19 KAPANDI** (üç konteyner yeniden oluşturuldu); A12 düzeltildi; **A23 ÇALIŞIYOR**: `uart2-pi5` eklendi, i-BUS 130 Hz / 0 hata ölçüldü; eski: A23 eklendi: ikinci RC alıcısı ylp00'a takıldı (pin 29, sinyal ~3 V ölçüldü), overlay bekliyor; eski damga: 29 Ağustos 19:45 — param karşılaştırması saha gününe indirildi
 
 ## Kamera ayarları — ylp02'de kalibre edildi · 28 Ağustos 2026
 
@@ -419,6 +419,17 @@ sudo sysctl -q --load=/etc/sysctl.d/60-yelpence-writeback.conf
 | B6 | `kacinma` (boş dosya) | ✅ | ❓ | ✅ | `touch ~/yelpence_ws/kacinma` |
 | B7 | Teşhis betikleri (**22 adet**) | ✅ | ❌ | ✅ | `deploy/rpi/teshis/*.sh` → `dagit.sh` **kendiliğinden taşır**, `/ws/` köküne |
 | B8 | `kayit_onar.sh` + açılışta çağrısı | ✅ | ❌ | ✅ | `dagit.sh` taşır; **etkin olması için konteyner yeniden başlatılmalı** |
+| B9 | **Kod — 31 Ağu 16:00 sürümü** (pilot kapısı · sarmal düzeltmesi · VrB ana anahtarı · dikey mandal · mesh `formasyon=0`) | ✅ | ✅ | ✅ | `dagit.sh --paket swarm_control,swarm_state_machine` + `docker restart`. **md5'ler yerelle birebir doğrulandı** |
+| B10 | `ucus_ayarlari.env` — `MOD_ARALIK` | ✅ 7.0 | ✅ 7.0 | ✅ 7.0 | 31 Ağu 23:55'te üçüne yazıldı, `ros2 param get default_spacing_m` ile doğrulandı. ⚠️ 9.0'a çıkarılmıştı, operatör kararıyla 7.0'a geri alındı (**KARAR-14 açık**) |
+| B12 | **`ucus_ayarlari.env` — `MOD_IVME` / `MOD_DIKEY_IVME`** (B6 ivme rampası, YENİ) | ✅ 1.30 / 1.00 | ✅ 1.30 / 1.00 | ✅ 1.30 / 1.00 | 31 Ağu 23:55. `ros2 param get max_accel_mps2` · `max_accel_z_mps2` ile doğrulandı |
+| B13 | **Kod — 31 Ağu 23:55 sürümü** (B6 ivme rampası · madde 29 aralık/irtifa · ayarın ROS parametresinden geçmesi · joystick havada aralık kapısı) | ✅ | ✅ | ✅ | `dagit.sh --paket swarm_core,swarm_control,swarm_state_machine` + `docker restart`. Zincir uçakta yerde denendi |
+| B14 | **Kod — 1 Eylül 11:30 sürümü** (manevra irtifa datumu · deadman zaman aşımı yedeği · morf hızı · kaçınma dikey beklemesi) | ✅ | ✅ | ✅ | `dagit.sh` + `docker restart`. **md5 üçünde de depoyla birebir doğrulandı** (`px4_bridge.py` = `59664283`) |
+| B15 | `ucus_ayarlari.env` — `MOD_MORF_HIZ` / `MOD_MORF_SURE` | ✅ 0.60 / 25.0 | ✅ | ✅ | `ros2 param get /mode_manager_node morf_hiz_mps` |
+| B16 | `ucus_ayarlari.env` — `MOD_YAW_HIZI` (25 → **türetilmiş 14.7**) | ✅ 14.7 | ✅ | ✅ | 7 m slot yarıçapında teğet hız 1,80 m/s (tavan 2,0) |
+| B17 | `ucus_ayarlari.env` — `KACINMA_DIKEY_BEKLE` | ✅ 0.80 | ✅ | ✅ | `ros2 param get /collision_avoidance dikey_bekle_orani` |
+| B18 | mode_manager `deadman_zaman_asimi_s` | ✅ 0.5 | ✅ | ✅ | Mesh bu alanı taşımıyor; 0 gelirse yerel değer kullanılır (§7.18) |
+| B19 | 🔴 **`/ws/mod_test` — SİLİNDİ** | ✅ yok | ✅ yok | ✅ yok | Görev YKİ'den başlatılmadan sürü READY olmaz (G2-K10 üçüncü kapı). Geri koymak isteyen `touch ~/yelpence_ws/mod_test` |
+| B11 | `ucus_ayarlari.env` — `MOD_KALKIS_IRTIFA` | ✅ 5.0 | ✅ 5.0 | ✅ 5.0 | 31 Ağu 14:00'te dağıtıldı, `ros2 param get` ile doğrulandı |
 
 **B3 doğrulama** (`.surum`'a güvenme, eskiyor):
 

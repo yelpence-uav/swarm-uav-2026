@@ -3637,6 +3637,15 @@ def main() -> int:
     ap.add_argument("--irtifa", type=float, default=None,
                     help="--senaryo asili icin kalkis/asili irtifasi (m); "
                          "--senaryo irtifa icin UST irtifa; g2 icin ucus irtifasi")
+    ap.add_argument("--aralik", type=float, default=None,
+                    help="Formasyon araligi (m) — senaryonun sabitini EZER. "
+                         "🔴 KUMANDADAN formasyon ucusunu kuru test etmek "
+                         "icin ZORUNLU: ucakta gecerli olan aralik "
+                         "MOD_ARALIK (ucus_ayarlari) ama formasyon_gecis "
+                         "senaryosu SEKANS_ARALIK ile plan kuruyordu, yani "
+                         "dogrulanan geometri ile uculan geometri AYRI "
+                         "olabiliyordu (31 Agustos'ta fark edildi). "
+                         "Or: --senaryo formasyon_gecis --aralik 9")
     ap.add_argument("--alcak", type=float, default=None,
                     help="--senaryo irtifa: 2. bacakta ALCALAN ucagin "
                          "irtifasi (m). Alcalan ucak = --dronelar listesinin "
@@ -3696,7 +3705,7 @@ def main() -> int:
     global ROTA_YONU_DEG, _HARITA_DOSYA, _SENARYO, LIDER, HARITA_OFSET_KD
     global _KACINMA_ACIK, ASILI_SURE_S, ASILI_IRTIFA_M, _SAHTE_TELEMETRI
     global IRTIFA_TEST_UST_M, IRTIFA_TEST_ALCAK_M, IRTIFA_TEST_SURE_S
-    global G2_MESAFE_M, G2_IRTIFA_M
+    global G2_MESAFE_M, G2_IRTIFA_M, ARALIK_M
     if a.sahte:
         # CANLI MODDA ASLA. Sahte konumla gercek komut gondermek, ucaklari
         # olmadiklari yere gore hesaplanmis hedeflere yollamak demektir —
@@ -3760,6 +3769,25 @@ def main() -> int:
             IRTIFA_TEST_UST_M = a.irtifa
         else:
             ASILI_IRTIFA_M = a.irtifa
+    if a.aralik is not None:
+        # 🔴 NEDEN VAR (31 Agustos 2026): kumandadan formasyon ucusunda
+        # gecerli aralik MOD_ARALIK_M, ama hicbir kuru test senaryosu onu
+        # kullanmiyordu — formasyon_gecis SEKANS_ARALIK_M (7 m),
+        # formasyon ise ARALIK_M (12 m) ile plan kuruyor. Yani
+        # "kuru test GECTI" demek uculacak geometrinin gectigi anlamina
+        # GELMIYORDU. Bu bayrak o boslugu kapatiyor.
+        #
+        # Alt sinir MIN_AYRIM_M: daha darinda durgun formasyon bile
+        # carpisma esiginin altinda kalir, plan kurmanin anlami yok.
+        # Ust sinir 25.5 m: mesh'te aralik desimetre-bayt ile tasiniyor
+        # (esp32_bridge tavani), ustu sessizce kirpilirdi.
+        if not MIN_AYRIM_M <= a.aralik <= 25.5:
+            ap.error(f"--aralik {MIN_AYRIM_M:.1f} ile 25.5 m arasinda olmali "
+                     "(alt: carpisma esigi, ust: mesh tavani)")
+        AYAR.SEKANS_ARALIK_M = a.aralik
+        ARALIK_M = a.aralik
+        print(f"  [--aralik] formasyon araligi {a.aralik:.1f} m olarak "
+              f"EZILDI (senaryo sabiti yerine)")
     if a.alcak is not None:
         if a.senaryo != "irtifa":
             ap.error("--alcak yalniz --senaryo irtifa icin")

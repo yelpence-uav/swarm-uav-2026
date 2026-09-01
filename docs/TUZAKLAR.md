@@ -1,6 +1,6 @@
 # TUZAKLAR — hata vermeden yanlış sonuç üretenler
 
-**Son güncelleme:** 29 Ağustos 2026, 19:35 — §2.11b eklendi (arayüz silinince artımlı derleme üç uçağı düşürdü)
+**Son güncelleme:** 31 Ağustos 2026, 16:24 — §3.16 (görev yazılımı emniyet pilotunu eziyordu) · §3.17 (formasyonsuz ofsetler içe sarmal) · §3.18 (gaz çubuğu dinlenme konumu = tam alçal) eklendi
 
 > **Bu belge CANLI.** Arşiv değil — buradaki her madde **bugün de geçerli.**
 >
@@ -1529,6 +1529,173 @@ uçururken diğerini gözle takip ederken ayırt edilemiyor.
    kararsız görünür, oysa değildir. (`git show 783afab:docs/CA.md` §7.2)
 
 
+### 3.15 🔴 `MAV_SYS_ID` bozulması — üç belirti, tek arıza
+
+31 Ağustos: uçaklar saatlerce açık kaldı, piller bitti, ylp01 brownout
+yaşadı. Sonrasında **`MAV_SYS_ID` 2 iken 3 oldu** — yani ylp02 ile aynı.
+Diğer 16 uçuş-kritik parametre sağlamdı (`param_karsilastir.py` ile
+doğrulandı); bozulan yalnız buydu.
+
+Üç ayrı belirti üretti ve hiçbiri sebebi göstermiyordu:
+
+| Belirti | Görünen |
+|---|---|
+| QGC'de **vehicle 2 hiç yok** | ylp01 kendini 3 diye tanıtıyor |
+| QGC'de **vehicle 3 sürekli kayıyor** | İki fiziksel uçak tek araca akıyor, HUD arada gidip geliyor |
+| YKİ'de **"GPS yok"** | `tgt_system=2` ≠ FCU'nun 3'ü → MAVROS `connected: false` → GPS konuları boş |
+
+🔴 **Teşhisin anahtarı ham seri akışı okumaktır.** MAVROS bağlı olmadığı için
+hiçbir ROS konusu bilgi vermiyor; ama porttan gelen MAVLink başlıkları
+sysid'yi doğrudan söylüyor:
+
+```bash
+ssh <pi> 'timeout 4 dd if=/dev/ttyAMA0 bs=1 count=600 2>/dev/null | od -An -tu1'
+# MAVLink v2: 0xFD(253) len incompat compat seq SYSID COMPID ...
+#   -> 6. bayt sysid.  Ölçülen: 14 başlığın 9'unda sysid=3, compid=1
+```
+
+**Tavuk-yumurta:** `ros2 param set` MAVROS'un bağlı olmasını ister, ama
+bağlanmıyor. Çözüm — önce FCU'nun kimliğine **geçici olarak uy**:
+
+```bash
+echo 3 > ~/yelpence_ws/tgt_system   &&  docker restart drone2   # bağlan
+ros2 param set /drone_2/mavros/param MAV_SYS_ID 2
+ros2 service call /drone_2/mavros/cmd/command mavros_msgs/srv/CommandLong \
+  "{command: 246, param1: 1.0}"                                 # FCU reboot ŞART
+echo 2 > ~/yelpence_ws/tgt_system  &&  docker restart drone2    # kalıcı
+```
+
+⚠️ **Brownout'tan sonra `param_karsilastir.py` çalıştır.** Bir parametre
+bozulduysa başkaları da bozulmuş olabilir; bu sefer bozulmamıştı ama bunu
+**ölçerek** öğrendik.
+
+---
+
+### 3.16 🔴 Görev yazılımı emniyet pilotunu EZEBİLİR — `land` tekrarı
+
+**Belirti:** Pilot çubuklara asılıyor, uçak bir an ona geliyor, sonra
+**geri alınıyor.** Dışarıdan "uçak yalpalıyor, kontrol tutmuyor" görünür.
+Hiçbir yerde hata yok.
+
+**30 Ağustos 2026, ylp00 — rosbag ölçümü:**
+
+```
+ 4,94 sn  mode_manager 'land'  -> AUTO.LAND
+ 4,99 sn  emniyet pilotu çubuklara astı (RC ch1 1501 -> 2000)
+ 5,94 sn  PX4: "Pilot took over using sticks" -> POSCTL
+ 6,94 sn  px4_bridge AUTO.LAND'i GERİ ZORLADI
+ ... aynı döngü 20 saniye boyunca SANİYEDE BİR ...
+```
+
+20 sn'de **6 mod değişimi**. Her geçiş hem pilotun çubuk girdisini hem
+konum denetleyicisini sıfırladı: istenen roll ±19,5°, **gerçek pitch
+−27,4°**. PX4 statustext'te **13 kez** "Pilot took over using sticks".
+
+**Neden oldu:** `px4_bridge._on_fsm_command` içinde 22 Ağustos'ta `offboard`
+dalına pilot kapısı konmuştu, ama yorumu AUTO.LAND/RTL'yi **bilerek** muaf
+tutuyordu ("onlar görevin kendi akışının parçası"). Bu muafiyet yanlıştı:
+görev akışı pilotun **önüne geçemez**. Üstelik `mode_manager` inişi 1 Hz
+tekrarlıyor (doğru bir tasarım — tek atışlık iptal mesh'e takılabiliyor).
+Tekrar doğruydu; yanlış olan tekrarın pilotu ezmesiydi.
+
+**Düzeltildi (31 Ağustos):** `land` ve `rtl` dallarına da
+`PILOT_FLIGHT_MODES` kapısı. **İlk `land` geçer** (o an mod OFFBOARD,
+pilot henüz devralmamış); kapıya yalnız **tekrarlar** takılır. Defter
+tutma (streaming kapatma, çapa temizleme) kapının önünde, koşulsuz.
+
+**Test:** `swarm_control/test/test_pilot_devralma.py` — üç dalın (offboard ·
+land · rtl) kapılı olduğunu ve kapının çağrıdan ÖNCE geldiğini kilitliyor.
+
+---
+
+### 3.17 🔴 "Formasyonsuz = yerinde kal" komutu SÜRÜYÜ İÇE SARMAL YAPTI
+
+**Belirti:** Kalkış bitip `formasyon_sustur` bırakıldığı anda üç uçak
+birbirine kapanmaya başlıyor. Kimse formasyon istemiyor, formasyon tipi 0.
+
+**31 Ağustos 2026 — rosbag ölçümü (uçak arası mesafe):**
+
+```
+t =  8,45 sn  (susturma AÇIK)   8,35 / 6,91 / 7,40 m
+t =  9,05 sn  (BIRAKILDI)       8,38 / 6,92 / 7,44 m
+t = 10,74 sn                    5,05 / 4,54 / 4,21 m
+t = 12,34 sn                    0,36 / 1,54 / 1,19 m   <-- 36 SANTİM
+```
+
+Kaçınma 3 m altında kapalı olduğu için (`altitude_gate_m = 3.0`, bkz. §3.12
+ailesi) hiçbir şey durdurmadı; operatör elle indirdi.
+
+**İki kusur BİRLİKTE çalışıyordu:**
+
+1. `mode_manager` `FORMATION_UNKNOWN` dalında ofsetleri **her yayında**
+   (~19 Hz) yeniden ölçüyordu.
+2. Ölçüm **dünya çerçevesinde**, tüketim **formasyon çerçevesinde**:
+   `formation_node._publish_setpoint` gömülü ofseti `heading` ile
+   **döndürüyor**.
+
+Kapalı döngü: ölç(dünya) → hedef = merkez + Rot(+214°)·ofset → uçak dönen
+hedefin peşinden yetişemiyor, geriden geliyor → yeniden ölç → ofset TEKRAR
+döndürülüyor → yarıçap her turda küçülüyor. **İçe doğru sarmal.**
+
+Slot mesafelerinin kendisi de çöküyordu — komuttan ölçüldü:
+`t=1,05 → 8,38/6,92/7,44 m` · `t=3,79 → 1,75/2,20/0,94 m`.
+
+> ⚠️ **Döndürme tek başına çarpıştırmaz** — döndürme bir izometridir,
+> mesafeleri korur. Çarpıştıran şey döndürme **+ her turda yeniden ölçüm**.
+> Teşhiste bu ikisini ayırmak şart.
+
+**Düzeltildi (31 Ağustos), iki parçalı:**
+- **Ters döndürme:** ofsetler `Rot(−heading)` ile gömülüyor; `formation_node`
+  `Rot(+heading)` uygulayınca dünya çerçevesine geri geliyor → hedef =
+  uçağın kendi konumu → kimse kımıldamıyor. Tek başına döngüyü kırar.
+- **Dondurma:** ofsetler bir kez ölçülüp sabitleniyor; READY girişinde
+  (centroid ile aynı anda) ve gerçek formasyona geçince çözülüyor.
+
+**Doğrulandı:** 31 Ağustos 15:52 uçuşunda en dar çift 20 sn boyunca
+**6,7 m'de sabit**. Üç uçak ofsetleri bağımsız hesaplayıp **3 cm içinde**
+aynı sonucu üretti.
+
+**Test:** `swarm_state_machine/test/test_formasyon_sarmali.py` — `formation_node`
+ile AYNI `rotate_offset` kullanılarak `Rot(+h)·Rot(−h) = birim` kanıtlanıyor.
+
+---
+
+### 3.18 🔴 Gaz çubuğu YAYLI DEĞİL — dinlenme konumu "tam alçal" demek
+
+**Belirti:** Sürü irtifaya varıp çubuklara yetki verdiği anda **saniyede
+2 m alçalmaya** başlıyor. Kimse çubuğa dokunmuyor.
+
+**31 Ağustos 2026 — komut ve ham kanal ölçümü:**
+
+```
+throttle_cmd = -1,00     ← uçuşun TAMAMINDA sabit, çubuk hiç oynamadı
+max_speed_mps = 2,00     → dikey komut = -1,00 x 2,0 = 2 m/s ALÇAL
+command_valid = True
+```
+
+Setpoint tarafında birebir karşılığı: `vz = +2,00 m/s` (NED, doyumda) ve
+formasyon merkezinin irtifası aynı hızda kaçıyor (`center_z 20,7 → 22,3`).
+
+**Neden:** FS-i6X'in gaz çubuğu **ortalanmıyor**, bırakıldığı yerde kalır ve
+doğal yeri **dip** (ölçülen dinlenme PWM 1001 → `throttle_cmd = −1,0`).
+B18 gaz-merkez kapısı bunu biliyordu ama **tek atışlık mandal**: yalnız SwA
+kapanınca sıfırlanıyor. Pilot bir kez ortaya getirip bırakınca kapı açık
+kalıyor, çubuk dibe dönüyor ve kimse fark etmiyor.
+
+**Düzeltildi (31 Ağustos):** AYRI bir **dikey yetki mandalı**. SwD kalkış
+kenarında sıfırlanır; açılana kadar `throttle_cmd = 0` yazılır.
+
+> 🔴 **B18 `command_valid`'i YENİDEN KURMAK ÇÖZÜM DEĞİL:** `command_valid`
+> aynı zamanda G2-K10'un üç kalkış kapısından biri. Kalkış kenarında
+> sıfırlansaydı **kalkışın kendisi bloke olurdu.** Bu yüzden ayrı mandal,
+> ve o mandal `command_valid`'e dokunmaz.
+
+**Kontrollü doğrulama (31 Ağustos 15:52):** ham gaz kanalı (ch3) uçuşun
+tamamında **1000 (dipte)** ölçüldü — yani arıza koşulu birebir tekrarlandı —
+ama sürüye giden değer **`+0,00`** kaldı.
+
+---
+
 ## 4. Mesh ve ESP32
 
 ### 4.1 Hız limiti TİP başına, HEDEF başına değil
@@ -1998,5 +2165,43 @@ devam ediyordu**: ekranda bir hata satırı, arkasından normal görünen dört
 satır. Sonraki kişi YKİ'yi ayakta sanıyor.
 ✅ Düzeltildi: `ROS_SETUP` yoksa betik **erken patlıyor** ve macOS'ta
 sarmalayıcıyı (`yki_mac.sh`) gösteriyor.
+
+
+### 9.7 🔴 macOS seri port ADI DEĞİŞİYOR — süreç ölü porta bağlı kalır, HATA VERMEZ
+
+31 Ağustos gecesi bu **iki farklı cihazda peş peşe** ısırdı ve toplam
+~1,5 saat kaybettirdi.
+
+```
+base ESP :  süreç bekliyor  /dev/cu.usbserial-11340   gerçek: -1340
+RTK      :  süreç bekliyor  /dev/cu.usbmodem113301    gerçek: 13301
+                                          ↑ fazladan bir '1'
+```
+
+**Kök sebep:** `yki_baslat.sh`'in varsayılanları Linux `/dev/serial/by-id/...`
+yolları — takıldığı porttan **bağımsız, kararlı** adlar. macOS'ta öyle bir
+dizin **yok**; ham `cu.usbserial-XXXX` adının rakamları **USB yolunu**
+kodluyor, yani cihaz başka porta/hub'a takılınca **ad değişiyor.**
+Operatör RTK'yı çıkarıp taktığı anda okuyucu onu kaybetti.
+
+🔴 **Belirti sinsi: süreç ayakta, port yok, hiçbir hata yok, sadece veri
+yok.** Teşhis sırasında önce uçaklar suçlandı, sonra QGC. Görünen tek iz:
+
+```
+/api/health          → "connected": 0
+px4_bridge logu      → rtk: msg=0        (sayaç donuk)
+lsof /dev/cu.usb*    → hiçbir süreç tutmuyor    ← EN NET iz
+```
+
+✅ **Düzeltildi:** `yki_baslat.sh`'e `seri_port_bul()` eklendi. Yapılandırılan
+port yoksa desenle arar (`cu.usbmodem*` = u-blox CDC-ACM, `cu.usbserial-*` =
+CH340 ESP). **Belirsizlikte TAHMİN ETMEZ** — birden çok aday varsa hiçbirini
+seçmez ve adayları listeleyerek bağırır. Gerekçe: yanlış port **sessiz**
+arıza, eksik port en azından görünür.
+
+⚠️ **Kalan belirsizlik:** CH340'ın benzersiz seri numarası yok, o yüzden iki
+`cu.usbserial-*` cihazı varsa hangisinin ESP olduğu ayırt edilemiyor.
+Kalıcı çözüm: **ESP'yi hep aynı USB portuna tak** ve bunu `cihazlar.md`'ye
+yaz — ad o zaman sabit kalır.
 
 ---

@@ -6,6 +6,7 @@ import time
 
 import rclpy
 from rclpy.node import Node
+from rclpy.parameter import Parameter
 from rclpy.qos import (
     DurabilityPolicy,
     HistoryPolicy,
@@ -13,7 +14,7 @@ from rclpy.qos import (
     ReliabilityPolicy,
 )
 
-from std_msgs.msg import Bool, String, UInt8
+from std_msgs.msg import Bool, Float32MultiArray, String, UInt8
 
 from swarm_core.formation_control.formation_geometry import (
     compute_slot_offsets,
@@ -21,6 +22,7 @@ from swarm_core.formation_control.formation_geometry import (
     FORMATION_OKBASI,
     FORMATION_UNKNOWN,
     FORMATION_V,
+    rotate_offset,
 )
 
 from swarm_interfaces.msg import (
@@ -32,6 +34,8 @@ from swarm_interfaces.msg import (
     SystemEvent,
 )
 
+from . import canli_param
+from . import morf_kilidi
 from .maneuver_mode import compute_agent_setpoints, compute_hold_setpoints
 from .mode_context import ModeContext
 from .mode_states import ControlMode, ModeState
@@ -54,6 +58,11 @@ _BEST_EFFORT_QOS = QoSProfile(
 
 
 class ModeManagerNode(Node):
+    # Morf kilidini dusuren cubuk esigi. rc_eksen.OLU_BANT (0.03) zaten
+    # yukarida uygulandigi icin buraya ulasan her sey GERCEK girdidir;
+    # 0.05 yalnizca gurultuye karsi ince bir pay.
+    _MORF_CUBUK_ESIGI = 0.05
+
     """Gorev 2 yari otonom suru kontrol koordinatoru."""
 
     def __init__(self) -> None:
@@ -69,9 +78,12 @@ class ModeManagerNode(Node):
         # max_* alanlari > 0 ise _on_control_command yine EZEBILIR —
         # o kanal hakem/pilot ayari icin bilerek acik birakildi.
         self._ctx.max_speed_mps = self._max_speed_mps
+        self._ctx.max_accel_mps2 = self._max_accel_mps2
+        self._ctx.max_accel_z_mps2 = self._max_accel_z_mps2
         self._ctx.max_yaw_rate_deg_s = self._max_yaw_rate_deg_s
         self._ctx.max_tilt_deg = self._max_tilt_deg
         self._ctx.kalkis_esik_m = self._kalkis_esik_m
+        self._ctx.kalkis_irtifa_m = self._kalkis_irtifa_m
         self._ctx.test_hazir_atla = self._test_hazir_atla
 
         self._last_tick_time = time.monotonic()
@@ -86,6 +98,9 @@ class ModeManagerNode(Node):
         self._timer = self.create_timer(
             1.0 / self._tick_hz, self._tick
         )
+
+        # G2-K9 / madde 29 — GOREV ONCESI CANLI AYAR.
+        self.add_on_set_parameters_callback(self._param_degisti)
 
         self.get_logger().info(
             f'ModeManagerNode baslatildi: {self._agent_ids}'
@@ -108,6 +123,10 @@ class ModeManagerNode(Node):
         # Ilk yazimda ModeContext gomulu varsayilanlariyla kosuyordu —
         # 14 Agustos dersinin ayni sinifi (MAKS_EGIM_DEG kazasi).
         self.declare_parameter('default_spacing_m', 7.0, _dnm)
+        # B6 ivme rampasi. Tek kaynak `ucus_ayarlari` MOD_IVME /
+        # MOD_DIKEY_IVME; gerekce mode_context.compute_centroid_delta.
+        self.declare_parameter('max_accel_mps2', 1.3, _dnm)
+        self.declare_parameter('max_accel_z_mps2', 1.0, _dnm)
         self.declare_parameter('max_speed_mps', 2.0, _dnm)
         self.declare_parameter('max_yaw_rate_deg_s', 25.0, _dnm)
         self.declare_parameter('max_tilt_deg', 15.0, _dnm)
@@ -117,6 +136,19 @@ class ModeManagerNode(Node):
         # B15 KALKIS KAPISI: bu yuksekligin ALTINDA hicbir tarif/setpoint
         # yayinlanmaz. Tek kaynak `ucus_ayarlari` MOD_KALKIS_ESIK.
         self.declare_parameter('kalkis_esik_m', 2.0, _dnm)
+        # 🔴 KUMANDADAN KALKIS IRTIFASI (madde 25). TEST irtifasindan
+        # (MOD_TEST_IRTIFA_M) AYRI parametre: sartname "belirlenen irtifaya
+        # (Orn: 15m)" diyor ve hakem baska bir sayi soyleyebilir; manevra
+        # testinin genligi bundan etkilenmemeli. Tek kaynak
+        # `ucus_ayarlari` MOD_KALKIS_IRTIFA -> baslat.sh env.
+        self.declare_parameter('kalkis_irtifa_m', 8.0, _dnm)
+        # 🔴 FORMASYON MORFU AYRI HIZ — 1 Eylul 2026, ucusta olculdu.
+        # Gerekce ve aritmetik: ucus_ayarlari.MOD_MORF_HIZ_MPS
+        # 🔴 MESH KOMUTUNDA deadman_timeout_s TASINMIYOR — 1 Eylul 2026.
+        # Gerekce ve olcum: asagida `_on_control_command`.
+        self.declare_parameter('deadman_zaman_asimi_s', 0.5)
+        self.declare_parameter('morf_hiz_mps', 0.6)
+        self.declare_parameter('morf_sure_s', 25.0)
         # B3: mission_fsm kapaliyken FSM'i READY'ye ulastirir. VARSAYILAN
         # FALSE — yarisma profilinde ADIM 6 acilinca kapatilir.
         self.declare_parameter('test_hazir_atla', False)
@@ -137,6 +169,12 @@ class ModeManagerNode(Node):
         self._max_speed_mps = float(
             self.get_parameter('max_speed_mps').value
         )
+        self._max_accel_mps2 = float(
+            self.get_parameter('max_accel_mps2').value
+        )
+        self._max_accel_z_mps2 = float(
+            self.get_parameter('max_accel_z_mps2').value
+        )
         self._max_yaw_rate_deg_s = float(
             self.get_parameter('max_yaw_rate_deg_s').value
         )
@@ -149,9 +187,62 @@ class ModeManagerNode(Node):
         self._kalkis_esik_m = float(
             self.get_parameter('kalkis_esik_m').value
         )
+        self._deadman_zaman_asimi_s = float(
+            self.get_parameter('deadman_zaman_asimi_s').value)
+        self._morf_hiz_mps = float(self.get_parameter('morf_hiz_mps').value)
+        self._morf_sure_s = float(self.get_parameter('morf_sure_s').value)
+        # Morf kilidinin bitis ani (time.monotonic). 0.0 = morf yok.
+        self._morf_bitis_s = 0.0
+        self._kalkis_irtifa_m = float(
+            self.get_parameter('kalkis_irtifa_m').value
+        )
         self._test_hazir_atla = bool(
             self.get_parameter('test_hazir_atla').value
         )
+
+    def _param_degisti(self, params):
+        """ros2 param set icin dogrulama ve UYGULAMA (G2-K9, madde 29).
+
+        Kapinin kendisi saf modulde (canli_param.py) — birim testle
+        kilitli olmasi sart, cunku yanlis acilmasi kalkis kapisini ya da
+        ARM yetkisini canli canli devre disi birakmak demek.
+
+        🔴 NEDEN BU GERI CAGRI GEREKLI (30 Agustos 2026'da olculdu): bu
+        dugumde geri cagri YOKTU ve butun parametreler __init__'te
+        `self._*`'a KOPYALANIYOR. Yani `ros2 param set` calisiyor, "Set
+        parameter successful" yaziyor ve dugum ESKI DEGERI kullanmaya
+        devam ediyordu — G2-K9'un tarif ettigi "SSH ile canli param" yolu
+        SESSIZ BIR NO-OP olurdu. Saha gununde hakem "aralik 5 m" der,
+        YKI'de deger degisir, suru 7 m'de ucar ve kimse anlamaz.
+        """
+        from rcl_interfaces.msg import SetParametersResult
+        for p in params:
+            try:
+                deger = canli_param.dogrula(
+                    p.name, p.value, canli_param.MODE_MANAGER_CANLI)
+            except canli_param.ParamRed as e:
+                return SetParametersResult(successful=False, reason=str(e))
+
+            if p.name == 'default_spacing_m':
+                self._default_spacing_m = deger
+                self._init_default_offsets()
+            elif p.name == 'kalkis_irtifa_m':
+                # Havadayken degistirmek anlamsiz ama zararsiz: olcut
+                # yalniz TAKEOFF'ta okunuyor ve capa px4_bridge'de zaten
+                # kurulmus durumda. Yine de gorunur olsun diye uyariyoruz.
+                if self._ctx.kalkis_komutu_verildi:
+                    self.get_logger().warning(
+                        '[mode_manager] kalkis_irtifa_m UCUS SIRASINDA '
+                        'degistirildi — bu kalkisa ETKI ETMEZ, hedef '
+                        "px4_bridge'de zaten capalandi."
+                    )
+                self._kalkis_irtifa_m = deger
+                self._ctx.kalkis_irtifa_m = deger
+
+            self.get_logger().warning(
+                f'[mode_manager] CANLI AYAR: {p.name} = {deger:g}'
+            )
+        return SetParametersResult(successful=True)
 
     def _init_default_offsets(self) -> None:
         """Varsayilan formasyon ofsetlerini olusturur."""
@@ -225,7 +316,12 @@ class ModeManagerNode(Node):
             f'/swarm/agent/drone{self._agent_id}/commands',
             _RELIABLE_QOS,
         )
+        # 🔴 FORMASYONSUZ ofsetlerin DONDURULMUS kopyasi (31 Agu kusuru,
+        # gerekce _publish_formation_command icindeki FORMATION_UNKNOWN
+        # dalinda). None = henuz olculmedi / dondurma cozuldu.
+        self._donmus_ofsetler: tuple[list, list, list] | None = None
         self._son_inis_komutu: float | None = None
+        self._son_kalkis_komutu: float | None = None
 
     def _setup_subscribers(self) -> None:
         """Abone kanallarini olusturur."""
@@ -289,6 +385,22 @@ class ModeManagerNode(Node):
             '/swarm/internal/mission/state',
             self._on_mission_state,
             _RELIABLE_QOS,
+        )
+
+        # --- MADDE 29: GOREV 2 ARALIK/IRTIFA (31 Agustos 2026) -----------
+        # YKI "Gorev 2 baslat"a basmadan once iki sayi soruyor; degerler
+        # mesh'te BASLAT paketiyle geliyor ve esp32_bridge burada duyuruyor.
+        # Mandalli QoS: dugum sonradan acilsa bile son ayari alir.
+        self.create_subscription(
+            Float32MultiArray,
+            '/swarm/public/mission/g2_ayar',
+            self._on_g2_ayar,
+            QoSProfile(
+                reliability=ReliabilityPolicy.RELIABLE,
+                durability=DurabilityPolicy.TRANSIENT_LOCAL,
+                history=HistoryPolicy.KEEP_LAST,
+                depth=1,
+            ),
         )
 
         self.create_subscription(
@@ -360,7 +472,7 @@ class ModeManagerNode(Node):
             # degil ve formasyon devir aninda beklenmedik yerlesir.
             if ctx.kalkis_heading_tutarlilik < 0.9:
                 self.get_logger().warning(
-                    '[mode_manager] UCAKLARIN YAW\'LARI DAGINIK '
+                    "[mode_manager] UCAKLARIN YAW'LARI DAGINIK "
                     f'(tutarlilik {ctx.kalkis_heading_tutarlilik:.2f} < 0.90) — '
                     f'formasyon heading={ctx.formation_heading_deg:.1f} deg '
                     'olarak tohumlandi ama bu ortalama zayif. Ucaklar ayni '
@@ -383,6 +495,21 @@ class ModeManagerNode(Node):
         if ctx.formation_change_requested:
             self._handle_formation_change()
 
+        # 🔴 PILOT SwD'YE DOKUNDU AMA YETKI YOK — SESSIZ KALMA.
+        # 30 Agustos'un asil dersi kapinin kendisi degil, kapinin sebebini
+        # SOYLEMEMESIYDI (kalkis kapisi aylarca kapali kalabilirdi ve
+        # kimse fark etmezdi). Pilot SwD'yi kaldirip hicbir sey olmadigini
+        # gorurse nedenini burada bulur.
+        if (ctx.takeoff_requested
+                and ctx.state == ModeState.PREFLIGHT
+                and not ctx.kalkis_yetkisi_var()):
+            self.get_logger().error(
+                '[mode_manager] SwD KALKIS istendi ama YETKI YOK: gorev '
+                f"YKI'den baslatilmadi (mission_state={ctx.mission_state}, "
+                'beklenen 8). G2-K10 ucuncu kapi. Madde 27+28 gerekiyor.',
+                throttle_duration_sec=2.0,
+            )
+
         ctx.takeoff_requested = False
         ctx.land_requested = False
         ctx.rtl_requested = False
@@ -401,6 +528,27 @@ class ModeManagerNode(Node):
                 or now - self._son_inis_komutu >= 1.0):
             self._inis_komutu_gonder('tekrar')
 
+        # 🔴 KALKIS KOMUTUNU DA TEKRARLA — AMA YALNIZ KAPI ACILANA KADAR.
+        #
+        # Neden tekrar: px4_bridge OFFBOARD'i _ARM_OFFBOARD_BEKLEME_S icinde
+        # aktiflestiremezse ARM'i GONDERMEZ ve akisi kapatir (px4_bridge.py:
+        # 645-655) — tek atislik bir kalkis orada sessizce olurdu. Tekrar,
+        # mod kabul edilene kadar yeniden dener. Ikisi de etkisiz-tekrar
+        # guvenli (:1313, :1377).
+        #
+        # Neden `not kalkis_tamam` ile SINIRLI: kapi acildiginda ucaklar
+        # armli ve 2 m ustundedir. O noktadan sonra `takeoff` tekrari
+        # TEHLIKELI olurdu — px4_bridge yeniden baslamis olsaydi capasi
+        # bos olurdu ve hedefi O ANKI (havadaki) z'ye gore kurup ucagi BIR
+        # H DAHA tirmandirirdi. Tekrarin degerli oldugu pencere yerdeki
+        # pencere; orada biter.
+        if (ctx.state == ModeState.TAKEOFF
+                and not ctx.kalkis_tamam
+                and ctx.kalkis_komutu_verildi
+                and (self._son_kalkis_komutu is None
+                     or now - self._son_kalkis_komutu >= 1.0)):
+            self._kalkis_komutu_gonder('tekrar')
+
         # formation_node susturması: mode_manager /raw'a KENDİSİ yazarken
         # (MANEVRA her zaman; HOLD yalnız eğik pozdayken) formasyon susar,
         # aksi hâlde formasyon sürücüdür (MOVEMENT tarif üzerinden gider).
@@ -413,6 +561,16 @@ class ModeManagerNode(Node):
         # pencereyi kapatir. formation_node 3 sn tazelenmezse zaten birakir.
         sustur = Bool()
         sustur.data = ctx.state in self._INIS_DURUMLARI or (
+            # 🔴 TIRMANIS SIRASINDA FORMASYON SUSAR (madde 25).
+            # CLAUDE.md §9 madde 8: "irtifadan once yatay hareket YOK".
+            # mode_manager TAKEOFF'ta zaten hicbir sey yayinlamiyor, ama
+            # formation_node'un elinde ONCEKI denemeden kalma bir tarif
+            # olabilir; px4_bridge taze setpoint'i kalkis hedefinin ONUNE
+            # alir (px4_bridge.py:705) ve tirmanis yerine yatay kacis olur.
+            # Susturmak bu pencereyi kapatir — inis durumlarindaki (d)
+            # kusurunun ayni sinifi.
+            ctx.state == ModeState.TAKEOFF
+        ) or (
             ctx.kalkis_tamam and (
                 ctx.state == ModeState.MANEUVER
                 or (ctx.state in (ModeState.HOLD, ModeState.READY)
@@ -437,9 +595,31 @@ class ModeManagerNode(Node):
         self, state: ModeState, old_state: ModeState
     ) -> None:
         """Yeni durum giris eylemlerini calistirir."""
+        # 🔴 IVME RAMPASINI SIFIRLA — B6, 31 Agustos 2026.
+        # MOVEMENT disina cikarken hiz durumu BAYATLAR. MOVEMENT'tan
+        # cikis yalnizca SwA birakilinca oluyor (mode_transitions
+        # ._from_movement: `not command_active`), yani "suru DURSUN"
+        # anlaminda. Sifirlanmazsa SwA tekrar acildiginda suru ESKI
+        # hizindan devam eder ve SICRAR.
+        #
+        # ⚠️ MOVEMENT'a GIRERKEN sifirlamiyoruz cunku zaten 0'dan
+        # baslamis olur; cubuk merkezdeyken rampa da 0'da durur.
+        if state != ModeState.MOVEMENT:
+            self._ctx.hiz_rampasini_sifirla()
+            # Morf kilidi de dusuruluyor: MOVEMENT disinda formasyon
+            # tarifi yayinlanmiyor, kilit bir sonraki ucusa TASINMAMALI.
+            self._morf_bitis_s = 0.0
         if state == ModeState.TAKEOFF:
-            # 🔴 EVENT_MISSION_STARTED YAYINLANMIYOR — 30 Agustos 2026 saha
-            # olayindan sonra kaldirildi.
+            # 🔴 KUMANDADAN KALKIS — madde 25, G2-K10 secenek (a).
+            #
+            # SwD tek harekette `arm` + `takeoff:H`. Komut agent_fsm'e
+            # DEGIL, px4_bridge'e DOGRUDAN gider — inis yolunun (madde 24)
+            # aynisi ve ayni gerekce: agent_fsm'in `pending_state` yolu
+            # duruma bagli ve tek tick yasiyor, iptal/kalkis yetkisi buna
+            # emanet edilemez. Ayrintili gerekce _kalkis_komutu_gonder'de.
+            #
+            # 🔴 EVENT_MISSION_STARTED HALA YAYINLANMIYOR — 30 Agustos 2026
+            # saha olayindan sonra kaldirildi ve GERI GELMIYOR.
             #
             # NE OLDU: SwD kalkis konumuna alindi -> mesh -> uc mode_manager
             # TAKEOFF'a girdi -> buradan EVENT_MISSION_STARTED yayinlandi ->
@@ -455,15 +635,52 @@ class ModeManagerNode(Node):
             # NEDEN KALDIRILDI: EVENT_MISSION_STARTED guided yolun ARM
             # TETIGI. mode_manager gorev baslaticisi DEGIL, mod yoneticisi;
             # o olayi yayinlamasi "SwD'ye dokunmak suruyu ARM eder" demek.
-            # Kalkis yetkisi B2'nin isi ve ACIKCA tasarlanacak.
-            self.get_logger().info(
-                '[mode_manager] TAKEOFF durumu — KALKIS KOMUTU URETILMIYOR. '
-                'Kalkis yetkisi B2 ile gelecek (bkz. gorev2.md). '
-                'EVENT_MISSION_STARTED bilerek YAYINLANMIYOR: agent_fsm onu '
-                'ARM tetigi olarak isliyor ve 30 Agu saha olayina yol acti.'
-            )
+            #
+            # Kalkis yetkisi artik ACIKCA tasarlandi (G2-K10, madde 25):
+            # olay yoluyla degil, px4_bridge'e DOGRUDAN komutla ve UC
+            # KAPIYLA. Fark, arm'in gizli olmasi degil ORTUK olmasiydi.
+            # Zemin z'lerini KOMUT ANINDA dondur — "irtifaya ulasildi"
+            # olcutu buna gore (bkz. ctx.kalkis_zeminini_tohumla).
+            self._ctx.kalkis_zeminini_tohumla()
+            self._kalkis_komutu_gonder('kumandadan kalkis')
 
         elif state == ModeState.READY:
+            # 🔴 KONTROL PILOTA GECIYOR — CENTROID'I TAZELE (madde 25).
+            #
+            # Kalkis kapisi 2 m'de aciliyor ve centroid'i ORADA tohumluyor.
+            # Kumandadan kalkista READY ise 0.8 x hedef irtifada (8 m icin
+            # 6,4 m) geliyor. Arada centroid TAZELENMIYOR (_on_swarm_state
+            # kapi acildiktan sonra bilerek yazmiyor) — yani READY'nin ilk
+            # _dispatch_hold'u center_z olarak hala 2 m'yi yayinlardi ve
+            # suru kontrol devralinir alinmaz 2 m'ye GERI DALARDI. Ayni sey
+            # x/y icin de gecerli: tirmanista birkac metre suruklenme olur
+            # ve bayat centroid yanal bir sicrama komutu olurdu.
+            #
+            # Ofsetler de olculen geometriden tazelenir — pilot ilk is
+            # MANEVRA'ya gecerse gomulu ucgen egilmesin (B7'nin ayni tuzagi;
+            # kapi acilisindaki tohumlamanin birebir esi).
+            # Centroid tazeleniyor: formasyonsuz ofset dondurmasi da
+            # COZULMELI. Ikisi ayni ana ait olmazsa ofsetler bir
+            # centroid'e, merkez baska bir ana ait olur ve dizilim kayar.
+            self._donmus_ofsetler = None
+            if self._ctx.konumdan_tohumla():
+                olculen = self._ctx.olculen_ofsetler()
+                if len(olculen) == len(self._agent_ids):
+                    self._formation_offsets = olculen
+                self.get_logger().info(
+                    '[mode_manager] READY — centroid ucaklarin O ANKI '
+                    f'konumundan tazelendi: ({self._ctx.centroid_x:.1f}, '
+                    f'{self._ctx.centroid_y:.1f}, {self._ctx.centroid_z:.1f}) '
+                    f'heading={self._ctx.formation_heading_deg:.1f} deg'
+                )
+            else:
+                # Buraya dusmek "bir ajanin durumu hic gelmemis" demek;
+                # PREFLIGHT kapisi bunu zaten eliyor. Sessiz kalirsa suru
+                # bayat centroid'e uyar — o yuzden ERROR.
+                self.get_logger().error(
+                    '[mode_manager] READY girisinde centroid TAZELENEMEDI '
+                    '(eksik ajan durumu) — bayat centroid kullanilacak.'
+                )
             self._pub_event(
                 SystemEvent.EVENT_FORMATION_REACHED,
                 SystemEvent.SEVERITY_INFO,
@@ -549,6 +766,25 @@ class ModeManagerNode(Node):
                 SystemEvent.SEVERITY_INFO,
                 'Görev 2 tamamlandı',
             )
+            self.get_logger().info(
+                '[mode_manager] COMPLETED — yeni denemeye hazir olmak icin '
+                'SwD YUKARI alinacak ve butun ucaklar DISARM olacak (B19). '
+                'Konteyner yeniden baslatmak GEREKMIYOR.'
+            )
+
+        elif state == ModeState.IDLE and old_state == ModeState.COMPLETED:
+            # 🔴 B19 — IKINCI DENEME icin ucus defterini TEMIZLE.
+            # Hangi alanin neden temizlendigi: ctx.ucus_durumunu_sifirla.
+            self._ctx.ucus_durumunu_sifirla()
+            self._morf_bitis_s = 0.0
+            self._son_kalkis_komutu = None
+            self._son_inis_komutu = None
+            self._init_default_offsets()
+            self.get_logger().warning(
+                '[mode_manager] COMPLETED -> IDLE: ucus defteri sifirlandi '
+                '(kalkis kapisi KAPANDI, zemin referansi silindi). Gorev '
+                "hala baslatilmissa PREFLIGHT'e gecilir ve SwD beklenir."
+            )
 
     def _dispatch_movement(self, dt: float) -> None:
         """Sürü hareket modunu yurutur."""
@@ -596,6 +832,20 @@ class ModeManagerNode(Node):
             if ctx.requested_spacing_m > 0.0
             else def_spacing
         )
+        # 🔴 MORF KILIDI — bu andan itibaren slot hizi MOD_MORF_HIZ.
+        # 31 Agustos ucusunda morf tam hizla kosuldu: iki ucak 1,2 saniyede
+        # 2,71 m/s'e cikip 4,13 m/s ile kapandi ve 1,65 m'ye yaklastilar.
+        # Kacinma dogru calisti ama 4 m'lik esikte 2,38 m'si frenlemeye
+        # gitti. Hizi dusurmek o frenlemeyi 0,20 m'ye indiriyor.
+        yeni_kilit = self._morf_bitis_s <= 0.0
+        self._morf_bitis_s = time.monotonic() + self._morf_sure_s
+        if yeni_kilit:
+            self.get_logger().warning(
+                f'[mode_manager] MORF KILIDI ACIK — slot hizi '
+                f'{self._morf_hiz_mps:.2f} m/s (seyir '
+                f'{self._ctx.max_speed_mps:.1f} m/s degil), en gec '
+                f'{self._morf_sure_s:.0f} sn sonra duser'
+            )
         self.get_logger().info(
             f'Formasyon degisikligi: {ctx.requested_formation}, spacing: {spacing}m'
         )
@@ -624,7 +874,42 @@ class ModeManagerNode(Node):
 
         ctx.command_valid = msg.command_valid
         ctx.deadman_pressed = msg.deadman_pressed
-        ctx.deadman_timeout_s = msg.deadman_timeout_s
+        # 🔴 0 = "BELIRTILMEDI" -> KENDI politikami kullan. 1 Eylul 2026,
+        # UCUSTA OLCULDU ve suru hareketini TAMAMEN olduren hataydi.
+        #
+        # OLAY: operator formasyon kurup ileri pitch verdi, YALNIZ pilot
+        # ucagi hareket etti. Kayittan (209513-209537): cubuk ±0,73'e
+        # kadar giderken ylp00 2,82 m yol aldi, ylp01 0,40 m, ylp02 0,25 m
+        # — yani ikisi de YERINDE DURDU.
+        #
+        # ZINCIR: `deadman_timed_out()` "elapsed > deadman_timeout_s"
+        # diyor. esp32_bridge mesh paketinden SwarmControlCommand kurarken
+        # bu alani DOLDURMUYOR (mesh'te yok), yani komsulara 0.0 gidiyor.
+        # 0 ile kosul her zaman dogru -> `command_active` HEP FALSE ->
+        # `mode_transitions._from_ready` MOVEMENT dondurmuyor -> ucak
+        # READY'de kalip `compute_hold_command` yayinliyor (merkez sabit,
+        # max_speed 0.0). Olculdu: komsulara giden FormationCommand'in
+        # merkezi tum ucus boyunca (+6.32,-1.43)'te dondu, hiz=0.00.
+        #
+        # Formasyon DEGISIMI calisiyordu cunku o `command_active`e bagli
+        # degil — bu yuzden ariza "yarim calisiyor" gibi gorunup gozden
+        # kacti.
+        #
+        # NEDEN TASIMA KATMANINDA DEGIL BURADA DUZELTILDI: esp32_bridge'in
+        # kendi kurali "tasima katmani politika uretmemeli"
+        # (requested_spacing_m'de birebir ayni gerekce). Zaman asimi bir
+        # POLITIKA; alici kendi degerini bilir.
+        #
+        # 0.5 sn OLCUMLE secildi: mesh komut araliginda en kotu bosluk
+        # 0,203 sn (200 ornek, std 0,05) — 2,5 kat pay.
+        #
+        # ⚠️ FAIL-SAFE YONU KORUNDU: deger 0 kalsaydi suru HIC hareket
+        # etmezdi (tehlikesiz ama islevsiz). Buradaki yedek de sonlu bir
+        # zaman asimi; "sinirsiz" DEGIL. Link koparsa suru yine durur.
+        ctx.deadman_timeout_s = (
+            msg.deadman_timeout_s if msg.deadman_timeout_s > 0.0
+            else self._deadman_zaman_asimi_s
+        )
 
         ctx.command_valid = bool(msg.command_valid)
         ctx.deadman_pressed = bool(msg.deadman_pressed)
@@ -712,6 +997,84 @@ class ModeManagerNode(Node):
         ctx.command_sequence_num = msg.sequence_num
         ctx.last_valid_command_time = time.monotonic()
 
+    def _on_g2_ayar(self, msg: Float32MultiArray) -> None:
+        """Gorev 2 baslatma ayarini uygular (aralik / irtifa).
+
+        🔴 HAVADAYKEN UYGULANMAZ. Sartname ayari GOREV ONCESI veriyor ve
+        operator de YKI'de BASLAT'a basmadan once giriyor. Havada
+        uygulamak iki ayri tehlike acardi:
+          * IRTIFA: kalkis irtifasi zaten kullanilmis olur, degistirmek
+            anlamsiz; ama TAKEOFF'a geri donulurse yanlis hedefe tirmanir.
+          * ARALIK: sürü havadayken aralik degisirse formasyon ISTENMEDEN
+            morf eder — 31 Agustos'ta bunun ne demek oldugunu gorduk.
+        Kapi `kalkis_tamam` mandaliyla: bir kez havalanildiysa kapali.
+
+        0.0 = "operator bos birakti" -> o alan icin varsayilan KORUNUR.
+        Sinirlar ve gerekceleri: canli_param.g2_ayar_dogrula.
+        """
+        v = list(msg.data)
+        ham_aralik = v[0] if len(v) > 0 else 0.0
+        ham_irtifa = v[1] if len(v) > 1 else 0.0
+        try:
+            aralik, irtifa = canli_param.g2_ayar_dogrula(
+                ham_aralik, ham_irtifa)
+        except canli_param.ParamRed as e:
+            self.get_logger().error(f'[mode_manager] GOREV 2 AYARI RED: {e}')
+            return
+
+        if self._ctx.kalkis_tamam:
+            self.get_logger().warning(
+                '[mode_manager] GOREV 2 AYARI YOK SAYILDI — suru HAVADA. '
+                f'(aralik={aralik:g} irtifa={irtifa:g}) Ayar yalniz kalkis '
+                'oncesi uygulanir; inip tekrar baslatmak gerekir.'
+            )
+            return
+
+        # 🔴 ALANLARA DOGRUDAN YAZMIYORUZ — ROS PARAMETRESINDEN GECIYORUZ.
+        # 31 Agustos 2026, UCAKTA OLCULDU: dogrudan yazan ilk surumde
+        # dugum 9.0 m kullanirken `ros2 param get default_spacing_m`
+        # hala 7.0 diyordu. Sahada bu sekilde bir saat yakilir: operator
+        # parametreye bakip "ayar gitmemis" der, oysa gitmistir.
+        # Ikinci ve daha sinsi kazanc: parametre geri cagrisi
+        # `_init_default_offsets()` cagiriyor — dogrudan yazan surumde
+        # `_formation_offsets` ESKI aralikta kaliyordu, yani FORMATION_
+        # UNKNOWN dalinda suru yeni araligi HIC gormeyecekti.
+        istekler, uygulanan = [], []
+        if aralik != canli_param.BELIRTILMEDI:
+            istekler.append(
+                Parameter('default_spacing_m', Parameter.Type.DOUBLE, aralik))
+            uygulanan.append(f'aralik={aralik:.1f} m')
+        if irtifa != canli_param.BELIRTILMEDI:
+            istekler.append(
+                Parameter('kalkis_irtifa_m', Parameter.Type.DOUBLE, irtifa))
+            uygulanan.append(f'irtifa={irtifa:.1f} m')
+        if istekler:
+            sonuclar = self.set_parameters(istekler)
+            red = [f'{i.name}: {s.reason}'
+                   for i, s in zip(istekler, sonuclar) if not s.successful]
+            if red:
+                self.get_logger().error(
+                    '[mode_manager] GOREV 2 AYARI PARAMETREDE REDDEDILDI: '
+                    + ' · '.join(red))
+                return
+            # ctx.requested_spacing_m'i parametre geri cagrisi YAZMIYOR
+            # (orasi `_default_spacing_m` + ofsetlerle ilgileniyor), o
+            # yuzden burada ayrica yaziliyor: formasyon komutunu suren
+            # alan bu.
+            if aralik != canli_param.BELIRTILMEDI:
+                self._ctx.requested_spacing_m = aralik
+        if uygulanan:
+            self.get_logger().warning(
+                '[mode_manager] GOREV 2 AYARI UYGULANDI: '
+                + ' · '.join(uygulanan)
+            )
+        else:
+            self.get_logger().info(
+                '[mode_manager] Gorev 2 ayari bos geldi — varsayilanlar '
+                f'korunuyor (aralik={self._default_spacing_m:.1f} m, '
+                f'irtifa={self._kalkis_irtifa_m:.1f} m)'
+            )
+
     def _on_mission_state(self, msg: UInt8) -> None:
         self._ctx.mission_state = msg.data
         if msg.data == 10:  # MissionState.LANDING
@@ -768,6 +1131,37 @@ class ModeManagerNode(Node):
             self._ctx.emergency_stop_requested = False
             self._ctx.land_requested = True
 
+    def _morf_hizini_uygula(self, istenen: float) -> float:
+        """Morf suruyorsa slot hizini MOD_MORF_HIZ ile sinirlar.
+
+        🔴 KAPI DISPATCH'E DEGIL YAYIN SINIRINA KONULDU — B15 kalkis
+        kapisiyla ayni gerekce: ileride eklenen her yeni formasyon yolu
+        kendiliginden yavaslamis olur, birinin hatirlamasi gerekmez.
+
+        Karar mantigi ve NEDEN oyle: `morf_kilidi.hiz_sinirla`. Burada
+        yalnizca durum tutuluyor ve log yaziliyor — sayilar orada,
+        testleri de orada.
+        """
+        ctx = self._ctx
+        cubuk = max(abs(ctx.pitch_cmd), abs(ctx.roll_cmd),
+                    abs(ctx.throttle_cmd))
+        hiz, self._morf_bitis_s, sebep = morf_kilidi.hiz_sinirla(
+            istenen, self._morf_hiz_mps, self._morf_bitis_s,
+            time.monotonic(), cubuk, self._MORF_CUBUK_ESIGI,
+        )
+        if sebep == morf_kilidi.SEBEP_CUBUK:
+            self.get_logger().warning(
+                f'[mode_manager] MORF KILIDI DUSTU — cubukla hareket '
+                f'istendi ({cubuk:.2f}). Slot hizi seyir hizina dondu; '
+                f'aksi halde formasyon merkezin gerisinde kalirdi.'
+            )
+        elif sebep == morf_kilidi.SEBEP_SURE:
+            self.get_logger().info(
+                '[mode_manager] morf kilidi suresi doldu — slot hizi '
+                'seyir hizina dondu'
+            )
+        return hiz
+
     def _publish_formation_command(self, params: dict) -> None:
         # 🔴 B15 KALKIS KAPISI — kapi kapaliyken TEK BIR tarif bile disari
         # cikmaz. Kapi dispatch'e degil YAYIN SINIRINA konuldu: boylece
@@ -800,13 +1194,18 @@ class ModeManagerNode(Node):
             'use_current_altitude', False
         )
         msg.hold_after_reached = True
-        msg.max_speed_mps = params.get('max_speed_mps', 0.0)
+        msg.max_speed_mps = self._morf_hizini_uygula(
+            float(params.get('max_speed_mps', 0.0)))
         msg.source_module = 'mode_manager'
 
         num_agents = len(self._agent_ids)
         msg.agent_ids = [int(a) for a in self._agent_ids]
 
         if ftype in (FORMATION_OKBASI, FORMATION_V, FORMATION_CIZGI) and num_agents > 0:
+            # Gercek bir formasyona geciliyor: formasyonsuz dondurmasi
+            # ARTIK GECERSIZ. Cozulmezse formasyondan cikip tekrar
+            # formasyonsuza donuldugunde ESKI dizilim geri gelirdi.
+            self._donmus_ofsetler = None
             try:
                 # wing_alpha paramdan — 45.0 GOMULUYDU (28 Agu): formasyon
                 # zincirinin geri kalani KANAT_ALFA_DEG'i paylasirken bu
@@ -844,24 +1243,76 @@ class ModeManagerNode(Node):
                 msg.offset_y = [0.0] * num_agents
                 msg.offset_z = [0.0] * num_agents
         elif ftype == FORMATION_UNKNOWN:
-            # Formasyonsuz (FORMATION_UNKNOWN): Dronelar bağımsız hareket eder
-            ox, oy, oz = [], [], []
+            # 🔴 FORMASYONSUZ = "OLDUGUN YERDE KAL". IKI KUSUR VARDI ve
+            # 31 Agustos 2026'da UC UCAKLI KALKISTA ISIRDI: ucaklar
+            # 8,38 m'den 0,36 m'ye kapandi, operator elle indirdi.
+            #
+            # (1) Ofsetler HER YAYINDA yeniden olculuyordu (~19 Hz).
+            # (2) Olcum DUNYA cercevesinde yapiliyor, tuketim FORMASYON
+            #     cercevesinde: formation_node._publish_setpoint gomulu
+            #     ofseti heading ile DONDURUYOR (rotate_offset cagrisi).
+            #
+            # Ikisi birlesince kapali bir dongu olusuyor:
+            #     olc(dunya) -> hedef = merkez + Rot(+212 deg) * ofset
+            #     -> ucak donen hedefin pesinden yetisemiyor, geriden geliyor
+            #     -> yeniden olc -> ofset TEKRAR donduruluyor
+            #     -> yaricap her turda kuculuyor
+            # Yani ICE DOGRU SARMAL. Rosbag'den olculen slot mesafeleri:
+            #     t=1,05 sn   8,38 / 6,92 / 7,44 m   <- dogru, gercek ayrim
+            #     t=3,69 sn   2,24 / 2,45 / 1,31 m
+            #     t=3,79 sn   1,75 / 2,20 / 0,94 m
+            # Kacinma 3 m altinda kapali (altitude_gate_m) oldugu icin
+            # hicbir sey durdurmadi.
+            #
+            # DUZELTME IKI PARCALI:
+            #   a) TERS DONDURME — Rot(-heading) ile gomuyoruz; boylece
+            #      formation_node'un Rot(+heading)'i ofseti dunya
+            #      cercevesine GERI getirir, hedef = ucagin kendi konumu,
+            #      kimse kimildamaz. Tek basina dongyu kirar.
+            #   b) DONDURMA — yine de BIR KEZ olcup sabitliyoruz. Surekli
+            #      yeniden olcum "formasyon"u anlamsizlastirir: suruklenme
+            #      birikir ve dizilim sessizce bozulur.
+            # Dondurma READY girisinde cozulur (orada centroid de tazeleniyor;
+            # ikisi AYNI ana bagli olmak zorunda, yoksa ofsetler bir
+            # centroid'e, merkez baska bir ana ait olur).
+            #
+            # ⚠️ rotate_offset formation_node ile AYNI fonksiyon, bilerek:
+            # iki ayri kopya isaret ya da eksen sirasinda sessizce kayabilir.
             ctx = self._ctx
-            has_telemetry = False
-            for aid in msg.agent_ids:
-                status = ctx.agent_statuses.get(aid)
-                is_pos_valid = (
-                    status is not None and (
-                        getattr(status, 'position_valid', False)
-                        or status.pos_x != 0.0
-                        or status.pos_y != 0.0
+            if self._donmus_ofsetler is not None and len(
+                    self._donmus_ofsetler[0]) == num_agents:
+                ox, oy, oz = (list(v) for v in self._donmus_ofsetler)
+                has_telemetry = True
+            else:
+                ox, oy, oz = [], [], []
+                has_telemetry = False
+                ters_h = -math.radians(ctx.formation_heading_deg)
+                for aid in msg.agent_ids:
+                    status = ctx.agent_statuses.get(aid)
+                    is_pos_valid = (
+                        status is not None and (
+                            getattr(status, 'position_valid', False)
+                            or status.pos_x != 0.0
+                            or status.pos_y != 0.0
+                        )
                     )
-                )
-                if is_pos_valid:
-                    has_telemetry = True
-                    ox.append(float(status.pos_x - ctx.centroid_x))
-                    oy.append(float(status.pos_y - ctx.centroid_y))
-                    oz.append(0.0)
+                    if is_pos_valid:
+                        has_telemetry = True
+                        dunya_x = float(status.pos_x - ctx.centroid_x)
+                        dunya_y = float(status.pos_y - ctx.centroid_y)
+                        fx, fy = rotate_offset(dunya_x, dunya_y, ters_h)
+                        ox.append(fx)
+                        oy.append(fy)
+                        oz.append(0.0)
+                if has_telemetry and len(ox) == num_agents:
+                    self._donmus_ofsetler = (list(ox), list(oy), list(oz))
+                    self.get_logger().info(
+                        '[mode_manager] formasyonsuz ofsetler OLCULDU ve '
+                        f'DONDURULDU (heading {ctx.formation_heading_deg:.1f} '
+                        'deg ile ters dondurulup gomuldu): '
+                        + ' '.join(f'a{a}=({x:+.2f},{y:+.2f})'
+                                   for a, x, y in zip(msg.agent_ids, ox, oy))
+                    )
 
             if has_telemetry and len(ox) == num_agents:
                 msg.offset_x = ox
@@ -923,6 +1374,64 @@ class ModeManagerNode(Node):
         ModeState.RTL,
         ModeState.EMERGENCY,
     )
+
+    def _kalkis_komutu_gonder(self, sebep: str) -> None:
+        """px4_bridge'e `arm` + `takeoff:H` yayinlar (G2-K10 secenek a).
+
+        🔴 UCUNCU KAPI BURADA. Gecis kapisi (_from_preflight) durum
+        degistirmeyi engelliyor; ASIL kilit bu — komutun uretildigi tek yer.
+        B15'in dersi birebir aynidir: kapi dispatch'e degil YAYIN SINIRINA
+        konur, boylece ileride eklenen her yeni yol da kendiliginden kapali
+        kalir. Bir gun biri "TAKEOFF'a su yoldan da girilsin" derse arm
+        yetkisi yine bu satirdan gecmek zorunda.
+
+        SIRA ONEMLI — once `arm`, sonra `takeoff:H`:
+          * `arm` dali OFFBOARD'i isteyip aktiflesince ARM gonderiyor ve
+            YATAY KILIDIN referansini (`_arm_z`) kuruyor
+            (px4_bridge.py:1320-1329). Kilit ARM'dan baslar, takeoff'tan
+            degil — 2 Agustos'ta arm ile takeoff arasindaki 6,2 saniyede
+            ucak yerde konum tutmaya calisip yan yatmisti.
+          * `takeoff:H` yatay capayi donduruyor ve hedefi HER UCAGIN KENDI
+            zeminine goreli kuruyor (px4_bridge.py:1384-1389). Sartname
+            senaryo madde 5 "baslangic formasyonunu koruyarak yukselir"
+            diyor; capa sayesinde tirmanis DIKEY — ucaklar hesaplanan
+            slotlara kosmuyor, hakemlerin dizdigi yerden kalkiyor.
+
+        Ikisi de TEKRARA DAYANIKLI: px4_bridge armliyken `arm`'i yok sayar
+        (:1313), capa kuruluyken `takeoff`i yok sayar (:1377).
+        """
+        if not self._ctx.kalkis_yetkisi_var():
+            self.get_logger().error(
+                "[mode_manager] KALKIS KOMUTU URETILMEDI — gorev YKI'den "
+                'BASLATILMADI (mission_state='
+                f'{self._ctx.mission_state}, beklenen 8=SEMI_AUTONOMOUS). '
+                'G2-K10: SwD tek basina suruyu ARMLAYAMAZ. Sirasiyla madde '
+                '27 (mission_fsm) ve 28 (YKI BASLAT butonu) gerekiyor; yer '
+                'testinde /swarm/internal/mission/state konusuna 8 basilir.',
+                throttle_duration_sec=2.0,
+            )
+            return
+        if self._agent_id == 0:
+            self.get_logger().error(
+                '[mode_manager] KALKIS KOMUTU GONDERILEMEDI — agent_id=0. '
+                'baslat.sh -p agent_id:=${AGENT_ID} gecirmek ZORUNDA.',
+                throttle_duration_sec=2.0,
+            )
+            return
+
+        for komut in ('arm', f'takeoff:{self._ctx.kalkis_irtifa_m:.1f}'):
+            m = String()
+            m.data = komut
+            self._komut_pub.publish(m)
+        self._son_kalkis_komutu = time.monotonic()
+        # Kalkisi BIZ suruyoruz: TAKEOFF'un bitis olcutu artik hedef irtifa
+        # (mode_transitions._from_takeoff), 2 m'lik yayin kapisi DEGIL.
+        self._ctx.kalkis_komutu_verildi = True
+        self.get_logger().warning(
+            f'[mode_manager] px4_bridge -> arm + takeoff:'
+            f'{self._ctx.kalkis_irtifa_m:.1f} ({sebep})',
+            throttle_duration_sec=2.0,
+        )
 
     def _inis_komutu_gonder(self, sebep: str) -> None:
         """px4_bridge'e dogrudan 'land' yayinlar.

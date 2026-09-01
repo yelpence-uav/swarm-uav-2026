@@ -1,6 +1,6 @@
 # GÜNLÜK — oturum devir teslim kaydı
 
-**Son güncelleme:** 30 Ağustos 2026, 15:52 — madde 24 kodu yazıldı (dağıtılmadı); Görev 2 devrediliyor
+**Son güncelleme:** 1 Eylül 2026, 11:30 — 🟢 **SÜRÜ HAREKETİ + FORMASYON GEÇİŞİ UÇTU.** 🔴 İki saha olayı: ylp02 saha dışına düştü (PX4 failsafe), ylp00 kalkışta roll arızası. Dört kod düzeltmesi dağıtıldı.
 
 Tek bilgisayar, sırayla çalışıyoruz. Biri kalkıp diğeri oturduğunda **hem
 kişi hem Claude** nerede kalındığını buradan anlar.
@@ -35,6 +35,383 @@ Claude'a **"oturumu kapat"** dersen bu kaydı o yazar.
 - ylp00: (kill switch? pil? nerede? konteyner ayakta mı?)
 - ylp02:
 ```
+
+---
+
+## 2026-09-01 11:30 — Operatör + Claude (🟢 sürü hareketi UÇTU · 🔴 iki saha olayı)
+
+> **Uzun saha oturumu.** Dört kod düzeltmesi yazıldı, test edildi, dağıtıldı ve
+> üçü uçakta doğrulandı. İki uçak olayı yaşandı; ikisi de ölçüldü, biri
+> yazılım kaynaklıydı ve düzeltildi, diğeri **hâlâ açık.**
+
+**Ne yapıldı**
+
+- 🟢 **SÜRÜ HAREKETİ ARTIK ÇALIŞIYOR.** Önceki uçuşta çubuk verilince yalnız
+  pilot uçağı hareket ediyordu (ölçüldü: ylp00 2,82 m, ylp01 0,40 m,
+  ylp02 0,25 m). Sebep: mesh `deadman_timeout_s` taşımıyor, komşulara 0.0
+  gidiyordu → `command_active` hep False → `READY → MOVEMENT` hiç olmuyordu.
+  Düzeltildi; bu oturumdaki uçuşta formasyon geçişleri ve sürü hareketi
+  **operatör onayıyla "güzel çalışıyor"**, kalkış/iniş de sorunsuz.
+- 🟢 **Morf hızı seyirden ayrıldı** (`MOD_MORF_HIZ=0,6 m/s`). 31 Ağustos'ta
+  iki uçak 1,65 m'ye yaklaşmıştı; kapanma 4,13 m/s idi ve 4 m'lik eşiğin
+  2,38 m'si frenlemeye gidiyordu (teori ile ölçüm 3 cm uyuştu). 0,6 m/s ile
+  frenleme 0,20 m, kaçınmaya 3,80 m kalıyor.
+- 🟢 **Kaçınmaya "dikey ayrım kurulana kadar yaklaşma yok" eklendi**
+  (`KACINMA_DIKEY_BEKLE=0,8`) — operatör önerisi. `ca_core`'un kendi ölçüm
+  tablosu dikey kipin yüksek kapanma hızlarında çöktüğünü gösteriyordu;
+  sebep ayar değil ZAMAN. Yaklaşma bileşeni silinince dikey kaçış aradığı
+  zamanı buluyor. Tüm yatay hız değil, **yalnız komşuya doğru olan bileşen**
+  siliniyor (yoksa sürü çubukla ilerlerken uçak formasyondan kopar).
+- 🟢 **Yaw hızı türetildi** (25 → **14,7 °/s**). Tutarsızdı: 25°/s, 7 m slot
+  yarıçapında 3,05 m/s teğet hız istiyordu, seyir tavanı 2,0 m/s. Formasyon
+  dönüş boyunca dağılırdı. Artık PX4 tavanı ile formasyon geometrisinin
+  küçüğü alınıyor — hakem 12 m derse kendiliğinden düşer.
+- 🟢 **Madde 29 (aralık/irtifa girişi) uçakta doğrulandı**, YKİ'den mesh
+  üzerinden görev başlatma çalıştı (`mod_test` silindikten sonra G2-K10'un
+  üçüncü kapısı gerçekten işledi).
+- 🟢 **ylp02 diski temizlendi:** %90 → %66 (3,0 → 9,6 GB). Uçuş kayıtlarına
+  dokunulmadı; kamera ham videoları (4,7 GB, hepsi 28 Ağu) operatör onayıyla
+  silindi. Kaçak `mavros.log` silinmedi, **gzip'lendi** (557 MB → 2,7 MB).
+
+**🔴 İKİ SAHA OLAYI**
+
+**① ylp02 saha dışına düştü (manevra modu) — SEBEP KISMEN AÇIK**
+
+İki ayrı şey üst üste geldi:
+
+*(a) BİZİM HATA — düzeltildi.* Manevraya geçişte üç uçak da ~1,7 m alçaldı.
+`px4_bridge.py:838` zemin ofsetini **tüm** setpoint'lere uyguluyordu; oysa o
+kural guided goto için doğru, formasyon/manevra **mutlak NED** gönderiyor.
+Ölçüm: `sp.z = −6,97` + zemin `1,68` → PX4'e giden hedef **−5,29**.
+Hareket modunda görünmüyordu çünkü maske hız modundaydı ve PX4 konumu hiç
+kullanmıyordu — **gizli hata**, manevra maskeyi konuma çevirince gerçekleşti.
+
+*(b) AÇIKLANAMAYAN — HÂLÂ AÇIK.* ylp02'de PX4 `Failsafe activated` verdi ve
+**ALTCTL**'e düştü (konum kestirimi geçersiz → PX4'ün geri düşüş modu).
+ALTCTL'de yatay tutma yok, uçak sürüklendi. Elenenler: RC kanalları sabit ve
+rssi 41 (kimse switch'e dokunmadı, link kopmadı) · setpoint 50 Hz akıyordu ·
+kaçınma hiç devreye girmedi (`avoid=0`). `px4_bridge` modu geri zorlamadı —
+o kapı doğru çalıştı. Düşüş sonrası `Found 0 compass`; Here4 konnektörü
+**elle sarsıldı, arıza tekrar üretilemedi** (pusula 10 Hz sabit, kopma 0).
+**Sebep bilinmiyor.**
+
+**② ylp00 kalkışta kendini yere bıraktı — YAZILIM DEĞİL**
+
+PX4: `Takeoff detected` → 5,6 sn sonra **`Attitude failure (roll)`** →
+`Failsafe activated`. **İkinci denemede birebir tekrarladı.** Uçak fiziksel
+olarak yattı. Kill switch 168 sn SONRA, uçak zaten yerde ve disarm'ken
+basıldı — sebep değil. Not: motor kalkışında pil **15,29 → 14,72 V** çöktü
+(0,57 V, 3,68 V/hücre) — uçuş öncesi uyarılmıştı, pil %58'di.
+🔴 **Manevra düzeltmesi bu uçuşta HİÇ SINANMADI** (uçak READY'ye ulaşmadı).
+
+**Ne değişti**
+
+- kod: `px4_bridge.py:838` — zemin ofseti yalnız guided goto'ya
+  (`not sp.heading_valid`); `mode_manager_node._on_control_command` —
+  `deadman_timeout_s` 0 gelirse yerel politika (0,5 sn);
+  `mode_manager_node._morf_hizini_uygula` + yeni saf modül `morf_kilidi.py`;
+  `ca_core._dikey_bekleme_projeksiyonu` + `dikey_bekle_orani` parametresi;
+  `ucus_ayarlari.py` — `MOD_MORF_HIZ=0,6`, `MOD_YAW_HIZI` türetildi,
+  `KACINMA_DIKEY_BEKLE=0,8`, `MOD_ARALIK` 9→7 (KARAR-14), üç yeni tutarlılık
+  denetimi. Ayrıca `hatalar`→`hata` (çalışmayan bir denetim, NameError atardı).
+- uçakta: **`/ws/mod_test` SİLİNDİ** (üçünde de) — görev YKİ'den
+  başlatılmadan sürü READY olmuyor. Yeni parametreler: `morf_hiz_mps=0.6`,
+  `morf_sure_s=25.0`, `deadman_zaman_asimi_s=0.5`, `max_yaw_rate_deg_s=14.7`,
+  `dikey_bekle_orani=0.8`, `default_spacing_m=7.0`, `kalkis_irtifa_m=5.0`.
+  `md5` üç uçakta da depoyla birebir aynı.
+- belge: `gorev2.md` §7.16/§7.17/§7.18, `DURUM.md`, `RPI_ESITLEME.md`
+  §4 (B10/B12/B13), `KARARLAR.md` (KARAR-14), `YAPILACAKLAR.md`.
+
+**Yarım kalan / tuzak**
+
+- 🔴 **ylp00 uçmasın**: iki bağımsız denemede aynı roll arızası. Önce şarjlı
+  pil, sonra pervane/motor/kol kontrolü.
+- 🔴 **ylp02'nin failsafe sebebi bilinmiyor.** PX4 ulog'u kapalı
+  (`CLAUDE.md`: Pixhawk'ta log açma), o yüzden gerekçe okunamıyor.
+- 🔴 **Manevra düzeltmesi UÇAKTA DOĞRULANMADI.** Kod ve testler hazır,
+  dağıtıldı, ama hiçbir uçuş manevra moduna ulaşmadı.
+- 🟠 `test_kacinma_korlugu.py`'de **9 test kırık** — benim işimle ilgisiz:
+  test dosyası 21 Ağu, düğüm 25 Ağu commit'li, düğüm değişmiş testler
+  güncellenmemiş. Kırıklar uçuşta kapalı olan tutma mekanizmasını kapsıyor.
+- 🟠 **KARAR-14 açık**: varsayılan aralık 7 m (operatör) mü 9 m (ölçüm) mü.
+  Şu an 7. Formasyon geçişli uçuşta YKİ kutusuna 9 yazmak yeterli.
+- 🟠 **Şartname örnek aralığı 5 m** ama kaçınmanın çıkış eşiği 6,5 m — hakem
+  "5 metre" derse kaçınma bir kez açılınca **hiç kapanmaz.** Eşikler Görev 2
+  için gözden geçirilmeli (KARAR-12 ile ilişkili).
+- 🟢 KARAR-03'ün koşulu gerçekleşti: INA226 üçünde de çalışıyor, pil
+  failsafe'i artık açılabilir.
+- Bugünün hiçbir değişikliği **commit edilmedi** (`.surum` = `bc42d00+KIRLI`).
+
+**Sıradaki adım**
+
+- ylp00'ın roll arızasını kapat (pil + mekanik), sonra **manevra modunu
+  doğrula** — tek soru: "manevraya geçince sürü irtifasını koruyor mu?"
+
+**Uçakların bırakıldığı hâl**
+
+- ylp00: **yerde, roll arızalı, uçmaya hazır DEĞİL.** Pil %58 (15,26 V).
+  Konteyner ayakta, kod güncel.
+- ylp01: sağlam, pil %58 (15,32 V), konteyner ayakta, kod güncel.
+- ylp02: **düştü ama kırık yok**, şu an sağlıklı (pusula 10 Hz, RTK).
+  Pil yeni (%91, 16,49 V). Havadaki failsafe sebebi bilinmiyor — tekrar
+  uçurmadan önce karar verilmeli. Disk %66.
+
+---
+
+## 2026-08-31 16:24 — Osman + Claude (🟢 ÜÇ UÇAKLI KALKIŞ/İNİŞ BAŞARILI + formasyon hazırlığı)
+
+> **Uçuş yapıldı, pervaneli, üç uçak.** Dört kusur kapatıldı, dördü de
+> sahada doğrulandı. Uçuş sonrası uçaklar kapatılıp şarja alındı.
+
+**Ne yapıldı**
+- 30 Ağustos yalpalamasının kökü bulundu: **px4_bridge emniyet pilotuyla
+  kavga ediyordu.** PX4 statustext'inde 13 kez "Pilot took over using
+  sticks"; 20 sn içinde 6 mod değişimi (AUTO.LAND↔POSCTL); istenen roll
+  ±19,5°, **gerçek pitch −27,4°**. Sebep: `land` dalında pilot kapısı yoktu
+  ve mode_manager 1 Hz'de inişi tekrarlıyordu.
+- Üç uçaklı ilk denemede (12:50) sürü **8,38 m'den 0,36 m'ye** kapandı.
+  Rosbag'den kök sebep: `mode_manager` FORMATION_UNKNOWN dalı ofsetleri
+  **her yayında** (~19 Hz) yeniden ölçüyor, `formation_node` ise onları
+  heading ile **döndürüyordu** → içe doğru sarmal.
+- Ayrı bir kusur: gaz çubuğu yaylı değil, dipte duruyor → `throttle_cmd =
+  −1,00` sabit → `vz = +2,00 m/s` doyumda. B18 kapısı tek atışlık mandal
+  olduğu için tutmuyordu.
+- Operatör kararı: **VrB formasyon ANA ANAHTARI** olsun (yalnız değişim
+  kilidi değil). Ölçüldü: VrB → ch10 → `aux6`, PWM 1000..2000, çapraz
+  karışma yok.
+- 15:52 uçuşu: **üç uçak birlikte kalktı (0,24 sn), 5 m'de 20 sn asılı
+  durdu, birlikte indi (0,14 sn).** Dört düzeltmenin dördü de doğrulandı.
+- Uçuş sonrası: tırmanış sürüklenmesi araştırıldı, formasyon geçişi için
+  aralık ölçümle 9 m'ye çıkarıldı, kuru testteki geometri boşluğu kapatıldı.
+
+**Ölçülen — dünle yan yana**
+
+| | 30 Ağustos | 31 Ağustos 15:52 |
+|---|---|---|
+| Kalkan uçak | 1 / 3 | **3 / 3** |
+| En dar uçak arası | **0,36 m** | **6,70 m** (sabit) |
+| Gerçek roll / pitch tepe | 19,5° / **−27,4°** | **3,3° / 5,3°** |
+| Mod kavgası | 6 geçiş | **0** |
+| Sürüye giden dikey komut | **−1,00** | **+0,00** |
+
+🔴 **Dikey mandalın kanıtı kontrollü:** ham gaz kanalı (ch3) uçuşun
+tamamında **1000 (dipte)** ölçüldü — yani dünkü arıza koşulu birebir
+tekrarlandı — ama sürüye giden değer 0,00 kaldı.
+
+**Ne değişti**
+- kod: `px4_bridge.py` — `land`/`rtl` dallarına `PILOT_FLIGHT_MODES` kapısı
+  (ilk `land` geçer, tekrarlar pilota boyun eğer); `_kalkis_kilidi_aktif`
+  docstring'i **ölçümle düzeltildi** ("birkaç santim" → 0,18–2,17 m)
+- kod: `mode_manager_node.py` — FORMATION_UNKNOWN dalı: ofsetler bir kez
+  ölçülüp **donduruluyor** + heading ile **ters döndürülerek** gömülüyor
+- kod: `joystick_interpreter_node.py` — VrB ana anahtarı + **dikey yetki
+  mandalı** (`command_valid`'e dokunmaz, o G2-K10 kapısı)
+- kod (yeni): `mode_manager/formasyon_kilidi.py` — saf mantık + `talep_hesapla`
+- kod: `packet_parser.py` + `esp32_bridge_node.py` — `formasyon=0` artık
+  **meşru** ("formasyon yok"); düşürme koşulu *iki alan da sıfır*a daraltıldı
+- kod: `ucus_ayarlari.py` — `MOD_KALKIS_IRTIFA_M` 8→5, **`MOD_ARALIK_M` 7→9**
+- kod: `gorev_kanit_ucus.py` — **`--aralik` bayrağı** (kuru testin geometrisi
+  uçulan geometriyle eşleşmiyordu)
+- kod: `kumanda_web.py` — "ŞU AN NE OLUR" senaryo paneli
+- test: `test_formasyon_kilidi.py`, `test_formasyon_sarmali.py` (yeni, 26 test)
+- uçakta: üç uçağa `swarm_control` + `swarm_state_machine` dağıtıldı,
+  konteynerler yeniden başlatıldı, md5'ler yerelle **birebir** doğrulandı.
+  `/ws/ucus_ayarlari.env` → `MOD_KALKIS_IRTIFA=5.0`
+- belge: GUNLUK · DURUM · YAPILACAKLAR · TUZAKLAR (§3.16–3.18) · KARARLAR
+
+**Yarım kalan / tuzak**
+- 🔴 **`MOD_ARALIK=9.0` uçaklara HENÜZ GİTMEDİ.** Uçuştan sonra değiştirildi,
+  uçaklar o sırada kapalıydı. Formasyon uçuşundan önce env dağıtılmalı ve
+  konteynerler yeniden başlatılmalı — yoksa uçakta 7 m geçerli kalır.
+- 🟡 `kumanda: None` — YKİ'deki sanal kumanda paneli hâlâ boş. Yerine
+  `http://<pi>:8090` kullanıldı.
+- 🟡 ylp02 diski **%88** (3,6 GB) — finalden önce temizlenmeli.
+- ⚪ Titreşim ölçümü **atlandı** (operatör kararı) — pervane balansı sınanmadı.
+- ⚪ Kaçınma 3 m altında kör (`altitude_gate_m=3.0`); bu uçuşta karşılaşma
+  olmadığı için devreye girmedi. Ayrı karar.
+
+**Sıradaki adım**
+- Kumandadan formasyon: kalk → VrB aç (formasyon oluşsun) → SwC ile geç →
+  VrB kapat (uçaklar dursun) → in. Ön koşullar YAPILACAKLAR P0'da.
+
+**Uçakların bırakıldığı hâl**
+- ylp00 · ylp01 · ylp02: **kapalı, şarjda.** Pervaneler takılı. Konteynerler
+  kapalı (Pi'ler kapalı). Kod üçünde de güncel; **env'de aralık eski (7 m).**
+
+---
+
+## 2026-08-31 06:20 — Osman + Claude (DAĞITIM + YER DOĞRULAMASI, üç uçak)
+
+> **Uçuş yok, pervaneler sökük.** 🔴 **Kill switch hiç aktif değildi** —
+> bu, ylp00'ın gerçekten armlanmasına yol açtı ve beklenmedik biçimde
+> madde 24'ün kanıtı oldu. Üç uçak da açıktı, hepsine dağıtım yapıldı.
+
+**Ne yapıldı**
+
+- **Aşama D üç uçağa dağıtıldı** (`swarm_state_machine` + `swarm_control`),
+  `/ws/suru_dugumleri`'ne **`gorevfsm`** eklendi, `ucus_ayarlari.env`
+  güncellendi. Parametreler doğrulandı: `kalkis_irtifa_m=8.0`,
+  `swc_debounce_ms=1300`, `mission_fsm.agent_id=1`,
+  `gaz_merkez_pay` artık **joystick**'te (yanlış düğümdeydi).
+- 🔴 **İKİ GİZLİ KİLİTLENME bulundu ve kapatıldı — ikisi de "hata vermeden
+  yanlış sonuç" sınıfı:**
+  - **`home_set` mesh'te taşınmıyordu.** `mission_fsm` PREFLIGHT için
+    `all_agents_home_set()` istiyor ama komşuların durumunu mesh'ten
+    okuyor; alan pakette yoktu, hep `false` geliyordu.
+    **Görev 2 hiç başlayamazdı.** Ölçüm: ylp01 kendi içinde `true`,
+    ylp00'ın mesh kopyasında `false`.
+  - **Görev başlatma tek uçağa ulaşıyordu.** `TriggerMission` bir ROS
+    servisi, `ROS_LOCALHOST_ONLY=1`. Ölçüldü: ylp00 armlandı, ylp01/ylp02
+    *"YETKI YOK (mission_state=1)"* deyip reddetti — **sürü bölündü.**
+  - İkisi de `bayraklar2`'deki boş bitlerle çözüldü; **paket 16 bayt
+    kaldı**, firmware'e dokunulmadı, geriye dönük uyumlu.
+- **G2-K11 (operatör kararı): görev başlatma MESH'ten yayılır.** Ölçülen:
+  tek tetikten üç uçağa **~1 sn**. Her uçak KENDİ preflight'ını koşuyor —
+  komşu "sen de geç" demiyor, "ben geçtim" diyor. ⚠️
+  `EVENT_MISSION_STARTED` **kullanılmadı**: `agent_fsm` onu ARM'a çeviriyor.
+- ✅ **MADDE 24 GERÇEK KOŞULDA DOĞRULANDI (kazara).** Kill switch aktif
+  olmadığı için ylp00 pervanesiz armlandı ve `takeoff:8.0` hedefine girdi —
+  30 Ağustos'un birebir aynısı. Fark: **SwD-aşağı anında indirdi**
+  (`land` 1 Hz → `AUTO.LAND` → DISARM). 30 Ağustos'ta pilot hiçbir tuşla
+  durduramamış, olay 42-95 sn sürmüştü.
+- ✅ **G2-K10 üçüncü kapı çalıştı** — bölünmüş sürü kalkışını önledi.
+- **Kuru test uçuşu DURDURDU ve haklıydı:** ilk dizilimde en yakın çift
+  **0,98 m** (eşik 4,0). Uçaklar açıldıktan sonra **4,53 m → GEÇTİ**.
+  Kullanılan senaryo: `--senaryo asili --dronelar 1,2,3 --irtifa 8`
+  (yeni senaryo gerekmedi; `plan_kur_asili` zaten N uçağa genelleştirilmiş).
+- **Tarayıcı arayüzü yazıldı** (`src/gcs/kumanda_web.py`) — terminal
+  ölçümleri üst üste boşa gitmişti ve sebebi teknikti: `grep` boru ucunda
+  **blok tamponluyor**, talimat operatöre kayıt bittikten sonra ulaşıyordu.
+
+**Ne değişti**
+
+- kod: `packet_parser` (+2 bit) · `esp32_bridge` (görev durumu abonesi +
+  yayılım yayıncısı) · `mission_fsm_node` (yayılım tetiği + `agent_id`) ·
+  `rc_eksen` (**TERS_YAW=False**) · `swc_debounce` (1300 ms)
+- **uçakta:** üçüne de dağıtım + `gorevfsm` bayrağı + yeni env.
+  ⚠️ ylp00'da `kumanda_web.py` elle koşuyor (port 8090, restart'ta ölür)
+- belge: `gorev2.md` §7.13 + G2-K11 · `DURUM.md` · `YAPILACAKLAR.md`
+
+**Yarım kalan / tuzak**
+
+- 🔴 **Pervaneli uçuş YAPILMADI** — kalkış zincirinin son halkası bu.
+- ⚠️ **`active_formation` ÇİZGİ'de kaldı** (SwC denenirken ayarlandı).
+  Uçuştan önce **konteynerleri yeniden başlat**, yoksa READY'de sürü
+  çizgi slotlarına koşar ve iniş noktaları değişir.
+- ⚠️ **Görev ABORT'unun yayılıp yayılmadığı ÖLÇÜLMEDİ.** Başlatma yayılıyor;
+  iptal muhtemelen her uçakta ayrı gerekiyor.
+- 🔴 **SwA bu kumandada AŞAĞI = AÇIK**, kill kumandasıyla ters. Reverse
+  denendi, o kanala işlemedi. Değiştirilmedi — çünkü *kilitli = 1000 =
+  failsafe* hizası korunmak zorunda. **Pilot brifingine yazılacak.**
+- **madde 29 taşıma yolu kararı** hâlâ operatörde.
+
+**Sıradaki adım**
+
+Pervaneleri tak, uçakları **7 m** aralıkla aynı yöne diz, **kill pilotunun
+kumandasını AÇ**, konteynerleri yeniden başlat, `--kuru --harita` tekrarla,
+haritayı gözle doğrula → **kalk · asılı dur · in.**
+
+**Uçakların bırakıldığı hâl**
+
+- Üçü de ağda, **DISARM**, pervaneler **sökük**, üçünde de
+  `mission_state = 8` (**üçüncü kapı AÇIK — SwD üç uçağı birden armlar**).
+- ylp00 son olarak `AUTO.LAND` modunda disarm oldu; SwD aşağıdaydı.
+- Bayraklar: `origin consensus fsm formasyon ca mod gorevfsm` (+ `joystick`
+  yalnız ylp00), `/ws/mod_test` üçünde de takılı.
+- ylp02 diski **%82**.
+
+---
+
+## 2026-08-31 03:40 — Osman + Claude (Görev 2 AŞAMA D BİTTİ + kumanda değişti)
+
+> **Uçuş yok, pervaneler sökük, kill pilotu hazırdı.** Uçaklara **hiçbir kod
+> dağıtılmadı.** Yalnız ylp00 açıktı; bütün ölçümler onunla yapıldı.
+> 🔴 **Sürü kumandası değişti** — kumandaya özgü üç sabit yeniden ölçüldü.
+
+**Ne yapıldı**
+
+- **Kritik yolun kod tarafı bitti:** madde **24 → 25 → 27 → 28**, artı **B19**.
+  - **25 (kumandadan kalkış):** G2-K10 kararı alındı — SwD tek harekette
+    `arm` + `takeoff:H`, **üç kapıyla** (SwA açık · gaz merkezde · görev
+    YKİ'den başlatılmış). Komut `agent_fsm`'e değil **doğrudan
+    px4_bridge**'e; iniş yolunun (madde 24) aynısı, aynı gerekçe.
+  - **27 (`mission_fsm`):** açılmadan önce **üç engel** bulundu ve kapatıldı
+    (§7.8). En ağırı: düğüm **kendi durumunu public konudan** bekliyordu —
+    G0 madde 18'in birebir aynısı, PREFLIGHT hiç geçilmezdi.
+  - **28 (YKİ BAŞLAT):** panel Görev 2 için **yanlış bilgi gösteriyordu**
+    (*"kumandadan başlatılır"*), buton açıldı. `_call_trigger_mission`
+    kaldırıldı — ölçülen sebep: `ROS_LOCALHOST_ONLY=1` yüzünden o servis
+    **yalnız ylp00'ın** mission_fsm'ine ulaşıyor, ikinci denemede iki uçak
+    kalkıp biri yerde kalırdı.
+  - **B19:** COMPLETED → IDLE çıkışı yazıldı; görev başına 3 hak var,
+    eskiden ikinci kalkış konteyner restart istiyordu.
+- 🔴 **SÜRÜ KUMANDASI DEĞİŞTİ.** Eski alıcı link kaybında i-BUS'ta **son
+  çerçeveyi tutuyordu** ve deadman düşmüyordu (B20, dört bağımsız teyit) —
+  yani kumanda kaybında sürü durmuyor, **son çubuk komutuyla uçmaya devam
+  ediyordu**. Uçuş engeliydi. Operatör yeni kumanda bind etti; **yeni alıcı
+  failsafe'i i-BUS'a uyguluyor** → CH5 1000'e düşüyor ve kalıcı kalıyor.
+  **B20 kapandı.**
+- **Kumandaya özgü üç ölçüm yenilendi** (§7.12):
+  - 🔴 **madde 17 — `TERS_YAW` True → False.** Yeni kumandada yaw sağa
+    **2000** (üst uç) veriyor; eskisinde 1014'tü. Güncellenmeseydi **pilot
+    sağa çevirir, sürü sola dönerdi.** Regresyon testi eklendi.
+  - **madde 26 — SwC debounce 500 → 1300 ms.** İki kayıt çelişti (tavan 852
+    vs 321). 852'nin geçiş mi duraklama mı olduğu **çözülmedi**; hata yönü
+    asimetrik olduğu için (düşük eşik → sahte V morfu → −20×N) güvenli taraf
+    seçildi.
+  - **madde 30 — kapandı** (yukarıda).
+- **İki ölçüm aracı yazıldı:** `src/gcs/kumanda_olc.py` (terminal) ve
+  🔴 **`src/gcs/kumanda_web.py`** — uçakta koşan, tarayıcıdan kullanılan
+  arayüz. Terminal ölçümleri üst üste boşa gitti ve sebep teknikti:
+  **`grep` boru ucunda blok tamponluyor**, "şimdi başla" talimatı operatöre
+  kayıt bittikten sonra ulaşıyordu. Arayüz o sorunu tamamen kaldırdı;
+  sonuçlar uçakta `/tmp/kumanda_sonuc.jsonl`'e yazılıyor.
+- **madde 29'un enabling yarısı:** `ros2 param set` bu düğümlerde **sessiz
+  bir no-op'tu** (parametre geri çağrısı yoktu, değer `__init__`'te
+  kopyalanıyordu). Kapı `canli_param.py`'ye yazıldı: canlı olan yalnız
+  `default_spacing_m` ve `kalkis_irtifa_m`; kapılar ve kimlik reddediliyor.
+
+**Ne değişti**
+
+- kod: `mode_manager_node` (kalkış komutu + 1 Hz tekrar + READY'de centroid
+  tazeleme) · `mode_context` · `mode_transitions` · `joystick_interpreter` ·
+  `mission_fsm_node` + `mission_transitions` · `MissionPanel.tsx`
+- **YENİ dosyalar:** `canli_param.py` · `swc_debounce.py` ·
+  `test_swc_debounce.py` · `kumanda_olc.py` · `kumanda_web.py`
+- 🔴 `rc_eksen.py` — **`TERS_YAW = False`** (yeni kumanda ölçümü)
+- `ucus_ayarlari`: `MOD_KALKIS_IRTIFA_M=8.0` · `MOD_SWC_DEBOUNCE_MS=1300`
+  (+ iki tutarlılık denetimi) · `baslat.sh` buna göre
+- test: 243 → **276**. `gaz_merkez_pay` yanlış düğüme veriliyordu, düzeltildi
+- **uçakta: HİÇBİR KOD DEĞİŞMEDİ** — dağıtım yapılmadı
+
+**Yarım kalan / tuzak**
+
+- 🔴 **DAĞITIM ZORUNLU VE ARTIK TEHLİKELİ SEVİYEDE.** Uçaklardaki kod hâlâ
+  `TERS_YAW = True`. Dağıtmadan uçulursa **yaw ters çalışır.**
+  Tek paket yeter (`swarm_state_machine`); `/ws/suru_dugumleri`'ne
+  **`gorevfsm`** eklenecek (üçüne) ve `MOD_SWC_DEBOUNCE_MS=1300` env'e.
+- 🔴 **ylp00'da mavros SEGFAULT verdi** (21:12 yeniden başlatması sonrası).
+  Yığın 11 yerine 2 düğümle kaldı. RC ölçümlerini engellemedi ama
+  px4_bridge mavros'suz iş göremez — **dağıtımdan önce bakılmalı.**
+- ⚠️ ylp00'da `kumanda_web.py` elle başlatıldı (port 8090, salt okur).
+  `baslat.sh` bilmiyor; konteyner restart'ında kaybolur.
+- **madde 29'un taşıma yolu kararı OPERATÖRDE:** (a) `aralik_ayarla.sh`
+  betiği *(öneri)* ya da (b) YKİ alanı + backend SSH. `gorev2.md` §5.
+- ⚠️ ylp02 diski **%81** (30 Ağustos ölçümü).
+
+**Sıradaki adım**
+
+**DAĞITIM + YERDE DOĞRULAMA.** Üç uçak da açılınca tek dağıtım, sonra
+`gorev2.md` §4 Aşama E: uçuş A (madde 31). Kritik yolun kod tarafı bitti.
+
+**Uçakların bırakıldığı hâl**
+
+- **Yalnız ylp00 açıktı**, DISARM, pervaneler **sökük**, kill pilotu hazırdı.
+- ylp00 oturum sırasında **yeniden başladı** (Pi uptime sıfırlandı);
+  `baslat.sh` koştu ama **mavros çöktü**.
+- Bayraklar değişmedi: `origin consensus fsm formasyon ca joystick mod`,
+  `/ws/mod_test` takılı.
+- ylp01 ve ylp02 **kapalı** — bugün hiç dokunulmadı.
 
 ---
 

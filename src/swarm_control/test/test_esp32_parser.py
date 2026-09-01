@@ -677,6 +677,45 @@ def test_komut_formasyon_bayragi_formasyon_sifirla_gecersiz():
     assert k.formasyon_talebi_gecerli is False         # ama talep geçersiz
 
 
+def test_komut_formasyon_SIFIR_ama_spacing_DOLU_GECERLI():
+    """🔴 formasyon=0 ARTIK MEŞRU BİR TALEP — 31 Ağustos 2026.
+
+    VrB formasyon ana anahtarı kapatıldığında kumanda bilerek
+    `requested_formation = FORMATION_UNKNOWN` yayınlıyor; anlamı
+    "formasyon yok, bulunduğun yeri tut".
+
+    Eski kural (formasyon==0 -> geçersiz) bu isteği mesh'te DÜŞÜRÜRDÜ:
+    pilot uçağı formasyondan çıkar, komşular eski formasyonda kalırdı —
+    sürü ikiye bölünürdü.
+
+    AYIRT EDİCİ: eski sürüm gönderici İKİ alanı da boş bırakır. Bilinçli
+    istekte spacing DOLU gelir (31 Ağustos uçuş kaydında
+    requested_formation=0 iken bile spacing 7.0 m ölçüldü).
+    """
+    payload = pp.komut_paketle(
+        alt_tip=1, flags=pp.KOMUT_FLAG_FORMATION_CHANGE,
+        roll_x100=0, pitch_x100=0, yaw_x100=0, throttle_x100=0,
+        talep_formasyon=0, talep_spacing_m=7.0,
+    )
+    k = pp.komut_coz(payload)
+    assert k.flags & pp.KOMUT_FLAG_FORMATION_CHANGE
+    assert k.talep_formasyon == 0
+    assert k.talep_spacing_dm == 70
+    assert k.formasyon_talebi_gecerli is True, \
+        'formasyonu KALDIRMA istegi mesh te dusuruluyor — suru bolunur'
+
+
+def test_komut_ESKI_SURUM_imzasi_hala_GECERSIZ():
+    """Daraltma eski koruma amacını bozmamalı: İKİSİ DE sıfır -> geçersiz."""
+    payload = pp.komut_paketle(
+        alt_tip=1, flags=pp.KOMUT_FLAG_FORMATION_CHANGE,
+        roll_x100=0, pitch_x100=0, yaw_x100=0, throttle_x100=0,
+        talep_formasyon=0, talep_spacing_m=0.0,
+    )
+    k = pp.komut_coz(payload)
+    assert k.formasyon_talebi_gecerli is False
+
+
 def test_komut_formasyon_alanlari_mevcut_alanlari_bozmuyor():
     """Yeni alanlar joystick/guided alanlarının offsetlerini kaydırmamalı."""
     payload = pp.komut_paketle(
