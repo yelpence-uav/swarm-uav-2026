@@ -152,11 +152,23 @@ dagit_bir() {
     # sanilirken eskisi kosuyordu. Tam da bu dosyanin basinda yazan sessiz
     # kayma. Betik root ister, yani dagit.sh onu CALISTIRMAZ — yalniz tasir;
     # kurulumu operator `sudo bash ~/yelpence_ws/izleme_kur.sh` ile yapar.
+    # kamera_yayin.py (1 Eylul 2026): dagitima GIRMIYORDU. ylp02'ye elle
+    # kopyalanmisti ve uctan iki kopya olusmustu — ~/yelpence_ws/ (dogru) ve
+    # ~/ (28 Agustos'tan kalma, 64 KB, bayat). Tam da bu dosyanin basinda
+    # yazan sessiz kayma: "guncel betigi calistiriyorum" sanilirken eskisi.
+    #
+    # ⚠️ dagit.sh onu YALNIZ TASIR, BASLATMAZ. Kamera servisi 4K'da
+    # ~1,4 cekirdek yiyor (1 Eylul olcumu: yuk 5,08, mavros %52-55'te
+    # yarisiyor). Acilista kendiliginden kalkmasi ucus dugumlerini
+    # sikistirir. Baslatma operatorun karari:
+    #   setsid nohup python3 ~/yelpence_ws/kamera_yayin.py \
+    #       > /tmp/kamera_yayin.log 2>&1 < /dev/null &
     rsync -a "$REPO/deploy/rpi/baslat.sh" "$REPO/deploy/rpi/mesaj_hizlari.py" \
           "$REPO/deploy/rpi/gps_saat.py" "$REPO/deploy/rpi/run_drone.sh" \
           "$REPO/deploy/rpi/izleme_kur.sh" "$REPO/deploy/rpi/cokme_kopyala.sh" \
+          "$REPO/deploy/rpi/kamera_yayin.py" \
           "$kul@$ip:$hedef/" || { log "baslat.sh rsync BASARISIZ"; return 1; }
-    log "baslat.sh + mesaj_hizlari.py + gps_saat.py + run_drone.sh + izleme_kur.sh tamam"
+    log "baslat.sh + mesaj_hizlari.py + gps_saat.py + run_drone.sh + izleme_kur.sh + kamera_yayin.py tamam"
 
     # SAHA TESHIS BETIKLERI (18 Agustos 2026'da eklendi).
     #

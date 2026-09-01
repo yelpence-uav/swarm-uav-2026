@@ -76,7 +76,11 @@ Claude'a **"oturumu kapat"** dersen bu kaydı o yazar.
 **Ne değişti**
 
 - kod: `deploy/yki/drone_bul.sh` — `ip_bul()` hızlı yolu (8 satır + gerekçe);
-  `deploy/rpi/teshis/jole_olc.py` (yeni); `deploy/rpi/teshis/kamera_teshis.sh` (yeni)
+  `deploy/rpi/teshis/jole_olc.py` (yeni); `deploy/rpi/teshis/kamera_teshis.sh` (yeni);
+  `deploy/rpi/dagit.sh` — **`kamera_yayin.py` artık dağıtımda** (elle
+  kopyalanıyordu, uçakta iki kopya oluşmuştu). ⚠️ Sadece TAŞINIYOR,
+  başlatılmıyor: 4K'da ~1,4 çekirdek yiyor, açılışta kalkması uçuş
+  düğümlerini sıkıştırır — bilinçli karar.
 - uçakta (**ylp02**): **eski kamera modülü geri takıldı** · `~/kamera_teshis.sh`
   kuruldu · kamera servisi **elle** başlatılıyor (otomatik değil) ·
   28 Ağustos kalibrasyonu korundu (`sport`, `2.5923,1.2225`)
@@ -91,10 +95,9 @@ Claude'a **"oturumu kapat"** dersen bu kaydı o yazar.
   "GPS yok" değil, **FCU ile konuşulmuyor.** Açık P0 olan **gevşek PX4
   güç soketiyle** aynı sınıf ve uçak bugün çok elden geçti.
   *Operatör: "GPS'i ben çözerim" dedi, oturum sonunda açık bırakıldı.*
-- ⚠️ **`kamera_yayin.py` `dagit.sh` ile TAŞINMIYOR** — ylp02'ye elle
-  kopyalanmış ve **iki kopya var**: `~/yelpence_ws/kamera_yayin.py`
-  (depoyla aynı, doğru olan) ve `~/kamera_yayin.py` (28 Ağu 04:40, bayat,
-  64 KB). Çift kaynak tuzağı, temizlenmeli.
+- ✅ ~~`kamera_yayin.py` dağıtımda değil, uçakta iki kopya~~ → **KAPANDI.**
+  `dagit.sh`'e eklendi; bayat kopya `~/kamera_yayin.py.bayat_28agu` adına
+  alındı (silinmedi).
 - ⚠️ **Kamera servisi kendiliğinden başlamıyor.** Açılıştan sonra:
   `ssh yelpence02@<ip> 'setsid nohup python3 ~/yelpence_ws/kamera_yayin.py > /tmp/kamera_yayin.log 2>&1 < /dev/null &'`
 - ⚠️ **Modül değişince KAPAT-AÇ şart.** `imx477` sürücüsü sensörü yalnız

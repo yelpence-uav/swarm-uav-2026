@@ -1,7 +1,33 @@
 # RPİ EŞİTLEME DEFTERİ — geri gelen drone'u hizaya getirme
 
-**Son güncelleme:** 1 Eylül 2026, 11:30 — **B14-B19 eklendi**: 1 Eylül kod sürümü + morf/yaw/kaçınma/deadman parametreleri; 🔴 **`mod_test` üç uçaktan da SİLİNDİ**. Eski: 31 Ağustos 23:55 — B12/B13 eklendi: B6 ivme rampası + madde 29 üç uçağa dağıtıldı, `ros2 param get` ile doğrulandı; B10 (`MOD_ARALIK`) üçünde de **7.0** ve repoyla aynı. Eski damga: 16:29 — B9/B10/B11 eklendi. Eski damga: 30 Ağustos 2026, 13:31 — **A19 KAPANDI** (üç konteyner yeniden oluşturuldu); A12 düzeltildi; **A23 ÇALIŞIYOR**: `uart2-pi5` eklendi, i-BUS 130 Hz / 0 hata ölçüldü; eski: A23 eklendi: ikinci RC alıcısı ylp00'a takıldı (pin 29, sinyal ~3 V ölçüldü), overlay bekliyor; eski damga: 29 Ağustos 19:45 — param karşılaştırması saha gününe indirildi
+**Son güncelleme:** 1 Eylül 2026, 23:05 — kamera modülü değişti (eski geri takıldı), kamera_yayin.py dağıtıma girdi
 
+## Kamera servisi — 1 Eylül 2026 düzeltmesi
+
+**Hangi uçaklarda:** ylp02 ✅ · ylp00 ❌ · ylp01 ❌ (o uçaklarda kamera yok)
+
+- `deploy/rpi/kamera_yayin.py` artık **`dagit.sh` ile taşınıyor**. Önceden
+  elle kopyalanıyordu ve ylp02'de **iki kopya** oluşmuştu; bayat olan
+  (`~/kamera_yayin.py`, 28 Ağu 04:40, 64 KB) `~/kamera_yayin.py.bayat_28agu`
+  adına alındı — silinmedi, gerekirse geri alınır.
+- ⚠️ **Servis kendiliğinden BAŞLAMIYOR ve bu bilinçli.** 4K'da `rpicam-vid`
+  ~1,4 çekirdek yiyor (1 Eylül ölçümü: yük 5,08, `mavros` %52-55). Açılışta
+  kalkması uçuş düğümlerini sıkıştırır. Başlatma operatörün kararı:
+
+```bash
+setsid nohup python3 ~/yelpence_ws/kamera_yayin.py \
+    > /tmp/kamera_yayin.log 2>&1 < /dev/null &
+```
+
+- 🆕 `~/kamera_teshis.sh` ylp02'de kurulu (tek komutluk kamera teşhisi).
+  Depoda `deploy/rpi/teshis/kamera_teshis.sh`, `dagit.sh` teşhis bloğuyla
+  gidiyor.
+- 🔧 **Kamera modülü 1 Eylül'de değişti ve GERİ ALINDI.** Yeni takılan modül
+  arızalı çıktı (I²C'ye cevap veriyor, CSI verisi yok); **28 Ağustos'un
+  modülü geri takıldı.** Dolayısıyla beyaz dengesi kalibrasyonu
+  (`2.5923,1.2225`) hâlâ geçerli — modül değişmedi.
+
+---
 ## Kamera ayarları — ylp02'de kalibre edildi · 28 Ağustos 2026
 
 **Hangi uçaklarda:** ylp02 ✅ · ylp00 ❌ · ylp01 ❌ (o uçaklarda kamera yok)

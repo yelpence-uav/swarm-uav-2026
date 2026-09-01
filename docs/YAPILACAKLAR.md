@@ -236,13 +236,15 @@ Bugünkü komut yolu (YKİ → mesh → goto) finali GEÇEMEZ. Bu blok o yüzden
   motorsuz taban **0,73 px**, hedef **≤ 0,8**.
   🔴 **Kayıt GÜNDÜZ olmalı** — karanlıkta metrik geçersiz (`KAMERA.md` §12.3).
 
-- `[ ]` 🟡 **`kamera_yayin.py` `dagit.sh`'e eklenmeli.** Uçağa elle
-  kopyalanmış ve **iki kopya** duruyor: `~/yelpence_ws/kamera_yayin.py`
-  (depoyla aynı) ve `~/kamera_yayin.py` (28 Ağu, bayat, 64 KB). Çift kaynak
-  tuzağı — bayat olan silinmeli, dosya dağıtıma girmeli.
+- `[x]` ✅ ~~`kamera_yayin.py` `dagit.sh`'e eklenmeli~~ → **KAPANDI (1 Eylül).**
+  Dağıtıma girdi; ylp02'deki bayat kopya `~/kamera_yayin.py.bayat_28agu`
+  adına alındı.
 
-- `[ ]` 🟡 **Kamera servisi açılışta başlamıyor.** Her `docker restart` /
-  reboot sonrası elle başlatılıyor. systemd birimi ya da `baslat.sh` kancası.
+- `[ ]` ⚪ **Kamera servisi açılışta başlamıyor — BİLİNÇLİ, acele yok.**
+  Otomatik başlatmak cazip ama riskli: 4K'da `rpicam-vid` ~1,4 çekirdek
+  yiyor (1 Eylül: yük 5,08, `mavros` %52-55'te yarışıyor). Açılışta kalkması
+  uçuş düğümlerini sıkıştırır. Yapılacaksa **düşük kiple ve kapalı
+  varsayılanla** yapılmalı, karar operatörün.
 
 - `[ ]` 🟠 **P1.22 — Yalıtımı derinleştir. QR tavanını açacak TEK eksen bu.**
   🔒 QR büyütülemez (1,5 m, 74 modül — yarışma sabitliyor), çözünürlük de
