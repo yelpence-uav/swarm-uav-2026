@@ -1,6 +1,6 @@
 # RPİ EŞİTLEME DEFTERİ — geri gelen drone'u hizaya getirme
 
-**Son güncelleme:** 1 Eylül 2026, 23:05 — kamera modülü değişti (eski geri takıldı), kamera_yayin.py dağıtıma girdi
+**Son güncelleme:** 2 Eylül 2026, 02:10 — 🔴 **B20/B21: HOME doğrulaması yalnız ylp00'da**, ylp01 ve ylp02 geride (§4). Ayrıca B7 teşhis betiği sayısı 22 → 39 ve bunlar `/ws` **köküne** gidiyor. Eski: kamera modülü değişti (eski geri takıldı), kamera_yayin.py dağıtıma girdi
 
 ## Kamera servisi — 1 Eylül 2026 düzeltmesi
 
@@ -443,7 +443,7 @@ sudo sysctl -q --load=/etc/sysctl.d/60-yelpence-writeback.conf
 | B4 | `gcs_url` = `udp-b://:14555@14550` | ✅ | ❓ | ✅ | `echo 'udp-b://:14555@14550' > ~/yelpence_ws/gcs_url` |
 | B5 | `tgt_system` | yok | `2` | `3` | tabloya bak — **ylp00'da dosya OLMAMALI** |
 | B6 | `kacinma` (boş dosya) | ✅ | ❓ | ✅ | `touch ~/yelpence_ws/kacinma` |
-| B7 | Teşhis betikleri (**22 adet**) | ✅ | ❌ | ✅ | `deploy/rpi/teshis/*.sh` → `dagit.sh` **kendiliğinden taşır**, `/ws/` köküne |
+| B7 | Teşhis betikleri (**39 adet**, 2 Eyl sayımı) | ✅ | ❌ | ✅ *(kamera betikleri dahil, 1 Eyl)* | `deploy/rpi/teshis/*.sh` **ve `*.py`** → `dagit.sh` **kendiliğinden taşır**, `/ws/` köküne. ⚠️ Alt dizine değil **köke** — `/ws/teshis/...` diye çağırmak "No such file" verir |
 | B8 | `kayit_onar.sh` + açılışta çağrısı | ✅ | ❌ | ✅ | `dagit.sh` taşır; **etkin olması için konteyner yeniden başlatılmalı** |
 | B9 | **Kod — 31 Ağu 16:00 sürümü** (pilot kapısı · sarmal düzeltmesi · VrB ana anahtarı · dikey mandal · mesh `formasyon=0`) | ✅ | ✅ | ✅ | `dagit.sh --paket swarm_control,swarm_state_machine` + `docker restart`. **md5'ler yerelle birebir doğrulandı** |
 | B10 | `ucus_ayarlari.env` — `MOD_ARALIK` | ✅ 7.0 | ✅ 7.0 | ✅ 7.0 | 31 Ağu 23:55'te üçüne yazıldı, `ros2 param get default_spacing_m` ile doğrulandı. ⚠️ 9.0'a çıkarılmıştı, operatör kararıyla 7.0'a geri alındı (**KARAR-14 açık**) |
@@ -456,6 +456,60 @@ sudo sysctl -q --load=/etc/sysctl.d/60-yelpence-writeback.conf
 | B18 | mode_manager `deadman_zaman_asimi_s` | ✅ 0.5 | ✅ | ✅ | Mesh bu alanı taşımıyor; 0 gelirse yerel değer kullanılır (§7.18) |
 | B19 | 🔴 **`/ws/mod_test` — SİLİNDİ** | ✅ yok | ✅ yok | ✅ yok | Görev YKİ'den başlatılmadan sürü READY olmaz (G2-K10 üçüncü kapı). Geri koymak isteyen `touch ~/yelpence_ws/mod_test` |
 | B11 | `ucus_ayarlari.env` — `MOD_KALKIS_IRTIFA` | ✅ 5.0 | ✅ 5.0 | ✅ 5.0 | 31 Ağu 14:00'te dağıtıldı, `ros2 param get` ile doğrulandı |
+| B20 | 🔴 **Kod — 2 Eylül 02:00 sürümü: HOME DOĞRULAMASI** | ✅ *(2 Eyl, uçakta doğrulandı)* | ❌ | ❌ | `dagit.sh --paket swarm_control` + `docker restart`. **Yalnız ylp00'da** — ylp01 kapalıydı, ylp02'nin MAVROS'u operatörde. Aşağıdaki nota bak |
+| B21 | **`home_denetle.py`** (teşhis betiği) | ✅ | ❌ | ❌ | `dagit.sh` taşır (`/ws/` **köküne**, `teshis/` altına DEĞİL). B7 ile birlikte gider |
+
+> ### 🔴 B20 — HOME doğrulaması: **yalnız ylp00'da**, diğer ikisi geride
+>
+> **2 Eylül 2026, 02:00.** 26 Ağustos'ta RTL üç uçağı da kalkış noktalarına
+> değil aynı yanlış noktaya indirmişti (P0). O güne kadar home hiçbir yerde
+> **doğrulanmıyordu** — yalnızca okunuyordu.
+>
+> **ylp00'a giden:**
+> - `px4_interface/home_dogrulama.py` (yeni, saf modül) — home'un global
+>   kaydı uçağın kendi GPS'ine yakın mı, 2 sn'de bir ölçülüyor
+> - `px4_bridge` — hüküm + **RTL kapısı** (home ölçülmüş şekilde bozuksa
+>   `rtl` komutu reddedilir) + YKİ'ye olay + yerde otomatik düzeltme
+> - `mavros_command_sender.set_home()` — home'u düzeltme yolu (önceden YOKTU)
+> - `home_denetle.py` — operatörün elle inceleme aracı
+>
+> **ylp01 / ylp02'yi hizaya getirmek:**
+> ```bash
+> ./deploy/rpi/dagit.sh --paket swarm_control ylp01   # ve ylp02
+> ./deploy/yki/drone_bul.sh ylp01 'docker restart drone2'
+> ```
+> `.msg` **değişmedi**, o yüzden tek paket yeter (`TUZAKLAR` §2.11b'nin
+> koşulu oluşmuyor).
+>
+> **Doğrulama (uçuş gerekmez, ~1 dk):**
+> ```bash
+> docker exec -e ROS_LOCALHOST_ONLY=1 drone2 bash -lc \
+>   'source /opt/ros/jazzy/setup.bash; source /ws/install/setup.bash; \
+>    python3 /ws/home_denetle.py 2'
+> ```
+> `✅ GECTI` (çıkış 0) beklenir. ylp00'da ölçülen: **0,56 m yatay, fix 3.**
+>
+> ⚠️ **YKİ tarafı ayrı:** `src/gcs/backend/connections/ros_bridge.py`'ye iki
+> olay etiketi (38/39) eklendi. Etkin olması için **YKİ backend'i yeniden
+> başlatılmalı**, yoksa olay ekranda `event_38` diye görünür.
+>
+> ⚠️ **Bu koddaki iki eşik uçağa değil FIX kalitesine bağlı** — RTK varsa
+> 1,0 m, yoksa 3,0 m. Üç uçakta da aynı, ayrışma kaynağı değil.
+
+> ### ylp00'da 1-2 Eylül gecesi olan geçici şeyler (kalıcı ayar DEĞİL)
+>
+> Sonraki kişi uçağı böyle bulmayacak, ama olan biteni bilsin:
+>
+> - **MAVROS `connected:false` idi ve `docker restart` çözdü.** Seri hat
+>   ölçüldü: 921600'de 882 geçerli MAVLink çerçevesi, sysid 1 — donanım
+>   sağlamdı. `TUZAKLAR` §2.24. 🔴 **ylp02'deki aynı belirti için de önce
+>   restart denenmeli.**
+> - `/dev/ttyAMA0` baud taraması için geçici değiştirildi, **921600'e geri
+>   alındı** + konteyner yeniden başlatıldı.
+> - Home, kaldırılan bir otomatik düzeltme yolu tarafından 7 kez yeniden
+>   yazıldı. PX4 home'u zaten disarm'ken kendi güncelliyor; kalıcı etkisi yok.
+> - Konteyner gece boyunca **4 kez** yeniden başlatıldı → `active_formation`
+>   ve `mission_state` sıfırlandı (uçuş öncesi zaten istenen hâl).
 
 **B3 doğrulama** (`.surum`'a güvenme, eskiyor):
 

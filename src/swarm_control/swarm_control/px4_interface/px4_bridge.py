@@ -35,7 +35,12 @@ from rcl_interfaces.msg import SetParametersResult
 from std_msgs.msg import String, UInt8MultiArray
 
 # Bizim mesaj formatımız
-from swarm_interfaces.msg import AgentSetpoint, AgentStatus, SwarmOrigin
+from swarm_interfaces.msg import (
+    AgentSetpoint,
+    AgentStatus,
+    SwarmOrigin,
+    SystemEvent,
+)
 
 # MAVROS telemetri mesaj tipleri
 from diagnostic_msgs.msg import DiagnosticArray
@@ -46,6 +51,7 @@ from nav_msgs.msg import Odometry
 from sensor_msgs.msg import BatteryState, NavSatFix
 
 # Aynı paket içindeki yardımcılar (MAVROS yolu)
+from .home_dogrulama import home_denetle
 from .mavros_command_sender import MavrosCommandSender
 from .mavros_telemetry_mapper import (
     PILOT_FLIGHT_MODES,
@@ -111,6 +117,31 @@ _ORIGIN_TOLERANS_Z_M = 1.0
 _ORIGIN_TEKRAR_ARALIK_S = 5.0
 _ORIGIN_DOGRULAMA_PERIYOT_S = 1.0
 _M_PER_DEG_LAT = 111320.0
+
+# --- HOME dogrulamasi (bkz. _home_dogrula, home_dogrulama.py) --------------
+# 26 Agustos 2026: RTL uc ucagi da kalkis noktalarina degil AYNI yanlis
+# noktaya indirdi; PX4 home kayitlari tam o inis noktalariydi. Origin icin
+# olcen bir katman vardi, HOME icin HICBIR denetim yoktu. Periyot origin'den
+# seyrek: home nadiren degisir, 1 Hz gereksiz log uretirdi.
+_HOME_DOGRULAMA_PERIYOT_S = 2.0
+# ARDISIK hata sarti — tek ornekle hukum verilmez. Sebep olculdu degil,
+# PX4'un davranisindan geliyor: PX4 home'u DISARM'ken kendisi de guncelliyor.
+# Ucak elde tasindiginda home bir sure ESKI yerde kalir ve o pencerede
+# "home yanlis" demek DOGRU DEGIL, sadece ERKEN olur. 3 x 2 sn = 6 sn:
+# gecici farki yutar, gercek kaymayi arm'dan once yakalar.
+_HOME_ARDISIK_HATA = 3
+# Otomatik duzeltme hiz siniri — PX4'e saniyede bir DO_SET_HOME yagdirmanin
+# anlami yok; kabul edip EKF'e islemesi zaman aliyor.
+_HOME_DUZELTME_ARALIK_S = 30.0
+# YKI olay kodu. SystemEvent.msg'de 38 ve 39 BOSTU (37'den 40'a atliyor).
+# Yeni sabit EKLEMEDIM bilerek: bir arayuz degisikligi swarm_interfaces'i
+# ve tum bagimlilarini yeniden derletir, uc ucaga dagitim ister
+# (TUZAKLAR 2.11b). Kod telde zaten uint8 olarak gidiyor, isim yalnizca
+# okunabilirlik icin. YKI tarafinda etiket ros_bridge.SYSTEM_EVENT_LABELS'a
+# duz sayi olarak eklendi — 60-68 arasi Pi olaylari icin ayni sey yapilmis,
+# yani bu depoda YERLESIK bir kalip.
+_OLAY_HOME_GUVENILMEZ = 38
+_OLAY_HOME_DUZELTILDI = 39
 
 # --- Yerel yorunge yurutucusu (bkz. _yurutucu_ilerlet) ----------------------
 # Yurutucu, setpoint'i hedefe dogru 50 Hz'de KENDI yurutur ve PX4'e hiz
@@ -258,6 +289,26 @@ class Px4BridgeNode(Node):
         self._origin_son_gonderim: float = 0.0
         self._origin_uyari_verildi: bool = False
 
+        # HOME DOGRULAMASI (26 Agustos saha olayi — bkz. _home_dogrula).
+        # None = HENUZ OLCULMEDI. "Bilinmiyor" ile "bozuk" ayri tutulur;
+        # olculemeyen bir denetim hukum vermez (jole_olc.py'nin dersi).
+        self._home_ok: bool | None = None
+        self._home_uyari_verildi: bool = False
+        self._home_hata_sayaci: int = 0
+        self._home_son_duzeltme: float = 0.0
+        # BILEREK canli DEGIL: `_CANLI_PARAMETRELER` beyaz listesine
+        # eklenmedi, yani `ros2 param set` bunu ucus sirasinda reddeder.
+        # Bir emniyet kapisinin havada cevrilebilir olmasi istenmez.
+        # Kapatmak icin acilista: baslat.sh -> `-p home_otomatik_duzelt:=false`
+        self.declare_parameter('home_otomatik_duzelt', True)
+        self._home_otomatik_duzelt_acik = bool(
+            self.get_parameter('home_otomatik_duzelt').value
+        )
+        # PX4'un bildirdigi home YEREL konumu (ENU). map_home yalnizca
+        # global alanlari AgentStatus'a tasiyor; cerceve denetimi icin
+        # yerel temsil de gerekiyor, o yuzden burada tutuluyor.
+        self._home_yerel: tuple[float, float, float] | None = None
+
         # --- Yerel yorunge yurutucusu ------------------------------------
         # Hizlar burada, gorev betiginde DEGIL: yorunge artik burada
         # uretiliyor. baslat.sh'den -p ile degistirilebilir.
@@ -323,6 +374,22 @@ class Px4BridgeNode(Node):
             AgentStatus,
             f'/swarm/agent/drone{self._agent_id}/telemetry',
             10,
+        )
+
+        # HOME olayları — YKİ'ye giden yol. Yeni bir taşıma katmanı YOK:
+        # /internal'a basıyoruz, `ic_dis_kopru` /public'e taşıyor,
+        # `esp32_bridge._on_olay_out` mesh'e koyuyor, YKİ etiketliyor.
+        # QoS `ic_dis_kopru._VOLATILE` ile birebir aynı olmak ZORUNDA —
+        # uyumsuzluk SESSİZDİR, konu ölü görünür (TUZAKLAR §2.1).
+        self._olay_pub = self.create_publisher(
+            SystemEvent,
+            '/swarm/internal/events/system',
+            QoSProfile(
+                reliability=QoSReliabilityPolicy.RELIABLE,
+                durability=QoSDurabilityPolicy.VOLATILE,
+                history=QoSHistoryPolicy.KEEP_LAST,
+                depth=10,
+            ),
         )
 
         # FSM komut aboneliği (FSM buraya yazar, biz PX4'e iletiriz)
@@ -416,6 +483,9 @@ class Px4BridgeNode(Node):
         # Origin dogrulamasi SUREKLI kosar: FCU ucus ARASINDA da yeniden
         # baslayabilir (pil degisimi) ve o an kimse bakmiyor olabilir.
         self.create_timer(_ORIGIN_DOGRULAMA_PERIYOT_S, self._origin_dogrula)
+        # HOME dogrulamasi da SUREKLI kosar ve ayni gerekceyle: home ucus
+        # ARASINDA yeniden yazilabilir ve o an kimse bakmiyor olabilir.
+        self.create_timer(_HOME_DOGRULAMA_PERIYOT_S, self._home_dogrula)
 
     def _on_rtcm(self, msg: UInt8MultiArray) -> None:
         """RTCM callback'i (try'lı, exception node'u çökertmez)."""
@@ -669,8 +739,19 @@ class Px4BridgeNode(Node):
         mav_map_gps(msg, self._status)
 
     def _on_mav_home(self, msg: MavHomePosition) -> None:
-        """MAVROS HomePosition -> AgentStatus home."""
+        """MAVROS HomePosition -> AgentStatus home (+ yerel temsil).
+
+        `position` alani home'un PX4 YEREL cercevesindeki karsiligidir
+        (ENU: x=dogu, y=kuzey, z=yukari). Ayni noktanin ikinci temsili
+        oldugu icin cerceve tutarliligini olcmeyi mumkun kilar — global
+        ile yerel ayrilirsa PX4'un cercevesi home'un altindan kaymistir.
+        """
         mav_map_home(msg, self._status)
+        self._home_yerel = (
+            float(msg.position.x),
+            float(msg.position.y),
+            float(msg.position.z),
+        )
 
     def _on_mav_estimator(self, msg: EstimatorStatus) -> None:
         """MAVROS EstimatorStatus -> AgentStatus kestirici saglik."""
@@ -1420,6 +1501,188 @@ class Px4BridgeNode(Node):
         self._origin_gonder(
             f'dogrulama basarisiz (yatay {fark:.1f} m, dikey {fark_z:.1f} m)')
 
+    def _home_dogrula(self) -> None:
+        """HOME kaydini OLCEREK denetler — RTL'in dayandigi tek sayi.
+
+        NEDEN VAR — 26 Agustos 2026 gecesi, iki ucus arka arkaya:
+        birincisinde RTL uc ucagi da kendi kalkis noktasina NOKTA ATISI
+        indirdi; ikincisinde UCUNU BIRDEN kalkislarin ~9 m kuzeydogusuna,
+        birbirlerine 1-2 m mesafeye indirdi. PX4'un home kayitlari tam o
+        yanlis noktalardi — yani RTL dogru uctu, HOME'LAR YANLISTI.
+
+        Hata SUREKLI DEGIL: ayni gece ayni kod bir kez dogru bir kez
+        yanlis davrandi. Yani home YAZILDIGI ANDA yanlis kilitleniyor ve
+        sonra sabit kaliyor. Boyle bir hatayi yakalamanin tek yolu, home'a
+        her seferinde bakmaktir — 1 Eylul'de ylp00'da yerde olculdu ve o
+        an DOGRUYDU (6.2 cm), yani "hep bozuk" varsayimi da yanlis olurdu.
+
+        Bu metot HUKUM VERIR AMA DUZELTMEZ. `set_home` yolu yazildi ama
+        kendiliginden cagrilmiyor: home'u havada degistirmek RTL hedefini
+        ucus ortasinda kaydirir, yani cozmeye calistigimiz hatanin daha
+        kotusunu uretir. Duzeltme yerde, operator karariyla yapilir
+        (deploy/rpi/teshis/home_denetle.py).
+        """
+        try:
+            self._home_dogrula_ic()
+        except Exception as exc:                     # noqa: BLE001
+            # 🔴 px4_bridge UCUSUN EN KRITIK DUGUMU. Bir timer geri
+            # cagrisindan cikan istisna yurutucuyu dusurur ve setpoint akisi
+            # durur. Bu denetim bir EMNIYET EKI; kendi hatasi yuzunden
+            # ucusu kesmesi, engellemeye calistigi zarardan buyuk olurdu.
+            # Ayni gerekce _on_rtcm'de de yazili.
+            self.get_logger().error(
+                f'home dogrulamasi HATA verdi (yok sayildi): {exc}',
+                throttle_duration_sec=10.0,
+            )
+
+    def _home_dogrula_ic(self) -> None:
+        """Govde — istisna sarmalayicisindan ayri tutuldu (bkz. _home_dogrula)."""
+        sonuc = home_denetle(
+            home_set=self._status.home_set,
+            home_lat=self._status.home_lat_deg,
+            home_lon=self._status.home_lon_deg,
+            home_alt_amsl=self._status.home_alt_amsl_m,
+            home_yerel_dogu=(self._home_yerel[0] if self._home_yerel
+                             else None),
+            home_yerel_kuzey=(self._home_yerel[1] if self._home_yerel
+                              else None),
+            home_yerel_yukari=(self._home_yerel[2] if self._home_yerel
+                               else None),
+            origin_lat=self._origin_lat,
+            origin_lon=self._origin_lon,
+            origin_alt_amsl=self._origin_alt,
+            gps_lat=self._status.lat_deg,
+            gps_lon=self._status.lon_deg,
+            gps_alt_amsl=self._status.alt_amsl_m,
+            gps_fix_type=self._status.gps_fix_type,
+            yerde=not self._status.armed,
+        )
+        if not sonuc.gecerli:
+            # Olculemedi: onceki hukum korunur, YENI hukum verilmez.
+            return
+        if sonuc.home_ok:
+            if self._home_ok is not True:
+                # 🔴 HER IKI ALAN DA None OLABILIR ve home_ok yine True
+                # olabilir: yalnizca BIR denetim kosmus demektir (ornegin
+                # ortak origin henuz gelmemisken ucak yerde ve GPS'i var).
+                # Once burada dogrudan f'{None:.2f}' yaziliydi — TypeError
+                # atardi ve bu bir TIMER geri cagrisi oldugu icin
+                # px4_bridge'i ACILIS aninda dusururdu.
+                ek = ''
+                if sonuc.cerceve_m is not None:
+                    # BILGI: acilista 19 m normaldir (PX4 home'un yerel
+                    # kaydini origin push'undan sonra geri hesaplamiyor).
+                    # Hukme GIRMEZ; burada yalnizca kayda geciyor.
+                    ek = f' [cerceve farki {sonuc.cerceve_m:.1f} m — bilgi]'
+                self.get_logger().info(f'HOME DOGRULANDI — {sonuc.sebep}{ek}')
+            self._home_ok = True
+            self._home_uyari_verildi = False
+            self._home_hata_sayaci = 0
+            return
+
+        # --- BURADAN SONRASI: denetim KALDI --------------------------------
+        # Tek ornekle hukum verilmez (bkz. _HOME_ARDISIK_HATA).
+        self._home_hata_sayaci += 1
+        if self._home_hata_sayaci < _HOME_ARDISIK_HATA:
+            return
+
+        self._home_ok = False
+        if not self._home_uyari_verildi:
+            self._home_uyari_verildi = True
+            self.get_logger().error(
+                f'HOME GUVENILMEZ: {sonuc.sebep}. '
+                f'RTL REDDEDILECEK — inis "land" ile yapilmali. '
+                f'(26 Agustos saha olayi: RTL uc ucagi da yanlis home-a '
+                f'goturdu.)'
+            )
+            # 🔴 OPERATOR EKRANDAN GORSUN. Yalniz loga basmak yetmez: log
+            # ucaktaki bir dosyada duruyor ve ucus sirasinda kimse ona
+            # bakmiyor. 26 Agustos'un asil zarari da buydu — arizayi uc
+            # ucak yanlis yere inene kadar KIMSE bilmedi.
+            self._olay_yayinla(
+                _OLAY_HOME_GUVENILMEZ,
+                SystemEvent.SEVERITY_CRITICAL,
+                deger=(sonuc.cerceve_m if sonuc.cerceve_m is not None
+                       else (sonuc.yatay_m or 0.0)),
+            )
+
+        self._home_otomatik_duzelt(sonuc)
+
+    def _home_otomatik_duzelt(self, sonuc) -> None:
+        """Home'u YERDE, disarm ve iyi fix varsa kendiliginden duzeltir.
+
+        🔴 YALNIZ YER DENETIMI hatasinda cagrilir — 2 Eylul 2026'da UCAKTA
+        ogrenildi. Once cerceve farkinda da cagriliyordu ve `SET_HOME` o
+        farki DUZELTEMIYOR: yedi cagri da "KABUL edildi" dedi,
+        `HomePosition.position` (0,0,0) olarak kaldi, denetim yine
+        basarisiz oldu, 30 saniyede bir sonsuza kadar tekrarladi.
+        Duzeltemeyecegin bir seyi tekrar tekrar denemek, duzeltme degil
+        gurultudur.
+
+        NEDEN OTOMATIK OLMASI GUVENLI (ve havada OLMADIGI):
+        PX4 zaten DISARM'ken home'u kendisi guncelliyor. Yani yerde duran,
+        disarm, GPS'i saglam bir ucakta "home'u anlik konuma yaz" demek,
+        PX4'un kendi yapmasi gereken seyi yapmaktir — denetimimiz YANLIS
+        alarm verse bile sonuc DOGRU home olur. Zararsizligi buradan
+        geliyor, iyimserlikten degil.
+
+        Havada ise tam tersi: home'u degistirmek RTL'in hedefini ucus
+        ortasinda kaydirir. O yuzden `armed` iken ASLA calismaz.
+
+        ⚠️ SEMPTOMU GIZLEME RISKI — bilincli olarak kabul edildi ama
+        korunuyor: her duzeltme bir OLAY yayinliyor, yani duzeltme sessiz
+        degil. "Semptom gizleniyor, sebep duruyordu" hatasi bu depoda bir
+        kez yasandi (irtifa_ofset, bkz. _origin_dogrula).
+
+        Kapatmak ACILISTA yapilir (`-p home_otomatik_duzelt:=false`); canli
+        `ros2 param set` bunu REDDEDER cunku beyaz listede degil — bir
+        emniyet kapisinin havada cevrilebilir olmasi istenmez.
+        """
+        if not self._home_otomatik_duzelt_acik:
+            return
+        if self._status.armed:
+            return
+        if self._status.gps_fix_type < 3:
+            return
+        simdi = self.get_clock().now().nanoseconds * 1e-9
+        if simdi - self._home_son_duzeltme < _HOME_DUZELTME_ARALIK_S:
+            return
+        self._home_son_duzeltme = simdi
+        self.get_logger().warning(
+            f'HOME otomatik DUZELTILIYOR (yerde, disarm, fix='
+            f'{self._status.gps_fix_type}) — anlik GPS konumuna yaziliyor. '
+            f'Sebep: {sonuc.sebep}'
+        )
+        # current_gps yolu: koordinat telden hic gecmez, CommandHome'un
+        # float32 yuvarlamasi (TUZAKLAR 2.25, olculen 0.18 m) devreye girmez.
+        self._cmd_sender.set_home()
+        self._olay_yayinla(
+            _OLAY_HOME_DUZELTILDI, SystemEvent.SEVERITY_WARNING, deger=0.0)
+        # Hukum SIFIRLANMIYOR: bir sonraki denetim turu OLCEREK karar verecek.
+        # "Gonderdim" demek "oldu" demek degil — _origin_dogrula'nin dersi.
+
+    def _olay_yayinla(self, kod: int, siddet: int, deger: float = 0.0) -> None:
+        """Olay yayinlar — SystemEvent olarak, mesh uzerinden YKI'ye gider.
+
+        Args:
+            kod (int): Olay tipi (bkz. _OLAY_HOME_*).
+            siddet (int): SystemEvent.SEVERITY_*.
+            deger (float): Olcum degeri; YKI etiketin yanina yaziyor.
+        """
+        olay = SystemEvent()
+        olay.stamp = self.get_clock().now().to_msg()
+        olay.event_type = kod
+        olay.severity = siddet
+        # Kendi id'miz SART: esp32_bridge._on_olay_out yalniz {0, kendi id}
+        # olan olaylari mesh'e sokuyor (geri besleme dongusune karsi).
+        olay.source_agent_id = self._agent_id
+        olay.value = float(deger)
+        # Mesh 16 bayt tasidigi icin METIN GITMEZ, yalniz kod gider; YKI
+        # etiketi kendi tablosundan kuruyor. `source_module` yerel
+        # tuketiciler ve ucak icindeki kayit icin anlamli.
+        olay.source_module = 'px4_bridge'
+        self._olay_pub.publish(olay)
+
     def _on_agent_setpoint(self, msg: AgentSetpoint) -> None:
         """
         formation_node'dan gelen setpoint'i saklar.
@@ -1599,6 +1862,31 @@ class Px4BridgeNode(Node):
                 return
             self._cmd_sender.land()
         elif cmd == 'rtl':
+            # 🔴 HOME KAPISI — HER SEYDEN ONCE (26 Agustos saha olayi, P0).
+            # Bilerek dalin EN BASINDA: asagidaki satirlar offboard akisini
+            # kesip kalkis capalarini siliyor. RTL reddedilecekse o durumun
+            # HIC bozulmamasi gerekir, yoksa ucak ne RTL yapar ne de eski
+            # davranisina devam edebilir.
+            #
+            # Kosul bilerek "is False": None = HENUZ OLCULMEDI demek ve
+            # olculmemis bir denetime dayanarak davranis degistirmek, bu
+            # depoda tekrar tekrar pahaliya patlamis bir sey. Bilinmiyorsa
+            # bugunku davranis korunur, yalnizca uyarilir.
+            if self._home_ok is False:
+                self.get_logger().error(
+                    'rtl komutu REDDEDILDI — HOME dogrulanamadi. '
+                    '26 Agustos-ta RTL uc ucagi da kalkis noktalarina '
+                    'degil ayni yanlis noktaya indirdi. Inis "land" ile '
+                    'yapilmali.',
+                    throttle_duration_sec=2.0,
+                )
+                return
+            if self._home_ok is None:
+                self.get_logger().warning(
+                    'rtl komutu: HOME henuz DOGRULANMADI (olcum yapilamadi). '
+                    'Komut gecirildi ama home guvencesi YOK.',
+                    throttle_duration_sec=2.0,
+                )
             self._offboard_streaming = False
             self._arm_bekliyor = False   # RTL geldi, bekleyen ARM iptal
             self._target_altitude_ned = None

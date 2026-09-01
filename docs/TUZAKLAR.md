@@ -1,6 +1,6 @@
 # TUZAKLAR — hata vermeden yanlış sonuç üretenler
 
-**Son güncelleme:** 31 Ağustos 2026, 16:24 — §3.16 (görev yazılımı emniyet pilotunu eziyordu) · §3.17 (formasyonsuz ofsetler içe sarmal) · §3.18 (gaz çubuğu dinlenme konumu = tam alçal) eklendi
+**Son güncelleme:** 2 Eylül 2026, 01:35 — §2.26 (`HomePosition.position` origin push'undan sonra bayat kalır, `SET_HOME` düzeltmez — **ilk home denetimimiz bu yüzden yanlış alarm verdi**) · §2.27 (RTK'siz konum metrelerce gezinir, tek örneğe eşik kurma) eklendi. Eski: §2.24 (MAVROS `connected:false` donanım DEĞİL, restart çözdü) · §2.25 (`CommandHome` lat/lon float32, 0,18 m sessiz kayma). Daha eski: §3.16 (görev yazılımı emniyet pilotunu eziyordu) · §3.17 (formasyonsuz ofsetler içe sarmal) · §3.18 (gaz çubuğu dinlenme konumu = tam alçal)
 
 > **Bu belge CANLI.** Arşiv değil — buradaki her madde **bugün de geçerli.**
 >
@@ -1280,6 +1280,135 @@ sonra hata sayılır; varsa mavros **bir kez** yeniden başlatılır ve yalnız
 `/ws/mavros_gcs_bozuk` bayrağı bırakılır; `drone_bul.sh --durum` onu
 `>> SORUN` satırı olarak gösterir. Konum bilinçli: o noktada `gps_saat` ve
 sürü düğümleri henüz açılmamıştır, yani mavros'a bağlı hiçbir şey yoktur.
+
+---
+
+### 2.24 🔴 MAVROS `connected:false` + rastgele `remote address` = YANLIŞ HİZALAMA, donanım DEĞİL
+
+**1 Eylül 2026 gecesi, ylp00.** `/drone_1/mavros/state` → `connected:false`,
+`mode:''`; home, GPS, altitude konularının **hiçbiri** yayında değil. ylp02'de
+aynı belirti vardı ve *"uçak bugün çok elden geçti, gevşek konnektör"* diye
+okunmuştu. İkisi de yanlış okumaydı.
+
+`mavros.log`'un söylediği:
+
+```
+mavros_router: link[1000] detected remote address 240.10
+                                                  37.213
+                                                  0.228   ...
+```
+
+`remote address` = `sysid.compid`. Gerçek bir PX4 **tek sabit adres** verir.
+Rastgele adres akması, baytların MAVLink çerçevesi sanılıp **yanlış
+hizalandığını** söyler — hat sessiz değil, *anlamsız*.
+
+İki hipotez kuruldu (baud uyuşmazlığı · elektriksel gürültü), **ikisi de
+ölçülerek çürütüldü.** MAVROS durduruldu, `/dev/ttyAMA0` beş baud'da 3'er
+saniye okundu, kendini doğrulayan zincirli `0xFD` çerçeveleri sayıldı:
+
+| baud | zincirli çerçeve | sysid |
+|---|---|---|
+| 57 600 · 115 200 · 230 400 · 460 800 | 1 · 0 · 2 · 0 | — |
+| **921 600** | **882** | **hepsi 1** |
+
+51 601 bayt, %23,2 sıfır baytı — kusursuz bir akış, hem de `fcu_url`'deki
+hızda. Ardından **`docker restart` sorunu kapattı** (`connected` false→true,
+mod `AUTO.LOITER`).
+
+🔴 **Ders: bu belirtide ÖNCE konteyneri yeniden başlat.** 50 saniyelik bir
+deneme, saatlerce sürecek bir donanım avını baştan bitirebilir.
+
+⚠️ **Ham seri okuma tek başına DELİL DEĞİLDİR.** MAVROS portu açık tutarken
+`dd` ile okursan baytlar iki okuyucu arasında bölünür ve örnek zaten bozuk
+çıkar (§5.4) — "çöp görüyorum" demek "hat çöp" demek olmaz. Hükmü veren şey
+MAVROS'un **kendi** logu oldu; baud taraması ancak MAVROS durdurulduktan
+sonra anlam kazandı.
+
+---
+
+### 2.25 🔴 `CommandHome` lat/lon **float32** — home yazarken 0,2-0,3 m sessizce kayar
+
+`mavros_msgs/srv/CommandHome` ile home'u **açık koordinatla** yazarken
+`latitude`/`longitude` alanları **float32**'dir. Python tarafında atama
+**kırpmaz** — `req.latitude = 38.6906287` yazıp geri okursan aynı sayıyı
+görürsün ve her şey yolunda sanırsın. Kırpma **serileştirmede** olur;
+hiçbir uyarı, hiçbir hata çıkmaz.
+
+Ölçüldü (1 Eylül 2026, rclpy serialize/deserialize round-trip):
+
+| istenen | tel üzerinden | hata |
+|---|---|---|
+| 38.6906287 · 39.1611271 | 38.6906281 · 39.1611290 | **0,180 m** |
+| 38.6904758 · 39.1610188 | 38.6904755 · 39.1610184 | 0,053 m |
+
+float32'nin bu enlemdeki adımı **0,42 m** → en kötü ~0,3 m hata.
+
+**Kaçınma yolu `current_gps=True`:** koordinat telden hiç geçmez, PX4 kendi
+iç konumunu kullanır, yuvarlama tamamen ortadan kalkar.
+`deploy/rpi/teshis/home_denetle.py --duzelt` bu yolu kullanıyor;
+`mavros_command_sender.set_home()` açık koordinatla çağrılırsa **uyarı
+basıyor.**
+
+---
+
+### 2.26 🔴 `HomePosition.position` origin push'undan sonra BAYAT kalır — ve `SET_HOME` onu düzeltmez
+
+**2 Eylül 2026, ylp00, açılış sonrası ölçüldü:**
+
+```
+HomePosition.position   : (0.0, 0.0, -0.0)      <- PX4'ün sakladığı YEREL home
+uçağın yerel konumu     : (16.12, 10.54)        =  19.26 m
+origin_synced           : true
+_origin_dogrula         : "yatay 0.01 m, dikey 0.00 m — çerçeveler örtüşüyor"
+home'un GLOBAL kaydı    : uçağın GPS'inden 0.67 m  ✅ DOĞRU
+```
+
+**Sıra şu:** PX4 açılışta home'u yazıyor — o an yerel çerçeve uçağın
+üzerinde olduğu için `position` = **(0,0,0)**. Sonra `SET_GPS_GLOBAL_ORIGIN`
+uygulanıyor, yerel çerçeve ortak origin'e kayıyor (19 m), `pos_x/pos_y`
+doğru okunmaya başlıyor — ama PX4 **home'un yerel kaydını geri
+hesaplamıyor.** Global kayıt doğru kalıyor; yalnız yerel temsil bayatlıyor.
+
+🔴 **Buradan "home bozuk" sonucu ÇIKARILAMAZ.** İlk yazdığımız home
+denetimi tam olarak bunu yaptı: her açılışta KRİTİK alarm bastı ve
+otomatik düzeltmeyi tetikledi.
+
+**Farkın sıraya bağlı olduğu ölçülerek görüldü:** aynı uçakta, arka arkaya
+iki `docker restart` sonrası çerçeve farkı **19,34 m** ve **0,01 m** çıktı.
+Belirleyen şey home'un origin push'undan **önce** mi **sonra** mı
+yazıldığı. İkisinde de home'un global kaydı doğruydu — yani bu fark
+uçağın sağlığı hakkında hiçbir şey söylemiyor.
+
+⚠️ **Ve `SET_HOME` bunu düzeltmiyor.** `current_gps=True` ile yedi çağrı
+yapıldı, **yedisi de "KABUL edildi"** dedi, `position` **(0,0,0) olarak
+kaldı**, denetim yine düştü ve döngü 30 saniyede bir sonsuza kadar
+tekrarladı. Kabul edilen bir komut, işini yaptığı anlamına gelmiyor.
+
+**Doğrusu:** RTL'in kullandığı şey home'un **global** kaydıdır; hükmü de o
+vermeli — *home lat/lon, uçağın kendi GPS'ine yakın mı?* Çerçeve farkı
+ölçülüp **bilgi olarak** raporlanır, hükme girmez
+(`px4_interface/home_dogrulama.py`).
+
+> **Ders:** iki temsili karşılaştıran bir denetim yazarken, ikisinin
+> **aynı anda güncellendiğini** önce doğrula. Biri bayatlıyorsa fark
+> "arıza" değil, o sistemin normal hâlidir.
+
+---
+
+### 2.27 ⚠️ RTK'siz konum çözümü metrelerce gezinir — tek örneğe bakıp eşik koyma
+
+Aynı gün, aynı uçak, hareketsiz, fix 3:
+
+| ne zaman | home ↔ kendi GPS'i |
+|---|---|
+| 1 Eylül, tek örnek | **0,062 m** |
+| 2 Eylül, 30 sn arayla | **1,27 m** · **1,17 m** |
+
+Tek örneğe (6 cm) bakıp 1,0 m eşik konmuştu — ve **yanlış alarm üretti.**
+Sapmanın kaynağı home değil, standalone GPS'in kendi gezinmesi.
+
+Eşik artık fix kalitesine bağlı: **fix ≥ 5 (RTK) → 1,0 m · fix 3-4 → 3,0 m.**
+26 Ağustos'un hatası 9 m idi, yani 3 m eşikle de rahatlıkla yakalanır.
 
 ---
 

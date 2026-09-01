@@ -150,6 +150,16 @@ SYSTEM_EVENT_LABELS = {
     SystemEvent.EVENT_RC_LINK_LOST: "Kumanda bağlantısı koptu",
     SystemEvent.EVENT_KILL_SWITCH_ACTIVATED: "Kill switch çekildi",
 
+    # HOME DENETIMI (px4_bridge._OLAY_HOME_*) — 26 Agustos saha olayi.
+    # SystemEvent.msg'de 38/39 BOS (37'den 40'a atliyor); sabit olarak
+    # EKLENMEDI cunku arayuz degisikligi swarm_interfaces'i ve tum
+    # bagimlilarini yeniden derletir, uc ucaga dagitim ister (TUZAKLAR
+    # §2.11b). Kod telde zaten uint8; isim sadece okunabilirlik icin.
+    # 60-68 arasi Pi olaylari icin de birebir ayni sey yapilmis.
+    # value = olculen sapma (m).
+    38: "HOME kaydı güvenilmez — RTL kapalı, iniş land ile (m)",
+    39: "HOME otomatik düzeltildi — doğrulaması bekleniyor",
+
     # TASIMA KATMANI (packet_parser.OLAY_TIPI_*) — SystemEvent.msg'de yok,
     # cunku bunlar ucaktaki bir dugumun urettigi olaylar degil, olay yolunun
     # KENDI hakkinda soyledikleri. SystemEvent'in 0-59 araligiyla cakismaz.

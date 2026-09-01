@@ -5,6 +5,7 @@ FSM kararlarini MAVROS uzerinden PX4'e ileten komut gondericisi.
 
 Kullanilan MAVROS arayuzleri:
 - {ns}/mavros/cmd/arming            (servis) -> arm/disarm
+- {ns}/mavros/cmd/set_home          (servis) -> HOME kaydini yeniden yaz
 - {ns}/mavros/set_mode              (servis) -> OFFBOARD/AUTO.LAND/RTL
 - {ns}/mavros/setpoint_raw/local    (topic)  -> pozisyon/hiz + yaw
 - {ns}/mavros/global_position/set_gp_origin (topic) -> ortak NED origin
@@ -18,7 +19,7 @@ import math
 from geographic_msgs.msg import GeoPointStamped
 
 from mavros_msgs.msg import PositionTarget
-from mavros_msgs.srv import CommandBool, SetMode
+from mavros_msgs.srv import CommandBool, CommandHome, SetMode
 
 # PX4 ucus modu string'leri (SetMode.custom_mode)
 _MODE_OFFBOARD = 'OFFBOARD'
@@ -139,6 +140,11 @@ class MavrosCommandSender:
         )
         self._mode_client = node.create_client(
             SetMode, f'{ns}/mavros/set_mode'
+        )
+        # HOME'u yeniden yazmak icin (bkz. set_home). Ayri istemci: arm ve
+        # mod istemcileri uzerinden gitmez, farkli servis tipi.
+        self._home_client = node.create_client(
+            CommandHome, f'{ns}/mavros/cmd/set_home'
         )
 
         # Setpoint publisher (offboard akisi bu topic uzerinden gider)
@@ -266,6 +272,75 @@ class MavrosCommandSender:
     def return_home(self) -> None:
         """AUTO.RTL moduna gecer (home'a don)."""
         self._call_set_mode(_MODE_AUTO_RTL)
+
+    # =================================================================
+    # HOME YAZMA  (CommandHome servisi)
+    # =================================================================
+    def set_home(
+        self,
+        lat: float | None = None,
+        lon: float | None = None,
+        alt_amsl: float | None = None,
+        yaw_deg: float = 0.0,
+    ) -> None:
+        """PX4'un HOME kaydini yeniden yazar (MAV_CMD_DO_SET_HOME).
+
+        NEDEN VAR: 26 Agustos 2026'da RTL uc ucagi da yanlis home'lara
+        goturdu (P0). O gune kadar home'u DUZELTMENIN hicbir yolu yoktu —
+        yalnizca okunuyordu. Denetimi home_dogrulama.py yapar; duzeltmeyi
+        bu metot yapar.
+
+        🔴 BU METOT KENDILIGINDEN CAGRILMAZ. Ne px4_bridge ne baska bir
+        dugum otomatik home yazar. Sebep: home'u HAVADA degistirmek RTL'in
+        hedefini ucus ortasinda kaydirir — cozmeye calistigimiz hatanin
+        daha kotusunu uretir. Cagri YERDE, operator karariyla yapilir
+        (deploy/rpi/teshis/home_denetle.py --duzelt).
+
+        ⚠️ ACIK lat/lon KULLANMA — SESSIZ YUVARLAMA VAR. CommandHome.srv'de
+        latitude/longitude alanlari **float32**; Python tarafinda atama
+        kirpmiyor, kirpma SERILESTIRMEDE oluyor ve hicbir uyari cikmiyor.
+        Olculdu (1 Eylul 2026, rclpy serialize/deserialize round-trip):
+            38.6906287, 39.1611271 -> 38.6906281, 39.1611290  = 0.180 m
+        float32'nin bu enlemdeki adimi 0.42 m, yani en kotu ~0.3 m hata.
+        Toleransimizin (1.0 m) altinda ama home'u "tam su noktaya yaz"
+        diye cagiran biri bunu bilmeli. `current_gps=True` yolu bu
+        yuvarlamadan TAMAMEN kacinir: koordinat tel uzerinden hic gecmez,
+        PX4 kendi ic konumunu kullanir. VARSAYILAN yol odur.
+
+        Args:
+            lat (float | None): Home enlemi. None ise ucagin ANLIK GPS
+                konumu kullanilir (current_gps=True).
+            lon (float | None): Home boylami. lat None ise yok sayilir.
+            alt_amsl (float | None): Home AMSL yuksekligi, metre.
+            yaw_deg (float): Home yaw'i, derece. PX4 bunu yalnizca
+                bilgi olarak tutar; RTL yonunu etkilemez.
+        """
+        if not self._home_client.service_is_ready():
+            self._node.get_logger().warning(
+                'set_home servisi hazir degil (mavros baglandi mi?)'
+            )
+            return
+        req = CommandHome.Request()
+        anlik = lat is None or lon is None
+        req.current_gps = anlik
+        req.yaw = float(yaw_deg)
+        if not anlik:
+            req.latitude = float(lat)
+            req.longitude = float(lon)
+            req.altitude = float(alt_amsl if alt_amsl is not None else 0.0)
+            # Yuvarlamayi SESSIZ birakma (bkz. docstring): cagiran taraf
+            # "tam su nokta" sanmasin, ~0.2-0.3 m kayabilecegini gorsun.
+            self._node.get_logger().warning(
+                'set_home ACIK koordinatla cagrildi — CommandHome float32 '
+                'oldugu icin hedef ~0.2-0.3 m kayabilir (olculdu: 0.180 m). '
+                'Mumkunse current_gps yolunu kullan.'
+            )
+        etiket = ('SET_HOME(anlik GPS)' if anlik
+                  else f'SET_HOME({lat:.7f},{lon:.7f})')
+        future = self._home_client.call_async(req)
+        future.add_done_callback(
+            lambda f: self._servis_sonucu(f, etiket)
+        )
 
     # =================================================================
     # OFFBOARD MOD BILDIRIMLERI
