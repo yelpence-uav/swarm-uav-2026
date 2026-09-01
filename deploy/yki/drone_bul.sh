@@ -292,8 +292,29 @@ bul() {
 }
 
 ip_bul() {
-    local isim="$1" liste
-    liste=$(bul "${2:-hayir}") || return 1
+    local isim="$1" zorla="${2:-hayir}" liste ip
+    # HIZLI YOL — TEK drone soruluyorsa filonun tamamini aramaya gerek yok.
+    #
+    # `bul()` onbellegi ancak KADRONUN TAMAMI icinde varsa kabul ediyor (26
+    # Agustos hatasi, gerekcesi bul()'un ustunde). O kural FILO LISTELERI
+    # icin dogru ve kaliyor. Ama tek isim sorulunca gereksiz: o drone'un
+    # onbellekteki IP'sinde SSH portu aciksa dogrulama zaten tamamlanmistir;
+    # digerlerini taramak bu cagriya hicbir sey katmaz, sadece ~8 sn ekler.
+    #
+    # 1 Eylul 2026'da olculdu: YKI'nin RPi paneli tam bu yuzden 12 sn'lik
+    # sinirini asiyordu. Filoda iki ucak kapaliyken onbellek hep "EKSIK"
+    # sayiliyor ve HER tiklamada /24 MAC taramasi kosuyordu — olcumun
+    # kendisi 0,8 sn, tarama 8 sn.
+    #
+    # 26 Agustos hatasi geri gelmez: drone onbellekte YOKSA ya da portu
+    # cevap vermiyorsa asagidaki tam yola dusuluyor.
+    if [ "$zorla" = "hayir" ]; then
+        ip=$(onbellek_oku 2>/dev/null | awk -v n="$isim" '$1==n {print $2; exit}')
+        if [ -n "$ip" ] && ssh_acik_mi "$ip" 2; then
+            printf '%s\n' "$ip"; return 0
+        fi
+    fi
+    liste=$(bul "$zorla") || return 1
     echo "$liste" | awk -v n="$isim" '$1==n {print $2; exit}'
 }
 

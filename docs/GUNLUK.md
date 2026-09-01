@@ -1,6 +1,6 @@
 # GÜNLÜK — oturum devir teslim kaydı
 
-**Son güncelleme:** 1 Eylül 2026, 11:30 — 🟢 **SÜRÜ HAREKETİ + FORMASYON GEÇİŞİ UÇTU.** 🔴 İki saha olayı: ylp02 saha dışına düştü (PX4 failsafe), ylp00 kalkışta roll arızası. Dört kod düzeltmesi dağıtıldı.
+**Son güncelleme:** 1 Eylül 2026, 22:47 — kamera onarıldı, jöle artık ÖLÇÜLÜYOR; RPi paneli düzeltildi
 
 Tek bilgisayar, sırayla çalışıyoruz. Biri kalkıp diğeri oturduğunda **hem
 kişi hem Claude** nerede kalındığını buradan anlar.
@@ -35,6 +35,90 @@ Claude'a **"oturumu kapat"** dersen bu kaydı o yazar.
 - ylp00: (kill switch? pil? nerede? konteyner ayakta mı?)
 - ylp02:
 ```
+
+---
+
+## 2026-09-01 22:47 — Eyüp + Claude (KAMERA ONARIMI · jöle ÖLÇÜLÜYOR · RPi paneli düzeltildi)
+
+> **Uçuş yapıldı ama ölçülemedi** (akşam, karanlık). Gün kamera arızasıyla
+> geçti; sonunda jöle nitel bir gözlem olmaktan çıkıp **sayıya** dönüştü.
+> Operatör 4 gün yoktu, depo 34 commit geride kalmıştı — ileri sarıldı.
+
+**Ne yapıldı**
+
+- 🔧 **Kamera arızası çözüldü.** ylp02'de `No cameras available!`. Teşhis
+  yöntemi: **kontrol hattı (I²C) ile veri hattını (MIPI CSI) ayırmak.**
+  Yeni takılan modül I²C'ye cevap veriyor ama CSI verisi vermiyordu —
+  **modül arızalı.** Eski modül aynı kablo üzerinde 4K dahil her kipte
+  kusursuz çalıştı (30,1 fps, sapmasız). Düşüşten zarar görmemişti.
+  Flex ve Pi konnektörü de sağlam. Ayrıntı: `KAMERA.md` §12.1.
+- 📏 **JÖLE ARTIK ÖLÇÜLÜYOR** — `deploy/rpi/teshis/jole_olc.py` (yeni).
+  Doğrusal makaslama (zararsız) ile artık dalgalanmayı (QR'ı öldüren)
+  ayırıyor. 28 Ağustos'un dört uçuşu geriye dönük ölçüldü: **yalıtımın
+  5-7 kat kazandırdığı bağımsız olarak doğrulandı** (6,0-12,0 → 1,0-2,1 px).
+  Motorsuz taban ölçüldü: **0,73 px**.
+- 🔴 **Karanlık kayıt tuzağı** — akşam kaydında metrik 4,02 px "dalgalanma"
+  uydurdu (kontrast 5,4; gündüz 19-22). Operatör kaydı izledi, dalgalanma
+  yoktu. Metriğe **geçerlilik kapısı** eklendi: kontrast < 12 ise sayı
+  vermez, "GEÇERSİZ" der. `KAMERA.md` §12.3.
+- 🔧 **YKİ RPi paneli düzeltildi.** `ssh_ok:false` veriyordu; sebep SSH
+  değil **zaman aşımıydı**. `drone_bul.sh` önbelleği ancak kadronun tamamı
+  içindeyse kabul ediyor (26 Ağustos hatası, haklı kural) — ylp01 kapalı
+  olduğu için her çağrıda `/24` taranıyordu. Ölçüm: `rpi_durum.sh` 0,8 sn,
+  tarama 8 sn, backend sınırı 12 sn, üstelik tarama iki kez ödeniyordu.
+  `ip_bul()`'a **tek isim hızlı yolu** eklendi → **8,0 sn → 0,3-0,5 sn.**
+- 📶 **Ağ yavaşlığının sebebi ölçüldü** (3 MB/s → 1 MB/s). CPU, disk ve
+  sinyal temiz; sebep **airtime çekişmesi**: `rpissid` 2,4 GHz kanal 6,
+  aynı kanalda 4 ağ, RTT ort 43,8 ms / tepe 163 ms / jitter 35,8.
+  Ham hız 0,86 MB/s, şifre değiştirmek etkilemedi. Uçakla ilgisi yok.
+- 🆕 `deploy/rpi/teshis/kamera_teshis.sh` — tek komutluk kamera teşhisi.
+
+**Ne değişti**
+
+- kod: `deploy/yki/drone_bul.sh` — `ip_bul()` hızlı yolu (8 satır + gerekçe);
+  `deploy/rpi/teshis/jole_olc.py` (yeni); `deploy/rpi/teshis/kamera_teshis.sh` (yeni)
+- uçakta (**ylp02**): **eski kamera modülü geri takıldı** · `~/kamera_teshis.sh`
+  kuruldu · kamera servisi **elle** başlatılıyor (otomatik değil) ·
+  28 Ağustos kalibrasyonu korundu (`sport`, `2.5923,1.2225`)
+- belge: `KAMERA.md` (§12 yeni, §10 ve §11 genişledi), `DURUM.md`,
+  `YAPILACAKLAR.md`, `GUNLUK.md`
+
+**Yarım kalan / tuzak**
+
+- 🔴 **ylp02'de MAVROS PX4'e BAĞLI DEĞİL.** `connected:false`, `mode:"?"`,
+  `imu/baro/mag_healthy` **üçü de False**, `imu/mag` ve `raw/fix`
+  konularında yayın yok. Barometre ve IMU iç mekânda da çalışır — bu
+  "GPS yok" değil, **FCU ile konuşulmuyor.** Açık P0 olan **gevşek PX4
+  güç soketiyle** aynı sınıf ve uçak bugün çok elden geçti.
+  *Operatör: "GPS'i ben çözerim" dedi, oturum sonunda açık bırakıldı.*
+- ⚠️ **`kamera_yayin.py` `dagit.sh` ile TAŞINMIYOR** — ylp02'ye elle
+  kopyalanmış ve **iki kopya var**: `~/yelpence_ws/kamera_yayin.py`
+  (depoyla aynı, doğru olan) ve `~/kamera_yayin.py` (28 Ağu 04:40, bayat,
+  64 KB). Çift kaynak tuzağı, temizlenmeli.
+- ⚠️ **Kamera servisi kendiliğinden başlamıyor.** Açılıştan sonra:
+  `ssh yelpence02@<ip> 'setsid nohup python3 ~/yelpence_ws/kamera_yayin.py > /tmp/kamera_yayin.log 2>&1 < /dev/null &'`
+- ⚠️ **Modül değişince KAPAT-AÇ şart.** `imx477` sürücüsü sensörü yalnız
+  açılışta bağlıyor; çalışan Pi'de değiştirmek ölçümlerin hepsini
+  yanıltıyor. Elle `bind` de çözüm değil (denendi, akış kırık geldi).
+- ⚠️ **`dmesg` taşabiliyor**, açılış satırları siliniyor → yanlış sonuç.
+  Doğrusu `journalctl -k -b 0`.
+- ⚠️ 4K'da tarayıcı sekmesi açıkken CPU %91, arayüz cevap veremiyor.
+  Kayıt alırken sekme kapalı olmalı.
+- 🔴 Uçuş kaydı **karanlıkta** çekildi, jöle hakkında hiçbir şey söylemiyor.
+  Flex hipotezi **sınanmadı**.
+
+**Sıradaki adım**
+
+- **Gündüz** bir uçuş + flex servis kıvrımı denemesi. Ölçüt `jole_olc.py`;
+  28 Ağustos seviyesi **1,04 px**, motorsuz taban **0,73**, hedef **≤ 0,8**.
+
+**Uçakların bırakıldığı hâl**
+
+- ylp00: açık, ağda (`10.38.209.134`), mesh'te, GPS **28 uydu** fix 3,
+  pil %55, konteyner 9 saattir ayakta, sağlıklı
+- ylp01: **kapalı**, ağda değil
+- ylp02: açık, ağda (`10.38.209.189`), **kamera çalışıyor**, pil %53,
+  🔴 **MAVROS PX4'e bağlı değil**, disk %75
 
 ---
 

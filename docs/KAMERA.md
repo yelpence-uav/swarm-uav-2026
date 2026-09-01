@@ -1,6 +1,6 @@
 # KAMERA ve ALGI — sahada ölçülmüş sonuçlar
 
-**Son güncelleme:** 29 Ağustos 2026, 17:55 — IR-cut kilidi kayda geçti (belge "ışık sensörü ile çalışıyor" diyordu, bayattı)
+**Son güncelleme:** 1 Eylül 2026, 20:15 — jöle artık ÖLÇÜLÜYOR (§12); modül arızası teşhisi; karanlık kayıt tuzağı
 
 > Bu belge **28 Ağustos 2026'da tek oturumda** yapılan kamera kurulumu,
 > kalibrasyonu ve dört uçuşluk QR tespit testinin sonucudur. Her sayı
@@ -572,6 +572,8 @@ Bu bölüm bilerek duruyor. Her biri zaman kaybettirdi.
 | "Basılı QR geçersiz" | Geçerliydi, okundu | Operatörün pankart fotoğrafı |
 | "30 fps jöleyi 3 kat azaltır" | **Hiç azaltmadı** (VBLANK) | Operatör gözlemi |
 | "QR A4'te, 8 m'den yukarı okunmaz" | Hedef 1,5 m'lik pankarttı | İrtifa + piksel ölçümü |
+| "Kamera düşüşte bozuldu" | Sağlamdı; **yeni takılan modül arızalıydı** | Aynı flex, iki modül (§12.1) |
+| "Yalıtım bozulmuş, jöle 4,02 px" | Ölçüm **geçersizdi** — kayıt karanlıktı | Operatör kaydı izledi: dalgalanma yok (§12.3) |
 
 **Ortak ders:** ölçümü *yorumlamadan* önce, ölçtüğün şeyin gerçekten o
 olduğunu doğrula. Kare ortalamasından IR, kırpılmış kareden odak,
@@ -589,3 +591,108 @@ kare hızından okuma süresi çıkarılamaz.
 - 🟡 1332x990 kipini dene — okuma süresi üçte bire iner, px/modül
   3,3'e düşer. Alçak irtifa için bir seçenek olabilir.
 - 🟡 Renk hedefini kadraja alan bir uçuş — renk irtifa eğrisi henüz yok.
+- 🟠 **Flex servis kıvrımı denemesi** — jöle tabanına (0,73 px) inilebiliyor
+  mu? Ölçüt `jole_olc.py`, hedef ≤ 0,8 px. **Gündüz uçuşu şart** (§12.3).
+
+---
+
+## 12. 1 Eylül 2026 — arıza teşhisi ve jöle ÖLÇÜSÜ
+
+### 12.1 Kontrol hattı ile veri hattını AYIRMAK
+
+Kamera arızalarında `No cameras available!` tek başına hiçbir şey söylemiyor.
+Ayrım şurada: **I²C** sensörü tanır ve ayarlar, **MIPI CSI-2** kareyi taşır.
+Bunlar flex kablosunda **ayrı iletkenler** — biri geçip diğeri geçmeyebilir.
+
+| belirti | anlamı |
+|---|---|
+| `failed to read chip id ... -121` | I²C **kopuk** — flex oturmamış/ters |
+| `Device found` + `Error writing reg ... -121` | I²C **sınırda** |
+| `Device found` + `Camera frontend has timed out!` | I²C tamam, **CSI veri yok** |
+| Düşük kip geçer, 4K geçmez | hat **sınırda** → kablo şüphelisi |
+
+⚠️ **`imx477` sürücüsü sensörü YALNIZCA AÇILIŞTA bağlar.** Çalışan Pi'de
+modül değiştirmek hiçbir şey yapmaz; sürücü hâlâ açılışta gördüğü modüle
+bağlıdır ve ölçümlerin **hepsi yanıltıcı** olur. Elle `bind` etmek de
+çözüm değil — denendi, `Runtime PM usage count underflow` + kırık akış
+verdi. Modül değiştiyse **kapat-aç**, başka yolu yok.
+
+⚠️ **`dmesg` taşabiliyor.** Kernel trace'leri halka tamponu doldurup açılış
+satırlarını siliyor; o zaman "açılışta kamera yoktu" gibi **yanlış** bir
+sonuç çıkıyor. Doğrusu `journalctl -k -b 0` — kalıcı ve tam.
+
+**1 Eylül vakası:** iki modül denendi, aynı `-121` tablosu çıktı ve flex
+suçlandı. Gerçekte **yeni modül arızalıydı**: I²C'ye cevap veriyor, CSI
+verisi vermiyordu. Eski modül aynı kablo üzerinde 4K dahil her kipte
+kusursuz çalıştı (30,1 fps, sapmasız). Düşüşten zarar görmemişti.
+
+Tek komutluk teşhis: **`deploy/rpi/teshis/kamera_teshis.sh`** — açılış
+yoklaması (journal'dan), artık süreç temizliği, üç kipte yakalama denemesi,
+25 sn akış kararlılığı. Sonunda tek satır hüküm verir.
+
+### 12.2 JÖLE ARTIK BİR SAYI — `deploy/rpi/teshis/jole_olc.py`
+
+Şimdiye kadar jöle göz kararıyla değerlendiriliyordu. Artık ölçülüyor.
+
+**Yöntem:** ardışık iki kare yatay bantlara bölünür, her bandın kayması faz
+korelasyonuyla bulunur. Kayma-satır ilişkisi ikiye ayrılır:
+
+- **DOĞRUSAL bileşen (makaslama)** — düzgün hareketin sonucu. Kare eğrilir
+  ama ızgara korunur; QR çözücü afin bozulmayı tolere eder. **ZARARSIZ.**
+- **ARTIK (dalgalanma)** — titreşimin satırları farklı yönlere kaydırması.
+  Izgarayı bozan, QR'ı okutmayan bileşen **budur.**
+
+Bu ayrım şart: elde tutulan kamerada makaslama 8,59 px'ken dalgalanma
+0,73 px çıktı. Tek sayıya bakılsaydı "jöle var" denirdi — yoktu.
+
+**Ölçülen değerler (hepsi tam çözünürlük pikseli):**
+
+| kayıt | rijit hareket | makaslama | **DALGALANMA** |
+|---|---|---|---|
+| 28 Ağu, yalıtım **öncesi** | 14,3 – 22,7 | 16,5 – 25,0 | **6,00 – 11,99** |
+| 28 Ağu, yalıtım **sonrası** | 2,2 – 4,9 | 1,1 – 2,3 | **1,04 – 2,12** |
+| 1 Eylül, elde, **motorsuz** | 12,9 | 8,6 | **0,73** ← taban |
+
+**Üç sonuç:**
+
+1. **Yalıtımın 5-7 kat kazandırdığı bağımsız olarak doğrulandı** — QR
+   sonuçlarındaki %0-25 → %62-76 sıçramasının fiziksel karşılığı bu.
+2. **Hareket miktarı sorun değil, frekansı sorun.** Elde rijit hareket
+   uçuşlardakinden fazlaydı (12,9 px), dalgalanma yine de en düşüktü.
+3. **Yalıtımdan sonra bile taban aşılmıyor:** en iyi uçuş 1,04 px, motorsuz
+   taban 0,73 px. Aradaki fark, yalıtımı **aşarak** kameraya ulaşan artık
+   titreşim. 11-15 m'de piksel/modül 5,3-6,1 olduğuna göre 1-2 px kayma bir
+   modülün **%20-40'ı** demek — "bulunuyor ama okunamıyor"un sayısal karşılığı.
+
+> **Hedef: uçuşta dalgalanma ≤ 0,8 px.** Şu an en iyi 1,04; taban 0,73.
+
+**Operatör hipotezi (sınanmayı bekliyor):** flex kablo uçuşta sallanıyor ve
+**yalıtımı köprülüyor** — gövdenin titreşimi yumuşak göbeği atlayıp kabloyla
+kameraya giriyor. Denenecek: kameraya yakın **bol servis kıvrımı**, iki
+yakada ayrı sabitleme, aradaki kıvrım serbest. Bantla gövdeye yapıştırmak
+kabloyu tekrar sert köprüye çevirir — yapılmaz.
+
+### 12.3 🔴 KARANLIK KAYITTA ÖLÇÜM YAPILMAZ
+
+1 Eylül akşamı çekilen bir uçuş kaydında metrik **4,02 px dalgalanma**
+raporladı ve buradan "yalıtım bozulmuş" sonucu çıkarıldı. **Yanlıştı.**
+Operatör kaydı izledi, dalgalanma yoktu.
+
+Sebep ölçüldü:
+
+| kayıt | parlaklık | **kontrast (std)** |
+|---|---|---|
+| 1 Eylül uçuş (akşam, güneş batmış) | 40,5 | **5,4** |
+| 1 Eylül elde (iç mekân) | 180,7 | 18,6 |
+| 28 Ağustos (gündüz) | 156,5 | **21,9** |
+
+Karanlıkta sahne dokusu düşer, sensör kazancı yükselir, gürültü artar. O
+koşulda faz korelasyonu ardışık kareler arasında **rastgele** değer üretir
+ve bu "dalgalanma" gibi görünür.
+
+`jole_olc.py` artık bunu kendisi yakalıyor: **kare kontrastı < 12 ise sayı
+vermez**, "ÖLÇÜM GEÇERSİZ" der ve çıkış kodu 2 döner. Gündüz kayıtlarında
+kontrast 19-22 tipik.
+
+> **Ders:** metriğin ne ölçtüğü kadar, **ne zaman ölçemeyeceği** de
+> kodlanmalı. Sessizce sayı üreten bir ölçü aleti, hiç ölçmeyenden kötüdür.

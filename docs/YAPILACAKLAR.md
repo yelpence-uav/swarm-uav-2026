@@ -1,6 +1,6 @@
 # YAPILACAKLAR
 
-**Son güncelleme:** 1 Eylül 2026, 11:30 — 🟢 sürü hareketi + formasyon geçişi UÇTU · 🔴 **ylp00 roll arızası (UÇMASIN)** · 🔴 ylp02 failsafe sebebi açık · manevra düzeltildi ama doğrulanmadı
+**Son güncelleme:** 1 Eylül 2026, 22:48 — kamera onarıldı, jöle ÖLÇÜLÜYOR · 🔴 ylp02 MAVROS bağlı değil · 🔴 ylp00 roll · 🔴 HOME kayması
 
 > **Finale 5 gün.** Bu liste artık "her fikir" değil, **bu 8 günde
 > yapılacak iş.** Bir madde buraya giriyorsa birinin onu yapması planlanıyor
@@ -12,6 +12,18 @@
 ---
 
 ## 🔴 P0 — bunlar kapanmadan ilgili uçuş yapılmaz
+
+- `[ ]` 🔴 **ylp02'de MAVROS PX4'E BAĞLI DEĞİL.** 1 Eylül 22:30 ölçümü:
+  `/drone_3/mavros/state` → `connected:false`, `mode:""`; snapshot'ta
+  `imu_healthy`/`baro_healthy`/`mag_healthy` **üçü de False**, `mode:"?"`;
+  `imu/mag` ve `global_position/raw/fix` konularında **yayın yok**.
+  Karşılaştırma: ylp00 aynı anda fix 3, 28 uydu, hepsi True.
+  ⚠️ Barometre ve IMU **iç mekânda da çalışır** — bu "GPS yok" değil,
+  **FCU ile hiç konuşulmuyor.** `/dev/ttyAMA0` yerinde.
+  *Şüpheli:* açık P0 olan **gevşek PX4 güç soketi** (aynı sınıf arıza) —
+  uçak 1 Eylül'de çok elden geçti (ters çevrildi, kamera 2 kez söküldü,
+  defalarca kapatılıp açıldı). *Operatör çözeceğini söyledi.*
+  **Bu kapanmadan ylp02 UÇMAZ.**
 
 - `[ ]` 🔴 **ylp00 ROLL ARIZASI — uçmadan önce kapat.** PX4 iki bağımsız
   denemede `Attitude failure (roll)` → `Failsafe activated` verdi (kalkıştan
@@ -213,6 +225,24 @@ Bugünkü komut yolu (YKİ → mesh → goto) finali GEÇEMEZ. Bu blok o yüzden
   `min_active_for_formation:=2`, üç uçak ister.
 
 ### Kamera / QR — Görev 1'in fiziksel kısıtı
+
+- `[ ]` 🟠 **P1.27 — Flex servis kıvrımı denemesi (GÜNDÜZ uçuşu).**
+  Operatör hipotezi: flex uçuşta sallanıp **yalıtımı köprülüyor**, gövde
+  titreşimi yumuşak göbeği atlayıp kabloyla kameraya giriyor.
+  *Yapılacak:* kameraya yakın bol servis kıvrımı, iki yakada ayrı
+  sabitleme, aradaki kıvrım serbest. **Bantla gövdeye yapıştırma** — kabloyu
+  tekrar sert köprüye çevirir.
+  *Ölçüt:* `deploy/rpi/teshis/jole_olc.py` — 28 Ağustos seviyesi **1,04 px**,
+  motorsuz taban **0,73 px**, hedef **≤ 0,8**.
+  🔴 **Kayıt GÜNDÜZ olmalı** — karanlıkta metrik geçersiz (`KAMERA.md` §12.3).
+
+- `[ ]` 🟡 **`kamera_yayin.py` `dagit.sh`'e eklenmeli.** Uçağa elle
+  kopyalanmış ve **iki kopya** duruyor: `~/yelpence_ws/kamera_yayin.py`
+  (depoyla aynı) ve `~/kamera_yayin.py` (28 Ağu, bayat, 64 KB). Çift kaynak
+  tuzağı — bayat olan silinmeli, dosya dağıtıma girmeli.
+
+- `[ ]` 🟡 **Kamera servisi açılışta başlamıyor.** Her `docker restart` /
+  reboot sonrası elle başlatılıyor. systemd birimi ya da `baslat.sh` kancası.
 
 - `[ ]` 🟠 **P1.22 — Yalıtımı derinleştir. QR tavanını açacak TEK eksen bu.**
   🔒 QR büyütülemez (1,5 m, 74 modül — yarışma sabitliyor), çözünürlük de

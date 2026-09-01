@@ -1,6 +1,44 @@
 # DURUM — şu an ne çalışıyor, ne bozuk
 
-**Son güncelleme:** 1 Eylül 2026, 11:30 — 🟢 **SÜRÜ HAREKETİ + FORMASYON GEÇİŞİ UÇTU ve çalışıyor.** 🔴 **ylp00 kalkışta roll arızası veriyor — UÇMASIN.** 🔴 ylp02'nin havadaki failsafe sebebi bilinmiyor. Manevra modu düzeltildi ama uçakta doğrulanmadı.
+**Son güncelleme:** 1 Eylül 2026, 22:48 — 📷 kamera onarıldı (modül arızalıydı), jöle ÖLÇÜLÜYOR · 🔴 ylp02 MAVROS PX4'e BAĞLI DEĞİL · 🔴 ylp00 roll arızası · 🔴 HOME kayması
+
+
+> ## 📷 1 EYLÜL AKŞAMI — KAMERA ONARILDI, JÖLE ARTIK BİR SAYI
+>
+> **Uçuş yapıldı ama karanlıkta**, jöle ölçülemedi. Ayrıntı `KAMERA.md` §12.
+>
+> - 🔧 **ylp02'nin kamerası çalışıyor** — 4K dahil her kip, 30,1 fps, sapmasız.
+>   Arıza **yeni takılan moduldeydi** (I²C'ye cevap veriyor, CSI verisi yok).
+>   **Eski modül sağlam, düşüşten zarar görmemiş.** Flex de sağlam.
+> - 📏 **Jöle ölçülüyor:** `deploy/rpi/teshis/jole_olc.py`. Doğrusal
+>   makaslamayı (zararsız) artık dalgalanmadan (QR'ı öldüren) ayırıyor.
+>   **28 Ağu yalıtımsız 6,0-12,0 px · yalıtımlı 1,0-2,1 px · motorsuz taban
+>   0,73 px.** Hedef uçuşta ≤ 0,8.
+> - 🔴 **Karanlıkta ölçüm YAPILMAZ** — kontrast < 12 ise betik "GEÇERSİZ"
+>   diyor. Akşam kaydında metrik 4,02 px uydurmuştu; operatör kaydı izledi,
+>   dalgalanma yoktu.
+> - 🔧 **YKİ RPi butonu düzeltildi** — `drone_bul.sh ip_bul()` tek isim
+>   hızlı yolu. **8,0 sn → 0,3-0,5 sn.** Filo listelerindeki 26 Ağustos
+>   koruması bozulmadı.
+> - 📶 **Ağ yavaş (0,8 MB/s) ama uçakla ilgisi yok** — `rpissid` 2,4 GHz
+>   kanal 6, airtime çekişmesi (RTT ort 43,8 / tepe 163 ms). CPU, disk,
+>   sinyal temiz.
+>
+> **ylp02'de dikkat edilecekler:**
+>
+> - ⚠️ **Kamera servisi kendiliğinden BAŞLAMIYOR:**
+>   `setsid nohup python3 ~/yelpence_ws/kamera_yayin.py > /tmp/kamera_yayin.log 2>&1 < /dev/null &`
+> - ⚠️ **`kamera_yayin.py` `dagit.sh` ile taşınmıyor**; uçakta **iki kopya**
+>   var — `~/yelpence_ws/` doğru olan, `~/kamera_yayin.py` bayat (28 Ağu).
+> - ⚠️ **Kamera modülü değişirse KAPAT-AÇ şart** (sürücü yalnız açılışta bağlar).
+> - ⚠️ 4K'da tarayıcı sekmesi açıkken CPU %91, arayüz cevap vermiyor.
+>
+> 🔴 **ylp02'de MAVROS PX4'E BAĞLI DEĞİL** (1 Eylül 22:30 ölçümü):
+> `connected:false` · `mode:"?"` · `imu_healthy`/`baro_healthy`/`mag_healthy`
+> **üçü de False** · `imu/mag` ve `raw/fix` yayını yok. Barometre ve IMU iç
+> mekânda da çalışır — bu "GPS yok" değil, **FCU ile konuşulmuyor.** Açık
+> P0 olan **gevşek güç soketiyle** aynı sınıf; uçak bugün çok elden geçti.
+> *Operatör çözeceğini söyledi, açık bırakıldı.*
 
 > ### 🔴 UÇMADAN ÖNCE OKU — 1 Eylül
 >
