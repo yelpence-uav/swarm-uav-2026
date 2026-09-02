@@ -236,7 +236,20 @@ class AlertManager:
 
             self._clear(link_key)
 
-            if not self._pil:
+            # 🔴 "%0" OLCUM DEGIL, "OLCUM YOK" DEMEK OLABILIR — 2 Eylul
+            # 2026'da defterde yakalandi: pil uyarilari acilir acilmaz
+            # backend'in ilk saniyesinde iki ucak icin de "Pil kritik: %0"
+            # yazildi. Sebep: telemetri gelmeden DroneState varsayilani
+            # sifir ve `0 <= BAT_CRIT_ON` dogru. Dusuk dalinda `> 0`
+            # korumasi vardi, KRITIK dalinda YOKTU.
+            #
+            # AYIRT EDICI GERILIM: sensor yoksa ya da paket gelmediyse
+            # 0.0 kalir; gercek pil 14 V civari okur. Yuzde ise gercekten
+            # bos bir pilde de 0 olabilir — o yuzden yuzdeye bakip
+            # "olcum yok" demek YANLIS olurdu.
+            pil_verisi_var = d.battery_voltage > 0.0
+
+            if not self._pil or not pil_verisi_var:
                 # Pil olcumu yok -> hic uyari uretme, eskisini de temizle.
                 self._clear(bat_low_key)
                 self._clear(bat_crit_key)
@@ -251,11 +264,11 @@ class AlertManager:
             elif d.battery_percent >= self.BAT_CRIT_OFF:
                 self._clear(bat_crit_key)
 
-            if self._pil and bat_crit_key not in self._active:
-                if (
-                    d.battery_percent <= self.BAT_LOW_ON
-                    and d.battery_percent > 0
-                ):
+            if self._pil and pil_verisi_var and bat_crit_key not in self._active:
+                # `battery_percent > 0` KOSULU KALKTI: artik "olcum var mi"
+                # sorusunu GERILIM cevapliyor. Yuzde 0, gerilim 14.2 ise pil
+                # GERCEKTEN bos demektir ve uyari BASTIRILMAMALI.
+                if d.battery_percent <= self.BAT_LOW_ON:
                     self._set(
                         bat_low_key,
                         SEVERITY_CRITICAL,

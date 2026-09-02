@@ -42,6 +42,43 @@ def _drone(volt: float, yuzde: float) -> DroneState:
     return d
 
 
+class TestOlcumYokkenUyariYok(unittest.TestCase):
+    """🔴 2 EYLUL 2026 REGRESYONU — defterde yakalandi.
+
+    Pil uyarilari acilir acilmaz backend'in ILK SANIYESINDE iki ucak icin
+    de "Pil kritik: %0" yazildi (04:12:02, ikisi de). Sebep: telemetri
+    gelmeden DroneState varsayilani sifir ve `0 <= BAT_CRIT_ON` dogru.
+    Dusuk dalinda `> 0` korumasi vardi, KRITIK dalinda YOKTU.
+
+    Ayirt edici GERILIM: sensor yoksa/paket gelmediyse 0.0 kalir.
+    Yuzde ise gercekten bos bir pilde de 0 olur — ona bakip "olcum yok"
+    demek yanlis olurdu.
+    """
+
+    def setUp(self):
+        self.am = AlertManager(susturulan=[], pil=True)
+
+    def test_telemetri_gelmeden_UYARI_YOK(self):
+        d = _drone(0.0, 0.0)          # DroneState varsayilani
+        self.am.evaluate([d])
+        self.assertIsNone(self.am._active.get(KRITIK),
+                          "acilista sahte 'Pil kritik: %0' uretildi")
+        self.assertIsNone(self.am._active.get(DUSUK))
+
+    def test_gerilim_varken_yuzde_SIFIR_ise_UYARIR(self):
+        """Gercekten bos pil (14.2 V = %0) bastirilmamali."""
+        self.am.evaluate([_drone(14.20, 0.0)])
+        a = self.am._active.get(KRITIK)
+        self.assertIsNotNone(a, "gercek bos pil uyari uretmeliydi")
+        self.assertEqual(a.message, "Pil kritik: %0")
+
+    def test_olcum_kesilirse_uyari_TEMIZLENIR(self):
+        self.am.evaluate([_drone(14.20, 0.0)])
+        self.assertIsNotNone(self.am._active.get(KRITIK))
+        self.am.evaluate([_drone(0.0, 0.0)])       # sensor sustu
+        self.assertIsNone(self.am._active.get(KRITIK))
+
+
 class TestDalgalanmaBastirmasi(unittest.TestCase):
     """Bolgeye girdikten sonra kucuk gerilim oynamalari SUSMALI."""
 
