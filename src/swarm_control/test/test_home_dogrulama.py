@@ -19,8 +19,11 @@ Referans sayilar UCAKTA olculdu, uydurma degil:
 import unittest
 
 from swarm_control.px4_interface.home_dogrulama import (
+    dikey_tolerans,
     geodezik_ned,
     home_denetle,
+    TOL_DIKEY_HAM_M,
+    TOL_DIKEY_RTK_M,
     TOL_YATAY_HAM_M,
     TOL_YATAY_RTK_M,
     yatay_tolerans,
@@ -99,7 +102,8 @@ class TestKaymayiYakalar(unittest.TestCase):
     """26 Agustos'un hatasi YAKALANMALI."""
 
     def test_dokuz_metre_kayma_yakalanir(self):
-        # 26 Agustos'ta olculen buyukluk: ~9 m. fix 3'te tolerans 3.0 m.
+        # 26 Agustos'ta olculen buyukluk: ~9 m. fix 3'te tolerans 6.0 m —
+        # yani RTK'siz bile yakalanir, esas mesele bu.
         s = home_denetle(**_saglikli(
             home_lat=HOME['home_lat'] + 9.0 / 111320.0))
         self.assertTrue(s.gecerli)
@@ -115,7 +119,7 @@ class TestKaymayiYakalar(unittest.TestCase):
 
     def test_dikey_kayma_yakalanir(self):
         s = home_denetle(**_saglikli(
-            home_alt_amsl=GPS['gps_alt_amsl'] + 5.0))
+            home_alt_amsl=GPS['gps_alt_amsl'] + 8.0))
         self.assertFalse(s.home_ok)
 
 
@@ -127,6 +131,8 @@ class TestFixeBagliTolerans(unittest.TestCase):
         self.assertEqual(yatay_tolerans(4), TOL_YATAY_HAM_M)
         self.assertEqual(yatay_tolerans(5), TOL_YATAY_RTK_M)
         self.assertEqual(yatay_tolerans(6), TOL_YATAY_RTK_M)
+        self.assertEqual(dikey_tolerans(3), TOL_DIKEY_HAM_M)
+        self.assertEqual(dikey_tolerans(6), TOL_DIKEY_RTK_M)
 
     def test_1_5m_RTKSIZ_gecer_RTKli_kalir(self):
         # 2 Eylul'de RTK'siz 1.17-1.27 m olculdu; bu gezinme YANLIS ALARM
@@ -134,6 +140,23 @@ class TestFixeBagliTolerans(unittest.TestCase):
         arg = _saglikli(home_lat=HOME['home_lat'] + 1.5 / 111320.0)
         self.assertTrue(home_denetle(**{**arg, 'gps_fix_type': 3}).home_ok)
         self.assertFalse(home_denetle(**{**arg, 'gps_fix_type': 6}).home_ok)
+
+    def test_SAHADA_OLCULEN_GEZINME_yanlis_alarm_URETMEZ(self):
+        """🔴 04:25 REGRESYONU — ylp02 hareketsizken olculen degerler.
+
+        Esik 3.0/2.0 iken bunlarin bir kismi "HOME GUVENILMEZ" kritik
+        olayi uretiyordu ve otomatik duzeltme 30 sn'de bir tetikleniyordu.
+        RTK'siz gurultu bandi bu; hicbiri alarm sebebi DEGIL.
+        """
+        for yatay, dikey in ((1.39, 0.54), (1.52, 1.00), (1.57, 1.23),
+                             (1.63, 3.00), (3.07, 2.81), (3.51, 2.66),
+                             (3.75, 1.23)):
+            s = home_denetle(**_saglikli(
+                home_lat=HOME['home_lat'] + yatay / 111320.0,
+                home_alt_amsl=GPS['gps_alt_amsl'] + dikey))
+            self.assertTrue(
+                s.home_ok,
+                f'yatay {yatay} / dikey {dikey} yanlis alarm uretti')
 
 
 class TestHukumVermez(unittest.TestCase):

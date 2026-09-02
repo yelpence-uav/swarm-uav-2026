@@ -299,8 +299,14 @@ class Px4BridgeNode(Node):
         # BILEREK canli DEGIL: `_CANLI_PARAMETRELER` beyaz listesine
         # eklenmedi, yani `ros2 param set` bunu ucus sirasinda reddeder.
         # Bir emniyet kapisinin havada cevrilebilir olmasi istenmez.
-        # Kapatmak icin acilista: baslat.sh -> `-p home_otomatik_duzelt:=false`
-        self.declare_parameter('home_otomatik_duzelt', True)
+        # 🔴 VARSAYILAN KAPALI (2 Eylul 04:30). Once True idi; sahada
+        # olculdu ki RTK'siz kaynakta DUZELTMIYOR, KOVALIYOR: SET_HOME
+        # home'u ANLIK gurultulu bir ornege yaziyor, GPS o ornekten
+        # uzaklasinca sapma yine buyuyor (3.07 -> 3.51 -> 3.75 m) ve
+        # dongu 30 sn'de bir kritik olay + mesh olayi uretiyordu.
+        # RTK varken (fix >= 5) anlamli olabilir; o zaman acilista
+        # `-p home_otomatik_duzelt:=true` verilir.
+        self.declare_parameter('home_otomatik_duzelt', False)
         self._home_otomatik_duzelt_acik = bool(
             self.get_parameter('home_otomatik_duzelt').value
         )
@@ -1602,8 +1608,12 @@ class Px4BridgeNode(Node):
             self._olay_yayinla(
                 _OLAY_HOME_GUVENILMEZ,
                 SystemEvent.SEVERITY_CRITICAL,
-                deger=(sonuc.cerceve_m if sonuc.cerceve_m is not None
-                       else (sonuc.yatay_m or 0.0)),
+                # 🔴 DEGER HUKMUN OLCUSU OLMALI. Once `cerceve_m`
+                # gonderiliyordu ve YKI ekraninda "16.38 m" gorunuyordu —
+                # oysa cerceve farki hukumden CIKARILMISTI. Operator
+                # "home 16 m kaymis" saniyordu; hukum baska sayiya
+                # dayaniyordu. Gosterilen sayi, karari veren sayidir.
+                deger=(sonuc.yatay_m or 0.0),
             )
 
         self._home_otomatik_duzelt(sonuc)

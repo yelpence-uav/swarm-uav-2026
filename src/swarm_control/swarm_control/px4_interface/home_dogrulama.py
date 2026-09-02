@@ -51,12 +51,18 @@ TOLERANS FIX'E BAGLI — olcumden
   0.062 m cikti. Ama 2 Eylul'de ayni ucakta 30 saniyelik araliklarla
   1.17-1.27 m olculdu: RTK'siz konum cozümü bu mertebede geziniyor.
   Tek ornege bakip 1.0 m koymak YANLIS ALARM uretirdi — nitekim uretti.
-  Bu yuzden esik fix kalitesine bagli:
-      fix >= 5 (RTK float/fixed) -> 1.0 m   (cozum cm mertebesinde)
-      fix 3-4  (standalone/DGPS) -> 3.0 m   (olculen 1.27 m'nin ~2.4 kati)
-  26 Agustos'un hatasi 9 m idi, yani 3.0 m esikle de RAHATLIKLA yakalanir.
-  Dikey tolerans 2.0 m: TUZAKLAR 2.21'de 0.41 m, 1 Eylul'de 0.70 m
-  olculdu; ikisinin de ustunde.
+  🔴 O 3.0 m DE DARDI. 04:25'te ylp02'de HAREKETSIZ ucakta olculdu:
+      yatay  1.39 · 1.52 · 1.57 · 1.63 · 3.07 · 3.51 · 3.75 m
+      dikey  0.54 · 1.00 · 1.23 · 2.66 · 2.81 · 3.00 m
+  Denetim durmadan yanlis alarm verdi. Esikler ikinci kez genisletildi:
+      fix >= 5 (RTK)            -> yatay 1.0 m · dikey 2.0 m
+      fix 3-4  (standalone/DGPS)-> yatay 6.0 m · dikey 5.0 m
+  6.0 m, olculen en buyuk gezinmenin ~1.6 kati ve 26 Agustos arizasinin
+  (9 m) ~0.67'si — yani RTK'siz bile gercek kaymayi yakalar.
+
+  DERS: bir esigi IKI ORNEKTEN turetme. Ilk tahmin (1.0) tek ornekten,
+  ikincisi (3.0) iki ornekten geldi; ikisi de dardi. Ucuncusu yedi
+  ornekten geliyor.
 
 OLCULEMEYEN DURUMDA HUKUM VERILMEZ
   jole_olc.py'nin dersi burada da gecerli: sessizce sayi ureten bir olcu
@@ -74,8 +80,20 @@ import math
 _M_PER_DEG_LAT = 111320.0
 
 TOL_YATAY_RTK_M = 1.0    # fix >= 5: cozum cm mertebesinde
-TOL_YATAY_HAM_M = 3.0    # fix 3-4: olculen gezinme 1.27 m (2 Eylul, ylp00)
-TOL_DIKEY_M = 2.0        # home AMSL <-> GPS AMSL
+# 🔴 RTK'SIZ BANT OLCULDU ve ilk tahmin DARDI. 2 Eylul 04:20'de iki ornege
+# bakip 3.0 m konmustu; 04:25'te ylp02'de HAREKETSIZ ucakta sunlar olculdu:
+#     yatay  1.39 · 1.52 · 1.57 · 1.63 · 3.07 · 3.51 · 3.75 m
+#     dikey  0.54 · 1.00 · 1.23 · 2.66 · 2.81 · 3.00 m
+# Yani 3.0/2.0 esikleri GURULTU BANDININ ICINDE kaliyordu ve denetim
+# durmadan yanlis alarm veriyordu.
+#
+# 6.0 m secildi: olculen en buyuk gezinmenin (3.75) ~1.6 kati, 26 Agustos
+# arizasinin (9 m) ~0.67'si. Yani RTK'siz bile GERCEK kaymayi yakalar,
+# gurultuye takilmaz. RTK gelince 1.0 m'ye iner ve cok daha keskin olur.
+TOL_YATAY_HAM_M = 6.0
+TOL_DIKEY_RTK_M = 2.0    # fix >= 5
+# Dikey GPS yataydan kotudur; olculen 3.00 m. 5.0 m ayni mantikla secildi.
+TOL_DIKEY_HAM_M = 5.0
 # Bu esigin ustundeki cerceve farki RAPORLANIR ama HUKUM VERMEZ (bkz. modul
 # basligi). Acilista 19 m cikmasi normaldir; burada yalnizca "kayda deger mi"
 # esigi olarak duruyor.
@@ -94,6 +112,19 @@ def yatay_tolerans(gps_fix_type: int) -> float:
     """
     return (TOL_YATAY_RTK_M if gps_fix_type >= RTK_FIX_ESIGI
             else TOL_YATAY_HAM_M)
+
+
+def dikey_tolerans(gps_fix_type: int) -> float:
+    """Fix kalitesine gore dikey tolerans secer.
+
+    Args:
+        gps_fix_type (int): 0=fix yok ... 3=3D, 4=DGPS, 5/6=RTK.
+
+    Returns:
+        float: Metre cinsinden tolerans.
+    """
+    return (TOL_DIKEY_RTK_M if gps_fix_type >= RTK_FIX_ESIGI
+            else TOL_DIKEY_HAM_M)
 
 
 @dataclass
@@ -155,7 +186,7 @@ def home_denetle(
     gps_fix_type: int,
     yerde: bool,
     tol_yatay_m: float | None = None,
-    tol_dikey_m: float = TOL_DIKEY_M,
+    tol_dikey_m: float | None = None,
 ) -> HomeDenetimi:
     """HOME kaydini denetler; hukmu YER denetimi verir.
 
@@ -177,7 +208,8 @@ def home_denetle(
         yerde (bool): Ucak yerde ve disarm mi (2. denetim yalniz o zaman).
         tol_yatay_m (float | None): Yatay tolerans, metre. None ise fix
             kalitesine gore secilir (bkz. yatay_tolerans).
-        tol_dikey_m (float): Dikey tolerans, metre.
+        tol_dikey_m (float | None): Dikey tolerans, metre. None ise fix
+            kalitesine gore secilir (bkz. dikey_tolerans).
 
     Returns:
         HomeDenetimi: Denetim sonucu.
@@ -206,16 +238,18 @@ def home_denetle(
 
     tol_yatay = (tol_yatay_m if tol_yatay_m is not None
                  else yatay_tolerans(gps_fix_type))
+    tol_dikey = (tol_dikey_m if tol_dikey_m is not None
+                 else dikey_tolerans(gps_fix_type))
     kuzey, dogu = geodezik_ned(home_lat, home_lon, gps_lat, gps_lon)
     yatay_m = math.hypot(kuzey, dogu)
     dikey_m = abs(home_alt_amsl - gps_alt_amsl)
-    home_ok = yatay_m <= tol_yatay and dikey_m <= tol_dikey_m
+    home_ok = yatay_m <= tol_yatay and dikey_m <= tol_dikey
 
     if home_ok:
         sebep = f'home dogrulandi ({yatay_m:.2f} m yatay, fix={gps_fix_type})'
     else:
         sebep = (f'home kendi GPS-inden {yatay_m:.2f} m yatay / '
                  f'{dikey_m:.2f} m dikey ayri '
-                 f'(tolerans {tol_yatay:.1f}/{tol_dikey_m:.1f}, '
+                 f'(tolerans {tol_yatay:.1f}/{tol_dikey:.1f}, '
                  f'fix={gps_fix_type})')
     return HomeDenetimi(True, home_ok, yatay_m, dikey_m, cerceve_m, sebep)

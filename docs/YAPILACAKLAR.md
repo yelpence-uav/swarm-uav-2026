@@ -138,8 +138,16 @@
 - `[~]` 🟠 **HOME kayması — DEDEKTÖR EKLENDİ (2 Eylül), kök neden AÇIK.**
   `px4_bridge._home_dogrula` 2 sn'de bir home'u uçağın kendi GPS'iyle
   karşılaştırıyor; bozuksa **RTL reddediliyor** + YKİ'ye kritik olay
-  (kod 38/39) + yerde otomatik düzeltme. Uçakta geçti: ylp00 **0,48 m**,
-  ylp02 **0,83 m**. Elle inceleme `/ws/home_denetle.py`.
+  (kod 38/39). Uçakta geçti: ylp00 **0,33 m**, ylp02 **0,17 m**.
+  Elle inceleme `/ws/home_denetle.py`.
+  ⚠️ **Eşik RTK'ya bağlı: RTK'siz 6,0/5,0 m · RTK'li 1,0/2,0 m.** İlk iki
+  eşik (1,0 ve 3,0) gürültü bandının içinde kaldı ve sahada yanlış alarm
+  verdi — RTK yokken gezinme **3,75 m** ölçüldü (`TUZAKLAR` §2.27).
+  ⚠️ **Otomatik düzeltme varsayılan KAPALI** — gürültülü kaynakta
+  düzeltmiyor, kovalıyor (3,07 → 3,51 → 3,75 m, `TUZAKLAR` §2.29).
+  🔴 **RTK gelince yeniden bakılmalı:** eşik 1,0 m'ye iner, denetim çok
+  daha keskinleşir ve otomatik düzeltme anlamlı hâle gelebilir
+  (`-p home_otomatik_duzelt:=true`).
   🔴 **Kalan iş:** ① dedektörün GERÇEK bir kaymayı yakaladığı sahada
   görülmedi ② kök neden hâlâ bilinmiyor — 31 Ağu/1 Eyl bag'lerinden
   `home_position` zaman serisi + `GPS origin GONDERILDI` damgaları

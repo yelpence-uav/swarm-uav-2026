@@ -1,6 +1,6 @@
 # TUZAKLAR — hata vermeden yanlış sonuç üretenler
 
-**Son güncelleme:** 2 Eylül 2026, 03:40 — §2.28 (`mission1`e kadro geçirilmiyordu — iki uçakla formasyon komutu HİÇ üretilmez). Eski: 01:35 — §2.26 (`HomePosition.position` origin push'undan sonra bayat kalır, `SET_HOME` düzeltmez — **ilk home denetimimiz bu yüzden yanlış alarm verdi**) · §2.27 (RTK'siz konum metrelerce gezinir, tek örneğe eşik kurma) eklendi. Eski: §2.24 (MAVROS `connected:false` donanım DEĞİL, restart çözdü) · §2.25 (`CommandHome` lat/lon float32, 0,18 m sessiz kayma). Daha eski: §3.16 (görev yazılımı emniyet pilotunu eziyordu) · §3.17 (formasyonsuz ofsetler içe sarmal) · §3.18 (gaz çubuğu dinlenme konumu = tam alçal)
+**Son güncelleme:** 2 Eylül 2026, 04:40 — §2.29 (gürültülü kaynakta otomatik düzeltme KOVALAR) · §2.30 (olayın değeri hükmü veren sayı olmalı) · §2.27 genişletildi (aynı eşik ÜÇ kez genişletildi). Eski: §2.28 (`mission1`e kadro geçirilmiyordu — iki uçakla formasyon komutu HİÇ üretilmez). Eski: 01:35 — §2.26 (`HomePosition.position` origin push'undan sonra bayat kalır, `SET_HOME` düzeltmez — **ilk home denetimimiz bu yüzden yanlış alarm verdi**) · §2.27 (RTK'siz konum metrelerce gezinir, tek örneğe eşik kurma) eklendi. Eski: §2.24 (MAVROS `connected:false` donanım DEĞİL, restart çözdü) · §2.25 (`CommandHome` lat/lon float32, 0,18 m sessiz kayma). Daha eski: §3.16 (görev yazılımı emniyet pilotunu eziyordu) · §3.17 (formasyonsuz ofsetler içe sarmal) · §3.18 (gaz çubuğu dinlenme konumu = tam alçal)
 
 > **Bu belge CANLI.** Arşiv değil — buradaki her madde **bugün de geçerli.**
 >
@@ -1402,13 +1402,65 @@ Aynı gün, aynı uçak, hareketsiz, fix 3:
 | ne zaman | home ↔ kendi GPS'i |
 |---|---|
 | 1 Eylül, tek örnek | **0,062 m** |
-| 2 Eylül, 30 sn arayla | **1,27 m** · **1,17 m** |
+| 2 Eylül 04:20, iki örnek | **1,27 m** · **1,17 m** |
+| **2 Eylül 04:25, yedi örnek** | **1,39 · 1,52 · 1,57 · 1,63 · 3,07 · 3,51 · 3,75 m** |
+| aynı anda dikey | 0,54 · 1,00 · 1,23 · 2,66 · 2,81 · **3,00 m** |
 
-Tek örneğe (6 cm) bakıp 1,0 m eşik konmuştu — ve **yanlış alarm üretti.**
-Sapmanın kaynağı home değil, standalone GPS'in kendi gezinmesi.
+🔴 **AYNI EŞİK ÜÇ KEZ GENİŞLETİLDİ: 1,0 → 3,0 → 6,0 m.** İlki *tek*
+örnekten, ikincisi *iki* örnekten türetildi; ikisi de gürültü bandının
+içinde kaldı ve **yanlış alarm üretti**. Üçüncüsü yedi örnekten geliyor.
 
-Eşik artık fix kalitesine bağlı: **fix ≥ 5 (RTK) → 1,0 m · fix 3-4 → 3,0 m.**
-26 Ağustos'un hatası 9 m idi, yani 3 m eşikle de rahatlıkla yakalanır.
+Eşik fix kalitesine bağlı:
+**fix ≥ 5 (RTK) → yatay 1,0 / dikey 2,0 m · fix 3-4 → yatay 6,0 / dikey 5,0 m.**
+6 m, ölçülen en büyük gezinmenin ~1,6 katı ve 26 Ağustos hatasının (9 m)
+~0,67'si — RTK'siz bile gerçek kaymayı yakalar.
+
+> **Ders:** bir eşiği iki örnekten türetme. "Ölçtüm" yetmiyor;
+> **yeterince ölçtüm mü** diye sormak gerekiyor. Gürültülü bir sinyalde
+> birkaç örnek bandın genişliğini sistematik olarak KÜÇÜK gösterir.
+
+---
+
+### 2.29 🔴 Gürültülü kaynakta OTOMATİK DÜZELTME düzeltmez, KOVALAR
+
+HOME denetimi ilk sürümde, sapma bulunca home'u anlık GPS konumuna
+yeniden yazıyordu. Gerekçe makul görünüyordu: *"uçak yerde ve disarm;
+denetim yanılsa bile sonuç doğru home olur."* **RTK'siz kaynakta bu
+yanlış.**
+
+`SET_HOME(current_gps)` home'u **anlık, gürültülü bir örneğe** yazıyor.
+GPS o örnekten uzaklaşınca sapma yine büyüyor. Ölçüldü (ylp02, 30 sn
+aralıklarla, uçak hareketsiz):
+
+```
+3,07 m → SET_HOME → 3,51 m → SET_HOME → 3,75 m → SET_HOME → ...
+```
+
+Yakınsamıyor. Her turda bir KRİTİK olay + bir UYARI + bir mesh olayı
+üretiyordu; YKİ defteri bunlarla doluyordu.
+
+**Düzeltme:** `home_otomatik_duzelt` **varsayılan KAPALI**. Kaynak
+cm mertebesinde olduğunda (RTK, fix ≥ 5) anlamlı olabilir; o zaman
+açılışta `-p home_otomatik_duzelt:=true` verilir.
+
+> **Ders:** bir düzeltme mekanizması, düzelttiği şeyden **daha az
+> gürültülü** bir kaynağa dayanmak zorundadır. Aksi halde gürültüyü
+> kalıcı hâle getirir.
+
+---
+
+### 2.30 ⚠️ Olayın DEĞERİ, hükmü veren sayı olmalı
+
+HOME olayı YKİ'ye `value` olarak **çerçeve farkını** gönderiyordu ve
+ekranda `16,38 m` görünüyordu. Oysa çerçeve farkı hükümden **çıkarılmıştı**
+(§2.26) — karar tamamen başka bir sayıya dayanıyordu (yatay sapma, 3,07 m).
+
+Operatör ekranda "home 16 m kaymış" görüyor, log'da "3,07 m" yazıyor.
+İkisi de doğru sayılar ama **ilişkisiz**, ve ekrandaki olan yanlış
+sonuca götürüyor.
+
+> **Ders:** bir uyarının yanına sayı koyuyorsan, o sayı **kararı veren**
+> sayı olmalı. Eldeki en büyük sayı değil.
 
 ---
 

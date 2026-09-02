@@ -11,7 +11,11 @@
 > - 🟢 **HOME artık ÖLÇÜLEREK doğrulanıyor** — `px4_bridge` 2 sn'de bir
 >   home'u uçağın kendi GPS'iyle karşılaştırıyor, bozuksa **RTL'i
 >   REDDEDİYOR** ve YKİ'ye kritik olay basıyor. Uçakta geçti:
->   **ylp00 0,48 m · ylp02 0,83 m.** Elle inceleme: `/ws/home_denetle.py`
+>   **ylp00 0,33 m · ylp02 0,17 m.** Elle inceleme: `/ws/home_denetle.py`
+>   ⚠️ **Eşik RTK'ya bağlı: RTK'siz 6,0/5,0 m · RTK'li 1,0/2,0 m.** İlk
+>   sürüm 3,0/2,0 ile sahada yanlış alarm verdi (RTK yokken gezinme
+>   3,75 m ölçüldü). **Otomatik düzeltme varsayılan KAPALI** — gürültülü
+>   kaynakta düzeltmiyor, kovalıyordu (`TUZAKLAR` §2.29).
 >   (⚠️ `/ws/` **kökünde**, `teshis/` altında değil).
 >   🔴 Kök neden HÂLÂ BİLİNMİYOR — bu bir **dedektör**, çözüm değil.
 >   Denetimin gerçek bir kaymayı yakaladığı sahada görülmedi.

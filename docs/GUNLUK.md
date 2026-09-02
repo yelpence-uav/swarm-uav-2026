@@ -52,7 +52,12 @@ Claude'a **"oturumu kapat"** dersen bu kaydı o yazar.
   kopyalayıp `home_set=True` yazıyordu. Artık `px4_bridge` 2 sn'de bir
   home'un global kaydını uçağın kendi GPS'iyle karşılaştırıyor, bozuksa
   **RTL'i reddediyor** ve YKİ'ye kritik olay basıyor. Ölçülen: **ylp00
-  0,48 m · ylp02 0,83 m** (tolerans fix'e bağlı: RTK 1,0 / RTK'siz 3,0 m).
+  0,33 m · ylp02 0,17 m**.
+  🔴 **04:40 DÜZELTMESİ — ilk sürüm sahada yanlış alarm verdi.** Eşikler
+  gürültü bandının içindeydi (RTK YOK!) ve otomatik düzeltme gürültüyü
+  kovalıyordu. Üçü birden düzeltildi: eşik **RTK'siz 6,0/5,0 m**
+  (RTK'li 1,0/2,0) · **otomatik düzeltme varsayılan KAPALI** · olay
+  değeri artık hükmü veren sayı. Ayrıntı `TUZAKLAR` §2.27/§2.29/§2.30.
 - 🔴 **İlk sürüm UÇAKTA ÜÇ KUSUR VERDİ, üçü de düzeltildi.** Yerelde 293
   test geçiyordu; hiçbiri bunları yakalayamazdı — dağıtıp koşturmasak
   göremezdik. Ayrıntı `TUZAKLAR` §2.26/§2.27.
@@ -92,8 +97,8 @@ Claude'a **"oturumu kapat"** dersen bu kaydı o yazar.
 **Ne değişti**
 
 - kod: `px4_interface/home_dogrulama.py` **(yeni)** · `px4_bridge`
-  (`_home_dogrula` + RTL kapısı + SystemEvent 38/39 + yerde otomatik
-  düzeltme) · `mavros_command_sender.set_home()` **(yeni yol)** ·
+  (`_home_dogrula` + RTL kapısı + SystemEvent 38/39; otomatik
+  düzeltme yazıldı ama **varsayılan KAPALI** — bkz. TUZAKLAR §2.29) · `mavros_command_sender.set_home()` **(yeni yol)** ·
   `formation_control/formation_node.py` (qr_step bayat-bırakma) ·
   `pil/ina226.py` + `ina226_node.py` (gösterge uçları parametreli) ·
   `backend/core/alert_manager.py` (eşikler + dalgalanma bastırması +
