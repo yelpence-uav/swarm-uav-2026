@@ -1,6 +1,6 @@
 # YAPILACAKLAR
 
-**Son güncelleme:** 3 Eylül 2026, 01:30 — 🟢 QR tablosu mesh'ten geçiyor · 🟢 uçuş profili uçakta · 🟠 ylp01 RAM (en büyük kalem kapandı)
+**Son güncelleme:** 3 Eylül 2026, 02:40 — 🔴 3 Eylül uçuşu: 4 sessiz arıza bulundu, 3'ü kapatıldı · swarm_fsm sayı/liste tutarsızlığı AÇIK
 
 > **Finale 5 gün.** Bu liste artık "her fikir" değil, **bu 8 günde
 > yapılacak iş.** Bir madde buraya giriyorsa birinin onu yapması planlanıyor
@@ -12,6 +12,33 @@
 ---
 
 ## 🔴 P0 — bunlar kapanmadan ilgili uçuş yapılmaz
+
+- `[ ]` 🔴 **`swarm_fsm` SAYIYLA LİSTEYİ TUTARSIZ YAYINLIYOR.** 3 Eylül
+  02:30, yerde ölçüldü (`/swarm/public/state`):
+  ```
+  active_agent_count: 3      ← sayı 3
+  active_agent_ids:   []     ← liste BOŞ
+  agent_pos_x:        []
+  centroid:           (0, 0)
+  ```
+  **Bir uçuşu bu bozdu:** `mission1`'in home kilidi yalnız
+  `active_agent_count > 0`'a bakıyordu, doğru sayıyı görüp boş centroid'i
+  kilitledi ve RETURN_HOME sürüyü kalkış merkezi (+3,4;−3,9) yerine
+  **(0,0)'a** çağırdı — 5 m yanlış, `home_xy_set=True` diyerek.
+  mission1 tarafı 3 Eylül'de sertleştirildi (`8fbfec0`) ama **kök burada.**
+  ⚠️ Aynı tutarsızlık `all_agents_seen`, `formation_reached`
+  (*"aktif >= beklenen"*) gibi başka kapıları da sessizce açabilir/kapatabilir.
+  *Yapılacak:* `swarm_fsm_node`'da sayı ile listeleri tek yerden türet;
+  liste boşken sayı 0 olmalı. Sonra yerde `ros2 topic echo` ile doğrula.
+
+- `[ ]` 🟠 **GÖREV FAZLARI UÇAKLAR ARASINDA KAYIYOR — 25 sn ölçüldü.**
+  3 Eylül uçuşu: ylp00 rotasyonu 385177'de bitirdi, ylp01/ylp02 385202'de;
+  ylp00 RETURN_HOME'a 25 sn önce geçti. Her uçağın `mission_fsm`'i kendi
+  saatiyle ilerliyor (dağıtık tasarım gereği) ama faz sınırları ortak
+  değil. O uçuşta asıl tetik hedefsizlikti (tablo yoktu) ve o kapandı;
+  **kayma yine de ölçülmeli.** Sonraki uçuşta üç uçağın
+  `mission_fsm` geçiş zamanları karşılaştırılacak; fark > 5 sn ise ortak
+  bir faz senkronu (liderin fazını mesh'ten yayması) gerekiyor demektir.
 
 - `[~]` 🟠 **ylp01'DE RAM DAR — 4 GB, diğerleri 8 GB.** *(3 Eylül: en büyük
   kalem kapandı, madde açık kalıyor.)*
