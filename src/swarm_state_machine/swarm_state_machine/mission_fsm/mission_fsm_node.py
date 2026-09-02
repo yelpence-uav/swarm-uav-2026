@@ -363,6 +363,22 @@ class MissionFsmNode(Node):
         """FSM ana dongusu."""
         ctx = self._ctx
 
+        # 🔴 SESSIZ BEKLEME OLMASIN — 3 Eylul saha olayi. Tablosuz PREFLIGHT
+        # kapisi (mission_transitions) suruyu YERDE tutuyor; sebebi
+        # yazilmazsa operator "neden kalkmiyor" diye kod okumak zorunda
+        # kalir. Bu projenin en pahali hata sinifi tam olarak sessizlik.
+        if (ctx.state == MissionState.PREFLIGHT
+                and ctx.mission_type == MissionType.DYNAMIC_SWARM
+                and not ctx.sitl_mode
+                and not ctx.qr_coord_table):
+            self.get_logger().warning(
+                '[mission_fsm] PREFLIGHT BEKLIYOR — QR KONUM TABLOSU YOK. '
+                'Suru KALKMAYACAK. YKI: Gorev > QR koordinatlari > '
+                'Drone\'lara Gonder. (Tablo bellekte durur; konteyner '
+                'yeniden baslatilirsa TEKRAR gonderilmeli.)',
+                throttle_duration_sec=5.0,
+            )
+
         next_state = evaluate_transitions(ctx)
 
         if next_state is not None and next_state != ctx.state:

@@ -856,15 +856,58 @@ class TestGorev2PreflightAtlamasi(unittest.TestCase):
         )
 
     def test_gorev1_YOLU_DEGISMEDI(self):
-        """Görev 1 hâlâ SYNCHRONIZED_TAKEOFF'tan geçer — regresyon."""
+        """Görev 1 hâlâ SYNCHRONIZED_TAKEOFF'tan geçer — regresyon.
+
+        3 Eylül: QR konum tablosu artık PREFLIGHT ön koşulu (aşağıdaki
+        test). Bu regresyon testi tablo VARKEN yolun değişmediğini
+        doğruluyor.
+        """
         ctx = _ctx(
             MissionState.PREFLIGHT,
             mission_type=MissionType.DYNAMIC_SWARM,
             sitl_mode=False,
         )
         _all_agents(ctx, state=1)
+        ctx.qr_coord_table = {1: (38.69076, 39.16075)}
         self.assertEqual(
             evaluate_transitions(ctx), MissionState.SYNCHRONIZED_TAKEOFF
+        )
+
+    def test_gorev1_TABLOSUZ_KALKMAZ(self):
+        """🔴 3 Eylül saha olayı: QR tablosu yokken sürü YERDE kalır.
+
+        O gece tablo gönderildi, sonra konteynerler yeniden başlatıldı ve
+        tablo TEKRAR gönderilmedi (bellekte durur, latched kaynak yok).
+        Sürü kalktı, hedefi olmadığı için NAVIGATE'te zaman aşımına düşüp
+        RETURN_HOME'a geçti — hiçbir yerde hata görünmeden, uçuş boşa.
+        Artık PREFLIGHT'ta BEKLER; tablo gelince kendiliğinden ilerler.
+        """
+        ctx = _ctx(
+            MissionState.PREFLIGHT,
+            mission_type=MissionType.DYNAMIC_SWARM,
+            sitl_mode=False,
+        )
+        _all_agents(ctx, state=1)
+        ctx.qr_coord_table = {}
+        self.assertIsNone(evaluate_transitions(ctx),
+                          'tablosuz KALKMAMALI')
+        # Tablo gelince engel kalkar — kilitlenme DEGIL, bekleme.
+        ctx.qr_coord_table = {1: (38.69076, 39.16075)}
+        self.assertEqual(
+            evaluate_transitions(ctx), MissionState.SYNCHRONIZED_TAKEOFF
+        )
+
+    def test_gorev2_TABLOSUZ_ETKILENMEZ(self):
+        """Görev 2'de QR yok — kapı onu tutmamalı."""
+        ctx = _ctx(
+            MissionState.PREFLIGHT,
+            mission_type=MissionType.SEMI_AUTONOMOUS,
+            sitl_mode=False,
+        )
+        _all_agents(ctx, state=1)
+        ctx.qr_coord_table = {}
+        self.assertEqual(
+            evaluate_transitions(ctx), MissionState.SEMI_AUTONOMOUS
         )
 
     def test_gorev2_PREFLIGHT_denetimleri_YERINDE(self):

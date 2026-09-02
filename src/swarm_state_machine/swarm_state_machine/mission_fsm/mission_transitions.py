@@ -121,6 +121,27 @@ def _from_preflight(ctx: MissionContext) -> MissionState | None:
     origin_ok = ctx.sitl_mode or ctx.all_agents_origin_synced()
     home_ok = ctx.sitl_mode or ctx.all_agents_home_set()
 
+    # 🔴 QR KONUM TABLOSU YOKSA GOREV 1 BASLAMAZ — 3 Eylul 2026 saha olayi.
+    #
+    # Tablo mission_fsm'in BELLEGINDE duruyor ve konteyner restart'inda
+    # KAYBOLUYOR (mesh yayini bir kez gelir, latched kaynak yok). 3 Eylul
+    # gecesi tam bunu yasadik: tablo 00:26'da gonderildi, 00:35'te
+    # konteynerler yeniden baslatildi ve tekrar gonderilmedi. Suru
+    # KALKTI, hedefi olmadigi icin NAVIGATE'te 10 sn bekleyip RETURN_HOME'a
+    # dustu — hicbir yerde hata gorunmeden. Ucus bosa gitti.
+    #
+    # Karar: tablosuz kalkmak yerine PREFLIGHT'ta BEKLE. Operator tabloyu
+    # gonderir gondermez gorev kendiliginden ilerler; gondermezse
+    # _PREFLIGHT_TIMEOUT_S sonunda ABORTED — ama HAVADA degil, YERDE.
+    # Gorev 2'yi ETKILEMEZ: orada QR yok.
+    tablo_ok = (ctx.sitl_mode
+                or ctx.mission_type != MissionType.DYNAMIC_SWARM
+                or bool(ctx.qr_coord_table))
+    if not tablo_ok:
+        if ctx.time_in_state() > _PREFLIGHT_TIMEOUT_S:
+            return MissionState.ABORTED
+        return None
+
     if ctx.all_agents_healthy() and gps_ok and origin_ok and home_ok:
         # 🔴 GOREV 2 KALKISI ATLAR — madde 27, 30 Agustos 2026.
         #
