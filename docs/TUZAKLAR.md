@@ -2024,35 +2024,44 @@ kaçınması ve formasyon da komşunun durumuna bakıyor (`AIRBORNE_STATES`).
 ADIM 3/ADIM 4 açıldığında bu doğrudan aktüatör yoluna bağlanır — o yüzden
 `ARMED → KALKIS(2) → TAKEOFF(4)` eşlemesi ikisinin de **ön koşulu** arasında.
 
-### 4.13 "BOOT" sandığın tuş EN olabilir — çip reset'te kalır, HER ŞEY sessizleşir
+### 4.13 ESP flash'ı: ÖNCE konteyneri durdur, SONRA boot moduna al
 
-**2 Eylül 2026, ylp00.** Uçak ESP32'sini Pi üzerinden yüklemek için operatör
-"boot moduna aldım" dedi ve drone YKİ'den düştü — bu, indirme moduna girmiş
-gibi göründü. Sekiz deneme boyunca `esptool` bağlanamadı:
+**2 Eylül 2026.** Uçak ESP32'sini Pi üzerinden (`/dev/ttyAMA4`) yüklerken
+sekiz deneme kaybedildi. Belirti her seferinde aynıydı:
 
-    konteyner KAPALI, /dev/ttyAMA4:
-      115200 -> 0 bayt   (düz EN reset'inde bile açılış mesajı YOK)
-      460800 -> 0 bayt   (normal modda akıttığı hız)
-       74880 -> 0 bayt   (26 MHz kristalli ROM bandı)
-      esptool --no-stub, üç baud -> "No serial data received"
+    esptool 46 baytlik sync yaziyor -> 10 denemede TEK BAYT donmuyor
+    "Failed to connect to ESP32: No serial data received"
+    4 baud (57600/115200/230400/460800) · --no-stub · iki ayri ucak
 
-🔴 **Ayırt edici ölçüm:** indirme modundaki çip `esptool`'un sync'ine CEVAP
-VERİR. Her baud'da tam sessizlik "indirme modu" değil, **çipin reset'te
-tutulduğu** tablodur. Tuş bırakılıp EN'e bir kez basılınca uçak YKİ'ye
-döndü — teşhis buydu.
+🔴 **Sebep sıraydı.** Operatör kartı boot moduna alırken **konteyner hâlâ
+çalışıyordu**; `esp32_bridge` indirme modundaki ROM'a 460800'de saniyede
+kilobaytlarca mesh verisi basıyordu. ROM o çöp akıştan sonra sync'e cevap
+vermiyor. Belirti kablo/pin arızasına birebir benziyor — **değil.**
 
-**Hangi tuş hangisi, 10 saniyede:** tuşa bir kez bas ve YKİ'ye bak.
-* uçak düşüp ~2 sn sonra geri geliyorsa -> o tuş **EN** (reset)
-* hiçbir şey olmuyorsa -> o tuş **BOOT** (GPIO0); tek başına zararsız
+**Doğru sıra (bununla ilk denemede yüklendi, üç uçakta da):**
 
-Kartta tek tuş varsa o **EN**'dir; indirme modu için GPIO0'ı reset anında
-GND'ye çekmek gerekir (jumper). Doğru sıra: GPIO0 düşük TUT -> EN'e bas-bırak
--> GPIO0'ı bırak.
+1. `docker stop droneN` → hat SESSİZ, araya bir daha AÇILMAZ
+2. esptool'u BAŞLAT (uzun pencere: `--connect-attempts 60`)
+3. esptool sync gönderirken operatör **BOOT tut → EN bas-bırak → BOOT bırak**
+4. Yükleme bitince operatör **EN**'e bir kez daha basar (`--after no_reset`;
+   DTR/RTS Pi UART'ına bağlı değil, esptool kartı kendisi resetleyemez)
 
-> Yan not: bu arıza `esp32_bridge`'in okuma sayacında da görünür (0 B/s), ama
-> iç içe tırnaklı `docker exec ... /proc/$P/io` komutu o gece yanlış yeri
-> okuyup 21157 bayt gösterdi ve teşhisi bir tur geciktirdi. Uzak ölçümde
-> komutu basit tut, çıktı beklenene benzemiyorsa ÖNCE ölçüme şüphe et.
+Araç: `deploy/rpi/teshis/esp_yukle.sh <ylpXX>` — bu sırayı zorluyor.
+`--no-stub` şart (§4.4). Baud 460800.
+
+**Ayırt edici belirtiler:**
+
+| esptool ne diyor | anlamı |
+|---|---|
+| `No serial data received` | çip cevap vermiyor: ya boot modunda değil ya ROM çöple boğulmuş |
+| `Invalid head of packet (0xE4)` | çip **normal modda**, mesh verisi yolluyor — boot moduna alınmamış |
+| `Connecting....` → bağlandı | doğru sıra tutturuldu |
+
+> ⚠️ Bu maddenin ilk hâli sebebi **yanlış** yazmıştı ("bastığın tuş EN'dir,
+> çip reset'te kalıyor"). Ölçüm o hipotezi çürüttü: BOOT'a tek başına
+> basınca hiçbir şey olmuyor (yani o gerçekten GPIO0) ve çip indirme
+> modundayken hat zaten susuyor. Yanlış teşhis bir tur daha kaybettirdi;
+> düzeltilmiş hâli yukarıdaki.
 
 ### 4.10 Base ESP'yi çıkarıp taktıysan RESETLE
 

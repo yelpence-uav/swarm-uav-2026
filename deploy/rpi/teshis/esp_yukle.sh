@@ -12,15 +12,20 @@
 #  1) Konteyner DURDURULMALI — esp32_bridge /dev/ttyAMA4'u tutuyor, iki surec
 #     ayni portu acarsa baytlar bolunur ve yukleme "chip stopped responding"
 #     verir. Betik durduruyor ve sonunda geri baslatiyor.
-#  2) ESP'yi INDIRME MODUNA operator alir: BOOT basili tutulur, EN'e basilip
-#     birakilir, sonra BOOT birakilir. DTR/RTS hatlari Pi UART'ina bagli
-#     olmadigi icin esptool bunu KENDISI yapamaz (--before no_reset).
+#  2) 🔴 SIRA KRITIK — 2 Eylul'de sekiz deneme bunun yuzunden kayboldu.
+#     Once KONTEYNER DURUR, sonra operator BOOT+EN yapar, esptool o sirada
+#     ZATEN sync gonderiyor olur. Ters sirada (cip once indirme moduna
+#     alinip konteyner sonra durdurulursa) esp32_bridge 460800'de ROM'a
+#     kilobaytlarca mesh verisi basar; ROM o coplu akistan sonra sync'e
+#     CEVAP VERMEZ ve belirti "No serial data received" olur — kablo/pin
+#     arizasina benzer, degildir. Bu sirayla ylp01 ilk denemede yuklendi.
+#     DTR/RTS Pi UART'ina bagli olmadigi icin reset ELLE (--before no_reset).
 #
 # Kullanim:  ./esp_yukle.sh ylp00 [baud]
 # Ornek:     ./esp_yukle.sh ylp00 115200
 
 set -u
-D="${1:-}"; BAUD="${2:-115200}"
+D="${1:-}"; BAUD="${2:-460800}"
 case "$D" in
     ylp00) KUL=yelpence00; IP=10.38.209.134; KON=drone1 ;;
     ylp01) KUL=yelpence01; IP=10.38.209.156; KON=drone2 ;;
@@ -39,7 +44,7 @@ echo "  #  ŞİMDİ: $D üzerindeki ESP32'de                            "
 echo "  #    1) BOOT tuşunu BASILI TUT                              "
 echo "  #    2) EN (reset) tuşuna bas ve bırak                      "
 echo "  #    3) BOOT'u bırak                                        "
-echo "  #  esptool 90 saniye boyunca bağlanmayı deneyecek.          "
+echo "  #  esptool ~2 dakika deneyecek — ACELE ETME.               "
 echo "  ############################################################"
 echo
 
@@ -48,7 +53,8 @@ ssh -o BatchMode=yes "$H" "
     PYTHONPATH=\$HOME/pylib timeout 180 python3 ~/esptool/esptool.py \
         --chip esp32 --port /dev/ttyAMA4 --baud $BAUD \
         --before no_reset --after no_reset \
-        --connect-attempts 30 \
+        --no-stub \
+        --connect-attempts 60 \
         write_flash -z --flash_mode dio --flash_freq 40m --flash_size detect \
         0x1000  bootloader.bin \
         0x8000  partitions.bin \
