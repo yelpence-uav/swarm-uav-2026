@@ -95,6 +95,14 @@ _BEKLENEN = {
     # QR_HAM: dronların Pi'sine iletilmez (hiçbir uçuş kararı okumuyor),
     # YKİ'ye iletilir (şema tahmin olduğu için format teşhisi gerekiyor).
     'TIP_QR_HAM':          {'tx_gonderme', 'rx_alma'},
+    # QR_COORDS (2 Eylül): YKİ -> drone tek yön. Yalnız İKİ geçit gerekli.
+    #   rx_gonderme -> tabloyu YKİ üretir, baz mesh'e verir
+    #   tx_alma     -> uçağın ESP'si Pi'ye taşır (mission_fsm okuyor)
+    # Diğer ikisi BİLİNÇLİ boş: tablo hiçbir zaman uçaktan çıkmıyor, yani
+    # tx_gonderme'ye koymak sürünün kendi arasında tablo yayınlamasına kapı
+    # açardı (çift kaynak); rx_alma ise YKİ'ye geri taşımak olurdu — YKİ
+    # tabloyu zaten kendisi girdi, geri almasının anlamı yok.
+    'TIP_QR_COORDS':       {'rx_gonderme', 'tx_alma'},
 }
 
 

@@ -236,6 +236,10 @@ void mesh_veri_al(const uint8_t* kaynak_mac, const mesh_paket_t* p) {
     else if (p->tip == TIP_FORMASYON_DEVAM) uzunluk = sizeof(formasyon_devam_veri_t);
     else if (p->tip == TIP_FORM_OFSET)      uzunluk = sizeof(form_ofset_veri_t);
     else if (p->tip == TIP_QR_GOREV)        uzunluk = sizeof(qr_gorev_veri_t);
+    // TIP_QR_COORDS -> bridge _isle_qr_coords -> /swarm/public/mission/qr_coords
+    // -> mission_fsm. Bu satir olmadan cerceve mesh'i gecer, ESP'ye varir ve
+    // BURADA olur; hicbir gunlukte gorunmez.
+    else if (p->tip == TIP_QR_COORDS)       uzunluk = sizeof(qr_koord_veri_t);
     // TIP_QR_HAM BILEREK YOK: ham QR metni yalniz YKI teshisi icin (KARAR 8).
     // Broadcast oldugu icin takipciler de alir ama Pi'sine iletmiyoruz - hicbir
     // ucus karari okumuyor, iletmek bosa UART trafigi olurdu. Bu bir ATLAMA

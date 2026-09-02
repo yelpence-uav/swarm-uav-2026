@@ -493,6 +493,12 @@ void loop() {
         } else if (tip_byte == TIP_RENK  || tip_byte == TIP_DURUM ||
                    tip_byte == TIP_SWARM_STATE || tip_byte == TIP_QR_DATA ||
                    tip_byte == TIP_ORIGIN || tip_byte == TIP_GOREV ||
+                   // TIP_QR_COORDS: YKI'den gelen QR konum tablosu. Bu satir
+                   // yokken tablo BURADA sessizce dusuyordu — ROS tarafi
+                   // "5/5 nokta yayinlandi" diyor, ucaklarda bilinmeyen=0
+                   // crc_fail=0, yani cerceve hic gelmemis. §1.1 kusurunun
+                   // birebir tekrari.
+                   tip_byte == TIP_QR_COORDS ||
                    tip_byte == TIP_GOTO) {
             // TIP_GOTO: YKİ'den tekil nokta-git; tip basina hiz limitiyle mesh'e.
             // Nadir gonderilir (hedef basina 1), 50Hz OFFBOARD akisi drone'da lokal.

@@ -68,7 +68,10 @@
 #define TIP_VERSION     0x0B   // VersionInfo: boot'ta 1 kez, debug
 #define TIP_SWARM_STATE 0x0D   // Sürü seviyesi FSM durumu
 #define TIP_QR_DATA     0x0E   // QR tespit ve çözümleme verisi
-// 0x0F: packet_parser.py::TIP_QR_COORDS'a rezerve (YKİ->drone QR konumlari).
+#define TIP_QR_COORDS  0x0F   // YKİ->drone QR konum tablosu (nokta basina 1 cerceve)
+// 0x0F 30 Temmuz'dan beri rezerveydi; 2 Eylul'de kullanildi. Python tarafi
+// (packet_parser::qr_koord_paketle) 30 Temmuz'dan beri hazirdi ama firmware
+// sabiti ve gecitleri yoktu -> cerceve YKI'den cikip BAZDA sessizce oluyordu.
 // GOTO ona carpmasin diye 0x10'dan devam; 0x10 rate tablosunun (16) disina
 // dustugu icin MESH_TIP_TABLO_BOYU 24'e buyutuldu (asagi).
 #define TIP_GOTO        0x10   // YKİ->drone tekil nokta-git (guided, goto_veri_t)
@@ -196,6 +199,20 @@ struct __attribute__((packed)) qr_veri_t {
     int32_t  lat;
     int32_t  lon;
     uint8_t  rezerv[3];       // toplam 16 byte
+};
+
+// TIP_QR_COORDS (0x0F) — YKİ'den gelen QR konum tablosu.
+// Sartname tum QR konumlarini yarisma oncesi paylasiyor; QR'in kendisi yalniz
+// "sonraki numara"yi veriyor, KONUM bu tablodan cozuluyor. Nokta basina bir
+// cerceve gider (6 QR = 6 cerceve), periyodik DEGIL.
+// packet_parser.py::_QR_COORD_FMT = '<BBii6x' ile BIREBIR — alan sirasi ve
+// offsetler asagidaki assert'lerle kilitli.
+struct __attribute__((packed)) qr_koord_veri_t {
+    uint8_t  qr_id;      // QR numarasi (1..N)
+    uint8_t  toplam;     // tablodaki toplam nokta — alici kac cerceve bekleyecegini bilir
+    int32_t  lat_1e7;    // 1e-7 derece (origin_veri_t ile ayni kodlama)
+    int32_t  lon_1e7;
+    uint8_t  rezerv[6];  // toplam 16 byte
 };
 
 struct __attribute__((packed)) swarm_state_veri_t {
@@ -604,6 +621,14 @@ static inline void mesh_gonder(const uint8_t* veri, uint8_t tip,
 // Assert en buyuk tipe bakmali — TIP_GOTO'da kalsaydi 0x11-0x15 sessizce
 // tablonun disina tasabilirdi ve mesh_tip_gecebilir() fail-closed dalina
 // dusup o tipleri KOMPLE reddederdi.
+static_assert(sizeof(qr_koord_veri_t) == 16,
+              "qr_koord_veri_t 16 bayt olmali (packet_parser _QR_COORD_FMT)");
+static_assert(offsetof(qr_koord_veri_t, lat_1e7) == 2,
+              "lat_1e7 offset 2 olmali ('<BBii6x')");
+static_assert(offsetof(qr_koord_veri_t, lon_1e7) == 6,
+              "lon_1e7 offset 6 olmali ('<BBii6x')");
+static_assert(TIP_QR_COORDS < MESH_TIP_TABLO_BOYU,
+              "TIP_QR_COORDS hiz tablosunun disinda kalirsa tip KOMPLE reddedilir");
 static_assert(TIP_QR_HAM < MESH_TIP_TABLO_BOYU,
               "En buyuk TIP hiz-limiti tablosuna sigmiyor: MESH_TIP_TABLO_BOYU'nu buyut.");
 
