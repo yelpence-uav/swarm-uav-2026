@@ -380,6 +380,12 @@ class SwarmFsmNode(Node):
             aid for aid, a in ctx.agents.items()
             if a.is_stale(_AGENT_STALE_TIMEOUT_S)
         ]
+        # 🔴 BU SAYI CANLILIK OLCER, formasyona uygunluk DEGIL. Tek sart
+        # bayatlik; yerde IDLE'daki ucaklar da sayilir. Formasyona uygun
+        # olanlar AYRI hesaplaniyor (active_agent_ids, ~satir 715, dort
+        # sartli). Ikisi ayni mesajda benzer isimle durdugu icin 3 Eylul'de
+        # mission1 karistirdi ve HOME'u (0,0)'a kilitledi. Sozlesme notu:
+        # SwarmState.msg::active_agent_count.
         ctx.active_agent_count = total - len(stale)
 
         if ctx.active_agent_count == 0 and total > 0:
@@ -719,6 +725,8 @@ class SwarmFsmNode(Node):
             and not a.is_stale()
             and a.state in FORMATION_ACTIVE_STATES
         ]
+        # ⚠️ Bu liste active_agent_count ILE AYNI KUMEYI VERMEZ (yukarida
+        # dort sart var, orada yalniz bayatlik). Bkz. SwarmState.msg.
         m.active_agent_ids = [a.agent_id for a in active_agents]
 
         shared_positions = []

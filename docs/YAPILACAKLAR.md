@@ -1,6 +1,6 @@
 # YAPILACAKLAR
 
-**Son güncelleme:** 3 Eylül 2026, 02:40 — 🔴 3 Eylül uçuşu: 4 sessiz arıza bulundu, 3'ü kapatıldı · swarm_fsm sayı/liste tutarsızlığı AÇIK
+**Son güncelleme:** 3 Eylül 2026, 02:55 — 3 Eylül uçuşunun 4 arızası kapandı · swarm_fsm sözleşmesi netleşti · faz kayması ölçülecek
 
 > **Finale 5 gün.** Bu liste artık "her fikir" değil, **bu 8 günde
 > yapılacak iş.** Bir madde buraya giriyorsa birinin onu yapması planlanıyor
@@ -13,23 +13,20 @@
 
 ## 🔴 P0 — bunlar kapanmadan ilgili uçuş yapılmaz
 
-- `[ ]` 🔴 **`swarm_fsm` SAYIYLA LİSTEYİ TUTARSIZ YAYINLIYOR.** 3 Eylül
-  02:30, yerde ölçüldü (`/swarm/public/state`):
-  ```
-  active_agent_count: 3      ← sayı 3
-  active_agent_ids:   []     ← liste BOŞ
-  agent_pos_x:        []
-  centroid:           (0, 0)
-  ```
-  **Bir uçuşu bu bozdu:** `mission1`'in home kilidi yalnız
-  `active_agent_count > 0`'a bakıyordu, doğru sayıyı görüp boş centroid'i
-  kilitledi ve RETURN_HOME sürüyü kalkış merkezi (+3,4;−3,9) yerine
-  **(0,0)'a** çağırdı — 5 m yanlış, `home_xy_set=True` diyerek.
-  mission1 tarafı 3 Eylül'de sertleştirildi (`8fbfec0`) ama **kök burada.**
-  ⚠️ Aynı tutarsızlık `all_agents_seen`, `formation_reached`
-  (*"aktif >= beklenen"*) gibi başka kapıları da sessizce açabilir/kapatabilir.
-  *Yapılacak:* `swarm_fsm_node`'da sayı ile listeleri tek yerden türet;
-  liste boşken sayı 0 olmalı. Sonra yerde `ros2 topic echo` ile doğrula.
+- `[x]` ✅ **`swarm_fsm` sayı/liste ayrımı — SÖZLEŞME NETLEŞTİRİLDİ (3 Eyl).**
+  Ölçüldü: `active_agent_count: 3` iken `active_agent_ids: []`,
+  `centroid: (0,0)`. **Hata değil, iki farklı tanım:** `count` = CANLILIK
+  (tek şart: bayat değil — yerde IDLE'da bile 3), `ids` = FORMASYONA
+  UYGUNLUK (healthy + origin_synced + taze + `FORMATION_ACTIVE_STATES`).
+  ⚠️ **İkisini eşitlemek çözüm DEĞİL:** `count` bir failsafe'i besliyor
+  (`count==0 and total>0` → `EMERGENCY_LAND`); listeye eşitlenirse yerde
+  bekleyen sürü "iletişim kesildi" sanılıp indirilir.
+  *Yapılan:* davranış değişmedi; `SwarmState.msg` ve `swarm_fsm_node`'un
+  iki üretim noktasına ayrımı ve 3 Eylül olayını anlatan not kondu.
+  Tek yanlış tüketici `mission1`'di (`8fbfec0` ile düzeltildi); ölçüldü,
+  `active_agent_ids`'i okuyan başka yer yok, `count`'u okuyanlar
+  (`swarm_transitions` oranları, YKİ göstergesi) canlılık anlamıyla
+  tutarlı. **Konum lazımsa `active_agent_ids`/`agent_pos_*` kullanılacak.**
 
 - `[ ]` 🟠 **GÖREV FAZLARI UÇAKLAR ARASINDA KAYIYOR — 25 sn ölçüldü.**
   3 Eylül uçuşu: ylp00 rotasyonu 385177'de bitirdi, ylp01/ylp02 385202'de;

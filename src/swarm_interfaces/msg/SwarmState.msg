@@ -83,6 +83,21 @@ uint8 SEVERITY_EMERGENCY=3
 
 uint8 swarm_state
 uint8 leader_id
+# 🔴 active_agent_count ile active_agent_ids AYNI SEYI OLCMEZ — 3 Eylul 2026.
+#   count = CANLILIK: kac ajandan yakin zamanda haber aldik (tek sart:
+#           bayat degil). YERDE, IDLE'da bile 3 olur.
+#   ids   = FORMASYONA UYGUNLUK: healthy + origin_synced + taze +
+#           state in FORMATION_ACTIVE_STATES. Yerde IDLE iken BOS olur.
+# Yerde olculen gercek mesaj:
+#     active_agent_count: 3   active_agent_ids: []   centroid: (0,0)
+# mission1 "sayi > 0 ise konumlar da vardir" varsayimiyla HOME'u (0,0)'a
+# kilitledi ve RETURN_HOME suruyu kalkis merkezi yerine origin'e cagirdi
+# (5 m yanlis, home_xy_set=True diyerek). Duzeltildi (8fbfec0) ama ayni
+# varsayimi yapacak bir sonraki tuketici icin bu not burada duruyor.
+# ⚠️ IKISINI ESITLEMEK COZUM DEGIL: count bir FAILSAFE'i besliyor
+# (swarm_fsm_node: count==0 and total>0 -> EMERGENCY_LAND). Listeye
+# esitlenirse yerde bekleyen suru "iletisim kesildi" sanilip indirilir.
+# KONUM LAZIMSA active_agent_ids / agent_pos_* KULLAN, count'a bakma.
 uint8 active_agent_count
 uint8 active_formation
 
