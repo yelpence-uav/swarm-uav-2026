@@ -8,6 +8,7 @@ from swarm_missions.mission1_dynamic_swarm.orchestrator import (
     FormationTargetCmd,
     ManeuverCmd,
     Mission1Orchestrator,
+    OrchestratorConfig,
     OrchestratorInput,
 )
 
@@ -350,7 +351,11 @@ def test_return_home_snapshot_yoksa_eski_yola_duser():
     h = _return_home_basliklari(o, [(4.4, 0.6, -10.0)])
     assert len(h) == 1
     beklenen = math.degrees(math.atan2(_HOME[1] - 0.6, _HOME[0] - 4.4))
-    assert abs(h[0] - beklenen) < 1e-9
+    # Baslik artik % 360 ile normalize ediliyor (-172.23 == 187.77): aci
+    # karsilastirmasi SARMAYI hesaba katmali, yoksa ayni yon "360 derece
+    # fark" gorunur.
+    fark = abs((h[0] - beklenen + 180.0) % 360.0 - 180.0)
+    assert fark < 1e-9, f'baslik {h[0]} != {beklenen}'
 
 
 def test_kalkis_basligi_bir_kez_alinir():
@@ -364,3 +369,133 @@ def test_kalkis_basligi_bir_kez_alinir():
         ))
     h = _return_home_basliklari(o, [(4.4, 0.6, -10.0)])
     assert h[0] == 30.0, f'snapshot ezildi: {h[0]}'
+
+
+# --- Operator ucus profili (2 Eylul gecesi) -----------------------------
+# dagitik kalk -> CIZGI -> QR1 -> gorev -> 180 yaw -> ev -> dikey merdiven
+# -> herkes KENDI kalkis noktasina (YAVAS) -> irtifa esitle -> inis.
+# Bu testler profilin HER halkasini kilitliyor; biri kirilirsa sürü
+# ya formasyona hic gecmez ya da eve donuste ust uste biner.
+
+_FRM_CIZGI = 3
+_FRM_CUSTOM = 99
+
+
+def _profil_orch(**kw):
+    """Operator profili yapilandirilmis orkestrator."""
+    cfg = dict(gorev_formasyon=_FRM_CIZGI, gorev_aralik_m=7.0,
+               donus_yaw_deg=180.0, donus_katman_m=5.0,
+               dagilma_hiz_mps=1.0, full_agent_count=3)
+    cfg.update(kw)
+    o = Mission1Orchestrator(OrchestratorConfig(**cfg))
+    o.set_origin(41.0, 29.0)
+    o.set_next_target(True, 41.001, 29.0)
+    return o
+
+
+def _kalkis(o, yaw=30.0):
+    """Kalkis fazini bir kez isler (diziliş snapshot'lanir)."""
+    return o.decide(OrchestratorInput(
+        mission_state=S_TAKEOFF, qr_step=0, is_leader=True,
+        agent_ids=list(_IDS), positions=list(_POS), centroid=_CEN,
+        home=_HOME, swarm_yaw_deg=yaw))
+
+
+def _donus(o, t):
+    """RETURN_HOME'u t saniyede isler; FormationTargetCmd'leri doner."""
+    cmds = o.decide(_inp(S_RETURN_HOME, 0, time_in_state=t))
+    return [c for c in cmds if isinstance(c, FormationTargetCmd)]
+
+
+def test_kalkis_dizilisi_ayri_saklaniyor():
+    """QR formasyon dayatsa da kalkis dizilisi KAYBOLMAZ."""
+    o = _profil_orch()
+    _kalkis(o)
+    kayit = dict(o._st.kalkis_ofsetleri)
+    assert len(kayit) == 3
+    o._st.frozen_offsets = {}          # QR bir formasyon dayatti
+    assert o._st.kalkis_ofsetleri == kayit
+
+
+def test_gorev_formasyonu_kalkistan_sonra_kuruluyor():
+    """Kalkistan sonra CIZGI + verilen aralik devreye girer (ROTATE fazi)."""
+    o = _profil_orch()
+    _kalkis(o)
+    assert o._st.formation_type == _FRM_CUSTOM   # kalkista juri dizilisi
+    o.decide(_inp(S_ROTATE, 0))
+    assert o._st.formation_type == _FRM_CIZGI
+    assert o._st.spacing_m == 7.0
+    # _assign frozen_offsets'i YENIDEN doldurur — ama artik CIZGI slotlariyla
+    # (0,0) / (0,-7) / (0,+7). Kalkis dizilisi kalsaydi formasyon kurulmazdi.
+    yanal = sorted(round(o[1], 3) for o in o._st.frozen_offsets.values())
+    assert yanal == [-7.0, 0.0, 7.0], f'cizgi slotlari degil: {yanal}'
+
+
+def test_gorev_formasyonu_kapaliyken_davranis_degismez():
+    """Kapali profil -> sartname yolu: baslangic dizilisi korunur."""
+    o = _profil_orch(gorev_formasyon=0)
+    _kalkis(o)
+    o.decide(_inp(S_ROTATE, 0))
+    assert o._st.formation_type == _FRM_CUSTOM
+
+
+def test_donus_fazlari_sirayla_ilerliyor():
+    """Yaw -> ev -> merdiven -> dagilma -> esitle."""
+    o = _profil_orch()
+    _kalkis(o)
+    beklenen = [(1.0, 0), (20.0, 1), (46.0, 2), (55.0, 3), (90.0, 4)]
+    for t, faz in beklenen:
+        o._donus_fazi(_inp(S_RETURN_HOME, 0, time_in_state=t))
+        assert o._donus_fazi(_inp(S_RETURN_HOME, 0, time_in_state=t)) == faz, \
+            f't={t} icin faz {faz} bekleniyordu'
+
+
+def test_donus_fazi_emit_once_anahtarinda():
+    """Alt faz anahtarda yoksa emit-once sürüyü ilk fazda DONDURUR."""
+    o = _profil_orch()
+    _kalkis(o)
+    a = o._phase_key(_inp(S_RETURN_HOME, 0, time_in_state=1.0))
+    b = o._phase_key(_inp(S_RETURN_HOME, 0, time_in_state=20.0))
+    assert a != b, 'faz degisti ama anahtar ayni — komut BASTIRILIR'
+
+
+def test_dagilma_yavas_digerleri_normal():
+    """Hiz YALNIZ dagilma bacaginda dusuyor (kafa kafaya gecis)."""
+    o = _profil_orch()
+    _kalkis(o)
+    assert _donus(o, 1.0)[0].max_speed == 0.0     # yaw
+    assert _donus(o, 20.0)[0].max_speed == 0.0    # eve donus
+    dagilma = _donus(o, 55.0)
+    assert dagilma[0].max_speed == 1.0, 'dagilma bacagi YAVAS olmali'
+    assert _donus(o, 90.0)[0].max_speed == 0.0    # irtifa esitleme
+
+
+def test_dikey_merdiven_ayrimi():
+    """Merdiven basamaklari birbirinden donus_katman_m kadar ayri."""
+    o = _profil_orch()
+    _kalkis(o)
+    cmd = _donus(o, 55.0)[0]
+    z = sorted(off[2] for off in cmd.offsets)
+    farklar = [round(z[i + 1] - z[i], 6) for i in range(len(z) - 1)]
+    assert all(abs(f - 5.0) < 1e-6 for f in farklar), f'basamaklar: {farklar}'
+
+
+def test_dagilmada_herkes_KENDI_kalkis_noktasina():
+    """CUSTOM tip + kalkis ofsetleri: ofsetler kalkistakiyle ayni."""
+    o = _profil_orch()
+    _kalkis(o)
+    kayit = o._st.kalkis_ofsetleri
+    cmd = _donus(o, 90.0)[0]           # faz 4: katmansiz, saf diziliş
+    assert cmd.formation_type == _FRM_CUSTOM
+    for a, off in zip(_IDS, cmd.offsets):
+        bek = kayit[a]
+        assert math.hypot(off[0] - bek[0], off[1] - bek[1]) < 1e-6, \
+            f'agent {a}: {off[:2]} != {bek[:2]}'
+
+
+def test_yaw_kapaliyken_eski_davranis():
+    """Yaw kapaliyken baslik kalkistaki degerde kalir, yaw fazi YOK."""
+    o = _profil_orch(donus_yaw_deg=0.0)
+    _kalkis(o, yaw=30.0)
+    assert o._donus_fazi(_inp(S_RETURN_HOME, 0, time_in_state=1.0)) == 1
+    assert _donus(o, 1.0)[0].heading_deg == 30.0

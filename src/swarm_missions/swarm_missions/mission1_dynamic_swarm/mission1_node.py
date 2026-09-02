@@ -82,6 +82,12 @@ class Mission1Node(Node):
             wing_alpha_rad=math.radians(self._wing_alpha_deg),
             maneuver_duration_s=self._maneuver_duration_s,
             full_agent_count=len(self._agent_ids),
+            gorev_formasyon=int(self.get_parameter('gorev_formasyon').value),
+            gorev_aralik_m=float(self.get_parameter('gorev_aralik_m').value),
+            donus_yaw_deg=float(self.get_parameter('donus_yaw_deg').value),
+            donus_katman_m=float(self.get_parameter('donus_katman_m').value),
+            dagilma_hiz_mps=float(
+                self.get_parameter('dagilma_hiz_mps').value),
         ))
 
         self._mission_state = 0
@@ -132,6 +138,15 @@ class Mission1Node(Node):
         self.declare_parameter('default_spacing_m', 5.0)
         self.declare_parameter('wing_alpha_deg', 45.0)
         self.declare_parameter('maneuver_duration_s', 3.0)
+        # --- GOREV 1 UCUS PROFILI (operator, 2 Eylul gecesi) ---------------
+        # Hepsi KAPALI varsayilanla geliyor: gorev_formasyon=0 ve
+        # donus_yaw_deg=0 ile davranis eskisinin AYNISI (sartname yolu).
+        # Acmak icin baslat.sh -p ... gecirir.
+        self.declare_parameter('gorev_formasyon', 0)
+        self.declare_parameter('gorev_aralik_m', 7.0)
+        self.declare_parameter('donus_yaw_deg', 0.0)
+        self.declare_parameter('donus_katman_m', 5.0)
+        self.declare_parameter('dagilma_hiz_mps', 1.0)
         # 🔴 KALKIS IRTIFASI — agent_fsm'in target_altitude_m'i ile AYNI
         # olmak ZORUNDA. Ikisi ayrisirsa gorev node'u "ulastim" derken
         # agent_fsm baska bir sayiya bakar; ikisi de sessizce yanilir.

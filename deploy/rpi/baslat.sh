@@ -1643,6 +1643,11 @@ fi   # /altyapi: ic_dis_kopru
             -p agent_ids:="${_G1_KADRO_ROS}" \
             -p wing_alpha_deg:=${KANAT_ALFA_DEG} \
             -p kalkis_irtifa_m:=${GOREV_KALKIS_IRTIFA:-10.0} \
+            -p gorev_formasyon:=${GOREV_FORMASYON:-0} \
+            -p gorev_aralik_m:=${GOREV_ARALIK:-7.0} \
+            -p donus_yaw_deg:=${GOREV_DONUS_YAW:-0.0} \
+            -p donus_katman_m:=${GOREV_DONUS_KATMAN:-5.0} \
+            -p dagilma_hiz_mps:=${GOREV_DAGILMA_HIZ:-1.0} \
             >> "$GUNLUK/mission1.log" 2>&1 &
         sleep 1
     fi

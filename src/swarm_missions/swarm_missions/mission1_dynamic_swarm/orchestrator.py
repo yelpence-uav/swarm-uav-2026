@@ -63,6 +63,29 @@ class OrchestratorConfig:
     # sayı bunun altına düşerse formasyon YENİDEN hesaplanmaz (şartname:
     # ayrılınca formasyon düzeltmesi yok). 0 = kontrol kapalı.
     full_agent_count: int = 0
+    # --- GOREV 1 UCUS PROFILI (operator karari, 2 Eylul gecesi) -------------
+    # Sartname baslangic formasyonunun KORUNMASINI istiyor; bu alanlar o
+    # davranisi DEGISTIRMEZ, 0/None birakildiginda kod eskisi gibi calisir.
+    # Operator test ucusu icin acik bir profil istedi:
+    #   dagitik kalk -> CIZGI kur -> QR1'e git -> gorev -> 180 yaw
+    #   -> eve don -> dikey merdiven -> herkes KENDI kalkis noktasina -> in
+    # 🔴 gorev_formasyon SABIT bir deger; ileride YKI'den gelecek
+    # (YAPILACAKLAR: "ilk formasyon secimi YKI'den"). QR'dan gelen `frm`
+    # komutu bunu EZER — sartname yolu her zaman ustte kalir.
+    gorev_formasyon: int = 0          # 0 = kapali (CUSTOM kalir), 3 = cizgi
+    gorev_aralik_m: float = 7.0
+    # Eve donmeden ONCE sürünün topluca dondugu aci. 0 = donme yok.
+    donus_yaw_deg: float = 0.0
+    # Dagilma oncesi dikey merdiven basamagi. Kuru testte 3 m KALDI (3.29 m),
+    # 4 m'den itibaren GECTI; 5 m secildi (5.18 m pay).
+    donus_katman_m: float = 5.0
+    # 🔴 SADECE DAGILMA BACAGINDA. 180 yaw'dan sonra cizginin uc ucaklari
+    # takas ediyor ve KAFA KAFAYA gecmek zorundalar. Olculdu:
+    #   her biri 2.0 m/s -> kapanma 4.0 -> frenleme 2.23 m -> kalan 1.77 m
+    #   (hard sinir 2.5 m IHLAL; 1 Eylul'de olculen 1.65 m tam buydu)
+    #   her biri 1.0 m/s -> kapanma 2.0 -> frenleme 0.56 m -> kalan 3.44 m
+    # Diger bacaklarda suru BLOK halinde gidiyor, kapanma sifir -> hiz normal.
+    dagilma_hiz_mps: float = 1.0
     # QR okunamazsa okuma irtifasına inme (10m tabanı) ve tetik gecikmesi.
     qr_read_altitude_m: float = 12.0
     qr_recovery_delay_s: float = 8.0
@@ -221,6 +244,15 @@ class _State:
     # konuyordu. Eve donuste diziliş DONMEMELI — kalkistaki basligi tasi.
     # None = hic snapshot alinmadi (kalkis fazi hic gorulmedi) -> eski yola dus.
     kalkis_heading_deg: float = field(default=None)
+    # KALKIS DIZILISI — agent_id -> (kuzey, dogu, 0), heading=0 cercevesinde.
+    # frozen_offsets QR bir formasyon dayatinca SILINIYOR (satir ~958); eve
+    # donuste "herkes KENDI kalkis noktasina" diyebilmek icin dizilisin ayri
+    # bir kopyasi lazim. Bir kez alinir, bir daha degismez.
+    kalkis_ofsetleri: dict = field(default=None)
+    # Gorev formasyonu (cfg.gorev_formasyon) bir kez uygulandi mi.
+    gorev_formasyon_kuruldu: bool = False
+    # RETURN_HOME alt-fazi: 0=yaw, 1=eve don, 2=merdiven, 3=dagil, 4=bitti
+    donus_faz: int = 0
     # QR irtifa merdiveninde en son yayınlanan basamak (-1 = arama kapalı).
     # Basamak değişince yeni komut yayınlanır; aynı basamakta sürü SABİT durur.
     search_step: int = -1
@@ -606,9 +638,17 @@ class Mission1Orchestrator:
     # --- Yardımcılar ---------------------------------------------------------
 
     def _phase_key(self, inp: OrchestratorInput) -> tuple:
-        """Emit-once için (state, step, qr_seq) anahtarı."""
+        """Emit-once için (state, step, qr_seq, donus_faz) anahtarı.
+
+        🔴 donus_faz ANAHTARA GIRMEK ZORUNDA. RETURN_HOME tek bir
+        mission_state; alt fazlar (yaw -> ev -> merdiven -> dagilma)
+        anahtarda gorunmezse emit-once ilkinden sonrasini BASTIRIR ve
+        suru ilk fazda asili kalir — hicbir yerde hata gorunmeden.
+        """
         qr_seq = int(getattr(inp.qr, 'qr_seq', 0)) if inp.qr else 0
-        return (inp.mission_state, inp.qr_step, qr_seq)
+        faz = (self._donus_fazi(inp)
+               if inp.mission_state == _S_RETURN_HOME else 0)
+        return (inp.mission_state, inp.qr_step, qr_seq, faz)
 
     def _handle(self, inp: OrchestratorInput):
         """Faza göre ilgili işleyiciye yönlendirir."""
@@ -830,6 +870,11 @@ class Mission1Orchestrator:
         self._st.heading_deg = heading
         if self._st.kalkis_heading_deg is None:
             self._st.kalkis_heading_deg = heading   # eve donuste kullanilacak
+        if self._st.kalkis_ofsetleri is None and self._st.frozen_offsets:
+            # _assign az once frozen_offsets'i doldurdu. QR bir formasyon
+            # dayatinca o silinecek; kalkis dizilisinin AYRI kopyasi burada
+            # kaliyor ki eve donuste herkes KENDI noktasina inebilsin.
+            self._st.kalkis_ofsetleri = dict(self._st.frozen_offsets)
         return [FormationTargetCmd(
             formation_type=self._st.formation_type,
             center=self._hold_center(inp, offsets, heading),
@@ -842,8 +887,30 @@ class Mission1Orchestrator:
             use_current_altitude=True,
         )]
 
+    def _gorev_formasyonunu_uygula(self):
+        """Kalkistan sonra gorev formasyonunu bir kez kurar (cfg ile acilir).
+
+        Sartname baslangic formasyonunun korunmasini istiyor; bu yol
+        VARSAYILAN OLARAK KAPALI (gorev_formasyon=0 -> CUSTOM kalir).
+        Operator test ucusu icin acikca istedi. QR'dan `frm` gelirse o
+        EZER — sartname yolu her zaman ustte.
+        """
+        if self._st.gorev_formasyon_kuruldu:
+            return
+        tip = int(self._cfg.gorev_formasyon or 0)
+        if tip <= 0:
+            self._st.gorev_formasyon_kuruldu = True   # bir daha bakma
+            return
+        self._st.formation_type = tip
+        self._st.spacing_m = float(self._cfg.gorev_aralik_m)
+        # frozen_offsets SILINMELI: dolu kalirsa _assign kalkis dizilisini
+        # geri verir ve formasyon HIC kurulmaz (sessiz).
+        self._st.frozen_offsets = {}
+        self._st.gorev_formasyon_kuruldu = True
+
     def _on_rotate(self, inp: OrchestratorInput):
         """ROTATE_TO_NEXT: formasyonu bir sonraki QR'a döndürür (merkez sabit)."""
+        self._gorev_formasyonunu_uygula()
         ned = self._qr_geo.resolve_ned()
         if ned is None:
             return self._hedefsiz_tut(inp)   # bkz. _hedefsiz_tut
@@ -1049,34 +1116,148 @@ class Mission1Orchestrator:
         wait_s = float(getattr(qr, 'detach_wait_s', 0.0))
         return [DetachCmd(target_agent_id=target, detach_wait_s=wait_s)]
 
+    # --- RETURN_HOME alt fazlari (operator profili, 2 Eylul gecesi) --------
+    # Fazlar SURE ile ilerliyor, varis tespitiyle degil. Gerekce: varis
+    # tespiti (yakinsama) QR alt-gorevleri icin yazilmis ve mission_fsm'e
+    # sinyal uretiyor; buraya baglamak o zincire ikinci bir anlam yuklerdi.
+    # Sureler CIMRI degil COMERT secildi — erken gecis yarim kalmis bir
+    # manevranin ustune yenisini bindirir, gec gecis yalnizca bekletir.
+    # 🔴 Her faz sinirinin gerekcesi asagida; degistiren OLCEREK degistirsin.
+    _DONUS_YAW_S = 12.0      # 180 deg / 25 deg/s (ROTA_DONUS_TAVANI) = 7.2 s + pay
+    _DONUS_EV_S = 30.0       # ~35 m / 2 m/s = 17.5 s + ruzgar/takip payi
+    _DONUS_MERDIVEN_S = 10.0  # 5 m / 1.2 m/s (KACINMA_DIKEY_HIZ) = 4.2 s + pay
+    _DONUS_DAGILMA_S = 30.0  # ~20 m / 1.0 m/s = 20 s + pay
+
+    def _donus_fazi(self, inp: OrchestratorInput) -> int:
+        """time_in_state'ten RETURN_HOME alt fazini turetir."""
+        t = float(inp.time_in_state)
+        if self._cfg.donus_yaw_deg and t < self._DONUS_YAW_S:
+            return 0
+        t -= self._DONUS_YAW_S if self._cfg.donus_yaw_deg else 0.0
+        if t < self._DONUS_EV_S:
+            return 1
+        t -= self._DONUS_EV_S
+        if self._st.kalkis_ofsetleri is None:
+            return 1                      # dagilamayiz; formasyonda kal
+        if t < self._DONUS_MERDIVEN_S:
+            return 2
+        t -= self._DONUS_MERDIVEN_S
+        return 3 if t < self._DONUS_DAGILMA_S else 4
+
+    def _merdiven_irtifasi(self, agent_id: int, taban_z: float) -> float:
+        """Dikey merdiven basamagi — kimlik sirasina gore, DETERMINISTIK.
+
+        180 yaw'dan sonra cizginin uc ucaklari takas ediyor ve kendi kalkis
+        noktalarina giderken KAFA KAFAYA geciyorlar. Kacinma bunu cozebilir
+        (rutbe 1 yukari, rutbe 2 asagi) ama olculdu: 2 m/s'de frenleme
+        2.23 m ve arada 1.77 m kaliyor — hard sinir 2.5 m'nin ALTINDA.
+        Merdiven ayrimi ONCEDEN kuruyor; kacinma boylece TEK DAYANAK degil
+        YEDEK oluyor. NED'de z asagi pozitif, yukari cikmak z'yi KUCULTUR.
+        """
+        sira = sorted(int(a) for a in (self._st.kalkis_ofsetleri or {}))
+        i = sira.index(int(agent_id)) if int(agent_id) in sira else 0
+        return taban_z - i * float(self._cfg.donus_katman_m)
+
+    def _kalkis_hedefleri(self, inp: OrchestratorInput, katmanli: bool):
+        """Her ucagin KENDI kalkis noktasi (home + kalkis ofseti)."""
+        # 🔴 DONDURME YOK. kalkis_ofsetleri, _assign'in `_ters_dondur` ile
+        # urettigi HEADING=0 cercevesinde duruyor; asagi akista
+        # formation_node komutun heading'ini zaten uyguluyor. Burada bir kez
+        # daha dondurursek CIFT DONUS olur ve ucaklar yanlis noktalara
+        # gider — birim test bunu yakaladi (agent 1 icin 1.04 m sapma).
+        ofs = self._st.kalkis_ofsetleri or {}
+        cikan = []
+        for a in inp.agent_ids:
+            ox, oy, _oz = ofs.get(int(a), (0.0, 0.0, 0.0))
+            z = (self._merdiven_irtifasi(a, inp.centroid[2])
+                 if katmanli else inp.centroid[2])
+            cikan.append((ox, oy, z - inp.centroid[2]))
+        return cikan
+
     def _on_return_home(self, inp: OrchestratorInput):
-        """RETURN_HOME: eve doğru düz formasyonla ilerler (eğim sıfırlanır)."""
+        """RETURN_HOME: yaw -> eve don -> dikey merdiven -> herkes kendi yerine.
+
+        Operator profili (2 Eylul gecesi). donus_yaw_deg=0 ve
+        kalkis_ofsetleri yoksa davranis ESKISI GIBI: formasyonu koruyarak
+        eve don, bitir.
+        """
         self._st.tilt_pitch_deg = 0.0
         self._st.tilt_roll_deg = 0.0
+        faz = self._donus_fazi(inp)
+        self._st.donus_faz = faz
+
         # Baslik KALKISTAN tasinir, eve olan yonden TUREMEZ. Gerekcesi ve
         # olculen 63 derece/5 sn sapma _State.kalkis_heading_deg'de.
-        # Snapshot yoksa eski yola dusuyoruz: yanlis ama bilinen davranis,
-        # sessiz bir None'dan iyi.
         if self._st.kalkis_heading_deg is not None:
-            heading = float(self._st.kalkis_heading_deg)
+            temel = float(self._st.kalkis_heading_deg)
         else:
-            heading = self._bearing_deg(inp.centroid, inp.home)
-        self._st.heading_deg = heading
-        offsets = self._assign(
-            self._st.formation_type, self._st.spacing_m, inp.home, heading,
-            inp,
-        )
+            temel = self._bearing_deg(inp.centroid, inp.home)
+        yawli = (temel + float(self._cfg.donus_yaw_deg or 0.0)) % 360.0
+
+        if faz == 0:                       # YAW — merkez SABIT, sadece don
+            heading = yawli
+            offsets = self._assign(self._st.formation_type,
+                                   self._st.spacing_m, inp.centroid,
+                                   heading, inp)
+            if offsets is None:
+                return None
+            self._st.heading_deg = heading
+            return [FormationTargetCmd(
+                formation_type=self._st.formation_type,
+                center=self._hold_centroid(inp, offsets, heading),
+                heading_deg=heading, spacing_m=self._st.spacing_m,
+                agent_ids=list(inp.agent_ids), offsets=offsets,
+                rotate_towards_target=False, use_current_centroid=True,
+                use_current_altitude=True)]
+
+        if faz == 1:                       # EVE DON — formasyon korunur
+            heading = yawli
+            offsets = self._assign(self._st.formation_type,
+                                   self._st.spacing_m, inp.home, heading, inp)
+            if offsets is None:
+                return None
+            self._st.heading_deg = heading
+            return [FormationTargetCmd(
+                formation_type=self._st.formation_type,
+                center=inp.home, heading_deg=heading,
+                spacing_m=self._st.spacing_m,
+                agent_ids=list(inp.agent_ids), offsets=offsets,
+                rotate_towards_target=False, use_current_centroid=False,
+                use_current_altitude=False)]
+
+        if faz == 2:                       # DIKEY MERDIVEN — yatayda kimildama
+            heading = yawli
+            offsets = self._assign(self._st.formation_type,
+                                   self._st.spacing_m, inp.home, heading, inp)
+            if offsets is None:
+                return None
+            katmanli = [
+                (o[0], o[1],
+                 self._merdiven_irtifasi(a, inp.centroid[2]) - inp.centroid[2])
+                for a, o in zip(inp.agent_ids, offsets)
+            ]
+            return [FormationTargetCmd(
+                formation_type=self._st.formation_type,
+                center=inp.home, heading_deg=heading,
+                spacing_m=self._st.spacing_m,
+                agent_ids=list(inp.agent_ids), offsets=katmanli,
+                rotate_towards_target=False, use_current_centroid=False,
+                use_current_altitude=True)]
+
+        # faz 3/4 — HERKES KENDI KALKIS NOKTASINA. Tip CUSTOM: kalkis
+        # dizilisi geri geliyor. faz 3 katmanli ve YAVAS (kafa kafaya gecis),
+        # faz 4 irtifayi esitler -> mission_fsm inise gecer.
+        katmanli = (faz == 3)
+        offsets = self._kalkis_hedefleri(inp, katmanli)
+        self._st.heading_deg = temel
         return [FormationTargetCmd(
-            formation_type=self._st.formation_type,
-            center=inp.home,
-            heading_deg=heading,
+            formation_type=_FRM_CUSTOM,
+            center=inp.home, heading_deg=temel,
             spacing_m=self._st.spacing_m,
-            agent_ids=list(inp.agent_ids),
-            offsets=offsets,
-            rotate_towards_target=False,
-            use_current_centroid=False,
-            use_current_altitude=False,
-        )]
+            agent_ids=list(inp.agent_ids), offsets=offsets,
+            max_speed=(float(self._cfg.dagilma_hiz_mps) if katmanli else 0.0),
+            rotate_towards_target=False, use_current_centroid=False,
+            use_current_altitude=True)]
 
 
 def _maneuver_type(pitch, roll, yaw) -> int:

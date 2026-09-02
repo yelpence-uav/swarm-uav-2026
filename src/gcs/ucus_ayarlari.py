@@ -156,6 +156,33 @@ GOREV_NAVIGATE_TIMEOUT_S = 30.0
 # suru hemen eve donmesin.
 GOREV_ROTA_BILINMEYEN_S = 10.0
 
+# --- GOREV 1 UCUS PROFILI (operator karari, 2 Eylul gecesi) ----------------
+# Profil: dagitik kalk -> CIZGI kur -> QR1'e git -> gorev -> 180 yaw
+#         -> eve don -> dikey merdiven -> herkes KENDI kalkis noktasina -> in
+#
+# 🔴 GOREV_FORMASYON=0 birakilirsa davranis SARTNAME YOLU olur: baslangic
+# (juri) dizilisi korunur, formasyon yalniz QR'in `frm` komutuyla degisir.
+# 3 = CIZGI. Ileride bu deger YKI'den gelecek (YAPILACAKLAR, 2 Eylul).
+GOREV_FORMASYON = 3
+GOREV_ARALIK_M = 7.0
+
+# Eve donmeden ONCE surunun topluca dondugu aci. 0 = donme yok.
+GOREV_DONUS_YAW_DEG = 180.0
+
+# Dikey merdiven basamagi — dagilma sirasinda ust uste binmeyi keser.
+# 🔴 OLCULDU (kuru test, 2 Eylul): 3 m KALDI (3.29 m), 4 m GECTI (4.22 m),
+# 5 m GECTI (5.18 m). 5 secildi. Kacinma katmani da 3 m; merdiven ondan
+# BUYUK olmali ki kacinma tetiklenmeden ayrim kurulmus olsun.
+GOREV_DONUS_KATMAN_M = 5.0
+
+# 🔴 YALNIZ DAGILMA BACAGI. 180 yaw'dan sonra cizginin uc ucaklari takas
+# ediyor ve kafa kafaya geciyorlar. Olculdu:
+#   2.0 m/s -> kapanma 4.0 -> frenleme 2.23 m -> kalan 1.77 m  (hard 2.5 IHLAL)
+#   1.0 m/s -> kapanma 2.0 -> frenleme 0.56 m -> kalan 3.44 m  (guvenli)
+# 1 Eylul'de 4.13 m/s kapanmada olculen en yakin 1.65 m'ydi; teoriyle 3 cm
+# uyusmustu. Diger bacaklarda suru BLOK gidiyor, kapanma sifir.
+GOREV_DAGILMA_HIZ_MPS = 1.0
+
 # 🔴 KALKIS OTORITESI — 2 Eylul 2026, sahada olculdu.
 #
 # false (19 Agustos'tan beri suren GECIS DONEMI degeri): gorev basladiginda
@@ -1276,6 +1303,11 @@ def _kabuk():
     print(f'SURU_AJAN_SAYISI={AJAN_SAYISI}')
     print(f'GOREV_NAVIGATE_TIMEOUT_S={GOREV_NAVIGATE_TIMEOUT_S}')
     print(f'GOREV_ROTA_BILINMEYEN_S={GOREV_ROTA_BILINMEYEN_S}')
+    print(f'GOREV_FORMASYON={GOREV_FORMASYON}')
+    print(f'GOREV_ARALIK={GOREV_ARALIK_M:.1f}')
+    print(f'GOREV_DONUS_YAW={GOREV_DONUS_YAW_DEG:.1f}')
+    print(f'GOREV_DONUS_KATMAN={GOREV_DONUS_KATMAN_M:.1f}')
+    print(f'GOREV_DAGILMA_HIZ={GOREV_DAGILMA_HIZ_MPS:.1f}')
     print(f'SURU_KALKIS_OLAYLA={"true" if KALKIS_OLAYLA else "false"}')
     print(f'GOREV_KALKIS_IRTIFA={GOREV_KALKIS_IRTIFA_M}')
     # (Pil satirlari asagida, INA226 blogunda — INA226_HUCRE orada.)
