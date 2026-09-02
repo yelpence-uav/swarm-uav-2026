@@ -51,8 +51,8 @@ from rclpy.qos import (DurabilityPolicy, HistoryPolicy, QoSProfile,
                        ReliabilityPolicy)
 from sensor_msgs.msg import NavSatFix
 from swarm_control.px4_interface.home_dogrulama import (
-    home_denetle, TOL_DIKEY_M, yatay_tolerans)
-from swarm_interfaces.msg import SwarmOrigin
+    dikey_tolerans, home_denetle, yatay_tolerans)
+from swarm_interfaces.msg import AgentStatus, SwarmOrigin
 
 # MAVROS konulari icin: BEST_EFFORT + VOLATILE her yayinciyla uyumludur.
 # Ters yon (RELIABLE abone, BEST_EFFORT yayinci) SESSIZCE baglanmaz —
@@ -84,6 +84,15 @@ class HomeDenetci(Node):
         self.fix = None
         self.state = None
         self.origin = None
+        self.durum = None
+        # 🔴 FIX TIPI BURADAN OKUNUR, NavSatFix'ten DEGIL. `NavSatFix.status`
+        # yalnizca NO_FIX/FIX/SBAS/GBAS tasiyor — RTK'yi (5/6) HIC gostermez.
+        # Once oradan okunuyordu ve RTK acikken bile "fix 3" deyip GEVSEK
+        # esigi (6 m) kullaniyordu; dugum 1 m kullanirken arac 6 m — sessizce
+        # daha musamahakar. AgentStatus'u px4_bridge GPSRAW'dan dolduruyor.
+        self.create_subscription(
+            AgentStatus, f'/swarm/agent/drone{agent_id}/telemetry',
+            lambda m: setattr(self, 'durum', m), MAVROS_QOS)
         self.create_subscription(
             HomePosition, f'{ns}/mavros/home_position/home',
             lambda m: setattr(self, 'home', m), MAVROS_QOS)
@@ -105,7 +114,8 @@ class HomeDenetci(Node):
         while time.time() < bitis and rclpy.ok():
             rclpy.spin_once(self, timeout_sec=0.2)
             if all(x is not None
-                   for x in (self.home, self.fix, self.state, self.origin)):
+                   for x in (self.home, self.fix, self.state, self.origin,
+                             self.durum)):
                 return
 
 
@@ -117,6 +127,7 @@ def _eksikleri_yaz(d: HomeDenetci) -> None:
         ('global_position/global', d.fix, 'GPS fix var mi'),
         ('/swarm/internal/origin', d.origin,
          'swarm_origin_publisher kosuyor mu'),
+        ('agent/telemetry', d.durum, 'px4_bridge yayin yapiyor mu'),
     ):
         if deger is None:
             print(f'  ❌ {ad:26s} GELMEDI   ({ipucu})')
@@ -142,7 +153,7 @@ def main() -> int:
         rclpy.shutdown()
         return 2
 
-    if d.home is None or d.fix is None or d.origin is None:
+    if None in (d.home, d.fix, d.origin, d.durum):
         print(f'\n⚠️  drone_{agent_id}: olcum icin gereken veri eksik.')
         _eksikleri_yaz(d)
         rclpy.shutdown()
@@ -163,7 +174,7 @@ def main() -> int:
         gps_lat=d.fix.latitude,
         gps_lon=d.fix.longitude,
         gps_alt_amsl=d.fix.altitude,
-        gps_fix_type=(3 if d.fix.status.status >= 0 else 0),
+        gps_fix_type=int(d.durum.gps_fix_type),
         yerde=not armed,
     )
 
@@ -177,12 +188,13 @@ def main() -> int:
     print(f'  ortak origin: {d.origin.origin_lat_deg:.7f}, '
           f'{d.origin.origin_lon_deg:.7f}')
     print()
-    fix = 3 if d.fix.status.status >= 0 else 0
+    fix = int(d.durum.gps_fix_type)
     if sonuc.yatay_m is not None:
         print(f'  HUKUM  home <-> kendi GPS: yatay {sonuc.yatay_m:6.2f} m   '
               f'dikey {sonuc.dikey_m:5.2f} m')
         print(f'         tolerans {yatay_tolerans(fix):.1f} / '
-              f'{TOL_DIKEY_M:.1f} m  (fix={fix})')
+              f'{dikey_tolerans(fix):.1f} m  (fix={fix}'
+              + (' = RTK' if fix >= 5 else ' = RTK YOK') + ')')
     else:
         print('  HUKUM  kosulmadi ' +
               ('(ucak ARMED — home yer denetimi havada anlamsiz)' if armed
