@@ -65,9 +65,14 @@ _dugum_exe() {
     esac
 }
 
-# `ros2 run` bir SARMALAYICI: gercek dugum ayri bir surec ve sarmalayiciyi
-# oldurmek cocugu OKSUZ birakiyor (TUZAKLAR §1.24 — 23 Agustos'ta ylp02'de
-# uc artik dugum bulundu). Bu yuzden once gercek surec, sonra sarmalayici.
+# 3 Eylul 2026'dan beri dugumler `dugum()` ile DOGRUDAN calistiriliyor,
+# yani sarmalayici artik YOK (RAM: ylp01'de 1451 MB kazanc). `install/...`
+# deseni zaten birincil arama; `ros2 run` deseni GERI DUSUS icin duruyor
+# (mavros gibi depo disi paketler + eski surumle acilmis artik surecler).
+#
+# Eski gerekce, hala gecerli oldugu icin duruyor: `ros2 run` bir SARMALAYICI
+# ve sarmalayiciyi oldurmek cocugu OKSUZ birakiyor (TUZAKLAR §1.24 —
+# 23 Agustos'ta ylp02'de uc artik dugum bulundu).
 #
 # 🔴 `pkill -f` KULLANILMIYOR: desen KOMUT SATIRINA bakiyor ve cagiran kabugun
 # kendi komut satiri deseni icerirse pkill ONU DA olduruyor (29 Agustos'ta
@@ -115,6 +120,34 @@ if [ -n "$YALNIZ" ] && [ -z "${YELPENCE_YALNIZ_KOPUK:-}" ] \
 fi
 
 source /opt/ros/jazzy/setup.bash && source /ws/install/setup.bash
+
+# --- dugum(): `ros2 run` YERINE dogrudan calistirilabilir yol --------------
+# 🔴 OLCULDU — 3 Eylul 2026, ylp01 (4 GB RAM):
+#     ros2 run SARMALAYICI : 18 surec, PSS toplam 1451 MB
+#     ASIL dugumler        : 16 surec, PSS toplam 1939 MB
+# Yani kullanilan 3.8 GB'in %38'i sarmalayicilarda. `ros2 run` hedefi bulup
+# calistirdiktan sonra EBEVEYN olarak bellekte KALIYOR — her dugum icin bir
+# fazladan Python yorumlayicisi. 4 GB'lik ylp01'de bos bellek 260 MB'a
+# dusmustu; 8 GB'liklerde de bosuna 1.4 GB gidiyordu.
+#
+# Hedef bulunamazsa (ornek: mavros — depo disinda) ESKI YOLA duser, yani
+# bu degisiklik hicbir dugumu calismaz hale getiremez.
+dugum() {                      # dugum <paket> <calistirilabilir> [arg...]
+    local _p="$1" _e="$2"; shift 2
+    local _y
+    # Once calisma alani, sonra ROS'un kendi kurulumu (mavros gibi depo disi
+    # paketler orada). mavros_node bir C++ ikilisi ama `ros2 run` onu bile
+    # 209 MB'lik bir PYTHON sarmalayicisiyla baslatiyordu.
+    for _y in "/ws/install/$_p/lib/$_p/$_e" \
+              "/opt/ros/${ROS_DISTRO:-jazzy}/lib/$_p/$_e"; do
+        if [ -x "$_y" ]; then
+            "$_y" "$@"
+            return
+        fi
+    done
+    echo "[baslat] UYARI: $_p/$_e dogrudan bulunamadi, ros2 run'a dusuluyor"
+    ros2 run "$_p" "$_e" "$@"
+}
 export ROS_DOMAIN_ID=0 RMW_IMPLEMENTATION=rmw_cyclonedds_cpp ROS_LOCALHOST_ONLY=1  # saha: DDS loopback-only, dis ag bagimsiz
 
 # --- Dugum ciktilari nereye yazilir ------------------------------------------
@@ -329,7 +362,7 @@ fi
 # Fonksiyon: ayni komut hem ilk aciliste hem onarim denemesinde kullanilsin.
 # Iki yere kopyalanirsa biri guncellenip digeri unutulur (bu depoda yasandi).
 _mavros_baslat() {
-    ros2 run mavros mavros_node --ros-args -r __ns:=/drone_${AGENT_ID}/mavros \
+    dugum mavros mavros_node --ros-args -r __ns:=/drone_${AGENT_ID}/mavros \
         -p fcu_url:=/dev/ttyAMA0:921600 \
         ${TGT_SYSTEM:+-p tgt_system:=$TGT_SYSTEM} \
         ${GCS_URL:+-p gcs_url:="$GCS_URL"} \
@@ -800,7 +833,7 @@ echo "[baslat] px4_bridge velocity_only=${VELOCITY_ONLY}" \
      "(formasyon suruyor mu: $([ -f /ws/gozlem ] && echo 'HAYIR-gozlem' || echo evet-veya-kapali))"
 
 if altyapi; then   # --yalniz modunda ATLANIR  (px4_bridge)
-ros2 run swarm_control px4_bridge --ros-args -p agent_id:=${AGENT_ID} \
+dugum swarm_control px4_bridge --ros-args -p agent_id:=${AGENT_ID} \
     -p velocity_only:=${VELOCITY_ONLY} \
     -p guided_hiz_yatay_mps:=${GUIDED_HIZ_YATAY} \
     -p guided_hiz_dikey_mps:=${GUIDED_HIZ_DIKEY} \
@@ -863,7 +896,7 @@ fi
 # komutunun tek kaynagi guided yol. mission1+agent_fsm kalkisi
 # devraldiginda SURU_KALKIS_OLAYLA=true yapilacak.
 if altyapi; then   # --yalniz modunda ATLANIR  (agent_fsm + mesaj hizlari)
-ros2 run swarm_state_machine agent_fsm_node --ros-args \
+dugum swarm_state_machine agent_fsm_node --ros-args \
     -p agent_id:=${AGENT_ID} \
     -p battery_critical_voltage_v:=${BATARYA_KRITIK_V} \
     -p kalkis_olayla:=${SURU_KALKIS_OLAYLA:-false} \
@@ -893,7 +926,7 @@ TAKIM_ID="${TAKIM_ID:-752825}"
 # sessizce ayrisir.
 KANAT_ALFA_DEG="${KANAT_ALFA_DEG:-45.0}"
 if altyapi; then   # --yalniz modunda ATLANIR  (esp32_bridge)
-ros2 run swarm_control esp32_bridge --ros-args -p serial_port:=/dev/ttyAMA4 -p baud:=460800 -p agent_id:=${AGENT_ID} -p team_id:="'${TAKIM_ID}'" -p wing_alpha_deg:=${KANAT_ALFA_DEG} $SP_REMAP >> "$GUNLUK/esp.log" 2>&1 &
+dugum swarm_control esp32_bridge --ros-args -p serial_port:=/dev/ttyAMA4 -p baud:=460800 -p agent_id:=${AGENT_ID} -p team_id:="'${TAKIM_ID}'" -p wing_alpha_deg:=${KANAT_ALFA_DEG} $SP_REMAP >> "$GUNLUK/esp.log" 2>&1 &
 fi   # /altyapi: esp32_bridge
 
 # basit_kacinma baslatma blogu 29 Agustos 2026'da SILINDI (yukaridaki
@@ -1119,7 +1152,7 @@ if [ -n "$SURU_DUGUMLERI" ]; then
     # bu yuzden 'origin'/'consensus' gibi ayri bir anahtara BAGLANMADI —
     # herhangi bir suru dugumu aciksa o da acilir.
 if altyapi; then   # --yalniz modunda ATLANIR  (ic_dis_kopru)
-    ros2 run swarm_control ic_dis_kopru \
+    dugum swarm_control ic_dis_kopru \
         >> "$GUNLUK/ic_dis_kopru.log" 2>&1 &
     sleep 1
     echo "[baslat] ic_dis_kopru basladi (internal -> public yerel dongu)"
@@ -1133,7 +1166,7 @@ fi   # /altyapi: ic_dis_kopru
             # /swarm/public/origin'e tasiyor. Boylece origin AYNI ANDA hem
             # yerel dugumlere hem de esp32_bridge uzerinden mesh'e gidiyor —
             # remap varken mesh yolu tamamen kapaliydi.
-            ros2 run swarm_control swarm_origin_publisher --ros-args \
+            dugum swarm_control swarm_origin_publisher --ros-args \
                 -p origin_source:=fixed \
                 -p fixed_lat:=${O_LAT} \
                 -p fixed_lon:=${O_LON} \
@@ -1149,7 +1182,7 @@ fi   # /altyapi: ic_dis_kopru
     fi
 
     if baslat_mi consensus; then
-        ros2 run swarm_core consensus_node --ros-args \
+        dugum swarm_core consensus_node --ros-args \
             -p agent_id:=${AGENT_ID} \
             -p agent_count:=${SURU_AJAN_SAYISI} \
             -p battery_min_v:=${BATARYA_KRITIK_V} \
@@ -1197,7 +1230,7 @@ fi   # /altyapi: ic_dis_kopru
         # iken dugum origin senkronsuz ve EKF gecersizken de setpoint uretir.
         # 17 Agustos'a kadar depodaki varsayilan True'ydu ve buradan da
         # gecilmiyordu, yani sahada kapilar KAPALI kosuyordu.
-        ros2 run swarm_core formation_node --ros-args \
+        dugum swarm_core formation_node --ros-args \
             -p agent_id:=${AGENT_ID} -p wing_alpha_deg:=${KANAT_ALFA_DEG} \
             -p sitl_mode:=false \
             ${GOZLEM_REMAP} \
@@ -1220,7 +1253,7 @@ fi   # /altyapi: ic_dis_kopru
         # ⚠️ Donus tavani 90 -> 25 deg/s dustu (PX4 yaw tavaniyla ayni).
         # Buyuk formasyonda zaten tegetsel hiz baskin: 12 m yaricapta fiili
         # donus 7.16 deg/s, yani 180 derece 25 saniye suruyor.
-        ros2 run swarm_core path_planner --ros-args \
+        dugum swarm_core path_planner --ros-args \
             -p max_speed_mps:=${ROTA_MAKS_HIZ} \
             -p control_rate_hz:=${ROTA_ADIM_HZ} \
             -p max_heading_slew_deg_s:=${ROTA_DONUS_TAVANI_DEG_S} \
@@ -1263,7 +1296,7 @@ fi   # /altyapi: ic_dis_kopru
             # acilista olduruyordu (28 Agu G0 bulgusu, sekans.log).
             _SEKANS_KADRO="${SURU_KADRO:-1 2 3}"
             _SEKANS_KADRO_ROS="[$(echo ${_SEKANS_KADRO} | tr ' ' ',')]"
-            ros2 run swarm_core formasyon_sekans --ros-args \
+            dugum swarm_core formasyon_sekans --ros-args \
                 -p agent_id:=${AGENT_ID} \
                 -p kadro:="${_SEKANS_KADRO_ROS}" \
                 -p aralik_m:=${SEKANS_ARALIK:-7.0} \
@@ -1332,7 +1365,7 @@ fi   # /altyapi: ic_dis_kopru
             [ "$_k" -lt "$AGENT_ID" ] 2>/dev/null && \
                 CA_RUTBE=$((CA_RUTBE + 1))
         done
-        ros2 run swarm_core collision_avoidance --ros-args \
+        dugum swarm_core collision_avoidance --ros-args \
             -p agent_id:=${AGENT_ID} \
             -p neighbor_ids:="[$CA_KOMSULAR]" \
             -p rutbe:=${CA_RUTBE} \
@@ -1365,7 +1398,7 @@ fi   # /altyapi: ic_dis_kopru
 
     # Manevra (pitch/roll/yaw) — formasyon zinciri acikken anlamli.
     if baslat_mi manevra; then
-        ros2 run swarm_core maneuver_executor --ros-args \
+        dugum swarm_core maneuver_executor --ros-args \
             -p agent_id:=${AGENT_ID} >> "$GUNLUK/manevra.log" 2>&1 &
         sleep 1
     fi
@@ -1399,7 +1432,7 @@ fi   # /altyapi: ic_dis_kopru
         #                      iki ucaktan biri bozulunca TUM SURUYE acil inis
         # 25 Agustos 2026: ylp01 dondu, filo uc ucak -> 3 yapildi (KARAR-04).
         SURU_BEKLENEN_UCAK="${SURU_BEKLENEN_UCAK:-3}"
-        ros2 run swarm_state_machine swarm_fsm_node --ros-args \
+        dugum swarm_state_machine swarm_fsm_node --ros-args \
             -p agent_id:=${AGENT_ID} \
             -p agent_count:=${SURU_AJAN_SAYISI} \
             -p expected_agent_count:=${SURU_BEKLENEN_UCAK} \
@@ -1415,7 +1448,7 @@ fi   # /altyapi: ic_dis_kopru
         # team_id: kopru ve mission1 ile AYNI olmali (QR filtresi).
         _GFSM_KADRO="${SURU_KADRO:-1 2 3}"
         _GFSM_KADRO_ROS="[$(echo ${_GFSM_KADRO} | tr ' ' ',')]"
-        ros2 run swarm_state_machine mission_fsm_node --ros-args \
+        dugum swarm_state_machine mission_fsm_node --ros-args \
             -p agent_ids:="${_GFSM_KADRO_ROS}" \
             -p agent_id:=${AGENT_ID} \
             -p navigate_timeout_s:=${GOREV_NAVIGATE_TIMEOUT_S:-0.0} \
@@ -1485,7 +1518,7 @@ fi   # /altyapi: ic_dis_kopru
             fi
             _MOD_KADRO="${SURU_KADRO:-1 2 3}"
             _MOD_KADRO_ROS="[$(echo ${_MOD_KADRO} | tr ' ' ',')]"
-            ros2 run swarm_state_machine mode_manager_node --ros-args \
+            dugum swarm_state_machine mode_manager_node --ros-args \
                 -p agent_ids:="${_MOD_KADRO_ROS}" \
                 -p agent_id:=${AGENT_ID} \
                 -p default_spacing_m:=${MOD_ARALIK:-7.0} \
@@ -1564,7 +1597,7 @@ fi   # /altyapi: ic_dis_kopru
             echo "[baslat] INA226 carpani DOSYADAN: ${_INA_CARPAN}" \
                  "(/ws/ina226_carpan)"
         fi
-        ros2 run swarm_control ina226_node --ros-args \
+        dugum swarm_control ina226_node --ros-args \
             -p gerilim_carpani:=${_INA_CARPAN} \
             -r __ns:=/drone_${AGENT_ID} \
             -p i2c_veriyolu:="'${INA226_VERIYOLU:-/dev/i2c-1}'" \
@@ -1588,7 +1621,7 @@ fi   # /altyapi: ic_dis_kopru
         # Pixhawk'in tek RC girisi ONA ait (CH5 kill, CH8 arm, CH3
         # failsafe 2100). Suru kumandasinin alicisi Pi'ye i-BUS ile
         # bagli; cerceveyi rc_ibus_kopru RCIn'e cevirir.
-        ros2 run swarm_control rc_ibus_kopru --ros-args \
+        dugum swarm_control rc_ibus_kopru --ros-args \
             -p agent_id:=${AGENT_ID} \
             -p port:="'${SURU_RC_PORT:-/dev/ttyAMA2}'" \
             >> "$GUNLUK/rc_ibus.log" 2>&1 &
@@ -1605,7 +1638,7 @@ fi   # /altyapi: ic_dis_kopru
         # KALKIS TETIKLER. manual_control OLU bir konuya cevriliyor:
         # PX4 kill pilotunun cubuklarindan MANUAL_CONTROL uretiyor ve
         # o da ayni callback'i besliyordu (gorev2.md B11).
-        ros2 run swarm_state_machine joystick_interpreter_node --ros-args \
+        dugum swarm_state_machine joystick_interpreter_node --ros-args \
             -p max_speed_mps:=${MOD_HIZ:-2.0} \
             -p max_yaw_rate_deg_s:=${MOD_YAW_HIZI:-25.0} \
             -p max_tilt_deg:=${MOD_EGIM_TAVANI:-15.0} \
@@ -1638,7 +1671,7 @@ fi   # /altyapi: ic_dis_kopru
         # mission1 almiyordu — ikisi ayni kaynagi kullanmali.
         _G1_KADRO="${SURU_KADRO:-1 2 3}"
         _G1_KADRO_ROS="[$(echo ${_G1_KADRO} | tr ' ' ',')]"
-        ros2 run swarm_missions mission1_dynamic_swarm --ros-args \
+        dugum swarm_missions mission1_dynamic_swarm --ros-args \
             -p agent_id:=${AGENT_ID} -p team_id:="'${TAKIM_ID}'" \
             -p agent_ids:="${_G1_KADRO_ROS}" \
             -p wing_alpha_deg:=${KANAT_ALFA_DEG} \
@@ -1655,17 +1688,17 @@ fi   # /altyapi: ic_dis_kopru
     # Kamera + goru. Kamera donanimi olmayan dronda camera_driver hata dongusune
     # girer, o yuzden ayri anahtar.
     if baslat_mi goru; then
-        ros2 run swarm_perception camera_driver --ros-args \
+        dugum swarm_perception camera_driver --ros-args \
             -p agent_id:=${AGENT_ID} >> "$GUNLUK/kamera.log" 2>&1 &
         sleep 2
-        ros2 run swarm_perception vision_node --ros-args \
+        dugum swarm_perception vision_node --ros-args \
             -p agent_id:=${AGENT_ID} >> "$GUNLUK/goru.log" 2>&1 &
         sleep 1
     fi
 
     # Hassas inis — goru acikken anlamli (inis bolgesi kameradan geliyor).
     if baslat_mi inis; then
-        ros2 run swarm_core precision_landing_node --ros-args \
+        dugum swarm_core precision_landing_node --ros-args \
             -p agent_id:=${AGENT_ID} >> "$GUNLUK/inis.log" 2>&1 &
         sleep 1
     fi
@@ -1673,7 +1706,7 @@ fi   # /altyapi: ic_dis_kopru
     # Rol yeniden dagitim.
     if baslat_mi rol; then
         # task_reallocator agent_id KABUL ETMIYOR (olculdu).
-        ros2 run swarm_core task_reallocator_node \
+        dugum swarm_core task_reallocator_node \
             >> "$GUNLUK/rol.log" 2>&1 &
         sleep 1
     fi
