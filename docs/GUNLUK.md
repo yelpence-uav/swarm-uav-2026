@@ -1,6 +1,6 @@
 # GÜNLÜK — oturum devir teslim kaydı
 
-**Son güncelleme:** 1 Eylül 2026, 22:47 — kamera onarıldı, jöle artık ÖLÇÜLÜYOR; RPi paneli düzeltildi
+**Son güncelleme:** 2 Eylül 2026, 04:20 — HOME doğrulaması uçakta geçti · Görev 1 zinciri kuruldu · pil ölçeği 14,2-16,8 · üç sessiz kilitlenme kapatıldı
 
 Tek bilgisayar, sırayla çalışıyoruz. Biri kalkıp diğeri oturduğunda **hem
 kişi hem Claude** nerede kalındığını buradan anlar.
@@ -35,6 +35,129 @@ Claude'a **"oturumu kapat"** dersen bu kaydı o yazar.
 - ylp00: (kill switch? pil? nerede? konteyner ayakta mı?)
 - ylp02:
 ```
+
+---
+
+## 2026-09-02 04:20 — Eyüp + Claude (HOME DOĞRULAMASI · Görev 1 zinciri kuruldu · pil ölçeği · ÜÇ SESSİZ KİLİTLENME)
+
+> **Uçuş yok — gece boyu yer işi.** Üç commit (`c82ace1`, `abae603`,
+> `24e890d`). Kapatılan her şey "hata vermeden yanlış sonuç" sınıfı: hiçbiri
+> log'a bakarak görünmüyordu, hepsi ancak uçarken sebebi belirsiz bir
+> davranış olarak ortaya çıkardı. Oturum sonunda piller şarja alındı.
+
+**Ne yapıldı**
+
+- 🟢 **HOME DOĞRULAMASI YAZILDI ve UÇAKTA GEÇTİ** (26 Ağustos P0). Home o
+  güne kadar hiçbir yerde denetlenmiyordu — `map_home` geleni koşulsuz
+  kopyalayıp `home_set=True` yazıyordu. Artık `px4_bridge` 2 sn'de bir
+  home'un global kaydını uçağın kendi GPS'iyle karşılaştırıyor, bozuksa
+  **RTL'i reddediyor** ve YKİ'ye kritik olay basıyor. Ölçülen: **ylp00
+  0,48 m · ylp02 0,83 m** (tolerans fix'e bağlı: RTK 1,0 / RTK'siz 3,0 m).
+- 🔴 **İlk sürüm UÇAKTA ÜÇ KUSUR VERDİ, üçü de düzeltildi.** Yerelde 293
+  test geçiyordu; hiçbiri bunları yakalayamazdı — dağıtıp koşturmasak
+  göremezdik. Ayrıntı `TUZAKLAR` §2.26/§2.27.
+- 🟢 **`maneuver_executor` ve `mission1` İLK KEZ AYAĞA KALKTI.** İkisi de
+  iki uçakta koşuyor, log temiz. `mission1` belgelere göre bugüne kadar
+  hiç çalışmamıştı.
+- 🟢 **Pil göstergesi ve uyarıları operatör kararıyla yeniden kuruldu**
+  (14,2 V = %0 · 16,8 V = %100). `BATARYA_KRITIK_V` **ilk kez etkin**
+  (0,0 → 13,8 V) — KARAR-03'ün koşulu gerçekleşti.
+- 🔧 **ylp00'ın MAVROS arızası donanım DEĞİLDİ.** `connected:false` +
+  `mavros_router`'da rastgele `remote address`. İki hipotez (baud
+  uyuşmazlığı, elektriksel gürültü) **ölçülerek çürütüldü**: 921600'de
+  **882 kendini doğrulayan MAVLink çerçevesi/3 sn, sysid 1**, %23,2 sıfır
+  baytı. `docker restart` kapattı. 🔴 **ylp02'de aynı belirti görülürse
+  ÖNCE restart denenmeli** (`TUZAKLAR` §2.24).
+
+**🔴 ÜÇ SESSİZ KİLİTLENME — hepsi Görev 1 yolunun üzerindeydi**
+
+| # | ne | belirtisi ne olurdu |
+|---|---|---|
+| 1 | `formation_node`'un **Görev 1** susturma kapısında bayat-bırakma YOKTU (Görev 2 kapısında vardı, aynı fonksiyon 6 satır arayla) | `mission_fsm` manevra adımında ölürse formasyon **süresiz** susar; `maneuver_executor` de yalnız goal aktifken yazdığı için `/raw`'a **hiç kimse** yazmaz. Uçak düşmez, sürü formasyonu **sessizce bırakır** |
+| 2 | `expected_agent_count = 3` iken 2 uçak | `formation_reached: 2 ≥ 3` FALSE → sürü **FORMING'de takılır**, `mission1` hiç komut üretmez. 15 Ağustos'ta ölçülmüş, unutulmuş |
+| 3 | `baslat.sh` `mission1`'e **kadro geçirmiyordu** | `_snapshot_offsets` `2 < 3` diye `None` döner, `FormationTargetCmd` **hiç üretilmez** |
+
+**Ölçülenler (hepsi uçakta, tahmin yok)**
+
+| ne | değer |
+|---|---|
+| ylp00 seri hat @921600 | 882 zincirli çerçeve/3 sn · sysid 1 · %23,2 sıfır baytı |
+| HOME ↔ kendi GPS | ylp00 **0,48 m** · ylp02 **0,83 m** |
+| `HomePosition.position` çerçeve farkı | **19,34 m** ve **0,01 m** — aynı uçak, arka arkaya iki restart |
+| `CommandHome` float32 yuvarlaması | **0,180 m** (teorik tavan 0,42 m) |
+| RTK'siz konum gezinmesi | **1,17 – 1,27 m** (30 sn arayla, hareketsiz) |
+| Pil | ylp00 **14,630 V → %16,2** · ylp02 **15,064 V → %33,2** |
+| Kaçınma rütbesi | ylp00 **0 (ÇAPA)** · ylp02 **2 → 1 (YUKARI)** |
+
+**Ne değişti**
+
+- kod: `px4_interface/home_dogrulama.py` **(yeni)** · `px4_bridge`
+  (`_home_dogrula` + RTL kapısı + SystemEvent 38/39 + yerde otomatik
+  düzeltme) · `mavros_command_sender.set_home()` **(yeni yol)** ·
+  `formation_control/formation_node.py` (qr_step bayat-bırakma) ·
+  `pil/ina226.py` + `ina226_node.py` (gösterge uçları parametreli) ·
+  `backend/core/alert_manager.py` (eşikler + dalgalanma bastırması +
+  ölçüm-yok kapısı) · `backend/config.yaml` (`alerts.pil: true`) ·
+  `deploy/rpi/baslat.sh` (mission1 kadrosu, pil uçları, BATARYA_KRITIK_V) ·
+  `src/gcs/ucus_ayarlari.py` (`UCAN_KADRO` + `PIL_*` tek kaynak)
+- test: **+46** — `test_home_dogrulama` (17) · `test_formation_node` (10) ·
+  `test_ina226` (7) · `backend/tests/test_alert_manager_pil` (12, **YKİ
+  backend'inin ilk testleri**)
+- 🔴 **uçakta (ylp00 + ylp02, ikisi de `24e890d` seviyesinde):**
+  - `/ws/suru_dugumleri`'ne **`manevra`** ve **`gorev1`** eklendi
+  - `ucus_ayarlari.env`: `SURU_KADRO="1 3"` · `SURU_BEKLENEN_UCAK=2` ·
+    `PIL_BOS_V=14.2` · `PIL_DOLU_V=16.8` · **`BATARYA_KRITIK_V=13.8`**
+  - `home_denetle.py` `/ws/` **köküne** kuruldu (`teshis/` altına değil)
+  - konteynerler defalarca yeniden başlatıldı
+- belge: `TUZAKLAR` §2.24–§2.28 · `RPI_ESITLEME` B7/B20–B23 + kadro notu
+
+**Yarım kalan / tuzak**
+
+- 🔴 **ylp00 roll arızası HÂLÂ AÇIK.** Pil/pervane/motor kontrolü kayda
+  geçmedi. Piller şu an şarjda — o ilk maddeyi kapatır, kalan üçü kaldı.
+- 🔴 **ylp02'nin havadaki ALTCTL failsafe sebebi hâlâ bilinmiyor.**
+- 🔴 **Manevra modu hâlâ uçakta doğrulanmadı** — açık P0, bu oturumda da
+  uçulmadı.
+- 🔴 **HOME denetiminin GERÇEK bir kaymayı yakaladığı sahada görülmedi.**
+  Yalnız "geçti" hâli görüldü; yakalama yolu birim testlerle kanıtlı.
+- 🔴 **Görev 1 zinciri yerde tamamlanamaz.** `EXECUTE_QR_TASK`'a (manevra
+  adımı) ancak `SYNCHRONIZED_TAKEOFF`'tan geçerek gelinir ve o durumun
+  girişi `EVENT_MISSION_STARTED` yayınlayıp sürüyü **ARM eder**. Yani
+  BAŞLAT'a basmak = kalkış.
+- ⚠️ **Otonom manevrayı `mission1` olmadan sınamak MÜMKÜN ve daha doğru:**
+  `gorevfsm`/`gorev1` kapat → `form_yayinla.sh` → `qr_step=2` bas →
+  her uçakta `ros2 action send_goal /drone_N/maneuver/execute`. Aynı
+  `apply_tilt` matematiği, aynı `/raw` yolu, aynı `px4_bridge:838` datumu.
+  🔴 `gorevfsm` AÇIKKEN yapılmaz: `mission_fsm` 5 Hz'de `qr_step=0` basar,
+  formasyon susmaz ve `/raw`'a **iki yazıcı** olur.
+- 🔴 **ylp01'e HİÇBİR ŞEY dağıtılmadı** — kapalıydı. Üç uçakla teste
+  geçmeden önce `RPI_ESITLEME` B20-B23'teki adımlar uygulanmalı, ve
+  `UCAN_KADRO` `(1, 2, 3)`'e çevrilmeli (yoksa ylp01 kadroda yok).
+- ⚠️ **Gece iniş noktası doğrulaması çözülmedi** (CLAUDE.md §9 kırmızı
+  çizgi). Saha aydınlatması sorusu cevapsız.
+- ⚠️ İki uçakta **INA226 gerilim çarpanı farklı**: ylp00 `0,98765`,
+  ylp02 `1,0`. ~%1,2 ≈ 15 V'ta 0,18 V. Hangisinin doğru olduğu ölçülmedi.
+- ⚠️ `.surum` **`+KIRLI`** diyor, oysa ağaç temiz — sebebi izlenmeyen
+  `src/px4_autopilot/` (yalnız `COLCON_IGNORE`). Commit'lemek ya da
+  `.gitignore`'a almak damgayı dürüst yapar.
+- 🟡 ylp00'da `Pi yükü yüksek (5,5)` — gece boyu derleme/restart sonrası.
+  Uçuştan önce yerleşmesi beklenmeli.
+
+**Sıradaki adım**
+
+Piller dolunca: **ylp00'ın roll arızasını kapat** (şarjlı pil + pervane/
+motor/kol) → `--kuru --harita` → haritayı gözle doğrula → **doğrudan
+`ExecuteManeuver` ile manevra uçuşu** (`gorevfsm`/`gorev1` kapalı).
+Tek soru: *"manevraya geçince sürü irtifasını koruyor mu?"*
+
+**Uçakların bırakıldığı hâl**
+
+- **ylp00 · ylp02:** açık, ağda, **DISARM**, `AUTO.LOITER`, MAVROS bağlı.
+  Kod `24e890d`, bayraklar `origin consensus fsm formasyon ca mod gorevfsm
+  pil manevra gorev1` (+ `joystick` yalnız ylp00). Düğüm sayısı 18 / 16.
+  🔋 **Piller şarjda** — ylp00 %14 ve düşüyordu, ylp02 %33.
+- **ylp01:** kapalı, hiç dokunulmadı, **her şeyde geride.**
+- YKİ backend `04:16`'da yeniden başlatıldı, pil uyarıları doğrulandı.
 
 ---
 

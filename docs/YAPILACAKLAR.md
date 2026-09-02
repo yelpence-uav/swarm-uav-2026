@@ -1,6 +1,6 @@
 # YAPILACAKLAR
 
-**Son güncelleme:** 1 Eylül 2026, 22:48 — kamera onarıldı, jöle ÖLÇÜLÜYOR · 🔴 ylp02 MAVROS bağlı değil · 🔴 ylp00 roll · 🔴 HOME kayması
+**Son güncelleme:** 2 Eylül 2026, 04:20 — 🟢 HOME dedektörü uçakta geçti · Görev 1 zinciri ayakta · pil izleme açıldı · 🔴 ylp00 roll · 🔋 piller şarjda
 
 > **Finale 5 gün.** Bu liste artık "her fikir" değil, **bu 8 günde
 > yapılacak iş.** Bir madde buraya giriyorsa birinin onu yapması planlanıyor
@@ -13,7 +13,33 @@
 
 ## 🔴 P0 — bunlar kapanmadan ilgili uçuş yapılmaz
 
-- `[ ]` 🔴 **ylp02'de MAVROS PX4'E BAĞLI DEĞİL.** 1 Eylül 22:30 ölçümü:
+- `[ ]` 🔴 **OTONOM MANEVRA UÇUŞU — sıradaki iş.** Zincir kuruldu
+  (`maneuver_executor` + `mission1` iki uçakta ayakta), kalan tek şey uçmak.
+  *Tek soru:* **"manevraya geçince sürü irtifasını koruyor mu?"** — 1
+  Eylül'de üç uçağı 1,7 m alçaltan ve ylp02'yi saha dışına çıkaran şey.
+  *Yol:* `gorevfsm`/`gorev1` **KAPAT** → `form_yayinla.sh` → `qr_step=2`
+  bas → her uçakta `ros2 action send_goal /drone_N/maneuver/execute`
+  (`maneuver_type: 2, roll_deg: 10, duration_s: 4`) → `qr_step=0`.
+  🔴 `gorevfsm` açıkken YAPILMAZ: `mission_fsm` 5 Hz'de `qr_step=0` basar,
+  formasyon susmaz, `/raw`'a **iki yazıcı** olur.
+  *Ön koşul:* ylp00 roll arızası + gece iniş noktası doğrulaması.
+
+- `[ ]` 🔴 **GECE İNİŞ NOKTASI DOĞRULAMASI — cevapsız.** CLAUDE.md §9:
+  her uçağın **muhtemel iniş noktası** haritada işaretlenip **operatör
+  gözüyle** doğrulanacak. Formasyonda uçaklar kalktıkları yere inmiyor.
+  Saha aydınlatması var mı? Yoksa gündüz uçulur.
+
+- `[ ]` 🔴 **ylp01 HER ŞEYDE GERİDE.** Kapalıydı, hiçbir şey dağıtılmadı.
+  Üç uçakla teste geçmeden: `RPI_ESITLEME` B20-B23 adımları **ve**
+  `ucus_ayarlari.UCAN_KADRO` → `(1, 2, 3)` (yoksa ylp01 kadroda yok
+  sayılır, rütbeler de yeniden türer).
+
+- `[x]` ✅ **ylp02 MAVROS ÇÖZÜLDÜ (2 Eylül).** `connected: true`, AUTO.LOITER.
+  🔴 **Ders kayda değer:** ylp00'da aynı belirti çıkınca donanım sanıldı;
+  ölçüldü ve **donanım DEĞİLDİ** — seri hat 921600'de 882 geçerli MAVLink
+  çerçevesi/3 sn, sysid 1. `docker restart` kapattı (`TUZAKLAR` §2.24).
+  **Bu belirtide önce restart denenecek.** Eski madde:
+- `[x]` ~~🔴 **ylp02'de MAVROS PX4'E BAĞLI DEĞİL.**~~ 1 Eylül 22:30 ölçümü:
   `/drone_3/mavros/state` → `connected:false`, `mode:""`; snapshot'ta
   `imu_healthy`/`baro_healthy`/`mag_healthy` **üçü de False**, `mode:"?"`;
   `imu/mag` ve `global_position/raw/fix` konularında **yayın yok**.
@@ -109,7 +135,17 @@
   px4_bridge mavros'suz iş göremez. **Dağıtımdan önce bakılmalı** —
   tekrarlanıyor mu, yoksa o açılışa özgü müydü?
 
-- `[ ]` 🔴 **HOME kayması — RTL'e güvenilmez.** 26 Ağustos gece testinde RTL
+- `[~]` 🟠 **HOME kayması — DEDEKTÖR EKLENDİ (2 Eylül), kök neden AÇIK.**
+  `px4_bridge._home_dogrula` 2 sn'de bir home'u uçağın kendi GPS'iyle
+  karşılaştırıyor; bozuksa **RTL reddediliyor** + YKİ'ye kritik olay
+  (kod 38/39) + yerde otomatik düzeltme. Uçakta geçti: ylp00 **0,48 m**,
+  ylp02 **0,83 m**. Elle inceleme `/ws/home_denetle.py`.
+  🔴 **Kalan iş:** ① dedektörün GERÇEK bir kaymayı yakaladığı sahada
+  görülmedi ② kök neden hâlâ bilinmiyor — 31 Ağu/1 Eyl bag'lerinden
+  `home_position` zaman serisi + `GPS origin GONDERILDI` damgaları
+  karşılaştırılacak ③ RTL'li uçuş hâlâ operatör kararı.
+  Eski madde:
+- `[ ]` ~~🔴 **HOME kayması — RTL'e güvenilmez.**~~ 26 Ağustos gece testinde RTL
   üç uçağı kalkış yerine değil **aynı yanlış civara** indirdi (~9 m KD,
   birbirine 1-2 m). PX4 home kayıtları = iniş noktaları → RTL doğru uçtu,
   **home'lar yanlıştı.**
@@ -296,6 +332,17 @@ Bugünkü komut yolu (YKİ → mesh → goto) finali GEÇEMEZ. Bu blok o yüzden
 ---
 
 ## 🟡 P2
+
+- `[ ]` 🟡 **INA226 gerilim çarpanı iki uçakta FARKLI** — ylp00 `0,98765`,
+  ylp02 `1,0`. ~%1,2 ≈ 15 V'ta 0,18 V. Hangisinin doğru olduğu ölçülmedi;
+  aynı pili iki uçağa sırayla takıp karşılaştırmak yeter.
+- `[ ]` 🟡 **`.surum` yalancı `+KIRLI` diyor** — ağaç temiz olduğu hâlde.
+  Sebep izlenmeyen `src/px4_autopilot/` (yalnız `COLCON_IGNORE`).
+  Commit'lemek ya da `.gitignore`'a almak damgayı dürüst yapar
+  (`TUZAKLAR` §1.14 bu damgaya güvenmemeyi zaten söylüyor).
+- `[ ]` 🟡 **HOME denetiminde artık kullanılmayan iki parametre** —
+  `home_yerel_yukari` ve `origin_alt_amsl` (dikey çerçeve denetimi
+  hükümden çıkınca boşta kaldı). Zararsız ama okuyucuyu yanıltır.
 
 - `[ ]` 🟡 `collision_avoidance_node` birim testlerinin 10'u düşüyor
   (`_korluk_muaf_bildirildi` test kurgusunda yok). Kod sahada çalışıyor,

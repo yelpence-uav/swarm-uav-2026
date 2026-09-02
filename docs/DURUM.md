@@ -1,7 +1,59 @@
 # DURUM — şu an ne çalışıyor, ne bozuk
 
-**Son güncelleme:** 1 Eylül 2026, 22:48 — 📷 kamera onarıldı (modül arızalıydı), jöle ÖLÇÜLÜYOR · 🔴 ylp02 MAVROS PX4'e BAĞLI DEĞİL · 🔴 ylp00 roll arızası · 🔴 HOME kayması
+**Son güncelleme:** 2 Eylül 2026, 04:20 — 🟢 HOME doğrulaması uçakta GEÇTİ · Görev 1 zinciri (mission1 + maneuver_executor) AYAKTA · pil ölçeği 14,2-16,8 · 🔴 ylp00 roll arızası · 🔋 piller şarjda
 
+
+
+> ## 🌙 2 EYLÜL GECESİ — HOME DOĞRULANDI, GÖREV 1 ZİNCİRİ KURULDU
+>
+> **Uçuş yok, gece boyu yer işi.** Ayrıntı `GUNLUK.md` 04:20 kaydı.
+>
+> - 🟢 **HOME artık ÖLÇÜLEREK doğrulanıyor** — `px4_bridge` 2 sn'de bir
+>   home'u uçağın kendi GPS'iyle karşılaştırıyor, bozuksa **RTL'i
+>   REDDEDİYOR** ve YKİ'ye kritik olay basıyor. Uçakta geçti:
+>   **ylp00 0,48 m · ylp02 0,83 m.** Elle inceleme: `/ws/home_denetle.py`
+>   (⚠️ `/ws/` **kökünde**, `teshis/` altında değil).
+>   🔴 Kök neden HÂLÂ BİLİNMİYOR — bu bir **dedektör**, çözüm değil.
+>   Denetimin gerçek bir kaymayı yakaladığı sahada görülmedi.
+> - 🟢 **`maneuver_executor` + `mission1` İLK KEZ AYAKTA** (ikisi de iki
+>   uçakta, log temiz). `manevra` ve `gorev1` bayrakları açıldı.
+> - 🟢 **Üç sessiz kilitlenme kapatıldı** — hepsi Görev 1 yolunda,
+>   hiçbiri log'da görünmüyordu: formasyon susturmasında bayat-bırakma
+>   yokluğu · `expected_agent_count=3` iken 2 uçak · `mission1`'e kadro
+>   geçirilmemesi. Ayrıntı `TUZAKLAR` §2.28 ve GUNLUK.
+> - 🔧 **ylp02'nin MAVROS'u DÜZELDİ** (`connected: true`). ylp00'da aynı
+>   belirti çıktığında **donanım olmadığı ölçüldü** — seri hat 921600'de
+>   882 geçerli çerçeve/3 sn; `docker restart` çözdü (`TUZAKLAR` §2.24).
+> - 🔋 **Pil ölçeği operatör kararıyla değişti: 14,2 V = %0 · 16,8 V = %100.**
+>   `BATARYA_KRITIK_V` **ilk kez etkin: 13,8 V** (önce 0,0 = izleme kapalı).
+>   YKİ uyarıları açıldı — `Pil azaldı` %25, `Pil kritik` %10. Gerilim
+>   dalgalanmasında tekrar bildirim yok (0,5 V eşiği).
+>
+> 🔴 **UÇAKTA DEĞİŞENLER — sonraki kişi böyle bulacak:**
+>
+> | | ylp00 | ylp02 | ylp01 |
+> |---|---|---|---|
+> | kod | `24e890d` | `24e890d` | 🔴 **hiçbir şey dağıtılmadı** |
+> | `suru_dugumleri` | `... pil manevra gorev1` (+`joystick`) | `... pil manevra gorev1` | — |
+> | `SURU_KADRO` | `1 3` | `1 3` | — |
+> | `SURU_BEKLENEN_UCAK` | **2** (3'tü) | **2** | — |
+> | kaçınma `rutbe` | 0 = ÇAPA | **1 = YUKARI** (2'ydi) | — |
+> | `BATARYA_KRITIK_V` | **13,8** (0,0'dı) | **13,8** | — |
+> | düğüm sayısı | 18 | 16 | — |
+>
+> 🔴 **ylp02'nin kaçış yönü AŞAĞI'dan YUKARI'ya döndü** — iki uçaklı
+> kadroda rütbe yeniden türedi. Bilinçli, ama uçuştan önce bilinmeli.
+>
+> 🔴 **ylp01 her şeyde geride.** Üç uçakla teste geçmeden `RPI_ESITLEME`
+> B20-B23 uygulanmalı **ve** `ucus_ayarlari.UCAN_KADRO` `(1,2,3)` yapılmalı
+> — yoksa ylp01 kadroda yok sayılır.
+>
+> ⚠️ **Görev 1 zinciri yerde tamamlanamaz:** manevra adımına
+> (`EXECUTE_QR_TASK`) ancak `SYNCHRONIZED_TAKEOFF`'tan geçilerek gelinir
+> ve o durumun girişi sürüyü **ARM eder**. Otonom manevrayı `mission1`
+> olmadan sınamak mümkün ve daha doğru — GUNLUK'ta tarif var.
+>
+> 🔋 **Piller şarjda** (oturum sonunda alındı). ylp00 %14'e inmişti.
 
 > ## 📷 1 EYLÜL AKŞAMI — KAMERA ONARILDI, JÖLE ARTIK BİR SAYI
 >
@@ -33,7 +85,11 @@
 > - ⚠️ **Kamera modülü değişirse KAPAT-AÇ şart** (sürücü yalnız açılışta bağlar).
 > - ⚠️ 4K'da tarayıcı sekmesi açıkken CPU %91, arayüz cevap vermiyor.
 >
-> 🔴 **ylp02'de MAVROS PX4'E BAĞLI DEĞİL** (1 Eylül 22:30 ölçümü):
+> ✅ **ÇÖZÜLDÜ (2 Eylül): ylp02'de MAVROS `connected: true`.** Aşağıdaki
+> kayıt tarihçe — ve ylp00'da aynı belirti çıktığında **donanım olmadığı
+> ölçüldü**, `docker restart` çözdü (`TUZAKLAR` §2.24). Eski kayıt:
+>
+> ~~🔴 **ylp02'de MAVROS PX4'E BAĞLI DEĞİL**~~ (1 Eylül 22:30 ölçümü):
 > `connected:false` · `mode:"?"` · `imu_healthy`/`baro_healthy`/`mag_healthy`
 > **üçü de False** · `imu/mag` ve `raw/fix` yayını yok. Barometre ve IMU iç
 > mekânda da çalışır — bu "GPS yok" değil, **FCU ile konuşulmuyor.** Açık
@@ -248,7 +304,7 @@ Aksi yazmıyorsa **üç uçakta da aynı.**
 | `~/yelpence_ws/ucus_ayarlari.env` | **var** | Seyir 3.0 m/s. `ucus_ayarlari.py --kabuk` üretir — elle yazma |
 | `~/yelpence_ws/gcs_url` | var | MAVLink QGC'ye iletiliyor (`udp-b://:14555@14550`) |
 | `~/yelpence_ws/tgt_system` | ylp02'de `3` | ylp02'nin FCU sysid'i 3 |
-| `BATARYA_KRITIK_V` | `0.0` | FSM bataryaya bakmıyor (regülatörden besleme) |
+| `BATARYA_KRITIK_V` | 🔋 **`13.8`** (2 Eyl) | **Pil izleme AÇIK** — INA226 gerçek ölçüm veriyor (KARAR-03'ün koşulu gerçekleşti). Gösterge %0'ı 14,2 V; eşik bilerek altında, çünkü `healthy` ANLIK gerilime bakıyor ve tek bir çöküş dikeni tüm sürüyü acil inişe sokabilirdi |
 | `~/yelpence_ws/gps_saat_kapali` | yok | Varsa GPS'ten saat düzeltmesi yapılmaz |
 | `~/yelpence_ws/mod_test` | 🔴 **ÜÇÜNDE DE VAR** (30 Ağu 13:55, G0 için) | Görev 2 G0 bayrağı: `mission_fsm` kapalıyken `mode_manager` FSM'ini READY'ye ulaştırır (`test_hazir_atla`). **Kalkış kapısını BAYPAS ETMEZ.** Uçuş öncesi kaldırılması operatör kararı |
 | ~~`~/yelpence_ws/kacinma`~~ | **kaldırıldı** | 🔴 `basit_kacinma` 29 Ağu'da silindi. Dosya bir uçakta duruyorsa **`baslat.sh` hata verip durur** — sessizce korumasız kalmasın diye |
@@ -286,14 +342,23 @@ değeri **ezer**. (`baslat.sh`'te bunun tersi yazıyordu, 15 Ağustos'ta ölçü
 düzeltildi.) Tek uçakta hızlı deneme için `-e` değil, canlı parametre yolunu
 kullan — bkz. `CLAUDE.md` §8.
 
-### Pil izleme KAPALI — üç yerde birden
+### ✅ Pil izleme AÇIK (2 Eylül 2026) — eskiden üç yerde birden kapalıydı
 
-Uçaklar regülatörden besleniyor, PX4'te `BAT1_SOURCE` disabled. Pil geri
-takılınca **üçünü birden** aç, biri unutulursa tutarsız davranır:
+**Üçü de açıldı (2 Eylül):**
 
-1. `deploy/rpi/baslat.sh` → `BATARYA_KRITIK_V=13.6`
-2. `src/gcs/frontend/src/services/gorunum.ts` → `PIL_GOSTER = true`
-3. `src/gcs/backend/config.yaml` → `alerts.susturulan`'dan batarya kodlarını çıkar
+1. `BATARYA_KRITIK_V` = **13,8 V** — `ucus_ayarlari.PIL_KRITIK_V`'den env'e
+2. `PIL_GOSTER = true` (zaten açıktı)
+3. `config.yaml` → `alerts.pil: true`, `susturulan`'da yalnız `link_timeout`
+
+**Kaynak INA226'dır, PX4 DEĞİL.** 2 Eylül'de ölçüldü: MAVROS
+`voltage: 65.535` (0xFFFF sentinel), `percentage: -0.01` — yani PX4'ten pil
+okuması **yok**. INA226 → `AgentStatus` yolu çalışıyor.
+
+**Gösterge: 14,2 V = %0 · 16,8 V = %100** (4S). Eşikler: `Pil azaldı` %25
+(14,85 V) · `Pil kritik` %10 (14,46 V).
+
+⚠️ **Yüzde yük altında ~%22 puan düşer** — ölçüldü: dururken 15,29 V (%42),
+motorlar kalkışta 14,72 V (%20). Yüzde göstergedir; koruma gerilim tabanlı.
 
 ---
 ## 4. Kod senkronu
@@ -519,7 +584,7 @@ Bunlar sahada ölçüldü, tekrar sorgulanmasın:
 
 | # | Sorun | Etki | Nerede |
 |---|-------|------|--------|
-| 1 | 🔴 **HOME kayması — RTL'e güvenilmez** | RTL üç uçağı kalkışa değil aynı yanlış civara indirdi (~9 m KD). **Çözülmeden RTL'li uçuş YOK**; iniş `land` + göz önü alanla | `YAPILACAKLAR` P0 |
+| 1 | 🟠 **HOME kayması — kök neden hâlâ bilinmiyor, ama artık GÖRÜNÜR** | RTL üç uçağı kalkışa değil aynı yanlış civara indirdi (~9 m KD). 2 Eylül'de **dedektör eklendi**: home ölçülerek doğrulanıyor, bozuksa RTL reddediliyor + YKİ'ye kritik olay. Uçakta geçti (0,48 / 0,83 m). 🔴 **Yakalama yolu sahada sınanmadı**; RTL'li uçuş hâlâ operatör kararı | `YAPILACAKLAR` P0 |
 | 2 | 🔴 **MAVROS GCS denetimi yalnız açılışa bakıyor** | Taşkın sonradan başlıyor: 27 Ağu'da üçü de "temiz" raporlanmışken 5 M hata / 522 MB. Otomatik onarım **yalnız Pi uptime < 15 dk**; sonrası operatörde (SSH + restart) | `YAPILACAKLAR` P0 |
 | 3 | 🟠 Görev düğümleri hiç uçmadı | Görev 1'in tamamı bunlara bağlı: `mission1`, `mission_fsm`, `vision_node`, `precision_landing`, `task_reallocator`, `maneuver_executor` | `PLAN.md` §8 |
 | 4 | 🟡 Görev 2 **yerde koştu, havada koşmadı** | Aşama D dağıtıldı ve doğrulandı: iniş · görev başlatma · kapılar. **Pervaneli uçuş YAPILMADI** | `gorev2.md` §7.13 |
