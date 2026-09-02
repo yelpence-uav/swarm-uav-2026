@@ -1,6 +1,6 @@
 # TUZAKLAR — hata vermeden yanlış sonuç üretenler
 
-**Son güncelleme:** 2 Eylül 2026, 01:35 — §2.26 (`HomePosition.position` origin push'undan sonra bayat kalır, `SET_HOME` düzeltmez — **ilk home denetimimiz bu yüzden yanlış alarm verdi**) · §2.27 (RTK'siz konum metrelerce gezinir, tek örneğe eşik kurma) eklendi. Eski: §2.24 (MAVROS `connected:false` donanım DEĞİL, restart çözdü) · §2.25 (`CommandHome` lat/lon float32, 0,18 m sessiz kayma). Daha eski: §3.16 (görev yazılımı emniyet pilotunu eziyordu) · §3.17 (formasyonsuz ofsetler içe sarmal) · §3.18 (gaz çubuğu dinlenme konumu = tam alçal)
+**Son güncelleme:** 2 Eylül 2026, 03:40 — §2.28 (`mission1`e kadro geçirilmiyordu — iki uçakla formasyon komutu HİÇ üretilmez). Eski: 01:35 — §2.26 (`HomePosition.position` origin push'undan sonra bayat kalır, `SET_HOME` düzeltmez — **ilk home denetimimiz bu yüzden yanlış alarm verdi**) · §2.27 (RTK'siz konum metrelerce gezinir, tek örneğe eşik kurma) eklendi. Eski: §2.24 (MAVROS `connected:false` donanım DEĞİL, restart çözdü) · §2.25 (`CommandHome` lat/lon float32, 0,18 m sessiz kayma). Daha eski: §3.16 (görev yazılımı emniyet pilotunu eziyordu) · §3.17 (formasyonsuz ofsetler içe sarmal) · §3.18 (gaz çubuğu dinlenme konumu = tam alçal)
 
 > **Bu belge CANLI.** Arşiv değil — buradaki her madde **bugün de geçerli.**
 >
@@ -1409,6 +1409,41 @@ Sapmanın kaynağı home değil, standalone GPS'in kendi gezinmesi.
 
 Eşik artık fix kalitesine bağlı: **fix ≥ 5 (RTK) → 1,0 m · fix 3-4 → 3,0 m.**
 26 Ağustos'un hatası 9 m idi, yani 3 m eşikle de rahatlıkla yakalanır.
+
+---
+
+### 2.28 🔴 `mission1`'e KADRO geçirilmiyordu — iki uçakla formasyon komutu HİÇ üretilmez
+
+**2 Eylül 2026.** `baslat.sh` `mission_fsm`'e kadroyu `SURU_KADRO`'dan
+geçiriyor ama **`mission1_dynamic_swarm`'e hiç `agent_ids` vermiyordu.**
+Düğüm kendi varsayılanı `[1, 2, 3]`'te kalıyordu.
+
+Sonucu `orchestrator._snapshot_offsets`'te ortaya çıkıyor:
+
+```python
+n_full = self._cfg.full_agent_count or len(inp.agent_ids)   # = 3
+if (not inp.positions
+        or len(inp.positions) != len(inp.agent_ids)
+        or len(inp.agent_ids) < n_full):                    # 2 < 3
+    return None                                             # ← sessizce çıkar
+```
+
+İki uçakla uçarken `len(agent_ids)` = 2, `n_full` = 3 → snapshot `None`
+döner, faz işleyicisi **`FormationTargetCmd` üretmez**, sürü formasyon
+hedefi almaz. **Hata yok, uyarı yok, log temiz** — Görev 1 zinciri sessizce
+hiçbir şey yapmaz.
+
+**Düzeltme:** `baslat.sh`'te `gorev1` dalına `-p agent_ids:="[$SURU_KADRO]"`
+eklendi — `mission_fsm` ile **aynı kaynaktan**.
+
+> **Ders:** iki düğüm aynı kadroyu bilmek zorundaysa ikisi de aynı yerden
+> beslenmeli. Biri parametreden, diğeri kendi varsayılanından okuyorsa
+> ayrışma kaçınılmazdır ve ayrışma **sessizdir.**
+
+⚠️ Aynı sınıfta ikinci bir tuzak: `SwarmState.active_agent_ids` **yerde
+boştur** — filtre `state in FORMATION_ACTIVE_STATES` istiyor ve uçaklar
+yerde IDLE/UNKNOWN. Yani `decide()`'ın yerde komut üretmemesi **normaldir**,
+arıza değil. Yer testinde "mission1 hiçbir şey yapmıyor" diye panik yapma.
 
 ---
 

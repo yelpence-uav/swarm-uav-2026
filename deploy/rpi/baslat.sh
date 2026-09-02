@@ -763,10 +763,19 @@ fi   # /altyapi: px4_bridge
 # IDLE <-> FAILSAFE zipladi, her seferinde EMERGENCY olayi yayinladi, kacinma
 # d3'u disladi ve YKI ekraninda "Failsafe" yazdi.
 #
-# PIL GERI TAKILINCA: bu degeri 13.6 yap (ya da BATARYA_KRITIK_V ile gec).
-# Ayrica YKI tarafinda iki yer daha var, ucu birden acilmali:
-#   frontend/src/services/gorunum.ts -> PIL_GOSTER = true
-#   backend/config.yaml -> alerts.susturulan'dan batarya kodlarini cikar
+# ✅ 2 Eylul 2026: PIL IZLEME ACILDI (KARAR-03'un kosulu gerceklesti —
+# INA226 uc ucakta da calisiyor). Deger artik ucus_ayarlari.py'den geliyor
+# (`PIL_KRITIK_V` -> env `BATARYA_KRITIK_V`), elle yazilmiyor.
+#
+# 🔴 NEDEN 13.8 VE GOSTERGENIN %0'I (14.2) DEGIL: bu esik
+# agent_context.healthy'de ANLIK gerilime bakiyor, histerezisi YOK.
+# 14.2 yapilsaydi tek bir cokus dikeni healthy'yi dusurur, suru saglik
+# orani kirilir ve TUM SURU acil inise gecebilirdi. Olculdu (1 Eylul,
+# ylp00): kalkista 15.29 -> 14.72 V, yani 0.57 V'luk dikenler normal.
+#
+# YKI tarafindaki diger iki yer de acildi:
+#   frontend/src/services/gorunum.ts -> PIL_GOSTER = true      ✅
+#   backend/config.yaml -> alerts.susturulan'dan cikarildi     ✅
 BATARYA_KRITIK_V="${BATARYA_KRITIK_V:-0.0}"
 
 # YER TESTI BAYRAGI — /ws/yer_testi dosyasi varsa acilir.
@@ -1501,6 +1510,8 @@ fi   # /altyapi: ic_dis_kopru
             -p adres:=${INA226_ADRES:-64} \
             -p sont_ohm:=${INA226_SONT_OHM:-0.0} \
             -p hucre_sayisi:=${INA226_HUCRE:-0} \
+            -p pil_bos_v:=${PIL_BOS_V:-0.0} \
+            -p pil_dolu_v:=${PIL_DOLU_V:-0.0} \
             -p hz:=${INA226_HZ:-2.0} \
             >> "$GUNLUK/pil.log" 2>&1 &
         sleep 1
@@ -1554,8 +1565,21 @@ fi   # /altyapi: ic_dis_kopru
 
     # Gorev 1 orkestratoru. KARAR 10: her dronda kosar (sicak yedek).
     if baslat_mi gorev1; then
+        # 🔴 KADRO GECIRILMEK ZORUNDA (2 Eylul 2026'da bulundu).
+        # Burada `agent_ids` verilmiyordu ve mission1_node kendi
+        # varsayilani [1,2,3]'te kaliyordu. Sonucu SESSIZ bir kilitlenme:
+        #   orchestrator._snapshot_offsets:
+        #       n_full = full_agent_count (= len(agent_ids) = 3)
+        #       if len(inp.agent_ids) < n_full: return None
+        # yani IKI ucakla ucarken 2 < 3 olur, snapshot None doner ve
+        # FormationTargetCmd HIC uretilmez. Hicbir yerde hata gorunmez.
+        # mission_fsm kadroyu zaten SURU_KADRO'dan aliyordu (satir ~1348);
+        # mission1 almiyordu — ikisi ayni kaynagi kullanmali.
+        _G1_KADRO="${SURU_KADRO:-1 2 3}"
+        _G1_KADRO_ROS="[$(echo ${_G1_KADRO} | tr ' ' ',')]"
         ros2 run swarm_missions mission1_dynamic_swarm --ros-args \
             -p agent_id:=${AGENT_ID} -p team_id:="'${TAKIM_ID}'" \
+            -p agent_ids:="${_G1_KADRO_ROS}" \
             -p wing_alpha_deg:=${KANAT_ALFA_DEG} \
             >> "$GUNLUK/mission1.log" 2>&1 &
         sleep 1

@@ -1,6 +1,6 @@
 # RPİ EŞİTLEME DEFTERİ — geri gelen drone'u hizaya getirme
 
-**Son güncelleme:** 2 Eylül 2026, 02:10 — 🔴 **B20/B21: HOME doğrulaması yalnız ylp00'da**, ylp01 ve ylp02 geride (§4). Ayrıca B7 teşhis betiği sayısı 22 → 39 ve bunlar `/ws` **köküne** gidiyor. Eski: kamera modülü değişti (eski geri takıldı), kamera_yayin.py dağıtıma girdi
+**Son güncelleme:** 2 Eylül 2026, 03:05 — 🔴 **B22: `manevra` düğümü ylp00 + ylp02'de AÇILDI** · B23: `qr_step` bayat-bırakma düzeltmesi · B20/B21 HOME doğrulaması (ylp01 üçünde de geride). Eski: kamera modülü değişti, kamera_yayin.py dağıtıma girdi
 
 ## Kamera servisi — 1 Eylül 2026 düzeltmesi
 
@@ -342,10 +342,21 @@ konteyner yeniden başlatma yeterli. ylp01 döndüğünde tek yapılacak
 > ./deploy/yki/drone_bul.sh ylp01 'docker restart drone2'
 > ```
 >
-> 🔴 **VE `SURU_KADRO`:** `baslat.sh`'te varsayılan **`"1 3"`**. ylp01
-> dönünce **üç uçakta da `"1 2 3"`** olmalı — rütbe bundan türüyor ve yanlış
-> kadro **kaçış yönünü ters çevirir** (ylp02 yukarı yerine aşağı kaçar).
-> `KARAR-04`'ün listesine eklendi.
+> 🔴 **VE `SURU_KADRO`** — rütbe bundan türüyor ve yanlış kadro **kaçış
+> yönünü ters çevirir**. `KARAR-04`'ün listesine eklendi.
+>
+> ⚠️ **2 Eylül 2026'da DÜZELTİLDİ — bu satır eskiydi.** Burada *"`baslat.sh`'te
+> varsayılan `"1 3"`"* yazıyordu; 25 Ağustos'ta ylp01 dönünce kod `"1 2 3"`
+> yapıldı ama belge güncellenmedi (kod belgeyi yener, CLAUDE.md §6).
+>
+> **Kadro artık `ucus_ayarlari.py`'de** (`UCAN_KADRO`), env'e oradan
+> üretiliyor: `SURU_KADRO` · `SURU_BEKLENEN_UCAK` · `SURU_AJAN_SAYISI`.
+> Öncesinde bu üçü **hiçbir yerden ayarlanmıyordu** — `ucus_ayarlari.env`
+> onları üretmediği için elle eklenen satır dosya yeniden üretilince
+> sessizce kayboluyordu. Filo değişince tek dosya düzenlenir.
+>
+> `denetle()` artık tutarsızlığı yakalıyor ve iki uçaklı kadroda rütbelerin
+> yeniden türediğini **uyarı olarak** basıyor.
 >
 > ### A17 — POSE kapısı (23 Ağustos)
 >
@@ -456,8 +467,10 @@ sudo sysctl -q --load=/etc/sysctl.d/60-yelpence-writeback.conf
 | B18 | mode_manager `deadman_zaman_asimi_s` | ✅ 0.5 | ✅ | ✅ | Mesh bu alanı taşımıyor; 0 gelirse yerel değer kullanılır (§7.18) |
 | B19 | 🔴 **`/ws/mod_test` — SİLİNDİ** | ✅ yok | ✅ yok | ✅ yok | Görev YKİ'den başlatılmadan sürü READY olmaz (G2-K10 üçüncü kapı). Geri koymak isteyen `touch ~/yelpence_ws/mod_test` |
 | B11 | `ucus_ayarlari.env` — `MOD_KALKIS_IRTIFA` | ✅ 5.0 | ✅ 5.0 | ✅ 5.0 | 31 Ağu 14:00'te dağıtıldı, `ros2 param get` ile doğrulandı |
-| B20 | 🔴 **Kod — 2 Eylül 02:00 sürümü: HOME DOĞRULAMASI** | ✅ *(2 Eyl, uçakta doğrulandı)* | ❌ | ❌ | `dagit.sh --paket swarm_control` + `docker restart`. **Yalnız ylp00'da** — ylp01 kapalıydı, ylp02'nin MAVROS'u operatörde. Aşağıdaki nota bak |
-| B21 | **`home_denetle.py`** (teşhis betiği) | ✅ | ❌ | ❌ | `dagit.sh` taşır (`/ws/` **köküne**, `teshis/` altına DEĞİL). B7 ile birlikte gider |
+| B20 | 🔴 **Kod — 2 Eylül 02:00 sürümü: HOME DOĞRULAMASI** | ✅ *(2 Eyl, uçakta doğrulandı: 0,48 m)* | ❌ | ✅ *(2 Eyl 03:00, uçakta doğrulandı: 0,83 m)* | `dagit.sh --paket swarm_control` + `docker restart`. **ylp01 kapalı, tek geride kalan o.** Aşağıdaki nota bak |
+| B21 | **`home_denetle.py`** (teşhis betiği) | ✅ | ❌ | ✅ | `dagit.sh` taşır (`/ws/` **köküne**, `teshis/` altına DEĞİL). B7 ile birlikte gider |
+| B22 | 🔴 **`manevra` anahtarı — `maneuver_executor` AÇILDI** | ✅ *(2 Eyl 03:00)* | ❌ | ✅ *(2 Eyl 03:00)* | `/ws/suru_dugumleri`'ne `manevra` eklendi + `docker restart`. Görev 1'in pitch/roll/yaw düğümü; **her uçakta ayrı koşar** (`-p agent_id:=N`). Doğrulandı: düğüm ayakta, action sunucusu `/drone_N/maneuver/execute` görünüyor, düğüm sayısı +1 |
+| B23 | **Kod — 2 Eylül 03:00: `qr_step` bayat-bırakma** | ✅ | ❌ | ✅ | `dagit.sh --paket swarm_core` + restart. `formation_node`'un Görev 1 susturma kapısına 3 sn tazelik şartı eklendi (Görev 2'de zaten vardı). Aşağıdaki nota bak |
 
 > ### 🔴 B20 — HOME doğrulaması: **yalnız ylp00'da**, diğer ikisi geride
 >
@@ -495,6 +508,40 @@ sudo sysctl -q --load=/etc/sysctl.d/60-yelpence-writeback.conf
 >
 > ⚠️ **Bu koddaki iki eşik uçağa değil FIX kalitesine bağlı** — RTK varsa
 > 1,0 m, yoksa 3,0 m. Üç uçakta da aynı, ayrışma kaynağı değil.
+
+> ### 🔴 B22/B23 — `manevra` düğümü ve tek-yazıcı garantisi
+>
+> `maneuver_executor` ile `formation_node` **aynı konuya** yazıyor:
+> `/drone_N/control/setpoint/raw`. CLAUDE.md §4'ün konusu. Çakışma zaman
+> paylaşımıyla çözülüyor — manevra sırasında formasyon susuyor:
+>
+> | görev | susturma sinyali | yayıncı |
+> |---|---|---|
+> | Görev 1 | `/swarm/public/mission/qr_step == 2` | `mission_fsm` (5 Hz) |
+> | Görev 2 | `/swarm/internal/mode/formasyon_sustur` | `mode_manager` (20 Hz) |
+>
+> **2 Eylül'de bulunan kusur:** Görev 2 kapısında *bayat-bırakma* vardı
+> (3 sn tazelenmezse susturma düşer, uçak sahipsiz kalmaz), **Görev 1
+> kapısında YOKTU** — aynı fonksiyon, 6 satır arayla. `mission_fsm`
+> MANEUVER adımında ölse formasyon **süresiz** susardı; `maneuver_executor`
+> de yalnız goal aktifken yazdığı için `/raw`'a **hiç kimse** yazmazdı.
+> Uçak düşmez (px4_bridge konum tutar) ama **sürü formasyonu sessizce
+> bırakır**. Düzeltildi (B23), 10 birim testiyle kilitlendi.
+>
+> **Uçakta ölçülen (2 Eyl, ylp00):**
+> ```
+> /raw yazanlar : formation_control + maneuver_executor  (esp32_bridge YOK ✅)
+> qr_step QoS   : ic_dis_kopru RELIABLE → formation_control RELIABLE ✅ uyuşuyor
+> mission_fsm   : qr_step = 0 (manevra adımında değil)
+> ```
+> QoS uyuşmazlığı **sessizdir** — susturma hiç çalışmaz ve bu ancak havada,
+> iki yazıcı uçağı titretirken anlaşılırdı. Uçuştan önce yerde ölçüldü.
+>
+> ⚠️ **Otonom manevra testi için bilinmesi gereken:** `qr_step`'i
+> `mission_fsm` yayınlıyor ve idle'da **0** basıyor. `ExecuteManeuver`
+> goal'ünü elle gönderirsen formasyon **susmaz** — o an `/raw`'a İKİ yazıcı
+> olur. Otonom yolu sınamak `mission1`'in koşmasını (ya da qr_step'in
+> meşru şekilde 2'ye çekilmesini) gerektirir.
 
 > ### ylp00'da 1-2 Eylül gecesi olan geçici şeyler (kalıcı ayar DEĞİL)
 >

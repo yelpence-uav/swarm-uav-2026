@@ -294,8 +294,21 @@ class FormationControlNode(Node):
         self._prev_ramp_x: float | None = None
         self._prev_ramp_y: float | None = None
         self._prev_ramp_z: float | None = None
-        # Aktif QR alt-adımı (mission_fsm yayınlar); MANEUVER'da çıkış susar.
+        # Aktif QR alt-adımı (mission_fsm yayınlar, tick başına = 5 Hz);
+        # MANEUVER'da çıkış susar.
         self._qr_step: int = 0
+        self._qr_step_rx: float = 0.0
+        # 3 sn tazelenmezse susturma DÜŞER — aşağıdaki mod_sustur ile AYNI
+        # gerekçe. 2 Eylül 2026'da bulundu: bu koruma Görev 2 dalında vardı,
+        # Görev 1 dalında YOKTU (aynı fonksiyon, 6 satır arayla). mission_fsm
+        # MANEUVER adımında ölürse ya da adımı ilerletemezse formasyon
+        # SÜRESİZ susuyordu; maneuver_executor de yalnız goal aktifken
+        # yazdığı için /raw'a HİÇ KİMSE yazmaz olurdu. Uçak düşmez —
+        # px4_bridge 0,5 sn'de setpoint'i bayat görüp konum tutar — ama sürü
+        # formasyonu SESSİZCE bırakır: hata yok, uyarı yok, log temiz.
+        # 5 Hz'de 3 sn = 15 kaçırılmış mesaj; konu RELIABLE olduğu için
+        # bu ancak yayıncı gerçekten durduysa oluşur.
+        self._qr_step_bayat_s: float = 3.0
         # Görev 2 manevra susturması (mode_manager yayınlar, 20 Hz).
         self._mod_sustur: bool = False
         self._mod_sustur_rx: float = 0.0
@@ -876,6 +889,9 @@ class FormationControlNode(Node):
     def _on_qr_step(self, msg: UInt8) -> None:
         """mission_fsm'in yayınladığı aktif QR alt-adımını saklar."""
         self._qr_step = int(msg.data)
+        # Tazelik damgası: susturmanın bayat kalıp kalmadığını bununla
+        # ölçüyoruz (bkz. _publish_setpoint).
+        self._qr_step_rx = self.get_clock().now().nanoseconds * 1e-9
 
     def _on_mod_sustur(self, msg: Bool) -> None:
         """mode_manager'ın Görev 2 manevra susturma bayrağını saklar."""
@@ -887,8 +903,21 @@ class FormationControlNode(Node):
         # MANEUVER adımında formasyon susar → /raw'a yalnız maneuver_executor
         # yazar, iki yazıcı çakışması önlenir. Eğik poz sonradan eğik ofsetle
         # korunduğu için bu susma yalnızca aktif manevra hareketi süresincedir.
+        #
+        # Bayat-bırakma (2 Eylül 2026): "yalnızca manevra süresince" bir
+        # VARSAYIMDI ve kodda savunulmuyordu. mission_fsm qr_step'i 5 Hz'de
+        # yayınlıyor; susturma ancak o akış SÜRDÜĞÜ sürece meşrudur. Akış
+        # kesilirse yayıncı ölmüş demektir ve formasyon sürücülüğe döner —
+        # aşağıdaki mod_sustur kapısının birebir aynısı, aynı gerekçe.
         if self._qr_step == _QR_STEP_MANEUVER:
-            return
+            _simdi = self.get_clock().now().nanoseconds * 1e-9
+            if _simdi - self._qr_step_rx <= self._qr_step_bayat_s:
+                return
+            self._qr_step = 0
+            self.get_logger().warn(
+                'qr_step susturmasi BAYAT (mission_fsm oldu mu?) — formasyon '
+                'surucu olarak devam ediyor',
+            )
 
         # Görev 2 MANEVRA susturması: mode_manager /raw'a kendisi yazıyor.
         # Bayat-bırakma: bayrak true ama 3 sn'dir tazelenmemişse yayıncı

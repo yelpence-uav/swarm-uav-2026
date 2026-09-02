@@ -149,7 +149,12 @@ class TestYuzdeKestirimi(unittest.TestCase):
         self.assertAlmostEqual(IN.yuzde_kestir(19.8, 6), 0.0, places=1)
 
     def test_6S_orta(self):
-        self.assertAlmostEqual(IN.yuzde_kestir(22.5, 6), 50.0, places=0)
+        # ⚠️ ESIK ACIKCA VERILIYOR. Once varsayilana guveniyordu ve
+        # 2 Eylul 2026'da varsayilan degisince (hucre bos 3.30 -> 3.55)
+        # test kirildi. Matematigi sinamak istiyorsak olcegi TESTIN
+        # KENDISI soylemeli; varsayilan degisimi ayri testte kilitli.
+        self.assertAlmostEqual(
+            IN.yuzde_kestir(22.5, 6, bos_v=3.30, dolu_v=4.20), 50.0, places=0)
 
     def test_kirpiliyor(self):
         self.assertEqual(IN.yuzde_kestir(30.0, 6), 100.0)
@@ -160,6 +165,42 @@ class TestYuzdeKestirimi(unittest.TestCase):
 
     def test_gerilim_sifirsa_SIFIR(self):
         self.assertEqual(IN.yuzde_kestir(0.0, 6), 0.0)
+
+
+class TestSahaOlcegi4S(unittest.TestCase):
+    """🔴 OPERATOR KARARI (2 Eylul 2026): 4S'te 14.2 V = %0, 16.8 V = %100.
+
+    Bu sinif KARARIN KENDISINI kilitliyor — varsayilanlar degisirse
+    burada duser. Onceki olcek 13.2-16.8 idi (hucre bos 3.30).
+
+    Gerilim karsiliklari uyari esikleriyle birebir baglantili
+    (alert_manager.BAT_*): %25 -> 14.85 V, %10 -> 14.46 V.
+    """
+
+    def test_varsayilan_uclar_4S_paketi(self):
+        self.assertAlmostEqual(IN.GOSTERGE_BOS_V_HUCRE * 4, 14.2, places=2)
+        self.assertAlmostEqual(IN.GOSTERGE_DOLU_V_HUCRE * 4, 16.8, places=2)
+
+    def test_bos_ve_dolu(self):
+        self.assertAlmostEqual(IN.yuzde_kestir(14.2, 4), 0.0, places=1)
+        self.assertAlmostEqual(IN.yuzde_kestir(16.8, 4), 100.0, places=1)
+
+    def test_orta_nokta(self):
+        self.assertAlmostEqual(IN.yuzde_kestir(15.5, 4), 50.0, places=1)
+
+    def test_uyari_esiklerinin_gerilim_karsiligi(self):
+        # alert_manager BAT_LOW_ON=25, BAT_CRIT_ON=10 ile ayni noktalar.
+        self.assertAlmostEqual(IN.yuzde_kestir(14.85, 4), 25.0, places=0)
+        self.assertAlmostEqual(IN.yuzde_kestir(14.46, 4), 10.0, places=0)
+
+    def test_bosun_altinda_KIRPILIR(self):
+        # FSM kesme esigi 13.8 V; gosterge orada 0 kalmali, negatif degil.
+        self.assertEqual(IN.yuzde_kestir(13.8, 4), 0.0)
+
+    def test_sahada_olculen_degerler(self):
+        # 2 Eylul 2026 gecesi uctan uca olculdu (INA226 -> AgentStatus).
+        self.assertAlmostEqual(IN.yuzde_kestir(14.688, 4), 18.8, places=1)
+        self.assertAlmostEqual(IN.yuzde_kestir(15.095, 4), 34.4, places=1)
 
 
 class TestGercekcilikDenetimi(unittest.TestCase):

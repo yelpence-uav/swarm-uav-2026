@@ -42,7 +42,14 @@ print_interval_sec: 1.0
 # Bosaltirsan hepsi yeniden gorunur. Batarya uyarisi susturulsa bile kalan
 # yuzde drone kartindaki gostergede DURMAYA DEVAM EDER.
 alerts:
+  # ✅ 2 Eylul 2026: PIL UYARILARI ACILDI. INA226 uc ucakta da calisiyor ve
+  # olcum gercek (dogrulandi: MAVROS pili hala 65.535 V sentinel'i veriyor,
+  # yani PX4'ten okuma YOK — tek kaynak INA226). Gosterge 14.2 V = %0,
+  # 16.8 V = %100 (ucus_ayarlari.PIL_*). Esikler alert_manager.BAT_*.
+  #
+  # ⚠️ Yuk altinda coken pil yuzdeyi ~%22 puan dusuruyor (olculdu). Yanlis
+  # alarm gorursen once oraya bak; susturmak SON care, cunku susturma
+  # gercek sinyali de gizler.
+  pil: true
   susturulan:
     - link_timeout
-    - low_battery
-    - critical_battery

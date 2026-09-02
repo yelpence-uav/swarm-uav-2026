@@ -6,6 +6,7 @@ import unittest
 from unittest.mock import MagicMock
 
 from swarm_core.formation_control.formation_node import (
+    _QR_STEP_MANEUVER,
     FormationControlNode,
 )
 
@@ -325,3 +326,125 @@ class TestRelativeCorrection(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+# =========================================================================
+# SUSTURMA KAPILARI — /raw'a tek yazici garantisi
+#
+# 🔴 2 Eylul 2026: bu iki kapinin HICBIRI test edilmemisti. Gorev 2 dalinda
+# bayat-birakma vardi, Gorev 1 dalinda YOKTU — ayni fonksiyon, 6 satir
+# arayla. mission_fsm MANEUVER adiminda olurse formasyon SURESIZ susuyor,
+# maneuver_executor de yalniz goal aktifken yazdigi icin /raw'a HIC KIMSE
+# yazmiyordu. Ucak dusmez (px4_bridge konum tutar) ama suru formasyonu
+# SESSIZCE birakir. Asagidaki testler ikisini de kilitliyor.
+# =========================================================================
+
+class _PatlayanFormasyon:
+    """Kapi GECILIRSE patlar — "susturma calisti mi" sorusunun kanitı.
+
+    _publish_setpoint kapilardan sonra `msg.agent_ids` okuyor. Susturma
+    dogru calisiyorsa oraya HIC varilmaz; varilirsa test acik bir mesajla
+    duser (sessizce gecmez).
+    """
+
+    @property
+    def agent_ids(self):
+        raise AssertionError('SUSTURMA CALISMADI — kapidan gecildi')
+
+
+def _saatli_dugum(t_s: float):
+    """Saati sabitlenmis test dugumu."""
+    node = _make_node()
+    node._qr_step = 0
+    node._qr_step_rx = 0.0
+    node._qr_step_bayat_s = 3.0
+    node._mod_sustur = False
+    node._mod_sustur_rx = 0.0
+    node._mod_sustur_bayat_s = 3.0
+    node._agent_state = 0
+    node.get_clock = MagicMock(return_value=SimpleNamespace(
+        now=lambda: SimpleNamespace(nanoseconds=int(t_s * 1e9))
+    ))
+    return node
+
+
+class TestQrStepSusturmasi(unittest.TestCase):
+    """Gorev 1 — mission_fsm qr_step=MANEUVER yayinlarken formasyon susar."""
+
+    def test_taze_susturma_TUTAR(self):
+        node = _saatli_dugum(100.0)
+        node._qr_step = _QR_STEP_MANEUVER
+        node._qr_step_rx = 99.0                  # 1 sn once tazelendi
+        node._current_formation = _PatlayanFormasyon()
+        node._publish_setpoint()                 # patlarsa susturma bozuk
+        self.assertEqual(node._qr_step, _QR_STEP_MANEUVER)
+        node.get_logger().warn.assert_not_called()
+
+    def test_bayat_susturma_DUSER_ve_uyarir(self):
+        # mission_fsm 5 Hz'de yayinliyor; 4 sn sessizlik = 20 kacirilmis
+        # mesaj, konu RELIABLE oldugu icin ancak yayinci durduysa olur.
+        node = _saatli_dugum(100.0)
+        node._qr_step = _QR_STEP_MANEUVER
+        node._qr_step_rx = 96.0                  # 4 sn once, esik 3.0
+        node._current_formation = None           # kapidan sonra erken cikis
+        node._publish_setpoint()
+        self.assertEqual(node._qr_step, 0, 'susturma dusmeliydi')
+        node.get_logger().warn.assert_called_once()
+        self.assertIn('BAYAT', node.get_logger().warn.call_args[0][0])
+
+    def test_esik_SINIRINDA_tutar(self):
+        node = _saatli_dugum(100.0)
+        node._qr_step = _QR_STEP_MANEUVER
+        node._qr_step_rx = 97.0                  # tam 3.0 sn — esige esit
+        node._current_formation = _PatlayanFormasyon()
+        node._publish_setpoint()
+        self.assertEqual(node._qr_step, _QR_STEP_MANEUVER)
+
+    def test_manevra_disi_adim_SUSTURMAZ(self):
+        # qr_step=1 (ornegin ALTITUDE) susturma sebebi DEGIL.
+        node = _saatli_dugum(100.0)
+        node._qr_step = 1
+        node._qr_step_rx = 100.0
+        node._current_formation = None
+        node._publish_setpoint()
+        self.assertEqual(node._qr_step, 1)
+        node.get_logger().warn.assert_not_called()
+
+    def test_on_qr_step_tazelik_damgasi_koyar(self):
+        node = _saatli_dugum(250.0)
+        node._on_qr_step(SimpleNamespace(data=_QR_STEP_MANEUVER))
+        self.assertEqual(node._qr_step, _QR_STEP_MANEUVER)
+        self.assertAlmostEqual(node._qr_step_rx, 250.0, places=3)
+
+
+class TestModSusturmasi(unittest.TestCase):
+    """Gorev 2 — mode_manager /raw'a kendi yaziyor; MEVCUT davranis."""
+
+    def test_taze_susturma_TUTAR(self):
+        node = _saatli_dugum(100.0)
+        node._mod_sustur = True
+        node._mod_sustur_rx = 99.0
+        node._current_formation = _PatlayanFormasyon()
+        node._publish_setpoint()
+        self.assertTrue(node._mod_sustur)
+
+    def test_bayat_susturma_DUSER(self):
+        node = _saatli_dugum(100.0)
+        node._mod_sustur = True
+        node._mod_sustur_rx = 96.0               # 4 sn once
+        node._current_formation = None
+        node._publish_setpoint()
+        self.assertFalse(node._mod_sustur, 'susturma dusmeliydi')
+        node.get_logger().warn.assert_called_once()
+
+    def test_iki_kapi_BAGIMSIZ(self):
+        # qr_step bayat dusse bile mod_sustur taze ise susturma SURER.
+        node = _saatli_dugum(100.0)
+        node._qr_step = _QR_STEP_MANEUVER
+        node._qr_step_rx = 96.0                  # bayat -> duser
+        node._mod_sustur = True
+        node._mod_sustur_rx = 99.9               # taze -> tutar
+        node._current_formation = _PatlayanFormasyon()
+        node._publish_setpoint()                 # patlamamali
+        self.assertEqual(node._qr_step, 0)
+        self.assertTrue(node._mod_sustur)

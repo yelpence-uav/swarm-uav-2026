@@ -113,6 +113,31 @@ PX4_DONUS_HIZI_DEG_S = 25.0
 ARALIK_M = 12.0
 KANAT_ACISI_DEG = 45.0         # ok basi kanat acisi
 
+# --- UCAN KADRO -------------------------------------------------------------
+# 🔴 2 Eylul 2026'da BURAYA TASINDI. Oncesinde bu iki deger yalnizca
+# baslat.sh'in varsayilanindaydi ve HICBIR YERDEN ayarlanmiyordu:
+# ucus_ayarlari.env onlari uretmedigi icin elle eklenen satir dosya yeniden
+# uretilince SESSIZCE kayboluyordu. Filo bilesimi ucusun her kademesine
+# giriyor; tek kaynakta olmasi gerekiyordu (CLAUDE.md §8 ilkesi).
+#
+# UCAN_KADRO = GERCEKTEN ucan agent_id'ler. Kacinma RUTBESI bundan turuyor:
+#   sirada 0 = CAPA (dikeyde kacmaz) · 1 = YUKARI · 2 = birincil ASAGI
+# Yanlis kadro rutbeyi kaydirir ve KACIS YONUNU TERS CEVIRIR
+# (RPI_ESITLEME §3, A-matrisi notu).
+#
+# BEKLENEN_UCAK = kac ucak ucuyor. AJAN_SAYISI ile AYNI SEY DEGIL — ikisi
+# 15 Agustos 2026'da olculerek ayrildi:
+#   formation_reached: active >= beklenen  -> 2 >= 3 FALSE, FORMING'de TAKILIR
+#   saglik orani     : healthy / beklenen  -> 1/3 = 0.33 < 0.5 ile
+#                      iki ucaktan biri tokezleyince TUM SURUYE acil inis
+# AJAN_SAYISI = KIMLIK ARALIGI (id'ler 1..3), ucan sayi degil; ylp01 kapali
+# olsa da 3 kalir cunku ylp02'nin kimligi 3.
+UCAN_KADRO = (1, 3)            # ylp00 + ylp02 (ylp01 kapali)
+BEKLENEN_UCAK = len(UCAN_KADRO)
+AJAN_SAYISI = 3                # kimlik araligi — kadro degisse de 3
+
+# (Pil ayarlari INA226 bolumunde — "INA226 PIL OLCUMU" basligina bak.)
+
 # --- Guvenlik ---------------------------------------------------------------
 MIN_AYRIM_M = 4.0              # ucaklar arasi kabul edilen en kucuk mesafe
 TOLERANS_M = 1.0               # "vardi" yaricapi
@@ -648,6 +673,33 @@ PIL_HUCRE_SAYISI = 4
 # Operator 31 Agu'da "akima gerek yok" dedi; uydurma bir deger akimi
 # SESSIZCE olcekli-yanlis yapardi, o yuzden 0.0 birakiliyor.
 PIL_SONT_OHM = 0.0
+# --- GOSTERGE UCLARI ve ESIKLER (2 Eylul 2026, OPERATOR KARARI) --------------
+# Gosterge: 14.2 V = %0 · 16.8 V = %100 (4S -> 3.55 / 4.20 V hucre).
+# Onceki olcek 13.2-16.8 idi (hucre 3.30); operator daha erken "bos"
+# gostersin diye daralttı. Aralik 3.6 -> 2.6 V, yani 1 V ~ %38.
+#
+# 2 Eylul'de DOGRULANDI: PX4'un kendi pil okumasi GECERSIZ — MAVROS
+# `voltage: 65.535` (0xFFFF sentinel), `percentage: -0.01`. Guc modulu
+# yok; tek gercek kaynak INA226 ve AgentStatus'a dogru geciyor
+# (olculen: ylp00 14.688 V, ylp02 15.095 V).
+PIL_BOS_V = 14.2               # gosterge %0
+PIL_DOLU_V = 16.8              # gosterge %100
+# 🔴 FSM KESME ESIGI — gostergenin %0'i ile AYNI DEGIL, bilerek.
+# agent_context.healthy bunu ANLIK gerilimle karsilastiriyor ve
+# histerezisi YOK. 14.2 yapilsaydi tek bir cokus dikeni healthy'yi
+# dusurur, suru saglik orani kirilir ve TUM SURU acil inise gecebilirdi.
+# Olculdu (1 Eylul, ylp00): kalkista 15.29 -> 14.72 V, yani 0.57 V'luk
+# dikenler NORMAL. 0.4 V pay birakildi.
+PIL_KRITIK_V = 13.8
+# YKI uyari esikleri YUZDE olarak (alert_manager boyle calisiyor).
+# Gerilim karsiliklari: %30 -> 14.98 · %25 -> 14.85
+#                       %16 -> 14.62 · %10 -> 14.46 V
+# Cokus payi yuzunden bilerek dusuk: yari dolu bir pil motor calisinca
+# ~%20 gorunuyor; %25'in ustune cikarmak yanlis alarm uretirdi.
+PIL_UYARI_AC = 25.0
+PIL_UYARI_KAPA = 30.0
+PIL_KRITIK_AC = 10.0
+PIL_KRITIK_KAPA = 16.0
 # B15 KALKIS KAPISI (30 Agustos 2026): mode_manager, TUM ucaklar bu
 # yuksekligin uzerine cikana kadar HICBIR tarif/setpoint yayinlamaz.
 # NEDEN: READY'de _dispatch_hold() tarif yayinliyor ve centroid swarm_fsm
@@ -755,6 +807,32 @@ def _sekans_geometri():
 def denetle():
     """(uyarilar, hatalar) doner. Hata varsa yapilandirma tutarsiz."""
     uyari, hata = [], []
+
+    # --- UCAN KADRO ----------------------------------------------------------
+    # 15 Agustos 2026'da OLCULDU: beklenen ucak sayisi gercekten ucandan
+    # buyukse `formation_reached: active >= beklenen` hicbir zaman dogru
+    # olmuyor ve suru FORMING'de takiliyor — hata vermeden, sessizce.
+    if BEKLENEN_UCAK != len(UCAN_KADRO):
+        hata.append(
+            f'BEKLENEN_UCAK ({BEKLENEN_UCAK}) ile UCAN_KADRO uzunlugu '
+            f'({len(UCAN_KADRO)}) tutmuyor — suru FORMING-de takilir')
+    if UCAN_KADRO and max(UCAN_KADRO) > AJAN_SAYISI:
+        hata.append(
+            f'UCAN_KADRO en buyuk kimlik ({max(UCAN_KADRO)}) AJAN_SAYISI '
+            f'({AJAN_SAYISI}) disinda — o ucak kimlik araliginda yok')
+    if len(set(UCAN_KADRO)) != len(UCAN_KADRO):
+        hata.append(f'UCAN_KADRO-da tekrar eden kimlik var: {UCAN_KADRO}')
+    if len(UCAN_KADRO) < 2:
+        uyari.append(
+            f'UCAN_KADRO tek ucak ({UCAN_KADRO}) — formasyon ve kacinma '
+            f'zincirleri en az iki ajan istiyor')
+    # Rutbe kadro SIRASINDAN turuyor: 0=CAPA, 1=YUKARI, 2=birincil ASAGI.
+    # Kadro degisince kacis yonu de degisir; sessiz kalmasin.
+    if len(UCAN_KADRO) == 2:
+        uyari.append(
+            f'iki ucakli kadro {UCAN_KADRO}: rutbeler yeniden turuyor — '
+            f'ajan {UCAN_KADRO[0]} CAPA, ajan {UCAN_KADRO[1]} YUKARI kacar '
+            f'(uc ucakli kadroda sonuncusu ASAGI kaciyordu)')
 
     # KACINMA ESIKLERI vs FORMASYON GEOMETRISI (KARAR-01 uyarisi)
     #
@@ -1114,6 +1192,12 @@ def _kabuk():
     print(f'GUIDED_IVME_YATAY={GOREV_IVME_MPS2}')
     print(f'GUIDED_IVME_DIKEY={GOREV_DIKEY_IVME_MPS2}')
     print(f'KANAT_ALFA_DEG={KANAT_ACISI_DEG}')
+    # UCAN KADRO — baslat.sh bunlari okumazsa varsayilani "1 2 3" / 3 olur
+    # ve iki ucakla ucarken suru FORMING'de takilir (bkz. UCAN_KADRO notu).
+    print(f'SURU_KADRO="{" ".join(str(k) for k in UCAN_KADRO)}"')
+    print(f'SURU_BEKLENEN_UCAK={BEKLENEN_UCAK}')
+    print(f'SURU_AJAN_SAYISI={AJAN_SAYISI}')
+    # (Pil satirlari asagida, INA226 blogunda — INA226_HUCRE orada.)
     # path_planner (rota sekillendirme)
     print(f'ROTA_MAKS_HIZ={GOREV_HIZ_MPS}')
     print(f'ROTA_ADIM_HZ={ROTA_ADIM_HZ}')
@@ -1168,6 +1252,10 @@ def _kabuk():
     print(f'INA226_ADRES={PIL_INA226_ADRES}')
     print(f'INA226_HUCRE={PIL_HUCRE_SAYISI}')
     print(f'INA226_SONT_OHM={PIL_SONT_OHM}')
+    # Gosterge uclari (paket gerilimi) + FSM kesme esigi. Bkz. PIL_* notu.
+    print(f'PIL_BOS_V={PIL_BOS_V}')
+    print(f'PIL_DOLU_V={PIL_DOLU_V}')
+    print(f'BATARYA_KRITIK_V={PIL_KRITIK_V}')
     print(f'MOD_GAZ_MERKEZ_PAY={MOD_GAZ_MERKEZ_PAY:.2f}')
     print(f'MOD_SWC_DEBOUNCE_MS={MOD_SWC_DEBOUNCE_MS:.1f}')
 

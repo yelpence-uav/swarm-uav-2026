@@ -161,8 +161,19 @@ def azami_akim_a(sont_ohm: float) -> float:
     return SONT_TAVAN_V / sont_ohm
 
 
+# Hucre basina gosterge ucları — 2 Eylul 2026, OPERATOR KARARI.
+# Paket olarak 4S'te: 14.2 V = %0, 16.8 V = %100.
+# Onceki deger 3.30 V (paket 13.2) idi; operator gostergeyi daha erken
+# "bos" gostersin diye 3.55'e cekti. Aralik 3.6 V -> 2.6 V daraldi, yani
+# AYNI gerilim degisimi artik DAHA BUYUK bir yuzde degisimi olarak
+# gorunuyor: 1 V ~ %38 (onceden ~%28).
+GOSTERGE_BOS_V_HUCRE = 3.55     # 4S -> 14.2 V
+GOSTERGE_DOLU_V_HUCRE = 4.20    # 4S -> 16.8 V
+
+
 def yuzde_kestir(gerilim_v: float, hucre: int,
-                 bos_v: float = 3.30, dolu_v: float = 4.20) -> float:
+                 bos_v: float = GOSTERGE_BOS_V_HUCRE,
+                 dolu_v: float = GOSTERGE_DOLU_V_HUCRE) -> float:
     """Paket geriliminden KABA doluluk yuzdesi.
 
     🔴 BU BIR KESTIRIM, YAKIT OLCERI DEGIL. LiPo gerilimi yuk altinda
@@ -170,9 +181,17 @@ def yuzde_kestir(gerilim_v: float, hucre: int,
     yorumunun dedigi gibi: failsafe esigi icin YUZDE degil GERILIM
     kullanilir. Bu deger yalnizca ekranda hizli fikir vermek icin.
 
+    ⚠️ COKUS OLCULDU (1 Eylul 2026, ylp00): dururken 15.29 V, motorlar
+    kalkista 14.72 V — 0.57 V. 14.2-16.8 olceginde bu %22 PUANLIK bir
+    dusus demek (%42 -> %20). Yani yari dolu bir pil motor calisinca
+    "azaldi" gorunur. Uyari esikleri bunu bilerek secildi ve GERCEK
+    koruma gerilim tabanli (BATARYA_KRITIK_V), yuzde degil.
+
     Args:
         gerilim_v (float): olculen paket gerilimi.
         hucre (int): seri hucre sayisi (4S, 6S...). 0 ise kestirim yok.
+        bos_v (float): hucre basina "bos" gerilimi.
+        dolu_v (float): hucre basina "dolu" gerilimi.
 
     Returns:
         float: 0..100 arasi yuzde; hucre bilinmiyorsa 0.0.

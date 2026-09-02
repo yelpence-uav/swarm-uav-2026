@@ -64,6 +64,13 @@ class Ina226Node(Node):
         self.declare_parameter('sont_ohm', 0.0)
         # Seri hucre sayisi — yalnizca kaba yuzde kestirimi icin.
         self.declare_parameter('hucre_sayisi', 0)
+        # Gosterge uclari PAKET gerilimi olarak (4S: 14.2 / 16.8).
+        # 2 Eylul 2026: onceden yalnizca ina226.yuzde_kestir'in
+        # varsayilanindaydi ve HICBIR YERDEN ayarlanamiyordu; operator
+        # gostergeyi degistirmek isteyince kod duzenlemek gerekiyordu.
+        # 0.0 birakilirsa modul varsayilani (hucre basina 3.55/4.20) gecerli.
+        self.declare_parameter('pil_bos_v', 0.0)
+        self.declare_parameter('pil_dolu_v', 0.0)
         self.declare_parameter('hz', 2.0)
         # Gerilim kalibrasyonu. VARSAYILAN NO-OP (1.0 / 0.0).
         # Gerekce ve 31 Agu'daki 0.22 V gozlemi: ina226.
@@ -77,6 +84,16 @@ class Ina226Node(Node):
         self._adres = int(self.get_parameter('adres').value)
         self._sont = float(self.get_parameter('sont_ohm').value)
         self._hucre = int(self.get_parameter('hucre_sayisi').value)
+        # PAKET -> HUCRE cevrimi burada yapiliyor; yuzde_kestir hucre
+        # basina calisiyor. 0 ya da hucre bilinmiyorsa modul varsayilani.
+        _bos_paket = float(self.get_parameter('pil_bos_v').value)
+        _dolu_paket = float(self.get_parameter('pil_dolu_v').value)
+        self._bos_v = (_bos_paket / self._hucre
+                       if _bos_paket > 0.0 and self._hucre > 0
+                       else IN.GOSTERGE_BOS_V_HUCRE)
+        self._dolu_v = (_dolu_paket / self._hucre
+                        if _dolu_paket > 0.0 and self._hucre > 0
+                        else IN.GOSTERGE_DOLU_V_HUCRE)
         hz = max(0.2, float(self.get_parameter('hz').value))
         self._carpan = float(self.get_parameter('gerilim_carpani').value)
         self._ofset = float(self.get_parameter('gerilim_ofset_v').value)
@@ -186,7 +203,8 @@ class Ina226Node(Node):
         # ROS sozlesmesi: bosalma NEGATIF akim. INA226 yuke akan akimi
         # POZITIF olcuyor, o yuzden isaret cevriliyor.
         m.current = float(-akim)
-        yuzde = IN.yuzde_kestir(gerilim, self._hucre)
+        yuzde = IN.yuzde_kestir(gerilim, self._hucre,
+                                self._bos_v, self._dolu_v)
         m.percentage = float(yuzde / 100.0) if self._hucre > 0 else float('nan')
         m.present = True
         m.power_supply_technology = BatteryState.POWER_SUPPLY_TECHNOLOGY_LIPO
