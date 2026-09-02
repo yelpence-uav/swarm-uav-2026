@@ -1,6 +1,6 @@
 # TUZAKLAR — hata vermeden yanlış sonuç üretenler
 
-**Son güncelleme:** 2 Eylül 2026, 04:40 — §2.29 (gürültülü kaynakta otomatik düzeltme KOVALAR) · §2.30 (olayın değeri hükmü veren sayı olmalı) · §2.27 genişletildi (aynı eşik ÜÇ kez genişletildi). Eski: §2.28 (`mission1`e kadro geçirilmiyordu — iki uçakla formasyon komutu HİÇ üretilmez). Eski: 01:35 — §2.26 (`HomePosition.position` origin push'undan sonra bayat kalır, `SET_HOME` düzeltmez — **ilk home denetimimiz bu yüzden yanlış alarm verdi**) · §2.27 (RTK'siz konum metrelerce gezinir, tek örneğe eşik kurma) eklendi. Eski: §2.24 (MAVROS `connected:false` donanım DEĞİL, restart çözdü) · §2.25 (`CommandHome` lat/lon float32, 0,18 m sessiz kayma). Daha eski: §3.16 (görev yazılımı emniyet pilotunu eziyordu) · §3.17 (formasyonsuz ofsetler içe sarmal) · §3.18 (gaz çubuğu dinlenme konumu = tam alçal)
+**Son güncelleme:** 2 Eylül 2026, 22:40 — §4.13: "BOOT" sandığın tuş EN olabilir (çip reset'te kalır, her baud sessiz)
 
 > **Bu belge CANLI.** Arşiv değil — buradaki her madde **bugün de geçerli.**
 >
@@ -2023,6 +2023,36 @@ yok" sayıp düşürür. Savunulabilir ama bilinmesi gerekir.
 kaçınması ve formasyon da komşunun durumuna bakıyor (`AIRBORNE_STATES`).
 ADIM 3/ADIM 4 açıldığında bu doğrudan aktüatör yoluna bağlanır — o yüzden
 `ARMED → KALKIS(2) → TAKEOFF(4)` eşlemesi ikisinin de **ön koşulu** arasında.
+
+### 4.13 "BOOT" sandığın tuş EN olabilir — çip reset'te kalır, HER ŞEY sessizleşir
+
+**2 Eylül 2026, ylp00.** Uçak ESP32'sini Pi üzerinden yüklemek için operatör
+"boot moduna aldım" dedi ve drone YKİ'den düştü — bu, indirme moduna girmiş
+gibi göründü. Sekiz deneme boyunca `esptool` bağlanamadı:
+
+    konteyner KAPALI, /dev/ttyAMA4:
+      115200 -> 0 bayt   (düz EN reset'inde bile açılış mesajı YOK)
+      460800 -> 0 bayt   (normal modda akıttığı hız)
+       74880 -> 0 bayt   (26 MHz kristalli ROM bandı)
+      esptool --no-stub, üç baud -> "No serial data received"
+
+🔴 **Ayırt edici ölçüm:** indirme modundaki çip `esptool`'un sync'ine CEVAP
+VERİR. Her baud'da tam sessizlik "indirme modu" değil, **çipin reset'te
+tutulduğu** tablodur. Tuş bırakılıp EN'e bir kez basılınca uçak YKİ'ye
+döndü — teşhis buydu.
+
+**Hangi tuş hangisi, 10 saniyede:** tuşa bir kez bas ve YKİ'ye bak.
+* uçak düşüp ~2 sn sonra geri geliyorsa -> o tuş **EN** (reset)
+* hiçbir şey olmuyorsa -> o tuş **BOOT** (GPIO0); tek başına zararsız
+
+Kartta tek tuş varsa o **EN**'dir; indirme modu için GPIO0'ı reset anında
+GND'ye çekmek gerekir (jumper). Doğru sıra: GPIO0 düşük TUT -> EN'e bas-bırak
+-> GPIO0'ı bırak.
+
+> Yan not: bu arıza `esp32_bridge`'in okuma sayacında da görünür (0 B/s), ama
+> iç içe tırnaklı `docker exec ... /proc/$P/io` komutu o gece yanlış yeri
+> okuyup 21157 bayt gösterdi ve teşhisi bir tur geciktirdi. Uzak ölçümde
+> komutu basit tut, çıktı beklenene benzemiyorsa ÖNCE ölçüme şüphe et.
 
 ### 4.10 Base ESP'yi çıkarıp taktıysan RESETLE
 
