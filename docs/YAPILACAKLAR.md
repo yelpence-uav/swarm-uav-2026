@@ -1,6 +1,6 @@
 # YAPILACAKLAR
 
-**Son güncelleme:** 2 Eylül 2026, 23:55 — 🟢 QR tablosu mesh'ten geçiyor (4 ESP32 flash'landı) · 🟢 RETURN_HOME düzeltmesi uçakta · 🟠 ilk formasyon seçimi YKİ'ye taşınacak
+**Son güncelleme:** 3 Eylül 2026, 01:30 — 🟢 QR tablosu mesh'ten geçiyor · 🟢 uçuş profili uçakta · 🟠 ylp01 RAM (en büyük kalem kapandı)
 
 > **Finale 5 gün.** Bu liste artık "her fikir" değil, **bu 8 günde
 > yapılacak iş.** Bir madde buraya giriyorsa birinin onu yapması planlanıyor
@@ -12,6 +12,25 @@
 ---
 
 ## 🔴 P0 — bunlar kapanmadan ilgili uçuş yapılmaz
+
+- `[~]` 🟠 **ylp01'DE RAM DAR — 4 GB, diğerleri 8 GB.** *(3 Eylül: en büyük
+  kalem kapandı, madde açık kalıyor.)*
+  **Yapıldı:** `ros2 run` sarmalayıcıları kaldırıldı (B36) — 18 süreç,
+  **1451 MB PSS**, yani kullanılan 3,8 GB'ın %38'i. `available`:
+  **260 → 736 MB** (2,8 kat). ylp00/ylp02'de de 1656→4279 / 2308→4509 MB.
+  **Kalan seçenekler** (ölçülen maliyet: düğüm başına ~120 MB PSS):
+  ① Görev 1'de `mod` (mode_manager, Görev 2'nin kumanda sürüşü) kapatılabilir
+     → ~120 MB. ⚠️ Görev 2'ye dönerken `suru_dugumleri`'ne GERİ KONMALI.
+     *(2 Eylül gecesi operatör "şimdilik elleme" dedi.)*
+  ② `pil` (ina226) kapatılabilir → ~120 MB, ama pil telemetrisi gider.
+  ③ MAVROS eklenti beyaz listesi — `mavros_node` en büyük tek tüketici;
+     kullanılmayan eklentiler kapatılırsa ciddi kazanç, ama **ölçülmedi**.
+  ④ `ros2 bag record` 211 MB — kayıt bizim tek teşhis kaynağımız,
+     kapatılması ancak son çare.
+  🔴 **ylp01'de 2 GB swap var ve 124 MB'ı kullanılmıştı.** Swap'a düşen bir
+  ROS düğümü gecikme üretir; uçuşta `free -m` ile bakılmalı.
+  🟢 `goru` bayrağı hiçbir uçakta açık değil — kamera düğümleri **hiç
+  çalışmıyor**, orada boşa giden RAM yok (2 Eyl doğrulandı).
 
 - `[ ]` 🟠 **İLK FORMASYON SEÇİMİ YKİ'DEN GELSİN** (operatör, 2 Eylül gecesi).
   Bugün görev kodunda **sabit ÇİZGİ**; hakem başka formasyon söylerse kod

@@ -1,6 +1,6 @@
 # RPİ EŞİTLEME DEFTERİ — geri gelen drone'u hizaya getirme
 
-**Son güncelleme:** 2 Eylül 2026, 21:35 — B31-B35: üç uçak tam eşitlendi (kadro 1-2-3, RETURN_HOME düzeltmesi, ylp01 tamamlandı)
+**Son güncelleme:** 3 Eylül 2026, 01:30 — B36: `ros2 run` sarmalayıcıları kaldırıldı (ylp01 boş bellek 2,8 kat)
 
 ## Kamera servisi — 1 Eylül 2026 düzeltmesi
 
@@ -483,6 +483,7 @@ sudo sysctl -q --load=/etc/sysctl.d/60-yelpence-writeback.conf
 | B33 | **ylp01 — 11 eksik env anahtarı tamamlandı** | — | ✅ | — | ylp01'de `SURU_KADRO`, `SURU_BEKLENEN_UCAK`, `SURU_AJAN_SAYISI`, `GOREV_NAVIGATE_TIMEOUT_S`, `GOREV_ROTA_BILINMEYEN_S`, `SURU_KALKIS_OLAYLA`, `GOREV_KALKIS_IRTIFA`, `PIL_BOS_V`, `PIL_DOLU_V`, `BATARYA_KRITIK_V`, `BATARYA_KESME` **hiç yoktu.** `SURU_KALKIS_OLAYLA` yokluğu = ylp01 arm olur ama **kalkmazdı** |
 | B34 | **ylp01 `suru_dugumleri` eşitlendi** | — | ✅ | — | `origin consensus fsm formasyon ca mod gorevfsm pil manevra gorev1` — `manevra` ve `gorev1` eksikti, yani ylp01'de Görev 1 düğümü hiç çalışmıyordu. Yedek: `suru_dugumleri.2eylul_oncesi`. (ylp00'da ayrıca `joystick` var — pilot uçağı) |
 | B35 | **ylp01 SSH anahtarı laptopun `known_hosts`'una eklendi** | — | ✅ | — | Anahtar **değişmemişti, hiç kayıtlı değildi** (yeni IP). Backend `BatchMode`'da sorduramadığı için YKİ'deki RPi butonu `"Host key verification failed"` veriyordu. `ssh-keyscan -t ed25519 -H 10.38.209.156 >> ~/.ssh/known_hosts`. ⚠️ Laptop tarafı — `dagit.sh` taşımaz, **başka bir laptopta tekrar gerekir** |
+| B36 | 🟢 **`baslat.sh` — düğümler `ros2 run` YERİNE doğrudan çalıştırılıyor** | ✅ | ✅ | ✅ | 3 Eyl, `dagit.sh` + `docker restart`. Ölçüldü (ylp01): 18 sarmalayıcı **1451 MB PSS** tutuyordu = kullanılan 3,8 GB'ın **%38'i**. `available` bellek: ylp00 1656→**4279** · ylp01 260→**736** · ylp02 2308→**4509** MB. `dugum()` bulamazsa uyarı basıp eski yola düşer. Kalan tek sarmalayıcı `ros2 bag record` (211 MB, CLI verb'i, bırakıldı) |
 
 > ### 🔴 B20 — HOME doğrulaması: **yalnız ylp00'da**, diğer ikisi geride
 >
