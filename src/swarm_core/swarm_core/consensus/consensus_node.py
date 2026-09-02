@@ -83,9 +83,13 @@ class ConsensusNode(Node):
         )
         self._ctx.lider_kilitli = bool(
             self.get_parameter('lider_kilitli').value)
+        self._ctx.kilit_tam_kadro_s = float(
+            self.get_parameter('lider_kilit_tam_kadro_s').value)
         if self._ctx.lider_kilitli:
             self.get_logger().warning(
-                '[consensus] LIDER KILIDI ACIK — lider bir kez secilecek ve '
+                f'[consensus] LIDER KILIDI ACIK (tam kadro bekleme '
+                f'{self._ctx.kilit_tam_kadro_s:.1f} sn) — lider bir kez '
+                'secilecek ve '
                 'DEGISMEYECEK. Lider gercekten duserse devir OLMAZ; '
                 'takipciler son formasyon komutunda kalir. Cikis yolu '
                 'kill switch. (3 Eylul: liderlik bes kez el degistirip '
@@ -147,6 +151,7 @@ class ConsensusNode(Node):
         # LIDER KILIDI — 3 Eylul 2026 operator karari. True iken lider BIR
         # KEZ secilir ve degismez. Gerekce/bedel: election.decide_change.
         self.declare_parameter('lider_kilitli', False)
+        self.declare_parameter('lider_kilit_tam_kadro_s', 8.0)
 
         self._agent_id = int(self.get_parameter('agent_id').value)
         self._agent_count = int(self.get_parameter('agent_count').value)

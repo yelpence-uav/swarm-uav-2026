@@ -140,6 +140,31 @@ def decide_change(ctx, effective: set, now: float):
             ctx.bootstrap_since > 0.0
             and (now - ctx.bootstrap_since) >= ctx.grace_s
         )
+        # 🔴 KILIT ACIKKEN ILK SECIM YARISA GIREMEZ — 3 Eylul 2026.
+        #
+        # Kilit degisimi kapatiyor, yani ILK secim ARTIK NIHAI. Oysa bu dal
+        # `grace_s` = 1.5 SANIYE sonra, o an uygun olan kim varsa onunla
+        # secim yapiyor: `bootstrap_since` ILK uygun ajan gorununce
+        # basliyor, ucunun de uygun olmasini BEKLEMIYOR.
+        #
+        # Neden gercek bir risk: uygunluk ARM ile basliyor ve ucaklar ayni
+        # anda arm olmuyor. 3 Eylul ucusunda ucaklar arasi EVRE KAYMASI
+        # 25 SANIYE olculdu — 1.5 sn'lik pencere guvenilir sekilde
+        # tutmuyor. Kilit yokken bu onemsizdi (yanlis lider bir sonraki
+        # turda duzeliyordu); kilit VARKEN yanlis lider KALICI olur ve
+        # slotlar butun ucus boyunca yanlis ucakta kalir.
+        #
+        # Cozum: kilit acikken TAM KADRO beklenir. Bu deterministiktir —
+        # aday min(1,2,3) = 1 (ylp00). Ama sonsuza kadar beklenmez:
+        # `kilit_tam_kadro_s` dolunca eski davranisa DUSULUR, yoksa bir
+        # ucak hic arm olmazsa suru HIC lider secemez ve gorev baslamaz.
+        if ctx.lider_kilitli and not full_field:
+            tam_kadro_beklendi = (
+                ctx.bootstrap_since > 0.0
+                and (now - ctx.bootstrap_since) >= ctx.kilit_tam_kadro_s
+            )
+            if not tam_kadro_beklendi:
+                return None
         if full_field or grace_done:
             return (candidate, ElectionResult.REASON_UNKNOWN)
         return None

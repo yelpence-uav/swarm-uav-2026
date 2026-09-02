@@ -91,12 +91,50 @@ def test_kilit_acik_ILK_secim_YAPILIR_tam_kadro():
         1, ElectionResult.REASON_UNKNOWN)
 
 
-def test_kilit_acik_ILK_secim_YAPILIR_grace_dolunca():
-    """Eksik kadroda da grace sonunda secim yapilir — kilit engellemez."""
-    c = _ctx(agent_id=2, leader_id=0, kilit=True)
+def test_kilit_KAPALI_eksik_kadroda_grace_dolunca_secer():
+    """Regresyon siperi: kilit yokken eski davranis aynen surer."""
+    c = _ctx(agent_id=2, leader_id=0, kilit=False)
     c.bootstrap_since = SIMDI - 2.0          # grace_s = 1.5
     assert election.decide_change(c, {2, 3}, SIMDI) == (
         2, ElectionResult.REASON_UNKNOWN)
+
+
+# --- kilit acikken ILK secim TAM KADRO bekler ----------------------------
+
+def test_kilit_acik_EKSIK_kadroda_grace_dolsa_bile_BEKLER():
+    """Asil risk: 1.5 sn'lik grace, ylp00 arm olmadan dolabiliyor.
+
+    Kilit varken o secim NIHAI olurdu ve lider kalici olarak yanlis ucakta
+    kalirdi. 3 Eylul'de ucaklar arasi evre kaymasi 25 sn olculdu.
+    """
+    c = _ctx(agent_id=2, leader_id=0, kilit=True)
+    c.bootstrap_since = SIMDI - 2.0          # grace dolmus, tam kadro yok
+    assert election.decide_change(c, {2, 3}, SIMDI) is None
+
+
+def test_kilit_acik_TAM_KADRO_gelince_HEMEN_secer():
+    """Bekleme suresi dolmadan da tam kadro gelirse secim yapilir."""
+    c = _ctx(agent_id=2, leader_id=0, kilit=True)
+    c.bootstrap_since = SIMDI - 0.2
+    assert election.decide_change(c, {1, 2, 3}, SIMDI) == (
+        1, ElectionResult.REASON_UNKNOWN)
+
+
+def test_kilit_acik_tam_kadro_GELMEZSE_sonunda_secer():
+    """Kilitli DEADLOCK olmaz: sure dolunca eski davranisa duser.
+
+    Bir ucak hic arm olmazsa (pil, kumanda, ariza) suru lidersiz kalip
+    gorevi hic baslatamazdi — kabul edilemez.
+    """
+    c = _ctx(agent_id=2, leader_id=0, kilit=True)
+    c.bootstrap_since = SIMDI - 9.0          # kilit_tam_kadro_s = 8.0
+    assert election.decide_change(c, {2, 3}, SIMDI) == (
+        2, ElectionResult.REASON_UNKNOWN)
+
+
+def test_kilit_tam_kadro_suresi_baglamda_var_ve_makul():
+    """Alan yoksa election AttributeError atar (getattr kullanilmiyor)."""
+    assert _ctx().kilit_tam_kadro_s == 8.0
 
 
 def test_kilit_acik_bos_kume_karar_URETMEZ():

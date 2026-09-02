@@ -69,6 +69,9 @@ class ConsensusContext:
         # True iken lider BIR KEZ secilir ve bir daha DEGISMEZ.
         # Gerekcesi ve bedeli decide_change'de yazili.
         self.lider_kilitli = False
+        # Kilit acikken ILK secim tam kadro bekler; bu sure dolunca eski
+        # davranisa duser (yoksa eksik kadroda suru hic lider secemez).
+        self.kilit_tam_kadro_s = 8.0
 
         # Mesaj sayaclari
         # seen_seq: KAYNAK BASINA gorulen son sequence_num.

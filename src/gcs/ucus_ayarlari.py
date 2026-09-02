@@ -201,6 +201,12 @@ GOREV_KURULUM_HIZ_MPS = 1.0
 # kalir. Cikis yolu kill switch pilotlaridir.
 SURU_LIDER_KILIDI = True
 
+# Kilit acikken ILK secim TAM KADRO bekler (deterministik lider = en kucuk
+# id). Bu sure dolunca eski davranisa duser — bir ucak hic arm olmazsa suru
+# lidersiz kalmasin. 3 Eylul: ucaklar arasi evre kaymasi 25 sn olculdu,
+# yani 1.5 sn'lik bootstrap grace'i tek basina yetmiyor.
+SURU_LIDER_KILIT_TAM_KADRO_S = 8.0
+
 # 🔴 KALKIS OTORITESI — 2 Eylul 2026, sahada olculdu.
 #
 # false (19 Agustos'tan beri suren GECIS DONEMI degeri): gorev basladiginda
@@ -1328,6 +1334,7 @@ def _kabuk():
     print(f'GOREV_DAGILMA_HIZ={GOREV_DAGILMA_HIZ_MPS:.1f}')
     print(f'GOREV_KURULUM_HIZ={GOREV_KURULUM_HIZ_MPS:.1f}')
     print(f'SURU_LIDER_KILIDI={str(SURU_LIDER_KILIDI).lower()}')
+    print(f'SURU_LIDER_KILIT_TAM_KADRO_S={SURU_LIDER_KILIT_TAM_KADRO_S:.1f}')
     print(f'SURU_KALKIS_OLAYLA={"true" if KALKIS_OLAYLA else "false"}')
     print(f'GOREV_KALKIS_IRTIFA={GOREV_KALKIS_IRTIFA_M}')
     # (Pil satirlari asagida, INA226 blogunda — INA226_HUCRE orada.)

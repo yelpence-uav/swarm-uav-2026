@@ -1184,6 +1184,7 @@ fi   # /altyapi: ic_dis_kopru
     if baslat_mi consensus; then
         dugum swarm_core consensus_node --ros-args \
             -p lider_kilitli:=${SURU_LIDER_KILIDI:-false} \
+            -p lider_kilit_tam_kadro_s:=${SURU_LIDER_KILIT_TAM_KADRO_S:-8.0} \
             -p agent_id:=${AGENT_ID} \
             -p agent_count:=${SURU_AJAN_SAYISI} \
             -p battery_min_v:=${BATARYA_KRITIK_V} \
