@@ -176,6 +176,21 @@ def _from_takeoff(ctx: AgentContext) -> AgentState | None:
     Returns:
         Hedef AgentState veya None.
     """
+    # 🔴 GOREV NODE'UNUN KALKIS KARARI — 2 Eylul 2026.
+    #
+    # TAKEOFF, pending_state'i OKUMAYAN TEK durumdu (digerlerinin hepsi
+    # okuyor: _from_idle, _from_in_swarm, _from_executing_task ...).
+    # Olculdu: gorev node'u 204.20'de "KALKIS TAMAM" dedi, agent_fsm
+    # _on_kalkis_tamam pending_state'i IN_SWARM yapti ve LOGLADI, ama
+    # burasi bakmadigi icin tick sonunda KOSULSUZ silindi. Log "oldu"
+    # diyordu, FSM TAKEOFF'ta kaldi ve ucak failsafe'e dustu.
+    #
+    # Asagidaki kendi kapimiz (target_altitude_reached) DURUYOR: irtifayi
+    # NED origin'den olctugu icin sahada hic acilmiyor, ama SITL'de ve
+    # gorev node'u yokken tek yol o.
+    if ctx.pending_state == AgentState.IN_SWARM:
+        return AgentState.IN_SWARM
+
     if (ctx.target_altitude_reached
             and ctx.altitude_stable
             and ctx.attitude_stable

@@ -12,7 +12,7 @@ from rclpy.qos import (
     ReliabilityPolicy,
 )
 
-from std_msgs.msg import String
+from std_msgs.msg import Bool, String
 
 from swarm_interfaces.msg import AgentStatus, SwarmOrigin, SystemEvent
 from swarm_interfaces.srv import AssignRole
@@ -50,6 +50,7 @@ class AgentFsmNode(Node):
             agent_id=self._agent_id,
             sitl_mode=self._sitl_mode,
             battery_critical_voltage_v=self._batt_crit_v,
+            pil_kesme_aktif=self._pil_kesme_aktif,
             target_altitude_m=self._target_altitude_m,
         )
 
@@ -73,6 +74,7 @@ class AgentFsmNode(Node):
         self.declare_parameter('agent_id', 1)
         self.declare_parameter('sitl_mode', False)
         self.declare_parameter('battery_critical_voltage_v', 13.6)
+        self.declare_parameter('pil_kesme_aktif', True)
         self.declare_parameter('tick_hz', 10.0)
         self.declare_parameter('target_altitude_m', 10.0)
         # YER TESTI: gorev basladi olayi ARMED'a kadar goturur, TAKEOFF'a
@@ -99,6 +101,9 @@ class AgentFsmNode(Node):
         self._sitl_mode = self.get_parameter('sitl_mode').value
         self._batt_crit_v = (
             self.get_parameter('battery_critical_voltage_v').value
+        )
+        self._pil_kesme_aktif = bool(
+            self.get_parameter('pil_kesme_aktif').value
         )
         self._tick_hz = self.get_parameter('tick_hz').value
         self._target_altitude_m = (
@@ -163,6 +168,17 @@ class AgentFsmNode(Node):
             _ORIGIN_QOS,
         )
 
+        # 🔴 KALKIS TAMAM — gorev node'undan (bkz. mission1_node
+        # _kalkis_denetle). TAKEOFF'tan cikisin ikinci ve DOGRU yolu.
+        # Buradaki kendi kapimiz (target_altitude_reached) NED origin'i
+        # yer sanip 2 Eylul'de iki ucagi da 30 sn timeout'a dusurmustu.
+        self.create_subscription(
+            Bool,
+            '/swarm/internal/mission/kalkis_tamam',
+            self._on_kalkis_tamam,
+            10,
+        )
+
     def _setup_services(self) -> None:
         """Aciklama: AssignRole servisini kurar."""
         aid = self._agent_id
@@ -206,7 +222,13 @@ class AgentFsmNode(Node):
             )
         elif result.warning:
             ctx.status_text = result.reason
-            self.get_logger().warn(result.reason)
+            # KISILDI (2 Eylul): uyarilar artik check()'ten yukari
+            # tasiniyor ve bu dal tick hizinda (10 Hz) calisabiliyor.
+            # Kisilmasaydi dusuk pille saniyede onlarca satir yazilir,
+            # gunluk disk bekcisini bosuna tetiklerdi.
+            self.get_logger().warn(
+                result.reason, throttle_duration_sec=5.0
+            )
 
         next_s = evaluate_transitions(ctx)
 
@@ -243,6 +265,25 @@ class AgentFsmNode(Node):
                 f'[agent {ctx.agent_id}] ARMING REDDEDILDI — preflight: '
                 f'{sebepler if sebepler else "(hata yok, baska bir sart)"}',
                 throttle_duration_sec=2.0,
+            )
+
+        # 🔴 FAILSAFE SEBEBI YAZILIR — 2 Eylul 2026.
+        # evaluate_transitions'in GENEL kapilari (healthy / offboard) sebep
+        # YAZMADAN FAILSAFE dondurebiliyor. Bu gece iki ucak 27-28. saniyede
+        # dustu ve logda TEK BIR sebep satiri yoktu; operator pil sandi,
+        # dogrulamak icin 20 dakika log kazildi. Bir daha olmasin.
+        if next_s == AgentState.FAILSAFE and ctx.state != AgentState.FAILSAFE:
+            self.get_logger().error(
+                f'[agent {ctx.agent_id}] FAILSAFE SEBEBI: '
+                f'durum={ctx.state.name} sure={ctx.time_in_state():.1f}s '
+                f'healthy={ctx.healthy} offboard={ctx.offboard_active} '
+                f'pil={ctx.battery_voltage_v:.2f}V/'
+                f'{ctx.battery_critical_voltage_v:.2f}V '
+                f'kill={ctx.kill_switch_active} '
+                f'px4_link={ctx.px4_link_ok} '
+                f'px4_failsafe={ctx.failsafe_active} '
+                f'xy={ctx.xy_valid} z={ctx.z_valid} vxy={ctx.v_xy_valid} '
+                f'attitude_stable={ctx.attitude_stable}'
             )
 
         if next_s is not None and next_s != ctx.state:
@@ -323,6 +364,32 @@ class AgentFsmNode(Node):
         self.get_logger().info(
             f'[agent {self._ctx.agent_id}] CMD -> px4_bridge: {cmd}'
         )
+
+    def _on_kalkis_tamam(self, msg: Bool) -> None:
+        """Gorev node'u "hedef irtifadayim" dedi -> TAKEOFF'tan cik.
+
+        🔴 2 Eylul 2026. Kendi kapimiz (_from_takeoff icindeki
+        target_altitude_reached) irtifayi NED origin'den olcuyor; origin
+        yerde degil, paylasilan suru origin'i. Ucak 10.0 m'ye cikip stabil
+        dursa bile kapi acilmiyordu (olculdu: ylp00 1.06 m, ylp02 0.80 m
+        acik) ve 30 sn sonra FAILSAFE. Gorev node'u ayni karari home'a
+        GORELI irtifayla (alt_amsl - home_alt_amsl) veriyor.
+
+        EMIR DEGIL: yalniz TAKEOFF durumundayken dinlenir. Kendi 30 sn
+        zaman asimimiz guvenlik agi olarak YERINDE kalir — gorev node'u
+        susarsa ucak yine failsafe'e duser, havada asili kalmaz.
+        """
+        if not msg.data:
+            return
+        if self._ctx.state != AgentState.TAKEOFF:
+            return
+        self._ctx.pending_state = AgentState.IN_SWARM
+        if not getattr(self, '_kalkis_tamam_loglandi', False):
+            self._kalkis_tamam_loglandi = True
+            self.get_logger().info(
+                f'[agent {self._ctx.agent_id}] gorev node: KALKIS TAMAM '
+                f'-> IN_SWARM'
+            )
 
     def _on_event(self, msg: SystemEvent) -> None:
         """Swarm event bus'tan gelen olaylari isler."""

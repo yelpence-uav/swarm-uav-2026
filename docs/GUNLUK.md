@@ -1,6 +1,6 @@
 # GÜNLÜK — oturum devir teslim kaydı
 
-**Son güncelleme:** 2 Eylül 2026, 04:20 — HOME doğrulaması uçakta geçti · Görev 1 zinciri kuruldu · pil ölçeği 14,2-16,8 · üç sessiz kilitlenme kapatıldı
+**Son güncelleme:** 2 Eylül 2026, 09:10 — 🟢 OTONOM KALKIŞ VE FORMASYON ZİNCİRİ AÇILDI (5 uçuş, 6 gerçek arıza kapatıldı) · 🔴 RETURN_HOME başlık dönmesi — ylp00 komşusunun üzerine gitti, uçuş elle kesildi
 
 Tek bilgisayar, sırayla çalışıyoruz. Biri kalkıp diğeri oturduğunda **hem
 kişi hem Claude** nerede kalındığını buradan anlar.
@@ -9,6 +9,100 @@ kişi hem Claude** nerede kalındığını buradan anlar.
 atlanırsa sistem çöker, çünkü sohbet geçmişi sonraki kişiye geçmiyor.
 
 Claude'a **"oturumu kapat"** dersen bu kaydı o yazar.
+
+---
+
+## 2026-09-02 09:10 — gece boyu, 5 uçuş
+
+**Ne yapıldı**
+- 🟢 **Görev 1 otonom zinciri İLK KEZ uçtu.** Beş uçuşta altı gerçek arıza
+  bulundu ve beşi kapatıldı. Zincir artık şuraya kadar çalışıyor:
+  `tetik → arm → offboard → takeoff:10 → 10 m → IN_SWARM → ROTATE →
+  NAVIGATE → RETURN_HOME`. Aradığımız kanıt geldi:
+  **`passthrough` 0'dan 677'ye çıktı** (20 Hz setpoint akışı) — önceki üç
+  uçuşta 0'dı, yani formasyon zinciri hiç konuşmamıştı.
+- 🔴 **Kapatılan arızalar (hepsi ölçümle):**
+  1. `SURU_KALKIS_OLAYLA=false` — görev başlayınca `agent_fsm` ARM ediyor
+     ama `takeoff` göndermiyordu; kalkış emrini verecek KİMSE yoktu
+     (YKİ'nin guided yolu dağıtıklık için kaldırılmıştı). Ölçüldü: ylp00
+     25 sn `ARMED bekliyor: mission_start=False` yazıp yerde bekledi.
+  2. **`LANDED` durumu görev tetiğini sessizce yutuyor** — ylp02 11 dk önceki
+     bir kill switch'ten LANDED'da mandallanmıştı, tetik geldi, `IDLE`/`ARMED`
+     olmadığı için hiçbir şey olmadan çöpe gitti. Log yok, uyarı yok.
+  3. **İrtifa çerçeve uyuşmazlığı** — `px4_bridge` hedefi ARM noktasına
+     göreli kuruyor (`mevcut_z - 10`), `agent_health_monitor` ise NED
+     origin'e mutlak bakıyordu. Origin yerde değil: ylp00 arm z=1,56 →
+     **1,06 m açık**, ylp02 0,80 m. Uçaklar 10,0 m'ye çıkıp stabil durdu
+     ama "ulaştım" hiç diyemedi → 30 sn timeout → FAILSAFE.
+     **Aynı hatanın 3. kopyası** (esp32_bridge POSE ve collision_avoidance
+     irtifa kapısında daha önce düzeltilmiş).
+  4. **`_from_takeoff` `pending_state` okumuyordu** — on durumun dokuzu
+     okuyor, TAKEOFF okumayan tek durumdu. Görev node'unun kalkış sinyali
+     yazıldı, LOGLANDI, tick sonunda koşulsuz silindi. Log "oldu" diyordu.
+  5. **Hedefsiz setpoint boşluğu** — `_on_rotate`/`_on_navigate` QR konumu
+     çözülemeyince `return None` diyordu; komut üreten kimse kalmıyor,
+     `passthrough=0`, PX4 OFFBOARD'ı bırakıyor. **Üç uçuş böyle bitti.**
+  6. **QR tablosunun mesh yolu yoktu** — alıcı 30 Temmuz'dan beri hazır,
+     paketleyici hiç yazılmamış; YKİ tabloyu latched yayınlıyor ve o konuya
+     ABONE KİMSE YOK. "Drone'lara Gönder" boşluğa basıyordu.
+- 🔧 **ESP32 seri hattı** — ylp00'da `crc_fail=129287` / `alim_ok=4189`
+  (%97 çöp) ölçüldü; operatör kabloyla oynadı, sayaç **dondu** ve mesh
+  düzeldi. Belirti: uçak ağda ve sağlıklı ama YKİ'ye paket gelmiyor,
+  RTCM içeri akmaya devam ediyor (tek yönlü arıza).
+- ⚙️ **Pil kesmesi operatör talimatıyla kapatıldı** (B29). İzleme DEĞİL,
+  yalnız FSM kesmesi. Sebep ölçüldü: 13,8 V eşiği SAĞLAM pilde ölçülen
+  0,57 V çöküşe göre ayarlanmış; **boşalmış pilde çöküş 1,26-1,31 V**
+  (ylp00 %33=15,06 V → uçarken 13,80 V). Yarım pille her uçuş kendini
+  kesiyordu.
+
+**Ne değişti**
+- kod: `agent_fsm_node.py` + `agent_transitions.py` + `agent_context.py` +
+  `agent_health_monitor.py` — kalkış kanalı, `pending_state`, pil kesme
+  anahtarı, **FAILSAFE sebep logu** (`healthy/offboard/pil/px4_link/xy/z/vxy`)
+- kod: `mission1_node.py` `_kalkis_denetle()` · `orchestrator.py`
+  `_hedefsiz_tut()` · `mission_transitions.py` `rota_bilinmeyen_s`
+- kod: `packet_parser.py` `qr_koord_paketle()` · `esp32_bridge_node.py`
+  `_on_qr_coords_out()`
+- uçakta: `/ws/ucus_ayarlari.env`'e **dört satır elle eklendi** —
+  `SURU_KALKIS_OLAYLA=true` · `GOREV_KALKIS_IRTIFA=10.0` ·
+  `BATARYA_KESME=false` · `GOREV_ROTA_BILINMEYEN_S=10.0`
+  ⚠️ Bu dosya `dagit.sh` ile GİTMEZ. Ayrıntı `RPI_ESITLEME` B25/B29/B30.
+- belge: `RPI_ESITLEME.md` B25-B30 · `DURUM.md` · `YAPILACAKLAR.md`
+
+**Yarım kalan / tuzak**
+- 🔴 **RETURN_HOME'da başlık DÖNÜYOR — uçuş elle kesildi, tel riski.**
+  `_on_return_home`: `heading = bearing(centroid → home)`. Sürü eve
+  yaklaştıkça vektör kısalıyor, sıfıra giderken yön tanımsızlaşıp dönüyor.
+  Ölçüldü: merkez (4,4;0,6)→(0,0;0,0) giderken başlık **-106° → -169°,
+  5 saniyede 63°**. Slotlar başlığa göre döndüğü için 7 m yarıçaptaki uçak
+  yay çizerek süpürüldü: **ylp00 ylp02'nin üstüne gitti**, operatör PosCtl'e
+  alıp elle indirdi, uçak az kalsın bahçe teline konuyordu.
+  *Öneri (yazıldı, operatör talimatıyla GERİ ALINDI, uygulanmadı):* kalkış
+  yönelimini snapshot'la ve RETURN_HOME'da onu kullan → başlık sabit kalır,
+  iniş noktaları kalkış dizilişine sabitlenir. Yerde denendi: sapma 63° → 0°.
+  **RPi'ler kapalıydı, test edilemedi; sıradaki oturumun ilk işi.**
+- 🔴 **QR tablosu firmware'de duruyor.** ROS tarafı bitti ve kanıtlandı
+  (`esp32_base`: "QR KONUM TABLOSU mesh'e yayınlandı: 5/5 nokta"), ama baz
+  ESP32 firmware'inin **açık beyaz listesinde `TIP_QR_COORDS` yok** →
+  sessizce atılıyor. Uçaklarda `bilinmeyen=0, crc_fail=0` (çerçeve hiç
+  gelmedi). `mesh_config.h:71` zaten *"0x0F: TIP_QR_COORDS'a rezerve"*
+  diyor — slot ayrılmış, iş bitirilmemiş. **Firmware flash gerekiyor.**
+  Ayrıca tip başına 50 ms limit var (`MESH_GONDERIM_MIN_MS`); beş QR aynı
+  tiple gidiyor, flash'tan sonra aralık gerekebilir — ölçülmeli.
+- ⚠️ **Lider ≠ formasyonun ucu.** Bu oturumda karıştırıldı ve yanlış harita
+  üretildi. Liderlik `min(effective)` ile agent 1'e gidiyor (doğru çalıştı),
+  ama slot ataması **Macar algoritmasıyla en yakın slota** göre. Formasyon
+  konumunu tahmin ederken liderliğe bakma.
+- ⚠️ **Uçuş öncesi harita:** okbaşı formasyonunda uç MERKEZDE durur, kanat
+  **7 m dışarıda** — temiz alan yarıçapı 8,5 m. İlk haritada 5 m demiştim,
+  simetrik bölünme varsaymıştım, **yanlıştı.**
+- ⚠️ YKİ'yi yeniden başlatırken `yki_durdur.sh` sonrası `pgrep` ile
+  **boş olduğunu doğrula**. `ros2 run` sarmalayıcısı ölünce çocuk öksüz
+  kalıyor ve `yki_baslat.sh:149` "zaten koşuyor" deyip atlıyor — bu gece
+  bir kez yaşandı, kod eski sürümle koşmaya devam etti.
+- ⚠️ Baz köprüsü `RMW_IMPLEMENTATION=rmw_cyclonedds_cpp` + özel
+  `CYCLONEDDS_URI` ile koşuyor; düz `ros2 node info` onu **görmüyor**.
+  Sorgularken sürecin ortamını kopyala.
 
 ---
 

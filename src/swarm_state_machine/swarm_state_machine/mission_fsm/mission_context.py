@@ -29,6 +29,12 @@ class MissionContext:
     # cikariyor. Test ucuslari icin kisaltilabilsin diye ctx'e alindi;
     # mission_transitions artik sabit yerine BUNU okuyor.
     navigate_timeout_s: float = 300.0
+    # Hedef BILINMIYORKEN NAVIGATE'te beklenen sure. 0 = kod varsayilani
+    # (_ROUTE_UNKNOWN_GRACE_S). QR tablosu yokken suru bu kadar formasyonda
+    # asili durur, sonra RETURN_HOME'a gecer. Gelistirme ucuslarinda kisa
+    # tutulur: operator disaridan "takildi mi?" ayrimini yapamiyor ve
+    # bekleyemeyip elle land veriyor (2 Eylul, iki ucus boyle kesildi).
+    rota_bilinmeyen_s: float = 0.0
 
     team_id: str = ''
     sitl_mode: bool = False

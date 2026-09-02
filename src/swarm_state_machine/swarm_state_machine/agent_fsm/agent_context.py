@@ -114,6 +114,12 @@ class AgentContext:
     target_altitude_reached: bool = False
 
     battery_critical_voltage_v: float = 13.6
+    # 🔴 PIL KESMESI — 2 Eylul 2026, operator talimati.
+    # False: pil OLCULMEYE ve UYARI URETMEYE devam eder, ama FSM'i
+    # FAILSAFE'e DUSURMEZ. "Izleme kapali" DEGIL — esigi 0 yapmak izlemeyi
+    # komple kapatirdi, istenen o degil.
+    # Ayrinti: ucus_ayarlari.py PIL_KESME_AKTIF.
+    pil_kesme_aktif: bool = True
 
     geofence_violated: bool = False
 
@@ -134,6 +140,9 @@ class AgentContext:
             not batarya_izleniyor
             or is_sim_bat
             or self.battery_voltage_v > self.battery_critical_voltage_v
+            # 🔴 Kesme kapaliyken pil `healthy`yi DUSURMEZ (2 Eylul).
+            # Olcum ve uyari yerinde kalir; yalniz FSM kesmesi devre disi.
+            or not self.pil_kesme_aktif
         )
         return (
             self.px4_link_ok

@@ -751,6 +751,53 @@ class Mission1Orchestrator:
 
     # --- Faz işleyicileri ----------------------------------------------------
 
+    def _hedefsiz_tut(self, inp: OrchestratorInput):
+        """Hedef bilinmiyorken "OLDUGUN YERDE KAL" komutu uretir.
+
+        🔴 SESSIZ SETPOINT BOSLUGU — 2 Eylul 2026, sahada olculdu.
+
+        _on_rotate ve _on_navigate, QR konumu cozulemeyince `return None`
+        diyordu. Sonuc bir "bekleme" degil, KOMUT URETEN KIMSENIN OLMAMASIYDI:
+            mission_fsm: "Ilk hedef QR1 konum tabloda yok"  -> route_unknown
+            -> orkestrator hicbir sey uretmez
+            -> formation_node'un yayinlayacagi komut yok
+            -> collision_avoidance tanisi: passthrough=0 (ucus boyunca)
+            -> px4_bridge'e setpoint gitmez -> PX4 OFFBOARD'i birakir
+            -> agent_fsm: "FAILSAFE SEBEBI: ... offboard=False"
+        2 Eylul gecesi dort ucusun ucu boyle bitti. Operator "kalktilar ve
+        asili kaldilar, bir sey yapmadilar" diye bildirdi — gordugu sey
+        tam olarak buydu; failsafe de ayni kokten geliyordu, pilden DEGIL
+        (log: healthy=True pil=15.33V/13.80V).
+
+        Cozum bir gorev degil bir GUVENLIK TABANI: hedef yoksa suru mevcut
+        merkezinde ve mevcut irtifasinda formasyonu KORUR. Setpoint akisi
+        kesilmez, OFFBOARD yasar, ucak kontrol altinda asili kalir ve
+        NAVIGATE zaman asimi RETURN_HOME'a goturur. Yani "hicbir sey
+        yapmamak" yerine "bilerek beklemek".
+
+        _on_takeoff ile ayni sablon: snapshot cercevesi, mevcut centroid,
+        mevcut irtifa, hedefe donme YOK.
+        """
+        offsets = self._assign(
+            self._st.formation_type, self._st.spacing_m, inp.centroid,
+            0.0, inp,
+        )
+        if offsets is None:
+            return None
+        heading = self._kalkis_heading(inp)
+        self._st.heading_deg = heading
+        return [FormationTargetCmd(
+            formation_type=self._st.formation_type,
+            center=self._hold_center(inp, offsets, heading),
+            heading_deg=heading,
+            spacing_m=self._st.spacing_m,
+            agent_ids=list(inp.agent_ids),
+            offsets=offsets,
+            rotate_towards_target=False,
+            use_current_centroid=True,
+            use_current_altitude=True,
+        )]
+
     def _on_takeoff(self, inp: OrchestratorInput):
         """SYNCHRONIZED_TAKEOFF: yerdeki dizilişi snapshot'lar (jüri koyduğu gibi)."""
         # _assign, tip CUSTOM olduğu için jüri dizilişini snapshot'lar.
@@ -782,7 +829,7 @@ class Mission1Orchestrator:
         """ROTATE_TO_NEXT: formasyonu bir sonraki QR'a döndürür (merkez sabit)."""
         ned = self._qr_geo.resolve_ned()
         if ned is None:
-            return None
+            return self._hedefsiz_tut(inp)   # bkz. _hedefsiz_tut
         heading = self._bearing_deg(inp.centroid, ned)
 
         offsets = self._assign(
@@ -836,7 +883,7 @@ class Mission1Orchestrator:
         """NAVIGATE_TO_QR: OKUYUCU dronu QR'ın üstüne çıpalar (irtifayı korur)."""
         ned = self._qr_geo.resolve_ned()
         if ned is None:
-            return None
+            return self._hedefsiz_tut(inp)   # bkz. _hedefsiz_tut
         heading = self._bearing_deg(inp.centroid, ned)
         self._st.heading_deg = heading
         offsets = self._assign(

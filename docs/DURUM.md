@@ -1,8 +1,41 @@
 # DURUM — şu an ne çalışıyor, ne bozuk
 
-**Son güncelleme:** 2 Eylül 2026, 04:20 — 🟢 HOME doğrulaması uçakta GEÇTİ · Görev 1 zinciri (mission1 + maneuver_executor) AYAKTA · pil ölçeği 14,2-16,8 · 🔴 ylp00 roll arızası · 🔋 piller şarjda
+**Son güncelleme:** 2 Eylül 2026, 09:10 — 🟢 Görev 1 otonom kalkış + formasyon zinciri UÇTU · 🔴 RETURN_HOME başlık dönmesi (tel riski, uçuş elle kesildi) · 🔴 QR tablosu firmware'de takılı · ⚙️ pil kesmesi KAPALI · 🔌 RPi'ler kapalı
 
 
+
+> ## 🌅 2 EYLÜL SABAHI — OTONOM ZİNCİR AÇILDI, TEK KUSUR EVE DÖNÜŞTE
+>
+> **Beş uçuş yapıldı. Ayrıntı `GUNLUK.md` 09:10 kaydı.**
+>
+> - 🟢 **Görev 1 zinciri ilk kez uçtu:** tetik → arm → offboard →
+>   `takeoff:10` → 10 m → `IN_SWARM` → `ROTATE` → `NAVIGATE` →
+>   `RETURN_HOME`. Kanıt: **`passthrough` 0 → 677** (20 Hz setpoint akışı).
+>   Önceki üç uçuşta 0'dı — formasyon zinciri hiç konuşmamıştı.
+> - 🟢 **Beş sessiz arıza kapatıldı:** kalkış izni yoktu · `LANDED` tetiği
+>   yutuyordu · irtifa çerçevesi uyuşmuyordu (1,06 m açık) · `_from_takeoff`
+>   `pending_state` okumuyordu · hedefsizken setpoint boşluğu vardı.
+>   Hiçbiri log'da görünmüyordu; **FAILSAFE artık sebebini yazıyor.**
+> - 🔴 **RETURN_HOME'da başlık dönüyor — ÇÖZÜLMEDİ.**
+>   `heading = bearing(centroid → home)`; sürü eve yaklaşınca vektör
+>   kısalıp yön tanımsızlaşıyor. Ölçüldü: **5 saniyede 63°.** Slotlar
+>   döndüğü için ylp00 komşusunun üzerine sürüklendi, operatör PosCtl'e
+>   alıp elle indirdi, **az kalsın bahçe teline konuyordu.**
+>   ⛔ **Bu kapanmadan RETURN_HOME'lu otonom uçuş YOK.** Düzeltme önerisi
+>   ve yer testi sonucu GUNLUK'ta; kod YAZILMADI (RPi'ler kapalıydı).
+> - 🔴 **QR tablosu uçaklara ULAŞMIYOR.** ROS tarafı bitti ve kanıtlandı;
+>   baz ESP32 firmware'inin beyaz listesinde `TIP_QR_COORDS` yok, sessizce
+>   atılıyor. **Firmware flash gerekiyor.**
+> - ⚙️ **Pil kesmesi KAPALI** (`BATARYA_KESME=false`, operatör talimatı).
+>   Pil ölçülüyor ve uyarı veriyor, ama uçağı FAILSAFE'e DÜŞÜRMÜYOR.
+>   Kill switch, EKF, PX4 link ve **PX4'ün kendi pil failsafe'i** duruyor.
+>   🔴 **Yarışma günü `true` yapılacak.**
+> - ⚙️ Hedefsiz bekleme 30 → **10 sn** (`GOREV_ROTA_BILINMEYEN_S`).
+>   🔴 Yarışma günü 30'a alınacak.
+> - 🔌 **RPi'ler KAPALI.** Piller: ylp00 %38 · ylp02 %60 (kullanılmış).
+> - ⚠️ Uçakların `/ws/ucus_ayarlari.env`'inde **elle eklenmiş dört satır**
+>   var (`RPI_ESITLEME` B25/B29/B30). `dagit.sh` bu dosyayı TAŞIMAZ —
+>   yeni bir Pi'de ya da temiz kurulumda tekrar eklenmeli.
 
 > ## 🌙 2 EYLÜL GECESİ — HOME DOĞRULANDI, GÖREV 1 ZİNCİRİ KURULDU
 >

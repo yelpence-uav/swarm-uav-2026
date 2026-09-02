@@ -150,6 +150,15 @@ def check(ctx: AgentContext) -> HealthCheckResult:
     result = _check_critical_faults(ctx)
     if result.critical_fault:
         return result
+    # 🔴 UYARI DUSURULMEZ — 2 Eylul 2026.
+    # Eskiden bu fonksiyon yalniz critical_fault/safety_hold'u yukari
+    # tasiyordu; _check_critical_faults'un urettigi UYARILAR (ornegin
+    # "Batarya dusuk: 14.5V") check() icinde SESSIZCE kayboluyordu ve
+    # node'un `elif result.warning` dali hic calismiyordu. Pil kesmesi
+    # kapatilinca (PIL_KESME_AKTIF=False) tek gorunurluk kanali bu
+    # uyari oldugu icin artik korunuyor: daha agir bir sonuc cikmazsa
+    # sonunda bu dondurulur.
+    ilk_uyari = result if result.warning else None
 
     result = _check_rc_safety(ctx)
     if result.critical_fault:
@@ -171,7 +180,7 @@ def check(ctx: AgentContext) -> HealthCheckResult:
 
     _check_role_state_consistency(ctx)
 
-    return HealthCheckResult()
+    return ilk_uyari or HealthCheckResult()
 
 
 def _check_critical_faults(ctx: AgentContext) -> HealthCheckResult:
@@ -243,6 +252,18 @@ def _check_critical_faults(ctx: AgentContext) -> HealthCheckResult:
             f'(esik {ctx.battery_critical_voltage_v:.1f}V)'
         )
         ctx.status_text = reason
+        # 🔴 KESME KAPALIYSA UYARIYA DUSURULUR — 2 Eylul 2026.
+        # Operator "izleme kapansin" DEMEDI, "failsafe olmasin" dedi.
+        # Bu yuzden olcum, sebep metni ve EVENT_BATTERY_LOW aynen uretilir
+        # (YKI'de gorunur, loga yazilir); yalniz critical_fault bayragi
+        # dusurulur, cunku agent_fsm_node onu gorunce dogrudan FAILSAFE'e
+        # geciyor (agent_fsm_node.py:192).
+        if not ctx.pil_kesme_aktif:
+            return HealthCheckResult(
+                warning=True,
+                event_type=SystemEvent.EVENT_BATTERY_LOW,
+                reason=reason,
+            )
         return HealthCheckResult(
             critical_fault=True,
             event_type=SystemEvent.EVENT_BATTERY_LOW,

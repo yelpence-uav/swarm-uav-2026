@@ -11,7 +11,7 @@ from rclpy.qos import (
     QoSProfile,
     ReliabilityPolicy,
 )
-from std_msgs.msg import UInt8
+from std_msgs.msg import Bool, UInt8
 
 from swarm_interfaces.action import ExecuteManeuver
 from swarm_interfaces.msg import (
@@ -38,6 +38,7 @@ from .orchestrator import (
 
 # MissionState.RETURN_HOME sayisal degeri (orchestrator._S_RETURN_HOME ile
 # birebir). Yalnizca teshis logunu bu fazla sinirlamak icin kullanilir.
+_SYNCHRONIZED_TAKEOFF_STATE = 3
 _RETURN_HOME_STATE = 9
 
 _RELIABLE_QOS = QoSProfile(
@@ -98,6 +99,12 @@ class Mission1Node(Node):
         self._home_xy = None
         self._have_swarm_state = False
         self._yaw_deg = None   # kalkış heading'i / snapshot referansı
+        # Kalkis denetimi icin kendi telemetrimiz (bkz. _kalkis_denetle).
+        self._alt_amsl_m = None
+        self._home_alt_amsl_m = 0.0
+        self._gps_fix_type = 0
+        self._vel_z = 0.0
+        self._kalkis_bildirildi = False
         self._seq = 0
 
         self._setup_io()
@@ -125,6 +132,14 @@ class Mission1Node(Node):
         self.declare_parameter('default_spacing_m', 5.0)
         self.declare_parameter('wing_alpha_deg', 45.0)
         self.declare_parameter('maneuver_duration_s', 3.0)
+        # 🔴 KALKIS IRTIFASI — agent_fsm'in target_altitude_m'i ile AYNI
+        # olmak ZORUNDA. Ikisi ayrisirsa gorev node'u "ulastim" derken
+        # agent_fsm baska bir sayiya bakar; ikisi de sessizce yanilir.
+        # Tek kaynak: ucus_ayarlari.py GOREV_KALKIS_IRTIFA_M -> baslat.sh
+        # her iki dugume de AYNI degeri geciriyor.
+        self.declare_parameter('kalkis_irtifa_m', 10.0)
+        self.declare_parameter('kalkis_tolerans_m', 0.5)
+        self.declare_parameter('kalkis_dikey_hiz_esik_mps', 0.5)
 
         self._agent_id = int(self.get_parameter('agent_id').value)
         self._agent_ids = [int(a) for a in self.get_parameter('agent_ids').value]
@@ -141,6 +156,15 @@ class Mission1Node(Node):
         )
         self._maneuver_duration_s = float(
             self.get_parameter('maneuver_duration_s').value
+        )
+        self._kalkis_irtifa_m = float(
+            self.get_parameter('kalkis_irtifa_m').value
+        )
+        self._kalkis_tolerans_m = float(
+            self.get_parameter('kalkis_tolerans_m').value
+        )
+        self._kalkis_dikey_hiz_esik = float(
+            self.get_parameter('kalkis_dikey_hiz_esik_mps').value
         )
 
     def _setup_io(self) -> None:
@@ -183,6 +207,14 @@ class Mission1Node(Node):
         )
         self._event_pub = self.create_publisher(
             SystemEvent, '/swarm/internal/events/system', _RELIABLE_QOS,
+        )
+
+        # 🔴 KALKIS TAMAM — gorev node'unun agent_fsm'e verdigi TEK sinyal.
+        # Setpoint DEGIL, karar. Boylece §4 tek-uretici kurali bozulmuyor:
+        # setpoint'i yine formation_node/collision_avoidance uretiyor,
+        # burasi yalniz "hedef irtifadayim" diyor.
+        self._kalkis_pub = self.create_publisher(
+            Bool, '/swarm/internal/mission/kalkis_tamam', _RELIABLE_QOS,
         )
 
     # --- Abonelik callback'leri ----------------------------------------------
@@ -232,8 +264,12 @@ class Mission1Node(Node):
             self._home_xy = (float(msg.centroid_x), float(msg.centroid_y))
 
     def _on_telemetry(self, msg: AgentStatus) -> None:
-        """Kendi yaw'ımızı saklar; kalkış referansı buradan gelir."""
+        """Kendi yaw'ımızı ve kalkış irtifa alanlarını saklar."""
         self._yaw_deg = float(msg.heading_deg)
+        self._alt_amsl_m = float(msg.alt_amsl_m)
+        self._home_alt_amsl_m = float(msg.home_alt_amsl_m)
+        self._gps_fix_type = int(msg.gps_fix_type)
+        self._vel_z = float(msg.vel_z)
 
     def _on_next_target(self, msg: MissionTarget) -> None:
         """mission_fsm'in çözdüğü sıradaki hedefi orchestrator'a iletir."""
@@ -249,8 +285,71 @@ class Mission1Node(Node):
 
     # --- Ana döngü -----------------------------------------------------------
 
+    def _kalkis_denetle(self) -> None:
+        """SYNCHRONIZED_TAKEOFF'ta "hedef irtifaya ulastim" kararini VERIR.
+
+        🔴 NEDEN GOREV NODE'UNDA — 2 Eylul 2026, sahada olculdu.
+
+        Bu karar agent_fsm'deydi (agent_health_monitor.py) ve YANLIS SIFIRDAN
+        olcuyordu:
+            px4_bridge  hedef = mevcut_z - 10.0      -> ARM noktasina goreli
+            agent_fsm   ulasti = pos_z <= -(10-0.5)  -> NED ORIGIN'e mutlak
+        NED origin yerde degil, paylasilan suru origin'i (alt=1216.96 m AMSL);
+        ucaklar ondan ~1.3-1.6 m asagida armlaniyor. Olculdu: ylp00 arm z=1.56,
+        hedef NED -8.44, agent_fsm -9.50 bekliyordu -> 1.06 m acik; ylp02
+        arm z=1.32 -> 0.80 m acik. Iki ucak da 10.0 m'ye cikip STABIL durdu
+        (kaydedilen irtifa 9.9 / 10.0, sabit) ama "ulastim" HIC diyemedi ve
+        30 sn sonra TAKEOFF timeout -> FAILSAFE. Ucusta hicbir sorun yoktu;
+        yalniz olcum sifiri yanlisti.
+
+        Ayni hata bu depoda UCUNCU kez: esp32_bridge'de POSE icin, sonra
+        collision_avoidance'ta irtifa kapisi icin duzeltilmisti
+        (collision_avoidance_node.py:438 yorumu), agent_fsm'de kalmisti.
+
+        Dogru olcum home'a GORELI: alt_amsl_m - home_alt_amsl_m. Kaynak
+        kanitli — bu gece collision_avoidance ayni degeri 9.9/10.0 diye
+        DOGRU okudu. Koruma da oradan birebir alindi (satir 443): home
+        irtifasi 0 ya da fix < 3 ise irtifa BILINMIYOR sayilir ve karar
+        VERILMEZ; yoksa alt_amsl'in kendisi (~1217 m) "ulastim" sanilirdi.
+
+        Yayin bir EMIR degil bir KARAR: agent_fsm bunu yalniz TAKEOFF
+        durumundayken dinler, kendi 30 sn zaman asimi guvenlik agi olarak
+        yerinde kalir.
+        """
+        if self._mission_state != _SYNCHRONIZED_TAKEOFF_STATE:
+            self._kalkis_bildirildi = False
+            return
+        if self._alt_amsl_m is None:
+            return
+        if (self._home_alt_amsl_m == 0.0 or self._gps_fix_type < 3
+                or not math.isfinite(self._alt_amsl_m)):
+            return
+
+        irtifa = self._alt_amsl_m - self._home_alt_amsl_m
+        if irtifa < self._kalkis_irtifa_m - self._kalkis_tolerans_m:
+            return
+        if abs(self._vel_z) >= self._kalkis_dikey_hiz_esik:
+            return          # hala tirmaniyor/aliyor — oturmasini bekle
+
+        m = Bool()
+        m.data = True
+        self._kalkis_pub.publish(m)
+        if not self._kalkis_bildirildi:
+            self._kalkis_bildirildi = True
+            self.get_logger().warning(
+                f'[gorev1] KALKIS TAMAM: irtifa={irtifa:.2f} m '
+                f'(hedef {self._kalkis_irtifa_m:.1f} -'
+                f'{self._kalkis_tolerans_m:.1f}) '
+                f'dikey_hiz={self._vel_z:.2f} m/s — agent_fsm IN_SWARM'
+            )
+
     def _tick(self) -> None:
         """tick_hz'de: bağlamı topla, karar al, komutları icra et."""
+        # Kalkis karari swarm_state'ten ONCE: kalkis sirasinda /swarm/public/
+        # state heniz akmiyor olabilir ve asagidaki erken donus bu karari
+        # sessizce bloklardi — kilitlenmenin ta kendisi.
+        self._kalkis_denetle()
+
         if not self._have_swarm_state:
             return
 

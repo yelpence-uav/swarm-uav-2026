@@ -992,6 +992,49 @@ def swarm_state_coz(payload: bytes) -> SwarmStateVeri:
     return SwarmStateVeri(mission_id, fsm, leader, formation, ts)
 
 
+def qr_koord_paketle(qr_id: int, toplam: int,
+                     lat_deg: float, lon_deg: float) -> bytes:
+    """Tek QR konumunu 16 baytlik mesh payload'a paketler.
+
+    🔴 NEDEN VAR — 2 Eylul 2026. Alici taraf (esp32_bridge._isle_qr_coords)
+    30 Temmuz'dan beri duruyordu ama GONDEREN YOKTU: YKI tabloyu
+    /swarm/internal/mission/qr_coords'a yayinliyor ve o konuya ABONE
+    KIMSE YOK. Yani "Drone'lara Gonder" dugmesi bosluga basiyordu.
+    Sahada sonucu: mission_fsm "Ilk hedef QR1 konum tabloda yok" der,
+    route_unknown=True olur, orkestrator ROTATE/NAVIGATE'te komut
+    uretmez ve suru hedefsiz asili kalir (2 Eylul, dort ucus).
+
+    Her QR AYRI cerceve gider (16 bayt sinirina bir tablo sigmaz);
+    alici `toplam` alanina bakip tabloyu tamamlaninca yayinlar.
+
+    Args:
+        qr_id (int): QR numarasi, 0-255.
+        toplam (int): tablodaki toplam QR sayisi, 0-255.
+        lat_deg (float): enlem, derece.
+        lon_deg (float): boylam, derece.
+
+    Returns:
+        bytes: 16 baytlik payload.
+
+    Raises:
+        ValueError: qr_id/toplam aralik disi ya da koordinat gecersizse.
+    """
+    if not 0 <= int(qr_id) <= 255:
+        raise ValueError(f'qr_id 0-255 olmali: {qr_id}')
+    if not 0 <= int(toplam) <= 255:
+        raise ValueError(f'toplam 0-255 olmali: {toplam}')
+    if not -90.0 <= float(lat_deg) <= 90.0:
+        raise ValueError(f'enlem gecersiz: {lat_deg}')
+    if not -180.0 <= float(lon_deg) <= 180.0:
+        raise ValueError(f'boylam gecersiz: {lon_deg}')
+    return struct.pack(
+        _QR_COORD_FMT,
+        int(qr_id), int(toplam),
+        int(round(float(lat_deg) * 1e7)),
+        int(round(float(lon_deg) * 1e7)),
+    )
+
+
 def qr_koord_coz(payload: bytes) -> QrKoordVeri:
     """TIP_QR_COORDS payload'ını QrKoordVeri'ye çözer."""
     qr_id, toplam, lat, lon = struct.unpack(_QR_COORD_FMT, payload)

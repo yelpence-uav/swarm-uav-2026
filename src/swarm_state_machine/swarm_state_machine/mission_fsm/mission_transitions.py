@@ -184,7 +184,8 @@ def _from_navigate_to_qr(ctx: MissionContext) -> MissionState | None:
             return None
         return MissionState.EXECUTE_QR_TASK
 
-    if ctx.route_unknown and ctx.time_in_state() > _ROUTE_UNKNOWN_GRACE_S:
+    _rota_grace = ctx.rota_bilinmeyen_s or _ROUTE_UNKNOWN_GRACE_S
+    if ctx.route_unknown and ctx.time_in_state() > _rota_grace:
         return MissionState.RETURN_HOME
 
     if ctx.time_in_state() > (ctx.navigate_timeout_s

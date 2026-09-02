@@ -142,6 +142,49 @@ AJAN_SAYISI = 3                # kimlik araligi — kadro degisse de 3
 # 🔴 YARISMA GUNU 300.0 YAPILACAK (ya da 0 = kod varsayilani).
 GOREV_NAVIGATE_TIMEOUT_S = 30.0
 
+# Hedef BILINMIYORKEN (QR tablosu yok) NAVIGATE'te beklenen sure.
+# 2 Eylul: 30 sn'ydi ve operator bekleyemeyip iki ucusu elle kesti —
+# disaridan "formasyonu koruyor" ile "takildi" ayirt edilemiyor, 30 sn
+# hareketsizlik cok uzun. Gelistirmede 10 sn: tutmanin calistigini
+# gostermeye yeter, sabir sinirini zorlamaz.
+# 🔴 YARISMA GUNU: QR tablosu VARSA bu yol hic isletilmez (route_unknown
+# false olur); yine de 30.0'a alinmali ki gecici bir tablo kaybinda
+# suru hemen eve donmesin.
+GOREV_ROTA_BILINMEYEN_S = 10.0
+
+# 🔴 KALKIS OTORITESI — 2 Eylul 2026, sahada olculdu.
+#
+# false (19 Agustos'tan beri suren GECIS DONEMI degeri): gorev basladiginda
+# agent_fsm ajani ARM eder ama KALKIS KAPISINI ACMAZ; 'takeoff' komutunun
+# tek kaynagi guided yol — yani YKI'nin MERKEZI komut yolu — olarak kalir.
+# "mission1+agent_fsm kalkisi devraldiginda SURU_KALKIS_OLAYLA=true
+# yapilacak" notu baslat.sh:863'te 19 Agustos'tan beri duruyordu.
+#
+# OLCULEN SONUC (2 Eylul 20:24, ylp00): Gorev 1 tetiklendi, PREFLIGHT
+# gecildi, SYNCHRONIZED_TAKEOFF'a girildi, ARM KABUL edildi — ve ajan
+# 25 saniye boyunca sunu yazip YERDE bekledi:
+#     "ARMED bekliyor: mission_start=False offboard=True armed=True
+#      healthy=True hold_active=False autonomous_paused=False"
+# Kalkis emrini verecek KIMSE YOKTU: YKI dagitiklik sarti geregi artik
+# guided goto gondermiyor, drone da kendi kalkmiyordu. Motorlar bosuna
+# dondu, ucus olmadi. mission1 + maneuver_executor 2 Eylul'de ilk kez
+# ayaga kalkti; kalkisi devralan taraf artik onlar.
+#
+# ⚠️ /ws/yer_testi bayragi bunu YINE DE kapatir — agent_fsm_node.py:351
+#     kalkis_izni = (not yer_testi) and kalkis_olayla
+# Pervanesiz yer testinde motorlarin ~30 sn tam gazda kalmasi o kapiyla
+# onlenmisti; o kapi yerinde duruyor, bu degisiklik ona dokunmuyor.
+KALKIS_OLAYLA = True
+
+# 🔴 KALKIS IRTIFASI — TEK KAYNAK, 2 Eylul 2026.
+# IKI dugum bu sayiyi kullaniyor ve AYNI olmak zorunda:
+#   agent_fsm_node  target_altitude_m  -> px4_bridge'e 'takeoff:<X>' yollar
+#   mission1_node   kalkis_irtifa_m    -> "ulastim" kararini X ile verir
+# Ayrisirlarsa gorev node'u erken/gec "tamam" der ve kimse hata vermez.
+# Ikisi de baslat.sh'ten bu degeri aliyor; kodda 10.0 varsayilani duruyor
+# ama env dosyasi olan ucakta HER ZAMAN burasi kazanir.
+GOREV_KALKIS_IRTIFA_M = 10.0
+
 # (Pil ayarlari INA226 bolumunde — "INA226 PIL OLCUMU" basligina bak.)
 
 # --- Guvenlik ---------------------------------------------------------------
@@ -697,6 +740,30 @@ PIL_DOLU_V = 16.8              # gosterge %100
 # Olculdu (1 Eylul, ylp00): kalkista 15.29 -> 14.72 V, yani 0.57 V'luk
 # dikenler NORMAL. 0.4 V pay birakildi.
 PIL_KRITIK_V = 13.8
+
+# 🔴 PIL KESMESI ACIK MI — 2 Eylul 2026, 08:20, operator talimati.
+#
+# False: pil OLCULMEYE, YKI'de gorunmeye ve UYARI/olay uretmeye DEVAM eder;
+# yalniz agent_fsm'i FAILSAFE'e dusuren dal kapanir. "Izleme kapali" DEGIL —
+# esigi 0 yapmak izlemeyi komple kapatirdi, operator onu istemedi.
+#
+# NEDEN: yukaridaki 0.4 V pay SAGLAM pilde olculmus (0.57 V diken). 2 Eylul
+# gecesi BOSALMIS pilde olculen cokus 1.26-1.31 V — iki katindan fazla,
+# cunku sarj dustukce ic direnc artiyor:
+#     ylp00  %33 = 15.06 V dinlenmede -> ucarken 13.80 V  (cokus 1.26 V)
+#     ylp02  %35 = 15.11 V dinlenmede -> ucarken 13.80 V  (cokus 1.31 V)
+# Yani yarim pille her gelistirme ucusu, HENUZ BITMEMIS bir pille esige
+# degip kendini kesiyordu.
+#
+# NE KALIR: kumanda, kill switch, PX4'un KENDI dusuk-pil failsafe'i
+# (Pixhawk parametresi, bu dosyadan bagimsiz), YKI yuzde uyarilari ve
+# agent_fsm'in "Batarya dusuk/Kritik batarya" UYARILARI + EVENT_BATTERY_LOW.
+# NE GIDER: yalniz otomatik FAILSAFE gecisi. Pili operator izler.
+#
+# 🔴 YARISMA GUNU True YAPILACAK. Dogru kalici cozum: anlik gerilim yerine
+# N saniyelik debounce — anlik cokus dikenini yutar, gercekten biten pili
+# yine yakalar. Sirasi gelince (KARARLAR.md).
+PIL_KESME_AKTIF = False
 # YKI uyari esikleri YUZDE olarak (alert_manager boyle calisiyor).
 # Gerilim karsiliklari: %30 -> 14.98 · %25 -> 14.85
 #                       %16 -> 14.62 · %10 -> 14.46 V
@@ -1204,6 +1271,9 @@ def _kabuk():
     print(f'SURU_BEKLENEN_UCAK={BEKLENEN_UCAK}')
     print(f'SURU_AJAN_SAYISI={AJAN_SAYISI}')
     print(f'GOREV_NAVIGATE_TIMEOUT_S={GOREV_NAVIGATE_TIMEOUT_S}')
+    print(f'GOREV_ROTA_BILINMEYEN_S={GOREV_ROTA_BILINMEYEN_S}')
+    print(f'SURU_KALKIS_OLAYLA={"true" if KALKIS_OLAYLA else "false"}')
+    print(f'GOREV_KALKIS_IRTIFA={GOREV_KALKIS_IRTIFA_M}')
     # (Pil satirlari asagida, INA226 blogunda — INA226_HUCRE orada.)
     # path_planner (rota sekillendirme)
     print(f'ROTA_MAKS_HIZ={GOREV_HIZ_MPS}')
@@ -1263,6 +1333,7 @@ def _kabuk():
     print(f'PIL_BOS_V={PIL_BOS_V}')
     print(f'PIL_DOLU_V={PIL_DOLU_V}')
     print(f'BATARYA_KRITIK_V={PIL_KRITIK_V}')
+    print(f'BATARYA_KESME={"true" if PIL_KESME_AKTIF else "false"}')
     print(f'MOD_GAZ_MERKEZ_PAY={MOD_GAZ_MERKEZ_PAY:.2f}')
     print(f'MOD_SWC_DEBOUNCE_MS={MOD_SWC_DEBOUNCE_MS:.1f}')
 

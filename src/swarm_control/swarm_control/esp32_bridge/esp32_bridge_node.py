@@ -650,6 +650,21 @@ class Esp32BridgeNode(Node):
             _MESH_QOS,
         )
 
+        # 🔴 YKİ -> mesh: QR KONUM TABLOSU (2 Eylül 2026).
+        # Alıcı taraf (_isle_qr_coords) 30 Temmuz'dan beri hazırdı ama
+        # GÖNDEREN YOKTU — YKİ tabloyu bu konuya latched yayınlıyor ve
+        # kimse abone değildi. "Drone'lara Gönder" boşluğa basıyordu ve
+        # sürü hedefsiz kalıyordu (2 Eylül, dört uçuş). Baz istasyonunda
+        # backend yayınlar; drone tarafında yayıncı yok -> boşta.
+        # MANDALLI: tablo BAŞLAT'tan önce girilir, esp32_bridge sonradan
+        # açılsa bile son tabloyu alır.
+        self.create_subscription(
+            QRCoordinates,
+            '/swarm/internal/mission/qr_coords',
+            self._on_qr_coords_out,
+            _ORIGIN_QOS,
+        )
+
         # YKİ -> drone: guided tekil komut (arm/takeoff/goto/rtl/land).
         # Base istasyonunda backend yayınlar; bu handler mesh'e iletir
         # (TIP_KOMUT[guided] veya TIP_GOTO). Drone tarafında yayıncı yok → boşta.
@@ -2545,6 +2560,50 @@ class Esp32BridgeNode(Node):
             f"mesh'e yayınlandı (TIP_GOREV/0x{tip:02X}"
             + (f', aralık={aralik:.1f} m, irtifa={irtifa:.1f} m'
                if msg.data else '') + ')'
+        )
+
+    def _on_qr_coords_out(self, msg: QRCoordinates) -> None:
+        """QR konum tablosunu mesh'e yayınlar — her QR AYRI çerçeve.
+
+        Yalnız BASE istasyonunda etkin (drone'da bu konuya yayıncı yok).
+        16 baytlık payload'a bir tablo sığmaz; alıcı `toplam` alanına
+        bakıp tabloyu tamamlanınca yayınlar (_isle_qr_coords).
+
+        `_guided_gonder` kullanılıyor: guided komutlarla aynı 4 kopyalı
+        tekrar kuyruğu — mesh'te ACK yok, tek paket kaybı O QR'ı düşürür
+        ve tablo HİÇ tamamlanmaz (alıcı `>= toplam` bekliyor).
+        """
+        n = len(msg.qr_ids)
+        if n == 0:
+            self.get_logger().warning('[esp32] QR tablosu BOŞ — gönderilmedi')
+            return
+        if len(msg.lat_deg) < n or len(msg.lon_deg) < n:
+            # 🔴 SESSİZ KIRPMA YOK: eksik listeyle yollamak tabloyu
+            # yarım gönderir, alıcı `toplam`a hiç ulaşamaz ve sürü
+            # sebebi yazılmadan hedefsiz kalır.
+            self.get_logger().error(
+                f'[esp32] QR tablosu TUTARSIZ (id={n} lat={len(msg.lat_deg)} '
+                f'lon={len(msg.lon_deg)}) — GÖNDERİLMEDİ'
+            )
+            return
+        gonderilen = 0
+        for i in range(n):
+            try:
+                payload = pp.qr_koord_paketle(
+                    int(msg.qr_ids[i]), n,
+                    float(msg.lat_deg[i]), float(msg.lon_deg[i]),
+                )
+            except ValueError as e:
+                self.get_logger().error(
+                    f'[esp32] QR{msg.qr_ids[i]} GÖNDERİLMEDİ — {e}'
+                )
+                continue
+            # hedef 0 = yayın; tabloyu tüm uçaklar alır
+            self._guided_gonder(pp.TIP_QR_COORDS, 0, payload)
+            gonderilen += 1
+        self.get_logger().warning(
+            f"[esp32] QR KONUM TABLOSU mesh'e yayınlandı: "
+            f'{gonderilen}/{n} nokta (TIP_QR_COORDS)'
         )
 
     def _on_guided_out(self, msg: GuidedCommand) -> None:

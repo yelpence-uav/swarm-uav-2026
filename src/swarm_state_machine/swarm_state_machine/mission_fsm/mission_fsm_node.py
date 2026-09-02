@@ -68,6 +68,7 @@ class MissionFsmNode(Node):
             sitl_mode=self._sitl_mode,
             max_restarts=self._max_restarts,
             navigate_timeout_s=self._navigate_timeout_s,
+            rota_bilinmeyen_s=self._rota_bilinmeyen_s,
         )
 
         self._setup_publishers()
@@ -83,7 +84,8 @@ class MissionFsmNode(Node):
 
         self.get_logger().info(
             f'MissionFsmNode baslatildi: {self._agent_ids} '
-            f'navigate_timeout={self._navigate_timeout_s:.0f}s'
+            f'navigate_timeout={self._navigate_timeout_s:.0f}s '
+            f'rota_bilinmeyen={self._rota_bilinmeyen_s:.0f}s'
         )
 
     def _declare_params(self) -> None:
@@ -102,10 +104,13 @@ class MissionFsmNode(Node):
         # QR'siz sinama ucuslari icin: 300 sn varsayilan, testte 30 verilir.
         # 0 ya da negatif = varsayilani kullan.
         self.declare_parameter('navigate_timeout_s', 0.0)
+        self.declare_parameter('rota_bilinmeyen_s', 0.0)
 
         _nav = float(self.get_parameter('navigate_timeout_s').value)
         # 0/negatif = "verilmedi" -> mission_transitions varsayilani gecerli.
         self._navigate_timeout_s = _nav if _nav > 0.0 else 300.0
+        self._rota_bilinmeyen_s = float(
+            self.get_parameter('rota_bilinmeyen_s').value)
 
         self._agent_ids = list(
             self.get_parameter('agent_ids').value

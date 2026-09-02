@@ -1,6 +1,6 @@
 # YAPILACAKLAR
 
-**Son güncelleme:** 2 Eylül 2026, 04:20 — 🟢 HOME dedektörü uçakta geçti · Görev 1 zinciri ayakta · pil izleme açıldı · 🔴 ylp00 roll · 🔋 piller şarjda
+**Son güncelleme:** 2 Eylül 2026, 09:10 — 🟢 otonom kalkış + formasyon zinciri uçtu · 🔴 RETURN_HOME başlık dönmesi (tel riski) · 🔴 QR tablosu firmware'de · 🔌 RPi'ler kapalı
 
 > **Finale 5 gün.** Bu liste artık "her fikir" değil, **bu 8 günde
 > yapılacak iş.** Bir madde buraya giriyorsa birinin onu yapması planlanıyor
@@ -13,7 +13,37 @@
 
 ## 🔴 P0 — bunlar kapanmadan ilgili uçuş yapılmaz
 
-- `[ ]` 🔴 **OTONOM MANEVRA UÇUŞU — sıradaki iş.** Zincir kuruldu
+- `[ ]` 🔴 **RETURN_HOME'DA BAŞLIK DÖNÜYOR — SIRADAKİ İŞ, uçuş engeli.**
+  `orchestrator.py::_on_return_home` başlığı `bearing(centroid → home)`
+  ile kuruyor; sürü eve yaklaştıkça vektör kısalıyor ve yön tanımsızlaşıp
+  dönüyor. **Ölçüldü (2 Eyl 09:00, iki uçak havada):** merkez
+  (4,4;0,6)→(0,0;0,0) giderken başlık **-106° → -169°, 5 saniyede 63°.**
+  Slot ofsetleri başlığa göre döndüğü için 7 m yarıçaptaki uçak yay çizerek
+  süpürüldü: **ylp00 ylp02'nin üstüne gitti**, operatör PosCtl'e alıp elle
+  indirdi, uçak az kalsın bahçe teline konuyordu.
+  *Çözüm (yazıldı, yerde denendi, operatör talimatıyla GERİ ALINDI):*
+  `_State`'e `kalkis_heading_deg` ekle, `_on_takeoff`/`_hedefsiz_tut`'ta
+  bir kez snapshot'la, `_on_return_home`'da onu kullan; snapshot yoksa eski
+  yola düş. **Yer testi sonucu: başlık sapması 63° → 0,0°.**
+  *Maliyet:* 1 dosya, ~15 satır + yorum. `dagit.sh --paket swarm_missions`.
+  *Sonra:* uçuşla doğrula — uçaklar kalkış dizilişini koruyarak inmeli.
+
+- `[ ]` 🔴 **QR TABLOSU FIRMWARE'DE TAKILI — Görev 1 gerçek hedefle uçamaz.**
+  ROS tarafı bitti ve kanıtlandı (`esp32_base`: *"QR KONUM TABLOSU mesh'e
+  yayınlandı: 5/5 nokta"*), ama baz ESP32'nin **açık beyaz listesinde**
+  (`RX BASE/src/main.cpp`, `tip_byte == TIP_RENK || ...` zinciri)
+  `TIP_QR_COORDS` yok → sessizce atılıyor. Uçaklarda `bilinmeyen=0,
+  crc_fail=0`, yani çerçeve hiç gelmedi. `mesh_config.h:71` zaten
+  *"0x0F: packet_parser.py::TIP_QR_COORDS'a rezerve"* diyor.
+  *Yapılacak:* `#define TIP_QR_COORDS 0x0F` + beyaz listeye ekle →
+  **baz ESP32'yi USB'den flash'la** → tabloyu gönder → uçaklarda
+  `/swarm/public/mission/qr_coords` geldi mi ölç.
+  ⚠️ Tip başına **50 ms** limit var (`MESH_GONDERIM_MIN_MS`); beş QR aynı
+  tiple arka arkaya gidiyor, flash sonrası kaçının ulaştığını ÖLÇ, gerekirse
+  `_on_qr_coords_out`'a aralık koy.
+
+- `[~]` 🔴 **OTONOM MANEVRA UÇUŞU** — *2 Eyl: kalkış+formasyon zinciri
+  AÇILDI (`passthrough` 0→677), manevra kısmı HÂLÂ UÇMADI.* Zincir kuruldu
   (`maneuver_executor` + `mission1` iki uçakta ayakta), kalan tek şey uçmak.
   *Tek soru:* **"manevraya geçince sürü irtifasını koruyor mu?"** — 1
   Eylül'de üç uçağı 1,7 m alçaltan ve ylp02'yi saha dışına çıkaran şey.
@@ -176,6 +206,17 @@
   "halledildi" dedi, test kayda geçmedi. **Uçuş sabahı: kabloyu bilerek 3 kez
   oynat, üçünde de reboot GELMEMELİ.** Kabul ölçütü bant DEĞİL, lehim ya da
   kilitli konnektör.
+
+---
+
+## 🔴 P0 — YARIŞMA GÜNÜ GERİ ALINACAKLAR (geliştirme ayarları)
+
+- `[ ]` 🔴 `PIL_KESME_AKTIF = True` — şu an `False`, pil uçağı FAILSAFE'e
+  düşürmüyor (B29). Kalıcı doğru çözüm: anlık gerilim yerine **N saniyelik
+  debounce** — çöküş dikenini yutar, gerçekten biten pili yakalar.
+- `[ ]` 🔴 `GOREV_NAVIGATE_TIMEOUT_S = 300.0` — şu an 30.
+- `[ ]` 🔴 `GOREV_ROTA_BILINMEYEN_S = 30.0` — şu an 10 (B30).
+- `[ ]` 🟠 `UCAN_KADRO = (1, 2, 3)` + `SURU_KADRO`/`BEKLENEN` — ylp01 dönünce.
 
 ---
 

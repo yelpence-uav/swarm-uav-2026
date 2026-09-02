@@ -867,6 +867,8 @@ ros2 run swarm_state_machine agent_fsm_node --ros-args \
     -p agent_id:=${AGENT_ID} \
     -p battery_critical_voltage_v:=${BATARYA_KRITIK_V} \
     -p kalkis_olayla:=${SURU_KALKIS_OLAYLA:-false} \
+    -p pil_kesme_aktif:=${BATARYA_KESME:-true} \
+    -p target_altitude_m:=${GOREV_KALKIS_IRTIFA:-10.0} \
     -p yer_testi:=${YER_TESTI} >> "$GUNLUK/fsm.log" 2>&1 &
 sleep 5
 # MAVLink yayin hizlari: FCU her resetlendiginde sifirlanir, her aciliste yeniden istenir
@@ -1417,6 +1419,7 @@ fi   # /altyapi: ic_dis_kopru
             -p agent_ids:="${_GFSM_KADRO_ROS}" \
             -p agent_id:=${AGENT_ID} \
             -p navigate_timeout_s:=${GOREV_NAVIGATE_TIMEOUT_S:-0.0} \
+            -p rota_bilinmeyen_s:=${GOREV_ROTA_BILINMEYEN_S:-0.0} \
             -p team_id:="'${TAKIM_ID}'" >> "$GUNLUK/mission_fsm.log" 2>&1 &
         sleep 1
         echo "[baslat] mission_fsm_node basladi (team_id=$TAKIM_ID," \
@@ -1639,6 +1642,7 @@ fi   # /altyapi: ic_dis_kopru
             -p agent_id:=${AGENT_ID} -p team_id:="'${TAKIM_ID}'" \
             -p agent_ids:="${_G1_KADRO_ROS}" \
             -p wing_alpha_deg:=${KANAT_ALFA_DEG} \
+            -p kalkis_irtifa_m:=${GOREV_KALKIS_IRTIFA:-10.0} \
             >> "$GUNLUK/mission1.log" 2>&1 &
         sleep 1
     fi
