@@ -1,6 +1,6 @@
 # YAPILACAKLAR
 
-**Son güncelleme:** 2 Eylül 2026, 09:10 — 🟢 otonom kalkış + formasyon zinciri uçtu · 🔴 RETURN_HOME başlık dönmesi (tel riski) · 🔴 QR tablosu firmware'de · 🔌 RPi'ler kapalı
+**Son güncelleme:** 2 Eylül 2026, 23:55 — 🟢 QR tablosu mesh'ten geçiyor (4 ESP32 flash'landı) · 🟢 RETURN_HOME düzeltmesi uçakta · 🟠 ilk formasyon seçimi YKİ'ye taşınacak
 
 > **Finale 5 gün.** Bu liste artık "her fikir" değil, **bu 8 günde
 > yapılacak iş.** Bir madde buraya giriyorsa birinin onu yapması planlanıyor
@@ -12,6 +12,18 @@
 ---
 
 ## 🔴 P0 — bunlar kapanmadan ilgili uçuş yapılmaz
+
+- `[ ]` 🟠 **İLK FORMASYON SEÇİMİ YKİ'DEN GELSİN** (operatör, 2 Eylül gecesi).
+  Bugün görev kodunda **sabit ÇİZGİ**; hakem başka formasyon söylerse kod
+  değiştirip yeniden dağıtmak gerekiyor — saha gününde dakikalar.
+  *İstenen:* YKİ'de görev başlatma formuna formasyon seçici (okbaşı / V /
+  çizgi) + aralık alanı; değer `BAŞLAT` paketiyle mesh'ten gitsin.
+  ⚠️ **Yol zaten var:** Görev 2'de aralık/irtifa için açılan `g2_ayar`
+  kanalı (`gorev2.md` §5, madde 29) birebir aynı deseni kullanıyor —
+  `_GOREV_FMT` rezervinden alan yeniliyor, paket 16 bayt kalıyor, firmware
+  değişmiyor. Formasyon 1 bayt; aynı pakete sığar.
+  ⚠️ Şartname Görev 1'de YKİ müdahalesini yasaklıyor **ama** bu görev
+  ÖNCESİ ayar (G2-K9 ile aynı gerekçe), görev sırasında değil.
 
 - `[ ]` 🔴 **RETURN_HOME'DA BAŞLIK DÖNÜYOR — SIRADAKİ İŞ, uçuş engeli.**
   `orchestrator.py::_on_return_home` başlığı `bearing(centroid → home)`
