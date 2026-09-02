@@ -10,6 +10,7 @@ from swarm_state_machine.mode_manager.maneuver_mode import (
     compute_hold_setpoints,
 )
 from swarm_state_machine.mode_manager import canli_param
+from swarm_state_machine.mode_manager import tek_yayinci
 from swarm_state_machine.mode_manager.mode_context import ModeContext
 from swarm_state_machine.mode_manager.mode_states import (
     ControlMode,
@@ -1059,3 +1060,33 @@ class TestCanliParamKapisi(unittest.TestCase):
         mesaj = str(cm.exception)
         self.assertIn('kalkis_esik_m', mesaj)
         self.assertIn('default_spacing_m', mesaj)   # ne YAPILABILIR
+
+
+class TestTekYayinci(unittest.TestCase):
+    """Tarif tek-yayinci kurali (3 Eylul kume-toplanma olayi)."""
+
+    def test_lider_benim_yayinlar(self):
+        self.assertTrue(tek_yayinci.tarif_yayinlanir_mi(2, 2, [1, 2, 3]))
+
+    def test_lider_baskasi_yayinlamaz(self):
+        self.assertFalse(tek_yayinci.tarif_yayinlanir_mi(1, 2, [1, 2, 3]))
+
+    def test_election_yoksa_en_kucuk_id_yayinlar(self):
+        """Yedek deterministik: uc ucak da ayni sonuca varir."""
+        self.assertTrue(tek_yayinci.tarif_yayinlanir_mi(1, None, [1, 2, 3]))
+        self.assertFalse(tek_yayinci.tarif_yayinlanir_mi(2, None, [1, 2, 3]))
+        self.assertFalse(tek_yayinci.tarif_yayinlanir_mi(3, None, [1, 2, 3]))
+
+    def test_bos_kadro_yayinlamaz(self):
+        self.assertFalse(tek_yayinci.tarif_yayinlanir_mi(1, None, []))
+
+    def test_tip_degisimi_islenir(self):
+        self.assertTrue(tek_yayinci.degisim_islenir_mi(1, 3, 7.0, 7.0))
+
+    def test_ayni_tip_ayni_aralik_TEKRAR_islenmez(self):
+        """1 Eylul: ayni degisim 50 ms'de bir yeniden isleniyordu."""
+        self.assertFalse(tek_yayinci.degisim_islenir_mi(1, 1, 7.0, 7.0))
+
+    def test_ayni_tip_daraltma_islenir(self):
+        """Ayni tipte aralik degisimi (8->7 daraltma) gercek degisimdir."""
+        self.assertTrue(tek_yayinci.degisim_islenir_mi(1, 1, 7.0, 8.0))

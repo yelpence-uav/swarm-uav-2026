@@ -28,6 +28,7 @@ from swarm_core.formation_control.formation_geometry import (
 from swarm_interfaces.msg import (
     AgentSetpoint,
     AgentStatus,
+    ElectionResult,
     FormationCommand,
     SwarmControlCommand,
     SwarmState,
@@ -36,6 +37,7 @@ from swarm_interfaces.msg import (
 
 from . import canli_param
 from . import morf_kilidi
+from . import tek_yayinci
 from .maneuver_mode import compute_agent_setpoints, compute_hold_setpoints
 from .mode_context import ModeContext
 from .mode_states import ControlMode, ModeState
@@ -157,6 +159,11 @@ class ModeManagerNode(Node):
             self.get_parameter('agent_ids').value
         )
         self._agent_id = int(self.get_parameter('agent_id').value)
+        # TEK-YAYINCI (3 Eylul kume-toplanma olayi): tarifi yalniz lider
+        # basar. None = election henuz gelmedi -> min(agent_ids) yedegi.
+        self._lider_id: int | None = None
+        self._tek_yayinci_uyarildi = False
+        self._son_islenen_aralik: float | None = None
         self._tick_hz = float(
             self.get_parameter('tick_hz').value
         )
@@ -408,6 +415,30 @@ class ModeManagerNode(Node):
             '/swarm/public/state',
             self._on_swarm_state,
             _RELIABLE_QOS,
+        )
+
+        # --- TEK-YAYINCI (3 Eylul 2026): lider bilgisi -------------------
+        # Iki kaynak: kendi consensus'um (internal) + mesh'ten gelen
+        # (public, esp32_bridge basar). Ikisi de RELIABLE+TRANSIENT_LOCAL
+        # (consensus_node.py:118 ve bridge _ELECTION_QOS ile ayni) —
+        # VOLATILE abone SESSIZCE bos kalirdi, form_yayinla dersi.
+        _el_qos = QoSProfile(
+            reliability=ReliabilityPolicy.RELIABLE,
+            durability=DurabilityPolicy.TRANSIENT_LOCAL,
+            history=HistoryPolicy.KEEP_LAST,
+            depth=1,
+        )
+        self.create_subscription(
+            ElectionResult,
+            '/swarm/internal/election/result',
+            self._on_election,
+            _el_qos,
+        )
+        self.create_subscription(
+            ElectionResult,
+            '/swarm/public/election/result',
+            self._on_election,
+            _el_qos,
         )
 
         self.create_subscription(
@@ -832,6 +863,17 @@ class ModeManagerNode(Node):
             if ctx.requested_spacing_m > 0.0
             else def_spacing
         )
+        # TEKRAR MI? Mesh komutlari degisim bayragini surekli tasiyor —
+        # ayni degisim 50 ms'de bir yeniden isleniyordu (1 Eylul olcumu:
+        # morf kilidi surekli tazelendi, log boguldu). Gercek degisim
+        # degilse (ayni tip + ayni aralik) hicbir sey yapma.
+        if self._son_islenen_aralik is not None and \
+                not tek_yayinci.degisim_islenir_mi(
+                    ctx.requested_formation, ctx.active_formation,
+                    spacing, self._son_islenen_aralik):
+            ctx.formation_change_requested = False
+            return
+        self._son_islenen_aralik = spacing
         # 🔴 MORF KILIDI — bu andan itibaren slot hizi MOD_MORF_HIZ.
         # 31 Agustos ucusunda morf tam hizla kosuldu: iki ucak 1,2 saniyede
         # 2,71 m/s'e cikip 4,13 m/s ile kapandi ve 1,65 m'ye yaklastilar.
@@ -868,6 +910,17 @@ class ModeManagerNode(Node):
 
     def _on_agent_status(self, msg: AgentStatus, agent_id: int) -> None:
         self._ctx.agent_statuses[agent_id] = msg
+
+    def _on_election(self, msg: ElectionResult) -> None:
+        yeni = int(msg.new_leader_id)
+        if yeni != self._lider_id:
+            self._lider_id = yeni
+            self._tek_yayinci_uyarildi = False  # lider degisti, bir kez soyle
+            self.get_logger().info(
+                f'[mode_manager] TEK-YAYINCI: lider artik {yeni} '
+                f'(ben={self._agent_id}) — tarif '
+                f'{"BENDE" if yeni == self._agent_id else "liderde"}'
+            )
 
     def _on_control_command(self, msg: SwarmControlCommand) -> None:
         ctx = self._ctx
@@ -1168,6 +1221,20 @@ class ModeManagerNode(Node):
         # ileride eklenen her yeni yol da kendiliginden kapali kalir.
         # Kapali kalma sebebi ve tehlike: mode_context.kalkis_kapisi_degerlendir
         if not self._ctx.kalkis_tamam:
+            return
+
+        # 🔴 TEK-YAYINCI (3 Eylul kume-toplanma olayi): tarifi yalniz lider
+        # basar; takipcilerin formation_node'u liderinkini MESH'ten alir.
+        # Uc yayin noktasi da (movement/hold/degisim) bu tek siniri kullanir.
+        if not tek_yayinci.tarif_yayinlanir_mi(
+                self._agent_id, self._lider_id, self._agent_ids):
+            if not self._tek_yayinci_uyarildi:
+                self._tek_yayinci_uyarildi = True
+                self.get_logger().info(
+                    f'[mode_manager] TEK-YAYINCI: bu ucak tarif BASMAZ '
+                    f'(ben={self._agent_id}, lider={self._lider_id}) — '
+                    f'formation_node tarifi mesh\'ten alir'
+                )
             return
 
         msg = FormationCommand()
