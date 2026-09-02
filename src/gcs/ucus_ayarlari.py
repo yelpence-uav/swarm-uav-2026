@@ -132,7 +132,11 @@ KANAT_ACISI_DEG = 45.0         # ok basi kanat acisi
 #                      iki ucaktan biri tokezleyince TUM SURUYE acil inis
 # AJAN_SAYISI = KIMLIK ARALIGI (id'ler 1..3), ucan sayi degil; ylp01 kapali
 # olsa da 3 kalir cunku ylp02'nin kimligi 3.
-UCAN_KADRO = (1, 3)            # ylp00 + ylp02 (ylp01 kapali)
+UCAN_KADRO = (1, 2, 3)         # ylp00 + ylp01 + ylp02 — ucu de agda
+# 2 Eylul: (1, 3) idi. O deger SURU_KADRO="1 3" uretiyor ve ylp01 acilinca
+# filo BOLUNUYOR: iki ucak [1,3]'lu, biri [1,2,3]'lu tarif basiyor,
+# merkezler ayrisiyor. Ayni aksam UC UCAK HAVADA ~1 m'lik kumeye toplandi.
+# tek_yayinci.py mimari acigi kapatti; bu satir TETIGI kapatiyor.
 BEKLENEN_UCAK = len(UCAN_KADRO)
 AJAN_SAYISI = 3                # kimlik araligi — kadro degisse de 3
 # NAVIGATE_TO_QR zaman asimi. Yarisma varsayilani 300 sn (QR'a UCARAK
