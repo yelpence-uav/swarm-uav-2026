@@ -211,6 +211,16 @@ class _State:
     # üzerinde kalır, yerinde döner. resolve_ned() bu fazlarda artık SONRAKİ
     # QR'ı gösterdiği için (varışta hedef ilerliyor) ona çıpalanamaz.
     qr_anchor: tuple = field(default=None)
+    # KALKIS BASLIGI — bir kez alinir, bir daha degismez (2 Eylul saha olayi).
+    # RETURN_HOME basligi bearing(centroid -> home) ile kuruluyordu; suru eve
+    # yaklastikca vektor kisaliyor ve yon TANIMSIZLASIP donuyor. Olculdu:
+    # merkez (4,4;0,6) -> (0,0;0,0) giderken baslik -106 -> -169 derece,
+    # 5 SANIYEDE 63 DERECE. Slot ofsetleri basliga gore donduğu icin 7 m
+    # yaricaptaki ucak yay cizerek supuruldu: ylp00 ylp02'nin uzerine gitti,
+    # operator PosCtl'e alip elle indirdi, uçak az kalsin bahce teline
+    # konuyordu. Eve donuste diziliş DONMEMELI — kalkistaki basligi tasi.
+    # None = hic snapshot alinmadi (kalkis fazi hic gorulmedi) -> eski yola dus.
+    kalkis_heading_deg: float = field(default=None)
     # QR irtifa merdiveninde en son yayınlanan basamak (-1 = arama kapalı).
     # Basamak değişince yeni komut yayınlanır; aynı basamakta sürü SABİT durur.
     search_step: int = -1
@@ -786,6 +796,11 @@ class Mission1Orchestrator:
             return None
         heading = self._kalkis_heading(inp)
         self._st.heading_deg = heading
+        if self._st.kalkis_heading_deg is None:
+            # Kalkis fazi kacirildiysa (gorev NAVIGATE'te devralindi) ilk
+            # hedefsiz bekleme anini referans al — donmeyen bir baslik,
+            # hic olmamasindan iyi.
+            self._st.kalkis_heading_deg = heading
         return [FormationTargetCmd(
             formation_type=self._st.formation_type,
             center=self._hold_center(inp, offsets, heading),
@@ -813,6 +828,8 @@ class Mission1Orchestrator:
         # de aynı olmalı ki iki döndürme sadeleşsin ve diziliş korunsun.
         heading = self._kalkis_heading(inp)
         self._st.heading_deg = heading
+        if self._st.kalkis_heading_deg is None:
+            self._st.kalkis_heading_deg = heading   # eve donuste kullanilacak
         return [FormationTargetCmd(
             formation_type=self._st.formation_type,
             center=self._hold_center(inp, offsets, heading),
@@ -1036,7 +1053,14 @@ class Mission1Orchestrator:
         """RETURN_HOME: eve doğru düz formasyonla ilerler (eğim sıfırlanır)."""
         self._st.tilt_pitch_deg = 0.0
         self._st.tilt_roll_deg = 0.0
-        heading = self._bearing_deg(inp.centroid, inp.home)
+        # Baslik KALKISTAN tasinir, eve olan yonden TUREMEZ. Gerekcesi ve
+        # olculen 63 derece/5 sn sapma _State.kalkis_heading_deg'de.
+        # Snapshot yoksa eski yola dusuyoruz: yanlis ama bilinen davranis,
+        # sessiz bir None'dan iyi.
+        if self._st.kalkis_heading_deg is not None:
+            heading = float(self._st.kalkis_heading_deg)
+        else:
+            heading = self._bearing_deg(inp.centroid, inp.home)
         self._st.heading_deg = heading
         offsets = self._assign(
             self._st.formation_type, self._st.spacing_m, inp.home, heading,

@@ -64,9 +64,20 @@ def _inp(state, step, leader=True, qr=None, time_in_state=0.0,
 
 
 def test_navigate_blocked_until_qr_ready():
-    """Origin/tablo yokken hiçbir komut üretilmez (tekrar denenir)."""
+    """Origin/tablo yokken hedefe gidilmez ama SURU TUTULUR.
+
+    2 Eylul'e kadar burada `== []` bekleniyordu. O davranis sahada uc ucusu
+    bitirdi: komut ureten kimse kalmayinca passthrough=0 oluyor, PX4
+    OFFBOARD'i birakiyor ve agent_fsm FAILSAFE veriyordu. `_hedefsiz_tut`
+    o boslugu kapatti — hedef yoksa suru mevcut merkezinde formasyonu
+    KORUR. Test o gun guncellenmemisti; beklenti burada duzeltildi.
+    """
     o = Mission1Orchestrator()
-    assert o.decide(_inp(S_ROTATE, 0)) == []
+    cmds = o.decide(_inp(S_ROTATE, 0))
+    assert len(cmds) == 1
+    assert isinstance(cmds[0], FormationTargetCmd)
+    assert cmds[0].use_current_centroid       # oldugun yerde kal
+    assert not cmds[0].rotate_towards_target  # hedef yok, donme
     assert not o.qr_ready
 
 
@@ -283,3 +294,73 @@ def test_qr_recovery_emitted_once():
     cmds = o.decide(_inp(S_EXECUTE, 0, time_in_state=12.0,
                          centroid=(0.0, 0.0, -20.0)))
     assert not any(isinstance(c, FormationTargetCmd) for c in cmds)
+
+
+# --- RETURN_HOME baslik dondurma (2 Eylul saha olayi) --------------------
+# Olay: eve donuste baslik bearing(centroid -> home) ile kuruluyordu. Suru
+# eve yaklastikca vektor kisalir, yon tanimsizlasir ve DONER. Sahada
+# olculdu: merkez (4,4;0,6) -> (0,0;0,0) giderken baslik -106 -> -169
+# derece, 5 saniyede 63 derece. Slotlar basliga gore donduğu icin ylp00
+# komsusunun uzerine suruklendi ve ucus elle kesildi.
+
+def _return_home_basliklari(o, noktalar):
+    """Verilen centroid dizisi icin RETURN_HOME basliklarini toplar."""
+    cikan = []
+    for c in noktalar:
+        for cmd in o.decide(_inp(S_RETURN_HOME, 0, centroid=c)):
+            if isinstance(cmd, FormationTargetCmd):
+                cikan.append(cmd.heading_deg)
+    return cikan
+
+
+def test_return_home_baslik_donmuyor():
+    """Eve yaklasirken baslik SABIT kalir — kalkistaki deger tasinir.
+
+    Merkez sahadaki izi izliyor: (4,4;0,6) -> (0,0;0,0). Eski kodda bu iz
+    boyunca baslik -106 -> -169 dereceye kayiyordu (5 sn'de 63 derece).
+    Orkestrator emit-once oldugu icin her nokta ayri bir ornekle olculuyor.
+    """
+    iz = [(4.4, 0.6, -10.0), (3.0, 0.4, -10.0), (1.5, 0.2, -10.0),
+          (0.4, 0.05, -10.0), (0.0, 0.0, -10.0)]
+    basliklar = []
+    for c in iz:
+        o = _ready_orch()
+        o.decide(OrchestratorInput(
+            mission_state=S_TAKEOFF, qr_step=0, is_leader=True,
+            agent_ids=list(_IDS), positions=list(_POS), centroid=_CEN,
+            home=_HOME, swarm_yaw_deg=30.0,
+        ))
+        basliklar += _return_home_basliklari(o, [c])
+    assert len(basliklar) == len(iz)
+    assert max(basliklar) - min(basliklar) == 0.0, f'baslik dondu: {basliklar}'
+    assert basliklar[0] == 30.0, f'kalkis basligi tasinmadi: {basliklar[0]}'
+    # Baslik artik centroid'den TUREMIYOR: eski formul bu izde ~-172 derece
+    # verirdi, yeni deger kalkistan gelen 30 derece. (Sahadaki 63 derecelik
+    # salinim merkez eve COK yaklasinca, vektor sifira giderken olusuyordu;
+    # duz bir izde eski formul de sabit gorunur — bu yuzden olcut "eski
+    # deger degismiyor mu" degil, "yeni deger ondan bagimsiz mi".)
+    eski_formul = math.degrees(
+        math.atan2(_HOME[1] - iz[0][1], _HOME[0] - iz[0][0]))
+    assert abs(basliklar[0] - eski_formul) > 90.0
+
+
+def test_return_home_snapshot_yoksa_eski_yola_duser():
+    """Kalkis hic gorulmediyse davranis degismez (sessiz None yok)."""
+    o = _ready_orch()
+    h = _return_home_basliklari(o, [(4.4, 0.6, -10.0)])
+    assert len(h) == 1
+    beklenen = math.degrees(math.atan2(_HOME[1] - 0.6, _HOME[0] - 4.4))
+    assert abs(h[0] - beklenen) < 1e-9
+
+
+def test_kalkis_basligi_bir_kez_alinir():
+    """Snapshot ilk kalkista donar; sonraki tick'ler onu DEGISTIRMEZ."""
+    o = _ready_orch()
+    for yaw in (30.0, 95.0, -170.0):
+        o.decide(OrchestratorInput(
+            mission_state=S_TAKEOFF, qr_step=0, is_leader=True,
+            agent_ids=list(_IDS), positions=list(_POS), centroid=_CEN,
+            home=_HOME, swarm_yaw_deg=yaw,
+        ))
+    h = _return_home_basliklari(o, [(4.4, 0.6, -10.0)])
+    assert h[0] == 30.0, f'snapshot ezildi: {h[0]}'
