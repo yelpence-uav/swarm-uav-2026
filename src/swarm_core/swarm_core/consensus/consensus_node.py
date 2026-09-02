@@ -81,6 +81,16 @@ class ConsensusNode(Node):
             battery_min_v=self._battery_min_v,
             grace_s=self._grace_s,
         )
+        self._ctx.lider_kilitli = bool(
+            self.get_parameter('lider_kilitli').value)
+        if self._ctx.lider_kilitli:
+            self.get_logger().warning(
+                '[consensus] LIDER KILIDI ACIK — lider bir kez secilecek ve '
+                'DEGISMEYECEK. Lider gercekten duserse devir OLMAZ; '
+                'takipciler son formasyon komutunda kalir. Cikis yolu '
+                'kill switch. (3 Eylul: liderlik bes kez el degistirip '
+                'suruyu bolmustu.)'
+            )
 
         # Liderligi birakma histerezisi (P0.12a): kendi uygunlugumuzu ilk
         # yitirdigimiz an. 0.0 = uygunuz ya da lider degiliz.
@@ -134,6 +144,9 @@ class ConsensusNode(Node):
         # 10.0 sn: asimetrik link birkac saniyede duzelmez; bu sure
         # dolunca durum yeniden degerlendirilir.
         self.declare_parameter('onalma_bastir_s', 10.0)
+        # LIDER KILIDI — 3 Eylul 2026 operator karari. True iken lider BIR
+        # KEZ secilir ve degismez. Gerekce/bedel: election.decide_change.
+        self.declare_parameter('lider_kilitli', False)
 
         self._agent_id = int(self.get_parameter('agent_id').value)
         self._agent_count = int(self.get_parameter('agent_count').value)

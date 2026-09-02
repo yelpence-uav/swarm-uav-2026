@@ -65,6 +65,10 @@ class ConsensusContext:
         # Gercek lider KAYBI (LEADER_FAULT) bundan ETKILENMEZ — orasi
         # bastirilirsa lider olunce kimse devralmaz.
         self.onalma_bastir_until = 0.0
+        # LIDER KILIDI — 3 Eylul 2026, operator karari.
+        # True iken lider BIR KEZ secilir ve bir daha DEGISMEZ.
+        # Gerekcesi ve bedeli decide_change'de yazili.
+        self.lider_kilitli = False
 
         # Mesaj sayaclari
         # seen_seq: KAYNAK BASINA gorulen son sequence_num.

@@ -190,6 +190,17 @@ GOREV_DAGILMA_HIZ_MPS = 1.0
 # ile verilmisti ("bayagi yavas yapsin formasyonlari").
 GOREV_KURULUM_HIZ_MPS = 1.0
 
+# 🔴 LIDER KILIDI — 3 Eylul 2026 operator karari.
+# True: lider bir kez secilir, BIR DAHA DEGISMEZ.
+# Sebep olculdu: o gece liderlik BES KEZ el degistirdi (1->2, 2->1, 1->2,
+# 2->1, 1->3). Kok neden DURUM paketinin bayatlamasi (ucak basina 7-8 kez
+# "5.0-5.1 sn gelmedi", esik 5.0). Her degisimde yeni lider slot atamasini
+# yeniden hesapladi, ylp01 ile ylp02 yer degistirdi, birbirinin ustunden
+# gectiler ve kacinma binlerce kare devrede kaldi (avoid=1136/1614).
+# BEDELI: lider gercekten duserse DEVIR OLMAZ; takipciler son komutta
+# kalir. Cikis yolu kill switch pilotlaridir.
+SURU_LIDER_KILIDI = True
+
 # 🔴 KALKIS OTORITESI — 2 Eylul 2026, sahada olculdu.
 #
 # false (19 Agustos'tan beri suren GECIS DONEMI degeri): gorev basladiginda
@@ -1316,6 +1327,7 @@ def _kabuk():
     print(f'GOREV_DONUS_KATMAN={GOREV_DONUS_KATMAN_M:.1f}')
     print(f'GOREV_DAGILMA_HIZ={GOREV_DAGILMA_HIZ_MPS:.1f}')
     print(f'GOREV_KURULUM_HIZ={GOREV_KURULUM_HIZ_MPS:.1f}')
+    print(f'SURU_LIDER_KILIDI={str(SURU_LIDER_KILIDI).lower()}')
     print(f'SURU_KALKIS_OLAYLA={"true" if KALKIS_OLAYLA else "false"}')
     print(f'GOREV_KALKIS_IRTIFA={GOREV_KALKIS_IRTIFA_M}')
     # (Pil satirlari asagida, INA226 blogunda — INA226_HUCRE orada.)

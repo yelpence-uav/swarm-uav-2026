@@ -53,8 +53,20 @@ def _dugum(alarm_s=2.0, tut_s=5.0):
     n._neighbor_rx = {}
     n._komsu_gorulmus = set()
     n._korluk_bildirildi = set()
+    # YERDE+DISARM MUAFIYETI (bkz. _donus_tutmasi): kaybolan komsu son
+    # gorulusunde yerdeyse tutma uygulanmiyor. Iki alani da kurmazsak
+    # AttributeError `_tick`in genis `except`inde yutulur.
+    n._korluk_muaf_bildirildi = set()
+    n._korluk_yer_esigi_m = 1.5      # baslat.sh KACINMA_KORLUK_YER varsayilani
     n._n_korluk = 0
     n._n_korluk_tut = 0
+    n._n_yatay_tut = 0
+    # DIKEY TANI ALANLARI (_dikey_tanilari_isle). Bunlar da eksikti; ayni
+    # yutulan-AttributeError yuzunden "normal akis kesildi" gorunuyordu.
+    n._n_dikey_yetersiz = 0
+    n._yetersiz_bildirildi = False
+    n._n_donus_kor = 0
+    n._donus_kor_bildirildi = False
     n._korluk_tut_aktif = False
     n._n_skip_stale = 0
     n._n_skip_state = 0
@@ -76,6 +88,13 @@ def _st(state=AgentStatus.STATE_ARMED):
     m.v_xy_valid = True
     m.lat_deg = 38.69
     m.lon_deg = 39.16
+    # swarm_interfaces conftest'te MOCK: KURULMAYAN her alan MagicMock doner
+    # ve komsu_adaptoru'ndeki `gps_fix_type >= 3` TypeError atar. `_tick`in
+    # genis `except`i onu yuttugu icin test "normal akis kesildi" diye
+    # dusuyordu. AMSL yolu adaptore sonradan eklendi, fikstur bayat kaldi.
+    m.gps_fix_type = 3
+    m.home_alt_amsl_m = 0.0
+    m.alt_amsl_m = 0.0
     return m
 
 
@@ -193,6 +212,14 @@ def _tik_kur(n, tik_t, ham_vz=0.0, hiz_var=False):
     n._cur_z = -10.0          # 10 m havada
     n._cur_vx = n._cur_vy = 0.0
     n._altitude_gate_m = 3.0
+    # 🔴 IRTIFA KAPISI ARTIK _cur_z'YE BAKMIYOR. Kapi (alt_amsl - home_amsl)
+    # uzerinden calisiyor; EKF yerel z ~10 m kayabildigi ve kayma yukari
+    # yonluyse ucak YERDEYKEN kapi acildigi icin degistirilmisti. Bu iki alan
+    # eklenmeyince `_tick_inner` AttributeError atiyor, `_tick`in genis
+    # `except`i onu YUTUYOR ve dokuz test "setpoint yayinlanmadi" diye
+    # dusuyordu — kod degil TEST bayatti (3 Eylul 2026'da bulundu).
+    n._irtifa_ok = True
+    n._irtifa_m = 10.0
     n._ca = MagicMock()
     n._ca.compute.return_value = ((0.0, 0.0, 0.0), False)
     n._relay = MagicMock()

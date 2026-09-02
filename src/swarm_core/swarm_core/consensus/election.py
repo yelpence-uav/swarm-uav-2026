@@ -145,6 +145,26 @@ def decide_change(ctx, effective: set, now: float):
         return None
     if ctx.leader_id == candidate:
         return None
+
+    # --- LIDER KILIDI (operator karari, 3 Eylul 2026) -------------------
+    # Lider BIR KEZ secilir, bir daha degismez. Ilk secim (leader_id == 0)
+    # yukarida yapildi; buradan sonrasi yalniz DEGISIM kararlaridir.
+    #
+    # NEDEN: 3 Eylul ucusunda liderlik BES KEZ el degistirdi
+    # (1->2, 2->1, 1->2, 2->1, 1->3). Kok neden DURUM paketinin bayatlamasi:
+    # ucak basina 7-8 kez "DURUM paketi 5.0-5.1 sndir gelmedi (esik 5.0)"
+    # olculdu, yani lider anlik olarak uygun kumeden dusuyordu. Her degisim
+    # yeni liderin slot atamasini yeniden hesaplamasina yol acti; ylp01 ile
+    # ylp02 YER DEGISTIRDI, birbirinin ustunden gectiler ve kacinma
+    # binlerce kare devrede kaldi (avoid=1136 / 1614, yatay_tut=48/52).
+    #
+    # 🔴 BEDELI — bilerek kabul edildi: lider GERCEKTEN duserse devir OLMAZ.
+    # Takipciler son formasyon komutunda kalir (yerinde tutar), yeni komut
+    # gelmez. Cikis yolu kill switch pilotlaridir. Bu yuzden bir PARAMETRE:
+    # yarisma gunu tek satirla acilip kapatilabilir (SURU_LIDER_KILIDI).
+    if ctx.lider_kilitli:
+        return None
+
     if ctx.leader_id not in effective:
         return (candidate, ElectionResult.REASON_LEADER_FAULT)
     if candidate == ctx.agent_id and candidate < ctx.leader_id:
