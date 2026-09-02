@@ -499,3 +499,29 @@ def test_yaw_kapaliyken_eski_davranis():
     _kalkis(o, yaw=30.0)
     assert o._donus_fazi(_inp(S_RETURN_HOME, 0, time_in_state=1.0)) == 1
     assert _donus(o, 1.0)[0].heading_deg == 30.0
+
+
+def test_kurulum_hizi_rotate_komutlarinda():
+    """Formasyon kurulumu YAVAS, seyir normal — 3 Eylül operatör isteği.
+
+    O uçuşta dağınık dizilişten çizgiye geçiş ROTA_MAKS_HIZ (3.0 m/s) ile
+    koştu ve operatör "çok hızlı yaptılar" dedi. Kurulum tek atımlık bir
+    manevra; hızlı olmasının değeri yok, görünürlüğü ise kötü.
+    """
+    o = _profil_orch(gorev_kurulum_hiz_mps=1.0)
+    _kalkis(o)
+    cmds = [c for c in o.decide(_inp(S_ROTATE, 0))
+            if isinstance(c, FormationTargetCmd)]
+    assert cmds, 'ROTATE komut uretmedi'
+    for c in cmds:
+        assert c.max_speed == 1.0, f'kurulum hizi uygulanmadi: {c.max_speed}'
+
+
+def test_kurulum_hizi_kapaliyken_degistirmez():
+    """0.0 = dokunma; düğümün kendi varsayılanı geçerli kalır."""
+    o = _profil_orch(gorev_kurulum_hiz_mps=0.0)
+    _kalkis(o)
+    cmds = [c for c in o.decide(_inp(S_ROTATE, 0))
+            if isinstance(c, FormationTargetCmd)]
+    assert cmds
+    assert all(c.max_speed == 0.0 for c in cmds)

@@ -88,8 +88,12 @@ class Mission1Node(Node):
             donus_katman_m=float(self.get_parameter('donus_katman_m').value),
             dagilma_hiz_mps=float(
                 self.get_parameter('dagilma_hiz_mps').value),
+            gorev_kurulum_hiz_mps=float(
+                self.get_parameter('gorev_kurulum_hiz_mps').value),
         ))
 
+        # HOME kilidi icin beklenen kadro (bkz. _on_swarm_state).
+        self._cfg_full_agent_count = len(self._agent_ids)
         self._mission_state = 0
         self._state_entry_time = self._now_s()
         self._qr_step = 0
@@ -147,6 +151,7 @@ class Mission1Node(Node):
         self.declare_parameter('donus_yaw_deg', 0.0)
         self.declare_parameter('donus_katman_m', 5.0)
         self.declare_parameter('dagilma_hiz_mps', 1.0)
+        self.declare_parameter('gorev_kurulum_hiz_mps', 0.0)
         # 🔴 KALKIS IRTIFASI — agent_fsm'in target_altitude_m'i ile AYNI
         # olmak ZORUNDA. Ikisi ayrisirsa gorev node'u "ulastim" derken
         # agent_fsm baska bir sayiya bakar; ikisi de sessizce yanilir.
@@ -275,8 +280,35 @@ class Mission1Node(Node):
         ]
         self._have_swarm_state = True
         # Home = kalkış centroid'i (XY); RETURN_HOME buraya döner.
-        if self._home_xy is None and msg.active_agent_count > 0:
-            self._home_xy = (float(msg.centroid_x), float(msg.centroid_y))
+        #
+        # 🔴 KONUMLAR GECERLI OLMADAN KILITLEME — 3 Eylul 2026 saha olayi.
+        #
+        # Eski kosul yalniz `active_agent_count > 0` idi. Sonucu olculdu:
+        # ilk SwarmState centroid'i (0,0) ile geldi (konumlar heniz akmiyor)
+        # ve HOME ORIGIN'E KILITLENDI. Kalkis merkezi (+3.4, -3.9) oldugu
+        # halde RETURN_HOME sürüyü (0,0)'a cagirdi:
+        #     "RETURN_HOME: home=(0.0, 0.0) centroid=(3.4, -3.9) mesafe=5.2m"
+        # Yani "kalktigi yere in" 5 metre yanlis noktaya donusuyordu ve
+        # HICBIR YERDE hata gorunmuyordu — home_xy_set=True diyordu.
+        #
+        # Yeni kosul UC SART: kadro tam, konum listesi dolu ve centroid
+        # dejenere degil. Biri tutmazsa BEKLER; kalkis oncesi bol bol
+        # SwarmState geliyor, gec kilitlenmek zararsiz — YANLIS kilitlenmek
+        # degil.
+        if self._home_xy is None:
+            n_bekl = self._cfg_full_agent_count or len(self._agent_ids)
+            konum_ok = (len(self._positions) >= n_bekl
+                        and int(msg.active_agent_count) >= n_bekl)
+            merkez_ok = (abs(float(msg.centroid_x)) > 1e-6
+                         or abs(float(msg.centroid_y)) > 1e-6)
+            if konum_ok and merkez_ok:
+                self._home_xy = (
+                    float(msg.centroid_x), float(msg.centroid_y))
+                self.get_logger().info(
+                    f'[gorev1] HOME kilitlendi: '
+                    f'({self._home_xy[0]:+.1f}, {self._home_xy[1]:+.1f}) '
+                    f'— {int(msg.active_agent_count)} ucak, konum listesi dolu'
+                )
 
     def _on_telemetry(self, msg: AgentStatus) -> None:
         """Kendi yaw'ımızı ve kalkış irtifa alanlarını saklar."""

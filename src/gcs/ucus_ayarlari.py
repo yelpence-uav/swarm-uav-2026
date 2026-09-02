@@ -183,6 +183,13 @@ GOREV_DONUS_KATMAN_M = 5.0
 # uyusmustu. Diger bacaklarda suru BLOK gidiyor, kapanma sifir.
 GOREV_DAGILMA_HIZ_MPS = 1.0
 
+# Formasyon KURULUM hizi (dagitik dizilisten cizgiye). 3 Eylul ucusunda
+# operator "cok hizli yaptilar" dedi; kurulum ROTA_MAKS_HIZ (3.0) ile
+# kosuyordu. Tek atimlik manevra, hizli olmasinin degeri yok.
+# 0.0 = degistirme. 1 Eylul'de Gorev 2 icin ayni karar MOD_MORF_HIZ=0.6
+# ile verilmisti ("bayagi yavas yapsin formasyonlari").
+GOREV_KURULUM_HIZ_MPS = 1.0
+
 # 🔴 KALKIS OTORITESI — 2 Eylul 2026, sahada olculdu.
 #
 # false (19 Agustos'tan beri suren GECIS DONEMI degeri): gorev basladiginda
@@ -1308,6 +1315,7 @@ def _kabuk():
     print(f'GOREV_DONUS_YAW={GOREV_DONUS_YAW_DEG:.1f}')
     print(f'GOREV_DONUS_KATMAN={GOREV_DONUS_KATMAN_M:.1f}')
     print(f'GOREV_DAGILMA_HIZ={GOREV_DAGILMA_HIZ_MPS:.1f}')
+    print(f'GOREV_KURULUM_HIZ={GOREV_KURULUM_HIZ_MPS:.1f}')
     print(f'SURU_KALKIS_OLAYLA={"true" if KALKIS_OLAYLA else "false"}')
     print(f'GOREV_KALKIS_IRTIFA={GOREV_KALKIS_IRTIFA_M}')
     # (Pil satirlari asagida, INA226 blogunda — INA226_HUCRE orada.)

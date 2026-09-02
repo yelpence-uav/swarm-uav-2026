@@ -86,6 +86,12 @@ class OrchestratorConfig:
     #   her biri 1.0 m/s -> kapanma 2.0 -> frenleme 0.56 m -> kalan 3.44 m
     # Diger bacaklarda suru BLOK halinde gidiyor, kapanma sifir -> hiz normal.
     dagilma_hiz_mps: float = 1.0
+    # 🔴 FORMASYON KURULUM HIZI — 3 Eylul, operator: "cok hizli yaptilar".
+    # Dagitik dizilisten cizgiye gecerken ucaklar ROTA_MAKS_HIZ (3.0 m/s)
+    # ile kosuyordu; yollar kesismese de goruntu ve yuk agir. Kurulum tek
+    # atimlik bir manevra, hizli olmasinin bir degeri yok.
+    # 0.0 = degistirme (dugumun kendi varsayilani).
+    gorev_kurulum_hiz_mps: float = 0.0
     # QR okunamazsa okuma irtifasına inme (10m tabanı) ve tetik gecikmesi.
     qr_read_altitude_m: float = 12.0
     qr_recovery_delay_s: float = 8.0
@@ -937,6 +943,7 @@ class Mission1Orchestrator:
                 rotate_towards_target=False,
                 use_current_centroid=True,
                 use_current_altitude=True,
+                max_speed=float(self._cfg.gorev_kurulum_hiz_mps),
             ))
 
         self._st.heading_deg = heading
@@ -957,6 +964,7 @@ class Mission1Orchestrator:
             spacing_m=self._st.spacing_m,
             agent_ids=list(inp.agent_ids),
             offsets=offsets,
+            max_speed=float(self._cfg.gorev_kurulum_hiz_mps),
             rotate_towards_target=True,
             use_current_centroid=True,
             use_current_altitude=True,
