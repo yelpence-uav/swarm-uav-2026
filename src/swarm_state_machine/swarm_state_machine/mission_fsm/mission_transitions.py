@@ -15,7 +15,7 @@ _CMD_LAND = 6
 
 _PREFLIGHT_TIMEOUT_S = 3600.0
 _TAKEOFF_TIMEOUT_S = 90.0
-_NAVIGATE_TIMEOUT_S = 300.0
+_NAVIGATE_TIMEOUT_S = 300.0   # ctx.navigate_timeout_s ile ezilebilir
 # Ayrılan ajanın sürüye dönmesi için QR'da beklenecek üst sınır (NAVIGATE'e
 # girişten itibaren). Ajan: renkli alana in → disarm → bekle → arm → sürüye
 # yetiş. Aşılırsa görev eksik sürüyle de olsa ilerler (tıkanma yerine kısmi
@@ -187,7 +187,8 @@ def _from_navigate_to_qr(ctx: MissionContext) -> MissionState | None:
     if ctx.route_unknown and ctx.time_in_state() > _ROUTE_UNKNOWN_GRACE_S:
         return MissionState.RETURN_HOME
 
-    if ctx.time_in_state() > _NAVIGATE_TIMEOUT_S:
+    if ctx.time_in_state() > (ctx.navigate_timeout_s
+                              or _NAVIGATE_TIMEOUT_S):
         return MissionState.RETURN_HOME
 
     return None

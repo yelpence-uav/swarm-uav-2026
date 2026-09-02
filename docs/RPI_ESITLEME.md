@@ -1,6 +1,6 @@
 # RPİ EŞİTLEME DEFTERİ — geri gelen drone'u hizaya getirme
 
-**Son güncelleme:** 2 Eylül 2026, 03:05 — 🔴 **B22: `manevra` düğümü ylp00 + ylp02'de AÇILDI** · B23: `qr_step` bayat-bırakma düzeltmesi · B20/B21 HOME doğrulaması (ylp01 üçünde de geride). Eski: kamera modülü değişti, kamera_yayin.py dağıtıma girdi
+**Son güncelleme:** 2 Eylül 2026, 05:05 — 🔴 **B24: MAVROS FCU onarımı otomatikleşti** (iki uçakta da yaşandı, ikisinde de restart çözdü). Eski: 🔴 **B22: `manevra` düğümü ylp00 + ylp02'de AÇILDI** · B23: `qr_step` bayat-bırakma düzeltmesi · B20/B21 HOME doğrulaması (ylp01 üçünde de geride). Eski: kamera modülü değişti, kamera_yayin.py dağıtıma girdi
 
 ## Kamera servisi — 1 Eylül 2026 düzeltmesi
 
@@ -471,6 +471,7 @@ sudo sysctl -q --load=/etc/sysctl.d/60-yelpence-writeback.conf
 | B21 | **`home_denetle.py`** (teşhis betiği) | ✅ | ❌ | ✅ | `dagit.sh` taşır (`/ws/` **köküne**, `teshis/` altına DEĞİL). B7 ile birlikte gider |
 | B22 | 🔴 **`manevra` anahtarı — `maneuver_executor` AÇILDI** | ✅ *(2 Eyl 03:00)* | ❌ | ✅ *(2 Eyl 03:00)* | `/ws/suru_dugumleri`'ne `manevra` eklendi + `docker restart`. Görev 1'in pitch/roll/yaw düğümü; **her uçakta ayrı koşar** (`-p agent_id:=N`). Doğrulandı: düğüm ayakta, action sunucusu `/drone_N/maneuver/execute` görünüyor, düğüm sayısı +1 |
 | B23 | **Kod — 2 Eylül 03:00: `qr_step` bayat-bırakma** | ✅ | ❌ | ✅ | `dagit.sh --paket swarm_core` + restart. `formation_node`'un Görev 1 susturma kapısına 3 sn tazelik şartı eklendi (Görev 2'de zaten vardı). Aşağıdaki nota bak |
+| B24 | ✅ **MAVROS FCU onarımı — `baslat.sh`'e eklendi (2 Eyl)** | ✅ | ❌ | ✅ | Açılışta `connected:false` ise **bir kez** mavros yeniden başlatılır. Kapı GCS onarımıyla aynı: **yalnız Pi uptime < 15 dk**. Bozuk kalırsa `/ws/mavros_fcu_bozuk` yazılır ve `drone_bul.sh --durum` gösterir. `dagit.sh` taşır, uçağa özgü ayar YOK |
 
 > ### 🔴 B20 — HOME doğrulaması: **yalnız ylp00'da**, diğer ikisi geride
 >

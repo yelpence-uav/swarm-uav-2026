@@ -389,6 +389,13 @@ durum_yaz() {
              else echo \"\$_dn - BEKLENENDEN AZ, acilis logunu incele\"; fi
              if [ -f \"\$HOME/yelpence_ws/mavros_gcs_bozuk\" ]; then
                  printf '  >> SORUN       : MAVROS GCS hatti BOZUK (%s hata) - docker restart $kon gerekli\n' \"\$(cat \$HOME/yelpence_ws/mavros_gcs_bozuk 2>/dev/null)\"
+             fi
+             # FCU baglantisi AYRI bir ariza (2 Eylul): PX4 ile hic
+             # konusulmuyor, YKI'de tum PX4 alanlari sifir ama MESH CALISIR
+             # ve pil dogru gelir. 'veri var ama bos' — teshisi zor, o yuzden
+             # --durum tek bakista soylemeli.
+             if [ -f \"\$HOME/yelpence_ws/mavros_fcu_bozuk\" ]; then
+                 printf '  >> SORUN       : MAVROS FCU-ya BAGLI DEGIL (connected:false) - docker restart $kon (TUZAKLAR 2.24)\n'
              fi" \
             2>&1 | sed 's/^/  /' || echo "  ${K_SARI}(SSH cevap vermedi — anahtar yok olabilir)${K_SIFIR}"
         echo

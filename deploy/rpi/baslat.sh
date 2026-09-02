@@ -421,6 +421,63 @@ if [ -n "$GCS_URL" ]; then
     fi
 fi
 
+# --- MAVROS FCU'YA BAGLANDI MI? (2 Eylul 2026) ------------------------------
+# 🔴 YUKARIDAKI GCS DENETIMI BASKA BIR ARIZAYI ARIYOR. O, 'Network is
+# unreachable' sayiyor — yani QGC'ye giden `udp-b` YAYIN hattini. FCU
+# BAGLANTISI bambaska bir sey ve bugune kadar HIC DENETLENMIYORDU.
+#
+# 1-2 Eylul gecesi IKI UCAKTA da yasandi: dugumler ayakta, port acik, ama
+#     /drone_N/mavros/state -> connected: false, mode: ''
+#     mavros.log -> 'detected remote address 49.241 / 253.237 / 144.255...'
+# Rastgele adres = baytlar MAVLink cercevesi sanilip YANLIS HIZALANIYOR
+# (saglamda tek sabit adres olur). YKI'de butun PX4 alanlari sifir gorunur
+# ama mesh calisir — pil (INA226, I2C) dogru gelir, konum gelmez. Bu ayrim
+# teshisi zorlastiriyor: "veri geliyor ama bos".
+#
+# 🔴 DONANIM DEGIL — OLCULDU (TUZAKLAR 2.24): seri hat 921600'de 3 saniyede
+# 882 kendini dogrulayan cerceve, sysid 1, %23.2 sifir bayti. Baud taramasi
+# yapildi, diger hizlarda 0-2 cerceve. `docker restart` kapatti. IKI KEZ,
+# IKI AYRI UCAKTA, ayni cozum. O yuzden burada otomatiklestiriliyor.
+#
+# KAPI GCS ONARIMIYLA AYNI ve ayni gerekceyle: yalniz Pi acilisinin ilk
+# dakikalarinda. Ucus sonrasi kendiliginden mavros yeniden baslatmak
+# SURPRIZ ve riskli olurdu; o an karar operatorde.
+_FCU_UPTIME_SN=$(cut -d. -f1 /proc/uptime 2>/dev/null || echo 999999)
+_FCU_TAVAN_SN="${MAVROS_ONARIM_TAVANI_SN:-900}"     # 15 dakika
+_fcu_bagli() {
+    # `--once` bagli olmayan bir konuda beklemez ama yayin hic yoksa asilir;
+    # timeout sart. grep -a: log ikili bayt icerebiliyor.
+    timeout 8 ros2 topic echo --once "/drone_${AGENT_ID}/mavros/state" \
+        2>/dev/null | grep -qa 'connected: true'
+}
+if ! _fcu_bagli; then
+    if [ "$_FCU_UPTIME_SN" -lt "$_FCU_TAVAN_SN" ]; then
+        echo "[baslat] MAVROS FCU'ya BAGLANMADI — ilk acilis, BIR KEZ yeniden deneniyor"
+        # Once cocuk sonra sarmalayici degil: desen ikisini de yakaliyor
+        # (yukaridaki GCS onarimi da ayni pkill'i kullaniyor).
+        pkill -f 'mavros_node' 2>/dev/null
+        sleep 3
+        _mavros_baslat
+        sleep 20
+    else
+        echo "[baslat] MAVROS FCU'ya BAGLANMADI — Pi ${_FCU_UPTIME_SN} sn'dir acik"
+        echo "[baslat]   OTOMATIK ONARIM YAPILMADI (tavan ${_FCU_TAVAN_SN} sn)."
+    fi
+fi
+if _fcu_bagli; then
+    rm -f /ws/mavros_fcu_bozuk
+    echo "[baslat] MAVROS FCU baglantisi TAMAM (connected: true)"
+else
+    echo "[baslat] ==========================================================="
+    echo "[baslat] MAVROS FCU'YA BAGLANAMADI — connected: false"
+    echo "[baslat]   YKI'de PX4 alanlari SIFIR gorunur (mod '?', fix 0, konum 0)"
+    echo "[baslat]   ama mesh calisir ve PIL dogru gelir — 'veri var ama bos'."
+    echo "[baslat]   COZUM: docker restart <konteyner>   (TUZAKLAR 2.24)"
+    echo "[baslat]   🔴 DONANIM SANMA: 2 Eylul'de olculdu, seri hat saglamdi."
+    echo "[baslat] ==========================================================="
+    echo 1 > /ws/mavros_fcu_bozuk
+fi
+
 # --- GPS'ten saat duzeltme (15 Agustos) -------------------------------------
 # Pi 5'te RTC yedek pili yok: acilista saat ~11 saat GERIDEN geliyor ve ancak
 # ag gelince NTP one atlatiyor (olculdu, ayrinti gps_saat.py basinda). Iki
@@ -1359,6 +1416,7 @@ fi   # /altyapi: ic_dis_kopru
         ros2 run swarm_state_machine mission_fsm_node --ros-args \
             -p agent_ids:="${_GFSM_KADRO_ROS}" \
             -p agent_id:=${AGENT_ID} \
+            -p navigate_timeout_s:=${GOREV_NAVIGATE_TIMEOUT_S:-0.0} \
             -p team_id:="'${TAKIM_ID}'" >> "$GUNLUK/mission_fsm.log" 2>&1 &
         sleep 1
         echo "[baslat] mission_fsm_node basladi (team_id=$TAKIM_ID," \

@@ -22,6 +22,13 @@ class MissionContext:
     """mission_fsm_node ve mission_transitions için ortak bellek."""
 
     agent_ids: list
+    # NAVIGATE_TO_QR zaman asimi — YAPILANDIRILABILIR (2 Eylul 2026).
+    # Yarisma varsayilani 300 sn: QR'a UCARAK gitmek zaman aliyor. Ama
+    # QR'siz bir SINAMA ucusunda sürü o 300 saniyeyi formasyonda ASILI
+    # geciriyor — hicbir bilgi uretmeden pil yakiyor ve ucusu 6.5 dakikaya
+    # cikariyor. Test ucuslari icin kisaltilabilsin diye ctx'e alindi;
+    # mission_transitions artik sabit yerine BUNU okuyor.
+    navigate_timeout_s: float = 300.0
 
     team_id: str = ''
     sitl_mode: bool = False

@@ -67,6 +67,7 @@ class MissionFsmNode(Node):
             team_id=self._team_id,
             sitl_mode=self._sitl_mode,
             max_restarts=self._max_restarts,
+            navigate_timeout_s=self._navigate_timeout_s,
         )
 
         self._setup_publishers()
@@ -81,7 +82,8 @@ class MissionFsmNode(Node):
         )
 
         self.get_logger().info(
-            f'MissionFsmNode baslatildi: {self._agent_ids}'
+            f'MissionFsmNode baslatildi: {self._agent_ids} '
+            f'navigate_timeout={self._navigate_timeout_s:.0f}s'
         )
 
     def _declare_params(self) -> None:
@@ -97,6 +99,13 @@ class MissionFsmNode(Node):
         # Görev başındaki ilk QR hedefi (şartname: QR1). Jenerik kalsın diye
         # parametre; farklı senaryoda değiştirilebilir.
         self.declare_parameter('start_qr', 1)
+        # QR'siz sinama ucuslari icin: 300 sn varsayilan, testte 30 verilir.
+        # 0 ya da negatif = varsayilani kullan.
+        self.declare_parameter('navigate_timeout_s', 0.0)
+
+        _nav = float(self.get_parameter('navigate_timeout_s').value)
+        # 0/negatif = "verilmedi" -> mission_transitions varsayilani gecerli.
+        self._navigate_timeout_s = _nav if _nav > 0.0 else 300.0
 
         self._agent_ids = list(
             self.get_parameter('agent_ids').value

@@ -135,6 +135,12 @@ KANAT_ACISI_DEG = 45.0         # ok basi kanat acisi
 UCAN_KADRO = (1, 3)            # ylp00 + ylp02 (ylp01 kapali)
 BEKLENEN_UCAK = len(UCAN_KADRO)
 AJAN_SAYISI = 3                # kimlik araligi — kadro degisse de 3
+# NAVIGATE_TO_QR zaman asimi. Yarisma varsayilani 300 sn (QR'a UCARAK
+# gitmek zaman aliyor). QR'siz SINAMA ucusunda sürü o sureyi formasyonda
+# ASILI geciriyor — bilgi uretmeden pil yakiyor, ucus 6.5 dakikaya cikiyor.
+# 30 sn: formasyona oturmak icin en uzun yol 6.7 m, ~5 sn; kalani gozlem.
+# 🔴 YARISMA GUNU 300.0 YAPILACAK (ya da 0 = kod varsayilani).
+GOREV_NAVIGATE_TIMEOUT_S = 30.0
 
 # (Pil ayarlari INA226 bolumunde — "INA226 PIL OLCUMU" basligina bak.)
 
@@ -1197,6 +1203,7 @@ def _kabuk():
     print(f'SURU_KADRO="{" ".join(str(k) for k in UCAN_KADRO)}"')
     print(f'SURU_BEKLENEN_UCAK={BEKLENEN_UCAK}')
     print(f'SURU_AJAN_SAYISI={AJAN_SAYISI}')
+    print(f'GOREV_NAVIGATE_TIMEOUT_S={GOREV_NAVIGATE_TIMEOUT_S}')
     # (Pil satirlari asagida, INA226 blogunda — INA226_HUCRE orada.)
     # path_planner (rota sekillendirme)
     print(f'ROTA_MAKS_HIZ={GOREV_HIZ_MPS}')
