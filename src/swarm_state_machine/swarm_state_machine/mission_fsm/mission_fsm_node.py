@@ -244,6 +244,20 @@ class MissionFsmNode(Node):
             _BEST_EFFORT_QOS,
         )
 
+        # --- GÖREV 1 tetiği (3 Eylül 2026) ------------------------------
+        # Şartname: "YKİ üzerinden görevi başlatma komutu DIŞINDA herhangi
+        # bir müdahale yasaktır." Yani Görev 1 de YKİ'den başlamak ZORUNDA.
+        # 2 Eylül'e kadar bu yol YOKTU: ros_bridge mesh yayınını yalnız
+        # Görev 2 için yapıyordu, YKİ'nin ROS servisi de
+        # ROS_LOCALHOST_ONLY=1 yüzünden uçaklara ulaşmıyordu — beş uçuş
+        # geçici bir SSH betiğiyle başlatıldı.
+        self.create_subscription(
+            Bool,
+            '/swarm/public/mission/gorev1_baslat',
+            self._on_gorev1_tetik,
+            _BEST_EFFORT_QOS,
+        )
+
     # 🔴 DURDUR SONRASI SOGUMA — 31 Agustos 2026.
     # Gorev durumu komsulara durum paketindeki bitle yayiliyor (G2-K11).
     # Bu, BASLATMA icin istenen sey; DURDURMA icin TERSINE calisiyordu:
@@ -293,6 +307,44 @@ class MissionFsmNode(Node):
             '[mission_fsm] GOREV YAYILIMI — komsu yari otonom modda, '
             'kendi gorevim baslatiliyor. PREFLIGHT denetimleri YINE '
             'kosacak; gecmezsem SEMI_AUTONOMOUS\'a GECMEM.'
+        )
+
+    def _on_gorev1_tetik(self, msg: Bool) -> None:
+        """GÖREV 1 BAŞLAT/DURDUR — YKİ'den mesh üzerinden gelir.
+
+        _on_gorev_yayilimi ile AYNI kalıp, tek farkı mission_type:
+        Görev 1 DYNAMIC_SWARM, Görev 2 SEMI_AUTONOMOUS. Ayrı tutulmalarının
+        sebebi FSM geçişlerinin farklı olması — Görev 2'de PREFLIGHT
+        doğrudan SEMI_AUTONOMOUS'a gider (kalkışı kumanda sürer), Görev 1'de
+        SYNCHRONIZED_TAKEOFF'a gider (kalkış otonom).
+
+        BAŞLAT yalnız IDLE'dan tetikler; görev zaten başladıysa yok sayılır.
+        Yayın broadcast olduğu için üç uçağa birden ulaşır ve her uçak
+        KENDİ PREFLIGHT'ını koşar — geçemeyen kalkmaz.
+        """
+        ctx = self._ctx
+
+        if not msg.data:
+            if ctx.state in (MissionState.IDLE, MissionState.ABORTED):
+                return
+            ctx.pending_command = TriggerMission.Request.COMMAND_ABORT
+            ctx.abort_reason = 'YKI: gorev 1 durduruldu (mesh)'
+            self.get_logger().warning(
+                '[mission_fsm] GÖREV 1 DURDURULDU (YKİ). ⚠️ UÇAN sürüyü '
+                'durdurmaz; iniş RETURN_HOME ya da kill switch ile.'
+            )
+            return
+
+        if ctx.state != MissionState.IDLE:
+            return
+        if ctx.mission_type == MissionType.DYNAMIC_SWARM \
+                and ctx.pending_command == TriggerMission.Request.COMMAND_START:
+            return          # zaten kuyrukta
+        ctx.mission_type = MissionType.DYNAMIC_SWARM
+        ctx.pending_command = TriggerMission.Request.COMMAND_START
+        self.get_logger().warning(
+            '[mission_fsm] GÖREV 1 BAŞLAT (YKİ, mesh) — PREFLIGHT '
+            'denetimleri YİNE koşacak; geçmezsem KALKMAM.'
         )
 
     def _on_control_command(self, msg: SwarmControlCommand) -> None:

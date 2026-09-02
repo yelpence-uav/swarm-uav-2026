@@ -49,6 +49,24 @@ GOREV_TIP_G2_BASLAT = 0x20
 # yeniden baslatirdi. Soguma, bir ucak DURDUR paketini kacirsa bile
 # digerlerinin geri tetiklenmesini onluyor.
 GOREV_TIP_G2_DURDUR = 0x21
+
+# GOREV 1 BASLAT/DURDUR — 3 Eylul 2026.
+#
+# 🔴 NEDEN AYRI ALT TIP: G2'nin biti (DURUM2_BAYRAK_GOREV_YARI_OTONOM)
+# alicida mission_type'i SEMI_AUTONOMOUS yapiyor. Gorev 1 icin gereken
+# gecis BASKA (DYNAMIC_SWARM + PREFLIGHT -> SYNCHRONIZED_TAKEOFF); ayni
+# biti kullansaydik YKI'de "Gorev 1 baslat" demek suruyu GOREV 2 moduna
+# sokardi — sessiz ve tam olarak yanlis.
+#
+# ⚠️ FIRMWARE'E DOKUNULMUYOR: TIP_GOREV (0x05) her iki whitelist'te de
+# ZATEN var ve firmware paketin ICINE bakmiyor, opak tasiyor. Alt tip
+# yalniz Python tarafinda anlamlaniyor.
+#
+# G2'den FARKI — yayilima gerek yok: G2'de tetik tek ucaga SSH/servisle
+# gidiyordu ve komsulara durum bitiyle yayiliyordu (G2-K11). Burada YKI
+# -> baz -> mesh BROADCAST zaten UC UCAGA BIRDEN ulasiyor.
+GOREV_TIP_G1_BASLAT = 0x22
+GOREV_TIP_G1_DURDUR = 0x23
 TIP_RENK = 0x06
 TIP_DURUM = 0x07
 TIP_ORIGIN = 0x08

@@ -740,3 +740,24 @@ def test_komut_spacing_tavani_kirpiliyor():
         throttle_x100=0, talep_formasyon=1, talep_spacing_m=100.0,
     )
     assert pp.komut_coz(payload).talep_spacing_dm == 255
+
+
+def test_gorev1_alt_tipleri_gidis_donus():
+    """GÖREV 1 başlat/durdur alt tipleri paketlenip çözülebiliyor.
+
+    3 Eylül 2026. Görev 1'in YKİ'den başlatma yolu bu alt tiplerle açıldı.
+    🔴 G2'nin alt tipleriyle ÇAKIŞMAMALI: aynı değer kullanılsaydı YKİ'de
+    "Görev 1 başlat" demek sürüyü GÖREV 2 moduna sokardı (alıcıda
+    mission_type SEMI_AUTONOMOUS olurdu) — sessiz ve tam olarak yanlış.
+    """
+    assert pp.GOREV_TIP_G1_BASLAT == 0x22
+    assert pp.GOREV_TIP_G1_DURDUR == 0x23
+    dortlu = {pp.GOREV_TIP_G2_BASLAT, pp.GOREV_TIP_G2_DURDUR,
+              pp.GOREV_TIP_G1_BASLAT, pp.GOREV_TIP_G1_DURDUR}
+    assert len(dortlu) == 4, 'alt tipler CAKISIYOR'
+
+    for tip in (pp.GOREV_TIP_G1_BASLAT, pp.GOREV_TIP_G1_DURDUR):
+        payload = pp.gorev_paketle(tip, 0, 0, 0)
+        assert len(payload) == 16
+        g = pp.gorev_coz(payload)
+        assert g.tip == tip

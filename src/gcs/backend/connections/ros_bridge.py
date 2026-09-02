@@ -73,6 +73,7 @@ logger = logging.getLogger(__name__)
 # MissionType.SEMI_AUTONOMOUS ve TriggerMission.Request.COMMAND_START.
 # Enum'lari import ETMIYORUZ: backend `swarm_state_machine`'e bagimli degil
 # ve oyle kalmali (yalniz `swarm_interfaces`).
+_MISSION_DYNAMIC_SWARM = 1      # Gorev 1 (otonom)
 _MISSION_SEMI_AUTONOMOUS = 2
 _COMMAND_START = 1
 _COMMAND_ABORT = 2
@@ -382,6 +383,7 @@ class RosBridge:
         # Guided (YKİ tekil komut) yayıncısı + harita→NED için son origin.
         self._guided_pub = None
         self._gorev_baslat_pub = None
+        self._gorev1_baslat_pub = None
         self._g2_ayar_pub = None
         self._kumanda = None
         self._kumanda_lock = threading.Lock()
@@ -517,11 +519,19 @@ class RosBridge:
                 mesh_gonderildi = self.publish_gorev_baslat(True)
             elif int(command) == _COMMAND_ABORT:
                 mesh_gonderildi = self.publish_gorev_baslat(False)
+        elif int(mission_id) == _MISSION_DYNAMIC_SWARM:
+            # GÖREV 1 — 3 Eylül 2026. Aynı gerekçe: YKİ uçakların ROS
+            # grafiğini görmüyor (ROS_LOCALHOST_ONLY=1), servis çağrısı
+            # tutmaz. Mesh yayını ÜÇ UÇAĞA BİRDEN gider.
+            if int(command) == _COMMAND_START:
+                mesh_gonderildi = self.publish_gorev1_baslat(True)
+            elif int(command) == _COMMAND_ABORT:
+                mesh_gonderildi = self.publish_gorev1_baslat(False)
 
         if self._trigger_mission_client is None:
             if mesh_gonderildi:
                 return {"success": True,
-                        "message": "Görev 2 komutu mesh'ten yayınlandı"}
+                        "message": f"Görev {int(mission_id)} komutu mesh'ten yayınlandı"}
             return {"success": False, "message": "ROS 2 service client hazır değil"}
 
         # Karşı tarafta server var mı?
@@ -533,8 +543,8 @@ class RosBridge:
                     # Beklenen durum: YKİ drone'ların ROS grafiğini görmez.
                     return {
                         "success": True,
-                        "message": ("Görev 2 komutu mesh'ten yayınlandı "
-                                    "(yerel ROS servisi yok — normal)"),
+                        "message": (f"Görev {int(mission_id)} komutu mesh'ten "
+                                    "yayınlandı (yerel ROS servisi yok — normal)"),
                     }
                 return {
                     "success": False,
@@ -622,6 +632,27 @@ class RosBridge:
         self._gorev_baslat_pub.publish(m)
         logger.info(
             "Görev 2 %s -> /swarm/internal/mission/baslat (mesh)",
+            "BAŞLAT" if basla else "DURDUR",
+        )
+        return True
+
+    def publish_gorev1_baslat(self, basla: bool = True) -> bool:
+        """Görev 1 BAŞLAT/DURDUR'u mesh'e yayınlar (base ESP iletir).
+
+        Görev 2'nin yolundan AYRI: orada bit alıcıda mission_type'ı
+        SEMI_AUTONOMOUS yapıyor, Görev 1'in ihtiyacı DYNAMIC_SWARM.
+
+        Returns:
+            bool: yayınlandıysa True.
+        """
+        if self._gorev1_baslat_pub is None:
+            logger.warning("gorev1 baslat publisher yok — yayınlanamadı")
+            return False
+        m = Bool()
+        m.data = bool(basla)
+        self._gorev1_baslat_pub.publish(m)
+        logger.info(
+            "Görev 1 %s -> /swarm/internal/mission/gorev1_baslat (mesh)",
             "BAŞLAT" if basla else "DURDUR",
         )
         return True
@@ -844,6 +875,17 @@ class RosBridge:
             Bool, "/swarm/internal/mission/baslat", guided_qos
         )
         logger.info("publisher → /swarm/internal/mission/baslat")
+
+        # --- GÖREV 1 başlat/durdur (3 Eylül 2026) ------------------------
+        # Şartname Görev 1'de de "YKİ üzerinden görevi başlatma" diyor.
+        # 2 Eylül'e kadar bu yol YOKTU: aşağıdaki mesh kapısı yalnız
+        # Görev 2'ye açıktı, servis çağrısı da ROS_LOCALHOST_ONLY=1
+        # yüzünden uçaklara ulaşmıyordu — beş uçuş SSH ile başlatıldı.
+        # AYRI konu: G2'nin biti alıcıda SEMI_AUTONOMOUS'a geçiriyor.
+        self._gorev1_baslat_pub = self._node.create_publisher(
+            Bool, "/swarm/internal/mission/gorev1_baslat", guided_qos
+        )
+        logger.info("publisher → /swarm/internal/mission/gorev1_baslat")
 
         # --- MADDE 29: Görev 2 aralık/irtifa ayarı (31 Ağustos 2026) ------
         # 🔴 MANDALLI (TRANSIENT_LOCAL) VE RELIABLE, bilerek:

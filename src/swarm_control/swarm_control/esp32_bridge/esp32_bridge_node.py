@@ -649,6 +649,17 @@ class Esp32BridgeNode(Node):
             self._on_gorev_baslat_out,
             _MESH_QOS,
         )
+        # --- GÖREV 1 başlat/durdur (3 Eylül 2026) -----------------------
+        # YKİ -> mesh -> ÜÇ UÇAK. G2'deki gibi uçaktan uçağa yayılıma
+        # gerek yok: baz'ın yayını zaten broadcast, üçüne birden gidiyor.
+        self._gorev1_tetik_pub = self.create_publisher(
+            Bool, '/swarm/public/mission/gorev1_baslat', _MESH_QOS)
+        self.create_subscription(
+            Bool,
+            '/swarm/internal/mission/gorev1_baslat',
+            self._on_gorev1_baslat_out,
+            _MESH_QOS,
+        )
 
         # 🔴 YKİ -> mesh: QR KONUM TABLOSU (2 Eylül 2026).
         # Alıcı taraf (_isle_qr_coords) 30 Temmuz'dan beri hazırdı ama
@@ -1967,6 +1978,22 @@ class Esp32BridgeNode(Node):
             )
             return
 
+        # --- GÖREV 1 (3 Eylül 2026) -------------------------------------
+        # AYRI konu ve AYRI alt tip: G2'nin biti mission_type'ı
+        # SEMI_AUTONOMOUS yapıyor, Görev 1'in ihtiyacı DYNAMIC_SWARM.
+        # Aynı kanalı kullansaydık "Görev 1 başlat" sürüyü Görev 2 moduna
+        # sokardı — sessiz ve tam olarak yanlış.
+        if g.tip in (pp.GOREV_TIP_G1_BASLAT, pp.GOREV_TIP_G1_DURDUR):
+            basla = g.tip == pp.GOREV_TIP_G1_BASLAT
+            m = Bool()
+            m.data = basla
+            self._gorev1_tetik_pub.publish(m)
+            self.get_logger().warning(
+                f'[esp32] GÖREV 1 {"BAŞLAT" if basla else "DURDUR"} alındı '
+                f'(kaynak {source_id}) — mission_fsm tetikleniyor'
+            )
+            return
+
         msg = SystemEvent()
         msg.stamp = self.get_clock().now().to_msg()
         # GOREV paketi QR çözümünden çıkar, en yakın event QR_PARSED
@@ -2561,6 +2588,27 @@ class Esp32BridgeNode(Node):
             + (f', aralık={aralik:.1f} m, irtifa={irtifa:.1f} m'
                if msg.data else '') + ')'
         )
+
+    def _on_gorev1_baslat_out(self, msg: Bool) -> None:
+        """YKİ'den gelen GÖREV 1 başlat/durdur -> mesh (TIP_GOREV 0x22/0x23).
+
+        Görev 1'de aralık/irtifa BAŞLAT paketiyle gitmiyor: o değerler
+        görev koduna ait (gorev_formasyon / gorev_aralik_m) ve baslat.sh
+        ile veriliyor. Madde 29'un G2 yolu burada geçerli değil.
+        """
+        tip = (pp.GOREV_TIP_G1_BASLAT if msg.data
+               else pp.GOREV_TIP_G1_DURDUR)
+        try:
+            payload = pp.gorev_paketle(tip, 0, 0, 0)
+        except ValueError as e:
+            self.get_logger().error(
+                f'[esp32] GÖREV 1 komutu paketlenemedi: {e}')
+            return
+        # hedef 0 = yayın; üç uçak da kendi mission_fsm'ini tetikler
+        self._guided_gonder(pp.TIP_GOREV, 0, payload)
+        self.get_logger().warning(
+            f'[esp32] GÖREV 1 {"BAŞLAT" if msg.data else "DURDUR"} '
+            f"mesh'e yayınlandı (TIP_GOREV alt tip 0x{tip:02X})")
 
     def _on_qr_coords_out(self, msg: QRCoordinates) -> None:
         """QR konum tablosunu mesh'e yayınlar — her QR AYRI çerçeve.
