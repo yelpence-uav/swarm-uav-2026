@@ -517,7 +517,19 @@ class ModeManagerNode(Node):
         if ctx.state == ModeState.MOVEMENT:
             self._dispatch_movement(dt)
         elif ctx.state == ModeState.MANEUVER:
-            self._dispatch_maneuver(dt)
+            # 🔴 MANEVRA-MORF ALT-FAZI (kilit açık + formasyon değişimi,
+            # 4 Eylül operatör): manevra modundan ÇIKMADAN formasyon
+            # değiştirilebilsin. Morf sürerken manevra SUSAR ve eğim
+            # sıfırlanır; formation_node morf eder (susturma aşağıda kalkar).
+            # Böylece manevra ile morf HİÇ aynı anda basmaz (iki-üretici
+            # çakışması önlenir) ve eğikken morf olmaz. Morf bitince manevra
+            # kendiliğinden döner (dizilim korunur). Morf süresi/hızı morf
+            # kilidiyle ortak (_morf_bitis_s, _handle_formation_change).
+            if self._morf_bitis_s > time.monotonic():
+                ctx.maneuver_pitch_deg = 0.0
+                ctx.maneuver_roll_deg = 0.0
+            else:
+                self._dispatch_maneuver(dt)
         elif ctx.state == ModeState.HOLD:
             self._dispatch_hold()
         elif ctx.state == ModeState.READY:
@@ -603,7 +615,11 @@ class ModeManagerNode(Node):
             ctx.state == ModeState.TAKEOFF
         ) or (
             ctx.kalkis_tamam and (
-                ctx.state == ModeState.MANEUVER
+                # MANEVRA'da formation_node susar — AMA manevra-morf
+                # alt-fazında DEĞİL: o an formation_node morf etmeli
+                # (manevra susuyor, yukarıdaki dispatch'te dispatch atlanır).
+                (ctx.state == ModeState.MANEUVER
+                 and self._morf_bitis_s <= time.monotonic())
                 or (ctx.state in (ModeState.HOLD, ModeState.READY)
                     and (ctx.maneuver_pitch_deg != 0.0
                          or ctx.maneuver_roll_deg != 0.0))
