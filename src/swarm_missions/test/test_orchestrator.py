@@ -315,34 +315,40 @@ def _return_home_basliklari(o, noktalar):
 
 
 def test_return_home_baslik_donmuyor():
-    """Eve yaklasirken baslik SABIT kalir — kalkistaki deger tasinir.
+    """Eve yaklasirken baslik SABIT kalir — GIRISTE bir kez mandallanir.
 
-    Merkez sahadaki izi izliyor: (4,4;0,6) -> (0,0;0,0). Eski kodda bu iz
-    boyunca baslik -106 -> -169 dereceye kayiyordu (5 sn'de 63 derece).
-    Orkestrator emit-once oldugu icin her nokta ayri bir ornekle olculuyor.
+    2 Eylul saha olayi: baslik HER TICK bearing(centroid -> home) ile
+    hesaplaniyordu; merkez (4,4;0,6) -> (0,0;0,0) giderken vektor kisalip
+    yon tanimsizlasti ve baslik -106 -> -169 dereceye kaydi (5 SANIYEDE 63
+    DERECE). Slotlar basliga gore dondugu icin 7 m yaricaptaki ucak yay
+    cizerek supuruldu; operator PosCtl'e alip elle indirdi.
+
+    Duzeltme "hic hesaplama" degil, "BIR KEZ hesapla": vektor EN UZUNKEN
+    olculur ve mandallanir. Bu test ayni orkestratoru izin tamami boyunca
+    surdurur — eski kod burada kayardi.
     """
     iz = [(4.4, 0.6, -10.0), (3.0, 0.4, -10.0), (1.5, 0.2, -10.0),
           (0.4, 0.05, -10.0), (0.0, 0.0, -10.0)]
+    o = _ready_orch()
+    o.decide(OrchestratorInput(
+        mission_state=S_TAKEOFF, qr_step=0, is_leader=True,
+        agent_ids=list(_IDS), positions=list(_POS), centroid=_CEN,
+        home=_HOME, swarm_yaw_deg=30.0,
+    ))
     basliklar = []
-    for c in iz:
-        o = _ready_orch()
-        o.decide(OrchestratorInput(
-            mission_state=S_TAKEOFF, qr_step=0, is_leader=True,
-            agent_ids=list(_IDS), positions=list(_POS), centroid=_CEN,
-            home=_HOME, swarm_yaw_deg=30.0,
-        ))
-        basliklar += _return_home_basliklari(o, [c])
-    assert len(basliklar) == len(iz)
+    for k, c in enumerate(iz):
+        basliklar += [cmd.heading_deg for cmd in
+                      o.decide(_inp(S_RETURN_HOME, 0, time_in_state=float(k),
+                                    centroid=c))
+                      if isinstance(cmd, FormationTargetCmd)]
+    assert basliklar, 'hic komut uretilmedi'
     assert max(basliklar) - min(basliklar) == 0.0, f'baslik dondu: {basliklar}'
-    assert basliklar[0] == 30.0, f'kalkis basligi tasinmadi: {basliklar[0]}'
-    # Baslik artik centroid'den TUREMIYOR: eski formul bu izde ~-172 derece
-    # verirdi, yeni deger kalkistan gelen 30 derece. (Sahadaki 63 derecelik
-    # salinim merkez eve COK yaklasinca, vektor sifira giderken olusuyordu;
-    # duz bir izde eski formul de sabit gorunur — bu yuzden olcut "eski
-    # deger degismiyor mu" degil, "yeni deger ondan bagimsiz mi".)
-    eski_formul = math.degrees(
-        math.atan2(_HOME[1] - iz[0][1], _HOME[0] - iz[0][0]))
-    assert abs(basliklar[0] - eski_formul) > 90.0
+
+    # Mandallanan deger, GIRIS anindaki ev yonu olmali (kalkis basligi degil).
+    beklenen = math.degrees(
+        math.atan2(_HOME[1] - iz[0][1], _HOME[0] - iz[0][0])) % 360.0
+    fark = abs((basliklar[0] - beklenen + 180.0) % 360.0 - 180.0)
+    assert fark < 1e-9, f'baslik {basliklar[0]} != ev yonu {beklenen}'
 
 
 def test_return_home_snapshot_yoksa_eski_yola_duser():
@@ -359,7 +365,12 @@ def test_return_home_snapshot_yoksa_eski_yola_duser():
 
 
 def test_kalkis_basligi_bir_kez_alinir():
-    """Snapshot ilk kalkista donar; sonraki tick'ler onu DEGISTIRMEZ."""
+    """Kalkis snapshot'i ilk kalkista donar; sonraki tick'ler DEGISTIRMEZ.
+
+    Bu deger eve donus BASLIGI icin artik kullanilmiyor (o ev yonunden
+    turuyor) ama DAGILMA fazi hala buna bagli: kalkis dizilisi bu basligin
+    cercevesinde saklaniyor.
+    """
     o = _ready_orch()
     for yaw in (30.0, 95.0, -170.0):
         o.decide(OrchestratorInput(
@@ -367,8 +378,8 @@ def test_kalkis_basligi_bir_kez_alinir():
             agent_ids=list(_IDS), positions=list(_POS), centroid=_CEN,
             home=_HOME, swarm_yaw_deg=yaw,
         ))
-    h = _return_home_basliklari(o, [(4.4, 0.6, -10.0)])
-    assert h[0] == 30.0, f'snapshot ezildi: {h[0]}'
+    assert o._st.kalkis_heading_deg == 30.0, (
+        f'snapshot ezildi: {o._st.kalkis_heading_deg}')
 
 
 # --- Operator ucus profili (2 Eylul gecesi) -----------------------------
@@ -383,8 +394,10 @@ _FRM_CUSTOM = 99
 
 def _profil_orch(**kw):
     """Operator profili yapilandirilmis orkestrator."""
+    # donus_yaw_deg ARTIK 0: donus miktari ev yonunden kendiliginden cikiyor
+    # (3 Eylul). Bu alan yalnizca EK ofset; uretimde de 0 (ucus_ayarlari).
     cfg = dict(gorev_formasyon=_FRM_CIZGI, gorev_aralik_m=7.0,
-               donus_yaw_deg=180.0, donus_katman_m=5.0,
+               donus_yaw_deg=0.0, donus_katman_m=5.0,
                dagilma_hiz_mps=1.0, full_agent_count=3)
     cfg.update(kw)
     o = Mission1Orchestrator(OrchestratorConfig(**cfg))
@@ -401,10 +414,41 @@ def _kalkis(o, yaw=30.0):
         home=_HOME, swarm_yaw_deg=yaw))
 
 
-def _donus(o, t):
-    """RETURN_HOME'u t saniyede isler; FormationTargetCmd'leri doner."""
-    cmds = o.decide(_inp(S_RETURN_HOME, 0, time_in_state=t))
-    return [c for c in cmds if isinstance(c, FormationTargetCmd)]
+# UZAK FIKSTUR: eve donus basligi artik bearing(centroid -> home) ile
+# mandallaniyor ve ev vektoru _DONUS_EV_MIN_M'den (3 m) kisaysa yon
+# TURETILMIYOR (63 derece/5 sn tuzagi). _CEN eve 2 m uzakta oldugu icin o
+# fikstur yeni yolu hic denemiyordu. Bu fikstur ayni goreli geometriyi
+# 30 m kuzeye tasiyor: ev tam GUNEYDE, yani bearing = 180.
+_POS_UZAK = [(30.0, 0.0, -10.0), (33.0, -3.0, -10.0), (33.0, 3.0, -10.0)]
+_CEN_UZAK = (32.0, 0.0, -10.0)
+
+
+def _inp_uzak(state, step, time_in_state=0.0, centroid=None, home=_HOME):
+    """Uzak fikstur icin OrchestratorInput."""
+    return OrchestratorInput(
+        mission_state=state, qr_step=step, is_leader=True,
+        agent_ids=list(_IDS), positions=list(_POS_UZAK),
+        centroid=centroid or _CEN_UZAK, home=home,
+        time_in_state=time_in_state,
+    )
+
+
+def _faza_getir(o, faz, t=0.0):
+    """RETURN_HOME'u istenen alt faza getirir.
+
+    (o fazin FormationTargetCmd'leri, o anki t) doner. Komutlari BURADAN
+    almak zorunlu: orkestrator emit-once, yani ayni faz icin ikinci kez
+    decide cagirmak BOS liste doner.
+    """
+    cmds = o.decide(_inp_uzak(S_RETURN_HOME, 0, time_in_state=t))
+    guvenlik = 0
+    while o._st.donus_faz < faz:
+        o._st.donus_settled = True
+        t += 1.0
+        cmds = o.decide(_inp_uzak(S_RETURN_HOME, 0, time_in_state=t))
+        guvenlik += 1
+        assert guvenlik < 20, 'faz ilerlemiyor'
+    return [c for c in cmds if isinstance(c, FormationTargetCmd)], t
 
 
 def test_kalkis_dizilisi_ayri_saklaniyor():
@@ -439,23 +483,55 @@ def test_gorev_formasyonu_kapaliyken_davranis_degismez():
     assert o._st.formation_type == _FRM_CUSTOM
 
 
-def test_donus_fazlari_sirayla_ilerliyor():
-    """Yaw -> ev -> merdiven -> dagilma -> esitle."""
+def test_donus_fazlari_YAKINSAMAYLA_sirayla_ilerliyor():
+    """Yaw -> ev -> merdiven -> dagilma -> esitle; her adim yakinsamayla."""
     o = _profil_orch()
     _kalkis(o)
-    beklenen = [(1.0, 0), (20.0, 1), (46.0, 2), (55.0, 3), (90.0, 4)]
-    for t, faz in beklenen:
-        o._donus_fazi(_inp(S_RETURN_HOME, 0, time_in_state=t))
-        assert o._donus_fazi(_inp(S_RETURN_HOME, 0, time_in_state=t)) == faz, \
-            f't={t} icin faz {faz} bekleniyordu'
+    t = 0.0
+    o.decide(_inp_uzak(S_RETURN_HOME, 0, time_in_state=t))
+    assert o._st.donus_faz == 0, 'yaw fazinda baslamaliydi'
+    for beklenen in (1, 2, 3, 4):
+        o._st.donus_settled = True
+        t += 1.0
+        o.decide(_inp_uzak(S_RETURN_HOME, 0, time_in_state=t))
+        assert o._st.donus_faz == beklenen, (
+            f'yakinsama sonrasi faz {beklenen} bekleniyordu')
+
+
+def test_faz_YAKINSAYINCA_zaman_asimini_BEKLEMEZ():
+    """Erken oturursa hemen gecer — bosuna asili durup pil yakmaz."""
+    o = _profil_orch()
+    _kalkis(o)
+    o.decide(_inp_uzak(S_RETURN_HOME, 0, time_in_state=0.0))
+    o._st.donus_settled = True
+    o.decide(_inp_uzak(S_RETURN_HOME, 0, time_in_state=2.0))
+    assert o._st.donus_faz == 1, 'yakinsadi ama faz ilerlemedi'
+
+
+def test_yakinsama_gelmezse_ZAMAN_ASIMI_ilerletir():
+    """Yakinsama hic gelmezse takilip kalinmaz — ust sinir devreye girer.
+
+    Sure FAZ SURESI DEGIL, ust sinir: yaw fazi icin 30 sn (180 derecelik
+    donus icin olculen 16.7 sn + pay).
+    """
+    o = _profil_orch()
+    _kalkis(o)
+    o.decide(_inp_uzak(S_RETURN_HOME, 0, time_in_state=0.0))
+    o.decide(_inp_uzak(S_RETURN_HOME, 0, time_in_state=29.0))
+    assert o._st.donus_faz == 0, 'zaman asimi dolmadan ilerledi'
+    o.decide(_inp_uzak(S_RETURN_HOME, 0, time_in_state=30.0))
+    assert o._st.donus_faz == 1, 'zaman asimi ilerletmedi'
 
 
 def test_donus_fazi_emit_once_anahtarinda():
     """Alt faz anahtarda yoksa emit-once sürüyü ilk fazda DONDURUR."""
     o = _profil_orch()
     _kalkis(o)
-    a = o._phase_key(_inp(S_RETURN_HOME, 0, time_in_state=1.0))
-    b = o._phase_key(_inp(S_RETURN_HOME, 0, time_in_state=20.0))
+    o.decide(_inp_uzak(S_RETURN_HOME, 0, time_in_state=0.0))
+    a = o._phase_key(_inp_uzak(S_RETURN_HOME, 0, time_in_state=1.0))
+    o._st.donus_settled = True
+    o.decide(_inp_uzak(S_RETURN_HOME, 0, time_in_state=1.0))
+    b = o._phase_key(_inp_uzak(S_RETURN_HOME, 0, time_in_state=1.0))
     assert a != b, 'faz degisti ama anahtar ayni — komut BASTIRILIR'
 
 
@@ -463,18 +539,22 @@ def test_dagilma_yavas_digerleri_normal():
     """Hiz YALNIZ dagilma bacaginda dusuyor (kafa kafaya gecis)."""
     o = _profil_orch()
     _kalkis(o)
-    assert _donus(o, 1.0)[0].max_speed == 0.0     # yaw
-    assert _donus(o, 20.0)[0].max_speed == 0.0    # eve donus
-    dagilma = _donus(o, 55.0)
-    assert dagilma[0].max_speed == 1.0, 'dagilma bacagi YAVAS olmali'
-    assert _donus(o, 90.0)[0].max_speed == 0.0    # irtifa esitleme
+    yaw, t = _faza_getir(o, 0)
+    assert yaw[0].max_speed == 0.0                    # yaw
+    ev, t = _faza_getir(o, 1, t)
+    assert ev[0].max_speed == 0.0                     # eve donus
+    dag, t = _faza_getir(o, 3, t)
+    assert dag[0].max_speed == 1.0, 'dagilma bacagi YAVAS olmali'
+    son, t = _faza_getir(o, 4, t)
+    assert son[0].max_speed == 0.0                    # irtifa esitleme
 
 
 def test_dikey_merdiven_ayrimi():
     """Merdiven basamaklari birbirinden donus_katman_m kadar ayri."""
     o = _profil_orch()
     _kalkis(o)
-    cmd = _donus(o, 55.0)[0]
+    cmds, _t = _faza_getir(o, 3)
+    cmd = cmds[0]
     z = sorted(off[2] for off in cmd.offsets)
     farklar = [round(z[i + 1] - z[i], 6) for i in range(len(z) - 1)]
     assert all(abs(f - 5.0) < 1e-6 for f in farklar), f'basamaklar: {farklar}'
@@ -485,20 +565,39 @@ def test_dagilmada_herkes_KENDI_kalkis_noktasina():
     o = _profil_orch()
     _kalkis(o)
     kayit = o._st.kalkis_ofsetleri
-    cmd = _donus(o, 90.0)[0]           # faz 4: katmansiz, saf diziliş
+    cmds, _t = _faza_getir(o, 4)
+    cmd = cmds[0]              # faz 4: katmansiz, saf diziliş
     assert cmd.formation_type == _FRM_CUSTOM
     for a, off in zip(_IDS, cmd.offsets):
         bek = kayit[a]
-        assert math.hypot(off[0] - bek[0], off[1] - bek[1]) < 1e-6, \
-            f'agent {a}: {off[:2]} != {bek[:2]}'
+        assert math.hypot(off[0] - bek[0], off[1] - bek[1]) < 1e-6, (
+            f'agent {a}: {off[:2]} != {bek[:2]}')
 
 
-def test_yaw_kapaliyken_eski_davranis():
-    """Yaw kapaliyken baslik kalkistaki degerde kalir, yaw fazi YOK."""
-    o = _profil_orch(donus_yaw_deg=0.0)
+def test_dagilma_KALKIS_basligini_kullanir():
+    """Dagilmada baslik DONUS basligi degil, KALKIS basligi olmali.
+
+    kalkis_ofsetleri kalkis basliginin cercevesinde saklaniyor; asagi akista
+    formation_node ofseti komutun heading'iyle donduruyor. Donus basligi
+    verilseydi diziliş aradaki fark kadar doner ve 180 derecelik donuste iki
+    kanat BIRBIRININ kalkis noktasina inerdi.
+    """
+    o = _profil_orch()
     _kalkis(o, yaw=30.0)
-    assert o._donus_fazi(_inp(S_RETURN_HOME, 0, time_in_state=1.0)) == 1
-    assert _donus(o, 1.0)[0].heading_deg == 30.0
+    cmds, _t = _faza_getir(o, 4)
+    cmd = cmds[0]
+    assert abs(cmd.heading_deg - 30.0) < 1e-9, (
+        f'dagilmada baslik {cmd.heading_deg}, kalkis basligi 30 olmaliydi')
+
+
+def test_donecek_sey_yoksa_yaw_fazi_ATLANIR():
+    """Varis basligi zaten ev yonuyse yaw fazi acilmaz (bosuna bekleme)."""
+    o = _profil_orch()
+    _kalkis(o, yaw=30.0)
+    o._st.heading_deg = 180.0          # ev tam guneyde: bearing = 180
+    o.decide(_inp_uzak(S_RETURN_HOME, 0, time_in_state=0.0))
+    assert o._st.donus_yaw_gerekli is False
+    assert o._st.donus_faz == 1, 'donecek sey yokken yaw fazi acildi'
 
 
 def test_kurulum_hizi_rotate_komutlarinda():
@@ -525,3 +624,84 @@ def test_kurulum_hizi_kapaliyken_degistirmez():
             if isinstance(c, FormationTargetCmd)]
     assert cmds
     assert all(c.max_speed == 0.0 for c in cmds)
+# --- Eve donus acisi: EV YONUNDEN turuyor (3 Eylul operator karari) ------
+
+
+def test_donus_acisi_EV_YONUNDEN_turetiliyor_180():
+    """Ev bacagin TAM TERSINDEyse donus 180 derece olur.
+
+    3 EYLUL, OLCULDU: temel aci LIDERIN KALKIS PUSULASI idi ve buna 180
+    ekleniyordu. Lider bacak yonunun tersine bakinca ikisi birbirini yedi:
+    bacak 325.6, lider 147.7, komut 327.7 -> QR1'de FIILEN DONULEN 2.1
+    DERECE. "180 derece yaw" hic yapilmadi ve hicbir hata gorunmedi.
+    """
+    o = _profil_orch(donus_yaw_deg=0.0)
+    _kalkis(o, yaw=147.7)              # lider bacagin tersine bakiyor
+    o._st.heading_deg = 0.0            # QR1'e varis basligi: kuzey
+    o.decide(_inp_uzak(S_RETURN_HOME, 0, time_in_state=0.0))
+    # Ev tam guneyde (centroid N+32, home N0) -> bearing 180
+    assert abs(o._st.donus_heading_deg - 180.0) < 1e-9
+    donulen = abs((o._st.donus_heading_deg - 0.0 + 180.0) % 360.0 - 180.0)
+    assert abs(donulen - 180.0) < 1e-9, f'donulen aci {donulen}, 180 olmaliydi'
+
+
+def test_donus_acisi_EV_YONUNDEN_turetiliyor_90():
+    """Ev 90 derece yandaysa donus de 90 derece olur — sabit 180 degil."""
+    o = _profil_orch(donus_yaw_deg=0.0)
+    _kalkis(o, yaw=147.7)
+    o._st.heading_deg = 90.0           # varista doguya bakiyoruz
+    o.decide(_inp_uzak(S_RETURN_HOME, 0, time_in_state=0.0))
+    donulen = abs((o._st.donus_heading_deg - 90.0 + 180.0) % 360.0 - 180.0)
+    assert abs(donulen - 90.0) < 1e-9, f'donulen aci {donulen}, 90 olmaliydi'
+
+
+def test_ev_COK_YAKINSA_yon_TURETILMEZ():
+    """Vektor kisayken yon tanimsizlasir — eski yola (kalkis basligi) duser.
+
+    2 Eylul'deki 63 derece/5 sn salinimi tam bu bolgede olusmustu.
+    """
+    o = _profil_orch(donus_yaw_deg=0.0)
+    _kalkis(o, yaw=30.0)
+    yakin = (1.0, 0.0, -10.0)          # eve 1 m: _DONUS_EV_MIN_M = 3.0 alti
+    o.decide(_inp_uzak(S_RETURN_HOME, 0, time_in_state=0.0, centroid=yakin))
+    assert abs(o._st.donus_heading_deg - 30.0) < 1e-9, (
+        'ev vektoru kisayken yon ondan turetildi')
+
+
+# --- "EVE VARDIK" sinyali: yalniz SON fazda -----------------------------
+
+def test_yaw_fazinda_EVE_VARDI_sinyali_URETILMEZ():
+    """Ara fazlarda FormationReachedCmd cikmamali.
+
+    mission_fsm `event_formation_reached` gorunce DOGRUDAN LANDING'e
+    geciyor. Sinyal her alt fazda uretilseydi suru yaw fazi oturur oturmaz
+    -- hala QR1'in ustunde, evden 31 m uzakta -- inise gecerdi.
+    """
+    from swarm_missions.mission1_dynamic_swarm.orchestrator import (
+        FormationReachedCmd,
+    )
+    o = _profil_orch()
+    _kalkis(o)
+    o.decide(_inp_uzak(S_RETURN_HOME, 0, time_in_state=0.0))
+    assert o._st.donus_faz == 0
+    cmds = []
+    for k in range(1, 12):             # yakinsama penceresi dolsun
+        cmds += o.decide(_inp_uzak(S_RETURN_HOME, 0, time_in_state=float(k)))
+    assert not any(isinstance(c, FormationReachedCmd) for c in cmds), (
+        'ara fazda "eve vardik" sinyali cikti -> suru QR1 uzerinde inerdi')
+    assert o._st.donus_faz >= 1, 'yakinsama fazi ilerletmedi'
+
+
+def test_SON_fazda_EVE_VARDI_sinyali_URETILIR():
+    """Faz 4'te sinyal cikmali; yoksa suru hic inmez (sert timeout bekler)."""
+    from swarm_missions.mission1_dynamic_swarm.orchestrator import (
+        FormationReachedCmd,
+    )
+    o = _profil_orch()
+    _kalkis(o)
+    _c, t = _faza_getir(o, 4)
+    cmds = []
+    for k in range(1, 12):
+        cmds += o.decide(_inp_uzak(S_RETURN_HOME, 0, time_in_state=t + k))
+    assert any(isinstance(c, FormationReachedCmd) for c in cmds), (
+        'son fazda "eve vardik" sinyali cikmadi -> inis tetiklenmez')

@@ -439,6 +439,10 @@ class Mission1Node(Node):
 
         # Teşhis: NAVIGATE'te en yakın dronun QR'a uzaklığı — kontrolün
         # gerçekte kaç metreye yaklaştığını (yakınsama eğrisi) görmek için.
+        notu = self._orch.donus_notu
+        if notu and inp.is_leader:
+            self.get_logger().info(f'[gorev1] {notu}')
+
         d = self._orch.qr_distance_m
         if inp.is_leader and d >= 0.0:
             self.get_logger().info(

@@ -166,8 +166,20 @@ GOREV_ROTA_BILINMEYEN_S = 10.0
 GOREV_FORMASYON = 3
 GOREV_ARALIK_M = 7.0
 
-# Eve donmeden ONCE surunun topluca dondugu aci. 0 = donme yok.
-GOREV_DONUS_YAW_DEG = 180.0
+# Eve donmeden ONCE surunun topluca dondugu EK aci. Artik 0 OLMALI.
+#
+# 3 EYLUL'DE DEGISTI, 180 -> 0. Donus miktari ARTIK KENDILIGINDEN cikiyor:
+# RETURN_HOME'a girerken bearing(centroid -> home) bir kez mandallaniyor ve
+# suru o basliga doner. Ev arkadaysa donus 180, 90 saginda ise 90 olur --
+# katı cisim gibi, merkez sabit, kanatlar yay cizerek.
+#
+# ESKIDEN NEDEN YANLISTI: temel aci LIDERIN KALKIS PUSULASI idi ve buna 180
+# ekleniyordu. Lider bacak yonunun tersine bakiyorsa ikisi birbirini yiyordu.
+# 3 Eylul gecesi olculdu: bacak 325.6 derece, lider ylp00 147.7 derece,
+# komut 327.7 -> QR1'de FIILEN DONULEN ACI 2.1 DERECE. Yani "180 derece yaw"
+# hic yapilmiyordu ve hicbir hata gorunmuyordu. Sifirdan farkli birakilirsa
+# ev yonune EK olarak doner -- ozel bir sebep yoksa 0 kalsin.
+GOREV_DONUS_YAW_DEG = 0.0
 
 # Dikey merdiven basamagi — dagilma sirasinda ust uste binmeyi keser.
 # 🔴 OLCULDU (kuru test, 2 Eylul): 3 m KALDI (3.29 m), 4 m GECTI (4.22 m),

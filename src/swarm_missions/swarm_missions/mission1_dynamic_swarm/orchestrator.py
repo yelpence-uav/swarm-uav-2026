@@ -259,6 +259,26 @@ class _State:
     gorev_formasyon_kuruldu: bool = False
     # RETURN_HOME alt-fazi: 0=yaw, 1=eve don, 2=merdiven, 3=dagil, 4=bitti
     donus_faz: int = 0
+    # Alt-fazin BASLADIGI an (time_in_state). Fazlar artik sure ile degil
+    # YAKINSAMA ile ilerliyor; bu damga yalniz ZAMAN ASIMI icin.
+    donus_faz_t0: float = 0.0
+    # Yakinsama olceri "oturdu" dedi mi — bir sonraki tick tuketir. Olcer
+    # (_maybe_formation_settled) decide() icinde _phase_key'DEN SONRA
+    # kostugu icin sinyal bir tick gecikmeyle islenir (2 Hz'de 0.5 sn).
+    donus_settled: bool = False
+    # EVE DONUS BASLIGI — RETURN_HOME'a girerken BIR KEZ mandallanir.
+    #
+    # NIYE BEARING(centroid -> home) VE NIYE BIR KEZ: 2 Eylul'de baslik HER
+    # TICK bearing(centroid->home) ile hesaplaniyordu; suru eve yaklastikca
+    # vektor kisalip yon tanimsizlasiyor ve 5 SANIYEDE 63 DERECE donuyordu
+    # (ylp00 ylp02'nin uzerine gitti). Cozum olarak kalkis basligi tasinmisti
+    # ama o da olculdu: kalkis basligi bacak yonuyle alakasiz oldugu icin
+    # QR1'deki "180 derece" 2.1 DERECEYE dusuyordu — manevra sessizce hic
+    # yapilmiyordu. Dogrusu ikisinin ortasi: vektor EN UZUNKEN (QR1'de,
+    # 31 m) bir kez olc, mandalla, bir daha hesaplama.
+    donus_heading_deg: float = field(default=None)
+    # Varista olculen donus miktari esigin altindaysa yaw fazi ATLANIR.
+    donus_yaw_gerekli: bool = False
     # QR irtifa merdiveninde en son yayınlanan basamak (-1 = arama kapalı).
     # Basamak değişince yeni komut yayınlanır; aynı basamakta sürü SABİT durur.
     search_step: int = -1
@@ -298,12 +318,23 @@ class Mission1Orchestrator:
         """Konfig ve boş QR çözücü ile başlatır."""
         self._cfg = config or OrchestratorConfig()
         self._qr_geo = QrGeoResolver()
+        # Eve donus faz gecisi notu — node okuyup loglar ve temizler.
+        # Ucus kaydinda "faz neden ilerledi" sorusunun tek cevabi bu satir:
+        # yakinsama mi, zaman asimi mi. Ikisi cok farkli seyler.
+        self._donus_ilerleme_notu = None
         # Başlangıç formasyonu = jüri dizilişi (CUSTOM). OKBAŞI/V/CIZGI yalnız
         # QR 'frm' komutuyla kurulur; kalkışta hiçbir tip DAYATILMAZ.
         self._st = _State(
             formation_type=_FRM_CUSTOM,
             spacing_m=self._cfg.default_spacing_m,
         )
+
+    @property
+    def donus_notu(self):
+        """Son eve-donus faz gecisi notu; okununca TEMIZLENIR (bir kez loglanir)."""
+        not_ = self._donus_ilerleme_notu
+        self._donus_ilerleme_notu = None
+        return not_
 
     # --- Dışarıdan besleme (node topic callback'lerinden) --------------------
 
@@ -345,6 +376,13 @@ class Mission1Orchestrator:
         # total=0 -> ValueError veriyordu (SwarmState geç/boş geldiğinde çökme).
         if not inp.agent_ids:
             return cmds
+
+        # EVE DONUS ALT-FAZI — tick basina BIR KEZ ilerletilir ve
+        # _phase_key'DEN ONCE calisir ki yeni faz ayni tick'te yayinlansin.
+        if inp.mission_state == _S_RETURN_HOME:
+            self._donus_ilerlet(inp)
+        elif self._st.donus_heading_deg is not None:
+            self._donus_sifirla()
 
         # QR çözülemiyorsa: okumayı kolaylaştırmak için bir kez alçal.
         recovery = self._maybe_qr_recovery(inp)
@@ -570,6 +608,17 @@ class Mission1Orchestrator:
                 clean=max_err <= self._cfg.formation_settle_tol_m,
                 timed_out=timed_out,
             )
+        if returning:
+            # 🔴 EVE DONUSTE BU SINYAL ALT-FAZI ILERLETIR, "EVE VARDIK"
+            # DEMEZ. mission_fsm `event_formation_reached` gorunce DOGRUDAN
+            # LANDING'e geciyor (_from_return_home). Sinyal her alt-fazda
+            # uretilseydi suru yaw fazi oturur oturmaz -- yani HALA QR1'in
+            # ustunde, evden 31 m uzakta -- inise gecerdi.
+            self._st.donus_settled = True
+            son_faz = (int(self._st.donus_faz) >= 4
+                       or self._st.kalkis_ofsetleri is None)
+            if not son_faz:
+                return None
         return FormationReachedCmd(
             max_error_m=max_err,
             clean=max_err <= self._cfg.formation_settle_tol_m,
@@ -1131,26 +1180,116 @@ class Mission1Orchestrator:
     # Sureler CIMRI degil COMERT secildi — erken gecis yarim kalmis bir
     # manevranin ustune yenisini bindirir, gec gecis yalnizca bekletir.
     # 🔴 Her faz sinirinin gerekcesi asagida; degistiren OLCEREK degistirsin.
-    _DONUS_YAW_S = 12.0      # 180 deg / 25 deg/s (ROTA_DONUS_TAVANI) = 7.2 s + pay
-    _DONUS_EV_S = 30.0       # ~35 m / 2 m/s = 17.5 s + ruzgar/takip payi
-    _DONUS_MERDIVEN_S = 10.0  # 5 m / 1.2 m/s (KACINMA_DIKEY_HIZ) = 4.2 s + pay
-    _DONUS_DAGILMA_S = 30.0  # ~20 m / 1.0 m/s = 20 s + pay
+    # 🔴 BUNLAR FAZ SURESI DEGIL, ZAMAN ASIMI. Fazlar YAKINSAMAYLA ilerler
+    # (_donus_ilerlet); bu sayilar yalnizca "yakinsama hic gelmezse takilip
+    # kalma" korumasidir. Eskiden faz suresiydi ve olculdu: yaw fazina 12 sn
+    # ayrilmisti, oysa 180 derece donus 16.7 sn suruyor (yorumdaki 25 deg/s
+    # varsayimi YANLIS -- kanat teget hizi tavani 1.5 m/s once bagliyor ve
+    # 7 m yaricapta acisal hiz 12.28 deg/s'de kaliyor). Suru 135 derecede
+    # kesilip eve gitmeye basliyordu.
+    _DONUS_ZA_S = (
+        30.0,   # 0 yaw       : 16.7 s (180 deg @ 12.28 deg/s) + pay
+        45.0,   # 1 eve don   : ~31 m / 2 m/s = 15.5 s + ruzgar/takip payi
+        20.0,   # 2 merdiven  : 5 m / 1.2 m/s (KACINMA_DIKEY_HIZ) = 4.2 s + pay
+        45.0,   # 3 dagilma   : ~20 m / 1.0 m/s = 20 s + pay
+    )
+    # Bu esigin altinda donulecek aci varsa yaw fazi hic acilmaz (bosuna
+    # bekleme). 5 derece, takip hatasi bandinin ustunde secildi.
+    _DONUS_YAW_MIN_DEG = 5.0
+    # Ev vektoru bundan kisaysa yonu ondan TURETME (63 deg/5 sn tuzagi).
+    _DONUS_EV_MIN_M = 3.0
 
     def _donus_fazi(self, inp: OrchestratorInput) -> int:
-        """time_in_state'ten RETURN_HOME alt fazini turetir."""
-        t = float(inp.time_in_state)
-        if self._cfg.donus_yaw_deg and t < self._DONUS_YAW_S:
-            return 0
-        t -= self._DONUS_YAW_S if self._cfg.donus_yaw_deg else 0.0
-        if t < self._DONUS_EV_S:
-            return 1
-        t -= self._DONUS_EV_S
-        if self._st.kalkis_ofsetleri is None:
-            return 1                      # dagilamayiz; formasyonda kal
-        if t < self._DONUS_MERDIVEN_S:
-            return 2
-        t -= self._DONUS_MERDIVEN_S
-        return 3 if t < self._DONUS_DAGILMA_S else 4
+        """Gecerli RETURN_HOME alt fazi. SAF — durumu DEGISTIRMEZ.
+
+        Ilerletme `_donus_ilerlet` icinde, tick basina BIR KEZ yapilir.
+        Burasi saf olmak zorunda: `_phase_key` tick basina IKI KEZ cagriliyor
+        (decide + _maybe_formation_settled) ve burada faz ilerletilseydi tek
+        tick'te iki faz atlanirdi.
+        """
+        return int(self._st.donus_faz)
+
+    def _donus_baslat(self, inp: OrchestratorInput) -> None:
+        """RETURN_HOME'a girerken donus basligini BIR KEZ mandallar."""
+        st = self._st
+        st.donus_faz = 0
+        st.donus_faz_t0 = float(inp.time_in_state)
+        st.donus_settled = False
+
+        # Temel baslik: EV YONU, vektor en uzunken bir kez olculur.
+        temel = None
+        if inp.home is not None and inp.centroid is not None:
+            uzaklik = math.hypot(inp.home[0] - inp.centroid[0],
+                                 inp.home[1] - inp.centroid[1])
+            if uzaklik >= self._DONUS_EV_MIN_M:
+                temel = self._bearing_deg(inp.centroid, inp.home)
+        if temel is None:
+            # Ev cok yakin ya da bilinmiyor -> yon turetilemez. Eski yola dus.
+            temel = (float(st.kalkis_heading_deg)
+                     if st.kalkis_heading_deg is not None
+                     else float(st.heading_deg))
+        # donus_yaw_deg artik EK OFSET (varsayilan 0). Donus miktari ev
+        # yonunden kendiliginden cikiyor: ev arkadaysa 180, 90 saginda ise 90.
+        st.donus_heading_deg = (
+            temel + float(self._cfg.donus_yaw_deg or 0.0)) % 360.0
+
+        varis = float(st.heading_deg)
+        delta = abs(self._shortest_delta_deg(varis, st.donus_heading_deg))
+        st.donus_yaw_gerekli = delta >= self._DONUS_YAW_MIN_DEG
+        if not st.donus_yaw_gerekli:
+            st.donus_faz = 1              # donecek bir sey yok, yaw'i atla
+
+    def _donus_sifirla(self) -> None:
+        """RETURN_HOME disina cikinca donus durumunu temizler."""
+        st = self._st
+        st.donus_faz = 0
+        st.donus_faz_t0 = 0.0
+        st.donus_settled = False
+        st.donus_heading_deg = None
+        st.donus_yaw_gerekli = False
+
+    @staticmethod
+    def _shortest_delta_deg(current: float, target: float) -> float:
+        """Iki aci arasindaki en kisa yonlu fark (-180, 180]."""
+        return (target - current + 180.0) % 360.0 - 180.0
+
+    def _donus_ilerlet(self, inp: OrchestratorInput) -> None:
+        """Alt fazi YAKINSAMA ile ilerletir; sure yalniz zaman asimi.
+
+        NIYE SURE DEGIL: yaw fazina 12 sn ayrilmisti ama 180 derece donus
+        16.7 sn suruyor -> suru 135 derecede kesilip eve gitmeye basliyordu.
+        Ters yonu de var: donus erken biterse bosuna asili kalinip pil
+        yakiliyordu. Yakinsama olceri (`_maybe_formation_settled`) sekil
+        hatasinin PLATO yapmasina + hareketin DURMASINA bakiyor ve zaten bu
+        durumda kosuyor; tek eksik, ciktisinin fazi ilerletmek icin
+        kullanilmamasiydi.
+        """
+        st = self._st
+        if st.donus_heading_deg is None:
+            self._donus_baslat(inp)
+            return
+
+        faz = int(st.donus_faz)
+        if faz >= 4:
+            return
+        # Dagilma icin kalkis dizilisi sart; yoksa formasyonda kal (eski yol).
+        if faz >= 1 and st.kalkis_ofsetleri is None:
+            return
+
+        gecen = float(inp.time_in_state) - float(st.donus_faz_t0)
+        za = self._DONUS_ZA_S[faz]
+        oturdu = bool(st.donus_settled)
+        if not (oturdu or gecen >= za):
+            return
+
+        st.donus_settled = False
+        st.donus_faz = faz + 1
+        st.donus_faz_t0 = float(inp.time_in_state)
+        self._donus_ilerleme_notu = (
+            f'donus faz {faz} -> {faz + 1} '
+            f'({"yakinsadi" if oturdu else f"zaman asimi {za:.0f}s"}, '
+            f'{gecen:.1f} sn surdu)'
+        )
 
     def _merdiven_irtifasi(self, agent_id: int, taban_z: float) -> float:
         """Dikey merdiven basamagi — kimlik sirasina gore, DETERMINISTIK.
@@ -1194,13 +1333,17 @@ class Mission1Orchestrator:
         faz = self._donus_fazi(inp)
         self._st.donus_faz = faz
 
-        # Baslik KALKISTAN tasinir, eve olan yonden TUREMEZ. Gerekcesi ve
-        # olculen 63 derece/5 sn sapma _State.kalkis_heading_deg'de.
-        if self._st.kalkis_heading_deg is not None:
-            temel = float(self._st.kalkis_heading_deg)
+        # Baslik RETURN_HOME'a girerken BIR KEZ mandallandi (_donus_baslat):
+        # ev yonu, vektor en uzunken olculdu. Burada yalnizca OKUNUR — her
+        # tick yeniden hesaplamak 63 derece/5 sn sapmayi geri getirirdi.
+        if self._st.donus_heading_deg is not None:
+            yawli = float(self._st.donus_heading_deg)
+        elif self._st.kalkis_heading_deg is not None:
+            yawli = (float(self._st.kalkis_heading_deg)
+                     + float(self._cfg.donus_yaw_deg or 0.0)) % 360.0
         else:
-            temel = self._bearing_deg(inp.centroid, inp.home)
-        yawli = (temel + float(self._cfg.donus_yaw_deg or 0.0)) % 360.0
+            yawli = (self._bearing_deg(inp.centroid, inp.home)
+                     + float(self._cfg.donus_yaw_deg or 0.0)) % 360.0
 
         if faz == 0:                       # YAW — merkez SABIT, sadece don
             heading = yawli
@@ -1255,12 +1398,22 @@ class Mission1Orchestrator:
         # faz 3/4 — HERKES KENDI KALKIS NOKTASINA. Tip CUSTOM: kalkis
         # dizilisi geri geliyor. faz 3 katmanli ve YAVAS (kafa kafaya gecis),
         # faz 4 irtifayi esitler -> mission_fsm inise gecer.
+        #
+        # 🔴 BURADA BASLIK `yawli` DEGIL, KALKIS BASLIGI. kalkis_ofsetleri
+        # kalkis anindaki GERCEK dizilisi, KALKIS BASLIGININ cercevesinde
+        # tutuyor (_snapshot_offsets + _ters_dondur). Asagi akista
+        # formation_node ofseti komutun heading'iyle donduruyor; buraya donus
+        # basligini verirsek diziliş aradaki fark kadar DONER ve herkes
+        # kendi noktasindan kayar. 180 derece donuste bu, iki kanadin
+        # birbirinin kalkis noktasina inmesi demektir.
         katmanli = (faz == 3)
         offsets = self._kalkis_hedefleri(inp, katmanli)
-        self._st.heading_deg = temel
+        kalkis_h = (float(self._st.kalkis_heading_deg)
+                    if self._st.kalkis_heading_deg is not None else yawli)
+        self._st.heading_deg = kalkis_h
         return [FormationTargetCmd(
             formation_type=_FRM_CUSTOM,
-            center=inp.home, heading_deg=temel,
+            center=inp.home, heading_deg=kalkis_h,
             spacing_m=self._st.spacing_m,
             agent_ids=list(inp.agent_ids), offsets=offsets,
             max_speed=(float(self._cfg.dagilma_hiz_mps) if katmanli else 0.0),
