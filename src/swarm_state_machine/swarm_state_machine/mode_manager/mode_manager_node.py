@@ -724,9 +724,32 @@ class ModeManagerNode(Node):
             )
 
         elif state == ModeState.MANEUVER:
-            self.get_logger().info(
-                '[mode_manager] Manevra modu aktif'
-            )
+            # 🔴 FORMASYON OLUŞMAZ — dizilim OLDUĞU GİBİ KALIR (operatör,
+            # 3 Eylül): manevra modu yalnız stick anlamını değiştirir,
+            # uçakları yeniden dizmez. Centroid+ofseti O ANKİ konumdan
+            # tazele — READY'deki aynı tuzak (satır 693-695): MOVEMENT'ta
+            # centroid güncellenir ama ofsetler bayat kalır; ikisi farklı
+            # ana ait olursa manevraya geçince dizilim SIÇRAR (sahada
+            # ölçüldü: "manevraya geçince pozisyon değişiyor"). Tazeleme
+            # setpoint'i mevcut pozisyona sabitler → uçak kımıldamaz, sonra
+            # stick eğimi z'yi modüle eder.
+            self._donmus_ofsetler = None
+            if self._ctx.konumdan_tohumla():
+                olculen = self._ctx.olculen_ofsetler()
+                if len(olculen) == len(self._agent_ids):
+                    self._formation_offsets = olculen
+                self.get_logger().info(
+                    '[mode_manager] Manevra modu aktif — dizilim korundu, '
+                    f'centroid+ofset O ANKİ konumdan tazelendi: '
+                    f'({self._ctx.centroid_x:.1f}, {self._ctx.centroid_y:.1f}, '
+                    f'{self._ctx.centroid_z:.1f})'
+                )
+            else:
+                self.get_logger().error(
+                    '[mode_manager] Manevra modu aktif AMA konum tohumlanamadı '
+                    '(bir ajanın durumu yok) — bayat centroid/ofsetle '
+                    'devam, dizilim kayabilir.'
+                )
 
         elif state == ModeState.HOLD:
             self.get_logger().info(

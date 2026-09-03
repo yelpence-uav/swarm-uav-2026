@@ -13,9 +13,13 @@
 
 ## 🔴 P0 — bunlar kapanmadan ilgili uçuş yapılmaz
 
-- `[ ]` 🔴🔴 **EN ACİL — PİL LOG BETİĞİNİ UÇAKLARDAN SİL (3 Eylül gecesi).**
-  Depodan kaldırıldı ama **üç uçakta da duruyor** ve oturum kapanırken
-  hiçbiri ağda değildi (ağ da değişti: `10.130.22.0/24`). Silinecekler:
+- `[x]` ✅ **PİL LOG BETİĞİ — asıl risk kapandı (3 Eylül, operatör + ölçüm).**
+  **Çalışan kayıt süreci ÜÇ UÇAKTA DA YOK** (`pgrep pil_testi` = 0 ölçüldü)
+  — yani disk+CPU yiyen tehlike gitti, uçuşu engellemiyor. ⚠️ Betik
+  DOSYALARI (`pil_testi.py`, `pil_testi_calistir.sh`, `pil_testi/` CSV'leri)
+  hâlâ üç uçakta pasif duruyor; süreç çalışmadığı için zararsız ama disk
+  yeri kaplıyor. **İstenirse temizlik komutu aşağıda; aciliyeti kalmadı.**
+  Depodan kaldırıldı ama **üç uçakta da duruyor**. Silinecekler:
 
   ```bash
   # her uçakta, konteynerden ÖNCE süreç durdurulur:

@@ -16,7 +16,36 @@ Kumanda-yön eşlemesinin (çubuk ileri = hangi işaret) son sözü yerde
 
 import math
 
+from swarm_core.formation_control.formation_geometry import (
+    FORMATION_OKBASI,
+    FORMATION_V,
+)
 from swarm_core.formation_control.manual_kinematics import apply_tilt
+
+
+def stick_maskesi(
+    formation_type: int,
+    pitch_cmd: float,
+    roll_cmd: float,
+) -> tuple[float, float]:
+    """Manevrada formasyon tipine göre hangi stick etkili (3 Eylül, operatör).
+
+    Manevra modu formasyonu DEĞİŞTİRMEZ — yalnız stick'lerin anlamı eğime
+    döner. Hangi eğimin anlamlı olduğu diziliş geometrisine bağlı:
+
+    - **Çizgi** (uçaklar y-ekseninde dizili, dx=0): yalnız **ROLL**. Pitch
+      apply_tilt'te zaten dz üretmez (dz = -dx·tan(pitch), dx=0) ama uçaklar
+      tam hizada değilse ufak dx istenmeyen dz verebilir — o yüzden pitch
+      EXPLICIT sıfırlanır.
+    - **V / ters okbaşı** (hem x hem y yayılım): **ROLL + PITCH** ikisi de.
+    - **Formasyonsuz/UNKNOWN**: güvenli taraf — yalnız roll (çizgi gibi).
+
+    Yaw bu maskeye GİRMİYOR — ayrı ele alınacak (operatör: "sonra yaw'a
+    bakacağız"). Çağıran ctx.yaw_cmd'yi olduğu gibi kullanmaya devam eder.
+    """
+    if formation_type in (FORMATION_V, FORMATION_OKBASI):
+        return pitch_cmd, roll_cmd
+    return 0.0, roll_cmd
 
 
 def _egik_ofsetler(
@@ -55,8 +84,15 @@ def compute_agent_setpoints(
 
     dz_throttle = -ctx.throttle_cmd * ctx.max_speed_mps * dt
 
-    target_pitch_deg = ctx.pitch_cmd * ctx.max_tilt_deg
-    target_roll_deg = ctx.roll_cmd * ctx.max_tilt_deg
+    # Formasyon tipine göre stick maskesi: çizgide yalnız roll, V/okbaşında
+    # roll+pitch (3 Eylül operatör kararı). Yaw maskeye girmez.
+    pitch_cmd, roll_cmd = stick_maskesi(
+        int(getattr(ctx, 'active_formation', 0)),
+        ctx.pitch_cmd,
+        ctx.roll_cmd,
+    )
+    target_pitch_deg = pitch_cmd * ctx.max_tilt_deg
+    target_roll_deg = roll_cmd * ctx.max_tilt_deg
 
     egik = _egik_ofsetler(
         formation_offsets, target_pitch_deg, target_roll_deg

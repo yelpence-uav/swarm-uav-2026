@@ -8,6 +8,13 @@ import unittest
 from swarm_state_machine.mode_manager.maneuver_mode import (
     compute_agent_setpoints,
     compute_hold_setpoints,
+    stick_maskesi,
+)
+from swarm_core.formation_control.formation_geometry import (
+    FORMATION_CIZGI,
+    FORMATION_OKBASI,
+    FORMATION_UNKNOWN,
+    FORMATION_V,
 )
 from swarm_state_machine.mode_manager import canli_param
 from swarm_state_machine.mode_manager import tek_yayinci
@@ -142,6 +149,9 @@ class TestManeuverMode(unittest.TestCase):
         ctx.formation_heading_deg = 0.0
         ctx.pitch_cmd = 1.0
         ctx.max_tilt_deg = 15.0
+        # x-eksenli ofset = V/okbaşı benzeri; pitch bu formasyonlarda geçer
+        # (stick maskesi, 3 Eylül). Çizgi olsa pitch kilitlenirdi.
+        ctx.active_formation = FORMATION_V
 
         offsets = {1: (2.0, 0.0, 0.0), 2: (-2.0, 0.0, 0.0)}
         result = compute_agent_setpoints(
@@ -168,6 +178,7 @@ class TestManeuverMode(unittest.TestCase):
         ctx.centroid_z = -10.0
         ctx.pitch_cmd = 1.0
         ctx.max_tilt_deg = 15.0
+        ctx.active_formation = FORMATION_OKBASI   # pitch bu formasyonda geçer
 
         # Okbaşı benzeri: lider önde, iki kanat GERİDE (dx<0) — asimetrik.
         offsets = {1: (2.0, 0.0, 0.0), 2: (-2.0, -2.0, 0.0),
@@ -1090,3 +1101,37 @@ class TestTekYayinci(unittest.TestCase):
     def test_ayni_tip_daraltma_islenir(self):
         """Ayni tipte aralik degisimi (8->7 daraltma) gercek degisimdir."""
         self.assertTrue(tek_yayinci.degisim_islenir_mi(1, 1, 7.0, 8.0))
+
+
+class TestStickMaskesi(unittest.TestCase):
+    """Manevrada formasyona göre stick maskesi (3 Eylül operatör kararı)."""
+
+    def test_cizgi_yalniz_roll(self):
+        """Çizgide pitch KİLİTLİ (0), roll geçer."""
+        pitch, roll = stick_maskesi(FORMATION_CIZGI, 0.8, 0.5)
+        self.assertEqual(pitch, 0.0)
+        self.assertEqual(roll, 0.5)
+
+    def test_v_roll_ve_pitch(self):
+        """V'de ikisi de geçer."""
+        pitch, roll = stick_maskesi(FORMATION_V, 0.8, 0.5)
+        self.assertEqual(pitch, 0.8)
+        self.assertEqual(roll, 0.5)
+
+    def test_okbasi_roll_ve_pitch(self):
+        """Okbaşı/ters okbaşında ikisi de geçer."""
+        pitch, roll = stick_maskesi(FORMATION_OKBASI, 0.8, 0.5)
+        self.assertEqual(pitch, 0.8)
+        self.assertEqual(roll, 0.5)
+
+    def test_unknown_guvenli_yalniz_roll(self):
+        """Formasyonsuz/UNKNOWN: güvenli taraf — pitch kilitli."""
+        pitch, roll = stick_maskesi(FORMATION_UNKNOWN, 0.8, 0.5)
+        self.assertEqual(pitch, 0.0)
+        self.assertEqual(roll, 0.5)
+
+    def test_cizgide_roll_sifirsa_dokunulmaz(self):
+        """Maske yalnız pitch'i kısıtlar; roll değeri aynen korunur."""
+        pitch, roll = stick_maskesi(FORMATION_CIZGI, 0.0, -0.7)
+        self.assertEqual(pitch, 0.0)
+        self.assertEqual(roll, -0.7)
