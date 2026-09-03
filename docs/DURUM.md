@@ -1,6 +1,6 @@
 # DURUM — şu an ne çalışıyor, ne bozuk
 
-**Son güncelleme:** 2 Eylül 2026, 09:10 — 🟢 Görev 1 otonom kalkış + formasyon zinciri UÇTU · 🔴 RETURN_HOME başlık dönmesi (tel riski, uçuş elle kesildi) · 🔴 QR tablosu firmware'de takılı · ⚙️ pil kesmesi KAPALI · 🔌 RPi'ler kapalı
+**Son güncelleme:** 3 Eylül 2026, 03:40 — 🟢 lider kilidi AÇIK (lider bir kez seçilir, değişmez) · 🟢 eve dönüş açısı artık EV YÖNÜNDEN türüyor (180° gerçekten dönülüyor; ölçüldü: eskiden 2.1°) · 🟢 dönüş fazları yakınsamayla ilerliyor · ⚙️ pil kesmesi KAPALI
 
 
 
@@ -338,7 +338,7 @@ Aksi yazmıyorsa **üç uçakta da aynı.**
 | `~/yelpence_ws/gozlem` | **YOK** | Formasyon uçağı **DOĞRUDAN SÜRER**. Bu yüzden mesh `goto` uçağa gitmez (tek-üretici geçişi). Eski düzen için `touch /ws/gozlem` + restart |
 | `~/yelpence_ws/yer_testi` | **YOK** | Uçaklar kalkış komutunu **ALIR**. Yer testine dönüş: `touch` + restart |
 | `~/yelpence_ws/origin` | **var** | `38.6904758 39.1610188 1216.96` — tek kaynak `deploy/saha_origin.env`. Elle yazma, `dagit.sh` dağıtır. **Üçünde de AYNI olmalı**, yoksa formasyonlar uçaktan uçağa kayar |
-| `~/yelpence_ws/ucus_ayarlari.env` | **var** | Seyir 3.0 m/s. `ucus_ayarlari.py --kabuk` üretir — elle yazma |
+| `~/yelpence_ws/ucus_ayarlari.env` | **var** | Seyir 3.0 m/s. `ucus_ayarlari.py --kabuk` üretir — elle yazma 🔴 **3 Eylül'de üç yeni alan geldi**, üçü de dağıtıldı ve canlı ölçüldü: `SURU_LIDER_KILIDI=true`, `SURU_LIDER_KILIT_TAM_KADRO_S=8.0`, **`GOREV_DONUS_YAW=0.0`** (eskiden 180 — artık dönüş açısı ev yönünden türüyor, bu alan yalnız EK ofset). Konteyner yeniden başlatılmadan geçerli olmaz |
 | `~/yelpence_ws/gcs_url` | var | MAVLink QGC'ye iletiliyor (`udp-b://:14555@14550`) |
 | `~/yelpence_ws/tgt_system` | ylp02'de `3` | ylp02'nin FCU sysid'i 3 |
 | `BATARYA_KRITIK_V` | 🔋 **`13.8`** (2 Eyl) | **Pil izleme AÇIK** — INA226 gerçek ölçüm veriyor (KARAR-03'ün koşulu gerçekleşti). Gösterge %0'ı 14,2 V; eşik bilerek altında, çünkü `healthy` ANLIK gerilime bakıyor ve tek bir çöküş dikeni tüm sürüyü acil inişe sokabilirdi |
