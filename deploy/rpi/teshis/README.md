@@ -1,6 +1,6 @@
 # Saha teşhis betikleri — uçaktan kurtarıldı
 
-**Son güncelleme:** 3 Eylül 2026, 04:10 — `pil_testi.py` eklendi
+**Son güncelleme:** 3 Eylül 2026, 04:45 — `pil_testi.py` + `pil_testi_calistir.sh`
 
 Bu 21 betik sahada, sorun ararken yazıldı ve **yalnız ylp00'ın SD kartında**
 duruyordu. Versiyonsuz, yedeksiz, tek kopya. Listeleri `COP_TEMIZLIK.md`'deydi,
@@ -143,22 +143,30 @@ kaçtı, gerilim o anda neydi" sorusu hepsini tek zaman eksenine oturtmayı
 gerektiriyor. Bu betik tek satırda aynı damgayla yazıyor. 5 Hz'de 20 dakika
 ≈ 700 KB.
 
+**Sarmalayıcı kullan** — `pil_testi_calistir.sh`. İsim/numara eşlemesini
+(ylp00→drone1, ylp02→drone3) o yapıyor ve SSH'leri **paralel** açıyor, yani
+iki uçağın kaydı yakın zamanlı başlıyor.
+
 ```bash
-# 1) uçakta kayıt (uçuş boyunca açık kalır)
-./deploy/yki/drone_bul.sh ylp02 "docker exec -d -e ROS_LOCALHOST_ONLY=1 \
-   drone3 python3 /ws/pil_testi.py kaydet --ajan 3"
+./deploy/rpi/teshis/pil_testi_calistir.sh basla  ylp00 ylp01   # uçuştan ÖNCE
+./deploy/rpi/teshis/pil_testi_calistir.sh durum  ylp00 ylp01   # satır sayısı
+./deploy/rpi/teshis/pil_testi_calistir.sh durdur ylp00 ylp01   # SIGINT, CSV kapanır
+./deploy/rpi/teshis/pil_testi_calistir.sh getir  ylp00 ylp01   # -> pil_kayitlari/
 
-# 2) dosyayı laptopa al
-./deploy/yki/drone_bul.sh ylp02 \
-  'docker exec drone3 cat /ws/pil_testi/<ad>.csv' > pil.csv
-
-# 3) çözümle (ROS GEREKMEZ, laptopta koşar)
-python3 deploy/rpi/teshis/pil_testi.py coz --csv pil.csv --cizelge
+python3 deploy/rpi/teshis/pil_testi.py coz \
+    --csv pil_kayitlari/<ad>.csv --cizelge --esik-v 13.8
 ```
 
 Ne veriyor: asılı durma dilimleri · **hover gazı ve dakikalık sürüklenmesi**
-· **motor başına PWM ve dengesizlik %** · gerilim/akım/güç · çekilen mAh-Wh
-· **iç direnç** · ivme RMS · gaz↔gerilim eğimi · 30 sn'lik özet çizelge.
+· **motor başına PWM ve dengesizlik %** · gerilimin **V/dakika düşüş hızı** ·
+**eşiğe kalan süre** · **çökme (sag)** · d(gerilim)/d(gaz) · ivme RMS ·
+30 sn'lik özet çizelge.
+
+🔴 **AKIM ÖLÇÜLMÜYOR.** `ina226_node` parametresi `sont_ohm = 0.0`;
+`ina226.akim_a()` bu durumda 0.0 dönüyor. FCU'nun kendi pil ölçümü de yok.
+Yani **mAh · Wh · W · iç direnç VERİLEMEZ** — betik bunları sıfır olarak
+basmıyor, "ölçülmüyor" diyor. *Sıfır bir ölçüm değil, ölçüm yokluğudur.*
+Şönt direnci girilirse akım yolu kendiliğinden açılır.
 
 🔴 **Motor devri ÖLÇÜLMÜYOR.** 3 Eylül'de ylp02'de doğrulandı:
 `esc_telemetry/telemetry`, `esc_status/status`, `esc_status/info` — üçü de
