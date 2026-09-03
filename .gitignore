@@ -146,4 +146,3 @@ arch-docker/
 # LogStore calisirken buraya JSONL yaziyor — calisma zamani verisi, kaynak
 # degil. Dosya tavani kodda sinirli ama yine de depoya girmemeli.
 src/gcs/gunluk/
-pil_kayitlari/

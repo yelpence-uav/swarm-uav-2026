@@ -1,6 +1,6 @@
 # GÜNLÜK — oturum devir teslim kaydı
 
-**Son güncelleme:** 2 Eylül 2026, 09:10 — 🟢 OTONOM KALKIŞ VE FORMASYON ZİNCİRİ AÇILDI (5 uçuş, 6 gerçek arıza kapatıldı) · 🔴 RETURN_HOME başlık dönmesi — ylp00 komşusunun üzerine gitti, uçuş elle kesildi
+**Son güncelleme:** 3 Eylül 2026, 05:15 — uçuş YOK · lider kilidi açıldı · eve dönüş 180°'si aslında 2.1° imiş, düzeltildi · 🔴🔴 pil log betiği uçaklardan SİLİNECEK
 
 Tek bilgisayar, sırayla çalışıyoruz. Biri kalkıp diğeri oturduğunda **hem
 kişi hem Claude** nerede kalındığını buradan anlar.
@@ -9,6 +9,112 @@ kişi hem Claude** nerede kalındığını buradan anlar.
 atlanırsa sistem çöker, çünkü sohbet geçmişi sonraki kişiye geçmiyor.
 
 Claude'a **"oturumu kapat"** dersen bu kaydı o yazar.
+
+---
+
+## 2026-09-03 05:15 — gece, uçuş YOK · lider kilidi + eve dönüş açısı
+
+**Ne yapıldı**
+
+- 🟢 **LİDER KİLİDİ — operatör kararı, üç uçakta açık.** Lider bir kez
+  seçilir, bir daha değişmez. Sebep ölçüldü: 3 Eylül uçuşunda liderlik
+  **beş kez** el değiştirdi (1→2, 2→1, 1→2, 2→1, 1→3). Kök neden liderin
+  ölmesi değil, **DURUM paketinin bayatlaması** — uçak başına 7-8 kez
+  "5.0–5.1 sn gelmedi" (eşik 5.0). Her değişimde yeni lider slot atamasını
+  baştan hesapladı, ylp01 ile ylp02 **slot değiştirdi**, birbirinin üstünden
+  geçtiler, kaçınma binlerce kare devrede kaldı (`avoid=1136/1614`,
+  `yatay_tut=48/52`). 🔴 **Bedeli bilerek kabul edildi:** lider gerçekten
+  düşerse **devir olmaz**, takipçiler son formasyon komutunda kalır; çıkış
+  yolu kill switch. Parametre olduğu için yarışma günü tek satırla kapanır
+  (`SURU_LIDER_KILIDI`).
+- 🟢 **Kilidin içindeki sessiz tuzak da kapatıldı.** Kilit değişimi
+  kapattığı için **ilk seçim artık nihai**; oysa o dal `grace_s`=**1.5 sn**
+  sonra o an uygun olan kimse onunla seçim yapıyordu. Uygunluk ARM ile
+  başlıyor ve uçaklar arası **evre kayması 25 sn** ölçülmüştü — yani yanlış
+  lider **kalıcı** olurdu. Artık kilit açıkken ilk seçim **tam kadro**
+  bekliyor (aday deterministik `min(1,2,3)=1`); `SURU_LIDER_KILIT_TAM_KADRO_S`
+  = 8 sn dolunca eski davranışa düşüyor, yani kilitlenme yok.
+- 🟢 **EVE DÖNÜŞ AÇISI ARTIK EV YÖNÜNDEN TÜRÜYOR.** 🔴 Ölçüldü ve manevra
+  **hiç yapılmıyordu**: temel açı **liderin kalkış pusulası** idi ve üzerine
+  sabit 180 ekleniyordu. Sahadaki gerçek değerlerle: bacak yönü 325.6°,
+  lider ylp00 147.7°, komut 327.7° → **QR1'de fiilen dönülen açı 2.1°**
+  (tasarım 180°). Hata da vermiyordu. Kanatlar takas etmediği için eve
+  dönüşte iç içe geçiş de olmuyordu; dikey merdiven ve 1 m/s dağılma hızı
+  boşa çalışıyordu. Artık RETURN_HOME'a girerken `bearing(centroid → home)`
+  **bir kez** mandallanıyor → dönüş miktarı kendiliğinden çıkıyor (ev
+  arkadaysa 180, 90 sağdaysa 90). `GOREV_DONUS_YAW` 180 → **0** (artık
+  yalnız ek ofset). 2 Eylül'deki "63°/5 sn" felaketi geri gelmiyor: o, başlığın
+  **her tick** yeniden hesaplanmasındandı; burada tek seferlik mandal var ve
+  vektör **en uzunken** (QR1'de ~31 m) ölçülüyor, 3 m altındaysa hiç
+  türetilmiyor.
+- 🟢 **Dönüş fazları süreyle değil YAKINSAMAYLA ilerliyor.** Yaw fazına 12 sn
+  ayrılmıştı; koddaki gerekçe 25°/s varsayıyordu ama o tavana hiç
+  çıkılmıyor — kanat teğet hızı tavanı (1.5 m/s) 7 m yarıçapta açısal hızı
+  **12.28°/s**'de bağlıyor ve 180° **16.7 sn** sürüyor. Sürü 135°'de kesilip
+  eve gitmeye başlıyordu. Yakınsama ölçeri (`_maybe_formation_settled`)
+  zaten bu durumda koşuyordu; tek eksik çıktısının fazı ilerletmek için
+  kullanılmamasıydı. Süreler artık **zaman aşımı** (30/45/20/45).
+- 🔴 **Bir de gerçek bir uçuş riski kapandı:** `_maybe_formation_settled`
+  RETURN_HOME'un **her** alt fazında `FormationReachedCmd` üretiyordu ve
+  `mission_fsm` bunu görünce **doğrudan LANDING**'e geçiyor. Yani yaw fazı
+  oturur oturmaz sürü **hâlâ QR1'in üstünde, evden 31 m uzakta** inişe
+  geçerdi. Sinyal artık yalnız son fazda.
+- 🟢 **Kaçınma körlüğü testleri sessizce kırmızıydı** — dokuz test. Elle
+  kurulan düğüm nesnesi koda sonradan eklenen alanları taşımıyordu
+  (`_irtifa_ok`, `_korluk_yer_esigi_m`, dikey tanı sayaçları, `gps_fix_type`)
+  ve `_tick`'in geniş `except`'i AttributeError'ı yutuyordu; belirti
+  "setpoint yayınlanmadı" oluyordu. Fikstür tazelendi, koruma yeniden test
+  altında.
+- ⚪ **Pil test logu yazıldı, denendi ve GERİ ALINDI** (aşağıya bak).
+
+**Ölçülen, kalıcı olarak not edilmeye değer**
+- **Lider seçimi id'ye göre**, konuma göre değil: depoda tek aday hesabı var
+  (`election.py:134`, `candidate = min(effective)`). "Ortadaki drone lider
+  olur" **doğru değil** — Dijkstra da yok (tüm depoda tek satır geçmiyor).
+  Karışıklığın kaynağı bulundu: slot dağıtımında **Macar algoritması** var
+  (`formation_cmd.build_slot_assignment`), yani *ortadaki uçak orta slota*
+  gidiyor. Nedensellik ters.
+- **Sürünün başlığı = liderin kendi pusulası** (`_kalkis_heading`), çünkü
+  `decide()` yalnız liderde koşuyor. Slotu değil, **burnunun yönü** önemli.
+- **Dönüş yay çiziyor, kestirmeden gitmiyor** — `path_planner._step_heading_deg`
+  yamuk profille süzüyor, açısal hız formasyon boyutundan türüyor
+  (`min(25°/s, derece(1.5/r_max))`). Kestirme olsaydı iki kanat merkezdeki
+  uçağın tam üstünden geçerdi (hesaplandı: kirişin ortası liderin noktası).
+- **Akım hiçbir yerden ölçülmüyor:** `sont_ohm = 0.0` → `ina226.akim_a()`
+  0.0 döndürüyor. FCU'nun kendi pil ölçümü de yok (`mavros/battery`
+  **65.535 V** = MAVLink "bilinmiyor"). Elimizde yalnız INA226 **gerilimi**
+  var. ESC telemetrisi de veri taşımıyor → **motor devri ölçülemiyor**,
+  yalnız PWM komutu var.
+- **ylp01 pili 12.50 V okuyor** (%0). ylp00 16.60, ylp02 14.60. Kalibrasyon
+  çarpanı bunu açıklamıyor (ylp01'inki 0.95061, değeri **aşağı** çekiyor).
+  Ya pil derin deşarj ya INA226 kablosu/kalibrasyonu bozuk — **uçmadan önce
+  multimetreyle bak.**
+
+**Uçakta değişenler** (üçünde de, `ucus_ayarlari.env`)
+`SURU_LIDER_KILIDI=true` · `SURU_LIDER_KILIT_TAM_KADRO_S=8.0` ·
+`GOREV_DONUS_YAW=0.0`. Konteynerler yeniden başlatıldı, parametreler
+**canlı ölçüldü**. QR tablosu gönderildi ve üç uçakta **konudan** doğrulandı
+(`qr_id=1 · 38.69076, 39.16075`).
+
+**Sınandı / sınanmadı**
+- Testler: swarm_core 261 · swarm_state_machine 377 · swarm_missions 52
+  (7 test yeni davranışa göre yeniden yazıldı, 9 yeni test eklendi).
+  flake8'te yeni bulgu yok.
+- 🔴 **UÇUŞ YAPILMADI.** Yukarıdakilerin hiçbiri havada doğrulanmadı.
+- Kuru test GEÇTİ, en dar an 5.00 m; tek harita `/tmp/yelpence_rota.html`
+  (yaw dahil) üretildi ama **operatör onayı alınmadı** — uçuş olmadı.
+
+**Nerede bırakıldı / sıradaki kişi**
+1. 🔴🔴 **İLK İŞ: pil log betiğini uçaklardan sil** — `YAPILACAKLAR.md` en
+   üstteki P0. Depodan kaldırıldı, uçaklarda duruyor, oturum kapanırken
+   hiçbiri ağda değildi.
+2. Operatör bu oturumdan sonra **bir Görev 1 testi** yapacak. **Sıradaki
+   kişi o testin sonucundan devam eder** — önce operatöre "test ne oldu"
+   diye sor, uçuş kaydına ve `docs/DURUM.md`'ye bak.
+3. Uçuşta ölçülecekler: ① lider değişimi gerçekten oldu mu (olmamalı)
+   ② QR1'de dönülen açı 180°'ye yakın mı ③ faz geçişleri "yakınsadı" mı
+   yoksa "zaman aşımı" mı diyor (log satırı: `donus faz N -> N+1`)
+   ④ uçaklar arası evre kayması (25 sn idi).
 
 ---
 

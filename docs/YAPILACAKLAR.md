@@ -1,6 +1,6 @@
 # YAPILACAKLAR
 
-**Son güncelleme:** 3 Eylül 2026, 02:55 — 3 Eylül uçuşunun 4 arızası kapandı · swarm_fsm sözleşmesi netleşti · faz kayması ölçülecek
+**Son güncelleme:** 3 Eylül 2026, 05:15 — 🔴🔴 pil log betiği UÇAKLARDAN SİLİNECEK (en üstte) · lider kilidi ve eve dönüş açısı uçaklara yüklendi, uçuşla doğrulanmadı
 
 > **Finale 5 gün.** Bu liste artık "her fikir" değil, **bu 8 günde
 > yapılacak iş.** Bir madde buraya giriyorsa birinin onu yapması planlanıyor
@@ -12,6 +12,28 @@
 ---
 
 ## 🔴 P0 — bunlar kapanmadan ilgili uçuş yapılmaz
+
+- `[ ]` 🔴🔴 **EN ACİL — PİL LOG BETİĞİNİ UÇAKLARDAN SİL (3 Eylül gecesi).**
+  Depodan kaldırıldı ama **üç uçakta da duruyor** ve oturum kapanırken
+  hiçbiri ağda değildi (ağ da değişti: `10.130.22.0/24`). Silinecekler:
+
+  ```bash
+  # her uçakta, konteynerden ÖNCE süreç durdurulur:
+  ./deploy/yki/drone_bul.sh ylpXX "
+      docker exec droneN sh -c 'kill -INT \$(cat /ws/pil_testi/.pid 2>/dev/null) 2>/dev/null; true'
+      rm -rf ~/yelpence_ws/pil_testi ~/yelpence_ws/pil_testi.py \
+             ~/yelpence_ws/pil_testi_calistir.sh"
+  ```
+  **Neden acil:** ① uçaklarda **çalışır durumda bırakılmış bir kayıt süreci
+  kalmış olabilir** — ylp01 ağdan düşerken durumu doğrulanamadı, kayıt
+  sürüyorsa disk ve CPU yiyor ② `~/yelpence_ws/pil_testi/` altında CSV'ler
+  birikti (ylp00'da 1917 satırlık dosya dahil), disk bekçisi bunları
+  **temizlemiyor** (yalnız `kayit/` dizinine bakıyor) ③ betik depodan
+  silindiği için `dagit.sh` artık **geri kopyalamaz**, yani elle silinmezse
+  uçakta sonsuza kadar kalır.
+
+  *Geri isteyen olursa kod git'te duruyor:* `git show 71e0b59` (son hâli),
+  `db6568d`→`71e0b59` arası dört commit.
 
 - `[x]` ✅ **`swarm_fsm` sayı/liste ayrımı — SÖZLEŞME NETLEŞTİRİLDİ (3 Eyl).**
   Ölçüldü: `active_agent_count: 3` iken `active_agent_ids: []`,

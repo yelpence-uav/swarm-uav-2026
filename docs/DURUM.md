@@ -1,6 +1,6 @@
 # DURUM — şu an ne çalışıyor, ne bozuk
 
-**Son güncelleme:** 3 Eylül 2026, 03:40 — 🟢 lider kilidi AÇIK (lider bir kez seçilir, değişmez) · 🟢 eve dönüş açısı artık EV YÖNÜNDEN türüyor (180° gerçekten dönülüyor; ölçüldü: eskiden 2.1°) · 🟢 dönüş fazları yakınsamayla ilerliyor · ⚙️ pil kesmesi KAPALI
+**Son güncelleme:** 3 Eylül 2026, 05:15 — 🟢 lider kilidi AÇIK (bir kez seçilir, değişmez) · 🟢 eve dönüş açısı EV YÖNÜNDEN türüyor (180° gerçekten dönülüyor; eskiden 2.1° imiş) · 🟢 dönüş fazları yakınsamayla · 🔴🔴 uçaklarda ARTIK OLAN pil log betiği SİLİNECEK (YAPILACAKLAR P0) · ⚠️ ylp01 pili 12.50 V okuyor · 🔌 uçaklar kapalı
 
 
 
@@ -329,6 +329,18 @@ yazılmış cümle değil, YKİ'nin kod karşılığı.
 ---
 ## 3. Uçakta açık olan bayraklar
 
+> ### 🔴🔴 UÇAKLARDA ARTIK OLMAMASI GEREKEN BİR ŞEY VAR
+>
+> `~/yelpence_ws/pil_testi.py`, `pil_testi_calistir.sh` ve
+> `~/yelpence_ws/pil_testi/` (CSV'ler). 3 Eylül gecesi pil testi için
+> yazıldı, denendi, **depodan geri alındı** — ama uçaklardan silinemedi:
+> oturum kapanırken üçü de ağda değildi. **İlk iş bu** (`YAPILACAKLAR.md`
+> en üstteki P0; silme komutu orada).
+>
+> ⚠️ ylp01'de kayıt sürecinin durup durmadığı **doğrulanamadı** — uçak o
+> sırada ağdan düştü. Sürüyorsa disk ve CPU yiyor.
+
+
 Bunlar **dosya varlığıyla** çalışıyor; uçağı bulan kişi böyle bulacak.
 Aksi yazmıyorsa **üç uçakta da aynı.**
 
@@ -398,6 +410,19 @@ okuması **yok**. INA226 → `AgentStatus` yolu çalışıyor.
 motorlar kalkışta 14,72 V (%20). Yüzde göstergedir; koruma gerilim tabanlı.
 
 ---
+### ⚠️ ylp01 pil gerilimi ŞÜPHELİ (3 Eylül, ölçüldü)
+
+```
+ylp00  16.60 V  %92      ylp01  12.50 V  %0      ylp02  14.60 V  %13
+```
+4S'te 12.50 V = hücre başına **3.12 V**, derin deşarj bölgesi. Kalibrasyon
+çarpanı bunu açıklamıyor (ylp01'inki 0.95061, değeri **aşağı** çekiyor;
+16.6 V okumak için ham ~17.5 V gerekirdi). İki ihtimal: **boş/farklı pil
+takılı** ya da **INA226 kablosu/kalibrasyonu bozuk**. 🔴 Uçurmadan önce
+multimetreyle bak; ölçülen değerle `python3 src/gcs/pil_kalibre.py`.
+
+---
+
 ## 4. Kod senkronu
 
 ```
