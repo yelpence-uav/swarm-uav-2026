@@ -14,6 +14,23 @@ Bu betik ucakta kosar, hepsini tek satirda ayni damgayla yazar. Mesh'e
 HICBIR SEY gitmez — dosya Pi'de kalir, sonra okunur. Boyut: 5 Hz'de
 satir ~120 bayt, 20 dakikalik test ~700 KB.
 
+🔴 AKIM HICBIR YERDEN OLCULMUYOR (3 Eylul, operator dogruladi)
+`ina226_node` parametresi `sont_ohm = 0.0`; `ina226.akim_a()` bu durumda
+0.0 donuyor. FCU'nun kendi pil olcumu de yok (asagiya bak). Yani su anda
+elimizde YALNIZ GERILIM var. Bunun sonucu: **mAh, Wh, W ve ic direnc
+VERILEMEZ** — betik bunlari sifir olarak basmiyor, "olculmuyor" diyor.
+Sifir bir olcum degil, olcum yoklugudur.
+
+Akimsiz elde kalanlar (ve testin asil ciktisi):
+  * gerilimin DUSUS HIZI (V/dakika) ve esige kalan sure kestirimi
+  * COKME: yukteki en dusuk gerilim ile inisten sonraki dinlenme gerilimi
+    farki — ic direncin akimsiz vekili, ayni pil/profil icin karsilastirilir
+  * HOVER GAZININ SURUKLENMESI: pil dustukce gaz artar; gaz-gerilim egimi
+  * motorlar arasi DENGESIZLIK
+
+Sont direnci girilirse (`INA226_SONT_OHM`) betik akim yolunu KENDILIGINDEN
+acar; kod hazir, veri yok.
+
 🔴 GERCEK MOTOR DEVRI OLCULMUYOR — 3 Eylul'de ylp02'de dogrulandi:
     /mavros/esc_telemetry/telemetry   VERI YOK
     /mavros/esc_status/status         VERI YOK
@@ -398,6 +415,23 @@ def _ic_direnc(satirlar, v_alani, i_alani):
     return -c
 
 
+def _akim_olculuyor_mu(satirlar, alan):
+    """Akim gercekten olculuyor mu, yoksa hep 0 mi.
+
+    🔴 3 EYLUL: SONT DIRENCI YOK. `ina226_node` parametresi
+    `sont_ohm = 0.0` ve `ina226.akim_a()` bu durumda 0.0 donuyor (kodda
+    yazili: "Sont bilinmiyorsa 0.0"). Yani su anda AKIM HICBIR YERDEN
+    OLCULMUYOR — ne INA226'dan ne FCU'dan; yalnizca GERILIM var.
+
+    Bunu tespit etmezsek rapor "0 mAh, 0 W, ic direnc 0" yazar ve bunlar
+    OLCUM gibi gorunur. Sifir bir olcum degil, olcum YOKLUGUDUR.
+    """
+    degerler = [abs(s[alan]) for s in satirlar if s.get(alan) is not None]
+    if not degerler:
+        return False
+    return max(degerler) > 0.05          # 50 mA ustu = gercekten akiyor
+
+
 def _gecersiz_gerilim(vs):
     """MAVLink 'bilinmiyor' (0xFFFF mV = 65.535 V) degerini tanir."""
     gecerli = [v for v in vs if v is not None]
@@ -447,14 +481,20 @@ def coz(a):
                   f'"bilinmiyor"). Bu ucakta FCU pil olcumu YOK; pil Pi\'ye '
                   f'ayri bagli INA226\'dan okunuyor.')
             continue
+        print(f'{etiket:16s}: {vs[0]:.2f} V -> {vs[-1]:.2f} V  '
+              f'(dusus {vs[0] - vs[-1]:.2f} V)  ·  en dusuk {min(vs):.2f} V')
+
+        if not _akim_olculuyor_mu(satirlar, ia):
+            # 🔴 SIFIR BIR OLCUM DEGIL. mAh/Wh/W/ic direnc AKIMA baglidir;
+            # akim yoksa dordu de VERILMEZ. Bkz. _akim_olculuyor_mu.
+            print(f'{"":16s}  AKIM OLCULMUYOR (sont direnci yok) -> '
+                  f'mAh · Wh · W · ic direnc VERILEMEZ')
+            continue
         mah, wh = _mah(satirlar, ia)
         r = _ic_direnc(satirlar, va, ia)
         iss = [abs(s[ia]) for s in satirlar if s.get(ia) is not None]
-        print(f'{etiket:16s}: {vs[0]:.2f} V -> {vs[-1]:.2f} V  '
-              f'(dusus {vs[0] - vs[-1]:.2f} V)')
-        if iss:
-            print(f'{"":16s}  akim ort {_ort(iss):.1f} A · tepe '
-                  f'{max(iss):.1f} A · cekilen {mah:.0f} mAh / {wh:.1f} Wh')
+        print(f'{"":16s}  akim ort {_ort(iss):.1f} A · tepe '
+              f'{max(iss):.1f} A · cekilen {mah:.0f} mAh / {wh:.1f} Wh')
         if r is not None:
             print(f'{"":16s}  ic direnc ~{r * 1000:.0f} mohm '
                   f'(V=a+b*t+c*I uydurmasindan; bosalma egilimi ayrildi)')
@@ -494,11 +534,21 @@ def coz(a):
             uyari = '  🔴 DENGESIZ' if dengesizlik > a.dengesizlik_esik else ''
             print(f'      dengesizlik  : {dengesizlik:.2f} % '
                   f'(motorlar arasi PWM yayilimi / komut araligi){uyari}')
-        v = _ort([s.get('v_ina') or s.get('v_fcu') for s in d])
-        i_ = _ort([abs(s['i_ina']) for s in d if s.get('i_ina') is not None])
-        if v is not None and i_ is not None:
-            print(f'      gerilim/akim : {v:.2f} V · {i_:.1f} A · '
-                  f'{v * i_:.0f} W')
+        vd = [s.get('v_ina') for s in d if s.get('v_ina') is not None]
+        if vd:
+            v_egim, _ = _dogru_uydur([s.get('t_rel') for s in d],
+                                     [s.get('v_ina') for s in d])
+            satir = (f'      gerilim      : {vd[0]:.2f} -> {vd[-1]:.2f} V '
+                     f'(en dusuk {min(vd):.2f})')
+            if v_egim is not None:
+                satir += f' · {v_egim * 60.0:+.3f} V/dk'
+            print(satir)
+        if _akim_olculuyor_mu(d, 'i_ina'):
+            i_ = _ort([abs(s['i_ina']) for s in d
+                       if s.get('i_ina') is not None])
+            v = _ort(vd) if vd else None
+            if v is not None and i_ is not None:
+                print(f'      akim/guc     : {i_:.1f} A · {v * i_:.0f} W')
         tit = _ort([s.get('ivme_rms') for s in d])
         if tit is not None:
             print(f'      ivme RMS     : {tit:.2f} m/s² '
@@ -521,6 +571,54 @@ def coz(a):
                       f'({100.0 * (son - ilk) / ilk:+.1f} %)')
         else:
             print('  Yeterli veri yok.')
+
+    # --- GERILIM-TEK COZUMLEME (akim yokken testin asil ciktisi) -------
+    if dilimler:
+        hepsi = [s for i, j in dilimler for s in satirlar[i:j + 1]]
+        vt = [s.get('v_ina') for s in hepsi]
+        tt = [s.get('t_rel') for s in hepsi]
+        th = [s.get('thrust') for s in hepsi]
+        gecerli_v = [v for v in vt if v is not None]
+        print('\n--- GERILIM (akim olculemedigi icin testin ASIL ciktisi) ---')
+        v_egim, _ = _dogru_uydur(tt, vt)
+        if v_egim is not None and gecerli_v:
+            dk = v_egim * 60.0
+            print(f'  dusus hizi        : {dk:+.3f} V/dakika '
+                  f'(asili durma dilimlerinde)')
+            if dk >= -1e-4:
+                pass                       # asagida ele aliniyor
+            elif gecerli_v[-1] <= a.esik_v:
+                # Esik ZATEN gecilmis; negatif "kalan sure" basmak sacma
+                # olurdu (ilk surumde -0.2 dakika yazdi).
+                print(f'  {a.esik_v:.1f} V esigi      : ZATEN GECILDI '
+                      f'(son {gecerli_v[-1]:.2f} V)')
+            else:
+                kalan = (gecerli_v[-1] - a.esik_v) / (-dk)
+                print(f'  {a.esik_v:.1f} V esigine   : '
+                      f'~{kalan:.1f} dakika (bu hiz surerse)')
+                if kalan < 2.0:
+                    print('                      🔴 ESIGE COK YAKIN')
+            if dk >= -1e-4:
+                print(f'  {a.esik_v:.1f} V esigine   : gerilim dusmuyor, '
+                      f'kestirim YAPILMIYOR')
+
+        # COKME (sag): yukteki en dusuk gerilim ile YERDEKI dinlenme
+        # gerilimi arasindaki fark. Akim yokken ic direncin tek gostergesi.
+        yerde_son = [s.get('v_ina') for s in satirlar[dilimler[-1][1]:]
+                     if s.get('armed') == 0.0 and s.get('v_ina') is not None]
+        if gecerli_v and yerde_son:
+            cokme = max(yerde_son[-10:]) - min(gecerli_v)
+            print(f'  cokme (sag)       : {cokme:.2f} V '
+                  f'(yukte en dusuk {min(gecerli_v):.2f} -> '
+                  f'inisten sonra dinlenme {max(yerde_son[-10:]):.2f})')
+            print('                      Akim olculseydi bu, ic direnc '
+                  'olurdu; simdilik yalniz KARSILASTIRMA icin anlamli '
+                  '(ayni pil, ayni ucus profili).')
+
+        # Gaz basina gerilim dususu — akimsiz "yuk tepkisi" vekili.
+        egim_th, _ = _dogru_uydur(th, vt)
+        if egim_th is not None:
+            print(f'  d(gerilim)/d(gaz) : {egim_th:+.2f} V / birim gaz')
 
     print('\n🔴 NOT: MOTOR DEVRI OLCULMUYOR. ESC telemetrisi veri gondermiyor '
           '(3 Eylul, ylp02'
@@ -576,6 +674,9 @@ def main():
     c.add_argument('--dengesizlik-esik', type=float, default=3.0,
                    dest='dengesizlik_esik',
                    help='bu %% ustunde DENGESIZ uyarisi')
+    c.add_argument('--esik-v', type=float, default=14.2, dest='esik_v',
+                   help='bu gerilime kalan sure kestirilir '
+                        '(vars 14.2 = gosterge %%0; kritik esik 13.8)')
     c.add_argument('--cizelge', action='store_true',
                    help='30 sn kovalarla ozet tablo')
 
