@@ -155,6 +155,18 @@ def kaydet(a):
             self.create_subscription(
                 Imu, f'{ns}/mavros/imu/data', self._imu, q)
 
+            # 🔴 PID DOSYASI — desen eslestirme YERINE.
+            # `pgrep -f pil_testi.py` uc ayri sekilde yanildi (3 Eylul):
+            #   1) kontrol komutunun KENDI satirini yakaladi -> hep KOSUYOR
+            #   2) tirnakli desen ic ice tirnakta bozuldu   -> hep DURDU
+            #   3) [p]il_testi.py numarasi KABUK GLOBU oldu: konteynerin
+            #      calisma dizini /ws ve orada pil_testi.py DURUYOR, yani
+            #      bash deseni gercek ada genisletti ve (1) geri geldi.
+            # PID dosyasinda desen yok: `kill -0 <pid>` ya vardir ya yoktur.
+            self.pid_yolu = os.path.join(os.path.dirname(yol), '.pid')
+            with open(self.pid_yolu, 'w', encoding='utf-8') as pf:
+                pf.write(str(os.getpid()))
+
             self.f = open(yol, 'w', newline='', encoding='utf-8')
             self.yaz = csv.writer(self.f)
             self.yaz.writerow(BASLIKLAR)
@@ -235,6 +247,10 @@ def kaydet(a):
     def kapat(*_):
         d.f.flush()
         d.f.close()
+        try:
+            os.remove(d.pid_yolu)
+        except OSError:
+            pass
         print(f'\n[pil_testi] kapandi: {yol} ({d.n} satir)')
         rclpy.shutdown()
         sys.exit(0)

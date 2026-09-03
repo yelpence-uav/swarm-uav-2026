@@ -69,12 +69,17 @@ for d in "${UCAKLAR[@]}"; do
         durum)
             o=$(timeout 60 "$BUL" "$d" \
                 "docker exec $kon bash -lc '
-                    # 🔴 DESEN "python3 /ws/..." OLMALI. Yalniz "pil_testi"
-                    # aranirsa pgrep BU KONTROL KOMUTUNUN KENDISINI yakalar
-                    # (komut satirinda o dize geciyor) ve surec olmese bile
-                    # KOSUYOR der. 3 Eylul'de olculdu: kayit durmustu, durum
-                    # KOSUYOR diyordu.
-                    pgrep -f "python3 /ws/pil_testi.py" >/dev/null \
+                    # KOSELI PARANTEZ NUMARASI — iki ayri hataya karsi.
+                    # (1) Duz pil_testi.py aranirsa pgrep BU KONTROL
+                    #     KOMUTUNUN KENDISINI yakalar (dize komut satirinda
+                    #     geciyor) ve surec olmese bile KOSUYOR der.
+                    # (2) Tirnakli desen ise burada CALISMAZ: bu blok zaten
+                    #     cift tirnakli bir dizenin icinde, ic tirnak diziyi
+                    #     ERKEN KAPATIYOR ve komut bozuluyor -> hep DURDU.
+                    # Ikisi de 3 Eylul gecesi olculdu. [p]il_testi.py cozer:
+                    # regex pil_testi.py ile eslesir, kendi komut satiri
+                    # literal [p]il_testi.py tasidigi icin ESLESMEZ.
+                    kill -0 \"\$(cat /ws/pil_testi/.pid 2>/dev/null)\" 2>/dev/null \
                         && echo KOSUYOR || echo DURDU
                     ls -t /ws/pil_testi 2>/dev/null | head -1
                     wc -l < \"/ws/pil_testi/\$(ls -t /ws/pil_testi 2>/dev/null | head -1)\" 2>/dev/null'" 2>/dev/null \
@@ -83,8 +88,16 @@ for d in "${UCAKLAR[@]}"; do
             ;;
         durdur)
             # 🔴 SIGINT: betik bu sinyalde CSV'yi flush edip kapatiyor.
+            #
+            # 🔴 [p] NUMARASI BURADA DA SART. Duz desen (pil_testi.py) bu
+            # `docker exec` KOMUTUNUN KENDI kabugunu yakaliyor: pkill onu
+            # oldurup 0 donuyor, yani ekrana "DURDURULDU" yaziyor ama
+            # PYTHON SURECI YASIYOR ve kayit surmeye devam ediyor.
+            # 3 Eylul gecesi olculdu: durdurdum sanildi, satir sayisi
+            # artmaya devam etti. [p]il_testi.py kendi komut satiriyla
+            # eslesmez, yalniz gercek sureci bulur.
             o=$(timeout 60 "$BUL" "$d" \
-                "docker exec $kon pkill -INT -f 'python3 /ws/pil_testi.py' && echo DURDURULDU || echo 'zaten kapali'" 2>&1 \
+                "docker exec $kon sh -c 'kill -INT \$(cat /ws/pil_testi/.pid 2>/dev/null) 2>/dev/null && echo DURDURULDU || echo ZATEN_KAPALI'" 2>&1 \
                 | tr -d '\r' | tail -1)
             echo "$d: $o"
             ;;
