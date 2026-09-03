@@ -1,6 +1,6 @@
 # Saha teşhis betikleri — uçaktan kurtarıldı
 
-**Son güncelleme:** 18 Ağustos 2026, 19:30
+**Son güncelleme:** 3 Eylül 2026, 04:10 — `pil_testi.py` eklendi
 
 Bu 21 betik sahada, sorun ararken yazıldı ve **yalnız ylp00'ın SD kartında**
 duruyordu. Versiyonsuz, yedeksiz, tek kopya. Listeleri `COP_TEMIZLIK.md`'deydi,
@@ -129,3 +129,48 @@ koşarlar; `setpoint_raw/local` (nereye dedik) ile `local_position/pose`
    `.mcap` dosyalarını **tek tek** okuyor — `ros2 bag reindex` gerekmiyor.
 2. Bu yerel çerçevede **yer seviyesi z ≈ 1.17 m**, sıfır değil. "z > 1"
    ölçütü yerdeki uçağı da havada sanır; kalkış eşiği en az 4 m olmalı.
+
+---
+
+## `pil_testi.py` — pil testi (3 Eylül 2026)
+
+**Uçakta kaydeder, sonra ROS'suz çözümlenir.** Mesh'e hiçbir şey gitmez;
+dosya Pi'de `~/yelpence_ws/pil_testi/` altında kalır.
+
+Neden ayrı log: veri zaten rosbag'de var ama **dört ayrı konuda, dört ayrı
+hızda** (gaz 10 Hz, PWM 10 Hz, FCU pili 4 Hz, INA226 2 Hz). "Gaz şu anda
+kaçtı, gerilim o anda neydi" sorusu hepsini tek zaman eksenine oturtmayı
+gerektiriyor. Bu betik tek satırda aynı damgayla yazıyor. 5 Hz'de 20 dakika
+≈ 700 KB.
+
+```bash
+# 1) uçakta kayıt (uçuş boyunca açık kalır)
+./deploy/yki/drone_bul.sh ylp02 "docker exec -d -e ROS_LOCALHOST_ONLY=1 \
+   drone3 python3 /ws/pil_testi.py kaydet --ajan 3"
+
+# 2) dosyayı laptopa al
+./deploy/yki/drone_bul.sh ylp02 \
+  'docker exec drone3 cat /ws/pil_testi/<ad>.csv' > pil.csv
+
+# 3) çözümle (ROS GEREKMEZ, laptopta koşar)
+python3 deploy/rpi/teshis/pil_testi.py coz --csv pil.csv --cizelge
+```
+
+Ne veriyor: asılı durma dilimleri · **hover gazı ve dakikalık sürüklenmesi**
+· **motor başına PWM ve dengesizlik %** · gerilim/akım/güç · çekilen mAh-Wh
+· **iç direnç** · ivme RMS · gaz↔gerilim eğimi · 30 sn'lik özet çizelge.
+
+🔴 **Motor devri ÖLÇÜLMÜYOR.** 3 Eylül'de ylp02'de doğrulandı:
+`esc_telemetry/telemetry`, `esc_status/status`, `esc_status/info` — üçü de
+**veri taşımıyor**. Elimizdeki ölçü uçuş kontrolcüsünün her motora verdiği
+**PWM komutu** (`rc/out`, 4 aktif kanal). Komuttur, sonuç değildir: tıkalı
+motor komutta görünmez, **dengesizlik görünür**. Gerçek devir isteniyorsa
+DShot telemetri hattı bağlanmalı.
+
+🔴 **Pil FCU'dan okunmuyor.** Ölçüldü: `mavros/battery` → **65.535 V**, yani
+MAVLink'in "bilinmiyor" değeri. Pil Pi'ye **ayrı bağlı INA226**'dan geliyor
+(`/drone_N/pil/ina226`). Betik geçersiz FCU değerini tanıyıp sayı uydurmuyor.
+
+⚠️ İlk sürümde INA226 aboneliği **RELIABLE** yazılmıştı ve uçakta
+`incompatible QoS` verip **tek gerçek pil kaynağını hiç okumadı** — sütunlar
+boş çıktı (TUZAKLAR §2.1). Yayıncı BEST_EFFORT; abone de öyle olmalı.
