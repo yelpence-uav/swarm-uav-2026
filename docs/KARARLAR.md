@@ -1,6 +1,6 @@
 # KARARLAR — verilmiş ama henüz uygulanmamış kararlar
 
-**Son güncelleme:** 1 Eylül 2026, 11:30 — **KARAR-15** eklendi (kaçınma eşikleri 5 m aralıkta kilitleniyor, görev günü riski). Eski: **KARAR-14** eklendi: varsayılan aralık 9 m mi 7 m mi (KARAR-13 ile operatör talimatı ÇELİŞİYOR, operatör onayı bekliyor)
+**Son güncelleme:** 3 Eylül 2026, 06:00 — **KARAR-16** (tek-yayıncı: formasyon tarifini yalnız lider basar, 2 Eylül küme-toplanma olayının çözümü) + **KARAR-10 yeniden eklendi** (pull'da tekrar kaybolmuştu: formasyon testlerinde GOTO YASAK). Eski: KARAR-15 (kaçınma eşikleri 5 m aralıkta kilitleniyor)
 
 Sohbette verilen kararlar oturum bitince kayboluyor. Bu defter onları
 tutuyor: **ne karar verildi, neden, ne zaman uygulanacak, nasıl test edilecek.**
@@ -31,6 +31,71 @@ sırası gelince" denilen şeyleri. Onlar en kolay kaybolanlar.
 `🔵 SIRASI GELDİ` — aşamaya ulaşıldı, uygulanacak
 `✅ UYGULANDI` — bitti, sonucu yazıldı
 `❌ VAZGEÇİLDİ` — gerekçesiyle
+
+---
+
+# KARAR-16 — Formasyon tarifini YALNIZ lider basar (tek-yayıncı)
+
+**Durum:** ✅ UYGULANDI (2 Eylül 2026) — kod uçaklarda ve depoda (`tek_yayinci.py`, commit `29cdf2c`)
+**Ne zaman:** 2 Eylül küme-toplanma saha olayının doğrudan sonucu
+**Karar veren:** Claude önerdi, operatör "yap" dedi (2 Eylül 2026)
+
+## Karar
+
+MOVEMENT/HOLD/formasyon-değişimi — üçünde de `FormationCommand`'ı yalnız
+**lider** mode_manager yayınlar. Takipçilerin formation_node'u tarifi
+mesh'ten (liderinkini) alır; bu yol zaten kanıtlı. Lider kaynağı
+consensus'un ElectionResult'i; election hiç gelmemişse deterministik
+yedek = `min(agent_ids)` (üçü de aynı sonuca varır, çelişki üretmez).
+
+## Neden
+
+2 Eylül olayında env artığı `SURU_KADRO` iki uçakta farklıydı (ylp00+ylp02
+`"1 3"`, ylp01 `"1 2 3"`); her uçak KENDİ tarifini basınca **çelişkili
+tarifler** çıktı ve sürü havada ~1 m kümeye toplandı (çarpışma olmadı,
+operatör kumandayla indirdi). Kadro düzeltildi ama kök mimari: her uçak
+tarif basabildiği sürece HER görüş ayrılığı (kadro, centroid, atama)
+çelişkiye döner. Tek yayıncı bunu yapısal kapatır. Yan fayda: MOVEMENT
+tarif trafiği üçte bire iner.
+
+## Nasıl uygulandı
+
+`mode_manager/tek_yayinci.py` (saf modül) + `_publish_formation_command`
+başına kapı + election aboneliği (internal+public, RELIABLE+TRANSIENT_LOCAL).
+Ayrıca `degisim_islenir_mi`: aynı tip+aralık tekrarını yutar (1 Eylül'ün
+50 ms tekrar fırtınası). 82/82 test geçti. Kod uçaklardan depoya alındı
+(`29cdf2c`).
+
+## Açık uç
+
+Test B (formasyon değişimli, tek-yayıncı ile) uçakta doğrulanacak —
+beklenen: yalnız lider "Formasyon degisikligi", diğerleri
+"TEK-YAYINCI: tarif BASMAZ". Ayrıca env eşitleme boşluğu ayrı iş
+(RPI_ESITLEME B31).
+
+---
+
+# KARAR-10 — Formasyon testlerinde GOTO YASAK: uçağı yalnız formation_node sürer
+
+**Durum:** 🔵 SIRASI GELDİ — geçerli (⚠️ bu kayıt 2 Eylül'de bir kez daha
+pull sırasında kaybolup yeniden yazıldı; kaybolursa yine ekle)
+**Ne zaman:** ADIM 3 ve sonrası tüm formasyon/sürü testleri
+**Karar veren:** Operatör (28 Ağustos 2026): *"goto komutu asla kullanma,
+formasyon node'u var onu kullanarak yapılacak"*
+
+## Karar
+
+Formasyon/sürü testlerinde uçağı süren TEK üretici `formation_node` (mesh
+tarif → slot → `/control/setpoint/raw` → CA → px4_bridge). YKİ `goto` yolu
+test aracı olarak bile kullanılmaz. Kalkış/iniş komut kanalından (arm/
+takeoff/land TIP_KOMUT) — bunlar goto değildir.
+
+## Neden
+
+Testlerin amacı sürü düğümlerini kanıtlamak; finalde YKİ/goto yok. Goto
+ile "çalışıyor" görüntüsü test edilmemiş kodu kanıtlanmış sayma hatası
+üretir. `baslat.sh` (20c2b01) formasyon sürerken goto çıkışını gözleme
+bağlayarak bunu fiziksel olarak da zorluyor.
 
 ---
 

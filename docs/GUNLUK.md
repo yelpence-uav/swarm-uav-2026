@@ -118,6 +118,69 @@ Claude'a **"oturumu kapat"** dersen bu kaydı o yazar.
 
 ---
 
+## 2026-09-02 19:30 — Berk + Claude (🔴 KÜME-TOPLANMA SAHA OLAYI · TEK-YAYINCI düzeltmesi · manevra ylp02'de temiz uçtu)
+
+> Görev 2 manevra modu testine hazırlık. Bir saha olayı yaşandı, kök nedeni
+> ölçümle bulundu, düzeltildi ve dağıtıldı. (Bu kayıt sonradan eklendi: aynı
+> gece başka bir oturum 09-03 05:15 devir teslimini bunu görmeden yazmıştı;
+> tek-yayıncı kodu uçaklardan `29cdf2c` ile depoya alınmış ama bu saha kaydı
+> ile KARAR-16/KARAR-10 kayıp kalmıştı — geri eklendi.)
+
+**Ne yapıldı**
+
+- 🔴 **SAHA OLAYI — formasyon değişiminde küme-toplanma.** Havada SwC ile
+  formasyon seçilince üç uçak formasyon kurmak yerine ~1 m'lik kümeye
+  toplandı; operatör kumandayla indirdi (çarpışma olmadı). Kök neden
+  KAYITTAN ölçüldü: ylp00 ve ylp02'de env artığı **`SURU_KADRO="1 3"`**
+  vardı (ylp01 doğru `1 2 3`). ylp00'ın mode_manager'ı sürüyü **[1,3]**,
+  ylp01 **[1,2,3]** gördü; her biri KENDİ tarifini bastı (merkez 3.5,-3.8
+  vs 2.2,-1.7, atama [1,3] vs [1,2,3]) → iki çelişkili tarif →
+  formation_node'lar farklı geometrilere kilitlendi. **`dagit.sh` env
+  taşımadığından dağıtımlar bunu düzeltmiyordu.**
+- ✅ **Kadro düzeltildi** (operatör `!` ile iki uçakta): `SURU_KADRO="1 2 3"`
+  + `docker restart`. Doğrulandı: ikisi de artık `ajanlar: [1, 2, 3]`.
+- 🟢 **TEK-YAYINCI düzeltmesi (KARAR-16) yazıldı, test edildi, dağıtıldı.**
+  Kadro tetiği kapandı ama mimari boşluk (her uçak tarif basabiliyor →
+  görüş ayrılığı = çelişki) kalıcı çözüldü: tarifi artık **yalnız lider**
+  basar. `tek_yayinci.py` (saf modül) + election aboneliği +
+  `_publish_formation_command` kapısı + tekrar-yutucu. 82/82 test geçti.
+- 🟢 **Manevra modu ylp02'de İKİ KEZ TEMİZ UÇTU** (191358 kaydı):
+  `READY→MOVEMENT→MANEUVER→LANDING→COMPLETED→IDLE` iki tam döngü, PX4
+  statustext yalnız `Takeoff/Landing detected + Disarmed by landing` —
+  **failsafe/ALTCTL/attitude YOK**, px4_bridge mode kaybı YOK.
+- ⚙️ **Kuru test GEÇTİ** (asili, 8 m, çizgi): en kritik an 6,80 m (eşik 4,0).
+
+**Ne değişti**
+
+- kod: `mode_manager/tek_yayinci.py` (yeni) + `mode_manager_node.py`
+  (election aboneliği + tek-yayıncı kapısı) + `test_mode_manager.py`
+  (7 yeni test). Uçaklara dağıtıldı; depoya `29cdf2c` ile alındı.
+- uçakta: **`SURU_KADRO="1 2 3"`** — ylp00+ylp02'de düzeltildi
+  (`ucus_ayarlari.env`, `dagit.sh` ile GİTMEZ; RPI_ESITLEME B31).
+- belge: KARAR-16, KARAR-10, RPI_ESITLEME B31.
+
+**Yarım kalan / tuzak**
+
+- 🔴 **env eşitleme boşluğu:** `SURU_KADRO` artığı `dagit.sh` kapsamı
+  DIŞINDA. Aynı sınıf her env değeri sessizce uçaktan uçağa sapabilir.
+  RPI_ESITLEME'ye "env matrisi" / `env_karsilastir` denetimi gerekli.
+- ⚠️ **ylp02 "düştü mü" sorusu (o günkü):** operatör "seri düştü" dedi ama
+  çekilen iki logda (183430, 191358) düşüş izi YOK — manevra iki kez temiz
+  tamamlandı. Ya düşüş sonraki uçuşta oldu ya gözlenen manevra eğimiydi.
+  (1 Eylül'ün ylp02 ALTCTL düşüşü ayrı ve açık — Here4/baro adayı.)
+- ⚠️ **d1 (ylp00) pili o gün %25'e indi.**
+
+**Sıradaki adım**
+
+- Test B (formasyon değişimli) tek-yayıncı ile tekrarlanacak.
+
+**Uçakların bırakıldığı hâl**
+
+- Üçü ağda, konteynerler ayakta, kod `29cdf2c` seviyesinde, kadro `1 2 3`.
+  ylp00 pili %25 (şarj gerekli). ylp02 fiziksel durumu teyit bekliyordu.
+
+---
+
 ## 2026-09-02 09:10 — gece boyu, 5 uçuş
 
 **Ne yapıldı**
