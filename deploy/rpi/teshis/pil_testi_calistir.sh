@@ -69,7 +69,13 @@ for d in "${UCAKLAR[@]}"; do
         durum)
             o=$(timeout 60 "$BUL" "$d" \
                 "docker exec $kon bash -lc '
-                    pgrep -f pil_testi.py >/dev/null && echo KOSUYOR || echo DURDU
+                    # 🔴 DESEN "python3 /ws/..." OLMALI. Yalniz "pil_testi"
+                    # aranirsa pgrep BU KONTROL KOMUTUNUN KENDISINI yakalar
+                    # (komut satirinda o dize geciyor) ve surec olmese bile
+                    # KOSUYOR der. 3 Eylul'de olculdu: kayit durmustu, durum
+                    # KOSUYOR diyordu.
+                    pgrep -f "python3 /ws/pil_testi.py" >/dev/null \
+                        && echo KOSUYOR || echo DURDU
                     ls -t /ws/pil_testi 2>/dev/null | head -1
                     wc -l < \"/ws/pil_testi/\$(ls -t /ws/pil_testi 2>/dev/null | head -1)\" 2>/dev/null'" 2>/dev/null \
                 | tr -d '\r' | tail -3 | tr '\n' ' ')
@@ -78,7 +84,7 @@ for d in "${UCAKLAR[@]}"; do
         durdur)
             # 🔴 SIGINT: betik bu sinyalde CSV'yi flush edip kapatiyor.
             o=$(timeout 60 "$BUL" "$d" \
-                "docker exec $kon pkill -INT -f pil_testi.py && echo DURDURULDU || echo 'zaten kapali'" 2>&1 \
+                "docker exec $kon pkill -INT -f 'python3 /ws/pil_testi.py' && echo DURDURULDU || echo 'zaten kapali'" 2>&1 \
                 | tr -d '\r' | tail -1)
             echo "$d: $o"
             ;;
