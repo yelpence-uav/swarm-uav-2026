@@ -1,6 +1,6 @@
 # Yelpençe — TEKNOFEST 2026 Sürü İHA
 
-**Son güncelleme:** 1 Eylül 2026, 11:30 — finale 5 gün; sürü hareketi ve formasyon geçişi uçtu, manevra modu doğrulama bekliyor
+**Son güncelleme:** 4 Eylül 2026, 21:47 — finale 2 gün; **Görev 1 zinciri uçtan uca uçtu** (formasyon havada kuruldu, QR'a 0.11 m), üç açık kusur ölçüldü
 
 > Claude bu dosyayı her oturumda **kendiliğinden okur.** Yeni sohbet açan
 > kişinin hiçbir şey söylemesine gerek yok; projeyi buradan anlar.
@@ -13,8 +13,15 @@
 Takım **Yelpençe**, takım numarası **752825**. TEKNOFEST 2026 Sürü İHA
 Yarışması. Üç çok rotorlu İHA bir sürü olarak otonom görev yapıyor.
 
-**Uçuş kanıtı geçildi. Sürü hareketi ve formasyon geçişi de uçtu (1 Eylül).
-Sıradaki: manevra modunu doğrulamak. Finale 5 gün var.**
+**Uçuş kanıtı geçildi. Sürü hareketi, formasyon geçişi ve — 4 Eylül akşamı —
+GÖREV 1 ZİNCİRİNİN TAMAMI uçtu:** kalkış 15 m → toplanma merdiveni →
+formasyon (üç uçakta kuruldu) → QR'a seyir (irtifa tam −10.0 m, alçalma
+0.43 m/s) → **QR'ın 0.11 m yanına varış.** Finale 2 gün var.
+
+**Sıradaki üç iş — üçü de YERDE kapanır, uçuş gerekmez:**
+① mesh kaybını ölç ve düşür (%6.7 / %21.7 — takipçiler komuttan sessizce
+düşüyor) ② komutun 1 Hz'e seyrelmesini bul (sürü seyirde titriyor)
+③ lens ayarından sonra QR'ı yerde okut. Ayrıntı `docs/YAPILACAKLAR.md` P0.
 
 ### 🔴 Bugünkü komut yolu finalde KULLANILAMAZ
 

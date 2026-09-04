@@ -1,6 +1,6 @@
 # GÜNLÜK — oturum devir teslim kaydı
 
-**Son güncelleme:** 4 Eylül 2026, 07:15 — saha günü: 3 uçuş, formasyonları öldüren İKİ kök neden bulundu+düzeltildi (havada IDLE · B5×tek-yayıncı) · 🔴 B5 düzeltmesi HAVADA DENENMEDİ, sonraki oturumun ilk işi
+**Son güncelleme:** 4 Eylül 2026, 21:47 — 🟢 B5 GEÇTİ, formasyon havada kuruldu · Görev 1 zinciri uçtan uca uçtu (QR'a 0.11 m) · 🔴 üç kusur ölçüldü: 1 Hz titreme · mesh kaybı · lens odağı
 
 Tek bilgisayar, sırayla çalışıyoruz. Biri kalkıp diğeri oturduğunda **hem
 kişi hem Claude** nerede kalındığını buradan anlar.
@@ -9,6 +9,188 @@ kişi hem Claude** nerede kalındığını buradan anlar.
 atlanırsa sistem çöker, çünkü sohbet geçmişi sonraki kişiye geçmiyor.
 
 Claude'a **"oturumu kapat"** dersen bu kaydı o yazar.
+
+---
+
+## 2026-09-04 21:47 — 🟢 B5 GEÇTİ (formasyon İLK KEZ havada kuruldu) · GÖREV 1 ZİNCİRİ UÇTAN UCA UÇTU · 3 açık kusur ölçüldü
+
+**Ne yapıldı** (pushlanmamış 18 commit: `7707698` → `63f9870`; önceki 6'lık
+paket `1cf6331` ile pushlandı, o madde KAPANDI)
+
+### ✈️ İKİ UÇUŞ — ikisi de hedefine ulaştı
+
+**Uçuş 1 — B5 DOĞRULAMA (sabahın P0'ı): GEÇTİ.**
+Tek soru şuydu: *"B5 kaldırıldıktan sonra tarif takipçilere mesh'ten
+ULAŞIYOR MU?"* Cevap ylp02'nin `formation.log`'undan geldi:
+
+```
+FormationCommand alindi: type=3, atama=[1, 2, 3]
+```
+
+Sabah BOMBOŞ olan dosya bu sefer doldu. **Formasyon üç uçakta da kuruldu,
+gözle görüldü.** Yani `3b64e68` (B5 süzgeci + `ic_dis_kopru` köprüsü
+kaldırıldı) doğruydu — yeni tek üreticiler (liderde loopback, takipçide
+mesh RX) çalışıyor. Sabahki 🔴 P0 kapandı.
+Bonus: **üç uçak İLK KEZ birlikte arm oldu** (önceki denemede yalnız ylp01
+kalkmıştı; sebep donanım değil `PILOT OVERRIDE: mod=POSCTL`'di — kumanda
+modlarının düzeltilmesiyle çözüldü, kod değişmedi).
+
+**Uçuş 2 — GÖREV 1 ZİNCİRİ UÇTAN UCA.** Ölçülenler (bag + üç uçağın logu):
+
+| Ne | Beklenen | Ölçülen | |
+|---|---|---|---|
+| İlk irtifa | 15 m | 15 m | 🟢 |
+| Toplanma merdiveni | 3 ayrı katman | 13.0 / 15.6 / 18.2 m | 🟢 |
+| NAVIGATE başlığı | sabit | −33.3° (sürüklenme yok) | 🟢 |
+| NAVIGATE irtifası | komut −10.0 m sabit | **tam −10.0** | 🟢 |
+| Dikey alçalma hızı | ≤ 0.5 m/s | **0.43 m/s** | 🟢 |
+| QR'a varış | < 1 m | **0.11 m** | 🟢 |
+| Formasyon aralığı (seyirde) | 7 m | **6.97 m** | 🟢 |
+
+Yani **irtifa süzülmesi kapandı** (sabah ylp00 10.7 → 2.7 m iniyordu),
+başlık sabitlendi, sürü QR'ın 11 cm yanına okunabilir irtifada geldi.
+
+### 🔴 UÇUŞTAN ÇIKAN ÜÇ KUSUR — üçü de ÖLÇÜLDÜ, hiçbiri DÜZELTİLMEDİ
+
+**① ylp00 seyir hâlinde TİTREYEREK gitti — komut 1 Hz'e düşüyor.**
+Operatör "navigasyon yaparken oldu" dedi (kaçınma olayından SONRA, yani
+kaçınma DEĞİL — kendi çeyreklik ölçümüm de doğruladı: seyirde 4 m altı
+ayrım oranı **%0**). Zincirin iki ucu ölçüldü:
+
+```
+mission1_node tick        : 5 Hz  (parametre tick_hz=5.0, gate YOK —
+                            _tick her turda FormationTargetCmd basıyor)
+formation_node'a VARIŞ    : ~1.0–1.2 s aralık  (HEM liderde HEM takipçide)
+```
+
+Yani **5× seyreltme var** ve ikisi arasında bir yerde. Sonucu şu:
+1 Hz'de gelen komut 2.5–3 m'lik sıçrama demek; `formation_node`'un rampası
+(`ramp_rate = max_speed = 3 m/s`, eksen başına) bunu ~0.97 s'de bitiriyor
+ve `v_ff` **1 Hz'de darbe** hâline geliyor → gözle görülen titreme.
+
+⚠️ **Seyreltmenin yeri HENÜZ BULUNAMADI.** Python tarafında aradım, YOK:
+`mission1_node._tick` her turda basıyor · `esp32_bridge._on_formation_out`
+her mesajı gönderiyor (`esp32_bridge_node.py:3082`, throttle yok) ·
+`_uart_yaz` (`:2304`) yalnız boyut denetimi yapıyor. **Liderdeki loopback
+de 1 Hz** olduğu için darboğaz mesh'ten ÖNCE, `path_planner` /
+`mode_manager` hattında olmalı.
+**Sıradaki tek ölçüm (yerde yapılır, uçuş GEREKMEZ):** 30 sn boyunca
+`mission1_node`'un yayın sayacı ile `esp32_bridge._formasyon_gonderilen`
+sayacını yan yana say. Eşitlerse seyreltme esp32_bridge'in ARDINDA (mesh),
+farklıysa ÖNÜNDE (path_planner/mode_manager). Bu tek sayım kusuru
+yarıya indiriyor.
+
+**② Aşağı-yukarı hareketini YALNIZ LİDER yaptı.** Kök neden mesh kaybı:
+
+```
+son 30 sn kayıp:  d2 %6.7   d3 %21.7
+consensus:        Stale ajanlar: [2]
+mission_fsm:      [SWARM FAILSAFE] Sağlıklı ajan oranı düşük: 1/3
+formation cmd:    agent_ids=[1]        <-- takipçiler listeden DÜŞTÜ
+formation_node:   if int(self._agent_id) not in [...]: return
+```
+
+Yani sağlık düştü → kadro 1 kişiye indi → tarif yalnız lideri adresledi →
+takipçiler komutu **sessizce** eledi. Sistem açısından hata yok.
+🔴 Mesh kaybı **pil değişiminde uçaklar yer değiştirdikten sonra geri
+geldi** — `TUZAKLAR.md` §4.14'ün tarif ettiği konum bağımlılığı. Sahada ilk
+iş: uçakları eski yerlerine/anten yönlerine koyup `deploy/yki/mesh_kayip.py`
+ile kaybı ÖLÇMEK (ölçmeden yer değiştirmek işe yaramıyor).
+
+**③ QR OKUNMADI — sebep yazılım değil, LENS.** Zinciri baştan sona ölçtüm:
+`image_raw/compressed` **27.3 Hz**, 1 yayıncı 1 abone, `vision_node`
+ayakta, `lz=VAR`. Yani boru hattı sağlam. Sonra ylp02'den bir kare çekip
+**gözle baktım: görüntü tamamen odak dışı.** Operatör doğruladı:
+*"kameraya lens ayarı yapmadım ondan okumadı"*.
+⚠️ **Ders:** `qr_sayaci=0` tek başına yazılım arızası değildir; kareyi
+gözle görmeden teşhis koyulmaz.
+
+### 🔧 ylp00 KAMERASI SİSTEME ALINDI (ylp02'nin dengi)
+
+- Algı imajı eşitlendi (`ea2c1b1e`), `cv2 4.6.0` + `pyzbar` ylp00'da VAR.
+- `kamera_zincir.sh` `/ws/teshis/algi_kopru.py` arıyordu ama `dagit.sh`
+  betikleri **`yelpence_ws/` KÖKÜNE** koyuyor → düzeltildi (`bc92aa1`).
+- 🔴 **ylp00'da PIL YOKTU** → yayın küçültme çalışmıyordu (4K kare olduğu
+  gibi gidiyordu). ylp02'nin dpkg ile açılmış 5.5 MB'lık PIL ağacı laptop
+  üzerinden kopyalandı. **Ölçüldü:** `tam 128105 → küçük 21869 bayt`
+  (**%83 azalma**). ⚠️ Bu `dagit.sh` ile taşınmaz — `RPI_ESITLEME` A/K
+  matrisine yazıldı.
+- Operatörün lens ayarı için yayın açıldı, sonra CPU'yu boşaltmak için
+  **yalnız algı zinciri** durduruldu (`kamera_zincir.sh <id> dur` — sürü
+  düğümlerine DOKUNMAZ; operatör talimatı: *"sürü düğümlerini kapatma"*).
+- CPU dökümü (ylp00, yayın açıkken): `mavros_node %72.9` ·
+  `rpicam-vid %40.8` · `px4_bridge %25.9` · `ros2 bag record %13.9`.
+
+### 📦 Bu oturumda ayrıca kapanan işler
+
+- **QR konum tablosu meselesi çözüldü.** Tablo aslında ÜÇ UÇAĞA DA
+  ULAŞIYORDU; kusur *sıfır loglama* + *yalnız RAM'de tutulmasıydı* — her
+  `docker restart` tabloyu siliyor ve kimse bunu göremiyordu (`80e0fa6`).
+  ⚠️ İlk teşhisim ("0x0F uçaklara hiç gitmiyor") YANLIŞTI, yazıyla
+  düzeltildi. `TUZAKLAR.md` §4.15.
+- **Haritada QR işaretçisi kayboluyordu** (`a952013`): React StrictMode
+  çift-mount → `map.remove()` katmanları yok ediyor ama **ref'ler
+  hayatta kalıyor** → `if (!ref.current)` "zaten var" deyip güncelleme
+  dalına düşüyor ve katman YENİ haritaya HİÇ eklenmiyor. Temizlikte
+  `qrMarkersRef` / `formationLineRef` / `pending*Ref` sıfırlanıyor.
+  `TUZAKLAR.md` §10.1 (yeni bölüm).
+- **İlk irtifa 15 m ve YKİ'den seçilebilir** (`63f9870`): mesh'te YENİ TİP
+  AÇILMADI — `_GOREV_FMT` zaten `irtifa_dm` (uint16, desimetre) taşıyordu,
+  G1'de kullanılmıyordu. `agent_fsm` yeni `/swarm/public/mission/g1_ayar`
+  aboneliğiyle **iki** irtifa alanını birden günceller
+  (`_target_altitude_m` → `takeoff:<X>` üretir · `_ctx.target_altitude_m` →
+  "ulaştım" kararı, `agent_health_monitor.py:423`). Biri unutulursa uçak
+  15 m'ye çıkar ama 10 m'de "vardım" der.
+- **Dikey alçalma yavaşlatıldı** (`ROTA_DIKEY_HIZ_MPS = 0.5`):
+  `LinearTrajectoryPlanner` adım boyunu dikey bileşene göre kırpıyor.
+  Uçuşta 0.43 m/s ölçüldü.
+- **QR okuma irtifası AYRI alan oldu** (`5ba3339`): `qr_read_altitude_m`
+  (12 m, kurtarma merdiveninin ORTA basamağı) ile `qr_okuma_irtifa_m`
+  (10 m, NAVIGATE hedefi) bilerek ayrı. İlk denemede ikisini birleştirmiştim
+  ve merdiven sessizce (10, 10, 18)'e düşüyordu — **mevcut bir birim test
+  yakaladı.**
+- **`w` (bekleme) artık HER görev arasında** uygulanıyor (`34d9703`) —
+  şartnamenin sırası.
+- **Toplanma merdiveni** (`d9ad877`, K20) ve **başlangıç formasyonu
+  seçicisi** (`bfb6c04` + `6ec60c8`) üç uçakta yüklü ve doğrulanmış.
+- **Mesh kaybı artık ÖLÇÜLÜYOR** (`deploy/yki/mesh_kayip.py`, `6f6bb58`):
+  QR 36 kez basılıyordu, DURUM 1.78 Hz'e sürünüyordu — ikisi de düzeltildi.
+- **QR tavanı 11 → 16.6 m** ölçülerek yükseltildi (`86512f8`, KAMERA §13).
+- **Bag 4K kare yazıyordu — disk 64 dakikada doluyordu** (`7707698`).
+- **`mnv` eşlemesi DOĞRUYMUŞ** (`93e58c2`): sabah 🔴🔴 açılan madde
+  şartname okununca çürüdü. Görev 1'in QR manevrasında **yaw YOKTUR**
+  (yalnız pitch/roll); yaw Görev 2'nin manevra modunda ve kumandadan.
+  Kayıt bilerek duruyor ki kimse doğru kodu "düzeltmeye" kalkmasın.
+
+### 🔌 Uçakları nerede bıraktık
+
+- **Üç uçak da KAPALI** (oturum sonunda ağda bulunamadı — beklenen).
+- Üçünde de **`63f9870`** yüklü, `docker restart` edilmiş, doğrulanmış.
+- ⚠️ **Operatörün elle RC QR testinin sonucu BİLİNMİYOR.** Son iş ylp00'ın
+  QR okuyucusunu başlatmaktı; başladığı doğrulandı
+  (`vision_node baslatildi: agent_id=1`, `yas 0.2 sn`, kare akıyor,
+  `qr_sayaci=0`, kamera 4056×3040 @ 10.4 fps), sonra uçaklar kapandı.
+  **Sonraki oturumun ilk sorusu:** lens ayarından sonra ylp00 QR okudu mu?
+  Ölçüm: ylp00'da `~/yelpence_ws/algi_durum.json` → `qr_sayaci` **> 0** mı.
+- ⚠️ **ylp00'da PİL ÖLÇÜMÜ YOK** — `PIL OLCUMU YOK` diyor ve sabit
+  `%100 / 12.6 V` yayınlıyor. Daha önceki "Kritik batarya: 12.6V" hayaleti
+  buydu. **ylp00'ın pil durumuna YKİ'den bakılamaz, elle bakılacak.**
+- ⚠️ **`ucus_ayarlari.env` `dagit.sh` ile TAŞINMIYOR.** Yeni irtifa
+  değerleri (`GOREV_KALKIS_IRTIFA=15.0`, `GOREV_QR_OKUMA_IRTIFA=10.0`,
+  `ROTA_DIKEY_HIZ=0.5`) uçaklara ELLE `scp` edildi. Temiz kurulumda
+  `python3 src/gcs/ucus_ayarlari.py --kabuk` ile üretilip tekrar konur.
+
+### 🎯 Sonraki oturum — sırayla
+
+1. **Pilleri şarj et, ylp00'ın pilini ELLE ölç** (YKİ o uçakta yalan söylüyor).
+2. **Uçakları eski yerlerine diz + `mesh_kayip.py` ile kaybı ÖLÇ.**
+   %5 üstü kayıp varsa uçma — kusur ② aynen tekrarlar.
+3. **1 Hz seyreltmesini yerde bul** (yukarıdaki tek sayım, uçuş gerekmez).
+4. Lens ayarından sonra **yerde QR okut** (kağıt QR, elde) — uçmadan.
+5. Ancak bunlar bittikten sonra: tutma fazlarının irtifa referansı (P0).
+
+**Bu oturumda uçuşa çıkılmadı diye bir şey ATLANMADI** — üç kusurun üçü de
+yerde ölçülüp kapatılabilir. Uçuş bunları doğrulamak için, bulmak için değil.
 
 ---
 

@@ -1,6 +1,6 @@
 # YAPILACAKLAR
 
-**Son güncelleme:** 4 Eylül 2026, 17:40 — 🔴 İRTİFA REFERANSI YOK (sürü süzülüyor); NAVIGATE düzeltildi, tutma fazları AÇIK · B5 GEÇTİ (formasyon mesh'ten ulaştı)
+**Son güncelleme:** 4 Eylül 2026, 21:47 — 🟢 B5 GEÇTİ (formasyon havada kuruldu) · 🟢 Görev 1 zinciri uçtan uca uçtu · 🔴 YENİ P0: 1 Hz komut seyreltmesi (titreme) · 🔴 mesh kaybı geri geldi
 
 > **Finale 5 gün.** Bu liste artık "her fikir" değil, **bu 8 günde
 > yapılacak iş.** Bir madde buraya giriyorsa birinin onu yapması planlanıyor
@@ -13,6 +13,63 @@
 
 ## 🔴 P0 — bunlar kapanmadan ilgili uçuş yapılmaz
 
+- `[ ]` 🔴 **MESH KAYBI GERİ GELDİ — uçuştan önce ÖLÇÜLECEK (4 Eylül akşamı).**
+  Son 30 sn: **d2 %6.7 · d3 %21.7**. Sonucu görünmez bir sessiz arıza:
+  `Stale ajanlar: [2]` → `[SWARM FAILSAFE] Sağlıklı ajan oranı düşük: 1/3`
+  → formasyon tarifi `agent_ids=[1]` ile çıktı → takipçiler
+  `if int(self._agent_id) not in [...]: return` ile komutu **sessizce
+  eledi.** Uçuşta gözlenen belirti: *"aşağı-yukarıyı yalnız lider yaptı."*
+  Hata da uyarı da yok — sistem açısından her şey normaldi.
+  🔴 **Zamanlaması kritik: pil değişiminde uçaklar YER DEĞİŞTİRDİKTEN
+  SONRA başladı.** `TUZAKLAR.md` §4.14'ün tarif ettiği konum/anten
+  bağımlılığı. **Çözüm sırası:** ① uçakları eski yerlerine ve anten
+  yönlerine koy ② `python3 deploy/yki/mesh_kayip.py` ile ÖLÇ
+  ③ %5 altına inmeden UÇMA. Tahmini maliyet: kod 0 satır, saha 10 dk.
+  Ölçmeden yer değiştirmek daha önce işe yaramadı.
+
+- `[ ]` 🔴 **KOMUT 1 Hz'e SEYRELİYOR — sürü seyirde TİTRİYOR (4 Eylül, ölçüldü).**
+  Operatör: *"ylp00 titreyerek gitti"*; zamanlama netleştirildi — kaçınma
+  olayından SONRA, **navigasyon sırasında** (kaçınma DEĞİL: seyirde 4 m altı
+  ayrım oranı **%0** ölçüldü). Zincirin iki ucu:
+
+  ```
+  mission1_node tick     : 5 Hz   (tick_hz=5.0, gate YOK — _tick her turda basar)
+  formation_node'a varış : ~1.0–1.2 s   (HEM liderde HEM takipçide)
+  ```
+
+  1 Hz = **2.5–3 m sıçrama**. `formation_node` rampası
+  (`ramp_rate = max_speed = 3 m/s`, eksen başına) bunu ~0.97 s'de bitiriyor,
+  `v_ff` **1 Hz'de darbe** oluyor → gözle görülen titreme. Yarışma etkisi:
+  formasyon bozulmaz ama görüntü kötü, pil yer ve kamera bulanıklaşır
+  (QR okumayı doğrudan vurur).
+
+  ⚠️ **Seyreltmenin YERİ HENÜZ BULUNAMADI** — Python tarafında throttle YOK:
+  `mission1_node._tick` (`mission1_node.py:463`) her turda `FormationTargetCmd`
+  basıyor · `esp32_bridge._on_formation_out` (`esp32_bridge_node.py:3082`)
+  her mesajı gönderiyor · `_uart_yaz` (`:2304`) yalnız boyut denetliyor.
+  **Liderdeki loopback de 1 Hz** olduğuna göre darboğaz mesh'ten ÖNCE —
+  `path_planner` / `mode_manager` hattında.
+
+  **Sıradaki tek ölçüm — YERDE yapılır, UÇUŞ GEREKMEZ:** 30 sn boyunca
+  `mission1_node`'un yayın sayısı ile `esp32_bridge._formasyon_gonderilen`
+  sayacını yan yana say. **Eşitse** seyreltme esp32_bridge'in ARDINDA
+  (mesh/firmware), **farklıysa** ÖNÜNDE (path_planner/mode_manager). Bu tek
+  sayım arama alanını yarıya indiriyor. Maliyet: ~20 dk yer işi, uçuş yok.
+
+- `[ ]` 🔴 **LENS ODAĞI SONRASI QR OKUMA — YERDE doğrulanacak, uçmadan.**
+  4 Eylül uçuşunda QR okunmadı; boru hattı sağlam ölçüldü
+  (`image_raw/compressed` **27.3 Hz**, 1 yayıncı 1 abone, `vision_node`
+  ayakta, `lz=VAR`) ve kare **çekilip gözle bakıldı: tamamen odak dışı.**
+  Operatör doğruladı: *"kameraya lens ayarı yapmadım ondan okumadı"*.
+  Lens ayarı için yayın açıldı, ylp00'ın QR okuyucusu başlatıldı
+  (`vision_node baslatildi: agent_id=1`, kare akıyor, `qr_sayaci=0`,
+  4056×3040 @ 10.4 fps) — **ama uçaklar kapandığı için SONUÇ BİLİNMİYOR.**
+  **Ölçüm:** elde kağıt QR, ylp00'da
+  `cat ~/yelpence_ws/algi_durum.json` → `qr_sayaci` **> 0** mı.
+  ⚠️ **Ders (TUZAKLAR'a da yazıldı): `qr_sayaci=0` tek başına yazılım
+  arızası DEĞİLDİR.** Kareyi gözle görmeden teşhis koyulmaz — bu oturumda
+  boru hattını üç kez ölçtüm, hepsi temizdi, sorun optikti.
+
 - `[~]` 🔴 **İRTİFA REFERANSI YOK — sürü uçarken süzülüyor (4 Eylül, ölçüldü).**
   `use_current_altitude` yazılıyor ama **hiçbir tüketici okumuyor**; merkez
   z'si her yerde `inp.centroid[2]` — yani komut, ölçümün kopyası. Referans
@@ -20,7 +77,20 @@
   **NAVIGATE bacağı düzeltildi** (bacak başında mandallama). **AÇIK KALAN:**
   tutma fazları (`_hold_centroid`) ve bayrağın kendisi — ya bir tüketicide
   uygulanmalı ya kaldırılmalı. Bkz. `TUZAKLAR.md` §3.x.
-  ⚠️ NAVIGATE düzeltmesi **havada denenmedi.**
+  🟢 **NAVIGATE düzeltmesi 4 Eylül akşamı HAVADA GEÇTİ:** komut z uçuş
+  boyunca **tam −10.0 m** kaldı, alçalma 0.43 m/s, QR'a 0.11 m. Süzülme
+  (10.7 → 2.7 m) bir daha görülmedi.
+  🔴 **AÇIK KALAN AYNEN DURUYOR:** tutma fazları. `_hold_centroid`
+  (`orchestrator.py:898`) hâlâ `inp.centroid[2]`yi geri veriyor ve
+  `_on_rotate` onu `use_current_altitude=True` ile basıyor
+  (`orchestrator.py:1086-1094`) — yani **rotasyon ve tutma fazlarında
+  referans hâlâ ölçümün kopyası.** NAVIGATE kısa sürüyor, ROTATE ve
+  QR görevleri arası bekleme UZUN; süzülme oralarda birikir.
+  İki yol var: ① `seyir_irtifa_ned` mandalını tutma fazlarına da uygula
+  (NAVIGATE'teki desenin aynısı, ~10 satır) ② `use_current_altitude`
+  bayrağını bir tüketicide gerçekten UYGULA. Bayrak bugün **ölü**:
+  `FormationCommand`'a yazılıyor, hiçbir abone okumuyor. Üçüncü seçenek
+  bayrağı KALDIRMAK — okunmayan bayrak yanlış güven veriyor.
 
 
 - `[x]` ✅ **QR `mnv` eşlemesi DOĞRUYMUŞ — sabah yanlış kaydedilmişti (4 Eyl).**
@@ -72,20 +142,16 @@
   ayrıştırma hatasında `TIP_QR_HAM` ile gider).
 
 
-- `[ ]` 🔴 **B5 DOĞRULAMA UÇUŞU — formasyonlar İLK KEZ uçacak (4 Eylül).**
-  Formasyonları öldüren iki kök neden kapandı (GUNLUK 07:15: havada IDLE →
-  bbc732c · B5×tek-yayıncı → 3b64e68) ama **B5 düzeltmesi havada hiç
-  denenmedi** (piller bitti). Tek soru: *kilit açık + çizgi seçilince
-  ylp02 formation.log'da `FormationCommand alindi` düşüyor ve formasyon
-  gözle kuruluyor mu?* Akış: pilleri şarj et → uçakları aç → **YKİ'den
-  görevi başlat** (restart görev durumunu sıfırladı; atlarsan SwD "YETKİ
-  YOK") → kuru+harita → SwD kalkış → lider onayı (~10 sn) → kilit aç →
-  çizgi. Düşmezse SwD iniş, yerde bakılır. ⚠️ Uçakları yere kimlik
-  sırasına diz (slot ataması hâlâ kimlik sırası; kuru test söylüyor).
+- `[x]` ✅ **B5 DOĞRULAMA UÇUŞU GEÇTİ — formasyon İLK KEZ havada kuruldu
+  (4 Eylül akşamı).** Tek soru "tarif takipçiye mesh'ten ulaşıyor mu?"ydu;
+  cevap ylp02 `formation.log`'undan geldi:
+  `FormationCommand alindi: type=3, atama=[1, 2, 3]` (sabah BOMBOŞTU).
+  Formasyon üç uçakta da kuruldu, gözle görüldü. `3b64e68` doğruymuş.
+  Yan kazanç: **üç uçak ilk kez birlikte arm oldu** — önceki tek-uçak
+  kalkışın sebebi donanım değil `PILOT OVERRIDE: mod=POSCTL` idi.
 
-- `[ ]` 🟠 **6 commit pushlanacak** (9a42c4f → 3b64e68 — manevra modu,
-  çerçeve düzeltmesi, DURUM 2 Hz, IDLE→ARMED, B5). Önce `git fetch`:
-  başka oturumun push'u olabilir (3 Eylül'de yaşandı).
+- `[x]` ✅ **Push yapıldı** — sabahki 6'lık paket `1cf6331` ile gitti.
+  ⚠️ Uzak `saha/main`, `origin` DEĞİL (`origin` 16 Ağustos'ta kalmış).
 
 - `[ ]` 🟡 **En-yakın-slot ataması (Macar, P2) — operatör istedi (4 Eyl):**
   lider slot 0'a sabit, kalan iki uçak en yakın slota (2 uçak = tek
@@ -446,6 +512,39 @@ YKİ joystick zinciri silindi · heading artık hesaplanıyor. **293 birim testi
 
 **Şartname dağıtık algoritma dayatıyor ve hakem YKİ bağlantısını kesecek.**
 Bugünkü komut yolu (YKİ → mesh → goto) finali GEÇEMEZ. Bu blok o yüzden var.
+
+- `[ ]` 🟠 **ylp00'DA PİL ÖLÇÜMÜ YOK — YKİ o uçak için YALAN SÖYLÜYOR (4 Eylül).**
+  Log: `PIL OLCUMU YOK — ... Yayinlanan %100 / 12.6 V bir OLCUM DEGIL, sabit.`
+  Yani YKİ'de ylp00 daima %100 görünüyor; **pil bitse de aynı görünecek.**
+  Daha önce sahayı meşgul eden *"Kritik batarya: 12.6V"* hayaletinin kaynağı
+  da buydu. **Etkisi:** ylp00'ın pili YKİ'den izlenemez → uçuş süresi kararı
+  körlemesine veriliyor. **Çözüm:** ① INA226 kablosu/adresi kontrol (ylp02'de
+  çalışıyor, karşılaştır) ② düzelene kadar **elle voltmetre**, ve YKİ'de
+  ylp00'ın pil göstergesine güvenilmediği operatöre söylenmeli.
+  ⚠️ Sabit değer yayınlamak yayınlamamaktan KÖTÜ: yanlış güven veriyor.
+
+- `[ ]` 🟠 **KURTARMA MERDİVENİNİN 18 m BASAMAĞI OKUMA TAVANININ ÜSTÜNDE.**
+  Basamaklar `(qr_read_altitude_m=12, _SEARCH_ALT_FLOOR_M=10,
+  qr_search_high_m→18)`; ama ölçülen QR okuma tavanı **16.6 m**
+  (`KAMERA.md` §13). Yani üçüncü basamak **tanım gereği okuyamaz** ve her
+  arama turunda ~18 sn boşa harcanıyor. Şartname süre puanı veriyor.
+  **Çözüm:** üst basamağı 16 m'ye indir (tek sabit, `orchestrator.py:709`
+  çevresi) + birim testi güncelle. ~5 satır, geri alınabilir, uçuş gerekmez.
+
+- `[ ]` 🟡 **ylp01'de `cv2` YOK — görüntü eşitlemesi yapılamıyor (KARAR-09).**
+  ylp00 ve ylp02'de `cv2 4.6.0` + `pyzbar` var, ylp01'de yok. Bugün kamera
+  yalnız ylp02'de (yedeği ylp00) olduğu için uçuşu engellemiyor, ama
+  kamera ylp01'e taşınırsa **sessizce** okumaz. Ya kur ya da
+  `RPI_ESITLEME` matrisinde ❌ olarak görünür kalsın (şu an görünüyor).
+
+- `[ ]` 🟡 **`dagit.sh` iki kritik dosyayı TAŞIMIYOR — temiz kurulumda
+  SESSİZCE eksik kalırlar.** ① `ucus_ayarlari.env` (hız/ivme/irtifa —
+  yoksa varsayılanlar devreye girer, örn. toplanma merdiveni 0.0'a düşer)
+  ② `~/yelpence_ws/pylib` altındaki PIL ağacı (yoksa kamera yayını
+  küçültme YAPMAZ, 4K kare olduğu gibi gider — 4 Eylül'de ylp00'da
+  yaşandı, `128105 → 21869 bayt` kazancı kaybediliyordu).
+  **Çözüm:** ikisini `dagit.sh`'a ekle ya da `drone_bul.sh --durum`
+  denetimine "bu iki dosya var mı" satırı koy. İkincisi daha ucuz.
 
 - `[ ]` 🟠 **ADIM 5 — görü zinciri sahaya.** `camera_driver` + `vision_node`
   ylp02'de koşuyor ama sürü zincirine bağlı değil.

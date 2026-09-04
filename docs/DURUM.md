@@ -1,7 +1,58 @@
 # DURUM — şu an ne çalışıyor, ne bozuk
 
-**Son güncelleme:** 4 Eylül 2026, 07:15 — 🟢 lider seçimi UÇUŞTA KANITLANDI (ylp00, 0.4 sn, kilit tuttu) · 🟢 agent_fsm artık gözlenen ARM'ı tanıyor · 🔴 B5 kaldırıldı ama HAVADA DENENMEDİ — sonraki uçuş bunu doğrular · 🔌 uçaklar kapalı, piller %31-41 ŞARJ GEREK
+**Son güncelleme:** 4 Eylül 2026, 21:47 — 🟢 B5 GEÇTİ: formasyon İLK KEZ havada kuruldu · 🟢 Görev 1 zinciri uçtan uca uçtu (15 m → QR'a 0.11 m, süzülme kapandı) · 🔴 açık: 1 Hz titreme · mesh kaybı %6.7/%21.7 · lens odağı doğrulanmadı · 🔌 uçaklar kapalı, `63f9870`
 
+
+
+> ## 🌆 4 EYLÜL AKŞAMI — B5 GEÇTİ, GÖREV 1 ZİNCİRİ UÇTAN UCA UÇTU
+>
+> **İki uçuş yapıldı, ikisi de hedefine ulaştı. Ayrıntı `GUNLUK.md`
+> 21:47 kaydı. Uçakta 18 yeni commit var: `7707698` → `63f9870`.**
+>
+> - 🟢 **B5 KAPANDI — formasyon İLK KEZ havada kuruldu.** Sabahki tek P0
+>   soruydu, cevap ylp02'nin `formation.log`'undan geldi:
+>   `FormationCommand alindi: type=3, atama=[1, 2, 3]`. Sabah bomboştu.
+>   Tarif artık takipçilere mesh'ten ULAŞIYOR. Üç uçak İLK KEZ birlikte
+>   arm oldu (önceki tek-uçak kalkışın sebebi `PILOT OVERRIDE: mod=POSCTL`
+>   idi — donanım değil, kumanda modu; kod değişmedi).
+> - 🟢 **Görev 1 zinciri uçtan uca ölçüldü:** ilk irtifa **15 m** ✅ ·
+>   toplanma merdiveni **13.0 / 15.6 / 18.2 m** ✅ · NAVIGATE başlığı
+>   **−33.3° sabit** ✅ · NAVIGATE irtifası komut **tam −10.0 m** ✅ ·
+>   dikey alçalma **0.43 m/s** (tavan 0.5) ✅ · **QR'a 0.11 m** ✅ ·
+>   seyirde formasyon aralığı **6.97 m** (hedef 7) ✅.
+>   **İrtifa süzülmesi KAPANDI** (sabah ylp00 10.7 → 2.7 m iniyordu).
+> - 🔴 **KUSUR 1 — seyirde titreme: komut 1 Hz'e düşüyor.** `mission1_node`
+>   5 Hz basıyor, `formation_node`'a **~1.0–1.2 s** aralıkla varıyor (hem
+>   liderde hem takipçide). 1 Hz = 2.5–3 m sıçrama → rampa 0.97 s'de bitiyor
+>   → `v_ff` darbeli. **Seyreltmenin yeri BULUNAMADI**; Python tarafında
+>   throttle YOK (`mission1_node._tick` · `esp32_bridge:3082` · `:2304`).
+>   Liderdeki loopback de 1 Hz olduğu için darboğaz mesh'ten ÖNCE.
+>   **Sıradaki ölçüm YERDE yapılır, uçuş gerekmez** (GUNLUK'ta tarif).
+> - 🔴 **KUSUR 2 — aşağı-yukarıyı yalnız lider yaptı. Mesh kaybı geri
+>   geldi:** d2 %6.7 · d3 %21.7 → `Stale ajanlar: [2]` →
+>   `[SWARM FAILSAFE] Sağlıklı ajan oranı düşük: 1/3` → tarif `agent_ids=[1]`
+>   → takipçiler komutu **sessizce** eledi. **Pil değişiminde uçaklar yer
+>   değiştirdikten SONRA başladı** — `TUZAKLAR.md` §4.14 konum bağımlılığı.
+>   ⛔ **Uçmadan önce `deploy/yki/mesh_kayip.py` ile ÖLÇ.** %5 üstündeyse
+>   uçma, önce uçakları eski yerlerine/anten yönlerine koy.
+> - 🟢 **KUSUR 3 — QR okunmadı: sebep LENS, yazılım değil.** Boru hattı
+>   sağlam ölçüldü (`image_raw/compressed` **27.3 Hz**, 1 yayıncı 1 abone,
+>   `lz=VAR`); kareyi çekip **gözle baktım, tamamen odak dışı.** Operatör
+>   doğruladı: *"kameraya lens ayarı yapmadım"*. Lens ayarı için yayın
+>   açıldı. ⚠️ **Sonuç BİLİNMİYOR** — uçaklar kapandı. Sonraki oturumun ilk
+>   ölçümü: ylp00'da `~/yelpence_ws/algi_durum.json` → `qr_sayaci > 0` mı.
+> - 🟢 **ylp00 kamerası artık ylp02'nin dengi:** algı imajı eşit
+>   (`ea2c1b1e`), `cv2 4.6.0` + `pyzbar` var, zincir kare üretiyor.
+>   🔴 **PIL yoktu** → yayın küçültme çalışmıyordu; ylp02'den kopyalandı,
+>   ölçüldü: `128105 → 21869 bayt` (**%83**). `dagit.sh` bunu TAŞIMAZ.
+> - ⚠️ **ylp00'da PİL ÖLÇÜMÜ YOK.** `PIL OLCUMU YOK` diyor, sabit
+>   `%100 / 12.6 V` yayınlıyor — bu bir ÖLÇÜM DEĞİL. Eski "Kritik batarya:
+>   12.6V" hayaleti buydu. **ylp00'ın pili ELLE ölçülecek.**
+> - ⚠️ **`ucus_ayarlari.env` `dagit.sh` ile TAŞINMIYOR.** Yeni değerler
+>   (`GOREV_KALKIS_IRTIFA=15.0` · `GOREV_QR_OKUMA_IRTIFA=10.0` ·
+>   `ROTA_DIKEY_HIZ=0.5`) uçaklara ELLE `scp` edildi.
+> - 🔌 **Üç uçak da KAPALI**, üçünde de `63f9870` yüklü + restart edilmiş.
+>   Piller şarj edilecek.
 
 
 > ## ☀️ 4 EYLÜL SABAHI — FORMASYONLARI ÖLDÜREN İKİ KÖK NEDEN KAPANDI
@@ -14,7 +65,8 @@
 >   artık PX4'ün arm'ını tanıyor (IDLE→ARMED, bbc732c). Uçuş 3: seçim
 >   0.4 sn, lider **ylp00**, kilit uçuş boyunca tuttu. Operatörün "kesin
 >   lider ylp00" isteğini mevcut kural zaten sağlıyor (min id + tam kadro).
-> - 🔴 **B5 süzgeci KALDIRILDI (3b64e68) — HAVADA DENENMEDİ.** Uçuş 3'te
+> - ✅ **B5 süzgeci KALDIRILDI (3b64e68) — 4 Eylül akşamı HAVADA GEÇTİ**
+>   (yukarıdaki akşam kutusuna bak; aşağısı o günkü kayıt olarak duruyor). Uçuş 3'te
 >   lider tarif bastı ama tarif mesh'e çıkmıyordu (B5 × tek-yayıncı
 >   çatışması) → takipçi formation_node'ları boş kaldı. B5 + ic_dis_kopru
 >   `formation/target` köprüsü kaldırıldı; artık tek üretici liderde

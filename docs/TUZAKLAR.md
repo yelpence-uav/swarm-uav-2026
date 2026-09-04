@@ -1,6 +1,6 @@
 # TUZAKLAR — hata vermeden yanlış sonuç üretenler
 
-**Son güncelleme:** 4 Eylül 2026, 17:40 — §3.x: `use_current_altitude` YAZILIYOR AMA HİÇ OKUNMUYOR (irtifa referansı yok, sürü süzülüyor) · §10.1 harita katmanları · §4.15 QR tablosu RAM'de
+**Son güncelleme:** 4 Eylül 2026, 21:47 — §1.0 `qr_sayaci=0` optik arıza olabilir (önce kareye bak)
 
 > **Bu belge CANLI.** Arşiv değil — buradaki her madde **bugün de geçerli.**
 >
@@ -161,6 +161,38 @@ ya da motor/pervane seçimi. *(1 Ağustos 2026)*
 
 Bu projede en çok zaman burada kaybedildi: araç sessizce yanlış cevap verdi,
 teşhis yanlış yere gitti.
+
+### 1.0 `qr_sayaci = 0` yazılım arızası DEĞİLDİR — önce KAREYE BAK
+
+4 Eylül uçuşunda QR okunmadı. Boru hattını üç ayrı yerden ölçtüm, **hepsi
+temizdi:**
+
+```
+image_raw/compressed : 27.3 Hz          (kare akıyor)
+yayıncı/abone        : 1 / 1            (vision_node bağlı)
+algi_durum.json      : yas 0.2 sn, lz=VAR
+qr_sayaci            : 0
+```
+
+Bu tabloya bakıp "QR çözücüde bir sorun var" demek çok kolaydı. Sonra
+kareyi çekip **gözle baktım: görüntü tamamen odak dışıydı.** Operatör
+doğruladı: *"kameraya lens ayarı yapmadım ondan okumadı."*
+
+> **Görü zincirinde ölçüm sağlığı OPTİK sağlığı göstermez.** Kare akıyor
+> olması karenin *okunabilir* olduğunu söylemez; çözücü bulanık kareyi de
+> gayet düzgün işler ve "bulamadım" der. Hata da uyarı da çıkmaz.
+>
+> **Kural: `qr_sayaci=0` görülünce ilk iş kareyi ÇEKİP GÖZLE BAKMAK.**
+> Kod okumadan, düğüm yeniden başlatmadan, parametre kurcalamadan önce.
+> Odak · pozlama · IR-CUT konumu · lens kapağı — dördü de yazılımda
+> görünmez, hepsi karede görünür.
+
+```bash
+# ylp0X'ten tek kare al ve indir (yayın açıkken):
+curl -s http://<pi>:8080/kare -o /tmp/kare.jpg && xdg-open /tmp/kare.jpg
+```
+
+*(4 Eylül 2026 — bir uçuş bu yüzden QR'sız döndü)*
 
 ### 1.1 `cat` baud rate ayarlamaz
 

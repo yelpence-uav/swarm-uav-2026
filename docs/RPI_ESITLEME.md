@@ -1,6 +1,6 @@
 # RPİ EŞİTLEME DEFTERİ — geri gelen drone'u hizaya getirme
 
-**Son güncelleme:** 4 Eylül 2026, 15:45 — K21 QR tablosu görünürlüğü (üç uçakta) · D6 dört ESP yeniden yüklendi, baz TEMİZ derleme
+**Son güncelleme:** 4 Eylül 2026, 21:47 — K22 15 m irtifa + YKİ seçimi (üç uçakta, uçuşta ölçüldü) · K23 kamera_zincir yolu · A24 PIL ylp00'a kopyalandı (%83 küçültme) · A25 ucus_ayarlari.env elle taşınıyor
 
 ## Kamera servisi — 1 Eylül 2026 düzeltmesi
 
@@ -301,6 +301,10 @@ konteyner yeniden başlatma yeterli. ylp01 döndüğünde tek yapılacak
 | K19 | **Mesh kayıp ölçümü + QR yineleme kapısı + DURUM hız düzeltmesi** — `esp32_bridge` | ✅ | ✅ | ✅ | *4 Eyl, `dagit.sh --paket swarm_control` + restart. Ölçüm `esp.log`'a 30 sn'de bir `KAYIP-OLCUM` yazıyor; okumak için `deploy/yki/mesh_kayip.py`* |
 | K20 | **TOPLANMA MERDİVENİ** — kalkıştan ilk formasyona geçerken dikey ayırma (`toplanma_katman_m=5.0`) | ✅ | ✅ | ✅ | *4 Eyl, `dagit.sh --paket swarm_missions` + restart; canlı parametre üç uçakta da doğrulandı. ⚠️ `ucus_ayarlari.env` **`dagit.sh` ile TAŞINMIYOR** — YKİ'de `python3 src/gcs/ucus_ayarlari.py --kabuk` ile üretilip ELLE `scp` edilir. Unutulursa merdiven sessizce KAPALI kalır (varsayılan 0.0)* |
 | K21 | **QR konum tablosu GÖRÜNÜRLÜĞÜ** — `esp32_bridge._isle_qr_coords` artık her yeni nokta ve tamamlanmayı `esp.log`'a yazıyor; yarım tablo görünür oldu | ✅ | ✅ | ✅ | *4 Eyl, `dagit.sh --paket swarm_control` + restart. Doğrulama: üçünde de `QR KONUM TABLOSU TAMAM: 6/6 — id=[1,2,3,4,7,9]`. ⚠️ Tablo **yalnız RAM'de** — her `docker restart` sonrası TEKRAR GÖNDERİLMELİ, bkz. `TUZAKLAR.md` §4.15* |
+| K22 | 🔴 **İLK İRTİFA 15 m + YKİ'den SEÇİLEBİLİR + dikey alçalma 0.5 m/s** — `esp32_bridge` (mesh'te `irtifa_dm` alanı kullanıma girdi, YENİ TİP YOK) + `agent_fsm` (`/swarm/public/mission/g1_ayar` aboneliği) + `orchestrator` + `linear_trajectory` | ✅ | ✅ | ✅ | *4 Eyl akşamı, `63f9870` — `dagit.sh` + restart, üçünde de doğrulandı. **Uçuşta ölçüldü:** kalkış 15 m ✅, NAVIGATE komutu tam −10.0 m ✅, alçalma **0.43 m/s** ✅. ⚠️ `agent_fsm` **İKİ** irtifa alanını birden günceller (`_target_altitude_m` → `takeoff:<X>` · `_ctx.target_altitude_m` → "ulaştım" kararı); biri unutulursa uçak 15'e çıkar ama 10'da "vardım" der* |
+| K23 | **`kamera_zincir.sh` `/ws/teshis/` yerine `/ws` KÖKÜNÜ kullanıyor** | ✅ | ✅ | ✅ | *4 Eyl, `bc92aa1`. `dagit.sh` teşhis betiklerini `yelpence_ws/` **köküne** koyuyor, `teshis/` altına DEĞİL (`kayit_onar.sh:6` bunu zaten yazıyordu). Yanlış yol sessizce "dosya yok" ile duruyordu* |
+| A24 | 🔴 **PIL (Pillow) — yayın küçültme için ZORUNLU** | ✅ *(4 Eyl akşamı, ylp02'den kopyalandı)* | ❌ | ✅ | `~/yelpence_ws/pylib/PIL` — dpkg ile açılmış 5,5 MB'lık ağaç. ⚠️ **`dagit.sh` TAŞIMAZ, elle kopyalanır.** Yoksa `kamera_yayin.py` küçültmeyi SESSİZCE atlar ve 4K kareyi olduğu gibi yollar. **Ölçüldü (ylp00):** `tam 128105 → küçük 21869 bayt` = **%83 azalma.** ylp01'de kamera yok, o yüzden ❌ bugün zararsız |
+| A25 | ⚠️ **`ucus_ayarlari.env` — `dagit.sh` TAŞIMAZ, ELLE `scp`** | ✅ | ✅ | ✅ | *4 Eyl akşamı yeni değerlerle güncellendi: `GOREV_KALKIS_IRTIFA=15.0` · `GOREV_QR_OKUMA_IRTIFA=10.0` · `ROTA_DIKEY_HIZ=0.5`. Üretimi: YKİ'de `python3 src/gcs/ucus_ayarlari.py --kabuk`. Unutulursa varsayılanlar devreye girer ve fark **hiçbir logda görünmez** — uçak eski irtifaya çıkar* |
 
 > ### 🔴 K17 — bag 4K kare yazıyordu, disk 64 dakikada doluyordu
 >
