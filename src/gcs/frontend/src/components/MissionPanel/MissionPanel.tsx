@@ -51,6 +51,15 @@ export function MissionPanel({
   // kendi varsayılanını (aralık 7 m) koruyor. İkisi farklı durum.
   const [aralik, setAralik] = useState("");
   const [irtifa, setIrtifa] = useState("");
+  // 🔴 GÖREV 1 BAŞLANGIÇ FORMASYONU — 4 Eylül 2026.
+  // Şartname: "Sürü ajanları hakemler tarafından başlangıçta yerde
+  // istenilen formasyonda dizilir" (madde 1) ve aralık hakem tarafından
+  // veriliyor ("Örn: 5m", madde 2). Yani ikisi de görev anında öğrenilir.
+  // Önceden bu yalnız baslat.sh parametresiydi: değiştirmek için ÜÇ
+  // UÇAKTA dosya yazıp konteyner restart etmek gerekiyordu.
+  // BOŞ = uçaktaki varsayılan korunur; boş bırakmak geçerli bir seçim.
+  const [g1Formasyon, setG1Formasyon] = useState("");
+  const [g1Aralik, setG1Aralik] = useState("");
 
   async function trigger(
     commandCode: number,
@@ -94,6 +103,19 @@ export function MissionPanel({
         const h = parseFloat(irtifa);
         if (isFinite(a)) p.aralik_m = a;
         if (isFinite(h)) p.irtifa_m = h;
+        if (Object.keys(p).length > 0) parameters_json = JSON.stringify(p);
+      }
+      // GÖREV 1 BAŞLAT — başlangıç formasyonu + aralık. Aynı kural:
+      // seçilmeyen alan JSON'a HİÇ konmaz, uçak kendi varsayılanını korur.
+      if (
+        missionId === MISSION_ID.DYNAMIC_SWARM &&
+        commandCode === MISSION_COMMAND.START
+      ) {
+        const p: Record<string, number> = {};
+        const f = parseInt(g1Formasyon, 10);
+        const ga = parseFloat(g1Aralik);
+        if (isFinite(f) && f > 0) p.formasyon = f;
+        if (isFinite(ga)) p.aralik_m = ga;
         if (Object.keys(p).length > 0) parameters_json = JSON.stringify(p);
       }
       const resp = await missionApi.trigger({
@@ -260,6 +282,50 @@ export function MissionPanel({
 
           Bu buton mode_manager'ın ÜÇÜNCÜ KAPISINI açar (mission_state=8).
           Basılmadan SwD sürüyü ARMLAYAMAZ — bilerek. */}
+      {/* 🔴 GÖREV 1 BAŞLANGIÇ FORMASYONU — 4 Eylül 2026.
+          Şartname formasyonu ve aralığı görev anında veriyor (madde 1-2),
+          yani sabit yazılamaz. Değer BAŞLAT paketiyle mesh'ten ÜÇ UÇAĞA
+          AYNI ANDA gider — görev sırasında yeni komut yolu açılmıyor.
+
+          ⚠️ YALNIZ TOPLANMA FORMASYONUNU belirler. QR bir formasyon
+          dayattığı anda o EZER (şartname yolu her zaman üstte) — burası
+          "kalkıştan sonra hangi düzende toplansınlar" sorusunun cevabı.
+
+          ⚠️ VARSAYILAN SAYI BURAYA YAZILMIYOR (§9: aynı sabiti iki yere
+          yazma). Varsayılan `ucus_ayarlari.GOREV_FORMASYON/GOREV_ARALIK_M`
+          ve uçağa baslat.sh ile gidiyor; buraya kopyalansaydı o değer
+          değiştiği gün bu kutu sessizce yalan söylerdi. */}
+      {missionId === MISSION_ID.DYNAMIC_SWARM && !missionActive && (
+        <div className="mission-panel__row">
+          <label className="mission-panel__field">
+            <span>Başlangıç formasyonu:</span>
+            <select
+              value={g1Formasyon}
+              onChange={(e) => setG1Formasyon(e.target.value)}
+              disabled={busy !== null}
+            >
+              <option value="">boş = uçaktaki varsayılan</option>
+              <option value="3">Çizgi</option>
+              <option value="1">Ok başı</option>
+              <option value="2">V</option>
+            </select>
+          </label>
+          <label className="mission-panel__field">
+            <span>Aralık (m):</span>
+            <input
+              type="number"
+              step="0.5"
+              min="4"
+              max="25.5"
+              placeholder="boş = uçaktaki varsayılan"
+              value={g1Aralik}
+              onChange={(e) => setG1Aralik(e.target.value)}
+              disabled={busy !== null}
+            />
+          </label>
+        </div>
+      )}
+
       {missionId === MISSION_ID.SEMI_AUTONOMOUS && (
         <div className="mission-panel__hint mission-panel__hint--bilgi">
           BAŞLAT sürüyü <strong>yarı otonom moda alır</strong>, kalkış
