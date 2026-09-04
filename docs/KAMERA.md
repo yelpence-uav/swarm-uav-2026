@@ -1,6 +1,6 @@
 # KAMERA ve ALGI — sahada ölçülmüş sonuçlar
 
-**Son güncelleme:** 1 Eylül 2026, 20:15 — jöle artık ÖLÇÜLÜYOR (§12); modül arızası teşhisi; karanlık kayıt tuzağı
+**Son güncelleme:** 4 Eylül 2026, 09:05 — 🔴 TAVAN 11 m → **16,6 m** (§13): wechat kırpmada da felaketmiş, kapatıldı; okuma canlı olarak İRTİFA BANDI tablosunda görünüyor
 
 > Bu belge **28 Ağustos 2026'da tek oturumda** yapılan kamera kurulumu,
 > kalibrasyonu ve dört uçuşluk QR tespit testinin sonucudur. Her sayı
@@ -12,11 +12,19 @@
 
 ## 1. Tek cümlelik sonuç
 
-**4056x3040 (4K) + titreşim yalıtımı ile, 1,5 m'lik QR 5-11 m irtifada
-karelerin %38-69'unda okunuyor. Tepe 7-8 m'de %69. Tavanı belirleyen şey
-çözünürlük değil, kalan titreşim.**
+**4056x3040 (4K) + titreşim yalıtımı ile 1,5 m'lik QR okunuyor. Tavan
+4 Eylül 2026'da 11 m'den 16,6 m'ye çıktı — kare kalitesi DEĞİŞMEDİ,
+saniyede yapılan deneme sayısı 4 katına çıktı (§13).**
 
-Saha kuralı: **QR okuması gerekiyorsa 6-9 m'de uç.**
+Saha kuralı: **QR okuman gerekiyorsa 15 m ve altında uç, ve okuyacağın
+noktada DUR.** 15-16 m'de 0,79 okuma/sn ölçüldü: ortalama 1,3 saniye asılı
+kalmak bir okumaya yetiyor.
+
+> ⚠️ Eski kural **"6-9 m'de uç"** idi ve 28 Ağustos ölçümüne dayanıyordu
+> (5-11 m'de karelerin %38-69'u, tepe 7-8 m'de %69). O ölçüm yanlış değil,
+> **o günkü yapılandırmada** doğruydu: wechat açık olduğu için zincir
+> saniyede ancak ~1 deneme yapabiliyordu. §5'teki sayılar bilerek duruyor —
+> ikisini karşılaştırırken yapılandırma farkını unutma.
 
 ---
 
@@ -357,6 +365,31 @@ kırpmada bulunamadı -> başarısız++
    wechat TAM KAREDE ASLA çalıştırılmaz    (boş karede 11,6 SANİYE)
 ```
 
+> ### 🔴 4 Eylül 2026 — WECHAT KAPATILDI, koruma yanlış yerdeymiş
+>
+> Yukarıdaki koruma ("tam karede asla") doğru yazılmış ama **yetmiyormuş.**
+> Uçakta ölçüldü — kadrajda QR YOKKEN, 4056x3040, 10 kare ortalaması:
+>
+> | | ms/kare |
+> |---|---|
+> | wechat AÇIK | **951,1** |
+> | wechat KAPALI | **249,1** |
+> | + tam tarama seyrek (/20) | 219,8 |
+> | + tam tarama kapalı (0) | 197,8 |
+>
+> **wechat tek başına kare başına ~702 ms.** Sebep: kadrajda QR yokken
+> varyans bulucunun aday kutusu neredeyse **tüm kare** oluyor. "Kırpma"
+> denen şey tam kareye yaklaşıyor ve wechat aynı 11,6 saniyelik felakete
+> kırpma üzerinden giriyor. Koruma **kırpmanın BOYUTUNA** bakmalıydı,
+> çağrıldığı yere değil.
+>
+> **Menzil bedeli yok:** wechat ~40 m, zxing ~25 m — gerçek tavanımız jöle
+> yüzünden 16,6 m ve zxing'in menzili zaten onun bir buçuk katı.
+>
+> `kamera_zincir.sh` artık `qr_wechat_yedek=false` ile açıyor (`WECHAT=true`
+> ile geri gelir). ⚠️ `vision_node`'un **üretim varsayılanı hâlâ `True`** —
+> Görev 1'de algı zinciri açılırsa orada da bu bedel ödenir.
+
 İki incelik ölçümle bulundu:
 
 - **Başarıdan sonra sayaç sıfırlanmıyor.** Sıfırlarken her başarıdan sonraki
@@ -574,6 +607,8 @@ Bu bölüm bilerek duruyor. Her biri zaman kaybettirdi.
 | "QR A4'te, 8 m'den yukarı okunmaz" | Hedef 1,5 m'lik pankarttı | İrtifa + piksel ölçümü |
 | "Kamera düşüşte bozuldu" | Sağlamdı; **yeni takılan modül arızalıydı** | Aynı flex, iki modül (§12.1) |
 | "Yalıtım bozulmuş, jöle 4,02 px" | Ölçüm **geçersizdi** — kayıt karanlıktı | Operatör kaydı izledi: dalgalanma yok (§12.3) |
+| "wechat kırpmada güvenli, 11 ms" | Kırpma, QR yokken **tüm kare** oluyor; 702 ms/kare | Uçakta aşama aşama süre ölçümü (§6.4) |
+| "Tavan 11 m; çözünürlük de jöle de tükendi" | Tavan **16,6 m** — eksik olan DENEME SAYISIYDI | Zincir hızlanınca aynı jölede 16,6 m okundu (§13) |
 
 **Ortak ders:** ölçümü *yorumlamadan* önce, ölçtüğün şeyin gerçekten o
 olduğunu doğrula. Kare ortalamasından IR, kırpılmış kareden odak,
@@ -583,6 +618,13 @@ kare hızından okuma süresi çıkarılamaz.
 
 ## 11. Açık işler
 
+- 🔴 **`vision_node` ÜRETİM VARSAYILANI hâlâ `qr_wechat_yedek=True`.**
+  Bugün yalnız `kamera_zincir.sh` üzerinden kapatıldı (§6.4). Görev 1'de
+  algı zinciri açılırsa kare başına 702 ms bedeli orada da ödenir.
+- 🟠 **Tavanın tam yeri ölçülmedi** — 16 ile 24 m arasında olduğunu
+  biliyoruz (§13.2). 17/19/21 m'de birer 20 saniyelik bekleme yeter.
+- 🟠 **14-15 m'deki sıfır** açıklanmadı (§13.2) — kadraj şüphesi var,
+  doğrulanmadı.
 - 🟠 **Yalıtımı derinleştir.** QR büyütülemediği için tavanı açacak tek eksen bu; boyut tarafında 23 m'lik kullanılmayan pay var.
 - 🟠 **Renk eşiklerini yeni renk dengesinde kalibre et.**
 - 🟠 **Konteynerdeki `swarm_perception` eski derleme** —
@@ -696,3 +738,102 @@ kontrast 19-22 tipik.
 
 > **Ders:** metriğin ne ölçtüğü kadar, **ne zaman ölçemeyeceği** de
 > kodlanmalı. Sessizce sayı üreten bir ölçü aleti, hiç ölçmeyenden kötüdür.
+
+---
+
+## 13. 4 Eylül 2026 — TAVAN 16,6 m · canlı irtifa bandı
+
+**Tek uçuş, gündüz, ylp02, elle kumanda. QR kadraja alınıp farklı
+irtifalarda asılı kalındı; sonuç kayıttan değil, uçuş sırasında
+arayüzdeki İRTİFA BANDI tablosundan okundu.**
+
+### 13.1 Sonuç
+
+```
+EN YÜKSEK OKUMA   16,64 m        (28 Ağustos tavanı: 11 m)
+toplam okuma      36
+metin             {"qr":2,"w":4,"mis":[[["frm","l",6],["mnv",-5,10],["alt",18]], ...
+geçerli           valid=True     -> zincir uçtan uca çalışıyor
+```
+
+### 13.2 Bant tablosu — hangi satır ÖLÇÜM, hangisi değil
+
+| bant | okuma | süre | okuma/sn | |
+|---|---|---|---|---|
+| 24-26 m | 0 | 29,4 sn | 0,00 | ✅ gerçek bekleme — **tavanın üstü** |
+| 17-24 m | 0 | ~2 sn/bant | — | ⚠️ geçiş, sonuç çıkarılmaz |
+| 16-17 m | 1 | 1,8 sn | 0,56 | ⚠️ tek örnek |
+| **15-16 m** | **17** | **21,6 sn** | **0,79** | ✅ **tek sağlam bekleme** |
+| 14-15 m | 0 | 9,6 sn | 0,00 | 🔴 aşağıda |
+| 10-11 m | 7 | 3,6 sn | 1,94 | ⚠️ 11 deneme, ince |
+| 8-10 m | 6 | 7,4 sn | ~0,8 | ⚠️ ince |
+| 0-8 m | 0 | ~30 sn | 0,00 | ⚠️ hepsi geçiş |
+
+**Tavan 16 ile 24 m arasında.** Bunu söyleyen iki satır var: 15-16 m'de
+21,6 saniyede 17 okuma (şans değil), 24-26 m'de 29,4 saniyede sıfır.
+Aradaki bantların hiçbirinde durulmadı, dolayısıyla tavanın tam yeri
+**henüz ölçülmedi.**
+
+> 🔴 **14-15 m'de 9,6 saniye durulmuş ve SIFIR okuma düşmüş** — hemen
+> üstündeki bant 0,79/sn verirken. 9,6 sn ≈ 29 deneme, hepsi başarısız.
+> İrtifa bunu açıklamıyor; en olası sebep QR'ın o sırada **kadraj dışında**
+> olması. Ders: irtifa tek değişken değil, **çerçeveleme en az onun kadar
+> belirleyici.** Bir sonraki ölçümde nişangâhı QR'ın üstünde tut.
+
+### 13.3 Tavan neden yükseldi — jöle DEĞİŞMEDİ
+
+Yalıtıma dokunulmadı, kareler daha iyi değil. Değişen tek şey **saniyede
+kaç deneme yapılabildiği**:
+
+| | ms/kare | etkin deneme |
+|---|---|---|
+| önce (wechat açık) | 951 | ~1 Hz |
+| sonra (wechat kapalı) | 249 | 3 Hz |
+
+16 m'de tek bir karenin okunma olasılığı düşük ama sıfır değil; dört kat
+deneme yapınca içlerinden temiz olanı yakalanıyor. **Yani hâlâ jöleye
+takılıyoruz — sadece artık daha sık örnekliyoruz.** §5.3'teki "tek eksen
+titreşim" hükmü geçerliliğini koruyor; yalıtımı iyileştirmek tavanı bir
+kez daha yükseltir.
+
+### 13.4 Bu uçuşta kullanılan yapılandırma
+
+```
+kip        4056x3040 (tam)      fps 10       kalite 45
+vision     qr 3 Hz · renk 0,2 Hz · wechat KAPALI · tam_tarama 20
+CPU        boşta %29,2          (bu ayarlardan önce %1,9)
+disk       2 MB/dk              (bag'den image_raw çıkarıldıktan sonra)
+```
+
+Başlatma:
+
+```bash
+docker exec -e LZ_HZ=0.2 -e QR_HZ=3.0 drone3 \
+    bash /ws/teshis/kamera_zincir.sh 3 basla
+```
+
+**4K kipi 30 → 10 fps.** 30'un gerekçesi koda *"okuma süresini 3 kat
+kısaltır, jöle azalır"* diye yazılmıştı; §4 bunu ölçümle çürütmüş ama kip
+düzeltilmemişti. Bedeli ölçüldü: `rpicam-vid` %131 → %48.
+
+### 13.5 Okumayı CANLI görmek — İrtifa bandı kartı
+
+`algi_kopru` artık `/drone_N/mavros/altitude`'a abone (⚠️ **SENSOR_DATA
+QoS** — MAVROS BEST_EFFORT yayınlar, RELIABLE abone sessizce hiçbir şey
+almaz, TUZAKLAR §2.1) ve irtifayı **QR mesajının geldiği anda** mandallıyor.
+Kamera sayfası üç yeni satır ve bir tablo gösteriyor: anlık irtifa, son
+okumanın irtifası, en yüksek okuma, ve metre metre bant tablosu.
+
+> **YÜZDE YOK, OKUMA/SN VAR.** `vision_node` QR mesajını yalnız okuma
+> **başarılı** olunca yayınlıyor (`for res in results`), yani denenen kare
+> sayısı — payda — bilinmiyor. Varsayılan 5 Hz'den yüzde uydurmak tam da
+> okuma düşükken yanıltırdı: QR bulunamayınca zincir zaten yavaşlıyor
+> (§6.5), gerçek payda küçülüyor ve uydurma yüzde olduğundan kötü çıkıyor.
+> Okuma/sn'nin paydası **gerçek geçen süre**.
+
+⚠️ **Her uçuştan önce BANTLARI SIFIRLA.** Tablo köprü açıldığından beri
+sayıyor; sıfırlanmazsa ikinci uçuşun verisi birincinin üstüne eklenir ve
+ayrılamaz.
+
+⚠️ **Kadrajda QR yokken CPU en yüksektir** (tam tarama turları). Ölçülen
+%29,2 boşta değeri o kötü haldendir; QR kadrajdayken zincir hızlanıyor.

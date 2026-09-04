@@ -1,6 +1,6 @@
 # TUZAKLAR — hata vermeden yanlış sonuç üretenler
 
-**Son güncelleme:** 2 Eylül 2026, 22:40 — §4.13: "BOOT" sandığın tuş EN olabilir (çip reset'te kalır, her baud sessiz)
+**Son güncelleme:** 4 Eylül 2026, 10:15 — §4.14: mesh kaybı SESSİZ ve yerleşime aşırı duyarlı (%38 → %0, iki uçağın yerini değiştirmek)
 
 > **Bu belge CANLI.** Arşiv değil — buradaki her madde **bugün de geçerli.**
 >
@@ -2100,6 +2100,65 @@ kayıp = verici/taşıma; tek alıcıda kayıp = o alıcının RX'i.
 
 **Uçuş kuralı: körlük KRİTİĞİ ekrandayken yaklaştırma YAPILMAZ** — görmeyen
 uçak kaçamaz; alarm tam bunu söylüyor.
+
+### 4.14 🔴 Mesh kaybı SESSİZDİR ve yerleşime aşırı duyarlıdır
+
+**4 Eylül 2026, yerde ölçüldü.** İki uçağın yerini değiştirmek, aralarındaki
+paket kaybını **%38'den %0,00'a** indirdi. Hiçbir yerde hata satırı yoktu —
+ne önce ne sonra.
+
+Sebep: mesh trafiği **broadcast** gidiyor ve broadcast'te 802.11 ACK
+**yoktur** (`mesh_config.h::_mesh_gonder`). Çerçeve havada kaybolursa ne
+gönderen ne alan fark eder. Üstelik **çoklu-atlama (relay) bilerek
+kaldırılmış** — yani birbirini duyamayan iki uçak arasında üçüncüsü
+üzerinden aktarım da yok:
+
+> `// NOT: _paketi_ilet() (coklu-atlama relay) kaldirildi.`
+> `// Menzil sorunu cikarsa cozum relay degil, once anten/konumlandirma.`
+
+**Ölçülen matris (yerde, üç uçak, DURUM 2 Hz üzerinden):**
+
+| yerleşim | ylp00 ↔ ylp02 | ylp01 ↔ diğerleri |
+|---|---|---|
+| ylp01 tam aralarında | %32 / %38 | %0,2 – %1,7 |
+| ylp01 geriye çekildi | %29 / %1,1 | %0 – %2,2 |
+| ylp00 ↔ ylp02 yer değişti | **%0,00 / %2,2** | %0,6 – %1,7 |
+
+**Teşhis sırası — bu sıra önemli, yanlış yerde aramayı önlüyor:**
+
+1. **Önce UART'ı ele.** `KAYIP-OLCUM` satırındaki `uart_tx_drop` ve
+   `crc_fail` sıfırsa kayıp kabloda değil havadadır. (A16 jumper arızası
+   tam bu iki sayaçta görünür — uçuşta 868, yerde 0 ölçülmüştü.)
+2. **Simetriye bak.** İki yön de kötüyse yol tıkalı (araya giren gövde,
+   engel). Tek yön kötüyse ya vericinin gücü ya alıcının gürültü tabanı.
+3. **Üçüncü uçağı referans al.** Bir uçak diğer ikisiyle de temizse onun
+   donanımı sağlamdır; sorun kalan çiftin arasındadır.
+4. **Yerlerini değiştir.** Kötü yön *konumu* takip ediyorsa geometri,
+   *uçağı* takip ediyorsa o birimin donanımı. 4 Eylül'de konumu takip etti.
+
+⚠️ **Üçüncü uçağı AÇMAK kaybı artırır.** Aynı çift, ylp01 kapalıyken %13,7,
+açıkken %38 verdi — link zaten sınırdaysa artan trafik onu aşağı itiyor.
+Yani iki uçakla yapılan ölçüm iyimserdir.
+
+⚠️ **Kapalı uçak da engeldir.** ylp01 kapalıyken bile gövdesi aradaydı ve
+kaybın bir kısmını o üretiyordu.
+
+**Saha kuralı: uçakları dizdikten sonra, kalkıştan önce ölç.**
+
+```bash
+python3 deploy/yki/mesh_kayip.py          # ~3 dakika
+```
+
+Her uçak `esp.log`'a 30 saniyede bir `KAYIP-OLCUM` satırı yazıyor; araç
+uçaklardan çekip kayıp matrisini basıyor. Sayaçlar konteyner açılışında
+sıfırlandığı için **toplamlar değil son iki kaydın FARKI** kullanılıyor.
+
+**Bunun bedeli QR'dan geniş:** kaçınma komşu POSE'una, konsensüs DURUM'a
+bakıyor. Birbirini duyamayan çift arasında ikisi de eksik akar — ve
+hiçbiri hata vermez.
+
+*Aynı aile:* §4.12 (elde taşınan uçakta ESP gölgelenmesi). Oradaki teşhis
+kalıbı burada da geçerli: kaybı **iki alıcıda** karşılaştır.
 
 ## 5. Raspberry Pi ve seri portlar
 

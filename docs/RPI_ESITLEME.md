@@ -1,6 +1,6 @@
 # RPİ EŞİTLEME DEFTERİ — geri gelen drone'u hizaya getirme
 
-**Son güncelleme:** 3 Eylül 2026, 01:30 — B36: `ros2 run` sarmalayıcıları kaldırıldı (ylp01 boş bellek 2,8 kat)
+**Son güncelleme:** 4 Eylül 2026, 08:25 — K17: bag artık 4K kare yazmıyor (ylp02'de, diğer ikisi BEKLİYOR) · K18 kamera/QR ayarları
 
 ## Kamera servisi — 1 Eylül 2026 düzeltmesi
 
@@ -296,6 +296,37 @@ konteyner yeniden başlatma yeterli. ylp01 döndüğünde tek yapılacak
 | K15 | 🔴 **Dikey datum düzeltmesi** — `alt_amsl − home`, EKF yerel z DEĞİL | ✅ | ✅ | ✅ |
 | K16 | 🔴 **`d0/hard` 10/6 → 4,0/2,5** — geçici test değeri geri alındı | ✅ | ✅ | ✅ |
 | A17 | 🔴 **POSE kapısı `0.100 → 0.095`** — komşu tazeleme 7,1 → 10,5 Hz | ✅ *(23 Ağu 18:10)* | ✅ | ✅ |
+| K17 | 🔴 **Uçuş kaydı (bag) artık 4K kare YAZMIYOR** — `baslat.sh` `KAYIT_HARIC`'e `/camera/image_raw` eklendi | ❌ | ❌ | ✅ *(4 Eyl 08:18, elle rsync + `docker restart`)* |
+| K18 | **Kamera/QR ayarları** — `kamera_yayin.py` 4K kipi 30→10 fps + Algı panelinde **irtifa/bant tablosu** + **VİDEO KES** düğmesi · `algi_kopru.py` MAVROS irtifası · `kamera_zincir.sh` `WECHAT`/`TAM_TARAMA`/`QR_HZ`/`LZ_HZ` (wechat **varsayılan KAPALI**) | ❌ | ❌ | ✅ *(4 Eyl)* |
+
+> ### 🔴 K17 — bag 4K kare yazıyordu, disk 64 dakikada doluyordu
+>
+> 4 Eylül'de ylp02'de **ölçüldü**. Kayıt deseni `^(/drone_N/|/swarm/|/gozlem/)`
+> algı kamerasının konusunu (`/drone_N/camera/image_raw/compressed`) da
+> yakalıyor. `KAYIT_HARIC` listesi **MAVROS'un** kullanılmayan konuları için
+> yazılmıştı — içindeki `camera/` `/mavros/camera/` demek, başka bir şey — ve
+> algı kamerasını elemiyordu.
+>
+> ```
+> tasarım bütçesi     42 KB/s     (14 dk uçuş ~35 MB)
+> algı zinciri açık  1467 KB/s    88 MB/dk   -> 35 KAT
+> düzeltmeden sonra    ~33 KB/s   2 MB/dk
+> ```
+>
+> **Bugüne kadar ortaya çıkmamasının sebebi:** algı zinciri uçuşlarda kapalı
+> tutuluyor (`KAMERA.md` §9). Zincir açılınca bag 4K kareleri yutmaya başlıyor.
+> ⚠️ **Temizleyen yok:** günlük bekçisi yalnız `/ws/gunluk`'a bakıyor,
+> `/ws/kayit`'a hiç dokunmuyor. Yani disk dolana kadar gider.
+>
+> **Kalan:** `camera_info`, `perception/landing_zone`, `qr_data`, `zone_map` —
+> yani *"kamera ne gördü"* gitti, *"kamera ne buldu"* duruyor. Video kaydı
+> zaten ayrı ve operatörün isteğiyle alınıyor (kamera sayfasındaki KAYIT
+> düğmesi, `.mjpeg` + `.idx`).
+>
+> ⚠️ **ylp00 ve ylp01'de HÂLÂ ESKİ DESEN.** `dagit.sh` taşır ama
+> **konteyner yeniden başlatılmadan devreye girmez** (`baslat.sh` yalnız
+> konteyner açılışında koşar). Görev 1'de algı zinciri açılırsa o iki uçakta
+> aynı disk sorunu çıkar.
 
 > ylp01 sütunu 24 Ağustos 20:35'te ✅ oldu: kod klonla **`7645d83`**
 > geldi — üstelik bu, K listesinin tamamından DAHA YENİ (dikey kaçınma
