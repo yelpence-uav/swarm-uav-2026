@@ -105,6 +105,58 @@ class TestIdleArmingGecis(unittest.TestCase):
         self.assertIsNone(result)
 
 
+class TestIdleGozlenenArm(unittest.TestCase):
+    """IDLE -> ARMED gozlenen arm testleri (4 Eylul 2026).
+
+    Gorev 2'de ARM px4_bridge'ten gider, agent_fsm'e talep gelmez.
+    4 Eylul ucusunda uc ucak havada IDLE yayinladi -> uygun kume bos ->
+    lider hic secilmedi -> tarif basilmadi. Bu sinif o yolu kilitler.
+    """
+
+    def test_px4_arm_ise_idle_armed(self):
+        """PX4 arm bildiriyorsa talep olmadan IDLE -> ARMED."""
+        ctx = _sitl_ctx()
+        ctx.state = AgentState.IDLE
+        ctx.armed = True
+        result = evaluate_transitions(ctx)
+        self.assertEqual(result, AgentState.ARMED)
+
+    def test_px4_arm_preflight_gecmese_de_armed(self):
+        """Arm gercegi preflight'a takilmaz — ucak zaten ucuyor olabilir."""
+        ctx = _sitl_ctx()
+        ctx.state = AgentState.IDLE
+        ctx.armed = True
+        ctx.gps_fix_type = 1  # preflight gecmez ama PX4 arm = gercek
+        result = evaluate_transitions(ctx)
+        self.assertEqual(result, AgentState.ARMED)
+
+    def test_disarm_iken_talepsiz_idle_kalir(self):
+        """Disarm + talepsiz: eski davranis korunur, IDLE'da bekler."""
+        ctx = _sitl_ctx()
+        ctx.state = AgentState.IDLE
+        ctx.armed = False
+        result = evaluate_transitions(ctx)
+        self.assertIsNone(result)
+
+    def test_pilot_override_arm_gecisini_de_durdurur(self):
+        """POSCTL override'da gozlenen arm gecisi de donar (bilerek):
+        pilot elle ucuyorsa suru otonomisi karismaz."""
+        ctx = _sitl_ctx()
+        ctx.state = AgentState.IDLE
+        ctx.armed = True
+        ctx.autonomous_control_paused = True
+        result = evaluate_transitions(ctx)
+        self.assertIsNone(result)
+
+    def test_armed_disarm_olunca_idle_doner(self):
+        """Gidis-donus durust: ARMED + disarm -> IDLE (mevcut yol)."""
+        ctx = _sitl_ctx()
+        ctx.state = AgentState.ARMED
+        ctx.armed = False
+        result = evaluate_transitions(ctx)
+        self.assertEqual(result, AgentState.IDLE)
+
+
 class TestArmingGecisleri(unittest.TestCase):
     """ARMING durumundan geçiş testleri."""
 

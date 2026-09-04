@@ -107,14 +107,28 @@ def _from_unknown(ctx: AgentContext) -> AgentState | None:
 def _from_idle(ctx: AgentContext) -> AgentState | None:
     """Evaluate transitions from this state.
 
+    IDLE → ARMED: PX4 zaten arm — gercege uy (4 Eylul 2026).
     IDLE → ARMING: Arming talebi varsa ve preflight kontrolleri geçiyorsa.
+
+    🔴 NEDEN GOZLENEN ARM: Gorev 2'de ARM px4_bridge'ten gidiyor
+    (SwD -> mode_manager -> arm+takeoff, G2-K10) ve agent_fsm'e TALEP
+    GELMIYOR — talebi ureten EVENT_MISSION_STARTED 2 Eylul'de kaldirildi.
+    4 Eylul ucusunda uc ucak HAVADA IDLE yayinladi; IDLE ELIGIBLE_STATES'te
+    olmadigi icin uygun kume bos kaldi, lider HIC secilmedi, tek-yayinci
+    tarif basmadi ve formasyonlar olmadi (bag'den olculdu: state=1 tum ucus).
+    PX4 arm'i gercektir; preflight sorgulamak anlamsiz — ucak zaten ucuyor
+    olabilir. Disarm olunca _from_armed ayni durustlukle IDLE'a dondurur.
+    ARMED kasitli: _OFFBOARD_CHECK_STATES disinda (10 sn failsafe riski yok)
+    ve ARMED -> TAKEOFF ayri kapili (gorev sinyali ister).
 
     Args:
         ctx: Drone durum bilgisi.
 
     Returns:
-        AgentState.ARMING veya None.
+        AgentState.ARMED, AgentState.ARMING veya None.
     """
+    if ctx.armed:
+        return AgentState.ARMED
     if ctx.pending_state == AgentState.ARMING:
         passed, _ = run_preflight_checks(ctx)
         if passed:
