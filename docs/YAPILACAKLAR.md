@@ -1,6 +1,6 @@
 # YAPILACAKLAR
 
-**Son güncelleme:** 4 Eylül 2026, 15:45 — QR konum tablosu ÇÖZÜLDÜ (üç uçakta 6/6, görünürlük eklendi) · yeni 🟠: restart sonrası tabloyu otomatik tazeleme
+**Son güncelleme:** 4 Eylül 2026, 17:40 — 🔴 İRTİFA REFERANSI YOK (sürü süzülüyor); NAVIGATE düzeltildi, tutma fazları AÇIK · B5 GEÇTİ (formasyon mesh'ten ulaştı)
 
 > **Finale 5 gün.** Bu liste artık "her fikir" değil, **bu 8 günde
 > yapılacak iş.** Bir madde buraya giriyorsa birinin onu yapması planlanıyor
@@ -12,6 +12,16 @@
 ---
 
 ## 🔴 P0 — bunlar kapanmadan ilgili uçuş yapılmaz
+
+- `[~]` 🔴 **İRTİFA REFERANSI YOK — sürü uçarken süzülüyor (4 Eylül, ölçüldü).**
+  `use_current_altitude` yazılıyor ama **hiçbir tüketici okumuyor**; merkez
+  z'si her yerde `inp.centroid[2]` — yani komut, ölçümün kopyası. Referans
+  olmayınca süzülme kendini besliyor: ylp00 10.7 → 2.7 m, ~0.13 m/s, hatasız.
+  **NAVIGATE bacağı düzeltildi** (bacak başında mandallama). **AÇIK KALAN:**
+  tutma fazları (`_hold_centroid`) ve bayrağın kendisi — ya bir tüketicide
+  uygulanmalı ya kaldırılmalı. Bkz. `TUZAKLAR.md` §3.x.
+  ⚠️ NAVIGATE düzeltmesi **havada denenmedi.**
+
 
 - `[x]` ✅ **QR `mnv` eşlemesi DOĞRUYMUŞ — sabah yanlış kaydedilmişti (4 Eyl).**
   Bu madde "eksenler yanlış eşleniyor" diye 🔴🔴 açılmıştı; **şartname

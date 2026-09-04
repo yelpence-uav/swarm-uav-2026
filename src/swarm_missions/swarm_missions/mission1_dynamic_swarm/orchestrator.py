@@ -279,6 +279,11 @@ class _State:
     # 🔴 _phase_key'e GIRIYOR: girmezse merdiven kalktiginda emit-once
     # duz komutu bastirir ve suru merdivende ASILI kalir — sessizce.
     toplanma_merdiveni: bool = False
+    # 🔴 SEYIR IRTIFASI (NED z, negatif = yukari). NAVIGATE bacagina
+    # GIRERKEN bir kez mandallanir, bacak boyunca SABIT referans olur.
+    # NAVIGATE'ten cikinca silinir (_maybe_qr_arrival) — boylece 'alt'
+    # gorevi irtifayi degistirdiyse sonraki bacak YENI degeri mandallar.
+    seyir_irtifa_ned: float = field(default=None)
     # RETURN_HOME alt-fazi: 0=yaw, 1=eve don, 2=merdiven, 3=dagil, 4=bitti
     donus_faz: int = 0
     # Alt-fazin BASLADIGI an (time_in_state). Fazlar artik sure ile degil
@@ -466,6 +471,10 @@ class Mission1Orchestrator:
         if inp.mission_state != _S_NAVIGATE_TO_QR:
             self._st.arrival_ticks = 0
             self._st.arrival_done_key = None
+            # Seyir irtifasi mandali da burada duser: her yeni bacak, o an
+            # gecerli irtifayi yeniden mandallasin (QR 'alt' gorevi araya
+            # girmis olabilir).
+            self._st.seyir_irtifa_ned = None
             return None
         if not inp.is_leader:
             self._st.arrival_ticks = 0
@@ -1088,9 +1097,29 @@ class Mission1Orchestrator:
         )
         if offsets is None:
             return None
-        center = self._anchor_nearest_to_qr(
+        # 🔴 IRTIFA REFERANSI MANDALLANIR — 4 Eylul 2026, SAHADA OLCULDU.
+        #
+        # _anchor_nearest_to_qr z olarak `inp.centroid[2]`yi, yani O ANKI
+        # OLCULEN irtifayi donduruyor. use_current_altitude=False oldugu icin
+        # bu deger dogrudan KOMUT oluyordu — yani komut, olcumun kopyasiydi
+        # ve ortada REFERANS YOKTU. Ucak herhangi bir sebeple birkac santim
+        # dustugunde dusmus deger YENI HEDEF olur; geri cekecek kuvvet
+        # kalmaz, hata birikir ve suru surekli alcalir.
+        #
+        # Olcum (ylp00, 4 Eylul): komut z -9.5 -> -8.2 m ile GERCEK irtifa
+        # 10.7 -> 2.7 m birlikte asagi gitti, ~0.13 m/s sabit suzulme.
+        # Ne hata ne uyari cikti: sistem acisindan "hedefe uyuluyor"du.
+        # Yarisma etkisi: 6 QR'lik rotada suru QR'lar ARASINDA yavasca yere
+        # iner ve sebebi hicbir gunlukte gorunmez.
+        #
+        # Fonksiyonun docstring'i "irtifayi korur" diyordu; niyet buydu ama
+        # olcumu geri okumak irtifayi KORUMAZ, TAKIP EDER.
+        if self._st.seyir_irtifa_ned is None:
+            self._st.seyir_irtifa_ned = inp.centroid[2]
+        ax, ay, _olculen_z = self._anchor_nearest_to_qr(
             inp, ned, offsets, math.radians(heading)
         )
+        center = (ax, ay, self._st.seyir_irtifa_ned)
         return [FormationTargetCmd(
             formation_type=self._st.formation_type,
             center=center,

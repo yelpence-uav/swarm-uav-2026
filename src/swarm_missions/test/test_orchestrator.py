@@ -135,6 +135,36 @@ def test_detach_holds_formation():
     assert cmds[0].offsets[1] == off[2]
 
 
+def test_navigate_irtifa_referansi_mandallanir():
+    """NAVIGATE komut irtifasi OLCUMU TAKIP ETMEZ — bacak basinda mandallanir.
+
+    4 Eylul 2026 sahada olculdu (ylp00). `_anchor_nearest_to_qr` z olarak
+    `inp.centroid[2]`yi — yani O ANKI OLCULEN irtifayi — donduruyordu ve
+    `use_current_altitude=False` oldugu icin bu deger dogrudan KOMUT
+    oluyordu. Komut olcumun kopyasi olunca ortada REFERANS kalmaz: ucak
+    dustugunde dusmus deger yeni hedef olur, geri cekecek kuvvet kalmaz.
+
+    NOT: emit-once (_phase_key) NAVIGATE komutunu bacak basina BIR KEZ
+    urettigi icin test `_on_navigate` fonksiyonunu DOGRUDAN cagirir —
+    yoksa ikinci cagri bastirilir ve test degisikligi hic gormez.
+    """
+    o = _ready_orch()
+    c0 = o._on_navigate(_inp(S_NAVIGATE, 0))[0].center
+    assert abs(c0[2] - _CEN[2]) < 1e-6, 'bacak basinda mandallanmali'
+
+    # Ucak 2 m suzuldu: NED z BUYUR (irtifa duser).
+    suzulmus = (_CEN[0], _CEN[1], _CEN[2] + 2.0)
+    c1 = o._on_navigate(_inp(S_NAVIGATE, 0, centroid=suzulmus))[0].center
+    assert abs(c1[2] - _CEN[2]) < 1e-6, \
+        'komut olcumu takip etti — suzulme kendini besliyor'
+
+    # Bacak bitince (NAVIGATE disi bir tick) mandal duser.
+    o.decide(_inp(S_ROTATE, 0))
+    c2 = o._on_navigate(_inp(S_NAVIGATE, 0, centroid=suzulmus))[0].center
+    assert abs(c2[2] - suzulmus[2]) < 1e-6, \
+        'yeni bacak o anki irtifayi yeniden mandallamali'
+
+
 def test_navigate_anchors_nearest_drone_to_qr():
     """NAVIGATE merkezi QR'a koymaz; en yakın dronu QR'ın üstüne çıpalar."""
     o = _ready_orch()

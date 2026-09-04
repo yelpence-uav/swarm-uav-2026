@@ -1,6 +1,6 @@
 # TUZAKLAR — hata vermeden yanlış sonuç üretenler
 
-**Son güncelleme:** 4 Eylül 2026, 16:20 — §10.1: harita katmanları yeniden kurulan haritaya EKLENMİYORDU (QR işaretçisi ve FORMASYON ÇİZGİSİ sessizce yok) · §4.15 QR tablosu RAM'de
+**Son güncelleme:** 4 Eylül 2026, 17:40 — §3.x: `use_current_altitude` YAZILIYOR AMA HİÇ OKUNMUYOR (irtifa referansı yok, sürü süzülüyor) · §10.1 harita katmanları · §4.15 QR tablosu RAM'de
 
 > **Bu belge CANLI.** Arşiv değil — buradaki her madde **bugün de geçerli.**
 >
@@ -1911,6 +1911,55 @@ tamamında **1000 (dipte)** ölçüldü — yani arıza koşulu birebir tekrarla
 ama sürüye giden değer **`+0,00`** kaldı.
 
 ---
+
+### 3.x 🔴 `use_current_altitude` YAZILIYOR AMA HİÇ OKUNMUYOR — irtifa referansı yok
+
+**4 Eylül 2026, sahada ölçüldü (ylp00).** Sürü QR'a giderken sürekli
+alçaldı: 10.7 m → 2.7 m, ~0.13 m/s, **hiçbir hata/uyarı yok.**
+
+`FormationCommand.msg` içinde `use_current_altitude` alanı var ve
+`orchestrator` onu özenle dolduruyor (tutma fazlarında `True`, hedefe
+gitme fazlarında `False`). **Ama depo genelinde okuyan HİÇBİR tüketici
+yok** — `formation_node`, `maneuver_executor`, `path_planner` hiçbiri
+bakmıyor. Ölçüm (depo geneli arama): alan yalnız `.msg` tanımında,
+`orchestrator`da (yazan) ve `mission1_node`'da (mesaja kopyalayan)
+geçiyor. Yani bayrak **atıl**.
+
+Sonuç: her fazda tek belirleyici `center`'ın z'si. Ve merkez üreten iki
+fonksiyonun ikisi de z olarak **`inp.centroid[2]`yi**, yani O ANKI
+ÖLÇÜLEN irtifayı döndürüyor:
+
+    _hold_centroid()          -> (..., ..., inp.centroid[2])
+    _anchor_nearest_to_qr()   -> (..., ..., inp.centroid[2])
+
+**Komut, ölçümün kopyası olunca ortada referans kalmaz.** Uçak birkaç
+santim düştüğünde düşmüş değer yeni hedef olur; geri çekecek kuvvet yok,
+hata birikir. Ölçülen kanıt — komut ve gerçek irtifa birlikte iniyor:
+
+    komut  z: -9.5 -> -9.4 -> -9.2 -> -8.9 -> -8.5 -> -8.2
+    gercek  : 10.7 -> 10.1 -> 9.6  -> 8.7  -> 7.7  -> 2.7
+
+**Neden bu kadar sinsi:** `_on_navigate`'in docstring'i *"irtifayı korur"*
+diyor. Niyet doğruydu; ama ölçümü geri okumak irtifayı **korumaz, TAKİP
+EDER.** Kod okuyan biri bayrağı görüp "irtifa ele alınmış" sanıyor.
+
+**Yarışma etkisi:** rota 6 QR ve yüzlerce metre — sürü QR'lar *arasında*
+yavaşça yere iner ve sebebi hiçbir günlükte görünmez.
+
+✅ **Kısmen düzeltildi (4 Eylül):** NAVIGATE bacağında irtifa referansı
+artık bacak başında **mandallanıyor** (`_st.seyir_irtifa_ned`), bacak
+boyunca sabit kalıyor, bacak bitince düşüyor (QR `alt` görevi araya
+girerse sonraki bacak yeni değeri mandallar).
+
+⚠️ **Kalan iş:** tutma fazları (`_hold_centroid`) hâlâ ölçümü kopyalıyor
+ve `use_current_altitude` hâlâ atıl. Ya alan bir tüketicide uygulanmalı
+ya da kaldırılmalı — **yazılıp okunmayan alan, ele alınmış sanılan bir
+kusurdur.**
+
+**Ölçülen temiz nokta (kayda geçsin):** kalkış fazı bu kusurdan
+etkilenmiyor. Formasyon zinciri kalkış boyunca komut üretmiyor; ilk
+komut `KALKIS TAMAM`dan 1 sn sonra ve doğru irtifayla (-9.5) geliyor.
+Kalkış sonundaki -0.35 m/s tırmanış tepesinde oturmadır.
 
 ## 4. Mesh ve ESP32
 
