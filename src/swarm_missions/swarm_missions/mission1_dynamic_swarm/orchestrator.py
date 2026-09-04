@@ -110,7 +110,18 @@ class OrchestratorConfig:
     # 0.0 = degistirme (dugumun kendi varsayilani).
     gorev_kurulum_hiz_mps: float = 0.0
     # QR okunamazsa okuma irtifasına inme (10m tabanı) ve tetik gecikmesi.
+    # KURTARMA MERDIVENININ orta basamagi (QR okunamayinca denenen ilk
+    # irtifa). AYRI TUTULUYOR: varis irtifasi (qr_okuma_irtifa_m) ile ayni
+    # yapilirsa merdiven (10, 10, 18) olur ve ilk basamak ETKISIZ kalir —
+    # yani kurtarma bir basamagini sessizce kaybeder.
     qr_read_altitude_m: float = 12.0
+    # QR VARIS/OKUMA IRTIFASI — NAVIGATE bacaginda hedef irtifa BUDUR.
+    # 4 Eylul 2026 operator olcumu: "20 m ustunde QR okunmuyor, minimum
+    # 10 m'ye kadar insinler." Onceki QR gorevi irtifayi 25-30 m'ye
+    # cikarmis olabilir; bacak hedefi buraya kilitleyerek suruyu QR'in
+    # uzerine OKUNABILIR irtifada getirir. _SEARCH_ALT_FLOOR_M ile ayni
+    # (10.0): suru hicbir yolda 10 m'nin altina inmez.
+    qr_okuma_irtifa_m: float = 10.0
     qr_recovery_delay_s: float = 8.0
     # QR okunamazsa İRTİFA MERDİVENİ ile tekrar tekrar dener: sürü QR'ın üstünde
     # ÇIPALI kalır (ileri/geri YOK — yatay hareket kamerayı QR'dan kaydırıp
@@ -1114,8 +1125,14 @@ class Mission1Orchestrator:
         #
         # Fonksiyonun docstring'i "irtifayi korur" diyordu; niyet buydu ama
         # olcumu geri okumak irtifayi KORUMAZ, TAKIP EDER.
+        # Referans OLCUMDEN DEGIL, QR OKUMA IRTIFASINDAN gelir: boylece hem
+        # suzulme kapaniyor hem de suru QR'in uzerine okunabilir irtifada
+        # variyor. Onceki QR gorevi irtifayi 25-30 m'ye cikarmis olabilir;
+        # oradan okuma yapilamaz (operator olcumu: 20 m ustu okumuyor).
         if self._st.seyir_irtifa_ned is None:
-            self._st.seyir_irtifa_ned = inp.centroid[2]
+            self._st.seyir_irtifa_ned = -max(
+                float(self._cfg.qr_okuma_irtifa_m), _SEARCH_ALT_FLOOR_M
+            )
         ax, ay, _olculen_z = self._anchor_nearest_to_qr(
             inp, ned, offsets, math.radians(heading)
         )

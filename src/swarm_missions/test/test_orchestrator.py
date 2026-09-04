@@ -136,33 +136,43 @@ def test_detach_holds_formation():
 
 
 def test_navigate_irtifa_referansi_mandallanir():
-    """NAVIGATE komut irtifasi OLCUMU TAKIP ETMEZ — bacak basinda mandallanir.
+    """NAVIGATE komut irtifasi OLCUMU TAKIP ETMEZ — QR okuma irtifasina kilitlenir.
 
-    4 Eylul 2026 sahada olculdu (ylp00). `_anchor_nearest_to_qr` z olarak
-    `inp.centroid[2]`yi — yani O ANKI OLCULEN irtifayi — donduruyordu ve
-    `use_current_altitude=False` oldugu icin bu deger dogrudan KOMUT
-    oluyordu. Komut olcumun kopyasi olunca ortada REFERANS kalmaz: ucak
-    dustugunde dusmus deger yeni hedef olur, geri cekecek kuvvet kalmaz.
+    IKI KUSURU BIRDEN KAPATIR.
+
+    (1) SUZULME — 4 Eylul 2026 sahada olculdu (ylp00). `_anchor_nearest_to_qr`
+    z olarak `inp.centroid[2]`yi, yani O ANKI OLCULEN irtifayi donduruyordu ve
+    `use_current_altitude` bayragini OKUYAN HIC KIMSE OLMADIGI icin bu deger
+    dogrudan komut oluyordu. Komut olcumun kopyasi olunca referans kalmaz:
+    ucak dustugunde dusmus deger yeni hedef olur, geri cekecek kuvvet kalmaz.
+    Olcum: komut z -9.5 -> -8.2, gercek irtifa 10.7 -> 2.7 m, ~0.13 m/s.
+
+    (2) OKUMA IRTIFASI — operator olcumu: 20 m ustunde QR okunmuyor. Onceki
+    QR gorevi irtifayi 25-30 m'ye cikarmis olabilir; NAVIGATE bacagi artik
+    hedefi QR OKUMA IRTIFASINA (10 m) kilitliyor, suru QR'in uzerine
+    okunabilir irtifada variyor.
 
     NOT: emit-once (_phase_key) NAVIGATE komutunu bacak basina BIR KEZ
-    urettigi icin test `_on_navigate` fonksiyonunu DOGRUDAN cagirir —
-    yoksa ikinci cagri bastirilir ve test degisikligi hic gormez.
+    urettigi icin test `_on_navigate`i DOGRUDAN cagirir; yoksa ikinci cagri
+    bastirilir ve test degisikligi hic gormez.
     """
     o = _ready_orch()
-    c0 = o._on_navigate(_inp(S_NAVIGATE, 0))[0].center
-    assert abs(c0[2] - _CEN[2]) < 1e-6, 'bacak basinda mandallanmali'
+    okuma_z = -o._cfg.qr_okuma_irtifa_m
+    assert okuma_z == -10.0, 'QR okuma irtifasi 10 m olmali'
 
-    # Ucak 2 m suzuldu: NED z BUYUR (irtifa duser).
+    c0 = o._on_navigate(_inp(S_NAVIGATE, 0))[0].center
+    assert abs(c0[2] - okuma_z) < 1e-6, 'bacak QR okuma irtifasina kilitlenmeli'
+
+    # Ucak 2 m suzuldu (NED z BUYUR = irtifa duser): komut KIPIRDAMAMALI.
     suzulmus = (_CEN[0], _CEN[1], _CEN[2] + 2.0)
     c1 = o._on_navigate(_inp(S_NAVIGATE, 0, centroid=suzulmus))[0].center
-    assert abs(c1[2] - _CEN[2]) < 1e-6, \
+    assert abs(c1[2] - okuma_z) < 1e-6, \
         'komut olcumu takip etti — suzulme kendini besliyor'
 
-    # Bacak bitince (NAVIGATE disi bir tick) mandal duser.
-    o.decide(_inp(S_ROTATE, 0))
-    c2 = o._on_navigate(_inp(S_NAVIGATE, 0, centroid=suzulmus))[0].center
-    assert abs(c2[2] - suzulmus[2]) < 1e-6, \
-        'yeni bacak o anki irtifayi yeniden mandallamali'
+    # Suru 28 m'de olsa bile (onceki QR gorevi yukseltti) bacak 10 m'ye iner.
+    yuksek = (_CEN[0], _CEN[1], -28.0)
+    c2 = o._on_navigate(_inp(S_NAVIGATE, 0, centroid=yuksek))[0].center
+    assert abs(c2[2] - okuma_z) < 1e-6, 'okunamayacak irtifada birakti'
 
 
 def test_navigate_anchors_nearest_drone_to_qr():

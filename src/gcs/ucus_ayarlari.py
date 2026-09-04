@@ -270,6 +270,15 @@ KALKIS_OLAYLA = True
 # ama env dosyasi olan ucakta HER ZAMAN burasi kazanir.
 GOREV_KALKIS_IRTIFA_M = 10.0
 
+# QR OKUMA IRTIFASI — sürü QR'a giderken bu irtifaya iner ve orada okur.
+# 4 Eylül 2026 operatör: "20 metreden yukarıda okuyamıyorlar, minimum
+# 10 metreye kadar insinler." KAMERA.md §13 ölçümüyle tutarlı: tavan
+# 16.64 m (wechat kapalı), 15-16 m'de 0.79 okuma/sn — yani 10 m rahat
+# okuma bölgesi. orchestrator'daki _SEARCH_ALT_FLOOR_M de 10.0, yani
+# kurtarma merdiveninin tabanı ile AYNI: sürü hiçbir yolda 10 m'nin
+# altına inmez.
+GOREV_QR_OKUMA_IRTIFA_M = 10.0
+
 # (Pil ayarlari INA226 bolumunde — "INA226 PIL OLCUMU" basligina bak.)
 
 # --- Guvenlik ---------------------------------------------------------------
@@ -1368,6 +1377,7 @@ def _kabuk():
     print(f'SURU_LIDER_KILIT_TAM_KADRO_S={SURU_LIDER_KILIT_TAM_KADRO_S:.1f}')
     print(f'SURU_KALKIS_OLAYLA={"true" if KALKIS_OLAYLA else "false"}')
     print(f'GOREV_KALKIS_IRTIFA={GOREV_KALKIS_IRTIFA_M}')
+    print(f'GOREV_QR_OKUMA_IRTIFA={GOREV_QR_OKUMA_IRTIFA_M}')
     # (Pil satirlari asagida, INA226 blogunda — INA226_HUCRE orada.)
     # path_planner (rota sekillendirme)
     print(f'ROTA_MAKS_HIZ={GOREV_HIZ_MPS}')

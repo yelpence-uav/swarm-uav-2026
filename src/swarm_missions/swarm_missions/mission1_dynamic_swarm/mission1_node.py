@@ -102,6 +102,8 @@ class Mission1Node(Node):
                 self.get_parameter('dagilma_hiz_mps').value),
             gorev_kurulum_hiz_mps=float(
                 self.get_parameter('gorev_kurulum_hiz_mps').value),
+            qr_okuma_irtifa_m=float(
+                self.get_parameter('qr_okuma_irtifa_m').value),
         ))
 
         # HOME kilidi icin beklenen kadro (bkz. _on_swarm_state).
@@ -173,6 +175,9 @@ class Mission1Node(Node):
         # Tek kaynak: ucus_ayarlari.py GOREV_KALKIS_IRTIFA_M -> baslat.sh
         # her iki dugume de AYNI degeri geciriyor.
         self.declare_parameter('kalkis_irtifa_m', 10.0)
+        # QR OKUMA IRTIFASI — NAVIGATE bacaginin hedef irtifasi.
+        # Tek kaynak: ucus_ayarlari.py GOREV_QR_OKUMA_IRTIFA_M -> baslat.sh.
+        self.declare_parameter('qr_okuma_irtifa_m', 10.0)
         self.declare_parameter('kalkis_tolerans_m', 0.5)
         self.declare_parameter('kalkis_dikey_hiz_esik_mps', 0.5)
 
