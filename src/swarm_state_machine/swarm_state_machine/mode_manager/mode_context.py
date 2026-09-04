@@ -90,6 +90,10 @@ class ModeContext:
     # Kapi acilirken olculen heading'in tutarliligi (0..1). Dugum bunu
     # loglar; dusukse ucaklar ayni yone bakmiyor demektir (B17).
     kalkis_heading_tutarlilik: float = 0.0
+    # Suru basliginin KAYNAGI (KARAR-17 uzantisi, 5 Eylul 2026).
+    # 0 = bilinmiyor -> dairesel ortalamaya dusulur (eski davranis).
+    # Gerekce: konumdan_tohumla docstring'i.
+    lider_id: int = 0
 
     # --- B2 KUMANDADAN KALKIS (madde 25, 30 Agustos 2026) ----------------
     # Sartname §5.2.2: "Takeoff ve land komutlari da kumanda uzerinden
@@ -344,11 +348,51 @@ class ModeContext:
             float(self.agent_statuses[a].pos_z) for a in self.agent_ids
         ) / n
 
-        self.formation_heading_deg, self.kalkis_heading_tutarlilik = \
-            dairesel_ortalama_deg([
-                float(self.agent_statuses[a].heading_deg)
-                for a in self.agent_ids
-            ])
+        # Tutarlilik HER ZAMAN butun filodan olculur: anlami "ucaklar ayni
+        # yone bakiyor mu" ve dusukse operatore/kuru teste uyari veriyor.
+        ortalama, self.kalkis_heading_tutarlilik = dairesel_ortalama_deg([
+            float(self.agent_statuses[a].heading_deg)
+            for a in self.agent_ids
+        ])
+
+        # 🔴 BASLIK ORTALAMADAN DEGIL LIDERDEN — 5 Eylul 2026, SAHADA OLCULDU.
+        #
+        # BELIRTI (operator): "cizgi formasyonunda dizip takeoff verince
+        # ucaklar hafif SOLA donuyor, o sekilde beklemeye geciyor."
+        #
+        # OLCULDU (ylp00+ylp01, yerde): yaw 331.20 / 318.80 deg, dairesel
+        # ortalama 325.00, tutarlilik 0.9942. Yani ortalamaya donmek
+        # ylp00 icin -6.20 deg (SOL), ylp01 icin +6.20 deg (SAG).
+        # Ortalama, aradaki FIZIKSEL hizasizligi ikiye bolup ucaklara
+        # PAYLASTIRIYOR — ve gozle 1 derece altina hizalamak mumkun
+        # olmadigi icin bu her kalkista tekrarlaniyor. Konum donduruldugu
+        # icin (formasyon UNKNOWN -> _donmus_ofsetler) ucaklar yerinden
+        # kaymadan yalnizca DONUYOR; belirti tam olarak buydu.
+        #
+        # Liderin basligini almak iki seyi birden duzeltir:
+        #   1. Lider HIC donmez. Operator zaten onu referans alip diziyor;
+        #      lider ayni zamanda slot 0 = ortadaki ucak (KARAR-17).
+        #      Sadece takipciler lidere hizalanir — "formasyon" bu demek.
+        #   2. GIZLI TUTARSIZLIK kapanir: ortalama her ucakta YEREL olarak,
+        #      zaman kaymali durum anlik goruntulerinden hesaplaniyordu ve
+        #      ucaklar birbirinden biraz FARKLI ortalama bulabiliyordu ->
+        #      farkli slot rotasyonu -> formasyon gerilmesi. Tek kaynak
+        #      her ucakta ayni sayiyi verir.
+        #
+        # Gorev 1 zaten boyle: mission1'de surunun basligi liderin kendi
+        # pusulasi (_kalkis_heading). Bu degisiklik iki gorevi hizaliyor.
+        #
+        # BEDELI: liderin pusulasi sapmissa butun suru o sapmayi devralir.
+        # Ortalama da zaten TUM ucaklarin sapmalarinin karisimini
+        # devraliyordu; ustelik Gorev 1 bu riski coktan kabul etmis.
+        #
+        # GERI DUSUS: lider bilinmiyorsa ya da durumu yoksa ortalama
+        # kullanilir — hicbir kosulda baslıksiz kalmayiz.
+        lider = self.agent_statuses.get(self.lider_id) if self.lider_id else None
+        if lider is not None:
+            self.formation_heading_deg = float(lider.heading_deg)
+        else:
+            self.formation_heading_deg = ortalama
         return True
 
     def kalkis_yetkisi_var(self) -> bool:

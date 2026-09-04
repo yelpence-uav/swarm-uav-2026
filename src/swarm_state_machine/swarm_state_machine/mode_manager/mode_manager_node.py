@@ -74,6 +74,9 @@ class ModeManagerNode(Node):
 
         self._ctx = ModeContext(
             agent_ids=self._agent_ids,
+            # Suru basligi bu kimligin pusulasindan alinir
+            # (konumdan_tohumla). 0 = bilinmiyor -> ortalama.
+            lider_id=(self._lider_id or 0),
             sitl_mode=self._sitl_mode,
         )
         # Limitleri ctx'e paramdan yaz (tek kaynak). Kumandadan gelen
@@ -989,6 +992,9 @@ class ModeManagerNode(Node):
             return
         if yeni != self._lider_id:
             self._lider_id = yeni
+            # Suru basligi liderin pusulasindan turuyor: ctx de bilmeli,
+            # yoksa kalkis kapisi eski/bos kimlikle tohumlar.
+            self._ctx.lider_id = yeni
             self._tek_yayinci_uyarildi = False  # lider degisti, bir kez soyle
             self.get_logger().info(
                 f'[mode_manager] TEK-YAYINCI: lider artik {yeni} '

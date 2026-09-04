@@ -22,8 +22,6 @@ KUSUR 2 — mode_manager sabit lideri BILMIYORDU.
 
 import unittest
 
-from swarm_interfaces.msg import AgentStatus
-
 from swarm_state_machine.mode_manager import tek_yayinci
 from swarm_state_machine.mode_manager.mode_context import ModeContext
 from swarm_state_machine.mode_manager.mode_states import ModeState
@@ -35,12 +33,24 @@ _LANDED = 13
 _ARMED = 3
 
 
+class _SahteDurum:
+    """AgentStatus yerine YEREL sahte durum nesnesi.
+
+    Gerekce test_suru_basligi_liderden icinde ayrintili: conftest
+    AgentStatus'u MagicMock yapiyor ve her cagri AYNI nesneyi donduruyor;
+    iki ucak tek nesneye cakisiyordu.
+    """
+
+    def __init__(self, state, armed):
+        self.state = state
+        self.armed = armed
+        self.healthy = True
+        self.pos_x = self.pos_y = self.pos_z = 0.0
+        self.heading_deg = 0.0
+
+
 def _durum(state, armed):
-    m = AgentStatus()
-    m.state = state
-    m.armed = armed
-    m.healthy = True
-    return m
+    return _SahteDurum(state, armed)
 
 
 def _ctx_landing(kadro, durumlar):
