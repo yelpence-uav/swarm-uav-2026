@@ -65,7 +65,6 @@ from std_msgs.msg import UInt8
 
 from swarm_interfaces.msg import (
     ElectionResult,
-    FormationCommand,
     LeaderHeartbeat,
     MissionTarget,
     QRCoordinates,
@@ -105,7 +104,13 @@ KOPRU_TABLOSU = (
     (SystemEvent,         'events/system',        _VOLATILE),
     (ElectionResult,      'election/result',      _TRANSIENT),
     (LeaderHeartbeat,     'leader/heartbeat',     _VOLATILE),
-    (FormationCommand,    'formation/target',     _VOLATILE),
+    # formation/target BILEREK YOK (4 Eylul 2026). public'teki tek uretici:
+    #   liderde  esp32_bridge LOOPBACK (mesh'e cikan kuantize tarifin aynisi)
+    #   takipcide esp32_bridge mesh RX
+    # Koprulenseydi liderde loopback + kopru = AYNI KONUDA IKI URETICI
+    # (CLAUDE.md §4) ve takipcide path_planner sicak yedegi mesh'le catisirdi.
+    # 4 Eylul ucusunda bu koprunun varligi B5 suzgeciyle birlesince takipciler
+    # tarifsiz kalmisti — esp32_bridge _on_formation_out'taki nota bak.
     (SwarmOrigin,         'origin',               _TRANSIENT),
     (SwarmState,          'state',                _VOLATILE),
     (UInt8,               'mission/state',        _VOLATILE),

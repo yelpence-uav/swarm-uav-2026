@@ -1,6 +1,6 @@
 # GÖREV 2 — Yarı Otonom Sürü Kontrolü
 
-**Son güncelleme:** 1 Eylül 2026, 11:30 — **§7.19: manevra irtifa datumu düzeltildi** (uçakta doğrulanmadı) + iki saha olayı (ylp02 düştü, ylp00 roll arızası). Eski: 🔴 **§7.18: SÜRÜ HAREKETİ HİÇ ÇALIŞMIYORMUŞ** — mesh `deadman_timeout_s`'i taşımıyor, komşular READY'de kalıyordu. Düzeltildi ve dağıtıldı. Eski: 🔴 **SAHA OLAYI §7.16: formasyon
+**Son güncelleme:** 4 Eylül 2026, 10:05 — **B5 süzgeci kaldırıldı** (tek-yayıncı ile çatışıp takipçileri tarifsiz bırakıyordu; uçuşta ölçüldü). Eski: 1 Eylül — **§7.19: manevra irtifa datumu düzeltildi** (uçakta doğrulanmadı) + iki saha olayı (ylp02 düştü, ylp00 roll arızası). Eski: 🔴 **§7.18: SÜRÜ HAREKETİ HİÇ ÇALIŞMIYORMUŞ** — mesh `deadman_timeout_s`'i taşımıyor, komşular READY'de kalıyordu. Düzeltildi ve dağıtıldı. Eski: 🔴 **SAHA OLAYI §7.16: formasyon
 morfunda 1,65 m yaklaşma.** Kaçınma doğru çalıştı, hız çok yüksekti; morf hızı
 seyirden ayrıldı (`MOD_MORF_HIZ=0,6`), üç uçağa dağıtıldı. Eski: **B6 ve MADDE 29
 (aralık/irtifa girişi) KOD OLARAK BİTTİ**, üçüncü bir taşıma yolu seçildi:
@@ -389,7 +389,7 @@ artık önemsiz, göz ardı edildi.**
 | B1 | İkinci alıcı sisteme giremiyordu (PX4'te **tek** RC girişi var, o da kill pilotunun) | `rc_ibus_kopru` düğümü + `/drone_1/rc/suru` remap'i. ⚠️ **Bkz. aşağıdaki kanal çakışması** |
 | B3 | FSM sahada READY'ye ulaşamıyordu | `test_hazir_atla` (`/ws/mod_test` bayrağı) |
 | B4 | SwC ortası `FORMATION_UNKNOWN` veriyordu → **V seçilemiyordu** | orta → `FORMATION_V`; ölçümde ortanın tam 1500 olduğu doğrulandı |
-| B5 | `formation/target`'ta iki üretici | `_on_formation_out`'a `source_module` süzgeci |
+| B5 | `formation/target`'ta iki üretici | ~~`_on_formation_out`'a `source_module` süzgeci~~ 🔴 **4 Eylül'de KALDIRILDI:** tek-yayıncı gelince süzgeç takipçileri tarifsiz bıraktı (lider bastı, mesh'e çıkmadı, formasyonlar kurulamadı — uçuşta ölçüldü). İki-üretici riskini artık tek-yayıncı + lider kapısı çözüyor; ic_dis_kopru'nun `formation/target` köprüsü de aynı sebeple kaldırıldı |
 | B7 | Formasyon değişince `_formation_offsets` güncellenmiyordu → ışınlanma riski | `_publish_formation_command`'da eşitlendi |
 | B8 | Düğüm **kendi olayını** duyup RTL'i bir tikte LANDING'e çeviriyordu | kaynağı sustur: `source_module == 'mode_manager'` yok sayılıyor |
 | B9 | YKİ JoystickPanel ikinci üretici **ve** şartname ihlali riski | **komple silindi** (−1.430 satır); YKİ artık mesh'e komut basamıyor |
