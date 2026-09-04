@@ -1,6 +1,6 @@
 # YAPILACAKLAR
 
-**Son güncelleme:** 4 Eylül 2026, 10:40 — 🔴 EN ÜSTTE: QR `mnv` eksenleri YANLIŞ eşleniyor (çizgide roll+yaw, ok başı/V'de roll+yaw+pitch) · QR'ın YKİ'ye ulaştığı uçtan uca doğrulandı
+**Son güncelleme:** 4 Eylül 2026, 12:10 — `mnv` eşlemesi DOĞRUYMUŞ (şartname: Görev 1'de yaw yok); sabahki 🔴 madde çürütüldü · kalan iş `mnv` uzunluk denetimi 🟡
 
 > **Finale 5 gün.** Bu liste artık "her fikir" değil, **bu 8 günde
 > yapılacak iş.** Bir madde buraya giriyorsa birinin onu yapması planlanıyor
@@ -13,29 +13,44 @@
 
 ## 🔴 P0 — bunlar kapanmadan ilgili uçuş yapılmaz
 
-- `[ ]` 🔴🔴 **QR `mnv` EKSENLERİ YANLIŞ EŞLENİYOR — manevra görevi bununla uçamaz.**
-  `qr_detector.py:395` `mnv` komutunu **her zaman iki değer** sanıyor ve
-  sabit olarak `(pitch, roll)` diye okuyor; `yaw_deg` QR'dan **hiç
-  doldurulmuyor**, 0,0 kalıyor.
+- `[x]` ✅ **QR `mnv` eşlemesi DOĞRUYMUŞ — sabah yanlış kaydedilmişti (4 Eyl).**
+  Bu madde "eksenler yanlış eşleniyor" diye 🔴🔴 açılmıştı; **şartname
+  okununca çürüdü.** Kayıt bilerek duruyor: aynı yanlış iki kez
+  kurulmasın ve kimse doğru kodu "düzeltmeye" kalkmasın.
 
-  **Operatör kuralı (4 Eylül):**
-  - **ÇİZGİ** formasyonunda `mnv` yalnız **roll ve yaw** taşır (2 değer)
-  - **OK BAŞI** ve **V** formasyonunda **roll, yaw ve pitch** taşır (3 değer)
+  **Şartname (`docs/Şartname 2026.pdf`, Görev 1 QR komutları):**
+  > *"QR içerisinde yer alabilecek görev komutları: Formasyon değişikliği ·
+  > Formasyonu **pitch veya roll** ekseni etrafında belirli bir açı ile eğim
+  > verme manevrası · İrtifa değişimi · Sürüden birey ekleme/çıkarma"*
 
-  Yani bugün: çizgide iki eksen birden yanlış yere yazılıyor, ok başı/V'de
-  üçüncü değer `command[3]`'e hiç bakılmadığı için **sessizce düşüyor.**
-  Hata vermiyor — 4 Eylül uçuşunda `["frm","l",6],["mnv",-5,10]` okundu ve
-  `pitch=-5 roll=10` üretildi.
+  **Görev 1'in QR manevrasında YAW YOKTUR.** Yaw yalnız Görev 2'nin Manevra
+  Modu'nda ve **kumanda üzerinden** geçiyor. Görev 1'de yaw, QR'dan QR'a
+  giderken formasyon rotasyonu olarak zaten oluyor — ayrı bir komut değil.
+  Dolayısıyla `qr_detector.py`'deki `mnv -> (pitch, roll)` eşlemesi doğru.
 
-  ⚠️ **Önce SIRA netleşmeli:** iki değer `(roll, yaw)` mı `(yaw, roll)` mı,
-  üç değerde sıra ne? Şartname "QR içeriği ÖRNEKTİR, nihai format sonra
-  paylaşılacaktır" diyor — **operatörden teyit alınmadan kodlanmaz.**
-  Yanlış sıra, hatasız çalışan ve yanlış uçan bir sürü demek.
+  **"Çizgide pitch yok" DOĞRU ama eksik özellik değil, GEOMETRİ:**
+  `apply_tilt` içinde `dz = −dx·tan(pitch) + dy·tan(roll)`. ÇİZGİ slotlarının
+  hepsinde `dx=0` olduğu için pitch terimi sıfırlanıyor. Hesaplandı
+  (aralık 7 m, açı 15°):
 
-  Değişecek yerler: `qr_detector.py` `mnv` dalı (formasyon tipine göre
-  eşleme) + `mnv` uzunluk denetimi (2/3 dışında **hata ver**, sessizce
-  kırpma) + birim test + `TIP_QR_GOREV` zaten üç açıyı da taşıyor
-  (`pitch_deg/roll_deg/yaw_deg`), mesh tarafında değişiklik gerekmiyor.
+  ```
+  ÇİZGİ   pitch +15° -> dz [0.000, 0.000, 0.000]      ← etki YOK
+          roll  +15° -> dz [0.000, +1.876, −1.876]
+  OKBAŞI  pitch +15° -> dz [−1.250, +0.625, +0.625]   ← ön aşağı, kanat yukarı
+  ```
+
+  Okbaşı+pitch sonucu şartnamedeki örneğin birebir karşılığı. Yani çizgi
+  formasyonuna pitch komutu gelirse sürü hiçbir şey yapmaz — bu **doğru
+  davranış**, hata değil.
+
+- `[ ]` 🟡 **`mnv` UZUNLUK DENETİMİ yok — fazla değer SESSİZCE düşüyor.**
+  `qr_detector.py:395` yalnız `command[1]` ve `command[2]`'ye bakıyor.
+  Üç değerli bir `mnv` gelirse üçüncüsü hiç okunmuyor ve **hata da
+  verilmiyor.** Şartname *"QR içeriği ÖRNEKTİR, nihai format sonrasında
+  paylaşılacaktır"* diyor; format değişirse bunu uçuşta değil YERDE
+  öğrenmek isteriz. Uzunluk 3 değilse `ValueError` at — `TIP_QR_HAM` zaten
+  ayrıştırma hatasında ham metni YKİ'ye gönderiyor (KARAR 8), yani o anda
+  gerçek formatı görebiliriz. Birkaç satır + birim test.
 
 - `[x]` ✅ **QR içeriği YKİ'ye ULAŞIYOR — uçtan uca doğrulandı (4 Eylül).**
   `/api/telemetry/snapshot` → `qr` alanı: `detector_agent_id=3, qr_id=2,
