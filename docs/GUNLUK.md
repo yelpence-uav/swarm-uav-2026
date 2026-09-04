@@ -1,6 +1,6 @@
 # GÜNLÜK — oturum devir teslim kaydı
 
-**Son güncelleme:** 3 Eylül 2026, 05:15 — uçuş YOK · lider kilidi açıldı · eve dönüş 180°'si aslında 2.1° imiş, düzeltildi · 🔴🔴 pil log betiği uçaklardan SİLİNECEK
+**Son güncelleme:** 4 Eylül 2026, 07:15 — saha günü: 3 uçuş, formasyonları öldüren İKİ kök neden bulundu+düzeltildi (havada IDLE · B5×tek-yayıncı) · 🔴 B5 düzeltmesi HAVADA DENENMEDİ, sonraki oturumun ilk işi
 
 Tek bilgisayar, sırayla çalışıyoruz. Biri kalkıp diğeri oturduğunda **hem
 kişi hem Claude** nerede kalındığını buradan anlar.
@@ -9,6 +9,87 @@ kişi hem Claude** nerede kalındığını buradan anlar.
 atlanırsa sistem çöker, çünkü sohbet geçmişi sonraki kişiye geçmiyor.
 
 Claude'a **"oturumu kapat"** dersen bu kaydı o yazar.
+
+---
+
+## 2026-09-04 07:15 — saha günü: 3 uçuş · formasyonları öldüren iki kök neden kapandı · B5 düzeltmesi havada DENENMEDİ
+
+**Ne yapıldı** (pushlanmamış 6 commit: 9a42c4f → 3b64e68)
+
+- ✈️ **Üç görev uçuşu yapıldı (SwD kalkış-iniş sorunsuz), formasyonlar
+  ÜÇÜNDE DE kurulamadı.** İki AYRI kök neden vardı; ikisi de tahminle değil
+  ÖLÇÜMLE bulundu (bag + üç uçağın logları), düzeltildi, dağıtıldı,
+  `docker restart` + `inspect.getsource` ile üç uçakta doğrulandı.
+
+- 🔴 **KÖK NEDEN 1 (uçuş 1-2): agent_fsm HAVADA IDLE yayınlıyordu** →
+  IDLE `ELIGIBLE_STATES`'te yok → uygun küme boş → **lider hiç seçilmedi**
+  → tek-yayıncı tarif basmadı. Bag'den ölçüldü: `state=1` tüm uçuş,
+  healthy=true, estimator_ok=true, pil 14.5V>13.8 (pil/sağlık hipotezleri
+  ELENDİ). Sebep: IDLE→ARMING yalnız `pending_state` talebiyle çıkıyordu ve
+  talebi üreten `EVENT_MISSION_STARTED` 2 Eylül'de kaldırılmıştı — G2-K10
+  yolunda ARM px4_bridge'ten gidiyor, agent_fsm'e haber veren kalmamıştı.
+  **Fix: `_from_idle` gözlenen PX4 arm'ını tanıyor (IDLE→ARMED), bbc732c.**
+  Uçuş 3'te KANITLANDI: `IDLE→ARMED` + **`Lider: 0→1` seçim 0.4 sn'de**,
+  kilit uçuş boyunca tuttu (el değiştirme SIFIR — 3 Eylül'de beşti).
+
+- 🔴 **KÖK NEDEN 2 (uçuş 3): B5 süzgeci × tek-yayıncı çatışması.** Lider
+  tarif bastı (ylp00 formation.log dolu: `FormationCommand alindi` +
+  `dagitik atama`), ama **ylp02 formation.log BOMBOŞ** — tarif mesh'e hiç
+  çıkmadı. B5 (30 Ağu) `source_module=='mode_manager'`'ı mesh'ten süzüyordu;
+  o gün doğruydu (üç uçak da yerel üretiyordu), tek-yayıncı gelince ölümcül
+  oldu: takipçi yerel üretmiyor + mesh'ten alamıyor = aç kaldı.
+  **Fix (3b64e68): B5 kaldırıldı** (lider kapısı tek üreticiyi zaten
+  garanti ediyor) **+ ic_dis_kopru `formation/target` köprüsü kaldırıldı**
+  (kalsaydı liderde loopback+köprü = aynı konuda iki üretici, §4).
+  Yeni tek üreticiler: liderde LOOPBACK (kuantize, filoyla bit-birebir),
+  takipçide MESH RX (1 Eylül formasyon uçuşunda kanıtlı yol).
+  ⛔ **BU DÜZELTME HAVADA DENENMEDİ** — piller bitti (%31-41), uçuş 4
+  yapılamadı. Sonraki oturumun İLK İŞİ (YAPILACAKLAR P0).
+
+- 🟢 **Slot ataması çapraz geçişi: fiziksel takasla çözüldü.** Atama kimlik
+  sırası (Macar YOK, KARAR-11) — d2 güneyde kuzey slotu, d3 kuzeyde güney
+  slotu aldı, kuru 1.94 m ile KALDI. ylp01↔ylp02 yer değiştirdi → 6.47 m
+  GEÇTİ. **Operatör kararı (4 Eyl): lider slot 0 sabit + kalan ikisi
+  en-yakın slota** — P2 olarak duruyor, finalde dizilişi biz seçemezsek şart.
+
+- 🟢 **"Kesin lider ylp00" isteği:** mevcut kural (aday=min(uygun) + kilit
+  açıkken tam kadro bekleme + lider kilidi) bunu ZATEN veriyor; uçuş 3'te
+  kanıtlandı. Kod değişikliği gerekmedi.
+
+- 🟢 **DURUM 2 Hz etkisi doğrulandı:** uçuşta healthy hiç düşmedi (bag
+  ölçümü). Uçuş öncesi görülen "drone1 173 sn DURUM yok" mesh sorunu DEĞİL —
+  pil takma sırasından açılış kayması (ylp00 konteyneri 176 sn geç).
+
+- 🟢 **Sürü yaw manevrası: YENİ KOD GEREKMEDİ.** Mevcut
+  `compute_agent_setpoints` + `compute_heading_rotation` şartname §5.2.2'ye
+  uygunluğu yerel testle kanıtlandı: merkez kayması **0.000 m**, formasyon
+  merkez etrafında döner, üç heading birlikte döner (14.7°/s türetilmiş
+  tavan). Yaw bilerek stick maskesi DIŞINDA — rotasyon dizilişten bağımsız,
+  her formasyonda çalışır.
+
+- 📦 **Loglar:** uçaklar kapatıldığı için Pi günlükleri ÇEKİLEMEDİ — yerinde
+  duruyor (`/ws/gunluk/20260904_*`, bekçi korur), sonraki açılışta alınır.
+  ⚠️ Reçete: `drone_bul.sh` stdout'u İKİLİ VERİ TAŞIMAZ (boş dosya çıkar) —
+  Pi'de `docker exec tar` + `docker cp` + `scp` kullan. Yerel kurtarılanlar
+  `loglar/20260904/`: yki_backend logu (13.5 MB), son kuru harita, bag
+  analiz betiği. `loglar/` .gitignore'a eklendi.
+
+**Uçaklar nasıl bırakıldı**
+
+- Üçünde de **3b64e68** yüklü (dagit + restart + inspect DOĞRULANDI),
+  uçaklar KAPALI, piller %31-41 → **şarj gerek.**
+- Konteyner restart'ı görev durumunu sıfırlar: sonraki uçuştan önce
+  **YKİ'den görev başlatılacak**, yoksa SwD "YETKİ YOK" der (madde 27-28).
+- PX4 parametresi / Pi ayarı DEĞİŞMEDİ (yalnız ROS paketi dağıtıldı).
+
+**Sonraki oturum İLK İŞ — B5 doğrulama uçuşu (tek soru)**
+
+1. Pilleri şarj et, uçakları aç, YKİ'den görevi başlat
+2. Kuru + harita (konumlar değişmiş olur) → operatör haritayı doğrular
+3. SwD kalkış → loglardan lider onayı (~10 sn) → kilit aç → **çizgi seç**
+4. **ylp02 formation.log'da `FormationCommand alindi` düşerse zincir tamam**
+   ve formasyon gözle görülür. Düşmezse SwD iniş, yerde bakılır.
+   Nöbet komutu GUNLUK'ta değil koda bakma: `tail -F /ws/gunluk/son/…`
 
 ---
 

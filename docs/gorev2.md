@@ -1,6 +1,6 @@
 # GÖREV 2 — Yarı Otonom Sürü Kontrolü
 
-**Son güncelleme:** 4 Eylül 2026, 10:05 — **B5 süzgeci kaldırıldı** (tek-yayıncı ile çatışıp takipçileri tarifsiz bırakıyordu; uçuşta ölçüldü). Eski: 1 Eylül — **§7.19: manevra irtifa datumu düzeltildi** (uçakta doğrulanmadı) + iki saha olayı (ylp02 düştü, ylp00 roll arızası). Eski: 🔴 **§7.18: SÜRÜ HAREKETİ HİÇ ÇALIŞMIYORMUŞ** — mesh `deadman_timeout_s`'i taşımıyor, komşular READY'de kalıyordu. Düzeltildi ve dağıtıldı. Eski: 🔴 **SAHA OLAYI §7.16: formasyon
+**Son güncelleme:** 4 Eylül 2026, 06:50 — **B5 süzgeci kaldırıldı** (tek-yayıncı ile çatışıp takipçileri tarifsiz bırakıyordu; uçuşta ölçüldü). Eski: 1 Eylül — **§7.19: manevra irtifa datumu düzeltildi** (uçakta doğrulanmadı) + iki saha olayı (ylp02 düştü, ylp00 roll arızası). Eski: 🔴 **§7.18: SÜRÜ HAREKETİ HİÇ ÇALIŞMIYORMUŞ** — mesh `deadman_timeout_s`'i taşımıyor, komşular READY'de kalıyordu. Düzeltildi ve dağıtıldı. Eski: 🔴 **SAHA OLAYI §7.16: formasyon
 morfunda 1,65 m yaklaşma.** Kaçınma doğru çalıştı, hız çok yüksekti; morf hızı
 seyirden ayrıldı (`MOD_MORF_HIZ=0,6`), üç uçağa dağıtıldı. Eski: **B6 ve MADDE 29
 (aralık/irtifa girişi) KOD OLARAK BİTTİ**, üçüncü bir taşıma yolu seçildi:

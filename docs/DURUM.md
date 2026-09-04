@@ -1,6 +1,35 @@
 # DURUM — şu an ne çalışıyor, ne bozuk
 
-**Son güncelleme:** 3 Eylül 2026, 05:15 — 🟢 lider kilidi AÇIK (bir kez seçilir, değişmez) · 🟢 eve dönüş açısı EV YÖNÜNDEN türüyor (180° gerçekten dönülüyor; eskiden 2.1° imiş) · 🟢 dönüş fazları yakınsamayla · 🔴🔴 uçaklarda ARTIK OLAN pil log betiği SİLİNECEK (YAPILACAKLAR P0) · ⚠️ ylp01 pili 12.50 V okuyor · 🔌 uçaklar kapalı
+**Son güncelleme:** 4 Eylül 2026, 07:15 — 🟢 lider seçimi UÇUŞTA KANITLANDI (ylp00, 0.4 sn, kilit tuttu) · 🟢 agent_fsm artık gözlenen ARM'ı tanıyor · 🔴 B5 kaldırıldı ama HAVADA DENENMEDİ — sonraki uçuş bunu doğrular · 🔌 uçaklar kapalı, piller %31-41 ŞARJ GEREK
+
+
+
+> ## ☀️ 4 EYLÜL SABAHI — FORMASYONLARI ÖLDÜREN İKİ KÖK NEDEN KAPANDI
+>
+> **Üç uçuş yapıldı; formasyonlar üçünde de kurulamadı, iki ayrı kök neden
+> ölçülerek bulundu ve kapatıldı. Ayrıntı `GUNLUK.md` 07:15 kaydı.**
+>
+> - 🟢 **Lider seçimi ÇALIŞIYOR (uçuş 3'te kanıt):** agent_fsm havada IDLE
+>   yayınlıyordu (arming talebi yolu 2 Eylül'de kalkmıştı) → `_from_idle`
+>   artık PX4'ün arm'ını tanıyor (IDLE→ARMED, bbc732c). Uçuş 3: seçim
+>   0.4 sn, lider **ylp00**, kilit uçuş boyunca tuttu. Operatörün "kesin
+>   lider ylp00" isteğini mevcut kural zaten sağlıyor (min id + tam kadro).
+> - 🔴 **B5 süzgeci KALDIRILDI (3b64e68) — HAVADA DENENMEDİ.** Uçuş 3'te
+>   lider tarif bastı ama tarif mesh'e çıkmıyordu (B5 × tek-yayıncı
+>   çatışması) → takipçi formation_node'ları boş kaldı. B5 + ic_dis_kopru
+>   `formation/target` köprüsü kaldırıldı; artık tek üretici liderde
+>   loopback, takipçide mesh RX. ⛔ **Sonraki uçuşun TEK sorusu bu:**
+>   kilit aç + çizgi → ylp02 formation.log'da `FormationCommand alindi`
+>   düşecek ve formasyon gözle kurulacak.
+> - ⚠️ **Konteyner restart görev durumunu sıfırlıyor** — uçuştan önce
+>   YKİ'den görev başlat, yoksa SwD "YETKİ YOK" der.
+> - ⚠️ **Slot ataması hâlâ kimlik sırası** (Macar yok): uçakları yere
+>   kimlik sırasına göre diz (d1 orta, d2 kuzeydoğu tarafı, d3 güneybatı —
+>   ya da kuru testin dediğine uy). En-yakın-slot P2'de.
+> - 🔌 Uçaklar KAPALI, üçünde de **3b64e68** yüklü + restart edilmiş +
+>   `inspect` doğrulanmış. Piller %35/%41/%31 → şarj. Pi günlükleri
+>   uçaklarda duruyor (çekilemedi — kapatılmışlardı), `loglar/20260904/`'te
+>   yalnız yerel YKİ logu var.
 
 
 

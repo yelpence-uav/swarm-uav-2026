@@ -1,6 +1,6 @@
 # YAPILACAKLAR
 
-**Son güncelleme:** 3 Eylül 2026, 05:15 — 🔴🔴 pil log betiği UÇAKLARDAN SİLİNECEK (en üstte) · lider kilidi ve eve dönüş açısı uçaklara yüklendi, uçuşla doğrulanmadı
+**Son güncelleme:** 4 Eylül 2026, 07:15 — 🔴 EN ÜSTTE: B5 doğrulama uçuşu (formasyonların çalıştığının kanıtı) · 6 commit pushlanacak · en-yakın-slot P2
 
 > **Finale 5 gün.** Bu liste artık "her fikir" değil, **bu 8 günde
 > yapılacak iş.** Bir madde buraya giriyorsa birinin onu yapması planlanıyor
@@ -12,6 +12,29 @@
 ---
 
 ## 🔴 P0 — bunlar kapanmadan ilgili uçuş yapılmaz
+
+- `[ ]` 🔴 **B5 DOĞRULAMA UÇUŞU — formasyonlar İLK KEZ uçacak (4 Eylül).**
+  Formasyonları öldüren iki kök neden kapandı (GUNLUK 07:15: havada IDLE →
+  bbc732c · B5×tek-yayıncı → 3b64e68) ama **B5 düzeltmesi havada hiç
+  denenmedi** (piller bitti). Tek soru: *kilit açık + çizgi seçilince
+  ylp02 formation.log'da `FormationCommand alindi` düşüyor ve formasyon
+  gözle kuruluyor mu?* Akış: pilleri şarj et → uçakları aç → **YKİ'den
+  görevi başlat** (restart görev durumunu sıfırladı; atlarsan SwD "YETKİ
+  YOK") → kuru+harita → SwD kalkış → lider onayı (~10 sn) → kilit aç →
+  çizgi. Düşmezse SwD iniş, yerde bakılır. ⚠️ Uçakları yere kimlik
+  sırasına diz (slot ataması hâlâ kimlik sırası; kuru test söylüyor).
+
+- `[ ]` 🟠 **6 commit pushlanacak** (9a42c4f → 3b64e68 — manevra modu,
+  çerçeve düzeltmesi, DURUM 2 Hz, IDLE→ARMED, B5). Önce `git fetch`:
+  başka oturumun push'u olabilir (3 Eylül'de yaşandı).
+
+- `[ ]` 🟡 **En-yakın-slot ataması (Macar, P2) — operatör istedi (4 Eyl):**
+  lider slot 0'a sabit, kalan iki uçak en yakın slota (2 uçak = tek
+  karşılaştırma). Bugün d2-d3 çapraz geçişi (kuru 1.94 m KALDI) fiziksel
+  takasla çözüldü; **finalde dizilişi biz seçemiyorsak bu kod ŞART.**
+  Değişecek yerler: mode_manager ofset gömme noktası (~1320) + kuru test
+  aracı aynı kural + birim test. KARAR-11 notu: "Macar iyileştirmesi ayrı
+  P2" — reddedilmedi, ertelendi.
 
 - `[x]` ✅ **PİL LOG BETİĞİ — asıl risk kapandı (3 Eylül, operatör + ölçüm).**
   **Çalışan kayıt süreci ÜÇ UÇAKTA DA YOK** (`pgrep pil_testi` = 0 ölçüldü)
