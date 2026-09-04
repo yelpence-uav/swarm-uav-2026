@@ -17,11 +17,11 @@ from rclpy.qos import (
 from std_msgs.msg import Bool, Float32MultiArray, String, UInt8
 
 from swarm_core.formation_control.formation_geometry import (
-    compute_slot_offsets,
     FORMATION_CIZGI,
     FORMATION_OKBASI,
     FORMATION_UNKNOWN,
     FORMATION_V,
+    compute_slot_offsets,
     rotate_offset,
 )
 

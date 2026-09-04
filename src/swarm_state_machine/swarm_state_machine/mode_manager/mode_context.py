@@ -1,10 +1,9 @@
 # Copyright 2026 Yelpence
 """mode_manager calisma zamani durum kabi."""
 
-from dataclasses import dataclass, field
 import math
-
 import time
+from dataclasses import dataclass, field
 
 from swarm_core.formation_control.manual_kinematics import (
     dairesel_ortalama_deg,
@@ -445,16 +444,32 @@ class ModeContext:
         oz BILEREK 0.0: egim (apply_tilt) yalniz z'yi module ediyor ve
         _publish_formation_command'in FORMATION_UNKNOWN dali da ayni
         sozlesmeyi kullaniyor.
+
+        🔴 GOVDE CERCEVESI ZORUNLU (4 Eylul, olculen bug). pos-centroid HAM
+        NED verir, ama tuketici compute_agent_setpoints/compute_slot_offsets
+        ofseti GOVDE cercevesi sanip heading ile NED'e DONDURUR
+        (rx=ox*cos-oy*sin). Ham NED'i tekrar dondurmek ucaklari heading
+        kadar donmus dizilime surer — SAHADA olculdu: manevraya gecince
+        diziliş 287°'de donup "cizgi" gibi goründü, gercek pozisyondan
+        3.6-7.2 m sapti. Cozum: NED ofseti heading ile TERS dondurup govde
+        cercevesine al; tuketici geri dondurunce gercek pozisyona oturur
+        (ters+duz = birim, sapma 0). Test: test_olculen_govde_cercevesi.
         """
-        return {
-            aid: (
-                float(st.pos_x) - self.centroid_x,
-                float(st.pos_y) - self.centroid_y,
+        h = math.radians(self.formation_heading_deg)
+        cos_h = math.cos(h)
+        sin_h = math.sin(h)
+        out = {}
+        for aid, st in self.agent_statuses.items():
+            if aid not in self.agent_ids:
+                continue
+            dx = float(st.pos_x) - self.centroid_x   # NED
+            dy = float(st.pos_y) - self.centroid_y
+            out[aid] = (
+                dx * cos_h + dy * sin_h,             # NED -> GOVDE (ters)
+                -dx * sin_h + dy * cos_h,
                 0.0,
             )
-            for aid, st in self.agent_statuses.items()
-            if aid in self.agent_ids
-        }
+        return out
 
     def compute_heading_rotation(
         self, yaw_cmd: float, dt: float
