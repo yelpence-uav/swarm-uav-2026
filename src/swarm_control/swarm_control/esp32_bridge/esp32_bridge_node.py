@@ -2247,12 +2247,43 @@ class Esp32BridgeNode(Node):
         self._event_pub_public.publish(msg)
 
     def _isle_qr_coords(self, payload: bytes) -> None:
-        """QR konumlarını tek tek toplar, tablo dolunca yayınlar."""
+        """QR konumlarını tek tek toplar, tablo dolunca yayınlar.
+
+        🔴 GORUNURLUK (4 Eylul 2026). Burasi 3 Eylul'e kadar TEK BIR LOG
+        SATIRI BILE basmiyordu ve bu bir gunu yedi. Nokta basina 4 kopya
+        gonderiliyor ama mesh'te ACK yok; bir noktanin dort kopyasi da
+        duserse tablo `>= toplam` sartini HIC tutturamaz, yayin yapilmaz
+        ve hicbir yerde iz kalmaz. Disaridan gorunen tek sey "tablo ucaga
+        gitmiyor" olur — oysa cerceveler geliyor olabilir. 3-4 Eylul'de
+        tam bu yasandi: dort ESP bosuna yeniden yuklendi.
+
+        Ayrica tablo YALNIZ RAM'de: konteyner yeniden baslarsa toplayici
+        sifirlanir ve tablo sessizce kaybolur (mesh'te "gec katilana
+        tekrar yolla" diye bir sey yok). O yuzden her YENI nokta ve
+        tamamlanma ayri satir basiyor; yarim kalan tablo artik gorunur.
+        """
         q = pp.qr_koord_coz(payload)
         self._qr_koord_toplam = q.toplam
+        yeni_nokta = q.qr_id not in self._qr_koord_toplayici
         self._qr_koord_toplayici[q.qr_id] = (q.lat, q.lon)
-        if q.toplam > 0 and len(self._qr_koord_toplayici) >= q.toplam:
+        toplandi = len(self._qr_koord_toplayici)
+        tamam = q.toplam > 0 and toplandi >= q.toplam
+        if tamam:
             self._qr_coords_yayinla()
+        # Yalniz YENI nokta loglanir: 4 kopya x N nokta = 24 satir olurdu.
+        if yeni_nokta:
+            if tamam:
+                self.get_logger().warning(
+                    f'[esp32] QR KONUM TABLOSU TAMAM: {toplandi}/{q.toplam} '
+                    f'nokta — id={sorted(self._qr_koord_toplayici)} yayinlandi'
+                )
+            else:
+                self.get_logger().warning(
+                    f'[esp32] QR konum tablosu toplaniyor: '
+                    f'{toplandi}/{q.toplam} nokta '
+                    f'(gelen id={sorted(self._qr_koord_toplayici)}) — '
+                    f'EKSIK, tablo henuz YAYINLANMADI'
+                )
 
     def _qr_coords_yayinla(self) -> None:
         """Toplanan QR tablosunu QRCoordinates olarak yayınlar."""

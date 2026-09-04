@@ -1,6 +1,6 @@
 # RPİ EŞİTLEME DEFTERİ — geri gelen drone'u hizaya getirme
 
-**Son güncelleme:** 4 Eylül 2026, 08:25 — K17: bag artık 4K kare yazmıyor (ylp02'de, diğer ikisi BEKLİYOR) · K18 kamera/QR ayarları
+**Son güncelleme:** 4 Eylül 2026, 15:45 — K21 QR tablosu görünürlüğü (üç uçakta) · D6 dört ESP yeniden yüklendi, baz TEMİZ derleme
 
 ## Kamera servisi — 1 Eylül 2026 düzeltmesi
 
@@ -300,6 +300,7 @@ konteyner yeniden başlatma yeterli. ylp01 döndüğünde tek yapılacak
 | K18 | **Kamera/QR ayarları** — `kamera_yayin.py` 4K kipi 30→10 fps + Algı panelinde **irtifa/bant tablosu** + **VİDEO KES** düğmesi · `algi_kopru.py` MAVROS irtifası · `kamera_zincir.sh` `WECHAT`/`TAM_TARAMA`/`QR_HZ`/`LZ_HZ` (wechat **varsayılan KAPALI**) | ✅ | ✅ | ✅ | *dosyalar üçünde de (`dagit.sh` taşıyor). Kamera yalnız ylp02'de, diğer ikisinde dosyalar pasif duruyor. Zincir ayarları düğüm başlatılırken okunuyor, restart gerekmez* |
 | K19 | **Mesh kayıp ölçümü + QR yineleme kapısı + DURUM hız düzeltmesi** — `esp32_bridge` | ✅ | ✅ | ✅ | *4 Eyl, `dagit.sh --paket swarm_control` + restart. Ölçüm `esp.log`'a 30 sn'de bir `KAYIP-OLCUM` yazıyor; okumak için `deploy/yki/mesh_kayip.py`* |
 | K20 | **TOPLANMA MERDİVENİ** — kalkıştan ilk formasyona geçerken dikey ayırma (`toplanma_katman_m=5.0`) | ✅ | ✅ | ✅ | *4 Eyl, `dagit.sh --paket swarm_missions` + restart; canlı parametre üç uçakta da doğrulandı. ⚠️ `ucus_ayarlari.env` **`dagit.sh` ile TAŞINMIYOR** — YKİ'de `python3 src/gcs/ucus_ayarlari.py --kabuk` ile üretilip ELLE `scp` edilir. Unutulursa merdiven sessizce KAPALI kalır (varsayılan 0.0)* |
+| K21 | **QR konum tablosu GÖRÜNÜRLÜĞÜ** — `esp32_bridge._isle_qr_coords` artık her yeni nokta ve tamamlanmayı `esp.log`'a yazıyor; yarım tablo görünür oldu | ✅ | ✅ | ✅ | *4 Eyl, `dagit.sh --paket swarm_control` + restart. Doğrulama: üçünde de `QR KONUM TABLOSU TAMAM: 6/6 — id=[1,2,3,4,7,9]`. ⚠️ Tablo **yalnız RAM'de** — her `docker restart` sonrası TEKRAR GÖNDERİLMELİ, bkz. `TUZAKLAR.md` §4.15* |
 
 > ### 🔴 K17 — bag 4K kare yazıyordu, disk 64 dakikada doluyordu
 >
@@ -789,6 +790,7 @@ kaldı (CH3=1296'da bile) ve güç çevrimi ile temizlendi. Şüpheli:
 | D3 | Yeni ESP takıldıysa MAC'i tabloya ekle | Tabloda olmayan MAC'ten gelen paket **reddedilir** |
 | D4 | 🔴 **Firmware `eabe59f` — DÖRT kartta** (3 drone + baz) | 27 Ağu ~03:00-03:40. `TIP_OLAY` taşıyan sürüm. **Pi üzerinden**, kablo/konnektör sökmeden: konteyner durdur → operatör **BOOT tut + EN'e dokun** → `esptool --before no-reset write-flash` → EN → konteyner başlat. Baz USB'den (`--no-stub` şart, `TUZAKLAR` §4.4). Dördünde de **hash doğrulandı** |
 | D5 | **Uçandaki firmware artık BİLİNEN bir commit** | D4'ten önce belirsizdi: ylp01'in `.bin`'i 25 Ağu 00:52'de, `ccb915c` ise 00:56'da — binary commit'ten ESKİYDİ. ⚠️ `.bin` dosya boyutu hizalama yüzünden yuvarlanıyor, **provenans göstergesi olarak kullanılamaz** (eski ve yeni kaynak aynı boyutu veriyor). Doğrulama davranıştan yapılır |
+| D6 | 🔴 **Firmware `8e20d74` — DÖRT kartta yeniden** | 3-4 Eyl. Üç drone Pi üzerinden `/dev/ttyAMA4` **115200** ile (460800 «No serial data received» veriyor), baz USB'den `/dev/ttyUSB0` (CP2102). ylp00'da dört bölge de `verify_flash` ile doğrulandı (bootloader/partitions/boot_app0/app). ⚠️ **Baz `-e esp32dev` ile yüklenir** — `esp32dev_tek_usb` USB-TTL adaptör YOKKEN kullanılır, karıştırılırsa veri hattı susar. Bazdaki geçici `[UART-RX]` teşhis satırları kaldırıldı (her çerçevede basıyordu, Serial0'ı bloke etme riski) |
 
 ---
 

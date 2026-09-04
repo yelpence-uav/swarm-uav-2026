@@ -1,6 +1,6 @@
 # YAPILACAKLAR
 
-**Son güncelleme:** 4 Eylül 2026, 12:10 — `mnv` eşlemesi DOĞRUYMUŞ (şartname: Görev 1'de yaw yok); sabahki 🔴 madde çürütüldü · kalan iş `mnv` uzunluk denetimi 🟡
+**Son güncelleme:** 4 Eylül 2026, 15:45 — QR konum tablosu ÇÖZÜLDÜ (üç uçakta 6/6, görünürlük eklendi) · yeni 🟠: restart sonrası tabloyu otomatik tazeleme
 
 > **Finale 5 gün.** Bu liste artık "her fikir" değil, **bu 8 günde
 > yapılacak iş.** Bir madde buraya giriyorsa birinin onu yapması planlanıyor
@@ -503,6 +503,21 @@ Bugünkü komut yolu (YKİ → mesh → goto) finali GEÇEMEZ. Bu blok o yüzden
 ---
 
 ## 🟠 P1 — altyapı (uçuşları engellemiyor ama biriktikçe pahalı)
+- `[ ]` 🟠 **QR KONUM TABLOSU RESTART SONRASI KENDİLİĞİNDEN TAZELENSİN.**
+  *(4 Eylül, çözülen sorunun kalan yarısı.)* Tablo yalnız her uçağın
+  köprüsünün RAM'inde duruyor; `docker restart` onu siliyor ve mesh'te
+  "geç katılana tekrar yolla" diye bir şey yok. Şu an tek çare operatörün
+  **elle tekrar göndermesi** — kalkıştan önce unutulmaya birebir aday.
+  **Öneri:** baz köprüsü mandalladığı tabloyu, bir uçağın DURUM'unda
+  "yeni açıldı" görünce (ya da en basiti: 60 sn'de bir, görev başlamadan
+  önce) yeniden yayınlasın. Maliyet ~20 satır, tek dosya (`esp32_bridge`),
+  geri alınabilir; mesh yükü 6 çerçeve/dk — POSE'un binde biri.
+  **OPERATÖR KARARI (4 Eylül): otomatikleştirme YOK — tabloyu arayüzden
+  kendisi yeniden gönderecek.** Madde bu yüzden açık bırakıldı, kapatılmadı:
+  otomatik tazeleme yerine **kalkış öncesi kontrol listesi** şartı geçerli —
+  `grep -a 'QR KONUM TABLOSU' /ws/gunluk/*/esp.log` → `TAMAM: 6/6`.
+  Bkz. `TUZAKLAR.md` §4.15.
+
 
 - `[ ]` 🟠 **29 Ağustos değişikliklerini dağıt.** `baslat.sh` iki kez değişti:
   ① `basit_kacinma` + `fusion` blokları kalktı ② **`--yalniz <düğüm>`** eklendi.

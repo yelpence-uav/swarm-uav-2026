@@ -1,6 +1,6 @@
 # TUZAKLAR — hata vermeden yanlış sonuç üretenler
 
-**Son güncelleme:** 4 Eylül 2026, 10:15 — §4.14: mesh kaybı SESSİZ ve yerleşime aşırı duyarlı (%38 → %0, iki uçağın yerini değiştirmek)
+**Son güncelleme:** 4 Eylül 2026, 15:45 — §4.15: QR konum tablosu YALNIZ RAM'de ve montajı SESSİZDİ (bir gün yedi)
 
 > **Bu belge CANLI.** Arşiv değil — buradaki her madde **bugün de geçerli.**
 >
@@ -2159,6 +2159,49 @@ hiçbiri hata vermez.
 
 *Aynı aile:* §4.12 (elde taşınan uçakta ESP gölgelenmesi). Oradaki teşhis
 kalıbı burada da geçerli: kaybı **iki alıcıda** karşılaştır.
+
+### 4.15 🔴 QR konum tablosu YALNIZ RAM'de ve montajı SESSİZDİ
+
+**3-4 Eylül'de bir gün yedi.** Belirti: *"QR tablosunu gönderdim, uçağa
+gitmiyor."* Gerçekte gidiyordu.
+
+İki şey üst üste bindi:
+
+1. **Tablo tek çerçeveye sığmıyor.** Her QR noktası AYRI mesh çerçevesi
+   (`TIP_QR_COORDS`, 16 bayt; nokta başına 4 kopya, mesh'te ACK yok).
+   Alıcı `toplam` alanına bakıp ancak `>= toplam` olunca yayınlıyor. Bir
+   noktanın dört kopyası da düşerse tablo **hiç tamamlanmaz** ve
+   `/swarm/public/mission/qr_coords` boş kalır.
+2. **Bu yol boyunca TEK LOG SATIRI YOKTU.** Ne gelen nokta, ne yarım
+   tablo basılıyordu. Dışarıdan görünen tek şey "topic boş" — yani
+   "hiç gelmiyor" ile "5/6 geldi" **ayırt edilemiyordu.**
+
+Üstüne asıl kapan: **tablo yalnız köprünün RAM'inde**
+(`_qr_koord_toplayici`). `docker restart` → toplayıcı sıfır. Mesh'te
+"geç katılana tekrar yolla" diye bir şey **YOK**; YKİ'nin
+`/swarm/internal/mission/qr_coords` yayını mandallı olsa bile o mandal
+**BAZ köprüsünde**, uçakta değil. ESP yüklemesi yaparken konteynerleri
+sürekli durdurup başlattık ve her seferinde tablo sessizce silindi —
+dört ESP bu yüzden boşuna yeniden yüklendi.
+
+**Ne yapmalı:**
+
+- **Konteyner yeniden başladıysa tabloyu TEKRAR GÖNDER.** Kalkıştan önceki
+  son adım bu olsun — yeniden başlatma listesi ne kadar uzunsa o kadar
+  kolay unutuluyor.
+- Doğrulaması artık tek komut (4 Eylül'de eklendi):
+
+      grep -a 'QR KONUM TABLOSU' /ws/gunluk/*/esp.log
+
+  `TAMAM: 6/6` görmüyorsan tablo o uçakta **YOK**. Konu boş mu diye
+  bakmak da olur ama bu satır *neden* boş olduğunu da söylüyor.
+- `EKSIK` satırında sayı takılı kalıyorsa nokta düşüyor demektir —
+  mesh kaybına bak (§4.14), tabloyu tekrar gönder.
+
+*Aynı aile:* §4.8 (formasyon `sequence_num` mesh'te taşınmaz). Ortak ders:
+**mesh'ten geçen her çok parçalı yapı için "kaç parça geldi" görünür
+olmalı** — yoksa yarım montaj, hiç gelmemekle aynı görünür.
+
 
 ## 5. Raspberry Pi ve seri portlar
 
