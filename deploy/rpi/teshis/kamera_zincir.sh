@@ -74,9 +74,43 @@ basla)
         -p fps:="$FPS.0" -p width:="$G" -p height:="$Y" \
         > "$KAM_LOG" 2>&1 &
     sleep 6
+    # LZ_HZ -- RENK yolunun hizi. Varsayilan 15 Hz ve PAHALI: renk yolu
+    # kareyi 1/2'ye kucultup isliyor (9 ms) ama once TAM kareyi cozduruyor
+    # ve 4056x3040 bir JPEG'i cozmek 106 ms (KAMERA.md §6.2). Yani 15 Hz
+    # renk, tek basina ~1,6 cekirdek. QR menzili olculurken renge
+    # bakilmiyor: LZ_HZ=0.2 ile cozme 15/sn'den 5/sn'ye duser.
+    # SIFIR VERME -- vision_node 1.0/hz hesapliyor, 0 bolme hatasi verir.
+    #
+    # QR_HZ -- QR yolunun hizi. Her tur TAM kareyi cozduruyor: 4K'da 106 ms,
+    # yani 5 Hz tek basina yarim cekirdek (4 Eylul olcumu: vision_node
+    # %92,4, sistem %11,7 bosta). Asili durup olcerken 2,5 Hz fazlasiyla
+    # yeter -- 20 sn'lik bir bantta 50 deneme eder. okuma/sn olcusu
+    # bantlar arasinda karsilastirmali oldugu icin hiz sabit kaldigi
+    # surece dusurmek olcumu bozmaz.
+    #
+    # WECHAT -- VARSAYILAN KAPALI. 4 Eylul 2026'da UCAKTA olculdu, kadrajda
+    # QR YOKKEN (en kotu hal, 4056x3040, 10 kare ortalamasi):
+    #     wechat ACIK    951,1 ms/kare
+    #     wechat KAPALI  249,1 ms/kare      <- 3,8 kat
+    # Yani wechat TEK BASINA kare basina ~702 ms yiyor. KAMERA.md §6.4'teki
+    # koruma "wechat TAM KAREDE asla calistirilmaz" diyor (bos karede
+    # 11,6 sn olculmustu) ve dogru yazilmis -- ama KIRPMA da guvenli
+    # degilmis: QR yokken varyans bulucunun aday kutusu neredeyse tum kare
+    # oluyor ve wechat ayni felakete kirpma uzerinden giriyor. Koruma
+    # yanlis yerde duruyor.
+    # Menzil bedeli YOK: wechat ~40 m, zxing ~25 m, ama gercek tavanimiz
+    # 11 m ve onu belirleyen JOLE (KAMERA.md §5.3), cozucu menzili degil.
+    #
+    # TAM_TARAMA -- iki asamali bulucu kacirirsa devreye giren guvenlik agi.
+    # 5 -> 20: olculen fark yalnizca 249,1 -> 219,8 ms ama ag duruyor.
+    # 0 (tamamen kapali) 197,8 ms verir; kalan 22 ms icin agi atmaya degmez.
     nohup ros2 run swarm_perception vision_node --ros-args \
-        -p agent_id:="$AID" -p qr_processing_rate_hz:=5.0 \
+        -p agent_id:="$AID" -p qr_processing_rate_hz:="${QR_HZ:-5.0}" \
+        -p landing_zone_rate_hz:="${LZ_HZ:-15.0}" \
+        -p qr_wechat_yedek:="${WECHAT:-false}" \
+        -p qr_tam_tarama_periyodu:="${TAM_TARAMA:-20}" \
         > "$GOZ_LOG" 2>&1 &
+    echo "vision_node: qr ${QR_HZ:-5.0} Hz, renk ${LZ_HZ:-15.0} Hz, wechat ${WECHAT:-false}, tam_tarama ${TAM_TARAMA:-20}"
     sleep 4
     # Kopru: sonuclari JSON'a yazar, kamera sayfasi onu gosterir. Boylece
     # QR/renk sonucunu gormek icin terminale `ros2 topic echo` yazmak

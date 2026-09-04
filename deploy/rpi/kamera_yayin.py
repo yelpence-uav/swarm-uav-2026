@@ -80,16 +80,20 @@ MODLAR = {
                'mod': '2028:1520:12:P', 'fps': 30},
     'dk169':  {'ad': '4056x2160  4K 16:9',     'w': 4056, 'h': 2160,
                'mod': '4056:2160:12:P', 'fps': 15},
-    # fps 10 -> 30, 28 Agustos 2026. SEBEP COZUNURLUK DEGIL, OKUMA SURESI:
-    # IMX477 satir satir okur (rolling shutter). 10 fps'te bir karenin
-    # okunmasi ~100 ms surer ve o sure boyunca motor titresimi (~100-200 Hz)
-    # her satiri farkli kaydirir — kare "jole" gibi dalgalanir.
-    # OLCULDU: ayni QR, ayni piksel boyutunda, DURAGAN fotografta okunuyor;
-    # motorlar donerken 200 karenin SIFIRINDA okundu. Titresim surekli
-    # oldugu icin temiz kare hic olusmuyor.
-    # 30 fps okuma suresini ~3 kat kisaltir. Cozunurluk AYNI kalir.
+    # fps 30 -> 10, 4 Eylul 2026.  ⚠️ ESKI GEREKCE YANLISTI, ONA GORE OKU:
+    # 28 Agustos'ta bu kip 10'dan 30'a CIKARILMISTI, gerekce "30 fps satir
+    # okuma suresini ~3 kat kisaltir, boylece jole azalir" idi. O gerekce
+    # SONRADAN OLCUMLE CURUTULDU (KAMERA.md §4): Pi kamera surucusu kare
+    # hizini VBLANK'i (bekleme) uzatip kisaltarak ayarlar, SATIR OKUMA
+    # SURESI SABITTIR. 10 fps'te sensor yavas okumaz -- hizli okuyup bekler.
+    # 10 -> 30 denendi ve operator olcumu: "dalgalanma bir gram bile
+    # azalmamisti". Okuma suresini KIP degistirir, kare hizi degil.
+    # Bedeli ise agirdi: 4K@32 fps MJPEG sikistirmak rpicam-vid'e 1,3
+    # CEKIRDEK yediriyordu (4 Eylul olcumu: %131, sistem %1,9 bosta,
+    # yuk 9,26) ve mavros CPU icin yarisiyordu. QR zaten 5 Hz isliyor,
+    # 10 fps hala iki kat fazla besliyor.
     'tam':    {'ad': '4056x3040  TAM 12,3MP',  'w': 4056, 'h': 3040,
-               'mod': '4056:3040:12:P', 'fps': 30},
+               'mod': '4056:3040:12:P', 'fps': 10},
 }
 
 # Onizleme GENISLIGI. Yukseklik yakalama en-boy oranindan turetiliyor —
@@ -989,6 +993,17 @@ main{flex:1 1 auto;display:flex;gap:8px;padding:8px;min-height:0}
 #isaret-qr span{background:var(--iyi);color:#06111f}
 #isaret-lz{width:30px;height:30px;border:3px solid var(--orta)}
 #isaret-lz span{background:var(--orta);color:#06111f}
+/* Video kesikken cerceve 1x1 GIF'e duser ve kutu yok olurdu; kapali
+   durumda olcuyu CSS veriyor ki kaplama bir yere oturabilsin. */
+.cerceve.bos img{width:min(70vw,720px);height:min(52vh,520px)}
+#yayin-kapali{position:absolute;inset:0;display:none;flex-direction:column;
+  align-items:center;justify-content:center;gap:8px;background:#0b1119;
+  color:#8fa3bd;font-size:15px;letter-spacing:.08em;text-align:center;
+  line-height:1.5}
+#yayin-kapali small{font-size:11px;letter-spacing:0;color:#5d708a;padding:0 16px}
+#a-bantlar{width:100%}
+#a-bantlar td{padding:2px 4px;white-space:nowrap}
+#a-bantlar td.vurgu{color:var(--iyi);font-weight:700}
 
 aside{flex:0 0 268px;display:flex;flex-direction:column;gap:7px;
   overflow-y:auto;min-height:0}
@@ -1091,6 +1106,9 @@ details.ayarlar>div{padding:0 9px 9px}
 <main>
   <div class="sahne"><div class="cerceve">
     <img id="kare" alt="kamera">
+    <div id="yayin-kapali">VİDEO KAPALI
+      <small>CPU için kesildi. Kayıt, ROS algı zinciri ve Algı paneli
+      çalışmaya devam ediyor — QR ve irtifa yandan okunur.</small></div>
     <div class="nisan"></div>
     <div class="isaret" id="isaret-qr"><span>QR</span></div>
     <div class="isaret" id="isaret-lz"><span id="isaret-lz-ad">BÖLGE</span></div>
@@ -1108,6 +1126,10 @@ details.ayarlar>div{padding:0 9px 9px}
         <button id="btn-foto">FOTO</button>
         <button id="btn-buyutec" title="Merkezin %25'i">4x</button>
       </div>
+      <div class="satir" style="margin-top:4px">
+        <button class="genis acik" id="btn-yayin"
+          title="Tarayıcıya gelen video. KAPATILINCA küçültme hiç çalışmaz — 4K→640 px 33 ms/kare, CPU'yu asıl yiyen o. Kayıt, ROS ve Algı paneli etkilenmez.">VİDEO AÇIK</button>
+      </div>
     </div>
 
     <div class="kart">
@@ -1118,10 +1140,21 @@ details.ayarlar>div{padding:0 9px 9px}
         <tr><td>bulanıklık</td><td id="a-bul">—</td></tr>
         <tr><td>ışık</td><td id="a-isik">—</td></tr>
         <tr><td>QR</td><td id="a-qr">—</td></tr>
+        <tr><td>irtifa</td><td id="a-irt">—</td></tr>
+        <tr><td>okuma irtifası</td><td id="a-irt-okuma">—</td></tr>
+        <tr><td>en yüksek okuma</td><td id="a-irt-max">—</td></tr>
         <tr><td>renk</td><td id="a-lz">—</td></tr>
         <tr><td>dairesellik</td><td id="a-daire">—</td></tr>
       </table>
       <div class="metin-kutu" id="a-metin">QR metni burada çıkacak</div>
+    </div>
+
+    <div class="kart">
+      <div class="bas"><h2>İrtifa bandı</h2><i class="ipuc" data-ip="Her metrelik bantta kaç okuma düştüğü ve o bantta kaç saniye kalındığı. YÜZDE YOK: vision_node QR mesajını yalnız okuma BAŞARILI olunca yayınlıyor, denenen kare sayısı bilinmiyor — varsayılan bir kare hızından yüzde uydurmak tam da okuma düşükken yanıltır. Onun yerine OKUMA/SN var, paydası gerçek geçen süre. ⚠️ Karşılaştırmanın anlamı olması için her irtifada DURUP BEKLE: 3-4 saniyelik geçişte banda 15 kare düşer ve şans ile ölçüm ayırt edilemez.">?</i></div>
+      <table id="a-bantlar"><tbody><tr><td>—</td></tr></tbody></table>
+      <div class="satir" style="margin-top:6px">
+        <button class="genis" id="btn-algi-sifirla">BANTLARI SIFIRLA</button>
+      </div>
     </div>
 
     <div class="kart">
@@ -1182,7 +1215,30 @@ let esik = {alan:0.0015, daire:0.75};
 
 // kucult=1 SADECE tarayicinin istegi. ROS camera_driver ve kamera_zincir.sh
 // /akis'i parametresiz cagirir ve tam cozunurluk alir.
-function akisiTazele(){ $('#kare').src = '/akis?kucult=1&t=' + Date.now(); }
+// VIDEO KESME (4 Eylul 2026, operator istegi). CPU'yu asil yiyen sey
+// KUCULTMEDIR (4K -> 640 px, 33 ms/kare) ve o YALNIZ tarayici istedigi
+// icin calisir: `kucult` bayragi istek basinadir. src'yi bos bir GIF'e
+// cevirmek multipart baglantiyi koparir -> sunucudaki dongu BrokenPipe
+// ile biter -> kucultme HIC cagrilmaz. Kayit (_kayda_yaz) ve ROS
+// (/akis parametresiz) ayri tuketiciler, ikisi de etkilenmez. Algi
+// paneli /olcum'dan besleniyor (kucuk JSON), yani video kapaliyken de
+// QR ve irtifa gorunmeye devam eder -- kesmenin butun anlami bu.
+const KARE_BOS = 'data:image/gif;base64,'
+  + 'R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==';
+let yayinAcik = true;
+function akisiTazele(){
+  if (!yayinAcik) return;
+  $('#kare').src = '/akis?kucult=1&t=' + Date.now();
+}
+function yayiniAyarla(){
+  const b = $('#btn-yayin');
+  b.textContent = yayinAcik ? 'VİDEO AÇIK' : 'VİDEO KAPALI';
+  b.classList.toggle('acik', yayinAcik);
+  $('.cerceve').classList.toggle('bos', !yayinAcik);
+  $('#yayin-kapali').style.display = yayinAcik ? 'none' : 'flex';
+  if (yayinAcik) akisiTazele(); else $('#kare').src = KARE_BOS;
+}
+$('#btn-yayin').onclick = () => { yayinAcik = !yayinAcik; yayiniAyarla(); };
 $('#kare').addEventListener('error', () => setTimeout(akisiTazele, 1200));
 akisiTazele();
 
@@ -1224,6 +1280,28 @@ function boya(el, deger, orta, kotu){
   el.className = deger >= kotu ? 'kotu' : (deger >= orta ? 'orta' : 'iyi');
 }
 
+// Bantlarin OKUMA/SN'i banttan banda dogrudan karsilastirilabilir. En iyi
+// bant vurgulanir; aranan sey zaten "hangi irtifada en cok okuyor".
+function bantlariGoster(b){
+  const g = $('#a-bantlar').tBodies[0];
+  if (!b || !b.length){
+    g.innerHTML = '<tr><td>henüz veri yok</td></tr>';
+    return;
+  }
+  let enIyi = 0;
+  for (const s of b) if (s.okuma_hz != null && s.okuma_hz > enIyi) enIyi = s.okuma_hz;
+  // Yuksekten alcaga: ucus da oyle gidiyor, goz sirayi takip etsin.
+  g.innerHTML = b.slice().reverse().map(s => {
+    const hz  = s.okuma_hz != null ? s.okuma_hz.toFixed(2) + '/sn' : '—';
+    const vur = (s.okuma_hz != null && s.okuma_hz === enIyi && enIyi > 0)
+                ? ' class="vurgu"' : '';
+    return '<tr><td>' + s.alt_m.toFixed(0) + '–' + s.ust_m.toFixed(0) + ' m</td>'
+         + '<td>' + s.okuma + ' okuma</td>'
+         + '<td>' + s.sure_s.toFixed(0) + ' sn</td>'
+         + '<td' + vur + '>' + hz + '</td></tr>';
+  }).join('');
+}
+
 // Sonuçlar burada çıkıyor ki terminalden `ros2 topic echo` yazmak gerekmesin.
 // QR YAPIŞKAN: kareye bir saniye girip çıkıyor; anlık durum gösterilseydi tam
 // o anda ekrana bakmak gerekirdi.
@@ -1258,6 +1336,22 @@ function algiGoster(a){
     qrEl.textContent='henüz okunmadı'; qrEl.className='';
     metin.textContent='QR metni burada çıkacak'; metin.className='metin-kutu';
   }
+
+  // IRTIFA. Kopru irtifayi MAVROS'tan alip QR mesajinin GELDIGI ANDA
+  // mandalliyor; sayfada sonradan eslemek alcalirken bir metre hata demek.
+  // 'MAVROS yok' yazisi onemli: irtifa gelmiyorsa bant tablosu da bos
+  // kalir ve bunun sessizce olmasi butun olcumu cope cevirirdi.
+  const irt = $('#a-irt');
+  irt.textContent = a.irtifa_m != null ? a.irtifa_m.toFixed(1) + ' m'
+                                       : 'MAVROS yok';
+  irt.className = a.irtifa_m != null ? '' : 'orta';
+  $('#a-irt-okuma').textContent =
+    (q && q.irtifa_m != null) ? q.irtifa_m.toFixed(1) + ' m' : '—';
+  const mx = $('#a-irt-max');
+  mx.textContent = a.en_yuksek_okuma_m != null
+    ? a.en_yuksek_okuma_m.toFixed(1) + ' m' : '—';
+  mx.className = a.en_yuksek_okuma_m != null ? 'iyi' : '';
+  bantlariGoster(a.bantlar);
 
   if (a.esik){
     if (a.esik.min_zone_area_frac != null) esik.alan = a.esik.min_zone_area_frac;
@@ -1498,6 +1592,15 @@ document.querySelectorAll('[data-profil]').forEach(b => b.onclick = async () => 
 });
 $('#btn-buyutec').onclick = () => { d.buyutec = !d.buyutec; ayarla(); };
 $('#btn-sifirla').onclick = () => { fetch('/sifirla',{cache:'no-store'}); gecmis.length = 0; };
+// Bant tablosu KOPRUDE tutuluyor (sayfanin ROS'u yok), o yuzden sifirlama
+// da oradan gecmeli. Sayac yerine Date.now(): sayfa yenilenince sayac
+// bastan baslar ve koprudeki son degere esit cikip sifirlama SESSIZCE
+// calismazdi. Esikler de gonderiliyor ki dosya eksik kalmasin.
+$('#btn-algi-sifirla').onclick = () => {
+  fetch(`/algi_ayar?alan=${esik.alan}&daire=${esik.daire}&sifirla=${Date.now()}`,
+        {cache:'no-store'});
+  bantlariGoster(null);
+};
 $('#btn-kare').onclick = () => { window.location = '/kare.jpg'; };
 
 // FOTO CEK — cekim sirasinda kamera gecici olarak 4K'ya cikiyor, o yuzden
@@ -1684,14 +1787,21 @@ class Istek(BaseHTTPRequestHandler):
             # Sayfa esikleri buraya yaziyor; konteynerdeki `algi_kopru`
             # dosyayi izleyip `vision_node`'un parametrelerini set ediyor.
             # Sayfanin ROS'u yok, o yuzden dogrudan cagiramaz.
+            # Ayni uctan iki istek geciyor: esik degisikligi ve bant
+            # tablosu sifirlama. Sifirlama esik gondermek zorunda degil,
+            # o yuzden alan/daire ZORUNLU DEGIL; ikisi de yoksa hata.
+            istek = {}
             try:
-                istek = {
-                    'min_zone_area_frac': float(s['alan'][0]),
-                    'min_circularity': float(s['daire'][0]),
-                    'min_zone_area_px': 0.0,   # oranli esik yonetsin
-                }
-            except (KeyError, ValueError, IndexError):
-                return self.send_error(400, 'alan/daire gerekli')
+                if 'alan' in s and 'daire' in s:
+                    istek['min_zone_area_frac'] = float(s['alan'][0])
+                    istek['min_circularity'] = float(s['daire'][0])
+                    istek['min_zone_area_px'] = 0.0   # oranli esik yonetsin
+                if 'sifirla' in s:
+                    istek['sifirla'] = int(s['sifirla'][0])
+            except (ValueError, IndexError):
+                return self.send_error(400, 'gecersiz deger')
+            if not istek:
+                return self.send_error(400, 'alan/daire ya da sifirla gerekli')
             gecici = self.algi_ayar_yolu + '.tmp'
             try:
                 with open(gecici, 'w', encoding='utf-8') as f:

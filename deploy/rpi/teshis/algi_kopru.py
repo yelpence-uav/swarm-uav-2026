@@ -20,8 +20,11 @@ yarım yazılmış bir dosyayı okursa JSON çözülmez ve kart boşalırdı.
 """
 
 import json
+import math
 import os
 import time
+
+from mavros_msgs.msg import Altitude
 
 from rcl_interfaces.msg import Parameter, ParameterType, ParameterValue
 from rcl_interfaces.srv import SetParametersAtomically
@@ -31,6 +34,7 @@ from rclpy.node import Node
 from rclpy.qos import (
     QoSDurabilityPolicy,
     QoSHistoryPolicy,
+    QoSPresetProfiles,
     QoSProfile,
     QoSReliabilityPolicy,
 )
@@ -52,6 +56,19 @@ _BEST_EFFORT_QOS = QoSProfile(
 
 _RENK_ADLARI = {0: 'bilinmiyor', 1: 'KIRMIZI', 2: 'MAVI'}
 
+# Irtifa bu sureden eskiyse "bilinmiyor" sayilir: bayat bir irtifayi banda
+# yazmak, ucak coktan baska yerdeyken o banda sure eklemek olurdu.
+# 1 sn secildi cunku bu pay dogrudan HATA olarak yaziliyor: 1 m/s alcalirken
+# 1 sn bayatlik, sureyi bir metre yanlis banda kaydeder. MAVROS irtifasi
+# ~10 Hz akiyor, yani 1 sn = ust uste 10 kayip mesaj; bu artik titreme
+# degil gercek kesintidir ve sayfada "MAVROS yok" olarak GORUNUR --
+# sessizce yanlis banda yazmaktansa gorunur sekilde bosluk birakiyoruz.
+_IRTIFA_BAYAT_S = 1.0
+
+# Bant sayacina eklenecek en buyuk adim. Daha buyugu duraklamadir (surec
+# askida kaldi, saat sicradi); o sureyi banda yazmak paydayi sisirir.
+_EN_BUYUK_ADIM_S = 1.0
+
 
 class AlgiKopru(Node):
     """QR ve iniş bölgesi sonuçlarını dosyaya yazar."""
@@ -63,11 +80,13 @@ class AlgiKopru(Node):
         self.declare_parameter('cikti', '/ws/algi_durum.json')
         self.declare_parameter('ayar_dosyasi', '/ws/algi_ayar.json')
         self.declare_parameter('yazma_hz', 5.0)
+        self.declare_parameter('bant_m', 1.0)
 
         self._agent_id = self.get_parameter('agent_id').value
         self._cikti = self.get_parameter('cikti').value
         self._ayar_dosyasi = self.get_parameter('ayar_dosyasi').value
         hz = float(self.get_parameter('yazma_hz').value)
+        self._bant_m = max(0.5, float(self.get_parameter('bant_m').value))
 
         # SON ÇÖZÜLEN QR YAPIŞKAN tutuluyor. QR kareye bir saniye girip
         # çıkıyor; anlık durum gösterilseydi operatör tam da okunduğu anda
@@ -76,6 +95,25 @@ class AlgiKopru(Node):
         self._qr_sayaci = 0
         self._lz: dict | None = None
 
+        # IRTIFA — "QR'i kac metreden okudu" (4 Eylul 2026, operator istegi)
+        # Sayfa QR'i gosteriyordu ama irtifayi gostermiyordu; operator
+        # okumayi gorup irtifayi QGC'den GOZLE eslemek zorunda kaliyordu.
+        self._irtifa_m: float | None = None
+        self._irtifa_an = 0.0
+        self._en_yuksek_m: float | None = None
+
+        # BANT TABLOSU {bant_no: {'okuma': n, 'sure_s': t}}
+        # YUZDE VERMIYORUZ: vision_node QR mesajini YALNIZ okuma basarili
+        # olunca yayinliyor (`for res in results`), yani paydayi -- denenen
+        # kare sayisini -- bilmiyoruz. Varsayilan 5 Hz'den yuzde uydurmak
+        # tam da okuma dusukken yaniltirdi: QR bulunamayinca zincir 2,3
+        # Hz'e duser (KAMERA.md 6.5 olcumu), yani gercek payda kucuktur ve
+        # uydurma yuzde oldugundan kotu gorunur. Onun yerine OKUMA/SN:
+        # paydasi gercek gecen sure, banttan banda dogrudan karsilastirilir.
+        self._bantlar: dict[int, dict] = {}
+        self._bant_an: float | None = None
+        self._son_sifirla = None
+
         self.create_subscription(
             QRMissionData, '/swarm/internal/perception/qr_data',
             self._qr_geldi, _RELIABLE_QOS)
@@ -83,6 +121,14 @@ class AlgiKopru(Node):
             LandingZoneDetection,
             f'/drone_{self._agent_id}/perception/landing_zone',
             self._lz_geldi, _BEST_EFFORT_QOS)
+
+        # SENSOR_DATA QoS SART. MAVROS telemetriyi BEST_EFFORT yayinlar;
+        # RELIABLE bir abone hicbir sey almaz ve HATA DA VERMEZ -- belirti
+        # yalnizca "irtifa hep bos" olur. (TUZAKLAR 2.1; bu tuzaga bu
+        # projede daha once dusuldu.)
+        self.create_subscription(
+            Altitude, f'/drone_{self._agent_id}/mavros/altitude',
+            self._irtifa_geldi, QoSPresetProfiles.SENSOR_DATA.value)
 
         # ESIK AYARI SAYFADAN — 27 Agustos 2026, operator istegi:
         # "en ufak rengi goruyor, kirmizi ve mavi gormesi lazim ve rengin
@@ -104,9 +150,20 @@ class AlgiKopru(Node):
             f'AlgiKopru: agent_id={self._agent_id} -> {self._cikti}')
 
     def _qr_geldi(self, m: QRMissionData) -> None:
+        # Irtifa OKUMANIN GELDIGI ANDA mandallaniyor. Sonradan zaman
+        # damgasindan eslemek de olurdu ama sayfa canli bakiyor; alcalirken
+        # bir saniyelik gecikme bir metre hata demek.
+        simdi = time.time()
         self._qr_sayaci += 1
+        h = self._irtifa_gecerli(simdi)
+        bant = self._bant_no(h)
+        if bant is not None:
+            self._bant(bant)['okuma'] += 1
+            if self._en_yuksek_m is None or h > self._en_yuksek_m:
+                self._en_yuksek_m = h
         self._son_qr = {
-            'an': time.time(),
+            'an': simdi,
+            'irtifa_m': round(h, 2) if h is not None else None,
             'detected': bool(m.detected),
             'decoded': bool(m.decoded),
             'valid': bool(m.valid),
@@ -139,6 +196,83 @@ class AlgiKopru(Node):
             'fov_deg': round(float(m.fov_deg), 1),
         }
 
+    def _irtifa_geldi(self, m: Altitude) -> None:
+        """MAVROS irtifasini saklar.
+
+        `relative` = EVE gore irtifa; "kac metreden okudu" sorusunun
+        cevabi budur. EKF home'u kilitlemeden once NaN gelebiliyor -- o
+        zaman `local`e dusuluyor, o da yoksa ornek ATILIYOR. NaN'i sessizce
+        saklamak bant tablosunu cope cevirirdi.
+        """
+        h = float(m.relative)
+        if not math.isfinite(h):
+            h = float(m.local)
+        if not math.isfinite(h):
+            return
+        self._irtifa_m = h
+        self._irtifa_an = time.time()
+
+    def _irtifa_gecerli(self, simdi: float) -> float | None:
+        """Taze ise irtifayi, degilse None doner."""
+        if self._irtifa_m is None:
+            return None
+        if (simdi - self._irtifa_an) > _IRTIFA_BAYAT_S:
+            return None
+        return self._irtifa_m
+
+    def _bant_no(self, h: float | None) -> int | None:
+        """Irtifayi bant numarasina cevirir; yerdeki negatif gurultu elenir."""
+        if h is None or h < 0.0:
+            return None
+        return int(h / self._bant_m)
+
+    def _bant(self, no: int) -> dict:
+        return self._bantlar.setdefault(no, {'okuma': 0, 'sure_s': 0.0})
+
+    def _bandi_isle(self, simdi: float) -> None:
+        """Gecen sureyi o anki irtifa bandina ekler -- PAYDA BUDUR.
+
+        Okuma sayisi sureye bolununce okuma/sn cikiyor; boylece "10 m'de
+        bir kere okudu" ile "10 m'de 20 saniyede 34 kere okudu" ayirt
+        ediliyor. Ilki sans, ikincisi olcum.
+        """
+        onceki, self._bant_an = self._bant_an, simdi
+        if onceki is None:
+            return
+        adim = simdi - onceki
+        if not 0.0 < adim <= _EN_BUYUK_ADIM_S:
+            return
+        bant = self._bant_no(self._irtifa_gecerli(simdi))
+        if bant is not None:
+            self._bant(bant)['sure_s'] += adim
+
+    def _bantlari_ver(self) -> list:
+        """Sayfaya gidecek tablo; deger tasimayan bantlar atlanir."""
+        cikti = []
+        for no in sorted(self._bantlar):
+            v = self._bantlar[no]
+            if v['okuma'] == 0 and v['sure_s'] < 1.0:
+                continue
+            cikti.append({
+                'alt_m': round(no * self._bant_m, 1),
+                'ust_m': round((no + 1) * self._bant_m, 1),
+                'okuma': v['okuma'],
+                'sure_s': round(v['sure_s'], 1),
+                # 1 sn'nin altinda BOLUNMUYOR: 0,2 sn'de tek okuma
+                # "5 okuma/sn" gibi gorunur ve tabloyu yalanci yapardi.
+                'okuma_hz': (round(v['okuma'] / v['sure_s'], 2)
+                             if v['sure_s'] >= 1.0 else None),
+            })
+        return cikti
+
+    def _sifirla(self) -> None:
+        """Bant tablosunu ve okuma gecmisini sifirlar (sayfadaki dugme)."""
+        self._bantlar.clear()
+        self._bant_an = None
+        self._en_yuksek_m = None
+        self._qr_sayaci = 0
+        self._son_qr = None
+
     def _ayari_izle(self) -> None:
         """Sayfanın yazdığı eşik dosyasını izler, değişince uygular."""
         try:
@@ -146,7 +280,21 @@ class AlgiKopru(Node):
                 istek = json.load(f)
         except (OSError, ValueError):
             return
-        if istek == self._son_ayar:
+        if not isinstance(istek, dict):
+            return
+
+        # SIFIRLAMA ONCE VE AYRI: sayfadaki dugme vision_node ayakta
+        # olmasa da calismali. Sayfa artan bir sayac (Date.now()) yaziyor;
+        # degistiginde tablo sifirlanir. Ayri dosya/port acmamak icin ayni
+        # kopru dosyasi kullaniliyor.
+        sifirla = istek.get('sifirla')
+        if sifirla is not None and sifirla != self._son_sifirla:
+            self._son_sifirla = sifirla
+            self._sifirla()
+            self.get_logger().info('bant tablosu sifirlandi')
+
+        istek = {k: v for k, v in istek.items() if k != 'sifirla'}
+        if not istek or istek == self._son_ayar:
             return
         if not self._ayar_istemci.service_is_ready():
             return                      # vision_node henuz ayakta degil
@@ -173,13 +321,21 @@ class AlgiKopru(Node):
             + ', '.join(f'{p.name}={p.value.double_value}' for p in params))
 
     def _yaz(self) -> None:
+        simdi = time.time()
+        self._bandi_isle(simdi)
+        h = self._irtifa_gecerli(simdi)
         veri = {
-            'an': time.time(),
+            'an': simdi,
             'agent_id': self._agent_id,
             'qr_sayaci': self._qr_sayaci,
             'qr': self._son_qr,
             'lz': self._lz,
             'esik': self._son_ayar,
+            'irtifa_m': round(h, 2) if h is not None else None,
+            'en_yuksek_okuma_m': (round(self._en_yuksek_m, 2)
+                                  if self._en_yuksek_m is not None else None),
+            'bant_m': self._bant_m,
+            'bantlar': self._bantlari_ver(),
         }
         gecici = f'{self._cikti}.tmp'
         try:
