@@ -1223,7 +1223,7 @@ fi   # /altyapi: ic_dis_kopru
         dugum swarm_core consensus_node --ros-args \
             -p lider_kilitli:=${SURU_LIDER_KILIDI:-false} \
             -p lider_kilit_tam_kadro_s:=${SURU_LIDER_KILIT_TAM_KADRO_S:-8.0} \
-            -p sabit_lider:=${SABIT_LIDER} \
+            -p sabit_lider:=${SABIT_LIDER:-0} \
             -p agent_id:=${AGENT_ID} \
             -p agent_count:=${SURU_AJAN_SAYISI} \
             -p battery_min_v:=${BATARYA_KRITIK_V} \
@@ -1569,6 +1569,7 @@ fi   # /altyapi: ic_dis_kopru
             dugum swarm_state_machine mode_manager_node --ros-args \
                 -p agent_ids:="${_MOD_KADRO_ROS}" \
                 -p agent_id:=${AGENT_ID} \
+                -p sabit_lider:=${SABIT_LIDER:-0} \
                 -p default_spacing_m:=${MOD_ARALIK:-7.0} \
             -p max_accel_mps2:=${MOD_IVME:-1.3} \
             -p max_accel_z_mps2:=${MOD_DIKEY_IVME:-1.0} \

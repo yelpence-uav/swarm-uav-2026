@@ -132,7 +132,12 @@ KANAT_ACISI_DEG = 45.0         # ok basi kanat acisi
 #                      iki ucaktan biri tokezleyince TUM SURUYE acil inis
 # AJAN_SAYISI = KIMLIK ARALIGI (id'ler 1..3), ucan sayi degil; ylp01 kapali
 # olsa da 3 kalir cunku ylp02'nin kimligi 3.
-UCAN_KADRO = (1, 2, 3)         # ylp00 + ylp01 + ylp02 — ucu de agda
+UCAN_KADRO = (1, 2)            # 4 Eylul gecesi: ylp00 + ylp01 (ylp02 AGDA DEGIL)
+# 🔴 UCAK EKLENINCE/CIKINCA BURAYI GUNCELLE ve env'i YENIDEN DAGIT.
+#    dagit.sh ucus_ayarlari.env'i TASIMAZ — elle gider (RPI_ESITLEME B31).
+#    Eksik kadroda `all_agents_seen()` asla True olmaz; mode_manager
+#    PREFLIGHT->TAKEOFF gecmez ve _PREFLIGHT_TIMEOUT_S 3600 oldugu icin
+#    EMERGENCY'ye de dusmez: SwD kalkis SESSIZCE hicbir sey yapmaz.
 # 2 Eylul: (1, 3) idi. O deger SURU_KADRO="1 3" uretiyor ve ylp01 acilinca
 # filo BOLUNUYOR: iki ucak [1,3]'lu, biri [1,2,3]'lu tarif basiyor,
 # merkezler ayrisiyor. Ayni aksam UC UCAK HAVADA ~1 m'lik kumeye toplandi.

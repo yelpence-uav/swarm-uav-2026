@@ -189,8 +189,32 @@ def _from_hold(ctx: ModeContext) -> ModeState | None:
 
 
 def _from_landing(ctx: ModeContext) -> ModeState | None:
-    """LANDING durumundan gecisleri degerlendirir."""
-    if ctx.all_agents_landed():
+    """LANDING durumundan gecisleri degerlendirir.
+
+    🔴 DISARM DA BIR INIS KANITIDIR — 4 Eylul 2026, UCUSTA OLCULDU.
+
+    O ucusta LANDING -> COMPLETED gecisi iki ucakta da TAM 90,00 saniye
+    surdu, yani `all_agents_landed()` ile DEGIL `_LANDING_TIMEOUT_S`
+    zaman asimiyla oldu. Sebep olculdu: `all_agents_landed()`
+    STATE_LANDED(13) ariyor, ama GOREV 2'de inisi px4_bridge dogrudan
+    suruyor (madde 25) ve agent_fsm'in LANDING/LANDED durumlarina hic
+    ugranmiyor — disarm olunca ARMED -> IDLE'a duruyor. Kayit:
+    ylp00 t=86,26'da IDLE, LANDED hic gorulmedi.
+
+    Zarar tehlike degil ZAMAN: ucaklar yerde ve disarm'ken suru 90 sn
+    LANDING'de takili kaliyor, dolayisiyla B19 cikisi (COMPLETED -> IDLE,
+    yani IKINCI KALKIS HAKKI) 90 sn geciktiriyor. Gorev basina UC hak var.
+
+    Cozum: disarm'i da inis kaniti saymak. Gerekce `all_agents_disarmed()`
+    docstring'inde zaten yazili ve B19 AYNI sinyale guveniyor: "disarm bir
+    ucak havada olamaz, irtifa referansindan bagimsizdir". Iki cikis da
+    ayni yere (COMPLETED) gittigi icin yeni bir durum uzayi acilmiyor.
+
+    Zaman asimi YEDEK olarak DURUYOR: telemetri kesilirse `all_agents_*`
+    fonksiyonlarinin ikisi de False doner (ikisi de `all_agents_seen`
+    istiyor) ve tek cikis o kalir.
+    """
+    if ctx.all_agents_landed() or ctx.all_agents_disarmed():
         return ModeState.COMPLETED
 
     if ctx.time_in_state() > _LANDING_TIMEOUT_S:

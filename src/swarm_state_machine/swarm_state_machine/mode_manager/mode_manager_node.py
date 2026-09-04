@@ -154,6 +154,9 @@ class ModeManagerNode(Node):
         # B3: mission_fsm kapaliyken FSM'i READY'ye ulastirir. VARSAYILAN
         # FALSE — yarisma profilinde ADIM 6 acilinca kapatilir.
         self.declare_parameter('test_hazir_atla', False)
+        # SABIT LIDER (KARAR-17). consensus ile AYNI degeri almali;
+        # 0 = kapali -> lider ElectionResult'tan ogrenilir (eski yol).
+        self.declare_parameter('sabit_lider', 0)
 
         # SIRALI: slot atamasi kimlik SIRASINA bagli (slot i <-> agent_ids[i],
         # Macar YOK — KARAR-11) ve bu liste SURU_KADRO'dan geliyor. Kadro
@@ -166,7 +169,24 @@ class ModeManagerNode(Node):
         self._agent_id = int(self.get_parameter('agent_id').value)
         # TEK-YAYINCI (3 Eylul kume-toplanma olayi): tarifi yalniz lider
         # basar. None = election henuz gelmedi -> min(agent_ids) yedegi.
-        self._lider_id: int | None = None
+        #
+        # 🔴 SABIT LIDER VARSA ELECTION BEKLENMEZ — 4 Eylul 2026, UCUSTA
+        # OLCULDU. O ucusta ylp01'in mode_manager'i uctan uca `lider=None`
+        # kaldi: ElectionResult mesh'ten HIC ULASMADI (lider onu yalnizca
+        # bir kez, secim aninda yayinliyor ve ESP-NOW kaybi %6,7-21,7
+        # olculdu). Dogru davrandi ama SEBEBI TESADUFTU: yedek yol
+        # min(agent_ids)=1 veriyordu ve sabit lider de 1'di.
+        #
+        # Tesadufun bozuldugu hal: kadro (1,3) + sabit lider 3 olsaydi
+        # yedek yol 1 derdi -> YANLIS UCAK yayinci olur, gercek lider
+        # susar, formasyon SESSIZCE kurulmazdi. 4 Eylul'un belirtisiyle
+        # birebir ayni tablo. Bu yuzden consensus'un bildigi kimlik
+        # mode_manager'a da AYNI parametreden veriliyor; mesh'e bagimli
+        # olmaktan cikiyor.
+        self._sabit_lider = int(self.get_parameter('sabit_lider').value)
+        self._lider_id: int | None = (
+            self._sabit_lider if self._sabit_lider > 0 else None
+        )
         self._tek_yayinci_uyarildi = False
         self._son_islenen_aralik: float | None = None
         self._tick_hz = float(
@@ -957,6 +977,16 @@ class ModeManagerNode(Node):
 
     def _on_election(self, msg: ElectionResult) -> None:
         yeni = int(msg.new_leader_id)
+        # Sabit lider acikken aykiri secim sonucu UYGULANMAZ: consensus da
+        # ayni kimligi reddediyor, iki dugum ayrisirsa tarif basan ucak ile
+        # mesh kapisini acan ucak farkli olurdu (CLAUDE.md §4).
+        if self._sabit_lider > 0 and yeni != self._sabit_lider:
+            self.get_logger().warning(
+                f'[mode_manager] SABIT LIDER: drone{yeni} secim sonucu '
+                f'REDDEDILDI (sabit={self._sabit_lider})',
+                throttle_duration_sec=10.0,
+            )
+            return
         if yeni != self._lider_id:
             self._lider_id = yeni
             self._tek_yayinci_uyarildi = False  # lider degisti, bir kez soyle
