@@ -296,8 +296,9 @@ konteyner yeniden başlatma yeterli. ylp01 döndüğünde tek yapılacak
 | K15 | 🔴 **Dikey datum düzeltmesi** — `alt_amsl − home`, EKF yerel z DEĞİL | ✅ | ✅ | ✅ |
 | K16 | 🔴 **`d0/hard` 10/6 → 4,0/2,5** — geçici test değeri geri alındı | ✅ | ✅ | ✅ |
 | A17 | 🔴 **POSE kapısı `0.100 → 0.095`** — komşu tazeleme 7,1 → 10,5 Hz | ✅ *(23 Ağu 18:10)* | ✅ | ✅ |
-| K17 | 🔴 **Uçuş kaydı (bag) artık 4K kare YAZMIYOR** — `baslat.sh` `KAYIT_HARIC`'e `/camera/image_raw` eklendi | ❌ | ❌ | ✅ *(4 Eyl 08:18, elle rsync + `docker restart`)* |
-| K18 | **Kamera/QR ayarları** — `kamera_yayin.py` 4K kipi 30→10 fps + Algı panelinde **irtifa/bant tablosu** + **VİDEO KES** düğmesi · `algi_kopru.py` MAVROS irtifası · `kamera_zincir.sh` `WECHAT`/`TAM_TARAMA`/`QR_HZ`/`LZ_HZ` (wechat **varsayılan KAPALI**) | ❌ | ❌ | ✅ *(4 Eyl)* |
+| K17 | 🔴 **Uçuş kaydı (bag) artık 4K kare YAZMIYOR** — `baslat.sh` `KAYIT_HARIC`'e `/camera/image_raw` eklendi | ✅ | ✅ | ✅ | *4 Eyl, ÜÇÜNDE DE — `dagit.sh` + `docker restart` sonrası koşan `bag record` komutunda doğrulandı* |
+| K18 | **Kamera/QR ayarları** — `kamera_yayin.py` 4K kipi 30→10 fps + Algı panelinde **irtifa/bant tablosu** + **VİDEO KES** düğmesi · `algi_kopru.py` MAVROS irtifası · `kamera_zincir.sh` `WECHAT`/`TAM_TARAMA`/`QR_HZ`/`LZ_HZ` (wechat **varsayılan KAPALI**) | ✅ | ✅ | ✅ | *dosyalar üçünde de (`dagit.sh` taşıyor). Kamera yalnız ylp02'de, diğer ikisinde dosyalar pasif duruyor. Zincir ayarları düğüm başlatılırken okunuyor, restart gerekmez* |
+| K19 | **Mesh kayıp ölçümü + QR yineleme kapısı + DURUM hız düzeltmesi** — `esp32_bridge` | ✅ | ✅ | ✅ | *4 Eyl, `dagit.sh --paket swarm_control` + restart. Ölçüm `esp.log`'a 30 sn'de bir `KAYIP-OLCUM` yazıyor; okumak için `deploy/yki/mesh_kayip.py`* |
 
 > ### 🔴 K17 — bag 4K kare yazıyordu, disk 64 dakikada doluyordu
 >
@@ -323,10 +324,11 @@ konteyner yeniden başlatma yeterli. ylp01 döndüğünde tek yapılacak
 > zaten ayrı ve operatörün isteğiyle alınıyor (kamera sayfasındaki KAYIT
 > düğmesi, `.mjpeg` + `.idx`).
 >
-> ⚠️ **ylp00 ve ylp01'de HÂLÂ ESKİ DESEN.** `dagit.sh` taşır ama
-> **konteyner yeniden başlatılmadan devreye girmez** (`baslat.sh` yalnız
-> konteyner açılışında koşar). Görev 1'de algı zinciri açılırsa o iki uçakta
-> aynı disk sorunu çıkar.
+> ✅ **4 Eylül günü içinde ÜÇÜNDE DE devreye alındı** — `dagit.sh` +
+> `docker restart`, koşan `bag record` komutunda doğrulandı.
+> ⚠️ Kural olarak akılda kalsın: `baslat.sh` **yalnız konteyner açılışında**
+> koşuyor. `dagit.sh` dosyayı taşır ama **restart olmadan devreye girmez** —
+> bir uçak geride kalırsa belirtisi sessizce dolan disk olur.
 
 > ylp01 sütunu 24 Ağustos 20:35'te ✅ oldu: kod klonla **`7645d83`**
 > geldi — üstelik bu, K listesinin tamamından DAHA YENİ (dikey kaçınma
