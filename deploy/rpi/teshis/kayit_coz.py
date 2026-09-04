@@ -27,7 +27,7 @@ NASIL ÇALIŞIR
 başındaki birkaç kareye takılıp kalmamak için.
 
 KULLANIM (konteynerde)
-    python3 /ws/teshis/kayit_coz.py \
+    python3 /ws/kayit_coz.py \
         --kayit /ws/kayit_disi/ucus.mjpeg \
         --bag   /ws/kayit/ylp00_20260828_101500 \
         --ajan  3

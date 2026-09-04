@@ -115,7 +115,11 @@ basla)
     # Kopru: sonuclari JSON'a yazar, kamera sayfasi onu gosterir. Boylece
     # QR/renk sonucunu gormek icin terminale `ros2 topic echo` yazmak
     # gerekmiyor — operatorun zaten baktigi sayfada cikiyor.
-    nohup python3 /ws/teshis/algi_kopru.py --ros-args \
+    # YOL: dagit.sh teshis betiklerini /ws KOKUNE koyuyor, /ws/teshis/
+    # altina DEGIL (bkz. kayit_onar.sh:6). Eski yol yalniz ylp02'de elle
+    # kurulmus bir dizin sayesinde calisiyordu; ylp00'da zincir sessizce
+    # kirilirdi (4 Eylul 2026'da olculdu: ylp00'da teshis/ dizini HIC YOK).
+    nohup python3 /ws/algi_kopru.py --ros-args \
         -p agent_id:="$AID" -p cikti:="$ALGI_JSON" \
         > "$KOP_LOG" 2>&1 &
     sleep 4
@@ -124,7 +128,7 @@ basla)
     echo "--- algi_kopru ---";    tail -3 "$KOP_LOG"
     echo
     echo "Sonuclar TARAYICIDA cikiyor. Terminalden istersen:"
-    echo "  bash /ws/teshis/kamera_zincir.sh $AID qr"
+    echo "  bash /ws/kamera_zincir.sh $AID qr"
     ;;
 
 dur)
