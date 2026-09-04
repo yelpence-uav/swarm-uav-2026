@@ -1011,7 +1011,24 @@ YAML
 
 # Bu ucakta olmayan donanim + simulasyon konulari. Tek satirda tutuluyor ki
 # rosbag2'ye giden regex'te kaza eseri bosluk olmasin.
-KAYIT_HARIC="/mavros/(sim_state/|hil/|px4flow/|optical_flow/|gimbal_control/|mount_control/|landing_target/|camera/|cam_imu_sync/|wheel_odometry/|adsb/|terrain/|rangefinder/|wind_estimation|log_transfer/|mag_calibration/|geofence/|rallypoint/|mission/|debug_value/|gpsstatus/gps2/|imu/diff_pressure|imu/temperature_baro|trajectory/desired|setpoint_trajectory/|nav_controller_output/|target_actuator_control|tunnel/|manual_control/|radio_status|timesync_status)"
+#
+# 🔴 /camera/image_raw DA HARIC — 4 Eylul 2026'da ucakta olculdu.
+# Kayit deseni `^(/drone_N/|/swarm/|/gozlem/)` algi kamerasinin konusunu da
+# yakaliyor. Asagidaki liste MAVROS'un kullanilmayan konulari icin
+# yazilmisti (icindeki `camera/` = /mavros/camera/, BASKA bir sey) ve
+# /drone_N/camera/image_raw'i elemiyordu. Bugune kadar ortaya cikmadi cunku
+# algi zinciri ucuslarda KAPALI tutuluyor (KAMERA.md §9); zincir acilinca
+# bag'e 4K kareler yazilmaya basladi:
+#     tasarim butcesi    42 KB/s   (14 dk ucus ~35 MB)
+#     zincir acikken   1467 KB/s   88 MB/dk  -> 35 KAT
+# Diski 64 dakikada dolduruyordu ve TEMIZLEYEN YOK: gunluk bekcisi yalniz
+# /ws/gunluk'a bakiyor, /ws/kayit'a hic dokunmuyor.
+# Video kaydi zaten AYRI ve OPERATORUN ISTEGIYLE aliniyor (kamera sayfasindaki
+# KAYIT dugmesi, .mjpeg + .idx) — bag'in ayni kareleri ikinci kez, sikistirip
+# saklamasinin hicbir karsiligi yok.
+# KALAN: camera_info (minik), perception/landing_zone, qr_data, zone_map.
+# Yani "kamera ne GORDU" gitti, "kamera ne BULDU" duruyor.
+KAYIT_HARIC="(/camera/image_raw|/mavros/(sim_state/|hil/|px4flow/|optical_flow/|gimbal_control/|mount_control/|landing_target/|camera/|cam_imu_sync/|wheel_odometry/|adsb/|terrain/|rangefinder/|wind_estimation|log_transfer/|mag_calibration/|geofence/|rallypoint/|mission/|debug_value/|gpsstatus/gps2/|imu/diff_pressure|imu/temperature_baro|trajectory/desired|setpoint_trajectory/|nav_controller_output/|target_actuator_control|tunnel/|manual_control/|radio_status|timesync_status))"
 
 KAYIT_DIZIN="/ws/kayit/$(hostname)_$(date +%Y%m%d_%H%M%S)"
 if altyapi; then   # --yalniz modunda ATLANIR  (ucus kaydi + trap)
