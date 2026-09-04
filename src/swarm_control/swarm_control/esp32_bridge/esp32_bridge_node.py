@@ -187,6 +187,40 @@ _GUIDED_TIP_ARALIK_S = {
 }
 _GUIDED_TIP_ARALIK_S_VARSAYILAN = 0.30
 
+# QR gorevinin mesh'e verilmesi — AYNI ICERIK TEKRAR TEKRAR BASILMAZ.
+# 4 Eylul 2026 ucusunda tek bir QR'dan 36 okuma dustu (vision_node cozulen
+# HER karede yayinliyor) ve burada yineleme suzgeci olmadigi icin mesh'e
+# 36 ozdes cerceve gitti. Ayni sayilar tekrar tekrar gonderilince mesh
+# isgal ediliyor ve YKI yeni hicbir sey ogrenmiyor.
+# Neden tam olarak "tek sefer" degil: ESP-NOW teslimat garantisi vermiyor
+# (broadcast'te 802.11 ACK YOK), tek cerceve kaybolursa YKI ve takipciler
+# o QR'i HIC ogrenemez ve kimse fark etmez.
+#
+# NEDEN 8 -- VE NEDEN ACK YERINE BU (4 Eylul 2026, operator karari):
+# ACK genelde SUREKLI trafikte kazandirir, cunku orada kor tekrar pahalidir.
+# QR oyle degil: bir gorevde topu topu birkac kez oluyor. Yani tekrar
+# sayisini artirmak neredeyse bedava, ACK'in getirdigi karmasiklik ise
+# gercek: kimin onaylamasi gerektigi sabit degil (ucak ayrilir, iner, kill
+# yer -> onayi hic gelmez), "canli komsular onaylayana kadar" demek
+# canlilik gorusune bagimli olmak demek ve o gorus de mesh'ten geliyor.
+#
+# Tek cerceve kaybi -> N tekrarin HEPSININ kaybolma olasiligi:
+#     kayip     %2        %10       %30       %50
+#     3 tekrar  0,0008%   0,1%      2,7%      12,5%
+#     8 tekrar  ~0        ~0        0,0066%   0,39%
+# 4 Eylul yer olcumu: cift basina taban kayip %1-2 (mesh_kayip.py). Ama o
+# olcum YAKIN mesafede yapildi; yarisma mesafesi olculmedi. 8 tekrar o
+# belirsizligi yutuyor: %30 kayipta bile onbinde bir.
+# Maliyet: QR basina 3 yerine 8 cerceve. Mesh ~57 cerceve/sn tasiyor, gorev
+# boyunca toplam ~40 fazladan cerceve -- olculemez.
+#
+# ARALIK 1 sn BILINCLI: kayiplar obekli olur (sonumleme), art arda basmak
+# butun kopyalarin ayni sonumlemeye denk gelmesi demek. Ilk cerceve yine
+# ANINDA gidiyor; tekrarlar yalnizca sigorta, link iyiyse hicbir sey
+# degismiyor.
+_QR_TEKRAR = 8                      # ayni icerik icin en fazla cerceve
+_QR_TEKRAR_ARALIK_S = 1.0           # iki kopya arasi en az
+
 # Firmware durum kodunu AgentStatus.state'e eşler. Ayrılmış/inmiş
 # komşular (7/8/13/14) çarpışma önlemeden çıkarılır. Kodlar
 # mesh_config.h ile birebir aynı olmalı.
@@ -415,6 +449,47 @@ class Esp32BridgeNode(Node):
         self._formasyon_lider_degil = 0  # lider kapısında düşürülen
         self._qr_gorev_gonderilen = 0
         self._qr_gorev_alinan = 0
+        # QR MESH YAYINI — TEK SEFER + SINIRLI TEKRAR (4 Eylul 2026)
+        # vision_node QR mesajini COZULEN HER KAREDE yayinliyor. 4 Eylul
+        # ucusunda tek bir QR'dan 36 okuma dustu (hepsi ayni qr_id=2,
+        # qr_seq=1) ve bu fonksiyonda hicbir yineleme suzgeci olmadigi icin
+        # mesh'e 36 OZDES cerceve gitti. Ayni iceriği tekrar tekrar basmak
+        # mesh'i isgal ediyor ve YKI'ye yeni hicbir sey soylemiyor.
+        # Cozum: ayni PAKETLENMIS payload en fazla _QR_TEKRAR kez, aralarinda
+        # _QR_TEKRAR_ARALIK_S ile gonderilir; sonra susulur. Icerik degisince
+        # sayac sifirlanir.
+        # NEDEN TEK SEFER DEGIL: ESP-NOW teslimat garantisi vermiyor. Tek
+        # cerceve kaybolursa YKI o QR'i HIC ogrenemez. Uc cerceve, 36'nin
+        # yaninda ihmal edilebilir bir yuk ama kayba karsi uc sans demek.
+        # Karsilastirma anahtari PAYLOAD'IN KENDISI: alan alan karsilastirma
+        # yapip birini unutmaktansa baytlari karsilastirmak dogru kalir.
+        self._qr_son_payload: bytes | None = None
+        self._qr_kalan_tekrar = 0
+        self._qr_son_gonderim = 0.0
+        self._qr_bastirilan = 0          # yineleme oldugu icin gonderilmeyen
+
+        # MESH KAYIP OLCUMU (4 Eylul 2026) — "ACK yazmaya deger mi?"
+        # QR mesh'e BROADCAST cikiyor ve broadcast'te 802.11 ACK YOK
+        # (mesh_config.h::_mesh_gonder notu): cerceve havada kaybolursa
+        # kimse fark etmez, ne gonderen ne alan. Kayip oranini BILMEDEN
+        # ne kadar tekrar gerektigine karar veremeyiz -- %0,1 ise ACK
+        # bosa emek, %10 ise uc tekrar bile yetmez.
+        #
+        # NEDEN DURUM UZERINDEN OLCUYORUZ: DURUM her ucaktan sabit
+        # periyotla ve BROADCAST gidiyor, yani QR ile AYNI yolu ve ayni
+        # kaybi yasiyor -- ama duzenli oldugu icin sayilabiliyor. QR'in
+        # kendisi seyrek ve duzensiz, ondan istatistik cikmaz.
+        #
+        # PAKET FORMATI DEGISMIYOR: sira numarasi EKLEMEDIK. Gonderen
+        # kendi gonderdigini, alan kaynak basina aldigini sayiyor; iki
+        # ucagin sayaci karsilastirilinca kayip cikiyor. Boylece 16 baytlik
+        # DURUM sozlesmesine ve firmware'e HIC dokunulmuyor.
+        # (Sinirli yani: toplam oran verir, kayip SERISI hakkinda bir sey
+        # soylemez. Karar icin yeterli; gerekirse sira baytini sonra
+        # ekleriz -- DURUM'da 4 bayt bos yer duruyor.)
+        self._durum_tx = 0                     # kendi yayinladigimiz DURUM
+        self._durum_rx: dict[int, int] = {}    # kaynak -> alinan DURUM
+        self._kayip_olcum_t0 = time.monotonic()
         # Bilinen lider (KARAR 11 kapısı). 0 = henüz seçim görülmedi.
         # BİLEREK 0 başlıyor: kimse lider değilken formasyon yayınlamak, iki
         # dronun aynı anda yayınlaması riskini doğurur. Ama sessiz kalmasın
@@ -813,6 +888,10 @@ class Esp32BridgeNode(Node):
         # Failsafe: mesh kopuksa swarm_fsm görür.
         self._diag_timer = self.create_timer(1.0, self._diag_yayinla)
 
+        # Kayip olcumu LOGA da yaziliyor: ucus sonrasi bag acmadan okunsun.
+        self._kayip_olcum_timer = self.create_timer(
+            30.0, self._kayip_olcum_bildir)
+
         self.get_logger().info(
             f'Esp32BridgeNode başlatıldı: agent_id={self._agent_id}'
         )
@@ -876,12 +955,56 @@ class Esp32BridgeNode(Node):
             f'form_lider_degil={self._formasyon_lider_degil} '
             f'form_yarim={self._formasyon_montaj.zaman_asimi_sayisi} '
             f'form_sahipsiz={self._formasyon_montaj.sahipsiz_parca_sayisi} '
+            f'durum_tx={self._durum_tx} '
+            f'durum_rx={self._durum_rx_ozet()} '
             f'qr_tx={self._qr_gorev_gonderilen} '
+            f'qr_bastirilan={self._qr_bastirilan} '
             f'qr_rx={self._qr_gorev_alinan} '
             f'son_alim_yas_s={son_alim_yas:.2f}'
         )
         # Mesh diag: bu drone'un kendi gözleminden çıkıyor → /internal/
         self._event_pub_internal.publish(msg)
+
+    def _durum_rx_ozet(self) -> str:
+        """Kaynak başına alınan DURUM sayısı — 'd1:120,d2:118' biçiminde."""
+        if not self._durum_rx:
+            return '-'
+        return ','.join(f'd{k}:{v}' for k, v in sorted(self._durum_rx.items()))
+
+    def _kayip_olcum_bildir(self) -> None:
+        """Mesh kayıp ölçümünü LOGA yazar (bkz. __init__ sayaç notu).
+
+        Neden ayrı bir log satırı: tanı sayaçları SystemEvent ile bir
+        KONUYA gidiyor ve uçuştan sonra okumak için bag açmak gerekiyor.
+        Bu satır doğrudan `esp.log`'a düşüyor, `grep KAYIP-OLCUM` ile
+        alınıyor. 30 sn periyot: 10 dakikalık uçuşta 20 satır, günlük
+        bütçesini zorlamıyor.
+
+        🔴 ORANI BURADA HESAPLAMIYORUZ. Kayıp = 1 − (ALICININ rx'i /
+        GÖNDERENİN tx'i), yani İKİ AYRI UÇAĞIN satırı gerekiyor. Tek
+        uçakta bir oran basmak, kendi göndermediğimiz bir şeyi kendimize
+        bölmek olurdu; öyle bir sayı doğru görünür ve yanlış olur.
+        """
+        gecen = time.monotonic() - self._kayip_olcum_t0
+        # UART sayaclari da BURADA: kayip oraninin tek basina anlami yok,
+        # KAYBIN NEREDE oldugunu soylemiyor. Uc ayri yer var ve tedavileri
+        # bambaska:
+        #   gonderim_drop  Pi -> kendi ESP'si (UART yazma basarisiz)
+        #   crc_fail       kendi ESP'si -> Pi (UART'ta bozulan cerceve;
+        #                  A16 jumper arizasinin imzasi -- ucusta 868,
+        #                  yerde 0 olculmustu)
+        #   ikisi de 0 ve kayip varsa  -> gercek HAVA kaybi
+        self.get_logger().info(
+            f'KAYIP-OLCUM t={gecen:.0f}s ben=d{self._agent_id} '
+            f'durum_periyot={self._durum_periyot_s:.2f}s '
+            f'durum_tx={self._durum_tx} durum_rx={self._durum_rx_ozet()} '
+            f'qr_tx={self._qr_gorev_gonderilen} '
+            f'qr_rx={self._qr_gorev_alinan} '
+            f'uart_tx_ok={self._gonderim_ok} '
+            f'uart_tx_drop={self._gonderim_drop} '
+            f'uart_rx_ok={self._alim_ok} '
+            f'crc_fail={self._crc_fail}'
+        )
 
     # =================================================================
     # SERİ PORT YÖNETİMİ
@@ -1279,6 +1402,11 @@ class Esp32BridgeNode(Node):
         if cerceve.tip == pp.TIP_POSE:
             self._isle_pose(cerceve.iha_id, cerceve.payload)
         elif cerceve.tip == pp.TIP_DURUM:
+            # Kayip olcumu: kaynak basina sayilir (bkz. __init__ notu).
+            # Cerceve basliginin iha_id'si gercek kaynak kabul ediliyor,
+            # _isle_durum ile ayni kural.
+            self._durum_rx[cerceve.iha_id] = (
+                self._durum_rx.get(cerceve.iha_id, 0) + 1)
             self._isle_durum(cerceve.iha_id, cerceve.payload)
         elif cerceve.tip == pp.TIP_ORIGIN:
             self._isle_origin(cerceve.iha_id, cerceve.payload)
@@ -2235,7 +2363,21 @@ class Esp32BridgeNode(Node):
         # Ayrılma akışı için kritik: komşular bizim state'imizi bilmeli.
         # APF de DETACHED/LANDED komşulara avoidance hesaplamaz.
         if now - self._son_durum_gonderim_ts >= self._durum_periyot_s:
-            self._son_durum_gonderim_ts = now
+            # DAMGAYI PERIYOT KADAR ILERLET, "simdi"ye CEKME (4 Eylul 2026).
+            # Eskiden `= now` yaziyordu ve gonderim ancak bir durum geri
+            # cagrisi geldiginde oldugu icin her turda artik sure birikiyordu:
+            # efektif periyot 0,5 yerine 0,562 s, yani OLCULEN hiz 2,00 degil
+            # 1,78/sn (iki ucakta da, 4 Eylul yer olcumu).
+            # Onemi: DURUM 4 Eylul'de tam da lider secimi bayatlamasin diye
+            # 1 -> 2 Hz'e cikarilmisti (bkz. `durum_periyot_s` notu). Tasarlanan
+            # payin %11'i sessizce kayiptı — ve tam olarak bayatlik esigine
+            # yaklastigimiz anlarda.
+            self._son_durum_gonderim_ts += self._durum_periyot_s
+            # SALVO SIGORTASI: cok geri kaldiysak (ilk cagri, surec askida
+            # kalmasi) damgayi simdiye cek. Yoksa kacirilan her periyot icin
+            # ard arda cerceve cikar ve zaten kaybi olan mesh'i doldururuz.
+            if now - self._son_durum_gonderim_ts >= self._durum_periyot_s:
+                self._son_durum_gonderim_ts = now
             # AgentStatus.state -> firmware DURUM kodu çevir
             durum_kodu = _STATE_DURUM_MAP.get(msg.state, _DURUM_BILINMIYOR)
             # battery_pct'i 0-100 aralığına kırp (negatif veya >100 olabilir)
@@ -2285,6 +2427,7 @@ class Esp32BridgeNode(Node):
                     else 0),
             )
             self._uart_yaz(pp.TIP_DURUM, self._agent_id, payload)
+            self._durum_tx += 1
 
     def _on_gorev_durumu(self, msg: UInt8) -> None:
         """Kendi mission_fsm durumumuz; mesh bitine bundan karar veriyoruz."""
@@ -3011,8 +3154,30 @@ class Esp32BridgeNode(Node):
         for u in uyarilar:
             self.get_logger().warning(f'QR görev paketleme: {u}',
                                       throttle_duration_sec=5.0)
+
+        # --- YINELEME KAPISI: ayni icerik mesh'i isgal etmesin -----------
+        simdi = time.monotonic()
+        if payload != self._qr_son_payload:
+            # Yeni icerik: hemen git, tekrar hakki bastan.
+            self._qr_son_payload = payload
+            self._qr_kalan_tekrar = _QR_TEKRAR
+            self._qr_son_gonderim = 0.0
+        if self._qr_kalan_tekrar <= 0:
+            self._qr_bastirilan += 1
+            return
+        if (simdi - self._qr_son_gonderim) < _QR_TEKRAR_ARALIK_S:
+            self._qr_bastirilan += 1
+            return
+        self._qr_kalan_tekrar -= 1
+        self._qr_son_gonderim = simdi
+
         self._uart_yaz(pp.TIP_QR_GOREV, self._agent_id, payload)
         self._qr_gorev_gonderilen += 1
+        self.get_logger().info(
+            f'QR {msg.qr_id} mesh e verildi '
+            f'(kalan tekrar {self._qr_kalan_tekrar}, '
+            f'bastirilan {self._qr_bastirilan})'
+        )
 
         # Ayrıştırma patladıysa ham metnin ilk baytlarını da yolla (KARAR 8).
         # Normal durumda 0 ekstra bayt: YKİ okunabilir metni yapısal
