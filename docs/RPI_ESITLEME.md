@@ -299,6 +299,7 @@ konteyner yeniden başlatma yeterli. ylp01 döndüğünde tek yapılacak
 | K17 | 🔴 **Uçuş kaydı (bag) artık 4K kare YAZMIYOR** — `baslat.sh` `KAYIT_HARIC`'e `/camera/image_raw` eklendi | ✅ | ✅ | ✅ | *4 Eyl, ÜÇÜNDE DE — `dagit.sh` + `docker restart` sonrası koşan `bag record` komutunda doğrulandı* |
 | K18 | **Kamera/QR ayarları** — `kamera_yayin.py` 4K kipi 30→10 fps + Algı panelinde **irtifa/bant tablosu** + **VİDEO KES** düğmesi · `algi_kopru.py` MAVROS irtifası · `kamera_zincir.sh` `WECHAT`/`TAM_TARAMA`/`QR_HZ`/`LZ_HZ` (wechat **varsayılan KAPALI**) | ✅ | ✅ | ✅ | *dosyalar üçünde de (`dagit.sh` taşıyor). Kamera yalnız ylp02'de, diğer ikisinde dosyalar pasif duruyor. Zincir ayarları düğüm başlatılırken okunuyor, restart gerekmez* |
 | K19 | **Mesh kayıp ölçümü + QR yineleme kapısı + DURUM hız düzeltmesi** — `esp32_bridge` | ✅ | ✅ | ✅ | *4 Eyl, `dagit.sh --paket swarm_control` + restart. Ölçüm `esp.log`'a 30 sn'de bir `KAYIP-OLCUM` yazıyor; okumak için `deploy/yki/mesh_kayip.py`* |
+| K20 | **TOPLANMA MERDİVENİ** — kalkıştan ilk formasyona geçerken dikey ayırma (`toplanma_katman_m=5.0`) | ✅ | ✅ | ✅ | *4 Eyl, `dagit.sh --paket swarm_missions` + restart; canlı parametre üç uçakta da doğrulandı. ⚠️ `ucus_ayarlari.env` **`dagit.sh` ile TAŞINMIYOR** — YKİ'de `python3 src/gcs/ucus_ayarlari.py --kabuk` ile üretilip ELLE `scp` edilir. Unutulursa merdiven sessizce KAPALI kalır (varsayılan 0.0)* |
 
 > ### 🔴 K17 — bag 4K kare yazıyordu, disk 64 dakikada doluyordu
 >
