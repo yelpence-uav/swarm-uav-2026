@@ -1,6 +1,6 @@
 # KARARLAR — verilmiş ama henüz uygulanmamış kararlar
 
-**Son güncelleme:** 3 Eylül 2026, 06:00 — **KARAR-16** (tek-yayıncı: formasyon tarifini yalnız lider basar, 2 Eylül küme-toplanma olayının çözümü) + **KARAR-10 yeniden eklendi** (pull'da tekrar kaybolmuştu: formasyon testlerinde GOTO YASAK). Eski: KARAR-15 (kaçınma eşikleri 5 m aralıkta kilitleniyor)
+**Son güncelleme:** 4 Eylül 2026, 22:40 — **KARAR-17** (Görev 2: sabit lider ylp00 + lider her zaman slot 0/ortada; Görev 1'e DOKUNULMADI). Eski: KARAR-16 (tek-yayıncı), KARAR-10 (formasyon testlerinde GOTO YASAK), KARAR-15 (kaçınma eşikleri 5 m aralıkta kilitleniyor)
 
 Sohbette verilen kararlar oturum bitince kayboluyor. Bu defter onları
 tutuyor: **ne karar verildi, neden, ne zaman uygulanacak, nasıl test edilecek.**
@@ -31,6 +31,109 @@ sırası gelince" denilen şeyleri. Onlar en kolay kaybolanlar.
 `🔵 SIRASI GELDİ` — aşamaya ulaşıldı, uygulanacak
 `✅ UYGULANDI` — bitti, sonucu yazıldı
 `❌ VAZGEÇİLDİ` — gerekçesiyle
+
+---
+
+# KARAR-17 — Görev 2: lider SEÇİLMEZ, VERİLİR (ylp00) ve her zaman ortada
+
+**Durum:** ✅ UYGULANDI (4 Eylül 2026) — kod yazıldı, 1024 test geçti, düğüm canlı doğrulandı; **uçakta dağıtılmadı**
+**Ne zaman:** Görev 2 çalışmasının ilk maddesi
+**Karar veren:** Operatör (4 Eylül 2026) — *"YLP00'ı kalıcı lider seçeceğiz ve o her zaman ortaya koyulacak."*
+
+## Karar
+
+Görev 2 profilinde **lider seçim konusu değildir**: `ylp00` (agent_id **1**)
+liderdir, süreç boyunca değişmez, ve formasyon tarifinde **slot 0**'a oturur.
+Slot 0 üç formasyonun da tepe/merkez noktası (çizgi → hattın ortası,
+okbaşı → uç, V → arka köşe), yani "ortada" bu tek kuralla sağlanıyor.
+
+🔴 **KAPSAM — Görev 1'e DOKUNULMADI.** Bu, operatörün açık kısıtıydı.
+`sabit_lider = 0` iken `decide_change` **bire bir eski kod yolunu** koşuyor
+ve `baslat.sh` değeri `mod` bayrağından (mode_manager = Görev 2'nin sürücü
+düğümü) türetiyor — yani Görev 1 profilinde consensus'a **yapısal olarak 0**
+gidiyor. Ayrı bir env'e bağlanmadı, çünkü o env Görev 1'e geçerken
+silinmeyi unutulabilirdi; **2 Eylül küme-toplanma olayının mekanizması tam
+olarak buydu** (`SURU_KADRO` artığı uçtan uca taşındı).
+
+## Neden
+
+Lider kilidi (KARAR öncesi, 3 Eylül) **ilk seçimi nihai** yapıyor. Ama o ilk
+seçimin ylp00'a düşmesi **tesadüfe bağlıydı**: `candidate = min(effective)`
++ tam kadro beklemesi. Tam kadro `kilit_tam_kadro_s` (**8 sn**) içinde
+oluşmazsa yedek yol devreye giriyor ve **o an uygun olan kim varsa kalıcı
+lider oluyordu.** Uçaklar arası evre kayması 3 Eylül uçuşunda **25 saniye**
+ölçüldü — yani 8 sn'lik pencere güvenilir tutmuyor ve yanlış lider bir daha
+düzelmiyor.
+
+Görev 2'de bunun bedeli doğrudan formasyondur: tarifi **yalnız lider** basar
+(KARAR-16 tek-yayıncı), slot ataması **kimlik sırasına** bağlıdır.
+
+## Nasıl uygulandı
+
+Lider **dört ayrı yoldan** değişebiliyordu; dördü de kapatıldı — biri
+atlansaydı mesh'ten gelen tek bir kalp atışı sabit lideri devirirdi:
+
+| # | Yol | Nerede kapatıldı |
+|---|-----|------------------|
+| 1 | `election.decide_change` (seçim/devir) | erken dal: sabit kuruluysa `None` |
+| 2 | `_liderligi_birak` (uygunluk yitimi) | `_tick`'te atlanıyor + kısılmış WARN |
+| 3 | `_adopt_leader` / `_on_election` / `_on_heartbeat` (mesh) | aykırı kimlik reddediliyor + bir kez WARN |
+| 4 | `_rakip_tahkim` (rakibe boyun eğme) | `_tick`'te atlanıyor |
+
+Slot 0 kuralı: `tek_yayinci.lider_onde()` (saf fonksiyon) tarifteki
+`agent_ids` sırasını **lider başta** üretiyor; `mode_manager` onu kullanıyor.
+`mode_manager` yalnız Görev 2'de koştuğu için bu değişiklik kendiliğinden
+Görev-2 kapsamlı. **Mesh protokolü değişmedi** — `TIP_FORMASYON` payload'ı
+zaten `slot_ajan[i] = i. slottaki ajan` şeklinde sırayı taşıyor
+(`packet_parser:1085`), alıcı ofsetleri aynı sırada yeniden üretiyor.
+
+Yan kazanç: `mode_manager` artık `agent_ids`'i **sıralı** okuyor. Önce sıra
+doğrudan `SURU_KADRO`'dan geliyordu; kadro `"3 1"` yazılsaydı slot 0
+sessizce ylp02'ye giderdi.
+
+## Ayar
+
+`ucus_ayarlari.SURU_SABIT_LIDER = 1` → env `SURU_SABIT_LIDER`.
+`0` yazmak özelliği tamamen kapatır (eski davranışa döner).
+Tutarlılık denetimi eklendi: sabit lider `UCAN_KADRO` içinde değilse
+`ucus_ayarlari.py` **hata** veriyor — o uçak hiç tarif basmaz ve formasyon
+sessizce kurulmazdı.
+
+## 🔴 Bedeli — bilerek kabul edildi
+
+Lider kilidiyle **aynı** bedel: sabit lider gerçekten düşerse **devir olmaz**,
+takipçiler son formasyon komutunda kalır. Çıkış yolu **kill switch
+pilotlarıdır**. Parametre olduğu için yarışma günü tek satırla kapanır.
+
+İkinci bedel: ylp00 Görev 2'nin **tek arıza noktası** hâline geliyor —
+zaten kumanda alıcısı orada (G2-K1) ve kaçınmada ÇAPA. Yani ylp00 düşerse
+Görev 2 zaten bitiyordu; bu karar o bağımlılığı artırmıyor, görünür kılıyor.
+
+## Test
+
+- `swarm_core/test/test_sabit_lider.py` — 11 test. Yarısı **Görev 1
+  regresyon koruması**: kapalıyken ilk seçim, LEADER_FAULT devri ve grace
+  beklemesi eski hâliyle çalışıyor.
+- `swarm_state_machine/test/test_lider_slot_sifir.py` — 13 test. Slot 0'ın
+  üç formasyonda da merkez olduğunu ve kadro sırasının artık önemsiz
+  olduğunu kilitliyor.
+- Tüm paketler: **1024 geçti** (272 + 400 + 52 + 300), 28 atlandı.
+  Görev 1 paketi (`swarm_missions`) **52/52 değişmedi**.
+- **Canlı düğüm ölçümü** (`ros:jazzy` konteyneri, gerçek `ConsensusNode`):
+
+  | Profil | Uygun olan | Sonuç |
+  |---|---|---|
+  | `sabit_lider=0` (Görev 1) | yalnız ajan 3 | `leader_id=3`, seçim yayını `[3]` — **eski davranış** |
+  | `sabit_lider=1` (Görev 2) | yalnız ajan 3 | `leader_id=1` — ylp00 hiç görülmemişken bile |
+  | `sabit_lider=1`, ylp00 tarafı | — | `is_leader=True`, `ElectionResult(1)` **yayınlandı** (esp32_bridge mesh kapısı açılır) |
+  | mesh'ten drone3 "ben liderim" | — | **REDDEDİLDİ**, lider 1 kaldı |
+
+## Sırada — uçakta doğrulanacak
+
+Dağıtımdan sonra **açılış logunda** görülmeli:
+`[baslat] 🔒 SABIT LIDER = drone1 (GOREV 2 profili)` ve
+`[consensus] SABIT LIDER ACIK: drone1`. Görev 1 profiline dönüldüğünde
+aynı satır `sabit lider KAPALI — normal secim (Gorev 1 davranisi)` olmalı.
 
 ---
 

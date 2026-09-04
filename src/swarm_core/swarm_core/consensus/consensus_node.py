@@ -85,6 +85,21 @@ class ConsensusNode(Node):
             self.get_parameter('lider_kilitli').value)
         self._ctx.kilit_tam_kadro_s = float(
             self.get_parameter('lider_kilit_tam_kadro_s').value)
+        self._ctx.sabit_lider = int(self.get_parameter('sabit_lider').value)
+        # Sabit lider ACIKKEN mesh'ten gelen aykiri lider iddialarini
+        # reddediyoruz. Reddi SESSIZ birakmak bu projede tekrar tekrar
+        # pahaliya patladi (B15 "sessiz kapi" dersi), o yuzden ilk reddi
+        # bir kez WARN olarak basiyoruz.
+        self._sabit_red_uyarildi = False
+        if self._ctx.sabit_lider:
+            self.get_logger().warning(
+                f'[consensus] SABIT LIDER ACIK: drone{self._ctx.sabit_lider} '
+                f'(ben={self._agent_id}). Secim YAPILMAZ, devir YAPILMAZ, '
+                "mesh'ten gelen aykiri lider iddiasi REDDEDILIR. "
+                'Sabit lider gercekten duserse devir OLMAZ — cikis yolu '
+                'kill switch. GOREV 2 icindir; Gorev 1 profilinde bu deger '
+                '0 gelir.'
+            )
         if self._ctx.lider_kilitli:
             self.get_logger().warning(
                 f'[consensus] LIDER KILIDI ACIK (tam kadro bekleme '
@@ -152,6 +167,13 @@ class ConsensusNode(Node):
         # KEZ secilir ve degismez. Gerekce/bedel: election.decide_change.
         self.declare_parameter('lider_kilitli', False)
         self.declare_parameter('lider_kilit_tam_kadro_s', 8.0)
+        # SABIT LIDER — 4 Eylul 2026 operator karari, YALNIZ GOREV 2.
+        # 0 = kapali; Gorev 1 profilinde ve varsayilan olarak boyledir, yani
+        # bu parametre HICBIR eski davranisi degistirmez. >0 verilirse o
+        # kimlik lider olur ve liderin degisebildigi DORT yol da kapanir.
+        # baslat.sh degeri `mod` bayragindan turetiyor: Gorev 1 profilinde
+        # yapisal olarak 0 gecer, operatorun hatirlamasi gerekmez.
+        self.declare_parameter('sabit_lider', 0)
 
         self._agent_id = int(self.get_parameter('agent_id').value)
         self._agent_count = int(self.get_parameter('agent_count').value)
@@ -232,11 +254,35 @@ class ConsensusNode(Node):
 
         # RAKIP LIDER TAHKIMI — P1.14. decide_change'ten ONCE, cunku
         # sonucu (boyun egme) liderlik durumunu degistiriyor.
-        self._rakip_tahkim(now)
+        #
+        # SABIT LIDER'de ATLANIR (YOL 3/4): tahkim, buyuk-id bir rakibe
+        # BOYUN EGEREK lideri degistiriyor. Sabit liderin tanimi "hicbir
+        # yoldan degismez" oldugu icin bu yol da kapali olmak zorunda;
+        # acik kalirsa asimetrik bir mesh linki sabit lideri devirir ve
+        # kapatmaya calistigimiz sorun geri gelir.
+        if not ctx.sabit_lider:
+            self._rakip_tahkim(now)
 
         change = election.decide_change(ctx, effective, now)
         if change is not None:
             self._set_leader(*change)
+        elif ctx.sabit_lider:
+            # YOL 2 KAPALI: uygunluk yitiminde liderligi BIRAKMIYORUZ.
+            # Bu dal normalde "devralacak kimse yok ama biz de uygun
+            # degiliz" halini yakalar ve leader_id'yi 0'a cekerdi; sabit
+            # liderde 0'a dusmek takipcileri tarifsiz birakirdi (4 Eylul
+            # B5 olayinin belirtisi birebir buydu). Uygunlugu yitirmis
+            # sabit lider GORUNUR olsun diye kisilmis WARN basiyoruz.
+            self._uygunsuz_since = 0.0
+            if ctx.is_leader and self._agent_id not in elig:
+                self.get_logger().warning(
+                    '[CONSENSUS] SABIT LIDER uygunlugunu yitirdi '
+                    f'(ben={self._agent_id}) ama liderlik BIRAKILMIYOR '
+                    '(sabit_lider acik). Sebep: healthy/estimator/pil/'
+                    'bayatlik kapilarindan biri. Formasyon tarifi bu ucaktan '
+                    'gelmeye devam edecek.',
+                    throttle_duration_sec=5.0,
+                )
         elif ctx.is_leader and self._agent_id not in elig:
             # LIDERLIGI BIRAK — P0.12(a), 20 Agustos 2026.
             #
@@ -462,6 +508,15 @@ class ConsensusNode(Node):
         if msg.leader_id == self._agent_id:
             return
         now = time.monotonic()
+        # SABIT LIDER (YOL 3): mesh'ten gelen kalp atisi lider DEGISTIREMEZ.
+        # Bu kapi olmadan kucuk-id kurali (msg.leader_id < ctx.leader_id)
+        # sabit lideri tek bir yabanci kalp atisiyla devirirdi.
+        if ctx.sabit_lider:
+            if int(msg.leader_id) == ctx.sabit_lider:
+                ctx.last_hb_time = now
+            else:
+                self._sabit_red_logla('kalp atisi', int(msg.leader_id))
+            return
         if msg.leader_id == ctx.leader_id:
             ctx.last_hb_time = now
         elif ctx.leader_id == 0 or msg.leader_id < ctx.leader_id:
@@ -496,11 +551,35 @@ class ConsensusNode(Node):
                 )
             self._rakip_son_hb = now
 
+    def _sabit_red_logla(self, yol: str, gelen: int) -> None:
+        """Sabit lider acikken reddedilen lider iddiasini bir kez bildirir.
+
+        Kisilmis DEGIL, BIR KEZ: sahada bu satirin anlami "mesh'te baska
+        bir lider iddiasi dolasiyor" — ilk gorulmesi yeter, her cerceve
+        icin basmak kaydi bogar (4 Eylul'de ayni desen `dagitik atama`
+        satirinda yasandi).
+        """
+        if self._sabit_red_uyarildi:
+            return
+        self._sabit_red_uyarildi = True
+        self.get_logger().warning(
+            f'[CONSENSUS] SABIT LIDER: {yol} yoluyla gelen drone{gelen} '
+            f'lider iddiasi REDDEDILDI (sabit={self._ctx.sabit_lider}). '
+            'Bu satir bir kez basilir; tekrarlari sessizdir.'
+        )
+
     def _adopt_leader(
         self, leader_id: int, election_round: int, now: float,
     ) -> None:
         """Liderlik durumunu gunceller."""
         ctx = self._ctx
+        # SABIT LIDER — SAVUNMA KATI. Cagiranlar zaten kapili; burasi
+        # ileride eklenecek YENI bir cagri yolunun sessizce kapiyi
+        # asmasini engelliyor (B15 dersi: kapi cagri yerine degil, DEGISIM
+        # NOKTASINA konur).
+        if ctx.sabit_lider and int(leader_id) != ctx.sabit_lider:
+            self._sabit_red_logla('adopt', int(leader_id))
+            return
         was_leader = ctx.is_leader
         ctx.leader_id = leader_id
         ctx.is_leader = (leader_id == self._agent_id)
@@ -537,6 +616,12 @@ class ConsensusNode(Node):
         if not kabul:
             return
         ctx.seen_seq[kaynak] = (inc, int(msg.sequence_num))
+        # SABIT LIDER (YOL 3): aykiri secim sonucu UYGULANMAZ. seen_seq
+        # yukarida BILEREK guncellendi — sayaci ilerletmezsek ayni kaynak
+        # eskimis sayilip sonraki gecerli mesajlari da duserdi.
+        if ctx.sabit_lider and int(msg.new_leader_id) != ctx.sabit_lider:
+            self._sabit_red_logla('secim sonucu', int(msg.new_leader_id))
+            return
         if msg.election_round < ctx.election_round:
             return
 

@@ -131,6 +131,42 @@ def seq_kabul(
 
 def decide_change(ctx, effective: set, now: float):
     """Preemptive liderlik degisimi kararini verir."""
+    # --- SABIT LIDER — 4 Eylul 2026, operator karari, YALNIZ GOREV 2 ------
+    #
+    # KAPSAM: `ctx.sabit_lider == 0` iken bu blok HICBIR SEY YAPMAZ ve
+    # asagidaki secim mantigi bire bir eski hâliyle kosar. Gorev 1 profilinde
+    # deger 0'dir (baslat.sh `mod` bayragi kapaliyken 0 geciyor), yani Gorev
+    # 1'in liderligine dokunulmuyor — bu kasitli bir kapsam sinirlamasidir.
+    #
+    # NEDEN VAR: Gorev 2'de tarifi YALNIZ lider basar (tek-yayinci, KARAR-16)
+    # ve lider kilidi (3 Eylul) ILK secimi NIHAI yapiyor. Ilk secimin ylp00'a
+    # dusmesi bugun yalniz TESADUFEN saglaniyor: `candidate = min(effective)`
+    # + tam kadro beklemesi. Tam kadro `kilit_tam_kadro_s` (8 sn) icinde
+    # olusmazsa yedek yol devreye giriyor ve O AN uygun olan kim varsa
+    # KALICI lider oluyor. Ucaklar arasi evre kaymasi 3 Eylul ucusunda
+    # 25 SANIYE olculdu — yani 8 sn'lik pencere guvenilir degil ve yanlis
+    # lider bir daha duzelmiyor.
+    #
+    # Bu blok tesadufu KURALA cevirir: kimlik disaridan verilir, uygunluga
+    # BAKILMAZ (aday beklenmez), ve bir kez kurulduktan sonra hicbir yoldan
+    # degismez. Uygunluk kapisi bilerek yok: bekleseydik ylp00 gec arm
+    # oldugunda yine yedek yola dusme riski kalirdi — ki kapatmaya
+    # calistigimiz sey tam olarak o.
+    #
+    # 🔴 BEDELI — `lider_kilitli` ile ayni ve bilerek kabul edildi: sabit
+    # lider GERCEKTEN duserse devir OLMAZ, takipciler son formasyon
+    # komutunda kalir; cikis yolu kill switch pilotlaridir. Parametre
+    # oldugu icin tek satirla kapanir (SURU_SABIT_LIDER=0).
+    #
+    # ⚠️ Bu fonksiyon liderin degisebilecegi DORT yoldan yalniz birincisi.
+    # Digerleri (_liderligi_birak, _adopt_leader, _rakip_tahkim)
+    # consensus_node icinde ayrica kapatiliyor; biri atlanirsa mesh'ten
+    # gelen tek bir kalp atisi sabit lideri devirir.
+    if ctx.sabit_lider:
+        if ctx.leader_id == ctx.sabit_lider:
+            return None
+        return (ctx.sabit_lider, ElectionResult.REASON_UNKNOWN)
+
     candidate = min(effective) if effective else 0
     if candidate == 0:
         return None

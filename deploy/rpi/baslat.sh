@@ -1198,10 +1198,28 @@ fi   # /altyapi: ic_dis_kopru
         fi
     fi
 
+    # SABIT LIDER — 4 Eylul 2026 operator karari, YALNIZ GOREV 2.
+    #
+    # KAPSAM YAPISAL OLARAK CIZILDI: deger `mod` bayragindan (mode_manager =
+    # Gorev 2'nin surucu dugumu) turetiliyor. Gorev 1 profilinde `mod` kapali
+    # oldugu icin BURADAN 0 gecer ve consensus bugunku davranisini birebir
+    # surdurur. Ayri bir env'e baglamadik cunku o env Gorev 1'e gecerken
+    # SILINMEYI unutulabilirdi — 2 Eylul kume-toplanma olayinin mekanizmasi
+    # tam olarak buydu (SURU_KADRO artigi uctan uca tasindi).
+    #
+    # Operator yine de ezebilir: SURU_SABIT_LIDER=0 ile Gorev 2'de kapatir,
+    # SURU_SABIT_LIDER=<id> ile baska bir ucagi sabitler.
+    if acik mod || acik hepsi; then
+        SABIT_LIDER="${SURU_SABIT_LIDER:-1}"
+    else
+        SABIT_LIDER=0
+    fi
+
     if baslat_mi consensus; then
         dugum swarm_core consensus_node --ros-args \
             -p lider_kilitli:=${SURU_LIDER_KILIDI:-false} \
             -p lider_kilit_tam_kadro_s:=${SURU_LIDER_KILIT_TAM_KADRO_S:-8.0} \
+            -p sabit_lider:=${SABIT_LIDER} \
             -p agent_id:=${AGENT_ID} \
             -p agent_count:=${SURU_AJAN_SAYISI} \
             -p battery_min_v:=${BATARYA_KRITIK_V} \
@@ -1209,6 +1227,12 @@ fi   # /altyapi: ic_dis_kopru
         sleep 2
         echo "[baslat] consensus_node basladi" \
              "(agent_count=$SURU_AJAN_SAYISI, battery_min_v=$BATARYA_KRITIK_V)"
+        if [ "$SABIT_LIDER" != "0" ]; then
+            echo "[baslat] 🔒 SABIT LIDER = drone${SABIT_LIDER} (GOREV 2 profili)" \
+                 "— secim ve devir KAPALI"
+        else
+            echo "[baslat] sabit lider KAPALI — normal secim (Gorev 1 davranisi)"
+        fi
     fi
 
     # `fusion` (kinematic_fusion) anahtari 29 Agustos 2026'da SILINDI.

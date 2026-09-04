@@ -1,6 +1,15 @@
 # GÖREV 2 — Yarı Otonom Sürü Kontrolü
 
-**Son güncelleme:** 4 Eylül 2026, 06:50 — **B5 süzgeci kaldırıldı** (tek-yayıncı ile çatışıp takipçileri tarifsiz bırakıyordu; uçuşta ölçüldü). Eski: 1 Eylül — **§7.19: manevra irtifa datumu düzeltildi** (uçakta doğrulanmadı) + iki saha olayı (ylp02 düştü, ylp00 roll arızası). Eski: 🔴 **§7.18: SÜRÜ HAREKETİ HİÇ ÇALIŞMIYORMUŞ** — mesh `deadman_timeout_s`'i taşımıyor, komşular READY'de kalıyordu. Düzeltildi ve dağıtıldı. Eski: 🔴 **SAHA OLAYI §7.16: formasyon
+**Son güncelleme:** 4 Eylül 2026, 22:40 — 🔒 **G2-K13: lider SEÇİLMEZ, VERİLİR
+(ylp00) ve her zaman SLOT 0 = ortada.** Kod yazıldı, 1024 test geçti, canlı
+düğümde ölçüldü; 🔴 **uçaklara dağıtılmadı.** Görev 1 liderliğine
+**dokunulmadı** — `baslat.sh` değeri `mod` bayrağından türetiyor (KARAR-17).
+Eski: 4 Eylül 06:50 — **B5 süzgeci kaldırıldı** (tek-yayıncı ile çatışıp
+takipçileri tarifsiz bırakıyordu; uçuşta ölçüldü). Eski: 1 Eylül — **§7.19:
+manevra irtifa datumu düzeltildi** (uçakta doğrulanmadı) + iki saha olayı
+(ylp02 düştü, ylp00 roll arızası). Eski: 🔴 **§7.18: SÜRÜ HAREKETİ HİÇ
+ÇALIŞMIYORMUŞ** — mesh `deadman_timeout_s`'i taşımıyor, komşular READY'de
+kalıyordu. Düzeltildi ve dağıtıldı. Eski: 🔴 **SAHA OLAYI §7.16: formasyon
 morfunda 1,65 m yaklaşma.** Kaçınma doğru çalıştı, hız çok yüksekti; morf hızı
 seyirden ayrıldı (`MOD_MORF_HIZ=0,6`), üç uçağa dağıtıldı. Eski: **B6 ve MADDE 29
 (aralık/irtifa girişi) KOD OLARAK BİTTİ**, üçüncü bir taşıma yolu seçildi:
@@ -214,6 +223,7 @@ Bu **PX4 seviyesinde**, kill pilotunun linkine bağlı, zaten yapılandırılmı
 | **G2-K8** | **Görev 2 YKİ'den başlatılır**, SwD'den DEĞİL | Senaryo madde 4 *"Hakemin komutuyla... yarı otonom kontrol moduna geçirilir"*; YKİ'ye izinli tek eylem "görevi başlatma". Kalkış AYRI adım (madde 5) ve **kumandadan** |
 | **G2-K11** | **Görev başlatma MESH'ten yayılır** (SSH ile üçe ayrı ayrı DEĞİL) | Operatör kararı, 31 Ağu. Başlatma tek uçağa gelir, durum paketindeki bir bitle komşulara duyurulur; **her uçak kendi preflight'ını koşar.** Ölçüldü: tek tetikten üçüne **~1 sn**. Wi-Fi'siz çalışır. ⚠️ `EVENT_MISSION_STARTED` KULLANILMAZ — `agent_fsm` onu ARM'a çevirir (30 Ağu olayı) |
 | **G2-K10** | **ARM yetkisi: SwD → `arm`+`takeoff:H` atomik**, üç kapılı | 30 Ağu olayının kökü arm'ın **örtük** olmasıydı. Armlı bekleme penceresi yok; yetki tek, etiketli, kapılı bir insan hareketinde. Ayrıntı aşağıda |
+| **G2-K13** | 🔒 **Lider SEÇİLMEZ, VERİLİR: ylp00 (id 1) — ve her zaman SLOT 0 (ortada)** | Operatör kararı, 4 Eylül. Lider kilidi ilk seçimi nihai yapıyordu ama o seçimin ylp00'a düşmesi TESADÜFTÜ (`min(effective)` + 8 sn tam kadro; evre kayması **25 sn** ölçüldü). Artık kimlik dışarıdan veriliyor ve liderin değişebildiği **dört yol** da kapalı. 🔴 **Görev 1'e DOKUNULMADI** — `baslat.sh` değeri `mod` bayrağından türetiyor, Görev 1 profilinde 0 gider. Ayrıntı ve bedel: **KARAR-17** |
 | **G2-K9** | **Aralık YKİ'den, GÖREV ÖNCESİ** (SSH ile canlı param) | Şartname aralığı sabit veriyor, görev içinde değişmiyor. Bugünkü yol (env + restart) saha gününde dakikalar alır. Mesh'e dokunmaz, **canlı komut yolu açmaz** |
 
 ### ⚠️ G2-K6'nın kabul edilen bedeli
@@ -460,6 +470,8 @@ SwD asagi -> inis mandali -> mode_manager LANDING
 | `swarm_control/rc_ibus/rc_ibus_kopru_node.py` | Seri → `RCIn` |
 | `mode_manager/rc_eksen.py` | Eksen işaretleri — **ölçüm gerekçeleri burada** |
 | `mode_manager/swd_mandal.py` | SwD kenar/mandal mantığı. Testli |
+| `mode_manager/tek_yayinci.py` | **Kim tarif basar** (lider) + **`lider_onde()`: lider slot 0'a** (G2-K13). Testli |
+| `swarm_core/consensus/election.py` | **Sabit lider** kapısı — `sabit_lider=0` iken Görev 1 davranışı birebir |
 | `mode_manager/canli_param.py` | **Görev öncesi canlı ayar kapısı** — neyin değişebileceği. Testli |
 | `mode_manager/swc_debounce.py` | **SwC debounce** — saha ölçümü ve 500 ms'nin gerekçesi burada. Testli |
 | `src/gcs/kumanda_olc.py` | Kumanda ölçüm aracı — terminalden |

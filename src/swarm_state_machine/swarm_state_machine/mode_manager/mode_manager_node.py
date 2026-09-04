@@ -155,8 +155,13 @@ class ModeManagerNode(Node):
         # FALSE — yarisma profilinde ADIM 6 acilinca kapatilir.
         self.declare_parameter('test_hazir_atla', False)
 
-        self._agent_ids = list(
-            self.get_parameter('agent_ids').value
+        # SIRALI: slot atamasi kimlik SIRASINA bagli (slot i <-> agent_ids[i],
+        # Macar YOK — KARAR-11) ve bu liste SURU_KADRO'dan geliyor. Kadro
+        # "3 1" diye yazilirsa slot 0 ylp02'ye giderdi ve hicbir yerde hata
+        # gorunmezdi. Siralamak bu sessiz bagimliligi kaldirir; _init_default_
+        # offsets de artik deterministik.
+        self._agent_ids = sorted(
+            int(a) for a in self.get_parameter('agent_ids').value
         )
         self._agent_id = int(self.get_parameter('agent_id').value)
         # TEK-YAYINCI (3 Eylul kume-toplanma olayi): tarifi yalniz lider
@@ -1305,7 +1310,24 @@ class ModeManagerNode(Node):
         msg.source_module = 'mode_manager'
 
         num_agents = len(self._agent_ids)
-        msg.agent_ids = [int(a) for a in self._agent_ids]
+        # 🔴 LIDER HER ZAMAN SLOT 0 — 4 Eylul 2026, operator karari (Gorev 2).
+        #
+        # Slot atamasi kimlik sirasina bagli: compute_slot_offsets() slot 0'i
+        # ilk uretir ve o slot UC formasyonun da tepe/merkez noktasidir
+        # (cizgi -> hattin ortasi, okbasi -> uc, V -> arka koseg). Yani
+        # "lider ortada" demek "lider agent_ids[0]" demek.
+        #
+        # Buraya kadar geldiysek BU UCAK LIDERDIR: hemen yukaridaki
+        # tek_yayinci kapisi lider olmayani return ettiriyor. O yuzden
+        # liderin kimligini ayrica cozmeye gerek yok — kendimizi basa
+        # aliyoruz. Kalani sirali; boylece tarif deterministik ve
+        # ucaklar arasi bit-birebir ayni.
+        #
+        # Mesh'te de korunur: TIP_FORMASYON payload'i `slot_ajan[i] = i.
+        # slottaki ajan` seklinde SIRAYI tasiyor (packet_parser:1085) ve
+        # alici ofsetleri ayni sirada yeniden uretiyor. Protokol degismedi.
+        msg.agent_ids = tek_yayinci.lider_onde(
+            self._agent_id, self._agent_ids)
 
         if ftype in (FORMATION_OKBASI, FORMATION_V, FORMATION_CIZGI) and num_agents > 0:
             # Gercek bir formasyona geciliyor: formasyonsuz dondurmasi

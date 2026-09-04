@@ -237,6 +237,28 @@ SURU_LIDER_KILIDI = True
 # yani 1.5 sn'lik bootstrap grace'i tek basina yetmiyor.
 SURU_LIDER_KILIT_TAM_KADRO_S = 8.0
 
+# 🔒 SABIT LIDER — 4 Eylul 2026 operator karari. YALNIZ GOREV 2.
+#
+# Lider secilmez, VERILIR: bu kimlik lider olur ve hicbir yoldan degismez.
+# Ayrica formasyon tarifinde SLOT 0'a oturur — slot 0 uc formasyonun da
+# tepe/merkez noktasidir (cizgi -> hattin ortasi, okbasi -> uc, V -> arka
+# kose), yani "lider her zaman ortada" bu tek sayiyla saglanir.
+#
+# NEDEN GEREKTI: lider kilidi (3 Eylul) ILK secimi NIHAI yapiyor, ama o ilk
+# secimin ylp00'a dusmesi TESADUFE bagliydi — tam kadro 8 sn icinde
+# olusmazsa yedek yol o an uygun olan kimi bulursa onu KALICI lider
+# yapiyordu. Ucaklar arasi evre kaymasi 3 Eylul ucusunda 25 sn olculdu.
+#
+# 🔴 KAPSAM: baslat.sh bu degeri YALNIZ `mod` bayragi (mode_manager =
+# Gorev 2) aciksa geciriyor; Gorev 1 profilinde consensus'a 0 gidiyor ve
+# secim mantigi bugunku haliyle kosuyor. Gorev 1'in liderligine BILEREK
+# dokunulmadi — orada lideri mission1 zinciri belirliyor.
+#
+# 🔴 BEDELI (lider kilidiyle ayni, bilerek kabul edildi): sabit lider
+# gercekten duserse DEVIR OLMAZ; takipciler son formasyon komutunda kalir,
+# cikis yolu kill switch pilotlaridir. Kapatmak icin: 0.
+SURU_SABIT_LIDER = 1           # 1 = ylp00 (drone1). 0 = kapali.
+
 # 🔴 KALKIS OTORITESI — 2 Eylul 2026, sahada olculdu.
 #
 # false (19 Agustos'tan beri suren GECIS DONEMI degeri): gorev basladiginda
@@ -1008,6 +1030,15 @@ def denetle():
             f'zincirleri en az iki ajan istiyor')
     # Rutbe kadro SIRASINDAN turuyor: 0=CAPA, 1=YUKARI, 2=birincil ASAGI.
     # Kadro degisince kacis yonu de degisir; sessiz kalmasin.
+    if SURU_SABIT_LIDER and SURU_SABIT_LIDER not in UCAN_KADRO:
+        hata.append(
+            f'SURU_SABIT_LIDER ({SURU_SABIT_LIDER}) UCAN_KADRO {UCAN_KADRO} '
+            f'icinde YOK — Gorev 2 profilinde o ucak hic tarif basmaz, '
+            f'formasyon SESSIZCE kurulmaz')
+    if SURU_SABIT_LIDER and not SURU_LIDER_KILIDI:
+        uyari.append(
+            'SURU_SABIT_LIDER acik ama SURU_LIDER_KILIDI kapali — sabit '
+            'lider zaten devri kapatiyor, kilit gereksiz ama zararsiz')
     if len(UCAN_KADRO) == 2:
         uyari.append(
             f'iki ucakli kadro {UCAN_KADRO}: rutbeler yeniden turuyor — '
@@ -1388,6 +1419,7 @@ def _kabuk():
     print(f'GOREV_KURULUM_HIZ={GOREV_KURULUM_HIZ_MPS:.1f}')
     print(f'SURU_LIDER_KILIDI={str(SURU_LIDER_KILIDI).lower()}')
     print(f'SURU_LIDER_KILIT_TAM_KADRO_S={SURU_LIDER_KILIT_TAM_KADRO_S:.1f}')
+    print(f'SURU_SABIT_LIDER={SURU_SABIT_LIDER}')
     print(f'SURU_KALKIS_OLAYLA={"true" if KALKIS_OLAYLA else "false"}')
     print(f'GOREV_KALKIS_IRTIFA={GOREV_KALKIS_IRTIFA_M}')
     print(f'GOREV_QR_OKUMA_IRTIFA={GOREV_QR_OKUMA_IRTIFA_M}')

@@ -72,6 +72,11 @@ class ConsensusContext:
         # Kilit acikken ILK secim tam kadro bekler; bu sure dolunca eski
         # davranisa duser (yoksa eksik kadroda suru hic lider secemez).
         self.kilit_tam_kadro_s = 8.0
+        # SABIT LIDER — 4 Eylul 2026, operator karari, YALNIZ GOREV 2.
+        # 0 = kapali (Gorev 1 ve butun eski davranis: hicbir sey degismez).
+        # >0 = o kimlik lider olur ve HICBIR yoldan degismez. Gerekce ve
+        # bedel: election.decide_change icindeki blok.
+        self.sabit_lider = 0
 
         # Mesaj sayaclari
         # seen_seq: KAYNAK BASINA gorulen son sequence_num.
