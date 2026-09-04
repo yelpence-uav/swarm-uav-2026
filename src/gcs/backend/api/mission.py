@@ -22,7 +22,15 @@ class TriggerMissionBody(BaseModel):
         "", description="Takım ID, örn. 'team_1'"
     )
     parameters_json: str = Field(
-        "", description="Ek parametreler (JSON string)"
+        "",
+        description=(
+            "Ek parametreler (JSON string). "
+            "Görev 1 (DYNAMIC_SWARM) BAŞLAT: "
+            '{"formasyon": 3, "aralik_m": 7.0} — '
+            "formasyon 1=OKBAŞI 2=V 3=ÇİZGİ, alan yoksa/0 ise uçağın "
+            "baslat.sh'ten gelen varsayılanı KORUNUR. "
+            "Görev 2 BAŞLAT: {\"aralik_m\": 9.0, \"irtifa_m\": 15.0}"
+        ),
     )
 
 

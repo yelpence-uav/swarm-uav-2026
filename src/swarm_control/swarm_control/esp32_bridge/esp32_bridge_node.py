@@ -692,6 +692,13 @@ class Esp32BridgeNode(Node):
         # son ayari alir; operator "girdim ama gitmedi" durumuna dusmez.
         self._g2_aralik_m = 0.0
         self._g2_irtifa_m = 0.0
+        # GOREV 1 BASLANGIC FORMASYONU — YKI'den secilir (4 Eylul 2026).
+        # Oncesinde `gorev_formasyon` yalnizca baslat.sh parametresiydi:
+        # operator formasyonu degistirmek icin dosya yazip konteyner
+        # restart etmek zorundaydi. 0 = BELIRTILMEDI -> ucak kendi
+        # parametresini korur (geriye uyumlu).
+        self._g1_formasyon = 0
+        self._g1_aralik_m = 0.0
         _ayar_qos = QoSProfile(
             reliability=QoSReliabilityPolicy.RELIABLE,
             durability=QoSDurabilityPolicy.TRANSIENT_LOCAL,
@@ -705,6 +712,16 @@ class Esp32BridgeNode(Node):
         # Alici tarafta: mesh'ten gelen ayari yerel dinleyicilere duyur.
         self._g2_ayar_pub = self.create_publisher(
             Float32MultiArray, '/swarm/public/mission/g2_ayar', _ayar_qos,
+        )
+        # G1 ayari da MANDALLI (TRANSIENT_LOCAL): YKI ayari yayinlayip
+        # basla dedigi an arada esp32_bridge yeniden baslasa bile son
+        # degeri alir. G2 ile birebir ayni desen.
+        self.create_subscription(
+            Float32MultiArray, '/swarm/internal/mission/g1_ayar',
+            self._on_g1_ayar_out, _ayar_qos,
+        )
+        self._g1_ayar_pub = self.create_publisher(
+            Float32MultiArray, '/swarm/public/mission/g1_ayar', _ayar_qos,
         )
 
         # RPi -> ESP32: lider origin yayınını mesh'e iletmek için
@@ -2122,6 +2139,20 @@ class Esp32BridgeNode(Node):
         # sokardı — sessiz ve tam olarak yanlış.
         if g.tip in (pp.GOREV_TIP_G1_BASLAT, pp.GOREV_TIP_G1_DURDUR):
             basla = g.tip == pp.GOREV_TIP_G1_BASLAT
+            # 🔴 AYARI ONCE DUYUR, BASLATMAYI SONRA — G2'deki madde 29 ile
+            # ayni gerekce. mission1_node baslangic formasyonunu tetigi
+            # gormeden ONCE almis olmali; ters sirada suru ESKI formasyonla
+            # toplanir ve operator sectigini sanir. Sessiz ve tam olarak
+            # "hata vermeden yanlis sonuc".
+            if basla and (g.param1 or g.aralik_dm):
+                ayar = Float32MultiArray()
+                ayar.data = [float(g.param1), float(g.aralik_m)]
+                self._g1_ayar_pub.publish(ayar)
+                self.get_logger().warning(
+                    f'[esp32] GÖREV 1 BAŞLANGIÇ FORMASYONU alındı: '
+                    f'tip={g.param1} aralık={g.aralik_m:.1f} m '
+                    f'(0 = belirtilmedi, o alan için varsayılan korunur)'
+                )
             m = Bool()
             m.data = basla
             self._gorev1_tetik_pub.publish(m)
@@ -2705,6 +2736,25 @@ class Esp32BridgeNode(Node):
             f'irtifa={self._g2_irtifa_m:.1f} m (BAŞLAT paketiyle gidecek)'
         )
 
+    def _on_g1_ayar_out(self, msg: Float32MultiArray) -> None:
+        """YKİ'nin Görev 1 başlangıç formasyonu seçimini önbelleğe alır.
+
+        Yalnız BASE istasyonunda etkin. Değer burada UYGULANMAZ; saklanır
+        ve BAŞLAT paketine konur — böylece üç uçak da aynı paketten, aynı
+        anda alır. G2 ayarıyla birebir aynı desen.
+
+        data = [formasyon_tipi, aralik_m].
+        0 = "belirtilmedi", alıcı kendi varsayılanını korur.
+        """
+        v = list(msg.data)
+        self._g1_formasyon = int(v[0]) if len(v) > 0 else 0
+        self._g1_aralik_m = float(v[1]) if len(v) > 1 else 0.0
+        self.get_logger().info(
+            f'[esp32] Görev 1 başlangıç formasyonu alındı: '
+            f'tip={self._g1_formasyon} aralık={self._g1_aralik_m:.1f} m '
+            f'(BAŞLAT paketiyle gidecek)'
+        )
+
     def _on_gorev_baslat_out(self, msg: Bool) -> None:
         """YKİ'nin "Görev 2 BAŞLAT" komutunu mesh'e yayınlar.
 
@@ -2744,14 +2794,19 @@ class Esp32BridgeNode(Node):
     def _on_gorev1_baslat_out(self, msg: Bool) -> None:
         """YKİ'den gelen GÖREV 1 başlat/durdur -> mesh (TIP_GOREV 0x22/0x23).
 
-        Görev 1'de aralık/irtifa BAŞLAT paketiyle gitmiyor: o değerler
-        görev koduna ait (gorev_formasyon / gorev_aralik_m) ve baslat.sh
-        ile veriliyor. Madde 29'un G2 yolu burada geçerli değil.
+        BASLANGIC FORMASYONU BU PAKETLE GIDIYOR (4 Eylul 2026). Onceden
+        `gorev_formasyon` yalnizca baslat.sh parametresiydi ve operator
+        formasyonu degistirmek icin dosya yazip konteyner restart etmek
+        zorundaydi. Paketin `param1` ve `aralik` alanlari G1'de zaten BOS
+        duruyordu; yeni bir mesh tipi acmaya gerek kalmadi.
+        0 = belirtilmedi -> ucak kendi parametresini korur.
         """
         tip = (pp.GOREV_TIP_G1_BASLAT if msg.data
                else pp.GOREV_TIP_G1_DURDUR)
+        frm = int(self._g1_formasyon) if msg.data else 0
+        aralik = float(self._g1_aralik_m) if msg.data else 0.0
         try:
-            payload = pp.gorev_paketle(tip, 0, 0, 0)
+            payload = pp.gorev_paketle(tip, frm, 0, 0, aralik_m=aralik)
         except ValueError as e:
             self.get_logger().error(
                 f'[esp32] GÖREV 1 komutu paketlenemedi: {e}')
@@ -2760,7 +2815,9 @@ class Esp32BridgeNode(Node):
         self._guided_gonder(pp.TIP_GOREV, 0, payload)
         self.get_logger().warning(
             f'[esp32] GÖREV 1 {"BAŞLAT" if msg.data else "DURDUR"} '
-            f"mesh'e yayınlandı (TIP_GOREV alt tip 0x{tip:02X})")
+            f"mesh'e yayınlandı (TIP_GOREV alt tip 0x{tip:02X}"
+            + (f', formasyon={frm} aralık={aralik:.1f} m' if msg.data else '')
+            + ')')
 
     def _on_qr_coords_out(self, msg: QRCoordinates) -> None:
         """QR konum tablosunu mesh'e yayınlar — her QR AYRI çerçeve.

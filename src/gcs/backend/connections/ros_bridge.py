@@ -385,6 +385,7 @@ class RosBridge:
         self._gorev_baslat_pub = None
         self._gorev1_baslat_pub = None
         self._g2_ayar_pub = None
+        self._g1_ayar_pub = None
         self._kumanda = None
         self._kumanda_lock = threading.Lock()
         self._son_origin: Optional[SwarmOrigin] = None
@@ -524,6 +525,11 @@ class RosBridge:
             # grafiğini görmüyor (ROS_LOCALHOST_ONLY=1), servis çağrısı
             # tutmaz. Mesh yayını ÜÇ UÇAĞA BİRDEN gider.
             if int(command) == _COMMAND_START:
+                # 🔴 AYARI ONCE, BASLATMAYI SONRA — G2'deki madde 29 ile
+                # ayni gerekce. esp32_bridge ayari onbellege alip BASLAT
+                # paketine koyuyor; ters sirada baslat paketi ESKI (ya da
+                # bos) formasyonla giderdi ve operator sectigini sanardi.
+                self._g1_ayar_yayinla(parameters_json)
                 mesh_gonderildi = self.publish_gorev1_baslat(True)
             elif int(command) == _COMMAND_ABORT:
                 mesh_gonderildi = self.publish_gorev1_baslat(False)
@@ -613,6 +619,42 @@ class RosBridge:
         logger.info(
             "Görev 2 ayarı yayınlandı: aralık=%.1f m irtifa=%.1f m "
             "(0.0 = belirtilmedi)", aralik, irtifa
+        )
+
+    def _g1_ayar_yayinla(self, parameters_json: str) -> None:
+        """Görev 1 BAŞLANGIÇ FORMASYONUNU mesh köprüsüne verir.
+
+        `parameters_json` YKİ'den geliyor:
+            {"formasyon": 3, "aralik_m": 7.0}
+        formasyon: 1=OKBAŞI 2=V 3=ÇİZGİ. Alan yoksa 0 gönderilir =
+        "belirtilmedi"; uçak `baslat.sh`'ten gelen kendi değerini korur.
+        Operatörün hiçbir şey seçmemesi GEÇERLİ bir seçim.
+
+        G2 ayarıyla birebir aynı desen ve aynı sıra kuralı: ayar BAŞLAT'tan
+        ÖNCE yayınlanır (bkz. trigger_mission).
+        """
+        if self._g1_ayar_pub is None:
+            return
+        frm = 0
+        aralik = 0.0
+        if parameters_json:
+            try:
+                p = json.loads(parameters_json)
+                frm = int(p.get("formasyon") or 0)
+                aralik = float(p.get("aralik_m") or 0.0)
+            except (ValueError, TypeError, AttributeError) as e:
+                logger.warning(
+                    "Görev 1 parametreleri okunamadı (%s) — varsayılanlar "
+                    "korunacak: %s", e, parameters_json
+                )
+                frm = 0
+                aralik = 0.0
+        m = Float32MultiArray()
+        m.data = [float(frm), aralik]
+        self._g1_ayar_pub.publish(m)
+        logger.info(
+            "Görev 1 başlangıç formasyonu yayınlandı: tip=%d aralık=%.1f m "
+            "(0 = belirtilmedi)", frm, aralik
         )
 
     def publish_gorev_baslat(self, basla: bool = True) -> bool:
@@ -906,6 +948,21 @@ class RosBridge:
             ),
         )
         logger.info("publisher → /swarm/internal/mission/g2_ayar")
+
+        # Gorev 1 baslangic formasyonu — G2 ayariyla AYNI profil.
+        # MANDALLI (TRANSIENT_LOCAL): esp32_bridge gec abone olsa bile son
+        # secimi alir, "sectim ama gitmedi" durumu olusmaz.
+        self._g1_ayar_pub = self._node.create_publisher(
+            Float32MultiArray,
+            "/swarm/internal/mission/g1_ayar",
+            QoSProfile(
+                reliability=QoSReliabilityPolicy.RELIABLE,
+                durability=QoSDurabilityPolicy.TRANSIENT_LOCAL,
+                history=QoSHistoryPolicy.KEEP_LAST,
+                depth=1,
+            ),
+        )
+        logger.info("publisher → /swarm/internal/mission/g1_ayar")
 
         # Sürü kumandası sanal görünümü — mesh'ten gelen komutu okur.
         # 🔴 BEST_EFFORT ŞART: esp32_bridge bu konuyu _MESH_QOS (BEST_EFFORT)

@@ -11,7 +11,7 @@ from rclpy.qos import (
     QoSProfile,
     ReliabilityPolicy,
 )
-from std_msgs.msg import Bool, UInt8
+from std_msgs.msg import Bool, Float32MultiArray, UInt8
 
 from swarm_interfaces.action import ExecuteManeuver
 from swarm_interfaces.msg import (
@@ -64,6 +64,16 @@ _BEST_EFFORT_QOS = QoSProfile(
     durability=DurabilityPolicy.VOLATILE,
     history=HistoryPolicy.KEEP_LAST,
     depth=5,
+)
+
+# Ayar konusu MANDALLI: yayin bir kez yapiliyor ve bu dugum gec abone
+# olabilir. esp32_bridge tarafiyla birebir ayni profil olmali, yoksa QoS
+# uyusmazligindan mesaj HIC gelmez ve hicbir hata gorunmez.
+_AYAR_QOS = QoSProfile(
+    reliability=ReliabilityPolicy.RELIABLE,
+    durability=DurabilityPolicy.TRANSIENT_LOCAL,
+    history=HistoryPolicy.KEEP_LAST,
+    depth=1,
 )
 
 
@@ -208,6 +218,18 @@ class Mission1Node(Node):
             # yayinliyor; RELIABLE abone QR verisini HIC almaz.
             self._on_qr_data, _BEST_EFFORT_QOS,
         )
+        # BASLANGIC FORMASYONU YKI'DEN (4 Eylul 2026). Onceden
+        # `gorev_formasyon` yalnizca baslat.sh parametresiydi: operator
+        # formasyonu degistirmek icin dosyaya yazip konteyneri restart
+        # etmek zorundaydi.
+        # ⚠️ MANDALLI QoS (TRANSIENT_LOCAL) SART: ayar BASLAT tetiginden
+        # once yayinlaniyor ve bu dugum gec abone olabilir. VOLATILE
+        # olsaydi ayari kacirir, suru eski formasyonla toplanir ve
+        # operator sectigini sanardi.
+        self.create_subscription(
+            Float32MultiArray, '/swarm/public/mission/g1_ayar',
+            self._on_g1_ayar, _AYAR_QOS,
+        )
         self.create_subscription(
             SwarmState, '/swarm/public/state',
             self._on_swarm_state, _RELIABLE_QOS,
@@ -271,6 +293,37 @@ class Mission1Node(Node):
         self._last_qr_id = qr_id
         self._last_qr_seq = int(msg.qr_seq)
         self._current_qr = msg
+
+    def _on_g1_ayar(self, msg: Float32MultiArray) -> None:
+        """YKİ'nin seçtiği başlangıç formasyonunu uygular.
+
+        data = [formasyon_tipi, aralik_m]. 0 = "belirtilmedi" → o alan için
+        `baslat.sh`'ten gelen parametre KORUNUR (geriye uyumlu).
+
+        ⚠️ YALNIZ FORMASYON KURULMADAN ÖNCE ETKİLİ. `_gorev_formasyonunu_uygula`
+        formasyonu bir kez kurup `gorev_formasyon_kuruldu` bayrağını
+        dikiyor; sonrasında gelen ayar BİLEREK yok sayılıyor — görev
+        ortasında başlangıç formasyonunu değiştirmek QR'ın dayattığı
+        formasyonu ezerdi.
+        """
+        v = list(msg.data)
+        frm = int(v[0]) if len(v) > 0 else 0
+        aralik = float(v[1]) if len(v) > 1 else 0.0
+        if self._orch._st.gorev_formasyon_kuruldu:
+            self.get_logger().warning(
+                f'[gorev1] baslangic formasyonu ayari GEC GELDI '
+                f'(tip={frm}) — formasyon zaten kuruldu, yok sayiliyor'
+            )
+            return
+        if frm > 0:
+            self._orch._cfg.gorev_formasyon = frm
+        if aralik > 0.0:
+            self._orch._cfg.gorev_aralik_m = aralik
+        self.get_logger().warning(
+            f'[gorev1] YKI baslangic formasyonu: tip='
+            f'{self._orch._cfg.gorev_formasyon} '
+            f'aralik={self._orch._cfg.gorev_aralik_m:.1f} m'
+        )
 
     def _on_swarm_state(self, msg: SwarmState) -> None:
         """Lider, centroid ve aktif ajan konumlarını saklar."""
