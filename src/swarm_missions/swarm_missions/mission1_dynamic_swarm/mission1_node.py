@@ -314,6 +314,7 @@ class Mission1Node(Node):
         v = list(msg.data)
         frm = int(v[0]) if len(v) > 0 else 0
         aralik = float(v[1]) if len(v) > 1 else 0.0
+        irtifa = float(v[2]) if len(v) > 2 else 0.0
         if self._orch._st.gorev_formasyon_kuruldu:
             self.get_logger().warning(
                 f'[gorev1] baslangic formasyonu ayari GEC GELDI '
@@ -324,10 +325,16 @@ class Mission1Node(Node):
             self._orch._cfg.gorev_formasyon = frm
         if aralik > 0.0:
             self._orch._cfg.gorev_aralik_m = aralik
+        # 🔴 KALKIS IRTIFASI — agent_fsm'in target_altitude_m'i ile AYNI
+        # olmak ZORUNDA (bkz. _declare_params). O yuzden agent_fsm de ayni
+        # konuya abone: ikisi TEK mesajdan besleniyor, ayrisamazlar.
+        if irtifa > 0.0:
+            self._kalkis_irtifa_m = irtifa
         self.get_logger().warning(
-            f'[gorev1] YKI baslangic formasyonu: tip='
+            f'[gorev1] YKI baslangic ayari: tip='
             f'{self._orch._cfg.gorev_formasyon} '
-            f'aralik={self._orch._cfg.gorev_aralik_m:.1f} m'
+            f'aralik={self._orch._cfg.gorev_aralik_m:.1f} m '
+            f'kalkis_irtifa={self._kalkis_irtifa_m:.1f} m'
         )
 
     def _on_swarm_state(self, msg: SwarmState) -> None:

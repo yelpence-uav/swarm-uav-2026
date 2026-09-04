@@ -268,7 +268,10 @@ KALKIS_OLAYLA = True
 # Ayrisirlarsa gorev node'u erken/gec "tamam" der ve kimse hata vermez.
 # Ikisi de baslat.sh'ten bu degeri aliyor; kodda 10.0 varsayilani duruyor
 # ama env dosyasi olan ucakta HER ZAMAN burasi kazanir.
-GOREV_KALKIS_IRTIFA_M = 10.0
+# 4 Eylül 2026 operatör: ilk (kalkış) irtifa 15 m. QR okuma irtifası
+# 10 m olduğu için sürü QR'a giderken 5 m alçalır; bu alçalma
+# ROTA_DIKEY_HIZ_MPS ile yavaşlatılıyor (0.5 m/s -> ~10 sn).
+GOREV_KALKIS_IRTIFA_M = 15.0
 
 # QR OKUMA IRTIFASI — sürü QR'a giderken bu irtifaya iner ve orada okur.
 # 4 Eylül 2026 operatör: "20 metreden yukarıda okuyamıyorlar, minimum
@@ -439,6 +442,16 @@ MAKS_HEADING_DONUS_DEG_S = PX4_DONUS_HIZI_DEG_S
 # Rota adim hizi (path_planner ara nokta uretim frekansi). formation_node
 # 20 Hz'de setpoint uretiyor; 5 Hz ara nokta yeterli, arasini SVT dolduruyor.
 ROTA_ADIM_HZ = 5.0
+
+# ROTA DİKEY HIZ TAVANI — sürü QR'a inerken alçalma YAVAŞ olmalı.
+# 4 Eylül 2026 operatör: "dikey alçalma yavaş olmalı, QR okuyacak."
+# Yörünge düz 3B çizgi ve adım boyu TOPLAM hızdan (ROTA_MAKS_HIZ=3.0)
+# türetiliyor; dikey bileşen ayrıca sınırlanmazsa 25 m -> 10 m'lik bir
+# alçalmada dron neredeyse tam hızla iner ve kamera netleyemez.
+# 0.5 m/s: 15 m -> 10 m arası 10 saniye sürer — kamera 30 fps'te ~300
+# kare görür, KAMERA.md §13'teki 0.79 okuma/sn ile fazlasıyla yeter.
+# 0.0 = tavan yok (eski davranış).
+ROTA_DIKEY_HIZ_MPS = 0.5
 
 # Ok basi geciside iki ucak en cok bu kadar yaklasir.
 KRITIK_AYRIM_M = ARALIK_M * math.cos(math.radians(KANAT_ACISI_DEG))
@@ -1382,6 +1395,7 @@ def _kabuk():
     # path_planner (rota sekillendirme)
     print(f'ROTA_MAKS_HIZ={GOREV_HIZ_MPS}')
     print(f'ROTA_ADIM_HZ={ROTA_ADIM_HZ}')
+    print(f'ROTA_DIKEY_HIZ={ROTA_DIKEY_HIZ_MPS}')
     print(f'ROTA_DONUS_TAVANI_DEG_S={MAKS_HEADING_DONUS_DEG_S}')
     print(f'ROTA_TEGET_HIZ={ROT_TEGET_HIZ_MPS}')
     print(f'ROTA_TEGET_IVME={ROT_TEGET_IVME_MPS2}')

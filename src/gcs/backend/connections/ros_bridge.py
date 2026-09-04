@@ -625,7 +625,7 @@ class RosBridge:
         """Görev 1 BAŞLANGIÇ FORMASYONUNU mesh köprüsüne verir.
 
         `parameters_json` YKİ'den geliyor:
-            {"formasyon": 3, "aralik_m": 7.0}
+            {"formasyon": 3, "aralik_m": 7.0, "irtifa_m": 15.0}
         formasyon: 1=OKBAŞI 2=V 3=ÇİZGİ. Alan yoksa 0 gönderilir =
         "belirtilmedi"; uçak `baslat.sh`'ten gelen kendi değerini korur.
         Operatörün hiçbir şey seçmemesi GEÇERLİ bir seçim.
@@ -637,11 +637,13 @@ class RosBridge:
             return
         frm = 0
         aralik = 0.0
+        irtifa = 0.0
         if parameters_json:
             try:
                 p = json.loads(parameters_json)
                 frm = int(p.get("formasyon") or 0)
                 aralik = float(p.get("aralik_m") or 0.0)
+                irtifa = float(p.get("irtifa_m") or 0.0)
             except (ValueError, TypeError, AttributeError) as e:
                 logger.warning(
                     "Görev 1 parametreleri okunamadı (%s) — varsayılanlar "
@@ -649,12 +651,13 @@ class RosBridge:
                 )
                 frm = 0
                 aralik = 0.0
+                irtifa = 0.0
         m = Float32MultiArray()
-        m.data = [float(frm), aralik]
+        m.data = [float(frm), aralik, irtifa]
         self._g1_ayar_pub.publish(m)
         logger.info(
-            "Görev 1 başlangıç formasyonu yayınlandı: tip=%d aralık=%.1f m "
-            "(0 = belirtilmedi)", frm, aralik
+            "Görev 1 başlangıç ayarı yayınlandı: tip=%d aralık=%.1f m "
+            "irtifa=%.1f m (0 = belirtilmedi)", frm, aralik, irtifa
         )
 
     def publish_gorev_baslat(self, basla: bool = True) -> bool:

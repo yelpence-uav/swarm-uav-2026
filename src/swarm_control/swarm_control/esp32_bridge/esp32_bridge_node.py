@@ -699,6 +699,7 @@ class Esp32BridgeNode(Node):
         # parametresini korur (geriye uyumlu).
         self._g1_formasyon = 0
         self._g1_aralik_m = 0.0
+        self._g1_irtifa_m = 0.0
         _ayar_qos = QoSProfile(
             reliability=QoSReliabilityPolicy.RELIABLE,
             durability=QoSDurabilityPolicy.TRANSIENT_LOCAL,
@@ -2144,13 +2145,15 @@ class Esp32BridgeNode(Node):
             # gormeden ONCE almis olmali; ters sirada suru ESKI formasyonla
             # toplanir ve operator sectigini sanir. Sessiz ve tam olarak
             # "hata vermeden yanlis sonuc".
-            if basla and (g.param1 or g.aralik_dm):
+            if basla and (g.param1 or g.aralik_dm or g.irtifa_dm):
                 ayar = Float32MultiArray()
-                ayar.data = [float(g.param1), float(g.aralik_m)]
+                ayar.data = [float(g.param1), float(g.aralik_m),
+                             float(g.irtifa_m)]
                 self._g1_ayar_pub.publish(ayar)
                 self.get_logger().warning(
-                    f'[esp32] GÖREV 1 BAŞLANGIÇ FORMASYONU alındı: '
+                    f'[esp32] GÖREV 1 BAŞLANGIÇ AYARI alındı: '
                     f'tip={g.param1} aralık={g.aralik_m:.1f} m '
+                    f'irtifa={g.irtifa_m:.1f} m '
                     f'(0 = belirtilmedi, o alan için varsayılan korunur)'
                 )
             m = Bool()
@@ -2780,10 +2783,11 @@ class Esp32BridgeNode(Node):
         v = list(msg.data)
         self._g1_formasyon = int(v[0]) if len(v) > 0 else 0
         self._g1_aralik_m = float(v[1]) if len(v) > 1 else 0.0
+        self._g1_irtifa_m = float(v[2]) if len(v) > 2 else 0.0
         self.get_logger().info(
-            f'[esp32] Görev 1 başlangıç formasyonu alındı: '
+            f'[esp32] Görev 1 başlangıç ayarı alındı: '
             f'tip={self._g1_formasyon} aralık={self._g1_aralik_m:.1f} m '
-            f'(BAŞLAT paketiyle gidecek)'
+            f'irtifa={self._g1_irtifa_m:.1f} m (BAŞLAT paketiyle gidecek)'
         )
 
     def _on_gorev_baslat_out(self, msg: Bool) -> None:
@@ -2836,8 +2840,10 @@ class Esp32BridgeNode(Node):
                else pp.GOREV_TIP_G1_DURDUR)
         frm = int(self._g1_formasyon) if msg.data else 0
         aralik = float(self._g1_aralik_m) if msg.data else 0.0
+        irtifa = float(self._g1_irtifa_m) if msg.data else 0.0
         try:
-            payload = pp.gorev_paketle(tip, frm, 0, 0, aralik_m=aralik)
+            payload = pp.gorev_paketle(tip, frm, 0, 0, aralik_m=aralik,
+                                       irtifa_m=irtifa)
         except ValueError as e:
             self.get_logger().error(
                 f'[esp32] GÖREV 1 komutu paketlenemedi: {e}')

@@ -36,6 +36,9 @@ class PathPlannerNode(Node):
         # Heading, merkez gibi rampalanır: hedefe bakan açı tek tick'te
         # atanırsa (özellikle sonraki QR'a ~180° dönüşte) formasyon rijit
         # snap yapıp savruluyordu. Bu sınır dönüşü saniyelere yayar.
+        # DIKEY HIZ TAVANI — QR okuma icin alcalma YAVAS olmali (operator,
+        # 4 Eylul). 0.0 = tavan yok (eski davranis).
+        self.declare_parameter('dikey_hiz_mps', 0.0)
         self.declare_parameter('max_heading_slew_deg_s', 90.0)
         # Formasyon rotasyonunda EN DIŞTAKİ dronun teğetsel hız tavanı (m/s).
         # Rijit dönüşte merkeze r uzaklıktaki dron v = ω·r hızıyla yay çizer;
@@ -85,7 +88,9 @@ class PathPlannerNode(Node):
 
         self._planner = LinearTrajectoryPlanner(
             max_speed_mps=self._max_speed_mps,
-            control_rate_hz=self._control_rate_hz
+            control_rate_hz=self._control_rate_hz,
+            max_vertical_speed_mps=float(
+                self.get_parameter('dikey_hiz_mps').value),
         )
 
         self._waypoints: list[tuple[float, float, float]] = []

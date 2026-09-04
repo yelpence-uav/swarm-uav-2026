@@ -1276,6 +1276,7 @@ fi   # /altyapi: ic_dis_kopru
             -p max_speed_mps:=${ROTA_MAKS_HIZ} \
             -p control_rate_hz:=${ROTA_ADIM_HZ} \
             -p max_heading_slew_deg_s:=${ROTA_DONUS_TAVANI_DEG_S} \
+            -p dikey_hiz_mps:=${ROTA_DIKEY_HIZ:-0.5} \
             -p rot_tangential_speed_mps:=${ROTA_TEGET_HIZ} \
             -p rot_tangential_accel_mps2:=${ROTA_TEGET_IVME} \
             >> "$GUNLUK/planner.log" 2>&1 &

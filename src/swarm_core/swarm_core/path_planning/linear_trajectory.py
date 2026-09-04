@@ -12,12 +12,19 @@ class LinearTrajectoryPlanner:
         max_speed_mps: float,
         control_rate_hz: float,
         accel_time_s: float = 2.0,
+        max_vertical_speed_mps: float = 0.0,
     ) -> None:
         """Yoringe planlayiciyi baslatir."""
         self.max_speed_mps = max_speed_mps
         self.control_rate_hz = control_rate_hz
         self.step_distance = max_speed_mps / control_rate_hz
         self.accel_time_s = max(0.0, float(accel_time_s))
+        # DIKEY HIZ TAVANI (0 = kapali, eski davranis). Yorunge duz 3B cizgi
+        # ve adim boyu TOPLAM hizdan turetiliyor; dikey bilesen ayrica
+        # sinirlanmazsa 28 m -> 10 m gibi bir alcalmada dron neredeyse tam
+        # hizla asagi iner. QR okuma bunun tersini istiyor: sure ver, kare
+        # netlessin. Bkz. 4 Eylul 2026 operator istegi.
+        self.max_vertical_speed_mps = max(0.0, float(max_vertical_speed_mps))
 
     def generate_waypoints(
         self,
@@ -40,6 +47,17 @@ class LinearTrajectoryPlanner:
         dz = z1 - z0
 
         total_distance = math.sqrt(dx * dx + dy * dy + dz * dz)
+
+        # DIKEY TAVAN: adimin dikey bileseni |dz|/total oranindadir. Dikey
+        # hizi tavanda tutmak icin adim boyunu o oranla olcekleyip kirpiyoruz.
+        # Yon birim vektoru DEGISMEZ — yorunge duz kalir, yalnizca YAVASLAR;
+        # yani ucak once yatayda varip sonra inmez, ikisini birlikte yapar.
+        if self.max_vertical_speed_mps > 0.0 and abs(dz) > 1e-9:
+            dikey_tavan_adim = (
+                (self.max_vertical_speed_mps / self.control_rate_hz)
+                * (total_distance / abs(dz))
+            )
+            step_distance = min(step_distance, dikey_tavan_adim)
 
         if total_distance <= step_distance or total_distance == 0.0:
             return [(x1, y1, z1)]

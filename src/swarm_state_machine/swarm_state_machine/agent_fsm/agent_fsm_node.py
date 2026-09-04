@@ -12,7 +12,7 @@ from rclpy.qos import (
     ReliabilityPolicy,
 )
 
-from std_msgs.msg import Bool, String
+from std_msgs.msg import Bool, Float32MultiArray, String
 
 from swarm_interfaces.msg import AgentStatus, SwarmOrigin, SystemEvent
 from swarm_interfaces.srv import AssignRole
@@ -148,6 +148,18 @@ class AgentFsmNode(Node):
             f'/swarm/agent/drone{aid}/telemetry',
             self._on_telemetry,
             10,
+        )
+        # 🔴 KALKIS IRTIFASI YKI'DEN GELEBILIR — mission1_node ile AYNI
+        # konudan besleniyoruz. Ikisi ayri kaynaklardan beslenseydi bir
+        # tanesi 15 m'ye cikip digeri 10 m'yi "ulastim" sayardi ve HICBIRI
+        # hata vermezdi (bkz. mission1_node._declare_params notu).
+        # _ORIGIN_QOS = RELIABLE + TRANSIENT_LOCAL: dugum gec acilsa bile
+        # son ayari alir.
+        self.create_subscription(
+            Float32MultiArray,
+            '/swarm/public/mission/g1_ayar',
+            self._on_g1_ayar,
+            _ORIGIN_QOS,
         )
         self.create_subscription(
             SystemEvent,
@@ -587,6 +599,35 @@ class AgentFsmNode(Node):
             f'[agent {ctx.agent_id}] Rol: {ctx.role.name}'
         )
         return response
+
+    def _on_g1_ayar(self, msg: Float32MultiArray) -> None:
+        """Kalkis irtifasini YKI'nin Gorev 1 baslangic ayarindan alir.
+
+        data = [formasyon, aralik_m, irtifa_m]; 0 = belirtilmedi ->
+        baslat.sh'ten gelen deger korunur. Yalniz irtifa bizi ilgilendirir;
+        formasyon/aralik mission1_node'un isi.
+
+        UCUS SIRASINDA DEGISTIRMEZ: ayar BASLAT'tan once geliyor ve
+        kalkis komutu ARMED'da uretiliyor; buraya gec gelen bir deger
+        zaten kalkmis ucagi etkilemez.
+        """
+        v = list(msg.data)
+        irtifa = float(v[2]) if len(v) > 2 else 0.0
+        if irtifa <= 0.0:
+            return
+        if abs(irtifa - self._target_altitude_m) < 1e-6:
+            return
+        self.get_logger().warning(
+            f"[agent {self._agent_id}] KALKIS IRTIFASI YKI'DEN: "
+            f'{self._target_altitude_m:.1f} -> {irtifa:.1f} m'
+        )
+        self._target_altitude_m = irtifa
+        # 🔴 IKISI BIRDEN: `self._target_altitude_m` KALKIS KOMUTUNU uretir
+        # (takeoff:<X>), `ctx.target_altitude_m` ise "ulastim" kararini
+        # verir (agent_health_monitor.py:423). Yalniz biri guncellenirse
+        # ucak 15 m'ye tirmanirken FSM 10 m'de "ulastim" der ve HICBIRI
+        # hata vermez — bu dosyanin bastan beri uyardigi ayrisma sinifi.
+        self._ctx.target_altitude_m = irtifa
 
     def _on_telemetry(self, msg: AgentStatus) -> None:
         """Telemetry mesajini context'e yazar."""

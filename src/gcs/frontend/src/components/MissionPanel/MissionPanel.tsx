@@ -60,6 +60,7 @@ export function MissionPanel({
   // BOŞ = uçaktaki varsayılan korunur; boş bırakmak geçerli bir seçim.
   const [g1Formasyon, setG1Formasyon] = useState("");
   const [g1Aralik, setG1Aralik] = useState("");
+  const [g1Irtifa, setG1Irtifa] = useState("");
 
   async function trigger(
     commandCode: number,
@@ -114,8 +115,10 @@ export function MissionPanel({
         const p: Record<string, number> = {};
         const f = parseInt(g1Formasyon, 10);
         const ga = parseFloat(g1Aralik);
+        const gi = parseFloat(g1Irtifa);
         if (isFinite(f) && f > 0) p.formasyon = f;
         if (isFinite(ga)) p.aralik_m = ga;
+        if (isFinite(gi) && gi > 0) p.irtifa_m = gi;
         if (Object.keys(p).length > 0) parameters_json = JSON.stringify(p);
       }
       const resp = await missionApi.trigger({
@@ -320,6 +323,25 @@ export function MissionPanel({
               placeholder="boş = uçaktaki varsayılan"
               value={g1Aralik}
               onChange={(e) => setG1Aralik(e.target.value)}
+              disabled={busy !== null}
+            />
+          </label>
+          {/* İLK (KALKIŞ) İRTİFASI. Sürü QR'a giderken QR OKUMA
+              İRTİFASINA (10 m) iner — yani buradaki değer seyir değil,
+              KALKIŞ irtifasıdır. İkisi arasındaki fark kadar alçalma
+              olur ve alçalma ROTA_DIKEY_HIZ ile yavaşlatılır (0.5 m/s).
+              Boş bırakmak geçerli: uçak baslat.sh'ten gelen kendi
+              değerini korur. */}
+          <label className="mission-panel__field">
+            <span>İlk irtifa (m):</span>
+            <input
+              type="number"
+              step="1"
+              min="5"
+              max="30"
+              placeholder="boş = uçaktaki varsayılan"
+              value={g1Irtifa}
+              onChange={(e) => setG1Irtifa(e.target.value)}
               disabled={busy !== null}
             />
           </label>
