@@ -326,6 +326,15 @@ class Esp32BridgeNode(Node):
         # (dosya yoksa zaten sessizce atlanir).
         self.declare_parameter('sistem_durum_dosya', '/ws/sistem_durum')
         self.declare_parameter('sistem_durum_periyot_s', 10.0)
+        # 🔴 DURUM (TIP_DURUM) yayin periyodu — 4 Eylul, lider=None kok nedeni.
+        # DURUM state/healthy/estimator_ok tasir ve consensus ELIGIBLE kapisi
+        # bunlara bakar. 1 Hz'de tek mesh kaybi 5 sn'lik bayatlik esigine
+        # yaklasip healthy'yi dusuruyordu -> ajan eligible cikmiyor ->
+        # bootstrap_since=0 -> lider HIC secilmiyor (election.py:161).
+        # 2 Hz (0.5 s): iki ardisik kayip gerekir, bayatlik cok daha nadir.
+        # Mesh maliyeti +1 cerceve/s/ucak (POSE 10 Hz zaten baskin), 57
+        # cerceve/s butcesinde rahat.
+        self.declare_parameter('durum_periyot_s', 0.5)
         # MAVROS GCS taskini: `/ws/gunluk/son` acilan gunluge symlink
         # (baslat.sh kuruyor), yani konteyner icinden okunabilir.
         self.declare_parameter('mavros_log_dosya', '/ws/gunluk/son/mavros.log')
@@ -464,9 +473,11 @@ class Esp32BridgeNode(Node):
         # ⚠️ Firmware'e DOKUNULMADI: mesh kapisi tip basina 50 ms = 20 Hz
         # (`MESH_GONDERIM_MIN_MS`, TX DRONE/src/main.cpp:261), 10 Hz altinda.
         self._pose_periyot_s = 0.095
-        # DURUM giden son zaman — 1Hz tavan (state nadiren değişir)
+        # DURUM giden son zaman — periyot parametreden (varsayilan 2 Hz).
+        # 1 Hz -> healthy bayatliyip lider secimi bloke oluyordu (4 Eylul).
         self._son_durum_gonderim_ts = 0.0
-        self._durum_periyot_s = 1.0
+        self._durum_periyot_s = float(
+            self.get_parameter('durum_periyot_s').value)
 
         self._origin_pub = self.create_publisher(
             SwarmOrigin, '/swarm/public/origin', _ORIGIN_QOS
