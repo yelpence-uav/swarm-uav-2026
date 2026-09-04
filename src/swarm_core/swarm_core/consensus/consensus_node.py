@@ -91,6 +91,13 @@ class ConsensusNode(Node):
         # pahaliya patladi (B15 "sessiz kapi" dersi), o yuzden ilk reddi
         # bir kez WARN olarak basiyoruz.
         self._sabit_red_uyarildi = False
+        # Sabit lider HIC uygun oldu mu (ARMED + healthy + estimator).
+        # Uygunluk yitimi uyarisi buna bagli: YERDE, armsiz bir ucak zaten
+        # uygun DEGILDIR ve bunu 5 sn'de bir yazmak kaydi bogar. Uyari
+        # ancak GERCEK bir YITIM oldugunda (bir kez uygun olduktan sonra)
+        # anlamlidir. 4 Eylul'de ucakta olculdu: dagitim sonrasi ylp00 yerde
+        # beklerken satir surekli basiyordu.
+        self._sabit_hic_uygun_oldu = False
         if self._ctx.sabit_lider:
             self.get_logger().warning(
                 f'[consensus] SABIT LIDER ACIK: drone{self._ctx.sabit_lider} '
@@ -272,15 +279,21 @@ class ConsensusNode(Node):
             # B5 olayinin belirtisi birebir buydu). Uygunlugu yitirmis
             # sabit lider GORUNUR olsun diye kisilmis WARN basiyoruz.
             self._uygunsuz_since = 0.0
-            if ctx.is_leader and self._agent_id not in elig:
-                self.get_logger().warning(
-                    '[CONSENSUS] SABIT LIDER uygunlugunu yitirdi '
-                    f'(ben={self._agent_id}) ama liderlik BIRAKILMIYOR '
-                    '(sabit_lider acik). Sebep: healthy/estimator/pil/'
-                    'bayatlik kapilarindan biri. Formasyon tarifi bu ucaktan '
-                    'gelmeye devam edecek.',
-                    throttle_duration_sec=5.0,
-                )
+            if ctx.is_leader:
+                if self._agent_id in elig:
+                    self._sabit_hic_uygun_oldu = True
+                elif self._sabit_hic_uygun_oldu:
+                    # YITIM: bir kez uygundu, artik degil. YERDE armsiz
+                    # beklerken buraya DUSULMEZ (henuz hic uygun olmadik),
+                    # yani kayit bogulmaz.
+                    self.get_logger().warning(
+                        '[CONSENSUS] SABIT LIDER uygunlugunu YITIRDI '
+                        f'(ben={self._agent_id}) ama liderlik BIRAKILMIYOR '
+                        '(sabit_lider acik). Sebep: healthy/estimator/pil/'
+                        'bayatlik kapilarindan biri. Formasyon tarifi bu '
+                        'ucaktan gelmeye devam edecek.',
+                        throttle_duration_sec=5.0,
+                    )
         elif ctx.is_leader and self._agent_id not in elig:
             # LIDERLIGI BIRAK — P0.12(a), 20 Agustos 2026.
             #
