@@ -1198,22 +1198,26 @@ fi   # /altyapi: ic_dis_kopru
         fi
     fi
 
-    # SABIT LIDER — 4 Eylul 2026 operator karari, YALNIZ GOREV 2.
+    # SABIT LIDER — 4 Eylul 2026 operator karari. SISTEM GENELI:
+    # HEM GOREV 1 HEM GOREV 2 icin lider ylp00 (agent_id 1).
     #
-    # KAPSAM YAPISAL OLARAK CIZILDI: deger `mod` bayragindan (mode_manager =
-    # Gorev 2'nin surucu dugumu) turetiliyor. Gorev 1 profilinde `mod` kapali
-    # oldugu icin BURADAN 0 gecer ve consensus bugunku davranisini birebir
-    # surdurur. Ayri bir env'e baglamadik cunku o env Gorev 1'e gecerken
-    # SILINMEYI unutulabilirdi — 2 Eylul kume-toplanma olayinin mekanizmasi
-    # tam olarak buydu (SURU_KADRO artigi uctan uca tasindi).
+    # Ilk tasarimda kapsam `mod` bayragina baglanmisti (yalniz Gorev 2);
+    # operator ayni gun kapsami GENISLETTI. Gorev bazli dallanma KALDIRILDI —
+    # tek profil, tek davranis, sasirtma yok.
     #
-    # Operator yine de ezebilir: SURU_SABIT_LIDER=0 ile Gorev 2'de kapatir,
-    # SURU_SABIT_LIDER=<id> ile baska bir ucagi sabitler.
-    if acik mod || acik hepsi; then
-        SABIT_LIDER="${SURU_SABIT_LIDER:-1}"
-    else
-        SABIT_LIDER=0
-    fi
+    # NEDEN GOREV 1'DE DE GUVENLI: `SURU_LIDER_KILIDI` ZATEN gorevden
+    # bagimsiz ve ucaklarda `true`. Yani Gorev 1'de de lider degisimi coktan
+    # kapaliydi; sabit lider yeni bir kisit GETIRMIYOR, yalnizca kimligi
+    # YARISA birakmak yerine belirli kiliyor. Kilidin yanlis lideri KALICI
+    # yapma riski (8 sn tam kadro penceresi; ucaklar arasi evre kaymasi
+    # 3 Eylul'de 25 sn olculdu) boylece Gorev 1'de de kapaniyor.
+    #
+    # Lider zinciri: consensus -> ElectionResult -> swarm_fsm ->
+    # SwarmState.leader_id -> mission1. Yani Gorev 1'e yayilmasi icin ek kod
+    # gerekmiyor, bu tek parametre yetiyor.
+    #
+    # Kapatmak: SURU_SABIT_LIDER=0. Baska ucagi sabitlemek: SURU_SABIT_LIDER=<id>.
+    SABIT_LIDER="${SURU_SABIT_LIDER:-0}"
 
     if baslat_mi consensus; then
         dugum swarm_core consensus_node --ros-args \
@@ -1228,10 +1232,10 @@ fi   # /altyapi: ic_dis_kopru
         echo "[baslat] consensus_node basladi" \
              "(agent_count=$SURU_AJAN_SAYISI, battery_min_v=$BATARYA_KRITIK_V)"
         if [ "$SABIT_LIDER" != "0" ]; then
-            echo "[baslat] 🔒 SABIT LIDER = drone${SABIT_LIDER} (GOREV 2 profili)" \
+            echo "[baslat] 🔒 SABIT LIDER = drone${SABIT_LIDER} (Gorev 1 + Gorev 2)" \
                  "— secim ve devir KAPALI"
         else
-            echo "[baslat] sabit lider KAPALI — normal secim (Gorev 1 davranisi)"
+            echo "[baslat] sabit lider KAPALI — normal secim (eski davranis)"
         fi
     fi
 

@@ -97,8 +97,7 @@ class ConsensusNode(Node):
                 f'(ben={self._agent_id}). Secim YAPILMAZ, devir YAPILMAZ, '
                 "mesh'ten gelen aykiri lider iddiasi REDDEDILIR. "
                 'Sabit lider gercekten duserse devir OLMAZ — cikis yolu '
-                'kill switch. GOREV 2 icindir; Gorev 1 profilinde bu deger '
-                '0 gelir.'
+                'kill switch. KAPSAM: hem Gorev 1 hem Gorev 2.'
             )
         if self._ctx.lider_kilitli:
             self.get_logger().warning(
@@ -167,12 +166,11 @@ class ConsensusNode(Node):
         # KEZ secilir ve degismez. Gerekce/bedel: election.decide_change.
         self.declare_parameter('lider_kilitli', False)
         self.declare_parameter('lider_kilit_tam_kadro_s', 8.0)
-        # SABIT LIDER — 4 Eylul 2026 operator karari, YALNIZ GOREV 2.
-        # 0 = kapali; Gorev 1 profilinde ve varsayilan olarak boyledir, yani
-        # bu parametre HICBIR eski davranisi degistirmez. >0 verilirse o
-        # kimlik lider olur ve liderin degisebildigi DORT yol da kapanir.
-        # baslat.sh degeri `mod` bayragindan turetiyor: Gorev 1 profilinde
-        # yapisal olarak 0 gecer, operatorun hatirlamasi gerekmez.
+        # SABIT LIDER — 4 Eylul 2026 operator karari. SISTEM GENELI:
+        # hem Gorev 1 hem Gorev 2 icin gecerli.
+        # 0 = kapali (varsayilan; eski davranis birebir korunur).
+        # >0 = o kimlik lider olur ve liderin degisebildigi DORT yol kapanir.
+        # Sahada deger `SURU_SABIT_LIDER` env'inden geliyor (baslat.sh).
         self.declare_parameter('sabit_lider', 0)
 
         self._agent_id = int(self.get_parameter('agent_id').value)

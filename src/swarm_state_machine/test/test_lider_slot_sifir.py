@@ -15,9 +15,14 @@ Ozelligin dayandigi IKI olgu var; ikisi de burada kilitleniyor:
      "3 1" yazilsaydi slot 0 ylp02'ye gider ve hicbir yerde hata
      gorunmezdi.
 
-⚠️ KAPSAM: `mode_manager` yalnizca Gorev 2 profilinde kosuyor (`mod`
-bayragi). Gorev 1'in slot atamasini mission1 yapiyor
-(formation_cmd.build_slot_assignment, Macar) ve ona DOKUNULMADI.
+⚠️ KAPSAM: SLOT 0 kurali yalniz GOREV 2. `mode_manager` yalnizca Gorev 2
+profilinde kosuyor (`mod` bayragi). Gorev 1'in slot atamasini mission1
+yapiyor (formation_cmd.build_slot_assignment, MACAR = en yakin slot) ve o
+zincir 4 Eylul aksami uctan uca UCTU — DOKUNULMADI.
+
+NOT: sabit LIDERLIK (ylp00) sistem geneli, iki gorev icin de gecerli
+(consensus/sabit_lider). Burada test edilen sey lidere SLOT 0 verilmesi;
+ikisi ayri kararlar.
 """
 
 import unittest

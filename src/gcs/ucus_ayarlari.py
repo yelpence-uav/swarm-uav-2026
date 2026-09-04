@@ -237,22 +237,26 @@ SURU_LIDER_KILIDI = True
 # yani 1.5 sn'lik bootstrap grace'i tek basina yetmiyor.
 SURU_LIDER_KILIT_TAM_KADRO_S = 8.0
 
-# 🔒 SABIT LIDER — 4 Eylul 2026 operator karari. YALNIZ GOREV 2.
+# 🔒 SABIT LIDER — 4 Eylul 2026 operator karari. SISTEM GENELI:
+# HEM GOREV 1 HEM GOREV 2 icin lider ylp00.
 #
 # Lider secilmez, VERILIR: bu kimlik lider olur ve hicbir yoldan degismez.
-# Ayrica formasyon tarifinde SLOT 0'a oturur — slot 0 uc formasyonun da
-# tepe/merkez noktasidir (cizgi -> hattin ortasi, okbasi -> uc, V -> arka
-# kose), yani "lider her zaman ortada" bu tek sayiyla saglanir.
+# Lider zinciri: consensus -> ElectionResult -> swarm_fsm ->
+# SwarmState.leader_id -> mission1. Yani tek parametre iki gorevi de kapsar.
 #
 # NEDEN GEREKTI: lider kilidi (3 Eylul) ILK secimi NIHAI yapiyor, ama o ilk
 # secimin ylp00'a dusmesi TESADUFE bagliydi — tam kadro 8 sn icinde
 # olusmazsa yedek yol o an uygun olan kimi bulursa onu KALICI lider
 # yapiyordu. Ucaklar arasi evre kaymasi 3 Eylul ucusunda 25 sn olculdu.
 #
-# 🔴 KAPSAM: baslat.sh bu degeri YALNIZ `mod` bayragi (mode_manager =
-# Gorev 2) aciksa geciriyor; Gorev 1 profilinde consensus'a 0 gidiyor ve
-# secim mantigi bugunku haliyle kosuyor. Gorev 1'in liderligine BILEREK
-# dokunulmadi — orada lideri mission1 zinciri belirliyor.
+# NEDEN GOREV 1'DE DE GUVENLI: SURU_LIDER_KILIDI ZATEN gorevden bagimsiz ve
+# sahada true — Gorev 1'de de devir coktan kapaliydi. Sabit lider yeni bir
+# kisit getirmiyor, yalnizca kimligi yarisa birakmak yerine belirli kiliyor.
+#
+# ⚠️ "LIDER ORTADA" (slot 0) kurali AYRI ve yalniz GOREV 2'de: onu
+# mode_manager/tek_yayinci.lider_onde() sagliyor. Gorev 1'in slot atamasi
+# MACAR (en yakin slot, formation_cmd.build_slot_assignment) ve 4 Eylul
+# aksami uctan uca UCTU — dokunulmadi.
 #
 # 🔴 BEDELI (lider kilidiyle ayni, bilerek kabul edildi): sabit lider
 # gercekten duserse DEVIR OLMAZ; takipciler son formasyon komutunda kalir,

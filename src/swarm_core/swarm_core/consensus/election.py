@@ -131,21 +131,26 @@ def seq_kabul(
 
 def decide_change(ctx, effective: set, now: float):
     """Preemptive liderlik degisimi kararini verir."""
-    # --- SABIT LIDER — 4 Eylul 2026, operator karari, YALNIZ GOREV 2 ------
+    # --- SABIT LIDER — 4 Eylul 2026, operator karari. SISTEM GENELI. ------
     #
-    # KAPSAM: `ctx.sabit_lider == 0` iken bu blok HICBIR SEY YAPMAZ ve
-    # asagidaki secim mantigi bire bir eski hâliyle kosar. Gorev 1 profilinde
-    # deger 0'dir (baslat.sh `mod` bayragi kapaliyken 0 geciyor), yani Gorev
-    # 1'in liderligine dokunulmuyor — bu kasitli bir kapsam sinirlamasidir.
+    # KAPSAM: HEM GOREV 1 HEM GOREV 2. (Ilk tasarimda yalniz Gorev 2'ydi;
+    # operator ayni gun kapsami genisletti — gorev bazli dallanma
+    # KALDIRILDI, tek profil tek davranis.) `ctx.sabit_lider == 0` iken bu
+    # blok HICBIR SEY YAPMAZ ve asagidaki secim mantigi bire bir eski
+    # hâliyle kosar; kapatma anahtari budur.
     #
-    # NEDEN VAR: Gorev 2'de tarifi YALNIZ lider basar (tek-yayinci, KARAR-16)
-    # ve lider kilidi (3 Eylul) ILK secimi NIHAI yapiyor. Ilk secimin ylp00'a
-    # dusmesi bugun yalniz TESADUFEN saglaniyor: `candidate = min(effective)`
+    # NEDEN VAR: lider kilidi (3 Eylul) ILK secimi NIHAI yapiyor, ama o
+    # secimin ylp00'a dusmesi TESADUFE bagliydi: `candidate = min(effective)`
     # + tam kadro beklemesi. Tam kadro `kilit_tam_kadro_s` (8 sn) icinde
     # olusmazsa yedek yol devreye giriyor ve O AN uygun olan kim varsa
-    # KALICI lider oluyor. Ucaklar arasi evre kaymasi 3 Eylul ucusunda
+    # KALICI lider oluyordu. Ucaklar arasi evre kaymasi 3 Eylul ucusunda
     # 25 SANIYE olculdu — yani 8 sn'lik pencere guvenilir degil ve yanlis
     # lider bir daha duzelmiyor.
+    #
+    # NEDEN GOREV 1'DE DE GUVENLI: `lider_kilitli` ZATEN gorevden bagimsiz
+    # ve sahada `true`. Yani Gorev 1'de de devir coktan kapaliydi; bu blok
+    # yeni bir kisit GETIRMIYOR, yalnizca kimligi yarisa birakmak yerine
+    # belirli kiliyor. Net etki risk AZALTMASI.
     #
     # Bu blok tesadufu KURALA cevirir: kimlik disaridan verilir, uygunluga
     # BAKILMAZ (aday beklenmez), ve bir kez kurulduktan sonra hicbir yoldan

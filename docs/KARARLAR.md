@@ -1,6 +1,6 @@
 # KARARLAR — verilmiş ama henüz uygulanmamış kararlar
 
-**Son güncelleme:** 4 Eylül 2026, 22:40 — **KARAR-17** (Görev 2: sabit lider ylp00 + lider her zaman slot 0/ortada; Görev 1'e DOKUNULMADI). Eski: KARAR-16 (tek-yayıncı), KARAR-10 (formasyon testlerinde GOTO YASAK), KARAR-15 (kaçınma eşikleri 5 m aralıkta kilitleniyor)
+**Son güncelleme:** 4 Eylül 2026, 23:15 — **KARAR-17** (sabit lider ylp00 — **SİSTEM GENELİ, hem Görev 1 hem Görev 2**; ayrıca Görev 2'de lider slot 0/ortada). Eski: KARAR-16 (tek-yayıncı), KARAR-10 (formasyon testlerinde GOTO YASAK), KARAR-15 (kaçınma eşikleri 5 m aralıkta kilitleniyor)
 
 Sohbette verilen kararlar oturum bitince kayboluyor. Bu defter onları
 tutuyor: **ne karar verildi, neden, ne zaman uygulanacak, nasıl test edilecek.**
@@ -34,26 +34,36 @@ sırası gelince" denilen şeyleri. Onlar en kolay kaybolanlar.
 
 ---
 
-# KARAR-17 — Görev 2: lider SEÇİLMEZ, VERİLİR (ylp00) ve her zaman ortada
+# KARAR-17 — Lider SEÇİLMEZ, VERİLİR: ylp00 (sistem geneli) + Görev 2'de slot 0
 
 **Durum:** ✅ UYGULANDI (4 Eylül 2026) — kod yazıldı, 1024 test geçti, düğüm canlı doğrulandı; **uçakta dağıtılmadı**
 **Ne zaman:** Görev 2 çalışmasının ilk maddesi
-**Karar veren:** Operatör (4 Eylül 2026) — *"YLP00'ı kalıcı lider seçeceğiz ve o her zaman ortaya koyulacak."*
+**Karar veren:** Operatör (4 Eylül 2026) — önce *"YLP00'ı kalıcı lider seçeceğiz ve o her zaman ortaya koyulacak"* (Görev 2), aynı gün genişletildi: *"tüm sistemi kapsayacak şekilde olsun. Yani hem Görev 1 hem Görev 2 sabit lider YLP00."*
 
 ## Karar
 
-Görev 2 profilinde **lider seçim konusu değildir**: `ylp00` (agent_id **1**)
-liderdir, süreç boyunca değişmez, ve formasyon tarifinde **slot 0**'a oturur.
-Slot 0 üç formasyonun da tepe/merkez noktası (çizgi → hattın ortası,
-okbaşı → uç, V → arka köşe), yani "ortada" bu tek kuralla sağlanıyor.
+**Lider seçim konusu değildir:** `ylp00` (agent_id **1**) liderdir ve süreç
+boyunca değişmez. **Kapsam: hem Görev 1 hem Görev 2** — görev bazlı
+dallanma yok, tek profil tek davranış.
 
-🔴 **KAPSAM — Görev 1'e DOKUNULMADI.** Bu, operatörün açık kısıtıydı.
-`sabit_lider = 0` iken `decide_change` **bire bir eski kod yolunu** koşuyor
-ve `baslat.sh` değeri `mod` bayrağından (mode_manager = Görev 2'nin sürücü
-düğümü) türetiyor — yani Görev 1 profilinde consensus'a **yapısal olarak 0**
-gidiyor. Ayrı bir env'e bağlanmadı, çünkü o env Görev 1'e geçerken
-silinmeyi unutulabilirdi; **2 Eylül küme-toplanma olayının mekanizması tam
-olarak buydu** (`SURU_KADRO` artığı uçtan uca taşındı).
+Ayrıca **Görev 2'de** lider formasyon tarifinde **slot 0**'a oturur. Slot 0
+üç formasyonun da tepe/merkez noktası (çizgi → hattın ortası, okbaşı → uç,
+V → arka köşe), yani "ortada" bu tek kuralla sağlanıyor.
+
+⚠️ **"Ortada" kuralı Görev 1'e uygulanmadı** — ayrı bir karar. Görev 1'in
+slot ataması **Macar** (en yakın slot, `formation_cmd.build_slot_assignment`)
+ve o zincir **4 Eylül akşamı uçtan uca uçtu**; kanıtlanmış geometriyi
+değiştirmek için sebep yok. İstenirse ayrıca konuşulur.
+
+**Neden Görev 1'de de güvenli:** `SURU_LIDER_KILIDI` **zaten görevden
+bağımsız** ve sahada `true` — yani Görev 1'de de devir çoktan kapalıydı.
+Sabit lider **yeni bir kısıt getirmiyor**, yalnızca kimliği yarışa bırakmak
+yerine belirli kılıyor. Kilidin "yanlış lideri kalıcı yapma" riski böylece
+Görev 1'de de kapanıyor — net etki **risk azaltması**.
+
+Lider zinciri tek parametreyle iki görevi de kapsıyor:
+`consensus` → `ElectionResult` → `swarm_fsm` → `SwarmState.leader_id` →
+`mission1`. Görev 1 tarafında **ek kod gerekmedi**.
 
 ## Neden
 
@@ -82,8 +92,8 @@ atlansaydı mesh'ten gelen tek bir kalp atışı sabit lideri devirirdi:
 
 Slot 0 kuralı: `tek_yayinci.lider_onde()` (saf fonksiyon) tarifteki
 `agent_ids` sırasını **lider başta** üretiyor; `mode_manager` onu kullanıyor.
-`mode_manager` yalnız Görev 2'de koştuğu için bu değişiklik kendiliğinden
-Görev-2 kapsamlı. **Mesh protokolü değişmedi** — `TIP_FORMASYON` payload'ı
+`mode_manager` yalnız Görev 2'de koştuğu için bu kısım kendiliğinden
+Görev-2 kapsamlı kalıyor. **Mesh protokolü değişmedi** — `TIP_FORMASYON` payload'ı
 zaten `slot_ajan[i] = i. slottaki ajan` şeklinde sırayı taşıyor
 (`packet_parser:1085`), alıcı ofsetleri aynı sırada yeniden üretiyor.
 
@@ -111,29 +121,36 @@ Görev 2 zaten bitiyordu; bu karar o bağımlılığı artırmıyor, görünür 
 
 ## Test
 
-- `swarm_core/test/test_sabit_lider.py` — 11 test. Yarısı **Görev 1
-  regresyon koruması**: kapalıyken ilk seçim, LEADER_FAULT devri ve grace
-  beklemesi eski hâliyle çalışıyor.
+- `swarm_core/test/test_sabit_lider.py` — 11 test. Yarısı **kapatma
+  anahtarı regresyonu**: `sabit_lider=0` iken ilk seçim, LEADER_FAULT devri
+  ve grace beklemesi eski hâliyle çalışıyor (yarışma günü tek satırla geri
+  dönülebilsin diye test altında).
 - `swarm_state_machine/test/test_lider_slot_sifir.py` — 13 test. Slot 0'ın
   üç formasyonda da merkez olduğunu ve kadro sırasının artık önemsiz
   olduğunu kilitliyor.
-- Tüm paketler: **1024 geçti** (272 + 400 + 52 + 300), 28 atlandı.
-  Görev 1 paketi (`swarm_missions`) **52/52 değişmedi**.
+- Tüm paketler: **1058 geçti** (277 + 407 + 62 + 312), 28 atlandı.
+  (`origin/main`'in 19 commit'i üzerine rebase edildi, çakışma çıkmadı.)
+  Görev 1 paketi (`swarm_missions`) **62/62 değişmedi**.
 - **Canlı düğüm ölçümü** (`ros:jazzy` konteyneri, gerçek `ConsensusNode`):
 
-  | Profil | Uygun olan | Sonuç |
+  | Ayar | Uygun olan | Sonuç |
   |---|---|---|
-  | `sabit_lider=0` (Görev 1) | yalnız ajan 3 | `leader_id=3`, seçim yayını `[3]` — **eski davranış** |
-  | `sabit_lider=1` (Görev 2) | yalnız ajan 3 | `leader_id=1` — ylp00 hiç görülmemişken bile |
+  | `sabit_lider=0` | yalnız ajan 3 | `leader_id=3`, seçim yayını `[3]` — **eski davranış** |
+  | `sabit_lider=1` | yalnız ajan 3 | `leader_id=1` — ylp00 hiç görülmemişken bile |
   | `sabit_lider=1`, ylp00 tarafı | — | `is_leader=True`, `ElectionResult(1)` **yayınlandı** (esp32_bridge mesh kapısı açılır) |
   | mesh'ten drone3 "ben liderim" | — | **REDDEDİLDİ**, lider 1 kaldı |
 
 ## Sırada — uçakta doğrulanacak
 
 Dağıtımdan sonra **açılış logunda** görülmeli:
-`[baslat] 🔒 SABIT LIDER = drone1 (GOREV 2 profili)` ve
-`[consensus] SABIT LIDER ACIK: drone1`. Görev 1 profiline dönüldüğünde
-aynı satır `sabit lider KAPALI — normal secim (Gorev 1 davranisi)` olmalı.
+`[baslat] 🔒 SABIT LIDER = drone1 (Gorev 1 + Gorev 2)` ve
+`[consensus] SABIT LIDER ACIK: drone1`. `SURU_SABIT_LIDER=0` ile
+kapatıldığında aynı satır `sabit lider KAPALI — normal secim (eski davranis)`
+olmalı.
+
+🔴 **Uçakta ölçülecek:** `ros2 param get /consensus_node sabit_lider` → **1**
+(iki uçakta da) ve `docker logs` içinde lider `1` seçilmiş olmalı — 8 sn'lik
+tam kadro beklemesi artık hiç işlemediği için seçim **anında** olmalı.
 
 ---
 

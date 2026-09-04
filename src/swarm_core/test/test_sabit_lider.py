@@ -1,20 +1,24 @@
 # Copyright 2026 Yelpence
-"""SABIT LIDER — 4 Eylul 2026 operator karari, YALNIZ GOREV 2.
+"""SABIT LIDER — 4 Eylul 2026 operator karari. SISTEM GENELI.
 
-NEDEN VAR: Gorev 2'de formasyon tarifini YALNIZ lider basiyor (tek-yayinci,
-KARAR-16) ve lider kilidi (3 Eylul) ILK secimi NIHAI yapiyor. Ilk secimin
-ylp00'a dusmesi bugun TESADUFE bagli: `candidate = min(effective)` + tam
-kadro beklemesi. Tam kadro `kilit_tam_kadro_s` (8 sn) icinde olusmazsa yedek
-yol devreye giriyor ve O AN uygun olan kim varsa KALICI lider oluyor.
-Ucaklar arasi evre kaymasi 3 Eylul ucusunda 25 SANIYE olculdu — yani 8 sn'lik
-pencere guvenilir degil ve yanlis lider bir daha duzelmiyor.
+KAPSAM: hem Gorev 1 hem Gorev 2. (Ilk tasarimda yalniz Gorev 2'ydi; operator
+ayni gun genisletti.) Lider zinciri consensus -> ElectionResult -> swarm_fsm
+-> SwarmState.leader_id -> mission1 oldugu icin tek parametre iki gorevi de
+kapsiyor; gorev bazli dallanma YOK.
+
+NEDEN VAR: lider kilidi (3 Eylul) ILK secimi NIHAI yapiyor, ama o secimin
+ylp00'a dusmesi TESADUFE bagliydi: `candidate = min(effective)` + tam kadro
+beklemesi. Tam kadro `kilit_tam_kadro_s` (8 sn) icinde olusmazsa yedek yol
+devreye giriyor ve O AN uygun olan kim varsa KALICI lider oluyordu. Ucaklar
+arasi evre kaymasi 3 Eylul ucusunda 25 SANIYE olculdu — yani 8 sn'lik pencere
+guvenilir degil ve yanlis lider bir daha duzelmiyor.
 
 Bu testler iki seyi ayni anda kilitliyor:
 
-  1) KAPSAM — `sabit_lider = 0` iken HICBIR SEY degismez. Gorev 1 profilinde
-     baslat.sh consensus'a 0 geciriyor; asagidaki regresyon testleri o
-     yolun bire bir eski davranisi surdurdugunu kanitliyor. Gorev 1'in
-     liderligine dokunulmadi.
+  1) KAPATMA ANAHTARI — `sabit_lider = 0` iken HICBIR SEY degismez.
+     Asagidaki regresyon testleri eski secim/devir davranisinin bire bir
+     korundugunu kanitliyor; yarisma gunu tek satirla geri donulebilsin
+     diye bu yol test altinda tutuluyor.
 
   2) DEGISMEZLIK — sabit lider acikken lider hicbir kosulda degismez:
      uygunlugunu yitirse de, daha kucuk id'li bir aday cikssa da,
@@ -50,14 +54,14 @@ def _ctx(agent_id=1, leader_id=0, sabit=0, kilit=False):
 
 
 # ---------------------------------------------------------------------------
-# 1. KAPSAM — varsayilan KAPALI, Gorev 1 davranisi degismedi
+# 1. KAPATMA ANAHTARI — varsayilan KAPALI, eski davranis degismedi
 # ---------------------------------------------------------------------------
 
 def test_baglam_sabit_lider_VARSAYILAN_KAPALI():
     """Yeni alanin varsayilani 0 olmali.
 
-    0 olmasaydi, parametreyi hic gecirmeyen her cagirici (Gorev 1 dahil)
-    sessizce sabit lider davranisina gecerdi.
+    0 olmasaydi, parametreyi hic gecirmeyen her cagirici sessizce sabit
+    lider davranisina gecerdi.
     """
     c = ConsensusContext(
         agent_id=1, agent_count=3, stale_s=3.0,
@@ -67,7 +71,7 @@ def test_baglam_sabit_lider_VARSAYILAN_KAPALI():
 
 
 def test_kapaliyken_ILK_SECIM_eski_yoldan_yapilir():
-    """GOREV 1 REGRESYONU: sabit kapaliyken tam kadro -> min(effective)."""
+    """REGRESYON: sabit kapaliyken tam kadro -> min(effective)."""
     c = _ctx(leader_id=0, sabit=0)
     c.bootstrap_since = SIMDI - 5.0
     karar = election.decide_change(c, {1, 2, 3}, SIMDI)
@@ -76,7 +80,7 @@ def test_kapaliyken_ILK_SECIM_eski_yoldan_yapilir():
 
 
 def test_kapaliyken_LIDER_ARIZASI_devri_calisir():
-    """GOREV 1 REGRESYONU: lider effective'den duserse devir olur."""
+    """REGRESYON: lider effective'den duserse devir olur."""
     c = _ctx(agent_id=2, leader_id=1, sabit=0)
     karar = election.decide_change(c, {2, 3}, SIMDI)
     assert karar is not None
@@ -85,7 +89,7 @@ def test_kapaliyken_LIDER_ARIZASI_devri_calisir():
 
 
 def test_kapaliyken_eksik_kadroda_grace_bekler():
-    """GOREV 1 REGRESYONU: tam kadro yoksa grace dolmadan secim YOK."""
+    """REGRESYON: tam kadro yoksa grace dolmadan secim YOK."""
     c = _ctx(leader_id=0, sabit=0)
     c.bootstrap_since = SIMDI - 0.5      # grace_s = 1.5
     assert election.decide_change(c, {2, 3}, SIMDI) is None
