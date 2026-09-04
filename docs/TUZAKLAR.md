@@ -1,6 +1,6 @@
 # TUZAKLAR — hata vermeden yanlış sonuç üretenler
 
-**Son güncelleme:** 4 Eylül 2026, 15:45 — §4.15: QR konum tablosu YALNIZ RAM'de ve montajı SESSİZDİ (bir gün yedi)
+**Son güncelleme:** 4 Eylül 2026, 16:20 — §10.1: harita katmanları yeniden kurulan haritaya EKLENMİYORDU (QR işaretçisi ve FORMASYON ÇİZGİSİ sessizce yok) · §4.15 QR tablosu RAM'de
 
 > **Bu belge CANLI.** Arşiv değil — buradaki her madde **bugün de geçerli.**
 >
@@ -2562,3 +2562,59 @@ Kalıcı çözüm: **ESP'yi hep aynı USB portuna tak** ve bunu `cihazlar.md`'ye
 yaz — ad o zaman sabit kalır.
 
 ---
+
+## 10. YKİ arayüzü — React / Leaflet
+
+### 10.1 🔴 Harita yeniden kurulunca katmanlar YENİ haritaya eklenmiyor
+
+**4 Eylül 2026'da ölçüldü.** Belirti: *"QR konumunu girdim, haritada işaret
+çıkmıyor. Dün çıkıyordu."* Drone ikonları normal görünüyordu — bu yüzden
+"harita çalışıyor, QR kodu bozuk" diye okundu ve saatler oraya gitti.
+
+**Gerçek sebep.** `MapView` katmanları `useRef` içinde tutuyor
+(`qrMarkersRef`, `formationLineRef`, `pendingMarkerRef`, `pendingLineRef`)
+ve her birini şu desenle yönetiyor:
+
+    if (!ref.current) { ref.current = L.marker(...).addTo(map); }
+    else              { ref.current.setLatLng(...); }   // <-- addTo YOK
+
+Harita kurulum efektinin temizliği `map.remove()` çağırıyor — bu, o haritaya
+ait **bütün katmanları yok ediyor.** Ama ref'ler dolu kalıyordu. React
+geliştirme kipinde bileşen bilerek **iki kez** mount ediliyor; ikinci turda
+`ref.current` hâlâ dolu görünüyor, kod `else` dalına düşüyor ve katman
+**yeni haritaya HİÇ eklenmiyor.**
+
+`visualsRef` (drone ikonları) temizlikte sıfırlanıyordu — **drone'ların
+görünüp QR'ın görünmemesinin sebebi tam olarak buydu.** Diğer dördü
+atlanmıştı.
+
+**Neden bu kadar zor bulundu:** hata yok, uyarı yok, log yok. Ölçüm şunu
+gösterdi — işaretçi **görüş alanının tam ortasındayken** DOM'da yok:
+
+    gorusAlaninda=EVET  eleman=YOK  haritaMerkez=38.69070,39.16086  zoom=19
+
+Leaflet nesnesi vardı, `markers.size === 1` idi; yalnızca ölü bir haritaya
+bağlıydı.
+
+**Neden yarışma günü ısırırdı — ve tesadüfen niye "dün çalışıyordu":**
+koordinatı **sayfa açıkken** girersen katman canlı haritaya eklenir ve
+görünür. Ama koordinatlar `localStorage`'da hazır beklerken sayfa
+yenilenirse, katman ilk (atılan) haritaya eklenip kaybolur. Yarışma günü
+koordinatlar önceden girili olacağı için **her açılışta** bu hâle düşerdi.
+
+🔴 **Asıl tehlike QR işaretçisi değil, `formationLineRef`.** Aynı desen
+formasyon çizgisinde de var. Yani sürü havada formasyona girse bile
+**çizgi hiç çizilmeyebilirdi** — ve o çizgi, formasyon doğrulama uçuşunda
+baktığımız tek görsel gösterge. "Formasyon kurulmadı" diye okunup uçuş
+boşa harcanırdı.
+
+✅ **Düzeltildi:** temizlik artık haritaya ait **tüm** katman ref'lerini
+sıfırlıyor.
+
+**Kural:** bir Leaflet katmanını ref'te tutuyorsan, `map.remove()` yapan her
+temizlik o ref'i de sıfırlamak zorundadır. `if (!ref.current) … else …`
+deseni, ref ile haritanın ömrünün aynı olduğunu **varsayar**; harita
+yeniden kurulabiliyorsa bu varsayım yanlıştır.
+
+*Aynı aile:* §4.15 (QR tablosu montajı) — ikisi de "nesne var ama bağlı
+olduğu şey ölmüş" sınıfı ve ikisi de tamamen sessiz.

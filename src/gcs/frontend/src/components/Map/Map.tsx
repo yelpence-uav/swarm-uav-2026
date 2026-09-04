@@ -101,6 +101,21 @@ export function MapView({
       map.remove();
       mapRef.current = null;
       visualsRef.current.clear();
+      // 🔴 4 Eylül 2026 — HARITA YOK EDILINCE ONA AIT KATMAN REF'LERININ
+      // HEPSI SIFIRLANMALI. Aşağıdaki üç ref atlanmıştı ve sonucu SESSİZDİ:
+      // React dev modunda bileşen iki kez mount ediliyor; ilk haritaya
+      // eklenen katmanlar `map.remove()` ile yok oluyor ama ref'ler dolu
+      // kalıyor. Sonraki turda `if (!ref.current)` "zaten var" deyip
+      // güncelleme dalına düşüyor ve katman YENİ haritaya HİÇ eklenmiyor.
+      // Ölçüldü: QR işaretçisi görüş alanının tam ortasındayken DOM'da yok
+      // (`getElement() === undefined`), hata yok, log yok. Aynı desen
+      // formasyon çizgisinde de var — sürü havadayken çizgi hiç çıkmazdı.
+      // `visualsRef` zaten temizleniyordu; drone ikonlarının görünüp
+      // QR'ın görünmemesinin sebebi tam olarak buydu.
+      qrMarkersRef.current.clear();
+      formationLineRef.current = null;
+      pendingMarkerRef.current = null;
+      pendingLineRef.current = null;
     };
   }, []);
 
