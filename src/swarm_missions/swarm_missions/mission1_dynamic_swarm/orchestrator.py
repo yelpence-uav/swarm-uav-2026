@@ -79,6 +79,23 @@ class OrchestratorConfig:
     # Dagilma oncesi dikey merdiven basamagi. Kuru testte 3 m KALDI (3.29 m),
     # 4 m'den itibaren GECTI; 5 m secildi (5.18 m pay).
     donus_katman_m: float = 5.0
+    # TOPLANMA MERDIVENI — kalkistan ilk formasyona gecerken dikey ayirma.
+    # 0.0 = KAPALI (davranis eskisinin AYNISI).
+    #
+    # NEDEN VAR (4 Eylul 2026, operator): Gorev 1'de ucaklari HAKEM yere
+    # rastgele koyuyor. Kalkistan sonra herkes kendi slotuna giderken
+    # yollar KESISEBILIR — kim nerede duracagini konumdan turetiyoruz
+    # (Macar atama), diziliste bir garanti yok.
+    #
+    # Eve donusteki `donus_katman_m` ile AYNI mantik ve ayni olcum:
+    # 2 m/s'de frenleme 2.23 m ve kacinmanin hard sinirindan (2.5 m)
+    # daha az pay kaliyordu. Katman ayrimi ONCEDEN kuruyor, kacinma
+    # boylece TEK DAYANAK degil YEDEK oluyor.
+    #
+    # Ayri parametre: toplanma kalkistan hemen sonra (~10 m) oluyor,
+    # eve donus ise gorev irtifasinda. Ikisini bagimsiz ayarlayabilmek
+    # icin ayri tutuldu.
+    toplanma_katman_m: float = 0.0
     # 🔴 SADECE DAGILMA BACAGINDA. 180 yaw'dan sonra cizginin uc ucaklari
     # takas ediyor ve KAFA KAFAYA gecmek zorundalar. Olculdu:
     #   her biri 2.0 m/s -> kapanma 4.0 -> frenleme 2.23 m -> kalan 1.77 m
@@ -257,6 +274,11 @@ class _State:
     kalkis_ofsetleri: dict = field(default=None)
     # Gorev formasyonu (cfg.gorev_formasyon) bir kez uygulandi mi.
     gorev_formasyon_kuruldu: bool = False
+    # TOPLANMA MERDIVENI acik mi. Kalkista kurulur, ilk formasyon
+    # yatayda OTURUNCA kalkar (bkz. _maybe_formation_settled).
+    # 🔴 _phase_key'e GIRIYOR: girmezse merdiven kalktiginda emit-once
+    # duz komutu bastirir ve suru merdivende ASILI kalir — sessizce.
+    toplanma_merdiveni: bool = False
     # RETURN_HOME alt-fazi: 0=yaw, 1=eve don, 2=merdiven, 3=dagil, 4=bitti
     donus_faz: int = 0
     # Alt-fazin BASLADIGI an (time_in_state). Fazlar artik sure ile degil
@@ -603,6 +625,23 @@ class Mission1Orchestrator:
         self._st.settle_prev_pos = None
         self._st.settle_first_err = None
         if rotating:
+            # 🔴 MERDIVEN ACIKSA ONCE IRTIFAYI ESITLE, SONRA "bitti" de.
+            # Sinyali burada verirsek mission_fsm NAVIGATE'e gecer ve suru
+            # QR'a MERDIVENDE asili gider — katmanlar 5 m arayla, yani
+            # sartnamenin istedigi formasyon havada bozuk ucar.
+            # 3 Eylul'de eve donuste birebir bu hata vardi: sinyal her alt
+            # fazda uretiliyordu ve suru yaw oturur oturmaz inise geciyordu.
+            #
+            # Bayrak _phase_key'de oldugu icin dusurmek ANAHTARI degistirir:
+            # yakinsama olceri kendiliginden sifirlanir, DUZ ofsetlerle
+            # yeniden olcer ve oturunca sinyali BU KEZ verir.
+            #
+            # Zaman asiminda da once buradan geciyoruz: yani merdiven
+            # sinyalden ONCE her halukarda kalkiyor, mid-gorev rotasyonlara
+            # sizamiyor (toplanma merdiveni TEK SEFERLIK).
+            if self._st.toplanma_merdiveni:
+                self._st.toplanma_merdiveni = False
+                return None
             return RotationCompletedCmd(
                 max_error_m=max_err,
                 clean=max_err <= self._cfg.formation_settle_tol_m,
@@ -703,7 +742,12 @@ class Mission1Orchestrator:
         qr_seq = int(getattr(inp.qr, 'qr_seq', 0)) if inp.qr else 0
         faz = (self._donus_fazi(inp)
                if inp.mission_state == _S_RETURN_HOME else 0)
-        return (inp.mission_state, inp.qr_step, qr_seq, faz)
+        # 🔴 TOPLANMA MERDIVENI DE ANAHTARDA. Merdiven kalkinca ofsetler
+        # degisiyor ama state/step/seq AYNI kaliyor; bayrak anahtarda
+        # olmazsa emit-once duz komutu BASTIRIR ve suru merdivende asili
+        # kalir. donus_faz ile birebir ayni tuzak, ayni cozum.
+        return (inp.mission_state, inp.qr_step, qr_seq, faz,
+                bool(self._st.toplanma_merdiveni))
 
     def _handle(self, inp: OrchestratorInput):
         """Faza göre ilgili işleyiciye yönlendirir."""
@@ -930,13 +974,18 @@ class Mission1Orchestrator:
             # dayatinca o silinecek; kalkis dizilisinin AYRI kopyasi burada
             # kaliyor ki eve donuste herkes KENDI noktasina inebilsin.
             self._st.kalkis_ofsetleri = dict(self._st.frozen_offsets)
+        # TOPLANMA MERDIVENI BURADA ACILIR — kalkis anindan itibaren ucaklar
+        # ayri katmanlarda. Sonradan acmak, gecisin ORTASINDA irtifa
+        # degistirmek olurdu; ayrim en bastan kurulu olsun.
+        if float(self._cfg.toplanma_katman_m) > 0.0:
+            self._st.toplanma_merdiveni = True
         return [FormationTargetCmd(
             formation_type=self._st.formation_type,
             center=self._hold_center(inp, offsets, heading),
             heading_deg=heading,
             spacing_m=self._st.spacing_m,
             agent_ids=list(inp.agent_ids),
-            offsets=offsets,
+            offsets=self._toplanma_katmanla(inp, offsets),
             rotate_towards_target=False,
             use_current_centroid=True,
             use_current_altitude=True,
@@ -977,6 +1026,12 @@ class Mission1Orchestrator:
         )
         if offsets is None:
             return None
+        # TOPLANMA MERDIVENI: kalkistan ilk formasyona gecerken herkes AYRI
+        # irtifada. Yatay ofsetlere dokunmuyor, yalniz z'yi ayiriyor.
+        # Yakinsama olculunce kalkiyor (_maybe_formation_settled); o anda
+        # ucaklar zaten slotlarinda, yani irtifa esitlemesi yatayda
+        # formasyon araligi kadar ayrikken yapiliyor.
+        offsets = self._toplanma_katmanla(inp, offsets)
 
         cmds = []
         if not self._st.formation_published:
@@ -1304,6 +1359,37 @@ class Mission1Orchestrator:
         sira = sorted(int(a) for a in (self._st.kalkis_ofsetleri or {}))
         i = sira.index(int(agent_id)) if int(agent_id) in sira else 0
         return taban_z - i * float(self._cfg.donus_katman_m)
+
+    def _toplanma_irtifasi(self, agent_id: int, ids, taban_z: float) -> float:
+        """Toplanma merdiveni basamagi — kimlik sirasina gore DETERMINISTIK.
+
+        `_merdiven_irtifasi` ile ayni kural ama sirayi `kalkis_ofsetleri`
+        yerine o anki ajan listesinden aliyor: toplanma sirasinda kalkis
+        dizilisi henuz dondurulmus olmayabilir.
+
+        NED'de z asagi pozitif; yukari cikmak z'yi KUCULTUR.
+        """
+        sira = sorted(int(a) for a in ids)
+        i = sira.index(int(agent_id)) if int(agent_id) in sira else 0
+        return taban_z - i * float(self._cfg.toplanma_katman_m)
+
+    def _toplanma_katmanla(self, inp: OrchestratorInput, offsets):
+        """Ofsetlerin z'sini toplanma merdivenine cevirir (yatay dokunulmaz).
+
+        Merkez irtifasina GORE veriliyor, cunku komut
+        `use_current_altitude=True` ile gidiyor — faz 2 (eve donus dikey
+        merdiveni) ile birebir ayni desen.
+        """
+        if not self._st.toplanma_merdiveni:
+            return offsets
+        if float(self._cfg.toplanma_katman_m) <= 0.0:
+            return offsets
+        taban = inp.centroid[2]
+        return [
+            (o[0], o[1],
+             self._toplanma_irtifasi(a, inp.agent_ids, taban) - taban)
+            for a, o in zip(inp.agent_ids, offsets)
+        ]
 
     def _kalkis_hedefleri(self, inp: OrchestratorInput, katmanli: bool):
         """Her ucagin KENDI kalkis noktasi (home + kalkis ofseti)."""

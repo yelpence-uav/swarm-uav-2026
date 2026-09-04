@@ -86,6 +86,8 @@ class Mission1Node(Node):
             gorev_aralik_m=float(self.get_parameter('gorev_aralik_m').value),
             donus_yaw_deg=float(self.get_parameter('donus_yaw_deg').value),
             donus_katman_m=float(self.get_parameter('donus_katman_m').value),
+            toplanma_katman_m=float(
+                self.get_parameter('toplanma_katman_m').value),
             dagilma_hiz_mps=float(
                 self.get_parameter('dagilma_hiz_mps').value),
             gorev_kurulum_hiz_mps=float(
@@ -150,6 +152,9 @@ class Mission1Node(Node):
         self.declare_parameter('gorev_aralik_m', 7.0)
         self.declare_parameter('donus_yaw_deg', 0.0)
         self.declare_parameter('donus_katman_m', 5.0)
+        # Toplanma merdiveni — kalkistan ilk formasyona gecerken dikey
+        # ayirma. 0.0 = KAPALI (davranis eskisinin aynisi).
+        self.declare_parameter('toplanma_katman_m', 0.0)
         self.declare_parameter('dagilma_hiz_mps', 1.0)
         self.declare_parameter('gorev_kurulum_hiz_mps', 0.0)
         # 🔴 KALKIS IRTIFASI — agent_fsm'in target_altitude_m'i ile AYNI

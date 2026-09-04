@@ -187,6 +187,24 @@ GOREV_DONUS_YAW_DEG = 0.0
 # BUYUK olmali ki kacinma tetiklenmeden ayrim kurulmus olsun.
 GOREV_DONUS_KATMAN_M = 5.0
 
+# TOPLANMA MERDIVENI — kalkistan ilk formasyona gecerken dikey ayirma.
+# 0.0 = KAPALI (davranis eskisinin aynisi).
+#
+# 🔴 NEDEN VAR (4 Eylul 2026, operator): Gorev 1'de ucaklari HAKEM yere
+# rastgele koyuyor. Kalkistan sonra herkes kendi slotuna giderken yollar
+# KESISEBILIR — kim nerede duracagi konumdan turetiliyor (Macar atama),
+# yerdeki dizilisde hicbir garanti yok.
+#
+# 5.0 secildi cunku GOREV_DONUS_KATMAN_M ile AYNI kisit gecerli: kacinma
+# katmani 3 m ve merdiven ondan BUYUK olmali ki ayrim kacinma tetiklenmeden
+# kurulmus olsun. Ayni olcum orada yazili (3 m KALDI, 4 m ve 5 m GECTI).
+#
+# Ayri parametre: toplanma kalkistan hemen sonra (~10 m) oluyor, eve donus
+# gorev irtifasinda. Ikisi bagimsiz ayarlanabilsin.
+# ⚠️ Kalkis 10 m ise katmanlar 10/15/20 m olur — en ustteki ucak 20 m'ye
+# cikar. Gorev tavaniyla catisirsa BURADAN kucult.
+GOREV_TOPLANMA_KATMAN_M = 5.0
+
 # 🔴 YALNIZ DAGILMA BACAGI. 180 yaw'dan sonra cizginin uc ucaklari takas
 # ediyor ve kafa kafaya geciyorlar. Olculdu:
 #   2.0 m/s -> kapanma 4.0 -> frenleme 2.23 m -> kalan 1.77 m  (hard 2.5 IHLAL)
@@ -1341,6 +1359,7 @@ def _kabuk():
     print(f'GOREV_ROTA_BILINMEYEN_S={GOREV_ROTA_BILINMEYEN_S}')
     print(f'GOREV_FORMASYON={GOREV_FORMASYON}')
     print(f'GOREV_ARALIK={GOREV_ARALIK_M:.1f}')
+    print(f'GOREV_TOPLANMA_KATMAN={GOREV_TOPLANMA_KATMAN_M:.1f}')
     print(f'GOREV_DONUS_YAW={GOREV_DONUS_YAW_DEG:.1f}')
     print(f'GOREV_DONUS_KATMAN={GOREV_DONUS_KATMAN_M:.1f}')
     print(f'GOREV_DAGILMA_HIZ={GOREV_DAGILMA_HIZ_MPS:.1f}')

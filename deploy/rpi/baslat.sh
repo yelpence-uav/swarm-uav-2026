@@ -1699,6 +1699,7 @@ fi   # /altyapi: ic_dis_kopru
             -p gorev_aralik_m:=${GOREV_ARALIK:-7.0} \
             -p donus_yaw_deg:=${GOREV_DONUS_YAW:-0.0} \
             -p donus_katman_m:=${GOREV_DONUS_KATMAN:-5.0} \
+            -p toplanma_katman_m:=${GOREV_TOPLANMA_KATMAN:-0.0} \
             -p dagilma_hiz_mps:=${GOREV_DAGILMA_HIZ:-1.0} \
             -p gorev_kurulum_hiz_mps:=${GOREV_KURULUM_HIZ:-0.0} \
             >> "$GUNLUK/mission1.log" 2>&1 &

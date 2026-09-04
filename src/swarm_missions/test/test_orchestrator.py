@@ -705,3 +705,150 @@ def test_SON_fazda_EVE_VARDI_sinyali_URETILIR():
         cmds += o.decide(_inp_uzak(S_RETURN_HOME, 0, time_in_state=t + k))
     assert any(isinstance(c, FormationReachedCmd) for c in cmds), (
         'son fazda "eve vardik" sinyali cikmadi -> inis tetiklenmez')
+
+
+# ===================================================================
+# TOPLANMA MERDIVENI (4 Eylul 2026, operator istegi)
+#
+# Gorev 1'de ucaklari HAKEM yere rastgele koyuyor. Kalkistan sonra herkes
+# kendi slotuna giderken yollar kesisebilir: kim nerede duracagi konumdan
+# turetiliyor (Macar atama), diziliste hicbir garanti yok.
+#
+# Merdiven kalkista kurulur, ilk formasyon YATAYDA oturunca kalkar. Iki
+# yonlu kilit: acikken ayirma GERCEKTEN var mi, ve kalkarken irtifa
+# esitleniyor mu — ikincisi kacirilirsa suru QR'a 5 m'lik katmanlarda
+# asili gider ve sartnamenin istedigi formasyon havada BOZUK ucar.
+# ===================================================================
+
+def _merdivenli_orch(katman=5.0, **kw):
+    kw.setdefault('toplanma_katman_m', katman)
+    return _profil_orch(**kw)
+
+
+def _dz(cmd):
+    """Komuttaki ofsetlerin z bilesenleri."""
+    return [round(o[2], 3) for o in cmd.offsets]
+
+
+def _xy(cmd):
+    return [(round(o[0], 3), round(o[1], 3)) for o in cmd.offsets]
+
+
+def test_merdiven_VARSAYILAN_KAPALI():
+    """Ayar verilmezse davranis eskisinin AYNISI — irtifalar esit."""
+    o = _profil_orch()                       # toplanma_katman_m yok
+    cmds = [c for c in _kalkis(o) if isinstance(c, FormationTargetCmd)]
+    assert cmds, 'kalkis komutu yok'
+    assert len(set(_dz(cmds[0]))) == 1, 'kapaliyken katman olusmus'
+    assert not o._st.toplanma_merdiveni
+
+
+def test_merdiven_KALKISTA_kuruluyor():
+    """Ayirma kalkis aninda var — gecisin ortasinda degil."""
+    o = _merdivenli_orch()
+    cmds = [c for c in _kalkis(o) if isinstance(c, FormationTargetCmd)]
+    dz = _dz(cmds[0])
+    assert len(set(dz)) == 3, f'uc ayri katman bekleniyordu: {dz}'
+    assert o._st.toplanma_merdiveni
+
+
+def test_merdiven_DETERMINISTIK_kimlik_sirasina_gore():
+    """Ucu de AYNI sirayi hesaplamali; yoksa katmanlar cakisir."""
+    o = _merdivenli_orch(katman=4.0)
+    cmds = [c for c in _kalkis(o) if isinstance(c, FormationTargetCmd)]
+    dz = _dz(cmds[0])
+    # ids [1,2,3] sirali; NED'de yukari = z KUCULUR
+    assert dz == [0.0, -4.0, -8.0], dz
+
+
+def test_merdiven_YATAYA_DOKUNMUYOR():
+    """Ayirma yalniz dikeyde. Yatay bozulursa dizilis snapshot'i gider."""
+    duz = _profil_orch()
+    mrd = _merdivenli_orch()
+    a = [c for c in _kalkis(duz) if isinstance(c, FormationTargetCmd)][0]
+    b = [c for c in _kalkis(mrd) if isinstance(c, FormationTargetCmd)][0]
+    assert _xy(a) == _xy(b)
+
+
+def test_merdiven_TOPLANMADA_da_uygulaniyor():
+    """Asil risk kalkisda degil, formasyona GECERKEN. Orada da katmanli."""
+    o = _merdivenli_orch()
+    _kalkis(o)
+    cmds = [c for c in o.decide(_inp(S_ROTATE, 0))
+            if isinstance(c, FormationTargetCmd)]
+    assert cmds
+    assert len(set(_dz(cmds[-1]))) == 3, _dz(cmds[-1])
+
+
+def test_merdiven_ANAHTARDA__emit_once_bastirmasin():
+    """Merdiven bayragi emit-once anahtarinda mi.
+
+    🔴 Bayrak _phase_key'de olmazsa merdiven kalktiginda duz komut
+    BASTIRILIR ve suru merdivende asili kalir — sessizce. Bu testin
+    dusmesi tam olarak o demektir.
+    """
+    o = _merdivenli_orch()
+    _kalkis(o)
+    inp = _inp(S_ROTATE, 0)
+    k_acik = o._phase_key(inp)
+    o._st.toplanma_merdiveni = False
+    k_kapali = o._phase_key(inp)
+    assert k_acik != k_kapali, 'merdiven bayragi anahtari degistirmiyor'
+
+
+def test_merdiven_OTURUNCA_kalkiyor_ve_SINYAL_GECIKIYOR():
+    """Merdiven once iner, rotasyon-bitti sinyali sonra gider.
+
+    Sinyal merdiven acikken giderse mission_fsm NAVIGATE'e gecer ve suru
+    QR'a katmanlarda asili gider. 3 Eylul'de eve donuste birebir bu hata
+    vardi.
+    """
+    o = _merdivenli_orch()
+    _kalkis(o)
+    o.decide(_inp(S_ROTATE, 0))
+    assert o._st.toplanma_merdiveni
+
+    # Yakinsamayi zorla: zaman asimi dali da ayni kapidan geciyor.
+    o._st.settle_key_t0 = 0.0
+    cmd = o._maybe_formation_settled(
+        _inp(S_ROTATE, 0, time_in_state=10_000.0))
+    assert cmd is None, 'merdiven acikken rotasyon-bitti sinyali gitti'
+    assert not o._st.toplanma_merdiveni, 'merdiven inmedi'
+
+
+def test_merdiven_indikten_SONRA_sinyal_geliyor():
+    """Merdiven indikten sonra sinyal ARTIK gitmeli.
+
+    Kapi tek seferlik olmazsa gorev ROTATE'te sonsuza kadar takilir.
+    """
+    from swarm_missions.mission1_dynamic_swarm.orchestrator import (
+        RotationCompletedCmd,
+    )
+    o = _merdivenli_orch()
+    _kalkis(o)
+    o.decide(_inp(S_ROTATE, 0))
+    o._st.settle_key_t0 = 0.0
+    o._maybe_formation_settled(_inp(S_ROTATE, 0, time_in_state=10_000.0))
+    assert not o._st.toplanma_merdiveni
+
+    # Merdiven inince ANAHTAR degisti ve yakinsama sayaci SIFIRDAN
+    # basliyor — dogru davranis: duz irtifadaki oturmayi gercekten olcmeli,
+    # eski turun zaman asimini devralmamali. Bu yuzden once anahtari kuran
+    # bir cagri, sonra zaman asimi.
+    o._maybe_formation_settled(_inp(S_ROTATE, 0, time_in_state=10_001.0))
+    o._st.settle_key_t0 = 0.0
+    cmd = o._maybe_formation_settled(
+        _inp(S_ROTATE, 0, time_in_state=20_000.0))
+    assert isinstance(cmd, RotationCompletedCmd), cmd
+
+
+def test_merdiven_indikten_sonra_IRTIFA_ESITLENIYOR():
+    """Merdiven kalkinca uretilen ofsetler DUZ olmali."""
+    o = _merdivenli_orch()
+    _kalkis(o)
+    o.decide(_inp(S_ROTATE, 0))
+    o._st.toplanma_merdiveni = False
+    cmds = [c for c in o.decide(_inp(S_ROTATE, 0, time_in_state=1.0))
+            if isinstance(c, FormationTargetCmd)]
+    assert cmds, 'merdiven indikten sonra komut uretilmedi'
+    assert len(set(_dz(cmds[-1]))) == 1, _dz(cmds[-1])
