@@ -1,6 +1,6 @@
 # YAPILACAKLAR
 
-**Son güncelleme:** 4 Eylül 2026, 07:15 — 🔴 EN ÜSTTE: B5 doğrulama uçuşu (formasyonların çalıştığının kanıtı) · 6 commit pushlanacak · en-yakın-slot P2
+**Son güncelleme:** 4 Eylül 2026, 10:40 — 🔴 EN ÜSTTE: QR `mnv` eksenleri YANLIŞ eşleniyor (çizgide roll+yaw, ok başı/V'de roll+yaw+pitch) · QR'ın YKİ'ye ulaştığı uçtan uca doğrulandı
 
 > **Finale 5 gün.** Bu liste artık "her fikir" değil, **bu 8 günde
 > yapılacak iş.** Bir madde buraya giriyorsa birinin onu yapması planlanıyor
@@ -12,6 +12,40 @@
 ---
 
 ## 🔴 P0 — bunlar kapanmadan ilgili uçuş yapılmaz
+
+- `[ ]` 🔴🔴 **QR `mnv` EKSENLERİ YANLIŞ EŞLENİYOR — manevra görevi bununla uçamaz.**
+  `qr_detector.py:395` `mnv` komutunu **her zaman iki değer** sanıyor ve
+  sabit olarak `(pitch, roll)` diye okuyor; `yaw_deg` QR'dan **hiç
+  doldurulmuyor**, 0,0 kalıyor.
+
+  **Operatör kuralı (4 Eylül):**
+  - **ÇİZGİ** formasyonunda `mnv` yalnız **roll ve yaw** taşır (2 değer)
+  - **OK BAŞI** ve **V** formasyonunda **roll, yaw ve pitch** taşır (3 değer)
+
+  Yani bugün: çizgide iki eksen birden yanlış yere yazılıyor, ok başı/V'de
+  üçüncü değer `command[3]`'e hiç bakılmadığı için **sessizce düşüyor.**
+  Hata vermiyor — 4 Eylül uçuşunda `["frm","l",6],["mnv",-5,10]` okundu ve
+  `pitch=-5 roll=10` üretildi.
+
+  ⚠️ **Önce SIRA netleşmeli:** iki değer `(roll, yaw)` mı `(yaw, roll)` mı,
+  üç değerde sıra ne? Şartname "QR içeriği ÖRNEKTİR, nihai format sonra
+  paylaşılacaktır" diyor — **operatörden teyit alınmadan kodlanmaz.**
+  Yanlış sıra, hatasız çalışan ve yanlış uçan bir sürü demek.
+
+  Değişecek yerler: `qr_detector.py` `mnv` dalı (formasyon tipine göre
+  eşleme) + `mnv` uzunluk denetimi (2/3 dışında **hata ver**, sessizce
+  kırpma) + birim test + `TIP_QR_GOREV` zaten üç açıyı da taşıyor
+  (`pitch_deg/roll_deg/yaw_deg`), mesh tarafında değişiklik gerekmiyor.
+
+- `[x]` ✅ **QR içeriği YKİ'ye ULAŞIYOR — uçtan uca doğrulandı (4 Eylül).**
+  `/api/telemetry/snapshot` → `qr` alanı: `detector_agent_id=3, qr_id=2,
+  next_qr=3, team_id=752825, valid=true, formation_type=3, spacing_m=6.0,
+  pitch/roll/yaw, altitude_agl_m=18.0, wait_s=4.0`. Zincir: kamera →
+  vision_node → esp32_bridge → mesh **broadcast** → baz ESP → laptop
+  `esp32_base` → backend. `raw_text` boş gelmesi **normal**: YKİ okunabilir
+  metni yapısal alanlardan kendi kuruyor (KARAR 8, ham metin yalnız
+  ayrıştırma hatasında `TIP_QR_HAM` ile gider).
+
 
 - `[ ]` 🔴 **B5 DOĞRULAMA UÇUŞU — formasyonlar İLK KEZ uçacak (4 Eylül).**
   Formasyonları öldüren iki kök neden kapandı (GUNLUK 07:15: havada IDLE →
