@@ -379,6 +379,10 @@ class MissionFsmNode(Node):
                 throttle_duration_sec=5.0,
             )
 
+        # Adimlar arasi bekleme GECIS DEGERLENDIRMESINDEN ONCE: bekleme
+        # dolduysa adim bu tick'te ilerlesin, bir tick gecikmesin.
+        self._qr_bekleme_kontrol()
+
         next_state = evaluate_transitions(ctx)
 
         if next_state is not None and next_state != ctx.state:
@@ -707,12 +711,57 @@ class MissionFsmNode(Node):
                 ctx.action_success = False
 
     def _advance_qr_step(self) -> None:
-        """Mevcut QR alt adimini ilerletir."""
+        """Tamamlanan adimdan sonra `w` kadar TUTAR, sonra ilerletir.
+
+        Sartname (QR belgesi) `w`'yi "GOREVLER ARASI bekleme suresi" diye
+        tanimliyor ve sirayi acikca sayiyor:
+            1 formasyona gec · 2 w bekle · 3 manevra · 4 w bekle
+            5 irtifa · 6 w bekle · 7 sonraki QR
+        Yani uc gorevlik pakette `w` UC KEZ uygulanir.
+
+        SONUNCUSUNU BURADA YAPMIYORUZ: son adimdan sonra durum DONE olur ve
+        bekleme WAIT_AT_QR'da zaten var (ana sartname madde 10). Burada
+        yalnizca ARADAKI beklemeler kuruluyor — ikisini birden yapmak
+        sonuncuyu CIFT beklerdi.
+
+        Bekleme yalnizca damga kuruyor; ilerletmeyi `_tick` yapiyor. Bu
+        sirada sure EXECUTE_QR_TASK icinde geciyor, yani orkestrator
+        komut edilen formasyonu/irtifayi TUTMAYA devam ediyor — "bekle"
+        derken suru bosta kalmiyor.
+        """
         ctx = self._ctx
         next_step = find_next_qr_step(ctx.current_qr, ctx.qr_task_step)
+        bekleme = float(getattr(ctx.current_qr, 'wait_s', 0.0) or 0.0)
+        if bekleme > 0.0 and next_step != QrTaskStep.DONE:
+            ctx.qr_step_bekleme_bitis = time.monotonic() + bekleme
+            self.get_logger().info(
+                f'[mission_fsm] {ctx.qr_task_step.name} bitti — '
+                f'{bekleme:.1f} sn tutuluyor, sonra {next_step.name}'
+            )
+            return
         ctx.qr_task_step = next_step
         self.get_logger().info(
             f'[mission_fsm] QR adimi: {next_step.name}'
+        )
+
+    def _qr_bekleme_kontrol(self) -> None:
+        """Adimlar arasi bekleme dolduysa bir sonraki adima gecer."""
+        ctx = self._ctx
+        if ctx.qr_step_bekleme_bitis is None:
+            return
+        # Durum degistiyse bekleme anlamini yitirir (or. FAILSAFE ->
+        # RETURN_HOME). Damgayi birakmak, sonraki QR'da yanlis ilerletme
+        # yapardi.
+        if ctx.state != MissionState.EXECUTE_QR_TASK:
+            ctx.qr_step_bekleme_bitis = None
+            return
+        if time.monotonic() < ctx.qr_step_bekleme_bitis:
+            return
+        ctx.qr_step_bekleme_bitis = None
+        next_step = find_next_qr_step(ctx.current_qr, ctx.qr_task_step)
+        ctx.qr_task_step = next_step
+        self.get_logger().info(
+            f'[mission_fsm] bekleme bitti — QR adimi: {next_step.name}'
         )
 
     def _handle_trigger(

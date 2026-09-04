@@ -59,6 +59,17 @@ class MissionContext:
 
     pause_return_state: MissionState = MissionState.NAVIGATE_TO_QR
     wait_deadline: Optional[float] = None
+    # QR ALT-ADIMLARI ARASI BEKLEME (4 Eylul 2026).
+    # Sartname QR belgesi `w`'yi "GOREVLER ARASI bekleme suresi" diye
+    # tanimliyor ve sirayi sayiyor:
+    #   1 formasyona gec  2 w bekle  3 manevra  4 w bekle
+    #   5 irtifa          6 w bekle  7 sonraki QR
+    # Yani uc gorevlik pakette `w` UC KEZ uygulaniyor. Bizde yalnizca
+    # SONUNCUSU vardi (WAIT_AT_QR); aradaki iki bekleme eksikti, yani
+    # w=4 icin 12 saniye yerine 4 saniye tutuyorduk.
+    # Onemi: hakem her komut edilen durumu gorup puanliyor. Formasyonu
+    # kurup hemen manevraya gecersek o formasyon net tutulmus sayilmayabilir.
+    qr_step_bekleme_bitis: Optional[float] = None
 
     action_done: bool = False
     action_success: bool = False
@@ -86,6 +97,9 @@ class MissionContext:
         self.event_formation_reached = False
         self.event_rotation_completed = False
         self.qr_task_step = QrTaskStep.NONE
+        # Sifirlanmazsa yeni QR'in ilk adimi ONCEKI QR'in bekleme
+        # damgasini devralir ve ya hic beklemez ya sonsuza kadar bekler.
+        self.qr_step_bekleme_bitis = None
 
     def time_in_state(self) -> float:
         """Mevcut duruma giristen bu yana gecen saniyeyi doner."""
