@@ -117,5 +117,44 @@ class TestGeriDusus(unittest.TestCase):
         self.assertEqual(c.kalkis_zemin_z, {})
 
 
+class TestYerMandaliTuketimi(unittest.TestCase):
+    """Mandal KALKISA ait; READY'den sonra yaw donusleri KORUNMALI.
+
+    🔴 5 Eylul'de dagitilmis kodla OLCULDU ve regresyondu:
+      yer 330 deg -> MOVEMENT'ta yaw ile 60 deg dondur -> 30 deg
+      -> MANEUVER girisi konumdan_tohumla() cagiriyor -> baslik 330'a
+      GERI SICRIYOR. Formasyon 60 derece geri doner; ustelik olculen
+      ofsetler yanlis baslikla govde cercevesine cevrildigi icin
+      "dizilim korunur, ucak kimildamaz" garantisi de bozulur.
+    Sartname G3: yaw = merkez sabit formasyon rotasyonu — o donus
+    korunmak zorunda.
+    """
+
+    def test_mandal_ACIKKEN_baslik_yere_cekilir(self):
+        """Kalkis davranisi: tirmanis salinimi yansimasin."""
+        c = _ctx(lider_z=YER_Z - 8.5)
+        c.yer_basligini_mandalla()
+        c.agent_statuses[1].heading_deg = 30.0      # tirmanista savruldu
+        c.konumdan_tohumla()
+        self.assertAlmostEqual(c.formation_heading_deg, 326.8, places=1)
+
+    def test_mandal_TUKETILINCE_guncel_baslik_kullanilir(self):
+        """READY sonrasi: yaw ile yapilan donus KORUNUR."""
+        c = _ctx(lider_z=YER_Z - 8.5)
+        c.yer_basligini_mandalla()
+        c.yer_heading_var = False                   # READY tuketti
+        c.agent_statuses[1].heading_deg = 30.0      # yaw ile dondu
+        c.konumdan_tohumla()
+        self.assertAlmostEqual(c.formation_heading_deg, 30.0, places=1)
+
+    def test_B19_mandali_YENIDEN_kurulabilir_hale_getirir(self):
+        c = _ctx(lider_z=YER_Z - 8.5)
+        c.yer_basligini_mandalla()
+        c.yer_heading_var = False
+        c.ucus_durumunu_sifirla()
+        self.assertFalse(c.yer_heading_var)
+        self.assertTrue(c.yer_basligini_mandalla())
+
+
 if __name__ == '__main__':
     unittest.main()

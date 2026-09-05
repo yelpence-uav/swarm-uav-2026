@@ -862,6 +862,34 @@ class ModeManagerNode(Node):
                     f'{self._ctx.centroid_y:.1f}, {self._ctx.centroid_z:.1f}) '
                     f'heading={self._ctx.formation_heading_deg:.1f} deg'
                 )
+
+                # 🔴 YER MANDALI BURADA TUKETILIR — 5 Eylul 2026.
+                #
+                # Mandal KALKIS icin var: tirmanista yaw 27 dereceye kadar
+                # savruluyor ve kapi o salinimin ortasinda ornekliyordu.
+                # Ama mandal ACIK KALIRSA sonraki HER konumdan_tohumla()
+                # cagrisi basligi kalkis degerine GERI CEKER — ve MANEUVER
+                # girisi tam olarak onu cagiriyor (satir ~895).
+                #
+                # OLCULDU (dagitilmis kodla): yer 330 deg -> MOVEMENT'ta yaw
+                # ile 60 deg dondur -> 30 deg -> MANEUVER'a gec -> baslik
+                # 330'a GERI SICRIYOR. Formasyon 60 derece geri doner ve
+                # olculen ofsetler yanlis baslikla govde cercevesine
+                # cevrildigi icin "dizilim korunur, ucak kimildamaz"
+                # garantisi de bozulur.
+                #
+                # READY'den sonra dogru kaynak liderin GUNCEL pusulasidir:
+                # yaw cubugu formasyonu bilerek dondurmus olabilir ve o
+                # donus KORUNMALI (sartname G3: yaw = merkez sabit formasyon
+                # rotasyonu). B19 sifirlamasi mandali ikinci kalkis icin
+                # yeniden kuruyor.
+                if self._ctx.yer_heading_var:
+                    self._ctx.yer_heading_var = False
+                    self.get_logger().info(
+                        '[mode_manager] yer basligi mandali TUKETILDI — '
+                        'bundan sonra baslik liderin guncel pusulasindan '
+                        '(yaw ile yapilan donusler korunur)'
+                    )
             else:
                 # Buraya dusmek "bir ajanin durumu hic gelmemis" demek;
                 # PREFLIGHT kapisi bunu zaten eliyor. Sessiz kalirsa suru
