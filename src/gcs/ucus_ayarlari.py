@@ -815,7 +815,22 @@ MOD_HIZ_MPS = 2.0              # hareket modu oteleme hizi (muhafazakar)
 # (cubukla oteleme) MOD_HIZ_MPS gecerlidir; slot hizini kalici olarak
 # dusurmek formasyonu merkezin GERISINDE birakir — formation_node'daki
 # "merkez 3.00 iken komut 1.05" hatasinin ta kendisi.
-MOD_MORF_HIZ_MPS = 1.0         # formasyon DEGISIMI sirasindaki slot hizi
+# 🔴 1.0 -> 1.30 (5 Eylul, operator: "biraz daha atik olsunlar").
+# 1.34 ISTENDI ama denetimden GECMIYOR: kapanma 2.68 m/s, frenleme 1.00 m,
+# kacinma esiginden geriye 1.997 m kaliyor ve esik 2.0. 1.30 -> 2.06 m.
+# Kazanc: okbasi->V gecisi 6 m aralikta 8.5 sn -> 6.5 sn.
+#
+# ⚠️ DENETIMIN MODELI MUHAFAZAKAR ve bunu OLCTUK: kapanmayi 2*v sayiyor,
+# oysa gercek formasyon gecislerinde en buyuk kapanma orani 0.765*v
+# (uc ucak, cizgi<->okbasi; okbasi<->V 0.707*v — kanatlar PARALEL gidiyor,
+# aralari sabit 8.49 m). Yani model ~2.6 kat karamsar.
+# GEVSETILMEDI, cunku 2*v muhtemelen bir geometri iddiasi degil AMPIRIK
+# asim katsayisi: 31 Agustos'ta morf tam hizda kosuldugunda gercek kapanma
+# 4.13 m/s olculdu (hicbir geometrik model bunu vermez) ve ucaklar 1.65 m'ye
+# yaklasti. 1.0 m/s'te gercek asimi KIMSE olcmedi.
+# SIRADAKI ADIM: morf sirasinda d(t) zaman serisini bag'den cikar, gercek
+# kapanma katsayisini olc, modeli TAHMINLE degil VERIYLE ac.
+MOD_MORF_HIZ_MPS = 1.30         # formasyon DEGISIMI sirasindaki slot hizi
 # Morf kilidinin en gec ne zaman dusecegi. En uzun morf yolu 9,9 m ->
 # 0,6 m/s'de 16,5 sn; 25 sn bunu paylasan bir tavan, takilip kalmayi onler.
 MOD_MORF_SURE_S = 25.0
