@@ -37,6 +37,7 @@ from swarm_interfaces.msg import (
 
 from . import canli_param
 from . import morf_kilidi
+from . import slot_atama
 from . import tek_yayinci
 from .maneuver_mode import compute_agent_setpoints, compute_hold_setpoints
 from .mode_context import ModeContext
@@ -685,6 +686,25 @@ class ModeManagerNode(Node):
             # tarifi yayinlanmiyor, kilit bir sonraki ucusa TASINMAMALI.
             self._morf_bitis_s = 0.0
         if state == ModeState.TAKEOFF:
+            # 🔴 YER BASLIGINI MANDALLA — 5 Eylul 2026, bag'den olculdu.
+            # Buraya girildiginde ucak HALA YERDE (kalkis komutu asagida
+            # gonderiliyor). Tirmanista yaw 27 dereceye kadar savruluyor ve
+            # kalkis kapisi o salinimin ortasinda ornekliyordu; sonuc yerdeki
+            # yonun 17,4 derece SOLU idi. Yerdeki olcum +-0,05 derece
+            # kararli. Gerekce ve bag izi: mode_context.konumdan_tohumla.
+            if self._ctx.yer_basligini_mandalla():
+                self.get_logger().info(
+                    '[mode_manager] YER BASLIGI mandallandi: '
+                    f'{self._ctx.yer_heading_deg:.1f} deg '
+                    f'(lider={self._ctx.lider_id}) — '
+                    'tirmanis salinimi bu degeri DEGISTIRMEZ'
+                )
+            else:
+                self.get_logger().warning(
+                    '[mode_manager] YER BASLIGI mandallanamadi (eksik ajan '
+                    'durumu) — baslik kalkis kapisinda olculecek, tirmanis '
+                    'salinimi yansiyabilir'
+                )
             # 🔴 KUMANDADAN KALKIS — madde 25, G2-K10 secenek (a).
             #
             # SwD tek harekette `arm` + `takeoff:H`. Komut agent_fsm'e
@@ -1362,6 +1382,16 @@ class ModeManagerNode(Node):
         # Mesh'te de korunur: TIP_FORMASYON payload'i `slot_ajan[i] = i.
         # slottaki ajan` seklinde SIRAYI tasiyor (packet_parser:1085) ve
         # alici ofsetleri ayni sirada yeniden uretiyor. Protokol degismedi.
+        # 🔴 EN YAKIN SLOT — 5 Eylul 2026. Lider slot 0'a SABIT, kalanlar
+        # en yakin slota. Onceden sira KIMLIKTEN geliyordu ve ucaklarin
+        # yere hangi sirayla dizildigine bagliydi; tutmadigi anda ucaklar
+        # birbirinin USTUNDEN geciyordu (olcum: ylp01 11,72 m yol, ylp00'in
+        # uzerinden, kacinmanin kapali oldugu 2-3 m'de). Gerekce ve saha
+        # sayilari: slot_atama.py basligi.
+        #
+        # Slot dunya konumlari ancak ofsetler hesaplandiktan sonra bilinir,
+        # bu yuzden ilk once KIMLIK sirasiyla ofsetleri uretiyoruz; asagida
+        # (ofset blogunun sonunda) sira en-yakina gore yeniden kuruluyor.
         msg.agent_ids = tek_yayinci.lider_onde(
             self._agent_id, self._agent_ids)
 
@@ -1393,6 +1423,25 @@ class ModeManagerNode(Node):
                 # Senkron noktasi TEK ve slot geometrisinin hesaplandigi tek
                 # yer burasi; iki ayri kopya birbirinden kayamaz.
                 # Slot i <-> agent_ids[i] (kimlik sirasi; Macar YOK, KARAR-11).
+                # EN YAKIN SLOT: ofsetler (govde cercevesi) hazir, artik
+                # slotlarin DUNYA konumu hesaplanabilir ve ajanlar en yakin
+                # slota atanabilir. Lider slot 0'da sabit kalir.
+                konumlar = {
+                    a: (float(st.pos_x), float(st.pos_y))
+                    for a, st in self._ctx.agent_statuses.items()
+                }
+                slot_xy = slot_atama.slot_dunya_konumlari(
+                    offsets, msg.center_x, msg.center_y, msg.heading_deg)
+                yeni_sira = slot_atama.slot_sirasi(
+                    self._agent_id, msg.agent_ids, konumlar, slot_xy)
+                if list(yeni_sira) != list(msg.agent_ids):
+                    self.get_logger().info(
+                        f'[mode_manager] EN YAKIN SLOT: atama '
+                        f'{list(msg.agent_ids)} -> {list(yeni_sira)} '
+                        '(lider slot 0 sabit)'
+                    )
+                    msg.agent_ids = list(yeni_sira)
+
                 self._formation_offsets = {
                     aid: (
                         float(msg.offset_x[i]),

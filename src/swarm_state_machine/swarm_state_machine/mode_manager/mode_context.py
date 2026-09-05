@@ -94,6 +94,11 @@ class ModeContext:
     # 0 = bilinmiyor -> dairesel ortalamaya dusulur (eski davranis).
     # Gerekce: konumdan_tohumla docstring'i.
     lider_id: int = 0
+    # YER BASLIGI — kalkistan ONCE, ucak hala yerdeyken mandallanir.
+    # Gerekce: yer_basligini_mandalla(). yer_heading_var False iken
+    # eski yol (kapi anindaki olcum) kullanilir.
+    yer_heading_deg: float = 0.0
+    yer_heading_var: bool = False
 
     # --- B2 KUMANDADAN KALKIS (madde 25, 30 Agustos 2026) ----------------
     # Sartname §5.2.2: "Takeoff ve land komutlari da kumanda uzerinden
@@ -228,6 +233,11 @@ class ModeContext:
         self.kalkis_komutu_verildi = False
         self.kalkis_zemin_z = {}
         self.kalkis_heading_tutarlilik = 0.0
+        # YER BASLIGI MANDALI da silinir: ikinci kalkista ucak baska bir
+        # yone dizilmis olabilir; birincinin yonunu tasimak sessizce yanlis
+        # formasyon uretirdi.
+        self.yer_heading_var = False
+        self.yer_heading_deg = 0.0
         self.maneuver_pitch_deg = 0.0
         self.maneuver_roll_deg = 0.0
         # 🔴 IVME RAMPASI DA SILINIR (B6, 31 Agustos). Birinci ucus tam
@@ -338,15 +348,40 @@ class ModeContext:
         if n == 0 or not self.all_agents_seen():
             return False
 
-        self.centroid_x = sum(
-            float(self.agent_statuses[a].pos_x) for a in self.agent_ids
-        ) / n
-        self.centroid_y = sum(
-            float(self.agent_statuses[a].pos_y) for a in self.agent_ids
-        ) / n
-        self.centroid_z = sum(
-            float(self.agent_statuses[a].pos_z) for a in self.agent_ids
-        ) / n
+        # 🔴 MERKEZ = LIDERIN KONUMU — 5 Eylul 2026, operator karari.
+        #
+        # "Lider her zaman merkez kabul edilsin." Eskiden merkez butun
+        # ucaklarin ORTALAMASIYDI ve bunun iki somut bedeli olculdu:
+        #
+        #  1. LIDER YERINDEN OYNUYORDU. Cizgi slotlari [(0,0),(0,+s),(0,-s)]
+        #     ile slot 0 merkeze oturur; merkez ortalama oldugunda lider
+        #     ortalamaya UCMAK ZORUNDA kaliyordu. Iki ucakli olcumde
+        #     (5 Eylul) bu 4,72 m yol demekti.
+        #  2. Merkez, kadronun O ANKI dagilimina bagliydi: bir ucak biraz
+        #     uzaktaysa butun formasyon kayiyordu.
+        #
+        # Lider merkez olunca lider HIC KIMILDAMAZ (slot 0 ofseti (0,0,0))
+        # ve sürü ona gore dizilir — operatorun dizilisi korunur. Baslik da
+        # zaten liderden geliyor (asagida), yani lider ne doner ne kayar.
+        #
+        # GERI DUSUS: lider bilinmiyorsa/durumu yoksa ORTALAMA kullanilir —
+        # eski davranis. Boylece merkezsiz kalinmaz.
+        lider_st = (self.agent_statuses.get(self.lider_id)
+                    if self.lider_id else None)
+        if lider_st is not None:
+            self.centroid_x = float(lider_st.pos_x)
+            self.centroid_y = float(lider_st.pos_y)
+            self.centroid_z = float(lider_st.pos_z)
+        else:
+            self.centroid_x = sum(
+                float(self.agent_statuses[a].pos_x) for a in self.agent_ids
+            ) / n
+            self.centroid_y = sum(
+                float(self.agent_statuses[a].pos_y) for a in self.agent_ids
+            ) / n
+            self.centroid_z = sum(
+                float(self.agent_statuses[a].pos_z) for a in self.agent_ids
+            ) / n
 
         # Tutarlilik HER ZAMAN butun filodan olculur: anlami "ucaklar ayni
         # yone bakiyor mu" ve dusukse operatore/kuru teste uyari veriyor.
@@ -388,11 +423,53 @@ class ModeContext:
         #
         # GERI DUSUS: lider bilinmiyorsa ya da durumu yoksa ortalama
         # kullanilir — hicbir kosulda baslıksiz kalmayiz.
-        lider = self.agent_statuses.get(self.lider_id) if self.lider_id else None
-        if lider is not None:
-            self.formation_heading_deg = float(lider.heading_deg)
+        # 🔴 YER MANDALI ONCE — 5 Eylul 2026, BAG'DEN OLCULDU.
+        #
+        # Kapi anindaki olcum YETMIYOR: ucak TIRMANIRKEN yaw'i savruluyor
+        # ve kapi (2 m esigi) bu gecici salinimin ORTASINDA orneklıyor.
+        # ylp00 bag izi (1788566100 baslangicli, 0,5 sn ornekleme):
+        #     t=0..11   331,15-331,18  (YERDE, +-0,03 deg, 12 saniye)
+        #     t=13,7    335,94         (tirmanis basladi)
+        #     t=16,6    303,75         (en dusuk — 27 deg savrulma)
+        #     t=18,65   314,23         <- KAPI BURADA ACILDI, 313,8 tohumlandi
+        # Sonuc: tutulan baslik, yerdeki yonun 17,4 DERECE SOLU. Operatorun
+        # gordugu "kalkista hafif sola donuyor" tam olarak buydu.
+        #
+        # ylp01 ayni desende: yerde 323,55-323,65 (12 sn), tirmanista 304'e
+        # dustu. IKI ucak da SOLA savruldu.
+        #
+        # Yerdeki olcum ise kusursuz kararli (+-0,05 deg): operatorun
+        # ozenle verdigi yon tam orada duruyor. Bu yuzden baslik KALKIS
+        # KAPISINDA degil, TAKEOFF'a girerken (ucak yerdeyken) mandallanir.
+        if self.yer_heading_var:
+            self.formation_heading_deg = self.yer_heading_deg
+        elif lider_st is not None:
+            self.formation_heading_deg = float(lider_st.heading_deg)
         else:
             self.formation_heading_deg = ortalama
+        return True
+
+    def yer_basligini_mandalla(self) -> bool:
+        """Ucak HALA YERDEYKEN suru basligini mandallar (TAKEOFF girisi).
+
+        Kaynak liderin pusulasi; lider yoksa dairesel ortalama. Gerekce ve
+        bag olcumu konumdan_tohumla icinde.
+
+        B19 ikinci kalkista yeniden mandallanabilsin diye
+        ucus_durumunu_sifirla() bu bayragi temizler.
+        """
+        if not self.all_agents_seen():
+            return False
+        lider_st = (self.agent_statuses.get(self.lider_id)
+                    if self.lider_id else None)
+        if lider_st is not None:
+            self.yer_heading_deg = float(lider_st.heading_deg)
+        else:
+            self.yer_heading_deg, _ = dairesel_ortalama_deg([
+                float(self.agent_statuses[a].heading_deg)
+                for a in self.agent_ids
+            ])
+        self.yer_heading_var = True
         return True
 
     def kalkis_yetkisi_var(self) -> bool:
