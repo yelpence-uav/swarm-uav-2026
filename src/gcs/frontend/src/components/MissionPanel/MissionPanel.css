@@ -188,3 +188,19 @@
   font-family: var(--font-mono);
   border: 1px solid rgba(239, 68, 68, 0.3);
 }
+
+/* BAŞLAT + DURDUR aynı hizada, yarı yarıya — 5 Eylül 2026 (operatör).
+   Saha gününde en çabuk ulaşılması gereken iki buton; alt alta
+   dizildiklerinde DURDUR ekranın altına kayıyordu. */
+.mission-panel__aksiyon {
+  display: flex;
+  gap: var(--space-2);
+}
+.mission-panel__aksiyon > .mission-panel__start {
+  flex: 1 1 50%;
+  min-width: 0;
+}
+.mission-panel__durdur {
+  background: #8b2c2c;
+  border-color: #8b2c2c;
+}

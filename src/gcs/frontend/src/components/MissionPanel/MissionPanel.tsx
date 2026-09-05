@@ -25,6 +25,44 @@ const MISSION_LABELS: Record<number, string> = {
   [MISSION_ID.TEST]: "Test Görevi",
 };
 
+/* Görev 2 sürü davranış ayarları. Sınırlar UÇAKTA doğrulanıyor
+   (canli_param.g2_suru_ayari_dogrula); buradakiler yalnız tarayıcı
+   yardımı — ikinci bir kopya tutulmuyor (CLAUDE.md §9). */
+const SURU_AYARLARI = [
+  {
+    key: "suru_hareket_hiz_mps",
+    label: "Hareket hızı (m/s)",
+    step: "0.1",
+    min: "0.3",
+    max: "5",
+    hint: "Çubukla öteleme hızı",
+  },
+  {
+    key: "suru_morf_hiz_mps",
+    label: "Morf hızı (m/s)",
+    step: "0.1",
+    min: "0.2",
+    max: "3",
+    hint: "Formasyon değişimi sırasındaki slot hızı",
+  },
+  {
+    key: "suru_yaw_hiz_deg_s",
+    label: "Dönüş hızı (°/s)",
+    step: "0.1",
+    min: "2",
+    max: "25",
+    hint: "Sürünün merkez etrafında dönme tavanı",
+  },
+  {
+    key: "suru_egim_tavan_deg",
+    label: "Eğim tavanı (°)",
+    step: "1",
+    min: "3",
+    max: "30",
+    hint: "Manevra modunda formasyon düzleminin eğim genliği",
+  },
+] as const;
+
 interface MissionPanelProps {
   missionActive: boolean;
   missionId: number;
@@ -39,10 +77,14 @@ interface MissionPanelProps {
      BAŞLAT'ın parameters_json'ına ekleniyor; ikinci bir giriş alanı
      açmıyoruz, yoksa aynı değer iki yerde tutulurdu (CLAUDE.md §9). */
   flightParams: FlightParams;
+  /* Sürü davranış ayarları ParamStore'da tutuluyor (sayfa yenilense de
+     kalsın diye); panel değeri değiştirdiğinde App'e bildiriyor. */
+  onFlightParamsChange: (p: FlightParams) => void;
 }
 
 export function MissionPanel({
   flightParams,
+  onFlightParamsChange,
   missionActive,
   missionId,
   onMissionIdChange,
@@ -157,7 +199,19 @@ export function MissionPanel({
     }
   }
 
-  const startDisabled = busy !== null || teamId.trim().length === 0 || missionActive;
+  // Takım ID artık YALNIZ Görev 1'de isteniyor; Görev 2'de boş olması
+  // BAŞLAT'ı engellememeli (alan panelde bile yok).
+  /* Boş kutu = "belirtilmedi" -> 0 yazıyoruz; uçak o alan için kendi
+     varsayılanını korur. Aralık/irtifa ile aynı sözleşme. */
+  const suruAyariYaz = (key: string, ham: string) => {
+    const v = ham.trim() === "" ? 0 : parseFloat(ham);
+    if (!isFinite(v)) return;
+    onFlightParamsChange({ ...flightParams, [key]: v } as FlightParams);
+  };
+
+  const teamIdGerekli = missionId === MISSION_ID.DYNAMIC_SWARM;
+  const teamIdEksik = teamIdGerekli && teamId.trim().length === 0;
+  const startDisabled = busy !== null || teamIdEksik || missionActive;
 
   return (
     <section className="mission-panel">
@@ -177,17 +231,23 @@ export function MissionPanel({
           </select>
         </label>
 
-        <label className="mission-panel__field">
-          <span>Takım ID:</span>
-          <input
-            type="text"
-            value={teamId}
-            onChange={(e) => onTeamIdChange(e.target.value)}
-            placeholder="team_1"
-            disabled={busy !== null}
-            spellCheck={false}
-          />
-        </label>
+        {/* 🔴 TAKIM ID YALNIZ GÖREV 1 — 5 Eylül 2026, operatör.
+            QR görevleri takım slotuna göre filtreleniyor (vision_params
+            team_slot); Görev 2'de QR yok, kumanda sürüyor. Panelde
+            durması "Görev 2 de bunu istiyor" izlenimi veriyordu. */}
+        {missionId === MISSION_ID.DYNAMIC_SWARM && (
+          <label className="mission-panel__field">
+            <span>Takım ID:</span>
+            <input
+              type="text"
+              value={teamId}
+              onChange={(e) => onTeamIdChange(e.target.value)}
+              placeholder="team_1"
+              disabled={busy !== null}
+              spellCheck={false}
+            />
+          </label>
+        )}
 
         {missionId === MISSION_ID.TEST ? (
           // Yeri ayrildi, isleyisi HENUZ BAGLANMADI. Baslat dugmesini aktif
@@ -200,7 +260,15 @@ export function MissionPanel({
           <div className="mission-panel__hint mission-panel__hint--bekliyor">
             Test görevi boşta — o anki test buraya bağlanır
           </div>
-        ) : (
+        ) : null}
+      </div>
+
+      {/* BAŞLAT + DURDUR AYNI HİZADA, YARI YARIYA — 5 Eylül 2026,
+          operatör. İkisi ardışık satırdayken panel gereksiz uzuyordu ve
+          DURDUR ekranın altına kayıyordu; saha gününde en çabuk
+          ulaşılması gereken iki buton bunlar. */}
+      {missionId !== MISSION_ID.TEST && (
+        <div className="mission-panel__aksiyon">
           <button
             className="mission-panel__start"
             disabled={startDisabled}
@@ -208,15 +276,27 @@ export function MissionPanel({
             title={
               missionActive
                 ? "Görev zaten aktif"
-                : startDisabled
+                : teamIdEksik
                   ? "Takım ID gerekli"
                   : "Görev başlatma servis çağrısı yap"
             }
           >
-            {busy === "GÖREV BAŞLAT" ? "GÖNDERİLİYOR..." : "▶ GÖREV BAŞLAT"}
+            {busy === "GÖREV BAŞLAT" ? "GÖNDERİLİYOR..." : "▶ BAŞLAT"}
           </button>
-        )}
-      </div>
+          {missionId === MISSION_ID.SEMI_AUTONOMOUS && (
+            <button
+              className="mission-panel__start mission-panel__durdur"
+              disabled={busy !== null}
+              onClick={() =>
+                trigger(MISSION_COMMAND.ABORT, "GÖREVİ DURDUR", "single")
+              }
+              title="Kumandanın kalkış yetkisini geri alır (uçan sürüyü durdurmaz)"
+            >
+              {busy === "GÖREVİ DURDUR" ? "GÖNDERİLİYOR..." : "■ DURDUR"}
+            </button>
+          )}
+        </div>
+      )}
 
       {/* 🔴 GÖREVİ DURDUR — 31 Ağustos 2026, operatör isteği.
           Kumandanın KALKIŞ YETKİSİNİ geri alır (G2-K10 üçüncü kapı kapanır).
@@ -280,19 +360,49 @@ export function MissionPanel({
         </div>
       )}
 
-      {missionId === MISSION_ID.SEMI_AUTONOMOUS && (
-        <button
-          className="mission-panel__start"
-          style={{ background: "#8b2c2c", borderColor: "#8b2c2c" }}
-          disabled={busy !== null || teamId.trim().length === 0}
-          onClick={() =>
-            trigger(MISSION_COMMAND.ABORT, "GÖREVİ DURDUR", "single")
-          }
-          title="Kumandanın kalkış yetkisini geri alır (uçan sürüyü durdurmaz)"
-        >
-          {busy === "GÖREVİ DURDUR" ? "GÖNDERİLİYOR..." : "■ GÖREVİ DURDUR"}
-        </button>
+      {/* 🔴 SÜRÜ DAVRANIŞI — 5 Eylül 2026, operatör: "Uçuş ayarları
+          kısmında Görev 2 ile alakalı olanları Görev 2 paneline al."
+          Aralık/irtifa ile AYNI yoldan gidiyorlar: BAŞLAT paketinin
+          rezervinden (paket 16 bayt kaldı, firmware değişmedi).
+
+          Aralık/irtifa'dan tek farkı: bunlar ParamStore'da saklanıyor,
+          yani sayfa yenilense de kalıyorlar. Sebep kullanım sıklığı —
+          aralık/irtifa'yı hakem her görevde söyler, bunlar ise bir kez
+          ayarlanıp bırakılır.
+
+          Sınır denetimi UÇAKTA (canli_param.g2_suru_ayari_dogrula) ve
+          üst sınırlar PX4 tavanlarına bağlı (yaw ≤ MPC_YAWRAUTO_MAX,
+          eğim ≤ MPC_TILTMAX_AIR). Buradaki min/max yalnız tarayıcı
+          yardımı; ikinci bir kopya TUTULMUYOR. */}
+      {missionId === MISSION_ID.SEMI_AUTONOMOUS && !missionActive && (
+        <div className="mission-panel__row">
+          {SURU_AYARLARI.map((f) => (
+            <label key={f.key} className="mission-panel__field">
+              <span>{f.label}:</span>
+              <input
+                type="number"
+                step={f.step}
+                min={f.min}
+                max={f.max}
+                placeholder="boş = uçaktaki varsayılan"
+                value={
+                  (flightParams as unknown as Record<string, number>)[f.key]
+                    ? String(
+                        (flightParams as unknown as Record<string, number>)[
+                          f.key
+                        ],
+                      )
+                    : ""
+                }
+                onChange={(e) => suruAyariYaz(f.key, e.target.value)}
+                disabled={busy !== null}
+                title={f.hint}
+              />
+            </label>
+          ))}
+        </div>
       )}
+
 
       {/* 🔴 GÖREV 2'DE BAŞLAT ≠ KALKIŞ — G2-K8/G2-K10 (30 Ağustos 2026).
           Buraya kadar burada "Görev 2 kumandadan başlatılır (SwD şalteri)"
@@ -366,17 +476,6 @@ export function MissionPanel({
         </div>
       )}
 
-      {missionId === MISSION_ID.SEMI_AUTONOMOUS && (
-        <div className="mission-panel__hint mission-panel__hint--bilgi">
-          BAŞLAT sürüyü <strong>yarı otonom moda alır</strong>, kalkış
-          vermez. Kalkış ve iniş kumandadan (SwD) — şartname §5.2.2.
-          Basılmadan kumanda sürüyü armlayamaz.
-          <br />
-          DURDUR kumandanın <strong>kalkış yetkisini geri alır</strong> —
-          ⚠️ uçan sürüyü <strong>durdurmaz</strong>, iniş SwD ya da kill
-          switch ile.
-        </div>
-      )}
 
       {/* Acil sonlandırma 29 Ağustos 2026'da HARİTANIN ALT ORTASINA taşındı
           (operatör): görev sürerken göz haritada, buton da orada olmalı.

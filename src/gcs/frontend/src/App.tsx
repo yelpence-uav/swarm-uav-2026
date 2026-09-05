@@ -6,7 +6,6 @@ import { AppHeader } from "./components/AppShell/AppHeader";
 import { DroneControlPanel } from "./components/DroneControlPanel/DroneControlPanel";
 import { MapView } from "./components/Map/Map";
 import { MissionControl } from "./components/MissionControl/MissionControl";
-import { KumandaGorunum } from "./components/KumandaGorunum/KumandaGorunum";
 import { MissionPanel } from "./components/MissionPanel/MissionPanel";
 import { QRPanel } from "./components/QRPanel/QRPanel";
 import { QRPositionForm } from "./components/QRPositionForm/QRPositionForm";
@@ -160,26 +159,38 @@ export default function App() {
       <aside className="app__sidebar">
             <MissionPanel
               flightParams={flightParams}
+              onFlightParamsChange={(p) => {
+                // Yerel state HEMEN (kutu takılmasın), backend arkadan.
+                setFlightParams(p);
+                paramsApi.update(p).catch(() => {
+                  /* Kalıcılık en iyi çaba: backend yoksa panel yine
+                     çalışır, değer BAŞLAT paketiyle zaten gider. */
+                });
+              }}
               missionActive={missionActive}
               missionId={selectedMissionId}
               onMissionIdChange={setSelectedMissionId}
               teamId={teamId}
               onTeamIdChange={setTeamId}
             />
-            {/* Sürü kumandası sanal görünümü — YALNIZ Görev 2'de.
-                Görev 1'de kumanda zinciri hiç koşmuyor; paneli her zaman
-                göstermek "veri yok" kutusunu kalıcı hâle getirir ve
-                operatörü gerçek bir arıza sanmaya iter. */}
-            {selectedMissionId === MISSION_ID.SEMI_AUTONOMOUS && (
-              <KumandaGorunum kumanda={payload.kumanda ?? null} />
+            {/* 🔴 5 Eylül 2026, operatör — kenar çubuğu sadeleştirildi:
+                · Sürü kumandası sanal görünümü KALDIRILDI (bileşen duruyor,
+                  yalnız render edilmiyor; kumanda zaten fiziksel olarak
+                  pilotun elinde ve panel yer kaplıyordu).
+                · QR panelleri YALNIZ GÖREV 1'de. Görev 2'de QR yok
+                  (kumanda sürüyor); her zaman göstermek boş kutuları
+                  kalıcı hâle getirip operatörü arıza sanmaya itiyordu. */}
+            {selectedMissionId === MISSION_ID.DYNAMIC_SWARM && (
+              <>
+                <QRPanel qr={payload.qr ?? null} />
+                <QRPositionForm
+                  positions={qr.positions}
+                  update={qr.update}
+                  add={qr.add}
+                  remove={qr.remove}
+                />
+              </>
             )}
-            <QRPanel qr={payload.qr ?? null} />
-            <QRPositionForm
-              positions={qr.positions}
-              update={qr.update}
-              add={qr.add}
-              remove={qr.remove}
-            />
             {isSimMode && (
               <MissionControl anyConnected={anyConnected} disabled={missionActive} />
             )}
