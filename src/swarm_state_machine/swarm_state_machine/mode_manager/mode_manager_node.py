@@ -1020,6 +1020,31 @@ class ModeManagerNode(Node):
             self._son_kalkis_komutu = None
             self._son_inis_komutu = None
             self._init_default_offsets()
+
+            # 🔴 TEKRAR-YUTUCU DA SIFIRLANIR — 5 Eylul 2026.
+            #
+            # `_son_islenen_aralik` bir DUGUM alani; ctx sifirlamasi ona
+            # dokunmuyordu ve UCUSLAR ARASI tasiniyordu. Ikinci kalkista
+            # operator ayni formasyonu (ayni tip + ayni aralik) isterse
+            # `degisim_islenir_mi` "tekrar" deyip SESSIZCE eliyor —
+            # _handle_formation_change hicbir sey loglamadan return ediyor.
+            # Kapi acilisindaki yeniden-uygulama bunu telafi ediyordu ama
+            # orada sifirlamak bir yama; kaynagi burasi.
+            self._son_islenen_aralik = None
+
+            # ⚠️ ctx.active_formation BILEREK SIFIRLANMIYOR.
+            #
+            # Sifirlamak cazip gorunuyor ("yeni ucus, temiz defter") ama
+            # OLCULDU ve yanlis: VrB acik kaldiginda formasyon_kilidi
+            # `talep_hesapla` ACIK dalinda DEBOUNCE doner, yani SwC
+            # FIZIKSEL OLARAK OYNAMADIKCA ikinci kalkista YENI BIR
+            # formasyon istegi URETILMEZ. active_formation 0'a cekilseydi
+            # kalkis kapisindaki yeniden-uygulama (tip in 1,2,3 kapisi)
+            # tetiklenmez ve ikinci kalkista formasyon HIC kurulmazdi —
+            # 5 Eylul'de kapatilan kusurun ta kendisi.
+            #
+            # active_formation burada operatorun DURAN NIYETINI tasiyor
+            # (SwC'nin durdugu yer), bir ucusun artigi degil.
             self.get_logger().warning(
                 '[mode_manager] COMPLETED -> IDLE: ucus defteri sifirlandi '
                 '(kalkis kapisi KAPANDI, zemin referansi silindi). Gorev '

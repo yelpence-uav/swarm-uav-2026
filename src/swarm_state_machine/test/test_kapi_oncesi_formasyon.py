@@ -103,5 +103,31 @@ class TestOlculenOfsetler(unittest.TestCase):
         self.assertAlmostEqual(mesafe, 11.0, places=2)
 
 
+class TestIkinciKalkis(unittest.TestCase):
+    """B19 sonrasi ikinci kalkis — 5 Eylul 2026.
+
+    VrB acik kaldiginda formasyon_kilidi ACIK dalinda DEBOUNCE doner:
+    SwC FIZIKSEL OLARAK OYNAMADIKCA yeni formasyon istegi URETILMEZ.
+    Bu yuzden ikinci kalkista tarif, kalkis kapisindaki YENIDEN-UYGULAMA
+    ile geliyor ve o da `active_formation`'a bakiyor.
+
+    Iki sozlesme:
+      * active_formation ucuslar arasi KORUNUR (operatorun duran niyeti)
+      * tekrar-yutucu SIFIRLANIR (ayni formasyon yeniden istenebilsin)
+    """
+
+    def test_active_formation_B19_de_KORUNUR(self):
+        """Sifirlansaydi ikinci kalkista formasyon HIC kurulmazdi."""
+        c = ModeContext(agent_ids=[1, 2])
+        c.active_formation = 3
+        c.ucus_durumunu_sifirla()
+        self.assertEqual(c.active_formation, 3)
+
+    def test_ayni_formasyon_yutucu_SIFIRLANMAZSA_elenir(self):
+        """Yutucunun neden sifirlanmasi gerektiginin kaniti."""
+        self.assertFalse(
+            tek_yayinci.degisim_islenir_mi(3, 3, 6.0, 6.0))
+
+
 if __name__ == '__main__':
     unittest.main()
