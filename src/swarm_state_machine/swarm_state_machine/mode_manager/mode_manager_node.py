@@ -539,6 +539,41 @@ class ModeManagerNode(Node):
             olculen = ctx.olculen_ofsetler()
             if len(olculen) == len(self._agent_ids):
                 self._formation_offsets = olculen
+
+            # 🔴 KAPI ONCESI VERILEN FORMASYON KAYBOLUYORDU — 5 Eylul 2026,
+            # SAHADA OLCULDU.
+            #
+            # BELIRTI (operator): "cizgi formasyonunda yere dizdim, aralik 6
+            # verdim, kalktilar ve KALKTIKLARI YERDE BEKLEDILER. Aralarinda
+            # 11 m vardi, 6 m'ye dusurmediler."
+            #
+            # ZINCIR: VrB acik + SwC cizgide -> formasyon_kilidi YENI_ACILDI
+            # -> formation_change_requested -> _handle_formation_change
+            # `ctx.active_formation = 3` YAZDI ama _publish_formation_command
+            # kapida (`not kalkis_tamam`) DUSTU. Istek bir KENAR oldugu icin
+            # ayni tick'te temizlendi. Kapi sonradan acildiginda kimse tarifi
+            # yeniden istemiyordu -> suru UNKNOWN'da kaldi, olculen 11 m
+            # donduruldu. Kayitta cizgi (tip 3) komutu HIC YOK; ilk komut
+            # operator SwC'yi V'ye cevirdiginde (tip 2) cikti.
+            #
+            # Hicbir yerde hata yoktu: kapi sessizce dusuruyordu.
+            #
+            # COZUM: kapi acilirken aktif bir formasyon KAYITLIYSA tarifi
+            # YENIDEN uret. Tekrar-yutucuyu (`_son_islenen_aralik`) bilerek
+            # sifirliyoruz, yoksa "ayni tip + ayni aralik" diye elenirdi.
+            # Merkez/baslik bu noktada TAZE (konumdan_tohumla yeni kostu),
+            # yani eski params'i saklamak yerine yolu yeniden isletmek
+            # dogru olani.
+            if ctx.active_formation in (1, 2, 3):
+                self.get_logger().warning(
+                    '[mode_manager] KAPI ONCESI istenen formasyon YENIDEN '
+                    f'uygulaniyor: tip={ctx.active_formation} '
+                    f'aralik={ctx.requested_spacing_m or self._default_spacing_m:g} m '
+                    '(kalkistan once verilen tarif kapida dusmustu)'
+                )
+                self._son_islenen_aralik = None
+                ctx.requested_formation = ctx.active_formation
+                ctx.formation_change_requested = True
             self.get_logger().info(
                 f'[mode_manager] KALKIS KAPISI ACILDI (esik '
                 f'{ctx.kalkis_esik_m:.1f} m) — centroid ucaklarin KENDI '
