@@ -538,8 +538,26 @@ CARPISMA_PAYI_M = KRITIK_AYRIM_M - MIN_AYRIM_M
 # ⚠️ hard artik MIN_AYRIM_M'in ALTINDA ve bu BILEREK: eski kuralda
 # "sinira degince tam kuvvet" mantikliydi cunku baska savunma yoktu.
 # Simdi sinira gelmeden once dikey zaten devrede.
-KACINMA_HARD_M = 2.5
-KACINMA_D0_M = 4.0
+# 🔴 d0 4.0 -> 3.0 · hard 2.5 -> 2.0 (5 Eylul 2026, operator karari).
+#
+# SEBEP OLCULDU: aralik 6 m'de okbasi->V gecisinin nominal en dar ani
+# 6*cos45 = 4.24 m ve eski d0 4.0 idi — pay 0.24 m. Takip gecikmesi tek
+# basina 0.66 m; yani kacinma her morfta tetikleniyordu ve morf yavas
+# kalmak zorundaydi. Sahada gozlendi (5 Eylul ucusu).
+# d0 3.0 ile pay 1.24 m'ye cikiyor ve morf hizlandirilabiliyor.
+#
+# 🔴 BILINCLI AYRISMA: MIN_AYRIM_M (4.0 m) bu projenin ilan ettigi en
+# kucuk kabul edilebilir ayrim. d0 artik ONUN ALTINDA, yani kacinma o
+# tabanin altina inilene kadar tepki VERMIYOR. Kuru test hala 4.0 m'ye
+# gore denetliyor — ikisi bilerek ayri: biri "plan guvenli mi", digeri
+# "ne zaman mudahale et".
+#
+# hard 2.5 -> 2.0: d0 dusunce aradaki gradyan 0.5 m'ye inecekti ve yatay
+# son-care tepkisi sifirdan tam kuvvete o mesafede cikacakti (gorunur
+# sarsinti; sartname osilasyonu -10 ile cezalandiriyor). 2.0 ile gradyan
+# yeniden 1.0 m. Taban r_min 1.5 m, hala altinda degil.
+KACINMA_HARD_M = 2.0
+KACINMA_D0_M = 3.0
 # 🔴 DIKEY AYRIM KURULANA KADAR YAKLASMA YOK — 1 Eylul 2026, operator.
 #
 # "Kacinma devreye girerse drone yatayda ilerlemeyi durduracak ve farkli
@@ -633,7 +651,7 @@ KACINMA_KATMAN_M = 3.0
 # suresi. Bu yuzden asagidaki uc donus parametresi ayni anda
 # hizlandirildi (8.0 sn -> 3.0 sn). Biri geri alinirsa digeri de
 # gozden gecirilmeli.
-KACINMA_HIST_M = 0.2
+KACINMA_HIST_M = 0.5
 
 # --- KACINMA DONUSU (catisma bittikten sonra nominal irtifaya) ---------
 #
@@ -797,7 +815,7 @@ MOD_HIZ_MPS = 2.0              # hareket modu oteleme hizi (muhafazakar)
 # (cubukla oteleme) MOD_HIZ_MPS gecerlidir; slot hizini kalici olarak
 # dusurmek formasyonu merkezin GERISINDE birakir — formation_node'daki
 # "merkez 3.00 iken komut 1.05" hatasinin ta kendisi.
-MOD_MORF_HIZ_MPS = 0.6         # formasyon DEGISIMI sirasindaki slot hizi
+MOD_MORF_HIZ_MPS = 1.0         # formasyon DEGISIMI sirasindaki slot hizi
 # Morf kilidinin en gec ne zaman dusecegi. En uzun morf yolu 9,9 m ->
 # 0,6 m/s'de 16,5 sn; 25 sn bunu paylasan bir tavan, takilip kalmayi onler.
 MOD_MORF_SURE_S = 25.0
