@@ -1,8 +1,78 @@
 # DURUM — şu an ne çalışıyor, ne bozuk
 
-**Son güncelleme:** 4 Eylül 2026, 21:47 — 🟢 B5 GEÇTİ: formasyon İLK KEZ havada kuruldu · 🟢 Görev 1 zinciri uçtan uca uçtu (15 m → QR'a 0.11 m, süzülme kapandı) · 🔴 açık: 1 Hz titreme · mesh kaybı %6.7/%21.7 · lens odağı doğrulanmadı · 🔌 uçaklar kapalı, `63f9870`
+**Son güncelleme:** 5 Eylül 2026, 07:56 — 🟢 Görev 2: ylp00 sabit lider · yedi sessiz kusur kapandı · yalpa düzeltildi ve uçuşta doğrulandı · 🔴 **ylp02 eski kodda** · 🔴 açık: mesh kaybı · 1 Hz seyreltme · lens/QR · ylp00+ylp01 `4387554`
 
 
+
+> ## 🌅 5 EYLÜL SABAHI — GÖREV 2: SABİT LİDER + YEDİ SESSİZ KUSUR KAPANDI
+>
+> **Ayrıntı `GUNLUK.md` 07:56 kaydı. Uçakta 17 yeni commit:
+> `7c7ef98` → `4387554`, hepsi pushlandı.**
+>
+> Oturum **iki uçakla** yapıldı (ylp00 + ylp01). Kapatılan yedi kusurun
+> hepsi "hata vermeden yanlış sonuç" sınıfındaydı.
+>
+> - 🟢 **ylp00 KALICI LİDER, sistem geneli** (Görev 1 + Görev 2, operatör
+>   kararı). Her zaman **slot 0 = formasyonun ortası**. Ek olarak
+>   **en-yakın-slot ataması (Macar)** yazıldı: lider slot 0'a çivili,
+>   kalanlar Macar ile. Çizgide ölçüldü: toplam yol **0.00 m**
+>   (kimlik sırası 24.00 m).
+> - 🟢 **Kalkışta "hafif sola dönme" KAPANDI** — iki kök neden: başlık
+>   dairesel ortalamadan alınıyordu (artık liderden) ve **tırmanış
+>   geçicisinde** örnekleniyordu (yerde 331.16°, kapıda 313.8° = **17.4°
+>   sola**). Başlık artık **yerde mandallanıyor**, READY'de tüketiliyor.
+> - 🟢 **"Formasyonu almadılar" KAPANDI** — istek B15 kalkış kapısında
+>   sessizce düşüyordu; kapı açılırken tarif yeniden isteniyor.
+> - 🟢 **"10 m istedim 8.5 uçtu" KAPANDI** — `%80` bir geçiş ölçütüydü,
+>   fiili son irtifa olmuştu. READY'de z artık **komut edilenden**.
+> - 🟢 **`command_valid` MESH'TE YOKTU** — lider tarifi düşürüyor, takipçi
+>   kabul ediyordu. `KOMUT_FLAG_COMMAND_VALID` eklendi.
+> - 🟢 **HAREKETTE SAĞA-SOLA YALPA KAPANDI** — kök neden `v_ff` türevinin
+>   payla paydayı farklı aralıktan alması: hedef ~10 Hz'de güncellenirken
+>   yayın 20 Hz, türev sırayla **2× ve 0** okuyordu. Sabit pencereli türev
+>   (`vff_pencere_s = 0.25`). Uçuşta doğrulandı: ylp00 komut roll dalgası
+>   **2.332° → 0.748°** (−68%), ylp01 gerçek roll **1.29–1.39° → 0.806°**
+>   (−40%). ⚠️ **Operatörün gözle teyidi ALINMADI** — sonraki kişi sorsun.
+> - 🔴 **ylp02 ESKİ KODDA.** Oturum boyunca ulaşılamadı (son bilinen IP'de
+>   yok, subnet taraması da bulamadı). **Üç uçak uçmadan önce dağıtılmalı.**
+> - 🟠 **AÇIK, ölçüldü ama düzeltilmedi:** duruş aşımı **0.38–0.47 m**
+>   (çubuk bırakılınca setpoint aşılıyor, ~2 sn'de dönüyor; mekanizma hız
+>   takibi gecikmesi ~0.3 sn × 1.5 m/s). Yerinde gezinme **~0.15 m @
+>   0.2 Hz** — komut kusursuz sabitken, yani PX4'ün kendi konum tutuşu.
+> - 🔴 **4 Eylül'ün üç P0'ı ELE ALINMADI:** mesh kaybı · 1 Hz seyreltme ·
+>   lens/QR. Aynen duruyor.
+>
+> ### 🔧 UÇAKTA KALICI DEĞİŞEN AYARLAR — sonraki kişi uçağı böyle bulacak
+>
+> | Ayar | Değer | Nerede |
+> |---|---|---|
+> | `SURU_SABIT_LIDER` | **1** (ylp00) | `ucus_ayarlari.py` → `.env` |
+> | `UCAN_KADRO` | **(1, 2)** — ylp02 kadro dışı | `ucus_ayarlari.py` |
+> | kaçınma `d0_m` / `hard_m` / `hist_m` | **3.0 / 2.0 / 0.5** | canlı doğrulandı |
+> | kaçınma dönüş bekleme / hız / soğuma | **0.5 sn / 1.2 m/s / 2.0 sn** | canlı doğrulandı |
+> | `MOD_MORF_HIZ_MPS` | **1.30** (1.34 denetimden geçmedi) | `ucus_ayarlari.py` |
+> | `vff_pencere_s` | **0.25** (`0.0` = eski davranış) | `formation_node` varsayılanı |
+> | ylp00 `MAV_SYS_ID` | **2 → 1**, `/ws/tgt_system` **SİLİNDİ** | uçakta |
+> | ylp01 `tgt_system` bayrağı | **DURUYOR**, uçuş sorunsuz — dokunulmadı | uçakta |
+> | YKİ paneli | aralık **6 m**, irtifa **10 m** | arayüz |
+>
+> ⚠️ **`MIN_AYRIM_M` (4.0) ile `d0` (3.0) bilerek AYRIŞTI.** `d0` kaçınmanın
+> devreye girdiği yumuşak eşik, `MIN_AYRIM_M` kuru testin çarpışma payı.
+> Kaçınmayı atikleştirmek kuru testin payını düşürmek anlamına gelmesin diye
+> ikisi ayrı bırakıldı — bu bir unutkanlık değil, karar.
+>
+> ### 🔴 DAĞITIM ARTIK ANA MAKİNEDEN ÇALIŞMIYOR
+>
+> `rsync` **ana makinede yok**; `dagit.sh` `rsync: command not found` ile
+> düşüyor. Dağıtım `yki` konteynerinden koşuluyor (orada `rsync` + `ssh` +
+> anahtarlar var, depo aynı yola bağlı):
+>
+> ```bash
+> docker exec yki bash -lc '\
+>     ./deploy/rpi/dagit.sh --paket swarm_core ylp02'
+> ```
+>
+> ⚠️ Konteyner **yeniden yaratılırsa `rsync` gider** — tekrar kurmak gerekir.
 
 > ## 🌆 4 EYLÜL AKŞAMI — B5 GEÇTİ, GÖREV 1 ZİNCİRİ UÇTAN UCA UÇTU
 >

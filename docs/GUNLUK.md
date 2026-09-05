@@ -1,6 +1,6 @@
 # GÜNLÜK — oturum devir teslim kaydı
 
-**Son güncelleme:** 4 Eylül 2026, 21:47 — 🟢 B5 GEÇTİ, formasyon havada kuruldu · Görev 1 zinciri uçtan uca uçtu (QR'a 0.11 m) · 🔴 üç kusur ölçüldü: 1 Hz titreme · mesh kaybı · lens odağı
+**Son güncelleme:** 5 Eylül 2026, 07:56 — Görev 2: sabit lider ylp00 · **yedi sessiz kusur kapandı** · yalpanın kök nedeni (v_ff türevi) bulundu ve uçuşta doğrulandı · 🔴 ylp02 eski kodda
 
 Tek bilgisayar, sırayla çalışıyoruz. Biri kalkıp diğeri oturduğunda **hem
 kişi hem Claude** nerede kalındığını buradan anlar.
@@ -9,6 +9,151 @@ kişi hem Claude** nerede kalındığını buradan anlar.
 atlanırsa sistem çöker, çünkü sohbet geçmişi sonraki kişiye geçmiyor.
 
 Claude'a **"oturumu kapat"** dersen bu kaydı o yazar.
+
+---
+
+## 2026-09-05 07:56 — GÖREV 2: SABİT LİDER + YEDİ SESSİZ KUSUR KAPANDI · yalpanın kök nedeni bulundu ve uçuşta doğrulandı
+
+**Ne yapıldı** (17 commit: `7c7ef98` → `4387554`, **hepsi pushlandı**)
+
+Oturum boyunca **iki uçakla** (ylp00 + ylp01) çalışıldı; ylp02 kapalıydı.
+Yedi kusurun **hepsi** "hata vermeden yanlış sonuç üretir" sınıfındaydı —
+hiçbiri logda hata basmadı, hepsi ölçümle bulundu.
+
+### 🟢 KARAR: ylp00 KALICI LİDER — sistem geneli
+
+Operatör önce "yalnız Görev 2" dedi, sonra **"tüm sistemi kapsasın, hem
+Görev 1 hem Görev 2"** diye değiştirdi. Uygulandı:
+`consensus_node` `sabit_lider` parametresi (`baslat.sh` → `SURU_SABIT_LIDER=1`),
+seçim/tahkim/bırakma yolları kısa devre edildi, **ylp00 her zaman slot 0
+(formasyonun ortası)**. Ek olarak **en-yakın-slot ataması (Macar)** yazıldı
+— `slot_atama.py`, lider slot 0'a çivili, kalanlar Macar ile. Çizgide
+ölçüldü: toplam yol **0.00 m** (kimlik sırası 24.00 m).
+
+### 🔴 SAHADA ÖLÇÜLEN VE KAPATILAN YEDİ KUSUR
+
+| # | Belirti (operatör) | Kök neden (ölçüldü) | commit |
+|---|---|---|---|
+| 1 | "çizgide dizdim, kalkışta **hafif sola** döndüler" | ① sürü başlığı iki uçağın **dairesel ortalaması**ndan alınıyordu, liderden değil ② başlık **tırmanış geçicisinde** örnekleniyordu: yerde 331.16° ±0.03, kapıda 313.8° → **17.4° sola** | `0e2ba08` `6ab6466` |
+| 2 | "aralarında 11 m vardı, **6 m'ye düşürmediler**" | Formasyon isteği **B15 kalkış kapısında** sessizce düşüyordu; istek bir KENAR olduğu için aynı tick'te temizleniyordu, kapı açılınca kimse tarifi yeniden istemiyordu | `4e24e5f` |
+| 3 | "10 m istedim, **8.5 m'de** oturdu" | `_KALKIS_ULASMA_ORANI = 0.8` bir **geçiş ölçütü**ydü; READY girişi merkezi o anki konumdan tazeleyince **fiili son irtifa** oldu. Gaz çubuğu uçuş boyunca tam sıfır ölçüldü — operatör girdisi değildi | `764f91b` |
+| 4 | "havada beklediler, **formasyonu tamamlamadılar**" | `command_valid` **mesh'te taşınmıyordu**. Lider (loopback) `False` görüp tarifi düşürüyor, takipçi (mesh RX, sabit `True`) kabul ediyordu — sürü ikiye bölünüyordu | `57fb8c4` |
+| 5 | ikinci kalkışta formasyon kurulmuyor | Tekrar-yutucu (`_son_islenen_aralik`) **uçuşlar arasında taşınıyordu**; B19 COMPLETED→IDLE yolunda sıfırlanmıyordu | `3f0b8c3` |
+| 6 | manevrada formasyon **geri dönüyor** | 🔴 **Kendi regresyonum**: yer başlığı mandalı READY'de tüketilmiyordu, MANEUVER girişi başlığı yere geri çekiyordu (yaw ile yapılan 60°'lik dönüş siliniyordu). Doğrulama sırasında yakalandı | `00c90eb` |
+| 7 | "hareketler akıcıydı ama iki uçak da **bir sağa bir sola yattı**" | Aşağıda ayrı başlık | `4387554` |
+
+### 🔬 KUSUR 7 — YALPA: kök neden ve doğrulama
+
+İlk teşhisim **yanlıştı**: duruş aşımını ve yerinde gezinmeyi ölçtüm,
+operatör "hareket hâlinde yalpa" dedi. Farklı olay, farklı frekans — 0.25 sn
+seyreltmem 0.5–2 Hz'lik yalpayı zaten göremezdi. Doğru ölçüm:
+
+```
+                     asılı (çubuk merkez)   harekette
+setpoint dalgası     0.003 m                0.048 m
+KOMUT roll dalgası   0.31 deg               2.33 deg  (t-t 9.3)
+```
+
+Komut hızı üç terim (`v_svt + v_sönüm + v_ff`). Açı genliği ayrıştırması
+sapmanın **tamamını** tek terimde topladı:
+
+```
+SVT (-0.8*hata)     8.6 deg     düzgün
+SÖNÜM (-0.35*hız)   2.4 deg     düzgün
+GİDEN KOMUT        53.6 deg     savruk        -> fark v_ff'ten
+```
+
+**Kusur:** `v_ff = a*(x - önceki_x)/dt + (1-a)*v_ff` — pay ile payda
+**farklı aralıkları** ölçüyordu. `dt` yayın tick'i (20 Hz → 0.05 sn), pay
+ise hedefin ilerlemesi; hedef merkez **~10 Hz**'de güncelleniyor.
+`formation_node` çıktısından ölçülen adım dizisi:
+
+```
+0.10  0.00  0.10  0.00  0.10  0.00  0.09  0.02  0.09  0.00 ...
+```
+
+Payda ikisinde de 0.05 sn → `v_ff` sırayla **2.0 m/s ve 0.0** okuyor;
+gerçek merkez hızı 1.0 m/s. `0.10 m` tesadüfi değil:
+`target_ramp_mps=0` → rampa hızı = `max_speed` = 2.0 → `2.0*0.05 = 0.10 m`.
+
+**Neden yalpa, neden hızlanıp yavaşlama değil:** hedefin x ve y bileşenleri
+**farklı tick'lerde** basamak atıyor (ölçüldü: t=337 ms'de x, t=389 ms'de y).
+Ters faz → hız vektörünün büyüklüğü değil **yönü** savruluyor.
+**Neden sadece harekette:** asılı dururken merkez kımıldamaz, pay sıfırdır.
+
+**Çözüm:** sabit pencereli türev `v_ff = (x(t) − x(t−W)) / W`, **W = 0.25 sn**
+(`vff_pencere_s`, `0.0` = eski davranış). Pay ve payda yapısı gereği aynı
+aralıktan gelir. Pencere ölçülen izle kalibre edildi, tahminle değil:
+`0.20 → 11.0` · `0.25 → 10.7` · `0.30 → 9.9` · `0.40 → 7.8 deg`. 0.25'ten
+sonra kazanç duruyor çünkü SVT teriminin kendi tabanı zaten 8.6°.
+
+**Yol boyunca çıkan ikinci kusur:** rampa formasyon tipi değişince
+sıfırlanıp uçağın konumuna yeniden tohumlanıyor — bu bir **sıçrama**, türev
+onu hız sanıp morfun ilk anında uçağı iterdi. Eski yolda da vardı ve 0.05'e
+bölündüğü için **5 kat büyüktü**. Artık orada açıkça `sifirla()`.
+
+**Uçuşta doğrulandı (07:34, ileri bacak, iki uçak):**
+
+| | eski | yeni | |
+|---|---|---|---|
+| ylp00 KOMUT roll dalgası (RMS) | 2.332° | **0.748°** | −68% |
+| ylp00 KOMUT roll (t-t) | 9.285° | **3.405°** | −63% |
+| ylp00 KOMUT hız yönü (RMS) | 14.4° | **7.5°** | −48% |
+| ylp00 GERÇEK roll (t-t) | 3.423° | **2.495°** | −27% |
+| ylp01 KOMUT hız yönü (RMS) | 16.1–17.4° | **4.5°** | −73% |
+| ylp01 GERÇEK roll (RMS) | 1.29–1.39° | **0.806°** | −40% |
+| ylp01 GERÇEK roll (t-t) | 5.06–5.51° | **3.71°** | −28% |
+
+⚠️ **Dürüst kayıt:** doğrulama uçuşu daha kısa ve alçaktı (5.4 m vs 10 m),
+çubuk daha az basılıydı (+0.05 vs +0.15). Ama komut hızı **iki uçuşta da
+2.00 m/s'e doyuyor**, yani hareket rejimi karşılaştırılabilir. Tek uçuş —
+gerçek roll sayılarında rüzgâr payı var. **Operatörün gözle teyidi
+alınmadı** (oturum burada kapandı); sonraki kişi sorsun.
+
+### 📐 Ayrıca yapılanlar
+
+- **Dört sürü ayarı BAŞLAT paketine gömüldü** (morf hızı · hareket hızı ·
+  yaw hızı tavanı · eğim tavanı). `_GOREV_FMT` rezervinden yendi:
+  `'<BBbBBH9x'` → `'<BBbBBHBBBB5x'`. **Paket 16 bayt kaldı**, yeni mesh tipi
+  açılmadı, firmware değişmedi. Sınır dışı değer **sessizce kırpılmıyor**,
+  `ValueError` atılıyor. Doğrulama tek yerde (uçakta, `canli_param`) —
+  backend/arayüz bilerek tekrarlamıyor. (`0e48a39`)
+- **Görev 2 paneli sadeleştirildi**, operatör isteği. (`b4f98b1`)
+- **Kaçınma ayarlandı** (operatör onayıyla, iki turda):
+  `d0 4.0→3.0` · `hard 2.5→2.0` · `hist 2.5→0.2→0.5` ·
+  `dönüş bekleme 8.0→3.0→0.5 sn` · `dönüş hızı 1.2 m/s` · `soğuma 2.0 sn`.
+  Amaç operatörün istediği "daha atik" davranış. (`045bdd8` `7c53a32`)
+- **Morf hızı 1.0 → 1.30 m/s** — denetimin izin verdiği tavan. 1.34
+  denendi, `ucus_ayarlari.py` HATA verdi (pay 1.997 < 2.0), 1.30'da kaldı.
+  Okbaşı→V morfu ~8.5 sn'den ~6.5 sn'ye indi. (`cc8c8d5`)
+- **ylp00 `MAV_SYS_ID` 2 → 1** ve `/ws/tgt_system` **kaldırıldı** — sysid
+  prosedüründen kalan dosya `connected: false` üretiyordu. Ham seri ölçümü:
+  36/38 çerçeve `sysid=2` idi. Kaldırınca MAVROS bağlandı.
+
+### 🧰 Ölçüm sırasında iki kez KENDİ ARACIM yanılttı
+
+Ikisi de kaydedilmeye değer, çünkü ikisi de "makul görünen yanlış sayı"
+üretti:
+
+1. **Açı genliğini düz `max−min` ile ölçmek** ±180° sarmasında sahte
+   **250° / 359°** üretti. Dairesel sapmaya (ortalama yöne göre ±180'e
+   sarılmış fark) çevrildi.
+2. **Pencere seçimi**: ileri-geri dönüşü kapsayan pencerede yön gerçekten
+   tersine dönüyor; bu salınım değil. Tek bacakla ölçülmeli.
+
+Ayrıca `/swarm/*/formation/target` **bag'de kayıtlı ama sıfır mesaj** —
+kaydedicide QoS uyuşmazlığı (formasyon çalışıyor, mesajlar akıyor).
+Teşhis buna bağlı değildi, `formation_node`'un **çıktısı** ölçüldü.
+
+### 📌 Açık kalanlar
+
+- 🔴 **ylp02 ESKİ KODDA** — oturum boyunca ulaşılamadı. Döndüğünde dağıtım
+  şart; karışık kodla üç uçak uçurmak bu projede daha önce saatler yedi.
+- 🟠 **Duruş aşımı ~0.4–0.5 m** — ölçüldü, düzeltilmedi (ayrı kusur).
+- 🟡 **Yerinde gezinme ~0.15 m @ 0.2 Hz** — komut kusursuz sabitken; PX4'ün
+  kendi konum tutuşu, bizim kodumuz değil.
+- 4 Eylül'ün üç P0'ı (**mesh kaybı** · **1 Hz seyreltme** · **lens/QR**)
+  bu oturumda **ele alınmadı**, aynen duruyor.
 
 ---
 

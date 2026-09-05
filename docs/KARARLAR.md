@@ -1,6 +1,6 @@
 # KARARLAR — verilmiş ama henüz uygulanmamış kararlar
 
-**Son güncelleme:** 4 Eylül 2026, 23:15 — **KARAR-17** (sabit lider ylp00 — **SİSTEM GENELİ, hem Görev 1 hem Görev 2**; ayrıca Görev 2'de lider slot 0/ortada). Eski: KARAR-16 (tek-yayıncı), KARAR-10 (formasyon testlerinde GOTO YASAK), KARAR-15 (kaçınma eşikleri 5 m aralıkta kilitleniyor)
+**Son güncelleme:** 5 Eylül 2026, 07:56 — **KARAR-17 UÇTU** (sabit lider ylp00, sistem geneli; lider slot 0; Macar en-yakın-slot yazıldı) — ylp02 hariç. Eski: KARAR-16 (tek-yayıncı), KARAR-10 (formasyon testlerinde GOTO YASAK), KARAR-15 (kaçınma eşikleri 5 m aralıkta kilitleniyor)
 
 Sohbette verilen kararlar oturum bitince kayboluyor. Bu defter onları
 tutuyor: **ne karar verildi, neden, ne zaman uygulanacak, nasıl test edilecek.**
@@ -36,7 +36,7 @@ sırası gelince" denilen şeyleri. Onlar en kolay kaybolanlar.
 
 # KARAR-17 — Lider SEÇİLMEZ, VERİLİR: ylp00 (sistem geneli) + Görev 2'de slot 0
 
-**Durum:** ✅ UYGULANDI (4 Eylül 2026) — kod yazıldı, 1024 test geçti, düğüm canlı doğrulandı; **uçakta dağıtılmadı**
+**Durum:** ✅ UYGULANDI ve **UÇTU** (5 Eylül 2026) — ylp00 + ylp01'e dağıtıldı, birden çok uçuşta lider hiç değişmedi, lider slot 0'da (formasyonun ortasında) kaldı. Ek olarak **en-yakın-slot ataması (Macar)** yazıldı: lider slot 0'a çivili, kalanlar Macar ile (çizgide toplam yol **0.00 m**; kimlik sırası 24.00 m). 🔴 **ylp02'ye DAĞITILMADI** — o uçak 5 Eylül'de ulaşılamadı ve hâlâ eski kodda.
 **Ne zaman:** Görev 2 çalışmasının ilk maddesi
 **Karar veren:** Operatör (4 Eylül 2026) — önce *"YLP00'ı kalıcı lider seçeceğiz ve o her zaman ortaya koyulacak"* (Görev 2), aynı gün genişletildi: *"tüm sistemi kapsayacak şekilde olsun. Yani hem Görev 1 hem Görev 2 sabit lider YLP00."*
 

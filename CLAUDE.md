@@ -1,6 +1,6 @@
 # Yelpençe — TEKNOFEST 2026 Sürü İHA
 
-**Son güncelleme:** 4 Eylül 2026, 21:47 — finale 2 gün; **Görev 1 zinciri uçtan uca uçtu** (formasyon havada kuruldu, QR'a 0.11 m), üç açık kusur ölçüldü
+**Son güncelleme:** 5 Eylül 2026, 07:56 — **finale 1 gün**; Görev 1 zinciri uçtan uca uçtu, **Görev 2 kumandadan uçtu** (sabit lider + formasyon geçişleri), yedi sessiz kusur kapandı; 🔴 ylp02 eski kodda
 
 > Claude bu dosyayı her oturumda **kendiliğinden okur.** Yeni sohbet açan
 > kişinin hiçbir şey söylemesine gerek yok; projeyi buradan anlar.
@@ -13,15 +13,23 @@
 Takım **Yelpençe**, takım numarası **752825**. TEKNOFEST 2026 Sürü İHA
 Yarışması. Üç çok rotorlu İHA bir sürü olarak otonom görev yapıyor.
 
-**Uçuş kanıtı geçildi. Sürü hareketi, formasyon geçişi ve — 4 Eylül akşamı —
-GÖREV 1 ZİNCİRİNİN TAMAMI uçtu:** kalkış 15 m → toplanma merdiveni →
-formasyon (üç uçakta kuruldu) → QR'a seyir (irtifa tam −10.0 m, alçalma
-0.43 m/s) → **QR'ın 0.11 m yanına varış.** Finale 2 gün var.
+**Uçuş kanıtı geçildi. GÖREV 1 ZİNCİRİNİN TAMAMI uçtu** (4 Eylül akşamı):
+kalkış 15 m → toplanma merdiveni → formasyon → QR'a seyir (irtifa tam
+−10.0 m, alçalma 0.43 m/s) → **QR'ın 0.11 m yanına varış.**
 
-**Sıradaki üç iş — üçü de YERDE kapanır, uçuş gerekmez:**
-① mesh kaybını ölç ve düşür (%6.7 / %21.7 — takipçiler komuttan sessizce
-düşüyor) ② komutun 1 Hz'e seyrelmesini bul (sürü seyirde titriyor)
-③ lens ayarından sonra QR'ı yerde okut. Ayrıntı `docs/YAPILACAKLAR.md` P0.
+**GÖREV 2 de kumandadan uçtu** (5 Eylül sabahı, iki uçakla): ylp00 **sabit
+lider** ve her zaman slot 0 (ortada), çizgi/V/okbaşı geçişleri havada
+yapıldı. Yol boyunca **yedi sessiz kusur** ölçülüp kapatıldı — hepsi hata
+vermeden yanlış sonuç üreten türdendi. Finale **1 gün** var.
+
+**Sıradaki dört iş — biri hariç hepsi YERDE kapanır:**
+① 🔴 **ylp02'ye kod dağıt** (17 commit geride; `command_valid` ve sabit
+lider mesh sözleşmesine dokunuyor, karışık kodla üç uçak uçmaz)
+② mesh kaybını ölç ve düşür (%6.7 / %21.7) ③ komutun 1 Hz'e seyrelmesini
+bul ④ lens ayarından sonra QR'ı yerde okut. Ayrıntı `docs/YAPILACAKLAR.md` P0.
+
+⚠️ **`rsync` ana makinede yok** — dağıtım `yki` konteynerinden koşuluyor:
+`docker exec yki bash -lc './deploy/rpi/dagit.sh --paket <paket> <ylpXX>'`
 
 ### 🔴 Bugünkü komut yolu finalde KULLANILAMAZ
 

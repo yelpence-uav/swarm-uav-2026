@@ -1,6 +1,6 @@
 # YAPILACAKLAR
 
-**Son güncelleme:** 4 Eylül 2026, 21:47 — 🟢 B5 GEÇTİ (formasyon havada kuruldu) · 🟢 Görev 1 zinciri uçtan uca uçtu · 🔴 YENİ P0: 1 Hz komut seyreltmesi (titreme) · 🔴 mesh kaybı geri geldi
+**Son güncelleme:** 5 Eylül 2026, 07:56 — 🟢 Görev 2: sabit lider + yedi sessiz kusur kapandı, yalpa uçuşta doğrulandı · 🔴 YENİ P0: **ylp02 eski kodda** · 🔴 duruyor: mesh kaybı · 1 Hz seyreltme · lens/QR
 
 > **Finale 5 gün.** Bu liste artık "her fikir" değil, **bu 8 günde
 > yapılacak iş.** Bir madde buraya giriyorsa birinin onu yapması planlanıyor
@@ -12,6 +12,21 @@
 ---
 
 ## 🔴 P0 — bunlar kapanmadan ilgili uçuş yapılmaz
+
+- `[ ]` 🔴 **ylp02 ESKİ KODDA — üç uçak uçmadan önce DAĞITILACAK (5 Eylül).**
+  5 Eylül oturumu boyunca ulaşılamadı (son bilinen IP'de yok, subnet
+  taraması da bulamadı), yani **17 commit geride**: sabit lider, lider
+  merkez + Macar slot, kalkış kapısı formasyonu, READY irtifası,
+  `command_valid` mesh alanı, B19 yutucu sıfırlaması, yalpa düzeltmesi —
+  hiçbiri onda yok. `command_valid` ve sabit lider **mesh sözleşmesine**
+  dokunuyor; karışık kodla üç uçak uçurmak sessiz bölünme üretir
+  (bkz. `GUNLUK.md` 07:56, kusur 4: lider düşürüyor takipçi kabul ediyordu).
+  🔴 **`rsync` ana makinede YOK** — dağıtım `yki` konteynerinden:
+  ```bash
+  docker exec yki bash -lc './deploy/rpi/dagit.sh --paket swarm_core ylp02'
+  ```
+  Sonra `docker restart drone3`. Ardından `./deploy/yki/drone_bul.sh --durum`
+  ile üç uçakta da `.surum` aynı mı bak. Maliyet: 5 dk, uçuş yok.
 
 - `[ ]` 🔴 **MESH KAYBI GERİ GELDİ — uçuştan önce ÖLÇÜLECEK (4 Eylül akşamı).**
   Son 30 sn: **d2 %6.7 · d3 %21.7**. Sonucu görünmez bir sessiz arıza:
@@ -93,6 +108,40 @@
   bayrağı KALDIRMAK — okunmayan bayrak yanlış güven veriyor.
 
 
+- `[ ]` 🟠 **DURUŞ AŞIMI 0.38–0.47 m — ölçüldü, DÜZELTİLMEDİ (5 Eylül).**
+  Çubuk bırakılınca uçak setpoint'i aşıp ~2 sn'de geri sürünüyor; iki uçakta
+  da aynı imza (ylp00 **0.47 m**, ylp01 **0.38 m**). Mekanizma ölçüldü:
+  setpoint dururken uçak **1.51 m/s** gidiyor, hız takibi ~0.3 sn geriden
+  geliyor → `1.51 × 0.3 = 0.45 m`; ölçülen 0.47. Yani geometri hatası değil,
+  **hız döngüsü gecikmesi.** Şartname "Osilasyon gözlemlenmesi −10" için
+  görünen bileşen büyük ihtimalle budur (yalpa kapandıktan sonra).
+  **Seçenekler:** ① `MOD_HIZ_MPS` 2.0 → 1.4 (aşım hızla orantılı, ~0.33 m;
+  panel değeri, sıfır kod, ama hareket yavaşlar) ② yürütücüde freni hız
+  gecikmesi kadar erken başlat — **ama dikkat**: Görev 2 hareket modunda
+  px4_bridge **dal A**'yı seçiyor (konum + hız ileri-beslemesi), yerel
+  yürütücü devrede DEĞİL; bu seçenek Görev 1 guided yolunu etkiler, Görev 2'yi
+  değil. Ölçmeden uygulama.
+
+- `[ ]` 🟡 **YERİNDE GEZİNME ~0.15 m @ 0.2 Hz — bizim kodumuz DEĞİL (5 Eyl).**
+  Komut kusursuz sabitken (setpoint ±0.01 m, `kyn=1` boyunca) uçak 0.14–0.35 m
+  tepe-tepe geziyor, ~5 sn periyot. Kaynak PX4'ün kendi konum tutuşu /
+  kestirici. Kayıt için: 10 m'den gözle zor görülür, **öncelik duruş
+  aşımından sonra.** Buraya el atmadan önce yukarıdaki maddeyi kapat.
+
+- `[ ]` 🟡 **YALPA DÜZELTMESİNİN GÖZLE TEYİDİ ALINMADI (5 Eylül).**
+  Sayılar iyi (ylp00 komut roll dalgası −68%, ylp01 gerçek roll −40%) ama
+  oturum operatörün "hâlâ görünüyor mu?" cevabı alınmadan kapandı.
+  **Sonraki kişi sorsun.** Hâlâ görünüyorsa aranan şey bu değil, duruş
+  aşımı ya da PX4 tabanı — ayrı kusur, ayrı ölçüm.
+
+- `[ ]` 🟡 **KAÇINMA FORMASYON KURULURKEN TETİKLENİYOR (5 Eylül, ölçüldü).**
+  ylp01 çizgi slotuna giderken lidere **2.24 m**'ye kadar yaklaştı
+  (`d0=3.0` altı), dikey yol verme devreye girdi, formasyon irtifasının 2 m
+  üstüne çıkıp ~11 sn sonra geri indi. Kararlı hâlde sorun yok (ayrım
+  5.76–6.18 m, 4 m altına hiç inmedi). Yani **kaçınma doğru çalıştı**, ama
+  slota giden yol liderin yanından geçiyor. Üç uçakla geometri değişir;
+  önce 3 uçakla ölç, sonra karar ver.
+
 - `[x]` ✅ **QR `mnv` eşlemesi DOĞRUYMUŞ — sabah yanlış kaydedilmişti (4 Eyl).**
   Bu madde "eksenler yanlış eşleniyor" diye 🔴🔴 açılmıştı; **şartname
   okununca çürüdü.** Kayıt bilerek duruyor: aynı yanlış iki kez
@@ -153,7 +202,10 @@
 - `[x]` ✅ **Push yapıldı** — sabahki 6'lık paket `1cf6331` ile gitti.
   ⚠️ Uzak `saha/main`, `origin` DEĞİL (`origin` 16 Ağustos'ta kalmış).
 
-- `[ ]` 🟡 **En-yakın-slot ataması (Macar, P2) — operatör istedi (4 Eyl):**
+- `[x]` ✅ **En-yakın-slot ataması (Macar) — YAZILDI (5 Eylül, `6ab6466`).**
+  `slot_atama.py`: lider slot 0'a **çivili**, kalanlar Macar ile en yakın
+  slota. Çizgide ölçüldü: toplam yol **0.00 m** (kimlik sırası 24.00 m).
+  13 birim test. Özgün madde:
   lider slot 0'a sabit, kalan iki uçak en yakın slota (2 uçak = tek
   karşılaştırma). Bugün d2-d3 çapraz geçişi (kuru 1.94 m KALDI) fiziksel
   takasla çözüldü; **finalde dizilişi biz seçemiyorsak bu kod ŞART.**
@@ -367,7 +419,11 @@
   ⚠️ Aralık **7 mi 9 mu — KARAR-14 açık.** Formasyon geçişli uçuşta YKİ'de
   "Aralık (m)" kutusuna **9** yazmak yeterli, dağıtım değişmiyor.
 
-- `[ ]` 🔴 **KUMANDADAN FORMASYON GEÇİŞİ — bir sonraki uçuş.**
+- `[x]` ✅ **KUMANDADAN FORMASYON GEÇİŞİ — UÇTU (5 Eylül).**
+  Çizgi ile kalkış → V → okbaşı geçişleri kumandadan yapıldı, formasyon
+  havada kuruldu ve korundu. Yol boyunca **beş kusur** çıktı ve kapandı
+  (kalkış kapısı · READY irtifası · `command_valid` · B19 yutucu · yalpa);
+  ayrıntı `GUNLUK.md` 07:56. Özgün plan:
   Sıra: kalk (VrB KAPALI, formasyon yok) → 5 m'de asılı dur → **VrB aç**
   (SwC'nin gösterdiği formasyon oluşsun) → SwC ile bir geçiş → **VrB kapat**
   (uçaklar olduğu yerde donsun) → in.
