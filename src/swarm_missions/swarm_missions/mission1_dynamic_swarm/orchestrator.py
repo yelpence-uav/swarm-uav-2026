@@ -161,6 +161,28 @@ class OrchestratorConfig:
     qr_arrival_threshold_m: float = 0.3
     # Geçerken değil, OTURMUŞ olsun: 5 tick @5Hz = 1 sn eşik altında kalmalı.
     qr_arrival_stable_ticks: int = 5
+    # 🔴 OKUYUCU DRON KİMLİĞİ — 5 Eylül 2026, operatör kararı: "sadece ylp00
+    # okuma yapacak".
+    #
+    # NEDEN VAR: `_anchor_nearest_to_qr` okuyucuyu GEOMETRİYLE seçiyordu —
+    # QR'a o an en yakın dron QR'ın üstüne çıpalanıyordu. Ama KAMERA TEK
+    # UÇAKTA (ylp00). En yakın uçak ylp01/ylp02 çıkarsa sürü KAMERASIZ bir
+    # uçağı QR'ın üstüne oturtur; QR hiç okunmaz ve hiçbir yerde hata
+    # görünmez — sessiz kusur sınıfı.
+    #
+    # Sabit lider (ylp00, slot 0 = formasyonun ortası) bunu kısmen
+    # iyileştiriyor ama GARANTİ ETMİYOR: hangi slotun QR'a en yakın düştüğü
+    # formasyon şekline ve yaklaşma başlığına bağlı; çizgi/V'de kanat uçağı
+    # öne düşebilir.
+    #
+    # 0 = KAPALI, eski davranış (en yakın dron). Kamera birden çok uçağa
+    # takılırsa 0'a çekilir ve geometri yine devralır.
+    #
+    # ⚠️ İKİ YERDE BİRDEN kullanılır ve ayrılırlarsa sessizce bozulur:
+    # ① `_okuyucu_indeks` → formasyon çıpası ② `_qr_arrival` → varış mesafesi.
+    # Çıpa ylp00'ı QR'a koyarken varış "en yakın uçak"tan ölçülürse, ylp00
+    # daha yoldayken varış bildirilir ve EXECUTE'a QR okunmadan geçilir.
+    kamera_ajan_id: int = 0
 
 
 @dataclass
@@ -501,10 +523,15 @@ class Mission1Orchestrator:
         key = (round(ned[0], 1), round(ned[1], 1))
         if self._st.arrival_done_key == key:
             return None
-        d = min(
-            math.hypot(p[0] - ned[0], p[1] - ned[1])
-            for p in inp.positions
-        )
+        # ⚠️ MESAFE OKUYUCU DRONDEN. Eskiden `min(...)` ile EN YAKIN uçaktan
+        # ölçülüyordu; `kamera_ajan_id` açıkken çıpa ylp00'ı QR'a koyarken
+        # varışı başka bir uçak tetikleyebilir ve sürü, kamera daha yoldayken
+        # EXECUTE'a geçerdi. İkisi AYNI dronu göstermek zorunda.
+        ridx = self._okuyucu_indeks(inp, ned)
+        if ridx is None:
+            return None
+        p = inp.positions[ridx]
+        d = math.hypot(p[0] - ned[0], p[1] - ned[1])
         self._st.last_qr_distance_m = d
         if d <= self._cfg.qr_arrival_threshold_m:
             self._st.arrival_ticks += 1
@@ -820,16 +847,46 @@ class Mission1Orchestrator:
         de = to[1] - frm[1]
         return math.degrees(math.atan2(de, dn))
 
-    def _anchor_nearest_to_qr(self, inp, ned, offsets, heading_rad):
-        """Formasyonu, QR'a en yakın dron QR'ın üstüne gelecek şekilde kaydırır."""
-        if not inp.positions or not offsets:
-            return (ned[0], ned[1], inp.centroid[2])
-        ridx = min(
+    def _okuyucu_indeks(self, inp, ned):
+        """QR'ı okuyacak dronun `inp.positions` içindeki indeksi.
+
+        `kamera_ajan_id` ayarlıysa O UÇAK, değilse QR'a en yakın olan.
+        Gerekçe `OrchestratorConfig.kamera_ajan_id` yanında.
+
+        Kamera ajanı kadroda yoksa (uçmuyor, ayrıldı, id yanlış girildi)
+        SESSİZCE en yakına düşülür: görev durmaz, ama okuma garantisi de
+        kalmaz. Çağıran bunu logluyor — sessiz kalırsa fark edilmezdi.
+        """
+        if not inp.positions:
+            return None
+        kam = int(self._cfg.kamera_ajan_id or 0)
+        if kam:
+            try:
+                i = list(inp.agent_ids).index(kam)
+            except ValueError:
+                i = -1
+            if 0 <= i < len(inp.positions):
+                return i
+        return min(
             range(len(inp.positions)),
             key=lambda i: math.hypot(
                 inp.positions[i][0] - ned[0], inp.positions[i][1] - ned[1]
             ),
         )
+
+    def _anchor_nearest_to_qr(self, inp, ned, offsets, heading_rad):
+        """Formasyonu, OKUYUCU dron QR'ın üstüne gelecek şekilde kaydırır.
+
+        Ad tarihsel ("nearest"); okuyucu artık `_okuyucu_indeks` ile
+        seçiliyor ve `kamera_ajan_id` ayarlıysa en yakın DEĞİL kameralı
+        uçaktır. Ad korundu çünkü üç ayrı yerden ve yorumlardan referans
+        veriliyor; değiştirmek bugün gereksiz risk.
+        """
+        if not inp.positions or not offsets:
+            return (ned[0], ned[1], inp.centroid[2])
+        ridx = self._okuyucu_indeks(inp, ned)
+        if ridx is None or ridx >= len(offsets):
+            return (ned[0], ned[1], inp.centroid[2])
         rox, roy = rotate_offset(offsets[ridx][0], offsets[ridx][1], heading_rad)
         return (ned[0] - rox, ned[1] - roy, inp.centroid[2])
 

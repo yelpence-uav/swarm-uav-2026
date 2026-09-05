@@ -313,6 +313,23 @@ GOREV_KALKIS_IRTIFA_M = 15.0
 # altına inmez.
 GOREV_QR_OKUMA_IRTIFA_M = 10.0
 
+# 🔴 OKUYUCU (KAMERALI) DRON — 5 Eylul 2026, operator: "sadece ylp00 okuma
+# yapacak". Formasyon, QR'in ustune BU ucagi getirecek sekilde cipalanir.
+#
+# NEDEN GEREKTI: `orchestrator._anchor_nearest_to_qr` okuyucuyu GEOMETRIYLE
+# seciyordu (QR'a o an en yakin dron). Kamera TEK UCAKTA — 5 Eylul'de
+# ylp02'nin kamerasi ylp00'a takildi. En yakin ucak ylp01/ylp02 cikarsa
+# suru KAMERASIZ bir ucagi QR'in ustune oturtur: QR hic okunmaz, hicbir
+# yerde hata gorunmez. Sessiz kusur sinifi.
+#
+# Sabit lider (ylp00 slot 0 = ortada) bunu KISMEN iyilestirir ama garanti
+# etmez: hangi slotun QR'a en yakin dustugu formasyon sekline ve yaklasma
+# basligina baglidir; cizgi/V'de kanat ucagi one dusebilir.
+#
+# 0 = KAPALI, eski davranis (en yakin dron). Kamera birden cok ucaga
+# takilirsa 0'a cekilir, geometri yine devralir.
+GOREV_KAMERA_AJAN = 1          # 1 = ylp00 (drone1). 0 = kapali.
+
 # (Pil ayarlari INA226 bolumunde — "INA226 PIL OLCUMU" basligina bak.)
 
 # --- Guvenlik ---------------------------------------------------------------
@@ -1113,6 +1130,18 @@ def denetle():
             f'SURU_SABIT_LIDER ({SURU_SABIT_LIDER}) UCAN_KADRO {UCAN_KADRO} '
             f'icinde YOK — Gorev 2 profilinde o ucak hic tarif basmaz, '
             f'formasyon SESSIZCE kurulmaz')
+    if GOREV_KAMERA_AJAN and GOREV_KAMERA_AJAN not in UCAN_KADRO:
+        hata.append(
+            f'GOREV_KAMERA_AJAN ({GOREV_KAMERA_AJAN}) UCAN_KADRO {UCAN_KADRO} '
+            f'icinde YOK — Gorev 1 formasyonu QR ustune UCMAYAN bir ucagi '
+            f'cipalar, QR hic okunmaz ve hata da vermez')
+    if GOREV_KAMERA_AJAN and SURU_SABIT_LIDER and \
+            GOREV_KAMERA_AJAN != SURU_SABIT_LIDER:
+        uyari.append(
+            f'kamerali ajan ({GOREV_KAMERA_AJAN}) ile sabit lider '
+            f'({SURU_SABIT_LIDER}) FARKLI ucaklar — calisir, ama lider slot '
+            f'0 (ortada) iken formasyon merkezi kameraliya gore kayar; '
+            f'kuru testte cikis noktalarini gozle dogrula')
     if SURU_SABIT_LIDER and not SURU_LIDER_KILIDI:
         uyari.append(
             'SURU_SABIT_LIDER acik ama SURU_LIDER_KILIDI kapali — sabit '
@@ -1501,6 +1530,7 @@ def _kabuk():
     print(f'SURU_KALKIS_OLAYLA={"true" if KALKIS_OLAYLA else "false"}')
     print(f'GOREV_KALKIS_IRTIFA={GOREV_KALKIS_IRTIFA_M}')
     print(f'GOREV_QR_OKUMA_IRTIFA={GOREV_QR_OKUMA_IRTIFA_M}')
+    print(f'GOREV_KAMERA_AJAN={GOREV_KAMERA_AJAN}')
     # (Pil satirlari asagida, INA226 blogunda — INA226_HUCRE orada.)
     # path_planner (rota sekillendirme)
     print(f'ROTA_MAKS_HIZ={GOREV_HIZ_MPS}')

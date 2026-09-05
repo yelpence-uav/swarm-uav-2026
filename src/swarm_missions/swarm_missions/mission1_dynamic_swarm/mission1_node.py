@@ -104,6 +104,8 @@ class Mission1Node(Node):
                 self.get_parameter('gorev_kurulum_hiz_mps').value),
             qr_okuma_irtifa_m=float(
                 self.get_parameter('qr_okuma_irtifa_m').value),
+            kamera_ajan_id=int(
+                self.get_parameter('kamera_ajan_id').value),
         ))
 
         # HOME kilidi icin beklenen kadro (bkz. _on_swarm_state).
@@ -178,6 +180,12 @@ class Mission1Node(Node):
         # QR OKUMA IRTIFASI — NAVIGATE bacaginin hedef irtifasi.
         # Tek kaynak: ucus_ayarlari.py GOREV_QR_OKUMA_IRTIFA_M -> baslat.sh.
         self.declare_parameter('qr_okuma_irtifa_m', 10.0)
+        # OKUYUCU DRON — QR'in ustune CIPALANACAK ucak. 0 = kapali (eski
+        # davranis: QR'a o an en yakin dron). Gerekce ve tuzagi
+        # orchestrator.py'de `kamera_ajan_id` yaninda -- burada
+        # TEKRARLANMIYOR ki biri degisip digeri unutulmasin.
+        # Tek kaynak: ucus_ayarlari.py GOREV_KAMERA_AJAN -> baslat.sh.
+        self.declare_parameter('kamera_ajan_id', 0)
         self.declare_parameter('kalkis_tolerans_m', 0.5)
         self.declare_parameter('kalkis_dikey_hiz_esik_mps', 0.5)
 

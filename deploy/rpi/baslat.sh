@@ -1729,6 +1729,7 @@ fi   # /altyapi: ic_dis_kopru
             -p wing_alpha_deg:=${KANAT_ALFA_DEG} \
             -p kalkis_irtifa_m:=${GOREV_KALKIS_IRTIFA:-10.0} \
             -p qr_okuma_irtifa_m:=${GOREV_QR_OKUMA_IRTIFA:-10.0} \
+            -p kamera_ajan_id:=${GOREV_KAMERA_AJAN:-0} \
             -p gorev_formasyon:=${GOREV_FORMASYON:-0} \
             -p gorev_aralik_m:=${GOREV_ARALIK:-7.0} \
             -p donus_yaw_deg:=${GOREV_DONUS_YAW:-0.0} \
