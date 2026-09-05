@@ -92,8 +92,22 @@ MODLAR = {
     # CEKIRDEK yediriyordu (4 Eylul olcumu: %131, sistem %1,9 bosta,
     # yuk 9,26) ve mavros CPU icin yarisiyordu. QR zaten 5 Hz isliyor,
     # 10 fps hala iki kat fazla besliyor.
+    # fps 10 -> 5, 5 Eylul 2026.  QR isleme 5 -> 2,5 Hz'e dusurulunce
+    # 10 fps beslemek iki kat fazla kaldi: her kare rpicam-vid'e MJPEG
+    # sikistirma yediriyor ama yarisi hic islenmeden dusuyordu. O gun
+    # ylp00'da OLCULDU (4K, zincir acik): rpicam-vid %54,8 - vision_node
+    # %93,1 - yuk 8,55 - 65,9 C (throttled=0x0, yani henuz kisitlama yok
+    # ama pay dardi).
+    # ⚠️ JOLE ARTMAZ. Satir okuma suresi KIP'e baglidir, kare hizina
+    # degil -- yukaridaki 30 -> 10 notunda ayni sey olculerek kurulmustu.
+    # 5 fps'te sensor yine ayni hizda okur, sadece aralarda daha uzun
+    # bekler.
+    # ⚠️ TEK BEDELI: kare periyodu 100 -> 200 ms, yani otomatik pozlama
+    # KARANLIKTA daha uzun poz secebilir ve hareket bulanikligi artar.
+    # Gunduz onemsiz: 49208 lux'te pozlama 0,14 ms olculdu, tavanin
+    # binde biri. Alacakaranlikta ucacaksak once bu geri alinir.
     'tam':    {'ad': '4056x3040  TAM 12,3MP',  'w': 4056, 'h': 3040,
-               'mod': '4056:3040:12:P', 'fps': 10},
+               'mod': '4056:3040:12:P', 'fps': 5},
 }
 
 # Onizleme GENISLIGI. Yukseklik yakalama en-boy oranindan turetiliyor —

@@ -109,8 +109,10 @@ basla)
         -p landing_zone_rate_hz:="${LZ_HZ:-15.0}" \
         -p qr_wechat_yedek:="${WECHAT:-false}" \
         -p qr_tam_tarama_periyodu:="${TAM_TARAMA:-20}" \
+        -p qr_aday_alan_tavani:="${ADAY_TAVAN:-0.0}" \
+        -p renk_yolu_acik:="${RENK:-false}" \
         > "$GOZ_LOG" 2>&1 &
-    echo "vision_node: qr ${QR_HZ:-5.0} Hz, renk ${LZ_HZ:-15.0} Hz, wechat ${WECHAT:-false}, tam_tarama ${TAM_TARAMA:-20}"
+    echo "vision_node: qr ${QR_HZ:-5.0} Hz, renk ${LZ_HZ:-15.0} Hz, wechat ${WECHAT:-false}, tam_tarama ${TAM_TARAMA:-20}, aday_tavan ${ADAY_TAVAN:-0.0}, renk ${RENK:-false}"
     sleep 4
     # Kopru: sonuclari JSON'a yazar, kamera sayfasi onu gosterir. Boylece
     # QR/renk sonucunu gormek icin terminale `ros2 topic echo` yazmak

@@ -62,6 +62,7 @@ class QRDetector:
         iki_asamali: bool = True, olcek: int = 4,
         pay_orani: float = 0.25, aday_sayisi: int = 2,
         tam_tarama_periyodu: int = 5, wechat_yedek: bool = True,
+        aday_alan_tavani: float = 0.0,
     ) -> None:
         """Aciklama: QRDetector sinifini ilklendirir."""
         self._min_confidence = min_confidence
@@ -85,6 +86,51 @@ class QRDetector:
         self._olcek = max(1, int(olcek))
         self._pay_orani = float(pay_orani)
         self._aday_sayisi = max(1, int(aday_sayisi))
+        # ⚠️ DEV ADAY KORUMASI — 5 Eylul 2026, ylp00'da gercek 4K karede
+        # OLCULDU. Dis mekanda yuksek degisintili bolge HER YERDE (cimen,
+        # doku); 9x9 kapama hepsini tek bloba birlestiriyor ve sinirlayici
+        # kutu kareyi kapliyor. QR YOKKEN olculen bir tur:
+        #     imdecode                 94,5 ms
+        #     _adaylari_bul            76,8 ms  -> 2 aday
+        #     aday 0: 4056x2692 px    zxing 523,2 ms   (karenin %89'u!)
+        #     aday 1: 3128x1700 px    zxing 171,6 ms
+        #     detect() TOPLAM         805,5 ms
+        # Yani "kirpma" diye taranan sey neredeyse TUM KAREYDI ve iki
+        # asamali yol TEK tam taramadan (406-470 ms) PAHALIYA calisiyordu.
+        # 2,5 Hz'de %201 CPU talebi: dugum doymustu ve gercekte ~1,2 Hz'de
+        # kosuyordu -- menzil olcumunde deneme sayisi da yariya iniyordu.
+        # Bu yuzden `QR_HZ` 5 -> 2,5 hicbir sey degistirmemisti; zaten
+        # ulasilamayan bir tavan indirilmis oluyordu.
+        #
+        # Kare alaninin bu oranindan BUYUK kutu QR adayi DEGILDIR,
+        # bulucunun basarisizligidir: atilir ve zaten var olan periyodik
+        # tam tarama guvenlik agi yakalar. 0.0 = koruma kapali.
+        #
+        # 🔴 VARSAYILAN 0.0 = KAPALI. Koruma 0,25 ile denendi ve
+        # OLCUMLE CURUTULDU (5 Eylul 2026, ayni gun, ayni ucak). Ayni
+        # canli kareye sentetik QR gomulup her iki kip olculdu:
+        #        QR boyu     koruma KAPALI      koruma 0,25
+        #     1200x1200 px   132 ms  BULDU     138 ms  BULDU
+        #       600x600 px    59 ms  BULDU      58 ms  BULDU
+        #       300x300 px   178 ms  BULDU     221 ms  KACIRDI
+        #       150x150 px   667 ms  BULDU     202 ms  KACIRDI
+        #     QR YOK         532 ms              52 ms
+        # Yani dev kutu SALT GURULTU DEGIL: kucuk QR'i iceren kutu da dev
+        # oluyor ve zxing onu tararken QR'i buluyor. Kutuyu atmak, QR'i
+        # atmak demek -- ve kucuk QR tam olarak GOREV HALI (10 m'den 1,5 m
+        # QR karenin ~%1,7'si). CPU kazanci gercekti (%97,7 -> %39,8) ama
+        # bedeli menzilin tamami.
+        # Dogru cozum kutuyu ATMAK degil, bulucuyu TIKIZ kutu uretmeye
+        # zorlamak: 9x9 kapama tum dokuyu tek bloba birlestiriyor. Kernel
+        # kucultmek ya da %99 esigin 0,55 carpanini yukseltmek denenmeli
+        # -- ama once bu tabloyla olculmeli.
+        # Bu bayrak DENEY icin duruyor; acmadan once yukaridaki tabloyu
+        # yeniden uret.
+        #
+        # NOT: ayni tuzak asagida WECHAT icin yazilmisti ("koruma yanlis
+        # yerde duruyor") ve dogruymus -- zxing de ayni felakete kirpma
+        # uzerinden giriyordu. Koruma artik dogru yerde: kutunun kendisi.
+        self._aday_alan_tavani = max(0.0, float(aday_alan_tavani))
         # ⚠️ TAM TARAMAYA HER BASARISIZLIKTA DUSMUYORUZ — 28 Agustos 2026'da
         # olculdu ve ilk uygulama TERS TEPTI:
         #     QR VAR : tam kare 833 ms -> iki asama  177 ms   4,7x HIZLI
@@ -275,7 +321,15 @@ class QRDetector:
         try:
             kucuk = cv2.resize(image, (tam_g // b, tam_y // b),
                                interpolation=cv2.INTER_AREA)
-            gri = cv2.cvtColor(kucuk, cv2.COLOR_BGR2GRAY).astype(np.float32)
+            # Kare zaten tek kanalliysa cevirme (renk yolu kapaliyken
+            # `_compressed_callback` IMREAD_GRAYSCALE ile coziyor). Eskiden
+            # kosulsuz cvtColor vardi; gri kare gelince cv2.error atiyor,
+            # asagidaki `except` yutuyor ve bulucu SESSIZCE bos donuyordu --
+            # iki asamali tarama devre disi kalir, her sey tam taramaya
+            # duserdi. Yani hata vermeden yavaslardik.
+            gri = (kucuk if kucuk.ndim == 2
+                   else cv2.cvtColor(kucuk, cv2.COLOR_BGR2GRAY))
+            gri = gri.astype(np.float32)
             ort = cv2.blur(gri, (12, 12))
             # Degisinti kayan pencerede: E[x^2] - E[x]^2. Yuvarlama yuzunden
             # kucuk negatif cikabilir, karekokten once kirpiyoruz.
@@ -291,16 +345,21 @@ class QRDetector:
             return []
 
         kutular = []
+        tavan = self._aday_alan_tavani * float(tam_g) * float(tam_y)
         for c in sorted(konturlar, key=cv2.contourArea,
                         reverse=True)[:self._aday_sayisi]:
             x, y, w, h = cv2.boundingRect(c)
             if w < 8 or h < 8:
                 continue
             pay = int(max(w, h) * self._pay_orani)
-            kutular.append((
-                max(0, (x - pay) * b), max(0, (y - pay) * b),
-                min(tam_g, (x + w + pay) * b),
-                min(tam_y, (y + h + pay) * b)))
+            kx0, ky0 = max(0, (x - pay) * b), max(0, (y - pay) * b)
+            kx1 = min(tam_g, (x + w + pay) * b)
+            ky1 = min(tam_y, (y + h + pay) * b)
+            # Kareyi kaplayan aday, aday degil -- bulucunun cokusu.
+            # Gerekce ve olculen sayilar yapicida (`_aday_alan_tavani`).
+            if tavan > 0.0 and float(kx1 - kx0) * (ky1 - ky0) > tavan:
+                continue
+            kutular.append((kx0, ky0, kx1, ky1))
         return kutular
 
     def _blank_result(self) -> Dict[str, Any]:

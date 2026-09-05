@@ -63,7 +63,11 @@ class VisionNode(Node):
         self._qr_interval = 1.0 / self._qr_rate_hz
 
         self._last_lz_time = 0.0
-        self._lz_interval = 1.0 / self._lz_rate_hz
+        # Kapaliyken aralik SONSUZ: `run_lz` hicbir yerde True olamaz, yani
+        # `_process_lz` cagrilmaz. Tek noktadan kapatmak, her cagri yerine
+        # ayri bayrak koymaktan guvenli -- biri unutulamaz.
+        self._lz_interval = (1.0 / self._lz_rate_hz if self._renk_acik
+                             else float('inf'))
 
         # Kamera içsel parametreleri (pinhole). CameraInfo GELENE KADAR None:
         # varsayılan bir odak uzaklığı uydurmak, kamera susarsa sessizce yanlış
@@ -112,9 +116,30 @@ class VisionNode(Node):
         # Menzili ~20 m'den ~45 m'ye cikariyor. Tam karede ASLA
         # kullanilmaz: QR yokken 11,8 saniye suruyor (olculdu).
         self.declare_parameter('qr_wechat_yedek', True)
+        # Aday kutusunun kare alanina orani icin UST SINIR. Ustunu asan
+        # kutu QR adayi sayilmaz. 5 Eylul 2026'da ylp00'da olculdu; neden
+        # ve sayilar qr_detector.py'de `_aday_alan_tavani` yaninda duruyor
+        # -- burada TEKRARLANMIYOR ki biri degisip digeri unutulmasin.
+        # 0.0 = koruma kapali (5 Eylul oncesi davranis).
+        self.declare_parameter('qr_aday_alan_tavani', 0.0)
         # Goruntu bicimi: 'compressed' 4K icin ZORUNLU (ham Image 37 MB
         # eder ve DDS'ten gecmez). 'raw' eski davranis.
         self.declare_parameter('goruntu_bicimi', 'compressed')
+        # 🔴 RENK / PED YOLU — 5 Eylul 2026'da operator karariyla KAPATILDI.
+        # Takim kirmizi/mavi ped okuma isinden vazgecti; QR semasindaki
+        # `leav` (suruden ayrilma) komutu gelirse PAS GECILECEK.
+        # Kapali olmasinin QR'a somut getirisi var: renk yolu BGR istedigi
+        # icin `_compressed_callback` IMREAD_COLOR ile cozmek ZORUNDAYDI.
+        # Kalkinca gri cozulebiliyor. Ayni ucakta, ayni 4K karede olculdu:
+        #     imdecode        109,4 -> 70,2 ms
+        #     _adaylari_bul    62,2 -> 36,5 ms
+        #     zxing (2 aday)  198,8 -> 219,0 ms   <- gri DAHA YAVAS
+        #     TUR TOPLAMI     370,4 -> 325,7 ms   = %12
+        # Kod SILINMEDI, kapatildi: silmenin calisma zamaninda getirisi
+        # SIFIR (renk yolu zaten 0,2 Hz'de ~%0,4 harciyordu) ve finale iki
+        # gun varken alti dosyaya dokunmanin riski var. Acmak icin tek
+        # parametre yeter. Fiziksel temizlik finalden SONRA.
+        self.declare_parameter('renk_yolu_acik', False)
         self.declare_parameter('landing_zone_rate_hz', 15.0)
         self.declare_parameter('min_zone_area_px', 500.0)
         # RENK TESPITINI KUCULTULMUS KAREDE KOSTUR — 28 Agustos 2026.
@@ -144,6 +169,7 @@ class VisionNode(Node):
 
         self._agent_id = self.get_parameter('agent_id').value
         self._qr_rate_hz = self.get_parameter('qr_processing_rate_hz').value
+        self._renk_acik = bool(self.get_parameter('renk_yolu_acik').value)
         self._lz_rate_hz = self.get_parameter('landing_zone_rate_hz').value
         self._lz_olcek = max(1, int(
             self.get_parameter('landing_zone_olcek').value))
@@ -169,6 +195,8 @@ class VisionNode(Node):
             tam_tarama_periyodu=self.get_parameter(
                 'qr_tam_tarama_periyodu').value,
             wechat_yedek=self.get_parameter('qr_wechat_yedek').value,
+            aday_alan_tavani=self.get_parameter(
+                'qr_aday_alan_tavani').value,
         )
         self.get_logger().info(
             f'QR: team_slot={self.get_parameter("team_slot").value} '
@@ -329,8 +357,11 @@ class VisionNode(Node):
         # ayri ayri cozmek ayni kareyi iki-uc kez cozmek demek.
         # OpenCV'nin IMREAD_REDUCED_* bayraklari tek basina hizli (90 -> 25 ms)
         # ama burada kazanc vermiyor. Tekrar denenecekse once bu olculsun.
+        # Renk yolu kapaliyken GRI coz: QR luma'dan okunur, renk gerekmez.
+        # 5 Eylul olcumu icin `renk_yolu_acik` parametresinin yanina bak.
         frame = cv2.imdecode(
-            np.frombuffer(msg.data, dtype=np.uint8), cv2.IMREAD_COLOR)
+            np.frombuffer(msg.data, dtype=np.uint8),
+            cv2.IMREAD_COLOR if self._renk_acik else cv2.IMREAD_GRAYSCALE)
         if frame is None:
             self.get_logger().warn('JPEG cozulemedi',
                                    throttle_duration_sec=10.0)
