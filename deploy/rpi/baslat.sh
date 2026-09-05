@@ -1432,6 +1432,9 @@ fi   # /altyapi: ic_dis_kopru
             -p slew_normal_mps2:=${KACINMA_IVME_NORMAL:-3.58} \
             -p slew_emergency_mps2:=${KACINMA_IVME_ACIL:-5.66} \
             -p donus_ivme_mps2:=${KACINMA_DONUS_IVME:-0.5} \
+            -p donus_bekleme_s:=${KACINMA_DONUS_BEKLEME:-2.0} \
+            -p donus_hiz_mps:=${KACINMA_DONUS_HIZ:-0.5} \
+            -p donus_soguma_s:=${KACINMA_DONUS_SOGUMA:-4.0} \
             >> "$GUNLUK/ca.log" 2>&1 &
         sleep 1
         echo "[baslat] collision_avoidance basladi (komsular: $CA_KOMSULAR," \

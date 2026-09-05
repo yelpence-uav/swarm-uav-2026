@@ -599,21 +599,57 @@ KACINMA_KATMAN_M = 3.0
 
 # CIKIS HISTEREZISI — catisma d0'da ACILIR, d0 + hist'te KAPANIR.
 #
-# 0.5 -> 2.5 (24 Agustos 2026, ilk dikey ucusun bulgusu). Cikis 4.5 m
-# iken komsu 4.9 m'de DURURKEN 3 m'lik ayrim 6 saniyede geri veriliyordu.
-# Sinir pilotun gozle kestirebileceginden dar ("icerideyim" ile "ciktim"
-# arasi 1.2 m) ve operator bunu yo-yo olarak gordu — CA.md §6.5, §7.2.
-# 2.5 ile cikis 6.5 m: komsu GERCEKTEN uzaklasmadan ayrim birakilmaz.
+# 🔴 2.5 -> 0.2 (5 Eylul 2026, operator karari + OLCUM). Bu yukaridaki
+# "siki formasyonda yeniden dusunulmeli" notunun karsiligi.
 #
-# NEDEN 2.5, 3.0 DEGIL: cikis esigi (d0 + hist) formasyonun planli en
-# yakin yaklasmasinin (KRITIK_AYRIM_M, 12 m aralikta 8.49 m) ALTINDA
-# kalmali — ustune cikarsa normal gecisin actigi catisma bir daha
-# KAPANMAZ ve merdiven kalici olur. 2.5 -> pay 1.99 m, 3.0 -> 1.49 m.
-# Asagidaki denetim bu payi izliyor.
+# NEDEN 2.5 ARTIK SAVUNULAMIYORDU: Gorev 2 araligi 7 m ve cikis esigi
+# 6.5 m idi — yani suru KENDI normal geometrisinde otururken bile cikis
+# sinirinin 0.5 m ustundeydi. Olculen takip gecikmesi tek basina 0.66 m.
+# Catisma bir kez acilinca kapanacak yer kalmiyordu; morfta daha beter
+# (okbasi->V en dar an 4.95 m, cikisin ALTINDA). Operatorun sahada
+# gordugu "giris guzel, cikis haddinden uzun ve tutuk" tam olarak buydu.
 #
-# BEDELI: catisma ve merdiven daha uzun surer. Siki formasyonda
-# (aralik <= 7 m) d0 ile birlikte yeniden dusunulmeli.
-KACINMA_HIST_M = 2.5
+# 2.5'in ESKI gerekcesi (24 Agustos) YENIDEN OKUNDU ve chatter kaniti
+# DEGILDI: "cikis 4.5 m iken komsu 4.9 m'de DURURKEN 3 m'lik ayrim
+# 6 saniyede geri veriliyordu" — komsu DURUYOR, yani tek bir dogru
+# cikis+donus. Sikayet salinim degil PAY sikayetiydi.
+#
+# CHATTER RISKI OLCULDU VE YOK:
+#   * sensor/mesh gurultusu (iki ucak da YERDE hareketsiz, 91 ornek,
+#     5 Eylul): tepe-tepe 0.047 m · std 0.013 m · ardisik atlama maks
+#     0.016 m. 0.2 m band bunun ~4 KATI.
+#   * chatter mesafenin esik civarinda SALINMASINI ister; formasyon
+#     geometrisi salinmiyor: cizgide durağan ayrim 7.0 m (4.0'a hic
+#     yaklasmiyor), morfta 7 -> 4.95 -> 7 tek yonlu dalis. Tek gecişte
+#     bir kez girilir, bir kez cikilir — band genisligi bunu degistirmez.
+#
+# KALAN GERCEK BEDEL (chatter degil): 3 m'lik dikey ayrim, ucaklar tetik
+# mesafesinin 0.2 m disindayken birakilir. Tekrar 0.2 m yaklasirlarsa
+# merdiven sifirdan kurulur (3.0 / 1.2 = 2.5 sn). Monotonik morfta bu
+# olusmaz; slot geometrisi bir cifti 4 m civarina park ederse olusur —
+# 7 m aralikta olmuyor.
+#
+# ⚠️ Kucuk band ancak DONUS HIZLIYSA guvenli: band >= goreli_hiz x donus
+# suresi. Bu yuzden asagidaki uc donus parametresi ayni anda
+# hizlandirildi (8.0 sn -> 3.0 sn). Biri geri alinirsa digeri de
+# gozden gecirilmeli.
+KACINMA_HIST_M = 0.2
+
+# --- KACINMA DONUSU (catisma bittikten sonra nominal irtifaya) ---------
+#
+# Ucu de 5 Eylul'de hizlandirildi. Eski degerler (2.0 / 0.5 / 4.0) toplam
+# 8.0 saniyelik bir donus veriyordu ve bu GENIS histerezis dayatiyordu
+# (band >= goreli_hiz x sure). Kucuk band istiyorsak donus hizli olmali.
+#
+# donus_hiz 0.5 -> 1.2: dikey KACIS zaten 1.2 m/s ile yapiliyor
+# (KACINMA_DIKEY_HIZ), yani ucak bu hizi biliyor. Eski koddaki "tehlike
+# gecince acele etmenin faydasi yok" gerekcesi artik gecerli degil:
+# yavas donus genis band, genis band da ULASILAMAZ cikis demekti.
+# ⚠️ 22 Agustos'un "22 derece yalpa" olcumu YATAY 6 m'lik donusteydi
+# (3.21 m/s tepe) — baska eksen, baska buyukluk; bu degerle ilgisiz.
+KACINMA_DONUS_BEKLEME_S = 0.5   # catisma bitince olu bekleme (2.0'di)
+KACINMA_DONUS_HIZ_MPS = 1.2     # nominal irtifaya donus hizi (0.5'ti)
+KACINMA_DONUS_SOGUMA_S = 2.0    # yatay ivme kisitli kalma penceresi (4.0'di)
 
 # KORLUK YER ESIGI — kaybolan komsunun SON bilinen irtifasi bunun
 # altinda VE disarm ise korluk DONUS TUTMASI uygulanmaz (kapali ucak,
@@ -1453,6 +1489,9 @@ def _kabuk():
     print(f'KACINMA_HARD={KACINMA_HARD_M}')
     print(f'KACINMA_KATMAN={KACINMA_KATMAN_M}')
     print(f'KACINMA_HIST={KACINMA_HIST_M}')
+    print(f'KACINMA_DONUS_BEKLEME={KACINMA_DONUS_BEKLEME_S}')
+    print(f'KACINMA_DONUS_HIZ={KACINMA_DONUS_HIZ_MPS}')
+    print(f'KACINMA_DONUS_SOGUMA={KACINMA_DONUS_SOGUMA_S}')
     print(f'KACINMA_KORLUK_YER={KACINMA_KORLUK_YER_M}')
     print(f'KACINMA_DIKEY_HIZ={KACINMA_DIKEY_HIZ_MPS}')
     print(f'KACINMA_DIKEY_IVME={KACINMA_DIKEY_IVME_MPS2}')
