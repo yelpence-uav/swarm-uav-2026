@@ -32,6 +32,7 @@ from .formation_geometry import (
     latlon_to_ned,
     rotate_offset,
 )
+from .vff_pencere import MerkezHiziKestirici
 
 # mission_fsm aktif QR alt-adımını /swarm/public/mission/qr_step üzerinde
 # QrTaskStep değeriyle (UInt8) yayınlar. MANEUVER adımında formasyon çıkışı
@@ -186,6 +187,12 @@ class FormationControlNode(Node):
         self.declare_parameter('keeping_enter_m', 1.2)
         self.declare_parameter('keeping_exit_m', 1.8)
         self.declare_parameter('vff_lpf_alpha', 0.3)
+        # v_ff PENCERESI (5 Eylul 2026) — 0.0 = ESKI tick basina fark.
+        # Neden gerekti, sahada olculen sayilarla: vff_pencere.py.
+        # Ozeti: hedef ~10 Hz'de guncelleniyor, bu dongu 20 Hz'de
+        # donuyor; tick basina turev sirayla 2x ve 0 okuyup hiz
+        # komutunun YONUNU +-17 derece savuruyordu.
+        self.declare_parameter('vff_pencere_s', 0.25)
         # SITL MODU — VARSAYILAN False OLMAK ZORUNDA (17 Agustos 2026'da
         # duzeltildi, oncesinde True idi).
         #
@@ -277,9 +284,10 @@ class FormationControlNode(Node):
         # TÜMÜYLE bizde (SVT tek feedback, PX4 ile çakışmaz). v_cmd = v_svt +
         # v_damp + v_rel + v_ff. in_formation gate KALDIRILDI — SVT hem form-up
         # hem seyirde çalışır, tek mod. v_ff LPF durumu:
-        self._vff_x: float = 0.0
-        self._vff_y: float = 0.0
-        self._vff_z: float = 0.0
+        self._vff = MerkezHiziKestirici(
+            pencere_s=float(self.get_parameter('vff_pencere_s').value),
+            lpf_alpha=self._vff_lpf_alpha,
+        )
         # v_ff = d(SHARED slot)/dt — KOMUT callback'inde (2Hz) hesaplanır,
         # publish loop'ta (50Hz) DEĞİL. 50Hz'de sabit-merkezi türevlemek
         # testere dişi (impuls treni) üretir → sallanma. Komut frekansında:
@@ -288,12 +296,11 @@ class FormationControlNode(Node):
         self._prev_slot_y: float | None = None
         self._prev_slot_z: float | None = None
         self._prev_cmd_time: float | None = None
-        # v_ff artık 2Hz komut türevinden değil, 50Hz ramp'ın hızından gelir
-        # (ramp trajektöriyi sürekli interpole eder → basamaklı değil). Ramp'ın
-        # bir önceki konumu, hızını 50Hz'de türevlemek için tutulur.
-        self._prev_ramp_x: float | None = None
-        self._prev_ramp_y: float | None = None
-        self._prev_ramp_z: float | None = None
+        # v_ff artık 2Hz komut türevinden değil, ramp'ın hızından gelir
+        # (ramp trajektöriyi sürekli interpole eder → basamaklı değil).
+        # 5 Eylul 2026: ramp'ın önceki konumunu tick başına türevlemek de
+        # YETMEDI — hedef yayın tick'inden daha SEYREK güncellendiği için
+        # türev sırayla 2x ve 0 okuyordu. Geçmiş artık kestiricide durur.
         # Aktif QR alt-adımı (mission_fsm yayınlar, tick başına = 5 Hz);
         # MANEUVER'da çıkış susar.
         self._qr_step: int = 0
@@ -466,6 +473,13 @@ class FormationControlNode(Node):
             self._ramp_x = None
             self._ramp_y = None
             self._ramp_z = None
+            # 🔴 Rampa bir sonraki yayinda ucagin O ANKI konumuna
+            # yeniden tohumlanir; bu bir SICRAMADIR, hareket degil.
+            # v_ff gecmisi temizlenmezse turev o sicramayi hiz sanip
+            # morfun ilk aninda ucagi iter. (Eski tick-basina yolda
+            # da vardi ve orada 0.05'e bolundugu icin 5 KAT buyuktu;
+            # LPF kuyrugunda erirdi. Burada acikca kapatiyoruz.)
+            self._vff.sifirla()
 
         # v_ff artık burada (2Hz komut türevi) DEĞİL, publish loop'ta ramp'ın
         # 50Hz hızından hesaplanıyor → basamaklı 2Hz zıplama yok, sürekli
@@ -1010,21 +1024,17 @@ class FormationControlNode(Node):
                 setattr(self, attr, cur + step)
         x, y, z = self._ramp_x, self._ramp_y, self._ramp_z
 
-        # v_ff = ramp'ın 50Hz hızı (pürüzsüz feedforward). Ramp, komut hedefine
-        # doğru her tick ilerler; slot'un aksine 50Hz'de SABİT DEĞİL, o yüzden
-        # türevi testere dişi değil sürekli hız verir. Hedefe yaklaşınca adım
-        # küçülür → v_ff pürüzsüzce 0'a iner (basamaklı 2Hz zıplama yok).
-        if self._prev_ramp_x is None:
-            self._prev_ramp_x, self._prev_ramp_y, self._prev_ramp_z = x, y, z
-        elif dt > 1e-3:
-            a = self._vff_lpf_alpha
-            self._vff_x = (a * (x - self._prev_ramp_x) / dt
-                           + (1.0 - a) * self._vff_x)
-            self._vff_y = (a * (y - self._prev_ramp_y) / dt
-                           + (1.0 - a) * self._vff_y)
-            self._vff_z = (a * (z - self._prev_ramp_z) / dt
-                           + (1.0 - a) * self._vff_z)
-            self._prev_ramp_x, self._prev_ramp_y, self._prev_ramp_z = x, y, z
+        # v_ff = ramp'ın hızı (pürüzsüz feedforward). Ramp, komut hedefine
+        # doğru her tick ilerler; slot'un aksine SABİT DEĞİL, o yüzden
+        # türevi testere dişi değil sürekli hız verir.
+        #
+        # 🔴 5 Eylul 2026 — tick basina fark BU YETMIYORDU: pay (hedef ne
+        # kadar ilerledi) ile payda (yayin tick suresi) FARKLI araliklari
+        # olcuyordu. Hedef ~10 Hz'de guncellenince turev sirayla 2x ve 0
+        # okuyor, iki bilesen ters fazda oldugu icin hiz vektorunun YONU
+        # +-17 derece savruluyordu. Sahada olculen sayilar: vff_pencere.py.
+        # Sabit pencerede pay ve payda YAPISI GEREGI ayni araliktan gelir.
+        self._vff.guncelle(now, x, y, z)
 
         # === HIZ KOMUTU (C MODU: SAF HIZ-TABANLI) =========================
         # v_cmd = v_svt + v_damp + v_rel + v_ff. Pozisyon kontrolü TÜMÜYLE
@@ -1048,14 +1058,12 @@ class FormationControlNode(Node):
         # mimarisinde bu kaçınılmazdır, o yüzden burada kapatılır.
         if (self._prev_cmd_time is None
                 or (now - self._prev_cmd_time) > self._vff_hold_s):
-            self._vff_x = 0.0
-            self._vff_y = 0.0
-            self._vff_z = 0.0
+            self._vff.sifirla()
 
         vx, vy, vz = self._clamp_speed(
-            svx + rvx + self._vff_x,
-            svy + rvy + self._vff_y,
-            svz + rvz + self._vff_z, max_speed
+            svx + rvx + self._vff.vx,
+            svy + rvy + self._vff.vy,
+            svz + rvz + self._vff.vz, max_speed
         )
         out = self._build_setpoint_msg(
             msg, x, y, z, vx, vy, vz,
