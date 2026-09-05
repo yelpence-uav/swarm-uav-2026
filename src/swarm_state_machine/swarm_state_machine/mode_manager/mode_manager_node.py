@@ -1227,6 +1227,34 @@ class ModeManagerNode(Node):
                 ctx.rtl_requested = True
             if msg.emergency_stop:
                 ctx.emergency_stop_requested = True
+            # 🔴 FORMASYON TALEBI DE GECER — 5 Eylul 2026, UCUSTA OLCULDU.
+            #
+            # BELIRTI (operator): "iki ucagi da cizgide dizip kaldirdim,
+            # havada beklediler ve formasyonu tamamlamadilar."
+            #
+            # OLCULEN (ylp00 bag, /swarm/public/control/command):
+            #   t=17.31  formasyon=3 deadman=True gecerli=FALSE  <- dustu
+            #   t=23.96  formasyon=3 deadman=True gecerli=True
+            # ylp01 ayni ani `gecerli=True` gordu (mesh sabit True
+            # yaziyordu) ve ISLEDI. Yani tarifi basmaya TEK YETKILI ucak
+            # istegi dusurdu; takipci hazir bekledi.
+            #
+            # NEDEN GECMESI DOGRU: command_valid'i False yapan sey B18 GAZ
+            # MERKEZ kapisi — amaci gaz dipteyken sürünün aniden alcalmasini
+            # onlemek. Formasyon TALEBI bir cubuk hareketi DEGIL: hiz
+            # tasimiyor, sürüyü kendi basina hareket ettirmiyor ve yerde
+            # kalkis kapisi (B15) yayini zaten kilitli tutuyor. Yukaridaki
+            # "IPTAL aksiyonlari her zaman gecer" ayriminin ayni mantigi:
+            # gecersiz pakette "kalk" demek yanlis, "su dizilimde ol"
+            # demek zararsiz.
+            #
+            # Cubuklar YINE sifirlaniyor — degisen yalniz GEOMETRI istegi.
+            if msg.formation_change_requested:
+                ctx.formation_change_requested = True
+                if msg.requested_formation > 0:
+                    ctx.requested_formation = msg.requested_formation
+                if msg.requested_spacing_m > 0.0:
+                    ctx.requested_spacing_m = msg.requested_spacing_m
             # takeoff BILEREK YOK — gecersiz pakette kalkis istenmez.
             ctx.last_valid_command_time = time.monotonic()
             return

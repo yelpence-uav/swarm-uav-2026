@@ -1916,7 +1916,9 @@ class Esp32BridgeNode(Node):
         msg.deadman_pressed = bool(
             k.flags & pp.KOMUT_FLAG_DEADMAN_PRESSED
         )
-        msg.command_valid = True
+        # 🔴 SABIT True DEGIL — 5 Eylul 2026. Gerekce ve saha olcumu
+        # packet_parser.KOMUT_FLAG_COMMAND_VALID yaninda.
+        msg.command_valid = bool(k.flags & pp.KOMUT_FLAG_COMMAND_VALID)
         # Bridge-tarafı sequence: her alınan KOMUT için +1. Dedup yapan
         # downstream'ler 0 görmek yerine monoton bir sayı görmeli.
         self._komut_rx_seq = (self._komut_rx_seq + 1) & 0xFFFFFFFF
@@ -2589,6 +2591,9 @@ class Esp32BridgeNode(Node):
         # reddeder ("command_valid AND deadman_pressed" şartı).
         if msg.deadman_pressed:
             flags |= pp.KOMUT_FLAG_DEADMAN_PRESSED
+        if getattr(msg, 'command_valid', False):
+            # Bayrak 5 Eylul'de eklendi; gerekce packet_parser'da.
+            flags |= pp.KOMUT_FLAG_COMMAND_VALID
 
         # FORMASYON TALEBİ — 30 Temmuz kusur düzeltmesi.
         # Önceden yalnız KOMUT_FLAG_FORMATION_CHANGE bayrağı taşınıyordu;

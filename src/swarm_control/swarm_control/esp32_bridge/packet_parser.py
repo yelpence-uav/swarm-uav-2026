@@ -299,6 +299,21 @@ KOMUT_FLAG_FORMATION_CHANGE = 0x10
 KOMUT_FLAG_DEADMAN_PRESSED = 0x20
 # Guided (YKİ tekil komut) ek bayrakları — takeoff/land/rtl yukarıdakiyle ortak.
 KOMUT_FLAG_ARM = 0x40
+# 🔴 COMMAND_VALID MESH'TEN GECMELI — 5 Eylul 2026, UCUSTA OLCULDU.
+#
+# Alici taraf bu alani SABIT True yaziyordu (esp32_bridge:1919) ve mesh'te
+# karsiligi yoktu. Sonucu LIDER ile TAKIPCININ AYRISMASI:
+#   * lider gercek B18 gaz-merkez kapisini uygular -> command_valid False
+#   * takipci mesh'ten True alir -> ayni paketi GECERLI sayar
+# 5 Eylul ucusunda olculdu: cizgi talebi (formasyon=3) liderde
+# `gecerli=False` ile DUSTU, takipcide `gecerli=True` ile ISLENDI. Tarifi
+# basmaya tek yetkili ucak onu dusurdugu icin formasyon HIC kurulmadi.
+#
+# Daha tehlikelisi: `command_valid=False` dalinda lider cubuklari
+# SIFIRLIYOR, takipciler ayni pakette cubuklari UYGULUYOR — gaz dipteyken
+# suru ikiye bolunur. B18'in onlemek icin var oldugu tehlike, yalniz
+# takipcilerde. (Ayni sinif: deadman_timeout_s, gorev2.md §7.18.)
+KOMUT_FLAG_COMMAND_VALID = 0x80
 KOMUT_FLAG_DISARM = 0x80
 
 # SwarmControlCommand.mode değerleri
