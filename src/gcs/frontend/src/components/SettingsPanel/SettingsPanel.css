@@ -162,3 +162,23 @@
   color: #fff;
   border: 1px solid #b32626;
 }
+
+/* Grup başlıkları — 5 Eylül 2026. İki ayar kümesi görsel olarak da
+   ayrılıyor: "sürü davranışı" uçağa gider, "test yolu" gitmez. Aynı
+   listede olmaları operatörü yanıltıyordu. */
+.settings-grup__baslik {
+  margin: 18px 0 2px;
+  font-size: 0.82rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--metin-soluk, #8fa3bf);
+  border-bottom: 1px solid rgba(143, 163, 191, 0.25);
+  padding-bottom: 4px;
+}
+.settings-grup__baslik:first-child { margin-top: 0; }
+.settings-grup__not {
+  margin: 0 0 10px;
+  font-size: 0.75rem;
+  line-height: 1.35;
+  color: var(--metin-soluk, #8fa3bf);
+}

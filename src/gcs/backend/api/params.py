@@ -18,6 +18,11 @@ class ParamsBody(BaseModel):
     default_altitude_m: Optional[float] = Field(None, description="takeoff/goto varsayılan irtifa (m)")
     default_speed_ms: Optional[float] = Field(None, description="yatay seyir hızı (m/s)")
     min_nav_altitude_m: Optional[float] = Field(None, description="altında navigasyon yok (m)")
+    # GÖREV 2 sürü davranışı — BAŞLAT paketiyle uçaklara gider. 0 = belirtilmedi.
+    suru_morf_hiz_mps: Optional[float] = Field(None, description="formasyon değişimi slot hızı (m/s)")
+    suru_hareket_hiz_mps: Optional[float] = Field(None, description="hareket modu öteleme hızı (m/s)")
+    suru_yaw_hiz_deg_s: Optional[float] = Field(None, description="sürü dönüş hızı tavanı (deg/s)")
+    suru_egim_tavan_deg: Optional[float] = Field(None, description="manevra eğim genliği (deg)")
 
 
 @router.get("")

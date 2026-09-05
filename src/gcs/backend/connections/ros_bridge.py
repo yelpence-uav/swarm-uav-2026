@@ -590,7 +590,9 @@ class RosBridge:
         """Görev 2 aralık/irtifa ayarını mesh köprüsüne verir.
 
         `parameters_json` YKİ'den geliyor:
-            {"aralik_m": 9.0, "irtifa_m": 15.0}
+            {"aralik_m": 9.0, "irtifa_m": 15.0,
+             "morf_hiz_mps": 0.6, "hareket_hiz_mps": 2.0,
+             "yaw_hiz_deg_s": 14.7, "egim_tavan_deg": 15.0}
         Alan yoksa ya da boşsa 0.0 gönderilir = "belirtilmedi"; uçak kendi
         varsayılanını korur (aralık 7 m). Operatörün hiçbir şey girmemesi
         GEÇERLİ bir seçim.
@@ -601,20 +603,24 @@ class RosBridge:
         """
         if self._g2_ayar_pub is None:
             return
-        aralik = irtifa = 0.0
+        # Sıra MESH PAKETİYLE aynı olmak zorunda (packet_parser
+        # _GOREV_FMT) — alıcı tarafta indisle okunuyor.
+        ALANLAR = ("aralik_m", "irtifa_m", "morf_hiz_mps",
+                   "hareket_hiz_mps", "yaw_hiz_deg_s", "egim_tavan_deg")
+        degerler = [0.0] * len(ALANLAR)
         if parameters_json:
             try:
                 p = json.loads(parameters_json)
-                aralik = float(p.get("aralik_m") or 0.0)
-                irtifa = float(p.get("irtifa_m") or 0.0)
+                degerler = [float(p.get(ad) or 0.0) for ad in ALANLAR]
             except (ValueError, TypeError, AttributeError) as e:
                 logger.warning(
                     "Görev 2 parametreleri okunamadı (%s) — varsayılanlar "
                     "korunacak: %s", e, parameters_json
                 )
-                aralik = irtifa = 0.0
+                degerler = [0.0] * len(ALANLAR)
+        aralik, irtifa = degerler[0], degerler[1]
         m = Float32MultiArray()
-        m.data = [aralik, irtifa]
+        m.data = degerler
         self._g2_ayar_pub.publish(m)
         logger.info(
             "Görev 2 ayarı yayınlandı: aralık=%.1f m irtifa=%.1f m "

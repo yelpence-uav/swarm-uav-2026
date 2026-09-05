@@ -87,6 +87,12 @@ export interface FlightParams {
   default_altitude_m: number;
   default_speed_ms: number;
   min_nav_altitude_m: number;
+  // GÖREV 2 sürü davranışı — BAŞLAT paketiyle uçaklara gider.
+  // 0 = belirtilmedi; uçak kendi varsayılanını korur.
+  suru_morf_hiz_mps: number;
+  suru_hareket_hiz_mps: number;
+  suru_yaw_hiz_deg_s: number;
+  suru_egim_tavan_deg: number;
 }
 
 async function reqJson<T>(path: string, method: string, body?: unknown): Promise<T> {

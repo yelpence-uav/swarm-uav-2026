@@ -5,6 +5,7 @@ import {
   MISSION_ID,
   missionApi,
   type TriggerMissionResponse,
+  type FlightParams,
 } from "../../services/api";
 import "./MissionPanel.css";
 
@@ -33,9 +34,15 @@ interface MissionPanelProps {
      unutulurdu (CLAUDE.md §9). */
   teamId: string;
   onTeamIdChange: (v: string) => void;
+  /* Sürü davranış ayarları Ayarlar panelinde giriliyor ama BAŞLAT
+     paketiyle gitmek ZORUNDA (tek taşıma yolu o). Burada okunup Görev 2
+     BAŞLAT'ın parameters_json'ına ekleniyor; ikinci bir giriş alanı
+     açmıyoruz, yoksa aynı değer iki yerde tutulurdu (CLAUDE.md §9). */
+  flightParams: FlightParams;
 }
 
 export function MissionPanel({
+  flightParams,
   missionActive,
   missionId,
   onMissionIdChange,
@@ -104,6 +111,17 @@ export function MissionPanel({
         const h = parseFloat(irtifa);
         if (isFinite(a)) p.aralik_m = a;
         if (isFinite(h)) p.irtifa_m = h;
+        // Ayarlar panelindeki sürü davranışı — 0 = "değiştirme", JSON'a
+        // hiç konmaz ve uçak kendi varsayılanını korur.
+        const suru: Array<[string, number]> = [
+          ["morf_hiz_mps", flightParams.suru_morf_hiz_mps],
+          ["hareket_hiz_mps", flightParams.suru_hareket_hiz_mps],
+          ["yaw_hiz_deg_s", flightParams.suru_yaw_hiz_deg_s],
+          ["egim_tavan_deg", flightParams.suru_egim_tavan_deg],
+        ];
+        for (const [ad, v] of suru) {
+          if (isFinite(v) && v > 0) p[ad] = v;
+        }
         if (Object.keys(p).length > 0) parameters_json = JSON.stringify(p);
       }
       // GÖREV 1 BAŞLAT — başlangıç formasyonu + aralık. Aynı kural:

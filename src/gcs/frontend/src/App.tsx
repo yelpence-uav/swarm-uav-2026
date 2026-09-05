@@ -44,6 +44,10 @@ const DEFAULT_PARAMS: FlightParams = {
   default_altitude_m: 5,
   default_speed_ms: 3,
   min_nav_altitude_m: 2,
+  suru_morf_hiz_mps: 0,
+  suru_hareket_hiz_mps: 0,
+  suru_yaw_hiz_deg_s: 0,
+  suru_egim_tavan_deg: 0,
 };
 
 export default function App() {
@@ -155,6 +159,7 @@ export default function App() {
 
       <aside className="app__sidebar">
             <MissionPanel
+              flightParams={flightParams}
               missionActive={missionActive}
               missionId={selectedMissionId}
               onMissionIdChange={setSelectedMissionId}

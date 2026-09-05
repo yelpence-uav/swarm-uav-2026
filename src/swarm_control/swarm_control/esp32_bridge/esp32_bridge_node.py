@@ -692,6 +692,12 @@ class Esp32BridgeNode(Node):
         # son ayari alir; operator "girdim ama gitmedi" durumuna dusmez.
         self._g2_aralik_m = 0.0
         self._g2_irtifa_m = 0.0
+        # 5 Eylul 2026 — suru davranis ayarlari, ayni BASLAT paketiyle.
+        # 0.0 = belirtilmedi; ucak kendi varsayilanini korur.
+        self._g2_morf_hiz = 0.0
+        self._g2_hareket_hiz = 0.0
+        self._g2_yaw_hiz = 0.0
+        self._g2_egim_tavan = 0.0
         # GOREV 1 BASLANGIC FORMASYONU — YKI'den secilir (4 Eylul 2026).
         # Oncesinde `gorev_formasyon` yalnizca baslat.sh parametresiydi:
         # operator formasyonu degistirmek icin dosya yazip konteyner
@@ -2115,13 +2121,19 @@ class Esp32BridgeNode(Node):
             # Sıra önemli: mode_manager başlatma tetiğini görmeden aralık
             # ve irtifayı almış olmalı. Ters sırada, kalkış kapısı eski
             # irtifayla açılıp sürü yanlış yüksekliğe tırmanabilirdi.
-            if basla and (g.aralik_dm or g.irtifa_dm):
+            if basla and (g.aralik_dm or g.irtifa_dm or g.morf_hiz_dm
+                          or g.hareket_hiz_dm or g.yaw_hiz_ddeg
+                          or g.egim_tavan_deg):
                 ayar = Float32MultiArray()
-                ayar.data = [g.aralik_m, g.irtifa_m]
+                ayar.data = [g.aralik_m, g.irtifa_m, g.morf_hiz_mps,
+                             g.hareket_hiz_mps, g.yaw_hiz_deg_s,
+                             g.egim_tavan]
                 self._g2_ayar_pub.publish(ayar)
                 self.get_logger().warning(
                     f'[esp32] GÖREV 2 AYARI alındı: '
                     f'aralık={g.aralik_m:.1f} m irtifa={g.irtifa_m:.1f} m '
+                    f'morf={g.morf_hiz_mps:.1f} hareket={g.hareket_hiz_mps:.1f} '
+                    f'yaw={g.yaw_hiz_deg_s:.1f} egim={g.egim_tavan:.0f} '
                     f'(0.0 = belirtilmedi, o alan için varsayılan korunur)'
                 )
             m = Bool()
@@ -2759,15 +2771,27 @@ class Esp32BridgeNode(Node):
         yalnızca saklanır ve BAŞLAT paketine konur — böylece üç uçak da
         aynı paketten, aynı anda alır.
 
-        data = [aralik_m, irtifa_m]. 0.0 = "belirtilmedi", alıcı kendi
-        varsayılanını korur.
+        data = [aralik_m, irtifa_m, morf_hiz, hareket_hiz, yaw_hiz,
+        egim_tavan]. 0.0 = "belirtilmedi", alıcı kendi varsayılanını korur.
+        Kısa dizi geriye uyumlu: verilmeyen alan 0.0 sayılır.
         """
         v = list(msg.data)
-        self._g2_aralik_m = float(v[0]) if len(v) > 0 else 0.0
-        self._g2_irtifa_m = float(v[1]) if len(v) > 1 else 0.0
+
+        def _al(i):
+            return float(v[i]) if len(v) > i else 0.0
+
+        self._g2_aralik_m = _al(0)
+        self._g2_irtifa_m = _al(1)
+        self._g2_morf_hiz = _al(2)
+        self._g2_hareket_hiz = _al(3)
+        self._g2_yaw_hiz = _al(4)
+        self._g2_egim_tavan = _al(5)
         self.get_logger().info(
             f'[esp32] Görev 2 ayarı alındı: aralık={self._g2_aralik_m:.1f} m '
-            f'irtifa={self._g2_irtifa_m:.1f} m (BAŞLAT paketiyle gidecek)'
+            f'irtifa={self._g2_irtifa_m:.1f} m '
+            f'morf={self._g2_morf_hiz:.1f} hareket={self._g2_hareket_hiz:.1f} '
+            f'yaw={self._g2_yaw_hiz:.1f} egim={self._g2_egim_tavan:.0f} '
+            '(BAŞLAT paketiyle gidecek)'
         )
 
     def _on_g1_ayar_out(self, msg: Float32MultiArray) -> None:
@@ -2806,8 +2830,15 @@ class Esp32BridgeNode(Node):
         # DURDUR'da anlamsız, sıfır geçiliyor.
         aralik = self._g2_aralik_m if msg.data else 0.0
         irtifa = self._g2_irtifa_m if msg.data else 0.0
+        morf = self._g2_morf_hiz if msg.data else 0.0
+        hareket = self._g2_hareket_hiz if msg.data else 0.0
+        yaw = self._g2_yaw_hiz if msg.data else 0.0
+        egim = self._g2_egim_tavan if msg.data else 0.0
         try:
-            payload = pp.gorev_paketle(tip, 0, 0, 0, aralik, irtifa)
+            payload = pp.gorev_paketle(
+                tip, 0, 0, 0, aralik, irtifa,
+                morf_hiz_mps=morf, hareket_hiz_mps=hareket,
+                yaw_hiz_deg_s=yaw, egim_tavan_deg=egim)
         except ValueError as e:
             # 🔴 SESSİZCE KIRPMA YOK. Değer mesh sınırının dışındaysa komut
             # HİÇ gitmez ve sebebi yazılır; "12 m istedim 25.5 m uçtu"

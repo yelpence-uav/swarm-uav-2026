@@ -274,6 +274,25 @@ class ModeManagerNode(Node):
                     )
                 self._kalkis_irtifa_m = deger
                 self._ctx.kalkis_irtifa_m = deger
+            # 🔴 SURU DAVRANIS AYARLARI — 5 Eylul 2026.
+            # HEM `self._*` HEM `self._ctx.*` yazilir. Ikisi de gerekli:
+            # __init__ degeri ctx'e KOPYALIYOR (satir 86-90) ve hareket/
+            # manevra matematigi ctx'ten okuyor. Yalniz birini yazmak
+            # yukaridaki docstring'in anlattigi SESSIZ NO-OP'un aynisini
+            # uretirdi — "ayar gitti" gorunur, davranis degismez.
+            elif p.name == 'max_speed_mps':
+                self._max_speed_mps = deger
+                self._ctx.max_speed_mps = deger
+            elif p.name == 'max_yaw_rate_deg_s':
+                self._max_yaw_rate_deg_s = deger
+                self._ctx.max_yaw_rate_deg_s = deger
+            elif p.name == 'max_tilt_deg':
+                self._max_tilt_deg = deger
+                self._ctx.max_tilt_deg = deger
+            elif p.name == 'morf_hiz_mps':
+                # ctx'te karsiligi YOK: morf hizi yayin aninda
+                # `_morf_hizini_uygula` icinde okunuyor.
+                self._morf_hiz_mps = deger
 
             self.get_logger().warning(
                 f'[mode_manager] CANLI AYAR: {p.name} = {deger:g}'
@@ -1166,11 +1185,16 @@ class ModeManagerNode(Node):
         Sinirlar ve gerekceleri: canli_param.g2_ayar_dogrula.
         """
         v = list(msg.data)
-        ham_aralik = v[0] if len(v) > 0 else 0.0
-        ham_irtifa = v[1] if len(v) > 1 else 0.0
+
+        def _al(i):
+            return v[i] if len(v) > i else 0.0
+
+        # Kisa dizi GERIYE UYUMLU: eski YKI yalniz [aralik, irtifa]
+        # yolluyordu, verilmeyen alan 0 = belirtilmedi sayilir.
         try:
-            aralik, irtifa = canli_param.g2_ayar_dogrula(
-                ham_aralik, ham_irtifa)
+            aralik, irtifa = canli_param.g2_ayar_dogrula(_al(0), _al(1))
+            morf, hareket, yaw, egim = canli_param.g2_suru_ayari_dogrula(
+                _al(2), _al(3), _al(4), _al(5))
         except canli_param.ParamRed as e:
             self.get_logger().error(f'[mode_manager] GOREV 2 AYARI RED: {e}')
             return
@@ -1201,6 +1225,19 @@ class ModeManagerNode(Node):
             istekler.append(
                 Parameter('kalkis_irtifa_m', Parameter.Type.DOUBLE, irtifa))
             uygulanan.append(f'irtifa={irtifa:.1f} m')
+        # 5 Eylul 2026 — dort suru davranis ayari, ayni yoldan.
+        # Ayni gerekce: DOGRUDAN ALANA YAZMIYORUZ, ROS parametresinden
+        # geciyoruz ki `ros2 param get` ile gorulen deger ile dugumun
+        # kullandigi deger AYRISMASIN (31 Agustos dersi, yukarida).
+        for ad, deger, birim in (
+                ('morf_hiz_mps', morf, 'm/s'),
+                ('max_speed_mps', hareket, 'm/s'),
+                ('max_yaw_rate_deg_s', yaw, 'deg/s'),
+                ('max_tilt_deg', egim, 'deg')):
+            if deger != canli_param.BELIRTILMEDI:
+                istekler.append(
+                    Parameter(ad, Parameter.Type.DOUBLE, float(deger)))
+                uygulanan.append(f'{ad}={deger:g} {birim}')
         if istekler:
             sonuclar = self.set_parameters(istekler)
             red = [f'{i.name}: {s.reason}'

@@ -16,7 +16,13 @@ interface FieldDef {
   hint: string;
 }
 
-const FIELDS: FieldDef[] = [
+// 🔴 İKİ KÜME AYRI TUTULUYOR — 5 Eylül 2026.
+//
+// Panelde eskiden yalnız GUIDED alanları vardı ve bunu HİÇBİR YERDE
+// söylemiyordu. Operatör "varsayılan hız"ı değiştirip görevin hızlandığını
+// sanabilirdi; oysa mode_manager ve mission1 o alanı hiç okumuyor. Saha
+// gününde bu "ayarladım ama olmadı" dakikaları üretir.
+const GUIDED_FIELDS: FieldDef[] = [
   {
     key: "default_altitude_m",
     label: "Varsayılan irtifa",
@@ -37,12 +43,49 @@ const FIELDS: FieldDef[] = [
   },
 ];
 
+// Bunlar GÖREV 2 BAŞLAT paketiyle mesh'ten uçaklara gider ve
+// mode_manager ROS parametresi olarak uygular. Boş/0 = "belirtilmedi",
+// uçak kendi varsayılanını korur — aralık/irtifa ile aynı sözleşme.
+// Sınır denetimi UÇAKTA (canli_param); buradaki min/max yalnız tarayıcı
+// yardımı, tek kaynak uçaktır.
+const SURU_FIELDS: FieldDef[] = [
+  {
+    key: "suru_hareket_hiz_mps",
+    label: "Hareket hızı",
+    unit: "m/s",
+    hint: "Çubukla öteleme hızı. Sürü hızlı geliyorsa düşür (0.3-5.0)",
+  },
+  {
+    key: "suru_morf_hiz_mps",
+    label: "Formasyon değişim hızı",
+    unit: "m/s",
+    hint: "Morf sırasındaki slot hızı. Yüksekse kaçınma payı azalır (0.2-3.0)",
+  },
+  {
+    key: "suru_yaw_hiz_deg_s",
+    label: "Dönüş hızı tavanı",
+    unit: "°/s",
+    hint: "Sürünün merkez etrafında dönme hızı (2-25)",
+  },
+  {
+    key: "suru_egim_tavan_deg",
+    label: "Manevra eğim tavanı",
+    unit: "°",
+    hint: "Manevra modunda formasyon düzleminin eğim genliği (3-30)",
+  },
+];
+
+const FIELDS: FieldDef[] = [...GUIDED_FIELDS, ...SURU_FIELDS];
+
 export function SettingsPanel({ params, onSaved, onClose }: SettingsPanelProps) {
-  const [form, setForm] = useState<Record<string, string>>({
-    default_altitude_m: String(params.default_altitude_m),
-    default_speed_ms: String(params.default_speed_ms),
-    min_nav_altitude_m: String(params.min_nav_altitude_m),
-  });
+  const [form, setForm] = useState<Record<string, string>>(
+    Object.fromEntries(
+      FIELDS.map((f) => [
+        f.key,
+        String((params as unknown as Record<string, number>)[f.key] ?? 0),
+      ]),
+    ),
+  );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -95,7 +138,32 @@ export function SettingsPanel({ params, onSaved, onClose }: SettingsPanelProps) 
           <button className="settings-modal__close" onClick={onClose} aria-label="Kapat">✕</button>
         </header>
         <div className="settings-modal__body">
-          {FIELDS.map((f) => (
+          <h3 className="settings-grup__baslik">Sürü davranışı — Görev 2</h3>
+          <p className="settings-grup__not">
+            BAŞLAT paketiyle uçaklara gider. Boş/0 = değiştirme, uçak kendi
+            varsayılanını korur. Havadayken uygulanmaz.
+          </p>
+          {SURU_FIELDS.map((f) => (
+            <label key={f.key} className="settings-field">
+              <span className="settings-field__label">
+                {f.label} <em>({f.unit})</em>
+              </span>
+              <input
+                type="number"
+                step="0.1"
+                value={form[f.key]}
+                onChange={(e) => setForm((s) => ({ ...s, [f.key]: e.target.value }))}
+              />
+              <span className="settings-field__hint">{f.hint}</span>
+            </label>
+          ))}
+
+          <h3 className="settings-grup__baslik">Test yolu (guided) — göreve etki etmez</h3>
+          <p className="settings-grup__not">
+            Yalnız YKİ'nin takeoff/goto test komutlarını besler. Görev 1 ve
+            Görev 2 bu değerleri okumaz.
+          </p>
+          {GUIDED_FIELDS.map((f) => (
             <label key={f.key} className="settings-field">
               <span className="settings-field__label">
                 {f.label} <em>({f.unit})</em>

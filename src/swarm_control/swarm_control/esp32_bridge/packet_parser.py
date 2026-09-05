@@ -202,10 +202,19 @@ _RENK_FMT = '<Bii7x'         # renk, lat, lon, rezerv[7]
 #
 # SIFIR = BELIRTILMEDI. Eski surum gonderici rezervi sifir birakir; alici
 # o zaman KENDI varsayilanini korur. Geriye donuk uyumlu.
-_GOREV_FMT = '<BBbBBH9x'
-#              |||| | |  tip, param1, param2, bekleme,
-#              |||| | +- irtifa_dm  (uint16, 0.1 m; 0 = belirtilmedi)
-#              |||| +--- aralik_dm  (uint8,  0.1 m; 0 = belirtilmedi)
+_GOREV_FMT = '<BBbBBHBBBB5x'
+#              |||| | |||||  tip, param1, param2, bekleme,
+#              |||| | ||||+- egim_tavan_deg  (uint8, 1 deg)
+#              |||| | |||+-- yaw_hiz_ddeg    (uint8, 0.1 deg/s)
+#              |||| | ||+--- hareket_hiz_dm  (uint8, 0.1 m/s)
+#              |||| | |+---- morf_hiz_dm     (uint8, 0.1 m/s)
+#              |||| | +----- irtifa_dm  (uint16, 0.1 m; 0 = belirtilmedi)
+#              |||| +------- aralik_dm  (uint8,  0.1 m; 0 = belirtilmedi)
+#
+# 🔴 PAKET 16 BAYT KALDI — 5 Eylul 2026. Dort yeni suru ayari rezervden
+# yendi (9 -> 5 bayt bos). Yeni mesh TIPI acilmadi, FIRMWARE degismedi,
+# mesh yuku artmadi; madde 29'un "degerler BASLAT paketinin icinde gider"
+# tasariminin butun amaci buydu. Hepsinde 0 = BELIRTILMEDI.
 #              rezerv[9]
 _ORIGIN_FMT = '<iiiI'        # lat_1e7, lon_1e7, alt_mm, sequence
 # target_id (offset 10, rezerv[0]): guided komutun HEDEF drone'u. Mesh çerçevesi
@@ -449,6 +458,12 @@ class GorevVeri:
     # 0 = BELİRTİLMEDİ; alıcı kendi varsayılanını korur.
     aralik_dm: int = 0
     irtifa_dm: int = 0
+    # 5 Eylül 2026 — sürü davranış ayarları, aynı pakette (rezervden).
+    # Hepsinde 0 = BELİRTİLMEDİ; alıcı kendi varsayılanını korur.
+    morf_hiz_dm: int = 0        # formasyon DEĞİŞİMİ slot hızı
+    hareket_hiz_dm: int = 0     # MOVEMENT öteleme hızı
+    yaw_hiz_ddeg: int = 0       # sürü dönüş hızı tavanı (0.1 deg/s)
+    egim_tavan_deg: int = 0     # manevra eğim genliği (tam derece)
 
     @property
     def aralik_m(self) -> float:
@@ -459,6 +474,26 @@ class GorevVeri:
     def irtifa_m(self) -> float:
         """Kalkış irtifası, metre. 0.0 = belirtilmedi."""
         return self.irtifa_dm / 10.0
+
+    @property
+    def morf_hiz_mps(self) -> float:
+        """Morf slot hızı, m/s. 0.0 = belirtilmedi."""
+        return self.morf_hiz_dm / 10.0
+
+    @property
+    def hareket_hiz_mps(self) -> float:
+        """Hareket modu hızı, m/s. 0.0 = belirtilmedi."""
+        return self.hareket_hiz_dm / 10.0
+
+    @property
+    def yaw_hiz_deg_s(self) -> float:
+        """Yaw hızı tavanı, deg/s. 0.0 = belirtilmedi."""
+        return self.yaw_hiz_ddeg / 10.0
+
+    @property
+    def egim_tavan(self) -> float:
+        """Eğim tavanı, derece. 0.0 = belirtilmedi."""
+        return float(self.egim_tavan_deg)
 
 
 @dataclass
@@ -779,15 +814,21 @@ def renk_paketle(renk: int, lat: int, lon: int) -> bytes:
 
 def gorev_coz(payload: bytes) -> GorevVeri:
     """TIP_GOREV payload'ını GorevVeri'ye çözer."""
-    (tip, param1, param2, bekleme,
-     aralik_dm, irtifa_dm) = struct.unpack(_GOREV_FMT, payload)
-    return GorevVeri(tip, param1, param2, bekleme, aralik_dm, irtifa_dm)
+    (tip, param1, param2, bekleme, aralik_dm, irtifa_dm,
+     morf_dm, hareket_dm, yaw_ddeg, egim_deg) = struct.unpack(
+        _GOREV_FMT, payload)
+    return GorevVeri(tip, param1, param2, bekleme, aralik_dm, irtifa_dm,
+                     morf_dm, hareket_dm, yaw_ddeg, egim_deg)
 
 
 def gorev_paketle(tip: int, param1: int, param2: int,
                   bekleme_suresi_s: int,
                   aralik_m: float = 0.0,
-                  irtifa_m: float = 0.0) -> bytes:
+                  irtifa_m: float = 0.0,
+                  morf_hiz_mps: float = 0.0,
+                  hareket_hiz_mps: float = 0.0,
+                  yaw_hiz_deg_s: float = 0.0,
+                  egim_tavan_deg: float = 0.0) -> bytes:
     """Sürü görev komutunu 16 baytlık mesh payload'a paketler.
 
     Args:
@@ -797,6 +838,10 @@ def gorev_paketle(tip: int, param1: int, param2: int,
         bekleme_suresi_s (int): 0-255 saniye bekleme süresi.
         aralik_m (float): formasyon aralığı, metre. 0.0 = belirtilmedi.
         irtifa_m (float): kalkış irtifası, metre. 0.0 = belirtilmedi.
+        morf_hiz_mps (float): formasyon değişimi slot hızı. 0.0 = belirtilmedi.
+        hareket_hiz_mps (float): MOVEMENT öteleme hızı. 0.0 = belirtilmedi.
+        yaw_hiz_deg_s (float): sürü dönüş hızı tavanı. 0.0 = belirtilmedi.
+        egim_tavan_deg (float): manevra eğim genliği. 0.0 = belirtilmedi.
 
     Returns:
         bytes: 16 baytlık payload.
@@ -813,8 +858,27 @@ def gorev_paketle(tip: int, param1: int, param2: int,
     if not 0 <= irtifa_dm <= 65535:
         raise ValueError(
             f'irtifa_m {irtifa_m} mesh sinirlarinin disinda (0..6553.5 m)')
+
+    # Dort suru ayari: hepsi 1 bayt. KIRPMA YOK, ValueError — aralik/irtifa
+    # ile ayni gerekce: sessizce kirpmak "15 derece istedim, 25.5 uctu"
+    # sinifi bir hata uretirdi.
+    ekler = (
+        ('morf_hiz_mps', morf_hiz_mps, 10.0, 25.5, 'm/s'),
+        ('hareket_hiz_mps', hareket_hiz_mps, 10.0, 25.5, 'm/s'),
+        ('yaw_hiz_deg_s', yaw_hiz_deg_s, 10.0, 25.5, 'deg/s'),
+        ('egim_tavan_deg', egim_tavan_deg, 1.0, 255.0, 'deg'),
+    )
+    ham = []
+    for ad, deger, olcek, tavan, birim in ekler:
+        v = int(round(float(deger) * olcek))
+        if not 0 <= v <= 255:
+            raise ValueError(
+                f'{ad} {deger} mesh sinirlarinin disinda '
+                f'(0..{tavan:g} {birim})')
+        ham.append(v)
+
     return struct.pack(_GOREV_FMT, tip, param1, param2, bekleme_suresi_s,
-                       aralik_dm, irtifa_dm)
+                       aralik_dm, irtifa_dm, *ham)
 
 
 def origin_coz(payload: bytes) -> OriginVeri:

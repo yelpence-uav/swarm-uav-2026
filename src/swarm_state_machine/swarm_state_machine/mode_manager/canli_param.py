@@ -25,7 +25,9 @@ REDDEDILIR." Kapilar ve kimlik canli degistirilebilseydi, tek bir
 """
 
 # mode_manager: aralik (yedek) + kalkis irtifasi.
-MODE_MANAGER_CANLI = ('default_spacing_m', 'kalkis_irtifa_m')
+MODE_MANAGER_CANLI = ('default_spacing_m', 'kalkis_irtifa_m',
+                      'morf_hiz_mps', 'max_speed_mps',
+                      'max_yaw_rate_deg_s', 'max_tilt_deg')
 
 # joystick_interpreter: ARALIGIN GERCEK KAYNAGI.
 # mode_manager'inki yalnizca yedek — her cerceve `cmd.requested_spacing_m`
@@ -64,6 +66,20 @@ ARALIK_ALT_M = 4.0
 ARALIK_UST_M = 25.5
 IRTIFA_ALT_M = 3.0
 IRTIFA_UST_M = 30.0
+
+# --- SURU DAVRANIS AYARLARI (5 Eylul 2026) -----------------------------
+# Ayni BASLAT paketinden geliyorlar; sinirlar ucus_ayarlari.py'deki
+# turetmelerle TUTARLI olmali, bu yuzden tavanlar oradaki MOD_* tavanlarina
+# dayaniyor. Ust sinirlar ayrica mesh'in 1 baytlik kodlamasiyla sinirli
+# (0.1 birim -> 25.5).
+MORF_HIZ_ALT = 0.2      # altinda morf pratikte durur
+MORF_HIZ_UST = 3.0      # seyir hizi mertebesi; ustu carpisma payini yer
+HAREKET_HIZ_ALT = 0.3
+HAREKET_HIZ_UST = 5.0   # PX4_HIZ_TAVANI_MPS
+YAW_HIZ_ALT = 2.0
+YAW_HIZ_UST = 25.0      # PX4_DONUS_HIZI_DEG_S (MPC_YAWRAUTO_MAX)
+EGIM_TAVAN_ALT = 3.0
+EGIM_TAVAN_UST = 30.0   # MPC_TILTMAX_AIR — ustu ucagin YAPAMAYACAGI komut
 
 # 0.0 = "operator bir sey girmedi" -> alici KENDI varsayilanini korur.
 # Bos birakmak gecerli bir secim; varsayilan aralik 7 m (MOD_ARALIK).
@@ -109,6 +125,47 @@ def g2_ayar_dogrula(aralik_m, irtifa_m) -> tuple:
             f'{IRTIFA_ALT_M:g}-{IRTIFA_UST_M:g} m.'
         )
     return a, i
+
+
+def g2_suru_ayari_dogrula(morf_hiz, hareket_hiz, yaw_hiz, egim_tavan):
+    """Gorev 2 suru davranis ayarlarini dogrular.
+
+    Aralik/irtifa ile AYNI sozlesme: 0 / None = BELIRTILMEDI ve o alan
+    icin ucak kendi varsayilanini korur. Sinir disi deger SESSIZCE
+    kirpilmaz, ParamRed atilir — mesaj dogrudan operatore gosterilir.
+
+    🔴 UST SINIRLAR KEYFI DEGIL: yaw tavani PX4'un MPC_YAWRAUTO_MAX'i,
+    egim tavani MPC_TILTMAX_AIR'i. Ustune cikmak ucagin YAPAMAYACAGI bir
+    komut uretmek demek — 14 Agustos'ta MAKS_EGIM_DEG'in kodda 35 sabit
+    olmasi tam bu sinifta bir hataydi (ucus_ayarlari.py basligi).
+
+    Returns:
+        tuple: (morf_hiz, hareket_hiz, yaw_hiz, egim_tavan);
+        belirtilmeyen alan BELIRTILMEDI doner.
+    """
+    alanlar = (
+        ('morf hizi', morf_hiz, MORF_HIZ_ALT, MORF_HIZ_UST, 'm/s'),
+        ('hareket hizi', hareket_hiz, HAREKET_HIZ_ALT, HAREKET_HIZ_UST,
+         'm/s'),
+        ('yaw hizi', yaw_hiz, YAW_HIZ_ALT, YAW_HIZ_UST, 'deg/s'),
+        ('egim tavani', egim_tavan, EGIM_TAVAN_ALT, EGIM_TAVAN_UST, 'deg'),
+    )
+    cikti = []
+    for ad, ham, alt, ust, birim in alanlar:
+        if ham in (None, ''):
+            cikti.append(BELIRTILMEDI)
+            continue
+        v = _sayi(ad, ham)
+        if v == BELIRTILMEDI:
+            cikti.append(BELIRTILMEDI)
+            continue
+        if not (alt <= v <= ust):
+            raise ParamRed(
+                f'{ad} {v:g} {birim} kabul edilmedi. '
+                f'Izinli: {alt:g}-{ust:g} {birim}.'
+            )
+        cikti.append(v)
+    return tuple(cikti)
 
 
 def dogrula(ad: str, deger, izinli) -> float:
