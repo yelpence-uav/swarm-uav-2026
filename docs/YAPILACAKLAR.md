@@ -1,6 +1,6 @@
 # YAPILACAKLAR
 
-**Son güncelleme:** 5 Eylül 2026, 07:56 — 🟢 Görev 2: sabit lider + yedi sessiz kusur kapandı, yalpa uçuşta doğrulandı · 🔴 YENİ P0: **ylp02 eski kodda** · 🔴 duruyor: mesh kaybı · 1 Hz seyreltme · lens/QR
+**Son güncelleme:** 5 Eylül 2026, 18:34 — 🔴🔴 **ylp02 DÜŞTÜ** (13 m'den serbest düşüş, motor besleme kesintisi — `docs/YLP02_DUSME.md`) · 🟢 üç uçağa kod dağıtıldı (`39c78d3`) · 🟢 Görev 1 okuyucu dron artık KAMERALI uçak
 
 > **Finale 5 gün.** Bu liste artık "her fikir" değil, **bu 8 günde
 > yapılacak iş.** Bir madde buraya giriyorsa birinin onu yapması planlanıyor
@@ -13,7 +13,20 @@
 
 ## 🔴 P0 — bunlar kapanmadan ilgili uçuş yapılmaz
 
-- `[ ]` 🔴 **ylp02 ESKİ KODDA — üç uçak uçmadan önce DAĞITILACAK (5 Eylül).**
+- `[ ]` 🔴🔴 **ylp02 DÜŞTÜ (5 Eylül 17:21). UÇMADAN ÖNCE
+  [`docs/YLP02_DUSME.md`](YLP02_DUSME.md) OKUNACAK.**
+  13 metrede asılıyken itkisini kaybetti, **serbest düşüşle** (13.47 m/s)
+  yere çarptı. Kök neden ölçüldü: **motorlara giden güç kesildi** — düşüş
+  anında pil gerilimi 14.80 → 15.70 V **yükseldi**, yani yük kalktı.
+  Pixhawk'ın kendisi canlıydı (1.6 m'ye kadar taze irtifa bastı), yazılım
+  disarm göndermedi (`armed` hep `True`), PX4 hiçbir failsafe ilan etmedi.
+  Şüpheli hat: **pil konnektörü → PDB → ESC.**
+  🔴 **Fiziksel kontrol listesi ve yerde doğrulama testi o dosyanın §6'sında.**
+  Kanıt (bag + loglar) `/tmp/.../scratchpad/kanit/` altında ve **makine
+  yeniden başlayınca silinir** — kalıcı saklanacaksa taşınmalı.
+
+
+- `[x]` ✅ **ylp02'ye KOD DAĞITILDI (5 Eylül 17:0x).** Üç uçakta da `.surum` = `39c78d3`, `baslat.sh` md5 depo ile aynı, `kamera_ajan_id:=1` ve `sabit_lider:=1` düğümlere ulaştı (`/proc/<pid>/cmdline` ile doğrulandı). ⚠️ `dagit.sh` **`ucus_ayarlari.env` taşımıyor** — elle atıldı, sonraki dağıtımda unutulmasın. ~~Eski madde:~~
   5 Eylül oturumu boyunca ulaşılamadı (son bilinen IP'de yok, subnet
   taraması da bulamadı), yani **17 commit geride**: sabit lider, lider
   merkez + Macar slot, kalkış kapısı formasyonu, READY irtifası,

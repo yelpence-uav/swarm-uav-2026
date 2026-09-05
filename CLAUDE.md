@@ -176,6 +176,7 @@ sonradan saatlerce süren "neden bunda çalışmıyor" arayışına dönüşüyo
 | **`docs/TUZAKLAR.md`** | **Hata vermeden yanlış sonuç üretenler.** Bir şey "çalışmıyor ama hata da vermiyor" ise ÖNCE buraya bak |
 | `docs/PLAN.md` | Neden böyle yapıldı — şartname, test kademeleri, kalan ADIM'lar |
 | `docs/KARARLAR.md` | **Verilmiş ama henüz uygulanmamış kararlar** — sırası gelince hatırlat |
+| 🔴 **`docs/YLP02_DUSME.md`** | **5 Eylül ylp02 düşme raporu** — kök neden, elenen hipotezler, fiziksel kontrol listesi. **ylp02 uçmadan önce OKU** |
 | **`docs/KAMERA.md`** | Kamera ve algı — kalibrasyon, QR/renk menzilleri, rolling shutter |
 | `docs/RPI_ESITLEME.md` | Hangi uçakta ne var (§3 A-matrisi) |
 | `docs/cihazlar.md` | Kimlik tablosu, SSH, MAC, port, QGC, sysid |
