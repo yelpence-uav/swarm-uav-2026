@@ -816,6 +816,46 @@ class ModeManagerNode(Node):
                 olculen = self._ctx.olculen_ofsetler()
                 if len(olculen) == len(self._agent_ids):
                     self._formation_offsets = olculen
+
+                # 🔴 IRTIFA OLCULENDEN DEGIL KOMUT EDILENDEN — 5 Eylul 2026,
+                # UCUSTA OLCULDU.
+                #
+                # BELIRTI (operator): "10 m istedim, konuma yerlestikten
+                # sonra istenen degerin ALTINA dustu."
+                #
+                # OLCULEN: kalkis_irtifa_m = 10.0 dogru uygulanmisti, ama
+                # ucaklar 8.50 m AGL'de oturdu ve inise kadar orada kaldi
+                # (ylp00 pos_z -6.77 / ylp01 -6.78, yer -1.72). Gaz cubugu
+                # ucus boyunca TAM SIFIR — operator girdisi degil.
+                #
+                # KOK NEDEN iki kararin CAKISMASI:
+                #   _KALKIS_ULASMA_ORANI = 0.8 -> READY hedefin %80'inde
+                #     tetikleniyor. Gerekcesi dogru: PX4 hedefe asimptotik
+                #     yaklasir, son 20 cm dakikalar surer.
+                #   READY girisi centroid'i O ANKI konumdan tazeliyor.
+                # Ikisi birlesince %80 yalnizca bir GECIS olcutu olmaktan
+                # cikip FIILI SON IRTIFA oluyor: kalan %20 hic tirmanilmiyor
+                # cunku formasyon z hedefini oraya donduruyor.
+                #
+                # x/y OLCULENDEN kalmali (tirmanista yanal suruklenme olur
+                # ve bayat merkez sicrama komutu uretir) ama z KOMUT
+                # EDILENDEN gelmeli: zaten hedefi biliyoruz.
+                #
+                # Zemin referansi yoksa (kalkis_zemin_z bos) olculene
+                # dusuluyor — eski davranis, sessizce yanlis irtifa yerine.
+                zeminler = list(self._ctx.kalkis_zemin_z.values())
+                if zeminler and self._ctx.kalkis_irtifa_m > 0.0:
+                    zemin = sum(zeminler) / len(zeminler)
+                    hedef_z = zemin - self._ctx.kalkis_irtifa_m
+                    olculen_z = self._ctx.centroid_z
+                    self._ctx.centroid_z = hedef_z
+                    self.get_logger().info(
+                        '[mode_manager] READY irtifasi KOMUT EDILENDEN: '
+                        f'{-hedef_z + zemin:.1f} m hedef '
+                        f'(olculen {-olculen_z + zemin:.1f} m; %80 esigi bir '
+                        'GECIS olcutu, son irtifa DEGIL)'
+                    )
+
                 self.get_logger().info(
                     '[mode_manager] READY — centroid ucaklarin O ANKI '
                     f'konumundan tazelendi: ({self._ctx.centroid_x:.1f}, '
