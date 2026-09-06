@@ -132,7 +132,16 @@ KANAT_ACISI_DEG = 45.0         # ok basi kanat acisi
 #                      iki ucaktan biri tokezleyince TUM SURUYE acil inis
 # AJAN_SAYISI = KIMLIK ARALIGI (id'ler 1..3), ucan sayi degil; ylp01 kapali
 # olsa da 3 kalir cunku ylp02'nin kimligi 3.
-UCAN_KADRO = (1, 2)            # 4 Eylul gecesi: ylp00 + ylp01 (ylp02 AGDA DEGIL)
+UCAN_KADRO = (1, 2, 3)         # 6 Eylul: ylp02 geri kadroda (asagidaki nota bak)
+# 6 Eylul 2026 — NEDEN GERI (1,2,3): 5 Eylul gecesi kadro (1,2) idi ve ylp02
+# uctu ama SURUYE HIC KATILMADI. Belirti sessizdi, hicbir yerde hata yoktu:
+#   ylp02 canli mode_manager -> agent_id=3, agent_ids=[1,2]  (KENDISI YOK)
+#   "ModeManagerNode baslatildi: [1, 2]"  ·  logunda FormationCommand HIC YOK
+# Mekanizma: mode_manager len(agent_ids)==2 dalinda YALNIZ IKI slot kuruyor
+# (mode_manager_node.py ~305-317), yani 3 numaraya ait slot HIC YARATILMIYOR.
+# ylp00/ylp01 bekledikleri 2 ucagi gordugu icin normal ucuyor; ylp02 havada
+# durup hicbir sey yapmiyor. Kadro EKSIK oldugunda kalkis takiliyor (asagidaki
+# not), kadro DAR oldugunda ise sessizce bir ucak dusuyor — ayri belirti.
 # 🔴 UCAK EKLENINCE/CIKINCA BURAYI GUNCELLE ve env'i YENIDEN DAGIT.
 #    dagit.sh ucus_ayarlari.env'i TASIMAZ — elle gider (RPI_ESITLEME B31).
 #    Eksik kadroda `all_agents_seen()` asla True olmaz; mode_manager
