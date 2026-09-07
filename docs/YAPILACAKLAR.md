@@ -1,6 +1,6 @@
 # YAPILACAKLAR
 
-**Son güncelleme:** 5 Eylül 2026, 18:34 — 🔴🔴 **ylp02 DÜŞTÜ** (13 m'den serbest düşüş, motor besleme kesintisi — `docs/YLP02_DUSME.md`) · 🟢 üç uçağa kod dağıtıldı (`39c78d3`) · 🟢 Görev 1 okuyucu dron artık KAMERALI uçak
+**Son güncelleme:** 7 Eylül 2026, 11:57 — 📻 RC-kayıp failsafe üç uçakta **LAND**'e alındı (~3.5-4 sn; `COM_RCL_EXCEPT` maddesi kapandı, iki yeni madde) · eski: 5 Eylül 18:34 — 🔴🔴 **ylp02 DÜŞTÜ** (`docs/YLP02_DUSME.md`) · 🟢 üç uçağa kod dağıtıldı (`39c78d3`) · 🟢 Görev 1 okuyucu dron artık KAMERALI uçak
 
 > **Finale 5 gün.** Bu liste artık "her fikir" değil, **bu 8 günde
 > yapılacak iş.** Bir madde buraya giriyorsa birinin onu yapması planlanıyor
@@ -744,9 +744,18 @@ Bugünkü komut yolu (YKİ → mesh → goto) finali GEÇEMEZ. Bu blok o yüzden
   testler kodun gerisinde kalmış. 29 Ağustos'ta görüldü.
 - `[ ]` 🟡 **ylp02 geçiş sonrası dönüş tutukluğu:** 26 Ağustos'ta 6,4 m'de
   bekledi (körlük yok). Aynı bag + `ca.log`'dan sebep çıkarılacak.
-- `[ ]` 🟡 **OFFBOARD'da RC'siz uçuş:** kumandalar kapalıyken RC-loss
-  failsafe'in tetiklenmemesi bilinçli mi (`COM_RCL_EXCEPT`)? Ölç, karara
-  bağla, yaz.
+- `[x]` 🟡 **OFFBOARD'da RC'siz uçuş** — 7 Eylül'de ölçüldü ve karara
+  bağlandı: `COM_RCL_EXCEPT=0` (üç uçak) → RC-loss failsafe OFFBOARD'da da
+  tetiklenir. Aksiyon LAND'e alındı: `NAV_RCL_ACT=3`, `COM_FAIL_ACT_T=2.5`
+  → kapanıştan ~3.5-4 sn sonra iniş. `DURUM.md` 7 Eylül bloğu, KARAR-18.
+- `[ ]` 🟠 **LAND failsafe'ini havada doğrula** — alçak askıda kumanda
+  kapat → ~4 sn'de iniş başlamalı (19 Ağu RTL testinin LAND karşılığı).
+  Tek soru, tek manevra; başka şey eklenmez.
+- `[ ]` 🟡 **ylp02: konteynerde YENİ süreç ROS grafını göremiyor** —
+  7 Eylül: `ros2 node list` boş, `px4_param.py` "servis yok" diyor; koşan
+  düğümler sağlıklı (bag akıyor, mavros yayında). PX4 param işleri o gün
+  MAVLink'ten yapıldı. Kök bulunmalı (daemon? shm? katılımcı limiti?).
+  ylp00/ylp01'de denenmedi — orada da olabilir.
 - `[ ]` 🟡 **Hareket modunda centroid sürüklenmesi** (KARAR-11 açık ucu):
   her uçağın mode_manager'ı centroid'i KENDİ tik'inde entegre ediyor —
   uçaklar arası yavaş sürüklenme olasılığı G0/uçuşta ölçülecek.

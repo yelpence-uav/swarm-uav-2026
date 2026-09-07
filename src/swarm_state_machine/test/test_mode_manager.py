@@ -149,6 +149,9 @@ class TestManeuverMode(unittest.TestCase):
         ctx.formation_heading_deg = 0.0
         ctx.pitch_cmd = 1.0
         ctx.max_tilt_deg = 15.0
+        # RAMPA KAPALI: bu test GEOMETRIYI doğruluyor, rampayı değil.
+        # Rampanın kendisi test_manevra_rampasi.py'de kilitli.
+        ctx.max_tilt_rate_deg_s = 0.0
         # x-eksenli ofset = V/okbaşı benzeri; pitch bu formasyonlarda geçer
         # (stick maskesi, 3 Eylül). Çizgi olsa pitch kilitlenirdi.
         ctx.active_formation = FORMATION_V
@@ -159,13 +162,15 @@ class TestManeuverMode(unittest.TestCase):
         )
 
         self.assertIsInstance(result, tuple)
-        self.assertEqual(len(result), 4)
+        self.assertEqual(len(result), 5)
 
-        setpoints, new_heading, pitch_deg, roll_deg = result
+        setpoints, new_heading, pitch_deg, roll_deg, new_cz = result
         self.assertEqual(len(setpoints), 2)
         self.assertEqual(new_heading, 0.0)
         self.assertEqual(pitch_deg, 15.0)
         self.assertEqual(roll_deg, 0.0)
+        # Gaz çubuğu merkezde -> centroid_z kımıldamaz.
+        self.assertAlmostEqual(new_cz, -10.0, places=9)
 
     def test_maneuver_asimetrik_formasyonda_merkez_sabit(self):
         """OKBAŞI-vari asimetrik ofsetlerde pitch, merkezi KAYDIRMAMALI.
@@ -178,12 +183,13 @@ class TestManeuverMode(unittest.TestCase):
         ctx.centroid_z = -10.0
         ctx.pitch_cmd = 1.0
         ctx.max_tilt_deg = 15.0
+        ctx.max_tilt_rate_deg_s = 0.0   # geometri testi, rampa değil
         ctx.active_formation = FORMATION_OKBASI   # pitch bu formasyonda geçer
 
         # Okbaşı benzeri: lider önde, iki kanat GERİDE (dx<0) — asimetrik.
         offsets = {1: (2.0, 0.0, 0.0), 2: (-2.0, -2.0, 0.0),
                    3: (-2.0, 2.0, 0.0)}
-        setpoints, _h, _p, _r = compute_agent_setpoints(
+        setpoints, _h, _p, _r, _cz = compute_agent_setpoints(
             ctx, dt=0.1, formation_offsets=offsets,
         )
         ort_z = sum(sp['z'] for sp in setpoints) / len(setpoints)
@@ -200,9 +206,10 @@ class TestManeuverMode(unittest.TestCase):
         ctx.centroid_z = -10.0
         ctx.roll_cmd = 1.0
         ctx.max_tilt_deg = 15.0
+        ctx.max_tilt_rate_deg_s = 0.0   # işaret testi, rampa değil
 
         offsets = {1: (0.0, 3.0, 0.0), 2: (0.0, -3.0, 0.0)}
-        setpoints, _h, _p, _r = compute_agent_setpoints(
+        setpoints, _h, _p, _r, _cz = compute_agent_setpoints(
             ctx, dt=0.1, formation_offsets=offsets,
         )
         z = {sp['agent_id']: sp['z'] for sp in setpoints}

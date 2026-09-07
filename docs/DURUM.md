@@ -1,8 +1,38 @@
 # DURUM — şu an ne çalışıyor, ne bozuk
 
-**Son güncelleme:** 5 Eylül 2026, 07:56 — 🟢 Görev 2: ylp00 sabit lider · yedi sessiz kusur kapandı · yalpa düzeltildi ve uçuşta doğrulandı · 🔴 **ylp02 eski kodda** · 🔴 açık: mesh kaybı · 1 Hz seyreltme · lens/QR · ylp00+ylp01 `4387554`
+**Son güncelleme:** 7 Eylül 2026, 11:57 — 📻 **kumanda-kaybı failsafe üç uçakta LAND'e alındı, tepki ~3.5-4 sn** (blok aşağıda) · önceki damga 5 Eylül 07:56 (Görev 2 bloğu aşağıda duruyor)
 
 
+
+> ## 📻 7 EYLÜL ÖĞLEN — KUMANDA-KAYBI FAILSAFE: RTL → LAND (üç uçak)
+>
+> Operatör kararı (KARAR-18): kumanda kapanınca uçaklar **olduğu yerde
+> LAND** yapar (RTL değil) ve bunu **3-4 sn içinde** başlatır. Yazılan
+> (MAVLink'ten, QGC kapalıyken; üçünde geri-okumayla doğrulandı, PX4
+> kalıcı saklar — restart'a dayanır):
+>
+> | Parametre | Eski | Yeni | ylp00 | ylp01 | ylp02 |
+> |---|---|---|---|---|---|
+> | `NAV_RCL_ACT` | 2 (RTL) | **3 (LAND)** | ✅ | ✅ | ✅ |
+> | `COM_FAIL_ACT_T` | 5.0 | **2.5 sn** | ✅ | ✅ | ✅ |
+>
+> Zaman zinciri: alıcı failsafe'i (~0.5-1 sn, CH3=2100) + kayıp ilanı
+> 0.5 sn (`COM_RC_LOSS_T`) + bekleme 2.5 sn (HOLD) = **kapanıştan
+> ~3.5-4 sn sonra LAND.** Bekleme penceresinde kumanda geri açılırsa
+> failsafe iptal olur, uçuş sürer. `COM_RCL_EXCEPT=0` üçünde ölçüldü →
+> **OFFBOARD'da da tetiklenir**; tespit zinciri (`RC_MAP_FAILSAFE=3`,
+> `RC_FAILS_THR=2050`, `COM_RC_LOSS_T=0.5`) üçünde de doğrulandı.
+>
+> - 🟢 RC-kayıp yolu artık HOME kullanmıyor → HOME kayması BU failsafe
+>   için risk olmaktan çıktı.
+> - ⚠️ Hakem §5.4 failsafe'i belirler; **RTL derse** `NAV_RCL_ACT=2`
+>   geri yazılır (KARAR-18) — HOME kayması riski o zaman geri gelir.
+> - 🟠 Havada doğrulanmadı: alçak askıda kumanda kapat → ~4 sn'de iniş
+>   başlamalı (19 Ağu RTL testinin LAND karşılığı). YAPILACAKLAR'da.
+> - ⚠️ Yol notları: `udp-b` cevapları yalnız :14550'ye gider — QGC
+>   açıkken MAVLink param eko'ları kaybolur; yazma QGC kapatılarak
+>   yapıldı. Ayrıca ylp02'de konteynerde YENİ süreç ROS grafını
+>   göremiyor (`px4_param.py` yolu tıkalı) — YAPILACAKLAR 🟡.
 
 > ## 🌅 5 EYLÜL SABAHI — GÖREV 2: SABİT LİDER + YEDİ SESSİZ KUSUR KAPANDI
 >

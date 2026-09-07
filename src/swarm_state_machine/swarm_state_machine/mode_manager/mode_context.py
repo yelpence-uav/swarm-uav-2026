@@ -60,6 +60,12 @@ class ModeContext:
     max_speed_mps: float = 2.0
     max_yaw_rate_deg_s: float = 30.0
     max_tilt_deg: float = 15.0
+    # MANEVRA EGIM RAMPASI (6 Eylul 2026) — gerekce compute_agent_setpoints
+    # docstring'inde. TEK KAYNAK `ucus_ayarlari.MOD_EGIM_HIZI_DEG_S` (orada
+    # PX4'un dikey tavanindan TURETILIYOR); buradaki sayi yalnizca dugumsuz
+    # kullanimin muhafazakar varsayilani, node her acilista paramdan eziyor.
+    # 0.0 = RAMPA KAPALI (eski davranis: egim cubugu aninda takip eder).
+    max_tilt_rate_deg_s: float = 8.0
     # B6 ivme rampasi — gerekce compute_centroid_delta docstring'inde.
     max_accel_mps2: float = 1.3
     max_accel_z_mps2: float = 1.0
@@ -638,17 +644,13 @@ class ModeContext:
         """
         v_ileri_hedef = pitch_cmd * self.max_speed_mps
         v_sag_hedef = roll_cmd * self.max_speed_mps
-        v_yukari_hedef = throttle_cmd * self.max_speed_mps
 
         da_xy = self.max_accel_mps2 * max(0.0, dt)
-        da_z = self.max_accel_z_mps2 * max(0.0, dt)
         self.v_ileri = slew(self.v_ileri, v_ileri_hedef, da_xy)
         self.v_sag = slew(self.v_sag, v_sag_hedef, da_xy)
-        self.v_yukari = slew(self.v_yukari, v_yukari_hedef, da_z)
 
         v_forward = self.v_ileri
         v_right = self.v_sag
-        v_up = self.v_yukari
 
         heading_rad = math.radians(self.formation_heading_deg)
         cos_h = math.cos(heading_rad)
@@ -656,6 +658,33 @@ class ModeContext:
 
         dx = (v_forward * cos_h - v_right * sin_h) * dt
         dy = (v_forward * sin_h + v_right * cos_h) * dt
-        dz = -v_up * dt
+        dz = self.compute_centroid_dz(throttle_cmd, dt)
 
         return dx, dy, dz
+
+    def compute_centroid_dz(self, throttle_cmd: float, dt: float) -> float:
+        """Gaz cubugunu RAMPALI dikey centroid deltasina cevirir (NED).
+
+        AYRI FONKSIYON, cunku IKI mod birden kullaniyor: HAREKET
+        (compute_centroid_delta uzerinden) ve MANEVRA
+        (maneuver_mode.compute_agent_setpoints). Sartname G3 ve G4 gaz
+        cubugu icin AYNI seyi soyluyor — "throttle = toplu irtifa" — yani
+        iki kopya olsaydi biri gun gelip otekinden kayardi.
+
+        🔴 MANEVRADA GAZ CUBUGU OLUYDU — 6 Eylul 2026, KODDAN OKUNDU.
+        Manevra `dz_throttle = -throttle * max_speed * dt` hesaplayip
+        DOGRUDAN setpoint'e ekliyordu; `centroid_z`'ye HIC yazmiyordu
+        (_dispatch_maneuver yalnizca heading ve egim acilarini geri
+        yaziyor). Yani artis birikmiyordu: 20 Hz'de tam gaz
+        2.0 * 0.05 = 0.10 m SABIT ofset uretiyordu, 2 m/s tirmanma degil.
+        Cubuk birakilinca o 0.10 m de gidiyordu (compute_hold_setpoints
+        dz_throttle tasimaz). Hicbir yerde hata yoktu; cubuk calisiyor
+        gorunup hicbir sey yapmiyordu.
+
+        Returns:
+            float: centroid_z'ye EKLENECEK delta (NED, asagi +).
+        """
+        v_hedef = throttle_cmd * self.max_speed_mps
+        da_z = self.max_accel_z_mps2 * max(0.0, dt)
+        self.v_yukari = slew(self.v_yukari, v_hedef, da_z)
+        return -self.v_yukari * dt

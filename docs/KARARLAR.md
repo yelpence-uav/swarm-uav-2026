@@ -1,6 +1,6 @@
 # KARARLAR — verilmiş ama henüz uygulanmamış kararlar
 
-**Son güncelleme:** 5 Eylül 2026, 07:56 — **KARAR-17 UÇTU** (sabit lider ylp00, sistem geneli; lider slot 0; Macar en-yakın-slot yazıldı) — ylp02 hariç. Eski: KARAR-16 (tek-yayıncı), KARAR-10 (formasyon testlerinde GOTO YASAK), KARAR-15 (kaçınma eşikleri 5 m aralıkta kilitleniyor)
+**Son güncelleme:** 7 Eylül 2026, 11:57 — **KARAR-18 UYGULANDI** (kumanda-kaybı failsafe: LAND, ~3.5-4 sn, üç uçak; hakem RTL derse geri dönüş adımı içinde). Eski: KARAR-17 uçtu (sabit lider ylp00) · KARAR-16 (tek-yayıncı) · KARAR-15 (kaçınma eşikleri 5 m'de kilitleniyor)
 
 Sohbette verilen kararlar oturum bitince kayboluyor. Bu defter onları
 tutuyor: **ne karar verildi, neden, ne zaman uygulanacak, nasıl test edilecek.**
@@ -33,6 +33,46 @@ sırası gelince" denilen şeyleri. Onlar en kolay kaybolanlar.
 `❌ VAZGEÇİLDİ` — gerekçesiyle
 
 ---
+
+# KARAR-18 — Kumanda-kaybı failsafe: RTL değil LAND, ~3.5-4 sn'de
+
+**Durum:** ✅ UYGULANDI (7 Eylül 2026 — üç uçakta geri-okumayla doğrulandı)
+**Ne zaman:** uygulandı; hakem brifinginden sonra yeniden ele alınabilir
+**Karar veren:** operatör (7 Eylül 2026)
+
+## Karar
+
+Kumanda kapanınca uçaklar RTL değil **olduğu yerde LAND** yapar; failsafe
+kapanıştan **3-4 sn sonra** devreye girer, daha fazla beklemez.
+
+## Neden
+
+- HOME kayması P0 hâlâ açık — RTL bir kez üç uçağı ~9 m KD'ya indirmişti.
+  LAND home kullanmaz; bu yoldan o riski tamamen kaldırır.
+- Eski `COM_FAIL_ACT_T=5.0` ile toplam tepki ~6-6.5 sn idi; hakem
+  kapattığında uçak 5 sn "hiçbir şey yapmıyormuş" gibi görünürdü.
+  (19 Ağu "1-2 sn'de RTL" kaydı bu 5 sn'lik beklemeyle uyumsuzdu; o gün
+  görülen muhtemelen HOLD aşamasıydı.)
+
+## Nasıl uygulandı
+
+Üç uçakta `NAV_RCL_ACT` 2→**3**, `COM_FAIL_ACT_T` 5.0→**2.5** (MAVLink,
+QGC kapalıyken; PX4 kalıcı saklar). Zincirin kalanı ölçülüp aynı çıktı:
+alıcı CH3=2100 (~0.5-1 sn) + `COM_RC_LOSS_T=0.5` + bekleme 2.5 =
+**~3.5-4 sn**. `COM_RCL_EXCEPT=0` → OFFBOARD'da da tetiklenir.
+
+## Test
+
+- Yerde (saha günü kontrolü, değişmedi): kumanda kapat → QGC SARI.
+- 🟠 Havada bir kez: alçak askıda kumanda kapat → ~4 sn'de iniş
+  başlamalı (YAPILACAKLAR'da).
+
+## Diğer seçenekler (operatör isterse)
+
+| Seçenek | Neden seçilmedi |
+|---|---|
+| RTL (eski) | HOME kayması açık. Hakem RTL derse `NAV_RCL_ACT=2` GERİ yazılır ve HOME riski geri gelir — brifingde netleşecek (gorev2.md madde 35) |
+| Bekleme < 2.5 sn | Kısa RC kesintisi anında iniş tetiklerdi; 2.5 sn "3-4 sn" hedefini tutturan en küçük pay |
 
 # KARAR-17 — Lider SEÇİLMEZ, VERİLİR: ylp00 (sistem geneli) + Görev 2'de slot 0
 

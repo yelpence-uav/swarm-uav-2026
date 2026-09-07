@@ -88,6 +88,7 @@ class ModeManagerNode(Node):
         self._ctx.max_accel_z_mps2 = self._max_accel_z_mps2
         self._ctx.max_yaw_rate_deg_s = self._max_yaw_rate_deg_s
         self._ctx.max_tilt_deg = self._max_tilt_deg
+        self._ctx.max_tilt_rate_deg_s = self._max_tilt_rate_deg_s
         self._ctx.kalkis_esik_m = self._kalkis_esik_m
         self._ctx.kalkis_irtifa_m = self._kalkis_irtifa_m
         self._ctx.test_hazir_atla = self._test_hazir_atla
@@ -136,6 +137,12 @@ class ModeManagerNode(Node):
         self.declare_parameter('max_speed_mps', 2.0, _dnm)
         self.declare_parameter('max_yaw_rate_deg_s', 25.0, _dnm)
         self.declare_parameter('max_tilt_deg', 15.0, _dnm)
+        # 🔴 MANEVRA EGIM RAMPASI (6 Eylul 2026, sahada gorulen "kumandaya
+        # direniyor" belirtisi). Tek kaynak `ucus_ayarlari`
+        # MOD_EGIM_HIZI -> baslat.sh env; gerekce ve tureme orada +
+        # maneuver_mode.compute_agent_setpoints docstring'inde.
+        # 0.0 = RAMPA KAPALI, eski davranis birebir doner.
+        self.declare_parameter('max_tilt_rate_deg_s', 8.0, _dnm)
         # Slot geometrisi formation_node/kopru/sekans ile AYNI aci —
         # eskiden asagida math.radians(45.0) GOMULUYDU.
         self.declare_parameter('wing_alpha_deg', 45.0, _dnm)
@@ -217,6 +224,9 @@ class ModeManagerNode(Node):
         self._max_tilt_deg = float(
             self.get_parameter('max_tilt_deg').value
         )
+        self._max_tilt_rate_deg_s = float(
+            self.get_parameter('max_tilt_rate_deg_s').value
+        )
         self._wing_alpha_rad = math.radians(float(
             self.get_parameter('wing_alpha_deg').value
         ))
@@ -289,6 +299,13 @@ class ModeManagerNode(Node):
             elif p.name == 'max_tilt_deg':
                 self._max_tilt_deg = deger
                 self._ctx.max_tilt_deg = deger
+            elif p.name == 'max_tilt_rate_deg_s':
+                # Sahada ayarlanabilir olmasi ONEMLI: rampa hizi araliga
+                # bagli turetiliyor (ucus_ayarlari) ve hakem araligi madde
+                # 29 ile degistirirse tureme YENIDEN kosulmuyor. Aralik
+                # buyutuldugunde bu sayi da kucultulmeli.
+                self._max_tilt_rate_deg_s = deger
+                self._ctx.max_tilt_rate_deg_s = deger
             elif p.name == 'morf_hiz_mps':
                 # ctx'te karsiligi YOK: morf hizi yayin aninda
                 # `_morf_hizini_uygula` icinde okunuyor.
@@ -1062,11 +1079,19 @@ class ModeManagerNode(Node):
         self._ctx.formation_heading_deg = params['heading_deg']
 
     def _dispatch_maneuver(self, dt: float) -> None:
-        """Manevra modunu yurutur."""
+        """Manevra modunu yurutur.
+
+        🔴 centroid_z DE GERI YAZILIR — 6 Eylul 2026. Onceden yalnizca
+        heading ve egim acilari yaziliyordu; gaz cubugunun deltasi
+        setpoint'e ekleniyor ama centroid'e HIC islenmiyordu, yani
+        birikmiyor ve cubuk OLU kaliyordu (gerekce ve olcum:
+        mode_context.compute_centroid_dz). _dispatch_movement zaten aynisini
+        yapiyor — iki dal artik ayni sozlesmede.
+        """
         result = compute_agent_setpoints(
             self._ctx, dt, self._formation_offsets,
         )
-        setpoints, new_heading, pitch_deg, roll_deg = result
+        setpoints, new_heading, pitch_deg, roll_deg, new_cz = result
 
         for sp in setpoints:
             self._publish_agent_setpoint(sp)
@@ -1074,6 +1099,7 @@ class ModeManagerNode(Node):
         self._ctx.formation_heading_deg = new_heading
         self._ctx.maneuver_pitch_deg = pitch_deg
         self._ctx.maneuver_roll_deg = roll_deg
+        self._ctx.centroid_z = new_cz
 
     def _dispatch_hold(self) -> None:
         """HOLD durumunu yurutur."""

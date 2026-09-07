@@ -20,7 +20,7 @@ from swarm_core.formation_control.formation_geometry import (
     FORMATION_OKBASI,
     FORMATION_V,
 )
-from swarm_core.formation_control.manual_kinematics import apply_tilt
+from swarm_core.formation_control.manual_kinematics import apply_tilt, slew
 
 
 def stick_maskesi(
@@ -68,8 +68,40 @@ def compute_agent_setpoints(
     ctx,
     dt: float,
     formation_offsets: dict[int, tuple[float, float, float]],
-) -> tuple[list[dict], float, float, float]:
+) -> tuple[list[dict], float, float, float, float]:
     """Her İHA için manevra konum setpoint'lerini hesaplar.
+
+    🔴 EĞİM RAMPALI — 6 Eylül 2026, SAHADA GÖRÜLDÜ.
+
+    BELİRTİ (operatör): *"roll manevrası iyi oturmadı; ortadaki uçak sabit
+    görünüyordu ama diğer ikisi biri yukarı biri aşağı gidip oturması
+    gerekirken kumandaya DİRENİR gibi davrandı ve irtifa noktasında sıkıntı
+    yaptı."*
+
+    KÖK NEDEN: burada rampa YOKTU. Hareket modu B6'da rampalandı
+    (`mode_context.compute_centroid_delta`, `slew`, `MOD_IVME`) ama manevra
+    çubuğu ANINDA açıya çeviriyordu. Kanat slotu için bu, tek bir tick'te
+    bir KONUM BASAMAĞI demek — ölçülen geometriyle:
+
+        aralık 6 m, çubuk %66 -> eğim 9.9° -> kanat dz 1.05 m
+        20 Hz'de tek tick = 0.05 s  ->  basamağın türevi 20.9 m/s
+
+    Aynı çubuk hareket modunda tick başına en fazla 0.065 m/s değiştiriyor;
+    yani manevra ~300 kat sert bir komut basıyordu. Bu, 5 Eylül'de kapatılan
+    yalpanın aynı sınıfı (basamak atan hedef -> aşağıda türev alınınca
+    darbe) ve şartname bunu ayrıca cezalandırıyor: "Osilasyon gözlemlenmesi
+    -10" (Kriter 5).
+
+    Rampa `slew` ile — `mode_context`'in kullandığı AYNI fonksiyon, ikinci
+    kopya yok. Hız tavanı `ctx.max_tilt_rate_deg_s`; türetmesi (PX4'ün
+    MPC_Z_VEL_MAX_UP'ından) `ucus_ayarlari.MOD_EGIM_HIZI_DEG_S`'te.
+    **0.0 = rampa KAPALI**, eski davranış birebir döner (geri dönüş
+    anahtarı; `vff_pencere_s=0.0` ile aynı gelenek).
+
+    RAMPANIN DURUMU `ctx.maneuver_pitch_deg` / `maneuver_roll_deg`: ayrı bir
+    alan AÇILMADI çünkü çağıran (`_dispatch_maneuver`) bu ikisini zaten geri
+    yazıyor ve `compute_hold_setpoints` ile susturma kapısı da onları
+    okuyor. Ayrı durum tutmak üçüncü bir kopya olurdu.
 
     Args:
         ctx (ModeContext): Sürü modu çalışma zamanı bağlamı.
@@ -77,12 +109,19 @@ def compute_agent_setpoints(
         formation_offsets (dict): İHA ID bazlı (ox, oy, oz) ofsetleri.
 
     Returns:
-        tuple[list[dict], float, float, float]: İHA setpoint listesi,
-            yeni heading (derece), hedef pitch (derece), hedef roll (derece).
+        tuple[list[dict], float, float, float, float]: İHA setpoint listesi,
+            yeni heading (derece), UYGULANAN pitch (derece), UYGULANAN roll
+            (derece), yeni centroid_z (NED). Son üçü çağıran tarafından
+            ctx'e geri yazılır — rampanın ve gazın durumu orada yaşıyor.
     """
     new_heading = ctx.compute_heading_rotation(ctx.yaw_cmd, dt)
 
-    dz_throttle = -ctx.throttle_cmd * ctx.max_speed_mps * dt
+    # 🔴 GAZ ÇUBUĞU centroid_z'ye ENTEGRE EDİLİR (6 Eylül). Önceden delta
+    # doğrudan setpoint'e ekleniyor, centroid'e hiç yazılmıyordu — yani
+    # birikmiyordu ve çubuk pratikte ÖLÜYDÜ. Gerekçe ve ölçüm:
+    # mode_context.compute_centroid_dz docstring'i. Şartname G4:
+    # "throttle = toplu irtifa".
+    new_cz = ctx.centroid_z + ctx.compute_centroid_dz(ctx.throttle_cmd, dt)
 
     # Formasyon tipine göre stick maskesi: çizgide yalnız roll, V/okbaşında
     # roll+pitch (3 Eylül operatör kararı). Yaw maskeye girmez.
@@ -91,8 +130,17 @@ def compute_agent_setpoints(
         ctx.pitch_cmd,
         ctx.roll_cmd,
     )
-    target_pitch_deg = pitch_cmd * ctx.max_tilt_deg
-    target_roll_deg = roll_cmd * ctx.max_tilt_deg
+    hedef_pitch_deg = pitch_cmd * ctx.max_tilt_deg
+    hedef_roll_deg = roll_cmd * ctx.max_tilt_deg
+
+    hiz = float(getattr(ctx, 'max_tilt_rate_deg_s', 0.0))
+    if hiz > 0.0:
+        da = hiz * max(0.0, dt)
+        target_pitch_deg = slew(ctx.maneuver_pitch_deg, hedef_pitch_deg, da)
+        target_roll_deg = slew(ctx.maneuver_roll_deg, hedef_roll_deg, da)
+    else:
+        target_pitch_deg = hedef_pitch_deg
+        target_roll_deg = hedef_roll_deg
 
     egik = _egik_ofsetler(
         formation_offsets, target_pitch_deg, target_roll_deg
@@ -114,11 +162,12 @@ def compute_agent_setpoints(
             'agent_id': agent_id,
             'x': ctx.centroid_x + rx,
             'y': ctx.centroid_y + ry,
-            'z': ctx.centroid_z + ez + dz_throttle,
+            'z': new_cz + ez,
             'heading_deg': new_heading,
         })
 
-    return setpoints, new_heading, target_pitch_deg, target_roll_deg
+    return (setpoints, new_heading, target_pitch_deg, target_roll_deg,
+            new_cz)
 
 
 def compute_hold_setpoints(

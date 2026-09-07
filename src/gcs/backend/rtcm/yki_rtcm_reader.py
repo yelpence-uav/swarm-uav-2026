@@ -60,6 +60,44 @@ except ImportError:  # doğrudan script olarak çalıştırılınca
     from crc import crc24q
     from cobs_framing import frame_rtcm
 
+# 1005 ÇÖZÜCÜ — ORTAK MODÜLDEN, ikinci kopya YOK (CLAUDE.md §9).
+# rtk_baz_survey.py da aynı modülü aynı şekilde alıyor.
+# İSTEĞE BAĞLI: bu dosya "ROS kurulu olmayan bir makinede de" koşabilmeli
+# (aşağıdaki --ros-topic notu). Depo düzeni bulunamazsa baz denetimi sessizce
+# kapanır; okuyucunun ASIL işi (RTCM'i taşımak) etkilenmez.
+try:
+    import pathlib as _pl
+    sys.path.insert(0, str(
+        _pl.Path(__file__).resolve().parents[3] / 'swarm_control'))
+    from swarm_control.rtcm_1005 import coz_1005 as _coz_1005
+    from swarm_control.rtcm_1005 import uzaklik_m as _uzaklik_m
+except Exception:  # noqa: BLE001 — hangi sebeple olursa olsun denetim kapanır
+    _coz_1005 = None
+    _uzaklik_m = None
+
+
+def _origin_oku():
+    """saha_origin.env'den (lat, lon) döndürür; bulunamazsa None.
+
+    Baz konumunun karşılaştırılacağı TEK referans burasıdır — sahanın ortak
+    origin'i (o dosyanın kendi başlığı: "TEK KAYNAK"). Ayrı bir sayı
+    tanımlamıyoruz; iki kaynak olsaydı biri gün gelip ötekinden kayardı ve
+    denetimin kendisi yalan söylerdi.
+    """
+    import pathlib
+    yol = (pathlib.Path(__file__).resolve().parents[4]
+           / 'deploy' / 'saha_origin.env')
+    try:
+        d = {}
+        for satir in yol.read_text(encoding='utf-8').splitlines():
+            satir = satir.strip()
+            if satir.startswith('ORIGIN_') and '=' in satir:
+                k, _, v = satir.partition('=')
+                d[k.strip()] = float(v.split('#')[0].strip())
+        return d['ORIGIN_LAT'], d['ORIGIN_LON']
+    except Exception:  # noqa: BLE001 — dosya yok/bozuk → denetim kapalı
+        return None
+
 # Çıktı boruya/dosyaya gidince (örn. sahada `| tee rtcm.log`) Python stdout'u
 # BLOK tamponlar: sağlık satırları ~dakika gecikir — "sessizlik = başarı"
 # açığı arka kapıdan geri gelirdi (Büşra'nın tee ölçümü: -u'suz 5 sn'de 0
@@ -78,6 +116,33 @@ NO_DATA_WARN_SEC = 3.0     # bu kadar sn geçerli mesaj yoksa ⚠ bas
 SUMMARY_PERIOD_SEC = 1.0   # sağlık satırı periyodu (veri olsun olmasın)
 REOPEN_PERIOD_SEC = 2.0    # kopan seri portu yeniden deneme aralığı
 _MAX_RTCM_FRAME = 3 + 1023 + 3   # başlık + 10-bit maks payload + CRC24
+
+# --- BAZ KONUMU DENETİMİ (6/7 Eylül 2026) -----------------------------------
+#
+# 🔴 NEDEN VAR — SAHADA 65 DAKİKA YEDİ.
+#
+# Baz survey-in'deydi ve survey TAMAMLANMAMIŞTI. Survey bitmeden F9P kendi
+# konumunu (RTCM 1005) YAYINLAMAZ. Gözlem mesajları (1074/1084/1094/1124)
+# akmaya devam ettiği için her şey sağlıklı görünüyordu: bu satır saniyede
+# bir "5 msg/s · crc_err=0" basıyor, YKİ "RTK YOK" diyor ve KİMSE SEBEBİNİ
+# SÖYLEMİYORDU. Rover baz konumunu bilmeden baz çizgisi kuramaz; üç uçak da
+# DGPS'te (fix_type 4) takılı kaldı. Teşhis ancak RTCM akışı elle çözülüp
+# "1005 hiç yok" görülünce kondu — 3896 satırlık logda SIFIR kez.
+#
+# Bilgi zaten buradaydı: `types_seen` 1005'in yokluğunu her saniye biliyordu.
+# Eksik olan tek şey ŞİKÂYET ETMEKTİ.
+#
+# İKİNCİ KONTROL (mesafe) neden gerekli: baz TAŞINDIĞINDA alıcı yeni yeri
+# KENDİLİĞİNDEN ölçmez — survey bir kez oturduysa o koordinatı kullanmaya
+# devam eder (rtk_baz_survey.py başlığı, 2 Ağustos: baz kendini uçaklardan
+# 2820 m ötede sanıyordu, çözüm asla oturmadı). Aynı gece saha_origin.env'in
+# de 244 km bayat olduğu ortaya çıktı. İkisi de TEK bir değişmezi ihlal
+# ediyor: BAZ İLE ORIGIN BİRBİRİNE YAKIN OLMAK ZORUNDA. Hangisinin bayat
+# olduğunu kod bilemez, ama "ikisi uyuşmuyor" demek operatörü doğru yere
+# bakmaya gönderir — bu gece eksik olan tam olarak buydu.
+BAZ_1005_UYARI_SN = 30.0   # bu kadar sn 1005 görülmezse ⚠ (1005 tipik 1 Hz)
+BAZ_ORIGIN_NOT_KM = 2.0    # üstünde bilgi notu — RTK doğruluğu mesafeyle düşer
+BAZ_ORIGIN_UYARI_KM = 10.0  # üstünde ⚠ — bu artık "başka saha" demek
 
 
 class RTCMStreamParser:
@@ -279,6 +344,11 @@ def main() -> None:
     win_bytes = 0
     types_seen: dict[int, int] = {}
     msm7_seen: set[int] = set()
+    # BAZ KONUMU DENETİMİ (gerekçe: BAZ_1005_UYARI_SN yanındaki not).
+    son_1005: float | None = None          # son 1005 görülme anı
+    baz_konum: tuple[float, float] | None = None   # (lat, lon), 1005'ten
+    origin = _origin_oku()                 # (lat, lon) ya da None
+    baz_uyarisi_basildi = False            # mesafe uyarısı bir kez yeter
 
     signal.signal(signal.SIGTERM, _sinyal_yakala)
     signal.signal(signal.SIGINT, _sinyal_yakala)
@@ -345,6 +415,12 @@ def main() -> None:
             types_seen[t] = types_seen.get(t, 0) + 1
             if t in MSM7:
                 msm7_seen.add(t)            # uyarısı özette (spam yok)
+            if t in (1005, 1006) and _coz_1005 is not None:
+                # Gövde = başlıksız/CRC'siz kısım (3 bayt başlık, 3 bayt CRC).
+                cozum = _coz_1005(frame[3:-3])
+                if cozum is not None:
+                    son_1005 = last_valid
+                    baz_konum = (cozum[2], cozum[3])   # (lat, lon)
             win_msgs += 1
             win_bytes += len(frame)
             # ÜRETİM YOLU: ham RTCM3 mesajını ROS'a yayınla. Çerçeveleme
@@ -401,6 +477,40 @@ def main() -> None:
                 if msm7_seen:
                     line += (f" | ⚠ MSM7 {sorted(msm7_seen)} — Base'i MSM4'e al "
                              f"(Mission Planner)")
+
+                # --- BAZ KONUMU: 1005 YOK ---------------------------------
+                # Gözlemler akarken 1005'in olmaması "her şey yolunda" gibi
+                # görünür; oysa RTK bu haliyle İMKÂNSIZDIR. Sebebi ve
+                # 65 dakikalık saha bedeli: BAZ_1005_UYARI_SN notu.
+                _t1005 = son_1005 if son_1005 is not None else start
+                bosluk_1005 = now - _t1005
+                if bosluk_1005 >= BAZ_1005_UYARI_SN:
+                    line += (
+                        f"\n  ⚠ BAZ KONUMU (1005) YAYINLANMIYOR "
+                        f"({bosluk_1005:.0f} sn) — survey-in TAMAMLANMADI. "
+                        f"RTK ÇALIŞMAZ: rover baz çizgisi kuramaz, DGPS'te "
+                        f"(fix 4) kalır. Durumu gör: "
+                        f"python3 src/gcs/rtk_baz_survey.py --oku")
+                # --- BAZ KONUMU: VAR ama ORIGIN'den UZAK -------------------
+                elif (baz_konum is not None and origin is not None
+                        and _uzaklik_m is not None):
+                    d_km = _uzaklik_m(baz_konum[0], baz_konum[1],
+                                      origin[0], origin[1]) / 1000.0
+                    if d_km >= BAZ_ORIGIN_UYARI_KM:
+                        if not baz_uyarisi_basildi:
+                            baz_uyarisi_basildi = True
+                            line += (
+                                f"\n  ⚠ BAZ ile ORIGIN UYUŞMUYOR: 1005 → "
+                                f"{baz_konum[0]:.6f},{baz_konum[1]:.6f} · "
+                                f"origin'e {d_km:,.1f} km. BİRİ BAYAT: ya baz "
+                                f"taşındı ve yeniden survey yapılmadı, ya da "
+                                f"deploy/saha_origin.env güncellenmedi. "
+                                f"RTK OTURMAZ.")
+                    elif d_km >= BAZ_ORIGIN_NOT_KM:
+                        line += (f" | baz origin'e {d_km:.1f} km "
+                                 f"(uzadıkça RTK doğruluğu düşer)")
+                    else:
+                        baz_uyarisi_basildi = False
 
             if args.esp_port and esp is None:
                 line += f" | ⚠ ESP PORTU KAPALI (deneniyor · {esp_err})"
@@ -483,6 +593,41 @@ def _self_test() -> None:
     assert len(p._buf) <= _MAX_RTCM_FRAME + 8
     print(f"✅ 5) 10KB rastgele çöp → çökme yok, tampon {len(p._buf)}B'ta sınırlı "
           f"(crc_err={p.crc_errors} — 'hat var format yok' sinyali)")
+
+    # 6) BAZ KONUMU DENETİMİ (6/7 Eylül 2026) — gerekçe BAZ_1005_UYARI_SN'de.
+    #    Bu denetim yoksa "1005 hiç gelmiyor" hâli SAĞLIKLI görünür ve RTK
+    #    sessizce imkânsız olur. Sahada 65 dakika yedi; test onu kilitliyor.
+    if _coz_1005 is None or _uzaklik_m is None:
+        print("⏭  6) baz konumu denetimi ATLANDI (rtcm_1005 modülü yok — "
+              "bu dosya ROS'suz makinede de koşmalı, denetim isteğe bağlı)")
+    else:
+        from swarm_control.rtcm_1005 import paketle_1005
+
+        # 6a — 1005 gövdesi tam çerçeveden doğru dilimleniyor mu?
+        # (feed() TAM çerçeve döner: 3B başlık + gövde + 3B CRC)
+        BAZ = (37.0387785, 37.3078809, 930.08)
+        p = RTCMStreamParser()
+        cer = p.feed(paketle_1005(*BAZ))
+        assert len(cer) == 1 and msg_type(cer[0]) == 1005
+        cozum = _coz_1005(cer[0][3:-3])
+        assert cozum is not None, "1005 çözülemedi — dilimleme yanlış"
+        assert abs(cozum[2] - BAZ[0]) < 1e-6 and abs(cozum[3] - BAZ[1]) < 1e-6
+        print("✅ 6a) 1005 tam çerçeveden çözülüyor (gövde dilimi doğru)")
+
+        # 6b — eşikler: yakın baz sessiz, uzak baz UYARIR.
+        # 244 km rakamı uydurma değil: 6/7 Eylül gecesi saha_origin.env
+        # Elazığ'da kalmışken uçaklar Gaziantep'teydi ve fark tam buydu.
+        yakin = _uzaklik_m(BAZ[0], BAZ[1], 37.0297282, 37.3113892) / 1000.0
+        uzak = _uzaklik_m(BAZ[0], BAZ[1], 38.6904758, 39.1610188) / 1000.0
+        assert yakin < BAZ_ORIGIN_NOT_KM, f"yakın baz not eşiğinde: {yakin}"
+        assert uzak >= BAZ_ORIGIN_UYARI_KM, f"uzak baz uyarmadı: {uzak}"
+        print(f"✅ 6b) mesafe eşiği: aynı saha {yakin:.2f} km sessiz · "
+              f"bayat origin {uzak:,.0f} km UYARIR")
+
+        # 6c — origin dosyası okunabiliyor mu (denetimin TEK referansı).
+        o = _origin_oku()
+        assert o is not None and len(o) == 2, "saha_origin.env okunamadı"
+        print(f"✅ 6c) saha_origin.env okundu: {o[0]:.7f}, {o[1]:.7f}")
 
     print("\n🎯 Tüm öz-testler geçti. (Zamanlayıcı uyarısı için saha kontrolü: "
           "Base kapalıyken 3 sn içinde ⚠ RTCM GELMİYOR satırı akmalı.)")

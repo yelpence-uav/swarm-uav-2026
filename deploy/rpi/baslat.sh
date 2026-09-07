@@ -1579,6 +1579,7 @@ fi   # /altyapi: ic_dis_kopru
                 -p max_speed_mps:=${MOD_HIZ:-2.0} \
                 -p max_yaw_rate_deg_s:=${MOD_YAW_HIZI:-25.0} \
                 -p max_tilt_deg:=${MOD_EGIM_TAVANI:-15.0} \
+                -p max_tilt_rate_deg_s:=${MOD_EGIM_HIZI:-8.25} \
                 -p wing_alpha_deg:=${KANAT_ALFA_DEG} \
                 -p kalkis_esik_m:=${MOD_KALKIS_ESIK:-2.0} \
                 -p kalkis_irtifa_m:=${MOD_KALKIS_IRTIFA:-8.0} \
@@ -1589,7 +1590,8 @@ fi   # /altyapi: ic_dis_kopru
                 >> "$GUNLUK/mode_manager.log" 2>&1 &
             sleep 1
             echo "[baslat] mode_manager_node basladi (Gorev 2:" \
-                 "egim=${MOD_EGIM_TAVANI:-15.0} deg," \
+                 "egim=${MOD_EGIM_TAVANI:-15.0} deg" \
+                 "@${MOD_EGIM_HIZI:-8.25} deg/s rampa (0 = rampa KAPALI)," \
                  "yaw=${MOD_YAW_HIZI:-25.0} deg/s, hiz=${MOD_HIZ:-2.0} m/s," \
                  "aralik=${MOD_ARALIK:-7.0} m, kadro=${_MOD_KADRO}," \
                  "kalkis kapisi=${MOD_KALKIS_ESIK:-2.0} m," \

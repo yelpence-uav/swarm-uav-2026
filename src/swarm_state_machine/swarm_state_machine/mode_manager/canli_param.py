@@ -27,7 +27,11 @@ REDDEDILIR." Kapilar ve kimlik canli degistirilebilseydi, tek bir
 # mode_manager: aralik (yedek) + kalkis irtifasi.
 MODE_MANAGER_CANLI = ('default_spacing_m', 'kalkis_irtifa_m',
                       'morf_hiz_mps', 'max_speed_mps',
-                      'max_yaw_rate_deg_s', 'max_tilt_deg')
+                      'max_yaw_rate_deg_s', 'max_tilt_deg',
+                      # Manevra egim rampasi (6 Eylul). Bir HIZ alani,
+                      # yani px4_bridge kuralinin ("yalniz hiz/ivme/kp")
+                      # icinde; hicbir kapiyi ve kimligi acmiyor.
+                      'max_tilt_rate_deg_s')
 
 # joystick_interpreter: ARALIGIN GERCEK KAYNAGI.
 # mode_manager'inki yalnizca yedek — her cerceve `cmd.requested_spacing_m`

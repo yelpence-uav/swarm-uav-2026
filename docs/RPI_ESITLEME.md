@@ -1,6 +1,6 @@
 # RPİ EŞİTLEME DEFTERİ — geri gelen drone'u hizaya getirme
 
-**Son güncelleme:** 4 Eylül 2026, 21:47 — K22 15 m irtifa + YKİ seçimi (üç uçakta, uçuşta ölçüldü) · K23 kamera_zincir yolu · A24 PIL ylp00'a kopyalandı (%83 küçültme) · A25 ucus_ayarlari.env elle taşınıyor
+**Son güncelleme:** 7 Eylül 2026, 12:10 — kumanda düzeni + kanal eşlemesi + tam-gaz tavanı ölçüldü (§5) · C10: RC-kayıp aksiyonu **LAND + 2.5 sn** (üç uçakta MAVLink'le yazıldı-doğrulandı); eski: 4 Eylül 21:47 — K22 15 m irtifa + YKİ seçimi · K23 kamera_zincir yolu · A24 PIL ylp00'a kopyalandı · A25 ucus_ayarlari.env elle taşınıyor
 
 ## Kamera servisi — 1 Eylül 2026 düzeltmesi
 
@@ -720,6 +720,7 @@ yapıyor, 1007 parametreli düğümde yarısı zaman aşımına düşüyor (öl�
 | C7 | `COM_OBL_RC_ACT` | `0` (POSCTL) | Offboard kaybında **motor kesilmez** |
 | C8 | `BAT1_SOURCE` | **disabled** | Regülatörden besleme; pil takılınca geri aç |
 | C9 | Pusula + ivmeölçer kalibrasyonu | geçerli | ylp02 31 Tem'de 143 µT okuyordu (sağlamı 48) |
+| C10 | `NAV_RCL_ACT` / `COM_FAIL_ACT_T` | `3` (LAND) / `2.5` | 7 Eylül: kumanda kaybında ~3.5-4 sn'de LAND (hakem RTL derse 3→2 geri, KARAR-18) |
 
 **`MAV_SYS_ID` değiştirme yordamı `docs/cihazlar.md`'de** — üç adım
 (param + FCU reboot + `tgt_system`) birlikte yapılmazsa drone sessizce kopar.
@@ -765,6 +766,35 @@ Not: ylp02'de yalnız 2 parametre yazıldı (`RC_FAILS_THR=2050`,
 `RC_MAP_FAILSAFE=3`) — `RC6_*` orada zaten fabrika değerindeydi (CH6
 denemesi yalnız ylp00'a yazılmıştı). İki uçağın canlı gaz tavanı da
 ölçüldü: 2000-2001 < 2050 ✓.
+
+**7 Eylül 2026 — aksiyon RTL → LAND (operatör kararı, KARAR-18):** üç
+uçakta `NAV_RCL_ACT` 2→**3 (LAND)**, `COM_FAIL_ACT_T` 5.0→**2.5** yazıldı,
+geri-okumayla doğrulandı. Toplam tepki: kapanış → **~3.5-4 sn'de LAND**
+(alıcı ~0.5-1 + `COM_RC_LOSS_T` 0.5 + bekleme 2.5). `COM_RCL_EXCEPT=0`
+üçünde ölçüldü → OFFBOARD'da da tetiklenir. ⚠️ Yazma MAVLink'ten, **QGC
+KAPALIYKEN** yapıldı (`udp-b` cevapları yalnız :14550'ye gider; QGC açıkken
+eko kaybolur). ylp02'de `px4_param.py` yolu o gün tıkalıydı (konteynerde
+yeni süreç ROS grafını göremiyor — YAPILACAKLAR 🟡).
+
+**Kumanda düzeni + kanal eşlemesi (7 Eylül; PX4 tarafı üç uçakta ölçüldü, birebir aynı):**
+
+| Anahtar | Kanal | PX4 | Konumlar |
+|---|---|---|---|
+| SwA emniyet/kill | CH5 | `RC_MAP_KILL_SW=5` | +100 (2000) = KES (TUZAKLAR §0.4 kazası) — failsafe kaydı **−100** ✓ |
+| SwC uçuş modu | CH7 | `RC_MAP_FLTMODE=7` | üst 1000=**Hold** · orta 1500=**Position** · alt 2000=**Land** (`COM_FLTMODE1/4/6=4/2/11`, `RC7_REV=1`) |
+| SwD arm | CH8 | `RC_MAP_ARM_SW=8` | failsafe kaydı yok ("off"); kayıpta 1000 görüldü — RC zaten geçersiz sayıldığından etkisiz |
+| Gaz | CH3 | `RC_MAP_THROTTLE=3` · işaret `RC_MAP_FAILSAFE=3` | kayıpta **2100**, `RC3_MAX=2000` (üç uçak) |
+
+Kumanda KAPALIYKEN üç alıcının canlı çıktısı (7 Eylül ~12:00):
+`ch3=2100 · ch5=1000 · ch6=1000 · ch7=1000 · ch8=1000` ve üç uçakta PX4
+RC sağlık biti DÜŞÜK → tespit zinciri üçünde CANLI doğrulandı. Kayıpta
+mod kanalı (CH7=1000) Hold dilimine düşer — zararsız, RC o anda zaten
+geçersiz sayılıyor. ✅ **Tam-gaz denetimi de ölçüldü** (7 Eylül ~12:10,
+kumanda AÇIK + gaz fulde): ch3 = **2001/2000/2000** (ylp00/01/02) < 2050
+eşiği — endpoint %100'e geri alınmış, canlı tavan doğru; RC sağlık biti
+üçünde YEŞİL'e döndü. Zincir uçtan uca yerde doğrulandı; kalan tek şey
+havada LAND'in kendisi (YAPILACAKLAR 🟠). Kural duruyor: **Ch3 üst ucu
+daima %100.**
 
 **Doğrulama:** kumanda kapalı → `/drone_N/mavros/sys_status` →
 `sensors_health`'ta RC_RECEIVER biti (`0x10000`) düşer, QGC üst barı **SARI**

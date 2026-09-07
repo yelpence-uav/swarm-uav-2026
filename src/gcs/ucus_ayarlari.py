@@ -935,6 +935,46 @@ MOD_YAW_HIZI_DEG_S = min(
     PX4_DONUS_HIZI_DEG_S,
     math.degrees(YAW_PAY_KATI * MOD_HIZ_MPS / MOD_ARALIK_M),
 )
+
+# --- EGIM HIZI: MANEVRA RAMPASI (6 Eylul 2026) ------------------------------
+# 🔴 NEDEN VAR — SAHADA GORULDU. Operator: "roll manevrasi iyi oturmadi,
+# ortadaki sabit ama diger ikisi kumandaya DIRENIR gibi davrandi."
+#
+# Kok neden: manevrada egimin RAMPASI YOKTU. Hareket modu B6'da rampalandi
+# (mode_context.compute_centroid_delta, `slew`, MOD_IVME) ama manevra
+# `target_roll_deg = roll_cmd * max_tilt_deg` ile cubugu ANINDA acıya
+# ceviriyordu. Kanat slotu icin bu, tek bir tick'te bir KONUM BASAMAGI:
+#     aralik 6 m, cubuk %66 -> egim 9.9 deg -> kanat dz 1.05 m
+#     20 Hz'de tek tick = 0.05 s  ->  basamagın turevi 20.9 m/s
+# Karsilastirma: hareket modunda ayni cubuk tick basina en fazla
+# 0.065 m/s degistiriyor. Yani manevra ~300 kat sert bir komut basiyordu.
+# Bu, 5 Eylul'de kapatilan yalpanin ayni sinifi (basamak atan hedef ->
+# asagida turev alininca darbe) ve sartname bunu ayrica cezalandiriyor:
+# "Osilasyon gozlemlenmesi -10" (Kriter 5).
+#
+# 🔴 TAVAN NEREDEN — PX4'UN KENDI DIKEY HIZI, tahmin degil olcum.
+# Egim kanat slotunu dikeyde suruyor:  dz = aralik * tan(egim)
+#     d(dz)/dt = aralik * sec^2(egim) * d(egim)/dt
+# Bu hiz PX4_DIKEY_HIZ_TAVANI_MPS'i (MPC_Z_VEL_MAX_UP = 1.2, 23 Agustos'ta
+# UCAKTAN OKUNDU) asarsa PX4 ustunu SESSIZCE KIRPAR — slot kacar, ucak
+# geride kalir, formasyon manevra boyunca dagilir. MOD_YAW_HIZI ile bire
+# bir ayni gerekce; oradaki "TAVAN 1" notuna bak.
+#
+# PAY KATI 0.9: yaw ile ayni sebep — teget/dikey hiz tam tavana esitlenirse
+# SVT duzeltmesine yer kalmaz, ucak hep bir adim geride olur.
+#
+# sec^2 EN KOTU HALDE (tam egim) aliniyor: kucuk acida rampa daha da
+# muhafazakar kalir, buyuk acida tavan asilmaz.
+#
+# 🔴 ARALIGA BAGLI, MOD_YAW_HIZI ile AYNI SINIRLAMA: hakem araligi madde 29
+# ile degistirirse (canli param) bu tureme YENIDEN kosulmaz. Buyuk aralikta
+# rampa gerekenden HIZLI kalir. Aralik degistirilirse bu sayi da elden
+# gecirilmeli — asagidaki tutarlilik denetimi nominal aralikta uyariyor.
+EGIM_HIZ_PAY_KATI = 0.9
+MOD_EGIM_HIZI_DEG_S = math.degrees(
+    EGIM_HIZ_PAY_KATI * PX4_DIKEY_HIZ_TAVANI_MPS
+    / (MOD_ARALIK_M / math.cos(math.radians(MOD_EGIM_TAVANI_DEG)) ** 2)
+)
 MOD_DEADMAN_ZAMAN_ASIMI_S = 0.5
 # --- INA226 PIL OLCUMU (31 Agustos 2026) ------------------------------------
 # 🔴 NEDEN VAR: ylp01'de PX4 guc modulu YOK ve px4_bridge guc modulu
@@ -1379,6 +1419,31 @@ def denetle():
             f'korunmuyor, ruzgarda konum tutulamaz.'
         )
 
+    # --- MANEVRA EGIM HIZI vs PX4 DIKEY TAVANI (6 Eylul 2026) ---------------
+    # Egim kanat slotunu dikeyde suruyor; o hiz MPC_Z_VEL_MAX_UP'i asarsa
+    # PX4 SESSIZCE kirpar ve slot ucagin onunden kacar. Tureme yukarida
+    # (MOD_EGIM_HIZI_DEG_S); bu denetim sayi ELLE degistirilirse yakalar.
+    _kanat_dikey_hiz = (
+        MOD_ARALIK_M / math.cos(math.radians(MOD_EGIM_TAVANI_DEG)) ** 2
+        * math.radians(MOD_EGIM_HIZI_DEG_S)
+    )
+    if _kanat_dikey_hiz > PX4_DIKEY_HIZ_TAVANI_MPS + 1e-9:
+        hata.append(
+            f'MOD_EGIM_HIZI {MOD_EGIM_HIZI_DEG_S:.2f} deg/s ile kanat slotu '
+            f'{_kanat_dikey_hiz:.2f} m/s dikey hiz istiyor; PX4 tavani '
+            f'{PX4_DIKEY_HIZ_TAVANI_MPS:.1f} m/s (MPC_Z_VEL_MAX_UP) — ustunu '
+            f'SESSIZCE kirpar, slot ucagin onunden kacar ve formasyon '
+            f'manevra boyunca dagilir.'
+        )
+    elif _kanat_dikey_hiz > (EGIM_HIZ_PAY_KATI * PX4_DIKEY_HIZ_TAVANI_MPS
+                             + 1e-9):
+        uyari.append(
+            f'MOD_EGIM_HIZI {MOD_EGIM_HIZI_DEG_S:.2f} deg/s: kanat dikey '
+            f'hizi {_kanat_dikey_hiz:.2f} m/s, PX4 tavanina '
+            f'({PX4_DIKEY_HIZ_TAVANI_MPS:.1f}) pay kati {EGIM_HIZ_PAY_KATI} '
+            f'kadar yer kalmiyor — takip duzeltmesine alan yok.'
+        )
+
     # --- GOREV 2 KALKIS OLCUTU vs YAYIN KAPISI (madde 25) -------------------
     # mode_manager TAKEOFF'u "tum ucaklar hedefin %80'ini gecti" ile
     # bitiriyor (_KALKIS_ULASMA_ORANI), yayin izni ise MOD_KALKIS_ESIK'te
@@ -1586,6 +1651,9 @@ def _kabuk():
     print(f'SEKANS_EVE_SURE={SEKANS_EVE_SURE_S:.1f}')
     # Gorev 2 yari otonom mod (mode_manager + joystick_interpreter)
     print(f'MOD_EGIM_TAVANI={MOD_EGIM_TAVANI_DEG:.1f}')
+    # Manevra egim RAMPASI (6 Eylul). 0.0 = rampa KAPALI (eski davranis,
+    # egim cubugu aninda takip eder) — geri donus anahtari.
+    print(f'MOD_EGIM_HIZI={MOD_EGIM_HIZI_DEG_S:.2f}')
     print(f'MOD_YAW_HIZI={MOD_YAW_HIZI_DEG_S:.1f}')
     print(f'MOD_HIZ={MOD_HIZ_MPS:.1f}')
     print(f'MOD_MORF_HIZ={MOD_MORF_HIZ_MPS:.2f}')
