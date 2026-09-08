@@ -47,12 +47,27 @@ Kuru test `SONUÇ: KALDI` verdiği hâlde uçulacak. Uçaklar yerde
 
 ## Ölçülen durum
 
+🔴 **SAYI UÇUŞ GÜNÜ İKİ KEZ DEĞİŞTİ — geçerli olan sonuncusudur.**
+Operatör uçakları yaklaştırdı, sonra pilleri değiştirdi; her ikisi de
+dizilişi birkaç on santim oynattı ve sonuç 3.83 → 3.69 → **2.56 m** gitti.
+Geometri bu diziliş için **çok hassas**: 0.3 m'lik konum değişimi sonucu
+1.1 m oynattı.
+
 ```
-en kritik an : 3.83 m   (eve donus faz0 -> faz1, "d2 donmuş" kötü hâli)
-kuru test eşiği (MIN_AYRIM_M)      4.00 m   -> 0.17 m ALTINDA
-kaçınma dikey tetiği (KACINMA_D0_M)  3.00 m
-kaçınma yatay son çare (KACINMA_HARD_M) 2.00 m
+en kritik an : 2.56 m   (eve donus faz0 -> faz1, "d1 donmuş", ylp00-ylp02)
+kuru test eşiği (MIN_AYRIM_M)           4.00 m   -> 1.44 m ALTINDA
+kaçınma dikey tetiği (KACINMA_D0_M)     3.00 m   -> 0.44 m ALTINDA
+kaçınma yatay son çare (KACINMA_HARD_M) 2.00 m   -> 0.56 m pay
 ```
+
+⚠️ Karar ilk kez 3.83 m ile verilmişti ve o zamanki gerekçe "kaçınma
+zaten tetiklenmez" idi. **2.56 m'de bu artık geçerli değil: kaçınma
+DEVREYE GİRECEK.** Operatöre iki kez söylendi, iki kez teyit etti:
+*"çarpışma önlemeyi bunun için yaptık, çalışacaksa sorun yok."*
+Yani bu uçuş artık kaçınmanın **kasıtlı bir sınamasıdır.**
+
+Ölçülen alternatifler (canlı telemetriyle, reddedildi):
+`ylp02 → 4 m batı = 4.64 m` (doygun) · `ylp00 → 6 m doğu = 4.83 m`
 
 Kritik çift **ylp01–ylp02** (aralarında 10.8 m) ve onları birleştiren
 çizgi eve dönüş yönüyle (~40°) neredeyse aynı doğrultuda. faz1'de sürü
@@ -75,8 +90,9 @@ Yani doğru okuma şu: **plan 4.0 m standardını 0.17 m kaçırıyor, ama
 öngörülen en kötü hâl müdahale bandının hâlâ 0.83 m üstünde.** İki katman
 (3.0 m dikey, 2.0 m yatay) dokunulmadan duruyor.
 
-⚠️ Sonuç: bu uçuş **kaçınmayı sınamaz.** Kaçınmaya güvenmek isteniyorsa
-onu tetikleyecek ayrı ve kasıtlı bir test gerekir.
+⚠️ Bu paragraf 3.83 m için yazılmıştı. **2.56 m'de tersi geçerli:**
+yaklaşma `d0 = 3.0 m`'nin altına iniyor, dikey yol verme tetiklenecek.
+Bu uçuş artık kaçınmanın canlı sınaması — ve ilk kez sınanıyor.
 
 ## Neden kabul edilebilir görüldü
 
