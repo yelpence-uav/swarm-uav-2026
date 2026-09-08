@@ -1,6 +1,6 @@
 # KARARLAR — verilmiş ama henüz uygulanmamış kararlar
 
-**Son güncelleme:** 7 Eylül 2026, 11:57 — **KARAR-18 UYGULANDI** (kumanda-kaybı failsafe: LAND, ~3.5-4 sn, üç uçak; hakem RTL derse geri dönüş adımı içinde). Eski: KARAR-17 uçtu (sabit lider ylp00) · KARAR-16 (tek-yayıncı) · KARAR-15 (kaçınma eşikleri 5 m'de kilitleniyor)
+**Son güncelleme:** 8 Eylül 2026, 12:40 — **KARAR-19** (Görev 1 ilk uçuşu kuru test 3.83 m ile UÇULUYOR — operatör kararı) · KARAR-18 UYGULANDI (kumanda-kaybı failsafe: LAND, ~3.5-4 sn, üç uçak; hakem RTL derse geri dönüş adımı içinde). Eski: KARAR-17 uçtu (sabit lider ylp00) · KARAR-16 (tek-yayıncı) · KARAR-15 (kaçınma eşikleri 5 m'de kilitleniyor)
 
 Sohbette verilen kararlar oturum bitince kayboluyor. Bu defter onları
 tutuyor: **ne karar verildi, neden, ne zaman uygulanacak, nasıl test edilecek.**
@@ -31,6 +31,75 @@ sırası gelince" denilen şeyleri. Onlar en kolay kaybolanlar.
 `🔵 SIRASI GELDİ` — aşamaya ulaşıldı, uygulanacak
 `✅ UYGULANDI` — bitti, sonucu yazıldı
 `❌ VAZGEÇİLDİ` — gerekçesiyle
+
+---
+
+# KARAR-19 — Görev 1 ilk uçuşu, kuru test "KALDI" iken uçuluyor
+
+**Durum:** 🟠 KARAR VERİLDİ, uçuş yapılmadı
+**Ne zaman:** Görev 1'in ilk otonom uçuşu (8 Eylül 2026)
+**Karar veren:** operatör (8 Eylül 2026)
+
+## Karar
+
+Kuru test `SONUÇ: KALDI` verdiği hâlde uçulacak. Uçaklar yerde
+**taşınmayacak**; ayrımı çarpışma önleme koruyacak.
+
+## Ölçülen durum
+
+```
+en kritik an : 3.83 m   (eve donus faz0 -> faz1, "d2 donmuş" kötü hâli)
+kuru test eşiği (MIN_AYRIM_M)      4.00 m   -> 0.17 m ALTINDA
+kaçınma dikey tetiği (KACINMA_D0_M)  3.00 m
+kaçınma yatay son çare (KACINMA_HARD_M) 2.00 m
+```
+
+Kritik çift **ylp01–ylp02** (aralarında 10.8 m) ve onları birleştiren
+çizgi eve dönüş yönüyle (~40°) neredeyse aynı doğrultuda. faz1'de sürü
+15 m blok hâlinde ilerlerken biri takılırsa diğeri ona doğru kapanıyor.
+
+## 🔴 Kararın gerekçesi ile gerçek DAVRANIŞ ayrışıyor
+
+Operatörün gerekçesi *"çarpışma önleme çalışsın, ona güvenmemiz lazım"*.
+**Bu uçuşta kaçınma büyük ihtimalle HİÇ ÇALIŞMAYACAK:** dikey yol verme
+`d0 = 3.0 m`'de başlıyor, öngörülen en yakın an ise **3.83 m** — yani
+eşiğin **0.83 m üstünde**.
+
+Bu bir çelişki değil, `ucus_ayarlari.py`'de zaten yazılı bilinçli
+ayrışma (5 Eylül): *"MIN_AYRIM_M bu projenin ilan ettiği en küçük kabul
+edilebilir ayrım. d0 artık onun altında… Kuru test hâlâ 4.0 m'ye göre
+denetliyor — ikisi bilerek ayrı: biri 'plan güvenli mi', diğeri 'ne zaman
+müdahale et'."*
+
+Yani doğru okuma şu: **plan 4.0 m standardını 0.17 m kaçırıyor, ama
+öngörülen en kötü hâl müdahale bandının hâlâ 0.83 m üstünde.** İki katman
+(3.0 m dikey, 2.0 m yatay) dokunulmadan duruyor.
+
+⚠️ Sonuç: bu uçuş **kaçınmayı sınamaz.** Kaçınmaya güvenmek isteniyorsa
+onu tetikleyecek ayrı ve kasıtlı bir test gerekir.
+
+## Neden kabul edilebilir görüldü
+
+- 3.83 m **en kötü hâl**: bir uçağın komple donduğu varsayımı. Eş zamanlı
+  hareket hâlinde ayrım çok daha büyük.
+- Kaçınmanın iki katmanı da dokunulmamış durumda (3.0 m ve 2.0 m).
+- Alternatifi (ylp02'yi 4-5 m batıya almak) 6.68 m veriyordu ama operatör
+  dizilişi değiştirmek istemedi.
+
+## 🔴 Uçuşta ÖLÇÜLECEK
+
+- `/swarm/public/droneN/status` konumlarından **gerçekleşen en yakın an**.
+  Öngörü 3.83 m; ölçüm bunun altına inerse model iyimser demektir.
+- `collision_avoidance` tetiklendi mi (`ca.log`). **Tetiklenmemesi
+  BEKLENEN sonuç** — tetiklenirse yaklaşma öngörüden kötü olmuştur.
+- Kritik an `eve donus faz0 -> faz1` geçişinde; kayıtta o aralığa bak.
+
+## Diğer seçenekler
+
+| Seçenek | Neden seçilmedi |
+|---|---|
+| ylp02'yi 4-5 m batıya al | En kritik an 6.68 m'ye çıkıyordu (hesaplandı). Operatör dizilişi bozmak istemedi |
+| Dikey merdiveni eve dönüşten önce aç | ~10 satır, kanıtlanmış dönüş profilini finalden 1 gün önce değiştirir |
 
 ---
 
