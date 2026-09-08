@@ -521,6 +521,13 @@ class Mission1Node(Node):
         if notu and inp.is_leader:
             self.get_logger().info(f'[gorev1] {notu}')
 
+        # 🔴 KADRO KORUMASI devreye girdiyse GORUNSUN. Sessiz bir koruma,
+        # korumasizliktan az farkli olurdu: kadronun neden coktugu (mesh
+        # kaybi? saglik bayragi?) ayrica arastirilmali.
+        kadro_notu = self._orch.kadro_notu
+        if kadro_notu and inp.is_leader:
+            self.get_logger().warning(f'[gorev1] {kadro_notu}')
+
         d = self._orch.qr_distance_m
         if inp.is_leader and d >= 0.0:
             self.get_logger().info(

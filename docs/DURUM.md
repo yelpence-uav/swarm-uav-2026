@@ -1,6 +1,6 @@
 # DURUM — şu an ne çalışıyor, ne bozuk
 
-**Son güncelleme:** 8 Eylül 2026, 08:20 — 🔴 **"Sadece lider irtifa değiştirdi"nin ÖLÇÜLEN kök nedeni: KADRO ÇÖKMESİ** (`agent_ids=(1,)`), CUSTOM mesh kusuru DEĞİL (blok aşağıda) · CUSTOM ofset düzeltmesi yine de yazıldı ve **yerde doğrulandı** (11/11) · 🎯 Görev 1 uçuş profili değişti (blok aşağıda) · 7 Eylül 11:57 RC-kayıp failsafe LAND · 5 Eylül 07:56 Görev 2
+**Son güncelleme:** 8 Eylül 2026, 09:10 — ✅ **KADRO KORUMASI YAZILDI** — "sadece lider irtifa değiştirdi"nin ölçülen kök nedeni (`agent_ids=(1,)`) kapatıldı (blok aşağıda) · CUSTOM ofset düzeltmesi yine de yazıldı ve **yerde doğrulandı** (11/11) · 🎯 Görev 1 uçuş profili değişti (blok aşağıda) · 7 Eylül 11:57 RC-kayıp failsafe LAND · 5 Eylül 07:56 Görev 2
 
 
 
@@ -36,9 +36,16 @@
 > doğrudan `inp.agent_ids` üzerinden gidiyor; kadro (1,) ise **tek uçaklık
 > formasyon** komutu üretiliyor. `full_agent_count` kapısı yalnız ilk
 > CUSTOM snapshot'ında var, sonrasında devrede değil.
-> **Önerilen:** lider, kadrosu tam kadronun altına düşen bir formasyon
-> komutu YAYINLAMASIN (son tam kadroyu kısa süre tutsun) — şartnamenin
-> "ayrılınca formasyon düzeltmesi yok" kuralıyla da uyumlu. YAPILACAKLAR P0.
+> ✅ **YAZILDI (8 Eylül 09:10):** `orchestrator._kadro_koru`. Canlı kadro
+> `full_agent_count` altına düşerse komut **son tam kadroyla** yayınlanıyor;
+> ofsetler `frozen_offsets`ten kimliğe göre toplanıp diziyle paralel
+> tutuluyor (paralellik bozulursa `formation_node` "slot ofseti yok" deyip
+> setpoint atlar — uçağı sahipsiz bırakırdık). Lider filtresinden **önce**
+> uygulanıyor, altı formasyon üreticisinin hepsini kapsıyor.
+> **Debounce yok** — bir uçak gerçekten ayrıldığında da doğru davranış bu
+> (şartname: "ayrılınca formasyon yeniden hesaplanmaz").
+> Devreye girince `mission1_node` **WARNING** basıyor; sessiz koruma,
+> korumasızlıktan az farklı olurdu.
 >
 > ✅ Ayrıca ölçüldü: `form_rx=97`, `form_yarim=0` — o uçuşta mesh montajı
 > **hiç bozulmadı**. CUSTOM yolu o uçuşta **hiç çalışmadı** (tip 3'tü).

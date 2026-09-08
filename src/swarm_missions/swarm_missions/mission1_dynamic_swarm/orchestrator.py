@@ -1,6 +1,6 @@
 """orchestrator.py — Görev 1 dinamik sürü orkestrasyon çekirdeği (ROS'suz)."""
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 import math
 
 from swarm_core.formation_control.formation_geometry import rotate_offset
@@ -366,6 +366,11 @@ class _State:
     # Son tam-sürü slot ataması (agent_id → ofset). Bir dron ayrıldığında
     # kalanlar bu dondurulmuş slotlarda tutulur; formasyon yeniden dizilmez.
     frozen_offsets: dict = field(default_factory=dict)
+    # KADRO KORUMASI (8 Eylul 2026) — gorulen SON TAM kadro ve korumanin
+    # kac kez devreye girdigi. Sayac teshis icin: surekli artiyorsa kadro
+    # sik cokuyor demektir, yani mesh kaybi ya da saglik bayraklari.
+    son_tam_kadro: list = field(default_factory=list)
+    kadro_koruma_sayaci: int = 0
     # NAVIGATE varış tespiti: eşik-altı ardışık tick sayacı ve varışın bir kez
     # bildirildiği faz anahtarı (her QR için tek "vardım" sinyali).
     arrival_ticks: int = 0
@@ -392,12 +397,26 @@ class Mission1Orchestrator:
         # Ucus kaydinda "faz neden ilerledi" sorusunun tek cevabi bu satir:
         # yakinsama mi, zaman asimi mi. Ikisi cok farkli seyler.
         self._donus_ilerleme_notu = None
+        # Kadro korumasi devreye girince node bunu bir kez loglar.
+        self._kadro_notu = None
         # Başlangıç formasyonu = jüri dizilişi (CUSTOM). OKBAŞI/V/CIZGI yalnız
         # QR 'frm' komutuyla kurulur; kalkışta hiçbir tip DAYATILMAZ.
         self._st = _State(
             formation_type=_FRM_CUSTOM,
             spacing_m=self._cfg.default_spacing_m,
         )
+
+    @property
+    def kadro_notu(self):
+        """Kadro korumasi devreye girdiyse aciklama; okununca TEMIZLENIR.
+
+        Sessiz bir koruma, korumasizliktan az farkli olurdu: kadro
+        cokuyorsa bunun SEBEBI (mesh kaybi, saglik bayragi) ayrica
+        arastirilmali. Onun icin gorunur.
+        """
+        not_ = self._kadro_notu
+        self._kadro_notu = None
+        return not_
 
     @property
     def donus_notu(self):
@@ -447,6 +466,13 @@ class Mission1Orchestrator:
         if not inp.agent_ids:
             return cmds
 
+        # SON TAM KADRO her tick guncellenir — komut uretilmeyen tick'lerde
+        # de ogrenilmeli, yoksa koruma ancak bir komut cikinca kadro
+        # ogrenir ve tam o an kadro cokmusse hicbir sey bilmeden gecer.
+        n_tam = int(self._cfg.full_agent_count or 0)
+        if n_tam and len(inp.agent_ids) >= n_tam:
+            self._st.son_tam_kadro = [int(a) for a in inp.agent_ids]
+
         # EVE DONUS ALT-FAZI — tick basina BIR KEZ ilerletilir ve
         # _phase_key'DEN ONCE calisir ki yeni faz ayni tick'te yayinlansin.
         if inp.mission_state == _S_RETURN_HOME:
@@ -487,9 +513,66 @@ class Mission1Orchestrator:
         if settled is not None:
             cmds.append(settled)
 
+        # 🔴 KADRO KORUMASI — LIDER FILTRESINDEN ONCE, cunku uretilen HER
+        # formasyon komutu icin gecerli (alti ayri uretici var).
+        cmds = [self._kadro_koru(inp, c) if isinstance(c, FormationTargetCmd)
+                else c for c in cmds]
+
         if not inp.is_leader:
             return [c for c in cmds if isinstance(c, ManeuverCmd)]
         return cmds
+
+    def _kadro_koru(self, inp: OrchestratorInput, cmd):
+        """Kadro cokerse komutu SON TAM kadroyla yayinlar.
+
+        🔴 8 EYLUL 2026, OLCULDU — ylp01 bag `ylp01_20260905_171813`,
+        `/swarm/public/formation/target`: 97 komutun 32'si `agent_ids=(1,)`
+        ile gitmis, yani YALNIZ LIDERI adresliyormus.
+        `formation_node._publish_setpoint` kadroda olmayan ucak icin
+        SESSIZCE cikiyor (`self._agent_id not in agent_ids -> return`);
+        lider kendi listesinde oldugu icin uyguluyor. Sonuc: lider
+        alcalir, takipciler donar, hicbir yerde hata gorunmez. Operatorun
+        bildirdigi "sadece lider irtifa degistirdi" tam olarak budur.
+
+        KADRO NEDEN COKUYOR: `swarm_fsm_node.py:720` `active_agent_ids`'i
+        ucak basina DORT sarta bagliyor (healthy, origin_synced,
+        not is_stale, state in FORMATION_ACTIVE_STATES) ve dordu de mesh
+        DURUM'undan besleniyor. TEK kacan paket takipciyi o tick'te
+        kadrodan dusuruyor; olculen mesh kaybi %6.7-21.7.
+
+        NEDEN "SON TAM KADRO", NEDEN BEKLEME/DEBOUNCE DEGIL: bir ucak
+        GERCEKTEN ayrildiginda da dogru davranis budur — sartname
+        "ayrilinca formasyon YENIDEN hesaplanmaz" diyor. Kalanlar
+        dondurulmus slotlarinda kalir. Ayrilan ucagi listede tutmak
+        zararsiz: o ucak zaten dinlemiyor (agent_fsm durumu
+        formation_node'un _MUTE_STATES'inde).
+
+        Ofsetler `frozen_offsets`ten ID ile toplanir — canli diziyle
+        paralel olmadigi icin dogrudan kullanilamaz. Ofset bilinmiyorsa
+        koruma UYGULANMAZ: yanlis slot, donmus takipciden kotudur.
+        """
+        n_tam = int(self._cfg.full_agent_count or 0)
+        canli = [int(a) for a in cmd.agent_ids]
+        if not n_tam or len(canli) >= n_tam:
+            return cmd
+        tam = [int(a) for a in self._st.son_tam_kadro]
+        if len(tam) <= len(canli):
+            return cmd                      # henuz tam kadro gorulmedi
+        donuk = self._st.frozen_offsets
+        if not donuk or any(a not in donuk for a in tam):
+            return cmd                      # ofset yok -> dokunma
+        self._st.kadro_koruma_sayaci += 1
+        self._kadro_notu = (
+            f'KADRO KORUMASI: canli kadro {canli} tam kadronun ({n_tam}) '
+            f'altina dustu, komut SON TAM kadroyla ({tam}) yayinlaniyor. '
+            f'Bu koruma {self._st.kadro_koruma_sayaci} kez devreye girdi — '
+            f'siklasiyorsa mesh kaybina/saglik bayraklarina bakilmali.'
+        )
+        return replace(
+            cmd,
+            agent_ids=list(tam),
+            offsets=self._tilted([donuk[a] for a in tam]),
+        )
 
     def _update_qr_distance(self, inp: OrchestratorInput) -> None:
         """En yakın dronun ilgili QR'a mesafesini her tick günceller (teşhis)."""
