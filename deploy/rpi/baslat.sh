@@ -926,7 +926,7 @@ TAKIM_ID="${TAKIM_ID:-752825}"
 # sessizce ayrisir.
 KANAT_ALFA_DEG="${KANAT_ALFA_DEG:-45.0}"
 if altyapi; then   # --yalniz modunda ATLANIR  (esp32_bridge)
-dugum swarm_control esp32_bridge --ros-args -p serial_port:=/dev/ttyAMA4 -p baud:=460800 -p agent_id:=${AGENT_ID} -p team_id:="'${TAKIM_ID}'" -p wing_alpha_deg:=${KANAT_ALFA_DEG} $SP_REMAP >> "$GUNLUK/esp.log" 2>&1 &
+dugum swarm_control esp32_bridge --ros-args -p serial_port:=/dev/ttyAMA4 -p baud:=460800 -p agent_id:=${AGENT_ID} -p team_id:="'${TAKIM_ID}'" -p wing_alpha_deg:=${KANAT_ALFA_DEG} -p formasyon_mesh_hz:=${FORMASYON_MESH_HZ:-2.0} $SP_REMAP >> "$GUNLUK/esp.log" 2>&1 &
 fi   # /altyapi: esp32_bridge
 
 # basit_kacinma baslatma blogu 29 Agustos 2026'da SILINDI (yukaridaki

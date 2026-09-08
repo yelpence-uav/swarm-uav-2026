@@ -27,6 +27,7 @@ KULLANIM:
 import math
 import threading
 import time
+from collections import deque
 
 import rclpy
 from rclpy.node import Node
@@ -176,6 +177,15 @@ _IPTAL_BAYRAKLARI = (pp.KOMUT_FLAG_LAND
 # DIKKAT: iptal komutlari BIRBIRINI ayiklamaz — land/rtl/disarm farkli
 # niyetler ve her biri ucaga ULASMALI.
 _KALKIS_BAYRAKLARI = pp.KOMUT_FLAG_ARM | pp.KOMUT_FLAG_TAKEOFF
+
+# CUSTOM ofset cerceveleri arasinda birakilan en kucuk aralik.
+# Firmware tip basina 50 ms hiz limiti uyguluyor:
+#   firmware/esp32_mesh/TX DRONE/src/main.cpp:306  MESH_GONDERIM_MIN_MS 50
+# 60 ms = 50 + %20 pay. Pay SART: firmware'in olcutu ESP'nin millis()'i,
+# bizimki Pi'nin monotonic'i; iki saat arasinda her zaman kucuk bir kayma
+# var ve tam 50 ms yazmak sinirda kalip cerceveyi ARADA BIR dusururdu —
+# en kotu ariza turu, cunku bazen calisir.
+_FORM_OFSET_ARALIK_S = 0.060
 
 _GUIDED_TEKRAR = 4                  # cerceve basina kopya sayisi
 _GUIDED_TEKRAR_ARALIK_S = 0.25      # ayni komutun iki kopyasi arasi en az
@@ -341,6 +351,20 @@ class Esp32BridgeNode(Node):
         # parametre var (ikisinde varsayılan 45.0) ve eşitliği hiçbir şey
         # zorlamıyordu — biri farklı kalırsa slot geometrisi SESSİZCE ayrışır.
         self.declare_parameter('wing_alpha_deg', 45.0)
+        # --- FORMASYON MESH HIZI (8 Eylul 2026) ----------------------------
+        # path_planner formasyon hedefini 5 Hz basiyor ve eskiden HEPSI
+        # mesh'e cikiyordu. CUSTOM'da bu tur basina 3 cerceve demek: 15
+        # cerceve/sn, olculen mesh kaybi %6.7-21.7 olan bir hatta.
+        # 2 Hz'de 6 cerceve/sn'ye iniyor ve ofset cerceveleri arasina
+        # gereken bosluk rahat sigiyor.
+        #
+        # ⚠️ KAPI TURUN TAMAMINI durduruyor (loopback dahil) — BILEREK.
+        # Yalniz mesh seyreltilseydi lider 5 Hz, takipciler 2 Hz hedef
+        # gorurdu ve aralarinda sistematik kayma olurdu; loopback'in var
+        # olma sebebi tam da "butun suru BIREBIR ayni hedefi gorsun".
+        #
+        # 0 = kapali (eski davranis, her tur mesh'e cikar).
+        self.declare_parameter('formasyon_mesh_hz', 2.0)
 
         # --- OLAY YOLU (TIP_OLAY, 27 Agustos 2026) ---------------------------
         # Operator onceligi: "loglarin cok seri akmasina gerek yok, asil onemli
@@ -403,6 +427,10 @@ class Esp32BridgeNode(Node):
         self._kanat_alfa_deg = float(
             self.get_parameter('wing_alpha_deg').value
         )
+        _f_hz = float(self.get_parameter('formasyon_mesh_hz').value)
+        self._formasyon_mesh_min_aralik_s = (
+            (1.0 / _f_hz) if _f_hz > 0.0 else 0.0
+        )
         port = str(self.get_parameter('serial_port').value)
         baud = int(self.get_parameter('baud').value)
 
@@ -447,6 +475,39 @@ class Esp32BridgeNode(Node):
         self._formasyon_gonderilen = 0   # mesh'e yazılan formasyon turu (lider)
         self._formasyon_alinan = 0       # montajı tamamlanıp yayınlanan
         self._formasyon_lider_degil = 0  # lider kapısında düşürülen
+        # --- CUSTOM OFSET KUYRUGU (8 Eylul 2026) ---------------------------
+        # 🔴 NEDEN VAR — 3 UCAKLA CUSTOM FORMASYON MESH'TEN HIC GECMIYORDU.
+        #
+        # CUSTOM (juri dizilisi) ofsetleri formulden turetilemedigi icin
+        # TIP_FORM_OFSET cerceveleriyle ACIKCA tasiniyor; paket basina 2 slot,
+        # yani 3 ucakta IKI cerceve. Eskiden ikisi de arka arkaya, ARA
+        # VERMEDEN UART'a yaziliyordu. Firmware ise tip basina hiz limiti
+        # uyguluyor:
+        #     TX DRONE/src/main.cpp:306  #define MESH_GONDERIM_MIN_MS 50
+        #     TX DRONE/src/main.cpp:420  mesh_tip_gecebilir(tip, millis(), 50)
+        # Damga TIP BASINA tutuluyor ve iki cerceve AYNI TIP. Aradaki fark
+        # mikrosaniye -> IKINCISI HER SEFERINDE DUSUYORDU.
+        #
+        # Alicida `formasyon_montaj` butun slotlari bekliyor; 3'ten 2'si
+        # gelince montaj tamamlanmiyor, 200 ms sonraki yeni baslik da yarim
+        # montaji BILEREK siliyor. Yani slot 2'nin ofseti mesh'e HIC cikmiyor
+        # ve takipciler formasyon komutunu HIC ALMIYOR. Lider etkilenmiyor
+        # (loopback seri porta ugramiyor) -> "lider alcaldi, takipciler asili
+        # kaldi" tablosu. Hicbir yerde hata gorunmuyor.
+        #
+        # Firmware bu varsayimi zaten yazmisti (mesh_config.h:1102):
+        # "TIP_FORM_OFSET: YALNIZ CUSTOM formasyonda, kalkista bir kez.
+        #  3 ajan -> 2 paket. Periyodik DEGIL."
+        #
+        # COZUM (Pi tarafi, firmware'e DOKUNMADAN): ofset cerceveleri
+        # kuyruga alinir ve aralarinda en az _FORM_OFSET_ARALIK_S birakilarak
+        # gonderilir. Montaj penceresi 1.0 s (formasyon_montaj.ZAMAN_ASIMI_S),
+        # 8 ajanda bile son cerceve ~180 ms'de cikiyor — rahat sigiyor.
+        self._form_ofset_kuyruk = deque()
+        self._form_ofset_son_gonderim = 0.0
+        self._form_ofset_iptal = 0       # yeni tur gelince atilan bayat cerceve
+        self._formasyon_seyreltilen = 0  # mesh hiz kapisinda dusurulen tur
+        self._formasyon_son_mesh = 0.0
         self._qr_gorev_gonderilen = 0
         self._qr_gorev_alinan = 0
         # QR MESH YAYINI — TEK SEFER + SINIRLI TEKRAR (4 Eylul 2026)
@@ -905,6 +966,10 @@ class Esp32BridgeNode(Node):
         )
         # Tekrar kuyrugu: 50 ms'de bir bak, zamani gelmis tekrarlari yolla.
         self._olay_timer = self.create_timer(0.05, self._olay_kuyruk_isle)
+        # CUSTOM ofset cerceveleri kuyrugunu bosaltir (bkz. _form_ofset_kuyruk).
+        # 20 ms tik: 60 ms'lik araligi bolme hatasi olmadan tutturur.
+        self._form_ofset_timer = self.create_timer(
+            0.02, self._form_ofset_kuyrugu_isle)
         # Kayip/sicrama raporu ayri ve YAVAS: onay suresi zaten 2 sn.
         self._olay_kayip_timer = self.create_timer(1.0, self._olay_kayip_bildir)
 
@@ -977,6 +1042,14 @@ class Esp32BridgeNode(Node):
             f'form_tx={self._formasyon_gonderilen} '
             f'form_rx={self._formasyon_alinan} '
             f'form_lider_degil={self._formasyon_lider_degil} '
+            # 8 Eylul: CUSTOM ofset kuyrugu ve mesh hiz kapisi.
+            #   form_seyrelt    -> hiz kapisinda atlanan tur (normal, sayilir)
+            #   form_ofs_kuyruk -> gonderilmeyi bekleyen cerceve (0 olmali)
+            #   form_ofs_iptal  -> yeni tur gelince atilan bayat cerceve;
+            #                      surekli artiyorsa mesh hizi cok yuksek
+            f'form_seyrelt={self._formasyon_seyreltilen} '
+            f'form_ofs_kuyruk={len(self._form_ofset_kuyruk)} '
+            f'form_ofs_iptal={self._form_ofset_iptal} '
             f'form_yarim={self._formasyon_montaj.zaman_asimi_sayisi} '
             f'form_sahipsiz={self._formasyon_montaj.sahipsiz_parca_sayisi} '
             f'durum_tx={self._durum_tx} '
@@ -1244,6 +1317,26 @@ class Esp32BridgeNode(Node):
             self.get_logger().warning(
                 f'olay butcesi asildi: {dusen} olay gonderilmedi'
             )
+
+    def _form_ofset_kuyrugu_isle(self) -> None:
+        """Kuyruktaki CUSTOM ofset cercevelerini ARALIKLI yollar (20 ms tik).
+
+        Degismez kural: ardisik iki TIP_FORM_OFSET cercevesi arasinda en az
+        `_FORM_OFSET_ARALIK_S` var. Firmware'in tip basina 50 ms limiti
+        (MESH_GONDERIM_MIN_MS) bunun altindaki her cerceveyi SESSIZCE
+        dusuruyor; olcut oradan geliyor, buradan uydurulmadi.
+
+        Tur basina TEK cerceve — ayni tick'te ikisini yollamak yine 0 ms
+        aralik demek olurdu, yani duzeltmenin kendisini iptal ederdi.
+        """
+        if not self._form_ofset_kuyruk:
+            return
+        simdi = time.monotonic()
+        if simdi - self._form_ofset_son_gonderim < _FORM_OFSET_ARALIK_S:
+            return
+        self._uart_yaz(pp.TIP_FORM_OFSET, self._agent_id,
+                       self._form_ofset_kuyruk.popleft())
+        self._form_ofset_son_gonderim = simdi
 
     def _seri_ac(self) -> bool:
         """Seri portu açar. Başarılı ise True, başarısız ise False.
@@ -3163,6 +3256,21 @@ class Esp32BridgeNode(Node):
                 )
             return
 
+        # MESH HIZ KAPISI (8 Eylul 2026, `formasyon_mesh_hz`).
+        # path_planner 5 Hz basiyor; CUSTOM'da bu tur basina 3 cerceve =
+        # 15 cerceve/sn demek. Kapi TURUN TAMAMINI durduruyor (loopback
+        # dahil) — bkz. parametre notu: lider ve takipciler AYNI hedef
+        # akisini gormek zorunda. Icerik kaybolmuyor: path_planner ayni
+        # hedefi basmaya devam ediyor, pencere acilinca bir sonraki tur
+        # gecer.
+        if self._formasyon_mesh_min_aralik_s > 0.0:
+            _simdi = time.monotonic()
+            if (_simdi - self._formasyon_son_mesh
+                    < self._formasyon_mesh_min_aralik_s):
+                self._formasyon_seyreltilen += 1
+                return
+            self._formasyon_son_mesh = _simdi
+
         ajanlar = [int(a) for a in msg.agent_ids]
         if not ajanlar:
             self.get_logger().warning(
@@ -3210,12 +3318,27 @@ class Esp32BridgeNode(Node):
                 pp.TIP_FORMASYON_DEVAM, self._agent_id,
                 pp.formasyon_devam_paketle(ajanlar[pp.FORMASYON_SLOT_PAKET:]),
             )
+        # 🔴 OFSET CERCEVELERI ARALIKLI GIDER — ARDI ARDINA YAZILAMAZ.
+        # Firmware tip basina 50 ms hiz limiti uyguluyor ve bunlarin hepsi
+        # AYNI TIP; ardi ardina yazilirsa ilki disindaki HEPSI firmware'de
+        # dusuyordu (ayrinti: `_form_ofset_kuyruk` notu). Kuyruga alip
+        # `_form_ofset_kuyrugu_isle` ile aralikli gonderiyoruz.
+        #
+        # ONCEKI TURUN ARTIGI ATILIR — sadece gereksiz degil, ZARARLI:
+        # alicinin `baslik_ekle`si yeni baslikta yarim montaji siliyor,
+        # yani bayat bir ofset cercevesi YENI montaja ESKI degerlerle
+        # yazilirdi. Sessiz bozulma; kuyruk her turda temizleniyor.
+        if self._form_ofset_kuyruk:
+            self._form_ofset_iptal += len(self._form_ofset_kuyruk)
+            self._form_ofset_kuyruk.clear()
         for slot_bas, dilim in ofset_dilimleri:
             op, ou = pp.form_ofset_paketle(slot_bas, dilim)
             for u in ou:
                 self.get_logger().warning(f'formasyon offset: {u}',
                                           throttle_duration_sec=5.0)
-            self._uart_yaz(pp.TIP_FORM_OFSET, self._agent_id, op)
+            self._form_ofset_kuyruk.append(op)
+        # Pencere zaten acikisa ilkini bu tick'te yolla (timer'i bekleme).
+        self._form_ofset_kuyrugu_isle()
         self._formasyon_gonderilen += 1
 
         # --- LOOPBACK (yukarıdaki docstring'e bkz.) ---

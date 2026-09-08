@@ -1,8 +1,51 @@
 # DURUM — şu an ne çalışıyor, ne bozuk
 
-**Son güncelleme:** 8 Eylül 2026, 05:40 — 🎯 **GÖREV 1 UÇUŞ PROFİLİ DEĞİŞTİ** (blok aşağıda): başlangıç formasyonu KAPATILDI, QR1 varışı 15 m, kurtarma merdiveni iniyor · önceki damga 7 Eylül 11:57 (RC-kayıp failsafe LAND) · 5 Eylül 07:56 (Görev 2)
+**Son güncelleme:** 8 Eylül 2026, 07:05 — 🔴 **CUSTOM formasyon 3 uçakta mesh'ten HİÇ GEÇMİYORMUŞ** — kök neden bulundu, Pi tarafı düzeltmesi yazıldı, **yerde doğrulanmadı** (blok aşağıda) · 🎯 Görev 1 uçuş profili değişti (blok aşağıda) · 7 Eylül 11:57 RC-kayıp failsafe LAND · 5 Eylül 07:56 Görev 2
 
 
+
+> ## 🔴 8 EYLÜL — CUSTOM FORMASYON MESH'TEN HİÇ GEÇMİYORMUŞ (3 uçakta)
+>
+> **Belirti (operatör):** *"ilk QR'a gittikten sonra sadece lider irtifa
+> değişimi yapmıştı."* Kök neden ölçülmedi, **koddan çıkarıldı** ve
+> deterministik:
+>
+> CUSTOM ofsetleri formülden türetilemez, `TIP_FORM_OFSET` çerçeveleriyle
+> açıkça taşınır — paket başına 2 slot, **3 uçakta iki çerçeve.**
+> `esp32_bridge` ikisini de **ara vermeden** UART'a yazıyordu. Firmware ise
+> **tip başına** hız limiti uyguluyor (`MESH_GONDERIM_MIN_MS 50`,
+> `TX DRONE/src/main.cpp:306,420`). İki çerçeve **aynı tip** →
+> **ikincisi her seferinde düşüyordu.** Alıcıda montaj tamamlanmıyor,
+> 200 ms sonraki başlık yarım montajı siliyor →
+> **slot 2'nin ofseti mesh'e hiç çıkmıyor; takipçiler formasyon komutunu
+> HİÇ almıyor.** Lider etkilenmiyor (loopback seri porta uğramıyor).
+>
+> 🔴 **`GOREV_FORMASYON=3` iken de geçerliydi.** `_gorev_formasyonunu_uygula`
+> yalnız `_on_rotate`'te — yani **ilk QR'dan SONRA** — çağrılıyor; QR1'e
+> kadar formasyon tipi zaten CUSTOM'du. Kusur 2 uçakla **görünmüyor**
+> (tek ofset paketi), 3 uçakta çıkıyor.
+>
+> **Yazılan — Pi tarafı, firmware'e DOKUNULMADI:**
+>
+> | Ne | Değer | Nerede |
+> |---|---|---|
+> | Ofset çerçeveleri arası en küçük aralık | **60 ms** (50 + %20 pay) | `esp32_bridge._FORM_OFSET_ARALIK_S` |
+> | Formasyon hedefinin mesh'e çıkış hızı | 5 Hz → **2 Hz** | `FORMASYON_MESH_HZ` (0 = kapalı) |
+>
+> Ofsetler kuyruğa alınıp 20 ms'lik bir timer ile aralıklı gönderiliyor.
+> Yeni tur gelince kuyruktaki **bayat çerçeve atılıyor** — geç giden bir
+> çerçeve yeni montaja ESKİ değerlerle yazılırdı (sessiz bozulma).
+> Hız kapısı **loopback'i de** durduruyor: yoksa lider 5 Hz, takipçiler
+> 2 Hz hedef görür ve sistematik kayma olurdu.
+>
+> ⚠️ **Görev 2 de bu yoldan geçiyor.** 5 Hz ile uçmuş bir yol 2 Hz'e indi;
+> hedef gecikmesi en kötü 500 ms (formation_node kendi 20 Hz döngüsünde
+> son hedefe rampalamaya devam ediyor). Sorun çıkarsa
+> `ucus_ayarlari.py`'de `FORMASYON_MESH_HZ = 5.0` — tek satır, env ile gider.
+>
+> - 🔬 **YERDE DOĞRULANMADI.** Üç uçak açıkken takipçide `form_rx` artmalı,
+>   `form_yarim` **artmamalı**; liderde `form_ofs_kuyruk=0`. Sayaçların
+>   hepsi `esp32_bridge` teşhis satırında. **Doğrulanmadan uçulmaz.**
 
 > ## 🎯 8 EYLÜL SABAH — GÖREV 1 UÇUŞ PROFİLİ: FORMASYON YOK, QR1'DE ALÇALARAK ARAMA
 >

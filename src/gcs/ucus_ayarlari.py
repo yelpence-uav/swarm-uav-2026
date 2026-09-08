@@ -199,6 +199,27 @@ GOREV_ROTA_BILINMEYEN_S = 10.0
 GOREV_FORMASYON = 0
 GOREV_ARALIK_M = 7.0
 
+# --- FORMASYON HEDEFININ MESH'E CIKIS HIZI (8 Eylul 2026) -----------------
+# `path_planner` formasyon hedefini 5 Hz basiyor ve eskiden HEPSI mesh'e
+# cikiyordu. CUSTOM dizilis (GOREV_FORMASYON=0) ofsetleri ACIKCA tasidigi
+# icin bu tur basina 3 cerceve demek: 15 cerceve/sn. Olculen mesh kaybi
+# %6.7-21.7 olan bir hatta bu cok.
+#
+# 2 Hz -> 6 cerceve/sn ve ofset cerceveleri arasina gereken 60 ms'lik
+# bosluk (esp32_bridge._FORM_OFSET_ARALIK_S) rahat sigiyor.
+#
+# ⚠️ KAPI TURUN TAMAMINI durduruyor, LOOPBACK DAHIL. Bilerek: yalniz mesh
+# seyreltilseydi lider 5 Hz, takipciler 2 Hz hedef gorurdu ve aralarinda
+# sistematik kayma olurdu. Loopback'in var olma sebebi zaten "butun suru
+# BIREBIR ayni hedefi gorsun".
+#
+# ⚠️ GOREV 2 DE BU YOLDAN GECIYOR. 5 Hz ile ucmus bir yolu 2 Hz'e
+# indiriyoruz; formasyon degisimlerinde hedef gecikmesi en kotu 500 ms
+# olur (formation_node kendi 20 Hz dongusunde son hedefe rampalamaya
+# devam ediyor, sahipsiz kalmiyor). Sorun cikarsa 5.0 yaz — tek satir,
+# ucaga env ile gider, kod degisikligi gerekmez. 0 = kapali (eski davranis).
+FORMASYON_MESH_HZ = 2.0
+
 # Eve donmeden ONCE surunun topluca dondugu EK aci. Artik 0 OLMALI.
 #
 # 3 EYLUL'DE DEGISTI, 180 -> 0. Donus miktari ARTIK KENDILIGINDEN cikiyor:
@@ -1675,6 +1696,7 @@ def _kabuk():
     print(f'GOREV_ROTA_BILINMEYEN_S={GOREV_ROTA_BILINMEYEN_S}')
     print(f'GOREV_FORMASYON={GOREV_FORMASYON}')
     print(f'GOREV_ARALIK={GOREV_ARALIK_M:.1f}')
+    print(f'FORMASYON_MESH_HZ={FORMASYON_MESH_HZ:.1f}')
     print(f'GOREV_TOPLANMA_KATMAN={GOREV_TOPLANMA_KATMAN_M:.1f}')
     print(f'GOREV_DONUS_YAW={GOREV_DONUS_YAW_DEG:.1f}')
     print(f'GOREV_DONUS_KATMAN={GOREV_DONUS_KATMAN_M:.1f}')
