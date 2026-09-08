@@ -1052,6 +1052,12 @@ class Esp32BridgeNode(Node):
             f'form_ofs_iptal={self._form_ofset_iptal} '
             f'form_yarim={self._formasyon_montaj.zaman_asimi_sayisi} '
             f'form_sahipsiz={self._formasyon_montaj.sahipsiz_parca_sayisi} '
+            # 8 Eylul: CUSTOM ofset onbelleginden karsilanan komut.
+            # Artiyorsa ofset cerceveleri dusuyor ama komut KURTARILIYOR;
+            # form_rx ile birlikte okunur (form_rx artiyor, form_yarim
+            # artmiyor, onbellek devrede demektir).
+            f'form_ofs_onbellek='
+            f'{self._formasyon_montaj.ofset_onbellek_kullanildi} '
             f'durum_tx={self._durum_tx} '
             f'durum_rx={self._durum_rx_ozet()} '
             f'qr_tx={self._qr_gorev_gonderilen} '

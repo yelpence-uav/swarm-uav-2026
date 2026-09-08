@@ -218,7 +218,21 @@ GOREV_ARALIK_M = 7.0
 # olur (formation_node kendi 20 Hz dongusunde son hedefe rampalamaya
 # devam ediyor, sahipsiz kalmiyor). Sorun cikarsa 5.0 yaz — tek satir,
 # ucaga env ile gider, kod degisikligi gerekmez. 0 = kapali (eski davranis).
-FORMASYON_MESH_HZ = 2.0
+#
+# 🔴 8 EYLUL AKSAMI: 2.0 -> 5.0 GERI ALINDI. SAHADA OLCULDU.
+# 2 Hz + CUSTOM (tur basina 3 cerceve) birlesince takipciye ULASAN hedef
+# 0.72 Hz'e dustu (21 mesaj / 29.4 sn), aralarinda 12.7 saniyelik boşluk
+# vardi ve heading tek adimda 32.4 derece siciriyordu. 7.5 m yaricapta bu
+# 4.2 m'lik ani hedef sicramasi demek: kanat ucaklari hedefe atilip
+# bekliyor, sonra yine atiliyor. Operator "bas-cek gibi salinim" diye
+# bildirdi; setpoint ileribeslemesi de dogruladi (|v| medyan 1.22, MAX
+# 4.20 m/s).
+#
+# Mesh yuku endisesi ORTADAN KALKMADI, BASKA YERDEN COZULDU: artik
+# `formasyon_montaj` CUSTOM ofsetlerini ONBELLEKLIYOR, yani komut ilk
+# turdan sonra TEK cerceveyle tamamlanabiliyor. 5 Hz'de bile hatta giden
+# is 2 Hz'deki uc-cerceveli halden az.
+FORMASYON_MESH_HZ = 5.0
 
 # Eve donmeden ONCE surunun topluca dondugu EK aci. Artik 0 OLMALI.
 #

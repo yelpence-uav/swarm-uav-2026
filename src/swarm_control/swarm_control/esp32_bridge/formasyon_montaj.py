@@ -96,6 +96,41 @@ class FormasyonMontaj:
         self.zaman_asimi_sayisi = 0
         #: Başlığı görülmemiş devam/offset parçası sayısı.
         self.sahipsiz_parca_sayisi = 0
+        # --- CUSTOM OFSET ONBELLEGI (8 Eylul 2026) ----------------------
+        # 🔴 SAHADA OLCULDU. CUSTOM'da bir komut UC cerceve istiyor
+        # (baslik + 2 ofset) ve alici ucunu de beklerken biri dusunce
+        # komutun TAMAMI atiliyordu. Gorev 1'in ilk onboard ucusunda
+        # takipcinin donus sirasinda aldigi hedef olculdu:
+        #     21 mesaj / 29.4 sn = 0.72 Hz   (gonderim 2 Hz)
+        #     aralik medyan 622 ms, MAX 12671 ms
+        #     heading adimi medyan 6.5 deg, MAX 32.4 deg
+        # 32.4 derecelik tek adim, 7.5 m yaricapta 4.2 m'lik ani hedef
+        # sicramasi demek: kanat ucaklari hedefe atilip bekliyor, sonra
+        # yine atiliyor — operatorun gordugu "bas-cek" salinimi bu.
+        # Setpoint ileribeslemesi de onu dogruladi: |v| medyan 1.22 m/s,
+        # MAX 4.20 m/s (3.4 kati sicrama).
+        #
+        # COZUM: CUSTOM ofsetleri her turda AYNI — diziliş `frozen_offsets`
+        # ile donmus, tur basina degisen yalniz merkez ve heading. Yani
+        # degismeyen veriyi saniyede iki kez yolluyor ve komutun tamamini
+        # o cercevelerin sansina bagliyorduk. Artik kaynak basina son
+        # GECERLI ofset kumesi saklaniyor; yeni baslik gelip ofset paketi
+        # gelmezse eskisi kullaniliyor.
+        #   once : komut icin 3/3 cerceve  -> tur basina basari ~%47
+        #   sonra: ilk seferden sonra 1/3  -> ~%78
+        # Gonderici DEGISMEDI (ofsetler yine gidiyor, yedek olarak),
+        # protokol ve firmware DEGISMEDI.
+        #
+        # ⚠️ ONBELLEK AJAN LISTESI DEGISINCE GECERSIZ: slot sayisi
+        # degistiyse eski ofsetler yanlis dizilis demek olurdu. Anahtar
+        # bu yuzden (kaynak, ajan_listesi).
+        # kaynak -> (ajan_anahtari, {slot_indeksi: ofset})
+        self._ofset_onbellek: dict[int, tuple[tuple, dict]] = {}
+        # kaynak -> son baslikta gorulen ajan anahtari (sahipsiz ofset
+        # paketlerini dogru anahtarla onbellege yazabilmek icin).
+        self._son_ajan_anahtari: dict[int, tuple] = {}
+        #: Onbellekten karsilanan komut sayisi — teshis icin okunur.
+        self.ofset_onbellek_kullanildi = 0
 
     # ---------------------------------------------------------------- ekle ---
     def baslik_ekle(self, kaynak: int, veri: pp.FormasyonVeri,
@@ -126,15 +161,44 @@ class FormasyonMontaj:
 
     def ofset_ekle(self, kaynak: int, veri: pp.FormOfsetVeri,
                    simdi: float) -> TamFormasyon | None:
-        """TIP_FORM_OFSET geldi (CUSTOM, paket başına 2 slot)."""
+        """TIP_FORM_OFSET geldi (CUSTOM, paket başına 2 slot).
+
+        🔴 SAHIPSIZ PAKET ARTIK ATILMIYOR, ONBELLEGI TAZELIYOR.
+        Onbellek devreye girince komut BASLIKLA birlikte tamamlaniyor ve
+        hemen ardindan gelen ofset paketleri "bekleyen montaj yok" diye
+        dusuyordu. O hâlde onbellek ilk turdan sonra HIC tazelenmezdi ve
+        diziliş gercekten degisirse (yeni snapshot) BAYAT ofsetler sonsuza
+        kadar servis edilirdi — dusundugumuz kusurdan beter, sessiz bir
+        yanlis. Simdi sahipsiz paket dogrudan onbellege yaziliyor: en fazla
+        BIR tur bayat kalinir (5 Hz'de 200 ms), sonra duzelir.
+        """
         self._temizle(simdi)
         m = self._bekleyen.get(kaynak)
         if m is None:
             self.sahipsiz_parca_sayisi += 1
+            anahtar = self._son_ajan_anahtari.get(kaynak)
+            if anahtar is not None:
+                self._onbellege_yaz(
+                    kaynak, anahtar,
+                    {veri.slot_bas + i: o
+                     for i, o in enumerate(veri.slot_ofsetleri())},
+                    birlestir=True,
+                )
             return None
         for i, ofset in enumerate(veri.slot_ofsetleri()):
             m.ofsetler[veri.slot_bas + i] = ofset
         return self._tamamla(kaynak, simdi)
+
+    def _onbellege_yaz(self, kaynak: int, anahtar: tuple, ofsetler: dict,
+                       birlestir: bool = False) -> None:
+        """CUSTOM ofsetlerini onbellege yazar; kadro degisince SIFIRLAR."""
+        mevcut = self._ofset_onbellek.get(kaynak)
+        if birlestir and mevcut is not None and mevcut[0] == anahtar:
+            yeni = dict(mevcut[1])
+            yeni.update(ofsetler)
+        else:
+            yeni = dict(ofsetler)
+        self._ofset_onbellek[kaynak] = (anahtar, yeni)
 
     # -------------------------------------------------------------- yardim ---
     def _temizle(self, simdi: float) -> None:
@@ -177,9 +241,19 @@ class FormasyonMontaj:
                 return None
             ofsetler = [(float(o[0]), float(o[1]), float(o[2])) for o in slotlar]
         elif tip == FORMATION_CUSTOM:
-            if len(m.ofsetler) < len(ajanlar):
-                return None                       # offset paketleri bekleniyor
-            ofsetler = [m.ofsetler[i] for i in range(len(ajanlar))]
+            anahtar = tuple(int(a) for a in ajanlar)
+            self._son_ajan_anahtari[kaynak] = anahtar
+            if len(m.ofsetler) >= len(ajanlar):
+                ofsetler = [m.ofsetler[i] for i in range(len(ajanlar))]
+                self._onbellege_yaz(kaynak, anahtar, m.ofsetler)
+            else:
+                # Ofset paketi eksik — ONBELLEGE DUS (bkz. __init__ notu).
+                onbellek = self._ofset_onbellek.get(kaynak)
+                if (onbellek is None or onbellek[0] != anahtar
+                        or len(onbellek[1]) < len(ajanlar)):
+                    return None                   # offset paketleri bekleniyor
+                ofsetler = [onbellek[1][i] for i in range(len(ajanlar))]
+                self.ofset_onbellek_kullanildi += 1
         else:
             # Bilinmeyen formasyon tipi (0 = UNKNOWN dahil). Montajı düşür;
             # çağıran uyarır.

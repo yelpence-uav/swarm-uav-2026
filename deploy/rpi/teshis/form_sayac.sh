@@ -19,4 +19,4 @@ if [ -z "$SATIR" ]; then
     echo "   [$1] mesh_diag alinamadi (kopru yayin yapmiyor olabilir)"
     exit 0
 fi
-echo "   [$1] $(echo "$SATIR" | grep -oE '(lider|form_tx|form_rx|form_lider_degil|form_yarim|form_sahipsiz|form_seyrelt|form_ofs_kuyruk|form_ofs_iptal|bilinmeyen|gonderim_drop)=[0-9]+' | tr '\n' ' ')"
+echo "   [$1] $(echo "$SATIR" | grep -oE '(lider|form_tx|form_rx|form_lider_degil|form_yarim|form_sahipsiz|form_seyrelt|form_ofs_kuyruk|form_ofs_iptal|form_ofs_onbellek|bilinmeyen|gonderim_drop)=[0-9]+' | tr '\n' ' ')"
