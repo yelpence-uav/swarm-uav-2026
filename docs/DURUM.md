@@ -1,8 +1,55 @@
 # DURUM — şu an ne çalışıyor, ne bozuk
 
-**Son güncelleme:** 8 Eylül 2026, 15:40 — 🎯 **DÖNÜŞ PROFİLİ DİZİLİŞTEN BAĞIMSIZ HÂLE GETİRİLDİ** — merdiven artık eve dönüşten ÖNCE; canlı dizilişte kuru test 0.31 m → **6.87 m, GEÇTİ** · ✈️ **GÖREV 1 İLK ONBOARD UÇUŞU** — QR çıpası 0.05 m ile tuttu, dönüşte **kadro çökmesi** bulundu ve kapatıldı · 🔴 **ylp01'in Pi'si HAVADA elektriksiz kaldı** · 🎮 ylp00'da `joystick` KAPALI (Görev 1 uçuşu için) · 💉 **QR okuma ENJEKSİYONLA** (gerçek okuma yok) · 📷 **ALGI ZİNCİRİ AÇILDI** (ylp00: `goru` + `kamera_yayin.py`, 4K 5 fps, kare 5.06 Hz) · 🔴 **QR TABLOSUNDA HATA: QR2 31.3 km kuzeyde** · 🟢 **ylp02 SAĞLAM** (operatör, düşme sonrası) · 🟢 **pil telemetrisi ÜÇÜNDE DE DÜZELDİ** (ölçüldü: 15.71 / 15.78 / 16.13 V · %65 / %68 / %69) · ✅ **KADRO KORUMASI YAZILDI** — "sadece lider irtifa değiştirdi"nin ölçülen kök nedeni (`agent_ids=(1,)`) kapatıldı (blok aşağıda) · CUSTOM ofset düzeltmesi yine de yazıldı ve **yerde doğrulandı** (11/11) · 🎯 Görev 1 uçuş profili değişti (blok aşağıda) · 7 Eylül 11:57 RC-kayıp failsafe LAND · 5 Eylül 07:56 Görev 2
+**Son güncelleme:** 8 Eylül 2026, 16:30 — 🎯 **DÖNÜŞ PROFİLİ DEĞİŞTİ: sürü FORMASYONDA eve gelip FORMASYONDA iniyor** (dağılma ve dikey merdiven KAPALI, 3B bozulmuyor) · 🟢 **finalde asgari aralık 5 m** (KARAR-20) → normal uçuşta en kötü 5.07 m, kaçınma sessiz · ✈️ **GÖREV 1 İLK ONBOARD UÇUŞU** — QR çıpası 0.05 m ile tuttu, dönüşte **kadro çökmesi** bulundu ve kapatıldı · 🔴 **ylp01'in Pi'si HAVADA elektriksiz kaldı** · 🎮 ylp00'da `joystick` KAPALI (Görev 1 uçuşu için) · 💉 **QR okuma ENJEKSİYONLA** (gerçek okuma yok) · 📷 **ALGI ZİNCİRİ AÇILDI** (ylp00: `goru` + `kamera_yayin.py`, 4K 5 fps, kare 5.06 Hz) · 🔴 **QR TABLOSUNDA HATA: QR2 31.3 km kuzeyde** · 🟢 **ylp02 SAĞLAM** (operatör, düşme sonrası) · 🟢 **pil telemetrisi ÜÇÜNDE DE DÜZELDİ** (ölçüldü: 15.71 / 15.78 / 16.13 V · %65 / %68 / %69) · ✅ **KADRO KORUMASI YAZILDI** — "sadece lider irtifa değiştirdi"nin ölçülen kök nedeni (`agent_ids=(1,)`) kapatıldı (blok aşağıda) · CUSTOM ofset düzeltmesi yine de yazıldı ve **yerde doğrulandı** (11/11) · 🎯 Görev 1 uçuş profili değişti (blok aşağıda) · 7 Eylül 11:57 RC-kayıp failsafe LAND · 5 Eylül 07:56 Görev 2
 
 
+
+> ## 🎯 8 EYLÜL AKŞAM — DÖNÜŞ: FORMASYONDA GEL, FORMASYONDA İN
+>
+> **Operatör kararı + şartname yorumu.** *"Dönüş boyunca 3B bozulmayacak.
+> Dronlar kalktığı yerlere inmek zorunda değil; en sondaki formasyon
+> korunsun, kalktıkları yerin ortasında bir yere insinler."*
+>
+> ```
+> yaw (eve yönel) → eve dön (formasyon korunur) → FORMASYONDA in
+> ```
+>
+> **Dağılma ve dikey merdiven KAPATILDI** — ikisi de yalnız "herkes kendi
+> kalkış noktasına insin" için vardı. 3B formasyon dönüş boyunca hiç
+> bozulmuyor (`PLAN.md:72`).
+>
+> | ayar | değer | ne yapar |
+> |---|---|---|
+> | `GOREV_DONUS_KENDI_NOKTASINA` | **False** | formasyonda in (yeni varsayılan) |
+> | `GOREV_DONUS_MERDIVEN_ONCE` | False | merdiven yok — konusuz |
+>
+> Eski profil bayrakla duruyor, silinmedi.
+>
+> 🔴 **İNİŞ NOKTALARI KALKIŞ NOKTALARI DEĞİL.** Formasyon dönüş başlığına
+> bakıyor; diziliş o fark kadar **dönmüş** olarak iniyor (CLAUDE.md §9).
+> `--senaryo gorev1 --harita` son adımın hedeflerini mavi çiziyor —
+> **uçmadan önce o üç nokta gözle doğrulanmalı.**
+>
+> ### 🟢 5 m bilgisi her şeyi çözdü (KARAR-20)
+>
+> ```
+> hakem >= 5 m koyuyor  →  NORMAL UCUS en kotu 5.07 m, 4 m alti %0.0
+> ```
+>
+> Ölçüldü: **sürü havada dizilişi birebir koruyor** — 300/300 dizilişte
+> havadaki en dar an yerdeki en yakın çiftle **aynı** (fark 0.00 m). Uçuş
+> planı risk eklemiyor; havadaki en dar an = hakemin verdiği aralık.
+>
+> 5 m, `MIN_AYRIM_M` (4.0), `KACINMA_D0_M` (3.0) ve çıkış histerezisinin
+> (3.5) hepsinin üstünde → kaçınma sessiz, kuru test geçer.
+> ⚠️ 3 m gelseydi **dikey yol verme kilitli açık kalırdı** (yatayda kapanma
+> hızı kapısı var, dikeyde YOK — yalnız mesafeye bakıyor) ve formasyonu
+> kaçınma bozardı. `KACINMA_D0_M`'i düşürme seçeneği bu bilgiyle iptal.
+>
+> ### Değişmeyen: arıza hâli
+>
+> Bir uçak havada tamamen durursa (8 Eylül'de ylp01) en yakın an 5 m'lik
+> yerleşimde de kötü. Planlama değil **arıza** senaryosu; kaçınmanın işi.
 
 > ## 🎯 8 EYLÜL — DÖNÜŞ PROFİLİ ARTIK DİZİLİŞTEN BAĞIMSIZ
 >

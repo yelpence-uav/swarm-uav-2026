@@ -35,12 +35,27 @@ _CEN = (2.0, 0.0, -10.0)
 _HOME = (0.0, 0.0, 0.0)
 
 
-def _ready_orch():
-    """Origin + sıradaki hedef (kuzeyde) yüklü orkestratör."""
-    o = Mission1Orchestrator()
+def _ready_orch(**cfg):
+    """Origin + sıradaki hedef (kuzeyde) yüklü orkestratör.
+
+    ⚠️ `dagilma=True` GEREKEN TESTLER BUNU ACIKCA ISTER. 8 Eylul 2026'da
+    varsayilan donus profili degisti: suru artik FORMASYONDA eve gelip
+    FORMASYONDA iniyor (operator karari — "kalktigi yerlere inmek zorunda
+    degil"). Dagilma ve dikey merdiven fazlari YALNIZ
+    `donus_kendi_noktasina=True` iken var. Onlari sinayan testler bayragi
+    kendisi acmali; aksi halde "test yesil ama olcugu sey artik
+    varsayilan degil" durumu olusur.
+    """
+    o = Mission1Orchestrator(OrchestratorConfig(**cfg) if cfg else None)
     o.set_origin(41.0, 29.0)
     o.set_next_target(True, 41.001, 29.0)
     return o
+
+
+def _dagilmali_orch(**cfg):
+    """Eski profil: dikey merdiven + herkes kendi kalkis noktasina."""
+    cfg.setdefault('donus_kendi_noktasina', True)
+    return _ready_orch(**cfg)
 
 
 def _qr(**kw):
@@ -302,16 +317,45 @@ def test_return_home_targets_home():
     ev hedeflenir" diyor.
     """
     o = _ready_orch()
-    ilk = o.decide(_inp(S_RETURN_HOME, 0))
-    assert len(ilk) == 1
-    assert ilk[0].center != _HOME, 'merdiven fazi atlanmis — dogrudan eve gidiyor'
-
-    merkezler = [ilk[0].center]
-    for t in (25.0, 50.0, 80.0, 120.0, 200.0):
+    merkezler = []
+    for t in (0.0, 25.0, 50.0, 80.0, 120.0, 200.0):
         for c in o.decide(_inp(S_RETURN_HOME, 0, time_in_state=t)):
             if isinstance(c, FormationTargetCmd):
                 merkezler.append(c.center)
     assert _HOME in merkezler, f'ev hic hedeflenmedi: {merkezler}'
+
+
+def test_donus_merdiven_once_bayragi_sirayi_degistirir():
+    """`donus_merdiven_once` faz sirasini gercekten degistirmeli.
+
+    False (SARTNAME, varsayilan): once EVE DONUS, sonra merdiven.
+    True  (emniyet payi)        : once MERDIVEN, sonra eve donus.
+
+    Bayrak sessizce etkisiz kalirsa finalde "merdiveni actim" denip
+    acilmamis olurdu — bu testin varlik sebebi o.
+    """
+    def _merkez_dizisi(once):
+        # Bayrak yalniz DAGILMALI profilde anlamli: varsayilan profilde
+        # merdiven fazi zaten yok (suru formasyonda gelip formasyonda
+        # iniyor), dolayisiyla sira tartismasi da yok.
+        o = Mission1Orchestrator(OrchestratorConfig(
+            donus_merdiven_once=once, donus_kendi_noktasina=True))
+        o.set_origin(41.0, 29.0)
+        o.set_next_target(True, 41.001, 29.0)
+        cikti = []
+        for t in (0.0, 25.0, 50.0, 80.0):
+            for c in o.decide(_inp(S_RETURN_HOME, 0, time_in_state=t)):
+                if isinstance(c, FormationTargetCmd):
+                    cikti.append(c.center)
+        return cikti
+
+    kapali = _merkez_dizisi(False)
+    acik = _merkez_dizisi(True)
+    assert _HOME in kapali and _HOME in acik, 'ev iki halde de hedeflenmeli'
+    # Sartname yolunda EV once gelir; emniyet yolunda merdiven (ev DEGIL).
+    assert kapali.index(_HOME) < acik.index(_HOME), (
+        f'bayrak sirayi degistirmedi: kapali={kapali} acik={acik}'
+    )
 
 
 def test_hold_tilt_published_after_maneuver():
@@ -465,9 +509,16 @@ def _profil_orch(**kw):
     """Operator profili yapilandirilmis orkestrator."""
     # donus_yaw_deg ARTIK 0: donus miktari ev yonunden kendiliginden cikiyor
     # (3 Eylul). Bu alan yalnizca EK ofset; uretimde de 0 (ucus_ayarlari).
+    # ⚠️ `donus_kendi_noktasina=True` BILEREK: bu yardimciyi kullanan
+    # testler DAGILMA ve DIKEY MERDIVEN fazlarini sinIYOR ve o fazlar
+    # 8 Eylul 2026'dan beri yalniz bu bayrakla var. Varsayilan profil
+    # artik "FORMASYONDA eve gel, FORMASYONDA in" (operator karari).
+    # Bayragi burada acik tutmak, eski profilin testlerini AYAKTA
+    # tutuyor — silmek yerine, cunku bayrak sahada geri acilabilir.
     cfg = dict(gorev_formasyon=_FRM_CIZGI, gorev_aralik_m=7.0,
                donus_yaw_deg=0.0, donus_katman_m=5.0,
-               dagilma_hiz_mps=1.0, full_agent_count=3)
+               dagilma_hiz_mps=1.0, full_agent_count=3,
+               donus_kendi_noktasina=True)
     cfg.update(kw)
     o = Mission1Orchestrator(OrchestratorConfig(**cfg))
     o.set_origin(41.0, 29.0)

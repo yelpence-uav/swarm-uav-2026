@@ -89,8 +89,12 @@ def test_KADRO_BOSALSA_DA_DONUS_ILERLER():
     """🔴 Kusurun ta kendisi: kadro bosalinca faz 0'da donup kaliyordu."""
     o = _ucusa_hazirla()
     faz, komut = _fazlari_kos(o, kadro=())
-    assert faz >= 4, f'donus faz {faz} de takildi (sahada 0 da takilmisti)'
-    assert komut >= 4, f'yalnizca {komut} komut cikti — fazlar islememis'
+    # Son faz profile gore degisiyor: varsayilanda (formasyonda inis)
+    # donus faz 1'de biter, dagilma acikken 4'te. Sabit sayi yazmak yerine
+    # orkestratorun kendi olcutunu soruyoruz.
+    assert faz >= o._donus_son_faz(), (
+        f'donus faz {faz} de takildi (sahada 0 da takilmisti)')
+    assert komut >= 2, f'yalnizca {komut} komut cikti — fazlar islememis'
 
 
 def test_EVE_DONUS_KOMUTU_GERCEKTEN_EVI_HEDEFLIYOR():

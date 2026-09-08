@@ -1,6 +1,6 @@
 # KARARLAR — verilmiş ama henüz uygulanmamış kararlar
 
-**Son güncelleme:** 8 Eylül 2026, 12:40 — **KARAR-19** (Görev 1 ilk uçuşu kuru test 3.83 m ile UÇULUYOR — operatör kararı) · KARAR-18 UYGULANDI (kumanda-kaybı failsafe: LAND, ~3.5-4 sn, üç uçak; hakem RTL derse geri dönüş adımı içinde). Eski: KARAR-17 uçtu (sabit lider ylp00) · KARAR-16 (tek-yayıncı) · KARAR-15 (kaçınma eşikleri 5 m'de kilitleniyor)
+**Son güncelleme:** 8 Eylül 2026, 16:30 — **KARAR-20** (finalde uçaklar arası asgari mesafe **5 m** — hakemden öğrenildi; kaçınma ve kuru test eşiklerinin ikisi de altında kalıyor) · **KARAR-19** (Görev 1 ilk uçuşu kuru test 3.83 m ile UÇULUYOR — operatör kararı) · KARAR-18 UYGULANDI (kumanda-kaybı failsafe: LAND, ~3.5-4 sn, üç uçak; hakem RTL derse geri dönüş adımı içinde). Eski: KARAR-17 uçtu (sabit lider ylp00) · KARAR-16 (tek-yayıncı) · KARAR-15 (kaçınma eşikleri 5 m'de kilitleniyor)
 
 Sohbette verilen kararlar oturum bitince kayboluyor. Bu defter onları
 tutuyor: **ne karar verildi, neden, ne zaman uygulanacak, nasıl test edilecek.**
@@ -31,6 +31,58 @@ sırası gelince" denilen şeyleri. Onlar en kolay kaybolanlar.
 `🔵 SIRASI GELDİ` — aşamaya ulaşıldı, uygulanacak
 `✅ UYGULANDI` — bitti, sonucu yazıldı
 `❌ VAZGEÇİLDİ` — gerekçesiyle
+
+---
+
+# KARAR-20 — Finalde uçaklar arası asgari mesafe **5 metre**
+
+**Durum:** 🟢 BİLGİ — hakemden öğrenildi, koda dokunulması gerekmedi
+**Ne zaman:** finalde geçerli
+**Kaynak:** operatör (8 Eylül 2026)
+
+## Bilgi
+
+Finalde hakemler uçakları **en az 5 m arayla** yerleştirecek.
+
+## Neden ÖNEMLİ — bu sayı bilinmediği için bir gün tartışıldı
+
+`ucus_ayarlari.py` kaydında şartnamenin aralığı **3-10 m** olarak
+duruyordu. 3 m ihtimali üç ayrı yerde sorun çıkarıyordu ve hepsi bu
+bilgiyle **konusuz kaldı**:
+
+| eşik | değer | 3 m'de | 5 m'de |
+|---|---|---|---|
+| `KACINMA_D0_M` (dikey yol verme) | 3.0 m | 🔴 kilitli açık | ✅ sessiz |
+| çıkış histerezisi (`d0 + hist`) | 3.5 m | 🔴 hiç kapanmaz | ✅ |
+| `MIN_AYRIM_M` (kuru test) | 4.0 m | 🔴 hep KALDI | ✅ geçer |
+
+3 m gelseydi **dikey yol verme kalkıştan itibaren tetikli kalır** ve sürü
+kendiliğinden katmanlanırdı — yani formasyonu biz değil, kaçınma bozardı.
+Yatay itme tetiklenmezdi (onda kapanma-hızı kapısı var), dikeyde o kapı
+**yok**: yalnız mesafeye bakıyor.
+
+**5 m ile hiçbirine dokunmaya gerek kalmadı.** `KACINMA_D0_M`'i 2.5'e
+düşürme ya da dikey kurala kapanma kapısı ekleme seçenekleri **iptal**.
+
+## Ölçüm (400 rastgele diziliş, `--senaryo gorev1`)
+
+```
+hakem >= 3 m koyarsa   NORMAL UCUS  en kotu 3.01 m   4 m alti %7.5
+hakem >= 5 m koyarsa   NORMAL UCUS  en kotu 5.07 m   4 m alti %0.0
+```
+
+Sebep ölçüldü: **sürü havada dizilişi birebir koruyor** — 300/300 dizilişte
+havadaki en dar an, yerdeki en yakın çiftle **aynı** (fark 0.00 m). Yani
+uçuş planı hiç risk eklemiyor; havadaki en dar an neyse, hakemin verdiği
+aralık odur.
+
+## Değişmeyen tek şey: arıza hâli
+
+Bir uçak havada tamamen durursa (8 Eylül'de ylp01'in Pi'si elektriksiz
+kaldı) en yakın an 5 m'lik yerleşimde de kötü (%25'i 2 m altı). Bu
+planlama değil **arıza** senaryosu ve kaçınmanın var olma sebebi; ayrıca
+Pi ölünce uçak OFFBOARD'ı kaybedip failsafe ile alçalıyor, yani birkaç
+saniyede diğerlerinin düzleminden çıkıyor.
 
 ---
 

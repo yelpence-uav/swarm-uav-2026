@@ -79,6 +79,58 @@ class OrchestratorConfig:
     # Dagilma oncesi dikey merdiven basamagi. Kuru testte 3 m KALDI (3.29 m),
     # 4 m'den itibaren GECTI; 5 m secildi (5.18 m pay).
     donus_katman_m: float = 5.0
+    # 🔴 DIKEY MERDIVEN NE ZAMAN KURULUR — 8 Eylul 2026, operator karari.
+    #
+    # False (VARSAYILAN, SARTNAMEYE UYGUN):
+    #     yaw -> eve don (DUZ, formasyon korunur) -> merdiven -> dagilma
+    #   PLAN.md:72 sartname maddesi "Home'a donus + FORMASYONU BOZMADAN
+    #   guvenli inis" diyor. Dikey merdiven formasyonun 3B seklini
+    #   degistirir, yani donus bacaginda kurulmasi o maddeyle catisir.
+    #   Operator kurali net koydu: "gorev boyunca QR'larda yazan disinda
+    #   bir sey yapamayiz." Merdiven QR'dan gelmiyor.
+    #
+    # True (EMNIYET PAYI, ELDE DURSUN):
+    #     yaw+merdiven -> merdiven -> eve don (KATMANLI) -> dagilma
+    #   Suru donus boyunca ayri katmanlarda; yatay yakinlik onemsizlesir.
+    #   400 rastgele dizilisle olculdu: esik alti %22 -> %10.5,
+    #   en kotu 0.06 m -> 2.94 m.
+    #
+    # NEDEN VARSAYILAN False OLABILIYOR: riskin ana kaynagi biri geride
+    # kalinca ortaya cikiyordu ve o da mesh boslugundandi (8 Eylul'de
+    # 12.7 SANIYELIK bosluk olculdu). Ofset onbellegi + 5 Hz ile beklenen
+    # aralik ~200 ms; 11 deg/s donuste bu 2.2 derece, 7.5 m yaricapta
+    # 0.29 m gerilik — zararsiz. Kalan tek kaynak GERCEK ARIZA (Pi'nin
+    # olmesi gibi; 8 Eylul'de ylp01'de oldu) ve o durumda ucak OFFBOARD'i
+    # kaybedip failsafe ile ALCALIYOR, yani birkac saniyede digerlerinin
+    # duzleminden cikiyor.
+    #
+    # ⚠️ MESH DUZELTMESI HENUZ UCUSTA DOGRULANMADI. Bir sonraki ucusta
+    # takipcide hedef araligi ve `form_ofs_onbellek` olculecek; bozuk
+    # cikarsa bu bayrak True yapilir — tek satir, kod degisikligi YOK.
+    donus_merdiven_once: bool = False
+    # 🔴 EVE DONUSTEN SONRA DAGILMA — 8 Eylul 2026, operator karari.
+    #
+    # False (VARSAYILAN): suru FORMASYONDA eve gelir ve FORMASYONDA iner.
+    #   Operator: "dronelar kalktigi yerlere inmek zorunda degil. En sondaki
+    #   formasyon korunsun, sonra kalktiklari yerin ortasinda bir yere
+    #   insinler." Bu, sartname maddesiyle (PLAN.md:72 "formasyonu BOZMADAN
+    #   guvenli inis") birebir ortusuyor: 3B sekil donus boyunca hic
+    #   bozulmuyor.
+    #
+    #   ⚠️ INIS NOKTALARI KALKIS NOKTALARI DEGIL. Formasyon donus
+    #   basligina (`ev_yon`) bakiyor, kalkis basligina degil; diziliş o
+    #   fark kadar DONMUS olarak iner. CLAUDE.md §9'un "formasyonda ucaklar
+    #   kalktiklari yere INMEZ" uyarisi tam bu — her ucagin iniş noktasi
+    #   haritada AYRI AYRI isaretlenmeli. `--senaryo gorev1 --harita`
+    #   son adimin hedeflerini mavi nokta olarak ciziyor, dogru yeri
+    #   gosteriyor.
+    #
+    # True: eski profil — dikey merdiven + herkes KENDI kalkis noktasina.
+    #   Iniş yeri kesin ama iki bedeli var: (a) dagilirken cizginin uc
+    #   ucaklari KAFA KAFAYA geciyor (1 Eylul'de 1.65 m olculdu), bu yuzden
+    #   once dikey merdiven kurmak ZORUNLU; (b) o merdiven 3B formasyonu
+    #   bozuyor, yani sartname maddesiyle catisiyor.
+    donus_kendi_noktasina: bool = False
     # TOPLANMA MERDIVENI — kalkistan ilk formasyona gecerken dikey ayirma.
     # 0.0 = KAPALI (davranis eskisinin AYNISI).
     #
@@ -823,7 +875,7 @@ class Mission1Orchestrator:
             # uretilseydi suru yaw fazi oturur oturmaz -- yani HALA QR1'in
             # ustunde, evden 31 m uzakta -- inise gecerdi.
             self._st.donus_settled = True
-            son_faz = (int(self._st.donus_faz) >= 4
+            son_faz = (int(self._st.donus_faz) >= self._donus_son_faz()
                        or self._st.kalkis_ofsetleri is None)
             if not son_faz:
                 return None
@@ -1482,18 +1534,28 @@ class Mission1Orchestrator:
     # varsayimi YANLIS -- kanat teget hizi tavani 1.5 m/s once bagliyor ve
     # 7 m yaricapta acisal hiz 12.28 deg/s'de kaliyor). Suru 135 derecede
     # kesilip eve gitmeye basliyordu.
-    _DONUS_ZA_S = (
-        30.0,   # 0 yaw       : 16.7 s (180 deg @ 12.28 deg/s) + pay
-        # 8 Eylul: 1 ve 2 YER DEGISTIRDI — merdiven eve donusten ONCE.
-        20.0,   # 1 merdiven  : 5 m / 1.2 m/s (KACINMA_DIKEY_HIZ) = 4.2 s + pay
-        45.0,   # 2 eve don   : ~31 m / 2 m/s = 15.5 s + ruzgar/takip payi
-        45.0,   # 3 dagilma   : ~20 m / 1.0 m/s = 20 s + pay
-    )
+    # Zaman asimlari SIRAYA gore degisiyor (bkz. donus_merdiven_once).
+    #   yaw      : 16.7 s (180 deg @ 12.28 deg/s) + pay
+    #   eve don  : ~31 m / 2 m/s = 15.5 s + ruzgar/takip payi
+    #   merdiven : 5 m / 1.2 m/s (KACINMA_DIKEY_HIZ) = 4.2 s + pay
+    #   dagilma  : ~20 m / 1.0 m/s = 20 s + pay
+    _DONUS_ZA_S = (30.0, 45.0, 20.0, 45.0)          # yaw, ev, merdiven, dagilma
+    _DONUS_ZA_S_MERDIVEN_ONCE = (30.0, 20.0, 45.0, 45.0)
     # Bu esigin altinda donulecek aci varsa yaw fazi hic acilmaz (bosuna
     # bekleme). 5 derece, takip hatasi bandinin ustunde secildi.
     _DONUS_YAW_MIN_DEG = 5.0
     # Ev vektoru bundan kisaysa yonu ondan TURETME (63 deg/5 sn tuzagi).
     _DONUS_EV_MIN_M = 3.0
+
+    def _donus_son_faz(self) -> int:
+        """Donusun BITTIGI faz. Dagilma kapaliysa eve varinca biter.
+
+        Dagilma acikken: 0 yaw, 1/2 (ev + merdiven), 3 dagilma, 4 esitleme.
+        Kapaliyken: 0 yaw, 1 eve don -> BITTI. Merdiven ve dagilma
+        gereksiz; ikisi de yalniz "herkes kendi noktasina insin" icin
+        vardi ve o istek kalkti.
+        """
+        return 4 if self._cfg.donus_kendi_noktasina else 1
 
     def _donus_fazi(self, inp: OrchestratorInput) -> int:
         """Gecerli RETURN_HOME alt fazi. SAF — durumu DEGISTIRMEZ.
@@ -1566,7 +1628,7 @@ class Mission1Orchestrator:
             return
 
         faz = int(st.donus_faz)
-        if faz >= 4:
+        if faz >= self._donus_son_faz():
             return
         # Dagilma icin kalkis dizilisi sart; yoksa formasyonda kal (eski yol).
         #
@@ -1582,7 +1644,9 @@ class Mission1Orchestrator:
             return
 
         gecen = float(inp.time_in_state) - float(st.donus_faz_t0)
-        za = self._DONUS_ZA_S[faz]
+        za = (self._DONUS_ZA_S_MERDIVEN_ONCE[faz]
+              if self._cfg.donus_merdiven_once
+              else self._DONUS_ZA_S[faz])
         oturdu = bool(st.donus_settled)
         if not (oturdu or gecen >= za):
             return
@@ -1595,6 +1659,18 @@ class Mission1Orchestrator:
             f'({"yakinsadi" if oturdu else f"zaman asimi {za:.0f}s"}, '
             f'{gecen:.1f} sn surdu)'
         )
+
+    def _katmanla(self, inp: OrchestratorInput, offsets):
+        """Ofsetlerin z'sini EVE DONUS merdivenine cevirir (yatay dokunulmaz).
+
+        `_toplanma_katmanla`nin donus karsiligi; merkez irtifasina GORE
+        veriliyor cunku komut `use_current_altitude=True` ile gidiyor.
+        """
+        return [
+            (o[0], o[1],
+             self._merdiven_irtifasi(a, inp.centroid[2]) - inp.centroid[2])
+            for a, o in zip(inp.agent_ids, offsets)
+        ]
 
     def _merdiven_irtifasi(self, agent_id: int, taban_z: float) -> float:
         """Dikey merdiven basamagi — kimlik sirasina gore, DETERMINISTIK.
@@ -1698,16 +1774,13 @@ class Mission1Orchestrator:
             # once kurulunca esigin altinda kalan %11, yaw'a da
             # tasininca %1'in altina iniyor. Bedeli yok: yaw zaten
             # yerinde yapiliyor, dikey ayrim o sirada kuruluyor.
-            katmanli = [
-                (o[0], o[1],
-                 self._merdiven_irtifasi(a, inp.centroid[2]) - inp.centroid[2])
-                for a, o in zip(inp.agent_ids, offsets)
-            ]
             return [FormationTargetCmd(
                 formation_type=self._st.formation_type,
                 center=self._hold_centroid(inp, offsets, heading),
                 heading_deg=heading, spacing_m=self._st.spacing_m,
-                agent_ids=list(inp.agent_ids), offsets=katmanli,
+                agent_ids=list(inp.agent_ids),
+                offsets=(self._katmanla(inp, offsets)
+                         if self._cfg.donus_merdiven_once else offsets),
                 rotate_towards_target=False, use_current_centroid=True,
                 use_current_altitude=True)]
 
@@ -1732,50 +1805,36 @@ class Mission1Orchestrator:
         # konumdan turetiyoruz, yollar KESISEBILIR."
         #
         # Bedeli: dikey ayrim kurulana kadar ~5 sn daha havada kalinir.
-        if faz == 1:                       # DIKEY MERDIVEN — YERINDE
+        # faz 1 ve 2'nin SIRASI `donus_merdiven_once` ile belirleniyor:
+        #   False (SARTNAME): 1 = EVE DON (duz), 2 = MERDIVEN (evde)
+        #   True  (emniyet) : 1 = MERDIVEN (yerinde), 2 = EVE DON (katmanli)
+        # Gerekce, olcumler ve hangi durumda hangisi: config alanindaki not.
+        if faz in (1, 2):
+            once = bool(self._cfg.donus_merdiven_once)
+            merdiven = (faz == (1 if once else 2))
+            # Merdiven bayrak ACIKKEN yerinde kurulur (merkez = o anki
+            # centroid); kapaliyken suru zaten evdedir, merkez ev olur.
+            yerinde = merdiven and once
+            merkez = inp.centroid if yerinde else inp.home
             heading = yawli
             offsets = self._assign(self._st.formation_type,
-                                   self._st.spacing_m, inp.centroid,
-                                   heading, inp)
+                                   self._st.spacing_m, merkez, heading, inp)
             if offsets is None:
                 return None
             self._st.heading_deg = heading
-            # Merkez O ANKI centroid: suru henuz evde DEGIL, merdiveni
-            # bulundugu yerde kurmali. `inp.home` verirsek yatayda da
-            # hareket eder ve merdivenin amaci kaybolur.
-            katmanli = [
-                (o[0], o[1],
-                 self._merdiven_irtifasi(a, inp.centroid[2]) - inp.centroid[2])
-                for a, o in zip(inp.agent_ids, offsets)
-            ]
+            # Katman: merdiven fazinda her zaman; eve donuste YALNIZ bayrak
+            # acikken (o zaman katmanlar donus boyunca korunur).
+            katmanla = merdiven or once
             return [FormationTargetCmd(
                 formation_type=self._st.formation_type,
-                center=inp.centroid, heading_deg=heading,
+                center=merkez, heading_deg=heading,
                 spacing_m=self._st.spacing_m,
-                agent_ids=list(inp.agent_ids), offsets=katmanli,
-                rotate_towards_target=False, use_current_centroid=True,
-                use_current_altitude=True)]
-
-        if faz == 2:                       # EVE DON — KATMANLI
-            heading = yawli
-            offsets = self._assign(self._st.formation_type,
-                                   self._st.spacing_m, inp.home, heading, inp)
-            if offsets is None:
-                return None
-            # Katmanlar KORUNUR: donus boyunca ucaklar ayri irtifalarda
-            # kalsin. Merdiven faz 1'de kuruldu, burada sadece tasiniyor.
-            katmanli = [
-                (o[0], o[1],
-                 self._merdiven_irtifasi(a, inp.centroid[2]) - inp.centroid[2])
-                for a, o in zip(inp.agent_ids, offsets)
-            ]
-            return [FormationTargetCmd(
-                formation_type=self._st.formation_type,
-                center=inp.home, heading_deg=heading,
-                spacing_m=self._st.spacing_m,
-                agent_ids=list(inp.agent_ids), offsets=katmanli,
-                rotate_towards_target=False, use_current_centroid=False,
-                use_current_altitude=True)]
+                agent_ids=list(inp.agent_ids),
+                offsets=(self._katmanla(inp, offsets) if katmanla
+                         else offsets),
+                rotate_towards_target=False,
+                use_current_centroid=yerinde,
+                use_current_altitude=katmanla)]
 
         # faz 3/4 — HERKES KENDI KALKIS NOKTASINA. Tip CUSTOM: kalkis
         # dizilisi geri geliyor. faz 3 katmanli ve YAVAS (kafa kafaya gecis),

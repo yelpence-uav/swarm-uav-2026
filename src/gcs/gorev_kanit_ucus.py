@@ -2057,18 +2057,1041 @@ def plan_kur_gorev1(t):
     ev_yon = math.degrees(math.atan2(home[1] - merkez[1],
                                      home[0] - merkez[0])) % 360.0
     # RETURN_HOME faz 0: YERINDE yaw (merkez sabit) — `_donus_ilerlet`.
-    _gecis(plan, "donus faz0 — yerinde yaw (merdiven kuruluyor)",
-           merkez, yon, merkez, ev_yon, son_alt, katman=katman)
-    # 🔴 faz 1 MERDIVEN, faz 2 EVE DONUS — 8 Eylul'de YER DEGISTIRDILER.
-    # Eski sirada eve donus bacagi uc ucagi da AYNI irtifada tasiyordu ve
-    # en yakin an TAMAMEN yerdeki dizilise bagliydi (ayni gun 3.83 / 2.56 /
-    # 0.31 m olculdu). Finalde dizilisi hakem sectigi icin profil HER
-    # dizilise dayanikli olmak zorunda: merdiven ONCE kuruluyor, donus
-    # katmanli yapiliyor.
-    plan.append(("faz1 dikey merdiven — YERINDE", ev_yon,
-                 _hedefler(merkez, ev_yon, son_alt, katman=katman), 5.0))
-    plan.append(("faz2 eve don — KATMANLI", ev_yon,
-                 _hedefler(home, ev_yon, son_alt, katman=katman), 6.0))
+    _gecis(plan, "donus faz0 — yerinde yaw",
+           merkez, yon, merkez, ev_yon, son_alt,
+           katman=(katman
+                   if getattr(AYAR, 'GOREV_DONUS_MERDIVEN_ONCE', False)
+                   else None))
+    # DONUS PROFILI iki bayrakla belirleniyor; model UCAKTAKI kodla
+    # AYNI bayraklari okuyor ki harita yalan soylemesin.
+    if not bool(getattr(AYAR, 'GOREV_DONUS_KENDI_NOKTASINA', False)):
+        # 🔴 SARTNAME YOLU (varsayilan): suru FORMASYONDA eve gelir ve
+        # FORMASYONDA iner. Merdiven ve dagilma YOK — ikisi de yalniz
+        # "herkes kendi kalkis noktasina insin" icin vardi.
+        #
+        # ⚠️ INIS NOKTALARI KALKIS NOKTALARI DEGIL: formasyon DONUS
+        # basligina bakiyor, diziliş o fark kadar donmus olarak iniyor.
+        # Son adimin hedefleri = INIS NOKTALARI (harita_yaz mavi cizer).
+        plan.append(("eve don — formasyon korunur", ev_yon,
+                     _hedefler(home, ev_yon, son_alt), 6.0))
+        plan.append(("inis — FORMASYONDA, evin uzerinde", ev_yon,
+                     _hedefler(home, ev_yon, son_alt), 4.0))
+        return plan
+
+    # --- ESKI PROFIL: herkes KENDI kalkis noktasina -----------------------
+    if bool(getattr(AYAR, 'GOREV_DONUS_MERDIVEN_ONCE', False)):
+        plan.append(("faz1 dikey merdiven — YERINDE", ev_yon,
+                     _hedefler(merkez, ev_yon, son_alt, katman=katman), 5.0))
+        plan.append(("faz2 eve don — KATMANLI", ev_yon,
+                     _hedefler(home, ev_yon, son_alt, katman=katman), 6.0))
+    else:
+        plan.append(("faz1 eve don — formasyon korunur", ev_yon,
+                     _hedefler(home, ev_yon, son_alt), 6.0))
+        plan.append(("faz2 dikey merdiven — evde", ev_yon,
+                     _hedefler(home, ev_yon, son_alt, katman=katman), 5.0))
+    _gecis(plan, "faz3 oncesi — kalkis basligina don",
+           home, ev_yon, home, kalkis_yaw, son_alt, katman=katman)
+    plan.append(("dagilma — herkes KENDI kalkis noktasina (katmanli)",
+                 kalkis_yaw,
+                 _hedefler(home, kalkis_yaw, son_alt, katman=katman), 8.0))
+    plan.append(("inis oncesi — irtifalar esitlenir", kalkis_yaw,
+                 _hedefler(home, kalkis_yaw, son_alt), 4.0))
+    return plan
+
+
+def _origin_bul(t):
+    """Telemetriden NED origin'ini turetir.
+
+    Drone hem lat/lon hem NED bildiriyor; ikisinin farki origin'i verir.
+    Yapilandirmadaki sabiti okumaktansa bunu tercih ediyoruz: origin
+    yanlis ayarlanmissa bile burada GERCEK donusum cikar, yani haritaya
+    koydugumuz nokta ucagin gercekten gidecegi yer olur.
+    """
+    for d in t.values():
+        if d.get("connected") and abs(d.get("lat", 0.0)) > 0.001:
+            enlem = d["lat"] - d["pos_x"] / 111320.0
+            boylam = d["lon"] - d["pos_y"] / (111320.0 * math.cos(math.radians(d["lat"])))
+            return enlem, boylam
+    return None
+
+
+# UYDU GORUNTUSUNUN GEOREFERANS KAYMASI (1 Agustos'ta goruldu).
+#
+# QGC, YKI ve bu harita AYNI lat/lon'u ciziyor — dogrulandi: telemetri
+# 38.6905781/39.1610555, YKI paneli 38.69058/39.16106, bu harita
+# 38.6905782/39.1610556. Koordinat RTK-Fixed, ~2 cm. Yani kayan sey KOORDINAT
+# DEGIL, ALTLIK GORUNTU: her saglayicinin georeferansi birkac metre farkli
+# (bu harita Esri, YKI OpenStreetMap, QGC kendi saglayicisi).
+#
+# Sonucu onemsiz degil: harita bizim TEK engel kontrolumuz. Goruntu 4 m
+# kaymissa "rotada bina yok" hukmu de 4 m kaymis demektir.
+#
+# Olculunce buraya (kuzey, dogu) metre yazilir; --harita-ofset ile de
+# verilebilir. YALNIZ CIZIME uygulanir: ned_to_latlon'un tek kullanicilari
+# koordinat_yaz ve harita_yaz'dir, ucus geometrisi NED'de kalir ve bundan
+# ETKILENMEZ.
+HARITA_OFSET_KD = (0.0, 0.0)
+
+
+def ned_to_latlon(origin, kuzey, dogu):
+    kuzey += HARITA_OFSET_KD[0]
+    dogu += HARITA_OFSET_KD[1]
+    enlem = origin[0] + kuzey / 111320.0
+    boylam = origin[1] + dogu / (111320.0 * math.cos(math.radians(origin[0])))
+    return enlem, boylam
+
+
+def latlon_to_ned(origin, enlem, boylam):
+    """ned_to_latlon'un tersi. HARITA_OFSET_KD UYGULANMAZ.
+
+    O ofset yalnizca CIZIME ait bir duzeltme (altlik goruntunun georeferans
+    kaymasi). Burada ucus geometrisi uretiliyor; ofseti eklersek gorev
+    gercekten kayar. Bilerek asimetrik.
+    """
+    kuzey = (enlem - origin[0]) * 111320.0
+    dogu = (boylam - origin[1]) * 111320.0 * math.cos(math.radians(origin[0]))
+    return kuzey, dogu
+
+
+def _saha_coz(t, kuru: bool) -> bool:
+    """SAHA_NOKTALAR'i GPS listesinden, OLCULEN origin'e gore doldurur.
+
+    Ucus aninda cagrilir, cunku origin'i ancak telemetri gelince biliyoruz.
+    Basarisizsa False doner ve gorev BASLAMAZ — noktalari sessizce (0,0)
+    birakip ucmak, suruyu origin'in oldugu yere gondermek demektir.
+    """
+    if not SAHA_NOKTALAR_GPS:
+        return True                      # --noktalar ile NED verilmis
+    org = _origin_bul(t)
+    if org is None:
+        # Telemetride lat/lon yoksa (ornegin --sahte ile origin verilmeden)
+        # mutlak konum uretemeyiz. Yine de GEOMETRIYI dogrulayabilmek icin
+        # 1. noktayi (0,0) kabul edip digerlerini ona gore koyuyoruz: bacak
+        # uzunluklari ve donus acilari dogru cikar, yalnizca sahadaki mutlak
+        # yer bilinmez. Bu YALNIZ kuru testte anlamli.
+        if not kuru:
+            print("  [saha] origin türetilemedi — GPS noktaları NED'e "
+                  "çevrilemiyor, görev başlatılmıyor.")
+            return False
+        org = SAHA_NOKTALAR_GPS[0]
+        print("  [saha] origin yok — 1. nokta (0,0) kabul edildi "
+              "(yalnız geometri doğrulanır, mutlak konum DEĞİL)")
+    SAHA_NOKTALAR[:] = [latlon_to_ned(org, la, lo)
+                        for la, lo in SAHA_NOKTALAR_GPS]
+    print(f"  [saha] origin {org[0]:.7f},{org[1]:.7f} — noktalar NED'e çevrildi:")
+    for i, ((la, lo), (kz, dg)) in enumerate(
+            zip(SAHA_NOKTALAR_GPS, SAHA_NOKTALAR), 1):
+        print(f"         {i}: {la:.7f},{lo:.7f}  ->  ({kz:+8.1f}, {dg:+8.1f})")
+    return True
+
+
+def _plan_noktalari(plan, merkez0):
+    """Planin gectigi NOKTALARI (adim merkezleri) sirayla dondurur.
+
+    NEDEN PLANDAN TURETILIYOR: onceden bu liste kanit senaryosunun ucgeni
+    (P1/P2/P3) olarak SABIT hesaplaniyordu. Baska senaryolarda ekrana ve
+    haritaya YANLIS noktalar basiyordu — ve harita bizim tek engel
+    kontrolumuz oldugu icin bu kabul edilemez.
+    """
+    noktalar = [("KALKIS/EV", merkez0)]
+    for etiket, _h, hedefler, *_ in plan:
+        n = len(hedefler)
+        merkez = (sum(v[0] for v in hedefler.values()) / n,
+                  sum(v[1] for v in hedefler.values()) / n)
+        if math.dist(merkez, noktalar[-1][1]) < 1.0:
+            continue                      # ayni noktada duruyor, tekrar yazma
+        noktalar.append((etiket.split(":")[0].strip(), merkez))
+    return noktalar
+
+
+def koordinat_yaz(plan, merkez0, origin):
+    """Gorev noktalarini GPS olarak basar — haritada kontrol edilebilsin.
+
+    NEDEN VAR: kod engel GORMEZ. Ucmadan once noktalari haritaya koyup
+    bina/agac var mi diye BAKMAK, elimizdeki tek engel kontrolu.
+    """
+    if origin is None:
+        print("\n=== GPS KOORDİNATLARI: origin türetilemedi (telemetri yok) ===")
+        return
+    noktalar = _plan_noktalari(plan, merkez0)
+    print("\n=== GPS KOORDİNATLARI (haritada kontrol et) ===")
+    for ad, (kz, dg) in noktalar:
+        la, lo = ned_to_latlon(origin, kz, dg)
+        print(f"  {ad:<24} {la:.7f}, {lo:.7f}")
+
+
+_HARITA_SABLON = """<!doctype html>
+<html lang="tr"><head><meta charset="utf-8">
+<title>Yelpence - gorev rotasi</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>html,body,#h{height:100%%;margin:0}
+.bilgi{position:absolute;z-index:1000;top:10px;left:50px;background:#fff;
+padding:8px 12px;font:13px system-ui;border-radius:6px;box-shadow:0 1px 6px #0006}
+.inisEt{background:#af52de;color:#fff;border:none;font:600 12px system-ui;
+box-shadow:0 1px 4px #0007}
+.inisEt::before{border-bottom-color:#af52de}
+</style></head><body>
+<div class="bilgi"><b>Gorev rotasi</b><br>%(ozet)s</div>
+<div id="h"></div><script>
+var m=L.map('h');
+// maxNativeZoom 18 SART: bu bolgede Esri z19+ icin gercek goruntu yerine
+// "Map data not available" yer tutucusu donduruyor (olculdu).
+var uydu=L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+ {maxZoom:22,maxNativeZoom:18,attribution:'Esri'}).addTo(m);
+// IKINCI UYDU KATMANI: ayni saglayici, AYRI goruntu havuzu (farkli tarih ve
+// georeferans). Katmanlar arasi gecip ucaklarin GERCEKTEN durdugu yere hangisi
+// oturuyor diye bakmak icin — altlik kaymasini olcmenin en hizli yolu.
+var clarity=L.tileLayer('https://clarity.maptiles.arcgis.com/arcgis/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+ {maxZoom:22,maxNativeZoom:19,attribution:'Esri Clarity'});
+var sokak=L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+ {maxZoom:22,maxNativeZoom:19,attribution:'OpenStreetMap'});
+L.control.layers({'Uydu (Esri)':uydu,'Uydu (Esri Clarity)':clarity,
+ 'Sokak (binalar)':sokak}).addTo(m);
+
+var yol=%(yol)s;        // gorev noktalari (adim merkezleri)
+var inis=%(inis)s;      // her drone'un INIS yeri (plan'in son adimi)
+var inisMesafe=%(inis_mesafe)s;  // iki inis yeri arasi, metre
+var dronelar=%(dronelar)s;  // ucaklarin SU ANKI olculen yeri
+var zarf=%(zarf)s;      // kacis zarfi yaricapi (m) — ucus_ayarlari tek kaynak
+var hepsi=[];
+if(yol.length>1){
+  var cizgi=yol.map(function(p){return [p[1],p[2]]});
+  L.polyline(cizgi.concat([cizgi[0]]),{color:'#ff3b30',weight:3}).addTo(m);
+  hepsi=hepsi.concat(cizgi);
+}
+yol.forEach(function(p){
+  hepsi.push([p[1],p[2]]);
+  // KACIS ZARFI (SARI kesikli, gercek metre): kacinma tetiklenirse ucak
+  // planli noktadan bu kadar YANA itilebilir. Yesil noktanin bos olmasi
+  // yetmez — bu dairenin ICI de bina/agac/tel icermemeli.
+  L.circle([p[1],p[2]],{radius:zarf,color:'#ffd60a',weight:2,
+    dashArray:'6,4',fill:false}).addTo(m);
+  L.circleMarker([p[1],p[2]],{radius:8,color:'#fff',weight:2,
+    fillColor:'#34c759',fillOpacity:1}).addTo(m)
+   .bindTooltip(p[0],{permanent:true,direction:'top'});
+});
+// INIS NOKTALARI — MOR. Plan'in SON adimindaki hedefler, yani ucaklarin
+// gercekten inecegi yerler. Ayri ve belirgin ciziliyorlar cunku operatorun
+// haritadan yapacagi en kritik kontrol bu: cizgi formasyonunda takipci
+// liderden ARALIK_M kadar YANDA iniyor ve orasinin bos olmasi gerekiyor.
+// Daha once bunlar kucuk mavi noktalardi ve "hedef" diye etiketleniyordu;
+// hangisinin inis yeri oldugu haritaya bakan icin belli degildi.
+if(inis.length>1){
+  var il=inis.map(function(p){return [p[1],p[2]]});
+  L.polyline(il,{color:'#af52de',weight:2,dashArray:'6,6'}).addTo(m)
+   .bindTooltip(inisMesafe,{permanent:true,direction:'center'});
+}
+inis.forEach(function(p){
+  hepsi.push([p[1],p[2]]);
+  // 5 m GERCEK-METRE daire: inis alaninda bos tutulmasi gereken bolge.
+  // L.circle (L.circleMarker degil) — yakinlastirinca boyu degismez, yani
+  // uydu goruntusundeki bina/arac ile dogrudan karsilastirilabilir.
+  L.circle([p[1],p[2]],{radius:5,color:'#af52de',weight:2,
+    fillColor:'#af52de',fillOpacity:0.18}).addTo(m);
+  // INIS ZARFI (MOR kesikli): kacinma inis yaklasmasinda iterse ucak
+  // 5 m'lik bos alanin da DISINA, bu halkaya kadar sasabilir (5 + zarf).
+  L.circle([p[1],p[2]],{radius:5+zarf,color:'#af52de',weight:1.5,
+    dashArray:'6,4',fill:false}).addTo(m);
+  L.circleMarker([p[1],p[2]],{radius:9,color:'#fff',weight:3,
+    fillColor:'#af52de',fillOpacity:1}).addTo(m)
+   .bindTooltip(p[0],{permanent:true,direction:'bottom',offset:[0,10],
+     className:'inisEt'});
+});
+// TURUNCU = ucaklarin SU ANKI yeri. Iki ise yariyor:
+//  1) altlik kaymasini gozle olcmek — isaretci ucagin gercekte durdugu
+//     yerden ne kadar sapmis, oku
+//  2) GOREVE GIRMEYEN ucaklar da gorunur; onlar da fiziksel engel
+//     (1 Agustos: drone 1, gorevdeki drone 2'nin 1.98 m otesinde duruyordu
+//      ve carpisma denetimi tek dronlu senaryoda bunu HIC gormuyordu)
+dronelar.forEach(function(p){
+  hepsi.push([p[1],p[2]]);
+  // 5 m YARICAPLI CEMBER: kaymayi GOZLE METREYE cevirmek icin. Cember
+  // gercek metreyle cizilir (L.circle, L.circleMarker DEGIL), yani
+  // yakinlastirinca boyu degismez. Isaretci ucagin gercek yerinden bir
+  // cember capi kadar sapmissa kayma ~10 m demektir.
+  L.circle([p[1],p[2]],{radius:5,color:'#ff9f0a',weight:1,
+    dashArray:'4,4',fill:false}).addTo(m);
+  L.circleMarker([p[1],p[2]],{radius:9,color:'#000',weight:2,
+    fillColor:'#ff9f0a',fillOpacity:0.95}).addTo(m)
+   .bindTooltip(p[0],{permanent:true,direction:'right',offset:[10,14]});
+});
+// OLCEK CUBUGU: kaymayi "sanki biraz kaymis" degil, METRE olarak soyleyebil.
+L.control.scale({metric:true,imperial:false,maxWidth:220}).addTo(m);
+m.fitBounds(L.latLngBounds(hepsi).pad(1.5),{maxZoom:21});
+</script></body></html>
+"""
+
+
+def harita_yaz(plan, merkez0, origin, dosya, t=None):
+    """Gorev noktalarini UYDU goruntusu uzerinde tek haritaya yazar.
+
+    NEDEN VAR: kod engel GORMEZ — harita, geofence, mesafe sensoru yok.
+    Ucmadan once rotayi uydu goruntusune koyup bina/agac var mi diye
+    BAKMAK, elimizdeki tek engel kontrolu.
+
+    Iki katman cizilir: YESIL noktalar gorev noktalari (surunun merkezi),
+    MAVI noktalar her drone'un son hedefi. Formasyon testi gibi yatay
+    hareketin olmadigi senaryolarda tek yesil nokta cikar ve asil bilgi
+    mavilerdedir — o yuzden ikisi de gosteriliyor.
+    """
+    if origin is None:
+        print("  harita: origin turetilemedi, atlandi")
+        return
+    import json as _j
+    yol = []
+    for ad, (kz, dg) in _plan_noktalari(plan, merkez0):
+        la, lo = ned_to_latlon(origin, kz, dg)
+        yol.append([ad, la, lo])
+    # INIS YERLERI = plan'in SON adimindaki hedefler. Plan bitince gorev()
+    # dogrudan indir() cagiriyor, yani ucaklar tam bu noktalarda iniyor.
+    inis = []
+    if plan:
+        for did, h in sorted(plan[-1][2].items()):
+            la, lo = ned_to_latlon(origin, h[0], h[1])
+            etiket = f"d{did} İNİŞ" + (" (LİDER)" if did == LIDER else "")
+            inis.append([etiket, la, lo])
+    # Iki inis yeri arasi mesafe NED'de olculur, lat/lon'da degil: harita
+    # ofseti ikisine de ayni biniyor ve boylece sadelesiyor.
+    inis_mesafe = ""
+    if plan and len(plan[-1][2]) == 2:
+        (_a, ha), (_b, hb) = sorted(plan[-1][2].items())
+        inis_mesafe = f"{math.dist(ha[:2], hb[:2]):.1f} m"
+    # BAGLI HER ucak cizilir, yalnizca goreve girenler degil: goreve
+    # girmeyen ucak da fiziksel engeldir. NED uzerinden ceviriliyor ki
+    # plandaki noktalarla AYNI cerceveden (ve ayni ofsetle) ciksin.
+    dronelar = []
+    for did, d in sorted((t or {}).items()):
+        if not d.get("connected") or abs(d.get("lat", 0.0)) < 0.001:
+            continue
+        la, lo = ned_to_latlon(origin, d["pos_x"], d["pos_y"])
+        gorevde = "" if did in DRONELAR else "  (GÖREVDE DEĞİL)"
+        dronelar.append([f"d{did} ŞU AN{gorevde}", la, lo])
+    ofs = (f" &middot; harita ofseti {HARITA_OFSET_KD[0]:+.1f}K "
+           f"{HARITA_OFSET_KD[1]:+.1f}D m" if any(HARITA_OFSET_KD) else "")
+    zarf = AYAR.KACINMA_ZARF_YANAL_M
+    ozet = (f"aralik {ARALIK_M:.0f} m &middot; yon {ROTA_YONU_DEG:.0f}&deg;{ofs}<br>"
+            f"<b>kod engel gormez</b> - rotada bina/agac olmamali<br>"
+            f"<span style='color:#af52de'><b>MOR = INIS YERI</b></span>"
+            f" (5 m daire bos tutulmali"
+            + (f", aralari {inis_mesafe}" if inis_mesafe else "") + ")<br>"
+            f"<span style='color:#c7a500'><b>SARI kesikli = KACIS ZARFI</b>"
+            f"</span> ({zarf:.0f} m: kacinma iterse ucak planli noktadan bu"
+            f" kadar yana kayabilir; dikeyde +{AYAR.KACINMA_KATMAN_M:.0f} m"
+            f" tirmanma haritada gorunmez)<br>"
+            f"yesil = gorev noktasi &middot; "
+            f"turuncu = ucaklarin SU ANKI yeri (altlik kaymasini buradan olc)")
+    pathlib.Path(dosya).write_text(
+        _HARITA_SABLON % {"yol": _j.dumps(yol), "inis": _j.dumps(inis),
+                          "inis_mesafe": _j.dumps(inis_mesafe),
+                          "dronelar": _j.dumps(dronelar), "ozet": ozet,
+                          "zarf": _j.dumps(zarf)},
+        encoding="utf-8")
+    print(f"\n=== HARITA YAZILDI ===\n  {dosya}")
+    print(f"  Tarayicida ac:  xdg-open {dosya}")
+
+
+_HARITA_SEKANS_SABLON = """<!doctype html>
+<html lang="tr"><head><meta charset="utf-8">
+<title>Yelpence - formasyon gecis</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>html,body,#h{height:100%%;margin:0}
+.bilgi{position:absolute;z-index:1000;top:10px;left:50px;background:#fffd;
+padding:8px 12px;font:13px system-ui;border-radius:6px;box-shadow:0 1px 6px #0006;max-width:340px}
+.fazEt{background:#fff;border:none;font:700 12px system-ui;border-radius:4px;
+box-shadow:0 1px 4px #0007;padding:2px 6px}
+.kalkEt{background:#e0342c;color:#fff;border:none;font:700 12px system-ui;
+box-shadow:0 1px 4px #0007}
+.kalkEt::before{border-bottom-color:#e0342c}
+</style></head><body>
+<div class="bilgi">%(ozet)s</div>
+<div id="h"></div><script>
+var m=L.map('h');
+// maxNativeZoom 18 SART: Esri z19+ icin bu bolgede yer tutucu donduruyor.
+var uydu=L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+ {maxZoom:22,maxNativeZoom:18,attribution:'Esri'}).addTo(m);
+var clarity=L.tileLayer('https://clarity.maptiles.arcgis.com/arcgis/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+ {maxZoom:22,maxNativeZoom:19,attribution:'Esri Clarity'});
+var fazlar=%(fazlar)s;   // [{ad,renk,etiket_konum:[la,lo],slotlar:[[did,la,lo],..]},..]
+var kalkis=%(kalkis)s;   // [[did,la,lo],..]  kalkis = INIS
+var yollar=%(yollar)s;   // [{did,noktalar:[[la,lo],..]},..]
+var simdiki=%(simdiki)s; // [[etiket,la,lo],..]
+var zarfKose=%(zarf_kose)s; // [[la,lo] x4] tampon dikdortgen
+var hepsi=[];
+
+// FAZ SEKILLERI — faz basina TEK renk, slotlar ince cizgiyle bagli,
+// kalici etiket yalniz faz merkezinde (1 CIZGI / 2 OK BASI / ...).
+var gFaz=L.layerGroup().addTo(m);
+fazlar.forEach(function(f){
+  var pts=f.slotlar.map(function(s){return [s[1],s[2]]});
+  pts.forEach(function(p){hepsi.push(p)});
+  L.polyline(pts,{color:f.renk,weight:3,opacity:0.9}).addTo(gFaz);
+  f.slotlar.forEach(function(s){
+    L.circleMarker([s[1],s[2]],{radius:6,color:'#fff',weight:2,
+      fillColor:f.renk,fillOpacity:1}).addTo(gFaz)
+     .bindTooltip('d'+s[0]+' · '+f.ad,{direction:'top'});
+  });
+  L.marker(f.etiket_konum,{opacity:0}).addTo(gFaz)
+   .bindTooltip(f.etiket,{permanent:true,direction:'center',
+     className:'fazEt'});
+});
+
+// UCAK YOLLARI — gri kesikli; kimin oldugu uzerine gelince.
+var gYol=L.layerGroup().addTo(m);
+yollar.forEach(function(y){
+  L.polyline(y.noktalar,{color:'#555',weight:1.5,dashArray:'4,6',
+    opacity:0.8}).addTo(gYol).bindTooltip('d'+y.did+' yolu');
+});
+
+// KALKIS = INIS — kirmizi hedef isareti + 5 m bos-alan dairesi (gercek
+// metre; yakinlastirinca buyumez, uydudaki engelle dogrudan kiyaslanir).
+var gKalk=L.layerGroup().addTo(m);
+kalkis.forEach(function(s){
+  hepsi.push([s[1],s[2]]);
+  L.circle([s[1],s[2]],{radius:5,color:'#e0342c',weight:2,
+    fillColor:'#e0342c',fillOpacity:0.12}).addTo(gKalk);
+  L.circleMarker([s[1],s[2]],{radius:9,color:'#fff',weight:3,
+    fillColor:'#e0342c',fillOpacity:1}).addTo(gKalk)
+   .bindTooltip('d'+s[0]+' KALKIŞ+İNİŞ',{permanent:true,
+     direction:'bottom',offset:[0,10],className:'kalkEt'});
+});
+
+// SU ANKI KONUM (turuncu) — altlik kaymasini gozle olcmek icin.
+var gSimdi=L.layerGroup().addTo(m);
+simdiki.forEach(function(p){
+  L.circleMarker([p[1],p[2]],{radius:6,color:'#000',weight:1.5,
+    fillColor:'#ff9f0a',fillOpacity:0.95}).addTo(gSimdi)
+   .bindTooltip(p[0]);
+});
+
+// GUVENLIK ZARFI — nokta basina daire YERINE tum alani saran TEK
+// dikdortgen (butun faz slotlari + kacis payi). Ici bos olmali.
+var gZarf=L.layerGroup().addTo(m);
+L.polygon(zarfKose,{color:'#ffd60a',weight:2.5,dashArray:'8,6',
+  fill:false}).addTo(gZarf);
+zarfKose.forEach(function(p){hepsi.push(p)});
+
+L.control.layers({'Uydu (Esri)':uydu,'Uydu (Clarity)':clarity},
+ {'Faz şekilleri':gFaz,'Uçak yolları':gYol,'Kalkış/İNİŞ':gKalk,
+  'Şu anki konum':gSimdi,'Güvenlik zarfı':gZarf},
+ {collapsed:false}).addTo(m);
+L.control.scale({metric:true,imperial:false,maxWidth:220}).addTo(m);
+m.fitBounds(L.latLngBounds(hepsi).pad(0.6),{maxZoom:20});
+</script></body></html>
+"""
+
+_SEKANS_FAZ_RENKLERI = ("#0a84ff", "#b57500", "#af52de", "#1f9d4d")
+
+
+def harita_yaz_sekans(plan, origin, dosya, t=None):
+    """formasyon_gecis icin OKUNAKLI harita — genel harita_yaz yerine.
+
+    Genel harita bu senaryoda karisiyordu (28 Agu operator geri bildirimi):
+    dort fazin noktalari ayni bolgeye ust uste dusuyor, her noktaya kalici
+    etiket + zarf dairesi binince okunmaz oluyordu. Burada:
+      * faz basina TEK renk ve TEK kalici etiket (slot adlari hover'da)
+      * ucak yollari ince gri kesikli (kim nereden nereye — hover)
+      * kalkis=INIS tek kirmizi isaret (eve donusuyle ayni nokta)
+      * zarf: nokta basina daire yerine tum alani saran TEK dikdortgen
+      * katman denetimiyle her grup ac/kapa
+    """
+    if origin is None:
+        print("  harita: origin turetilemedi, atlandi")
+        return
+    import json as _j
+    fazlar = []
+    for i, adim in enumerate(plan):
+        etiket, _h, hedefler = adim[0], adim[1], adim[2]
+        ad = etiket.split(" (")[0]
+        renk = _SEKANS_FAZ_RENKLERI[i % len(_SEKANS_FAZ_RENKLERI)]
+        slotlar = []
+        for did in sorted(hedefler):
+            la, lo = ned_to_latlon(origin, hedefler[did][0], hedefler[did][1])
+            slotlar.append([did, la, lo])
+        mk = sum(hedefler[d][0] for d in hedefler) / len(hedefler)
+        md = sum(hedefler[d][1] for d in hedefler) / len(hedefler)
+        ela, elo = ned_to_latlon(origin, mk, md)
+        fazlar.append({"ad": ad, "renk": renk, "etiket": f"{i + 1} {ad}",
+                       "etiket_konum": [ela, elo], "slotlar": slotlar})
+    # Kalkis = son adim (EVE) hedefleri = inis yerleri.
+    kalkis = []
+    if plan:
+        for did in sorted(plan[-1][2]):
+            h = plan[-1][2][did]
+            la, lo = ned_to_latlon(origin, h[0], h[1])
+            kalkis.append([did, la, lo])
+    # Ucak basina yol: kalkis -> her fazin slotu (sirali).
+    yollar = []
+    for did in DRONELAR:
+        noktalar = []
+        for k in kalkis:
+            if k[0] == did:
+                noktalar.append([k[1], k[2]])
+        for adim in plan:
+            h = adim[2][did]
+            la, lo = ned_to_latlon(origin, h[0], h[1])
+            noktalar.append([la, lo])
+        yollar.append({"did": did, "noktalar": noktalar})
+    simdiki = []
+    for did, d in sorted((t or {}).items()):
+        if not d.get("connected") or abs(d.get("lat", 0.0)) < 0.001:
+            continue
+        la, lo = ned_to_latlon(origin, d["pos_x"], d["pos_y"])
+        simdiki.append([f"d{did} şu an", la, lo])
+    # Zarf dikdortgeni: butun plan noktalarinin NED bbox'u + kacis payi.
+    zarf = AYAR.KACINMA_ZARF_YANAL_M
+    ks = [h[0] for adim in plan for h in adim[2].values()]
+    ds = [h[1] for adim in plan for h in adim[2].values()]
+    kmin, kmax = min(ks) - zarf, max(ks) + zarf
+    dmin, dmax = min(ds) - zarf, max(ds) + zarf
+    zarf_kose = [list(ned_to_latlon(origin, kk, dd))
+                 for kk, dd in ((kmax, dmin), (kmax, dmax),
+                                (kmin, dmax), (kmin, dmin))]
+    ozet = (f"<b>Formasyon geçiş testi</b> — aralık "
+            f"{AYAR.SEKANS_ARALIK_M:.1f} m · irtifa "
+            f"{AYAR.SEKANS_IRTIFA_M:.0f} m<br>"
+            + " → ".join(f"<span style='color:{f['renk']}'><b>{f['ad']}"
+                         f"</b></span>" for f in fazlar) + "<br>"
+            f"<span style='color:#e0342c'><b>KIRMIZI = kalkış VE iniş"
+            f"</b></span> (eve dönüş; 5 m daire boş olmalı)<br>"
+            f"<span style='color:#c7a500'><b>SARI çerçeve</b></span> = "
+            f"uçuş alanı + {zarf:.0f} m kaçış payı — İÇİ tamamen boş "
+            f"olmalı (kod engel görmez); dikeyde +"
+            f"{AYAR.KACINMA_KATMAN_M:.0f} m<br>"
+            f"gri kesikli = uçak yolları · turuncu = şu anki yer "
+            f"(altlık kayması buradan ölçülür)")
+    pathlib.Path(dosya).write_text(
+        _HARITA_SEKANS_SABLON % {
+            "fazlar": _j.dumps(fazlar), "kalkis": _j.dumps(kalkis),
+            "yollar": _j.dumps(yollar), "simdiki": _j.dumps(simdiki),
+            "zarf_kose": _j.dumps(zarf_kose), "ozet": ozet},
+        encoding="utf-8")
+    print(f"\n=== HARITA YAZILDI (sekans gorunumu) ===\n  {dosya}")
+
+
+def ayak_izi_yaz(plan, merkez0):
+    """Kalkis noktasina gore HANGI YONDE NE KADAR yer gerektigini yazar.
+
+    NEDEN VAR: kod binalari, agaclari, direkleri GORMEZ. Ucusun guvenligi
+    tamamen rotanin acik alana denk gelmesine bagli. Ucmadan once
+    "kuzeye 22 m, doguya 24 m yer lazim" diye somut gormek gerekiyor;
+    "18 m'lik ucgen" demek yetmiyor cunku formasyon sapmasi ve rotasyon
+    ucaklari noktalarin OTESINE tasiyor.
+    """
+    k = [h[0] - merkez0[0] for _e, _h, hed, *_ in plan for h in hed.values()]
+    d = [h[1] - merkez0[1] for _e, _h, hed, *_ in plan for h in hed.values()]
+    z = [h[2] for _e, _h, hed, *_ in plan for h in hed.values()]
+    print("\n=== GEREKEN ALAN (kalkış noktasına göre) ===")
+    print(f"  kuzey  : {max(k):+6.1f} m        güney  : {min(k):+6.1f} m")
+    print(f"  doğu   : {max(d):+6.1f} m        batı   : {min(d):+6.1f} m")
+    print(f"  irtifa : {min(z):.1f} - {max(z):.1f} m")
+    print(f"  toplam kutu: {max(k)-min(k):.0f} m (K-G) x {max(d)-min(d):.0f} m (D-B)")
+    # KACIS ZARFI: kacinma tetiklenirse ucak planli noktadan yana itilir;
+    # temiz tutulmasi gereken alan kutudan ZARF kadar genis (24 Agustos).
+    z_pay = AYAR.KACINMA_ZARF_YANAL_M
+    print(f"  + kaçış zarfı (her yana {z_pay:.0f} m): "
+          f"{max(k)-min(k)+2*z_pay:.0f} m (K-G) x "
+          f"{max(d)-min(d)+2*z_pay:.0f} m (D-B)"
+          f"  · dikeyde +{AYAR.KACINMA_KATMAN_M:.0f} m tırmanma payı")
+    print(f"  rota yönü  : {ROTA_YONU_DEG:.0f}°  (0=kuzey, 90=doğu)")
+    print("  UYARI: kod engel GÖRMEZ. Bu kutunun içinde bina/ağaç/direk olmamalı.")
+
+
+def plan_kur_test(merkez0, baslangic=None):
+    """BASIT IKI DRONE TESTI — tam koreografiden once zinciri sinamak icin.
+
+    Kalkis -> kuzeybatiya kisa gidis -> bekle -> irtifa degisimi -> eve don.
+
+    Tam gorevden farki: formasyon degisimi, roll manevrasi ve cok noktali
+    ucgen YOK. Amac ilk kez IKI ucagi birlikte havada tutmak ve formasyonun
+    gercekten korunup korunmadigini gormek. Formasyon CIZGI: ucaklar gidis
+    yonune DIK, yan yana — biri digerinin pervane akiminda kalmaz.
+    """
+    plan = []
+    onceki = dict(baslangic) if baslangic else None
+    slot = None
+
+    def ekle(etiket, merkez, heading, formasyon, irtifa, roll,
+             yeniden_ata=False, beklet=True):
+        nonlocal onceki, slot
+        h, slot = hedefler_uret(merkez, heading, formasyon, irtifa, roll,
+                                onceki, slot, yeniden_ata)
+        plan.append((etiket, heading, h, beklet))
+        onceki = h
+
+    KB = 315.0                      # kuzeybati
+    MESAFE = 15.0
+    r = math.radians(KB)
+    hedef = (merkez0[0] + MESAFE * math.cos(r), merkez0[1] + MESAFE * math.sin(r))
+
+    ekle("kalkis: cizgi dizilis", merkez0, KB, "cizgi", GOREV_IRTIFA_M, 0.0,
+         yeniden_ata=bool(baslangic))
+    ekle("-> kuzeybati %.0f m" % MESAFE, hedef, KB, "cizgi", GOREV_IRTIFA_M, 0.0,
+         beklet=False)
+    ekle("BEKLE (formasyon tutuyor mu)", hedef, KB, "cizgi", GOREV_IRTIFA_M, 0.0)
+    ekle("IRTIFA %.0f->%.0f m" % (GOREV_IRTIFA_M, YENI_IRTIFA_M),
+         hedef, KB, "cizgi", YENI_IRTIFA_M, 0.0)
+    ekle("-> EV (kalkis noktasi)", merkez0, (KB + 180.0) % 360.0, "cizgi",
+         YENI_IRTIFA_M, 0.0, beklet=False)
+    return plan
+
+
+def _kacis_marj() -> float:
+    """Kaçış kesicisinin marjı — kaçınma açıkken geniş."""
+    return KACIS_MARJ_KACINMA_M if _KACINMA_ACIK else KACIS_MARJ_M
+
+
+def plan_kur_tam(t):
+    """KANIT VİDEOSU KOREOGRAFİSİ — çizgi, ileri, roll, eksen, eve dönüş.
+
+    Adımlar:
+      1) çizgi dizilişi (lider kendi kalkış noktasında)
+      2) liderin baktığı yönde TAM_MESAFE_M
+      3) KUZEYDOĞU'ya rotasyon (lider yerinde, takipçi yay çizer)
+      4) ROLL — lider sabit, takipçi ARALIK_M*tan(roll) kadar yukarı
+      5) roll'u KORUYARAK KD navigasyonu, evin GÜNEYDOĞU ekseni üzerine
+      6) irtifa eşitleme (roll sıfırlanır)
+      7) GÜNEYDOĞU'ya rotasyon
+      8) eve dönüş, formasyon korunarak
+      9) iniş
+
+    GÜNEYDOĞU EKSENİ: KD (45°) ile GD (135°) diktir; KD boyunca ilerlerken
+    evin tam GD yönünde kaldığı TEK bir nokta vardır. Mesafesi, (P - ev)
+    vektörünün KD birim vektörü üzerindeki izdüşümüdür (işaret ters).
+    """
+    lider = LIDER
+    l = t[lider]
+    H = (l["pos_x"], l["pos_y"])
+    lyaw = l["yaw_deg"]
+
+    ofs = formasyon_ofsetleri("cizgi", len(DRONELAR))
+    slot = {lider: 0}
+    for i, did in enumerate([d for d in DRONELAR if d != lider], start=1):
+        slot[did] = i
+
+    def _hedefler(nokta, yon, roll=0.0):
+        """Lider 'nokta'da ve TAM_IRTIFA_M'de; formasyon 'yon'a, 'roll' eğimli.
+
+        Roll'un dz'si LİDERE göre sıfırlanır: egim_dz sürü merkezini sabit
+        tutuyor ve lideri aşağı alıyor; operatör liderin alçalmasını istemedi.
+        """
+        h = math.radians(yon)
+        o_i, o_s = ofs[0]
+        merkez = (nokta[0] - (o_i * math.cos(h) + o_s * (-math.sin(h))),
+                  nokta[1] - (o_i * math.sin(h) + o_s * math.cos(h)))
+        dz = egim_dz(ofs, 0.0, roll)
+        dz = [z - dz[0] for z in dz]          # lider referans: kendisi 0
+        noktalar = [slot_dunya(merkez, yon, *o) + (TAM_IRTIFA_M + z,)
+                    for o, z in zip(ofs, dz)]
+        return {did: noktalar[slot[did]] for did in DRONELAR}
+
+    def _rotasyon(plan, nokta, bas, son, roll=0.0):
+        """bas -> son yönüne KISA taraftan, geçiş noktalarıyla dilimleyerek."""
+        fark = (son - bas) % 360.0
+        if fark > 180.0:
+            fark -= 360.0
+        n = max(1, int(round(abs(fark) / DONUS_ROTASYON_ADIM_DEG)))
+        for i in range(1, n + 1):
+            ara = (bas + fark * i / n) % 360.0
+            if i == n:
+                plan.append((f"rotasyon -> {ara:.0f}° tamam", ara,
+                             _hedefler(nokta, ara, roll), True))
+            else:
+                plan.append((f"rotasyon {i}/{n} -> {ara:.0f}°", ara,
+                             _hedefler(nokta, ara, roll), False,
+                             DONUS_GECIS_R_M))
+
+    h0 = math.radians(lyaw)
+    P = (H[0] + TAM_MESAFE_M * math.cos(h0), H[1] + TAM_MESAFE_M * math.sin(h0))
+    kd = math.radians(TAM_KD_DEG)
+    # SABIT MESAFE (operator karari). Referans olarak GD ekseninin nerede
+    # oldugunu da hesaplayip ekrana basiyoruz ki ne kadar gecildigi gorulsun.
+    s_eksen = -((P[0] - H[0]) * math.cos(kd) + (P[1] - H[1]) * math.sin(kd))
+    s = TAM_KD_MESAFE_M
+    Q = (P[0] + s * math.cos(kd), P[1] + s * math.sin(kd))
+    gd = (math.degrees(math.atan2(H[1] - Q[1], H[0] - Q[0])) + 360.0) % 360.0
+    print(f"    [tam] KD bacağı {s:.0f} m · GD ekseni {s_eksen:.1f} m'de "
+          f"({s - s_eksen:+.1f} m geçiliyor) · eve yön {gd:.0f}° "
+          f"(eksende olsaydı 135°)")
+
+    plan = [
+        (f"çizgi dizilişi (lider d{lider})", lyaw, _hedefler(H, lyaw), True),
+        (f"-> {TAM_MESAFE_M:.0f} m ileri (yön {lyaw:.0f}°)", lyaw,
+         _hedefler(P, lyaw), TAM_BEKLEME_S),
+    ]
+    _rotasyon(plan, P, lyaw, TAM_KD_DEG)
+    plan.append((f"ROLL {TAM_ROLL_DEG:.0f}° (takipçi yukarı)", TAM_KD_DEG,
+                 _hedefler(P, TAM_KD_DEG, TAM_ROLL_DEG), True))
+    plan.append((f"-> KD {s:.0f} m, roll KORUNARAK", TAM_KD_DEG,
+                 _hedefler(Q, TAM_KD_DEG, TAM_ROLL_DEG), TAM_BEKLEME_S))
+    plan.append(("irtifa EŞİTLE (roll 0)", TAM_KD_DEG,
+                 _hedefler(Q, TAM_KD_DEG, 0.0), True))
+    _rotasyon(plan, Q, TAM_KD_DEG, gd)
+    plan.append((f"-> EV (lider d{lider} kalkış noktası)", gd,
+                 _hedefler(H, gd), True))
+    return plan
+
+
+def plan_kur_saha(t):
+    """KANIT VİDEOSU — haritadan seçilen 5 nokta (bkz. SAHA_NOKTALAR_GPS).
+
+     1) kalkış SAHA_IRTIFA_M; takipçi liderin yanına ÇİZGİ formasyonunda
+        gelir (diziliş doğrudan 1→2 bacağının yönünde kurulur)
+     2) 2. noktaya (formasyon korunarak)
+     3) 3. noktanın yönüne DÖN — roll'dan ÖNCE
+     4) ROLL 30° — lider sabit, takipçi yukarı; 5 sn rollü bekleme
+     5) roll DÜZELT
+     6) 3. noktaya
+     7) ÇİZGİ -> OK BAŞI
+     8) 4. noktaya (ok başı ile)
+     9) 4. NOKTADA YERİNDE irtifa SAHA_IRTIFA_M -> SAHA_IRTIFA2_M
+    10) 5. noktaya (ok başı korunarak)
+    11) SAHA_INIS_YON_DEG yönüne dön, OK BAŞI -> ÇİZGİ
+    12) iniş (plan bitince gorev() indir() çağırır)
+
+    Her bacaktan ÖNCE sürü gideceği yöne döner (dilimlenmiş yay; lider
+    yerinde durur, takipçi etrafında yay çizer).
+    """
+    lider = LIDER
+    l = t[lider]
+    P = [(l["pos_x"], l["pos_y"])] + list(SAHA_NOKTALAR[1:])
+
+    sapma = math.hypot(P[0][0] - SAHA_NOKTALAR[0][0],
+                       P[0][1] - SAHA_NOKTALAR[0][1])
+    print(f"    [saha] 1. nokta ÖLÇÜLDÜ: ({P[0][0]:+.1f}, {P[0][1]:+.1f}) — "
+          f"haritada seçtiğinden {sapma:.1f} m sapma")
+
+    slot = {lider: 0}
+    for i, did in enumerate([d for d in DRONELAR if d != lider], start=1):
+        slot[did] = i
+
+    def _hedefler(nokta, yon, formasyon, irtifa, roll=0.0):
+        """Lider 'nokta'da ve 'irtifa'da; formasyon 'yon'a, 'roll' eğimli."""
+        ofs = formasyon_ofsetleri(formasyon, len(DRONELAR))
+        h = math.radians(yon)
+        o_i, o_s = ofs[0]
+        merkez = (nokta[0] - (o_i * math.cos(h) + o_s * (-math.sin(h))),
+                  nokta[1] - (o_i * math.sin(h) + o_s * math.cos(h)))
+        dz = egim_dz(ofs, 0.0, roll)
+        dz = [z - dz[0] for z in dz]          # lider referans: kendisi 0
+        noktalar = [slot_dunya(merkez, yon, *o) + (irtifa + z,)
+                    for o, z in zip(ofs, dz)]
+        return {did: noktalar[slot[did]] for did in DRONELAR}
+
+    def _rotasyon(plan, nokta, bas, son, formasyon, irtifa):
+        """bas -> son yönüne KISA taraftan, geçiş yarıçaplı dilimlerle.
+
+        KUCUK ACILAR ATLANIR: 3->4 bacaginda donus yalniz 2 derece. Bunu ayri
+        bir rotasyon adimi yapmak 6 saniyelik yerlesme beklemesi ekliyor ve
+        videoda gorunmuyor bile. Esigin altinda kalirsa hic adim uretmiyoruz;
+        yeni yon bir sonraki bacagin uzerinde tasiniyor (ucak seyir ederken
+        2 derece cevirmek bedava).
+        """
+        fark = (son - bas) % 360.0
+        if fark > 180.0:
+            fark -= 360.0
+        if abs(fark) < SAHA_MIN_ROTASYON_DEG:
+            return
+        n = max(1, int(round(abs(fark) / DONUS_ROTASYON_ADIM_DEG)))
+        for i in range(1, n + 1):
+            ara = (bas + fark * i / n) % 360.0
+            if i == n:
+                plan.append((f"rotasyon -> {ara:.0f}° tamam", ara,
+                             _hedefler(nokta, ara, formasyon, irtifa),
+                             SAHA_ROTASYON_BEKLEME_S))
+            else:
+                plan.append((f"rotasyon {i}/{n} -> {ara:.0f}°", ara,
+                             _hedefler(nokta, ara, formasyon, irtifa),
+                             False, DONUS_GECIS_R_M))
+
+    yon = [yon_derece(P[i], P[i + 1]) for i in range(4)]
+    uzn = [math.hypot(P[i + 1][0] - P[i][0], P[i + 1][1] - P[i][1])
+           for i in range(4)]
+    for i in range(4):
+        print(f"    [saha] {i+1}→{i+2}: {uzn[i]:.1f} m, yön {yon[i]:.0f}°")
+
+    C1, C2 = "cizgi", "okbasi"
+    A1, A2 = SAHA_IRTIFA_M, SAHA_IRTIFA2_M
+
+    plan = [
+        # Takipcinin yonu HESAPLANIR, yazilmaz: cizgi formasyonunda takipci
+        # liderin SAGINDA durur, yani ilk bacagin yonu + 90. Burasi eskiden
+        # "takipci batiya" diye SABIT yaziliyordu (199 derecelik eski sahaya
+        # gore dogruydu). Saha degisince etiket yanlis yere isaret eder ve
+        # operator ucagi ters tarafa koyar; o zaman takipci liderin UZERINDEN
+        # gecmek zorunda kalir ve plan_dogrula gorevi sahada reddeder.
+        (f"çizgi dizilişi (lider d{lider}, takipçi "
+         f"{_pusula_adi((yon[0] + 90.0) % 360.0)})", yon[0],
+         _hedefler(P[0], yon[0], C1, A1), SAHA_DIZILIS_BEKLEME_S),
+        (f"-> 2. NOKTA ({uzn[0]:.0f} m, yön {yon[0]:.0f}°)", yon[0],
+         _hedefler(P[1], yon[0], C1, A1), SAHA_BEKLEME_S),
+    ]
+    # ROTASYON ROLL'DAN ONCE (operator sarti, 2 Agustos): "nokta 2'ye gitsinler,
+    # orada nokta 3'e donsunler HAREKET ETMEDEN ONCE roll yapsin, sonra rollu
+    # duzeltsin". Eskiden sira roll -> duzelt -> rotasyon idi.
+    #
+    # YAN FAYDASI GERCEK: roll, takipciyi liderin etrafinda ARALIK_M yaricapli
+    # bir yay uzerinde tutarak yukari kaldiriyor. Once rotasyonu bitirirsek
+    # takipci roll aninda ZATEN son yonundeki slotunda duruyor; roll bitince
+    # yalnizca DIKEY iniyor ve arkasindan yatay hareket gelmiyor. Eski sirada
+    # roll duzeltmesinin dikey oturmasi ile rotasyon yayinin yatay hareketi
+    # ust uste biniyordu.
+    _rotasyon(plan, P[1], yon[0], yon[1], C1, A1)
+    plan.append((f"ROLL {SAHA_ROLL_DEG:.0f}° (takipçi yukarı)", yon[1],
+                 _hedefler(P[1], yon[1], C1, A1, SAHA_ROLL_DEG),
+                 SAHA_ROLL_BEKLE_S))
+    plan.append(("roll DÜZELT", yon[1],
+                 _hedefler(P[1], yon[1], C1, A1), SAHA_DIKEY_BEKLEME_S))
+    plan.append((f"-> 3. NOKTA ({uzn[1]:.0f} m, yön {yon[1]:.0f}°)", yon[1],
+                 _hedefler(P[2], yon[1], C1, A1), SAHA_BEKLEME_S))
+    plan.append(("formasyon: ÇİZGİ -> OK BAŞI", yon[1],
+                 _hedefler(P[2], yon[1], C2, A1), SAHA_FORMASYON_BEKLEME_S))
+    _rotasyon(plan, P[2], yon[1], yon[2], C2, A1)
+    plan.append((f"-> 4. NOKTA ({uzn[2]:.0f} m, yön {yon[2]:.0f}°)", yon[2],
+                 _hedefler(P[3], yon[2], C2, A1), SAHA_BEKLEME_S))
+    # TIRMANIS 4. NOKTADA, YERINDE (operator sarti): "nokta 4'e gitsinler
+    # ORADA 15 metre irtifaya ciksinlar". Onceki surumde son bacaga gomuluydu.
+    # OK BASI KORUNUYOR: operator 4. noktada cizgiye donmeyi istemedi, yani
+    # suru 3. noktadan INISE KADAR ok basi formasyonunda kaliyor. Sartnamenin
+    # "en az bir formasyon degisimi" sarti cizgi -> ok basi ile zaten saglandi.
+    plan.append((f"irtifa {A1:.0f} -> {A2:.0f} m (yerinde, ok başı)", yon[2],
+                 _hedefler(P[3], yon[2], C2, A2), SAHA_DIKEY_BEKLEME_S))
+    _rotasyon(plan, P[3], yon[2], yon[3], C2, A2)
+    plan.append((f"-> 5. NOKTA ({uzn[3]:.0f} m, yön {yon[3]:.0f}°)",
+                 yon[3], _hedefler(P[4], yon[3], C2, A2),
+                 SAHA_BEKLEME_S))
+    # INIS DIZILISI (operator sarti, 2 Agustos): "5 numaraya geldiginde
+    # guneydoguya donsunler ve cizgi formasyonuna gecsinler, oyle insinler."
+    #
+    # SIRA BILEREK BOYLE: once rotasyon, sonra formasyon. Rotasyon takipciyi
+    # liderin etrafinda ARALIK_M yaricapli bir yay uzerinde tasiyor. Formasyonu
+    # once degistirseydik takipci once ok basi slotundan cizgi slotuna gider,
+    # ARDINDAN yay boyunca yeniden tasinirdi — iki ayri hareket. Bu sirayla
+    # takipci son slotuna tek seferde oturuyor.
+    #
+    # INISTEN ONCEKI SON ADIM BU: plan bitince gorev indir() cagiriyor, yani
+    # ucaklar bu formasyonda ve bu yonde iniyor. Cizgi formasyonunda takipci
+    # liderin SAGINDA, yani 135+90 = 225 (guneybati) yonunde ARALIK_M kadar
+    # otede. Operator inis alanini ona gore bos tutmali.
+    _rotasyon(plan, P[4], yon[3], SAHA_INIS_YON_DEG, C2, A2)
+    plan.append((f"formasyon: OK BAŞI -> ÇİZGİ (iniş dizilişi, yön "
+                 f"{SAHA_INIS_YON_DEG:.0f}° {_pusula_adi(SAHA_INIS_YON_DEG)})",
+                 SAHA_INIS_YON_DEG,
+                 _hedefler(P[4], SAHA_INIS_YON_DEG, C1, A2),
+                 SAHA_INIS_ONCESI_BEKLEME_S))
+    return plan
+
+
+def plan_kur_gorev1(t):
+    """GOREV 1'in KAGIT MODELI — bu betik gorevi YURUTMEZ, CIZER.
+
+    🔴 KARISMASIN: Gorev 1 ZATEN YAZILI ve UCAKTA kosuyor
+    (`swarm_missions/mission1_dynamic_swarm` + `mission_fsm`). Otonom
+    zincir odur; YKI'nin izinli tek rolu "gorevi baslat".
+
+    Burasi o zincirin YERDEKI MODELI. Tek amaci CLAUDE.md §9 madde 5'i
+    yerine getirmek:
+      * `--kuru`  -> carpisma denetimi (hangi iki ucak birbirine yaklasiyor)
+      * `--harita`-> ucaklarin gidecegi ve ozellikle INECEGI noktalari
+                     uydu goruntusune koymak
+    Diger senaryolar (kanit/final/saha) YKI'den goto basar; bu senaryo
+    hicbir sey GONDERMEZ, yalnizca plan uretir. Canli kosulursa da tek
+    yaptigi ayni noktalari basmaktir — ama amaci o degil.
+
+    🔴 KAYMA RISKI VE NASIL ONLENDI. Elle yazilmis bir model, ucaktaki
+    kodla zamanla ayrisir ve harita SESSIZCE yalan soylemeye baslar. Bu
+    yuzden hicbir sayi burada tekrar YAZILMIYOR:
+      * irtifalar / kadro / kamerali ajan  -> `ucus_ayarlari` (AYAR)
+      * QR arama merdiveni                 -> orkestratorun KENDISINDEN
+        (`Mission1Orchestrator._arama_merdiveni`), yani ucak hangi
+        basamaklari ucacaksa harita onlari cizer
+      * kalkis dizilisi ve iniş noktalari  -> CANLI TELEMETRI
+      * QR konumlari                       -> --qr-tablo (enjekte edilenle
+        ayni sozdizimi)
+
+    MODELLENEN AKIS (orchestrator.py karsiliklariyla):
+      1) kalkis            herkes KENDI yerinde, GOREV_KALKIS_IRTIFA
+      2) QR'a seyir        `_on_navigate`: merkez, KAMERALI ucak QR'in
+                           ustune gelecek sekilde cipalanir
+      3) QR uzerinde       `_maybe_qr_recovery`: inen irtifa merdiveni
+      4) eve donus         `_donus_hedefi` faz 1
+      5) dikey merdiven    faz 2 (yatayda kimildama yok)
+      6) dagilma           faz 3 — herkes KENDI kalkis noktasina
+      7) inis              faz 4; plan'in SON adimi = INIS NOKTALARI
+
+    ⚠️ DIZILIS SEYIRDE DONER. Ofsetler kalkis basligi cercevesinde
+    saklaniyor (`_snapshot_offsets` + `_ters_dondur`), asagi akista
+    `formation_node` onlari komutun heading'iyle donduruyor. Kalkista
+    heading = kalkis basligi (iki dondurme sadelesir), seyirde ise
+    heading = QR'a bearing — yani diziliş aradaki fark kadar DONER.
+    Model bunu taklit ediyor; etmeseydi harita takipcileri yanlis yerde
+    gosterirdi.
+    """
+    eksik = [d for d in DRONELAR if d not in t]
+    if eksik:
+        raise SystemExit(
+            f"Telemetride yok: drone {eksik} — gorev1 senaryosu kalkis "
+            f"dizilisini OLCUYOR, uydurmuyor. Ucaklar ayakta olmali."
+        )
+    origin = _origin_bul(t)
+    if origin is None:
+        raise SystemExit("origin turetilemedi (GPS yok) — QR konumlari "
+                         "NED'e cevrilemez.")
+    if not _QR_TABLO:
+        raise SystemExit(
+            "gorev1 senaryosu --qr-tablo ISTER: \"1:lat,lon;2:lat,lon\".\n"
+            "  Ucaklara enjekte edilen tabloyla AYNI metni ver — harita "
+            "baska bir tabloyu cizerse kontrol degeri kalmaz."
+        )
+
+    # --- Kalkis dizilisi: OLCULUR ------------------------------------------
+    K = {d: (t[d]["pos_x"], t[d]["pos_y"]) for d in DRONELAR}
+    home = (sum(p[0] for p in K.values()) / len(K),
+            sum(p[1] for p in K.values()) / len(K))
+    kalkis_yaw = float(t[LIDER].get("yaw_deg") or 0.0)
+
+    def _govdeye(dk, dd, yon):
+        """Dunya ofsetini govde (ileri, sag) cercevesine cevirir."""
+        h = math.radians(yon)
+        return (dk * math.cos(h) + dd * math.sin(h),
+                -dk * math.sin(h) + dd * math.cos(h))
+
+    # Ofsetler KALKIS BASLIGI cercevesinde — orchestrator._ters_dondur.
+    ofs = {d: _govdeye(K[d][0] - home[0], K[d][1] - home[1], kalkis_yaw)
+           for d in DRONELAR}
+
+    def _hedefler(merkez, yon, irtifa, katman=None):
+        """merkez + dondurulmus ofset -> {drone: (kuzey, dogu, irtifa)}."""
+        out = {}
+        for i, d in enumerate(DRONELAR):
+            x, y = slot_dunya(merkez, yon, *ofs[d])
+            z = irtifa + (0.0 if katman is None else katman * i)
+            out[d] = (x, y, z)
+        return out
+
+    # --- QR tablosu --------------------------------------------------------
+    qr_ned = []
+    for parca in _QR_TABLO.split(";"):
+        parca = parca.strip()
+        if not parca:
+            continue
+        qid, konum = parca.split(":", 1)
+        la, lo = konum.split(",", 1)
+        qr_ned.append((int(qid), latlon_to_ned(origin, float(la), float(lo))))
+
+    kam = int(AYAR.GOREV_KAMERA_AJAN or 0) or LIDER
+    if kam not in DRONELAR:
+        raise SystemExit(f"GOREV_KAMERA_AJAN={kam} kadroda ({DRONELAR}) YOK — "
+                         f"formasyon QR ustune UCMAYAN bir ucagi cipalar.")
+
+    # --- Arama merdiveni: ORKESTRATORUN KENDISINDEN ------------------------
+    try:
+        from swarm_missions.mission1_dynamic_swarm.orchestrator import (
+            Mission1Orchestrator, OrchestratorConfig,
+        )
+        merdiven = Mission1Orchestrator(OrchestratorConfig(
+            qr_okuma_irtifa_m=AYAR.GOREV_QR_OKUMA_IRTIFA_M,
+        ))._arama_merdiveni()
+    except ImportError as e:
+        raise SystemExit(
+            f"orchestrator ithal edilemedi ({e}) — arama merdivenini "
+            f"BURADA TEKRAR YAZMAK yerine duruyoruz: elle yazilan bir "
+            f"merdiven ucaktakinden sessizce ayrisir ve harita yalan soyler."
+        )
+
+    kalkis_irtifa = float(AYAR.GOREV_KALKIS_IRTIFA_M)
+    katman = float(AYAR.GOREV_DONUS_KATMAN_M)
+    # 🔴 TOPLANMA MERDIVENI DE MODELLENMELI (8 Eylul'de eksikti).
+    # `_on_takeoff` kalkista bu merdiveni kuruyor ve QR'da formasyon
+    # OTURANA KADAR acik tutuyor (`_maybe_formation_settled` kaldiriyor).
+    # Modelde yoktu; gidis bacagini ucaklar AYNI irtifadaymis gibi
+    # cizdigi icin olmayan carpismalar raporluyordu.
+    toplanma = float(getattr(AYAR, 'GOREV_TOPLANMA_KATMAN_M', 0.0) or 0.0)
+
+    def _gecis(plan, etiket, m0, y0, m1, y1, irtifa, katman=None):
+        """Merkez ve heading'i BIRLIKTE dilimleyerek plana ekler.
+
+        🔴 DILIMLEMEK ZORUNLU, yoksa DENETIM YALAN SOYLER. Carpisma
+        denetleyicisi ardisik iki adim arasini DUZ CIZGI sayiyor. Buyuk
+        bir heading degisimini tek adimda yazarsak, 26 m arayla duran
+        ucaklar "merkezden gecerek" karsi tarafa gidiyormus gibi gorunur
+        ve 0.69 m'lik sahte bir ihlal cikar (bu yasandi).
+        Gercekte oyle olmuyor: `path_planner._step_heading_deg` heading'i
+        `max_heading_slew_deg_s` ile RAMPALIYOR, saf rotasyonda da
+        `_yay_kur` merkezi sabit tutup YAY cizdiriyor. Rijit donuste
+        ucaklar arasi mesafe DEGISMEZ. Dilimleyince denetim bunu gorur ve
+        geriye yalnizca GERCEK yaklasmalar kalir.
+
+        Dilim acisi `DONUS_ROTASYON_ADIM_DEG` — `plan_kur_final._rotasyon`
+        ile ayni sabit, ayni gerekce.
+        """
+        fark = (y1 - y0) % 360.0
+        if fark > 180.0:
+            fark -= 360.0
+        n = max(1, int(round(abs(fark) / DONUS_ROTASYON_ADIM_DEG)))
+        for i in range(1, n + 1):
+            ara_y = (y0 + fark * i / n) % 360.0
+            ara_m = (m0[0] + (m1[0] - m0[0]) * i / n,
+                     m0[1] + (m1[1] - m0[1]) * i / n)
+            if i == n:
+                plan.append((etiket, ara_y,
+                             _hedefler(ara_m, ara_y, irtifa, katman),
+                             8.0))
+            else:
+                plan.append((f"{etiket} [{i}/{n}]", ara_y,
+                             _hedefler(ara_m, ara_y, irtifa, katman),
+                             False, DONUS_GECIS_R_M))
+
+    plan = []
+    plan.append(("kalkis — herkes KENDI yerinde (toplanma merdiveni)",
+                 kalkis_yaw,
+                 _hedefler(home, kalkis_yaw, kalkis_irtifa, toplanma), 5.0))
+
+    merkez, yon = home, kalkis_yaw
+    for qid, (qk, qd) in qr_ned:
+        # `_on_navigate`: heading = merkezden QR'a bearing.
+        yeni_yon = math.degrees(math.atan2(qd - merkez[1],
+                                           qk - merkez[0])) % 360.0
+        # `_anchor_nearest_to_qr` + `_okuyucu_indeks`: merkez, KAMERALI
+        # ucak QR'in TAM ustune gelecek sekilde geri hesaplanir.
+        kx, ky = slot_dunya((0.0, 0.0), yeni_yon, *ofs[kam])
+        yeni_merkez = (qk - kx, qd - ky)
+        # Seyir TOPLANMA MERDIVENI acikken yapiliyor; merdiven ancak
+        # QR'da formasyon oturunca kalkiyor (`_maybe_formation_settled`).
+        _gecis(plan, f"QR{qid}'e seyir ({merdiven[0]:.1f} m, katmanli)",
+               merkez, yon, yeni_merkez, yeni_yon, float(merdiven[0]),
+               katman=toplanma)
+        merkez, yon = yeni_merkez, yeni_yon
+        # QR ustunde merdiven kalkar: hepsi ayni okuma irtifasina iner.
+        for j, alt in enumerate(merdiven, start=1):
+            plan.append((f"QR{qid} okuma basamagi {j} ({alt:.1f} m)", yon,
+                         _hedefler(merkez, yon, alt), 8.0))
+        toplanma = 0.0
+
+    son_alt = float(merdiven[-1])
+    ev_yon = math.degrees(math.atan2(home[1] - merkez[1],
+                                     home[0] - merkez[0])) % 360.0
+    # RETURN_HOME faz 0: YERINDE yaw (merkez sabit) — `_donus_ilerlet`.
+    _gecis(plan, "donus faz0 — yerinde yaw",
+           merkez, yon, merkez, ev_yon, son_alt,
+           katman=(katman
+                   if getattr(AYAR, 'GOREV_DONUS_MERDIVEN_ONCE', False)
+                   else None))
+    # Faz sirasi `GOREV_DONUS_MERDIVEN_ONCE` ile belirleniyor — model
+    # ucaktaki kodla AYNI bayragi okuyor ki harita yalan soylemesin.
+    if bool(getattr(AYAR, 'GOREV_DONUS_MERDIVEN_ONCE', False)):
+        plan.append(("faz1 dikey merdiven — YERINDE", ev_yon,
+                     _hedefler(merkez, ev_yon, son_alt, katman=katman), 5.0))
+        plan.append(("faz2 eve don — KATMANLI", ev_yon,
+                     _hedefler(home, ev_yon, son_alt, katman=katman), 6.0))
+    else:
+        # SARTNAME YOLU: formasyon donus boyunca BOZULMUYOR.
+        plan.append(("faz1 eve don — formasyon korunur", ev_yon,
+                     _hedefler(home, ev_yon, son_alt), 6.0))
+        plan.append(("faz2 dikey merdiven — evde, yatayda kimildama YOK",
+                     ev_yon,
+                     _hedefler(home, ev_yon, son_alt, katman=katman), 5.0))
     # faz 3 girisinde baslik KALKIS basligina doner: yine YERINDE rotasyon.
     _gecis(plan, "faz3 oncesi — kalkis basligina don",
            home, ev_yon, home, kalkis_yaw, son_alt, katman=katman)

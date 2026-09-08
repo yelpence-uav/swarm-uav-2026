@@ -255,6 +255,41 @@ GOREV_DONUS_YAW_DEG = 0.0
 # BUYUK olmali ki kacinma tetiklenmeden ayrim kurulmus olsun.
 GOREV_DONUS_KATMAN_M = 5.0
 
+# --- DIKEY MERDIVEN NE ZAMAN KURULUR (8 Eylul 2026, operator karari) -------
+# False = SARTNAMEYE UYGUN (varsayilan):
+#     yaw -> eve don (DUZ, formasyon korunur) -> merdiven -> dagilma
+#   PLAN.md:72 "Home'a donus + FORMASYONU BOZMADAN guvenli inis" diyor;
+#   dikey merdiven 3B sekli degistirir. Operator: "gorev boyunca QR'larda
+#   yazan disinda bir sey yapamayiz" — merdiven QR'dan gelmiyor.
+#
+# True = EMNIYET PAYI:
+#     yaw+merdiven -> merdiven -> eve don (KATMANLI) -> dagilma
+#   400 rastgele dizilisle olculdu: esik alti %22 -> %10.5,
+#   en kotu 0.06 m -> 2.94 m.
+#
+# 🔴 NE ZAMAN True YAPILIR: bir sonraki ucusta takipcide formasyon hedefi
+# araligi olculecek. 8 Eylul'de 12.7 SANIYELIK bosluk vardi ve risk oradan
+# geliyordu; ofset onbellegi + 5 Hz ile beklenen ~200 ms. Olcum bozuk
+# cikarsa BU SATIR True yapilir — kod degisikligi, dagitim, test YOK.
+GOREV_DONUS_MERDIVEN_ONCE = False
+
+# --- EVE DONUSTEN SONRA DAGILMA (8 Eylul 2026, operator karari) ------------
+# False (VARSAYILAN): suru FORMASYONDA eve gelir ve FORMASYONDA iner.
+#   Operator: "dronelar kalktigi yerlere inmek zorunda degil. En sondaki
+#   formasyon korunsun, sonra kalktiklari yerin ortasinda bir yere insinler."
+#   Sartname maddesiyle (PLAN.md:72 "formasyonu BOZMADAN guvenli inis")
+#   birebir ortusuyor: 3B sekil donus boyunca hic bozulmuyor.
+#   Yan fayda: dagilma ve ondan once gereken dikey merdiven ORTADAN KALKTI,
+#   yani GOREV_DONUS_MERDIVEN_ONCE tartismasi da konusuz kaldi.
+#
+# 🔴 INIS NOKTALARI KALKIS NOKTALARI DEGIL. Formasyon donus basligina
+# bakiyor; diziliş o fark kadar DONMUS olarak iner (CLAUDE.md §9). Her
+# ucagin iniş noktasi haritada AYRI AYRI dogrulanmali:
+#     python3 src/gcs/gorev_kanit_ucus.py --kuru --harita --senaryo gorev1 ...
+#
+# True: eski profil (dikey merdiven + herkes kendi kalkis noktasina).
+GOREV_DONUS_KENDI_NOKTASINA = False
+
 # TOPLANMA MERDIVENI — kalkistan ilk formasyona gecerken dikey ayirma.
 # 0.0 = KAPALI (davranis eskisinin aynisi).
 #
@@ -414,6 +449,12 @@ GOREV_KAMERA_AJAN = 1          # 1 = ylp00 (drone1). 0 = kapali.
 
 # --- Guvenlik ---------------------------------------------------------------
 MIN_AYRIM_M = 4.0              # ucaklar arasi kabul edilen en kucuk mesafe
+# 🔴 FINALDE HAKEM EN AZ 5 m ARAYLA KOYUYOR (8 Eylul 2026, KARAR-20).
+# Bu sayi MIN_AYRIM_M'in (4.0), KACINMA_D0_M'in (3.0) ve cikis
+# histerezisinin (3.5) hepsinin USTUNDE — yani kacinma sessiz kalir,
+# kuru test gecer, formasyon 3B'de bozulmaz. Olculdu: suru havada
+# dizilisi BIREBIR koruyor (300/300 dizilişte havadaki en dar an
+# yerdeki en yakin ciftle ayni), yani ucus plan olarak risk EKLEMIYOR.
 TOLERANS_M = 1.0               # "vardi" yaricapi
 
 # EGIM PAY KATI — egim tavani, komut edilen en buyuk ivmenin KAC KATINI
@@ -1714,6 +1755,10 @@ def _kabuk():
     print(f'GOREV_TOPLANMA_KATMAN={GOREV_TOPLANMA_KATMAN_M:.1f}')
     print(f'GOREV_DONUS_YAW={GOREV_DONUS_YAW_DEG:.1f}')
     print(f'GOREV_DONUS_KATMAN={GOREV_DONUS_KATMAN_M:.1f}')
+    print('GOREV_DONUS_MERDIVEN_ONCE='
+          f'{str(GOREV_DONUS_MERDIVEN_ONCE).lower()}')
+    print('GOREV_DONUS_KENDI_NOKTASINA='
+          f'{str(GOREV_DONUS_KENDI_NOKTASINA).lower()}')
     print(f'GOREV_DAGILMA_HIZ={GOREV_DAGILMA_HIZ_MPS:.1f}')
     print(f'GOREV_KURULUM_HIZ={GOREV_KURULUM_HIZ_MPS:.1f}')
     print(f'SURU_LIDER_KILIDI={str(SURU_LIDER_KILIDI).lower()}')

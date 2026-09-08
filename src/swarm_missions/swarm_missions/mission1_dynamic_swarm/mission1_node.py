@@ -96,6 +96,10 @@ class Mission1Node(Node):
             gorev_aralik_m=float(self.get_parameter('gorev_aralik_m').value),
             donus_yaw_deg=float(self.get_parameter('donus_yaw_deg').value),
             donus_katman_m=float(self.get_parameter('donus_katman_m').value),
+            donus_merdiven_once=bool(
+                self.get_parameter('donus_merdiven_once').value),
+            donus_kendi_noktasina=bool(
+                self.get_parameter('donus_kendi_noktasina').value),
             toplanma_katman_m=float(
                 self.get_parameter('toplanma_katman_m').value),
             dagilma_hiz_mps=float(
@@ -166,6 +170,14 @@ class Mission1Node(Node):
         self.declare_parameter('gorev_aralik_m', 7.0)
         self.declare_parameter('donus_yaw_deg', 0.0)
         self.declare_parameter('donus_katman_m', 5.0)
+        # Dikey merdiven eve donusten ONCE mi kurulsun?
+        # VARSAYILAN False = SARTNAMEYE UYGUN (formasyon donuste
+        # bozulmaz). Ayrinti: OrchestratorConfig notu.
+        self.declare_parameter('donus_merdiven_once', False)
+        # False = suru FORMASYONDA eve gelip FORMASYONDA iner
+        # (sartname yolu). True = eski profil, herkes kendi
+        # kalkis noktasina. Ayrinti: OrchestratorConfig notu.
+        self.declare_parameter('donus_kendi_noktasina', False)
         # Toplanma merdiveni — kalkistan ilk formasyona gecerken dikey
         # ayirma. 0.0 = KAPALI (davranis eskisinin aynisi).
         self.declare_parameter('toplanma_katman_m', 0.0)
