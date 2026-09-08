@@ -79,6 +79,10 @@ import ucus_ayarlari as AYAR
 # Kopya formul yazmak "ayni sabit iki yerde" kazasinin geometri hali olurdu.
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent
                        / "swarm_core"))
+# --senaryo gorev1 ayni gerekceyle swarm_missions'i da ariyor: QR arama
+# merdivenini orkestratorun KENDISINDEN okuyor (bkz. plan_kur_gorev1).
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent
+                       / "swarm_missions"))
 from swarm_core.formation_control import (  # noqa: E402
     formasyon_sekans_cekirdek as SEKANS,
     formation_geometry as GEO,
@@ -694,6 +698,11 @@ _son_komut_t = 0.0
 _iniyor = False
 _HARITA_DOSYA = None
 _SENARYO = "kanit"
+
+# GOREV 1 senaryosunun QR tablosu: "1:lat,lon;2:lat,lon" (--qr-tablo).
+# qr_enjekte.py ile AYNI sozdizimi — operator ayni metni iki yerde de
+# kullanabilsin, iki ayri bicim ogrenmesin.
+_QR_TABLO = ""
 _KACINMA_ACIK = False        # --kacinma: kacis kesicisinin marjini genisletir
 
 
@@ -1855,6 +1864,160 @@ def plan_kur_saha(t):
                  SAHA_INIS_YON_DEG,
                  _hedefler(P[4], SAHA_INIS_YON_DEG, C1, A2),
                  SAHA_INIS_ONCESI_BEKLEME_S))
+    return plan
+
+
+def plan_kur_gorev1(t):
+    """GOREV 1'in KAGIT MODELI — bu betik gorevi YURUTMEZ, CIZER.
+
+    🔴 KARISMASIN: Gorev 1 ZATEN YAZILI ve UCAKTA kosuyor
+    (`swarm_missions/mission1_dynamic_swarm` + `mission_fsm`). Otonom
+    zincir odur; YKI'nin izinli tek rolu "gorevi baslat".
+
+    Burasi o zincirin YERDEKI MODELI. Tek amaci CLAUDE.md §9 madde 5'i
+    yerine getirmek:
+      * `--kuru`  -> carpisma denetimi (hangi iki ucak birbirine yaklasiyor)
+      * `--harita`-> ucaklarin gidecegi ve ozellikle INECEGI noktalari
+                     uydu goruntusune koymak
+    Diger senaryolar (kanit/final/saha) YKI'den goto basar; bu senaryo
+    hicbir sey GONDERMEZ, yalnizca plan uretir. Canli kosulursa da tek
+    yaptigi ayni noktalari basmaktir — ama amaci o degil.
+
+    🔴 KAYMA RISKI VE NASIL ONLENDI. Elle yazilmis bir model, ucaktaki
+    kodla zamanla ayrisir ve harita SESSIZCE yalan soylemeye baslar. Bu
+    yuzden hicbir sayi burada tekrar YAZILMIYOR:
+      * irtifalar / kadro / kamerali ajan  -> `ucus_ayarlari` (AYAR)
+      * QR arama merdiveni                 -> orkestratorun KENDISINDEN
+        (`Mission1Orchestrator._arama_merdiveni`), yani ucak hangi
+        basamaklari ucacaksa harita onlari cizer
+      * kalkis dizilisi ve iniş noktalari  -> CANLI TELEMETRI
+      * QR konumlari                       -> --qr-tablo (enjekte edilenle
+        ayni sozdizimi)
+
+    MODELLENEN AKIS (orchestrator.py karsiliklariyla):
+      1) kalkis            herkes KENDI yerinde, GOREV_KALKIS_IRTIFA
+      2) QR'a seyir        `_on_navigate`: merkez, KAMERALI ucak QR'in
+                           ustune gelecek sekilde cipalanir
+      3) QR uzerinde       `_maybe_qr_recovery`: inen irtifa merdiveni
+      4) eve donus         `_donus_hedefi` faz 1
+      5) dikey merdiven    faz 2 (yatayda kimildama yok)
+      6) dagilma           faz 3 — herkes KENDI kalkis noktasina
+      7) inis              faz 4; plan'in SON adimi = INIS NOKTALARI
+
+    ⚠️ DIZILIS SEYIRDE DONER. Ofsetler kalkis basligi cercevesinde
+    saklaniyor (`_snapshot_offsets` + `_ters_dondur`), asagi akista
+    `formation_node` onlari komutun heading'iyle donduruyor. Kalkista
+    heading = kalkis basligi (iki dondurme sadelesir), seyirde ise
+    heading = QR'a bearing — yani diziliş aradaki fark kadar DONER.
+    Model bunu taklit ediyor; etmeseydi harita takipcileri yanlis yerde
+    gosterirdi.
+    """
+    eksik = [d for d in DRONELAR if d not in t]
+    if eksik:
+        raise SystemExit(
+            f"Telemetride yok: drone {eksik} — gorev1 senaryosu kalkis "
+            f"dizilisini OLCUYOR, uydurmuyor. Ucaklar ayakta olmali."
+        )
+    origin = _origin_bul(t)
+    if origin is None:
+        raise SystemExit("origin turetilemedi (GPS yok) — QR konumlari "
+                         "NED'e cevrilemez.")
+    if not _QR_TABLO:
+        raise SystemExit(
+            "gorev1 senaryosu --qr-tablo ISTER: \"1:lat,lon;2:lat,lon\".\n"
+            "  Ucaklara enjekte edilen tabloyla AYNI metni ver — harita "
+            "baska bir tabloyu cizerse kontrol degeri kalmaz."
+        )
+
+    # --- Kalkis dizilisi: OLCULUR ------------------------------------------
+    K = {d: (t[d]["pos_x"], t[d]["pos_y"]) for d in DRONELAR}
+    home = (sum(p[0] for p in K.values()) / len(K),
+            sum(p[1] for p in K.values()) / len(K))
+    kalkis_yaw = float(t[LIDER].get("yaw_deg") or 0.0)
+
+    def _govdeye(dk, dd, yon):
+        """Dunya ofsetini govde (ileri, sag) cercevesine cevirir."""
+        h = math.radians(yon)
+        return (dk * math.cos(h) + dd * math.sin(h),
+                -dk * math.sin(h) + dd * math.cos(h))
+
+    # Ofsetler KALKIS BASLIGI cercevesinde — orchestrator._ters_dondur.
+    ofs = {d: _govdeye(K[d][0] - home[0], K[d][1] - home[1], kalkis_yaw)
+           for d in DRONELAR}
+
+    def _hedefler(merkez, yon, irtifa, katman=None):
+        """merkez + dondurulmus ofset -> {drone: (kuzey, dogu, irtifa)}."""
+        out = {}
+        for i, d in enumerate(DRONELAR):
+            x, y = slot_dunya(merkez, yon, *ofs[d])
+            z = irtifa + (0.0 if katman is None else katman * i)
+            out[d] = (x, y, z)
+        return out
+
+    # --- QR tablosu --------------------------------------------------------
+    qr_ned = []
+    for parca in _QR_TABLO.split(";"):
+        parca = parca.strip()
+        if not parca:
+            continue
+        qid, konum = parca.split(":", 1)
+        la, lo = konum.split(",", 1)
+        qr_ned.append((int(qid), latlon_to_ned(origin, float(la), float(lo))))
+
+    kam = int(AYAR.GOREV_KAMERA_AJAN or 0) or LIDER
+    if kam not in DRONELAR:
+        raise SystemExit(f"GOREV_KAMERA_AJAN={kam} kadroda ({DRONELAR}) YOK — "
+                         f"formasyon QR ustune UCMAYAN bir ucagi cipalar.")
+
+    # --- Arama merdiveni: ORKESTRATORUN KENDISINDEN ------------------------
+    try:
+        from swarm_missions.mission1_dynamic_swarm.orchestrator import (
+            Mission1Orchestrator, OrchestratorConfig,
+        )
+        merdiven = Mission1Orchestrator(OrchestratorConfig(
+            qr_okuma_irtifa_m=AYAR.GOREV_QR_OKUMA_IRTIFA_M,
+        ))._arama_merdiveni()
+    except ImportError as e:
+        raise SystemExit(
+            f"orchestrator ithal edilemedi ({e}) — arama merdivenini "
+            f"BURADA TEKRAR YAZMAK yerine duruyoruz: elle yazilan bir "
+            f"merdiven ucaktakinden sessizce ayrisir ve harita yalan soyler."
+        )
+
+    kalkis_irtifa = float(AYAR.GOREV_KALKIS_IRTIFA_M)
+    katman = float(AYAR.GOREV_DONUS_KATMAN_M)
+
+    plan = []
+    plan.append(("kalkis — herkes KENDI yerinde", kalkis_yaw,
+                 _hedefler(home, kalkis_yaw, kalkis_irtifa), 5.0))
+
+    for qid, (qk, qd) in qr_ned:
+        # `_on_navigate`: heading = merkezden QR'a bearing.
+        yon = math.degrees(math.atan2(qd - home[1], qk - home[0])) % 360.0
+        # `_anchor_nearest_to_qr` + `_okuyucu_indeks`: merkez, KAMERALI
+        # ucak QR'in TAM ustune gelecek sekilde geri hesaplanir.
+        kx, ky = slot_dunya((0.0, 0.0), yon, *ofs[kam])
+        merkez = (qk - kx, qd - ky)
+        for j, alt in enumerate(merdiven):
+            etiket = (f"QR{qid}'e seyir ({alt:.1f} m)" if j == 0
+                      else f"QR{qid} arama basamagi {j + 1} ({alt:.1f} m)")
+            plan.append((etiket, yon, _hedefler(merkez, yon, alt), 8.0))
+
+    son_alt = float(merdiven[-1])
+    ev_yon = math.degrees(math.atan2(home[1] - merkez[1],
+                                     home[0] - merkez[0])) % 360.0
+    plan.append(("eve donus — formasyon korunur", ev_yon,
+                 _hedefler(home, ev_yon, son_alt), 6.0))
+    plan.append(("dikey merdiven — yatayda kimildama YOK", ev_yon,
+                 _hedefler(home, ev_yon, son_alt, katman=katman), 5.0))
+    # faz 3/4: baslik KALKIS basligina doner -> diziliş geri gelir, herkes
+    # kendi noktasinda. Son adimin hedefleri = INIS NOKTALARI (harita_yaz
+    # bu adimi mavi noktalar olarak ciziyor).
+    plan.append(("dagilma — herkes KENDI kalkis noktasina (katmanli)",
+                 kalkis_yaw,
+                 _hedefler(home, kalkis_yaw, son_alt, katman=katman), 8.0))
+    plan.append(("inis oncesi — irtifalar esitlenir", kalkis_yaw,
+                 _hedefler(home, kalkis_yaw, son_alt), 4.0))
     return plan
 
 
@@ -3101,6 +3264,8 @@ def gorev(kuru: bool) -> int:
         if not _saha_coz(t, kuru):
             return 1
         plan = plan_kur_saha(t)
+    elif _SENARYO == "gorev1":
+        plan = plan_kur_gorev1(t)
     elif _SENARYO == "final":
         eksik = [d for d in DRONELAR if d not in t]
         if eksik:
@@ -3658,7 +3823,7 @@ def main() -> int:
                     choices=("kanit", "test", "formasyon", "formasyon_gecis",
                              "manevra", "lider", "tekli",
                              "asili", "irtifa", "takip", "g2", "donus", "tam",
-                             "final", "saha"),
+                             "final", "saha", "gorev1"),
                     default="kanit",
                     help="kanit = tam koreografi; test = kuzeybati/bekle/"
                          "irtifa/don; formasyon = rastgele yerlesimden cizgi "
@@ -3688,6 +3853,12 @@ def main() -> int:
                          "listesi de uretilir. Or: '38.6734220,39.1850585'")
     ap.add_argument("--lider", type=int, default=None,
                     help="--senaryo lider icin YERINDE ASILI duracak drone (or. 2)")
+    ap.add_argument("--qr-tablo", dest="qr_tablo", default="",
+                    metavar='"1:lat,lon;2:lat,lon"',
+                    help="gorev1 senaryosu icin QR konum tablosu. "
+                         "qr_enjekte.py ile AYNI sozdizimi — ucaklara "
+                         "enjekte edilen metnin AYNISI verilmeli, yoksa "
+                         "harita baska bir rotayi cizer.")
     ap.add_argument("--harita", nargs="?", const="/tmp/yelpence_rota.html",
                     default=None, metavar="DOSYA",
                     help="rotayi uydu haritasina yaz (varsayilan /tmp/yelpence_rota.html)")
@@ -3835,6 +4006,20 @@ def main() -> int:
         if len(DRONELAR) < 2:
             ap.error(f"--senaryo {a.senaryo} en az iki drone ister")
         LIDER = a.lider
+    if a.senaryo == "gorev1":
+        # LIDER'i --lider ZORUNLU KILMIYORUZ: Gorev 1'de lider zaten
+        # SABIT ve degeri `ucus_ayarlari.SURU_SABIT_LIDER` (KARAR-17).
+        # Operatore ayni sayiyi bir kez daha yazdirmak, iki yerde iki
+        # farkli deger olma riskini acardi (§9 "ayni sabiti iki yere
+        # yazma"). Elle verilirse o kazanir — kadro daraltilmis testler
+        # icin.
+        if len(DRONELAR) < 2:
+            ap.error("--senaryo gorev1 en az iki drone ister")
+        LIDER = (a.lider
+                 or int(getattr(AYAR, "SURU_SABIT_LIDER", 0) or 0)
+                 or DRONELAR[0])
+        if LIDER not in DRONELAR:
+            ap.error(f"lider {LIDER} --dronelar listesinde ({DRONELAR}) yok")
     if a.senaryo == "lider":
         if a.lider is None:
             ap.error("--senaryo lider icin --lider N gerekli")
@@ -3849,7 +4034,9 @@ def main() -> int:
     if a.yon is not None:
         ROTA_YONU_DEG = a.yon
     _HARITA_DOSYA = a.harita
+    global _SENARYO, _QR_TABLO
     _SENARYO = a.senaryo
+    _QR_TABLO = a.qr_tablo
 
     def _kesildi(_s, _f):
         print("\n\n!!! KESİLDİ (Ctrl-C) !!!")
@@ -3860,7 +4047,10 @@ def main() -> int:
     signal.signal(signal.SIGTERM, _kesildi)
 
     print("=" * 72)
-    print("  OKUL SAHASI — 5 nokta, roll, çizgi/ok başı, 20->30 m, iniş"
+    print("  GOREV 1 KAGIT MODELI — ucus ONBOARD kosar, bu yalniz "
+          "carpisma denetimi + HARITA"
+          if a.senaryo == "gorev1" else
+          "  OKUL SAHASI — 5 nokta, roll, çizgi/ok başı, 20->30 m, iniş"
           if a.senaryo == "saha" else
           f"  KANIT VİDEOSU — batı {FINAL_BATI_M:.0f} m, {FINAL_YON2_DEG:.0f}° "
           f"{FINAL_MESAFE2_M:.0f} m, üçgen, doğu {FINAL_DOGU_M:.0f} m, roll, eve"
@@ -3976,7 +4166,13 @@ def main() -> int:
     try:
         return gorev(a.kuru)
     except Exception as e:
-        print(f"\nHATA: {e}")
+        # 🔴 TURU VE IZI DE BAS. Once yalniz `{e}` basiliyordu ve bos
+        # mesajli bir istisna ekrana "HATA: None" diye dusuyordu — hangi
+        # satirda ne oldugu HICBIR YERDE gorunmuyordu. Teshis edilemeyen
+        # hata, hata vermemekten farksiz.
+        import traceback as _tb
+        print(f"\nHATA ({type(e).__name__}): {e}")
+        _tb.print_exc()
         indir(a.kuru)
         return 1
 
