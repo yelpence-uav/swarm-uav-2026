@@ -1,8 +1,49 @@
 # DURUM — şu an ne çalışıyor, ne bozuk
 
-**Son güncelleme:** 8 Eylül 2026, 10:20 — 📷 **ALGI ZİNCİRİ AÇILDI** (ylp00: `goru` + `kamera_yayin.py`, 4K 5 fps, kare 5.06 Hz) · 🔴 **QR TABLOSUNDA HATA: QR2 31.3 km kuzeyde** · 🟢 **ylp02 SAĞLAM** (operatör, düşme sonrası) · 🟢 **pil telemetrisi ÜÇÜNDE DE DÜZELDİ** (ölçüldü: 15.71 / 15.78 / 16.13 V · %65 / %68 / %69) · ✅ **KADRO KORUMASI YAZILDI** — "sadece lider irtifa değiştirdi"nin ölçülen kök nedeni (`agent_ids=(1,)`) kapatıldı (blok aşağıda) · CUSTOM ofset düzeltmesi yine de yazıldı ve **yerde doğrulandı** (11/11) · 🎯 Görev 1 uçuş profili değişti (blok aşağıda) · 7 Eylül 11:57 RC-kayıp failsafe LAND · 5 Eylül 07:56 Görev 2
+**Son güncelleme:** 8 Eylül 2026, 11:30 — 🎮 **ylp00'da `joystick` KAPALI** (Görev 1 uçuşu için) · 💉 **QR okuma ENJEKSİYONLA** (gerçek okuma yok) · 📷 **ALGI ZİNCİRİ AÇILDI** (ylp00: `goru` + `kamera_yayin.py`, 4K 5 fps, kare 5.06 Hz) · 🔴 **QR TABLOSUNDA HATA: QR2 31.3 km kuzeyde** · 🟢 **ylp02 SAĞLAM** (operatör, düşme sonrası) · 🟢 **pil telemetrisi ÜÇÜNDE DE DÜZELDİ** (ölçüldü: 15.71 / 15.78 / 16.13 V · %65 / %68 / %69) · ✅ **KADRO KORUMASI YAZILDI** — "sadece lider irtifa değiştirdi"nin ölçülen kök nedeni (`agent_ids=(1,)`) kapatıldı (blok aşağıda) · CUSTOM ofset düzeltmesi yine de yazıldı ve **yerde doğrulandı** (11/11) · 🎯 Görev 1 uçuş profili değişti (blok aşağıda) · 7 Eylül 11:57 RC-kayıp failsafe LAND · 5 Eylül 07:56 Görev 2
 
 
+
+> ## 🎮💉 8 EYLÜL — GÖREV 1 TEST DÜZENİ: joystick KAPALI · QR ENJEKSİYONLA
+>
+> **Operatör kararı.** Bu uçuşa özgü, kalıcı değil.
+>
+> **① ylp00'da `joystick` kapatıldı** (`suru_dugumleri`'nden çıkarıldı).
+> `rc_ibus_kopru` + `joystick_interpreter_node` başlamıyor. Sebep: ylp00'ın
+> **Pi'ye bağlı sürü RC alıcısı ölü** (`/dev/ttyAMA2`, `atilan_bayt=0`).
+> - Görev 1'i **engellemiyor**: `kalkis_izni = (not yer_testi) and
+>   kalkis_olayla` — kalkış olay üzerinden, RC'ye bakmıyor.
+> - 🔴 **Kill switch etkilenmiyor**: o ayrı alıcı, Pixhawk'a bağlı, MAVROS
+>   `/mavros/rc/in` üzerinden `px4_bridge`'e gidiyor (`px4_bridge.py:621`).
+> - ⚠️ **Görev 2 kumandadan uçurulacaksa `joystick` GERİ AÇILMALI.**
+>   Yedek: `~/yelpence_ws/suru_dugumleri.yedek`.
+>
+> **② QR okuma ENJEKSİYONLA** — kamerayla gerçek okuma yapılmayacak.
+> `deploy/rpi/teshis/qr_enjekte.py` mesh'ten gelen QR'ın yerine geçiyor.
+> Enjekte edilen tablo (operatörün düzelttiği hâli):
+>
+> ```
+> QR1  37.02977, 37.31123   ylp00'a 14.1 m
+> QR2  37.02982, 37.31137   ylp00'a 12.6 m   (QR1'e 13.6 m)
+> ```
+>
+> 🔴 **`;` KABUK KATMANLARINDA YENİYOR.** `qr_enjekte_hepsi.sh --tablo
+> "1:a,b;2:c,d"` çağrısında `;` komutu bölüyor: tablo **tek noktaya**
+> düşüyor **ve** kalan argümanlar (`--tekrar 0`) kayboluyor → QR görev
+> verisi istemeden 10 kez yayınlanıyor ve `mission_fsm` QR'ı "okundu"
+> sayıyor. Bu yaşandı; konteyner restart ile temizlendi. Çok noktalı tablo
+> **betikle** enjekte edilmeli (`/tmp/qr_tablo.sh`).
+>
+> 🔴 **ENJEKTE EDİLEN TABLO KONTEYNER RESTART'INI GEÇMEZ.** Yayıncı düğüm
+> çıkınca latch ölür; `ros2 topic echo` sonradan bakınca **boş görünür ama
+> `mission_fsm` almıştır** (log: `QR tablosu alindi: 2 nokta`). Doğrulama
+> echo ile değil **o log satırıyla** yapılır. Restart edilirse yeniden
+> enjekte et.
+>
+> **Uçuş anında QR "okutma"** (sürü QR1'in üstündeyken, üç uçağa eşzamanlı):
+> ```bash
+> ./deploy/rpi/teshis/qr_enjekte_hepsi.sh --qr 1 --sonraki 0
+> ```
 
 > ## 📷 8 EYLÜL — ylp00 ALGI ZİNCİRİ AÇILDI
 >
