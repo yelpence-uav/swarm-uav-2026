@@ -1987,29 +1987,73 @@ def plan_kur_gorev1(t):
     kalkis_irtifa = float(AYAR.GOREV_KALKIS_IRTIFA_M)
     katman = float(AYAR.GOREV_DONUS_KATMAN_M)
 
+    def _gecis(plan, etiket, m0, y0, m1, y1, irtifa):
+        """Merkez ve heading'i BIRLIKTE dilimleyerek plana ekler.
+
+        🔴 DILIMLEMEK ZORUNLU, yoksa DENETIM YALAN SOYLER. Carpisma
+        denetleyicisi ardisik iki adim arasini DUZ CIZGI sayiyor. Buyuk
+        bir heading degisimini tek adimda yazarsak, 26 m arayla duran
+        ucaklar "merkezden gecerek" karsi tarafa gidiyormus gibi gorunur
+        ve 0.69 m'lik sahte bir ihlal cikar (bu yasandi).
+        Gercekte oyle olmuyor: `path_planner._step_heading_deg` heading'i
+        `max_heading_slew_deg_s` ile RAMPALIYOR, saf rotasyonda da
+        `_yay_kur` merkezi sabit tutup YAY cizdiriyor. Rijit donuste
+        ucaklar arasi mesafe DEGISMEZ. Dilimleyince denetim bunu gorur ve
+        geriye yalnizca GERCEK yaklasmalar kalir.
+
+        Dilim acisi `DONUS_ROTASYON_ADIM_DEG` — `plan_kur_final._rotasyon`
+        ile ayni sabit, ayni gerekce.
+        """
+        fark = (y1 - y0) % 360.0
+        if fark > 180.0:
+            fark -= 360.0
+        n = max(1, int(round(abs(fark) / DONUS_ROTASYON_ADIM_DEG)))
+        for i in range(1, n + 1):
+            ara_y = (y0 + fark * i / n) % 360.0
+            ara_m = (m0[0] + (m1[0] - m0[0]) * i / n,
+                     m0[1] + (m1[1] - m0[1]) * i / n)
+            if i == n:
+                plan.append((etiket, ara_y, _hedefler(ara_m, ara_y, irtifa),
+                             8.0))
+            else:
+                plan.append((f"{etiket} [{i}/{n}]", ara_y,
+                             _hedefler(ara_m, ara_y, irtifa),
+                             False, DONUS_GECIS_R_M))
+
     plan = []
     plan.append(("kalkis — herkes KENDI yerinde", kalkis_yaw,
                  _hedefler(home, kalkis_yaw, kalkis_irtifa), 5.0))
 
+    merkez, yon = home, kalkis_yaw
     for qid, (qk, qd) in qr_ned:
         # `_on_navigate`: heading = merkezden QR'a bearing.
-        yon = math.degrees(math.atan2(qd - home[1], qk - home[0])) % 360.0
+        yeni_yon = math.degrees(math.atan2(qd - merkez[1],
+                                           qk - merkez[0])) % 360.0
         # `_anchor_nearest_to_qr` + `_okuyucu_indeks`: merkez, KAMERALI
         # ucak QR'in TAM ustune gelecek sekilde geri hesaplanir.
-        kx, ky = slot_dunya((0.0, 0.0), yon, *ofs[kam])
-        merkez = (qk - kx, qd - ky)
-        for j, alt in enumerate(merdiven):
-            etiket = (f"QR{qid}'e seyir ({alt:.1f} m)" if j == 0
-                      else f"QR{qid} arama basamagi {j + 1} ({alt:.1f} m)")
-            plan.append((etiket, yon, _hedefler(merkez, yon, alt), 8.0))
+        kx, ky = slot_dunya((0.0, 0.0), yeni_yon, *ofs[kam])
+        yeni_merkez = (qk - kx, qd - ky)
+        _gecis(plan, f"QR{qid}'e seyir ({merdiven[0]:.1f} m)",
+               merkez, yon, yeni_merkez, yeni_yon, float(merdiven[0]))
+        merkez, yon = yeni_merkez, yeni_yon
+        for j, alt in enumerate(merdiven[1:], start=2):
+            plan.append((f"QR{qid} arama basamagi {j} ({alt:.1f} m)", yon,
+                         _hedefler(merkez, yon, alt), 8.0))
 
     son_alt = float(merdiven[-1])
     ev_yon = math.degrees(math.atan2(home[1] - merkez[1],
                                      home[0] - merkez[0])) % 360.0
-    plan.append(("eve donus — formasyon korunur", ev_yon,
+    # RETURN_HOME faz 0: YERINDE yaw (merkez sabit) — `_donus_ilerlet`.
+    _gecis(plan, "eve donus faz0 — yerinde yaw",
+           merkez, yon, merkez, ev_yon, son_alt)
+    # faz 1: heading sabit, merkez eve gider.
+    plan.append(("eve donus faz1 — formasyon korunur", ev_yon,
                  _hedefler(home, ev_yon, son_alt), 6.0))
-    plan.append(("dikey merdiven — yatayda kimildama YOK", ev_yon,
+    plan.append(("faz2 dikey merdiven — yatayda kimildama YOK", ev_yon,
                  _hedefler(home, ev_yon, son_alt, katman=katman), 5.0))
+    # faz 3 girisinde baslik KALKIS basligina doner: yine YERINDE rotasyon.
+    _gecis(plan, "faz3 oncesi — kalkis basligina don",
+           home, ev_yon, home, kalkis_yaw, son_alt)
     # faz 3/4: baslik KALKIS basligina doner -> diziliş geri gelir, herkes
     # kendi noktasinda. Son adimin hedefleri = INIS NOKTALARI (harita_yaz
     # bu adimi mavi noktalar olarak ciziyor).
