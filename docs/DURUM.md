@@ -1,8 +1,34 @@
 # DURUM — şu an ne çalışıyor, ne bozuk
 
-**Son güncelleme:** 8 Eylül 2026, 09:45 — 🟢 **ylp02 SAĞLAM** (operatör, düşme sonrası) · 🟢 **pil telemetrisi ÜÇÜNDE DE DÜZELDİ** (ölçüldü: 15.71 / 15.78 / 16.13 V · %65 / %68 / %69) · ✅ **KADRO KORUMASI YAZILDI** — "sadece lider irtifa değiştirdi"nin ölçülen kök nedeni (`agent_ids=(1,)`) kapatıldı (blok aşağıda) · CUSTOM ofset düzeltmesi yine de yazıldı ve **yerde doğrulandı** (11/11) · 🎯 Görev 1 uçuş profili değişti (blok aşağıda) · 7 Eylül 11:57 RC-kayıp failsafe LAND · 5 Eylül 07:56 Görev 2
+**Son güncelleme:** 8 Eylül 2026, 10:20 — 📷 **ALGI ZİNCİRİ AÇILDI** (ylp00: `goru` + `kamera_yayin.py`, 4K 5 fps, kare 5.06 Hz) · 🔴 **QR TABLOSUNDA HATA: QR2 31.3 km kuzeyde** · 🟢 **ylp02 SAĞLAM** (operatör, düşme sonrası) · 🟢 **pil telemetrisi ÜÇÜNDE DE DÜZELDİ** (ölçüldü: 15.71 / 15.78 / 16.13 V · %65 / %68 / %69) · ✅ **KADRO KORUMASI YAZILDI** — "sadece lider irtifa değiştirdi"nin ölçülen kök nedeni (`agent_ids=(1,)`) kapatıldı (blok aşağıda) · CUSTOM ofset düzeltmesi yine de yazıldı ve **yerde doğrulandı** (11/11) · 🎯 Görev 1 uçuş profili değişti (blok aşağıda) · 7 Eylül 11:57 RC-kayıp failsafe LAND · 5 Eylül 07:56 Görev 2
 
 
+
+> ## 📷 8 EYLÜL — ylp00 ALGI ZİNCİRİ AÇILDI
+>
+> `suru_dugumleri`'ne **`goru`** eklendi (yalnız ylp00 — kamera orada;
+> kamerasız uçakta `camera_driver` hata döngüsüne girer, o yüzden ayrı
+> anahtar). Host tarafında `kamera_yayin.py` başlatıldı, mod **`tam`
+> (4056x3040) 5 fps**. Ölçüldü: `/drone_1/camera/image_raw/compressed`
+> **5.055 Hz**, `/swarm/internal/perception/qr_data` 1 yayıncı / 3 abone.
+>
+> 🔴 **`kamera_yayin.py` OTOMATİK BAŞLAMIYOR.** systemd birimi yok,
+> `baslat.sh` de başlatmıyor — **Pi her yeniden başladığında elle
+> açılmalı**, yoksa `camera_driver` kaynaksız kalır ve **QR sessizce hiç
+> okunmaz** (Pi 5'in `/dev/video0`'ı ham Bayer CSI; konteynerde ne `cv2`
+> ne `/dev/video*` var, başka kaynak YOK):
+>
+> ```bash
+> ssh yelpence00@<ip> 'setsid --fork python3 $HOME/yelpence_ws/kamera_yayin.py \
+>     > /tmp/kamera_yayin.log 2>&1 < /dev/null'
+> ```
+>
+> ⚠️ `ssh host 'setsid nohup ... &'` biçimi **çalışmıyor** — ssh kapanınca
+> süreç ölüyor. `setsid --fork` (arka plan `&` YOK) gerekiyor.
+>
+> ⚠️ Mod her açılışta **`tamfov` (2028x1520)** geliyor; QR için `tam`'a
+> alınmalı (`curl 'http://127.0.0.1:8080/ayar?mod=tam'`, ilk çağrı bazen
+> yutuluyor — moda geçtiğini `/olcum` ile doğrula).
 
 > ## 🟢 8 EYLÜL ÖĞLEN — ylp02 SAĞLAM · PİL TELEMETRİSİ DÜZELDİ
 >
