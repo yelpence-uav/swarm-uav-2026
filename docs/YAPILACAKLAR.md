@@ -1,6 +1,6 @@
 # YAPILACAKLAR
 
-**Son güncelleme:** 8 Eylül 2026, 09:10 — ✅ **KADRO KORUMASI YAZILDI** — "sadece lider irtifa değiştirdi"nin ölçülen kök nedeni (komutların 1/3'ü `agent_ids=(1,)`) kapatıldı; lider artık kadro çökünce SON TAM kadroyla yayınlıyor · 🟠 CUSTOM ofset çerçevesi kusuru ayrı bir kusurmuş — düzeltildi ve **yerde doğrulandı** (11/11, `form_yarim=0`) · eski: 8 Eylül 05:40 — 🎯 **Görev 1 uçuş profili değişti:** başlangıç formasyonu KAPATILDI (jüri dizilişi korunuyor) · QR1 varışı 10 → **15 m**, kurtarma merdiveni artık **iniyor** (15 → 12.5 → 10) · 🔴 iki yeni P0 (bayat formasyon hedefi · CUSTOM mesh yükü) · eski: 7 Eylül 11:57 — 📻 RC-kayıp failsafe üç uçakta **LAND**'e alındı (~3.5-4 sn; `COM_RCL_EXCEPT` maddesi kapandı, iki yeni madde) · eski: 5 Eylül 18:34 — 🔴🔴 **ylp02 DÜŞTÜ** (`docs/YLP02_DUSME.md`) · 🟢 üç uçağa kod dağıtıldı (`39c78d3`) · 🟢 Görev 1 okuyucu dron artık KAMERALI uçak
+**Son güncelleme:** 8 Eylül 2026, 09:45 — 🟢 ylp02 **SAĞLAM** · 🟢 pil telemetrisi **üçünde de düzeldi** (ölçüldü) · 🔴 `land` sahte failsafe'i **hâlâ açık** (QGC ayarı bizim koda dokunmuyor) · ✅ **KADRO KORUMASI YAZILDI** — "sadece lider irtifa değiştirdi"nin ölçülen kök nedeni (komutların 1/3'ü `agent_ids=(1,)`) kapatıldı; lider artık kadro çökünce SON TAM kadroyla yayınlıyor · 🟠 CUSTOM ofset çerçevesi kusuru ayrı bir kusurmuş — düzeltildi ve **yerde doğrulandı** (11/11, `form_yarim=0`) · eski: 8 Eylül 05:40 — 🎯 **Görev 1 uçuş profili değişti:** başlangıç formasyonu KAPATILDI (jüri dizilişi korunuyor) · QR1 varışı 10 → **15 m**, kurtarma merdiveni artık **iniyor** (15 → 12.5 → 10) · 🔴 iki yeni P0 (bayat formasyon hedefi · CUSTOM mesh yükü) · eski: 7 Eylül 11:57 — 📻 RC-kayıp failsafe üç uçakta **LAND**'e alındı (~3.5-4 sn; `COM_RCL_EXCEPT` maddesi kapandı, iki yeni madde) · eski: 5 Eylül 18:34 — 🔴🔴 **ylp02 DÜŞTÜ** (`docs/YLP02_DUSME.md`) · 🟢 üç uçağa kod dağıtıldı (`39c78d3`) · 🟢 Görev 1 okuyucu dron artık KAMERALI uçak
 
 > **Finale 5 gün.** Bu liste artık "her fikir" değil, **bu 8 günde
 > yapılacak iş.** Bir madde buraya giriyorsa birinin onu yapması planlanıyor
@@ -13,7 +13,7 @@
 
 ## 🔴 P0 — bunlar kapanmadan ilgili uçuş yapılmaz
 
-- `[ ]` 🔴🔴 **ylp02 DÜŞTÜ (5 Eylül 17:21). UÇMADAN ÖNCE
+- `[x]` 🟢 **ylp02 SAĞLAM** (operatör, 8 Eylül — fiziksel kontrol yapıldı, uçuşa hazır). Belge kök neden kaydı olarak duruyor. ~~Eski madde:~~ 🔴🔴 **ylp02 DÜŞTÜ (5 Eylül 17:21). UÇMADAN ÖNCE
   [`docs/YLP02_DUSME.md`](YLP02_DUSME.md) OKUNACAK.**
   13 metrede asılıyken itkisini kaybetti, **serbest düşüşle** (13.47 m/s)
   yere çarptı. Kök neden ölçüldü: **motorlara giden güç kesildi** — düşüş

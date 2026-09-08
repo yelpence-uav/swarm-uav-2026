@@ -1,8 +1,36 @@
 # DURUM — şu an ne çalışıyor, ne bozuk
 
-**Son güncelleme:** 8 Eylül 2026, 09:10 — ✅ **KADRO KORUMASI YAZILDI** — "sadece lider irtifa değiştirdi"nin ölçülen kök nedeni (`agent_ids=(1,)`) kapatıldı (blok aşağıda) · CUSTOM ofset düzeltmesi yine de yazıldı ve **yerde doğrulandı** (11/11) · 🎯 Görev 1 uçuş profili değişti (blok aşağıda) · 7 Eylül 11:57 RC-kayıp failsafe LAND · 5 Eylül 07:56 Görev 2
+**Son güncelleme:** 8 Eylül 2026, 09:45 — 🟢 **ylp02 SAĞLAM** (operatör, düşme sonrası) · 🟢 **pil telemetrisi ÜÇÜNDE DE DÜZELDİ** (ölçüldü: 15.71 / 15.78 / 16.13 V · %65 / %68 / %69) · ✅ **KADRO KORUMASI YAZILDI** — "sadece lider irtifa değiştirdi"nin ölçülen kök nedeni (`agent_ids=(1,)`) kapatıldı (blok aşağıda) · CUSTOM ofset düzeltmesi yine de yazıldı ve **yerde doğrulandı** (11/11) · 🎯 Görev 1 uçuş profili değişti (blok aşağıda) · 7 Eylül 11:57 RC-kayıp failsafe LAND · 5 Eylül 07:56 Görev 2
 
 
+
+> ## 🟢 8 EYLÜL ÖĞLEN — ylp02 SAĞLAM · PİL TELEMETRİSİ DÜZELDİ
+>
+> - **ylp02 uçuşa hazır** (operatör beyanı, 8 Eylül). 5 Eylül düşmesinden
+>   sonraki fiziksel kontrol yapıldı. `docs/YLP02_DUSME.md` §6 listesi
+>   kapandı sayılır; belge **kök neden kaydı** olarak duruyor.
+> - **Pil telemetrisi üç uçakta da düzeldi** — operatör pili geri açtı,
+>   ölçüldü:
+>
+>   | | voltaj | yüzde |
+>   |---|---|---|
+>   | ylp00 | 15.713 V | %65 |
+>   | ylp01 | 15.783 V | %68 |
+>   | ylp02 | 16.132 V | %69 |
+>
+>   4S için 3.93 V/hücre — tutarlı. Eski hâli: ylp01 sabit 65.54 V / %-1,
+>   ylp00 sabit değer. **Pil kesme koruması artık gerçek veriyle çalışıyor.**
+>
+> 🔴 **`land` failsafe'i HÂLÂ AÇIK — QGC ayarı bunu KAPATMIYOR.**
+> Operatör 8 Eylül'de QGC'de `land`'i uyarıya aldı; o **PX4 katmanı.**
+> Bizim sahte failsafe'imiz **kendi yazılımımızda**:
+> `agent_health_monitor.py:218` — `AgentState.LANDING` `_AIRBORNE` kümesinde
+> ve `offboard_lost_since` 5 sn'yi aşınca `EVENT_OFFBOARD_LOST` **kritik
+> arıza** ilan ediliyor. Otonom `land`'de PX4 OFFBOARD'dan `AUTO.LAND`'e
+> geçtiği için bu sayaç **her inişte** işliyor (ylp01'de tam 5.000 s
+> ölçüldü). QGC/PX4 ayarı bu satıra dokunmaz.
+> **Çözüm (~2 satır):** OFFBOARD-kaybı kuralından `LANDING` durumunu çıkar —
+> o durumda OFFBOARD'dan çıkmak zaten BEKLENEN davranış.
 
 > ## 🔴 8 EYLÜL — "SADECE LİDER İRTİFA DEĞİŞTİRDİ": ÖLÇÜLDÜ, KADRO ÇÖKMESİ
 >
