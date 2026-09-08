@@ -1,6 +1,6 @@
 # YAPILACAKLAR
 
-**Son güncelleme:** 8 Eylül 2026, 07:05 — 🔴 **CUSTOM formasyon 3 uçakta mesh'ten HİÇ GEÇMİYORMUŞ** (firmware tip başına 50 ms hız limiti ikinci ofset çerçevesini her seferinde düşürüyordu) — kök neden bulundu, **Pi tarafı düzeltmesi yazıldı**, yerde doğrulanacak · eski: 8 Eylül 05:40 — 🎯 **Görev 1 uçuş profili değişti:** başlangıç formasyonu KAPATILDI (jüri dizilişi korunuyor) · QR1 varışı 10 → **15 m**, kurtarma merdiveni artık **iniyor** (15 → 12.5 → 10) · 🔴 iki yeni P0 (bayat formasyon hedefi · CUSTOM mesh yükü) · eski: 7 Eylül 11:57 — 📻 RC-kayıp failsafe üç uçakta **LAND**'e alındı (~3.5-4 sn; `COM_RCL_EXCEPT` maddesi kapandı, iki yeni madde) · eski: 5 Eylül 18:34 — 🔴🔴 **ylp02 DÜŞTÜ** (`docs/YLP02_DUSME.md`) · 🟢 üç uçağa kod dağıtıldı (`39c78d3`) · 🟢 Görev 1 okuyucu dron artık KAMERALI uçak
+**Son güncelleme:** 8 Eylül 2026, 08:20 — 🔴 **"Sadece lider irtifa değiştirdi" ÖLÇÜLDÜ: KADRO ÇÖKMESİ** (komutların 1/3'ü `agent_ids=(1,)` ile gidiyor, takipçi sessizce düşürüyor) · 🟠 CUSTOM ofset çerçevesi kusuru ayrı bir kusurmuş — düzeltildi ve **yerde doğrulandı** (11/11, `form_yarim=0`) · eski: 8 Eylül 05:40 — 🎯 **Görev 1 uçuş profili değişti:** başlangıç formasyonu KAPATILDI (jüri dizilişi korunuyor) · QR1 varışı 10 → **15 m**, kurtarma merdiveni artık **iniyor** (15 → 12.5 → 10) · 🔴 iki yeni P0 (bayat formasyon hedefi · CUSTOM mesh yükü) · eski: 7 Eylül 11:57 — 📻 RC-kayıp failsafe üç uçakta **LAND**'e alındı (~3.5-4 sn; `COM_RCL_EXCEPT` maddesi kapandı, iki yeni madde) · eski: 5 Eylül 18:34 — 🔴🔴 **ylp02 DÜŞTÜ** (`docs/YLP02_DUSME.md`) · 🟢 üç uçağa kod dağıtıldı (`39c78d3`) · 🟢 Görev 1 okuyucu dron artık KAMERALI uçak
 
 > **Finale 5 gün.** Bu liste artık "her fikir" değil, **bu 8 günde
 > yapılacak iş.** Bir madde buraya giriyorsa birinin onu yapması planlanıyor
@@ -46,8 +46,33 @@
   **gürültülü uyarı ve SystemEvent** — sürücülüğü BIRAKMADAN (bırakmak
   OFFBOARD'dan düşürür). ~15 satır, geri alınabilir.
 
-- `[~]` 🔴 **CUSTOM formasyon 3 uçakta mesh'ten HİÇ GEÇMİYORDU — düzeltildi,
-  YERDE DOĞRULANACAK.** *(kök neden 8 Eylül'de bulundu; düzeltme `?????`)*
+- `[ ]` 🔴 **KADRO ÇÖKMESİ: lider TEK UÇAKLIK formasyon komutu yayınlıyor.**
+  🔬 **ÖLÇÜLDÜ** — ylp01 bag `ylp01_20260905_171813` (düşüş uçuşu),
+  `/swarm/public/formation/target`: **97 mesaj**, `agent_ids` dağılımı
+  **`(1,)` → 32** · `(1,2,3)` → 65. Yani komutların **üçte biri yalnız
+  lideri adresliyordu.** `formation_node._publish_setpoint` kadroda
+  olmayan uçak için **sessizce** çıkıyor
+  (`if not agent_ids or self._agent_id not in agent_ids: return`);
+  lider kendi listesinde olduğu için uyguluyor →
+  **"sadece lider irtifa değiştirdi" tam olarak bu.**
+  **Kadro neden çöküyor:** `swarm_fsm_node.py:720` `active_agent_ids`'i
+  uçak başına dört şarta bağlıyor (`healthy`, `origin_synced`,
+  `not is_stale()`, `state in FORMATION_ACTIVE_STATES`) ve dördü de
+  mesh DURUM'undan besleniyor — **tek kaçan paket** takipçiyi o tick'te
+  kadrodan düşürüyor (ölçülen mesh kaybı %6.7/%21.7).
+  🔴 **Koruma yok:** `orchestrator._assign` `frozen_offsets` doluysa
+  doğrudan `inp.agent_ids` ile gidiyor; `full_agent_count` kapısı yalnız
+  ilk CUSTOM snapshot'ında var.
+  **Önerilen çözüm:** lider, kadrosu **tam kadronun altına düşen** bir
+  formasyon komutu YAYINLAMASIN — son tam kadroyu kısa bir süre tutsun.
+  Şartnamenin *"ayrılınca formasyon düzeltmesi yok"* kuralıyla da uyumlu.
+  ~15 satır, geri alınabilir. **Uçuştan önce kapanmalı.**
+
+- `[x]` 🟠 **CUSTOM ofset çerçeveleri ardı ardına gönderiliyordu — düzeltildi,
+  YERDE DOĞRULANDI.** ⚠️ Yukarıdaki belirtinin sebebi **DEĞİL** (o uçuşta
+  formasyon tipi hep 3'tü, `form_yarim=0`); **koddan çıkarılmış ayrı bir
+  kusur.** `GOREV_FORMASYON=0` ile CUSTOM yoluna geçtiğimiz için artık
+  taşıyıcı hâle geliyor.
   CUSTOM ofsetleri formülden türetilemediği için `TIP_FORM_OFSET`
   çerçeveleriyle açıkça taşınıyor — paket başına 2 slot, 3 uçakta **iki
   çerçeve**. `esp32_bridge` ikisini de **ara vermeden** UART'a yazıyordu.
@@ -67,9 +92,13 @@
   alınıp aralarında **60 ms** bırakılarak gönderiliyor (`_FORM_OFSET_ARALIK_S`,
   50 ms + %20 pay; test firmware kaynağından okuyor) + formasyon mesh çıkışı
   **2 Hz**'e seyreltildi (`FORMASYON_MESH_HZ`, 0 = kapalı).
-  🔬 **Yerde doğrulanacak (uçuş YOK):** üç uçak açıkken takipçide `form_rx`
-  artmalı, `form_yarim` **artmamalı**; liderde `form_ofs_kuyruk=0`,
-  `form_ofs_iptal` sabit. Doğrulama yapılmadan uçulmaz.
+  ✅ **YERDE ÖLÇÜLDÜ (8 Eylül, üç uçak, kill switch açık, `armed=false`):**
+  `form_custom_yayinla.sh` ile CUSTOM(99) + 3 ofset yayınlandı →
+  lider `form_tx=11`, **ylp01 ve ylp02 `form_rx=11`**, `form_yarim=0`,
+  `form_ofs_kuyruk=0`, `form_ofs_iptal=0`. 11 turun 11'i tam montajlandı.
+  ⚠️ **Düzeltme ÖNCESİ hâli ölçülmedi** — o taraf yalnız koddan çıkarıldı
+  (firmware `MESH_GONDERIM_MIN_MS 50`, tip başına damga). İstenirse
+  `_FORM_OFSET_ARALIK_S = 0` ile A/B yapılabilir.
 
 
 - `[x]` ✅ **ylp02'ye KOD DAĞITILDI (5 Eylül 17:0x).** Üç uçakta da `.surum` = `39c78d3`, `baslat.sh` md5 depo ile aynı, `kamera_ajan_id:=1` ve `sabit_lider:=1` düğümlere ulaştı (`/proc/<pid>/cmdline` ile doğrulandı). ⚠️ `dagit.sh` **`ucus_ayarlari.env` taşımıyor** — elle atıldı, sonraki dağıtımda unutulmasın. ~~Eski madde:~~

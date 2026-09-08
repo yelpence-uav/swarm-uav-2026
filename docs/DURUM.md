@@ -1,14 +1,54 @@
 # DURUM — şu an ne çalışıyor, ne bozuk
 
-**Son güncelleme:** 8 Eylül 2026, 07:05 — 🔴 **CUSTOM formasyon 3 uçakta mesh'ten HİÇ GEÇMİYORMUŞ** — kök neden bulundu, Pi tarafı düzeltmesi yazıldı, **yerde doğrulanmadı** (blok aşağıda) · 🎯 Görev 1 uçuş profili değişti (blok aşağıda) · 7 Eylül 11:57 RC-kayıp failsafe LAND · 5 Eylül 07:56 Görev 2
+**Son güncelleme:** 8 Eylül 2026, 08:20 — 🔴 **"Sadece lider irtifa değiştirdi"nin ÖLÇÜLEN kök nedeni: KADRO ÇÖKMESİ** (`agent_ids=(1,)`), CUSTOM mesh kusuru DEĞİL (blok aşağıda) · CUSTOM ofset düzeltmesi yine de yazıldı ve **yerde doğrulandı** (11/11) · 🎯 Görev 1 uçuş profili değişti (blok aşağıda) · 7 Eylül 11:57 RC-kayıp failsafe LAND · 5 Eylül 07:56 Görev 2
 
 
 
-> ## 🔴 8 EYLÜL — CUSTOM FORMASYON MESH'TEN HİÇ GEÇMİYORMUŞ (3 uçakta)
+> ## 🔴 8 EYLÜL — "SADECE LİDER İRTİFA DEĞİŞTİRDİ": ÖLÇÜLDÜ, KADRO ÇÖKMESİ
 >
-> **Belirti (operatör):** *"ilk QR'a gittikten sonra sadece lider irtifa
-> değişimi yapmıştı."* Kök neden ölçülmedi, **koddan çıkarıldı** ve
-> deterministik:
+> ⚠️ **Bu blok aşağıdaki CUSTOM bloğunu DÜZELTİYOR.** Önce CUSTOM mesh
+> kusurunu kök neden ilan etmiştim; **uçuş kaydı bunu çürüttü.**
+>
+> **Ölçüm** — ylp01 bag'i `ylp01_20260905_171813` (5 Eylül 17:18, düşüş uçuşu),
+> `/swarm/public/formation/target` (takipçinin mesh'ten aldığı komutlar):
+>
+> ```
+> 97 mesaj,  formation_type dagilimi: {3: 97}      <- HEPSI CIZGI, CUSTOM YOK
+> agent_ids dagilimi:  (1,)      -> 32 mesaj
+>                      (1, 2, 3) -> 65 mesaj
+> mesh_diag:  form_rx=97   form_yarim=0   form_sahipsiz=0
+> ```
+>
+> **Kök neden:** komutların **üçte biri yalnız lideri adresliyordu**
+> (`agent_ids=(1,)`). `formation_node._publish_setpoint` kadroda olmayan
+> uçak için **sessizce çıkıyor**:
+> `if not agent_ids or self._agent_id not in agent_ids: return`.
+> Lider kendi listesinde olduğu için o komutu uyguluyor → **lider hareket
+> ediyor, takipçiler donuyor.** Hiçbir yerde hata yok.
+>
+> **Kadro neden çöküyor:** `swarm_fsm_node.py:720` `active_agent_ids`'i
+> uçak başına **dört şarta** bağlıyor — `healthy`, `origin_synced`,
+> `not is_stale()`, `state in FORMATION_ACTIVE_STATES`. Dördü de mesh'ten
+> gelen DURUM'la besleniyor; **tek bir kaçan pakette** takipçi o tick'te
+> kadrodan düşüyor. Ölçülen mesh kaybı %6.7 / %21.7.
+>
+> 🔴 **KORUMA YOK.** `orchestrator._assign` `frozen_offsets` doluysa
+> doğrudan `inp.agent_ids` üzerinden gidiyor; kadro (1,) ise **tek uçaklık
+> formasyon** komutu üretiliyor. `full_agent_count` kapısı yalnız ilk
+> CUSTOM snapshot'ında var, sonrasında devrede değil.
+> **Önerilen:** lider, kadrosu tam kadronun altına düşen bir formasyon
+> komutu YAYINLAMASIN (son tam kadroyu kısa süre tutsun) — şartnamenin
+> "ayrılınca formasyon düzeltmesi yok" kuralıyla da uyumlu. YAPILACAKLAR P0.
+>
+> ✅ Ayrıca ölçüldü: `form_rx=97`, `form_yarim=0` — o uçuşta mesh montajı
+> **hiç bozulmadı**. CUSTOM yolu o uçuşta **hiç çalışmadı** (tip 3'tü).
+
+> ## 🟠 8 EYLÜL — CUSTOM OFSET ÇERÇEVELERİ (ayrı kusur, düzeltildi)
+>
+> ⚠️ **Bu, yukarıdaki belirtinin sebebi DEĞİL** — o kadro çökmesiydi ve
+> ölçüldü. Burası **koddan çıkarılmış ayrı bir kusur**; uçuşta hiç
+> tetiklenmedi çünkü formasyon tipi hep 3'tü. `GOREV_FORMASYON=0` ile
+> CUSTOM yoluna geçtiğimiz için ARTIK taşıyıcı hale geliyor:
 >
 > CUSTOM ofsetleri formülden türetilemez, `TIP_FORM_OFSET` çerçeveleriyle
 > açıkça taşınır — paket başına 2 slot, **3 uçakta iki çerçeve.**
