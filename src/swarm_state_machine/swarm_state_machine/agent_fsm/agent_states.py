@@ -28,6 +28,25 @@ class AgentState(IntEnum):
 FORMATION_ACTIVE_STATES = frozenset({
     AgentState.IN_SWARM,
     AgentState.EXECUTING_TASK,
+    # 🔴 RETURN_HOME 8 EYLUL 2026'DA EKLENDI — SAHADA OLCULDU.
+    #
+    # Yoktu ve sonucu su oldu: mission1 RETURN_HOME komutunu basiyor,
+    # 29 ms sonra agent_fsm ucaklari IN_SWARM -> RETURN_HOME'a aliyor,
+    # UC UCAK BIRDEN bu kumeden dusuyor ve `active_agent_ids` BOSALIYOR.
+    # Orkestrator `if not inp.agent_ids: return` ile ilk satirda cikiyor,
+    # donus faz makinesi (eve don / dikey merdiven / dagilma / inis) HIC
+    # calismiyor. Suru son komutta donup kaliyor: merkez QR'in ustunde,
+    # heading eve dogru -> olduğu yerde yaw yapip bekliyor.
+    # Olculdu: 307 saniye tek komut yok, eve mesafe 12.7 m hic azalmadi.
+    #
+    # NEDEN BURAYA AITTI: bu kume iki seyi dislamak icin yazilmis —
+    # YERDEKILER (ARMED/TAKEOFF/LANDED) ve SURUDEN CIKMIS OLANLAR
+    # (DETACHED/FAILSAFE). RETURN_HOME ikisi de degil: havada, formasyonda,
+    # tam kadro uçuyor. Sadece unutulmustu.
+    #
+    # LANDING BILEREK EKLENMEDI: orada ucak formasyon surucusu degil,
+    # px4/precision_landing suruyor (formation_node'un _MUTE_STATES'i).
+    AgentState.RETURN_HOME,
 })
 """Formasyon hesaplarına (centroid, konum dizileri, kalite) dahil edilen durumlar.  # noqa: E501
 

@@ -1,8 +1,70 @@
 # DURUM — şu an ne çalışıyor, ne bozuk
 
-**Son güncelleme:** 8 Eylül 2026, 11:30 — 🎮 **ylp00'da `joystick` KAPALI** (Görev 1 uçuşu için) · 💉 **QR okuma ENJEKSİYONLA** (gerçek okuma yok) · 📷 **ALGI ZİNCİRİ AÇILDI** (ylp00: `goru` + `kamera_yayin.py`, 4K 5 fps, kare 5.06 Hz) · 🔴 **QR TABLOSUNDA HATA: QR2 31.3 km kuzeyde** · 🟢 **ylp02 SAĞLAM** (operatör, düşme sonrası) · 🟢 **pil telemetrisi ÜÇÜNDE DE DÜZELDİ** (ölçüldü: 15.71 / 15.78 / 16.13 V · %65 / %68 / %69) · ✅ **KADRO KORUMASI YAZILDI** — "sadece lider irtifa değiştirdi"nin ölçülen kök nedeni (`agent_ids=(1,)`) kapatıldı (blok aşağıda) · CUSTOM ofset düzeltmesi yine de yazıldı ve **yerde doğrulandı** (11/11) · 🎯 Görev 1 uçuş profili değişti (blok aşağıda) · 7 Eylül 11:57 RC-kayıp failsafe LAND · 5 Eylül 07:56 Görev 2
+**Son güncelleme:** 8 Eylül 2026, 13:30 — ✈️ **GÖREV 1 İLK ONBOARD UÇUŞU** — QR çıpası 0.05 m ile tuttu, dönüşte **kadro çökmesi** bulundu ve kapatıldı · 🔴 **ylp01'in Pi'si HAVADA elektriksiz kaldı** · 🎮 ylp00'da `joystick` KAPALI (Görev 1 uçuşu için) · 💉 **QR okuma ENJEKSİYONLA** (gerçek okuma yok) · 📷 **ALGI ZİNCİRİ AÇILDI** (ylp00: `goru` + `kamera_yayin.py`, 4K 5 fps, kare 5.06 Hz) · 🔴 **QR TABLOSUNDA HATA: QR2 31.3 km kuzeyde** · 🟢 **ylp02 SAĞLAM** (operatör, düşme sonrası) · 🟢 **pil telemetrisi ÜÇÜNDE DE DÜZELDİ** (ölçüldü: 15.71 / 15.78 / 16.13 V · %65 / %68 / %69) · ✅ **KADRO KORUMASI YAZILDI** — "sadece lider irtifa değiştirdi"nin ölçülen kök nedeni (`agent_ids=(1,)`) kapatıldı (blok aşağıda) · CUSTOM ofset düzeltmesi yine de yazıldı ve **yerde doğrulandı** (11/11) · 🎯 Görev 1 uçuş profili değişti (blok aşağıda) · 7 Eylül 11:57 RC-kayıp failsafe LAND · 5 Eylül 07:56 Görev 2
 
 
+
+> ## ✈️ 8 EYLÜL — GÖREV 1'İN İLK ONBOARD UÇUŞU
+>
+> Otonom zincir uçtan uca koştu. QR okuma **enjeksiyonla** (KARAR-19).
+>
+> ```
+> 09:18:23  SYNCHRONIZED_TAKEOFF     KALKIS TAMAM: irtifa=14.58 m (hedef 15)
+> 09:18:45  ROTATE_TO_NEXT           202° rijit dönüş, tip=99 (CUSTOM)
+> 09:19:13  NAVIGATE_TO_QR           8 sn (QR1 merkeze 15 m)
+> 09:19:21  EXECUTE_QR_TASK          QR mesafe 0.05 m   ← çıpa TUTTU
+> 09:19:39  RETURN_HOME              ...307 saniye TEK KOMUT YOK...
+> ```
+>
+> **🟢 Çalışanlar:** HOME kilidi (3 uçak) · YKİ ayarı `tip=0` (formasyon
+> ezilmedi) · **kalkış dizilişi korundu** — yayınlanan her komut `tip=99`
+> · **kameralı ajan çıpalaması**: ylp00 QR'ın 5 cm yanında · enjeksiyondan
+> 4 sn sonra `QR kabul edildi`.
+>
+> ### 🔴 KÖK NEDEN: RETURN_HOME'a girince KADRO BOŞALIYORDU
+>
+> ```
+> 1788848379.204  mission1 -> RETURN_HOME komutu (faz 0)
+> 1788848379.233  agent_fsm: IN_SWARM -> RETURN_HOME     29 ms sonra
+> ```
+>
+> `FORMATION_ACTIVE_STATES = {IN_SWARM, EXECUTING_TASK}` — **RETURN_HOME
+> yoktu.** Üç uçak birden kümeden düştü → `swarm_fsm_node:720`
+> `active_agent_ids = []` → `orchestrator.decide()` **ilk satırda** çıktı
+> (`if not inp.agent_ids: return`) → dönüş faz makinesi (eve dön / dikey
+> merdiven / dağılma / iniş) **hiç koşmadı.** Sürü son komutta dondu:
+> merkez QR'ın üstünde, heading eve dönük → **olduğu yerde yaw yapıp
+> bekledi.** `mesafe=12.7 m` 307 saniye hiç azalmadı. Hiçbir yerde hata yok.
+>
+> **Aralıklı değil, deterministik.** İlk kez bugün göründü çünkü
+> `RETURN_HOME` durumuna ilk kez girildi (4 Eylül'deki uçuş YKİ'den `goto`
+> basan yoldu, onboard dönüş fazları hiç işlememişti).
+>
+> ✅ **İKİ KATMAN DÜZELTİLDİ:**
+> 1. `agent_states.FORMATION_ACTIVE_STATES`'e **`RETURN_HOME` eklendi**
+>    (kök neden; `LANDING` bilerek eklenmedi — orada formasyon sürücü değil)
+> 2. `orchestrator.decide()` kadro **sıfırlanırsa son TAM kadroya düşüyor**
+>    — başka bir sebeple (sağlık bayrağı, bayatlama, mesh) boşalsa da görev
+>    donmasın. Görünür: WARNING + `kadro_bos_sayaci`.
+>
+> ### 🔴 ylp01'in Pi'si HAVADA elektriksiz kaldı
+>
+> ```
+> 1788848402-428  [agent 2] Batarya dusuk: 14.7 / 14.5 / 14.6 V
+> 1788848428.72   px4b: rtk msg=6712 ...
+>                 ### LOG ANİDEN KESİLİYOR — kapanış mesajı YOK ###
+> 1788848513      yeni oturum (85 sn sonra)
+> ```
+>
+> Ani kesik = **güç kaybı**. Pixhawk kendi beslemesinden yaşadı, OFFBOARD
+> kaybolunca failsafe ile indi — uçak kendini kurtardı.
+> 🔴 **ylp02'nin 5 Eylül'de düştüğü kusurla AYNI SINIF (besleme kesintisi),
+> üç günde ikinci kez.** `YLP02_DUSME.md` §6 listesi ylp01'e de uygulanmalı.
+>
+> ### ✅ `land` sahte failsafe'i tekrar doğrulandı
+>
+> `RETURN_HOME -> LANDING` (1788848472.63) → `LANDING -> FAILSAFE`
+> (1788848477.63) — **tam 5.000 sn**, `agent_health_monitor.py:218`.
 
 > ## 🎮💉 8 EYLÜL — GÖREV 1 TEST DÜZENİ: joystick KAPALI · QR ENJEKSİYONLA
 >

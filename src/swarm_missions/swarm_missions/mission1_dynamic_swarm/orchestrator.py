@@ -371,6 +371,8 @@ class _State:
     # sik cokuyor demektir, yani mesh kaybi ya da saglik bayraklari.
     son_tam_kadro: list = field(default_factory=list)
     kadro_koruma_sayaci: int = 0
+    #: Kadronun TAMAMEN bosaldigi ve son tam kadroya dusuldugu tick sayisi.
+    kadro_bos_sayaci: int = 0
     # NAVIGATE varış tespiti: eşik-altı ardışık tick sayacı ve varışın bir kez
     # bildirildiği faz anahtarı (her QR için tek "vardım" sinyali).
     arrival_ticks: int = 0
@@ -463,8 +465,35 @@ class Mission1Orchestrator:
         # Sürü durumu henüz gelmediyse (aktif ajan listesi boş) komut üretme.
         # Boş agent_ids ile formasyon slot ataması compute_slot_offsets'te
         # total=0 -> ValueError veriyordu (SwarmState geç/boş geldiğinde çökme).
+        #
+        # 🔴 AMA BU KAPI GOREVIN ORTASINDA DA KAPANABILIYOR — 8 EYLUL 2026,
+        # SAHADA OLCULDU. Kapi ACILIS icin konmustu (SwarmState henuz
+        # gelmemis); uctugumuzda ise RETURN_HOME'a girer girmez uc ucak
+        # birden `FORMATION_ACTIVE_STATES`ten dusup kadroyu BOSALTTI ve bu
+        # `return` butun donus fazlarini yuttu. 307 saniye tek komut
+        # cikmadi, suru QR'in ustunde asili kaldi, hicbir yerde hata
+        # gorunmedi.
+        #
+        # Kok neden `agent_states.FORMATION_ACTIVE_STATES` idi ve orada
+        # duzeltildi. BURASI IKINCI KATMAN: kadro BASKA bir sebeple de
+        # (saglik bayragi, bayatlama, mesh) sifirlanabilir ve gorev ortasinda
+        # sessizce donmamali. Bir kez TAM kadro gorulduyse ona duseriz.
+        #
+        # Konumlar bos kalir; zararsiz: `_snapshot_offsets` ve
+        # `_maybe_formation_settled` konum listesini ayrica denetleyip None
+        # donuyor, yani yakinsama sinyali gelmez ve fazlar ZAMAN ASIMIYLA
+        # ilerler — kodun zaten tasarlanmis yedek yolu.
         if not inp.agent_ids:
-            return cmds
+            if not self._st.son_tam_kadro:
+                return cmds
+            self._st.kadro_bos_sayaci += 1
+            self._kadro_notu = (
+                f'KADRO SIFIRLANDI (aktif ajan listesi BOS) — son tam kadro '
+                f'{list(self._st.son_tam_kadro)} ile devam ediliyor. Bu '
+                f'{self._st.kadro_bos_sayaci}. kez oluyor; sebebi ayrica '
+                f'aranmali (saglik bayragi? bayatlama? mesh?).'
+            )
+            inp = replace(inp, agent_ids=list(self._st.son_tam_kadro))
 
         # SON TAM KADRO her tick guncellenir — komut uretilmeyen tick'lerde
         # de ogrenilmeli, yoksa koruma ancak bir komut cikinca kadro
