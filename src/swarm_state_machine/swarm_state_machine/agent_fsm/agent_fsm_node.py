@@ -428,7 +428,26 @@ class AgentFsmNode(Node):
             # ama kalkis kapisini ACMAZ — 'takeoff' komutunun tek kaynagi
             # guided yol kalir (cift kalkis kaynagi = bolum-4 cakismasi).
             kalkis_izni = (not self._yer_testi) and self._kalkis_olayla
-            if ctx.state == AgentState.IDLE:
+            # 🔴 LANDED DE KABUL EDILIYOR — 8 EYLUL 2026, SAHADA OLCULDU.
+            # ylp02 gorev baslatildiginda KALKMADI: `LANDED` durumundaydi
+            # ve bu kapi yalniz IDLE/ARMED'i tanidigi icin arm hic
+            # istenmedi. Hicbir yerde hata gorunmedi; ucus kaydinda d3
+            # basindan sonuna state=13 (LANDED), armed=False.
+            #
+            # IKINCI KATMAN: asil duzeltme `_from_landed`in kendiliginden
+            # IDLE'a donmesi (agent_transitions). Burasi o donus herhangi
+            # bir sebeple gecikirse (bekleme suresi dolmadi, armed takili
+            # kaldi) gorevin SESSIZCE kaybolmamasi icin. Once IDLE'a
+            # gecmesini isteriz; FSM bir sonraki tikta oradan ARMING'e
+            # gider ve normal yol islemis olur.
+            if ctx.state == AgentState.LANDED:
+                self.get_logger().warning(
+                    f'[agent {aid}] gorev baslatildi ama durum LANDED — '
+                    f'IDLE istendi. Kendiliginden donus neden gecikti, '
+                    f'kayitta bakilmali (8 Eylul: ylp02 boyle kalkmadi).'
+                )
+                ctx.pending_state = AgentState.IDLE
+            elif ctx.state == AgentState.IDLE:
                 ctx.mission_start_sequence_active = kalkis_izni
                 ctx.pending_state = AgentState.ARMING
             elif ctx.state == AgentState.ARMED:

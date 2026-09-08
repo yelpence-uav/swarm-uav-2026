@@ -10,6 +10,12 @@ _ARMING_TIMEOUT_S = 15.0
 _ARMED_STABILIZE_S = 2.0  # offboard + EKF2 stabilizasyonu için bekle
 _TAKEOFF_TIMEOUT_S = 30.0
 _PRECISION_LANDING_TIMEOUT_S = 60.0
+
+# LANDED'dan IDLE'a kendiliginden donmeden once beklenen sure.
+# 3 sn: disarm ile "gercekten oturdu" arasindaki pay. Kisa tutuldu cunku
+# amac ucagi bir sonraki goreve HAZIR birakmak; uzun tutmak 8 Eylul'de
+# yasanan "gorev basladi ama ucak kalkmadi" halini geri getirirdi.
+_LANDED_IDLE_BEKLEME_S = 3.0
 _REJOIN_TIMEOUT_S = 60.0
 _WAITING_REJOIN_TIMEOUT_S = 120.0
 
@@ -366,18 +372,34 @@ def _from_landing(ctx: AgentContext) -> AgentState | None:
 def _from_landed(ctx: AgentContext) -> AgentState | None:
     """Evaluate transitions from this state.
 
-    LANDED → IDLE: Yeni görev için hazırlan.
+    LANDED → IDLE: Yeni görev için hazırlan (KENDILIGINDEN, bkz. asagi).
     LANDED → STANDBY: Drone pasif moda alınıyor.
 
-    Args:
-        ctx: Drone durum bilgisi.
+    🔴 KENDILIGINDEN IDLE'A DONUS — 8 EYLUL 2026, SAHADA OLCULDU.
+    ylp02 gorev baslatildiginda KALKMADI. Sebep: agent_fsm `LANDED`
+    durumunda kalmisti ve buradan cikis YALNIZ `pending_state == IDLE`
+    ile mumkundu — ama o alani kimse doldurmuyordu. Kalkis kapisi ise
+    yalniz IDLE'dan aciliyor:
+        if ctx.state == AgentState.IDLE: pending_state = ARMING
+    Yani inmis bir ucak bir daha ASLA kalkamiyordu ve hicbir yerde hata
+    gorunmuyordu. Ucus kaydinda d3 basindan sonuna `state=13 (LANDED)`,
+    `armed=False`; digerleri IDLE'dan kalkti.
 
-    Returns:
-        Hedef AgentState veya None.
+    LANDED artik GECICI bir durum: inis dogrulandiginda (disarm + yerde)
+    kisa bir bekleme sonrasi IDLE'a doner ve ucak yeni goreve hazir olur.
+
+    BEKLEME NIYE VAR: disarm ile "gercekten yere oturdu" arasinda kisa bir
+    an var; hemen IDLE'a donmek, inis daha tamamlanmadan yeni bir gorev
+    baslatma kapisini acardi. `_LANDED_IDLE_BEKLEME_S` o pay.
+
+    ARMLIYSA DONMEZ: pervaneler donerken IDLE'a gecmek, kalkis kapisini
+    acik birakmak demektir. Bilerek `not ctx.armed` sarti var.
     """
     if ctx.pending_state == AgentState.STANDBY:
         return AgentState.STANDBY
     if ctx.pending_state == AgentState.IDLE:
+        return AgentState.IDLE
+    if not ctx.armed and ctx.time_in_state() > _LANDED_IDLE_BEKLEME_S:
         return AgentState.IDLE
     return None
 
