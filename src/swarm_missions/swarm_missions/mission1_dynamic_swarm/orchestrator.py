@@ -1484,8 +1484,9 @@ class Mission1Orchestrator:
     # kesilip eve gitmeye basliyordu.
     _DONUS_ZA_S = (
         30.0,   # 0 yaw       : 16.7 s (180 deg @ 12.28 deg/s) + pay
-        45.0,   # 1 eve don   : ~31 m / 2 m/s = 15.5 s + ruzgar/takip payi
-        20.0,   # 2 merdiven  : 5 m / 1.2 m/s (KACINMA_DIKEY_HIZ) = 4.2 s + pay
+        # 8 Eylul: 1 ve 2 YER DEGISTIRDI — merdiven eve donusten ONCE.
+        20.0,   # 1 merdiven  : 5 m / 1.2 m/s (KACINMA_DIKEY_HIZ) = 4.2 s + pay
+        45.0,   # 2 eve don   : ~31 m / 2 m/s = 15.5 s + ruzgar/takip payi
         45.0,   # 3 dagilma   : ~20 m / 1.0 m/s = 20 s + pay
     )
     # Bu esigin altinda donulecek aci varsa yaw fazi hic acilmaz (bosuna
@@ -1568,7 +1569,16 @@ class Mission1Orchestrator:
         if faz >= 4:
             return
         # Dagilma icin kalkis dizilisi sart; yoksa formasyonda kal (eski yol).
-        if faz >= 1 and st.kalkis_ofsetleri is None:
+        #
+        # 🔴 ESIK 1 -> 2 OLDU (8 Eylul, faz sirasi degisiminde yakalandi).
+        # Eski sirada faz 1 EVE DONUSTU, yani kalkis dizilisi olmasa bile
+        # suru once eve geliyor, sonra donuyordu. Yeni sirada faz 1
+        # MERDIVEN, faz 2 EVE DONUS. Esik 1'de birakilsaydi kalkis
+        # dizilisi olmayan bir ucusta suru merdiveni kurup ORADA KALIRDI
+        # — bugun kapattigimiz donmanin aynisi, yeni kilikta.
+        # Kalkis dizilisi YALNIZ DAGILMA (faz 3) icin gerekli; eve donus
+        # onsuz da yapilabilir ve yapilmali.
+        if faz >= 2 and st.kalkis_ofsetleri is None:
             return
 
         gecen = float(inp.time_in_state) - float(st.donus_faz_t0)
@@ -1679,35 +1689,81 @@ class Mission1Orchestrator:
             if offsets is None:
                 return None
             self._st.heading_deg = heading
+            # 🔴 MERDIVEN YAW ILE BIRLIKTE KURULUYOR (8 Eylul).
+            # Yaw yerinde bir RIJIT donus, yani nominalde mesafeler
+            # degismez. Ama biri takilirsa (mesh/ruzgar) digeri onun
+            # yanindan geciyor ve ne kadar yakindan gectigi yerdeki
+            # dizilise bagli — finalde dizilisi HAKEM seciyor.
+            # 300 rastgele dizilisle olculdu: merdiven yalniz donusten
+            # once kurulunca esigin altinda kalan %11, yaw'a da
+            # tasininca %1'in altina iniyor. Bedeli yok: yaw zaten
+            # yerinde yapiliyor, dikey ayrim o sirada kuruluyor.
+            katmanli = [
+                (o[0], o[1],
+                 self._merdiven_irtifasi(a, inp.centroid[2]) - inp.centroid[2])
+                for a, o in zip(inp.agent_ids, offsets)
+            ]
             return [FormationTargetCmd(
                 formation_type=self._st.formation_type,
                 center=self._hold_centroid(inp, offsets, heading),
                 heading_deg=heading, spacing_m=self._st.spacing_m,
-                agent_ids=list(inp.agent_ids), offsets=offsets,
+                agent_ids=list(inp.agent_ids), offsets=katmanli,
                 rotate_towards_target=False, use_current_centroid=True,
                 use_current_altitude=True)]
 
-        if faz == 1:                       # EVE DON — formasyon korunur
+        # 🔴 MERDIVEN ARTIK EVE DONUSTEN ONCE — 8 EYLUL 2026.
+        #
+        # ESKI SIRA: yaw -> EVE DON -> merdiven -> dagilma. Eve donus
+        # bacaginda UC UCAK DA AYNI IRTIFADAYDI ve suru blok halinde
+        # ~15 m yol aliyordu. Biri takilirsa (mesh paketi gec geldi,
+        # ruzgar tuttu, erken oturdu) digeri onun yanindan geciyor.
+        # Ne kadar yakindan gectigi TAMAMEN yerdeki dizilise bagliydi:
+        # ayni gun uc olcumde 3.83 / 2.56 / 0.31 m cikti — 0.3 m'lik bir
+        # konum farki sonucu 1 m'den fazla oynatiyordu.
+        #
+        # 🔴 FINALDE DIZILISI HAKEM SECIYOR. "Yerde su ucagi 4 m kaydir"
+        # diye bir cozum orada YOK; profil HER dizilise dayanikli olmak
+        # zorunda. Merdiveni EVE DONUSTEN ONCE kurmak tam bunu yapiyor:
+        # ucaklar donus boyunca AYRI KATMANLARDA oldugu icin yatay
+        # yakinlik onemsizlesir, kacinma TEK DAYANAK degil YEDEK olur.
+        #
+        # Ayni fikir kalkis tarafinda `toplanma_katman_m` ile 4 Eylul'de
+        # zaten uygulanmisti, ayni gerekceyle: "kim nerede duracagini
+        # konumdan turetiyoruz, yollar KESISEBILIR."
+        #
+        # Bedeli: dikey ayrim kurulana kadar ~5 sn daha havada kalinir.
+        if faz == 1:                       # DIKEY MERDIVEN — YERINDE
             heading = yawli
             offsets = self._assign(self._st.formation_type,
-                                   self._st.spacing_m, inp.home, heading, inp)
+                                   self._st.spacing_m, inp.centroid,
+                                   heading, inp)
             if offsets is None:
                 return None
             self._st.heading_deg = heading
+            # Merkez O ANKI centroid: suru henuz evde DEGIL, merdiveni
+            # bulundugu yerde kurmali. `inp.home` verirsek yatayda da
+            # hareket eder ve merdivenin amaci kaybolur.
+            katmanli = [
+                (o[0], o[1],
+                 self._merdiven_irtifasi(a, inp.centroid[2]) - inp.centroid[2])
+                for a, o in zip(inp.agent_ids, offsets)
+            ]
             return [FormationTargetCmd(
                 formation_type=self._st.formation_type,
-                center=inp.home, heading_deg=heading,
+                center=inp.centroid, heading_deg=heading,
                 spacing_m=self._st.spacing_m,
-                agent_ids=list(inp.agent_ids), offsets=offsets,
-                rotate_towards_target=False, use_current_centroid=False,
-                use_current_altitude=False)]
+                agent_ids=list(inp.agent_ids), offsets=katmanli,
+                rotate_towards_target=False, use_current_centroid=True,
+                use_current_altitude=True)]
 
-        if faz == 2:                       # DIKEY MERDIVEN — yatayda kimildama
+        if faz == 2:                       # EVE DON — KATMANLI
             heading = yawli
             offsets = self._assign(self._st.formation_type,
                                    self._st.spacing_m, inp.home, heading, inp)
             if offsets is None:
                 return None
+            # Katmanlar KORUNUR: donus boyunca ucaklar ayri irtifalarda
+            # kalsin. Merdiven faz 1'de kuruldu, burada sadece tasiniyor.
             katmanli = [
                 (o[0], o[1],
                  self._merdiven_irtifasi(a, inp.centroid[2]) - inp.centroid[2])

@@ -36,7 +36,7 @@ sırası gelince" denilen şeyleri. Onlar en kolay kaybolanlar.
 
 # KARAR-19 — Görev 1 ilk uçuşu, kuru test "KALDI" iken uçuluyor
 
-**Durum:** 🟠 KARAR VERİLDİ, uçuş yapılmadı
+**Durum:** ✅ **KONUSUZ KALDI (8 Eylül 15:40)** — dönüş profili dizilişten bağımsız hâle getirildi, canlı dizilişte kuru test **6.87 m ile GEÇTİ**. Karar tarihsel kayıt olarak duruyor; bir daha 4 m altında uçmaya gerek kalmadı. ~~Eski:~~ 🟠 KARAR VERİLDİ, uçuş yapıldı (dönüş bacağına hiç geçilemedi)
 **Ne zaman:** Görev 1'in ilk otonom uçuşu (8 Eylül 2026)
 **Karar veren:** operatör (8 Eylül 2026)
 

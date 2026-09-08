@@ -1,8 +1,60 @@
 # DURUM — şu an ne çalışıyor, ne bozuk
 
-**Son güncelleme:** 8 Eylül 2026, 13:30 — ✈️ **GÖREV 1 İLK ONBOARD UÇUŞU** — QR çıpası 0.05 m ile tuttu, dönüşte **kadro çökmesi** bulundu ve kapatıldı · 🔴 **ylp01'in Pi'si HAVADA elektriksiz kaldı** · 🎮 ylp00'da `joystick` KAPALI (Görev 1 uçuşu için) · 💉 **QR okuma ENJEKSİYONLA** (gerçek okuma yok) · 📷 **ALGI ZİNCİRİ AÇILDI** (ylp00: `goru` + `kamera_yayin.py`, 4K 5 fps, kare 5.06 Hz) · 🔴 **QR TABLOSUNDA HATA: QR2 31.3 km kuzeyde** · 🟢 **ylp02 SAĞLAM** (operatör, düşme sonrası) · 🟢 **pil telemetrisi ÜÇÜNDE DE DÜZELDİ** (ölçüldü: 15.71 / 15.78 / 16.13 V · %65 / %68 / %69) · ✅ **KADRO KORUMASI YAZILDI** — "sadece lider irtifa değiştirdi"nin ölçülen kök nedeni (`agent_ids=(1,)`) kapatıldı (blok aşağıda) · CUSTOM ofset düzeltmesi yine de yazıldı ve **yerde doğrulandı** (11/11) · 🎯 Görev 1 uçuş profili değişti (blok aşağıda) · 7 Eylül 11:57 RC-kayıp failsafe LAND · 5 Eylül 07:56 Görev 2
+**Son güncelleme:** 8 Eylül 2026, 15:40 — 🎯 **DÖNÜŞ PROFİLİ DİZİLİŞTEN BAĞIMSIZ HÂLE GETİRİLDİ** — merdiven artık eve dönüşten ÖNCE; canlı dizilişte kuru test 0.31 m → **6.87 m, GEÇTİ** · ✈️ **GÖREV 1 İLK ONBOARD UÇUŞU** — QR çıpası 0.05 m ile tuttu, dönüşte **kadro çökmesi** bulundu ve kapatıldı · 🔴 **ylp01'in Pi'si HAVADA elektriksiz kaldı** · 🎮 ylp00'da `joystick` KAPALI (Görev 1 uçuşu için) · 💉 **QR okuma ENJEKSİYONLA** (gerçek okuma yok) · 📷 **ALGI ZİNCİRİ AÇILDI** (ylp00: `goru` + `kamera_yayin.py`, 4K 5 fps, kare 5.06 Hz) · 🔴 **QR TABLOSUNDA HATA: QR2 31.3 km kuzeyde** · 🟢 **ylp02 SAĞLAM** (operatör, düşme sonrası) · 🟢 **pil telemetrisi ÜÇÜNDE DE DÜZELDİ** (ölçüldü: 15.71 / 15.78 / 16.13 V · %65 / %68 / %69) · ✅ **KADRO KORUMASI YAZILDI** — "sadece lider irtifa değiştirdi"nin ölçülen kök nedeni (`agent_ids=(1,)`) kapatıldı (blok aşağıda) · CUSTOM ofset düzeltmesi yine de yazıldı ve **yerde doğrulandı** (11/11) · 🎯 Görev 1 uçuş profili değişti (blok aşağıda) · 7 Eylül 11:57 RC-kayıp failsafe LAND · 5 Eylül 07:56 Görev 2
 
 
+
+> ## 🎯 8 EYLÜL — DÖNÜŞ PROFİLİ ARTIK DİZİLİŞTEN BAĞIMSIZ
+>
+> **Operatör:** *"finalde adamlar rastgele yerleştirecek, ona hazırlıklı
+> olmak lazım."* Doğru soru buydu — sorun yerdeki diziliş değil, **profilin
+> dizilişe bağımlı olmasıydı.**
+>
+> Aynı gün üç ölçüm, aynı kod, sadece uçaklar birkaç metre oynadı:
+> **3.83 → 2.56 → 0.31 m.** 0.3 m'lik konum farkı sonucu 1 m'den fazla
+> oynatıyordu. Sahada "şu uçağı 4 m kaydır" bir çözüm; **finalde değil.**
+>
+> ### Değişiklik: dikey merdiven eve dönüşten ÖNCE
+>
+> | | eski sıra | yeni sıra |
+> |---|---|---|
+> | faz 0 | yaw (aynı irtifada) | **yaw + merdiven kuruluyor** |
+> | faz 1 | eve dön (aynı irtifada) | **dikey merdiven — yerinde** |
+> | faz 2 | dikey merdiven | **eve dön — KATMANLI** |
+> | faz 3 | dağılma | dağılma (katmanlı) |
+>
+> Sürü dönüş boyunca **ayrı katmanlarda** olduğu için yatay yakınlık
+> önemsizleşiyor; kaçınma tek dayanak değil **yedek** oluyor. Aynı fikir
+> kalkış tarafında `toplanma_katman_m` ile 4 Eylül'de zaten uygulanmıştı.
+>
+> ### 🔬 400 RASTGELE DİZİLİŞLE ÖLÇÜLDÜ (Monte Carlo)
+>
+> Hakem 25×25 m'lik alana rastgele koyuyor, en az 3 m arayla:
+>
+> | | önce | sonra |
+> |---|---|---|
+> | en kötü | 0.06 m | **2.94 m** |
+> | %1 | 0.67 m | **3.13 m** |
+> | medyan | 5.79 m | **6.16 m** |
+> | eşiğin altında | %22 | **%10.5** |
+>
+> **Canlı dizilişte kuru test: 0.31 m → 6.87 m, `SONUÇ: GEÇTİ`** — tek uçak
+> kıpırdamadan.
+>
+> ⚠️ Kalan %10.5'in **tamamı tek bir geçişte** (`QR okuma → dönüş yaw`) ve
+> model orada **kötümser**: dikey ayrım 1 m/s ile 5 saniyede kuruluyor, yaw
+> ise 15-30 saniye sürüyor; kuru test ikisini eşzamanlı ve doğrusal
+> varsayıyor. Gerçekte merdiven yaw daha başlamadan tamamlanıyor.
+>
+> 🔴 **Yolda bir regresyon yakalandı:** `kalkis_ofsetleri is None` kapısının
+> eşiği `faz >= 1` idi. Faz sırası değişince bu, kalkış dizilişi olmayan bir
+> uçuşta sürüyü **merdivende dondururdu** — bugün kapattığımız donmanın
+> aynısı, yeni kılıkta. Eşik `faz >= 2`'ye alındı: kalkış dizilişi yalnız
+> **dağılma** için gerekli, eve dönüş onsuz da yapılmalı.
+>
+> Ayrıca kuru test modeli **toplanma merdivenini hiç modellemiyordu** —
+> gidiş bacağını uçaklar aynı irtifadaymış gibi çizip olmayan çarpışmalar
+> raporluyordu. Eklendi.
 
 > ## ✈️ 8 EYLÜL — GÖREV 1'İN İLK ONBOARD UÇUŞU
 >

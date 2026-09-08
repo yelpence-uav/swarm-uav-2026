@@ -1986,8 +1986,14 @@ def plan_kur_gorev1(t):
 
     kalkis_irtifa = float(AYAR.GOREV_KALKIS_IRTIFA_M)
     katman = float(AYAR.GOREV_DONUS_KATMAN_M)
+    # 🔴 TOPLANMA MERDIVENI DE MODELLENMELI (8 Eylul'de eksikti).
+    # `_on_takeoff` kalkista bu merdiveni kuruyor ve QR'da formasyon
+    # OTURANA KADAR acik tutuyor (`_maybe_formation_settled` kaldiriyor).
+    # Modelde yoktu; gidis bacagini ucaklar AYNI irtifadaymis gibi
+    # cizdigi icin olmayan carpismalar raporluyordu.
+    toplanma = float(getattr(AYAR, 'GOREV_TOPLANMA_KATMAN_M', 0.0) or 0.0)
 
-    def _gecis(plan, etiket, m0, y0, m1, y1, irtifa):
+    def _gecis(plan, etiket, m0, y0, m1, y1, irtifa, katman=None):
         """Merkez ve heading'i BIRLIKTE dilimleyerek plana ekler.
 
         🔴 DILIMLEMEK ZORUNLU, yoksa DENETIM YALAN SOYLER. Carpisma
@@ -2013,16 +2019,18 @@ def plan_kur_gorev1(t):
             ara_m = (m0[0] + (m1[0] - m0[0]) * i / n,
                      m0[1] + (m1[1] - m0[1]) * i / n)
             if i == n:
-                plan.append((etiket, ara_y, _hedefler(ara_m, ara_y, irtifa),
+                plan.append((etiket, ara_y,
+                             _hedefler(ara_m, ara_y, irtifa, katman),
                              8.0))
             else:
                 plan.append((f"{etiket} [{i}/{n}]", ara_y,
-                             _hedefler(ara_m, ara_y, irtifa),
+                             _hedefler(ara_m, ara_y, irtifa, katman),
                              False, DONUS_GECIS_R_M))
 
     plan = []
-    plan.append(("kalkis — herkes KENDI yerinde", kalkis_yaw,
-                 _hedefler(home, kalkis_yaw, kalkis_irtifa), 5.0))
+    plan.append(("kalkis — herkes KENDI yerinde (toplanma merdiveni)",
+                 kalkis_yaw,
+                 _hedefler(home, kalkis_yaw, kalkis_irtifa, toplanma), 5.0))
 
     merkez, yon = home, kalkis_yaw
     for qid, (qk, qd) in qr_ned:
@@ -2033,27 +2041,37 @@ def plan_kur_gorev1(t):
         # ucak QR'in TAM ustune gelecek sekilde geri hesaplanir.
         kx, ky = slot_dunya((0.0, 0.0), yeni_yon, *ofs[kam])
         yeni_merkez = (qk - kx, qd - ky)
-        _gecis(plan, f"QR{qid}'e seyir ({merdiven[0]:.1f} m)",
-               merkez, yon, yeni_merkez, yeni_yon, float(merdiven[0]))
+        # Seyir TOPLANMA MERDIVENI acikken yapiliyor; merdiven ancak
+        # QR'da formasyon oturunca kalkiyor (`_maybe_formation_settled`).
+        _gecis(plan, f"QR{qid}'e seyir ({merdiven[0]:.1f} m, katmanli)",
+               merkez, yon, yeni_merkez, yeni_yon, float(merdiven[0]),
+               katman=toplanma)
         merkez, yon = yeni_merkez, yeni_yon
-        for j, alt in enumerate(merdiven[1:], start=2):
-            plan.append((f"QR{qid} arama basamagi {j} ({alt:.1f} m)", yon,
+        # QR ustunde merdiven kalkar: hepsi ayni okuma irtifasina iner.
+        for j, alt in enumerate(merdiven, start=1):
+            plan.append((f"QR{qid} okuma basamagi {j} ({alt:.1f} m)", yon,
                          _hedefler(merkez, yon, alt), 8.0))
+        toplanma = 0.0
 
     son_alt = float(merdiven[-1])
     ev_yon = math.degrees(math.atan2(home[1] - merkez[1],
                                      home[0] - merkez[0])) % 360.0
     # RETURN_HOME faz 0: YERINDE yaw (merkez sabit) — `_donus_ilerlet`.
-    _gecis(plan, "eve donus faz0 — yerinde yaw",
-           merkez, yon, merkez, ev_yon, son_alt)
-    # faz 1: heading sabit, merkez eve gider.
-    plan.append(("eve donus faz1 — formasyon korunur", ev_yon,
-                 _hedefler(home, ev_yon, son_alt), 6.0))
-    plan.append(("faz2 dikey merdiven — yatayda kimildama YOK", ev_yon,
-                 _hedefler(home, ev_yon, son_alt, katman=katman), 5.0))
+    _gecis(plan, "donus faz0 — yerinde yaw (merdiven kuruluyor)",
+           merkez, yon, merkez, ev_yon, son_alt, katman=katman)
+    # 🔴 faz 1 MERDIVEN, faz 2 EVE DONUS — 8 Eylul'de YER DEGISTIRDILER.
+    # Eski sirada eve donus bacagi uc ucagi da AYNI irtifada tasiyordu ve
+    # en yakin an TAMAMEN yerdeki dizilise bagliydi (ayni gun 3.83 / 2.56 /
+    # 0.31 m olculdu). Finalde dizilisi hakem sectigi icin profil HER
+    # dizilise dayanikli olmak zorunda: merdiven ONCE kuruluyor, donus
+    # katmanli yapiliyor.
+    plan.append(("faz1 dikey merdiven — YERINDE", ev_yon,
+                 _hedefler(merkez, ev_yon, son_alt, katman=katman), 5.0))
+    plan.append(("faz2 eve don — KATMANLI", ev_yon,
+                 _hedefler(home, ev_yon, son_alt, katman=katman), 6.0))
     # faz 3 girisinde baslik KALKIS basligina doner: yine YERINDE rotasyon.
     _gecis(plan, "faz3 oncesi — kalkis basligina don",
-           home, ev_yon, home, kalkis_yaw, son_alt)
+           home, ev_yon, home, kalkis_yaw, son_alt, katman=katman)
     # faz 3/4: baslik KALKIS basligina doner -> diziliş geri gelir, herkes
     # kendi noktasinda. Son adimin hedefleri = INIS NOKTALARI (harita_yaz
     # bu adimi mavi noktalar olarak ciziyor).

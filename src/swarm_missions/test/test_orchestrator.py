@@ -286,11 +286,32 @@ def test_altitude_sets_center_z():
 
 
 def test_return_home_targets_home():
-    """RETURN_HOME merkezi home konumuna kurar."""
+    """RETURN_HOME sonunda merkez home olur — ama ONCE MERDIVEN kurulur.
+
+    8 EYLUL 2026'DA FAZ SIRASI DEGISTI. Eskiden ilk komut dogrudan eve
+    gidiyordu; artik once DIKEY MERDIVEN kuruluyor (merkez o anki
+    centroid), sonra eve KATMANLI donuluyor.
+
+    Sebep olculdu: eve donus bacaginda uc ucak da AYNI irtifadaydi ve en
+    yakin an tamamen yerdeki dizilise bagliydi (ayni gun 3.83 / 2.56 /
+    0.31 m). Finalde dizilisi HAKEM seciyor, yani profil her dizilise
+    dayanikli olmali. 400 rastgele dizilisle olculdu: esigin altinda
+    kalan %22 -> %10.5, en kotu 0.06 m -> 2.94 m.
+
+    Test bu yuzden "ilk komut evi hedefler" DEMIYOR; "fazlar ilerledikce
+    ev hedeflenir" diyor.
+    """
     o = _ready_orch()
-    cmds = o.decide(_inp(S_RETURN_HOME, 0))
-    assert len(cmds) == 1
-    assert cmds[0].center == _HOME
+    ilk = o.decide(_inp(S_RETURN_HOME, 0))
+    assert len(ilk) == 1
+    assert ilk[0].center != _HOME, 'merdiven fazi atlanmis — dogrudan eve gidiyor'
+
+    merkezler = [ilk[0].center]
+    for t in (25.0, 50.0, 80.0, 120.0, 200.0):
+        for c in o.decide(_inp(S_RETURN_HOME, 0, time_in_state=t)):
+            if isinstance(c, FormationTargetCmd):
+                merkezler.append(c.center)
+    assert _HOME in merkezler, f'ev hic hedeflenmedi: {merkezler}'
 
 
 def test_hold_tilt_published_after_maneuver():
