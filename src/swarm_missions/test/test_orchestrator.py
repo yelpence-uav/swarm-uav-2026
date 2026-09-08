@@ -310,13 +310,21 @@ def test_no_hold_tilt_without_maneuver():
 
 
 def test_qr_recovery_descends_when_stuck():
-    """QR okunmadan süre aşılınca okuma irtifasına alçalır (10m tabanı)."""
+    """QR okunmadan süre aşılınca kurtarma merdiveninin İLK basamağına gider.
+
+    8 EYLÜL 2026'da DEĞİŞTİ: burada -12.0 SABİTİ yazılıydı, çünkü merdiven
+    (12, 10, 18) diye sabitlerden kuruluyordu. Artık merdiven varış
+    irtifası ile tabandan TÜRETİLİYOR ve iniyor. Beklenen değeri tekrar
+    elle yazmak aynı tuzağı geri kurardı — merdivenin kendisi soruluyor.
+    Merdivenin yönü/uçları `test_qr_arama_merdiveni.py`'de kilitli.
+    """
     o = _ready_orch()
+    beklenen = o._arama_merdiveni()[0]
     cmds = o.decide(_inp(S_EXECUTE, 0, time_in_state=10.0,
                          centroid=(0.0, 0.0, -20.0)))
     forms = [c for c in cmds if isinstance(c, FormationTargetCmd)]
     assert len(forms) == 1
-    assert forms[0].center[2] == -12.0
+    assert forms[0].center[2] == -beklenen
     assert not forms[0].use_current_altitude
 
 

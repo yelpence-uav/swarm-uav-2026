@@ -1,8 +1,38 @@
 # DURUM — şu an ne çalışıyor, ne bozuk
 
-**Son güncelleme:** 7 Eylül 2026, 11:57 — 📻 **kumanda-kaybı failsafe üç uçakta LAND'e alındı, tepki ~3.5-4 sn** (blok aşağıda) · önceki damga 5 Eylül 07:56 (Görev 2 bloğu aşağıda duruyor)
+**Son güncelleme:** 8 Eylül 2026, 05:40 — 🎯 **GÖREV 1 UÇUŞ PROFİLİ DEĞİŞTİ** (blok aşağıda): başlangıç formasyonu KAPATILDI, QR1 varışı 15 m, kurtarma merdiveni iniyor · önceki damga 7 Eylül 11:57 (RC-kayıp failsafe LAND) · 5 Eylül 07:56 (Görev 2)
 
 
+
+> ## 🎯 8 EYLÜL SABAH — GÖREV 1 UÇUŞ PROFİLİ: FORMASYON YOK, QR1'DE ALÇALARAK ARAMA
+>
+> Operatör kararı. İki ayar değişti, **ikisi de `src/gcs/ucus_ayarlari.py`'de**;
+> uçaklara `ucus_ayarlari.env` ile gidiyor.
+>
+> | Ayar | Eski | Yeni | Etkisi |
+> |---|---|---|---|
+> | `GOREV_FORMASYON` | 3 (ÇİZGİ) | **0 (kapalı)** | Kalkıştan sonra hiçbir formasyon tipi dayatılmaz. Hakemin yere koyduğu **rastgele diziliş** snapshot'lanıp donduruluyor (CUSTOM/99) ve QR1'e o dizilişle gidiliyor. Formasyon yalnız QR'ın `frm` komutuyla değişir. |
+> | `GOREV_QR_OKUMA_IRTIFA_M` | 10.0 m | **15.0 m** | Sürü QR1'e artık 15 m'de varıyor (kalkış irtifasıyla aynı → yolda irtifa değişimi YOK). QR okunamazsa **inerek** arıyor: 15 → 12.5 → 10 → başa. |
+>
+> **Kurtarma merdiveni artık iniyor.** Eskiden (12 → 10 → 18) yönsüzdü ve
+> 18 m basamağı **ölçülen okuma tavanının (16.64 m, KAMERA.md §13) üstündeydi**
+> — her turda 18 saniye kesin okunamayacak bir irtifada harcanıyordu, hata da
+> vermiyordu. Yeni merdiven varış irtifası ile tabandan **türetiliyor**, ayrı
+> sabit yok. **Taban 10 m yerinde** (`_SEARCH_ALT_FLOOR_M`); sürü hiçbir yolda
+> altına inmez.
+>
+> `ucus_ayarlari.py` artık bu ilişkiyi **denetliyor**: varış tabanın altındaysa
+> HATA, tabana eşit/çok yakınsa UYARI (merdiven tek basamağa çöker ve
+> "alçalarak arama" sessizce kaybolurdu — 8 Eylül'e kadar tam olarak öyleydi).
+>
+> - 🔴 **Uçaklara HENÜZ GİTMEDİ.** Değişiklik yalnız depoda. `ucus_ayarlari.env`
+>   yeniden üretilip üç uçağa atılmalı (⚠️ `dagit.sh` bu dosyayı **taşımıyor**).
+> - 🔴 **CUSTOM formasyonun mesh bedeli var:** ofsetler formülden türetilemediği
+>   için `TIP_FORM_OFSET` paketleriyle açıkça taşınıyor — 3 uçakta komut başına
+>   1 değil **3 çerçeve**. Uçuştan önce `form_yarim` / `form_rx` sayaçları
+>   yerde okunacak (YAPILACAKLAR P0).
+> - ⚠️ YKİ MissionPanel'deki **"Başlangıç formasyonu" kutusu BOŞ bırakılmalı** —
+>   bir tip seçilirse G1 BAŞLAT paketiyle gider ve bu 0'ı **ezer**.
 
 > ## 📻 7 EYLÜL ÖĞLEN — KUMANDA-KAYBI FAILSAFE: RTL → LAND (üç uçak)
 >

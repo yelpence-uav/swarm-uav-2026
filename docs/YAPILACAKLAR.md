@@ -1,6 +1,6 @@
 # YAPILACAKLAR
 
-**Son güncelleme:** 7 Eylül 2026, 11:57 — 📻 RC-kayıp failsafe üç uçakta **LAND**'e alındı (~3.5-4 sn; `COM_RCL_EXCEPT` maddesi kapandı, iki yeni madde) · eski: 5 Eylül 18:34 — 🔴🔴 **ylp02 DÜŞTÜ** (`docs/YLP02_DUSME.md`) · 🟢 üç uçağa kod dağıtıldı (`39c78d3`) · 🟢 Görev 1 okuyucu dron artık KAMERALI uçak
+**Son güncelleme:** 8 Eylül 2026, 05:40 — 🎯 **Görev 1 uçuş profili değişti:** başlangıç formasyonu KAPATILDI (jüri dizilişi korunuyor) · QR1 varışı 10 → **15 m**, kurtarma merdiveni artık **iniyor** (15 → 12.5 → 10) · 🔴 iki yeni P0 (bayat formasyon hedefi · CUSTOM mesh yükü) · eski: 7 Eylül 11:57 — 📻 RC-kayıp failsafe üç uçakta **LAND**'e alındı (~3.5-4 sn; `COM_RCL_EXCEPT` maddesi kapandı, iki yeni madde) · eski: 5 Eylül 18:34 — 🔴🔴 **ylp02 DÜŞTÜ** (`docs/YLP02_DUSME.md`) · 🟢 üç uçağa kod dağıtıldı (`39c78d3`) · 🟢 Görev 1 okuyucu dron artık KAMERALI uçak
 
 > **Finale 5 gün.** Bu liste artık "her fikir" değil, **bu 8 günde
 > yapılacak iş.** Bir madde buraya giriyorsa birinin onu yapması planlanıyor
@@ -24,6 +24,41 @@
   🔴 **Fiziksel kontrol listesi ve yerde doğrulama testi o dosyanın §6'sında.**
   Kanıt (bag + loglar) `/tmp/.../scratchpad/kanit/` altında ve **makine
   yeniden başlayınca silinir** — kalıcı saklanacaksa taşınmalı.
+
+- `[ ]` 🔴 **TAKİPÇİ BAYAT FORMASYON HEDEFİNİ FARK ETMİYOR — ölç ve kapat.**
+  **Belirti (operatör, son test):** *"ilk QR'a gittikten sonra sadece lider
+  irtifa değişimi yapmıştı."*
+  **Koddan çıkan:** `formation_node._current_formation` bir kez set edilip
+  (satır ~468) her tick okunuyor (~954) ve **hiç yaşlandırılmıyor.** Mesh'ten
+  yeni hedef gelmeyi keserse takipçi **son hedefi sonsuza kadar uçurur** —
+  ne uyarı basar ne de sürücülüğü bırakır. Aynı düğüm `qr_step` ve
+  `mod_sustur` için bayat-bırakma yapıyor; **asıl sürücü olan formasyon
+  hedefinde yok.** Bu, "lider alçaldı, takipçi 15 m'de asılı kaldı"
+  görüntüsünün birebir imzası.
+  **Komut yolu simetrik**, yani kuantizasyon/ofset farkı bunu açıklayamaz:
+  liderin kendi komutu da `esp32_bridge._on_formation_out` loopback'i ile
+  **aynı codec'ten** geçiyor.
+  🔬 **ÖLÇÜM ZATEN VAR, uçmaya gerek yok** — `esp32_bridge` teşhis satırı:
+  `form_tx` (lider yayınladı mı) · `form_rx` (takipçi aldı mı) ·
+  `form_yarim` (çok parçalı montaj tamamlanmıyor) · `form_sahipsiz`.
+  Son uçuşun bag'lerinde bunlara bakılacak; `form_rx` durmuşsa teşhis kesin.
+  **Çözüm (ölçümden sonra):** hedefe tazelik damgası + eşik aşılınca
+  **gürültülü uyarı ve SystemEvent** — sürücülüğü BIRAKMADAN (bırakmak
+  OFFBOARD'dan düşürür). ~15 satır, geri alınabilir.
+
+- `[ ]` 🔴 **CUSTOM formasyon mesh yükünü 3 KATINA çıkarıyor — yerde ölç.**
+  `GOREV_FORMASYON=0` (8 Eylül) ile formasyon tipi CUSTOM (99) kalıyor.
+  CUSTOM ofsetleri **formülden türetilemez** (çizgi/V/okbaşı türetiliyordu),
+  bu yüzden `TIP_FORM_OFSET` paketleriyle **açıkça** taşınıyor: paket başına
+  2 slot → 3 uçakta **başlık + 2 ofset paketi = 3 çerçeve**, `path_planner`
+  5 Hz'de yayınladığı için **15 çerçeve/sn**. Üçünden biri düşerse
+  `formasyon_montaj` komutun TAMAMINI atar (`form_yarim` sayar) ve
+  **hiçbir yerde hata görünmez.** Ölçülen mesh kaybı %6.7 / %21.7.
+  **Ne yapılacak:** üç uçak açıkken yerde `form_yarim` / `form_rx` sayaçları
+  okunacak. Kayıp yüksekse ilk çare formasyon mesh çıkışını seyreltmek
+  (5 Hz → 2 Hz; `_on_formation_out`'ta throttle yok, eklenecek).
+  Yukarıdaki bayat-hedef maddesiyle **aynı olayın iki yüzü** — birlikte
+  ölçülmeli.
 
 
 - `[x]` ✅ **ylp02'ye KOD DAĞITILDI (5 Eylül 17:0x).** Üç uçakta da `.surum` = `39c78d3`, `baslat.sh` md5 depo ile aynı, `kamera_ajan_id:=1` ve `sabit_lider:=1` düğümlere ulaştı (`/proc/<pid>/cmdline` ile doğrulandı). ⚠️ `dagit.sh` **`ucus_ayarlari.env` taşımıyor** — elle atıldı, sonraki dağıtımda unutulmasın. ~~Eski madde:~~

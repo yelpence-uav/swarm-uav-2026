@@ -109,27 +109,37 @@ class OrchestratorConfig:
     # atimlik bir manevra, hizli olmasinin bir degeri yok.
     # 0.0 = degistirme (dugumun kendi varsayilani).
     gorev_kurulum_hiz_mps: float = 0.0
-    # QR okunamazsa okuma irtifasına inme (10m tabanı) ve tetik gecikmesi.
-    # KURTARMA MERDIVENININ orta basamagi (QR okunamayinca denenen ilk
-    # irtifa). AYRI TUTULUYOR: varis irtifasi (qr_okuma_irtifa_m) ile ayni
-    # yapilirsa merdiven (10, 10, 18) olur ve ilk basamak ETKISIZ kalir —
-    # yani kurtarma bir basamagini sessizce kaybeder.
-    qr_read_altitude_m: float = 12.0
     # QR VARIS/OKUMA IRTIFASI — NAVIGATE bacaginda hedef irtifa BUDUR.
     # 4 Eylul 2026 operator olcumu: "20 m ustunde QR okunmuyor, minimum
     # 10 m'ye kadar insinler." Onceki QR gorevi irtifayi 25-30 m'ye
     # cikarmis olabilir; bacak hedefi buraya kilitleyerek suruyu QR'in
     # uzerine OKUNABILIR irtifada getirir. _SEARCH_ALT_FLOOR_M ile ayni
-    # (10.0): suru hicbir yolda 10 m'nin altina inmez.
+    # (10.0) DEGILDIR ARTIK: 8 Eylul 2026'da varis 15 m'ye cikti ki
+    # QR'in ustunde INILECEK YER kalsin (bkz. qr_recovery_delay_s notu).
+    # Taban yerinde: suru hicbir yolda 10 m'nin altina inmez.
     qr_okuma_irtifa_m: float = 10.0
     qr_recovery_delay_s: float = 8.0
     # QR okunamazsa İRTİFA MERDİVENİ ile tekrar tekrar dener: sürü QR'ın üstünde
     # ÇIPALI kalır (ileri/geri YOK — yatay hareket kamerayı QR'dan kaydırıp
     # okumayı bozuyordu), yalnız yükseklik değişir. Her basamakta uzun süre
     # SABİT durur ki kamera net kare alıp decode edebilsin.
-    #   12 m (varsayılan) → 10 m (taban, QR en büyük) → 18 m (geniş açı) → tekrar
+    #
+    # 🔴 8 EYLÜL 2026: MERDİVEN ARTIK İNİYOR. Operatör: "ilk QR'da yavaş
+    # yavaş irtifa düşürerek okumaya çalışacaklar."
+    #   varış (qr_okuma_irtifa_m) → ... → taban (_SEARCH_ALT_FLOOR_M) → başa
+    #   bugünkü ayarla: 15.0 → 12.5 → 10.0 → 15.0 ...
+    #
+    # ESKİSİ (12 → 10 → 18) İKİ SEBEPLE BIRAKILDI:
+    #   ① yönü yoktu — önce yukarı, sonra aşağı, sonra çok yukarı; operatör
+    #     dışarıdan bakınca sürünün ne aradığını göremiyordu
+    #   ② 18 m basamağı ÖLÇÜLEN OKUMA TAVANININ (16.64 m, KAMERA.md §13)
+    #     ÜSTÜNDEYDİ: her turda 18 saniye kesin okunamayacak bir irtifada
+    #     harcanıyordu ve bu hiçbir yerde hata olarak görünmüyordu.
+    # Yeni merdiven iki uçtan da türetiliyor (varış + taban), yani ayrı bir
+    # sabit yok — varış irtifası değişince merdiven kendiliğinden uyuyor.
     qr_search_step_s: float = 18.0    # her irtifada bu kadar hareketsiz bekle
-    qr_search_high_m: float = 18.0    # geniş açı basamağı
+    # Merdivenin BASAMAK SAYISI (varis dahil, taban dahil). 3 -> 15 / 12.5 / 10.
+    qr_arama_basamak: int = 3
     # QR alt-görevi (FORMASYON/İRTİFA) "tamamlandı" ölçütü. Karar MESAFE DEĞİL,
     # YAKINSAMA'dır: hata artık azalmıyor (plato) + dronlar durdu. Yakınsama her
     # koşulda gerçekleştiği için sinyal daima üretilir → görev kilitlenmez. Sıkı
@@ -725,17 +735,12 @@ class Mission1Orchestrator:
         if elapsed < 0.0:
             return None
         step_s = max(1.0, self._cfg.qr_search_step_s)
-        step = int(elapsed / step_s) % 3
+        merdiven = self._arama_merdiveni()
+        step = int(elapsed / step_s) % len(merdiven)
         if step == self._st.search_step:
             return None  # aynı basamak sürüyor → sürü SABİT, yeni komut yok
 
-        read_alt = max(self._cfg.qr_read_altitude_m, _SEARCH_ALT_FLOOR_M)
-        ladder = (
-            read_alt,
-            _SEARCH_ALT_FLOOR_M,
-            max(self._cfg.qr_search_high_m, _SEARCH_ALT_FLOOR_M),
-        )
-        alt = ladder[step]
+        alt = merdiven[step]
 
         offsets = self._assign(
             self._st.formation_type, self._st.spacing_m, inp.centroid,
@@ -777,6 +782,26 @@ class Mission1Orchestrator:
         )
 
     # --- Yardımcılar ---------------------------------------------------------
+
+    def _arama_merdiveni(self) -> tuple:
+        """QR okunamayinca denenecek irtifalar — VARIStan TABANa, INEREK.
+
+        Iki uctan turetilir: tavan = varis irtifasi (qr_okuma_irtifa_m),
+        taban = _SEARCH_ALT_FLOOR_M. Aradaki basamaklar esit araliklı.
+        Ucuncu bir sabit YOK — varis irtifasi degisince merdiven
+        kendiliginden uyar (eskiden qr_read_altitude_m / qr_search_high_m
+        ayri sabitlerdi ve varis 10 m'ye inince merdiven (10, 10, 18)
+        olup ilk basamagini SESSIZCE kaybediyordu).
+
+        Tavan tabana esit/altindaysa tek basamak doner: inecek yer yoktur,
+        sürü tabanda okumayı dener. Bolme hatasi da boylece olmaz.
+        """
+        tavan = max(float(self._cfg.qr_okuma_irtifa_m), _SEARCH_ALT_FLOOR_M)
+        if tavan - _SEARCH_ALT_FLOOR_M < 0.1:
+            return (_SEARCH_ALT_FLOOR_M,)
+        n = max(2, int(self._cfg.qr_arama_basamak))
+        adim = (tavan - _SEARCH_ALT_FLOOR_M) / (n - 1)
+        return tuple(round(tavan - i * adim, 3) for i in range(n))
 
     def _phase_key(self, inp: OrchestratorInput) -> tuple:
         """Emit-once için (state, step, qr_seq, donus_faz) anahtarı.

@@ -25,6 +25,7 @@
 
 import argparse
 import math
+import os
 import sys
 
 YERCEKIMI = 9.80665
@@ -171,13 +172,31 @@ GOREV_NAVIGATE_TIMEOUT_S = 30.0
 GOREV_ROTA_BILINMEYEN_S = 10.0
 
 # --- GOREV 1 UCUS PROFILI (operator karari, 2 Eylul gecesi) ----------------
-# Profil: dagitik kalk -> CIZGI kur -> QR1'e git -> gorev -> 180 yaw
+# Profil: dagitik kalk -> [formasyon KURULMAZ] -> QR1'e git -> gorev
 #         -> eve don -> dikey merdiven -> herkes KENDI kalkis noktasina -> in
 #
-# 🔴 GOREV_FORMASYON=0 birakilirsa davranis SARTNAME YOLU olur: baslangic
-# (juri) dizilisi korunur, formasyon yalniz QR'in `frm` komutuyla degisir.
-# 3 = CIZGI. Ileride bu deger YKI'den gelecek (YAPILACAKLAR, 2 Eylul).
-GOREV_FORMASYON = 3
+# 🔴 8 EYLUL 2026 OPERATOR KARARI: 3 (CIZGI) -> 0 (KAPALI).
+# "dronelar rastgele dizilecek ve o dizilimi koruyarak ilk qr a gidecekler."
+#
+# 0 = KAPALI, ve bu ayni zamanda SARTNAME YOLU: kalkistan sonra hicbir
+# formasyon tipi DAYATILMAZ. `_st.formation_type` CUSTOM (99) kalir,
+# `_snapshot_offsets` hakemin yere koydugu dizilisi oldugu gibi cekip
+# `frozen_offsets`e dondurur; suru o dizilimi koruyarak QR1'e gider.
+# Formasyon YALNIZ QR'in `frm` komutuyla degisir.
+#
+# ⚠️ BUNUN MESH'TE BEDELI VAR, bilerek kabul edildi. CUSTOM ofsetler
+# formulden turetilemez (cizgi/V/okbasi turetilebiliyordu), o yuzden
+# `TIP_FORM_OFSET` paketleriyle ACIKCA tasinir — paket basina 2 slot,
+# yani 3 ucakta baslik + 2 ofset paketi = 3 cerceve. Ucu de varmadan
+# `formasyon_montaj` komutu YAYINLAMAZ (sessizce bekler). Mesh kaybi
+# olculdu: %6.7 / %21.7 (YAPILACAKLAR P0). Kayip pahali oldugu icin
+# path_planner'in surekli yeniden yayini burada TEK emniyet.
+#
+# ⚠️ YKI SECIMI BUNU EZER. MissionPanel'deki "Baslangic formasyonu"
+# kutusu BOS BIRAKILMALI; bir tip secilirse G1 BASLAT paketiyle gelir
+# (`param1`) ve `_on_g1_ayar` bu 0'i ezer. Kutu bos = "ucaktaki
+# varsayilan" = burasi.
+GOREV_FORMASYON = 0
 GOREV_ARALIK_M = 7.0
 
 # Eve donmeden ONCE surunun topluca dondugu EK aci. Artik 0 OLMALI.
@@ -313,14 +332,31 @@ KALKIS_OLAYLA = True
 # ROTA_DIKEY_HIZ_MPS ile yavaşlatılıyor (0.5 m/s -> ~10 sn).
 GOREV_KALKIS_IRTIFA_M = 15.0
 
-# QR OKUMA IRTIFASI — sürü QR'a giderken bu irtifaya iner ve orada okur.
-# 4 Eylül 2026 operatör: "20 metreden yukarıda okuyamıyorlar, minimum
-# 10 metreye kadar insinler." KAMERA.md §13 ölçümüyle tutarlı: tavan
-# 16.64 m (wechat kapalı), 15-16 m'de 0.79 okuma/sn — yani 10 m rahat
-# okuma bölgesi. orchestrator'daki _SEARCH_ALT_FLOOR_M de 10.0, yani
-# kurtarma merdiveninin tabanı ile AYNI: sürü hiçbir yolda 10 m'nin
-# altına inmez.
-GOREV_QR_OKUMA_IRTIFA_M = 10.0
+# QR VARIS IRTIFASI — sürü QR'a bu irtifada varır ve okumaya BURADAN başlar.
+#
+# 🔴 8 EYLÜL 2026 OPERATÖR KARARI: 10.0 -> 15.0.
+# İstenen davranış: "ilk QR'da yavaş yavaş irtifa düşürerek okumaya
+# çalışacaklar." 10 m'de bu İMKÂNSIZDI — varış irtifası ile kurtarma
+# merdiveninin TABANI (_SEARCH_ALT_FLOOR_M) aynı sayıydı, yani sürü
+# QR'ın üstüne zaten tabanda varıyordu ve inecek yer kalmıyordu.
+# Varışı 15 m'ye çekince merdiven gerçek bir iniş oluyor:
+#     varış 15.0 -> 12.5 -> 10.0 (taban) -> başa dön
+#
+# 🔴 TABAN DEĞİŞMEDİ. `_SEARCH_ALT_FLOOR_M = 10.0` yerinde duruyor;
+# sürü yine hiçbir yolda 10 m'nin altına inmez. Bu karar bilinçli:
+# 10 m altı hiç uçulmamış bir bant ve kaçınma payı/yer etkisi orada
+# yeniden ölçülmeden girilmez.
+#
+# 15 m OKUNABİLİR BİR İRTİFA — uydurulmadı, ölçüldü. KAMERA.md §13:
+# okuma tavanı 16.64 m (wechat kapalı), 15-16 m bandında 0.79 okuma/sn.
+# 4 Eylül operatör ölçümü ("20 m üstünde okumuyorlar") ile de tutarlı.
+# Yani ilk basamak boş bir basamak değil, gerçek bir okuma denemesi.
+#
+# GOREV_KALKIS_IRTIFA_M ile AYNI (15.0) olması da kasıtlı: sürü artık
+# QR'a giderken alçalmıyor, seyir irtifasını koruyor. Alçalma yalnız
+# QR'ın ÜSTÜNDE, dururken oluyor — hareket ile irtifa değişimi aynı
+# anda olmuyor (§9 "irtifadan önce yatay hareket YOK" ile aynı ruh).
+GOREV_QR_OKUMA_IRTIFA_M = 15.0
 
 # 🔴 OKUYUCU (KAMERALI) DRON — 5 Eylul 2026, operator: "sadece ylp00 okuma
 # yapacak". Formasyon, QR'in ustune BU ucagi getirecek sekilde cipalanir.
@@ -1195,6 +1231,52 @@ def denetle():
         uyari.append(
             'SURU_SABIT_LIDER acik ama SURU_LIDER_KILIDI kapali — sabit '
             'lider zaten devri kapatiyor, kilit gereksiz ama zararsiz')
+    # --- GOREV 1 QR OKUMA MERDIVENI (8 Eylul 2026) ----------------------
+    # Merdivenin TABANI orchestrator._SEARCH_ALT_FLOOR_M. Buraya tekrar
+    # YAZILMIYOR (§9 "ayni sabiti iki yere yazma"), kaynagindan ithal
+    # ediliyor. Depo icinde calisirken swarm_missions kurulu olmuyor —
+    # yolu dosyanin kendi konumundan turetiyoruz (bu dosya src/gcs/'de,
+    # paket src/swarm_missions/'da).
+    #
+    # ⚠️ ITHAL BASARISIZ OLURSA SESSIZ KALMIYOR. Ilk yazimda try/except
+    # sessizce geciyordu ve denetim laptopta HIC KOSMUYORDU — "denetim
+    # var" gorunumu, gercekte sifir kapsama. Kosmayan denetim, olmayan
+    # denetimden kotudur.
+    _kok = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    _mis = os.path.join(_kok, 'swarm_missions')
+    if os.path.isdir(_mis) and _mis not in sys.path:
+        sys.path.insert(0, _mis)
+    try:
+        from swarm_missions.mission1_dynamic_swarm.orchestrator import (
+            _SEARCH_ALT_FLOOR_M as _QR_TABAN_M,
+        )
+    except ImportError as _e:
+        _QR_TABAN_M = None
+        uyari.append(
+            f'QR merdiven tabani DENETLENEMEDI (orchestrator ithal '
+            f'edilemedi: {_e}) — GOREV_QR_OKUMA_IRTIFA ile taban arasindaki '
+            f'iliski bu koda bakilarak dogrulanmali')
+    if _QR_TABAN_M is not None:
+        if GOREV_QR_OKUMA_IRTIFA_M < _QR_TABAN_M:
+            hata.append(
+                f'GOREV_QR_OKUMA_IRTIFA ({GOREV_QR_OKUMA_IRTIFA_M:.1f} m) '
+                f'kurtarma merdiveninin TABANININ ({_QR_TABAN_M:.1f} m) '
+                f'ALTINDA — suru QR ustune tabandan alcak varir, merdiven '
+                f'ters doner')
+        elif GOREV_QR_OKUMA_IRTIFA_M - _QR_TABAN_M < 1.0:
+            # 8 Eylul'e kadar tam olarak boyleydi (ikisi de 10.0) ve
+            # merdiven tek basamaga cokup "yavas yavas alcalma" sessizce
+            # kayboluyordu. Hata degil (calisir), ama gorunmeli.
+            uyari.append(
+                f'GOREV_QR_OKUMA_IRTIFA ({GOREV_QR_OKUMA_IRTIFA_M:.1f} m) '
+                f'merdiven tabanina ({_QR_TABAN_M:.1f} m) esit/cok yakin — '
+                f'QR ustunde INILECEK YER YOK, merdiven tek basamaga '
+                f'cokuyor ve alcalarak arama YAPILMIYOR')
+    if GOREV_QR_OKUMA_IRTIFA_M > GOREV_KALKIS_IRTIFA_M:
+        uyari.append(
+            f'GOREV_QR_OKUMA_IRTIFA ({GOREV_QR_OKUMA_IRTIFA_M:.1f} m) '
+            f'kalkis irtifasindan ({GOREV_KALKIS_IRTIFA_M:.1f} m) YUKSEK — '
+            f'suru QR a giderken TIRMANIR; istenen buysa sorun yok')
     if len(UCAN_KADRO) == 2:
         uyari.append(
             f'iki ucakli kadro {UCAN_KADRO}: rutbeler yeniden turuyor — '
