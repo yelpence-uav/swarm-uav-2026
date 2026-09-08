@@ -1,6 +1,6 @@
 # YAPILACAKLAR
 
-**Son güncelleme:** 8 Eylül 2026, 09:45 — 🟢 ylp02 **SAĞLAM** · 🟢 pil telemetrisi **üçünde de düzeldi** (ölçüldü) · 🔴 `land` sahte failsafe'i **hâlâ açık** (QGC ayarı bizim koda dokunmuyor) · ✅ **KADRO KORUMASI YAZILDI** — "sadece lider irtifa değiştirdi"nin ölçülen kök nedeni (komutların 1/3'ü `agent_ids=(1,)`) kapatıldı; lider artık kadro çökünce SON TAM kadroyla yayınlıyor · 🟠 CUSTOM ofset çerçevesi kusuru ayrı bir kusurmuş — düzeltildi ve **yerde doğrulandı** (11/11, `form_yarim=0`) · eski: 8 Eylül 05:40 — 🎯 **Görev 1 uçuş profili değişti:** başlangıç formasyonu KAPATILDI (jüri dizilişi korunuyor) · QR1 varışı 10 → **15 m**, kurtarma merdiveni artık **iniyor** (15 → 12.5 → 10) · 🔴 iki yeni P0 (bayat formasyon hedefi · CUSTOM mesh yükü) · eski: 7 Eylül 11:57 — 📻 RC-kayıp failsafe üç uçakta **LAND**'e alındı (~3.5-4 sn; `COM_RCL_EXCEPT` maddesi kapandı, iki yeni madde) · eski: 5 Eylül 18:34 — 🔴🔴 **ylp02 DÜŞTÜ** (`docs/YLP02_DUSME.md`) · 🟢 üç uçağa kod dağıtıldı (`39c78d3`) · 🟢 Görev 1 okuyucu dron artık KAMERALI uçak
+**Son güncelleme:** 8 Eylül 2026, 14:10 — ✈️ **GÖREV 1 İLK ONBOARD UÇUŞU** — QR çıpası 0.05 m ✅ · 🔴 **RETURN_HOME kadro çökmesi** bulundu ve KAPATILDI · ✅ **`land` sahte failsafe'i KAPATILDI** · 🔴 **ylp01'in Pi'si HAVADA elektriksiz kaldı** · 🟢 ylp02 **SAĞLAM** · 🟢 pil telemetrisi **üçünde de düzeldi** (ölçüldü) · 🔴 `land` sahte failsafe'i **hâlâ açık** (QGC ayarı bizim koda dokunmuyor) · ✅ **KADRO KORUMASI YAZILDI** — "sadece lider irtifa değiştirdi"nin ölçülen kök nedeni (komutların 1/3'ü `agent_ids=(1,)`) kapatıldı; lider artık kadro çökünce SON TAM kadroyla yayınlıyor · 🟠 CUSTOM ofset çerçevesi kusuru ayrı bir kusurmuş — düzeltildi ve **yerde doğrulandı** (11/11, `form_yarim=0`) · eski: 8 Eylül 05:40 — 🎯 **Görev 1 uçuş profili değişti:** başlangıç formasyonu KAPATILDI (jüri dizilişi korunuyor) · QR1 varışı 10 → **15 m**, kurtarma merdiveni artık **iniyor** (15 → 12.5 → 10) · 🔴 iki yeni P0 (bayat formasyon hedefi · CUSTOM mesh yükü) · eski: 7 Eylül 11:57 — 📻 RC-kayıp failsafe üç uçakta **LAND**'e alındı (~3.5-4 sn; `COM_RCL_EXCEPT` maddesi kapandı, iki yeni madde) · eski: 5 Eylül 18:34 — 🔴🔴 **ylp02 DÜŞTÜ** (`docs/YLP02_DUSME.md`) · 🟢 üç uçağa kod dağıtıldı (`39c78d3`) · 🟢 Görev 1 okuyucu dron artık KAMERALI uçak
 
 > **Finale 5 gün.** Bu liste artık "her fikir" değil, **bu 8 günde
 > yapılacak iş.** Bir madde buraya giriyorsa birinin onu yapması planlanıyor
@@ -24,6 +24,36 @@
   🔴 **Fiziksel kontrol listesi ve yerde doğrulama testi o dosyanın §6'sında.**
   Kanıt (bag + loglar) `/tmp/.../scratchpad/kanit/` altında ve **makine
   yeniden başlayınca silinir** — kalıcı saklanacaksa taşınmalı.
+
+- `[ ]` 🔴🔴 **ylp01'in Pi'si HAVADA ELEKTRİKSİZ KALDI (8 Eylül).**
+  Uçuş kaydı kapanış mesajı olmadan **aniden kesiliyor**
+  (`px4b: rtk msg=6712 …` → hiçbir şey), 85 sn sonra yeni oturum açılıyor.
+  Öncesinde `[agent 2] Batarya dusuk: 14.7 / 14.5 / 14.6 V`.
+  Pixhawk kendi beslemesinden yaşadı, OFFBOARD kaybolunca failsafe ile
+  indi — uçak kendini kurtardı.
+  🔴 **ylp02'nin 5 Eylül'de düştüğü kusurla AYNI SINIF: besleme kesintisi.
+  Üç günde ikinci kez.** [`docs/YLP02_DUSME.md`](YLP02_DUSME.md) §6'daki
+  fiziksel kontrol listesi **ylp01'e de uygulanmalı** (pil konnektörü →
+  PDB → BEC → Pi besleme kablosu). Bu iş fiziksel, operatöre ait.
+
+- `[x]` ✅ **`land` HER OTONOM İNİŞTE SAHTE FAILSAFE tetikliyordu — KAPANDI.**
+  Sahada iki kez ölçüldü (5 Eylül ylp01, 8 Eylül ylp00):
+  `RETURN_HOME → LANDING` 1788848472.63, `LANDING → FAILSAFE` 1788848477.63
+  — **tam 5.000 sn**. Otonom inişte PX4 OFFBOARD'dan `AUTO.LAND`'e geçiyor
+  (beklenen), ama `LANDING` `_AIRBORNE` içinde olduğu için OFFBOARD-kaybı
+  kuralı işleyip **kritik arıza** ilan ediyordu.
+  ✅ Kural artık `_OFFBOARD_GEREKLI = _AIRBORNE - {LANDING}` kümesine
+  bakıyor. **Yalnız LANDING çıkarıldı**; diğerlerinde OFFBOARD kaybı gerçek
+  arızadır ve koruma yerinde. 6 yeni test (biri küme farkının tam olarak
+  `{LANDING}` olduğunu kilitliyor).
+  ⚠️ QGC'de land'i uyarıya almak bu satıra dokunmuyordu — o PX4 katmanı.
+
+- `[x]` ✅ **RETURN_HOME'da KADRO ÇÖKMESİ — dönüş fazları hiç koşmuyordu.**
+  Görev 1'in ilk onboard uçuşunda ölçüldü. `FORMATION_ACTIVE_STATES`'te
+  `RETURN_HOME` yoktu → üç uçak birden kadrodan düştü → `decide()` ilk
+  satırda çıktı → **307 saniye tek komut yok**, sürü QR'ın üstünde yaw
+  yapıp bekledi. İki katman düzeltildi (küme + son tam kadroya düşme),
+  6 yeni test. Ayrıntı `DURUM.md` 8 Eylül bloğunda.
 
 - `[ ]` 🔴 **TAKİPÇİ BAYAT FORMASYON HEDEFİNİ FARK ETMİYOR — ölç ve kapat.**
   **Belirti (operatör, son test):** *"ilk QR'a gittikten sonra sadece lider

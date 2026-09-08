@@ -39,6 +39,31 @@ _AIRBORNE = frozenset({
     AgentState.LANDING,
 })
 
+# OFFBOARD KAYBININ ARIZA SAYILDIGI DURUMLAR — _AIRBORNE'un TAMAMI DEGIL.
+#
+# 🔴 8 EYLUL 2026, SAHADA IKI KEZ OLCULDU (5 Eylul ylp01, 8 Eylul ylp00):
+#     RETURN_HOME -> LANDING   1788848472.63
+#     LANDING     -> FAILSAFE  1788848477.63   = TAM 5.000 sn
+#
+# Otonom `land`de PX4 OFFBOARD'dan cikip AUTO.LAND'e geciyor — BEKLENEN
+# davranis, komutu biz veriyoruz. Ama LANDING `_AIRBORNE` icinde oldugu
+# icin asagidaki kural `offboard_lost_since` sayacini isletiyor ve 5 sn
+# sonra KRITIK ARIZA ilan ediyordu. Yani HER OTONOM INIS bir failsafe ile
+# bitiyordu; inis zaten surdugu icin sonucu gorunmuyor, ama olay kaydi
+# kirleniyor ve FSM gereksiz yere FAILSAFE'e giriyor.
+#
+# ⚠️ QGC/PX4 AYARIYLA KARISTIRILMASIN: operator 8 Eylul'de QGC'de land'i
+# uyariya aldi; o PX4 katmani ve bu satira DOKUNMAZ. Burasi bizim
+# yazilimimiz.
+#
+# YALNIZ LANDING cikarildi. Digerleri OFFBOARD'da KALMALI ve orada
+# OFFBOARD kaybi gercek arizadir:
+#   PRECISION_LANDING -> precision_landing_node setpoint yaziyor
+#   RETURN_HOME       -> formation_node suruyor
+#   TAKEOFF/IN_SWARM/EXECUTING_TASK/REJOINING -> suru zinciri suruyor
+#   DETACHED          -> ayrilan ucak da kendi setpointini uretiyor
+_OFFBOARD_GEREKLI = _AIRBORNE - {AgentState.LANDING}
+
 
 @dataclass
 class HealthCheckResult:
@@ -215,7 +240,7 @@ def _check_critical_faults(ctx: AgentContext) -> HealthCheckResult:
             reason='EKF2 estimator hatalı',
         )
 
-    if (ctx.state in _AIRBORNE
+    if (ctx.state in _OFFBOARD_GEREKLI
             and ctx.offboard_lost_since is not None
             and (time.monotonic() - ctx.offboard_lost_since)
             > _OFFBOARD_LOSS_TIMEOUT_S):
