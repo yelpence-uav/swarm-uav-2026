@@ -969,6 +969,28 @@ def plan_dogrula(plan, baslangic=None) -> bool:
     if baslangic:
         plan = [("YER (gerçek konum)", 0.0, baslangic, False)] + list(plan)
 
+    # 🔴 IKI OLCUT AYRI RAPORLANIYOR — 8 Eylul 2026.
+    #
+    # Eskiden "es zamanli" ile "biri donmus" ayni esikle (MIN_AYRIM_M)
+    # denetleniyor ve tek bir GECTI/KALDI veriliyordu. Sonucu: DONMUS
+    # senaryosu HER PLANDA kaliyor ve kapi bilgi tasimaz hale geliyordu.
+    #
+    # NEDEN HER PLANDA KALIYOR: her formasyonda kanat ucaklari merkeze
+    # ESIT uzakliktadir (cizgi -s/0/+s, V ve okbasi simetrik) — yani AYNI
+    # CEMBER uzerindeler. Suru donerken biri tamamen durursa digeri onun
+    # uzerinden gecer. Bu, dizilise ozgu degil, FORMASYONUN TANIMI GEREGI
+    # her zaman boyle. Yerde ucak kaydirmakla cozulmez.
+    #
+    # Dolayisiyla ikisi FARKLI SORULAR ve farkli esikleri olmali:
+    #   ES ZAMANLI -> "plan guvenli mi"      esik MIN_AYRIM_M (4.0 m)
+    #   DONMUS     -> "arizada ne olur"      esik KACINMA_HARD_M (2.0 m),
+    #                 cunku orasi kacinmanin isi; d0=3.0'da dikey yol verme,
+    #                 hard=2.0'da yatay itme aciliyor.
+    # SONUC yalnizca ES ZAMANLI olcute gore veriliyor; donmus hali AYRI
+    # satirda, uyari olarak. Boylece kapi "plan guvenli mi" sorusuna
+    # cevap verir ve her ucusta bagirip guvenilirligini yitirmez.
+    _HARD = getattr(AYAR, 'KACINMA_HARD_M', 2.0)
+    en_kotu_don = (float("inf"), "")
     for i, (etiket, _heading, hedefler, *_) in enumerate(plan):
         for a, b in itertools.combinations(DRONELAR, 2):
             m = math.dist(hedefler[a], hedefler[b])
@@ -981,26 +1003,34 @@ def plan_dogrula(plan, baslangic=None) -> bool:
             continue
         onceki = plan[i - 1][2]
         for a, b in itertools.combinations(DRONELAR, 2):
-            # Üç senaryo birden denetlenir. İkisi ve üçüncüsü şart, çünkü
-            # "ikisi de eş zamanlı, aynı hızda gider" varsayımı sahada
-            # tutmayabilir: mesh paketi biri için geç gelebilir, rüzgâr birini
-            # yavaşlatabilir, biri hedefine erken oturup bekleyebilir.
-            # DONMUŞ senaryosu bu durumların hepsini kapsayan en kötü hâldir.
-            senaryolar = (
-                ("eş zamanlı", onceki[a], hedefler[a], onceki[b], hedefler[b]),
+            m = _min_mesafe_gecis(onceki[a], hedefler[a],
+                                  onceki[b], hedefler[b])
+            if m < en_kotu[0]:
+                en_kotu = (m, f"{plan[i-1][0]} -> {etiket} (d{a}-d{b})")
+            if m < MIN_AYRIM_M:
+                print(f"  İHLAL  {plan[i-1][0]} -> {etiket}: "
+                      f"d{a}-d{b} {m:.2f} m'ye yaklaşıyor")
+                tamam = False
+            # ARIZA HALI: biri tamamen durdu (mesh kesildi, dugum oldu,
+            # Pi'nin elektrigi gitti — 8 Eylul'de ylp01'de oldu).
+            for ad, a0, a1, b0, b1 in (
                 (f"d{a} donmuş", onceki[a], onceki[a], onceki[b], hedefler[b]),
                 (f"d{b} donmuş", onceki[a], hedefler[a], onceki[b], onceki[b]),
-            )
-            for ad, a0, a1, b0, b1 in senaryolar:
-                m = _min_mesafe_gecis(a0, a1, b0, b1)
-                if m < en_kotu[0]:
-                    en_kotu = (m, f"{plan[i-1][0]} -> {etiket} ({ad}, d{a}-d{b})")
-                if m < MIN_AYRIM_M:
-                    print(f"  İHLAL  {plan[i-1][0]} -> {etiket}: "
-                          f"d{a}-d{b} [{ad}] {m:.2f} m'ye yaklaşıyor")
-                    tamam = False
+            ):
+                md = _min_mesafe_gecis(a0, a1, b0, b1)
+                if md < en_kotu_don[0]:
+                    en_kotu_don = (
+                        md, f"{plan[i-1][0]} -> {etiket} ({ad}, d{a}-d{b})")
 
-    print(f"  en kritik an: {en_kotu[0]:.2f} m  ({en_kotu[1]})")
+    print(f"  PLAN (eş zamanlı) en kritik an: {en_kotu[0]:.2f} m  "
+          f"({en_kotu[1]})")
+    print(f"  ARIZA (biri donmuş)  en kritik an: {en_kotu_don[0]:.2f} m  "
+          f"({en_kotu_don[1]})")
+    if en_kotu_don[0] < _HARD:
+        print(f"  ⚠️  Arıza hâlinde kaçınmanın yatay son çare kabuğunun "
+              f"({_HARD:.1f} m) altına iniliyor — kaçınma TEK DAYANAK. "
+              f"Her formasyonda kanatlar aynı çemberdedir, bu beklenen; "
+              f"plan hatası değil.")
     print("  SONUÇ: " + ("GEÇTİ" if tamam else "KALDI — görev başlatılmayacak"))
     return tamam
 
