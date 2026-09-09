@@ -1,6 +1,6 @@
 # Yelpençe — TEKNOFEST 2026 Sürü İHA
 
-**Son güncelleme:** 5 Eylül 2026, 07:56 — **finale 1 gün**; Görev 1 zinciri uçtan uca uçtu, **Görev 2 kumandadan uçtu** (sabit lider + formasyon geçişleri), yedi sessiz kusur kapandı; 🔴 ylp02 eski kodda
+**Son güncelleme:** 9 Eylül 2026, 04:30 — **FİNAL GÜNÜ** · 🔴 **saha değişti, origin yenilendi** (eski değer 8.9 km ötedeydi, `origin_synced=0` → görev hiç başlamıyordu) · 🔴 **QR koordinat tablosu ESKİ SAHAYA ait, yeniden girilmeli** · origin irtifası 3.33 m düzeltildi (komut 10 m → gerçek 13.3 m idi) · adım tamamlanma ölçütü mutlak hataya bakmıyordu (8.5 m ile "oturdu" diyordu) · takım slotu artık YKİ'den mesh üzerinden · RTK baz survey'i YKİ açılışında otomatik
 
 > Claude bu dosyayı her oturumda **kendiliğinden okur.** Yeni sohbet açan
 > kişinin hiçbir şey söylemesine gerek yok; projeyi buradan anlar.
@@ -28,8 +28,10 @@ lider mesh sözleşmesine dokunuyor, karışık kodla üç uçak uçmaz)
 ② mesh kaybını ölç ve düşür (%6.7 / %21.7) ③ komutun 1 Hz'e seyrelmesini
 bul ④ lens ayarından sonra QR'ı yerde okut. Ayrıntı `docs/YAPILACAKLAR.md` P0.
 
-⚠️ **`rsync` ana makinede yok** — dağıtım `yki` konteynerinden koşuluyor:
-`docker exec yki bash -lc './deploy/rpi/dagit.sh --paket <paket> <ylpXX>'`
+⚠️ **Dağıtım ana makineden koşulur** — `rsync` orada VAR (8 Eylül'de
+operatör düzeltti; eski not "yok" diyordu ve gereksiz yere `yki`
+konteynerinden dolaşılıyordu):
+`./deploy/rpi/dagit.sh --paket <paket> <ylpXX>`
 
 ### 🔴 Bugünkü komut yolu finalde KULLANILAMAZ
 
@@ -56,9 +58,15 @@ Kalan iş: `docs/YAPILACAKLAR.md` · neden öyle: `docs/PLAN.md`
 
 | İHA | agent_id | Konteyner | ROS ns | ESP mesh ID | Durum |
 |-----|----------|-----------|--------|-------------|-------|
-| ylp00 | 1 | `drone1` | `/drone_1` | 1 | uçuyor |
+| ylp00 | 1 | `drone1` | `/drone_1` | 1 | uçuyor · **kamera bu uçakta** |
 | ylp01 | 2 | `drone2` | `/drone_2` | 2 | uçuyor |
-| ylp02 | 3 | `drone3` | `/drone_3` | 3 | uçuyor · **kamera bu uçakta** |
+| ylp02 | 3 | `drone3` | `/drone_3` | 3 | uçuyor |
+
+> 📷 **Kamera ylp00'da** — 9 Eylül 2026'da ölçüldü: `/vision_node` ve
+> `/camera_driver` yalnız ylp00'da koşuyor, ylp02'de "Node not found".
+> `GOREV_KAMERA_AJAN = 1` de ylp00'ı gösteriyor ve QR çıpası formasyonu
+> **kameralı uçak QR'ın üstüne gelecek** şekilde kaydırıyor. Bu tablo
+> 8 Eylül'e kadar ylp02 diyordu; yanlış uçağa bakmak saha vakti yakar.
 
 **İsim ile numara aynı değil:** ylp00 → drone**1**, ylp02 → drone**3**.
 Bu karışıklık gerçek ve sürekli hata kaynağı — komut yazmadan önce bak.
