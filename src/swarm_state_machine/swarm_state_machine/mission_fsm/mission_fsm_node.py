@@ -591,7 +591,18 @@ class MissionFsmNode(Node):
         # 🔴 BEKLENMEYEN QR REDDEDILIR. Gerekce `_beklenen_qr` notunda.
         # 0 = kapi kapali (beklenen bilinmiyor) -> eski davranis.
         bek = int(getattr(self, '_beklenen_qr', 0) or 0)
-        if bek and qr_id and qr_id != bek:
+        # 🔴 ILK QR HER ZAMAN KABUL EDILIR — 9 Eylul 2026, finalden onceki
+        # denetimde yakalandi. Kapi `start_qr` ile kuruluyor ve `start_qr`
+        # ancak konteyner acilisinda (GOREV_BASLANGIC_QR) ayarlanabiliyor.
+        # Hakem rotayi 1'den baska bir QR'da baslatirsa (or. 3), ilk okunan
+        # QR "beklenmeyen" sayilip REDDEDILIRDI: gorev hic ilerlemez, 240 sn
+        # sonra RETURN_HOME'a duser ve QR puanlarinin TAMAMI kaybedilirdi.
+        # Bu kapiyi ben ekledim (yol ustundeki yabanci QR gorevi kaciriyordu);
+        # koruma ancak ILK QR OKUNDUKTAN SONRA anlamli, cunku sirayi QR'in
+        # kendi `next` zinciri belirliyor. Once hicbir sey kabul edilmediyse
+        # karsilastirilacak bir "beklenen" de yok.
+        ilk_qr_geldi = bool(getattr(ctx, 'last_accepted_qr_id', 0))
+        if ilk_qr_geldi and bek and qr_id and qr_id != bek:
             self.get_logger().warning(
                 f'[mission_fsm] BEKLENMEYEN QR: qr={qr_id} (beklenen '
                 f'{bek}) — ATLANDI. Yol ustunde okunan yabanci QR gorevi '
