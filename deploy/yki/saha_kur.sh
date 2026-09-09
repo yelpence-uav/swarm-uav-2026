@@ -97,8 +97,36 @@ konteyner_baslat() {
 }
 
 # ════════════════════════════════════════════════════════════════════════
+# 🔴 RTK ÖNCE OTURMALI — irtifa kestirimi GPS çözümüne bağlı. Baz yeniden
+# survey edilince ya da çözüm float'ta kalınca ölçüm metre mertebesinde
+# kayar; tolerans ise 30 cm. RTK oturmadan kalibre edersen, oturduğunda
+# tekrar kalibre etmen gerekir.
+#   fix_type: 6 = RTK FIXED (istenen) · 5 = RTK float · 4 = DGPS · 3 = 3D
 echo
-echo "── 1/3 · ORIGIN DOSYASI ────────────────────────────────"
+echo "── 0/4 · RTK ÇÖZÜMÜ ────────────────────────────────────"
+rtk_zayif=0
+for u in "${UCAKLAR[@]}"; do
+  IFS=: read -r ad kul kap ns <<< "$u"
+  fix="$(ucak_oku "$kul" "docker exec -e ROS_LOCALHOST_ONLY=1 $kap bash -lc \
+    'source /opt/ros/jazzy/setup.bash >/dev/null 2>&1; \
+     source /ws/install/setup.bash >/dev/null 2>&1; \
+     timeout 8 ros2 topic echo --once /$ns/mavros/gpsstatus/gps1/raw 2>/dev/null \
+     | grep -w fix_type'" | grep -oE '[0-9]+' | head -1)"
+  case "${fix:-yok}" in
+    6)   yesil "$ad : fix_type 6 (RTK FIXED)" ;;
+    yok) sari "$ad : fix_type okunamadı"; rtk_zayif=1 ;;
+    *)   sari "$ad : fix_type $fix — RTK OTURMAMIŞ"; rtk_zayif=1 ;;
+  esac
+done
+if [ "$rtk_zayif" = "1" ]; then
+  echo
+  sari "RTK oturmadan yapılan irtifa ölçümü METRE mertebesinde kayabilir."
+  echo "    Origin dosyası yine de eşitlenecek (o RTK'dan bağımsız)."
+  echo "    🔴 RTK FIXED olunca BU BETİĞİ TEKRAR ÇALIŞTIR."
+fi
+
+echo
+echo "── 1/4 · ORIGIN DOSYASI ────────────────────────────────"
 sapan=0
 for u in "${UCAKLAR[@]}"; do
   IFS=: read -r ad kul _kap _ns <<< "$u"
@@ -127,7 +155,7 @@ fi
 
 # ════════════════════════════════════════════════════════════════════════
 echo
-echo "── 2/3 · İRTİFA DÜZLEMİ (yerel z, uçaklar YERDE) ───────"
+echo "── 2/4 · İRTİFA DÜZLEMİ (yerel z, uçaklar YERDE) ───────"
 topla=0; adet=0
 for u in "${UCAKLAR[@]}"; do
   IFS=: read -r ad kul kap ns <<< "$u"
@@ -208,7 +236,7 @@ fi
 
 # ════════════════════════════════════════════════════════════════════════
 echo
-echo "── 3/3 · ORIGIN OTURDU MU (arm'ın ön şartı) ────────────"
+echo "── 3/4 · ORIGIN OTURDU MU (arm'ın ön şartı) ────────────"
 for u in "${UCAKLAR[@]}"; do
   IFS=: read -r ad kul kap _ns <<< "$u"
   sat="$(ucak_oku "$kul" "docker exec $kap bash -lc \
