@@ -139,6 +139,78 @@ ORIGIN_ALT="${ORIGIN_ALT:-1216.96}"
 # macOS'ta loopback arayuzunun adi lo DEGIL lo0 — o yuzden env ile ezilebilir.
 DDS_URI="${DDS_URI:-file://$REPO/src/gcs/cyclonedds_yki.xml}"
 
+# --- RTK BAZI: BAYAT SURVEY'I KENDI BULUR VE DUZELTIR ---------------------
+#
+# 🔴 9 EYLUL 2026, operator: "otomatik yap sunu, ben yki baslattigim an
+# olsun, bir eksik olmasin."
+#
+# NIYE OTOMATIK OLMAK ZORUNDA
+# Anten tasindiginda survey YENIDEN kosulmali: sonuc alicinin FLASH'inda
+# durur, kabloyu cekip takmak SILMEZ — alici acilista eski koordinati okur
+# ve yayinlamaya devam eder. Belirti sinsidir: RTCM akar, ekran normal
+# gorunur, hicbir hata cikmaz, ama uçaklar sonsuza kadar DGPS'te kalir.
+#     2 Agustos : baz kendini uçaklardan 2820 m otede saniyordu
+#     9 Eylul   : saha degisti, uçaklar fix 3-4'te takildi, gorev baslamadi
+#
+# NASIL KARAR VERIYOR
+# Baz 1005'te KENDI konumunu yayinliyor. Onu okuyup sahanin origin'ine olan
+# uzakligina bakiyoruz. Baz ucus alaninin KENARINDA durur (birkac yuz metre);
+# 1 km'yi asan fark "biri bayat" demektir ve tek makul davranis yeniden
+# olcmektir. Anten yerinde ise survey ZATEN kosmaz — gereksiz bekleme yok.
+# Ayni yerde tekrar survey etmek de zararsizdir, sadece ayni noktayi yeniden
+# olcer.
+#
+# `--survey` bunu ZORLA kosturur (karar mekanizmasini beklemeden).
+# `--survey-yok` tamamen atlar (baz baska bir makineden yonetiliyorsa).
+BAZ_UYUM_TAVANI_KM="${BAZ_UYUM_TAVANI_KM:-1.0}"
+_survey_zorla=0
+_survey_atla=0
+case "${1:-}" in
+  --survey)     _survey_zorla=1; shift ;;
+  --survey-yok) _survey_atla=1;  shift ;;
+esac
+
+_survey_kos() {
+  echo "[YKİ] RTK bazi survey ediliyor (birkac dakika surebilir)..."
+  pkill -f yki_rtcm_reader.py 2>/dev/null && sleep 1
+  if python3 "$REPO/src/gcs/rtk_baz_survey.py"; then
+    echo "[YKİ] survey tamam — bazin kendini nerede sandigi:"
+    python3 "$REPO/src/gcs/rtk_baz_survey.py" --oku || true
+  else
+    echo "[YKİ] 🔴 SURVEY BASARISIZ — baz eski koordinati yayinlamaya" >&2
+    echo "      devam eder, RTK OTURMAZ. Anten/kablo/port kontrol edin." >&2
+  fi
+}
+
+if [ "$_survey_atla" = "1" ]; then
+  echo "[YKİ] baz survey denetimi ATLANDI (--survey-yok)"
+elif [ "$_survey_zorla" = "1" ]; then
+  _survey_kos
+else
+  # Seri port tek sahipli: okumadan once okuyucuyu sustur.
+  pkill -f yki_rtcm_reader.py 2>/dev/null && sleep 1
+  _bazsat="$(timeout 25 python3 "$REPO/src/gcs/rtk_baz_survey.py" --oku 2>/dev/null \
+             | grep -m1 'BAZ KONUMU' || true)"
+  if [ -z "$_bazsat" ]; then
+    echo "[YKİ] ⚠ baz 1005 okunamadi (survey-in surüyor ya da TMODE kapali)."
+    echo "      Anten YENI yerdeyse:  ./src/gcs/yki_baslat.sh --survey"
+  else
+    _bazlat="$(echo "$_bazsat" | sed -n 's/.*lat=\([-0-9.]*\).*/\1/p')"
+    _bazlon="$(echo "$_bazsat" | sed -n 's/.*lon=\([-0-9.]*\).*/\1/p')"
+    _dkm="$(python3 -c "import math,sys
+bl,bo,ol,oo=map(float,sys.argv[1:5])
+print(f'{math.hypot((bl-ol)*111320.0,(bo-oo)*111320.0*math.cos(math.radians(ol)))/1000.0:.3f}')" \
+      "$_bazlat" "$_bazlon" "$ORIGIN_LAT" "$ORIGIN_LON" 2>/dev/null || echo 999)"
+    if [ "$(python3 -c "print(1 if float('$_dkm') >= float('$BAZ_UYUM_TAVANI_KM') else 0)" 2>/dev/null)" = "1" ]; then
+      echo "[YKİ] 🔴 BAZ ILE ORIGIN UYUSMUYOR: baz $_bazlat,$_bazlon"
+      echo "      origin'e $_dkm km — survey BAYAT. Otomatik yeniden olcuyorum."
+      _survey_kos
+    else
+      echo "[YKİ] baz konumu origin'e $_dkm km — survey guncel, atlaniyor."
+    fi
+  fi
+fi
+
 # --- Önce çalışan örnekleri durdur (IDEMPOTENT) ---
 # Bu script eskiden mevcut süreçleri kontrol etmiyordu: her çalıştırmada
 # yenilerini başlatıp eskilerini bırakıyordu. Sonuç, aynı seri portu isteyen

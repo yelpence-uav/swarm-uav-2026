@@ -141,8 +141,19 @@ _MAX_RTCM_FRAME = 3 + 1023 + 3   # başlık + 10-bit maks payload + CRC24
 # olduğunu kod bilemez, ama "ikisi uyuşmuyor" demek operatörü doğru yere
 # bakmaya gönderir — bu gece eksik olan tam olarak buydu.
 BAZ_1005_UYARI_SN = 30.0   # bu kadar sn 1005 görülmezse ⚠ (1005 tipik 1 Hz)
-BAZ_ORIGIN_NOT_KM = 2.0    # üstünde bilgi notu — RTK doğruluğu mesafeyle düşer
-BAZ_ORIGIN_UYARI_KM = 10.0  # üstünde ⚠ — bu artık "başka saha" demek
+BAZ_ORIGIN_NOT_KM = 0.3    # üstünde bilgi notu — RTK doğruluğu mesafeyle düşer
+# 🔴 10.0 -> 1.0 (9 Eylül 2026 04:00, SAHADA KIL PAYI KAÇIRILDI).
+#
+# Uçaklar final sahasına taşındı, origin dosyası eski sahada kaldı ve fark
+# **8.9 km** çıktı — eşiğin ALTINDA. Uyarı hiç basılmadı; ekranda her şey
+# normal göründü. Belirti başka yerden geldi: px4_bridge "origin doğrulama
+# başarısız" diye 6 sn'de bir döndü, `origin_synced=0` kaldı, aktif kadro
+# boşaldı ve GÖREV HİÇ BAŞLAMADI. Operatör "başlat diyorum olmuyor" dedi
+# ve sebebi bulmak saatler aldı.
+#
+# 1 km zaten fazlasıyla geniş: baz uçuş alanının KENARINDA durur, yani
+# normalde birkaç yüz metre. 1 km'yi aşan her fark "biri bayat" demektir.
+BAZ_ORIGIN_UYARI_KM = 1.0  # üstünde ⚠ — bu artık "başka saha" demek
 
 
 class RTCMStreamParser:
@@ -617,11 +628,19 @@ def _self_test() -> None:
         # 6b — eşikler: yakın baz sessiz, uzak baz UYARIR.
         # 244 km rakamı uydurma değil: 6/7 Eylül gecesi saha_origin.env
         # Elazığ'da kalmışken uçaklar Gaziantep'teydi ve fark tam buydu.
-        yakin = _uzaklik_m(BAZ[0], BAZ[1], 37.0297282, 37.3113892) / 1000.0
+        yakin = _uzaklik_m(BAZ[0], BAZ[1], BAZ[0] + 0.0009, BAZ[1]) / 1000.0
         uzak = _uzaklik_m(BAZ[0], BAZ[1], 38.6904758, 39.1610188) / 1000.0
+        # 🔴 9 Eylül 04:00: gerçek kaçırılan durum — final sahası ile eski
+        # saha arası 8.9 km, eski eşik 10 km olduğu için SESSİZ kalmıştı.
+        # Bu satır o mesafenin artık UYARDIĞINI kilitliyor.
+        kacirilan = _uzaklik_m(37.0166884, 37.4098366,
+                               37.0297209, 37.3113894) / 1000.0
         assert yakin < BAZ_ORIGIN_NOT_KM, f"yakın baz not eşiğinde: {yakin}"
         assert uzak >= BAZ_ORIGIN_UYARI_KM, f"uzak baz uyarmadı: {uzak}"
+        assert kacirilan >= BAZ_ORIGIN_UYARI_KM, (
+            f"8.9 km'lik saha değişimi HÂLÂ uyarmıyor: {kacirilan:.1f} km")
         print(f"✅ 6b) mesafe eşiği: aynı saha {yakin:.2f} km sessiz · "
+              f"saha değişimi {kacirilan:.1f} km UYARIR · "
               f"bayat origin {uzak:,.0f} km UYARIR")
 
         # 6c — origin dosyası okunabiliyor mu (denetimin TEK referansı).
