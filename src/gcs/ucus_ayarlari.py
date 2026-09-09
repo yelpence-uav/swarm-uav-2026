@@ -51,8 +51,12 @@ GOREV_HIZ_MPS = 3.0
 GOREV_IVME_MPS2 = 1.5
 
 # --- Dikey ------------------------------------------------------------------
-GOREV_DIKEY_HIZ_MPS = 1.0      # motor isinmasi: daha yavas
-GOREV_DIKEY_IVME_MPS2 = 1.0
+# 8 Eylul 2026, operator: "dikey hizi arttir". Onceki deger 1.0'di ve
+# gerekcesi "motor isinmasi"ydi. Ayni gun itki payi ILK KEZ olculdu
+# (bkz. PX4_DIKEY_HIZ_TAVANI_MPS notu) — tirmanis payi dar cikti, bu
+# yuzden ikiye katlanip birakildi, daha fazlasi olcumsuz olurdu.
+GOREV_DIKEY_HIZ_MPS = 2.0
+GOREV_DIKEY_IVME_MPS2 = 1.5
 
 # PX4'un KENDI dikey tavanlari — 23 Agustos 2026'da UCAKTAN OKUNDU.
 #
@@ -66,11 +70,23 @@ GOREV_DIKEY_IVME_MPS2 = 1.0
 #     MPC_Z_VEL_MAX_UP  1.2    MPC_ACC_UP_MAX    4.0
 #     MPC_Z_VEL_MAX_DN  1.5    MPC_ACC_DOWN_MAX  3.0
 #
-# 1.2 dusuk bir deger ve bilincli secilmis gorunuyor (gorev dikey hizi 1.0,
-# "motor isinmasi" notu). Yukseltmek AYRI bir karar: kalkis ve gorev
-# tirmanislarini da etkiler ve itki payi hala olculmedi.
-PX4_DIKEY_HIZ_TAVANI_MPS = 1.2
-PX4_DIKEY_INIS_TAVANI_MPS = 1.5
+# 🔴 8 EYLUL 2026 — ITKI PAYI OLCULDU, SONRA YUKSELTILDI (operator karari).
+#
+# O gune kadar "itki payi hala olculmedi" yaziyordu. Olculdu:
+#   ylp00, 4.2 m'de 60 sn asili durma, pil 13.6 V (PX4'e gore BOS):
+#       gaz medyan 0.786 · %95 1.000 · MAKS 1.000
+#   Ayni gun ylp00 gorevde 15 m'den 1.9 m/s ile DUSTU: gaz tavani
+#   MPC_THR_MAX 0.90'a kilitliydi (digerlerinde 1.00) ve pil bosalinca
+#   PX4'un itki telafisi tavana carpti. Tavan 1.00'e esitlendi.
+#
+# YANI: tirmanis payi DAR. Tirmanmak asili durmanin USTUNDE itki ister;
+# dolu pille bu pay var, bosalmis pille YOK. Dikey hizi yukseltmek
+# bosalmis pilde cokusu HIZLANDIRIR.
+#
+# 1.2 -> 2.5 (tirmanma) · 1.5 -> 2.0 (inis). Inis bilerek daha dusuk:
+# cok rotorlarda ~2.5 m/s ustu dikey inis girdap halkasi (VRS) riski.
+PX4_DIKEY_HIZ_TAVANI_MPS = 2.5
+PX4_DIKEY_INIS_TAVANI_MPS = 2.0
 PX4_DIKEY_IVME_TAVANI_MPS2 = 4.0
 PX4_DIKEY_INIS_IVME_TAVANI_MPS2 = 3.0
 
@@ -157,9 +173,27 @@ AJAN_SAYISI = 3                # kimlik araligi — kadro degisse de 3
 # NAVIGATE_TO_QR zaman asimi. Yarisma varsayilani 300 sn (QR'a UCARAK
 # gitmek zaman aliyor). QR'siz SINAMA ucusunda sürü o sureyi formasyonda
 # ASILI geciriyor — bilgi uretmeden pil yakiyor, ucus 6.5 dakikaya cikiyor.
-# 30 sn: formasyona oturmak icin en uzun yol 6.7 m, ~5 sn; kalani gozlem.
-# 🔴 YARISMA GUNU 300.0 YAPILACAK (ya da 0 = kod varsayilani).
-GOREV_NAVIGATE_TIMEOUT_S = 30.0
+# Bu yuzden bir sure 30 sn'ye cekilmisti: "formasyona oturmak icin en uzun
+# yol 6.7 m, ~5 sn; kalani gozlem."
+#
+# 🔴 8 EYLUL 2026 — 30 SN GERCEK GOREVDE YETMEDI, SAHADA OLCULDU.
+# Kamerali ilk Gorev 1 ucusunda:
+#     16:27:54  NAVIGATE_TO_QR basladi, QR1'e mesafe 8.25 m
+#               8.25 -> 8.46 -> 8.34 -> 8.40 -> 8.31 -> 8.44 -> 8.57 -> 8.41
+#     16:28:24  TAM 30. saniyede zaman asimi -> RETURN_HOME
+# Suru QR'a hic yaklasamadan pes etti.
+#
+# NIYE 30 YAPISAL OLARAK AZ: bu sureye yalniz UCUS degil, QR'I OKUMA da
+# giriyor. Supurme devri 15 -> 10 -> 15 m ve 1.5 m/s'te 11.7 sn suruyor.
+# QR ilk turda okunmazsa ikinci tur icin 23.4 sn gerekir; ustune QR'a
+# ucma suresi biner. 30 sn'ye en fazla iki tur sigar, o da her sey ilk
+# denemede tutarsa.
+#
+# 120 sn: QR'a ucus ~5 sn + ~9 supurme turu. Isik, aci, ruzgar yuzunden
+# ilk turlarda okunmazsa hala sansi olur. Sonsuz DEGIL — gercekten
+# okunamiyorsa suru eve doner, pil bitene kadar orada kalmaz.
+# (Supurmenin KENDI zaman asimi hala yok; ayri is, YAPILACAKLAR'da.)
+GOREV_NAVIGATE_TIMEOUT_S = 120.0
 
 # Hedef BILINMIYORKEN (QR tablosu yok) NAVIGATE'te beklenen sure.
 # 2 Eylul: 30 sn'ydi ve operator bekleyemeyip iki ucusu elle kesti —
@@ -308,6 +342,57 @@ GOREV_DONUS_KENDI_NOKTASINA = False
 # cikar. Gorev tavaniyla catisirsa BURADAN kucult.
 GOREV_TOPLANMA_KATMAN_M = 5.0
 
+# QR FORMASYON GECISINDE DIKEY KATMANLAMA — 8 Eylul 2026, operator karari.
+#
+# 🔴 NIYE VAR, SAHADA OLCULDU: QR2 okununca suru yer dizilisinden (~9 m
+# ayrim) V'ye (6 m aralik) gecerken yollar KESISTI:
+#     ayrim 9.06 -> 6.84 -> 4.41 -> 1.88 m   (HARD kabuk 2.0'in ALTINDA)
+#     kacinma 3.98 m/s YATAY itme yapti
+#       -> lider suru merkezinden 11.17 m saptı
+#       -> irtifa yayilimi 5.90 m
+#       -> bir ucak digerinin uzerine geldi
+# Operatorun bildirdigi uc sey de (irtifalar esit degildi / biri ezdi geldi
+# / biri alip basini gitti) TEK bu zincirden cikti.
+#
+# NE YAPAR: yeni formasyon YATAYDA kurulmadan once ucaklar ayri irtifalara
+# acilir. Yollar kesisse bile aralarinda dikey pay olur ve kacinma HIC
+# tetiklenmez. Yatay yerlesme oturunca katman kalkar, irtifalar esitlenir.
+#
+# NIYE HIZ AYARIYLA COZULMEDI: gecis hizini 1.0 -> 0.5 yapmak DENENDI ve
+# ayni gun GERI ALINDI — "formasyon kuruldu" olcutu (plato + durdu) hiza
+# bagli oldugu icin yavaslatmak onu kandirdi (slot hatasi 0.00 -> 5.12 m).
+# Kesisme HIZ sorunu degil GEOMETRI sorunu; cozumu de geometrik.
+#
+# 3.0 SECIMI: KACINMA_KATMAN (3.0 m) ile ayni — kacinmanin "dikeyde yeterli
+# ayrim" saydigi esik. Daha azi kacinmayi yine tetikler, daha cogu (kalkis
+# merdivenindeki 5.0 gibi) sureyi ve pil yukunu bosuna buyutur.
+# 0.0 = KAPALI (eski davranis birebir doner).
+GOREV_QR_GECIS_KATMAN_M = 3.0
+
+# SUPURME TAKIP TAVANI — 8 Eylul 2026, sahada olculdu.
+# Supurme her ~12 sn 5 metre TIRMANMA istiyor. Ucak tirmanamazsa program
+# bunu bilmiyordu ve yeni bir INIS komutu daha veriyordu; ucaklar kademe
+# kademe asagi kaydi:
+#     komut 10.00..14.78 m (dogru)  ·  ylp00 fiili 6.1..19.3 m
+#     TABANIN (10 m) 4 metre ALTINA indi, dikey dagilma 7 m'ye cikti
+#     ylp01 (gerilim 13.90 V) takip etti; ylp00 (12.90 V) edemedi
+# Artik supurmenin SAATI takibe bagli: suru yetisemiyorsa saat DURUR,
+# yetisince kaldigi yerden devam eder. 0.0 = kapali.
+# 9 EYLUL 2026 03:00 — 3.0 -> 5.0. ORIGIN DUZELINCE ESIK DAR KALDI.
+#
+# 3.0 m, cerceve ofsetinin (o zaman 3.22 m) yanlislikla "takip hatasi"
+# sayildigi donemde konmustu ve korumayi KILITLIYORDU. Origin duzeltmesi
+# ofseti +0.12 m'ye indirdi; geriye SAF takip gecikmesi kaldi ve o da
+# 1.5 m/s'lik supurmede DOGAL olarak 3.0-3.3 m:
+#     "supurme BEKLIYOR: takip hatasi 3.22 m > 3.0 m (ofset +0.12 m dusuldu)"
+# birkac saniyede bir tekrarlayip supurmeyi dur-kalk yapiyordu — operator
+# "ylp00 QR1 uzerinde git-gel yapti" diye bildirdi, sebebi buydu.
+#
+# 5.0: normal alcalma gecikmesinin (3.0-3.3) USTUNDE, gercek geri kalmanin
+# (8 Eylul: 6-7 m, bos pille tirmanamayan ucaklar) ALTINDA. Yani koruma
+# artik yalniz gercek sorunda devreye girer.
+GOREV_QR_ARAMA_TAKIP_TAVANI_M = 5.0
+
 # 🔴 YALNIZ DAGILMA BACAGI. 180 yaw'dan sonra cizginin uc ucaklari takas
 # ediyor ve kafa kafaya geciyorlar. Olculdu:
 #   2.0 m/s -> kapanma 4.0 -> frenleme 2.23 m -> kalan 1.77 m  (hard 2.5 IHLAL)
@@ -322,6 +407,47 @@ GOREV_DAGILMA_HIZ_MPS = 1.0
 # 0.0 = degistirme. 1 Eylul'de Gorev 2 icin ayni karar MOD_MORF_HIZ=0.6
 # ile verilmisti ("bayagi yavas yapsin formasyonlari").
 GOREV_KURULUM_HIZ_MPS = 1.0
+
+# QR'IN ISTEDIGI FORMASYONA GECIS HIZI (kurulumdan AYRI).
+# 🔴 8 EYLUL 2026 — bu deger orchestrator.py'de KODA GOMULUYDU (max_speed=1.0)
+# ve §8'in "hizlar baska hicbir yerde elle yazilmaz" kuralinin disindaydi.
+# O gun sahada yanlis parametre arandi; artik burada.
+#
+# SAHADA OLCULEN OLAY: QR2 okununca suru yer dizilisinden (CUSTOM, ~9 m)
+# V'ye (6 m aralik) gecerken ayrim 8 saniyede coktu:
+#     9.06 -> 6.84 -> 4.41 -> 2.70 m     en dar 3B 2.69 m
+#     yatayda 0.59 m; ayiran sey kacinmanin actigi 7.4 m DIKEY paydi
+# MIN_AYRIM (4.0) ve KACINMA_D0 (3.0) asildi; KACINMA_HARD'a (2.0) 0.69 m kaldi.
+#
+# 1.0 -> 0.5 NE KAZANDIRIR: kacinma MESAFEYE gore tetiklenir (3.0 m), hiza
+# gore degil — yavaslamak tetigi erkene ALMAZ. Kazanc esik sonrasi ASIMDA;
+# asim hizin karesiyle gider:
+#     1.0 m/s -> asim 0.31 m -> dip 2.69 m
+#     0.5 m/s -> asim ~0.08 m -> dip ~2.90 m      (paya +0.2 m)
+# Mutevazi ama gercek. BEDELI: en uzak slot degisimi (olculen 15.86 m)
+# 16 sn yerine 32 sn surer; GOREV_NAVIGATE_TIMEOUT_S=120 icinde rahat sigar.
+#
+# 🔴 RISKI KALDIRAN COZUM BU DEGIL: gecisten once dikey katmanlama
+# (kalkistaki _toplanma_katmanla'nin QR gecisine baglanmasi). Bu ayar
+# onun yerini tutmaz, yalnizca payi bir miktar acar.
+# 🔴 0.5 DENENDI ve GERI ALINDI — 8 Eylul 2026, AYNI GUN, SAHADA.
+# Amac gecis sirasindaki yaklasmayi (2.69 m) acmakti. Sonuc TERSI oldu:
+#     slot hatasi (ALTITUDE adimi) 0.00 m -> 5.12 m
+#     en dar 3B ayrim              2.69 m -> 1.88 m   (HARD 2.0'in ALTINDA)
+#     irtifa yayilimi              0.80 m -> 5.90 m
+#
+# MEKANIZMA — orchestrator._maybe_formation_settled:
+#     plateau = (max(hist) - min(hist)) <= settle_improve_eps_m
+#     stopped = max_move <= settle_move_eps_m
+# Ikisi de HIZA baglidir. Yari hizda hata yari hizla azalir ("plato"
+# gorunur) ve ucaklar yari hizla hareket eder ("durdu" gorunur). Yani
+# yavaslatmak, "formasyon kuruldu" olcutunu KANDIRIYOR: suru henuz 5 m
+# uzaktayken faz ilerliyor, MANEUVER ve ALTITUDE ustune biniyor.
+#
+# Yavaslatmak istenirse settle_move_eps_m ve settle_improve_eps_m de
+# hizla ORANTILI olarak kucultulmeli — ~5 satir, ama guvenlik olcutune
+# dokundugu icin sinanmadan yapilmaz. (YAPILACAKLAR'a yazildi.)
+GOREV_QR_FORMASYON_GECIS_HIZ_MPS = 1.0
 
 # 🔴 LIDER KILIDI — 3 Eylul 2026 operator karari.
 # True: lider bir kez secilir, BIR DAHA DEGISMEZ.
@@ -426,7 +552,58 @@ GOREV_KALKIS_IRTIFA_M = 15.0
 # QR'a giderken alçalmıyor, seyir irtifasını koruyor. Alçalma yalnız
 # QR'ın ÜSTÜNDE, dururken oluyor — hareket ile irtifa değişimi aynı
 # anda olmuyor (§9 "irtifadan önce yatay hareket YOK" ile aynı ruh).
+# 9 EYLUL 2026 — 10.0'a cekildi, AYNI GECE 15.0'a GERI ALINDI (operator).
+#
+# Once 10.0 yazilmisti: "o irtifa dusurmesi cok stabil olmuyor, direkt
+# 10 metreye insin". Merdiven tek basamaga cokuyor (tavan-taban < 0.1) ve
+# supurme sabit 10 m'ye donuyordu; ucusta dogrulandi — 35 saniye boyunca
+# dikey dagilma 0.2 m, hic salinim yok.
+#
+# GERI ALINMA SEBEBI: ayni gece ORIGIN_ALT 3.33 m duzeltildi
+# (deploy/saha_origin.env). Onceden "15 m" komutu suruyu 18.3 m'ye
+# cikariyordu ve olculen okuma tavani 16.64 m (KAMERA.md §13) — yani
+# merdivenin ustu okuma menzilinin DISINDAYDI, sallanma da bu yuzden
+# ise yaramiyordu. Origin duzelince 15 m gercek 15 m oldu; merdivenin
+# TAMAMI (15 -> 10) artik okuma menzilinin icinde.
+#
+# Yani "tek irtifada sabit dur" ile "alcalarak ara" arasindaki secim
+# ARTIK ANLAMLI: tek irtifada okunamayan QR icin yedek yukseklik kalir.
 GOREV_QR_OKUMA_IRTIFA_M = 15.0
+
+# --- QR ARAMA SUPURMESI (8 Eylul 2026, operator karari) ---------------------
+# QR okunamadiginda sürü irtifa tarar. ESKI davranis AYRIK BASAMAKLARDI ve
+# her basamakta hareketsiz beklenirdi; 8 Eylul ucusunda olculdu:
+#     15.4 m -> (9 sn bekle) -> 13.0 -> (9 sn bekle) -> 10.4 -> basa 5 m SICRAMA
+# Operator: "bas cekliydi surekli... yavas yavas alcalsin, sadece 10 metrede
+# 5 saniye beklesin, onun disinda bekleme yapmasin, smooth insin ciksin."
+#
+# YENI: ucgen dalga. Sabit hizla in -> YALNIZ tabanda bekle -> sabit hizla cik.
+# Taban _SEARCH_ALT_FLOOR_M = 10.0 m (orchestrator'da; tutarlilik denetimi
+# asagida bunu ayrica dogruluyor).
+#
+# 0.5 m/s ROTA_DIKEY_HIZ_MPS ile ayni gerekce: "dikey alcalma yavas olmali,
+# QR okuyacak" (4 Eylul). 15 -> 10 arasi 10 sn surer, devir 25 sn.
+# --- GOREVIN BASLADIGI QR (8 Eylul 2026) --------------------------------
+# 🔴 NIYE VAR: `mission_fsm_node.start_qr` varsayilani 1'di ve baslat.sh onu
+# HIC GECMIYORDU — yani sürü her zaman QR1'i ariyordu. Sahada QR2 ve QR5
+# serilince (operator, 8 Eylul) suru olmayan bir QR1'e ucacakti; hicbir yerde
+# hata gorunmezdi, yalniz "Ilk hedef QR1 konum tabloda yok" uyarisi duserdi.
+#
+# Hangi QR'lar seriliyse ILKI buraya yazilir. Koordinat tablosunda da o QR
+# bulunmak ZORUNDA (tablo: qr_enjekte.py --tablo).
+GOREV_BASLANGIC_QR = 1
+
+# 🔴 8 EYLUL 2026, SAHADA: operator "okuma icin yaptiklari irtifa dususu
+# COK YAVASTI, bu kadar yavas asla olmamali" dedi. 0.5 m/s ile 15 -> 10
+# arasi 10 sn suruyordu, devir 25 sn. 1.5 m/s ile inis 3.3 sn, devir
+# 11.7 sn — supurme uc kat sik, ayni irtifa araligi.
+#
+# NEDEN SINIRSIZ DEGIL: dikey hareket de bulaniklik yapar. 28 Agustos
+# olcumu yataydi (4 m/s, 20 m: 1/250 okunuyor, 1/125 okunmuyor) ama ayni
+# deklansor dikeyde de gecerli; 'sport' pozlama kisa tuttugu icin
+# 1.5 m/s'te pay var. Daha yukarisi OLCULEREK cikilmali.
+GOREV_QR_ARAMA_DIKEY_HIZ_MPS = 1.5
+GOREV_QR_ARAMA_TABAN_BEKLEME_S = 5.0
 
 # 🔴 OKUYUCU (KAMERALI) DRON — 5 Eylul 2026, operator: "sadece ylp00 okuma
 # yapacak". Formasyon, QR'in ustune BU ucagi getirecek sekilde cipalanir.
@@ -1753,6 +1930,8 @@ def _kabuk():
     print(f'GOREV_ARALIK={GOREV_ARALIK_M:.1f}')
     print(f'FORMASYON_MESH_HZ={FORMASYON_MESH_HZ:.1f}')
     print(f'GOREV_TOPLANMA_KATMAN={GOREV_TOPLANMA_KATMAN_M:.1f}')
+    print(f'GOREV_QR_GECIS_KATMAN={GOREV_QR_GECIS_KATMAN_M:.1f}')
+    print(f'GOREV_QR_ARAMA_TAKIP_TAVANI={GOREV_QR_ARAMA_TAKIP_TAVANI_M:.1f}')
     print(f'GOREV_DONUS_YAW={GOREV_DONUS_YAW_DEG:.1f}')
     print(f'GOREV_DONUS_KATMAN={GOREV_DONUS_KATMAN_M:.1f}')
     print('GOREV_DONUS_MERDIVEN_ONCE='
@@ -1761,12 +1940,16 @@ def _kabuk():
           f'{str(GOREV_DONUS_KENDI_NOKTASINA).lower()}')
     print(f'GOREV_DAGILMA_HIZ={GOREV_DAGILMA_HIZ_MPS:.1f}')
     print(f'GOREV_KURULUM_HIZ={GOREV_KURULUM_HIZ_MPS:.1f}')
+    print(f'GOREV_QR_FORMASYON_GECIS_HIZ={GOREV_QR_FORMASYON_GECIS_HIZ_MPS}')
     print(f'SURU_LIDER_KILIDI={str(SURU_LIDER_KILIDI).lower()}')
     print(f'SURU_LIDER_KILIT_TAM_KADRO_S={SURU_LIDER_KILIT_TAM_KADRO_S:.1f}')
     print(f'SURU_SABIT_LIDER={SURU_SABIT_LIDER}')
     print(f'SURU_KALKIS_OLAYLA={"true" if KALKIS_OLAYLA else "false"}')
     print(f'GOREV_KALKIS_IRTIFA={GOREV_KALKIS_IRTIFA_M}')
     print(f'GOREV_QR_OKUMA_IRTIFA={GOREV_QR_OKUMA_IRTIFA_M}')
+    print(f'GOREV_BASLANGIC_QR={GOREV_BASLANGIC_QR}')
+    print(f'GOREV_QR_ARAMA_DIKEY_HIZ={GOREV_QR_ARAMA_DIKEY_HIZ_MPS}')
+    print(f'GOREV_QR_ARAMA_TABAN_BEKLEME={GOREV_QR_ARAMA_TABAN_BEKLEME_S}')
     print(f'GOREV_KAMERA_AJAN={GOREV_KAMERA_AJAN}')
     # (Pil satirlari asagida, INA226 blogunda — INA226_HUCRE orada.)
     # path_planner (rota sekillendirme)
@@ -1849,6 +2032,15 @@ def _px4():
             ('MPC_ACC_HOR', f'{PX4_IVME_MPS2:.1f}'),
             ('MPC_TILTMAX_AIR', f'{EGIM_TAVANI_DEG:.1f}'),
             ('MPC_YAWRAUTO_MAX', f'{PX4_DONUS_HIZI_DEG_S:.1f}'),
+            # 🔴 8 Eylul 2026 EKLENDI. Dikey tavanlar bu dosyada YALNIZCA
+            # belgeleniyordu (23 Agustos'ta ucaktan okunmuslardi) ve buraya
+            # hic dusmuyordu. Yani dosyadaki degeri degistirmek ucakta
+            # HICBIR SEY degistirmiyordu — dosya bir seyi, ucak baskasini
+            # soyluyordu. Dosyanin kendi 66. satirdaki uyarisi tam buydu.
+            ('MPC_Z_VEL_MAX_UP', f'{PX4_DIKEY_HIZ_TAVANI_MPS:.1f}'),
+            ('MPC_Z_VEL_MAX_DN', f'{PX4_DIKEY_INIS_TAVANI_MPS:.1f}'),
+            ('MPC_ACC_UP_MAX', f'{PX4_DIKEY_IVME_TAVANI_MPS2:.1f}'),
+            ('MPC_ACC_DOWN_MAX', f'{PX4_DIKEY_INIS_IVME_TAVANI_MPS2:.1f}'),
     ):
         print(f'ros2 param set /drone_<N>/mavros/param {ad} {deger}')
 

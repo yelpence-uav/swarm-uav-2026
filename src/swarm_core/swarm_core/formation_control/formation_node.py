@@ -32,6 +32,7 @@ from .formation_geometry import (
     latlon_to_ned,
     rotate_offset,
 )
+from .supurme_surdurucu import SupurmeSurdurucu
 from .vff_pencere import MerkezHiziKestirici
 
 # mission_fsm aktif QR alt-adımını /swarm/public/mission/qr_step üzerinde
@@ -81,6 +82,19 @@ class FormationControlNode(Node):
         super().__init__('formation_control')
 
         self._declare_params()
+        # 🔴 8 Eylul 2026 — QR supurmesinde kanat ucaklar "bas-cek" yapiyordu:
+        # mesh paketi dusunce son hedefte donup, yeni pakette sicriyorlardi.
+        # Surdurucu bosluk boyunca rampayi YEREL surduruyor, her pakette
+        # mesh'e geri senkronlaniyor. Ayrinti: supurme_surdurucu.py
+        #
+        # 🔴 BURADA OLMAK ZORUNDA — SAHADA OGRENILDI (ayni gun, 16:27 ucusu).
+        # Ilk surumde bu satir _on_formation_command'in ICINE, hem de
+        # kullanildigi satirdan SONRAYA konmustu. Sonuc: takipciler gelen
+        # HER formasyon komutunda AttributeError ile cokuyor, hicbirini
+        # islemiyordu. Rotasyon yakinsamadi (hata 7.57 m), suru QR'a hic
+        # gitmedi (yatayda 0.14 m) ve hicbir sey "hata" gibi gorunmedi —
+        # istisna callback icinde kaliyordu.
+        self._supurme = SupurmeSurdurucu()
 
         self._current_formation = None
         self._sequence_num = 0
@@ -466,6 +480,15 @@ class FormationControlNode(Node):
 
         prev = self._current_formation
         self._current_formation = msg
+        # Supurme surdurucusune MESH DEGERINI ver — dogruluk kaynagi budur.
+        # getattr ikinci kat: bu callback'in bir eksik alan yuzunden
+        # COKMESI, sürünün formasyon komutlarini hic islememesi demek.
+        if getattr(self, '_supurme', None) is not None:
+            self._supurme.hedef_geldi(
+                self.get_clock().now().nanoseconds * 1e-9,
+                float(msg.center_z), float(msg.center_x),
+                float(msg.center_y),
+            )
         type_changed = (
             prev is None or prev.formation_type != msg.formation_type
         )
@@ -720,11 +743,21 @@ class FormationControlNode(Node):
     def _resolve_center(
         self, msg: FormationCommand
     ) -> tuple[float, float, float]:
-        """Komutla gelen merkezi doner."""
+        """Komutla gelen merkezi doner; supurmede Z YEREL SURDURULUR.
+
+        Yatay eksene DOKUNULMAZ — yalniz Z. Supurme yoksa (rampa
+        algilanmadiysa) surdurucu son mesh degerini dondurur, yani
+        davranis eskisiyle bire bir aynidir.
+        """
+        # getattr: surdurucu kurulmamis olabilir (birim testleri dugumu
+        # __init__ calistirmadan kuruyor). O halde davranis eskisi gibi.
+        sur = getattr(self, '_supurme', None)
+        z = None if sur is None else sur.z(
+            self.get_clock().now().nanoseconds * 1e-9)
         return (
             float(msg.center_x),
             float(msg.center_y),
-            float(msg.center_z),
+            float(msg.center_z) if z is None else float(z),
         )
 
     # --- Dağıtık atama (çıpalı) ----------------------------------------------

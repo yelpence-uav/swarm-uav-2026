@@ -167,6 +167,8 @@ dagit_bir() {
           "$REPO/deploy/rpi/gps_saat.py" "$REPO/deploy/rpi/run_drone.sh" \
           "$REPO/deploy/rpi/izleme_kur.sh" "$REPO/deploy/rpi/cokme_kopyala.sh" \
           "$REPO/deploy/rpi/kamera_yayin.py" \
+          "$REPO/deploy/rpi/kamera_qr.py" \
+          "$REPO/deploy/rpi/kamera_qr_gozcu.sh" \
           "$kul@$ip:$hedef/" || { log "baslat.sh rsync BASARISIZ"; return 1; }
     log "baslat.sh + mesaj_hizlari.py + gps_saat.py + run_drone.sh + izleme_kur.sh + kamera_yayin.py tamam"
 

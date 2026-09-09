@@ -1504,6 +1504,7 @@ fi   # /altyapi: ic_dis_kopru
             -p agent_id:=${AGENT_ID} \
             -p navigate_timeout_s:=${GOREV_NAVIGATE_TIMEOUT_S:-0.0} \
             -p rota_bilinmeyen_s:=${GOREV_ROTA_BILINMEYEN_S:-0.0} \
+            -p start_qr:=${GOREV_BASLANGIC_QR:-1} \
             -p team_id:="'${TAKIM_ID}'" >> "$GUNLUK/mission_fsm.log" 2>&1 &
         sleep 1
         echo "[baslat] mission_fsm_node basladi (team_id=$TAKIM_ID," \
@@ -1731,6 +1732,11 @@ fi   # /altyapi: ic_dis_kopru
             -p wing_alpha_deg:=${KANAT_ALFA_DEG} \
             -p kalkis_irtifa_m:=${GOREV_KALKIS_IRTIFA:-10.0} \
             -p qr_okuma_irtifa_m:=${GOREV_QR_OKUMA_IRTIFA:-10.0} \
+            -p qr_arama_dikey_hiz_mps:=${GOREV_QR_ARAMA_DIKEY_HIZ:-0.5} \
+            -p qr_arama_taban_bekleme_s:=${GOREV_QR_ARAMA_TABAN_BEKLEME:-5.0} \
+            -p qr_formasyon_gecis_hiz_mps:=${GOREV_QR_FORMASYON_GECIS_HIZ:-1.0} \
+            -p qr_gecis_katman_m:=${GOREV_QR_GECIS_KATMAN:-0.0} \
+            -p qr_arama_takip_tavani_m:=${GOREV_QR_ARAMA_TAKIP_TAVANI:-0.0} \
             -p kamera_ajan_id:=${GOREV_KAMERA_AJAN:-0} \
             -p gorev_formasyon:=${GOREV_FORMASYON:-0} \
             -p gorev_aralik_m:=${GOREV_ARALIK:-7.0} \
@@ -1752,7 +1758,8 @@ fi   # /altyapi: ic_dis_kopru
             -p agent_id:=${AGENT_ID} >> "$GUNLUK/kamera.log" 2>&1 &
         sleep 2
         dugum swarm_perception vision_node --ros-args \
-            -p agent_id:=${AGENT_ID} >> "$GUNLUK/goru.log" 2>&1 &
+            -p agent_id:=${AGENT_ID} -p team_id:="'${TAKIM_ID}'" \
+            >> "$GUNLUK/goru.log" 2>&1 &
         sleep 1
     fi
 

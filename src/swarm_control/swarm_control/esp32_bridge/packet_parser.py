@@ -202,9 +202,10 @@ _RENK_FMT = '<Bii7x'         # renk, lat, lon, rezerv[7]
 #
 # SIFIR = BELIRTILMEDI. Eski surum gonderici rezervi sifir birakir; alici
 # o zaman KENDI varsayilanini korur. Geriye donuk uyumlu.
-_GOREV_FMT = '<BBbBBHBBBB5x'
-#              |||| | |||||  tip, param1, param2, bekleme,
-#              |||| | ||||+- egim_tavan_deg  (uint8, 1 deg)
+_GOREV_FMT = '<BBbBBHBBBBB4x'
+#              |||| | ||||||  tip, param1, param2, bekleme,
+#              |||| | |||||+- takim_slot     (uint8, 0 = belirtilmedi)
+#              |||| | ||||+-- egim_tavan_deg  (uint8, 1 deg)
 #              |||| | |||+-- yaw_hiz_ddeg    (uint8, 0.1 deg/s)
 #              |||| | ||+--- hareket_hiz_dm  (uint8, 0.1 m/s)
 #              |||| | |+---- morf_hiz_dm     (uint8, 0.1 m/s)
@@ -479,6 +480,15 @@ class GorevVeri:
     hareket_hiz_dm: int = 0     # MOVEMENT öteleme hızı
     yaw_hiz_ddeg: int = 0       # sürü dönüş hızı tavanı (0.1 deg/s)
     egim_tavan_deg: int = 0     # manevra eğim genliği (tam derece)
+    # 🔴 9 EYLUL 2026 — TAKIM SLOTU, rezervden bir bayt daha.
+    #
+    # QR'in `team` tablosu takim NUMARASIYLA degil SLOT ile anahtarli ve
+    # slotu HAKEM GOREV ANINDA veriyor. Slot yanlissa QR HIC okunmaz.
+    # Eskiden tek ayar yolu ucaga SSH ile girip `ros2 param set` yapmakti;
+    # operator hakli olarak "yarismada SSH ile baglanamayabilirim" dedi —
+    # sahada Wi-Fi olmayabilir, tek guvenilir hat MESH.
+    # 0 = BELIRTILMEDI; alici kendi slotunu korur (geriye donuk uyumlu).
+    takim_slot: int = 0
 
     @property
     def aralik_m(self) -> float:
@@ -830,10 +840,10 @@ def renk_paketle(renk: int, lat: int, lon: int) -> bytes:
 def gorev_coz(payload: bytes) -> GorevVeri:
     """TIP_GOREV payload'ını GorevVeri'ye çözer."""
     (tip, param1, param2, bekleme, aralik_dm, irtifa_dm,
-     morf_dm, hareket_dm, yaw_ddeg, egim_deg) = struct.unpack(
-        _GOREV_FMT, payload)
+     morf_dm, hareket_dm, yaw_ddeg, egim_deg,
+     takim_slot) = struct.unpack(_GOREV_FMT, payload)
     return GorevVeri(tip, param1, param2, bekleme, aralik_dm, irtifa_dm,
-                     morf_dm, hareket_dm, yaw_ddeg, egim_deg)
+                     morf_dm, hareket_dm, yaw_ddeg, egim_deg, takim_slot)
 
 
 def gorev_paketle(tip: int, param1: int, param2: int,
@@ -843,7 +853,8 @@ def gorev_paketle(tip: int, param1: int, param2: int,
                   morf_hiz_mps: float = 0.0,
                   hareket_hiz_mps: float = 0.0,
                   yaw_hiz_deg_s: float = 0.0,
-                  egim_tavan_deg: float = 0.0) -> bytes:
+                  egim_tavan_deg: float = 0.0,
+                  takim_slot: int = 0) -> bytes:
     """Sürü görev komutunu 16 baytlık mesh payload'a paketler.
 
     Args:
@@ -892,8 +903,12 @@ def gorev_paketle(tip: int, param1: int, param2: int,
                 f'(0..{tavan:g} {birim})')
         ham.append(v)
 
+    slot = int(takim_slot)
+    if not 0 <= slot <= 255:
+        raise ValueError(f'takim_slot {takim_slot} 0..255 disinda')
+
     return struct.pack(_GOREV_FMT, tip, param1, param2, bekleme_suresi_s,
-                       aralik_dm, irtifa_dm, *ham)
+                       aralik_dm, irtifa_dm, *ham, slot)
 
 
 def origin_coz(payload: bytes) -> OriginVeri:

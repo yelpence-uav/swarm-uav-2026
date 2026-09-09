@@ -767,6 +767,8 @@ class Esp32BridgeNode(Node):
         self._g1_formasyon = 0
         self._g1_aralik_m = 0.0
         self._g1_irtifa_m = 0.0
+        # Takim slotu (QR `team` tablosunun anahtari). 0 = belirtilmedi.
+        self._g1_takim_slot = 0
         _ayar_qos = QoSProfile(
             reliability=QoSReliabilityPolicy.RELIABLE,
             durability=QoSDurabilityPolicy.TRANSIENT_LOCAL,
@@ -790,6 +792,10 @@ class Esp32BridgeNode(Node):
         )
         self._g1_ayar_pub = self.create_publisher(
             Float32MultiArray, '/swarm/public/mission/g1_ayar', _ayar_qos,
+        )
+        # Takim slotu — mandalli, cunku goru dugumu sonradan acilabilir.
+        self._takim_slot_pub = self.create_publisher(
+            UInt8, '/swarm/public/mission/takim_slot', _ayar_qos,
         )
 
         # RPi -> ESP32: lider origin yayınını mesh'e iletmek için
@@ -2258,16 +2264,31 @@ class Esp32BridgeNode(Node):
             # gormeden ONCE almis olmali; ters sirada suru ESKI formasyonla
             # toplanir ve operator sectigini sanir. Sessiz ve tam olarak
             # "hata vermeden yanlis sonuc".
-            if basla and (g.param1 or g.aralik_dm or g.irtifa_dm):
+            if basla and (g.param1 or g.aralik_dm or g.irtifa_dm
+                          or g.takim_slot):
                 ayar = Float32MultiArray()
                 ayar.data = [float(g.param1), float(g.aralik_m),
-                             float(g.irtifa_m)]
+                             float(g.irtifa_m), float(g.takim_slot)]
                 self._g1_ayar_pub.publish(ayar)
                 self.get_logger().warning(
                     f'[esp32] GÖREV 1 BAŞLANGIÇ AYARI alındı: '
                     f'tip={g.param1} aralık={g.aralik_m:.1f} m '
                     f'irtifa={g.irtifa_m:.1f} m '
+                    f'takim_slot={g.takim_slot} '
                     f'(0 = belirtilmedi, o alan için varsayılan korunur)'
+                )
+            # 🔴 TAKIM SLOTU AYRI KONUDAN DUYURULUR — 9 Eylul 2026.
+            # goru dugumu g1_ayar'a abone DEGIL; slot ona ancak kendi
+            # konusundan ulasir. Ayri konu ayrica sunu saglar: slot gorev
+            # basiyla ayni pakette gelse de, goru dugumu YENIDEN BASLASA
+            # bile mandalli (TRANSIENT_LOCAL) konudan son degeri alir.
+            if basla and g.takim_slot:
+                sl = UInt8()
+                sl.data = int(g.takim_slot)
+                self._takim_slot_pub.publish(sl)
+                self.get_logger().warning(
+                    f'[esp32] TAKIM SLOTU {g.takim_slot} duyuruldu — '
+                    f'goru dugumu QR "team" tablosunda bu anahtari arayacak'
                 )
             m = Bool()
             m.data = basla
@@ -2912,10 +2933,14 @@ class Esp32BridgeNode(Node):
         self._g1_formasyon = int(v[0]) if len(v) > 0 else 0
         self._g1_aralik_m = float(v[1]) if len(v) > 1 else 0.0
         self._g1_irtifa_m = float(v[2]) if len(v) > 2 else 0.0
+        # 🔴 TAKIM SLOTU — 9 Eylul 2026. Hakem slotu gorev aninda veriyor
+        # ve sahada SSH olmayabilir; tek guvenilir hat mesh. 0 = belirtilmedi.
+        self._g1_takim_slot = int(v[3]) if len(v) > 3 else 0
         self.get_logger().info(
             f'[esp32] Görev 1 başlangıç ayarı alındı: '
             f'tip={self._g1_formasyon} aralık={self._g1_aralik_m:.1f} m '
-            f'irtifa={self._g1_irtifa_m:.1f} m (BAŞLAT paketiyle gidecek)'
+            f'irtifa={self._g1_irtifa_m:.1f} m '
+            f'takim_slot={self._g1_takim_slot} (BAŞLAT paketiyle gidecek)'
         )
 
     def _on_gorev_baslat_out(self, msg: Bool) -> None:
@@ -2976,9 +3001,10 @@ class Esp32BridgeNode(Node):
         frm = int(self._g1_formasyon) if msg.data else 0
         aralik = float(self._g1_aralik_m) if msg.data else 0.0
         irtifa = float(self._g1_irtifa_m) if msg.data else 0.0
+        slot = int(getattr(self, '_g1_takim_slot', 0)) if msg.data else 0
         try:
             payload = pp.gorev_paketle(tip, frm, 0, 0, aralik_m=aralik,
-                                       irtifa_m=irtifa)
+                                       irtifa_m=irtifa, takim_slot=slot)
         except ValueError as e:
             self.get_logger().error(
                 f'[esp32] GÖREV 1 komutu paketlenemedi: {e}')
@@ -2988,7 +3014,8 @@ class Esp32BridgeNode(Node):
         self.get_logger().warning(
             f'[esp32] GÖREV 1 {"BAŞLAT" if msg.data else "DURDUR"} '
             f"mesh'e yayınlandı (TIP_GOREV alt tip 0x{tip:02X}"
-            + (f', formasyon={frm} aralık={aralik:.1f} m' if msg.data else '')
+            + (f', formasyon={frm} aralık={aralik:.1f} m'
+               f'{f" takim_slot={slot}" if slot else ""}' if msg.data else '')
             + ')')
 
     def _on_qr_coords_out(self, msg: QRCoordinates) -> None:

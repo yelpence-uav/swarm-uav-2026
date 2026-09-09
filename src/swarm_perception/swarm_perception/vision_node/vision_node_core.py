@@ -58,6 +58,7 @@ class VisionNode(Node):
         self._setup_detectors()
         self._setup_publishers()
         self._setup_subscriptions()
+        self._takim_slot_abone()
 
         self._last_qr_time = 0.0
         self._qr_interval = 1.0 / self._qr_rate_hz
@@ -103,6 +104,17 @@ class VisionNode(Node):
         # slot 2 -> V/6 m/22 m. Onceden hic verilmiyordu ve sessizce 1
         # kaliyordu; parametre olarak da tanimli degildi.
         self.declare_parameter('team_slot', 1)
+        # 🔴 8 EYLUL 2026 — KAMERA YOLU SESSIZCE OLUYORDU.
+        # QR'in JSON icerigi team_id TASIMIYOR (sartname `team` tablosunu
+        # takim SLOTU ile anahtarliyor), dolayisiyla cozucu bu alani hic
+        # doldurmuyordu ve mesaj team_id='' ile cikiyordu. mission_fsm ise:
+        #     elif msg.team_id != self._ctx.team_id: return
+        # yani kamerayla okunan HER QR bu kapida sessizce atiliyordu —
+        # hicbir log, hicbir hata. Enjeksiyon calisiyordu cunku
+        # qr_enjekte.py alani elle yaziyor. Sahada olculdu: QR1 okundu
+        # (goru.log KARAR-21 satirlari), mission_fsm 'QR kabul edildi' = 0.
+        # Deger mission_fsm/mission1_node ile AYNI kaynaktan (TAKIM_ID).
+        self.declare_parameter('team_id', '752825')
         # QR taramasi: once kucukte bul, sonra TAM COZUNURLUKTE oku.
         # Olculdu (4056x3040, 74 modul): 697 ms -> 141 ms, 5,2 kat.
         # Konum sapmasi 0,0 piksel. Ayrinti qr_detector.py'de.
@@ -186,6 +198,7 @@ class VisionNode(Node):
 
     def _setup_detectors(self) -> None:
         """Tespit algoritmalarini baslatir."""
+        self._team_id = str(self.get_parameter('team_id').value)
         qr_conf = self.get_parameter('qr_min_confidence').value
         self._qr_detector = QRDetector(
             min_confidence=qr_conf,
@@ -248,6 +261,26 @@ class VisionNode(Node):
 
     def _on_param_degisti(self, params: list) -> SetParametersResult:
         """Esik parametreleri degisince dedektoru yeniden kurar."""
+        # 🔴 TAKIM SLOTU CANLI DEGISMELI — 9 EYLUL 2026, operator karari.
+        #
+        # QR'in `team` tablosu takim NUMARASIYLA degil SLOT ile anahtarli;
+        # ucak `str(team_slot)` ariyor. Slot yanlissa QR HIC okunmaz, tek
+        # gorunen satir "Takim slotu N tabloda yok" olur. Hakem slotu
+        # gorev aninda veriyor, yani deger SAHADA ogreniliyor.
+        #
+        # Eskiden slot dedektore KURULUSTA gomuluyordu: degistirmek icin
+        # konteyneri yeniden baslatmak gerekiyordu ve o da QR konum
+        # tablosunu siliyordu (tekrar sermek zorunda kalinacakti). Artik
+        # `ros2 param set` ile aninda geciyor, ucak havada olsa bile.
+        for _p in params:
+            if _p.name == 'team_slot':
+                eski_slot = self._qr_detector._team_slot
+                self._qr_detector._team_slot = int(_p.value)
+                self.get_logger().warning(
+                    f'TAKIM SLOTU DEGISTI: {eski_slot} -> {int(_p.value)} '
+                    f'(QR "team" tablosunda bu anahtar aranacak)'
+                )
+
         ILGILI = {'min_zone_area_px', 'min_zone_area_frac', 'min_circularity',
                   'gaussian_blur_kernel'}
         if not any(p.name in ILGILI for p in params):
@@ -267,6 +300,45 @@ class VisionNode(Node):
             f"dairesellik={cfg['min_circularity']}"
         )
         return SetParametersResult(successful=True)
+
+    def _takim_slot_abone(self) -> None:
+        """Mesh'ten gelen takim slotunu CANLI uygular.
+
+        🔴 9 EYLUL 2026, operator: "yarismada SSH ile baglanamayabilirim".
+        Slotu ucaga yazmanin tek yolu `ros2 param set` idi ve o da ucaga
+        ag uzerinden erisim istiyor. Sahada Wi-Fi olmayabilir; guvenilir
+        tek hat MESH. Artik YKI slotu GOREV 1 BASLAT paketinin rezerv
+        baytina koyuyor, esp32_bridge bu konuya duyuruyor, burasi uyguluyor.
+        Mandalli konu: bu dugum sonradan acilsa bile son slotu alir.
+        """
+        from std_msgs.msg import UInt8
+        qos = QoSProfile(
+            reliability=QoSReliabilityPolicy.RELIABLE,
+            durability=QoSDurabilityPolicy.TRANSIENT_LOCAL,
+            depth=1,
+        )
+        self.create_subscription(
+            UInt8, '/swarm/public/mission/takim_slot',
+            self._on_takim_slot, qos,
+        )
+
+    def _on_takim_slot(self, msg) -> None:
+        """Mesh'ten gelen slot — 0 gelirse mevcut deger KORUNUR."""
+        yeni = int(msg.data)
+        if yeni <= 0:
+            return
+        eski = self._qr_detector._team_slot
+        if eski == yeni:
+            return
+        # NOT: `set_parameters` CAGRILMIYOR — parametre geri cagrisina
+        # yeniden girer ve ayni isi iki kez yapardi. Dedektorun alani tek
+        # dogruluk kaynagi; `ros2 param get` eski degeri gosterebilir,
+        # gecerli olan LOGDAKI satirdir.
+        self._qr_detector._team_slot = yeni
+        self.get_logger().warning(
+            f'TAKIM SLOTU MESH ILE DEGISTI: {eski} -> {yeni} '
+            f'(QR "team" tablosunda bu anahtar aranacak)'
+        )
 
     def _setup_publishers(self) -> None:
         """Publisher'lari olusturur."""
@@ -435,7 +507,9 @@ class VisionNode(Node):
             msg.image_width = res.get('image_width', 0.0)
             msg.image_height = res.get('image_height', 0.0)
 
-            msg.team_id = res.get('team_id', '')
+            # Cozucu bos birakirsa dugumun kendi takim kimligi kullanilir
+            # (bkz. team_id parametresinin yanindaki not).
+            msg.team_id = res.get('team_id') or self._team_id
             msg.qr_id = res.get('qr_id', 0)
             raw = res.get('raw_text', '')
             if res.get('valid', False) and raw != self._last_qr_raw:
@@ -460,6 +534,15 @@ class VisionNode(Node):
             msg.altitude_active = res.get('altitude_active', False)
             msg.detach_active = res.get('detach_active', False)
             msg.complete_mission = res.get('complete_mission', False)
+
+            # 🔴 KARAR-21: 'leav' PAS GECILIYOR. Cozucu detach_active'i hic
+            # True yapmiyor ama istenen ajan/renk alanlarda duruyor. Burada
+            # yuksek sesle sOyluyoruz ki "sessizce yutuldu" olmasin.
+            if msg.target_agent_id and not msg.detach_active:
+                self.get_logger().warning(
+                    f'[KARAR-21] QR ayrilma istedi (ajan={msg.target_agent_id} '
+                    f'renk={msg.detach_color}) — PAS GECILDI, uygulanmiyor'
+                )
 
             self._qr_pub.publish(msg)
 

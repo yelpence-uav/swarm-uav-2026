@@ -121,7 +121,16 @@ class TestQRDetector(unittest.TestCase):
         self.assertEqual(parsed['pitch_deg'], -15.5)
 
     def test_parse_detach(self) -> None:
-        """Ayrılma (leav) komutunun doğru parse edilmesi."""
+        """Ayrılma (leav) OKUNUR ama UYGULANMAZ — KARAR-21.
+
+        🔴 8 Eylül 2026, operatör: "leav olmayacak, pas geçilecek."
+        Eskiden burada `detach_active` True bekleniyordu; artık çözücü
+        o bayrağı hiç açmıyor. Alanların DOLMASI korunuyor: ne istendiği
+        YKİ'de görünsün diye (sessiz yutma yok).
+
+        Kararın tamamı: docs/KARARLAR.md KARAR-21
+        Davranış kilidi: test_leav_pas_gecme.py (10 test, saha sayfaları)
+        """
         text = json.dumps({
             'qr': 1, 'w': 4,
             'mis': [[['leav', 2, 'r']]],
@@ -129,8 +138,11 @@ class TestQRDetector(unittest.TestCase):
         })
         parsed = self.detector._parse_qr_text(text)
 
-        self.assertTrue(parsed['detach_active'])
+        self.assertFalse(parsed['detach_active'])    # KARAR-21: pas geçildi
+        self.assertEqual(parsed['target_agent_id'], 2)   # ne istendiği görünür
         self.assertEqual(parsed['detach_color'], 1)  # COLOR_RED
+        self.assertTrue(parsed['valid'])             # görev akışı kesilmez
+        self.assertEqual(parsed['next_qr'], 3)
 
 
 if __name__ == '__main__':

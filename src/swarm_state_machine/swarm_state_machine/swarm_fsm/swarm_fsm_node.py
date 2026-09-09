@@ -729,6 +729,42 @@ class SwarmFsmNode(Node):
         # dort sart var, orada yalniz bayatlik). Bkz. SwarmState.msg.
         m.active_agent_ids = [a.agent_id for a in active_agents]
 
+        # 🔴 NEDEN DUSTU — 8 EYLUL 2026, 22:49.
+        #
+        # O gece liderin logunda "KADRO SIFIRLANDI (aktif ajan listesi BOS)"
+        # 275 KEZ tekrarladi ve hangi sartin patladigi HICBIR YERDE
+        # yazmiyordu. Dort aday var (healthy / origin_synced / bayatlik /
+        # durum) ve dordu de mesh DURUM paketinden besleniyor; ayirt
+        # edilemedigi icin "muhtemelen mesh kaybi" demekten oteye
+        # gidilemedi. Bu projede "muhtemelen" pahaliya patliyor.
+        #
+        # Bu blok tahmini olcume cevirir: liste eksildiginde HANGI ucagin
+        # HANGI sarttan dustugunu yazar. Bogulmasin diye throttle'li.
+        _bilinen = list(self._ctx.agents.values())
+        if len(active_agents) < len(_bilinen):
+            _aktif_kimlik = {a.agent_id for a in active_agents}
+            _eksik = []
+            _simdi = time.monotonic()
+            for a in sorted(_bilinen, key=lambda x: x.agent_id):
+                if a.agent_id in _aktif_kimlik:
+                    continue
+                _n = []
+                if not a.healthy:
+                    _n.append('healthy=0')
+                if not a.origin_synced:
+                    _n.append('origin_synced=0')
+                if a.is_stale():
+                    _yas = (_simdi - a.last_update) if a.last_update > 0 else -1.0
+                    _n.append(f'BAYAT({_yas:.1f}s)')
+                if a.state not in FORMATION_ACTIVE_STATES:
+                    _n.append(f'durum={a.state}')
+                _eksik.append(f'd{a.agent_id}[' + ','.join(_n or ['?']) + ']')
+            self.get_logger().warning(
+                f'[swarm_fsm] KADRO EKSIK {len(active_agents)}/'
+                f'{len(_bilinen)} — ' + ' '.join(_eksik),
+                throttle_duration_sec=2.0,
+            )
+
         shared_positions = []
         for a in active_agents:
             has_coords = a.lat_deg != 0.0 or a.lon_deg != 0.0

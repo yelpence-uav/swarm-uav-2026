@@ -36,6 +36,12 @@ _AGENT_STATE_IDLE = 1
 # Terminal durumdan (ABORTED / MISSION_COMPLETE) IDLE'a dönmeden önce beklenen
 # süre: terminal durumun YKİ'de görülebilmesi + durum yerleşimi içindir.
 _TERMINAL_RESET_DWELL_S = 3.0
+# Ajan durumlari okunamazken (UNKNOWN) terminal durumdan cikis suresi.
+# Normal yoldan (3 sn) uzun tutuldu: once dogru yolun calismasina firsat
+# verilir, o tutmazsa kurtarma devreye girer.
+_TERMINAL_KURTARMA_S = 8.0
+# Bu irtifanin altindaki ajan YERDE sayilir (NED z, isaret onemsiz).
+_YERDE_IRTIFA_M = 2.0
 
 _ROUTE_UNKNOWN_GRACE_S = 30.0
 
@@ -333,14 +339,59 @@ def _from_paused(ctx: MissionContext) -> MissionState | None:
 
 
 def _from_terminal(ctx: MissionContext) -> MissionState | None:
-    """ABORTED / MISSION_COMPLETE: sürü YERDE ve güvendeyken IDLE'a döner."""
+    """ABORTED / MISSION_COMPLETE: sürü YERDE ve güvendeyken IDLE'a döner.
+
+    🔴 TERMINAL DURUM KALICI OLAMAZ — 9 EYLUL 2026 03:45, SAHADA.
+
+    Operator QR tablosunu gonderdi, BASLAT'a basti, HICBIR SEY OLMADI ve
+    bu defalarca tekrarlandi. Zincir:
+
+      QR tablosu yayini -> (bu gece eklendi) once GOREV DURDUR
+        -> mission_fsm ABORTED'a gecer
+        -> BASLAT yalniz IDLE'dan tetikler
+        -> ABORTED'dan IDLE'a donus `all_agents_landed()` ya da
+           `all_agents_in_state(IDLE)` istiyordu
+        -> ucaklar PosCtl'de (kumanda elde) iken agent_fsm otonom
+           gecisleri DURDURUYOR ve durum UNKNOWN(0) kaliyor
+        -> IKI SART DA HIC SAGLANMIYOR -> ABORTED'da SONSUZA KADAR kilitli
+        -> tek cikis yolu konteyner yeniden baslatmakti
+
+    Yani "QR gonder + baslat" akisi, kumanda elde tutuldugu her durumda
+    kilitleniyordu. Terminal bir durumun cikissiz olmasi basli basina
+    kusurdur: gorev bitti/iptal oldu, sistem yeniden gorev almaya HAZIR
+    olmali.
+
+    IKINCI KAPI: ajan durumlari okunamiyorsa (UNKNOWN) HAVADA MIYIZ
+    sorusuna irtifadan bakilir. Kimse havada degilse ve terminal durumda
+    yeterince beklendiyse IDLE'a donulur. Havadayken donmez — orada
+    "gorev bitti" demek yanlis olurdu.
+    """
     on_ground = (
         ctx.all_agents_landed()
         or ctx.all_agents_in_state(_AGENT_STATE_IDLE)
     )
     if on_ground and ctx.time_in_state() > _TERMINAL_RESET_DWELL_S:
         return MissionState.IDLE
+
+    # Durumlar okunamiyor (UNKNOWN) ama kimse havada degil: irtifa kanit.
+    if ctx.time_in_state() > _TERMINAL_KURTARMA_S and not _havada_mi(ctx):
+        return MissionState.IDLE
     return None
+
+
+def _havada_mi(ctx: MissionContext) -> bool:
+    """Herhangi bir ajan havada mi — irtifadan, durum bayragina bakmadan.
+
+    Durum alani UNKNOWN olabildigi icin (PosCtl / pilot override) tek
+    guvenilir olcu konumdur. Konum yoksa TEMKINLI davranilir: "havada"
+    kabul edilir, yani kurtarma calismaz.
+    """
+    if not ctx.agent_statuses:
+        return True
+    for s in ctx.agent_statuses.values():
+        if abs(float(getattr(s, 'pos_z', 0.0) or 0.0)) > _YERDE_IRTIFA_M:
+            return True
+    return False
 
 
 _HANDLERS = {

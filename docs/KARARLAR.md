@@ -1,6 +1,6 @@
 # KARARLAR — verilmiş ama henüz uygulanmamış kararlar
 
-**Son güncelleme:** 8 Eylül 2026, 16:30 — **KARAR-20** (finalde uçaklar arası asgari mesafe **5 m** — hakemden öğrenildi; kaçınma ve kuru test eşiklerinin ikisi de altında kalıyor) · **KARAR-19** (Görev 1 ilk uçuşu kuru test 3.83 m ile UÇULUYOR — operatör kararı) · KARAR-18 UYGULANDI (kumanda-kaybı failsafe: LAND, ~3.5-4 sn, üç uçak; hakem RTL derse geri dönüş adımı içinde). Eski: KARAR-17 uçtu (sabit lider ylp00) · KARAR-16 (tek-yayıncı) · KARAR-15 (kaçınma eşikleri 5 m'de kilitleniyor)
+**Son güncelleme:** 8 Eylül 2026, 17:35 — **KARAR-21** (QR'daki `leav` ayrılma komutu UYGULANMAYACAK, pas geçilecek — operatör talimatı, kod ve testle kapatıldı) · **KARAR-20** (finalde uçaklar arası asgari mesafe **5 m** — hakemden öğrenildi; kaçınma ve kuru test eşiklerinin ikisi de altında kalıyor) · **KARAR-19** (Görev 1 ilk uçuşu kuru test 3.83 m ile UÇULUYOR — operatör kararı) · KARAR-18 UYGULANDI (kumanda-kaybı failsafe: LAND, ~3.5-4 sn, üç uçak; hakem RTL derse geri dönüş adımı içinde). Eski: KARAR-17 uçtu (sabit lider ylp00) · KARAR-16 (tek-yayıncı) · KARAR-15 (kaçınma eşikleri 5 m'de kilitleniyor)
 
 Sohbette verilen kararlar oturum bitince kayboluyor. Bu defter onları
 tutuyor: **ne karar verildi, neden, ne zaman uygulanacak, nasıl test edilecek.**
@@ -31,6 +31,63 @@ sırası gelince" denilen şeyleri. Onlar en kolay kaybolanlar.
 `🔵 SIRASI GELDİ` — aşamaya ulaşıldı, uygulanacak
 `✅ UYGULANDI` — bitti, sonucu yazıldı
 `❌ VAZGEÇİLDİ` — gerekçesiyle
+
+---
+
+# KARAR-21 — QR'daki `leav` (ayrılma) komutu **UYGULANMAYACAK**
+
+**Durum:** ✅ UYGULANDI — 8 Eylül 2026, kod + test
+**Ne zaman:** her zaman, finalde dahil
+**Kaynak:** operatör (8 Eylül 2026): *"leav olmayacak. Geldiğinde pas
+geçilecek. Onu sakın unutma."*
+
+## Karar
+
+QR görev paketinde `leav` komutu gelirse **hiçbir ayrılma yapılmaz.**
+Sürü paketin geri kalanını uygular, ayrılmayı atlar ve bir sonraki QR'a
+devam eder.
+
+## Nerede kesildi — TEK NOKTA
+
+`swarm_perception/vision_node/qr_detector.py` → `_apply_command`.
+Çözücü `detach_active` alanını **hiç True yapmıyor**. Kaynakta kesildiği
+için aşağıdaki hiçbir katman (mission_fsm adım sırası, swarm_fsm,
+agent_fsm) ayrılmayı görmez — "bir yerde kapatmayı unuttuk" ihtimali yok.
+
+## Sessiz DEĞİL — bilerek
+
+İstenen ajan ve renk **alanlara yazılıyor**, yalnız `detach_active` False
+kalıyor. Yani YKİ'de *"QR ajan 5 / KIRMIZI istedi ama ayrılma=False"*
+diye görünür; `vision_node` da her seferinde uyarı basıyor:
+
+```
+[KARAR-21] QR ayrilma istedi (ajan=5 renk=1) — PAS GECILDI, uygulanmiyor
+```
+
+Sessizce yutulan komut bu depoda defalarca pahalıya patladı; bu yüzden
+atlama **görünür** yapıldı.
+
+## Neden bu karar doğru — sahadaki 30 sayfa
+
+Altı sayfa bize (`team_slot=1`) ayrılma veriyor:
+
+| sayfa | hedef ajan | sorun |
+|---|---|---|
+| 4, 27 | **ajan 5** | filoda **YOK** (1-2-3 uçuyoruz) |
+| 8 | **ajan 4** | filoda **YOK** |
+| 11 | **ajan 1** | **kameralı sabit liderimiz** |
+| 19 | ajan 2 | |
+| 21 | ajan 3 | |
+
+Uygulansaydı ya var olmayan bir uçağı ayırmaya çalışacaktık ya da
+kamerayı ve lideri sürüden kopartacaktık.
+
+## Test
+
+`src/swarm_perception/test/test_leav_pas_gecme.py` — 10 test, sahadaki
+**gerçek QR sayfalarıyla**: ayrılma üretilmiyor, istenen ajan/renk
+görünür kalıyor, görev akışı kesilmiyor (`next_qr` korunuyor), görev
+adımı doğrudan `DONE` oluyor, normal paketler bozulmadı.
 
 ---
 

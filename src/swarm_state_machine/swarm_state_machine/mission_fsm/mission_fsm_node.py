@@ -129,6 +129,16 @@ class MissionFsmNode(Node):
             self.get_parameter('max_restarts').value
         )
         self._start_qr: int = int(self.get_parameter('start_qr').value)
+        # 🔴 BEKLENEN QR — 9 EYLUL 2026, operator sorusu:
+        # "QR1'den QR4'e giderken 3'un ustunden gecip onu okursa ne olur?"
+        # Olculdu: HICBIR SEY ENGELLEMIYORDU. Kabul suzgeci yalniz
+        # team_id/decoded/valid ve BIR ONCEKI qr_id'ye bakiyordu; yol
+        # ustunde okunan yabanci QR kabul edilip `current_qr` oluyor,
+        # gorev paketi ondan aliniyor ve sonraki hedef onun satirindan
+        # cozuluyordu. Yani sürü hedefini BIRAKIP baska bir rotaya
+        # giriyordu ve hicbir yerde hata gorunmuyordu.
+        # Bu alan "su an hangi QR'i bekliyoruz" sorusunun cevabi.
+        self._beklenen_qr: int = self._start_qr
 
     def _setup_publishers(self) -> None:
         """Yayıncı kanallarını oluşturur."""
@@ -336,6 +346,23 @@ class MissionFsmNode(Node):
             return
 
         if ctx.state != MissionState.IDLE:
+            # 🔴 SESSIZ RET OLMASIN — 8 Eylul 2026. ylp02 kendi kendine
+            # kalkip indirildikten sonra operator BASLAT'a bastı ve
+            # HICBIR SEY OLMADI: ucak IDLE'da degildi (terminal durumdan
+            # IDLE'a donus yerde + 3 sn oturma ister), emir sessizce
+            # dusuruldu. Operator "ylp02 kalkmadi" diye kaldi, sebebi
+            # hicbir yerde yazmiyordu. Bu projenin en pahali hata sinifi
+            # tam olarak bu sessizlik.
+            # ⚠️ rclpy logger'i printf bicimi KABUL ETMEZ (tek metin alir).
+            # 8 Eylul 22:41: '%s' + arg yazildi -> callback icinde
+            # TypeError -> mission_fsm COKTU -> ylp01 ve ylp02 kalkamadi.
+            # f-string zorunlu.
+            self.get_logger().warning(
+                f'[mission_fsm] GÖREV 1 BAŞLAT YOK SAYILDI — durum '
+                f'{ctx.state.name}, başlatma yalnız IDLE\'dan olur. Sürü '
+                f'yerdeyse birkaç saniye içinde IDLE\'a döner; tekrar BAŞLAT.',
+                throttle_duration_sec=3.0,
+            )
             return
         if ctx.mission_type == MissionType.DYNAMIC_SWARM \
                 and ctx.pending_command == TriggerMission.Request.COMMAND_START:
@@ -561,6 +588,18 @@ class MissionFsmNode(Node):
             )
             return
 
+        # 🔴 BEKLENMEYEN QR REDDEDILIR. Gerekce `_beklenen_qr` notunda.
+        # 0 = kapi kapali (beklenen bilinmiyor) -> eski davranis.
+        bek = int(getattr(self, '_beklenen_qr', 0) or 0)
+        if bek and qr_id and qr_id != bek:
+            self.get_logger().warning(
+                f'[mission_fsm] BEKLENMEYEN QR: qr={qr_id} (beklenen '
+                f'{bek}) — ATLANDI. Yol ustunde okunan yabanci QR gorevi '
+                f'kacirtir; sadece gidilen QR islenir.',
+                throttle_duration_sec=3.0,
+            )
+            return
+
         self._ctx.last_accepted_qr_id = qr_id
         self._ctx.last_accepted_qr_seq = msg.qr_seq
         self._ctx.current_qr = msg
@@ -606,6 +645,10 @@ class MissionFsmNode(Node):
 
     def _resolve_next_qr_target(self, qr) -> None:
         """Bir sonraki hedef QR koordinatini tablodan cozer."""
+        # Beklenen QR burada ilerler: artik SONRAKI QR bekleniyor.
+        # next_qr = 0 (gorev bitti) ise kapi kapanir; donus fazinda
+        # okunan herhangi bir QR gorevi yeniden baslatmasin.
+        self._beklenen_qr = int(qr.next_qr) if qr.next_qr > 0 else 0
         if qr.next_qr <= 0:
             self._ctx.next_qr_target = None
             self._ctx.route_unknown = False
@@ -628,6 +671,7 @@ class MissionFsmNode(Node):
 
     def _resolve_initial_target(self) -> None:
         """Gorev basindaki ilk hedefi cozer."""
+        self._beklenen_qr = int(self._start_qr)
         target = self._ctx.lookup_qr_position(self._start_qr)
         self._ctx.next_qr_target = target
         self._ctx.route_unknown = target is None

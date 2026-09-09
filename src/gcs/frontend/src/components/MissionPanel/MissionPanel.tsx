@@ -110,6 +110,13 @@ export function MissionPanel({
   const [g1Formasyon, setG1Formasyon] = useState("");
   const [g1Aralik, setG1Aralik] = useState("");
   const [g1Irtifa, setG1Irtifa] = useState("");
+  // 🔴 TAKIM SLOTU — 9 Eylül 2026. QR'ın `team` tablosu takım NUMARASIYLA
+  // değil SLOT ile anahtarlı ve slotu HAKEM GÖREV ANINDA veriyor. Slot
+  // yanlışsa QR HİÇ okunmaz ("Takim slotu N tabloda yok"). Eskiden tek
+  // ayar yolu uçağa SSH ile girip `ros2 param set` yapmaktı; sahada Wi-Fi
+  // olmayabilir, güvenilir tek hat mesh. Değer BAŞLAT paketinin rezerv
+  // baytıyla gidiyor — yeni mesh tipi açılmadı, firmware değişmedi.
+  const [g1Slot, setG1Slot] = useState("");
 
   async function trigger(
     commandCode: number,
@@ -179,6 +186,8 @@ export function MissionPanel({
         if (isFinite(f) && f > 0) p.formasyon = f;
         if (isFinite(ga)) p.aralik_m = ga;
         if (isFinite(gi) && gi > 0) p.irtifa_m = gi;
+        const gs = parseInt(g1Slot, 10);
+        if (isFinite(gs) && gs > 0) p.takim_slot = gs;
         if (Object.keys(p).length > 0) parameters_json = JSON.stringify(p);
       }
       const resp = await missionApi.trigger({
@@ -470,6 +479,23 @@ export function MissionPanel({
               placeholder="boş = uçaktaki varsayılan"
               value={g1Irtifa}
               onChange={(e) => setG1Irtifa(e.target.value)}
+              disabled={busy !== null}
+            />
+          </label>
+          {/* TAKIM SLOTU: QR'daki `team` tablosunun anahtarı. Hakem görev
+              anında veriyor. Boş bırakmak geçerli — uçak kendi slotunu
+              korur. Yanlış slot = QR HİÇ okunmaz, o yüzden kalkıştan önce
+              hakemin verdiği sayıyla aynı olduğunu doğrula. */}
+          <label className="mission-panel__field">
+            <span>Takım slotu:</span>
+            <input
+              type="number"
+              step="1"
+              min="1"
+              max="255"
+              placeholder="boş = uçaktaki mevcut"
+              value={g1Slot}
+              onChange={(e) => setG1Slot(e.target.value)}
               disabled={busy !== null}
             />
           </label>

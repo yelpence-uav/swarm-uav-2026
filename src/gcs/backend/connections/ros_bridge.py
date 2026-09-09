@@ -503,6 +503,27 @@ class RosBridge:
         # Mesh yolu bu boşluğu kapatıyor ve Wi-Fi'ye de bağımlı değil.
         # Servis çağrısı YİNE denenir (SITL/yerel kurulumlarda çalışır);
         # mesh yayını ondan BAĞIMSIZ gider, biri tutmasa öteki tutar.
+        # 🔴 YENI GOREV BASLARKEN "COZULEN QR" KARTINI SIFIRLA.
+        # 8 Eylul 2026, operator: "gorev baslattigimda YKI'deki qr2 cozuldu
+        # isareti sifirlansin, kafami karistiriyor."
+        #
+        # `latest_qr` BILEREK kalicidir (bkz. _on_qr_data): sartname V2'ye
+        # gore cozulen QR gorev BOYUNCA ekranda kalmali, yoksa -20 puan.
+        # Ama bu kalicilik GOREVLER ARASINDA da suruyordu: yeni goreve
+        # baslarken bir onceki ucusun QR'i ekranda duruyor ve operator
+        # "bu simdi mi okundu, once mi?" diye ayirt edemiyordu. Sahada
+        # tam bu soru soruldu ve teshis icin log kazmak gerekti.
+        #
+        # Yalnizca BASLAT'ta silinir — ABORT/PAUSE/RTL/LAND'de kart durur,
+        # cunku o an gorev suruyordur ve sartname ekranda kalmasini ister.
+        if int(command) == _COMMAND_START:
+            with self._qr_lock:
+                self.latest_qr = None
+            logger.info(
+                "Gorev baslatildi (mission_id=%s) — cozulen QR karti sifirlandi",
+                mission_id,
+            )
+
         mesh_gonderildi = False
         if int(mission_id) == _MISSION_SEMI_AUTONOMOUS:
             if int(command) == _COMMAND_START:
@@ -644,12 +665,14 @@ class RosBridge:
         frm = 0
         aralik = 0.0
         irtifa = 0.0
+        slot = 0
         if parameters_json:
             try:
                 p = json.loads(parameters_json)
                 frm = int(p.get("formasyon") or 0)
                 aralik = float(p.get("aralik_m") or 0.0)
                 irtifa = float(p.get("irtifa_m") or 0.0)
+                slot = int(p.get("takim_slot") or 0)
             except (ValueError, TypeError, AttributeError) as e:
                 logger.warning(
                     "Görev 1 parametreleri okunamadı (%s) — varsayılanlar "
@@ -658,12 +681,18 @@ class RosBridge:
                 frm = 0
                 aralik = 0.0
                 irtifa = 0.0
+                slot = 0
+        # 🔴 TAKIM SLOTU (9 Eylul 2026): QR'in `team` tablosunun anahtari.
+        # Hakem gorev aninda veriyor; sahada uçağa SSH ile erisim
+        # olmayabilir, o yuzden mesh'ten gidiyor (BASLAT paketinin rezerv
+        # bayti). 0 = belirtilmedi -> ucak kendi slotunu korur.
         m = Float32MultiArray()
-        m.data = [float(frm), aralik, irtifa]
+        m.data = [float(frm), aralik, irtifa, float(slot)]
         self._g1_ayar_pub.publish(m)
         logger.info(
             "Görev 1 başlangıç ayarı yayınlandı: tip=%d aralık=%.1f m "
-            "irtifa=%.1f m (0 = belirtilmedi)", frm, aralik, irtifa
+            "irtifa=%.1f m takim_slot=%d (0 = belirtilmedi)",
+            frm, aralik, irtifa, slot
         )
 
     def publish_gorev_baslat(self, basla: bool = True) -> bool:
@@ -799,6 +828,39 @@ class RosBridge:
                 "QRCoordinates yayıncısı yok — swarm_interfaces'te QRCoordinates "
                 "mesajı derli değil (feature/qr-coordinates merge edilmeli)."
             )
+
+        # 🔴 ONCE DURDUR — 8 EYLUL 2026, SAHADA YASANDI.
+        #
+        # Operator yanlislikla BASLAT'a bastı (22:25:03). ylp02'nin QR
+        # tablosu yoktu (Pi yeniden baslamisti), o yuzden PREFLIGHT'ta
+        # "QR KONUM TABLOSU YOK — suru KALKMAYACAK" diye BEKLEDI. Emir
+        # iptal olmadi, ASILI KALDI. Operator tabloyu gonderdigi an
+        # (22:27:38) PREFLIGHT kapisi acildi ve **ylp02 KENDI KENDINE
+        # KALKTI.** Kimse kalkis komutu vermemisti.
+        #
+        # Yani tablo yayini, farkinda olmadan bir KALKIS TETIKLEYICISI.
+        # Cozum: tabloyu basmadan once GOREV 1 DURDUR yayinla. Bekleyen
+        # emir varsa dusar (mission_fsm ABORTED'a gecer, ~3 sn sonra
+        # kendiliginden IDLE'a doner); yoksa hicbir sey olmaz — DURDUR
+        # zaten IDLE/ABORTED'da yok sayiliyor.
+        #
+        # ⚠️ UCAN suruyu DURDURMAZ (mission_fsm oyle tasarlandi); yalniz
+        # kalkis yetkisini geri alir. Yani havada tablo tazelemek guvenli.
+        #
+        # ⏱️ Tablodan sonra BASLAT'a basmadan once ~4 saniye bekle:
+        # terminal durumdan IDLE'a donus 3 sn oturma istiyor ve BASLAT
+        # yalniz IDLE'dan tetikler.
+        self.publish_gorev1_baslat(False)
+        logger.info(
+            "QR tablosu yayinlanmadan ONCE gorev DURDUR gonderildi — "
+            "bekleyen baslatma emri varsa dustu (8 Eylul: asili emir "
+            "tablo gelince ylp02'yi kendi kendine kaldirdi)"
+        )
+        # Cozulen QR karti da sifirlanir: yeni tablo = yeni gorev kurulumu,
+        # ekranda onceki ucusun QR'i kalmasi operatoru yaniltiyordu.
+        with self._qr_lock:
+            self.latest_qr = None
+
         n = len(qr_ids)
         if not (len(lat_deg) == n and len(lon_deg) == n):
             raise ValueError("qr_ids/lat_deg/lon_deg eşit uzunlukta olmalı")

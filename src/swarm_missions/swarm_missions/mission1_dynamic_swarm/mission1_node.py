@@ -110,6 +110,16 @@ class Mission1Node(Node):
                 self.get_parameter('qr_okuma_irtifa_m').value),
             kamera_ajan_id=int(
                 self.get_parameter('kamera_ajan_id').value),
+            qr_arama_dikey_hiz_mps=float(
+                self.get_parameter('qr_arama_dikey_hiz_mps').value),
+            qr_arama_taban_bekleme_s=float(
+                self.get_parameter('qr_arama_taban_bekleme_s').value),
+            qr_formasyon_gecis_hiz_mps=float(
+                self.get_parameter('qr_formasyon_gecis_hiz_mps').value),
+            qr_gecis_katman_m=float(
+                self.get_parameter('qr_gecis_katman_m').value),
+            qr_arama_takip_tavani_m=float(
+                self.get_parameter('qr_arama_takip_tavani_m').value),
         ))
 
         # HOME kilidi icin beklenen kadro (bkz. _on_swarm_state).
@@ -198,6 +208,16 @@ class Mission1Node(Node):
         # TEKRARLANMIYOR ki biri degisip digeri unutulmasin.
         # Tek kaynak: ucus_ayarlari.py GOREV_KAMERA_AJAN -> baslat.sh.
         self.declare_parameter('kamera_ajan_id', 0)
+        # QR arama supurmesi: surekli profil (8 Eylul, operator).
+        # Hiz ucus_ayarlari.GOREV_QR_ARAMA_DIKEY_HIZ_MPS'ten gelir.
+        self.declare_parameter('qr_arama_dikey_hiz_mps', 0.5)
+        self.declare_parameter('qr_arama_taban_bekleme_s', 5.0)
+        # QR'in istedigi formasyona gecis hizi (8 Eylul; once koda gomuluydu).
+        self.declare_parameter('qr_formasyon_gecis_hiz_mps', 1.0)
+        # QR formasyon gecisinde dikey katmanlama (0 = kapali).
+        self.declare_parameter('qr_gecis_katman_m', 0.0)
+        # Supurme takip tavani (0 = kapali) — suru yetisemezse saat durur.
+        self.declare_parameter('qr_arama_takip_tavani_m', 0.0)
         self.declare_parameter('kalkis_tolerans_m', 0.5)
         self.declare_parameter('kalkis_dikey_hiz_esik_mps', 0.5)
 
@@ -539,6 +559,19 @@ class Mission1Node(Node):
         kadro_notu = self._orch.kadro_notu
         if kadro_notu and inp.is_leader:
             self.get_logger().warning(f'[gorev1] {kadro_notu}')
+
+        # 🔴 8 Eylul 2026 — SUPURME TESHISI (gecici). Sahada supurme
+        # 15->10->15 yerine 10.00->10.35 arasinda kaldi; profil testli
+        # ve dogru oldugu icin supheli ona verilen `elapsed`. Saniyede
+        # bir basiyoruz ki logu bogmasin. Sebep bulununca KALDIRILACAK.
+        atama = self._orch.atama_notu
+        if atama and inp.is_leader:
+            self.get_logger().warning(f'[gorev1] {atama}')
+
+        sup = self._orch.supurme_notu
+        if sup and inp.is_leader:
+            self.get_logger().info(f'[gorev1] {sup}',
+                                   throttle_duration_sec=1.0)
 
         d = self._orch.qr_distance_m
         if inp.is_leader and d >= 0.0:

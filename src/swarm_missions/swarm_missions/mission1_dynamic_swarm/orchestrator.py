@@ -38,6 +38,19 @@ _MNV_PITCH_ROLL = 4
 # QR OKUNAMADIĞINDA yapılan arama manevralarında (alçal/yüksel) inilebilecek en
 # düşük irtifa. Bu taban YALNIZ aramaya aittir; QR'ın irtifa GÖREVİNE değil.
 _SEARCH_ALT_FLOOR_M = 10.0
+# Surekli aramada komut esigi: irtifa bu kadar kaydiysa yeni hedef
+# yayinlanir. 5 Hz ve 0.5 m/s'te adim 0.10 m — esik onun altinda
+# olmali, yoksa profil kabalasir; ustunde olmali ki tabandaki
+# beklemede tek komut ciksin.
+_ARAMA_ALT_EPS_M = 0.05
+# Supurme takip olcumunde "havada sayilir" esigi. Inmis ama mesh'te hala
+# aktif gorunen ucak (8 Eylul 2026: ylp02 indi, kadroda kaldi) takip
+# hatasini kalici olarak 10 m'de tutar ve supurmeyi SONSUZA KADAR
+# bekletirdi. Yerdeki ucak supurmeyi kilitlemez.
+_SUPURME_HAVADA_M = 2.0
+# Yakalanan cerceve ofseti bu kadari gecemez. Amac: ilk ornek bozuksa
+# koruma sessizce KAPANMASIN (buyuk ofset = her hatayi affeder demek).
+_SUPURME_OFSET_TAVANI_M = 8.0
 
 # QR'ın irtifa değişimi komutu için izinli bant. QR ne derse o uygulanır: komut
 # jüriden gelir ve görevin puanlanan kalemidir; tabana yuvarlamak yanlış irtifada
@@ -161,6 +174,102 @@ class OrchestratorConfig:
     # atimlik bir manevra, hizli olmasinin bir degeri yok.
     # 0.0 = degistirme (dugumun kendi varsayilani).
     gorev_kurulum_hiz_mps: float = 0.0
+    # 🔴 QR FORMASYON GECIS HIZI — 8 Eylul 2026, SAHADA OLCULDU.
+    # Bu deger orchestrator.py:1511'de KODA GOMULUYDU (max_speed=1.0).
+    # CLAUDE.md §8 "hizlar baska hicbir yerde elle yazilmaz" diyor; gomulu
+    # oldugu icin o gun yanlis parametre (gorev_kurulum_hiz_mps) onerildi
+    # ve arandi. Artik tek kaynakta.
+    #
+    # NIYE DUSURULDU (1.0 -> 0.5): QR2 okununca suru yer dizilisinden (CUSTOM,
+    # ~9 m ayrim) V'ye (6 m aralik) gecerken ucaklar birbirinin slotuna dogru
+    # AYNI ANDA hareket etti ve ayrim 8 saniyede coktu:
+    #     9.06 -> 6.84 -> 4.41 -> 2.70 m   (en dar 3B: 2.69 m)
+    #     yatayda 0.59 m'ye kadar yaklastilar; ayiran sey kacinmanin actigi
+    #     7.4 m DIKEY paydi (ylp01 2.98 m/s ile yukari kacti)
+    # Esikler: MIN_AYRIM 4.0 asildi, KACINMA_D0 3.0 asildi,
+    # KACINMA_HARD 2.0'a 0.69 m kalmisti.
+    #
+    # Kacinma MESAFEYE gore tetikleniyor (3.0 m), hiza gore degil — yani
+    # yavaslamak tetigi ERKENE ALMAZ. Kazanc esik gecildikten sonraki
+    # ASIMDA: asim hizin karesiyle gider, yari hiz ~dortte bir asim.
+    #     1.0 m/s: asim 0.31 m -> dip 2.69 m
+    #     0.5 m/s: asim ~0.08 m -> dip ~2.90 m   (paya +0.2 m)
+    # Mutevazi ama gercek. Riski KALDIRAN cozum gecisten once dikey
+    # katmanlamadir (bkz. YAPILACAKLAR) — bu ayar onun yerini tutmaz.
+    #
+    # 🔴 YUKSELTME DENENDI, GERI ALINDI (eski not, korunuyor): seyir hizina
+    # (2.0) cikarmak gecisin ilk 5 saniyesini iki katı kotulestirdi
+    # (slot hatasi 2.42 -> 10.19 m); dronlar slota firlayip savruluyordu.
+    qr_formasyon_gecis_hiz_mps: float = 1.0
+    # 🔴 QR FORMASYON GECISINDE DIKEY KATMANLAMA — 8 Eylul 2026, operator.
+    #
+    # NIYE VAR, SAHADA OLCULDU: QR2 okununca suru yer dizilisinden (CUSTOM,
+    # ~9 m ayrim) V'ye (6 m aralik) gecerken ucaklar birbirinin slotuna
+    # dogru AYNI ANDA hareket etti ve YOLLARI KESISTI:
+    #     ayrim 9.06 -> 6.84 -> 4.41 -> 1.88 m   (HARD kabuk 2.0'in ALTI)
+    #     kacinma 3.98 m/s YATAY itme yapti
+    #       -> lider suru merkezinden 11.17 m saptı ("alip basini gitti")
+    #       -> irtifa yayilimi 5.90 m'ye cikti
+    #       -> bir ucak digerinin uzerine geldi
+    # Hepsi TEK zincir ve hepsi gecisin kendisinden.
+    #
+    # NE YAPAR: yeni formasyon YATAYDA kurulmadan once ucaklar ayri
+    # irtifalara acilir; yollar kesisse bile aralarinda dikey pay olur,
+    # kacinma HIC tetiklenmez. Yatay yerlesme oturunca katman kalkar ve
+    # irtifalar esitlenir. Kalkistaki `toplanma_katman_m` ile AYNI desen
+    # ve ayni kod yolu (bkz. _gecis_katmanla / _toplanma_katmanla).
+    #
+    # NIYE HIZ AYARIYLA COZULMEDI: gecis hizini 1.0 -> 0.5 yapmak DENENDI,
+    # ayni gun GERI ALINDI — "formasyon kuruldu" olcutu (plato + durdu)
+    # hiza bagli oldugu icin yavaslatmak onu kandirdi ve durum kotulesti
+    # (slot hatasi 0.00 -> 5.12 m). Kesisme bir HIZ sorunu degil, GEOMETRI
+    # sorunu; cozumu de geometrik.
+    #
+    # 0.0 = KAPALI (eski davranis birebir korunur). Sahada sinanmadan
+    # acilmaz — bu deger `ucus_ayarlari.py`den gelir.
+    qr_gecis_katman_m: float = 0.0
+    # 🔴 SUPURME TAKIP TAVANI — 8 Eylul 2026, sahada olculdu.
+    #
+    # Supurme her ~12 saniyede 5 metre TIRMANMA istiyor. Ucak tirmanamazsa
+    # (pil, ruzgar, itki) program bunu BILMIYORDU: bir sonraki turda yeni
+    # bir INIS komutu daha veriyor, ucak zaten geride oldugu icin biraz
+    # daha aliyor. Kademe kademe asagi kayiyorlar. Olculdu:
+    #     komut 10.00 .. 14.78 m   (dogru)
+    #     ylp00 fiili  6.1 .. 19.3 m   -> TABANIN (10 m) 4 metre ALTINA
+    #     ucaklar arasi dikey dagilma 7 metreye kadar
+    # ylp01 (en iyi pil) 12.1 m'nin altina hic inmedi; ylp00 ve ylp02
+    # (bos pil) indiler ama GERI CIKAMADILAR.
+    #
+    # NE YAPAR: her tick "suru komut edilen irtifada mi?" diye bakar.
+    # Degilse supurmenin SAATINI DURDURUR — yeni komut uretilmez, suru
+    # yetisene kadar beklenir, yetisince kaldigi yerden devam eder.
+    # Boylece yetisemeyen ucak daha asagi ITILMEZ, dagilma buyumez ve
+    # yapilamayacak tirmanislar icin pil yakilmaz.
+    #
+    # 3.0 m: KACINMA_KATMAN ile ayni buyukluk. Normal takip hatasi
+    # (olculen ~0.5 m) cok altinda, gercek yetisememe cok ustunde.
+    # 0.0 = KAPALI (eski davranis birebir doner).
+    qr_arama_takip_tavani_m: float = 3.0
+    # 🔴 BUYUK BASLIK DEGISIMINDE SLOTLARI YENIDEN ATA — 8 EYLUL 2026.
+    #
+    # Olculdu (QR1 -> QR2 bacagi, 23:25:40-23:26:20): QR2, QR1'in 12.4 m
+    # BATISINDA. Seyir basligi 108° -> -110°, yani ~180° dondu. Diziliş
+    # rijit oldugu icin iki KANAT fiziksel olarak yer degistirdi:
+    #     ylp02  bati kanadi (+5.3 dogu) -> DOGUYA 18.7'ye firladi -> +8.0
+    #     ylp01  dogu kanadi (+17.8)     -> BATIYA -4.4
+    # ylp02 suru batiya giderken 13.4 m DOGUYA ucup geri geldi; operatorun
+    # "biri baya uzaklasti" dedigi olay bu. Yan etkisi: gecis sirasinda en
+    # dar ayrim 2.41 m'ye indi (kacinmanin son care kabugu 2.0 m).
+    #
+    # NE YAPAR: baslik bu esikten fazla degistiyse donmus atama BIR KEZ
+    # cozulur ve `build_slot_assignment` herkesi EN YAKIN slota atar
+    # (Hungarian). 180° donus boylece "formasyon aynalandi, herkes yerinde"
+    # olur; kimse karsiya ucmaz, kimse ortadan gecmez.
+    #
+    # ⚠️ YALNIZ TAM KADRODA: bir ucak ayrildiysa sartname "formasyon
+    # YENIDEN hesaplanmaz" diyor; o durumda donmus diziliş korunur.
+    # 0.0 = KAPALI (eski davranis birebir doner).
+    yeniden_atama_derece: float = 90.0
     # QR VARIS/OKUMA IRTIFASI — NAVIGATE bacaginda hedef irtifa BUDUR.
     # 4 Eylul 2026 operator olcumu: "20 m ustunde QR okunmuyor, minimum
     # 10 m'ye kadar insinler." Onceki QR gorevi irtifayi 25-30 m'ye
@@ -191,7 +300,21 @@ class OrchestratorConfig:
     # sabit yok — varış irtifası değişince merdiven kendiliğinden uyuyor.
     qr_search_step_s: float = 18.0    # her irtifada bu kadar hareketsiz bekle
     # Merdivenin BASAMAK SAYISI (varis dahil, taban dahil). 3 -> 15 / 12.5 / 10.
+    # Artik yalniz UCLARI (tavan/taban) icin kullaniliyor; arada basamak yok.
     qr_arama_basamak: int = 3
+    # 🔴 8 EYLUL 2026, operator: "yavas yavas alcalsin, sadece 10 metrede
+    # 5 saniye beklesin, onun disinda bekleme yapmasin, smooth insin ciksin."
+    #
+    # ESKI DAVRANIS (sahada olculdu): merdiven AYRIK basamaklardi ve her
+    # basamakta qr_search_step_s kadar hareketsiz beklenirdi:
+    #     15.4 m -> (bekle 9 sn) -> 13.0 -> (bekle 9 sn) -> 10.4 -> basa FIRLA
+    # Operatorun "bas-cek" dedigi buydu; ustelik basa donus tek adimda
+    # 5 metrelik bir sicramaydi.
+    #
+    # YENI: ucgen dalga — sabit hizla in, YALNIZ TABANDA bekle, sabit hizla
+    # cik. Ara bekleme yok, sicrama yok.
+    qr_arama_dikey_hiz_mps: float = 0.5
+    qr_arama_taban_bekleme_s: float = 5.0
     # QR alt-görevi (FORMASYON/İRTİFA) "tamamlandı" ölçütü. Karar MESAFE DEĞİL,
     # YAKINSAMA'dır: hata artık azalmıyor (plato) + dronlar durdu. Yakınsama her
     # koşulda gerçekleştiği için sinyal daima üretilir → görev kilitlenmez. Sıkı
@@ -374,6 +497,27 @@ class _State:
     # 🔴 _phase_key'e GIRIYOR: girmezse merdiven kalktiginda emit-once
     # duz komutu bastirir ve suru merdivende ASILI kalir — sessizce.
     toplanma_merdiveni: bool = False
+    # QR formasyon gecisinde dikey katmanlama acik mi (bkz.
+    # qr_gecis_katman_m). Yatay yerlesme oturunca dusurulur ve irtifalar
+    # esitlenir — toplanma_merdiveni ile birebir ayni yasam dongusu.
+    gecis_katmani: bool = False
+    # 🔴 GECIS ASAMASI — 8 Eylul 2026, IKINCI TUR.
+    #   0 = gecis yok
+    #   1 = SADECE DIKEY ayriliyor (yatay YERINDE, eski ofsetler)
+    #   2 = yatayda yeni formasyona geciyor (katman hala acik)
+    # Ilk surumde tek bayrak vardi ve yeni yatay formasyon ile katmanli
+    # irtifa AYNI komutta gidiyordu. Sahada olculdu: en dar ana
+    # geldiklerinde yayilim hala 0.40 m'ydi (katman 7 sn sonra oturdu),
+    # yani koruma GEC KALIYORDU — ayrim 2.51 m'de kaldi.
+    gecis_asamasi: int = 0
+    # Asama 1'de kullanilacak ofsetler: gecis BASLAMADAN onceki yatay
+    # diziliş. Yeni formasyon hesaplanmadan once dondurulur.
+    gecis_onceki_ofset: dict = field(default_factory=dict)
+    # Gecisin TAMAMLANDIGI QR dizisi. `_exec_formation` FORMATION adimi
+    # boyunca HER TICK cagriliyor; bu alan olmadan asama 2 bitip 0'a
+    # donunce asama 1 yeniden baslar ve suru sonsuz katmanlanip
+    # duzlesir. Yeni QR gelince (seq degisince) kendiliginden acilir.
+    gecis_bitti_seq: int = -1
     # 🔴 SEYIR IRTIFASI (NED z, negatif = yukari). NAVIGATE bacagina
     # GIRERKEN bir kez mandallanir, bacak boyunca SABIT referans olur.
     # NAVIGATE'ten cikinca silinir (_maybe_qr_arrival) — boylece 'alt'
@@ -404,6 +548,18 @@ class _State:
     # QR irtifa merdiveninde en son yayınlanan basamak (-1 = arama kapalı).
     # Basamak değişince yeni komut yayınlanır; aynı basamakta sürü SABİT durur.
     search_step: int = -1
+    # En son YAYINLANAN arama irtifası. Sürekli profilde komut, irtifa
+    # anlamlı degistiginde cikar; tabandaki 5 sn boyunca deger sabit oldugu
+    # icin kendiliginden tek komut yayinlanir (mesh bosa doldurulmaz).
+    search_alt_m: float = float('nan')
+    # Supurme fazi: `time_in_state` DEGIL, kendi biriktirdigimiz sure.
+    # Takip bozuldugunda ilerlemez — supurme oldugu yerde bekler.
+    supurme_faz_s: float = 0.0
+    supurme_son_t: float = float('nan')
+    supurme_bekleme_sayaci: int = 0
+    # Komut edilen irtifa ile OLCULEN irtifa arasindaki SABIT fark.
+    # Supurme baslarken bir kez yakalanir; gerekcesi asagida.
+    supurme_ofset_m: float = float('nan')
     # QR alt-görevi yakınsama takibi: hata geçmişi (plato tespiti), önceki
     # konumlar (durdu mu), işlenen adım anahtarı ve adımın başlangıç anı.
     settle_hist: list = field(default_factory=list)
@@ -418,6 +574,9 @@ class _State:
     # Son tam-sürü slot ataması (agent_id → ofset). Bir dron ayrıldığında
     # kalanlar bu dondurulmuş slotlarda tutulur; formasyon yeniden dizilmez.
     frozen_offsets: dict = field(default_factory=dict)
+    # frozen_offsets HANGI baslikta hesaplandi. Yeniden atama karari bunun
+    # ile guncel baslik arasindaki farka bakar.
+    atama_heading_deg: float = field(default=None)
     # KADRO KORUMASI (8 Eylul 2026) — gorulen SON TAM kadro ve korumanin
     # kac kez devreye girdigi. Sayac teshis icin: surekli artiyorsa kadro
     # sik cokuyor demektir, yani mesh kaybi ya da saglik bayraklari.
@@ -453,6 +612,8 @@ class Mission1Orchestrator:
         self._donus_ilerleme_notu = None
         # Kadro korumasi devreye girince node bunu bir kez loglar.
         self._kadro_notu = None
+        # Slot yeniden atamasi devreye girince node bunu bir kez loglar.
+        self._atama_notu = None
         # Başlangıç formasyonu = jüri dizilişi (CUSTOM). OKBAŞI/V/CIZGI yalnız
         # QR 'frm' komutuyla kurulur; kalkışta hiçbir tip DAYATILMAZ.
         self._st = _State(
@@ -838,7 +999,41 @@ class Mission1Orchestrator:
             already_good = max_err <= self._cfg.formation_settle_tol_m
             progressed = improved or already_good
 
-        if not ((plateau and stopped and progressed) or timed_out):
+        # 🔴 MUTLAK HATA KAPISI — 9 EYLUL 2026 03:15, SAHADA OLCULDU.
+        #
+        # plato + durdu ikisi de TUREVSEL: "hata artik iyilesmiyor" ve
+        # "ucaklar kipirdamiyor". Ikisi de suru slotundan METRELERCE
+        # UZAKTA TAKILDIGINDA da saglanir. Olculdu:
+        #     "Formasyon kuruldu ama slot hatasi buyuk: 8.35 m"
+        #     "Formasyon kuruldu ama slot hatasi buyuk: 8.51 m"
+        # ve adim yine de "tamamlandi" sayilip ilerledi. Sonuclari:
+        #   · QR1'in 25 m irtifa adimi 10 saniyede "bitti" sanildi, suru
+        #     15.9 m'deyken bir sonraki bacaga gecildi (25 m HIC olmadi)
+        #   · QR4'e "varis" hic taninmadi; kamerali ucak hedefinden 5.2 m
+        #     otede asili kaldi, QR4'un ustune ylp01 denk geldi ve QR
+        #     okunmadi
+        # Yani adimlar sirayla "oldu" diye isaretlenirken sahada HICBIRI
+        # olmuyordu — hata vermeden yanlis sonuc, bu projenin en pahali
+        # sinifi.
+        #
+        # EK SART: hata gercekten toleransin altina insin. Kilitlenme
+        # korumasi ZATEN VAR (settle_timeout_s) — tolerans tutmazsa
+        # zaman asimina kadar beklenir, sonra `clean=False` ile ilerlenir
+        # ve dugum "slot hatasi buyuk" diye BAGIRIR. Yani suru asla
+        # takilip kalmaz, ama "oturdu" yalani da bitti.
+        #
+        # KAPSAM YALNIZ QR GOREVI. Rotasyon dalinda `progressed` zaten
+        # hem iyilesmeyi hem `already_good`i (tolerans ici) kontrol ediyor.
+        # EVE DONUS de disarida: oradaki faz makinesi (yerinde yaw -> eve
+        # don -> dikey merdiven -> dagilma) her fazi bu ayni sinyalle
+        # ilerletiyor; mutlak kapi konunca fazlar tolerans tutmadan
+        # ilerlemez ve donus her fazda 30 sn zaman asimina yaslanir.
+        # Sinandi: test_yaw_fazinda_EVE_VARDI_sinyali_URETILMEZ duser.
+        oturdu = True
+        if qr_task:
+            oturdu = max_err <= float(self._cfg.formation_settle_tol_m)
+
+        if not ((plateau and stopped and progressed and oturdu) or timed_out):
             return None
 
         self._st.settle_done_key = key
@@ -868,6 +1063,38 @@ class Mission1Orchestrator:
                 clean=max_err <= self._cfg.formation_settle_tol_m,
                 timed_out=timed_out,
             )
+        # 🔴 GECIS KATMANI ACIKSA ONCE IRTIFAYI ESITLE, SONRA "bitti" de.
+        # Sinyali burada verirsek mission_fsm bir sonraki QR adimina
+        # (MANEUVER/ALTITUDE) gecer ve suru KATMANDA asili kalir —
+        # katmanlar metrelerce arayla, yani formasyon havada bozuk durur
+        # ve sartnamenin istedigi sekil olusmaz.
+        #
+        # Bayrak _phase_key'de oldugu icin dusurmek ANAHTARI degistirir:
+        # yakinsama olceri kendiliginden sifirlanir, DUZ ofsetlerle
+        # yeniden olcer ve oturunca sinyali BU KEZ verir. Toplanma
+        # merdiveninde (rotasyon dali) birebir ayni desen kullaniliyor.
+        #
+        # Zaman asiminda da buradan geciyoruz: katman sinyalden ONCE her
+        # halukarda kalkar, yani suru katmanda kilitli kalamaz.
+        if self._st.gecis_asamasi == 1:
+            # Dikey ayrim OTURDU -> artik yatayda yer degistirebiliriz.
+            # Sinyal URETILMEZ: mission_fsm bir sonraki QR adimina gecerse
+            # suru yatayda hic yer degistirmeden manevraya baslar.
+            self._st.gecis_asamasi = 2
+            return None
+        if self._st.gecis_asamasi == 2:
+            # Yatay yerlesme OTURDU -> katmani kaldir, irtifalari esitle.
+            # Sinyal yine URETILMEZ; duz ofsetlerle yeniden olculur ve
+            # oturunca BU KEZ verilir (toplanma merdiveniyle ayni desen).
+            self._st.gecis_asamasi = 0
+            self._st.gecis_katmani = False
+            # Bu QR icin gecis BITTI — `_exec_formation` her tick
+            # cagrildigi icin isaretlenmezse asama 1 yeniden baslar.
+            q = getattr(inp, 'qr', None)
+            self._st.gecis_bitti_seq = (
+                int(getattr(q, 'qr_seq', 0) or 0) if q is not None else 0)
+            return None
+
         if returning:
             # 🔴 EVE DONUSTE BU SINYAL ALT-FAZI ILERLETIR, "EVE VARDIK"
             # DEMEZ. mission_fsm `event_formation_reached` gorunce DOGRUDAN
@@ -892,19 +1119,98 @@ class Mission1Orchestrator:
         )
         if not stuck:
             self._st.search_step = -1
+            self._st.search_alt_m = float('nan')
+            self._st.supurme_faz_s = 0.0
+            self._st.supurme_son_t = float('nan')
+            self._st.supurme_ofset_m = float('nan')
             self._st.recovery_emitted = False
             return None
 
         elapsed = inp.time_in_state - self._cfg.qr_recovery_delay_s
         if elapsed < 0.0:
             return None
-        step_s = max(1.0, self._cfg.qr_search_step_s)
-        merdiven = self._arama_merdiveni()
-        step = int(elapsed / step_s) % len(merdiven)
-        if step == self._st.search_step:
-            return None  # aynı basamak sürüyor → sürü SABİT, yeni komut yok
+        # SUREKLI PROFIL: her tick'te irtifa biraz kayar, komut da oyle.
+        # Ayrik basamak + bekleme YOK (8 Eylul, operator). Tabandaki
+        # bekleme boyunca deger sabit kaldigi icin komut da tek cikar.
+        # 🔴 SUPURME SAATI: `elapsed` DEGIL, kendi biriktirdigimiz faz.
+        # Suru komut edilen irtifayi tutamiyorsa saat DURUR — yeni komut
+        # uretilmez, suru yetisene kadar beklenir. Gerekce ve olcumler
+        # `qr_arama_takip_tavani_m` notunda.
+        onceki_t = self._st.supurme_son_t
+        self._st.supurme_son_t = elapsed
+        # ILK ORNEK: dt = elapsed. Aksi halde gecikme sinirindan ilk tick'e
+        # kadar gecen sure DUSUYORDU ve faz kalici olarak o kadar geride
+        # kaliyordu (0.1 sn'lik kayma tabandaki beklemeyi bozuyordu).
+        dt = (max(0.0, elapsed) if onceki_t != onceki_t
+              else max(0.0, elapsed - onceki_t))
 
-        alt = merdiven[step]
+        tavan_h = float(self._cfg.qr_arama_takip_tavani_m)
+        # NED: p[2] asagi pozitif -> irtifa = -p[2]. Yerdeki ucak sayilmaz.
+        havada = [p for p in inp.positions
+                  if (-p[2]) >= _SUPURME_HAVADA_M] if inp.positions else []
+        takip_iyi = True
+        hedef = self._st.search_alt_m
+        ofs = self._st.supurme_ofset_m
+        # 🔴 CERCEVE OFSETI — 8 EYLUL 2026, 22:49 SAHADA OLCULDU.
+        #
+        # Koruma MUTLAK irtifa karsilastiriyordu; oysa mission NED ile
+        # ucaktan gelen irtifa arasinda SABIT bir fark var. O gece olculen
+        # deger 3.33 m, tavan 3.0 m idi. Sonuc: koruma ILK saniyede
+        # kilitlendi ve BIR DAHA acilmadi —
+        #     "supurme BEKLIYOR: takip hatasi 3.33 m > 3.0 m (284. kez)"
+        # Suru QR1'in TAM ustunde (QR mesafe 0.00-0.08 m) 17.2 m'de asili
+        # kaldi, alcalma HIC baslamadi, gorev ilerlemedi ve HICBIR YERDE
+        # hata gorunmedi. Esigi sistematik ofsetin altina koymak, bu
+        # projede tekrar tekrar bedel odetmis bir hata sinifi.
+        #
+        # DOGRUSU FARKI OLCMEK: korumanin sordugu soru "suru RAMPAYI takip
+        # ediyor mu" — bu MUTLAK degil FARKSAL bir ozellik. Supurmenin ILK
+        # komutunda (suru varis irtifasinda, sabit duruyorken) fark bir kez
+        # yakalanir ve sonrasinda dusulur. Sabit cerceve farki korumayi
+        # kilitleyemez; gercek geri kalma (fark BUYURSE) yine yakalanir.
+        if tavan_h > 0.0 and havada and hedef == hedef and ofs == ofs:
+            referans = hedef + ofs
+            hata = max(abs((-p[2]) - referans) for p in havada)
+            takip_iyi = hata <= tavan_h
+            if not takip_iyi:
+                self._st.supurme_bekleme_sayaci += 1
+                self._supurme_notu = (
+                    f'supurme BEKLIYOR: takip hatasi {hata:.2f} m > '
+                    f'{tavan_h:.1f} m (ofset {ofs:+.2f} m dusuldu) — saat '
+                    f'durduruldu ({self._st.supurme_bekleme_sayaci}. kez). '
+                    f'Suru komut edilen irtifayi tutamiyor.'
+                )
+        if takip_iyi:
+            self._st.supurme_faz_s += dt
+
+        alt = self._arama_profili(self._st.supurme_faz_s)
+        # Teshis: 8 Eylul'de supurme profilinin dogru urediligi bu satirla
+        # kanitlandi (elapsed duzgun ilerliyordu, sorun takipteydi).
+        # Artik faz ve bekleme durumunu gosteriyor.
+        if not takip_iyi:
+            pass                       # bekleme notu yukarida yazildi
+        else:
+            self._supurme_notu = (
+                f'supurme: faz={self._st.supurme_faz_s:.2f} alt={alt:.2f} '
+                f'bekleme={self._st.supurme_bekleme_sayaci}'
+            )
+        # Ofset ILK KOMUTTA yakalanir: o an suru varis irtifasinda ve
+        # sabit duruyor, yani olculen ile komut edilen arasindaki fark
+        # SAF cerceve farkidir. Sonraki tick'lerde yakalamak, o ana kadar
+        # olusmus GERCEK geri kalmayi da ofset sanip silerdi.
+        if self._st.supurme_ofset_m != self._st.supurme_ofset_m and havada:
+            ort = sum((-p[2]) for p in havada) / len(havada)
+            yeni_ofs = max(-_SUPURME_OFSET_TAVANI_M,
+                           min(_SUPURME_OFSET_TAVANI_M, ort - alt))
+            self._st.supurme_ofset_m = yeni_ofs
+            self._supurme_notu = (
+                f'supurme cerceve ofseti: {yeni_ofs:+.2f} m '
+                f'(komut {alt:.2f} m, olculen ort {ort:.2f} m)'
+            )
+
+        onceki = self._st.search_alt_m
+        if onceki == onceki and abs(alt - onceki) < _ARAMA_ALT_EPS_M:
+            return None  # anlamli degisim yok → mesh bosa doldurulmaz
 
         offsets = self._assign(
             self._st.formation_type, self._st.spacing_m, inp.centroid,
@@ -931,7 +1237,7 @@ class Mission1Orchestrator:
             center = (inp.centroid[0], inp.centroid[1], -alt)
             use_cur_centroid = True
 
-        self._st.search_step = step
+        self._st.search_alt_m = alt
         self._st.recovery_emitted = True
         return FormationTargetCmd(
             formation_type=self._st.formation_type,
@@ -946,6 +1252,44 @@ class Mission1Orchestrator:
         )
 
     # --- Yardımcılar ---------------------------------------------------------
+
+    def _arama_profili(self, gecen_s: float) -> float:
+        """Sürekli süpürme irtifası — üçgen dalga, YALNIZ tabanda bekleme.
+
+        🔴 8 Eylul 2026, operator istegi. Eskiden ayrik basamaklardi ve her
+        basamakta beklenirdi; sahada "bas-cek" olarak goruldu (olculdu:
+        15.4 -> bekle -> 13.0 -> bekle -> 10.4 -> basa 5 m sicrama).
+
+        Bir devir:
+            tavan -> taban   sabit hizla (v = qr_arama_dikey_hiz_mps)
+            tabanda           qr_arama_taban_bekleme_s kadar SABIT
+            taban -> tavan   ayni sabit hizla
+        ve bastan.
+
+        Uclar `_arama_merdiveni`den okunur — tek kaynak. Varis irtifasi
+        degisince profil de kendiliginden uyar.
+
+        Args:
+            gecen_s: Kurtarmanin baslamasindan bu yana gecen sure (>= 0).
+
+        Returns:
+            float: O anda hedeflenen irtifa (metre, pozitif yukari).
+        """
+        merdiven = self._arama_merdiveni()
+        tavan, taban = float(merdiven[0]), float(merdiven[-1])
+        kalinlik = tavan - taban
+        if kalinlik < 0.1:
+            return taban                      # inecek yer yok
+        v = max(0.05, float(self._cfg.qr_arama_dikey_hiz_mps))
+        inis_s = kalinlik / v
+        bekle_s = max(0.0, float(self._cfg.qr_arama_taban_bekleme_s))
+        devir_s = inis_s * 2.0 + bekle_s
+        faz = max(0.0, gecen_s) % devir_s
+        if faz < inis_s:                      # düz iniş
+            return tavan - v * faz
+        if faz < inis_s + bekle_s:            # TABANDA bekleme (tek bekleme)
+            return taban
+        return taban + v * (faz - inis_s - bekle_s)   # düz tırmanış
 
     def _arama_merdiveni(self) -> tuple:
         """QR okunamayinca denenecek irtifalar — VARIStan TABANa, INEREK.
@@ -982,8 +1326,18 @@ class Mission1Orchestrator:
         # degisiyor ama state/step/seq AYNI kaliyor; bayrak anahtarda
         # olmazsa emit-once duz komutu BASTIRIR ve suru merdivende asili
         # kalir. donus_faz ile birebir ayni tuzak, ayni cozum.
+        # 🔴 GECIS KATMANI DA ANAHTARDA — toplanma_merdiveni ile ayni
+        # gerekce: katman kalkinca ofsetler degisiyor ama state/step/seq
+        # AYNI kaliyor; bayrak anahtarda olmazsa emit-once DUZ komutu
+        # bastirir ve suru katmanda asili kalir.
+        # 🔴 GECIS ASAMASI DA ANAHTARDA: asama 1 -> 2 gecisinde state,
+        # step ve seq AYNI kalir; asama anahtarda olmazsa emit-once
+        # asama 2 komutunu BASTIRIR ve suru dikey ayrilmis halde asili
+        # kalir. Toplanma merdiveninde birebir ayni tuzak yasandi.
         return (inp.mission_state, inp.qr_step, qr_seq, faz,
-                bool(self._st.toplanma_merdiveni))
+                bool(self._st.toplanma_merdiveni),
+                bool(self._st.gecis_katmani),
+                int(self._st.gecis_asamasi))
 
     def _handle(self, inp: OrchestratorInput):
         """Faza göre ilgili işleyiciye yönlendirir."""
@@ -1082,7 +1436,8 @@ class Mission1Orchestrator:
     def _assign(self, formation_type, spacing, center, heading_deg,
                 inp: OrchestratorInput):
         """Slot ofsetlerini üretir; ATAMA rijit, EĞİM üstüne uygulanır."""
-        if self._st.frozen_offsets:
+        if self._st.frozen_offsets and not self._yeniden_atansin(
+                heading_deg, formation_type, inp):
             flat = [
                 self._st.frozen_offsets.get(int(a), (0.0, 0.0, 0.0))
                 for a in inp.agent_ids
@@ -1122,7 +1477,42 @@ class Mission1Orchestrator:
         self._st.frozen_offsets = {
             int(a): off for a, off in zip(inp.agent_ids, flat)
         }
+        self._st.atama_heading_deg = float(heading_deg)
         return self._tilted(flat)
+
+    def _yeniden_atansin(self, heading_deg, formation_type,
+                         inp: OrchestratorInput) -> bool:
+        """Baslik cok dondiyse donmus atama COZULSUN mu?
+
+        Gerekce ve saha olcumu `yeniden_atama_derece` notunda. Karar dort
+        sarta birden bagli; biri tutmazsa diziliş DONUK kalir:
+          ① esik acik (0 = kapali)
+          ② KADRO TAM — ayrilan varken formasyon yeniden dizilmez (sartname)
+          ③ konum verisi var — atama maliyeti konumlardan hesaplaniyor
+          ④ baslik farki esigi asiyor
+        CUSTOM formasyon disarida: orada slot geometrisi yok, diziliş
+        zaten surunun kendi anlik seklinden aliniyor.
+        """
+        esik = float(self._cfg.yeniden_atama_derece)
+        if esik <= 0.0 or int(formation_type) == _FRM_CUSTOM:
+            return False
+        onceki = self._st.atama_heading_deg
+        if onceki is None or not inp.positions:
+            return False
+        n_tam = int(self._cfg.full_agent_count or 0)
+        if n_tam and len(inp.agent_ids) < n_tam:
+            return False
+        fark = abs((float(heading_deg) - float(onceki) + 180.0) % 360.0 - 180.0)
+        if fark <= esik:
+            return False
+        self._st.frozen_offsets = {}
+        self._atama_notu = (
+            f'SLOT YENIDEN ATAMA: baslik {onceki:.0f}° -> {heading_deg:.0f}° '
+            f'({fark:.0f}° dondu, esik {esik:.0f}°). Donmus diziliş cozuldu, '
+            f'herkes EN YAKIN slota atanacak — kanat degistirip formasyonun '
+            f'icinden gecmesin (8 Eylul: ylp02 13.4 m karsiya uctu).'
+        )
+        return True
 
     def _tilted(self, flat_offsets):
         """Düz ofsetlere mevcut eğimi (pitch/roll) uygular."""
@@ -1424,13 +1814,59 @@ class Mission1Orchestrator:
         spacing = float(getattr(qr, 'spacing_m', 0.0))
         if spacing > 0.0:
             self._st.spacing_m = spacing
+        katman_acik = float(self._cfg.qr_gecis_katman_m) > 0.0
+
+        # 🔴 ASAMA 1 — SADECE DIKEY AYRIL, YATAY YERINDE KALSIN.
+        #
+        # 8 Eylul 2026, IKINCI TUR. Ilk surumde yeni yatay formasyon ile
+        # katmanli irtifa AYNI komutta gidiyordu; ucaklar ikisini birden
+        # yurutunce yatay kapanma dikey acilmadan HIZLI oldu ve koruma
+        # gec kaldi. Sahada olculdu:
+        #     t+1.4 yayilim 0.40 m  ayrim 5.80 m
+        #     t+4.4 yayilim 0.40 m  ayrim 2.51 m  <- EN DAR AN, katman YOK
+        #     t+7.4 yayilim 6.10 m  ayrim 4.98 m  <- katman ANCAK simdi
+        # Artik yatay hareket, dikey ayrim OTURANA KADAR hic baslamiyor.
+        # Bu QR icin gecis zaten tamamlandiysa yeniden BASLATMA:
+        # `_exec_formation` FORMATION adimi boyunca her tick cagriliyor.
+        qr_seq = int(getattr(qr, 'qr_seq', 0) or 0)
+        gecis_gerekli = (katman_acik
+                         and self._st.gecis_bitti_seq != qr_seq)
+        if gecis_gerekli and self._st.gecis_asamasi == 0:
+            onceki = dict(self._st.frozen_offsets)
+            if onceki and all(int(a) in onceki for a in inp.agent_ids):
+                self._st.gecis_onceki_ofset = onceki
+                self._st.gecis_asamasi = 1
+                self._st.gecis_katmani = True
+                duz = [onceki[int(a)] for a in inp.agent_ids]
+                return [FormationTargetCmd(
+                    formation_type=self._st.formation_type,
+                    center=self._hold_center(inp, duz, self._st.heading_deg),
+                    heading_deg=self._st.heading_deg,
+                    spacing_m=self._st.spacing_m,
+                    agent_ids=list(inp.agent_ids),
+                    offsets=self._gecis_katmanla(inp, duz),
+                    rotate_towards_target=False,
+                    use_current_centroid=True,
+                    use_current_altitude=True,
+                    max_speed=float(self._cfg.qr_formasyon_gecis_hiz_mps),
+                )]
+            # Onceki ofset yoksa (ilk formasyon) asama 1'i ATLA: ayrilacak
+            # bir diziliş yok, dogrudan yeni formasyona gecilir.
+            self._st.gecis_asamasi = 2
+            self._st.gecis_katmani = True
+
+        # ASAMA 2 — yatayda yeni formasyon; katman HALA acik.
         # Yeni formasyon → jüri-diziliş snapshot'ını bırak; yeni şekli
         # (OKBAŞI/V/CIZGI) build_slot_assignment ile yeniden kur ve dondur.
         self._st.frozen_offsets = {}
+        if gecis_gerekli:
+            self._st.gecis_asamasi = 2
+            self._st.gecis_katmani = True
         offsets = self._assign(
             self._st.formation_type, self._st.spacing_m, inp.centroid,
             self._st.heading_deg, inp,
         )
+        offsets = self._gecis_katmanla(inp, offsets)
         return [FormationTargetCmd(
             formation_type=self._st.formation_type,
             center=self._hold_center(inp, offsets, self._st.heading_deg),
@@ -1443,10 +1879,9 @@ class Mission1Orchestrator:
             use_current_altitude=True,
             # Reshape morph'unu yavaşlat: dronlar yeni slota YAVAŞ gitsin →
             # düşük kapanma hızı → CA sönüm terimi (c_damp·c) küçük → savrulma az.
-            # DENENDİ, GERİ ALINDI: seyir hızına (2.0) çıkarmak geçişin ilk
-            # 5 saniyesini iki katı kötüleştirdi (slot hatası 2.42 → 10.19 m).
-            # Dronlar slota fırlayıp savruluyor; bu 1.0 değeri bilinçli.
-            max_speed=1.0,
+            # Değer ve gerekçesi: OrchestratorConfig.qr_formasyon_gecis_hiz_mps
+            # (8 Eylül 2026'da buradaki gömülü 1.0'dan tek kaynağa taşındı).
+            max_speed=float(self._cfg.qr_formasyon_gecis_hiz_mps),
         )]
 
     def _exec_maneuver(self, inp, qr):
@@ -1698,6 +2133,45 @@ class Mission1Orchestrator:
         sira = sorted(int(a) for a in ids)
         i = sira.index(int(agent_id)) if int(agent_id) in sira else 0
         return taban_z - i * float(self._cfg.toplanma_katman_m)
+
+    @property
+    def atama_notu(self):
+        """Slot yeniden atama notu — okununca TEMIZLENIR (kadro_notu deseni)."""
+        n = getattr(self, '_atama_notu', None)
+        self._atama_notu = None
+        return n
+
+    @property
+    def supurme_notu(self):
+        """Supurme teshis notu — okununca TEMIZLENIR (kadro_notu deseni)."""
+        n = getattr(self, '_supurme_notu', '')
+        self._supurme_notu = ''
+        return n
+
+    def _gecis_katmanla(self, inp: OrchestratorInput, offsets):
+        """QR formasyon gecisinde ofsetlerin z'sini katmanlar (yatay AYNI).
+
+        🔴 8 Eylul 2026 — gecis sirasinda ucaklar 1.88 m'ye yaklasmisti;
+        gerekce ve olcumler `qr_gecis_katman_m` notunda.
+
+        `_toplanma_katmanla` ile AYNI hesap; ayri duruyor cunku bayraklari
+        ve yasam donguleri ayri (biri kalkista TEK SEFERLIK, bu her QR
+        formasyon degisiminde). Ayni fonksiyonu iki bayrakla paylastirmak
+        "hangi bayrak acikti" karisikligini dogururdu.
+        """
+        if not self._st.gecis_katmani:
+            return offsets
+        if float(self._cfg.qr_gecis_katman_m) <= 0.0:
+            return offsets
+        taban = inp.centroid[2]
+        sira = sorted(int(a) for a in inp.agent_ids)
+        katman = float(self._cfg.qr_gecis_katman_m)
+        cikan = []
+        for a, o in zip(inp.agent_ids, offsets):
+            i = sira.index(int(a)) if int(a) in sira else 0
+            # NED: z asagi pozitif — yukari cikmak z'yi KUCULTUR.
+            cikan.append((o[0], o[1], -i * katman))
+        return cikan
 
     def _toplanma_katmanla(self, inp: OrchestratorInput, offsets):
         """Ofsetlerin z'sini toplanma merdivenine cevirir (yatay dokunulmaz).

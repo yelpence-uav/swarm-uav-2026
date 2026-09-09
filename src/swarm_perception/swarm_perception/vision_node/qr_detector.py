@@ -67,6 +67,8 @@ class QRDetector:
         """Aciklama: QRDetector sinifini ilklendirir."""
         self._min_confidence = min_confidence
         self._team_slot = int(team_slot)
+        # KARAR-21: pas gecilen 'leav' sayisi — gorunurluk icin.
+        self.atlanan_leav = 0
         # IKI ASAMALI TARAMA — 28 Agustos 2026, gercek sartname QR'i uzerinde
         # olculdu (1,5 m QR, 8,5 m mesafe, 4056x3040, 74 modul):
         #     tam kare taramasi            697 ms
@@ -459,8 +461,22 @@ class QRDetector:
             parsed['altitude_active'] = True
             parsed['altitude_agl_m'] = float(command[1])
         elif op == 'leav':
-            parsed['detach_active'] = True
+            # 🔴 KARAR-21 (8 Eylul 2026, operator): "leav olmayacak.
+            # Geldiginde PAS GECILECEK." Ayrilma senaryosu ucurulmayacak.
+            #
+            # NIYE BURADA KESILIYOR: kaynak TEK NOKTA. Asagidaki hicbir katman
+            # (mission_fsm adim sirasi, swarm_fsm, agent_fsm) ayrilma gormez;
+            # "bir yerde kapatmayi unuttuk" ihtimali kalmaz.
+            #
+            # NIYE SESSIZ DEGIL: istenen ajan ve renk ALANLARA YAZILIYOR,
+            # yalniz detach_active False kaliyor. YKI'de "QR ajan 5 / KIRMIZI
+            # istedi ama ayrilma=False" diye GORUNUR. Sessizce yutulan komut
+            # bu depoda defalarca pahaliya patladi.
+            #
+            # Sahadaki 30 sayfada bize gelen leav hedefleri: ajan 4 ve 5
+            # (bizde YOK, filo 1-2-3), ajan 1 (kamerali sabit liderimiz), 2, 3.
             parsed['target_agent_id'] = int(command[1])
             parsed['detach_color'] = _COLOR_CODES.get(command[2], 0)
+            self.atlanan_leav += 1
         else:
             raise ValueError(f'Bilinmeyen komut: {op}')
